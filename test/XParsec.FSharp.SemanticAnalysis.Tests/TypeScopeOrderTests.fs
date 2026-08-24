@@ -35,8 +35,8 @@ let private recordFieldType (source: string) (typeName: string) (fieldName: stri
                 match d with
                 | TDecl.Type td when td.Name = typeName ->
                     match td.Kind with
-                    | TTypeKind.Record(fields = fs) ->
-                        for f in fs do
+                    | TTypeKind.Record r ->
+                        for f in r.Fields do
                             if f.Name = fieldName then
                                 yield f.Type
                     | _ -> ()

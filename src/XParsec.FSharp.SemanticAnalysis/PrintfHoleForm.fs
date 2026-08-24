@@ -170,11 +170,30 @@ module PrintfHoleForm =
 
         "%" + p.Flags + dim p.Width + prec + string p.TypeChar
 
+    /// A width or precision slot narrowed to the `int` every `HoleForm` field carries.
+    [<RequireQualifiedAccess>]
+    type private Dim =
+        | Absent
+        | Star
+        | Literal of int
+
+    /// The lexer accepts an unbounded digit run, so `ValueNone` reports a literal outside
+    /// `int` range.
+    let private narrowDim (d: FormatDim) : Dim voption =
+        match d with
+        | FormatDim.Absent -> ValueSome Dim.Absent
+        | FormatDim.Star -> ValueSome Dim.Star
+        | FormatDim.Literal n ->
+            if n >= bigint System.Int32.MinValue && n <= bigint System.Int32.MaxValue then
+                ValueSome(Dim.Literal(int n))
+            else
+                ValueNone
+
     /// The target-neutral `HoleForm` of a placeholder, or `ValueNone` for a specifier no
     /// backend renders faithfully. Parity with F# `printf` under `InvariantCulture` is the
-    /// bar for accepting.
-    let private tryLowerableForm (p: FormatPlaceholder) : HoleForm voption =
-        let precIsStar = p.Precision = FormatDim.Star
+    /// bar for accepting. `widthDim` and `precisionDim` are `p`'s own slots, already narrowed.
+    let private tryLowerableForm (p: FormatPlaceholder) (widthDim: Dim) (precisionDim: Dim) : HoleForm voption =
+        let precIsStar = precisionDim = Dim.Star
 
         let flags = p.Flags
         let has (c: char) = flags.IndexOf c >= 0
@@ -183,13 +202,13 @@ module PrintfHoleForm =
         let plusSign = has '+'
         let spaceSign = has ' '
 
-        let widthIsStar = p.Width = FormatDim.Star
+        let widthIsStar = widthDim = Dim.Star
 
         let width =
-            match p.Width with
-            | FormatDim.Literal w -> Some(int w)
-            | FormatDim.Absent
-            | FormatDim.Star -> None
+            match widthDim with
+            | Dim.Literal w -> Some w
+            | Dim.Absent
+            | Dim.Star -> None
 
         // A star counts as a width for the flag-sanity gates below.
         let hasWidth = width.IsSome || widthIsStar
@@ -219,17 +238,24 @@ module PrintfHoleForm =
                 | None -> Alignment.None
 
         // Only reached in the float arms, because every other type defers a star precision first.
-        let precDim (dflt: int) : Prec =
-            match p.Precision with
-            | FormatDim.Star -> Prec.Star
-            | FormatDim.Literal pr -> Prec.Const(int pr)
-            | FormatDim.Absent -> Prec.Const dflt
+        let precOrDefault (dflt: int) : Prec =
+            match precisionDim with
+            | Dim.Star -> Prec.Star
+            | Dim.Literal pr -> Prec.Const pr
+            | Dim.Absent -> Prec.Const dflt
+
+        // The static-precision-only forms: a star precision reaches them already declined.
+        let literalPrecOr (dflt: int) : int =
+            match precisionDim with
+            | Dim.Literal pr -> pr
+            | Dim.Absent
+            | Dim.Star -> dflt
 
         let sizeDim: PrintSize =
-            match p.Precision with
-            | FormatDim.Star -> PrintSize.Star
-            | FormatDim.Literal pr -> PrintSize.Cols(int pr)
-            | FormatDim.Absent -> PrintSize.Default
+            match precisionDim with
+            | Dim.Star -> PrintSize.Star
+            | Dim.Literal pr -> PrintSize.Cols pr
+            | Dim.Absent -> PrintSize.Default
 
         if p.Type = FormatType.Structured then
             // `%A`: the `0` flag forces flat (width 0) ahead of any explicit width, and
@@ -264,10 +290,10 @@ module PrintfHoleForm =
             // A literal precision as a static digit count (default `dflt`), or `ValueNone`
             // for a star precision, because these forms build a `Prec.Const` only.
             let constPrecOr (dflt: int) : int voption =
-                match p.Precision with
-                | FormatDim.Star -> ValueNone
-                | FormatDim.Literal pr -> ValueSome(int pr)
-                | FormatDim.Absent -> ValueSome dflt
+                match precisionDim with
+                | Dim.Star -> ValueNone
+                | Dim.Literal pr -> ValueSome pr
+                | Dim.Absent -> ValueSome dflt
 
             match p.Type with
             | FormatType.DecimalInt ->
@@ -288,10 +314,10 @@ module PrintfHoleForm =
                     ValueNone
                 else
                     let prec =
-                        match p.Precision with
-                        | FormatDim.Star -> Prec.Star
-                        | FormatDim.Literal pr -> Prec.Const(let n = int pr in if n <= 0 then 0 else n)
-                        | FormatDim.Absent -> Prec.Const 6
+                        match precisionDim with
+                        | Dim.Star -> Prec.Star
+                        | Dim.Literal pr -> Prec.Const(if pr <= 0 then 0 else pr)
+                        | Dim.Absent -> Prec.Const 6
 
                     let zp = if zeroPad then Some width.Value else None
                     let align = if zeroPad then Alignment.None else alignment
@@ -323,13 +349,7 @@ module PrintfHoleForm =
             // && zeroPad` is declined above, so `width` is a literal here.
             match p.Type with
             | FormatType.FloatDecimal when not precIsStar ->
-                let prec =
-                    match p.Precision with
-                    | FormatDim.Literal pr -> int pr
-                    | FormatDim.Absent
-                    | FormatDim.Star -> 6
-
-                ValueSome(HoleForm.Field(FieldFormat.FixedRightZeroPad(prec, width.Value), Alignment.None))
+                ValueSome(HoleForm.Field(FieldFormat.FixedRightZeroPad(literalPrecOr 6, width.Value), Alignment.None))
             | _ -> ValueNone
         else
             // Left-align wins over zero-pad for the non-float forms (`%-05d ≡ %-5d`): drop
@@ -384,15 +404,9 @@ module PrintfHoleForm =
                     if precIsStar then
                         ValueNone
                     else
-                        let prec =
-                            match p.Precision with
-                            | FormatDim.Literal pr -> int pr
-                            | FormatDim.Absent
-                            | FormatDim.Star -> 6
-
-                        ValueSome(HoleForm.Field(FieldFormat.FixedZeroPad(prec, zpWidth ()), Alignment.None))
+                        ValueSome(HoleForm.Field(FieldFormat.FixedZeroPad(literalPrecOr 6, zpWidth ()), Alignment.None))
                 else
-                    field (FieldFormat.Fixed(precDim 6))
+                    field (FieldFormat.Fixed(precOrDefault 6))
             | FormatType.FloatExponential ->
                 if zeroPad then
                     // `%08e`/`%014e`: zero-pad after any sign, static precision only, so a
@@ -400,31 +414,31 @@ module PrintfHoleForm =
                     if precIsStar then
                         ValueNone
                     else
-                        let prec =
-                            match p.Precision with
-                            | FormatDim.Literal pr -> int pr
-                            | FormatDim.Absent
-                            | FormatDim.Star -> 6
-
                         let tc = if p.TypeChar = 'E' then 'E' else 'e'
-                        ValueSome(HoleForm.Field(FieldFormat.ExpCompactZeroPad(prec, zpWidth (), tc), Alignment.None))
+
+                        ValueSome(
+                            HoleForm.Field(
+                                FieldFormat.ExpCompactZeroPad(literalPrecOr 6, zpWidth (), tc),
+                                Alignment.None
+                            )
+                        )
                 else
-                    field (FieldFormat.Exponential(precDim 6, p.TypeChar = 'E'))
+                    field (FieldFormat.Exponential(precOrDefault 6, p.TypeChar = 'E'))
             | FormatType.FloatCompact ->
                 if zeroPad then
                     if precIsStar then
                         ValueNone
                     else
-                        let prec =
-                            match p.Precision with
-                            | FormatDim.Literal pr -> int pr
-                            | FormatDim.Absent
-                            | FormatDim.Star -> 6
-
                         let tc = if p.TypeChar = 'G' then 'G' else 'g'
-                        ValueSome(HoleForm.Field(FieldFormat.ExpCompactZeroPad(prec, zpWidth (), tc), Alignment.None))
+
+                        ValueSome(
+                            HoleForm.Field(
+                                FieldFormat.ExpCompactZeroPad(literalPrecOr 6, zpWidth (), tc),
+                                Alignment.None
+                            )
+                        )
                 else
-                    field (FieldFormat.Compact(precDim 6, p.TypeChar = 'G'))
+                    field (FieldFormat.Compact(precOrDefault 6, p.TypeChar = 'G'))
             | FormatType.UnsignedDecimalInt ->
                 deferIfStarPrec (field (FieldFormat.Unsigned(if zeroPad then Some(zpWidth ()) else None)))
             | FormatType.UnsignedOctal ->
@@ -459,6 +473,9 @@ module PrintfHoleForm =
         /// A forced sign (`+` or space) combined with both `-` and `0` (`%+-08.2f`): F#
         /// renders the sign then right-zero-pads, and this compiler rejects the specifier.
         | SignLeftAlignZeroPad
+        /// A width or precision literal outside `int` range (`%99999999999999999999d`); this
+        /// compiler rejects the specifier.
+        | OversizedDimension
 
     let classify (p: FormatPlaceholder) : HoleVerdict =
         let has (c: char) = p.Flags.IndexOf c >= 0
@@ -466,6 +483,9 @@ module PrintfHoleForm =
         if (has '+' || has ' ') && has '-' && has '0' then
             HoleVerdict.SignLeftAlignZeroPad
         else
-            match tryLowerableForm p with
-            | ValueSome form -> HoleVerdict.Lowerable form
-            | ValueNone -> HoleVerdict.Residual
+            match narrowDim p.Width, narrowDim p.Precision with
+            | ValueSome widthDim, ValueSome precisionDim ->
+                match tryLowerableForm p widthDim precisionDim with
+                | ValueSome form -> HoleVerdict.Lowerable form
+                | ValueNone -> HoleVerdict.Residual
+            | _ -> HoleVerdict.OversizedDimension

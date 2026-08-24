@@ -519,7 +519,7 @@ module private UnionCaseSyntaxHelpers =
             match d with
             | TDecl.Type td ->
                 match td.Kind with
-                | TTypeKind.Union(cs, _, _) -> acc.Add(td, cs)
+                | TTypeKind.Union u -> acc.Add(td, u.Cases)
                 | _ -> ()
             | _ -> ()
 
@@ -772,7 +772,7 @@ let unionMemberTests =
                     )
                     |> ValueOption.bind (fun d ->
                         match d with
-                        | TDecl.Type { Kind = TTypeKind.Union(_, ms, _) } -> ValueSome(EqArray.toList ms)
+                        | TDecl.Type { Kind = TTypeKind.Union u } -> ValueSome(EqArray.toList u.Members)
                         | _ -> ValueNone
                     )
 
@@ -820,7 +820,7 @@ let unionMemberTests =
 [<Tests>]
 let unionInterfaceImplTests =
     // A union implementing an interface carries the impl in its frozen representation, the
-    // third positional of `TTypeKind.Union(cases, members, interfaces)`. The interface is
+    // `Interfaces` slot of `TTypeKind.Union`. The interface is
     // project-local so resolution does not lean on the provider knowing a BCL one.
     let src =
         String.concat
@@ -855,7 +855,7 @@ let unionInterfaceImplTests =
                     )
                     |> ValueOption.bind (fun d ->
                         match d with
-                        | TDecl.Type { Kind = TTypeKind.Union(_, _, ifaces) } -> ValueSome ifaces
+                        | TDecl.Type { Kind = TTypeKind.Union u } -> ValueSome u.Interfaces
                         | _ -> ValueNone
                     )
 
@@ -915,7 +915,7 @@ let unionInterfaceImplTests =
                     )
                     |> ValueOption.bind (fun d ->
                         match d with
-                        | TDecl.Type { Kind = TTypeKind.Union(_, _, ifaces) } -> ValueSome ifaces
+                        | TDecl.Type { Kind = TTypeKind.Union u } -> ValueSome u.Interfaces
                         | _ -> ValueNone
                     )
 
@@ -928,7 +928,7 @@ let unionInterfaceImplTests =
 [<Tests>]
 let recordInterfaceImplTests =
     // A record implementing a local interface carries the impl in its frozen representation,
-    // `TTypeKind.Record(fields, members, interfaces, _)` — the union case's machinery.
+    // `TTypeKind.Record` — the union case's machinery.
     let src =
         String.concat
             "\n"
@@ -964,9 +964,7 @@ let recordInterfaceImplTests =
                     )
                     |> ValueOption.bind (fun d ->
                         match d with
-                        | TDecl.Type {
-                                         Kind = TTypeKind.Record(_, _, ifaces, _)
-                                     } -> ValueSome ifaces
+                        | TDecl.Type { Kind = TTypeKind.Record r } -> ValueSome r.Interfaces
                         | _ -> ValueNone
                     )
 
@@ -1274,6 +1272,36 @@ let stringEscapeTests =
                 | TDecl.Let(_, TExpr.Const(TConstValue.String s, _, _), _, _) ->
                     Expect.equal s "\\q \\u12" "raw text, backslashes included"
                 | other -> failtestf "expected a string const let, got %A" other
+            }
+
+            // An explicitly written unit argument is a VALUE, so it reaches a constructor as one
+            // argument: fsc answers FS0501 ("takes 0 argument(s) but is here given 1") for
+            // `P2 (())` and `P2((()))` against `new()`. `Expr.App` and `HighPrecedenceApp` peel
+            // through the same function, so the two call shapes give the same arity.
+            test "an explicit unit argument reaches a constructor as one argument, on both call shapes" {
+                let newArgCount (call: string) =
+                    let src = sprintf "type P(u: unit) =\n    member this.X = 0\nlet a = %s" call
+
+                    match (analyse src).Decls |> EqArray.last with
+                    | TDecl.Let(_, TExpr.New(args = args), _, _) -> args.Length
+                    | other -> failtestf "expected a trailing `let _ = New(…)`, got %A" other
+
+                // `P (())` shapes as `Expr.App`; `P((()))` as `HighPrecedenceApp`, whose own
+                // parentheses the parser has already taken into `lParen`/`rParen`.
+                Expect.equal (newArgCount "P (())") 1 "`P (())` is one unit argument"
+                Expect.equal (newArgCount "P((()))") 1 "`P((()))` is one unit argument"
+            }
+
+            test "`P()` still reaches a nullary constructor with no arguments" {
+                for call in [ "P()"; "P ()" ] do
+                    let tast = analyse (sprintf "type P() =\n    member this.X = 0\nlet a = %s" call)
+
+                    Expect.isEmpty (tast.Diagnostics |> List.filter Diagnostic.isError) "nullary call is admitted"
+
+                    match tast.Decls |> EqArray.last with
+                    | TDecl.Let(_, TExpr.New(args = args), _, _) ->
+                        Expect.isEmpty args (sprintf "`%s` peels to no arguments" call)
+                    | other -> failtestf "expected a trailing `let _ = New(…)`, got %A" other
             }
 
             test "a decimal trigraph above 255 is a hard ERROR" {

@@ -19,34 +19,10 @@ subagent report.
 Plain, verbatim and triple-quoted strings decode through `Lexing.decodeStringEscape`;
 the interpolated path bypasses it. Found while landing the shared escape decoder.
 
-### `TastPools.toPools` — a `match` on an unresolved case crashes instead of diagnosing
-
-In the module-held shape above, adding `match w with | Wrap v -> …` crashes analysis
-(`TastPools.toPools: ModuleMembers entry … names a bound variable no declaration in the
-frozen file introduces`) instead of surfacing the unresolved-identifier error. Freeze runs
-on a file whose analysis already failed; the diagnostics should gate it.
-
-### `ReferencedProject.fs:489` — a manifest-declared runtime asset that is missing on disk is silently skipped
-
-`runtimeModules` now takes an already-resolved `Manifest list`, so the two `Error`-swallowing
-arms are gone. The remaining hole: `if File.Exists abs then` has no `else`, so a declared but
-missing runtime asset is indistinguishable from "the package declares none", and the backend
-emits a program importing a `.mjs` that was never materialised. Plumbing a fault out of the
-`Map`-returning function is the small design choice.
-
 ### `CstKeys.fs:105`, `CstKeys.fs:127` — unimplemented shapes fail at runtime
 
 `firstTokenOfExpr` and `firstTokenOfPat` still end in `failwithf "… TODO %A"`. Prototype-stage
 gap; listed because the header comment that used to flag it is gone.
-
-### `PrintfHoleForm.fs:196,237,245,283,307,342,403,419,434` — an oversized printf width throws
-
-`FormatDim.Literal` carries a `bigint` (`XParsec.FSharp/Lexing.fs:210`) and the lexer parses
-it with the unbounded `pbigint` (`:2457`). `tryClassify` converts with a bare `int w` / `int pr`
-at all nine sites, and `BigInteger → Int32` throws `OverflowException`. So
-`%99999999999999999999d` lexes cleanly and then throws out of the classifier instead of
-producing a diagnostic. `renderPlaceholder`'s `string n` is safe; only the numeric conversions
-are exposed.
 
 ### `TastExpr.fs:317` — `TraitCall` can only search the LEFT operand's support set
 
@@ -131,50 +107,12 @@ Three fields are read-only collection interfaces that compare by REFERENCE:
 Giving those three equatable wrapper types in the shape of the existing `EqArray` deletes the
 workaround function and its doc along with it.
 
-### `SideTypes.fs:97` — `ForInEnumeratorG.Pattern` carries five positional payloads
-
-`enumeratorTy`, `getEnumerator`, `members`, `isValueType`, `dispose`, respelled as a 5-tuple at
-`TastConvert.fs:59`, `FrozenCodecDecls.fs:108-129` and `EmitClosures.fs:586`. A record payload
-names them once — and is why that case doc wanted to be an essay, since two of the five fields
-had nowhere else to be documented.
-
-### `TastDecl.fs:260` — `TSecondaryCtorG` encodes an XOR as two arrays
-
-Chain form vs explicit-field-init form is carried as "`PrimaryArgs` non-empty" vs
-"`FieldInits` non-empty", and `Codegen.Clr/NominalEmit.fs:526` picks the form with
-`if not sc.FieldInits.IsEmpty`. A DU over the two bodies makes the both/neither states
-unrepresentable.
-
-### `TastDecl.fs:95` — `Record`'s `valueKind` admits a state its producer cannot make
-
-`Elaborate/TypeDecls.fs:480-484` yields only `Struct` or `RefType` for a record — a record is
-never byref-like — but the slot is the full `ClassValueKind`, `RefStruct` included.
-
-### `TastDecl.fs:88` — `Union` and `Record` are still positional tuples
-
-3-wide and 4-wide respectively, while the class payload was already lifted into the `TClassG`
-record. The same treatment would name their slots.
-
 ### `TastDecl.fs:129` and `:205` — `ThisKey` is stored twice and cannot differ
 
 `TClassG.ThisKey` (`Elaborate/TypeDecls.fs:701`) and every instance member's
 `TTypeMemberG.ThisKey` (`Elaborate/ClassMembers.fs:225,247`) are all `info.ThisKey`, itself a
 pure function of the declaration's `NodeKey` (`BoundVarKey.ofDeclaredThis`,
 `MemberRegistration.fs:607`). The member-level copies are derivable from the class-level one.
-
-### `TypeInfos.fs:427` — `AbbreviationInfo` encodes one state machine in two mutable fields
-
-`Body : SemType voption` and `Status : AbbreviationStatus` vary independently, so `Filled` with
-`Body = ValueNone` is representable. `AbbreviationState = NotFilled | InProgress | Filled of SemType`
-makes the cycle-detection invariant compiler-enforced — that invariant is exactly what the
-surviving `AbbreviationStatus` doc is standing in for.
-
-### `TypeInfos.fs:150` — `Resolved` conflates "not yet" with "failed"
-
-`ClassInterfaceImplInfo.Resolved : SemType voption` is set only inside `if isInterface then`
-(`Passes/Unification.fs:853`), so `ValueNone` means both "not resolved yet" and "resolution
-failed and a diagnostic already fired". A three-state field lets a later consumer tell a pending
-impl from a rejected one.
 
 ### `TypeInfos.fs:231`, `:293`, `:346` — `ThisKey` defaults to a well-formed wrong value
 
@@ -185,20 +123,6 @@ impl from a rejected one.
 only when the type has members (`MemberRegistration.fs:1102`, `:1110`, `:1126`). `ClassTypeInfo`
 takes `thisKey` as a constructor parameter instead; the other three could do the same, or carry
 a `voption`.
-
-### `Passes/Unification/InferApp.fs:279-334` — three printf marker tables encode one verdict
-
-`ctx.PrintfApp`, `ctx.PrintfPartial` and `ctx.PrintfCallbackScratch` are separate side tables keyed
-by the same `node.Key`, and their mutual exclusivity — a residual sets no marker; partial needs
-`args.Length = idx + 1`, full application needs saturation — lives only in the shape of two guard
-clauses. A single `PrintfLowering` DU (`Full of sink | Partial of sink | Cold`) in one table makes
-the exclusivity a type fact and deletes the 19-line and 8-line essays this sweep cut.
-
-### `Passes/InlineExpansion.fs:71` — `Expander.LambdaEnv` is a hand-balanced mutable scope
-
-A `Dictionary` with an add/remove pair straddling `walkAt` (`reduceClassified`, ~`:296-307`). If the
-walk throws between them the entry leaks; nothing scopes it. An env threaded through `Descent`
-removes both the leak and the "stack-disciplined add and remove" prose.
 
 ### `Passes/Unification/Translate.fs:506` — the measure carrier is the last by-name reach
 
@@ -231,14 +155,6 @@ A classifier returning a named admission verdict deletes all three blocks.
 The block says only why the chain case cannot be the `subst` + `lookup` pair that `Resolved`
 carries. A member-lookup abstraction covering both shapes deletes it outright.
 
-### `Passes/Unification.fs:63` — `TypeMembersFill`'s two bools have three legal combinations
-
-`AllowAbstractSig` and `Generalise` are independent fields, and the fourth state is never
-constructed. The three live call sites are class `(true, true)` (`:819-820`), interface-impl
-`(false, false)` (`:741`, `:744`), union/record host `(false, true)` (`:846-847`). A three-case
-DU deletes the `Generalise` field's three-line doc, which currently has to explain in prose that a
-generalised `Equals` emits as arity-1 and no longer matches the arity-0 interface slot.
-
 ### `PassContext.fs:192` — `ResolvedType` is three tables sharing one key space
 
 One `SideTable<TypeKey>` written from three unrelated meanings:
@@ -255,26 +171,6 @@ One `SideTable<TypeKey>` written from three unrelated meanings:
 Nothing in the type separates the three. Splitting them deletes the 19 lines of prose that
 existed to warn the consumer, and would also remove the need for the (false, now deleted)
 a `ResolvedType`-partitioning doc claiming the two tables partition by `NodeKind` — they do not.
-
-### `TypeRegistry.fs:271` — `ScopeReach` does not record WHICH route reached the scope
-
-`pathReaches` (`:287`) builds its list from three anonymous loops — enclosing-scope descent
-(`:293`), `open` (`:304`), root for a fully-qualified path (`:318`) — and the record carries no
-tag distinguishing them. The distinction survives only as a convention on `Offset`: `ValueSome`
-is written in the `open` loop alone (`:313`), both other loops write `ValueNone`, and
-`claimRank` (`:352-354`) reads that as "an `open` fixes the offset, a scope uses the claim's
-own `VisibleFrom`". A `Route = Ancestor | Opened | Root` case makes `Offset` a payload of
-`Opened` rather than a `voption` whose emptiness means something.
-
-Deletes: the `Offset` field doc, which currently has to spell that convention out.
-
-### `TypeRegistry.fs:203`, `:398`, `:420` — four `table + short-name index` pairs, threaded as two parameters
-
-`Record`/`RecordNames`, `Union`/`UnionNames`, `Class`/`ClassNames` and
-`Abbreviation`/`AbbreviationNames` are one shape instantiated four times, and `registerKeyed`,
-`tryKeyOfArity` and `tryKeyOfArglessName` each take the table and its index as separate
-arguments. A `KindRegistry<'Info>` bundling the two would delete the per-field "keyed by
-`TypeKey`" / "same shape as…" doc chain.
 
 ### `Anchor.fs:155` — `AssemblyFilePath.nowhere` is a sentinel, not a case
 
@@ -298,14 +194,6 @@ bare comparison unwritable would delete all three docs.
 
 The deleted FS0664 essay rested on this fact, and nothing in the repo asserts it. If it
 matters, it belongs in a test name, not a doc.
-
-### `EqSet.fs:17` — a public generic type with an unconditional O(n²) constructor
-
-The quadratic dedupe scan is justified by "member counts are tiny", but the type is public and
-generic with nothing narrowing it to union members. Either narrow the type or degrade to a
-hash set above a threshold.
-
-Deletes: "The scan is quadratic — member counts are tiny".
 
 ## Unenforced conventions
 
@@ -376,11 +264,6 @@ operand-less intrinsic names nothing, so the `Descent.reentered` answer for this
 unreachable. If that holds, the `expandingTemplate` wrapper at `:409` is pure overhead and its
 `ValueSome reentered` branch is dead. Confirm before anyone relies on it.
 
-### `Passes/Unification/Translate.fs:286` — `Type.SuffixedType` with a dotted name has no arm
-
-`int A.T` falls to the `_ ->` catch-all and yields a free `TyVar` with no diagnostic, so
-unmodelled syntax is indistinguishable from an unresolvable type name for the user.
-
 ### `Passes/NameResolution/Scope.fs:585` — the operator-form long-ident catch-all diagnoses rather than resolves
 
 `Expr.LongIdentOrOp` reports `OperatorFormQualifiedName` unconditionally for any operator-form
@@ -422,14 +305,15 @@ its fresh var and whether it was quantified would delete both blocks rather than
 
 ### `Inline.fs:35` — `quantifiedTypars` order disagrees with the canonical typar order
 
-`quantifiedTypars` is a bare `collectLinkedRoots` walk, so it returns typars in
-first-left-to-right-appearance order only. The order a module-`let`'s scheme is actually
-quantified in is `GeneralizedTypars.canonical` (via `Elaborate/Typars.fs:71 mkMethodQuantEnv`),
-which puts EXPLICITLY-DECLARED typars first in source order and only then the inferred roots by
-appearance. For `let inline f<'b, 'a> (x: 'a) (y: 'b) = …` the two disagree, so any `typeArgs`
-array built against the frozen/ABI typar index is applied to the wrong roots by `inlineExpand`.
-The doc that claimed the two orders match ("This reproduces the order `Unification.generalise`
-collects them in") was deleted in the comment sweep; the divergence itself is untested.
+Verified NOT a defect (2026-08-23). The order differs from `GeneralizedTypars.canonical`, but
+`quantifiedTypars` has two production callers, `Inline.deriveInlineTypeArgs` and
+`Inline.inlineExpand`, and `InlineReduction.resolveAt` feeds the first straight into the
+second, so the order is only ever used self-consistently: `resolved.TypeArgs` reaches only
+`SpecializationKey`, and a template's `TyTypar(Method, j)` leaves are re-minted as fresh
+`TyVar`s by `InlineThaw.bodyAtPath` before `quantifiedTypars` sees them. Reversing the array
+outright leaves every suite green. The round trip is pinned by `ExpansionTests` "inline
+expansion at declared typars out of appearance order". Remaining option: derive the array
+from the scheme's recorded order so the two cannot diverge, which is a tidy-up rather than a fix.
 
 ### `Inline.fs:177` — an un-expanded `StaticOptimization` reaches codegen and emits silently
 
@@ -444,28 +328,6 @@ are unlike and were documented as one case: `TraitCall` surviving expansion is a
 `StaticOptimization` surviving it is a missed optimisation with no diagnostic. Worth a
 `StaticOptimization`-survived counter or debug warning rather than a fault.
 
-### `Passes/NameResolution/MemberRegistration.fs:761` — the heritable-base result wants two named cases, not a `struct` tuple + a `.ctor` probe
-
-`resolveThroughProvider` picks `struct (id, surface)` out of `tryPickExternalType`, then decides
-the base's whole representation with `surface.Members |> Array.exists (fun m -> m.Name = ".ctor")`
-— present ⇒ `TyConst(SymbolKey.Type id.Canon, …)` (the contract is the constructible surface, so
-base-ctor args are checked against it), absent ⇒ `IntrinsicPlatform.Repr` → `reprToExternalBase`,
-a `TyClass` bound to the runtime type's own ctors. Two structurally different bases, distinguished
-by a string comparison against `".ctor"` on an array, with the consequence recorded only in prose
-(a five-line comment cut to three in the sweep). A two-case result from the pick (`ContractCtors
-of surface | PlatformOnly of platform`) would put the branch in the type.
-
-### `Passes/NameResolution/MemberRegistration.fs:1047` — `registerGroup`'s five phases are five bare loops over the same collection
-
-The function runs six sequential `for` loops (claim over `defs`, classify over `defs`, file
-abbrevs over `claims`, detail over `claims`, interface validation over `defs`, then the close:
-force aliases, fill `inherit` slots, two cycle checks). The ordering constraints between them are
-real and load-bearing — an abbreviation ENTRY must exist before any other kind's detail runs, and
-`BaseType` cannot be filled until every claim in the group has its detail — but nothing in the
-code expresses them; before the sweep they were a 25-line numbered list in the doc comment (now
-three lines). Phase-typed stages, or at least one named function per phase, would let the
-dependency order be read off the pipeline rather than off prose.
-
 ### `Passes/NameResolution/MemberRegistration.fs:265` — the declared-typar prefix is an `int` beside an unrelated array
 
 `mkTypeParams ctx.Store (explicit @ implicit)` concatenates two differently-ordered typar lists
@@ -475,16 +337,6 @@ consumers can recover the split with `List.truncate mInfo.DeclaredTyparCount`. T
 is prose in three places (`TypeInfos.fs:70`, here, and both copies of the canonical computation
 already noted at `Passes/Unification.fs:99-145` / `:329-370`). A seed carrying the two groups as
 separate fields would delete the arithmetic and the comment at every site.
-
-### `Passes/NameResolution/MemberRegistration.fs:335` — a secondary constructor in a union/record augmentation is dropped with no diagnostic
-
-`extractMembers` is shared by class registration and by union/record augmentation, and its
-`MemberDefn.AdditionalConstructor` arm is `()` on the grounds that class registration collects
-those separately via `extractSecondaryCtors`. For an augmentation there is no such second pass:
-`registerNominalMember` calls only `extractMembers` and `extractInterfaceImpls`, so a `new(…)`
-written in a `type U with … new(…) = …` block is parsed and then silently discarded. Not verified
-whether some earlier pass rejects the shape; if none does, this is a missing "not supported here"
-diagnostic rather than a mis-registration.
 
 ### `Elaborate/Typars.fs:86` — the dependent-typar fixpoint is duplicated in `InferGeneralize.generalise`
 
@@ -549,22 +401,6 @@ and the deleted comments recorded each of those as a bug found after the fact (a
 not yet hit is not stated anywhere. One `CstWalk` entry point yielding every `Expr` under a
 `TypeDefn`, with each pass supplying only its visitor, would remove the divergence.
 
-### `Passes/Unification/InferTypeOps.fs:25` — explicit type application on a bare generic function is a no-op
-
-`inferTypeApp` only pins the explicit arguments through a nominal result: with no nominal
-result the explicit args are dropped, so `id<string> 3` type-checks. The fix instantiates the
-binding's scheme at the explicit args instead.
-
-### `InferTypeOps.fs:187` — the type test does not strip a reference-`null` source, unlike the downcast
-
-`inferDynamicDowncast` runs `stripReferenceNull` over the source before the `subsumes` check,
-on the stated grounds that a `T | null` coerces exactly as `T` does. `inferDynamicTypeTest`
-directly above performs the mirror-image check on the unstripped `srcTy`, so a `:?` on a
-nullable-reference source appears to reach `subsumes` as a union and risks a spurious
-`UnrelatedTypeTest`. The two arms should agree unless the type test is deliberately stricter;
-I did not construct a failing case, so treat this as an asymmetry to confirm rather than a
-proven bug.
-
 ### `InferTypeOps.fs:82` — static-optimization clause bodies are never checked against the declared result
 
 Pinned by the skipped GAP ptest in UnificationBasicsTests; deferred because honest checking
@@ -589,27 +425,6 @@ whose own comment says "`className` survives only for the error message", and `E
 which also uses it only in a `failwithf`. So the string is elaborated, frozen and serialised to
 carry diagnostic text. Either drop the field and have the backends print the type key, or keep
 it and say so on the declaration; the comment has been rewritten to the diagnostic-only reading.
-
-### `Elaborate/Apply.fs:35` — `TConstValue.Unit` doubles as the "slot omitted" marker in `OptionalDefaults`
-
-`TsManifestMembers.fs:54` fills `OptionalDefaults` with `List.replicate n TConstValue.Unit` for
-trailing optionals that carry no constant default, and `optionalDefaultNode` then reads that
-same case back as "emit `undefined`, not a `unit` value". Every other case in the list is a
-genuine literal default. A `TConstValue voption`, or an `OptionalDefault = Omitted | Const of
-TConstValue`, would make the two readings distinct instead of relying on a case that also has a
-legitimate meaning — and would delete the three-line disclaimer now sitting on the `Unit` arm.
-The CLR-side fill happens never to mint `Unit`, so nothing is currently mis-lowered.
-
-### `Elaborate/Calls.fs:109` — `viaOfObjArg` scans every class on every instance access
-
-To decide `CallVia.Base` vs `CallVia.Self` it walks all of `ctx.Types.Class` comparing
-`BoundVarKey.identity kv.Value.BaseKey` against the object argument's binding site, and the loop
-has no early exit — the `not isBase` guard only skips the comparison, it still iterates the
-remainder. The information wanted is a set of base-boundVar `NodeKey`s, which could be built once
-per file and consulted in O(1); or the `base` object argument could carry its own `TExpr` case so
-the question
-never has to be re-derived from a `Var`. Recorded because the six-line header justifying the
-cost (citing a "gap doc" no reader of this repo can open) was cut to three by the sweep.
 
 ### `ElaborateExpr.fs:568` — the `StaticOpt` side table is positionally aligned with `clauses` by convention only
 
@@ -644,18 +459,6 @@ and its members' `ThisTy` is the abbrev's `TyConst`, not a `TyClass`. A distinct
 header that argued for the choice — cut to 3 lines by the comment sweep, so the debt is now
 invisible.
 
-### `Passes/Unification/Infer.fs:279` — `TyparScope` is a raw mutable field save/restore, so its scoping discipline lives only in prose
-
-`inferBinding` saves `ctx.Resolution.TyparScope`, replaces it with a fresh `Dictionary`, copies
-the saved entries back in as the lowest-priority layer, and restores it in a `finally`. The
-correctness argument — that `savedScope` is the LEXICAL parent's scope precisely because the
-`finally` runs per binding, so a restored sibling can never bleed through — is entirely
-manual: nothing in the type prevents a nested walk from mutating the field without restoring,
-and the failure mode is a silently ungrounded typar that only surfaces at codegen. A scoped
-handle (an `IDisposable` push, or a scope value threaded rather than stored) would make the
-nesting structural and delete the eleven-line block that argued it, which the comment sweep cut
-to three, so the debt is now invisible.
-
 ### `Passes/Unification/InferOverload.fs:54` — `matchTypes` is a hand-maintained parallel copy of `unify`'s concrete-type-constructor arms
 
 The doc's own justification was that the two are "kept auditably parallel so a future reader can
@@ -688,19 +491,6 @@ invisible. Note also that those deleted comments were wrong about both tables �
 `FunVerdicts` "node-keyed" (it is `Map<LambdaKey, FunVerdict>`) and attributed the decision to
 `inferApp` (it is `recordFunArityVerdicts`), which is the kind of drift a snapshot step that the
 type system does not name will keep producing.
-
-### `Elaborate/Args.fs:57` — `peelOneArg` and `peelCtorArgs` disagree on `(())`
-
-The two functions are otherwise the same match, and `peelOneArg` is documented as "same as
-`peelCtorArgs` but for a single argument expression", but `peelOneArg` carries an
-`EnclosedBlock(ValueParen, EmptyBlock _) -> EqArray.empty` arm that `peelCtorArgs` does not. In
-`peelCtorArgs` that shape falls through to the general `EnclosedBlock(ValueParen, inner)` arm and
-becomes ONE argument holding a translated `EmptyBlock`. So `Point(())` peels to arity 1 through
-the `Expr.App` path and arity 0 through the `HighPrecedenceApp`/`Expr.New` path. One of the two
-is wrong; I did not determine which, since it depends on whether an explicitly-written unit
-argument should reach a constructor as a value. Either way the fix is to make `peelCtorArgs`'
-single-argument branch call `peelOneArg`, which is what the doc already claims the relationship
-is.
 
 ### `TypeInfos.fs:176` — an unset `ThisKey` is a *valid* boundVar key, not a detectable hole
 
@@ -748,3 +538,10 @@ forces the third one to take both a key and a name, since its table is bare-name
 other two are `TypeKey` keyed — so the duplication is really a symptom of that one table having a
 different key type from its siblings. A list of probes folded over, or a `TypeKey`-keyed
 intrinsic-abbrev host, would collapse all three.
+### `TypeRegistration.fs` — a detached `type U with …` extension is dropped wholesale
+
+Found landing the augmentation-constructor diagnostic (2026-08-24). A standalone
+`TypeDefn.TypeExtension` registers nothing ("`TypeExtension` … register nothing, so they claim
+nothing"), so every member of a detached augmentation — not just a `new` — is discarded with no
+diagnostic. The attached-`with` form is handled; the detached form needs either registration or
+a "not supported" report.

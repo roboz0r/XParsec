@@ -88,9 +88,8 @@ type internal TypeSlotKind =
     | Interface
     | Union
     /// `valueKind` selects reference vs `[<Struct>]` value type (flips the
-    /// `System.ValueType` base). No `isSealed`, because a record is always sealed
-    /// and never byref-like.
-    | Record of valueKind: ClassValueKind
+    /// `System.ValueType` base). A record is always sealed, so it takes no `isSealed`.
+    | Record of valueKind: RecordValueKind
     /// `isSealed` reflects `[<Sealed>]`; `valueKind` selects reference vs `[<Struct>]`
     /// value type (flips sequential layout + `Sealed` + the `ValueType` base) vs
     /// `[<IsByRefLike>]`, which additionally stamps `IsByRefLikeAttribute`.

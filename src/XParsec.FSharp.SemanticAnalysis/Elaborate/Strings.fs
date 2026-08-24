@@ -38,7 +38,8 @@ module internal ElaborateStrings =
                 match PrintfHoleForm.classify p with
                 | PrintfHoleForm.HoleVerdict.Lowerable hf -> Some(HoleSpecSource.Classified hf)
                 | PrintfHoleForm.HoleVerdict.Residual
-                | PrintfHoleForm.HoleVerdict.SignLeftAlignZeroPad -> None
+                | PrintfHoleForm.HoleVerdict.SignLeftAlignZeroPad
+                | PrintfHoleForm.HoleVerdict.OversizedDimension -> None
             | ValueNone -> None
         | ValueNone ->
             let fmt =

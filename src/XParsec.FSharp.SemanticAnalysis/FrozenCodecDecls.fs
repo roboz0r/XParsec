@@ -82,13 +82,13 @@ module FrozenCodecDecls =
     and writeForInEnumerator (w: FrozenWriter) (e: Frozen.ForInEnumerator) =
         match e with
         | ForInEnumeratorG.Interface -> w.Write 0uy
-        | ForInEnumeratorG.Pattern(enumeratorTy, getEnumerator, members, isValueType, dispose) ->
+        | ForInEnumeratorG.Pattern p ->
             w.Write 1uy
-            writeTypeRef w enumeratorTy
-            writeForInGetEnum w getEnumerator
-            writeForInEnumMembers w members
-            w.Write isValueType
-            w.Write dispose
+            writeTypeRef w p.EnumeratorTy
+            writeForInGetEnum w p.GetEnumerator
+            writeForInEnumMembers w p.Members
+            w.Write p.IsValueType
+            w.Write p.Dispose
 
     and readForInEnumerator (r: FrozenReader) : Frozen.ForInEnumerator =
         match r.ReadByte() with
@@ -99,7 +99,15 @@ module FrozenCodecDecls =
             let members = readForInEnumMembers r
             let isValueType = r.ReadBoolean()
             let dispose = r.ReadBoolean()
-            ForInEnumeratorG.Pattern(enumeratorTy, getEnumerator, members, isValueType, dispose)
+
+            ForInEnumeratorG.Pattern
+                {
+                    EnumeratorTy = enumeratorTy
+                    GetEnumerator = getEnumerator
+                    Members = members
+                    IsValueType = isValueType
+                    Dispose = dispose
+                }
         | b -> failwithf "FrozenCodec: unknown ForInEnumerator tag %d" b
 
     and private writeForInGetEnum (w: FrozenWriter) (g: Frozen.ForInGetEnum) =
@@ -187,17 +195,17 @@ module FrozenCodecDecls =
         | TTypeKindG.Interface methods ->
             w.Write 0uy
             writeEqArrayWith w writeAbstractMethod methods
-        | TTypeKindG.Union(cases, members, interfaces) ->
+        | TTypeKindG.Union u ->
             w.Write 1uy
-            writeEqArrayWith w writeUnionCase cases
-            writeEqArrayWith w writeTypeMember members
-            writeInterfaces w interfaces
-        | TTypeKindG.Record(fields, members, interfaces, valueKind) ->
+            writeEqArrayWith w writeUnionCase u.Cases
+            writeEqArrayWith w writeTypeMember u.Members
+            writeInterfaces w u.Interfaces
+        | TTypeKindG.Record rec' ->
             w.Write 2uy
-            writeEqArrayWith w writeRecordField fields
-            writeEqArrayWith w writeTypeMember members
-            writeInterfaces w interfaces
-            writeClassValueKind w valueKind
+            writeEqArrayWith w writeRecordField rec'.Fields
+            writeEqArrayWith w writeTypeMember rec'.Members
+            writeInterfaces w rec'.Interfaces
+            writeRecordValueKind w rec'.ValueKind
         | TTypeKindG.Class c ->
             w.Write 3uy
             writeClass w c
@@ -215,13 +223,26 @@ module FrozenCodecDecls =
             let cases = EqArray.ofArray (readArrayWith r readUnionCase)
             let members = EqArray.ofArray (readArrayWith r readTypeMember)
             let interfaces = readInterfaces r
-            TTypeKindG.Union(cases, members, interfaces)
+
+            TTypeKindG.Union
+                {
+                    Cases = cases
+                    Members = members
+                    Interfaces = interfaces
+                }
         | 2uy ->
             let fields = EqArray.ofArray (readArrayWith r readRecordField)
             let members = EqArray.ofArray (readArrayWith r readTypeMember)
             let interfaces = readInterfaces r
-            let valueKind = readClassValueKind r
-            TTypeKindG.Record(fields, members, interfaces, valueKind)
+            let valueKind = readRecordValueKind r
+
+            TTypeKindG.Record
+                {
+                    Fields = fields
+                    Members = members
+                    Interfaces = interfaces
+                    ValueKind = valueKind
+                }
         | 3uy -> TTypeKindG.Class(readClass r)
         | 4uy -> TTypeKindG.Enum(EqArray.ofArray (readArrayWith r readEnumCase))
         | 5uy -> TTypeKindG.Abbrev(readTypeRef r)
@@ -450,8 +471,14 @@ module FrozenCodecDecls =
             sc.Params
 
         writeEqArrayWith w writeCtorLet sc.Lets
-        writeEqArrayWith w writeExprPoolId sc.PrimaryArgs
-        writeEqArrayWith w writeCtorFieldInit sc.FieldInits
+
+        match sc.Body with
+        | TSecondaryCtorBodyG.Chain primaryArgs ->
+            w.Write 0uy
+            writeEqArrayWith w writeExprPoolId primaryArgs
+        | TSecondaryCtorBodyG.ExplicitFieldInit fieldInits ->
+            w.Write 1uy
+            writeEqArrayWith w writeCtorFieldInit fieldInits
 
     and private readSecondaryCtor (r: FrozenReader) : TSecondaryCtorG<FrozenType, BoundVarId, ExprPoolId> =
         let parameters =
@@ -466,14 +493,17 @@ module FrozenCodecDecls =
             )
 
         let lets = EqArray.ofArray (readArrayWith r readCtorLet)
-        let primaryArgs = EqArray.ofArray (readArrayWith r readExprPoolId)
-        let fieldInits = EqArray.ofArray (readArrayWith r readCtorFieldInit)
+
+        let body =
+            match r.ReadByte() with
+            | 0uy -> TSecondaryCtorBodyG.Chain(EqArray.ofArray (readArrayWith r readExprPoolId))
+            | 1uy -> TSecondaryCtorBodyG.ExplicitFieldInit(EqArray.ofArray (readArrayWith r readCtorFieldInit))
+            | b -> failwithf "FrozenCodec: unknown TSecondaryCtorBody tag %d" b
 
         {
             Params = parameters
             Lets = lets
-            PrimaryArgs = primaryArgs
-            FieldInits = fieldInits
+            Body = body
         }
 
     and private writeBaseCtorCall (w: FrozenWriter) (bc: TBaseCtorCallG<FrozenType, BoundVarId, ExprPoolId>) =

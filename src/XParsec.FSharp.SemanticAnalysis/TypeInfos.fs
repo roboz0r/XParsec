@@ -101,6 +101,13 @@ type UnionCaseInfo
     member val FieldNames = fieldNames
     member val DeclKey = declKey
 
+[<RequireQualifiedAccess>]
+type InterfaceImplResolution =
+    | Pending
+    | Resolved of iface: SemType
+    /// The written type is not an interface, and that diagnostic has already been reported.
+    | Rejected
+
 /// A registered `interface IFace with member …` block on a class or union. `DeclSite` is the
 /// `interface` keyword.
 [<Sealed>]
@@ -117,7 +124,7 @@ type ClassInterfaceImplInfo
     /// member walks consume the impl bodies unchanged.
     member val Elements = elements
     member val DeclSite = declSite
-    member val Resolved: SemType voption = ValueNone with get, set
+    member val Resolution: InterfaceImplResolution = InterfaceImplResolution.Pending with get, set
 
 /// The shared surface a nominal type exposes to the interface-impl machinery, implemented by
 /// the class, union, record and intrinsic-abbrev infos.
@@ -286,15 +293,15 @@ type EnumTypeInfo(name: string, cases: EqArray<TEnumCase>, declKey: NodeKey, key
     member this.HasCase(n: string) =
         cases |> EqArray.exists (fun c -> c.Name = n)
 
-/// `InProgress` is set while translating the RHS, so a re-entrant translation of the same
-/// abbrev detects the cycle. `Filled` is terminal.
 [<RequireQualifiedAccess>]
-type AbbreviationStatus =
+type AbbreviationState =
     | NotFilled
     | InProgress
-    | Filled
+    | Filled of body: SemType
+    /// Terminal without a body; each use site expands to a fresh type variable.
+    | Broken
 
-/// `Body` is filled lazily, so an abbrev can reference any other type declared in the same
+/// `State` advances lazily, so an abbrev can reference any other type declared in the same
 /// group, whatever the declaration order within the module.
 [<Sealed>]
 type AbbreviationInfo
@@ -313,8 +320,7 @@ type AbbreviationInfo
     member val RhsCst = rhsCst
     member val DeclSite = declSite
     member val TyparConstraints = typarConstraints
-    member val Body: SemType voption = ValueNone with get, set
-    member val Status: AbbreviationStatus = AbbreviationStatus.NotFilled with get, set
+    member val State: AbbreviationState = AbbreviationState.NotFilled with get, set
 
 /// A primary- or secondary-constructor parameter. `Type` is always a `TyVar`, the
 /// parameter's binding-site inference cell, even when the parameter is annotated.
@@ -457,7 +463,7 @@ type ResolvedExternalMember =
         ArgGroupWidths: EqArray<int>
         /// The resolved member's trailing optional-parameter defaults. Empty for a member
         /// with no omittable optionals.
-        OptionalDefaults: TConstValue list
+        OptionalDefaults: OptionalDefault list
     }
 
     member m.IsValueMember = m.Storage.IsValueMember

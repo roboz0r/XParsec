@@ -348,6 +348,17 @@ module internal UnificationInferApp =
                                                 (PrintfHoleForm.renderPlaceholder p)
                                         )
                                     )
+                                | Some(struct (p, PrintfHoleForm.HoleVerdict.OversizedDimension)) ->
+                                    ctx.Report(
+                                        node.Tok,
+                                        Kind.Message(
+                                            sprintf
+                                                "printf format specifier %s has a width or precision outside the range %d..%d"
+                                                (PrintfHoleForm.renderPlaceholder p)
+                                                System.Int32.MinValue
+                                                System.Int32.MaxValue
+                                        )
+                                    )
                                 | Some(struct (p, _)) ->
                                     ctx.Report(
                                         node.Tok,
@@ -373,39 +384,41 @@ module internal UnificationInferApp =
                                                 | _ -> false
                                             )))
                                     ->
-                                    ctx.PrintfApp.Set(node.Key, sink)
-
                                     // Keyed on the FAMILY, not the sink kind: `printf` prints to
                                     // `StdOut` and still needs a capture-first scratch.
-                                    if hasCallbackHole && PrintfSpec.familyNeedsScratch fam then
-                                        match fam.ScratchSink with
-                                        | TyClass(scratchKey, _) as scratchTy ->
-                                            let scratchName = SymbolKeyOps.typeMetaName scratchKey
+                                    let scratch =
+                                        if hasCallbackHole && PrintfSpec.familyNeedsScratch fam then
+                                            match fam.ScratchSink with
+                                            | TyClass(scratchKey, _) as scratchTy ->
+                                                let scratchName = SymbolKeyOps.typeMetaName scratchKey
 
-                                            // `ToString` is overloaded (`StringBuilder.ToString(int,
-                                            // int)`); pick the parameterless override.
-                                            let toString =
-                                                ctx.Provider.TryLookupMembers(scratchKey, "ToString")
-                                                |> EqArray.tryFind (fun m -> m.Key.ArgSig.Length = 0)
+                                                // `ToString` is overloaded (`StringBuilder.ToString(int,
+                                                // int)`); pick the parameterless override.
+                                                let toString =
+                                                    ctx.Provider.TryLookupMembers(scratchKey, "ToString")
+                                                    |> EqArray.tryFind (fun m -> m.Key.ArgSig.Length = 0)
 
-                                            match toString with
-                                            | ValueSome m ->
-                                                ctx.PrintfCallbackScratch.Set(
-                                                    node.Key,
-                                                    {
-                                                        ScratchClassName = scratchName
-                                                        ScratchTy = scratchTy
-                                                        ToStringKey = SymbolKey.Member m.Key
-                                                    }
-                                                )
-                                            | ValueNone ->
+                                                match toString with
+                                                | ValueSome m ->
+                                                    ValueSome
+                                                        {
+                                                            PrintfSpec.CallbackScratch.ScratchClassName = scratchName
+                                                            PrintfSpec.CallbackScratch.ScratchTy = scratchTy
+                                                            PrintfSpec.CallbackScratch.ToStringKey =
+                                                                SymbolKey.Member m.Key
+                                                        }
+                                                | ValueNone ->
+                                                    failwithf
+                                                        "InferApp: writer/builder %%a/%%t scratch sink %s resolved to a class with no parameterless ToString, so capture-first cannot be lowered"
+                                                        scratchName
+                                            | other ->
                                                 failwithf
-                                                    "InferApp: writer/builder %%a/%%t scratch sink %s resolved to a class with no parameterless ToString, so capture-first cannot be lowered"
-                                                    scratchName
-                                        | other ->
-                                            failwithf
-                                                "InferApp: writer/builder %%a/%%t scratch sink is unresolved (%A) though callbackSinkAvailable passed the State gate, so resolveExternalSlots and the gate disagree"
-                                                other
+                                                    "InferApp: writer/builder %%a/%%t scratch sink is unresolved (%A) though callbackSinkAvailable passed the State gate, so resolveExternalSlots and the gate disagree"
+                                                    other
+                                        else
+                                            ValueNone
+
+                                    ctx.PrintfLowering.Set(node.Key, PrintfSpec.PrintfLowering.Full(sink, scratch))
                                 // Partial-application marker: a fully-unapplied literal partial
                                 // (`printfn "%d"`), 1..K holes, no `%A`/`%O` (an unapplied one is
                                 // an unpinned typar). Elaborate synthesises a heap closure.
@@ -417,7 +430,7 @@ module internal UnificationInferApp =
                                     && lowerablePlaceholders specs
                                     && specs |> List.forall PrintfSpec.isUnaryConcreteHole
                                     ->
-                                    ctx.PrintfPartial.Set(node.Key, sink)
+                                    ctx.PrintfLowering.Set(node.Key, PrintfSpec.PrintfLowering.Partial sink)
                                 | _ -> ()
 
                                 ValueSome currTy

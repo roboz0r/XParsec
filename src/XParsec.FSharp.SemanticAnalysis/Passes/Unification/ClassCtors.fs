@@ -80,12 +80,9 @@ module internal UnificationClassCtors =
     /// binding-site TyVars, then infer each body.
     let fillSecondaryCtors (ctx: PassContext) (info: ClassTypeInfo) : unit =
         if info.SecondaryCtors.Length > 0 then
-            let savedScope = ctx.Resolution.TyparScope
-            let savedStrict = ctx.Resolution.TyparScopeStrict
             let savedEnclosing = ctx.Resolution.EnclosingTypars
             let classScope = scopeOfTypeParams info.TypeParams
-            ctx.Resolution.TyparScope <- classScope
-            ctx.Resolution.TyparScopeStrict <- true
+            use _ = ctx.PushTyparScope(classScope, true)
             ctx.Resolution.EnclosingTypars <- ValueSome classScope
 
             try
@@ -119,8 +116,6 @@ module internal UnificationClassCtors =
                     finally
                         exitLevel ctx
             finally
-                ctx.Resolution.TyparScope <- savedScope
-                ctx.Resolution.TyparScopeStrict <- savedStrict
                 ctx.Resolution.EnclosingTypars <- savedEnclosing
 
     /// The constructor surface an `inherit Base(args)` clause's arguments are checked against.

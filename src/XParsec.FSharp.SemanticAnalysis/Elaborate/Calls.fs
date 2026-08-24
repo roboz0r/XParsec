@@ -91,23 +91,15 @@ module internal ElaborateCalls =
             binds
             call
 
-    /// A `base.M(...)` / `base.X` object argument translates to a `TExpr.Var` whose binding
-    /// site is some class's `BaseKey`; that must dispatch non-virtually, so an
-    /// `override` calling `base.M()` does not recurse into itself.
+    /// `Base` for a `base.M(...)` / `base.X` object argument, which must dispatch
+    /// non-virtually so an `override` calling `base.M()` does not recurse into itself.
     let viaOfObjArg (ctx: PassContext) (objArg: TExpr) : CallVia<SemType> =
         match objArg with
         | TExpr.Var(bindingSite, _, _) ->
-            let mutable isBase = false
-
-            for kv in ctx.Types.Class do
-                if
-                    not isBase
-                    && kv.Value.BaseType.IsSome
-                    && BoundVarKey.identity kv.Value.BaseKey = bindingSite
-                then
-                    isBase <- true
-
-            if isBase then CallVia.Base else CallVia.Self
+            if ctx.BaseBoundVars.Value.Contains bindingSite then
+                CallVia.Base
+            else
+                CallVia.Self
         | _ -> CallVia.Self
 
     /// `New` for a class construction. The front-end-chosen external `.ctor` key is in

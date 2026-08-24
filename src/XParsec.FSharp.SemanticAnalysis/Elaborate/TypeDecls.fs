@@ -223,7 +223,12 @@ module internal ElaborateTypeDecls =
                     ns
                     (EqArray.ofList declTypars)
                     info.IsRequireQualifiedAccess
-                    (TTypeKind.Union(cases, members, interfaces))
+                    (TTypeKind.Union
+                        {
+                            Cases = cases
+                            Members = members
+                            Interfaces = interfaces
+                        })
                     info.EqualitySupport
                     info.ComparisonSupport,
                 List.ofSeq env
@@ -328,12 +333,11 @@ module internal ElaborateTypeDecls =
             let members, interfaces =
                 elaborateHostMembers ctx (info :> IInterfaceImplHost) ext elaborateOne
 
-            // A record is never byref-like, so `Struct` / `RefType` are the only verdicts.
             let valueKind =
                 if info.IsValueType then
-                    ClassValueKind.Struct
+                    RecordValueKind.Struct
                 else
-                    ClassValueKind.RefType
+                    RecordValueKind.RefType
 
             Some(
                 mkTypeDecl
@@ -342,7 +346,13 @@ module internal ElaborateTypeDecls =
                     ns
                     (EqArray.ofList declTypars)
                     info.IsRequireQualifiedAccess
-                    (TTypeKind.Record(fields, members, interfaces, valueKind))
+                    (TTypeKind.Record
+                        {
+                            Fields = fields
+                            Members = members
+                            Interfaces = interfaces
+                            ValueKind = valueKind
+                        })
                     info.EqualitySupport
                     info.ComparisonSupport,
                 List.ofSeq env
@@ -377,9 +387,11 @@ module internal ElaborateTypeDecls =
         EqArray.ofSeq (
             seq {
                 for impl in info.InterfaceImpls do
-                    match impl.Resolved with
-                    | ValueSome ifaceTy -> yield (ifaceTy, elaborateClassElements ctx info elaborateOne impl.Elements)
-                    | ValueNone -> ()
+                    match impl.Resolution with
+                    | InterfaceImplResolution.Resolved ifaceTy ->
+                        yield (ifaceTy, elaborateClassElements ctx info elaborateOne impl.Elements)
+                    | InterfaceImplResolution.Pending
+                    | InterfaceImplResolution.Rejected -> ()
             }
         )
 
@@ -554,9 +566,11 @@ module internal ElaborateTypeDecls =
         match TypeRegistry.tryAbbrevByKey ctx.Types (ctx.DeclaredTypeKey(name, arity)) with
         | ValueNone -> None
         | ValueSome info ->
-            match info.Body with
-            | ValueNone -> None
-            | ValueSome body ->
+            match info.State with
+            | AbbreviationState.NotFilled
+            | AbbreviationState.InProgress
+            | AbbreviationState.Broken -> None
+            | AbbreviationState.Filled body ->
                 Some(
                     mkTypeDecl
                         name

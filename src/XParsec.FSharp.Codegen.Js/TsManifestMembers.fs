@@ -51,7 +51,7 @@ module internal TsManifestMembers =
                 Signature = signatureOf ctx declTyparArity sg
                 MethodTyparArity = sg.TypeParams
                 Origin = origin
-                OptionalDefaults = List.replicate (trailingOptionalCount sg.Params) TConstValue.Unit
+                OptionalDefaults = List.replicate (trailingOptionalCount sg.Params) OptionalDefault.Omitted
                 IsOptional = mem.Optional
             }
         )

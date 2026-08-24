@@ -39,6 +39,13 @@ type ClassValueKind =
     | Struct
     | RefStruct
 
+/// Reference-type versus value-type emission for a declaration that cannot be byref-like.
+/// `[<Struct>]` ⇒ `Struct`.
+[<RequireQualifiedAccess>]
+type RecordValueKind =
+    | RefType
+    | Struct
+
 /// What a class declaration STATES about itself with an attribute, as against what its
 /// contents decide. Carried whole through the TAST, the freeze and the external shape.
 [<Struct>]
@@ -91,21 +98,8 @@ and TTypeDeclG<'ty, 'tok, 'id, 'body> =
 
 and [<RequireQualifiedAccess>] TTypeKindG<'ty, 'tok, 'id, 'body> =
     | Interface of methods: EqArray<TAbstractMethodG<'ty>>
-    /// `cases` in declaration order, so a case's index is its runtime tag. `members` are the
-    /// augmentation members (`with member …` / `static member …`); each `interfaces` entry
-    /// pairs a resolved interface type with the bodies of its `interface … with` block.
-    | Union of
-        cases: EqArray<TUnionCaseG<'ty>> *
-        members: EqArray<TTypeMemberG<'ty, 'id, 'body>> *
-        interfaces: EqArray<'ty * EqArray<TTypeMemberG<'ty, 'id, 'body>>>
-    /// `fields` are the record's payload in declaration order; `members` and `interfaces`
-    /// are as for `Union`. `valueKind` is `Struct` for a `[<Struct>]` record, never
-    /// `RefStruct`, because a record cannot be one.
-    | Record of
-        fields: EqArray<TRecordFieldG<'ty>> *
-        members: EqArray<TTypeMemberG<'ty, 'id, 'body>> *
-        interfaces: EqArray<'ty * EqArray<TTypeMemberG<'ty, 'id, 'body>>> *
-        valueKind: ClassValueKind
+    | Union of TUnionG<'ty, 'id, 'body>
+    | Record of TRecordG<'ty, 'id, 'body>
     | Class of TClassG<'ty, 'id, 'body>
     /// `cases` in declaration order, each pairing a case identifier with its **resolved**
     /// compile-time literal (`| C = v`). An enum is `'ty`-free: a case value is an integer or
@@ -115,6 +109,31 @@ and [<RequireQualifiedAccess>] TTypeKindG<'ty, 'tok, 'id, 'body> =
     /// declaration's own typars, and a use of the name expands to it. No runtime type
     /// answers to the name, so a backend emits nothing for this kind.
     | Abbrev of body: 'ty
+
+/// The payload of `TTypeKindG.Union`.
+and TUnionG<'ty, 'id, 'body> =
+    {
+        /// In declaration order, so a case's index is its runtime tag.
+        Cases: EqArray<TUnionCaseG<'ty>>
+        /// The augmentation members (`with member …` / `static member …`).
+        Members: EqArray<TTypeMemberG<'ty, 'id, 'body>>
+        /// Each entry pairs a resolved interface type with the bodies of its
+        /// `interface … with` block.
+        Interfaces: EqArray<'ty * EqArray<TTypeMemberG<'ty, 'id, 'body>>>
+    }
+
+/// The payload of `TTypeKindG.Record`.
+and TRecordG<'ty, 'id, 'body> =
+    {
+        /// The record's payload in declaration order.
+        Fields: EqArray<TRecordFieldG<'ty>>
+        /// The augmentation members (`with member …` / `static member …`).
+        Members: EqArray<TTypeMemberG<'ty, 'id, 'body>>
+        /// Each entry pairs a resolved interface type with the bodies of its
+        /// `interface … with` block.
+        Interfaces: EqArray<'ty * EqArray<TTypeMemberG<'ty, 'id, 'body>>>
+        ValueKind: RecordValueKind
+    }
 
 /// The payload of `TTypeKindG.Class`. No `'tok`: a class bears no token of its own, `Enum`'s
 /// case identifiers being the only tokens under a type declaration.
@@ -249,15 +268,20 @@ and TCtorLetG<'ty, 'id, 'body> =
 /// explicit `val` or a primary-ctor backing field); `Init` is stored into it via `stfld`.
 and TCtorFieldInitG<'body> = { Field: string; Init: 'body }
 
-/// A secondary constructor, emitted as a `.ctor` overload, in one of two forms and never both:
-/// CHAIN (`new(args) = SelfType(...)`) fills `PrimaryArgs` and leaves `FieldInits` empty, with no
-/// usable `this` yet; EXPLICIT FIELD-INIT (`new(args) = { f = e; … }`) is the reverse.
+/// What a secondary constructor's body does after its `let` preamble.
+and [<RequireQualifiedAccess>] TSecondaryCtorBodyG<'body> =
+    /// `new(args) = SelfType(...)`: the arguments chained to the primary `.ctor`. `this` is
+    /// not yet constructed at this point.
+    | Chain of primaryArgs: EqArray<'body>
+    /// `new(args) = { f = e; … }`: stores into declared instance fields, with no chain.
+    | ExplicitFieldInit of fieldInits: EqArray<TCtorFieldInitG<'body>>
+
+/// A secondary constructor, emitted as a `.ctor` overload.
 and TSecondaryCtorG<'ty, 'id, 'body> =
     {
         Params: EqArray<BoundVarKeyG<'id> * 'ty>
         Lets: EqArray<TCtorLetG<'ty, 'id, 'body>>
-        PrimaryArgs: EqArray<'body>
-        FieldInits: EqArray<TCtorFieldInitG<'body>>
+        Body: TSecondaryCtorBodyG<'body>
     }
 
 /// An `inherit Base(args)` invocation: the primary `.ctor` chains to the parent's
@@ -294,8 +318,8 @@ module TTypeKindG =
     let members (kind: TTypeKindG<'ty, 'tok, 'id, 'body>) : EqArray<TTypeMemberG<'ty, 'id, 'body>> =
         match kind with
         | TTypeKindG.Class c -> c.Members
-        | TTypeKindG.Union(_, members, _) -> members
-        | TTypeKindG.Record(_, members, _, _) -> members
+        | TTypeKindG.Union u -> u.Members
+        | TTypeKindG.Record r -> r.Members
         | TTypeKindG.Interface _
         | TTypeKindG.Enum _
         | TTypeKindG.Abbrev _ -> EqArray.empty
@@ -311,8 +335,8 @@ module TTypeKindG =
 
         match kind with
         | TTypeKindG.Class c -> flatten c.Interfaces
-        | TTypeKindG.Union(_, _, ifaces) -> flatten ifaces
-        | TTypeKindG.Record(_, _, ifaces, _) -> flatten ifaces
+        | TTypeKindG.Union u -> flatten u.Interfaces
+        | TTypeKindG.Record r -> flatten r.Interfaces
         | TTypeKindG.Interface _
         | TTypeKindG.Enum _
         | TTypeKindG.Abbrev _ -> Seq.empty

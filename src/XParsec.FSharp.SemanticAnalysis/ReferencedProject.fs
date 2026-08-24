@@ -476,25 +476,37 @@ module ReferencedProject =
 
     /// The `[core] runtime` assets of an already-closed manifest set, read off disk, keyed by
     /// package name. In manifest order, and the FIRST is the package's runtime entry: the file
-    /// a backend-synthesised import (a structural helper, a format helper) resolves to.
-    let runtimeModules (manifests: Manifest list) : Map<string, RuntimeAsset list> =
-        let mutable acc = Map.empty
+    /// a backend-synthesised import (a structural helper, a format helper) resolves to. A
+    /// declared asset absent from disk is a `FileMissing` fault, because the emitted program
+    /// would import a module nothing materialises.
+    let runtimeModules (manifests: Manifest list) : Result<Map<string, RuntimeAsset list>, PackageSetFault> =
+        let readAsset (manifest: Manifest) (rel: string) : Result<RuntimeAsset, PackageSetFault> =
+            let abs = Path.Combine(manifest.Dir, rel)
 
-        for manifest in manifests do
-            let assets =
-                [
-                    for rel in manifest.Runtime do
-                        let abs = Path.Combine(manifest.Dir, rel)
+            if File.Exists abs then
+                Ok
+                    {
+                        FileName = Path.GetFileName rel
+                        Source = File.ReadAllText abs
+                    }
+            else
+                Error(PackageSetFault.FileMissing(manifest.Name, rel))
 
-                        if File.Exists abs then
-                            {
-                                FileName = Path.GetFileName rel
-                                Source = File.ReadAllText abs
-                            }
-                ]
+        let rec readAssets (manifest: Manifest) (rels: string list) (read: RuntimeAsset list) =
+            match rels with
+            | [] -> Ok(List.rev read)
+            | rel :: rest ->
+                match readAsset manifest rel with
+                | Error fault -> Error fault
+                | Ok asset -> readAssets manifest rest (asset :: read)
 
-            match assets with
-            | [] -> ()
-            | _ -> acc <- Map.add manifest.Name assets acc
+        let rec go (manifests: Manifest list) (acc: Map<string, RuntimeAsset list>) =
+            match manifests with
+            | [] -> Ok acc
+            | manifest :: rest ->
+                match readAssets manifest manifest.Runtime [] with
+                | Error fault -> Error fault
+                | Ok [] -> go rest acc
+                | Ok assets -> go rest (Map.add manifest.Name assets acc)
 
-        acc
+        go manifests Map.empty

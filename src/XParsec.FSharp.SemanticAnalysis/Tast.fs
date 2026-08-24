@@ -212,6 +212,7 @@ module Frozen =
     type TastFile = TastFileG<FrozenType, SyntaxToken, NodeKey>
     type ForInGetEnum = ForInGetEnumG<FrozenType>
     type ForInEnumMembers = ForInEnumMembersG<FrozenType>
+    type ForInPattern = ForInPatternG<FrozenType>
     type ForInEnumerator = ForInEnumeratorG<FrozenType>
     // The TREE instantiation of the compiled-form cluster: `'pat` is the pattern node
     // itself, the form an EXTERNAL symbol carries. A file's own identifies a pooled pat by id.

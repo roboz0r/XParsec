@@ -493,6 +493,26 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
+            // The declared order `<'b, 'a>` reverses the order the typars first appear in `f`'s
+            // type. Deriving the call's type arguments and applying them to the body must agree
+            // on one of the two orders; the oracle yields `("s", 1)`.
+            test "inline expansion at declared typars out of appearance order" {
+                let tast =
+                    analyse "let inline f<'b, 'a> (x: 'a) (y: 'b) = (y, x)\nlet r = f 1 \"s\""
+
+                let rTy =
+                    match List.ofSeq (EqArray.toList tast.Decls) with
+                    | [ _; TDecl.Let(_, _, _, ty) ] -> ty
+                    | other -> failtestf "expected two TDecl.Lets, got %A" other
+
+                Expect.equal
+                    rTy
+                    (TyTuple(EqArray.ofList [ BuiltinTypes.tyString; BuiltinTypes.tyInt ]))
+                    "r : string * int"
+
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+            }
+
             test "tuple pattern surfaces in TPat shape" {
                 let tast = analyse "let f (a, b) = a + b"
 

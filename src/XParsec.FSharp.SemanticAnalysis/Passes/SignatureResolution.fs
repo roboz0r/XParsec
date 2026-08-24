@@ -209,9 +209,12 @@ module SignatureResolution =
             let env = typarEnv ctx (TyparOwner.Type info.TypeParams)
 
             let body =
-                match info.Body with
-                | ValueSome ty -> freezeOver ctx env ty
-                | ValueNone -> ExternalSignature.unfreezable (sprintf "abbreviation '%s' has no body" id.Name)
+                match info.State with
+                | AbbreviationState.Filled ty -> freezeOver ctx env ty
+                | AbbreviationState.NotFilled
+                | AbbreviationState.InProgress
+                | AbbreviationState.Broken ->
+                    ExternalSignature.unfreezable (sprintf "abbreviation '%s' has no body" id.Name)
 
             publishShape sctx id.Key (ExternalTypeShape.Abbrev(info.TypeParams.Length, body))
 

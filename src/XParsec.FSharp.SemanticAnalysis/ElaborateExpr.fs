@@ -202,17 +202,20 @@ module internal ElaborateExpr =
             mkUnionCons ctx caseName ty (peelCtorArgs (translateExpr ctx) args) tok
         | Expr.HighPrecedenceApp(funcExpr = CtorRef ctx caseName; argExpr = arg) ->
             mkUnionCons ctx caseName ty (peelOneArg (translateExpr ctx) arg) tok
-        // Printf *partial* — a fully-unapplied lowerable literal (`printfn "%d"`),
-        // marked in `PrintfPartial`. Synthesise a closure `fun h1 … hn ->
-        // Format(sink, …)` instead of the FSharp.Core cold path.
-        | Expr.App(_, args) when ctx.PrintfPartial.ContainsKey key ->
-            ElaboratePrintf.translatePrintfPartial ctx key args ty tok
-        // A printf happy-path call, marked in `PrintfApp`, lowers to a `TExpr.Format`.
-        | Expr.App(fn, args) when ctx.PrintfApp.ContainsKey key ->
-            match ElaboratePrintf.translatePrintfFormat translateExpr ctx key args ty tok with
-            | ValueSome node -> node
-            | ValueNone -> ElaborateApply.translateApp translateExpr ctx fn args tok
-        | Expr.App(fn, args) -> ElaborateApply.translateApp translateExpr ctx fn args tok
+        | Expr.App(fn, args) ->
+            let ordinaryApp () =
+                ElaborateApply.translateApp translateExpr ctx fn args tok
+
+            match ctx.PrintfLowering.TryGetValue key with
+            // A fully-unapplied lowerable literal (`printfn "%d"`) becomes the closure
+            // `fun h1 … hn -> Format(sink, …)` instead of the FSharp.Core cold path.
+            | ValueSome(PrintfSpec.PrintfLowering.Partial sink) ->
+                ElaboratePrintf.translatePrintfPartial ctx sink args ty tok
+            | ValueSome(PrintfSpec.PrintfLowering.Full(sink, scratch)) ->
+                match ElaboratePrintf.translatePrintfFormat translateExpr ctx sink scratch args ty tok with
+                | ValueSome node -> node
+                | ValueNone -> ordinaryApp ()
+            | ValueNone -> ordinaryApp ()
         | Expr.HighPrecedenceApp(funcExpr = fn; argExpr = arg) ->
             ElaborateApply.translateHighPrecedenceApp translateExpr ctx fn arg ty tok
         | Expr.InfixApp(left, _, right) -> ElaborateApply.translateInfix translateExpr ctx key left right ty tok

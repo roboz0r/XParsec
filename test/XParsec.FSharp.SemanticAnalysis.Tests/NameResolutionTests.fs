@@ -845,6 +845,42 @@ let tests =
                 | ValueNone -> failtest "Choice`2 not registered"
             }
 
+            // fsc answers FS0871 "Constructors cannot be defined for this type" for both, and a
+            // union/record augmentation has no secondary-ctor collection to reach.
+            test "a secondary constructor in a union augmentation is rejected" {
+                let lexed, file =
+                    parseFile "type U =\n    | A of int\n    | B\n\n    with\n\n    new(x: int) = A x"
+
+                let tast =
+                    Pipeline.analyseSemFor testCompiling realProvider.Value (LexedFile.ofText lexed) file
+
+                Expect.isTrue
+                    (tast.Diagnostics
+                     |> List.exists (fun d ->
+                         Diagnostic.isError d && d.Message.Contains "Constructors cannot be defined"
+                     ))
+                    (sprintf
+                        "expected a constructor-not-allowed error, got: %A"
+                        (tast.Diagnostics |> List.map (fun d -> d.Message)))
+            }
+
+            test "a secondary constructor in a record augmentation is rejected" {
+                let lexed, file =
+                    parseFile "type R =\n    { x: int }\n\n    with\n\n    new(v: int) = { x = v }"
+
+                let tast =
+                    Pipeline.analyseSemFor testCompiling realProvider.Value (LexedFile.ofText lexed) file
+
+                Expect.isTrue
+                    (tast.Diagnostics
+                     |> List.exists (fun d ->
+                         Diagnostic.isError d && d.Message.Contains "Constructors cannot be defined"
+                     ))
+                    (sprintf
+                        "expected a constructor-not-allowed error, got: %A"
+                        (tast.Diagnostics |> List.map (fun d -> d.Message)))
+            }
+
             test "Arity-overloaded types under one namespace mint unique keys" {
                 // `Choice\`2` / `Choice\`3` share a namespace and short name yet mint
                 // distinct keys, so no collision is reported.

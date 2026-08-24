@@ -64,7 +64,8 @@ let tests =
                     match v with
                     | PrintfHoleForm.HoleVerdict.Lowerable _ -> true
                     | PrintfHoleForm.HoleVerdict.Residual
-                    | PrintfHoleForm.HoleVerdict.SignLeftAlignZeroPad -> false
+                    | PrintfHoleForm.HoleVerdict.SignLeftAlignZeroPad
+                    | PrintfHoleForm.HoleVerdict.OversizedDimension -> false
 
                 Expect.isGreaterThan (classified |> List.filter lowerable |> List.length) 0 "some holes classify"
 

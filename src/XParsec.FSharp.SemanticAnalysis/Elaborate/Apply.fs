@@ -16,22 +16,24 @@ open XParsec.FSharp.SemanticAnalysis.ElaborateExprArgs
 
 module internal ElaborateApply =
 
-    /// A trailing optional argument the call omitted, synthesised from the constant
-    /// default in `ExternalOptionalFill`. The fill is post-inference and never
-    /// re-unified, so an omitted slot may type as `undefined` rather than `unit`.
-    let optionalDefaultNode (ctx: PassContext) (cv: TConstValue) (tok: SyntaxToken) : TExpr =
-        match cv with
-        // `TConstValue.Unit` in this table is the OMITTED-slot marker, not a `unit`
-        // value: emit an honest `undefined`, not a `unit` `Const` riding its JS repr.
-        // JS-only, because `undefined` has no CLR contract and only the TS provider mints it.
-        | TConstValue.Unit -> TExpr.ILIntrinsic("undefined", ValueNone, EqArray.empty, ctx.Intrinsics.Undefined, tok)
-        | TConstValue.Integral(k, _) -> TExpr.Const(cv, ctx.Intrinsics.OfIntKind k, tok)
-        | TConstValue.Float _ -> TExpr.Const(cv, ctx.Intrinsics.Float, tok)
-        | TConstValue.Float32 _ -> TExpr.Const(cv, ctx.Intrinsics.Float32, tok)
-        | TConstValue.Bool _ -> TExpr.Const(cv, ctx.Intrinsics.Bool, tok)
-        | TConstValue.Char _ -> TExpr.Const(cv, ctx.Intrinsics.Char, tok)
-        | TConstValue.Decimal _ -> TExpr.Const(cv, ctx.Intrinsics.Decimal, tok)
-        | TConstValue.String _ -> TExpr.Const(cv, ctx.Intrinsics.String, tok)
+    /// A trailing optional argument the call omitted, synthesised from the `ExternalOptionalFill`
+    /// entry. The fill is post-inference and never re-unified, so an `Omitted` slot types as
+    /// `undefined` rather than `unit`.
+    let optionalDefaultNode (ctx: PassContext) (d: OptionalDefault) (tok: SyntaxToken) : TExpr =
+        match d with
+        // JS-only: `undefined` has no CLR contract and only the TS provider mints it.
+        | OptionalDefault.Omitted ->
+            TExpr.ILIntrinsic("undefined", ValueNone, EqArray.empty, ctx.Intrinsics.Undefined, tok)
+        | OptionalDefault.Const cv ->
+            match cv with
+            | TConstValue.Unit -> TExpr.Const(cv, ctx.Intrinsics.Unit, tok)
+            | TConstValue.Integral(k, _) -> TExpr.Const(cv, ctx.Intrinsics.OfIntKind k, tok)
+            | TConstValue.Float _ -> TExpr.Const(cv, ctx.Intrinsics.Float, tok)
+            | TConstValue.Float32 _ -> TExpr.Const(cv, ctx.Intrinsics.Float32, tok)
+            | TConstValue.Bool _ -> TExpr.Const(cv, ctx.Intrinsics.Bool, tok)
+            | TConstValue.Char _ -> TExpr.Const(cv, ctx.Intrinsics.Char, tok)
+            | TConstValue.Decimal _ -> TExpr.Const(cv, ctx.Intrinsics.Decimal, tok)
+            | TConstValue.String _ -> TExpr.Const(cv, ctx.Intrinsics.String, tok)
 
     /// Lower an external method call that omitted a suffix of the member's trailing
     /// optional parameters. The supplied arguments are flattened, the recorded defaults
@@ -42,7 +44,7 @@ module internal ElaborateApply =
         (fn: TExpr)
         (fnKey: NodeKey)
         (args: ImmutableArray<Expr<SyntaxToken>>)
-        (omitted: TConstValue list)
+        (omitted: OptionalDefault list)
         (tok: SyntaxToken)
         : TExpr =
         let supplied =
@@ -51,7 +53,7 @@ module internal ElaborateApply =
             else
                 EqArray.ofSeq (seq { for a in args -> translateExpr ctx a })
 
-        let defaults = [ for cv in omitted -> optionalDefaultNode ctx cv tok ]
+        let defaults = [ for d in omitted -> optionalDefaultNode ctx d tok ]
         let filled = (EqArray.toList supplied) @ defaults
 
         // The full tupled parameter domain (the synthesised tuple's type, and the

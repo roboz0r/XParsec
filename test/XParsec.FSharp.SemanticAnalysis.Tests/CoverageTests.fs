@@ -1012,7 +1012,11 @@ let tests =
                     Expect.equal c.SecondaryCtors.Length 1 "one secondary ctor"
                     Expect.equal (c.SecondaryCtors.[0].Params.Length) 0 "new() takes no params"
                     Expect.equal (c.SecondaryCtors.[0].Lets.Length) 0 "no let-preamble"
-                    Expect.equal (c.SecondaryCtors.[0].PrimaryArgs.Length) 1 "chain passes one arg to the primary ctor"
+
+                    match c.SecondaryCtors.[0].Body with
+                    | TSecondaryCtorBodyG.Chain primaryArgs ->
+                        Expect.equal primaryArgs.Length 1 "chain passes one arg to the primary ctor"
+                    | other -> failtestf "expected a chain-form secondary ctor, got %A" other
                 | other -> failtestf "expected TTypeKind.Class, got %A" other
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
@@ -1126,6 +1130,24 @@ let tests =
                 Expect.isTrue
                     (tast.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "downcast"))
                     "a nullable-string downcast to an unrelated type is rejected"
+            }
+
+            // `:?` reads a nullable-reference source exactly as `:?>` does: the relatedness
+            // check is the same one, run over the same stripped source.
+            test "`:?` on `obj | null` is permitted (tests as `obj`)" {
+                let tast =
+                    analyse "type C() =\n    member this.X = 1\nlet g (x: obj | null) = x :? C\n"
+
+                Expect.isEmpty tast.Diagnostics "nullable-obj type test is admitted"
+            }
+
+            test "`:?` on `string | null` against an unrelated type is rejected" {
+                let tast =
+                    analyse "type C() =\n    member this.X = 1\nlet g (x: string | null) = x :? C\n"
+
+                Expect.isTrue
+                    (tast.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "Type test"))
+                    "a nullable-string test against an unrelated type is rejected"
             }
 
             test "TAST: `:?` shapes as TypeTest" {

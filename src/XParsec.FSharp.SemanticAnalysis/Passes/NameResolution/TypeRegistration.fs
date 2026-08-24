@@ -646,22 +646,14 @@ module NameResolutionTypeRegistration =
     /// source names its header declares, so a `'a` written in the declaration's structure
     /// resolves to the registry's TyVar, and an undeclared one is diagnosed, not minted.
     let underTyparScope (ctx: PassContext) (typeParams: EqArray<string * TyVarId>) (f: unit -> 'a) : 'a =
-        let savedScope = ctx.Resolution.TyparScope
-        let savedStrict = ctx.Resolution.TyparScopeStrict
         let scope = Dictionary<string, TyVarId>(System.StringComparer.Ordinal)
 
         for (n, tv) in typeParams do
             if not (scope.ContainsKey n) then
                 scope.[n] <- tv
 
-        ctx.Resolution.TyparScope <- scope
-        ctx.Resolution.TyparScopeStrict <- true
-
-        try
-            f ()
-        finally
-            ctx.Resolution.TyparScope <- savedScope
-            ctx.Resolution.TyparScopeStrict <- savedStrict
+        use _ = ctx.PushTyparScope(scope, true)
+        f ()
 
     /// File `v` at the FRONT of `index.[name]`'s bucket: the newest declaration wins the slot.
     let private prependToIndex (index: Dictionary<string, EqArray<'T>>) (name: string) (v: 'T) : unit =

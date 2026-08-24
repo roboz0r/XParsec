@@ -104,6 +104,31 @@ module Unification =
 
         GeneralizedTypars.canonical ctx.Store declared fixedRoots knownNames (zonk ctx.Store memberTy)
 
+    /// The kind of declaration the members being filled belong to.
+    [<RequireQualifiedAccess>]
+    type private MemberFillHost =
+        /// A class or interface declaration body.
+        | Class
+        /// An `interface IFace with member …` block, where each member's signature is fixed
+        /// by the slot it implements.
+        | InterfaceImpl
+        /// A `with` augmentation on a union, record or intrinsic-abbrev host.
+        | Augmentation
+
+    /// An `abstract` signature declares a slot only in a class or interface body.
+    let private allowsAbstractSig (host: MemberFillHost) : bool =
+        match host with
+        | MemberFillHost.Class -> true
+        | MemberFillHost.InterfaceImpl
+        | MemberFillHost.Augmentation -> false
+
+    /// Are a method's body-inferred free typars quantified into its own method typars?
+    let private generalisesMembers (host: MemberFillHost) : bool =
+        match host with
+        | MemberFillHost.Class
+        | MemberFillHost.Augmentation -> true
+        | MemberFillHost.InterfaceImpl -> false
+
     /// Parameters for a registry-driven walk over a class or union's member bodies.
     /// `PrelinkExtras` runs after the typar scope is set but before `this` is bound.
     [<NoEquality; NoComparison>]
@@ -115,10 +140,7 @@ module Unification =
             MkSelfType: EqArray<SemType> -> SemType
             PrelinkExtras: unit -> unit
             Elements: TypeDefnElements<SyntaxToken>
-            AllowAbstractSig: bool
-            // `false` for an interface-impl member: the slot fixes its signature, and a
-            // generalised `Equals` emits as `Equals\`1`, missing the arity-0 slot.
-            Generalise: bool
+            Host: MemberFillHost
         }
 
     /// Stamp a member's `CanonicalTypars` post-inference, after resolving its defaults.
@@ -143,12 +165,9 @@ module Unification =
     /// from `TypeParams`, plus a `this` binding linked to `MkSelfType`. Placeholder
     /// member TyVars are pre-populated so body inference links them to the inferred type.
     let private fillTypeMembers (ctx: PassContext) (fc: TypeMembersFill) : unit =
-        let savedScope = ctx.Resolution.TyparScope
-        let savedStrict = ctx.Resolution.TyparScopeStrict
         let savedEnclosing = ctx.Resolution.EnclosingTypars
         let classScope = UnificationClassCtors.scopeOfTypeParams fc.TypeParams
-        ctx.Resolution.TyparScope <- classScope
-        ctx.Resolution.TyparScopeStrict <- true
+        use _ = ctx.PushTyparScope(classScope, true)
         // Keep the class typars in scope across each member body's `inferBinding`
         // (which mints a fresh scope and would otherwise drop them).
         ctx.Resolution.EnclosingTypars <- ValueSome classScope
@@ -216,7 +235,7 @@ module Unification =
                 // call ever grounded, into the member's own method typars.
                 match mInfoOpt with
                 | Some mInfo when
-                    fc.Generalise
+                    generalisesMembers fc.Host
                     && mInfo.Kind = ClassMemberKind.Method
                     // An `override` conforms to a base virtual slot, so it is
                     // never generic.
@@ -238,27 +257,30 @@ module Unification =
 
                         // Extend the scope with the method's own `<'C, …>`
                         // typars, else they diagnose as free.
-                        let savedMScope = ctx.Resolution.TyparScope
+                        let memberScope =
+                            if mInfo.SeedTypars.IsEmpty then
+                                ctx.Resolution.TyparScope
+                            else
+                                let extended =
+                                    Dictionary<string, TyVarId>(
+                                        ctx.Resolution.TyparScope,
+                                        System.StringComparer.Ordinal
+                                    )
 
-                        if not mInfo.SeedTypars.IsEmpty then
-                            let extended =
-                                Dictionary<string, TyVarId>(savedMScope, System.StringComparer.Ordinal)
+                                for (n, ptv) in mInfo.SeedTypars do
+                                    extended.[n] <- ptv
 
-                            for (n, ptv) in mInfo.SeedTypars do
-                                extended.[n] <- ptv
+                                extended
 
-                            ctx.Resolution.TyparScope <- extended
+                        use _ = ctx.PushTyparScope(memberScope, ctx.Resolution.TyparScopeStrict)
 
-                        try
-                            let sigTy = mkSigTy ()
-                            ctx.Store.SetLink(root, ValueSome sigTy)
+                        let sigTy = mkSigTy ()
+                        ctx.Store.SetLink(root, ValueSome sigTy)
 
-                            // An abstract method has no body to infer, so mint its
-                            // canonical ABI order from the elaborated signature.
-                            if mInfo.Kind = ClassMemberKind.Method && not mInfo.SeedTypars.IsEmpty then
-                                mInfo.Generalise(canonicalMemberTypars ctx fc.TypeParams mInfo sigTy)
-                        finally
-                            ctx.Resolution.TyparScope <- savedMScope
+                        // An abstract method has no body to infer, so mint its
+                        // canonical ABI order from the elaborated signature.
+                        if mInfo.Kind = ClassMemberKind.Method && not mInfo.SeedTypars.IsEmpty then
+                            mInfo.Generalise(canonicalMemberTypars ctx fc.TypeParams mInfo sigTy)
                     | _ -> ()
                 | None -> ()
 
@@ -298,7 +320,7 @@ module Unification =
                             | None -> ()
                         finally
                             exitLevel ctx
-                    | MethodOrPropDefn.AbstractSignature sign when fc.AllowAbstractSig ->
+                    | MethodOrPropDefn.AbstractSignature sign when allowsAbstractSig fc.Host ->
                         match sign with
                         | MemberSig.MethodOrPropSig(ident = idOrOp; sign = csig) ->
                             match abstractSlotToken idOrOp with
@@ -321,16 +343,14 @@ module Unification =
                     | _ -> ()
                 | _ -> ()
         finally
-            ctx.Resolution.TyparScope <- savedScope
-            ctx.Resolution.TyparScopeStrict <- savedStrict
             ctx.Resolution.EnclosingTypars <- savedEnclosing
 
     /// Conform one resolved `interface IFace with member …` block: unify each impl
     /// member's already-inferred signature with the same-named `ExternalMember`, under
     /// the impl's interface type-args. A missing member diagnoses at the interface name.
     let private checkInterfaceConformance (ctx: PassContext) (impl: ClassInterfaceImplInfo) : unit =
-        match impl.Resolved with
-        | ValueSome(TyClass(ifaceKey, ifaceArgs)) ->
+        match impl.Resolution with
+        | InterfaceImplResolution.Resolved(TyClass(ifaceKey, ifaceArgs)) ->
             let ifaceName = SymbolKeyOps.typeMetaName ifaceKey
 
             // A capability interface (`disposable`) is an `IntrinsicInterface`, not a `Class`,
@@ -365,7 +385,9 @@ module Unification =
                             )
                         )
             | _ -> ()
-        | _ -> ()
+        | InterfaceImplResolution.Resolved _
+        | InterfaceImplResolution.Pending
+        | InterfaceImplResolution.Rejected -> ()
 
     /// The declared slot a same-named `override` conforms to: the nearest instance member
     /// of that name up the `inherit` chain, at the parent's type args. `ValueNone` where the
@@ -415,9 +437,11 @@ module Unification =
         let resolvedImpls =
             [
                 for impl in info.InterfaceImpls do
-                    match impl.Resolved with
-                    | ValueSome(TyClass(key, _)) -> impl, key, ctx.Provider.TryLookupType key
-                    | _ -> ()
+                    match impl.Resolution with
+                    | InterfaceImplResolution.Resolved(TyClass(key, _)) -> impl, key, ctx.Provider.TryLookupType key
+                    | InterfaceImplResolution.Resolved _
+                    | InterfaceImplResolution.Pending
+                    | InterfaceImplResolution.Rejected -> ()
             ]
 
         // The transitive interface closure of a capability's platform interface. Metadata
@@ -469,21 +493,13 @@ module Unification =
                             )
 
     /// Resolve each `interface IFace with member …` block's interface type under the
-    /// class's typar scope and stamp `impl.Resolved` before any member body is typed, because
+    /// class's typar scope and stamp `impl.Resolution` before any member body is typed, because
     /// class→interface upcast sites read it.
     let private resolveInterfaceImpls (ctx: PassContext) (info: IInterfaceImplHost) : unit =
         for impl in info.InterfaceImpls do
             let resolved =
-                let savedScope = ctx.Resolution.TyparScope
-                let savedStrict = ctx.Resolution.TyparScopeStrict
-                ctx.Resolution.TyparScope <- UnificationClassCtors.scopeOfTypeParams info.TypeParams
-                ctx.Resolution.TyparScopeStrict <- true
-
-                try
-                    translateType ctx impl.InterfaceCst
-                finally
-                    ctx.Resolution.TyparScope <- savedScope
-                    ctx.Resolution.TyparScopeStrict <- savedStrict
+                use _ = ctx.PushTyparScope(UnificationClassCtors.scopeOfTypeParams info.TypeParams, true)
+                translateType ctx impl.InterfaceCst
 
             let isInterface =
                 match resolved with
@@ -499,8 +515,10 @@ module Unification =
                 | _ -> false
 
             if isInterface then
-                impl.Resolved <- ValueSome resolved
+                impl.Resolution <- InterfaceImplResolution.Resolved resolved
             else
+                impl.Resolution <- InterfaceImplResolution.Rejected
+
                 ctx.Report(
                     impl.DeclSite.Tok,
                     Kind.Message(sprintf "Type '%s' is not an interface" (shown ctx.Store resolved))
@@ -521,8 +539,7 @@ module Unification =
                     MkSelfType = info.MkSelfType
                     PrelinkExtras = ignore
                     Elements = impl.Elements
-                    AllowAbstractSig = false
-                    Generalise = false
+                    Host = MemberFillHost.InterfaceImpl
                 }
 
             checkInterfaceConformance ctx impl
@@ -590,8 +607,7 @@ module Unification =
                                 MkSelfType = fun args -> TyClass(info.TypeKey, args)
                                 PrelinkExtras = prelinkExtras
                                 Elements = body.elements
-                                AllowAbstractSig = true
-                                Generalise = true
+                                Host = MemberFillHost.Class
                             }
 
                         // Before the impls: an interface-impl `Equals` reads the same-named
@@ -614,8 +630,7 @@ module Unification =
                     MkSelfType = host.MkSelfType
                     PrelinkExtras = ignore
                     Elements = elems
-                    AllowAbstractSig = false
-                    Generalise = true
+                    Host = MemberFillHost.Augmentation
                 }
 
         // Outside the `Members`-non-empty guard, so a type with *only* an interface
@@ -736,10 +751,12 @@ module Unification =
         let implementsSelf (info: IInterfaceImplHost) (cap: RuntimeNames.CapabilityIdentity) : bool =
             info.InterfaceImpls
             |> Array.exists (fun impl ->
-                match impl.Resolved with
-                | ValueSome(TyClass(ifaceKey, ifaceArgs)) ->
+                match impl.Resolution with
+                | InterfaceImplResolution.Resolved(TyClass(ifaceKey, ifaceArgs)) ->
                     cap.Matches ifaceKey && (ifaceArgs.Length = 0 || argIsSelf info ifaceArgs.[0])
-                | _ -> false
+                | InterfaceImplResolution.Resolved _
+                | InterfaceImplResolution.Pending
+                | InterfaceImplResolution.Rejected -> false
             )
 
         let checkHost (info: IInterfaceImplHost) =
@@ -776,13 +793,13 @@ module Unification =
                 if not needsEq then
                     ctx.Report(nameTok, Kind.CustomComparisonNeedsEquality)
 
-        for kv in ctx.Types.Class do
+        for kv in ctx.Types.Class.ByKey do
             checkHost (kv.Value :> IInterfaceImplHost)
 
-        for kv in ctx.Types.Union do
+        for kv in ctx.Types.Union.ByKey do
             checkHost (kv.Value :> IInterfaceImplHost)
 
-        for kv in ctx.Types.Record do
+        for kv in ctx.Types.Record.ByKey do
             checkHost (kv.Value :> IInterfaceImplHost)
 
     /// FS0438: two members agreeing on name, static-ness, kind, value-parameter signature
@@ -796,13 +813,13 @@ module Unification =
                 if not (seen.Add(UnificationInferOverload.memberSignatureKey ctx.Store typeParams m)) then
                     ctx.Report(m.DeclSite.Tok, Kind.DuplicateMember m.Name)
 
-        for kv in ctx.Types.Class do
+        for kv in ctx.Types.Class.ByKey do
             checkHost kv.Value.TypeParams kv.Value.Members
 
-        for kv in ctx.Types.Union do
+        for kv in ctx.Types.Union.ByKey do
             checkHost kv.Value.TypeParams kv.Value.Members
 
-        for kv in ctx.Types.Record do
+        for kv in ctx.Types.Record.ByKey do
             checkHost kv.Value.TypeParams kv.Value.Members
 
     let run (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : unit =

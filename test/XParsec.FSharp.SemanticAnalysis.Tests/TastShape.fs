@@ -747,10 +747,10 @@ type private Renderer() =
                     push (tyStr m.Signature)
 
                 push " end"
-            | TTypeKind.Union(cases, members, _) ->
+            | TTypeKind.Union u ->
                 push " ="
 
-                for c in cases do
+                for c in u.Cases do
                     push " | "
                     push c.Name
 
@@ -758,15 +758,15 @@ type private Renderer() =
                         push " of "
                         push ([ for (_, t) in c.Fields -> tyStr t ] |> String.concat " * ")
 
-                for m in members do
+                for m in u.Members do
                     push (if m.IsStatic then " static member " else " member ")
                     push m.Name
                     push " : "
                     push (tyStr m.ReturnTy)
-            | TTypeKind.Record(fields, members, _, _) ->
+            | TTypeKind.Record r ->
                 push " = { "
 
-                fields
+                r.Fields
                 |> EqArray.iteri (fun i f ->
                     if i > 0 then
                         push "; "
@@ -781,7 +781,7 @@ type private Renderer() =
 
                 push " }"
 
-                for m in members do
+                for m in r.Members do
                     push (if m.IsStatic then " static member " else " member ")
                     push m.Name
                     push " : "

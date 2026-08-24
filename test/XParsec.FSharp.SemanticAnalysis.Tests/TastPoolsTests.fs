@@ -323,6 +323,27 @@ let unitStampTests =
             }
         ]
 
+// A file whose analysis reported an error carries a tree the pool build's invariants do not
+// hold over, so the freeze is skipped and the diagnostics are the whole output.
+[<Tests>]
+let freezeGateTests =
+    testList
+        "Freeze is gated on the analysed file being error-free"
+        [
+            test "a match on an unresolved case surfaces the name error rather than a pool break" {
+                let src = "let w = Wrap 1\nlet v = match w with | Wrap x -> x\n"
+                let lexed, file = parseFile src
+                let origin = LexedFile.inAssembly testAsm (AssemblyFileId.ofText src) lexed
+                let pools = Pipeline.analyseFor testCompiling realProvider.Value origin file
+
+                Expect.isNonEmpty
+                    (pools.Residue.Diagnostics |> List.filter Diagnostic.isError)
+                    "the unresolved-identifier error reaches the caller"
+
+                Expect.isEmpty pools.Roots "a file that failed analysis freezes to no decls"
+            }
+        ]
+
 [<Tests>]
 let boundVarAnchorTests =
     testList

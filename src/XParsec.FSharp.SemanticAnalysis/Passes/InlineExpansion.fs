@@ -40,9 +40,6 @@ module InlineExpansion =
             /// This file's own module-level `let inline` bindings, by bound variable key. A `Var` use of
             /// one is a local inline call site.
             LocalInlines: Dictionary<NodeKey, TemplateBody>
-            /// Lambda arguments currently eligible for inline-first elimination, by the parameter
-            /// bound variable they are bound to. Added and removed around the walk of the body using them.
-            LambdaEnv: Dictionary<NodeKey, FusedLambda>
         }
 
     let private pathOf (x: Expander) (at: Descent) : AssemblyFilePath = Descent.pathOf x.Ctx.File.Path at
@@ -131,6 +128,7 @@ module InlineExpansion =
 
     let private appliedFunction
         (x: Expander)
+        (at: Descent)
         (walk: TExpr -> TExpr)
         (markedFn: TExpr)
         (args: TastWalk.AppArg list)
@@ -140,7 +138,7 @@ module InlineExpansion =
         match TastWalk.unmarked markedFn with
         | TExpr.Var(k, _, _) when x.LocalInlines.ContainsKey k ->
             AppliedFunction.Template(TemplateId.Local k, x.LocalInlines.[k], args)
-        | TExpr.Var(k, _, _) when x.LambdaEnv.ContainsKey k -> AppliedFunction.Fused x.LambdaEnv.[k]
+        | TExpr.Var(Descent.Lambda at fused, _, _) -> AppliedFunction.Fused fused
         | fn ->
             // How a cross-file function presents itself; `ValueNone` is any other function.
             let external: ExternalFunction voption =
@@ -232,17 +230,19 @@ module InlineExpansion =
 
         // Marked UNDER its own bound variables: beta-reduction consumes those bound variables against arguments
         // from the BODY the lambda is spliced into, so only what it computes came from the call.
-        for p in fusedLambdas do
-            x.LambdaEnv.[p.Key] <-
-                {
-                    Body = Inline.underLambdas (TastWalk.callerExpr caller) p.Arg
-                    Caller = inFlight.Caller
-                }
+        let own =
+            inFlight.Own
+            |> Descent.withLambdas
+                [
+                    for p in fusedLambdas ->
+                        p.Key,
+                        {
+                            Body = Inline.underLambdas (TastWalk.callerExpr caller) p.Arg
+                            Caller = inFlight.Caller
+                        }
+                ]
 
-        let core = walkAt x inFlight.Own peeled.Core
-
-        for p in fusedLambdas do
-            x.LambdaEnv.Remove p.Key |> ignore
+        let core = walkAt x own peeled.Core
 
         // Innermost parameter first, matching the order the `let` nesting binds them.
         let mutable body = core
@@ -355,7 +355,7 @@ module InlineExpansion =
                     | TExpr.App _ ->
                         let markedFn, appArgs = TastWalk.collectAppChain [] e
 
-                        match appliedFunction x walk markedFn appArgs with
+                        match appliedFunction x at walk markedFn appArgs with
                         | AppliedFunction.Template(id, body, templateArgs) ->
                             let call =
                                 {
@@ -495,7 +495,6 @@ module InlineExpansion =
                     Specs = SpecTable.create (fun tok kind -> ctx.Report(tok, kind)) mint
                     Mint = mint
                     LocalInlines = collectLocalInlines ctx decls
-                    LambdaEnv = Dictionary()
                 }
 
             // The file's OWN declarations are inside no expansion, so they are walked at the top

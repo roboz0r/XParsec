@@ -51,22 +51,18 @@ module internal ElaboratePrintf =
         // `TyConditional`, `TyEnum`) have no type argument the encoder can author.
         | _ -> false
 
-    /// Lower a call marked with a `PrintfApp` sink into a `TExpr.Format`, pairing each
+    /// Lower a `PrintfLowering.Full` call into a `TExpr.Format`, pairing each
     /// specifier with the next argument in spec order. `ValueNone` *declines* the lowering:
     /// one unfaithful `%A` hole sends the whole format down the FSharp.Core cold path.
     let translatePrintfFormat
         (translateExpr: TranslateExpr)
         (ctx: PassContext)
-        (key: NodeKey)
+        (sink: PrintfSpec.PrintfSink)
+        (scratch: PrintfSpec.CallbackScratch voption)
         (args: ImmutableArray<Expr<SyntaxToken>>)
         (ty: SemType)
         (tok: SyntaxToken)
         : TExpr voption =
-        let sink =
-            match ctx.PrintfApp.TryGetValue key with
-            | ValueSome s -> s
-            | ValueNone -> failwithf "Elaborate.translatePrintfFormat: no PrintfApp marker at %O" key
-
         // The format argument's positional index, from the sink kind: a writer or builder
         // sink occupies arg 0 and the format arg 1; every other family has it at arg 0.
         // Kept in lockstep with `PrintfSpec.Family.FormatArgIndex`.
@@ -134,7 +130,7 @@ module internal ElaboratePrintf =
                 | _ -> failwithf "Elaborate.addCallbackSeg: callback is not a function type: %A" funcTy
 
             let residue =
-                match ctx.PrintfCallbackScratch.TryGetValue key with
+                match scratch with
                 | ValueNone ->
                     // `sprintf` (`'State = unit`): the callback returns the residue
                     // string directly.
@@ -269,7 +265,8 @@ module internal ElaboratePrintf =
                     match PrintfHoleForm.classify placeholder with
                     | PrintfHoleForm.HoleVerdict.Lowerable hf -> hf
                     | PrintfHoleForm.HoleVerdict.Residual
-                    | PrintfHoleForm.HoleVerdict.SignLeftAlignZeroPad ->
+                    | PrintfHoleForm.HoleVerdict.SignLeftAlignZeroPad
+                    | PrintfHoleForm.HoleVerdict.OversizedDimension ->
                         failwith "Elaborate.translatePrintfFormat: unsupported specifier (marker invariant broken)"
 
                 match holeForm with
@@ -299,21 +296,16 @@ module internal ElaboratePrintf =
 
             ValueSome(TExpr.Format(formatSink, EqArray.ofSeq segments, ty, tok))
 
-    /// Lower a call marked with a `PrintfPartial` sink (a fully-unapplied printf partial)
+    /// Lower a `PrintfLowering.Partial` call (a fully-unapplied printf partial)
     /// to a synthesised closure `fun h1 … hn -> Format(sink, …)`. `ty` is the curried printer
     /// `h1 -> … -> hn -> codomain`: its domains are the parameter types in specifier order.
     let translatePrintfPartial
         (ctx: PassContext)
-        (key: NodeKey)
+        (sink: PrintfSpec.PrintfSink)
         (args: ImmutableArray<Expr<SyntaxToken>>)
         (ty: SemType)
         (tok: SyntaxToken)
         : TExpr =
-        let sink =
-            match ctx.PrintfPartial.TryGetValue key with
-            | ValueSome s -> s
-            | ValueNone -> failwithf "Elaborate.translatePrintfPartial: no PrintfPartial marker at %O" key
-
         let parts =
             match args.[0] with
             | Expr.String(parts = parts) -> parts
@@ -352,7 +344,8 @@ module internal ElaboratePrintf =
                     match PrintfHoleForm.classify placeholder with
                     | PrintfHoleForm.HoleVerdict.Lowerable hf -> hf
                     | PrintfHoleForm.HoleVerdict.Residual
-                    | PrintfHoleForm.HoleVerdict.SignLeftAlignZeroPad ->
+                    | PrintfHoleForm.HoleVerdict.SignLeftAlignZeroPad
+                    | PrintfHoleForm.HoleVerdict.OversizedDimension ->
                         failwith "Elaborate.translatePrintfPartial: unsupported specifier (marker invariant broken)"
 
                 let holeTy, restTy =

@@ -1653,8 +1653,8 @@ let interfaceImplTests =
                     Expect.equal info.InterfaceImpls.Length 1 "one interface impl registered on C"
                     let impl = info.InterfaceImpls.[0]
 
-                    match impl.Resolved with
-                    | ValueSome(TyClass(name, _)) ->
+                    match impl.Resolution with
+                    | InterfaceImplResolution.Resolved(TyClass(name, _)) ->
                         Expect.stringContains name "IComparable" "the impl resolved to the IComparable interface"
                     | other -> failtestf "interface impl did not resolve to an interface TyClass: %A" other
 
@@ -1722,8 +1722,8 @@ let interfaceImplTests =
                     Expect.isTrue
                         (info.InterfaceImpls
                          |> Array.forall (fun impl ->
-                             match impl.Resolved with
-                             | ValueSome(TyClass _) -> true
+                             match impl.Resolution with
+                             | InterfaceImplResolution.Resolved(TyClass _) -> true
                              | _ -> false
                          ))
                         "both interface impls resolved to an interface TyClass"
@@ -1766,8 +1766,9 @@ let interfaceImplTests =
                 | ValueSome info ->
                     Expect.equal info.InterfaceImpls.Length 1 "one interface impl registered on Box"
 
-                    match info.InterfaceImpls.[0].Resolved with
-                    | ValueSome(TyClass(name, _)) -> Expect.stringContains name "IBox" "impl resolved to IBox"
+                    match info.InterfaceImpls.[0].Resolution with
+                    | InterfaceImplResolution.Resolved(TyClass(name, _)) ->
+                        Expect.stringContains name "IBox" "impl resolved to IBox"
                     | other -> failtestf "interface impl did not resolve to IBox: %A" other
                 | ValueNone -> failtest "struct Box was not registered"
             }

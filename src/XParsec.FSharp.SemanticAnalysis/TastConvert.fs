@@ -49,8 +49,15 @@ module TastConvert =
     let forInEnumerator (f: 'a -> 'b) (en: ForInEnumeratorG<'a>) : ForInEnumeratorG<'b> =
         match en with
         | ForInEnumeratorG.Interface -> ForInEnumeratorG.Interface
-        | ForInEnumeratorG.Pattern(enumTy, ge, members, isVal, disp) ->
-            ForInEnumeratorG.Pattern(f enumTy, forInGetEnum f ge, forInEnumMembers f members, isVal, disp)
+        | ForInEnumeratorG.Pattern p ->
+            ForInEnumeratorG.Pattern
+                {
+                    EnumeratorTy = f p.EnumeratorTy
+                    GetEnumerator = forInGetEnum f p.GetEnumerator
+                    Members = forInEnumMembers f p.Members
+                    IsValueType = p.IsValueType
+                    Dispose = p.Dispose
+                }
 
     let rec expr (f: 'a -> 'b) (fTok: 'ta -> 'tb) (e: TExprG<'a, 'ta, 'id>) : TExprG<'b, 'tb, 'id> =
         let pe = expr f fTok
@@ -254,8 +261,11 @@ module TastConvert =
         {
             Params = EqArray.map (fun (k, ty) -> BoundVarKey.refile m.Id k, m.Ty ty) sc.Params
             Lets = EqArray.map (ctorLet m) sc.Lets
-            PrimaryArgs = EqArray.map m.Body sc.PrimaryArgs
-            FieldInits = EqArray.map (ctorFieldInit m.Body) sc.FieldInits
+            Body =
+                match sc.Body with
+                | TSecondaryCtorBodyG.Chain args -> TSecondaryCtorBodyG.Chain(EqArray.map m.Body args)
+                | TSecondaryCtorBodyG.ExplicitFieldInit inits ->
+                    TSecondaryCtorBodyG.ExplicitFieldInit(EqArray.map (ctorFieldInit m.Body) inits)
         }
 
     let baseCtorCall (m: DeclRebuild<'a, 'b, _, _, 'ia, 'ib, 'ba, 'bb>) (bc: TBaseCtorCallG<'a, 'ia, 'ba>) =
@@ -288,15 +298,21 @@ module TastConvert =
 
         match k with
         | TTypeKindG.Interface methods -> TTypeKindG.Interface(EqArray.map (abstractMethod fTy) methods)
-        | TTypeKindG.Union(cases, members, interfaces) ->
-            TTypeKindG.Union(EqArray.map (unionCase fTy) cases, EqArray.map mem members, ifaces interfaces)
-        | TTypeKindG.Record(fields, members, interfaces, valueKind) ->
-            TTypeKindG.Record(
-                EqArray.map (recordField fTy) fields,
-                EqArray.map mem members,
-                ifaces interfaces,
-                valueKind
-            )
+        | TTypeKindG.Union u ->
+            TTypeKindG.Union
+                {
+                    Cases = EqArray.map (unionCase fTy) u.Cases
+                    Members = EqArray.map mem u.Members
+                    Interfaces = ifaces u.Interfaces
+                }
+        | TTypeKindG.Record r ->
+            TTypeKindG.Record
+                {
+                    Fields = EqArray.map (recordField fTy) r.Fields
+                    Members = EqArray.map mem r.Members
+                    Interfaces = ifaces r.Interfaces
+                    ValueKind = r.ValueKind
+                }
         // Enum cases carry no `'ty` (the value is a resolved literal) and no body, so the
         // case identifier's token is all the mapping can touch.
         | TTypeKindG.Enum cases -> TTypeKindG.Enum(EqArray.map (enumCase m.Tok) cases)

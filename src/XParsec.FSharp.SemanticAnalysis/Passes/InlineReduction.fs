@@ -68,7 +68,15 @@ module InlineReduction =
                 /// `ValueNone` only while walking the compiling file's own declarations: the call
                 /// about to be answered is written there, so its own token is the position.
                 Site: SyntaxToken voption
+                /// The lambda arguments in scope for inline-first elimination here, by the
+                /// parameter bound variable each is bound to.
+                Lambdas: Map<NodeKey, FusedLambda>
             }
+
+    /// A lambda argument eligible for inline-first elimination, with the descent it was WRITTEN
+    /// under: it is spliced at a use INSIDE the body it was passed to, where it is still the
+    /// caller's material, so a call it makes to that binding is nested and not a recursion.
+    and [<NoEquality; NoComparison>] internal FusedLambda = { Body: TExpr; Caller: Descent }
 
     /// A FRESH reduction and the two descents its material belongs to: the body walks INSIDE this
     /// reduction while a supplied argument walks outside it. `1 - 2 - 3` applies `(-)` inside
@@ -106,7 +114,26 @@ module InlineReduction =
     module internal Descent =
 
         /// The compiling file's own declarations, inside no inline body: where the walk starts.
-        let top: Descent = { Frames = []; Site = ValueNone }
+        let top: Descent =
+            {
+                Frames = []
+                Site = ValueNone
+                Lambdas = Map.empty
+            }
+
+        /// Bind each parameter to the lambda argument fused into it, for the walk of the body
+        /// those parameters belong to.
+        let withLambdas (bound: (NodeKey * FusedLambda) list) (d: Descent) : Descent =
+            { d with
+                Lambdas = (d.Lambdas, bound) ||> List.fold (fun m (k, l) -> Map.add k l m)
+            }
+
+        /// Matches a bound variable `d` binds a fused lambda argument to.
+        [<return: Struct>]
+        let (|Lambda|_|) (d: Descent) (k: NodeKey) : FusedLambda voption =
+            match Map.tryFind k d.Lambdas with
+            | Some l -> ValueSome l
+            | None -> ValueNone
 
         /// The file the expressions being walked here were WRITTEN in, whose token array their
         /// anchors index: the declaring file's inside a served body, `compiling` outside one.
@@ -145,6 +172,7 @@ module InlineReduction =
                             }
                             :: d.Frames
                         Site = ValueSome(siteOf d call)
+                        Lambdas = d.Lambdas
                     }
                 Caller = d
             }
@@ -164,12 +192,6 @@ module InlineReduction =
             /// A thunk: the walk a member needs is wasted on any answer but the rebuild.
             RebuiltFn: unit -> TExpr
         }
-
-    /// A lambda argument eligible for inline-first elimination, with the descent it was WRITTEN
-    /// under: it is spliced at a use INSIDE the body it was passed to, where it is still the
-    /// caller's material, so a call it makes to that binding is nested and not a recursion.
-    [<NoEquality; NoComparison>]
-    type internal FusedLambda = { Body: TExpr; Caller: Descent }
 
     /// What the function at a call resolves to: the whole dispatch of the walker's
     /// application rule.

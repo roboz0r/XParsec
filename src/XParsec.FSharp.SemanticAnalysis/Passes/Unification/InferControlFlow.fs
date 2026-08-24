@@ -115,12 +115,13 @@ module internal UnificationInferControlFlow =
                 let disposable =
                     enumInfo.InterfaceImpls
                     |> Array.exists (fun impl ->
-                        match impl.Resolved with
-                        | ValueSome resolved ->
+                        match impl.Resolution with
+                        | InterfaceImplResolution.Resolved resolved ->
                             match inst resolved with
                             | TyClass(ifaceKey, _) -> RuntimeNames.matchesKey ctx.CapabilityIds.Disposable ifaceKey
                             | _ -> false
-                        | ValueNone -> false
+                        | InterfaceImplResolution.Pending
+                        | InterfaceImplResolution.Rejected -> false
                     )
 
                 // `Current`'s instantiated type is the loop element type.
@@ -374,13 +375,14 @@ module internal UnificationInferControlFlow =
                         // External source, external `E`: both axes external.
                         ValueSome(
                             probe.ElemTy,
-                            ForInEnumeratorG.Pattern(
-                                enumTy,
-                                ForInGetEnum.External(SymbolKey.Member ge.Key),
-                                probe.Members,
-                                probe.IsValueType,
-                                probe.Disposable
-                            )
+                            ForInEnumeratorG.Pattern
+                                {
+                                    EnumeratorTy = enumTy
+                                    GetEnumerator = ForInGetEnum.External(SymbolKey.Member ge.Key)
+                                    Members = probe.Members
+                                    IsValueType = probe.IsValueType
+                                    Dispose = probe.Disposable
+                                }
                         )
                     | ValueNone -> ValueNone
                 | _ -> ValueNone
@@ -414,13 +416,14 @@ module internal UnificationInferControlFlow =
                         probeLocalEnumerator ctx enumInfo enumArgs
                         |> ValueOption.map (fun probe ->
                             probe.ElemTy,
-                            ForInEnumeratorG.Pattern(
-                                enumTy,
-                                ForInGetEnum.Local,
-                                probe.Members,
-                                probe.IsValueType,
-                                probe.Disposable
-                            )
+                            ForInEnumeratorG.Pattern
+                                {
+                                    EnumeratorTy = enumTy
+                                    GetEnumerator = ForInGetEnum.Local
+                                    Members = probe.Members
+                                    IsValueType = probe.IsValueType
+                                    Dispose = probe.Disposable
+                                }
                         )
                     // `E` is not project-local: keep the local `GetEnumerator`, but read
                     // `MoveNext` / `Current` / `Dispose` off `E`'s external shape.
@@ -430,13 +433,14 @@ module internal UnificationInferControlFlow =
                             probeExternalEnumerator ctx enumShape (enumArgs.AsSpan().ToArray())
                             |> ValueOption.map (fun probe ->
                                 probe.ElemTy,
-                                ForInEnumeratorG.Pattern(
-                                    enumTy,
-                                    ForInGetEnum.Local,
-                                    probe.Members,
-                                    probe.IsValueType,
-                                    probe.Disposable
-                                )
+                                ForInEnumeratorG.Pattern
+                                    {
+                                        EnumeratorTy = enumTy
+                                        GetEnumerator = ForInGetEnum.Local
+                                        Members = probe.Members
+                                        IsValueType = probe.IsValueType
+                                        Dispose = probe.Disposable
+                                    }
                             )
                         | _ -> ValueNone
                 | _ -> ValueNone
@@ -454,8 +458,8 @@ module internal UnificationInferControlFlow =
         let picked =
             host.InterfaceImpls
             |> Array.tryPick (fun impl ->
-                match impl.Resolved with
-                | ValueSome resolved ->
+                match impl.Resolution with
+                | InterfaceImplResolution.Resolved resolved ->
                     match zonk ctx.Store (instantiateMember ctx.Store (host.TypeParams, args) resolved) with
                     | TyClass(ifaceKey, ifaceArgs) when
                         RuntimeNames.matchesKey ctx.CapabilityIds.Enumerable ifaceKey
@@ -463,7 +467,8 @@ module internal UnificationInferControlFlow =
                         ->
                         Some(ifaceArgs.[0], ForInEnumeratorG.Interface)
                     | _ -> None
-                | ValueNone -> None
+                | InterfaceImplResolution.Pending
+                | InterfaceImplResolution.Rejected -> None
             )
 
         match picked with
@@ -536,13 +541,14 @@ module internal UnificationInferControlFlow =
                         | ValueSome probe ->
                             ValueSome(
                                 probe.ElemTy,
-                                ForInEnumeratorG.Pattern(
-                                    enumTy,
-                                    ForInGetEnumG.ConstrainedInterface(ifaceKey, ifaceArgs),
-                                    probe.Members,
-                                    probe.IsValueType,
-                                    probe.Disposable
-                                )
+                                ForInEnumeratorG.Pattern
+                                    {
+                                        EnumeratorTy = enumTy
+                                        GetEnumerator = ForInGetEnumG.ConstrainedInterface(ifaceKey, ifaceArgs)
+                                        Members = probe.Members
+                                        IsValueType = probe.IsValueType
+                                        Dispose = probe.Disposable
+                                    }
                             )
                         | ValueNone -> ValueNone
                     | _ -> ValueNone

@@ -64,6 +64,10 @@ module Pipeline =
 
     /// Every pass plus the final `SemType → FrozenType` freeze: the frozen tree AS POOLS,
     /// which is what codegen consumes. `SemType` consumers use the `…Sem…` variants above.
+    ///
+    /// A file whose analysis reported an error freezes to the empty pools carrying those
+    /// diagnostics: the pool build's invariants hold only over a tree every name resolved in,
+    /// and the diagnostics are the answer the caller acts on.
     let analyseWithContextFor
         (assembly: CompilingAssembly)
         (provider: IExternalSymbolProvider)
@@ -71,7 +75,20 @@ module Pipeline =
         (impl: ImplementationFile<SyntaxToken>)
         : PassContext * FrozenPools =
         let ctx, tast = analyseSemWithContextFor assembly provider file impl
-        ctx, Freeze.run ctx tast
+
+        if tast.Diagnostics |> List.exists Diagnostic.isError then
+            let pools =
+                { FrozenPools.empty with
+                    Path = file.Path
+                    Residue =
+                        { FrozenPools.empty.Residue with
+                            Diagnostics = tast.Diagnostics
+                        }
+                }
+
+            ctx, pools
+        else
+            ctx, Freeze.run ctx tast
 
     /// The `SemType` (pre-freeze) production entry, discarding the `PassContext`.
     let analyseSemFor

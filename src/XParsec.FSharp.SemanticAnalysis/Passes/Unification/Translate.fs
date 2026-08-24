@@ -287,6 +287,14 @@ module internal UnificationTranslate =
             let site = CstKeys.typeRefSite t
             let name = ctx.NameOf site.Tok
             resolveNamedGeneric ctx site name (EqArray.singleton (translateType ctx baseTy))
+        | Type.SuffixedType(longIdent = li) ->
+            // Postfix application through a QUALIFIED name (`int A.T`). F# accepts it; this
+            // compiler has no model for the shape, which the diagnostic says rather than
+            // blaming the spelling.
+            let site = CstKeys.typeRefSite t
+            let written = (ctx.WrittenTypeNameOf li).Written
+
+            errorTy ctx site.Tok (Kind.NotYetSupported(sprintf "the postfix type application '%s'" written))
         | Type.FunctionType(fromType = from; toType = into) -> TyFun(translateType ctx from, translateType ctx into)
         | Type.TupleType(types = types) -> TyTuple(EqArray.ofSeq (seq { for t in types -> translateType ctx t }))
         | Type.WhenConstrainedType(typ = inner; constraints = cs) ->
@@ -309,8 +317,8 @@ module internal UnificationTranslate =
             // one member, and leaves a set that compares equal in any member order.
             mkUnion [ translateType ctx l; translateType ctx r ]
         | _ ->
-            // Shapes with no model: a multi-segment postfix application (`int A.T`), an
-            // anonymous record. A free TyVar lets unification pin it from context.
+            // Shapes with no model, such as an anonymous record. A free TyVar lets
+            // unification pin it from context.
             TyVar(freshTyVar ctx)
 
     /// The `SemType` of the project-local type `claim` identifies, applied to `args`. A nominal is
@@ -588,28 +596,25 @@ module internal UnificationTranslate =
         for c in tcs.Constraints do
             translateConstraint ctx c
 
-    /// Idempotent, because `Filled` short-circuits. Re-entry through a recursive abbreviation sees
-    /// `InProgress`, diagnoses, and freezes `Status` without a `Body`; the outer call then
-    /// leaves `Body` at `ValueNone`, so each use site expands to a fresh TyVar.
+    /// Idempotent: leaves the abbreviation in a terminal state. A recursive abbreviation is
+    /// diagnosed on re-entry and ends `Broken`.
     and forceFill (ctx: PassContext) (info: AbbreviationInfo) : unit =
-        match info.Status with
-        | AbbreviationStatus.Filled -> ()
-        | AbbreviationStatus.InProgress ->
+        match info.State with
+        | AbbreviationState.Filled _
+        | AbbreviationState.Broken -> ()
+        | AbbreviationState.InProgress ->
             ctx.Report(info.DeclSite.Tok, Kind.Message(sprintf "Type abbreviation '%s' is cyclic" info.Name))
 
-            info.Status <- AbbreviationStatus.Filled
-        | AbbreviationStatus.NotFilled ->
-            info.Status <- AbbreviationStatus.InProgress
-            let savedScope = ctx.Resolution.TyparScope
-            let savedStrict = ctx.Resolution.TyparScopeStrict
+            info.State <- AbbreviationState.Broken
+        | AbbreviationState.NotFilled ->
+            info.State <- AbbreviationState.InProgress
             let scope = Dictionary<string, TyVarId>(System.StringComparer.Ordinal)
 
             for (n, tv) in info.TypeParams do
                 if not (scope.ContainsKey n) then
                     scope.[n] <- tv
 
-            ctx.Resolution.TyparScope <- scope
-            ctx.Resolution.TyparScopeStrict <- true
+            use _ = ctx.PushTyparScope(scope, true)
 
             try
                 match info.TyparConstraints with
@@ -618,14 +623,16 @@ module internal UnificationTranslate =
 
                 let body = translateType ctx info.RhsCst
 
-                if info.Status = AbbreviationStatus.InProgress then
-                    info.Body <- ValueSome body
+                match info.State with
+                | AbbreviationState.InProgress -> info.State <- AbbreviationState.Filled body
+                | _ -> ()
             finally
-                ctx.Resolution.TyparScope <- savedScope
-                ctx.Resolution.TyparScopeStrict <- savedStrict
-                info.Status <- AbbreviationStatus.Filled
 
-    /// A missing `Body` (cycle, or fill-in not yet run) yields a fresh TyVar rather than
+                match info.State with
+                | AbbreviationState.InProgress -> info.State <- AbbreviationState.Broken
+                | _ -> ()
+
+    /// A `Broken` or not-yet-filled abbreviation yields a fresh TyVar rather than
     /// cascading. Prototype-typar constraints are checked against the supplied args HERE:
     /// an abbreviation has no fresh-instance step, and a Defer propagates to free arg TyVars.
     and expandAbbreviation
@@ -647,6 +654,8 @@ module internal UnificationTranslate =
                 | Violated -> reportConstraintViolation ctx blameTok c arg
                 | Defer -> propagateToFreeArgs ctx c arg
 
-        match info.Body with
-        | ValueSome body -> instantiateMember ctx.Store (info.TypeParams, args) body
-        | ValueNone -> TyVar(freshTyVar ctx)
+        match info.State with
+        | AbbreviationState.Filled body -> instantiateMember ctx.Store (info.TypeParams, args) body
+        | AbbreviationState.NotFilled
+        | AbbreviationState.InProgress
+        | AbbreviationState.Broken -> TyVar(freshTyVar ctx)

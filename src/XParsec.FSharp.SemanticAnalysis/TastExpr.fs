@@ -19,6 +19,15 @@ type TConstValue =
     | String of string
     | Unit
 
+/// What a call supplies for a trailing optional parameter it omitted.
+[<RequireQualifiedAccess>]
+type OptionalDefault =
+    /// The declaration states a constant default.
+    | Const of TConstValue
+    /// The declaration states no default, so the slot is filled with the target's
+    /// missing-argument value.
+    | Omitted
+
 [<Struct>]
 type ParamAttrs =
     {

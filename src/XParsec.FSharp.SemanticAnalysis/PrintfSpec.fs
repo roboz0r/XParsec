@@ -286,6 +286,17 @@ module PrintfSpec =
             ToStringKey: SymbolKey
         }
 
+    /// The shape Elaborate lowers one printf-family `Expr.App` to. An application carrying
+    /// none of these keeps the generic FSharp.Core printf shape.
+    [<RequireQualifiedAccess>]
+    type PrintfLowering =
+        /// Fully applied, lowering to a `TExpr.Format`. `Scratch` is present only for a
+        /// `%a`/`%t` hole on a writer or builder sink; `sprintf`'s residue is its own result.
+        | Full of sink: PrintfSink * scratch: CallbackScratch voption
+        /// Fully unapplied (`printfn "%d"`), lowering to a synthesised closure. Never
+        /// `%A`/`%O`, because an unapplied hole there is an unpinned typar.
+        | Partial of sink: PrintfSink
+
     let formatType (printer: SemType) (fam: Family) : SemType =
         TyClass(RuntimeNames.printfFormatKey, EqArray.ofList [ printer; fam.State; fam.Residue; fam.Result ])
 

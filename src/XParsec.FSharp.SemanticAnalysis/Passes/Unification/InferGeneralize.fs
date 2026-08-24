@@ -17,10 +17,18 @@ module internal UnificationInferGeneralize =
     let iterTypeVarRoots (store: TypeStore) (onRoot: Rep -> unit) (t: SemType) : unit =
         t |> SemTypeWalk.iterSemTypeVars (fun tv -> onRoot (UnionFind.find store tv))
 
+    /// One use site's view of a scheme: the instantiated body, and the fresh TyVar minted for
+    /// each quantified root, keyed by that root.
+    type Instantiation =
+        {
+            Body: SemType
+            FreshOf: IReadOnlyDictionary<TyVarId, TyVarId>
+        }
+
     /// Non-quantified TyVars are left alone, because they're free w.r.t. the
     /// surrounding scope and must keep their identity. `scheme.Body` is
     /// already zonked by `generalise`, so we don't follow Links here.
-    let instantiate (ctx: PassContext) (scheme: TypeScheme) : SemType =
+    let instantiateOpen (ctx: PassContext) (scheme: TypeScheme) : Instantiation =
         let subst = Dictionary<TyVarId, SemType>()
         let freshOf = Dictionary<TyVarId, TyVarId>()
 
@@ -79,7 +87,33 @@ module internal UnificationInferGeneralize =
                 addConstraintByKind ctx.Store fresh c
             | false, _ -> ()
 
-        substituteWith ctx.Store subst scheme.Body
+        {
+            Body = substituteWith ctx.Store subst scheme.Body
+            FreshOf = freshOf
+        }
+
+    let instantiate (ctx: PassContext) (scheme: TypeScheme) : SemType = (instantiateOpen ctx scheme).Body
+
+    /// The order explicit type arguments are supplied in: declared typars in source order,
+    /// then the scheme's remaining quantified roots by first appearance. Entries are
+    /// union-find roots, so they index `Instantiation.FreshOf`.
+    let explicitTyparOrder (ctx: PassContext) (declared: (string * TyVarId) list) (scheme: TypeScheme) : TyVarId list =
+        let rootOf (tv: TyVarId) = (UnionFind.find ctx.Store tv).Id
+        let quantified = HashSet<TyVarId>(scheme.Quantified |> Seq.map rootOf)
+
+        let declaredQuantified =
+            declared |> List.filter (fun (_, tv) -> quantified.Contains(rootOf tv))
+
+        GeneralizedTypars.canonical
+            ctx.Store
+            declaredQuantified
+            (HashSet<TyVarId>())
+            (Dictionary<TyVarId, string>() :> IReadOnlyDictionary<_, _>)
+            scheme.Body
+        |> GeneralizedTypars.toArray
+        |> Seq.map snd
+        |> Seq.filter quantified.Contains
+        |> List.ofSeq
 
     /// Resolve a bound name to its type: instantiate its generalised scheme if one was
     /// written, else take the monomorphic binding-site TyVar (a sibling in the same

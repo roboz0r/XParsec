@@ -72,6 +72,20 @@ type ForInEnumMembersG<'ty> =
     /// iface::MoveNext`, dispatching a struct by address.
     | ConstrainedInterface of iface: TypeKey * ifaceArgs: EqArray<'ty>
 
+/// The duck-typed for-in walk over a concrete enumerator `E`.
+type ForInPatternG<'ty> =
+    {
+        /// `E`, the concrete type `GetEnumerator()` returns.
+        EnumeratorTy: 'ty
+        GetEnumerator: ForInGetEnumG<'ty>
+        Members: ForInEnumMembersG<'ty>
+        /// `E` is a value type, selecting the non-boxing object-argument walk.
+        IsValueType: bool
+        /// `E` carries `IDisposable`, so the walk is wrapped in a `finally` disposing it
+        /// through the `System.IDisposable::Dispose` slot.
+        Dispose: bool
+    }
+
 [<RequireQualifiedAccess>]
 type ForInEnumeratorG<'ty> =
     /// Lower through the `IEnumerable<'T>` / `IEnumerator<'T>` interface slots with
@@ -79,15 +93,11 @@ type ForInEnumeratorG<'ty> =
     | Interface
     /// The duck-typed path: the source exposes a parameterless `GetEnumerator()` returning
     /// a concrete `E` with `MoveNext(): bool` and `Current`, *without* implementing
-    /// `IEnumerable<'T>`. `isValueType` is `E`'s, selecting the non-boxing object-argument walk.
-    | Pattern of
-        enumeratorTy: 'ty *
-        getEnumerator: ForInGetEnumG<'ty> *
-        members: ForInEnumMembersG<'ty> *
-        isValueType: bool *
-        dispose: bool
+    /// `IEnumerable<'T>`.
+    | Pattern of ForInPatternG<'ty>
 
 /// The `SemType` instantiations, spoken before the freeze.
 type ForInGetEnum = ForInGetEnumG<SemType>
 type ForInEnumMembers = ForInEnumMembersG<SemType>
+type ForInPattern = ForInPatternG<SemType>
 type ForInEnumerator = ForInEnumeratorG<SemType>

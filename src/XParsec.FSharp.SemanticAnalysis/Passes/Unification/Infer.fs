@@ -186,12 +186,13 @@ module UnificationInfer =
         : bool =
         host.InterfaceImpls
         |> Array.exists (fun impl ->
-            match impl.Resolved with
-            | ValueSome resolved ->
+            match impl.Resolution with
+            | InterfaceImplResolution.Resolved resolved ->
                 match zonk ctx.Store (instantiateMember ctx.Store (host.TypeParams, args) resolved) with
                 | TyClass(ifaceKey, _) -> RuntimeNames.matchesKey ctx.CapabilityIds.Disposable ifaceKey
                 | _ -> false
-            | ValueNone -> false
+            | InterfaceImplResolution.Pending
+            | InterfaceImplResolution.Rejected -> false
         )
 
     /// The ref-struct carve-out: a `[<IsByRefLike>]` class can't be boxed to `IDisposable`,
@@ -281,13 +282,18 @@ module UnificationInfer =
     and inferBinding (ctx: PassContext) (b: Binding<SyntaxToken>) : unit =
         // One typar scope per binding signature: explicit `<'a>` typars seed
         // it first so later implicit `'a` mentions share the same TyVar.
-        let savedScope = ctx.Resolution.TyparScope
-        ctx.Resolution.TyparScope <- Dictionary<string, TyVarId>(System.StringComparer.Ordinal)
+        let enclosingScope = ctx.Resolution.TyparScope
+
+        use _ =
+            ctx.PushTyparScope(
+                Dictionary<string, TyVarId>(System.StringComparer.Ordinal),
+                ctx.Resolution.TyparScopeStrict
+            )
 
         // Inherit the lexically-enclosing binding's typars (lowest priority) so a named typar
         // in a *nested* `let rec loop (t': Tree<'T>)` resolves to the enclosing function's
         // TyVar rather than minting a fresh, ungrounded `'T`, matching F#'s lexical typar scoping.
-        for kv in savedScope do
+        for kv in enclosingScope do
             ctx.Resolution.TyparScope.[kv.Key] <- kv.Value
 
         // `EnclosingTypars` carries the class `<'T>` and, for a generic member's body walk,
@@ -301,9 +307,8 @@ module UnificationInfer =
 
         seedBindingTypars ctx b
 
-        // Capture the binding's explicit `<'b,'a>` typars in SOURCE order while `TyparScope`
-        // is still live, because the `finally` restores it per binding. Elaborate cannot recover
-        // the order afterwards, and needs it to put a free function's declared typars first.
+        // Elaborate needs the binding's explicit `<'b,'a>` typars in SOURCE order to put a free
+        // function's declared typars first, and cannot recover that order from the scheme.
         match b.typarDefns with
         | ValueSome(TyparDefns(defns = ds)) ->
             let declared =
@@ -332,73 +337,67 @@ module UnificationInfer =
         // `let` in the body mints fresh typars rather than reusing the member's prototypes.
         ctx.Resolution.BindingTyparSeed <- ValueNone
 
-        try
-            let bindTok = (CstKeys.siteOfBinding b).Tok
-            let patTy = inferPat ctx b.pattern
+        let bindTok = (CstKeys.siteOfBinding b).Tok
+        let patTy = inferPat ctx b.pattern
 
-            // The return annotation is translated *before* the body so a return-only typar
-            // (`let f () : 'T list = …`) seeds the scope first; otherwise the body mints a
-            // fresh `'T` and the return translates into a different one.
-            let rhsTy =
-                if b.argumentPats.IsEmpty then
+        // The return annotation is translated *before* the body so a return-only typar
+        // (`let f () : 'T list = …`) seeds the scope first; otherwise the body mints a
+        // fresh `'T` and the return translates into a different one.
+        let rhsTy =
+            if b.argumentPats.IsEmpty then
+                match b.returnType with
+                | ValueSome(ReturnType(typ = t)) ->
+                    let annTy = translateType ctx t
+
+                    // Provenance: `let x : T = e` writes the bound variable's type explicitly.
+                    ctx.MarkTypeDeclared(CstKeys.ofPat b.pattern, annTy)
+
+                    // A format-string literal bound to a `PrintfFormat`-family annotation
+                    // types AS the format, not `string`: skip `infer` on the literal, and
+                    // stamp the annotation's format type onto the literal node.
+                    match tryTypeFormatLiteral ctx bindTok b.expr annTy with
+                    | ValueSome fmt ->
+                        ctx.Store.SetLink(UnionFind.find ctx.Store (freshTv ctx (CstKeys.ofExpr b.expr)), ValueSome fmt)
+
+                        annTy
+                    | ValueNone ->
+                        let bodyTy = infer ctx b.expr
+                        // `unifyAnnotation` admits value→union (`let x: int | string = 1`)
+                        // and concrete-subtype→supertype (`: exn = e`), staying symmetric
+                        // `unify` for every other nominal annotation.
+                        unifyAnnotation ctx bindTok bodyTy annTy
+                        annTy
+                | ValueNone -> infer ctx b.expr
+            else
+                let argTypes = [ for p in b.argumentPats -> inferPat ctx p ]
+
+                let bodyTy =
                     match b.returnType with
                     | ValueSome(ReturnType(typ = t)) ->
                         let annTy = translateType ctx t
+                        let bodyTy = infer ctx b.expr
 
-                        // Provenance: `let x : T = e` writes the bound variable's type explicitly.
-                        ctx.MarkTypeDeclared(CstKeys.ofPat b.pattern, annTy)
+                        // Provenance: a `let f … : T = body` return annotation writes the
+                        // BODY's type; each parameter's is recorded by `inferPat`.
+                        ctx.MarkTypeDeclared(CstKeys.ofExpr b.expr, annTy)
 
-                        // A format-string literal bound to a `PrintfFormat`-family annotation
-                        // types AS the format, not `string`: skip `infer` on the literal, and
-                        // stamp the annotation's format type onto the literal node.
-                        match tryTypeFormatLiteral ctx bindTok b.expr annTy with
-                        | ValueSome fmt ->
-                            ctx.Store.SetLink(
-                                UnionFind.find ctx.Store (freshTv ctx (CstKeys.ofExpr b.expr)),
-                                ValueSome fmt
-                            )
-
-                            annTy
-                        | ValueNone ->
-                            let bodyTy = infer ctx b.expr
-                            // `unifyAnnotation` admits value→union (`let x: int | string = 1`)
-                            // and concrete-subtype→supertype (`: exn = e`), staying symmetric
-                            // `unify` for every other nominal annotation.
-                            unifyAnnotation ctx bindTok bodyTy annTy
-                            annTy
+                        unifyAnnotation ctx bindTok bodyTy annTy
+                        annTy
                     | ValueNone -> infer ctx b.expr
-                else
-                    let argTypes = [ for p in b.argumentPats -> inferPat ctx p ]
 
-                    let bodyTy =
-                        match b.returnType with
-                        | ValueSome(ReturnType(typ = t)) ->
-                            let annTy = translateType ctx t
-                            let bodyTy = infer ctx b.expr
+                List.foldBack (fun a r -> TyFun(a, r)) argTypes bodyTy
 
-                            // Provenance: a `let f … : T = body` return annotation writes the
-                            // BODY's type; each parameter's is recorded by `inferPat`.
-                            ctx.MarkTypeDeclared(CstKeys.ofExpr b.expr, annTy)
+        unify ctx bindTok patTy rhsTy
 
-                            unifyAnnotation ctx bindTok bodyTy annTy
-                            annTy
-                        | ValueNone -> infer ctx b.expr
-
-                    List.foldBack (fun a r -> TyFun(a, r)) argTypes bodyTy
-
-            unify ctx bindTok patTy rhsTy
-
-            // A binding whose value is a format-string literal AND whose type resolved to a
-            // `PrintfFormat` gets that literal stashed by binding site, so a later
-            // `sprintf fmt …` recovers it and lowers natively.
-            match resolveStep ctx.Store patTy with
-            | TyClass(fmtKey, _) when fmtKey = RuntimeNames.printfFormatKey ->
-                match peelToFormatString ctx b.expr with
-                | ValueSome lit -> ctx.PrintfFormatLiterals.Set(CstKeys.ofPat b.pattern, lit)
-                | ValueNone -> ()
-            | _ -> ()
-        finally
-            ctx.Resolution.TyparScope <- savedScope
+        // A binding whose value is a format-string literal AND whose type resolved to a
+        // `PrintfFormat` gets that literal stashed by binding site, so a later
+        // `sprintf fmt …` recovers it and lowers natively.
+        match resolveStep ctx.Store patTy with
+        | TyClass(fmtKey, _) when fmtKey = RuntimeNames.printfFormatKey ->
+            match peelToFormatString ctx b.expr with
+            | ValueSome lit -> ctx.PrintfFormatLiterals.Set(CstKeys.ofPat b.pattern, lit)
+            | ValueNone -> ()
+        | _ -> ()
 
     /// Type a `let` / `let rec` group. Sibling binding-pattern TyVars are pre-allocated so a forward
     /// reference from inside one RHS finds the sibling's TyVar at THIS group's level rather

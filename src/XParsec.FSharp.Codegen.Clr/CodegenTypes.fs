@@ -78,9 +78,8 @@ type internal RecordDecl =
         /// User `interface … with member …` impls: each pair is an implemented interface
         /// type + its already-typed member bodies.
         Interfaces: (FrozenNominal * TastAccessor.TypeMember list) list
-        /// `Struct` for a `[<Struct>]` record (`System.ValueType` base, sealed) or
-        /// `RefType` otherwise. Records are never `RefStruct`.
-        ValueKind: ClassValueKind
+        /// `Struct` for a `[<Struct>]` record (`System.ValueType` base, sealed).
+        ValueKind: RecordValueKind
     }
 
 /// A partitioned class declaration. `Fields` are the explicit `val [mutable] x: T`

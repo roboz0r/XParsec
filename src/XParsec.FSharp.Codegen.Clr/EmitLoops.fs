@@ -231,7 +231,11 @@ module EmitLoops =
         let elemTy = typeOfPat pat
 
         match enumerator with
-        | ForInEnumeratorG.Pattern(enumeratorTy, getEnum, members, isValueType, dispose) ->
+        | ForInEnumeratorG.Pattern p ->
+            let enumeratorTy = p.EnumeratorTy
+            let getEnum = p.GetEnumerator
+            let members = p.Members
+
             // Duck-typed `GetEnumerator()` — C#'s non-boxing `foreach`: the source
             // exposes a concrete `E` with `MoveNext(): bool` and a `Current` property
             // without implementing `IEnumerable<'T>`, so the loop walks `E` directly.
@@ -280,8 +284,8 @@ module EmitLoops =
                     GetEnumerator = geHandle
                     MoveNext = mnHandle
                     Current = curHandle
-                    IsValueType = isValueType
-                    Disposable = dispose
+                    IsValueType = p.IsValueType
+                    Disposable = p.Dispose
                     GetEnumeratorViaInterface = getEnumViaConstrained
                     GetEnumViaConstrained = getEnumViaConstrained
                     MembersViaConstrained = membersViaConstrained

@@ -161,8 +161,8 @@ module internal ElaborateClassMembers =
             MethodTypeParams = methodTypeParams
         }
 
-    /// Each `let`-preamble binding becomes a `TCtorLet`, the final chain call's arguments
-    /// become `PrimaryArgs`. The TAST keeps only the chain (`rest` / `before` /
+    /// Each `let`-preamble binding becomes a `TCtorLet`, and the final chain call's arguments
+    /// become the `Chain` body. The TAST keeps only the chain (`rest` / `before` /
     /// `thenBranch`); a discarded statement, condition, or else branch is diagnosed as
     /// unsupported rather than silently lost.
     let translateSecondaryCtor (ctx: PassContext) (className: string) (sc: ClassSecondaryCtorInfo) : TSecondaryCtor =
@@ -179,7 +179,7 @@ module internal ElaborateClassMembers =
             raw
 
         let lets = ResizeArray<TCtorLet>()
-        let mutable primaryArgs = EqArray.empty
+        let mutable ctorBody = TSecondaryCtorBodyG.Chain EqArray.empty
         let fieldInits = ResizeArray<TCtorFieldInit>()
 
         // The explicit field-init form `new(args) = { f = e; … }` stores into declared
@@ -228,14 +228,15 @@ module internal ElaborateClassMembers =
             | AdditionalConstrExpr.Init initExpr ->
                 match initExpr with
                 | AdditionalConstrInitExpr.Expression e
-                | AdditionalConstrInitExpr.Delegated(expr = e) -> primaryArgs <- chainArgs e
-                | AdditionalConstrInitExpr.Explicit(initializers = inits) -> fieldInitsOf inits
+                | AdditionalConstrInitExpr.Delegated(expr = e) -> ctorBody <- TSecondaryCtorBodyG.Chain(chainArgs e)
+                | AdditionalConstrInitExpr.Explicit(initializers = inits) ->
+                    fieldInitsOf inits
+                    ctorBody <- TSecondaryCtorBodyG.ExplicitFieldInit(EqArray.ofSeq fieldInits)
 
         go sc.Body
 
         {
             Params = parms
             Lets = EqArray.ofSeq lets
-            PrimaryArgs = primaryArgs
-            FieldInits = EqArray.ofSeq fieldInits
+            Body = ctorBody
         }

@@ -142,7 +142,7 @@ module private MetadataMapping =
 
     /// Trailing omittable parameter defaults in declaration order. Walks from the end;
     /// stops at the first non-optional or non-representable-constant parameter.
-    let optionalDefaults (ps: ParameterInfo[]) : TConstValue list =
+    let optionalDefaults (ps: ParameterInfo[]) : OptionalDefault list =
         let tryConstOf (p: ParameterInfo) : TConstValue option =
             if not p.IsOptional then
                 None
@@ -165,7 +165,7 @@ module private MetadataMapping =
         while go && i >= 0 do
             match tryConstOf ps.[i] with
             | Some c ->
-                acc <- c :: acc
+                acc <- OptionalDefault.Const c :: acc
                 i <- i - 1
             | None -> go <- false
 

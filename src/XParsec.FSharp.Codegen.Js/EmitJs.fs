@@ -790,6 +790,13 @@ module EmitJs =
     /// it IS: its own parameters, its `let`s as `const` locals, then one `this.f = e` store
     /// per field initialiser. Fields the source leaves out stay absent.
     let private emitExplicitCtor (ctx: WalkCtx) (sc: TastAccessor.SecondaryCtor) : JsCtor =
+        let fieldInits =
+            match sc.Body with
+            | TSecondaryCtorBodyG.ExplicitFieldInit inits -> inits
+            | TSecondaryCtorBodyG.Chain _ ->
+                failwith
+                    "EmitJs: a chained secondary constructor is unsupported on JS; a JS class has exactly one constructor"
+
         {
             Params =
                 [
@@ -803,7 +810,7 @@ module EmitJs =
                             boundVarNameOf ctx.Pool (BoundVarKey.identity l.BoundVar),
                             buildExpr ctx l.Init
                         )
-                    for fi in sc.FieldInits -> JsStatement.FieldStore(fi.Field, buildExpr ctx fi.Init)
+                    for fi in fieldInits -> JsStatement.FieldStore(fi.Field, buildExpr ctx fi.Init)
                 ]
         }
 

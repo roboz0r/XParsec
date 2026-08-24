@@ -47,22 +47,39 @@ type ClaimedTypeDefn =
         Defn: TypeDefn<SyntaxToken>
     }
 
+/// One arity-overloadable type kind's entries, addressed by the type's own `TypeKey` — the
+/// WHOLE containment chain, not a name — beside the short-name index over them. A bare name
+/// yields a *candidate set*, never one entry.
+[<NoEquality; NoComparison>]
+type KindRegistry<'Info> =
+    {
+        ByKey: Dictionary<TypeKey, 'Info>
+        /// Short name as written, with no arity suffix.
+        Names: Dictionary<string, ResizeArray<TypeKey>>
+    }
+
+module KindRegistry =
+    let empty<'Info> () : KindRegistry<'Info> =
+        {
+            ByKey = Dictionary<_, _>()
+            Names = Dictionary<_, _>()
+        }
+
 type PassContextTypes =
     {
-        /// Keyed by the type's own `TypeKey`, which is the WHOLE containment chain, not a name.
         /// Field types are RESOLVED at registration, against the types in scope at the declaration.
-        Record: Dictionary<TypeKey, RecordTypeInfo>
-        /// Keyed by `TypeKey` (see `Record`). Case field types are resolved at registration.
-        Union: Dictionary<TypeKey, UnionTypeInfo>
+        Record: KindRegistry<RecordTypeInfo>
+        /// Case field types are resolved at registration.
+        Union: KindRegistry<UnionTypeInfo>
         /// The declared structure (ctor-param annotations, `val` field types) is resolved at
         /// registration; MEMBER types start as placeholder TyVars, inferred from their bodies.
-        Class: Dictionary<TypeKey, ClassTypeInfo>
+        Class: KindRegistry<ClassTypeInfo>
         /// An enum is non-generic, so its claim is always `(container, name, 0)`, but still keyed
         /// by `TypeKey`, since two sibling modules may each declare one.
         Enum: Dictionary<TypeKey, EnumTypeInfo>
         /// An alias body is forced by the first thing that references it, at the latest when its
         /// group closes. Expansion is eager: downstream sees the underlying type longhand.
-        Abbreviation: Dictionary<TypeKey, AbbreviationInfo>
+        Abbreviation: KindRegistry<AbbreviationInfo>
         /// Reverse index: ctor name → case-info entries, each tagged with its declaring union.
         /// Scoped reads only, because a case is visible exactly where its declaring union is.
         CtorIndex: Dictionary<string, EqArray<UnionCaseInfo>>
@@ -83,15 +100,6 @@ type PassContextTypes =
         /// is the namespace-homed identity a use site's `TyConst` carries, not its container-homed
         /// nominal claim. A name reaches it only through `IntrinsicKeys`.
         IntrinsicAbbrevHost: Dictionary<TypeKey, IntrinsicAbbrevInfo>
-        /// Reverse index: record short name (NO arity suffix, as written) → the `TypeKey`s
-        /// claiming it. A bare name yields a *candidate set*, never one entry.
-        RecordNames: Dictionary<string, ResizeArray<TypeKey>>
-        /// Reverse index: union short name → candidate `TypeKey`s. See `RecordNames`.
-        UnionNames: Dictionary<string, ResizeArray<TypeKey>>
-        /// Reverse index: class / interface short name → candidate `TypeKey`s.
-        ClassNames: Dictionary<string, ResizeArray<TypeKey>>
-        /// Reverse index: abbreviation short name → candidate `TypeKey`s. See `RecordNames`.
-        AbbreviationNames: Dictionary<string, ResizeArray<TypeKey>>
         /// THE name table: short name → every `(container, name, arity)` claim under it, of any
         /// KIND. At most one type may hold a claim; several under one name are ranked.
         TypeClaims: Dictionary<string, ResizeArray<TypeIdentity>>
@@ -112,20 +120,16 @@ type PassContextTypes =
 module PassContextTypes =
     let empty () : PassContextTypes =
         {
-            Record = Dictionary<_, _>()
-            Union = Dictionary<_, _>()
-            Class = Dictionary<_, _>()
+            Record = KindRegistry.empty ()
+            Union = KindRegistry.empty ()
+            Class = KindRegistry.empty ()
             Enum = Dictionary<_, _>()
-            Abbreviation = Dictionary<_, _>()
+            Abbreviation = KindRegistry.empty ()
             CtorIndex = Dictionary<_, _>()
             FieldIndex = Dictionary<_, _>()
             IntrinsicReprKeys = Dictionary<_, _>()
             IntrinsicKeys = Dictionary<_, _>()
             IntrinsicAbbrevHost = Dictionary<_, _>()
-            RecordNames = Dictionary<_, _>()
-            UnionNames = Dictionary<_, _>()
-            ClassNames = Dictionary<_, _>()
-            AbbreviationNames = Dictionary<_, _>()
             TypeClaims = Dictionary<_, _>()
             LocalContainers = Dictionary<_, _>()
             LocalContainerPaths = Dictionary<_, _>()
@@ -157,23 +161,17 @@ module TypeRegistry =
 
     /// Register `info` under its own `TypeKey`, indexing that key under the short `name`.
     /// Idempotent: a re-register refreshes the entry without duplicating the index candidate.
-    let private registerKeyed
-        (table: Dictionary<TypeKey, 'T>)
-        (index: Dictionary<string, ResizeArray<TypeKey>>)
-        (name: string)
-        (key: TypeKey)
-        (info: 'T)
-        : unit =
-        table.[key] <- info
+    let private registerKeyed (reg: KindRegistry<'T>) (name: string) (key: TypeKey) (info: 'T) : unit =
+        reg.ByKey.[key] <- info
 
-        match index.TryGetValue name with
+        match reg.Names.TryGetValue name with
         | true, keys ->
             if not (keys.Contains key) then
                 keys.Add key
         | false, _ ->
             let keys = ResizeArray 1
             keys.Add key
-            index.[name] <- keys
+            reg.Names.[name] <- keys
 
     // --- What a use site can see, and which candidate wins ----------------------------
     // F# adds each declaration and each `open` to the name environment in source order, last
@@ -220,6 +218,16 @@ module TypeRegistry =
                 | false, _ -> ValueNone
             | false, _ -> ValueNone
 
+    /// The route by which a written name arrives at a container.
+    [<Struct; RequireQualifiedAccess; NoComparison>]
+    type private ReachRoute =
+        /// The use site's own scope or one enclosing it, descended through the written path.
+        | Ancestor
+        /// An `open`, which fixes the offset the name enters at.
+        | Opened of offset: int
+        /// The file's root, reached by a fully-qualified path.
+        | Root
+
     /// ONE way a written name REACHES a container from a use site, and where it enters there.
     [<Struct; NoComparison>]
     type private ContainerReach =
@@ -229,9 +237,7 @@ module TypeRegistry =
             /// How many `module`s enclose whatever ADDED the name (the enclosing scope, or
             /// the `open`). An inner scope is entered later, making resolution innermost-out.
             Depth: int
-            /// An `open`'s own offset, where the reach fixes it. `ValueNone` when a SCOPE
-            /// reaches directly: a declaration enters at its own `VisibleFrom`.
-            Offset: int voption
+            Route: ReachRoute
         }
 
     /// EVERY way the written module `path` (EMPTY for a bare name) reaches a scope of this file
@@ -249,7 +255,7 @@ module TypeRegistry =
                         {
                             Container = reached
                             Depth = h.Depth
-                            Offset = ValueNone
+                            Route = ReachRoute.Ancestor
                         }
                 | ValueNone -> ()
 
@@ -262,7 +268,7 @@ module TypeRegistry =
                             {
                                 Container = reached
                                 Depth = o.ScopeDepth
-                                Offset = ValueSome o.Offset
+                                Route = ReachRoute.Opened o.Offset
                             }
                     | ValueNone -> ()
                 | ValueNone -> ()
@@ -274,7 +280,7 @@ module TypeRegistry =
                         {
                             Container = reached
                             Depth = 0
-                            Offset = ValueNone
+                            Route = ReachRoute.Root
                         }
                 | false, _ -> ()
 
@@ -303,9 +309,10 @@ module TypeRegistry =
                             {
                                 Depth = r.Depth
                                 Offset =
-                                    match r.Offset with
-                                    | ValueSome o -> o
-                                    | ValueNone -> claim.VisibleFrom
+                                    match r.Route with
+                                    | ReachRoute.Opened o -> o
+                                    | ReachRoute.Ancestor
+                                    | ReachRoute.Root -> claim.VisibleFrom
                             }
 
                         match best with
@@ -368,12 +375,12 @@ module TypeRegistry =
     /// index, so a same-named type of another kind shadows it into a MISS.
     let private tryKeyOfArity
         (types: PassContextTypes)
-        (index: Dictionary<string, ResizeArray<TypeKey>>)
+        (reg: KindRegistry<'T>)
         (useSite: UseSite)
         (written: WrittenTypeName)
         (arity: int)
         : TypeKey voption =
-        match index.TryGetValue written.Name with
+        match reg.Names.TryGetValue written.Name with
         | true, keys ->
             match tryWinner types useSite written (fun c -> c.TyparArity = arity && keys.Contains c.Key) with
             | ValueSome c -> ValueSome c.Key
@@ -384,11 +391,11 @@ module TypeRegistry =
     /// of that name, else the candidates' agreed arity, else NOTHING.
     let private tryKeyOfArglessName
         (types: PassContextTypes)
-        (index: Dictionary<string, ResizeArray<TypeKey>>)
+        (reg: KindRegistry<'T>)
         (useSite: UseSite)
         (written: WrittenTypeName)
         : TypeKey voption =
-        match index.TryGetValue written.Name with
+        match reg.Names.TryGetValue written.Name with
         | true, keys ->
             let inThisKind (c: TypeIdentity) = keys.Contains c.Key
 
@@ -504,11 +511,11 @@ module TypeRegistry =
     // arity in its `Name`.
 
     let registerRecord (types: PassContextTypes) (info: RecordTypeInfo) : unit =
-        registerKeyed types.Record types.RecordNames info.Name info.TypeKey info
+        registerKeyed types.Record info.Name info.TypeKey info
 
     /// Resolve a record by BARE short name; an arity-overloaded name does not resolve.
     let tryRecord (types: PassContextTypes) (useSite: UseSite) (name: string) : RecordTypeInfo voption =
-        tryOfKey types.Record (tryKeyOfArglessName types types.RecordNames useSite (WrittenTypeName.bare name))
+        tryOfKey types.Record.ByKey (tryKeyOfArglessName types types.Record useSite (WrittenTypeName.bare name))
 
     /// Resolve a record by `(name, arity)`, matching the arity exactly, so a wrong arity misses.
     let tryRecordArity
@@ -517,13 +524,14 @@ module TypeRegistry =
         (name: string)
         (arity: int)
         : RecordTypeInfo voption =
-        tryOfKey types.Record (tryKeyOfArity types types.RecordNames useSite (WrittenTypeName.bare name) arity)
+        tryOfKey types.Record.ByKey (tryKeyOfArity types types.Record useSite (WrittenTypeName.bare name) arity)
 
     /// Resolve a record by its project-local `SymbolKey`.
-    let tryRecordByKey (types: PassContextTypes) (key: TypeKey) : RecordTypeInfo voption = tryByTypeKey types.Record key
+    let tryRecordByKey (types: PassContextTypes) (key: TypeKey) : RecordTypeInfo voption =
+        tryByTypeKey types.Record.ByKey key
 
     let registerClass (types: PassContextTypes) (info: ClassTypeInfo) : unit =
-        registerKeyed types.Class types.ClassNames info.Name info.TypeKey info
+        registerKeyed types.Class info.Name info.TypeKey info
 
     /// Resolve a class by the name as WRITTEN: bare (`T`), or qualified by its module (`A.T`)
     /// as a body outside `A` writes it.
@@ -532,7 +540,7 @@ module TypeRegistry =
         (useSite: UseSite)
         (written: WrittenTypeName)
         : ClassTypeInfo voption =
-        tryOfKey types.Class (tryKeyOfArglessName types types.ClassNames useSite written)
+        tryOfKey types.Class.ByKey (tryKeyOfArglessName types types.Class useSite written)
 
     /// Resolve a class by BARE short name, for the recognition-only call sites.
     let tryClass (types: PassContextTypes) (useSite: UseSite) (name: string) : ClassTypeInfo voption =
@@ -540,25 +548,27 @@ module TypeRegistry =
 
     /// Resolve a class by `(name, arity)`, matching the arity exactly, so a wrong arity misses.
     let tryClassArity (types: PassContextTypes) (useSite: UseSite) (name: string) (arity: int) : ClassTypeInfo voption =
-        tryOfKey types.Class (tryKeyOfArity types types.ClassNames useSite (WrittenTypeName.bare name) arity)
+        tryOfKey types.Class.ByKey (tryKeyOfArity types types.Class useSite (WrittenTypeName.bare name) arity)
 
     /// Resolve a class by its project-local `SymbolKey`.
-    let tryClassByKey (types: PassContextTypes) (key: TypeKey) : ClassTypeInfo voption = tryByTypeKey types.Class key
+    let tryClassByKey (types: PassContextTypes) (key: TypeKey) : ClassTypeInfo voption =
+        tryByTypeKey types.Class.ByKey key
 
     /// True iff a class is registered under this key: the local-vs-external test a caller
     /// holding a `TyClass` key asks.
-    let containsClassKey (types: PassContextTypes) (key: TypeKey) : bool = (tryByTypeKey types.Class key).IsSome
+    let containsClassKey (types: PassContextTypes) (key: TypeKey) : bool =
+        (tryByTypeKey types.Class.ByKey key).IsSome
 
     /// A class, union *or* record by key, as the shared `IInterfaceImplHost`, so a union's or
     /// record's declared interfaces participate in subtyping like a class's.
     let tryInterfaceImplHostByKey (types: PassContextTypes) (key: TypeKey) : IInterfaceImplHost voption =
-        match tryByTypeKey types.Class key with
+        match tryByTypeKey types.Class.ByKey key with
         | ValueSome info -> ValueSome(info :> IInterfaceImplHost)
         | ValueNone ->
-            match tryByTypeKey types.Union key with
+            match tryByTypeKey types.Union.ByKey key with
             | ValueSome info -> ValueSome(info :> IInterfaceImplHost)
             | ValueNone ->
-                match tryByTypeKey types.Record key with
+                match tryByTypeKey types.Record.ByKey key with
                 | ValueSome info -> ValueSome(info :> IInterfaceImplHost)
                 | ValueNone -> ValueNone
 
@@ -577,14 +587,14 @@ module TypeRegistry =
     let tryEnumByKey (types: PassContextTypes) (key: TypeKey) : EnumTypeInfo voption = tryByTypeKey types.Enum key
 
     let registerAbbrev (types: PassContextTypes) (info: AbbreviationInfo) : unit =
-        registerKeyed types.Abbreviation types.AbbreviationNames info.Name info.TypeKey info
+        registerKeyed types.Abbreviation info.Name info.TypeKey info
 
     /// Resolve an abbreviation by BARE short name. Cross-kind precedence is NOT its business:
     /// a caller needing to know which kind owns a name asks the name table first.
     let tryAbbrev (types: PassContextTypes) (useSite: UseSite) (name: string) : AbbreviationInfo voption =
         tryOfKey
-            types.Abbreviation
-            (tryKeyOfArglessName types types.AbbreviationNames useSite (WrittenTypeName.bare name))
+            types.Abbreviation.ByKey
+            (tryKeyOfArglessName types types.Abbreviation useSite (WrittenTypeName.bare name))
 
     /// Resolve an abbreviation by `(name, arity)`, matching the arity exactly, so a wrong arity misses.
     let tryAbbrevArity
@@ -594,12 +604,12 @@ module TypeRegistry =
         (arity: int)
         : AbbreviationInfo voption =
         tryOfKey
-            types.Abbreviation
-            (tryKeyOfArity types types.AbbreviationNames useSite (WrittenTypeName.bare name) arity)
+            types.Abbreviation.ByKey
+            (tryKeyOfArity types types.Abbreviation useSite (WrittenTypeName.bare name) arity)
 
     /// Resolve an abbreviation by its project-local `SymbolKey`.
     let tryAbbrevByKey (types: PassContextTypes) (key: TypeKey) : AbbreviationInfo voption =
-        tryByTypeKey types.Abbreviation key
+        tryByTypeKey types.Abbreviation.ByKey key
 
     /// Resolve an abbreviation by the `(name, arity)` a well-known identity SPELLS, rather
     /// than by that identity.
@@ -608,18 +618,19 @@ module TypeRegistry =
 
     /// Register a union under its own `TypeKey`. See `registerRecord`.
     let registerUnion (types: PassContextTypes) (info: UnionTypeInfo) : unit =
-        registerKeyed types.Union types.UnionNames info.Name info.TypeKey info
+        registerKeyed types.Union info.Name info.TypeKey info
 
     /// Resolve a union by `(name, arity)`, matching the arity exactly, so a wrong arity misses.
     let tryUnion (types: PassContextTypes) (useSite: UseSite) (name: string) (arity: int) : UnionTypeInfo voption =
-        tryOfKey types.Union (tryKeyOfArity types types.UnionNames useSite (WrittenTypeName.bare name) arity)
+        tryOfKey types.Union.ByKey (tryKeyOfArity types types.Union useSite (WrittenTypeName.bare name) arity)
 
     /// Resolve a union by BARE short name, for the recognition-only call sites.
     let tryUnionBare (types: PassContextTypes) (useSite: UseSite) (name: string) : UnionTypeInfo voption =
-        tryOfKey types.Union (tryKeyOfArglessName types types.UnionNames useSite (WrittenTypeName.bare name))
+        tryOfKey types.Union.ByKey (tryKeyOfArglessName types types.Union useSite (WrittenTypeName.bare name))
 
     /// Resolve a union by its project-local `TypeKey`.
-    let tryUnionByKey (types: PassContextTypes) (key: TypeKey) : UnionTypeInfo voption = tryByTypeKey types.Union key
+    let tryUnionByKey (types: PassContextTypes) (key: TypeKey) : UnionTypeInfo voption =
+        tryByTypeKey types.Union.ByKey key
 
     /// A member-bearing nominal: its members, and the type parameters a member signature is
     /// instantiated against. Class, union and record share this shape.
@@ -749,17 +760,17 @@ module TypeRegistry =
         (key: TypeKey)
         (name: string)
         : IInterfaceImplHost voption =
-        match tryByTypeKey types.Union key with
+        match tryByTypeKey types.Union.ByKey key with
         | ValueSome info -> ValueSome(info :> IInterfaceImplHost)
         | ValueNone ->
-            match tryByTypeKey types.Record key with
+            match tryByTypeKey types.Record.ByKey key with
             | ValueSome info -> ValueSome(info :> IInterfaceImplHost)
             | ValueNone -> tryIntrinsicAbbrevHostByName types name
 
     /// The declaring union of a registered case: the case carries its union's `TypeKey`, so no
     /// use site is needed, and a caller holding a case got it from a scoped read anyway.
     let unionOfCase (types: PassContextTypes) (info: UnionCaseInfo) : UnionTypeInfo =
-        match tryOfKey types.Union (ValueSome info.UnionKey) with
+        match tryOfKey types.Union.ByKey (ValueSome info.UnionKey) with
         | ValueSome u -> u
         | ValueNone -> failwithf "Internal error: union case '%s' has no registered union '%s'" info.Name info.UnionName
 

@@ -104,18 +104,18 @@ module PlatformTypes =
         | TTypeKindG.Interface methods ->
             for m in methods do
                 add m.Signature
-        | TTypeKindG.Union(cases, _, interfaces) ->
-            for c in cases do
+        | TTypeKindG.Union u ->
+            for c in u.Cases do
                 for (_, ty) in c.Fields do
                     add ty
 
-            for (iface, _) in interfaces do
+            for (iface, _) in u.Interfaces do
                 add iface
-        | TTypeKindG.Record(fields, _, interfaces, _) ->
-            for f in fields do
+        | TTypeKindG.Record r ->
+            for f in r.Fields do
                 addField f
 
-            for (iface, _) in interfaces do
+            for (iface, _) in r.Interfaces do
                 add iface
         | TTypeKindG.Class c ->
             for f in c.Fields do
@@ -149,14 +149,13 @@ module PlatformTypes =
 
             // Member bodies a backend lowers alongside the type.
             match td.Kind with
-            | TTypeKindG.Record(_, members, interfaces, _)
-            | TTypeKindG.Union(_, members, interfaces) ->
-                for m in members do
+            | TTypeKindG.Record _
+            | TTypeKindG.Union _ ->
+                for m in TTypeKindG.members td.Kind do
                     TastWalk.iterExpr iter m.Body
 
-                for (_, ifaceMembers) in interfaces do
-                    for m in ifaceMembers do
-                        TastWalk.iterExpr iter m.Body
+                for m in TTypeKindG.interfaceMembers td.Kind do
+                    TastWalk.iterExpr iter m.Body
             | TTypeKindG.Class c ->
                 for m in c.Members do
                     TastWalk.iterExpr iter m.Body

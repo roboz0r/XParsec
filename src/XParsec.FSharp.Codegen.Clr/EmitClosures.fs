@@ -587,14 +587,14 @@ module EmitClosures =
         let goEnum (en: Frozen.ForInEnumerator) =
             match en with
             | ForInEnumeratorG.Interface -> ()
-            | ForInEnumeratorG.Pattern(enumeratorTy, getEnum, members, _, _) ->
-                go enumeratorTy
+            | ForInEnumeratorG.Pattern p ->
+                go p.EnumeratorTy
 
-                match getEnum with
+                match p.GetEnumerator with
                 | ForInGetEnumG.ConstrainedInterface(_, args) -> EqArray.iter go args
                 | _ -> ()
 
-                match members with
+                match p.Members with
                 | ForInEnumMembersG.ConstrainedInterface(_, args) -> EqArray.iter go args
                 | _ -> ()
 

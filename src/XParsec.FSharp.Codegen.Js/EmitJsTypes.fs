@@ -260,7 +260,11 @@ module EmitJsTypes =
                 match td.Kind with
                 // JS has no value types, so the `valueKind` a `[<Struct>]` record carries is
                 // ignored: it emits as the same reference-object class as any other record.
-                | TTypeKindG.Record(fields, recMembers, recInterfaces, _) ->
+                | TTypeKindG.Record r ->
+                    let fields = r.Fields
+                    let recMembers = r.Members
+                    let recInterfaces = r.Interfaces
+
                     // Local record: `Home = ValueNone` because its class is emitted here.
                     let info =
                         {
@@ -293,7 +297,11 @@ module EmitJsTypes =
                                 StaticPreamble = []
                                 Members = parts
                             }
-                | TTypeKindG.Union(cases, unionMembers, unionInterfaces) ->
+                | TTypeKindG.Union u ->
+                    let cases = u.Cases
+                    let unionMembers = u.Members
+                    let unionInterfaces = u.Interfaces
+
                     // Local union: `Home = ValueNone` because its case classes are emitted here.
                     let info, caseDecls =
                         buildUnionInfo

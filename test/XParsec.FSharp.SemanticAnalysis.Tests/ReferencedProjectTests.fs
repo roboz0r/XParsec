@@ -891,6 +891,7 @@ let tests =
 
                         Expect.equal
                             (ReferencedProject.runtimeModules [ loadOrFail jsPath ]
+                             |> PackageFaults.okOrFail "runtimeModules"
                              |> Map.tryFind "RuntimeAsset")
                             (Some
                                 [
@@ -908,8 +909,27 @@ let tests =
                         let clrPath = writeManifestFor "clr" "RuntimeAsset" "[core]\nfiles = []\n"
 
                         Expect.isEmpty
-                            (ReferencedProject.runtimeModules [ loadOrFail clrPath ])
+                            (ReferencedProject.runtimeModules [ loadOrFail clrPath ]
+                             |> PackageFaults.okOrFail "runtimeModules")
                             "the same package's clr manifest lists no asset, so it resolves to an empty map"
+                    }
+
+                    // A declared asset absent from disk would otherwise leave the backend
+                    // importing a `.mjs` nothing materialises.
+                    test "runtimeModules faults on a declared asset that is not on disk" {
+                        let dir = Path.Combine(tmpSrc, "MissingRuntimeAsset")
+                        Directory.CreateDirectory dir |> ignore
+                        File.WriteAllText(Path.Combine(dir, "present.mjs"), "export const k = 1;\n")
+
+                        let jsPath =
+                            writeManifestFor
+                                "js"
+                                "MissingRuntimeAsset"
+                                "[core]\nfiles = []\nruntime = [\"present.mjs\", \"absent.mjs\"]\n"
+
+                        match ReferencedProject.runtimeModules [ loadOrFail jsPath ] with
+                        | Error(PackageSetFault.FileMissing("MissingRuntimeAsset", "absent.mjs")) -> ()
+                        | other -> failtestf "expected a FileMissing fault naming absent.mjs, got: %A" other
                     }
 
                     // `depends-on` is taken for THIS manifest's target, so a package may depend on

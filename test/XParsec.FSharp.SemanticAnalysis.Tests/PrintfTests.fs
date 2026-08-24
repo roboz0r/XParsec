@@ -589,6 +589,43 @@ let tests =
                 | ValueNone -> failtest "expected a placeholder"
             }
 
+            // ---- an oversized width / precision is a compile-time error ----
+            // The lexer accepts an unbounded digit run, and F# itself accepts the specifier
+            // and then exhausts memory at run time; this compiler rejects it.
+
+            test "an oversized printf width is a diagnosed error, not an OverflowException" {
+                let tast = analyse "let r = printfn \"%99999999999999999999d\" 3"
+
+                Expect.isTrue
+                    (tast.Diagnostics
+                     |> List.exists (fun d ->
+                         Diagnostic.isError d
+                         && d.Message.Contains "%99999999999999999999d"
+                         && d.Message.Contains "width or precision"
+                     ))
+                    (sprintf
+                        "expected an oversized-dimension error naming the specifier, got: %A"
+                        (tast.Diagnostics |> List.map (fun d -> d.Message)))
+
+                match Lexing.parseFormatSpecifier "%99999999999999999999d" with
+                | ValueSome ph ->
+                    Expect.equal
+                        (PrintfHoleForm.classify ph)
+                        PrintfHoleForm.HoleVerdict.OversizedDimension
+                        "classify narrows the width and rejects it"
+                | ValueNone -> failtest "expected a placeholder"
+            }
+
+            test "an oversized printf precision is rejected by classify" {
+                match Lexing.parseFormatSpecifier "%.99999999999999999999f" with
+                | ValueSome ph ->
+                    Expect.equal
+                        (PrintfHoleForm.classify ph)
+                        PrintfHoleForm.HoleVerdict.OversizedDimension
+                        "classify narrows the precision and rejects it"
+                | ValueNone -> failtest "expected a placeholder"
+            }
+
             test "`%+-8.2f` (no zero-pad) still lowers with left alignment" {
                 let tast = analyse "let r = printfn \"%+-8.2f\" 1234.5"
                 Expect.isEmpty tast.Diagnostics "no diagnostics — %+-8.2f lowers natively"

@@ -532,7 +532,8 @@ module internal NominalEmit =
                     let lets = EqArray.toList sc.Lets
 
                     let ctorIr =
-                        if not sc.FieldInits.IsEmpty then
+                        match sc.Body with
+                        | TSecondaryCtorBodyG.ExplicitFieldInit inits ->
                             // Both ctor-param backing fields and explicit `val` fields
                             // are eligible.
                             let fieldHandleOf name =
@@ -549,12 +550,11 @@ module internal NominalEmit =
                                 else
                                     failwithf "Emit: class '%s' secondary ctor inits unknown field '%s'" td.Name name
 
-                            let fieldInits = [ for fi in sc.FieldInits -> fieldHandleOf fi.Field, fi.Init ]
+                            let fieldInits = [ for fi in inits -> fieldHandleOf fi.Field, fi.Init ]
 
                             Emit.buildSecondaryCtorFieldInit emitCtx sc.Params lets fieldInits
-                        else
-                            let primaryArgs = EqArray.toList sc.PrimaryArgs
-                            Emit.buildSecondaryCtor emitCtx sc.Params lets primaryCtorRef primaryArgs
+                        | TSecondaryCtorBodyG.Chain primaryArgs ->
+                            Emit.buildSecondaryCtor emitCtx sc.Params lets primaryCtorRef (EqArray.toList primaryArgs)
 
                     let scBody = Cil.buildBody encodeLocals bodyStream (IlIr.lower ctorIr)
 

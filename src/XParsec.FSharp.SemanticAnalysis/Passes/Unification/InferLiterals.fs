@@ -222,7 +222,8 @@ module internal UnificationInferLiterals =
             match PrintfHoleForm.classify p with
             | PrintfHoleForm.HoleVerdict.Lowerable _ -> true
             | PrintfHoleForm.HoleVerdict.Residual
-            | PrintfHoleForm.HoleVerdict.SignLeftAlignZeroPad -> false
+            | PrintfHoleForm.HoleVerdict.SignLeftAlignZeroPad
+            | PrintfHoleForm.HoleVerdict.OversizedDimension -> false
         )
 
     /// Types a format-string literal whose EXPECTED type is already a

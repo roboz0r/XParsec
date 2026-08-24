@@ -32,22 +32,22 @@ module internal LayoutNodes =
 
                 match td.Kind with
                 | TTypeKindG.Interface methods -> interfaces.Add(td, EqArray.toList methods)
-                | TTypeKindG.Union(cases, members, interfaces) ->
+                | TTypeKindG.Union u ->
                     unions.Add
                         {
                             Decl = td
-                            Cases = EqArray.toList cases
-                            Members = EqArray.toList members
-                            Interfaces = ifaceBlocks interfaces
+                            Cases = EqArray.toList u.Cases
+                            Members = EqArray.toList u.Members
+                            Interfaces = ifaceBlocks u.Interfaces
                         }
-                | TTypeKindG.Record(fields, members, interfaces, valueKind) ->
+                | TTypeKindG.Record r ->
                     records.Add
                         {
                             Decl = td
-                            Fields = EqArray.toList fields
-                            Members = EqArray.toList members
-                            Interfaces = ifaceBlocks interfaces
-                            ValueKind = valueKind
+                            Fields = EqArray.toList r.Fields
+                            Members = EqArray.toList r.Members
+                            Interfaces = ifaceBlocks r.Interfaces
+                            ValueKind = r.ValueKind
                         }
                 // A numeric enum emits a real `System.Enum` subclass.
                 | TTypeKindG.Enum cases ->

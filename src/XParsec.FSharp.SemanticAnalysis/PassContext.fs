@@ -184,8 +184,9 @@ type PassContextResolution =
         mutable AmbientOpenScope: OpenScope
         /// The chain enclosing the element being analysed, set in lockstep with `OpenScope`.
         mutable EnclosingContainer: ModuleContainer voption
-        /// Per-signature type-parameter scope, restored on exit. Anonymous typars (`_`) never
-        /// enter it, because they are fresh per occurrence.
+        /// The type parameters in scope, by source name. Anonymous typars (`_`) never
+        /// enter it, because they are fresh per occurrence. Replaced only through
+        /// `PassContext.PushTyparScope`.
         mutable TyparScope: Dictionary<string, TyVarId>
         /// Prototype TyVars for the NEXT binding's own `<'C, …>` typars: on a name match the
         /// binding reuses one, so a generic member's signature and body share typar roots.
@@ -206,9 +207,9 @@ type PassContextResolution =
         /// resolved, whose `ArgSig` distinguishes `Show(int)` from `Show(string)`.
         /// Absent ⇒ nothing project-local resolved here.
         LocalMemberCall: SideTable<ResolvedLocalMember>
-        /// Keyed by an external method call: the constant defaults of the trailing
+        /// Keyed by an external method call: the fills for the trailing
         /// optional parameters the call OMITTED, in declaration order.
-        ExternalOptionalFill: SideTable<TConstValue list>
+        ExternalOptionalFill: SideTable<OptionalDefault list>
         /// Keyed by the folded `x.M(…)` call whose object argument is a typar coerced to a
         /// project-local interface (`'T :> IFace`): that interface's key and type arguments.
         TyparInterfaceCall: SideTable<TypeKey * EqArray<SemType>>
@@ -384,6 +385,19 @@ type PassContext(provider: IExternalSymbolProvider, file: LexedFile, assembly: C
 
     member val Types = types with get
 
+    /// The binding sites of the synthetic `base` variable of every class declaring an
+    /// `inherit`. A `TExpr.Var` at one of these is a `base.M(…)` object argument. `lazy`:
+    /// the first read must come AFTER name resolution registered this file's classes.
+    member val BaseBoundVars: Lazy<HashSet<NodeKey>> =
+        lazy
+            (let acc = HashSet<NodeKey>()
+
+             for kv in types.Class.ByKey do
+                 if kv.Value.BaseType.IsSome then
+                     acc.Add(BoundVarKey.identity kv.Value.BaseKey) |> ignore
+
+             acc) with get
+
     /// The primitive-intrinsic identities (`int`/`string`/…), each resolved lazily and cached:
     /// this file's own intrinsic keys first, then the provider via ambient `open`.
     member val Intrinsics =
@@ -402,16 +416,26 @@ type PassContext(provider: IExternalSymbolProvider, file: LexedFile, assembly: C
 
     member val Bindings = PassContextBindings.empty () with get
     member val Resolution = PassContextResolution.create ambientOpenScope with get
+
+    /// Make `scope` the typar scope until the handle is disposed, which restores both the
+    /// scope and the strictness of the enclosing one. Bind it with `use`.
+    member this.PushTyparScope(scope: Dictionary<string, TyVarId>, strict: bool) : System.IDisposable =
+        let res = this.Resolution
+        let savedScope = res.TyparScope
+        let savedStrict = res.TyparScopeStrict
+        res.TyparScope <- scope
+        res.TyparScopeStrict <- strict
+
+        { new System.IDisposable with
+            member _.Dispose() =
+                res.TyparScope <- savedScope
+                res.TyparScopeStrict <- savedStrict
+        }
+
     member val Desugared = SideTable<DesugaredForm>() with get
-    /// Keyed by an `Expr.App`, present only for a printf call lowered inline: literal format,
-    /// fully applied, a `StdOut`/`StdErr`/`StringResult` sink, every specifier classifiable.
-    member val PrintfApp = SideTable<PrintfSpec.PrintfSink>() with get
-    /// Keyed as `PrintfApp`; only for a fully-applied `%a`/`%t` call on a writer/builder sink.
-    /// `sprintf` has no entry, because its residue is the returned string.
-    member val PrintfCallbackScratch = SideTable<PrintfSpec.CallbackScratch>() with get
-    /// Keyed by an `Expr.App`; only for a FULLY-UNAPPLIED lowerable printf partial
-    /// (`printfn "%d"`), so never `%A`/`%O`, because an unapplied hole there is an unpinned typar.
-    member val PrintfPartial = SideTable<PrintfSpec.PrintfSink>() with get
+    /// Keyed by an `Expr.App`, present only where the call lowers inline: literal format and
+    /// every specifier classifiable.
+    member val PrintfLowering = SideTable<PrintfSpec.PrintfLowering>() with get
     /// A `let`-bound (or ascribed) format-string literal, keyed by its BINDING-SITE `NodeKey`,
     /// which is what a use-site `Ident` resolves to, so such an `Ident` lowers like a literal.
     member val PrintfFormatLiterals = SideTable<Expr<SyntaxToken>>() with get

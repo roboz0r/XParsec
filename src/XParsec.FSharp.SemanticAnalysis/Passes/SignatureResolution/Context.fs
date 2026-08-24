@@ -170,8 +170,6 @@ module SignatureResolutionContext =
         (own: EqArray<string * TyVarId>)
         (f: unit -> 'a)
         : 'a =
-        let savedScope = ctx.Resolution.TyparScope
-        let savedStrict = ctx.Resolution.TyparScopeStrict
         let scope = Dictionary<string, TyVarId>(System.StringComparer.Ordinal)
 
         for (n, tv) in outer do
@@ -181,14 +179,8 @@ module SignatureResolutionContext =
         for (n, tv) in own do
             scope.[n] <- tv
 
-        ctx.Resolution.TyparScope <- scope
-        ctx.Resolution.TyparScopeStrict <- true
-
-        try
-            f ()
-        finally
-            ctx.Resolution.TyparScope <- savedScope
-            ctx.Resolution.TyparScopeStrict <- savedStrict
+        use _ = ctx.PushTyparScope(scope, true)
+        f ()
 
     // --- curried signatures ---------------------------------------------------------
 

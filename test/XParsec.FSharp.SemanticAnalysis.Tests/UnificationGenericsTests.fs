@@ -252,6 +252,52 @@ let tests =
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
 
+            // The oracle rejects `id<string> 3` with FS0001 ("This expression was expected to
+            // have type 'string' but here has type 'int'").
+            test "explicit type application on a generic function rejects a mismatched argument" {
+                let ctx = analyse "let id<'a> (x: 'a) = x\nlet bad = id<string> 3"
+
+                Expect.isTrue (ctx.Diagnostics |> Seq.exists Diagnostic.isError) "id<string> 3 is a type error"
+            }
+
+            test "explicit type application on a generic function admits a matching argument" {
+                let ctx = analyse "let id<'a> (x: 'a) = x\nlet ok = id<string> \"a\""
+                // pat ok at 27: 23-char first line + "let ".
+                let patKey = NodeKey.ofSource 27 NodeKind.PatIdent
+                Expect.equal (typeOf ctx patKey) BuiltinTypes.tyString "ok : string"
+                Expect.isEmpty ctx.Diagnostics "no diagnostics"
+            }
+
+            test "explicit type application on a user generic function pins its argument" {
+                let ctx = analyse "let f<'a> (x: 'a) = x\nlet ok = f<int> 3"
+                // pat ok at 26: 22-char first line + "let ".
+                let patKey = NodeKey.ofSource 26 NodeKind.PatIdent
+                Expect.equal (typeOf ctx patKey) BuiltinTypes.tyInt "ok : int"
+                Expect.isEmpty ctx.Diagnostics "no diagnostics"
+            }
+
+            // F# accepts a postfix application through a qualified name; this compiler models
+            // only the single-segment form, and says so rather than leaving a free TyVar.
+            test "postfix type application through a dotted name reports the shape as unsupported" {
+                let ctx = analyse "module A =\n    type T<'a> = { v: 'a }\n\nlet f (x: int A.T) = x"
+
+                Expect.isTrue
+                    (ctx.Diagnostics
+                     |> Seq.exists (fun d ->
+                         match d.Kind with
+                         | Kind.NotYetSupported feature -> feature.Contains "postfix type application"
+                         | _ -> false
+                     ))
+                    (sprintf
+                        "expected a NotYetSupported diagnostic for `int A.T`, got: %A"
+                        (ctx.Diagnostics |> Seq.map (fun d -> d.Message) |> List.ofSeq))
+            }
+
+            test "single-segment postfix application still resolves" {
+                let ctx = analyse "type T<'a> = { v: 'a }\nlet f (x: int T) = x"
+                Expect.isEmpty (errors ctx) "no errors — `int T` is the modelled postfix form"
+            }
+
             test "implicit free typar in abbreviation diagnoses" {
                 let ctx = analyse "type Bad = 'a"
 

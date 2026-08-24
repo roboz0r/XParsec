@@ -214,6 +214,17 @@ module FrozenCodecTypes =
         | 2uy -> ClassValueKind.RefStruct
         | b -> failwithf "FrozenCodec: unknown ClassValueKind tag %d" b
 
+    let writeRecordValueKind (w: FrozenWriter) (k: RecordValueKind) =
+        match k with
+        | RecordValueKind.RefType -> w.Write 0uy
+        | RecordValueKind.Struct -> w.Write 1uy
+
+    let readRecordValueKind (r: FrozenReader) : RecordValueKind =
+        match r.ReadByte() with
+        | 0uy -> RecordValueKind.RefType
+        | 1uy -> RecordValueKind.Struct
+        | b -> failwithf "FrozenCodec: unknown RecordValueKind tag %d" b
+
     let writeEqualityVerdict (w: FrozenWriter) (v: EqualityVerdict) =
         match v with
         | EqualityVerdict.Structural -> w.Write 0uy

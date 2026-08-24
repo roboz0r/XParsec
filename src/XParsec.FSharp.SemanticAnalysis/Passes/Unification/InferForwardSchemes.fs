@@ -64,34 +64,29 @@ module internal UnificationInferForwardSchemes =
                 let key = CstKeys.ofPat b.pattern
 
                 if (ctx.Bindings.Scheme.TryGetValue key).IsNone then
-                    let savedScope = ctx.Resolution.TyparScope
-                    let savedStrict = ctx.Resolution.TyparScopeStrict
-                    ctx.Resolution.TyparScope <- Dictionary<string, TyVarId>(System.StringComparer.Ordinal)
-                    ctx.Resolution.TyparScopeStrict <- false
+                    use _ =
+                        ctx.PushTyparScope(Dictionary<string, TyVarId>(System.StringComparer.Ordinal), false)
+
                     let outerLevel = ctx.CurrentLevel
 
-                    try
-                        seedBindingTypars ctx b
+                    seedBindingTypars ctx b
 
-                        enterLevel ctx
+                    enterLevel ctx
 
-                        let argTypes =
-                            [
-                                for p in b.argumentPats ->
-                                    match tryArgAnnotation p with
-                                    | ValueSome t -> translateType ctx t
-                                    | ValueNone -> TyVar(freshTyVar ctx)
-                            ]
+                    let argTypes =
+                        [
+                            for p in b.argumentPats ->
+                                match tryArgAnnotation p with
+                                | ValueSome t -> translateType ctx t
+                                | ValueNone -> TyVar(freshTyVar ctx)
+                        ]
 
-                        let retTy =
-                            match b.returnType with
-                            | ValueSome(ReturnType(typ = t)) -> translateType ctx t
-                            | ValueNone -> TyVar(freshTyVar ctx)
+                    let retTy =
+                        match b.returnType with
+                        | ValueSome(ReturnType(typ = t)) -> translateType ctx t
+                        | ValueNone -> TyVar(freshTyVar ctx)
 
-                        let fnTy = List.foldBack (fun a r -> TyFun(a, r)) argTypes retTy
-                        exitLevel ctx
-                        let scheme = generalise ctx.Store (zonk ctx.Store fnTy) outerLevel
-                        ctx.Bindings.Scheme.Set(key, scheme)
-                    finally
-                        ctx.Resolution.TyparScope <- savedScope
-                        ctx.Resolution.TyparScopeStrict <- savedStrict
+                    let fnTy = List.foldBack (fun a r -> TyFun(a, r)) argTypes retTy
+                    exitLevel ctx
+                    let scheme = generalise ctx.Store (zonk ctx.Store fnTy) outerLevel
+                    ctx.Bindings.Scheme.Set(key, scheme)

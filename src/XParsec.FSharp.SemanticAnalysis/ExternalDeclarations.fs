@@ -355,10 +355,10 @@ type ExternalMember =
         /// Interned identity: the OPEN declaring type (its `argSig` in `!0`-typars) + name
         /// + kind.
         Key: MemberKey
-        /// The constant defaults of this member's TRAILING optional parameters
-        /// (`Return(array, [<Optional>] clearArray = false)` ⇒ `[Bool false]`), in
+        /// The fills for this member's TRAILING optional parameters
+        /// (`Return(array, [<Optional>] clearArray = false)` ⇒ `[Const(Bool false)]`), in
         /// declaration order; a call may omit any suffix of them.
-        OptionalDefaults: TConstValue list
+        OptionalDefaults: OptionalDefault list
         /// An OPTIONAL interface member (`verbose?: T`), so a structural-width admission at a
         /// foreign-call arg position treats it as not-required. `false` from every
         /// non-interface producer.
@@ -393,7 +393,7 @@ type ExternalMember =
         (signature: ExternalSignature)
         (argSig: EqArray<FrozenType>)
         (origin: SymbolOrigin)
-        (optionalDefaults: TConstValue list)
+        (optionalDefaults: OptionalDefault list)
         : ExternalMember =
         { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey ".ctor" argSig 0 MemberKind.Method) with
             Signature = signature

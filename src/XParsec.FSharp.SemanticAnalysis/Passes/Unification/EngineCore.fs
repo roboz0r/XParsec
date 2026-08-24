@@ -573,9 +573,11 @@ module UnificationEngineCore =
         | ValueSome info ->
             [
                 for impl in info.InterfaceImpls do
-                    match impl.Resolved with
-                    | ValueSome ifaceTy -> yield instantiateMember ctx.Store (info.TypeParams, args) ifaceTy
-                    | ValueNone -> ()
+                    match impl.Resolution with
+                    | InterfaceImplResolution.Resolved ifaceTy ->
+                        yield instantiateMember ctx.Store (info.TypeParams, args) ifaceTy
+                    | InterfaceImplResolution.Pending
+                    | InterfaceImplResolution.Rejected -> ()
             ]
         | ValueNone ->
             match ctx.Provider.TryLookupType key with

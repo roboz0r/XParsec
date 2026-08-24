@@ -150,7 +150,7 @@ type internal Assembler
 
             // A `[<Struct>]` record is a project-local value type → `VALUETYPE` (not
             // `CLASS`) in every signature, exactly as a struct class.
-            if rd.ValueKind <> ClassValueKind.RefType then
+            if rd.ValueKind <> RecordValueKind.RefType then
                 provider.RegisterUserValueType td.TypeKey
 
             if not td.TypeParams.IsEmpty then
@@ -1072,11 +1072,10 @@ type internal Assembler
                 |> List.iteri (fun i n -> genericParams.Add(toEntity typeHandle, i, n))
 
             // Unions and records are always sealed; a class opts in via `[<Sealed>]` /
-            // `[<Struct>]`. A record opts into value-type emission via `[<Struct>]`, and
-            // is never byref-like.
+            // `[<Struct>]`. A record opts into value-type emission via `[<Struct>]`.
             | TypeSlotKind.Union -> addNominalRow node (classAttrsOf true false) false
             | TypeSlotKind.Record valueKind ->
-                addNominalRow node (classAttrsOf true (valueKind <> ClassValueKind.RefType)) false
+                addNominalRow node (classAttrsOf true (valueKind <> RecordValueKind.RefType)) false
 
             | TypeSlotKind.Class(isSealed, valueKind) ->
                 let isValueType = valueKind <> ClassValueKind.RefType

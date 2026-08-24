@@ -24,35 +24,28 @@ module internal ElaborateExprArgs =
         | ParenKind.BeginEnd _ -> Some()
         | _ -> None
 
-    /// Peel an `Expr.App` argument that may be a single `EnclosedBlock`
-    /// wrapping a `Tuple` (the F# parser shape for `Point(3, 4)`) so
-    /// downstream consumers see the constructor's declared arity directly.
-    let peelCtorArgs
-        (translate: Expr<SyntaxToken> -> TExpr)
-        (args: ImmutableArray<Expr<SyntaxToken>>)
-        : EqArray<TExpr> =
-        if args.Length = 1 then
-            match args.[0] with
-            | Expr.EnclosedBlock(lParen = ValueParen; expr = Expr.Tuple(exprs = items)) ->
-                EqArray.ofSeq (seq { for a in items -> translate a })
-            | Expr.Tuple(exprs = items) -> EqArray.ofSeq (seq { for a in items -> translate a })
-            | Expr.EnclosedBlock(lParen = ValueParen; expr = inner) -> EqArray.singleton (translate inner)
-            | Expr.EmptyBlock(lParen = ValueParen) -> EqArray.empty
-            | a -> EqArray.singleton (translate a)
-        else
-            EqArray.ofSeq (seq { for a in args -> translate a })
-
-    /// Same as `peelCtorArgs` but for a single argument expression
-    /// (HighPrecedenceApp form / Expr.New).
+    /// Peel one argument expression (the `HighPrecedenceApp` / `Expr.New` form) into the
+    /// declared argument list: a parenthesised `Tuple` (`Point(3, 4)`) becomes one argument
+    /// per component, `Point()` becomes none, and `Point(())` becomes one unit argument, as
+    /// F# reads it.
     let peelOneArg (translate: Expr<SyntaxToken> -> TExpr) (arg: Expr<SyntaxToken>) : EqArray<TExpr> =
         match arg with
         | Expr.EnclosedBlock(lParen = ValueParen; expr = Expr.Tuple(exprs = items)) ->
             EqArray.ofSeq (seq { for a in items -> translate a })
         | Expr.Tuple(exprs = items) -> EqArray.ofSeq (seq { for a in items -> translate a })
-        | Expr.EnclosedBlock(lParen = ValueParen; expr = Expr.EmptyBlock _) -> EqArray.empty
         | Expr.EnclosedBlock(lParen = ValueParen; expr = inner) -> EqArray.singleton (translate inner)
         | Expr.EmptyBlock(lParen = ValueParen) -> EqArray.empty
         | a -> EqArray.singleton (translate a)
+
+    /// `peelOneArg` for the `Expr.App` form, whose argument list the parser may already have
+    /// split.
+    let peelCtorArgs
+        (translate: Expr<SyntaxToken> -> TExpr)
+        (args: ImmutableArray<Expr<SyntaxToken>>)
+        : EqArray<TExpr> =
+        match args.Length with
+        | 1 -> peelOneArg translate args.[0]
+        | _ -> EqArray.ofSeq (seq { for a in args -> translate a })
 
     /// `()` literal. Distinct from `parseConst` because `Expr.EmptyBlock`
     /// carries `ParenKind` + closing token, not a `Constant`.

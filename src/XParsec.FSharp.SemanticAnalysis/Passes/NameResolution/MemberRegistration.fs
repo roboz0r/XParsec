@@ -330,8 +330,7 @@ module NameResolutionMemberRegistration =
                 // `val [mutable] x: T` fields are not members; `extractInstanceFields` has them.
                 ()
             | TypeDefnElement.Member(MemberDefn.AdditionalConstructor _) ->
-                // Secondary ctors are not members; `extractSecondaryCtors` has them. A union
-                // augmentation has no primary ctor to chain to, so one there is dropped.
+                // Secondary ctors are not members; `extractSecondaryCtors` has them.
                 ()
             | TypeDefnElement.InterfaceImpl _ ->
                 // `interface IFace with member …` blocks are not part of the class's own
@@ -710,6 +709,15 @@ module NameResolutionMemberRegistration =
             | TypeDefnElement.InterfaceSpec _
             | TypeDefnElement.Inherit _ -> ()
 
+    /// Report each `new(…)` written in a union or record augmentation. Only a class body
+    /// carries a primary constructor for one to chain to, which is fsc's FS0871.
+    let private rejectAugmentationConstructors (ctx: PassContext) (elems: TypeDefnElement<SyntaxToken> seq) : unit =
+        for el in elems do
+            match el with
+            | TypeDefnElement.Member(MemberDefn.AdditionalConstructor(newToken = newTok)) ->
+                ctx.Report(newTok, Kind.Message "Constructors cannot be defined for this type")
+            | _ -> ()
+
     /// Stamp augmentation members + `interface … with` impls onto an already-registered
     /// union or record; must run after the type itself is registered. The extraction is
     /// kind-agnostic, so only the write-back target differs and each arm sets its own `info`.
@@ -725,6 +733,8 @@ module NameResolutionMemberRegistration =
 
         match td with
         | TypeDefn.Union(extensions = ValueSome(TypeExtensionElements(elements = elems))) ->
+            rejectAugmentationConstructors ctx elems
+
             match TypeRegistry.tryUnionByKey ctx.Types id.Key with
             | ValueSome info ->
                 let x = extract info.DeclSite.Key info.TypeParams elems
@@ -733,6 +743,8 @@ module NameResolutionMemberRegistration =
                 info.ThisKey <- x.ThisKey
             | ValueNone -> ()
         | TypeDefn.Record(extensions = ValueSome(TypeExtensionElements(elements = elems))) ->
+            rejectAugmentationConstructors ctx elems
+
             match TypeRegistry.tryRecordByKey ctx.Types id.Key with
             | ValueSome info ->
                 let x = extract info.DeclSite.Key info.TypeParams elems
@@ -848,17 +860,16 @@ module NameResolutionMemberRegistration =
 
         registerNominalMember ctx id td
 
-    /// Register one `type … and …` group, in the phases below: claim, classify, file the
-    /// abbreviation entries, register detail, close. File-order type scoping falls out because
-    /// at the moment a group registers, `TypeClaims` holds every type above it and none below.
-    let registerGroup
+    /// Claim each declaration's identity in the name table, at one visibility offset for the
+    /// whole group: `and`-joined siblings share one visibility. A declaration whose claim is
+    /// refused is absent from the result, and no later phase sees it.
+    let private claimGroupIdentities
         (ctx: PassContext)
         (c: DeclContainment<SyntaxToken>)
         (recScopeOffset: int voption)
         (defs: ImmutableArray<TypeDefn<SyntaxToken>>)
-        : unit =
+        : ResizeArray<ClaimedTypeDefn> =
         let claims = ResizeArray<ClaimedTypeDefn>(defs.Length)
-        // One offset for the whole group: `and`-joined siblings share one visibility.
         let visibleFrom = typeGroupVisibleFrom recScopeOffset defs
 
         for td in defs do
@@ -866,13 +877,18 @@ module NameResolutionMemberRegistration =
             | ValueSome claimed -> claims.Add claimed
             | ValueNone -> ()
 
-        // Over ALL defs, not only the claimed ones: a declaration that claims no type (an
-        // `interface … end`, a delegate) still writes type names that must resolve.
+        claims
+
+    /// Stamp the type names written across the group. Runs over ALL defs, because a declaration
+    /// that claims no type (an `interface … end`, a delegate) still writes names that must resolve.
+    let private classifyGroupTypeNames (ctx: PassContext) (defs: ImmutableArray<TypeDefn<SyntaxToken>>) : unit =
         for td in defs do
             classifyDeclaredTypes ctx td
 
-        // The claim classified an `(# … #)` RHS as `IntrinsicRepr` and any other as
-        // `Abbreviation`; the RHS shape dispatches here by the same rule.
+    /// File each alias and intrinsic-repr ENTRY, so any other kind's detail can reference it.
+    /// The claim classified an `(# … #)` RHS as `IntrinsicRepr` and any other as `Abbreviation`;
+    /// the RHS shape dispatches here by the same rule.
+    let private registerGroupAbbrevEntries (ctx: PassContext) (claims: ClaimedTypeDefn seq) : unit =
         for claimed in claims do
             match claimed.Defn with
             | TypeDefn.Abbrev(typeName = tn; typ = Type.ILIntrinsic(kindTag = tag; instrParts = parts); extensions = ext) ->
@@ -881,22 +897,31 @@ module NameResolutionMemberRegistration =
                 registerAbbreviationDecl ctx claimed.Identity tn rhs ext.IsSome
             | _ -> ()
 
+    /// Register every claim's kind-specific detail. Requires the group's abbreviation entries.
+    let private registerGroupDetail (ctx: PassContext) (claims: ClaimedTypeDefn seq) : unit =
         for claimed in claims do
             registerDetail ctx claimed.Identity claimed.Defn
 
-        // An `interface … end` declares no type to register, but its eq/comp attributes are
-        // still illegal, so the kind-legality check runs over the group's CST.
+    /// Check the group's `interface … end` declarations for attributes illegal on that kind.
+    /// Runs over the CST, since such a declaration registers no type.
+    let private validateGroupInterfaces (ctx: PassContext) (defs: ImmutableArray<TypeDefn<SyntaxToken>>) : unit =
         for td in defs do
             validateInterfaceTypeDefn ctx td
 
-        // Group close: force every alias body. `forceFill` is idempotent, so this reaches
-        // exactly the aliases nothing referenced (a cyclic pair among them diagnoses here).
+    /// Force every alias body in the group, leaving each in a terminal state. `forceFill` is
+    /// idempotent, so this reaches exactly the aliases nothing referenced (a cyclic pair among
+    /// them diagnoses here).
+    let private forceGroupAbbrevBodies (ctx: PassContext) (claims: ClaimedTypeDefn seq) : unit =
         for claimed in claims do
             if claimed.Identity.Kind = TypeDeclKind.Abbreviation then
                 match TypeRegistry.tryAbbrevByKey ctx.Types claimed.Identity.Key with
                 | ValueSome info -> forceFill ctx info
                 | ValueNone -> ()
 
+    /// Fill each class's `BaseType` / `BaseCtorArgs` slot, and return the group's classes.
+    /// Requires every claim in the group to have registered its detail, because a parent is
+    /// resolved against the referent's detail rather than its identity.
+    let private fillGroupBaseTypes (ctx: PassContext) (claims: ClaimedTypeDefn seq) : ResizeArray<ClassTypeInfo> =
         let classes = ResizeArray<ClassTypeInfo>()
 
         for claimed in claims do
@@ -907,5 +932,22 @@ module NameResolutionMemberRegistration =
                 | ValueSome info -> classes.Add info
                 | ValueNone -> ()
 
+        classes
+
+    /// Register one `type … and …` group. File-order type scoping falls out because at the
+    /// moment a group registers, `TypeClaims` holds every type above it and none below.
+    let registerGroup
+        (ctx: PassContext)
+        (c: DeclContainment<SyntaxToken>)
+        (recScopeOffset: int voption)
+        (defs: ImmutableArray<TypeDefn<SyntaxToken>>)
+        : unit =
+        let claims = claimGroupIdentities ctx c recScopeOffset defs
+        classifyGroupTypeNames ctx defs
+        registerGroupAbbrevEntries ctx claims
+        registerGroupDetail ctx claims
+        validateGroupInterfaces ctx defs
+        forceGroupAbbrevBodies ctx claims
+        let classes = fillGroupBaseTypes ctx claims
         checkGroupInheritanceCycles ctx classes
         checkGroupStructFieldCycles ctx (claims |> Seq.filter (fun cl -> isValueTypeDefn ctx cl.Defn))

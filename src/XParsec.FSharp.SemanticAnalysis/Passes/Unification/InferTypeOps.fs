@@ -21,8 +21,8 @@ module internal UnificationInferTypeOps =
 
     /// Explicit type application on a value or ctor (`Box<int>(x)`): the given args
     /// unify pairwise with the *nominal result* type args, so `ResizeArray<int>()`
-    /// pins, and a wrong-arity application is reported. A bare generic function
-    /// (`id<int>`) has no nominal result, so args are a no-op.
+    /// pins. A bare generic function (`id<int>`) pins them onto its binding's scheme
+    /// instead. Either way a wrong-arity application is reported.
     let rec inferTypeApp
         (infer: Infer)
         (ctx: PassContext)
@@ -38,16 +38,56 @@ module internal UnificationInferTypeOps =
             | TyFun(_, r) -> resultOf r
             | other -> other
 
-        match resultOf innerTy with
-        | TyClass(key, freshArgs)
-        | TyUnion(key, freshArgs)
-        | TyRecord(key, freshArgs) ->
-            if freshArgs.Length = List.length explicit then
-                List.iter2 (fun fresh ex -> unify ctx tok fresh ex) (EqArray.toList freshArgs) explicit
-            else
-                let (DisplayName shown) = SymbolKeyOps.typeSimpleName key
-                ctx.Report(tok, Kind.TypeArgArity(shown, freshArgs.Length, List.length explicit))
-        | _ -> ()
+        // A second instantiation of the same scheme, with the explicit args pinned onto its
+        // fresh vars and then unified with the occurrence `infer` already minted. False when
+        // `inner` names no generalised binding, leaving the nominal-result rule below.
+        let pinThroughScheme () =
+            let bindingSite =
+                ctx.Bindings.Binding.TryGetValue(CstKeys.ofExpr inner)
+                |> ValueOption.map (fun rb -> rb.BindingSite)
+
+            match bindingSite |> ValueOption.bind ctx.Bindings.Scheme.TryGetValue with
+            | ValueNone -> false
+            | ValueSome scheme ->
+                let declared =
+                    match bindingSite |> ValueOption.bind ctx.Bindings.DeclaredTypars.TryGetValue with
+                    | ValueSome ds -> ds
+                    | ValueNone -> []
+
+                let order = explicitTyparOrder ctx declared scheme
+
+                if List.length order = List.length explicit then
+                    let inst = instantiateOpen ctx scheme
+
+                    List.iter2
+                        (fun root ex ->
+                            match inst.FreshOf.TryGetValue root with
+                            | true, fresh -> unify ctx tok (TyVar fresh) ex
+                            | _ -> ()
+                        )
+                        order
+                        explicit
+
+                    unify ctx tok innerTy inst.Body
+                    true
+                elif List.isEmpty order then
+                    false
+                else
+                    let shown = ctx.NameOf(CstKeys.firstTokenOfExpr inner)
+                    ctx.Report(tok, Kind.TypeArgArity(shown, List.length order, List.length explicit))
+                    true
+
+        if not (pinThroughScheme ()) then
+            match resultOf innerTy with
+            | TyClass(key, freshArgs)
+            | TyUnion(key, freshArgs)
+            | TyRecord(key, freshArgs) ->
+                if freshArgs.Length = List.length explicit then
+                    List.iter2 (fun fresh ex -> unify ctx tok fresh ex) (EqArray.toList freshArgs) explicit
+                else
+                    let (DisplayName shown) = SymbolKeyOps.typeSimpleName key
+                    ctx.Report(tok, Kind.TypeArgArity(shown, freshArgs.Length, List.length explicit))
+            | _ -> ()
 
         innerTy
 
@@ -204,10 +244,14 @@ module internal UnificationInferTypeOps =
         // records what the emitted `isinst` tests against.
         ctx.Resolution.TypeTestTargets.Set(node.Key, tgtTy)
 
+        // A nullable-reference source tests exactly as its non-null part does, the way a
+        // downcast reads it. Diagnostics still show the original `srcTy`.
+        let checkSrc = stripReferenceNull ctx.Store srcTy
+
         let related =
-            isObjTy ctx.Store srcTy
-            || subsumes ctx srcTy tgtTy <> SubsumeOutcome.Unrelated
-            || subsumes ctx tgtTy srcTy <> SubsumeOutcome.Unrelated
+            isObjTy ctx.Store checkSrc
+            || subsumes ctx checkSrc tgtTy <> SubsumeOutcome.Unrelated
+            || subsumes ctx tgtTy checkSrc <> SubsumeOutcome.Unrelated
 
         if not related then
             ctx.Report(node.Tok, Kind.UnrelatedTypeTest(shown ctx.Store srcTy, shown ctx.Store tgtTy))

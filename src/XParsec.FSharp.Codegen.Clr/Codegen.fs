@@ -22,7 +22,7 @@ module Codegen =
             for rd in f.Layout.Partitioned.Records do
                 NominalEmit.register
                     asm
-                    (NominalEmissionInput.Record(rd.Fields, rd.Interfaces, rd.ValueKind <> ClassValueKind.RefType))
+                    (NominalEmissionInput.Record(rd.Fields, rd.Interfaces, rd.ValueKind <> RecordValueKind.RefType))
                     rd.Decl
                     rd.Members
 
@@ -48,7 +48,7 @@ module Codegen =
                 NominalEmit.prepare
                     asm
                     f.EmitCtx
-                    (NominalEmissionInput.Record(rd.Fields, rd.Interfaces, rd.ValueKind <> ClassValueKind.RefType))
+                    (NominalEmissionInput.Record(rd.Fields, rd.Interfaces, rd.ValueKind <> RecordValueKind.RefType))
                     rd.Decl
                     rd.Members
 
