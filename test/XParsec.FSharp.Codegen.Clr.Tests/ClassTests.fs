@@ -1654,9 +1654,12 @@ let interfaceImplTests =
                     let impl = info.InterfaceImpls.[0]
 
                     match impl.Resolution with
-                    | InterfaceImplResolution.Resolved(TyClass(name, _)) ->
-                        Expect.stringContains name "IComparable" "the impl resolved to the IComparable interface"
-                    | other -> failtestf "interface impl did not resolve to an interface TyClass: %A" other
+                    | InterfaceImplResolution.Resolved(key, _) ->
+                        Expect.stringContains
+                            (SymbolKeyOps.typeMetaName key)
+                            "IComparable"
+                            "the impl resolved to the IComparable interface"
+                    | other -> failtestf "interface impl did not resolve to an interface: %A" other
 
                     Expect.equal impl.Members.Length 1 "the CompareTo member is registered on the impl"
                 | ValueNone -> failtest "class C was not registered"
@@ -1723,10 +1726,10 @@ let interfaceImplTests =
                         (info.InterfaceImpls
                          |> Array.forall (fun impl ->
                              match impl.Resolution with
-                             | InterfaceImplResolution.Resolved(TyClass _) -> true
+                             | InterfaceImplResolution.Resolved _ -> true
                              | _ -> false
                          ))
-                        "both interface impls resolved to an interface TyClass"
+                        "both interface impls resolved to an interface"
                 | ValueNone -> failtest "class C was not registered"
             }
 
@@ -1767,8 +1770,8 @@ let interfaceImplTests =
                     Expect.equal info.InterfaceImpls.Length 1 "one interface impl registered on Box"
 
                     match info.InterfaceImpls.[0].Resolution with
-                    | InterfaceImplResolution.Resolved(TyClass(name, _)) ->
-                        Expect.stringContains name "IBox" "impl resolved to IBox"
+                    | InterfaceImplResolution.Resolved(key, _) ->
+                        Expect.stringContains (SymbolKeyOps.typeMetaName key) "IBox" "impl resolved to IBox"
                     | other -> failtestf "interface impl did not resolve to IBox: %A" other
                 | ValueNone -> failtest "struct Box was not registered"
             }

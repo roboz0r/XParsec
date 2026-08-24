@@ -19,10 +19,20 @@ open UnificationInferDispatch
 
 module internal UnificationInferTypeOps =
 
-    /// Explicit type application on a value or ctor (`Box<int>(x)`): the given args
-    /// unify pairwise with the *nominal result* type args, so `ResizeArray<int>()`
-    /// pins. A bare generic function (`id<int>`) pins them onto its binding's scheme
-    /// instead. Either way a wrong-arity application is reported.
+    /// What an explicit type application (`f<int>`) pins its arguments onto. `Name` is the
+    /// spelling a wrong-arity report blames.
+    [<RequireQualifiedAccess>]
+    type private TypeAppTarget =
+        /// A generalised binding, whose quantified roots the arguments pin in `Order`.
+        | Scheme of name: string * scheme: TypeScheme * order: TyVarId list
+        /// A nominal result (`ResizeArray<int>()`), whose own type arguments the explicit
+        /// arguments pin.
+        | Nominal of name: string * args: EqArray<SemType>
+        /// The arguments pin nothing.
+        | Untargeted
+
+    /// Explicit type application on a value or ctor: the arguments pin the applied thing's
+    /// type parameters, and a wrong count is reported against it.
     let rec inferTypeApp
         (infer: Infer)
         (ctx: PassContext)
@@ -38,56 +48,68 @@ module internal UnificationInferTypeOps =
             | TyFun(_, r) -> resultOf r
             | other -> other
 
-        // A second instantiation of the same scheme, with the explicit args pinned onto its
-        // fresh vars and then unified with the occurrence `infer` already minted. False when
-        // `inner` names no generalised binding, leaving the nominal-result rule below.
-        let pinThroughScheme () =
+        // A generalised binding wins over the nominal result, so `let mk<'a> () : Map<'a,'a>`
+        // takes one argument rather than `Map`'s two. A scheme quantifying nothing pins
+        // nothing, and falls through.
+        let target =
             let bindingSite =
                 ctx.Bindings.Binding.TryGetValue(CstKeys.ofExpr inner)
                 |> ValueOption.map (fun rb -> rb.BindingSite)
 
-            match bindingSite |> ValueOption.bind ctx.Bindings.Scheme.TryGetValue with
-            | ValueNone -> false
-            | ValueSome scheme ->
-                let declared =
-                    match bindingSite |> ValueOption.bind ctx.Bindings.DeclaredTypars.TryGetValue with
-                    | ValueSome ds -> ds
-                    | ValueNone -> []
+            let schemeTarget =
+                match bindingSite |> ValueOption.bind ctx.Bindings.Scheme.TryGetValue with
+                | ValueNone -> ValueNone
+                | ValueSome scheme ->
+                    let declared =
+                        match bindingSite |> ValueOption.bind ctx.Bindings.DeclaredTypars.TryGetValue with
+                        | ValueSome ds -> ds
+                        | ValueNone -> []
 
-                let order = explicitTyparOrder ctx declared scheme
+                    match explicitTyparOrder ctx declared scheme with
+                    | [] -> ValueNone
+                    | order ->
+                        let shown = ctx.NameOf(CstKeys.firstTokenOfExpr inner)
+                        ValueSome(TypeAppTarget.Scheme(shown, scheme, order))
 
-                if List.length order = List.length explicit then
-                    let inst = instantiateOpen ctx scheme
-
-                    List.iter2
-                        (fun root ex ->
-                            match inst.FreshOf.TryGetValue root with
-                            | true, fresh -> unify ctx tok (TyVar fresh) ex
-                            | _ -> ()
-                        )
-                        order
-                        explicit
-
-                    unify ctx tok innerTy inst.Body
-                    true
-                elif List.isEmpty order then
-                    false
-                else
-                    let shown = ctx.NameOf(CstKeys.firstTokenOfExpr inner)
-                    ctx.Report(tok, Kind.TypeArgArity(shown, List.length order, List.length explicit))
-                    true
-
-        if not (pinThroughScheme ()) then
-            match resultOf innerTy with
-            | TyClass(key, freshArgs)
-            | TyUnion(key, freshArgs)
-            | TyRecord(key, freshArgs) ->
-                if freshArgs.Length = List.length explicit then
-                    List.iter2 (fun fresh ex -> unify ctx tok fresh ex) (EqArray.toList freshArgs) explicit
-                else
+            match schemeTarget with
+            | ValueSome t -> t
+            | ValueNone ->
+                match resultOf innerTy with
+                | TyClass(key, args)
+                | TyUnion(key, args)
+                | TyRecord(key, args) ->
                     let (DisplayName shown) = SymbolKeyOps.typeSimpleName key
-                    ctx.Report(tok, Kind.TypeArgArity(shown, freshArgs.Length, List.length explicit))
-            | _ -> ()
+                    TypeAppTarget.Nominal(shown, args)
+                | _ -> TypeAppTarget.Untargeted
+
+        let reportArity (name: string) (expected: int) =
+            ctx.Report(tok, Kind.TypeArgArity(name, expected, List.length explicit))
+
+        match target with
+        | TypeAppTarget.Untargeted -> ()
+        | TypeAppTarget.Scheme(name, scheme, order) ->
+            if List.length order <> List.length explicit then
+                reportArity name (List.length order)
+            else
+                // A SECOND instantiation of the scheme, its fresh vars pinned to the explicit
+                // arguments and the whole then unified with the occurrence `infer` minted.
+                let inst = instantiateOpen ctx scheme
+
+                List.iter2
+                    (fun root ex ->
+                        match inst.FreshOf.TryGetValue root with
+                        | true, fresh -> unify ctx tok (TyVar fresh) ex
+                        | _ -> ()
+                    )
+                    order
+                    explicit
+
+                unify ctx tok innerTy inst.Body
+        | TypeAppTarget.Nominal(name, args) ->
+            if args.Length <> List.length explicit then
+                reportArity name args.Length
+            else
+                List.iter2 (fun fresh ex -> unify ctx tok fresh ex) (EqArray.toList args) explicit
 
         innerTy
 

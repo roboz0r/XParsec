@@ -8,29 +8,77 @@ open System.Runtime.CompilerServices
 /// An immutable collection with SET-semantic equality: equal iff the same members in any
 /// order, hashed by a commutative combine. Construction DEDUPES and otherwise preserves
 /// insertion order, so `A | B | A` reads back as the declared `A | B`.
+///
+/// `'T` must hash consistently with its equality: construction hashes above
+/// `EqSet.ScanLimit` members.
 [<Struct; IsReadOnly; CustomEquality; NoComparison>]
 type EqSet<'T> =
     val private items: ImmutableArray<'T>
 
+    /// A member count up to which duplicate detection compares rather than hashes. A union
+    /// type reaches two or three members, where a `HashSet` allocation and a structural hash
+    /// of every member cost more than the comparisons they replace.
+    static member ScanLimit: int = 8
+
     /// `Equals`/`GetHashCode` below assume the members are distinct. An already-distinct
-    /// input keeps its original array uncopied.
+    /// input keeps its original array uncopied and allocates nothing.
     new(items: ImmutableArray<'T>) =
-        let seen = HashSet<'T>(EqualityComparer<'T>.Default)
-        let acc = ImmutableArray.CreateBuilder<'T>(items.Length)
+        let cmp = EqualityComparer<'T>.Default
 
-        for i in 0 .. items.Length - 1 do
-            let x = items.[i]
+        let deduped =
+            if items.Length <= EqSet<'T>.ScanLimit then
+                // The index of the first member some earlier one repeats, or `-1`. Reaching
+                // `-1` costs only comparisons, which is what keeps a distinct input free.
+                let mutable firstDuplicate = -1
+                let mutable i = 1
 
-            if seen.Add x then
-                acc.Add x
+                while firstDuplicate < 0 && i < items.Length do
+                    let mutable j = 0
 
-        {
-            items =
+                    while firstDuplicate < 0 && j < i do
+                        if cmp.Equals(items.[j], items.[i]) then
+                            firstDuplicate <- i
+
+                        j <- j + 1
+
+                    i <- i + 1
+
+                if firstDuplicate < 0 then
+                    items
+                else
+                    // The prefix below `firstDuplicate` is already distinct; only the rest is
+                    // re-tested, against the accumulator.
+                    let acc = ImmutableArray.CreateBuilder<'T>(items.Length - 1)
+                    acc.AddRange(items, firstDuplicate)
+
+                    for i in firstDuplicate + 1 .. items.Length - 1 do
+                        let mutable dup = false
+                        let mutable j = 0
+
+                        while not dup && j < acc.Count do
+                            if cmp.Equals(acc.[j], items.[i]) then
+                                dup <- true
+
+                            j <- j + 1
+
+                        if not dup then
+                            acc.Add items.[i]
+
+                    acc.ToImmutable()
+            else
+                let seen = HashSet<'T>(items.Length, cmp)
+                let acc = ImmutableArray.CreateBuilder<'T>(items.Length)
+
+                for i in 0 .. items.Length - 1 do
+                    if seen.Add items.[i] then
+                        acc.Add items.[i]
+
                 if acc.Count = items.Length then
                     items
                 else
                     acc.ToImmutable()
-        }
+
+        { items = deduped }
 
     /// Normalised so an uninitialised `EqSet` reads as empty rather than throwing.
     member this.Underlying: ImmutableArray<'T> =

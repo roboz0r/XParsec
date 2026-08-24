@@ -311,39 +311,19 @@ module TastPools =
                     referent
                     k
 
-        let boundVarIdOf (referent: string) (b: BoundVarKeyG<'id>) : BoundVarId =
-            let k = BoundVarKey.identity b
-
-            match internedBoundVarId k with
-            | ValueSome id -> id
-            | ValueNone ->
-                failwithf
-                    "%s: %s entry %O names a bound variable no declaration in the frozen file introduces, so prune the entry where its declaration is pruned"
-                    entryPoint
-                    referent
-                    k
+        let tryBoundVarIdOf (b: BoundVarKeyG<'id>) : BoundVarId voption =
+            internedBoundVarId (BoundVarKey.identity b)
 
         // `FunVerdicts` onto the lambda id space, driven from the ID side: every pooled lambda
         // is offered the key it was stamped with, so all the lambdas one key stamps take the
-        // verdict.
+        // verdict, and a key naming no pooled lambda is projected away like a side table's.
         let funVerdicts =
-            let matched = System.Collections.Generic.HashSet<LambdaKey>()
-
-            let rows =
-                [|
-                    for struct (id, k) in lambdaSlots do
-                        match Map.tryFind k file.FunVerdicts with
-                        | Some v ->
-                            matched.Add k |> ignore
-                            yield id, v
-                        | None -> ()
-                |]
-
-            for KeyValue(k, _) in file.FunVerdicts do
-                if not (matched.Contains k) then
-                    failwithf "%s: FunVerdicts key %O does not resolve to a pooled lambda" entryPoint k
-
-            rows
+            [|
+                for struct (id, k) in lambdaSlots do
+                    match Map.tryFind k file.FunVerdicts with
+                    | Some v -> yield id, v
+                    | None -> ()
+            |]
 
         // Second pass, the enumeration now complete: route each `Var`'s reference edge to its
         // bound variable's dense id. `ValueNone` at every non-`Var` slot.
@@ -353,18 +333,28 @@ module TastPools =
         for (struct (id, key)) in varBindings do
             exprVarBoundVar.[id] <- ValueSome(boundVarIdOfRef "Var" key)
 
-        // The resolver is a parameter so that a fault identifies the table holding the key.
-        let remapSideTable (resolve: 'k -> 'dense) (m: Map<'k, 'v>) : ('dense * 'v)[] =
-            m |> Map.toArray |> Array.map (fun (k, v) -> resolve k, v)
+        // A side table annotates declarations from outside the tree, so it is PROJECTED onto the
+        // pooled bound variables: an entry keyed by one the pool never interned is dropped. That
+        // is the shape a file whose elaboration dropped a declaration arrives in.
+        let remapSideTable (resolve: 'k -> 'dense voption) (m: Map<'k, 'v>) : ('dense * 'v)[] =
+            m
+            |> Map.toArray
+            |> Array.choose (fun (k, v) ->
+                match resolve k with
+                | ValueSome dense -> Some(dense, v)
+                | ValueNone -> None
+            )
 
         // A per-bound-variable SCALAR goes into a column instead: the producer's key is resolved here
-        // and then DROPPED, the fact landing at the bound variable's own slot.
-        let boundVarColumn (referent: string) (m: Map<BoundVarKeyG<'id>, 'v>) : BoundVarColumn<'v> =
+        // and then DROPPED, the fact landing at the bound variable's own slot. Projected like
+        // `remapSideTable`.
+        let boundVarColumn (m: Map<BoundVarKeyG<'id>, 'v>) : BoundVarColumn<'v> =
             let col = Array.create boundVarNames.Count ValueNone
 
             for KeyValue(k, v) in m do
-                let (BoundVarId i) = boundVarIdOf referent k
-                col.[i] <- ValueSome v
+                match tryBoundVarIdOf k with
+                | ValueSome(BoundVarId i) -> col.[i] <- ValueSome v
+                | ValueNone -> ()
 
             col
 
@@ -398,13 +388,13 @@ module TastPools =
                         GlobalValueKeys = file.GlobalValueKeys
                         Accessibility = file.Accessibility
                     }
-                ModuleMembers = remapSideTable (boundVarIdOf "ModuleMembers") file.ModuleMembers
-                ClosureReprs = remapSideTable (boundVarIdOf "ClosureReprs") file.ClosureReprs
+                ModuleMembers = remapSideTable tryBoundVarIdOf file.ModuleMembers
+                ClosureReprs = remapSideTable tryBoundVarIdOf file.ClosureReprs
                 FunVerdicts = funVerdicts
-                GenericFnSchemes = remapSideTable (boundVarIdOf "GenericFnSchemes") file.GenericFnSchemes
+                GenericFnSchemes = remapSideTable tryBoundVarIdOf file.GenericFnSchemes
                 // Derived below, off the pools themselves.
                 BindingValReprs = [||]
-                BindingTyparArities = boundVarColumn "BindingTyparArities" file.BindingTyparArities
+                BindingTyparArities = boundVarColumn file.BindingTyparArities
             }
 
         { pools with

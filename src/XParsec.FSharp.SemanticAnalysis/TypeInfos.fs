@@ -104,9 +104,19 @@ type UnionCaseInfo
 [<RequireQualifiedAccess>]
 type InterfaceImplResolution =
     | Pending
-    | Resolved of iface: SemType
+    /// The interface's own type constructor and arguments. Only a nominal passes the
+    /// interface-ness gate, so a resolved impl is destructured without a shape test.
+    | Resolved of key: TypeKey * args: EqArray<SemType>
     /// The written type is not an interface, and that diagnostic has already been reported.
     | Rejected
+
+module InterfaceImplResolution =
+    /// The resolved interface AS A TYPE, for the consumers that instantiate or carry it whole.
+    let tryIface (r: InterfaceImplResolution) : SemType voption =
+        match r with
+        | InterfaceImplResolution.Resolved(key, args) -> ValueSome(TyClass(key, args))
+        | InterfaceImplResolution.Pending
+        | InterfaceImplResolution.Rejected -> ValueNone
 
 /// A registered `interface IFace with member …` block on a class or union. `DeclSite` is the
 /// `interface` keyword.

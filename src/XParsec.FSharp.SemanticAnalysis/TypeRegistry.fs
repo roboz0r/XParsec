@@ -427,18 +427,18 @@ module TypeRegistry =
                     | ValueNone -> ValueNone
         | false, _ -> ValueNone
 
-    let private tryOfKey (table: Dictionary<TypeKey, 'T>) (key: TypeKey voption) : 'T voption =
-        match key with
-        | ValueSome k ->
-            match table.TryGetValue k with
-            | true, info -> ValueSome info
-            | false, _ -> ValueNone
-        | ValueNone -> ValueNone
-
-    let private tryByTypeKey (table: Dictionary<TypeKey, 'T>) (key: TypeKey) : 'T voption =
+    let private tryDict (table: Dictionary<TypeKey, 'T>) (key: TypeKey) : 'T voption =
         match table.TryGetValue key with
         | true, info -> ValueSome info
         | false, _ -> ValueNone
+
+    /// Chains onto a by-name resolution, whose miss passes straight through.
+    let private tryOfKey (reg: KindRegistry<'T>) (key: TypeKey voption) : 'T voption =
+        match key with
+        | ValueSome k -> tryDict reg.ByKey k
+        | ValueNone -> ValueNone
+
+    let private tryByTypeKey (reg: KindRegistry<'T>) (key: TypeKey) : 'T voption = tryDict reg.ByKey key
 
     // --- The name table -------------------------------------------------------------
 
@@ -515,7 +515,7 @@ module TypeRegistry =
 
     /// Resolve a record by BARE short name; an arity-overloaded name does not resolve.
     let tryRecord (types: PassContextTypes) (useSite: UseSite) (name: string) : RecordTypeInfo voption =
-        tryOfKey types.Record.ByKey (tryKeyOfArglessName types types.Record useSite (WrittenTypeName.bare name))
+        tryOfKey types.Record (tryKeyOfArglessName types types.Record useSite (WrittenTypeName.bare name))
 
     /// Resolve a record by `(name, arity)`, matching the arity exactly, so a wrong arity misses.
     let tryRecordArity
@@ -524,11 +524,10 @@ module TypeRegistry =
         (name: string)
         (arity: int)
         : RecordTypeInfo voption =
-        tryOfKey types.Record.ByKey (tryKeyOfArity types types.Record useSite (WrittenTypeName.bare name) arity)
+        tryOfKey types.Record (tryKeyOfArity types types.Record useSite (WrittenTypeName.bare name) arity)
 
     /// Resolve a record by its project-local `SymbolKey`.
-    let tryRecordByKey (types: PassContextTypes) (key: TypeKey) : RecordTypeInfo voption =
-        tryByTypeKey types.Record.ByKey key
+    let tryRecordByKey (types: PassContextTypes) (key: TypeKey) : RecordTypeInfo voption = tryByTypeKey types.Record key
 
     let registerClass (types: PassContextTypes) (info: ClassTypeInfo) : unit =
         registerKeyed types.Class info.Name info.TypeKey info
@@ -540,7 +539,7 @@ module TypeRegistry =
         (useSite: UseSite)
         (written: WrittenTypeName)
         : ClassTypeInfo voption =
-        tryOfKey types.Class.ByKey (tryKeyOfArglessName types types.Class useSite written)
+        tryOfKey types.Class (tryKeyOfArglessName types types.Class useSite written)
 
     /// Resolve a class by BARE short name, for the recognition-only call sites.
     let tryClass (types: PassContextTypes) (useSite: UseSite) (name: string) : ClassTypeInfo voption =
@@ -548,27 +547,25 @@ module TypeRegistry =
 
     /// Resolve a class by `(name, arity)`, matching the arity exactly, so a wrong arity misses.
     let tryClassArity (types: PassContextTypes) (useSite: UseSite) (name: string) (arity: int) : ClassTypeInfo voption =
-        tryOfKey types.Class.ByKey (tryKeyOfArity types types.Class useSite (WrittenTypeName.bare name) arity)
+        tryOfKey types.Class (tryKeyOfArity types types.Class useSite (WrittenTypeName.bare name) arity)
 
     /// Resolve a class by its project-local `SymbolKey`.
-    let tryClassByKey (types: PassContextTypes) (key: TypeKey) : ClassTypeInfo voption =
-        tryByTypeKey types.Class.ByKey key
+    let tryClassByKey (types: PassContextTypes) (key: TypeKey) : ClassTypeInfo voption = tryByTypeKey types.Class key
 
     /// True iff a class is registered under this key: the local-vs-external test a caller
     /// holding a `TyClass` key asks.
-    let containsClassKey (types: PassContextTypes) (key: TypeKey) : bool =
-        (tryByTypeKey types.Class.ByKey key).IsSome
+    let containsClassKey (types: PassContextTypes) (key: TypeKey) : bool = (tryByTypeKey types.Class key).IsSome
 
     /// A class, union *or* record by key, as the shared `IInterfaceImplHost`, so a union's or
     /// record's declared interfaces participate in subtyping like a class's.
     let tryInterfaceImplHostByKey (types: PassContextTypes) (key: TypeKey) : IInterfaceImplHost voption =
-        match tryByTypeKey types.Class.ByKey key with
+        match tryByTypeKey types.Class key with
         | ValueSome info -> ValueSome(info :> IInterfaceImplHost)
         | ValueNone ->
-            match tryByTypeKey types.Union.ByKey key with
+            match tryByTypeKey types.Union key with
             | ValueSome info -> ValueSome(info :> IInterfaceImplHost)
             | ValueNone ->
-                match tryByTypeKey types.Record.ByKey key with
+                match tryByTypeKey types.Record key with
                 | ValueSome info -> ValueSome(info :> IInterfaceImplHost)
                 | ValueNone -> ValueNone
 
@@ -581,10 +578,10 @@ module TypeRegistry =
     let tryEnum (types: PassContextTypes) (useSite: UseSite) (name: string) : EnumTypeInfo voption =
         match tryTypeClaim types useSite name 0 with
         | ValueNone -> ValueNone
-        | ValueSome claim -> tryOfKey types.Enum (ValueSome claim.Key)
+        | ValueSome claim -> tryDict types.Enum claim.Key
 
     /// Resolve an enum by its project-local `SymbolKey`.
-    let tryEnumByKey (types: PassContextTypes) (key: TypeKey) : EnumTypeInfo voption = tryByTypeKey types.Enum key
+    let tryEnumByKey (types: PassContextTypes) (key: TypeKey) : EnumTypeInfo voption = tryDict types.Enum key
 
     let registerAbbrev (types: PassContextTypes) (info: AbbreviationInfo) : unit =
         registerKeyed types.Abbreviation info.Name info.TypeKey info
@@ -592,9 +589,7 @@ module TypeRegistry =
     /// Resolve an abbreviation by BARE short name. Cross-kind precedence is NOT its business:
     /// a caller needing to know which kind owns a name asks the name table first.
     let tryAbbrev (types: PassContextTypes) (useSite: UseSite) (name: string) : AbbreviationInfo voption =
-        tryOfKey
-            types.Abbreviation.ByKey
-            (tryKeyOfArglessName types types.Abbreviation useSite (WrittenTypeName.bare name))
+        tryOfKey types.Abbreviation (tryKeyOfArglessName types types.Abbreviation useSite (WrittenTypeName.bare name))
 
     /// Resolve an abbreviation by `(name, arity)`, matching the arity exactly, so a wrong arity misses.
     let tryAbbrevArity
@@ -603,13 +598,11 @@ module TypeRegistry =
         (name: string)
         (arity: int)
         : AbbreviationInfo voption =
-        tryOfKey
-            types.Abbreviation.ByKey
-            (tryKeyOfArity types types.Abbreviation useSite (WrittenTypeName.bare name) arity)
+        tryOfKey types.Abbreviation (tryKeyOfArity types types.Abbreviation useSite (WrittenTypeName.bare name) arity)
 
     /// Resolve an abbreviation by its project-local `SymbolKey`.
     let tryAbbrevByKey (types: PassContextTypes) (key: TypeKey) : AbbreviationInfo voption =
-        tryByTypeKey types.Abbreviation.ByKey key
+        tryByTypeKey types.Abbreviation key
 
     /// Resolve an abbreviation by the `(name, arity)` a well-known identity SPELLS, rather
     /// than by that identity.
@@ -622,15 +615,14 @@ module TypeRegistry =
 
     /// Resolve a union by `(name, arity)`, matching the arity exactly, so a wrong arity misses.
     let tryUnion (types: PassContextTypes) (useSite: UseSite) (name: string) (arity: int) : UnionTypeInfo voption =
-        tryOfKey types.Union.ByKey (tryKeyOfArity types types.Union useSite (WrittenTypeName.bare name) arity)
+        tryOfKey types.Union (tryKeyOfArity types types.Union useSite (WrittenTypeName.bare name) arity)
 
     /// Resolve a union by BARE short name, for the recognition-only call sites.
     let tryUnionBare (types: PassContextTypes) (useSite: UseSite) (name: string) : UnionTypeInfo voption =
-        tryOfKey types.Union.ByKey (tryKeyOfArglessName types types.Union useSite (WrittenTypeName.bare name))
+        tryOfKey types.Union (tryKeyOfArglessName types types.Union useSite (WrittenTypeName.bare name))
 
     /// Resolve a union by its project-local `TypeKey`.
-    let tryUnionByKey (types: PassContextTypes) (key: TypeKey) : UnionTypeInfo voption =
-        tryByTypeKey types.Union.ByKey key
+    let tryUnionByKey (types: PassContextTypes) (key: TypeKey) : UnionTypeInfo voption = tryByTypeKey types.Union key
 
     /// A member-bearing nominal: its members, and the type parameters a member signature is
     /// instantiated against. Class, union and record share this shape.
@@ -760,17 +752,17 @@ module TypeRegistry =
         (key: TypeKey)
         (name: string)
         : IInterfaceImplHost voption =
-        match tryByTypeKey types.Union.ByKey key with
+        match tryByTypeKey types.Union key with
         | ValueSome info -> ValueSome(info :> IInterfaceImplHost)
         | ValueNone ->
-            match tryByTypeKey types.Record.ByKey key with
+            match tryByTypeKey types.Record key with
             | ValueSome info -> ValueSome(info :> IInterfaceImplHost)
             | ValueNone -> tryIntrinsicAbbrevHostByName types name
 
     /// The declaring union of a registered case: the case carries its union's `TypeKey`, so no
     /// use site is needed, and a caller holding a case got it from a scoped read anyway.
     let unionOfCase (types: PassContextTypes) (info: UnionCaseInfo) : UnionTypeInfo =
-        match tryOfKey types.Union.ByKey (ValueSome info.UnionKey) with
+        match tryOfKey types.Union (ValueSome info.UnionKey) with
         | ValueSome u -> u
         | ValueNone -> failwithf "Internal error: union case '%s' has no registered union '%s'" info.Name info.UnionName
 

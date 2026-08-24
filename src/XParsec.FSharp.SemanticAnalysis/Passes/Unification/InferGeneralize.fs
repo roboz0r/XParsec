@@ -115,6 +115,14 @@ module internal UnificationInferGeneralize =
         |> Seq.filter quantified.Contains
         |> List.ofSeq
 
+    /// Retract any scheme standing at `bindingSite`, so a reference to it resolves to the
+    /// monomorphic binding-site TyVar. Called on each member of a `let rec` group before its
+    /// bodies type, which is what forbids polymorphic recursion: the annotation-derived
+    /// forward scheme `UnificationInferForwardSchemes` seeded would otherwise admit it. The
+    /// group's own generalisation writes the slot again once the bodies have typed.
+    let barPolymorphicRecursion (ctx: PassContext) (bindingSite: NodeKey) : unit =
+        ctx.Bindings.Scheme.Remove bindingSite
+
     /// Resolve a bound name to its type: instantiate its generalised scheme if one was
     /// written, else take the monomorphic binding-site TyVar (a sibling in the same
     /// `let rec` group, not yet generalised, which is what forbids polymorphic recursion).

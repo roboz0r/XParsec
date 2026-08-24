@@ -205,10 +205,11 @@ module FrozenSignature =
                             }
 
                 match td.Kind with
-                | TTypeKindG.Record rec' ->
-                    let fields = rec'.Fields
-                    let members = rec'.Members
-
+                | TTypeKindG.Record {
+                                        Fields = fields
+                                        Members = members
+                                        ValueKind = valueKind
+                                    } ->
                     let fieldShapes =
                         EqArray.ofSeq
                             [
@@ -222,7 +223,7 @@ module FrozenSignature =
                             ]
 
                     register
-                        (ExternalTypeShape.Record(arity, fieldShapes, origin, rec'.ValueKind <> RecordValueKind.RefType))
+                        (ExternalTypeShape.Record(arity, fieldShapes, origin, valueKind <> RecordValueKind.RefType))
                         (ValueSome(membersOf typeKey arity members))
 
                     // An RQA record carries the flag so a consumer's bare `{ X = … }` literal
@@ -236,12 +237,12 @@ module FrozenSignature =
                             IsRequireQualifiedAccess = td.IsRequireQualifiedAccess
                         }
 
-                | TTypeKindG.Union u ->
-                    let caseShapes = EqArray.ofSeq [ for c in u.Cases -> caseShapeOf c ]
+                | TTypeKindG.Union { Cases = cases; Members = members } ->
+                    let caseShapes = EqArray.ofSeq [ for c in cases -> caseShapeOf c ]
 
                     register
                         (ExternalTypeShape.Union(arity, caseShapes, EqArray.empty, origin, td.IsRequireQualifiedAccess))
-                        (ValueSome(membersOf typeKey arity u.Members))
+                        (ValueSome(membersOf typeKey arity members))
 
                     registerCases caseShapes
 

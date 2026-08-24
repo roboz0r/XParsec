@@ -8,12 +8,23 @@ type RegionId =
     new(raw) = { Raw = raw }
     static member Unknown = RegionId(-1)
 
-/// A canonical rational: `gcd(|Numerator|, Denominator) = 1` and `Denominator > 0`.
+/// A canonical rational: `gcd(|Numerator|, Denominator) = 1` and `Denominator > 0`. The
+/// zero-initialised struct is `0/1`, so `Unchecked.defaultof<Rational>` equals `Rational.Zero`
+/// and an array of them starts canonical.
 [<Struct; CustomEquality; CustomComparison>]
 type Rational =
     val Numerator: bigint
-    val Denominator: bigint
-    private new(n: bigint, d: bigint) = { Numerator = n; Denominator = d }
+    /// One less than the denominator, which is what puts `0/1` at the default. A bijection
+    /// onto the denominators, so equality over the stored fields IS value equality.
+    val private denominatorLess1: bigint
+
+    private new(n: bigint, d: bigint) =
+        {
+            Numerator = n
+            denominatorLess1 = d - BigInteger.One
+        }
+
+    member this.Denominator: bigint = this.denominatorLess1 + BigInteger.One
 
     static member create(n: bigint, d: bigint) : Rational =
         if d.IsZero then
@@ -46,12 +57,12 @@ type Rational =
 
     override this.Equals(other: obj) =
         match other with
-        | :? Rational as r -> this.Numerator = r.Numerator && this.Denominator = r.Denominator
+        | :? Rational as r -> this.Numerator = r.Numerator && this.denominatorLess1 = r.denominatorLess1
         | _ -> false
 
     override this.GetHashCode() =
         let h1 = this.Numerator.GetHashCode()
-        let h2 = this.Denominator.GetHashCode()
+        let h2 = this.denominatorLess1.GetHashCode()
         (h1 * 397) ^^^ h2
 
     interface System.IComparable with

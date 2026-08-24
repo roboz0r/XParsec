@@ -350,7 +350,7 @@ module Unification =
     /// the impl's interface type-args. A missing member diagnoses at the interface name.
     let private checkInterfaceConformance (ctx: PassContext) (impl: ClassInterfaceImplInfo) : unit =
         match impl.Resolution with
-        | InterfaceImplResolution.Resolved(TyClass(ifaceKey, ifaceArgs)) ->
+        | InterfaceImplResolution.Resolved(ifaceKey, ifaceArgs) ->
             let ifaceName = SymbolKeyOps.typeMetaName ifaceKey
 
             // A capability interface (`disposable`) is an `IntrinsicInterface`, not a `Class`,
@@ -385,7 +385,6 @@ module Unification =
                             )
                         )
             | _ -> ()
-        | InterfaceImplResolution.Resolved _
         | InterfaceImplResolution.Pending
         | InterfaceImplResolution.Rejected -> ()
 
@@ -438,8 +437,7 @@ module Unification =
             [
                 for impl in info.InterfaceImpls do
                     match impl.Resolution with
-                    | InterfaceImplResolution.Resolved(TyClass(key, _)) -> impl, key, ctx.Provider.TryLookupType key
-                    | InterfaceImplResolution.Resolved _
+                    | InterfaceImplResolution.Resolved(key, _) -> impl, key, ctx.Provider.TryLookupType key
                     | InterfaceImplResolution.Pending
                     | InterfaceImplResolution.Rejected -> ()
             ]
@@ -496,27 +494,27 @@ module Unification =
     /// class's typar scope and stamp `impl.Resolution` before any member body is typed, because
     /// class→interface upcast sites read it.
     let private resolveInterfaceImpls (ctx: PassContext) (info: IInterfaceImplHost) : unit =
+        let isInterfaceKey (ifaceKey: TypeKey) =
+            match ctx.Provider.TryLookupType ifaceKey with
+            | ValueSome shape -> ExternalSymbols.isInterfaceShape shape
+            // A project-local interface has no external-provider entry, so its
+            // interface-ness is read off the registered `ClassTypeInfo`.
+            | ValueNone ->
+                match TypeRegistry.tryClassByKey ctx.Types ifaceKey with
+                | ValueSome localInfo -> localInfo.IsInterface
+                | ValueNone -> false
+
         for impl in info.InterfaceImpls do
             let resolved =
-                use _ = ctx.PushTyparScope(UnificationClassCtors.scopeOfTypeParams info.TypeParams, true)
+                use _ =
+                    ctx.PushTyparScope(UnificationClassCtors.scopeOfTypeParams info.TypeParams, true)
+
                 translateType ctx impl.InterfaceCst
 
-            let isInterface =
-                match resolved with
-                | TyClass(ifaceKey, _) ->
-                    match ctx.Provider.TryLookupType ifaceKey with
-                    | ValueSome shape -> ExternalSymbols.isInterfaceShape shape
-                    // A project-local interface has no external-provider entry, so its
-                    // interface-ness is read off the registered `ClassTypeInfo`.
-                    | ValueNone ->
-                        match TypeRegistry.tryClassByKey ctx.Types ifaceKey with
-                        | ValueSome localInfo -> localInfo.IsInterface
-                        | ValueNone -> false
-                | _ -> false
-
-            if isInterface then
-                impl.Resolution <- InterfaceImplResolution.Resolved resolved
-            else
+            match resolved with
+            | TyClass(ifaceKey, ifaceArgs) when isInterfaceKey ifaceKey ->
+                impl.Resolution <- InterfaceImplResolution.Resolved(ifaceKey, ifaceArgs)
+            | _ ->
                 impl.Resolution <- InterfaceImplResolution.Rejected
 
                 ctx.Report(
@@ -752,9 +750,8 @@ module Unification =
             info.InterfaceImpls
             |> Array.exists (fun impl ->
                 match impl.Resolution with
-                | InterfaceImplResolution.Resolved(TyClass(ifaceKey, ifaceArgs)) ->
+                | InterfaceImplResolution.Resolved(ifaceKey, ifaceArgs) ->
                     cap.Matches ifaceKey && (ifaceArgs.Length = 0 || argIsSelf info ifaceArgs.[0])
-                | InterfaceImplResolution.Resolved _
                 | InterfaceImplResolution.Pending
                 | InterfaceImplResolution.Rejected -> false
             )

@@ -6,6 +6,14 @@ open XParsec.Toml
 /// A committed file a package's `[core] runtime` key lists, read off disk.
 type RuntimeAsset = { FileName: string; Source: string }
 
+/// A manifest set's runtime assets by package name, beside the declared assets absent from
+/// disk. A package appears in at most one of the two.
+type ResolvedRuntimeAssets =
+    {
+        ByPackage: Map<string, RuntimeAsset list>
+        Missing: PackageSetFault list
+    }
+
 /// A *referenced project*: a package DIRECTORY resolved against a target to
 /// `manifest.<target>.toml`, parsed, and closed over `depends-on` into a build order. What
 /// the file lists NAME is read here; what they DECLARE is resolved by `PackageProviders`.
@@ -478,35 +486,40 @@ module ReferencedProject =
     /// package name. In manifest order, and the FIRST is the package's runtime entry: the file
     /// a backend-synthesised import (a structural helper, a format helper) resolves to. A
     /// declared asset absent from disk is a `FileMissing` fault, because the emitted program
-    /// would import a module nothing materialises.
-    let runtimeModules (manifests: Manifest list) : Result<Map<string, RuntimeAsset list>, PackageSetFault> =
-        let readAsset (manifest: Manifest) (rel: string) : Result<RuntimeAsset, PackageSetFault> =
+    /// would import a module nothing materialises. A package with any absent asset contributes
+    /// none, its survivors having shifted the runtime entry onto the wrong file; every other
+    /// package resolves independently.
+    let runtimeModules (manifests: Manifest list) : ResolvedRuntimeAssets =
+        let tryReadAsset (manifest: Manifest) (rel: string) : RuntimeAsset voption =
             let abs = Path.Combine(manifest.Dir, rel)
 
             if File.Exists abs then
-                Ok
+                ValueSome
                     {
                         FileName = Path.GetFileName rel
                         Source = File.ReadAllText abs
                     }
             else
-                Error(PackageSetFault.FileMissing(manifest.Name, rel))
+                ValueNone
 
-        let rec readAssets (manifest: Manifest) (rels: string list) (read: RuntimeAsset list) =
-            match rels with
-            | [] -> Ok(List.rev read)
-            | rel :: rest ->
-                match readAsset manifest rel with
-                | Error fault -> Error fault
-                | Ok asset -> readAssets manifest rest (asset :: read)
+        let mutable byPackage = Map.empty
+        let missing = ResizeArray<PackageSetFault>()
 
-        let rec go (manifests: Manifest list) (acc: Map<string, RuntimeAsset list>) =
-            match manifests with
-            | [] -> Ok acc
-            | manifest :: rest ->
-                match readAssets manifest manifest.Runtime [] with
-                | Error fault -> Error fault
-                | Ok [] -> go rest acc
-                | Ok assets -> go rest (Map.add manifest.Name assets acc)
+        for manifest in manifests do
+            let present = ResizeArray<RuntimeAsset>()
+            let mutable complete = true
 
-        go manifests Map.empty
+            for rel in manifest.Runtime do
+                match tryReadAsset manifest rel with
+                | ValueSome asset -> present.Add asset
+                | ValueNone ->
+                    complete <- false
+                    missing.Add(PackageSetFault.FileMissing(manifest.Name, rel))
+
+            if complete && present.Count > 0 then
+                byPackage <- Map.add manifest.Name (List.ofSeq present) byPackage
+
+        {
+            ByPackage = byPackage
+            Missing = List.ofSeq missing
+        }

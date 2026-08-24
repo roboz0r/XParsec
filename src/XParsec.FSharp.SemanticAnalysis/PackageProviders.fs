@@ -165,15 +165,13 @@ module PackageProviders =
             |> List.distinct
             |> (fun prefixes -> prefixes @ RuntimeNames.preludeNamespaces)
 
-        let runtimeAssets =
-            match ReferencedProject.runtimeModules [ manifest ] with
-            | Ok assets -> assets
-            | Error fault ->
-                diagnostics.AddRange(AssemblyFiles.setFaultDiagnostics fault)
-                Map.empty
+        let runtimeAssets = ReferencedProject.runtimeModules [ manifest ]
+
+        for fault in runtimeAssets.Missing do
+            diagnostics.AddRange(AssemblyFiles.setFaultDiagnostics fault)
 
         {
-            RuntimeAssets = runtimeAssets
+            RuntimeAssets = runtimeAssets.ByPackage
             // Every resolved descriptor carries the package as its home: the surfaces record
             // `SymbolOrigin.Empty`, and a package spans as many namespaces as its files declare.
             Provider =
@@ -278,14 +276,13 @@ module PackageProviders =
             InlineBodies.concat [ for bp in builtPackages -> bp.InlineBodies ]
 
         let runtimeAssets =
-            match ReferencedProject.runtimeModules [ for parsed in orderedManifests -> parsed.Manifest ] with
-            | Ok assets -> assets
-            | Error fault ->
-                diagnostics.AddRange(AssemblyFiles.setFaultDiagnostics fault)
-                Map.empty
+            ReferencedProject.runtimeModules [ for parsed in orderedManifests -> parsed.Manifest ]
+
+        for fault in runtimeAssets.Missing do
+            diagnostics.AddRange(AssemblyFiles.setFaultDiagnostics fault)
 
         {
-            RuntimeAssets = runtimeAssets
+            RuntimeAssets = runtimeAssets.ByPackage
             Provider =
                 ExternalSymbolProviders.composite (
                     builtList @ platformMetadata (ExternalSymbolProviders.mergeIntrinsics builtList)

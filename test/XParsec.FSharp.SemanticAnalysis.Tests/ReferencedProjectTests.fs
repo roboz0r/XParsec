@@ -889,10 +889,10 @@ let tests =
                                 "RuntimeAsset"
                                 "[core]\nfiles = []\nruntime = [\"asset.mjs\", \"extra.mjs\"]\n"
 
+                        let resolved = ReferencedProject.runtimeModules [ loadOrFail jsPath ]
+
                         Expect.equal
-                            (ReferencedProject.runtimeModules [ loadOrFail jsPath ]
-                             |> PackageFaults.okOrFail "runtimeModules"
-                             |> Map.tryFind "RuntimeAsset")
+                            (resolved.ByPackage |> Map.tryFind "RuntimeAsset")
                             (Some
                                 [
                                     {
@@ -906,11 +906,12 @@ let tests =
                                 ])
                             "package RuntimeAsset → its assets read from disk, in manifest order"
 
+                        Expect.isEmpty resolved.Missing "every declared asset was on disk"
+
                         let clrPath = writeManifestFor "clr" "RuntimeAsset" "[core]\nfiles = []\n"
 
                         Expect.isEmpty
-                            (ReferencedProject.runtimeModules [ loadOrFail clrPath ]
-                             |> PackageFaults.okOrFail "runtimeModules")
+                            (ReferencedProject.runtimeModules [ loadOrFail clrPath ]).ByPackage
                             "the same package's clr manifest lists no asset, so it resolves to an empty map"
                     }
 
@@ -927,9 +928,51 @@ let tests =
                                 "MissingRuntimeAsset"
                                 "[core]\nfiles = []\nruntime = [\"present.mjs\", \"absent.mjs\"]\n"
 
-                        match ReferencedProject.runtimeModules [ loadOrFail jsPath ] with
-                        | Error(PackageSetFault.FileMissing("MissingRuntimeAsset", "absent.mjs")) -> ()
-                        | other -> failtestf "expected a FileMissing fault naming absent.mjs, got: %A" other
+                        let resolved = ReferencedProject.runtimeModules [ loadOrFail jsPath ]
+
+                        Expect.equal
+                            resolved.Missing
+                            [ PackageSetFault.FileMissing("MissingRuntimeAsset", "absent.mjs") ]
+                            "the absent asset is reported, and only it"
+
+                        Expect.isFalse
+                            (resolved.ByPackage.ContainsKey "MissingRuntimeAsset")
+                            "the incomplete package contributes no assets, so `present.mjs` is not promoted to its entry"
+                    }
+
+                    // One package's absent asset must not take another package's assets with it.
+                    test "runtimeModules keeps a sound package's assets beside a faulted one" {
+                        let goodDir = Path.Combine(tmpSrc, "SoundRuntimeAsset")
+                        Directory.CreateDirectory goodDir |> ignore
+                        File.WriteAllText(Path.Combine(goodDir, "sound.mjs"), "export const s = 1;\n")
+
+                        let goodPath =
+                            writeManifestFor "js" "SoundRuntimeAsset" "[core]\nfiles = []\nruntime = [\"sound.mjs\"]\n"
+
+                        let badDir = Path.Combine(tmpSrc, "FaultedRuntimeAsset")
+                        Directory.CreateDirectory badDir |> ignore
+
+                        let badPath =
+                            writeManifestFor "js" "FaultedRuntimeAsset" "[core]\nfiles = []\nruntime = [\"gone.mjs\"]\n"
+
+                        let resolved =
+                            ReferencedProject.runtimeModules [ loadOrFail badPath; loadOrFail goodPath ]
+
+                        Expect.equal
+                            (resolved.ByPackage |> Map.tryFind "SoundRuntimeAsset")
+                            (Some
+                                [
+                                    {
+                                        FileName = "sound.mjs"
+                                        Source = "export const s = 1;\n"
+                                    }
+                                ])
+                            "the sound package resolves independently of the faulted one"
+
+                        Expect.equal
+                            resolved.Missing
+                            [ PackageSetFault.FileMissing("FaultedRuntimeAsset", "gone.mjs") ]
+                            "the faulted package's absent asset is still reported"
                     }
 
                     // `depends-on` is taken for THIS manifest's target, so a package may depend on

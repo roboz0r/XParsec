@@ -189,10 +189,36 @@ module PrintfHoleForm =
             else
                 ValueNone
 
+    /// A placeholder whose width and precision are in `int` range. Minted only by
+    /// `narrowPlaceholder`, so a lowering reads no `bigint` slot and cannot truncate one.
+    type private NarrowPlaceholder =
+        {
+            Flags: string
+            Width: Dim
+            Precision: Dim
+            Type: FormatType
+            /// The raw type letter, kept for the case-bearing specifiers (`'e'` vs `'E'`).
+            TypeChar: char
+        }
+
+    let private narrowPlaceholder (p: FormatPlaceholder) : NarrowPlaceholder voption =
+        match narrowDim p.Width, narrowDim p.Precision with
+        | ValueSome width, ValueSome precision ->
+            ValueSome
+                {
+                    Flags = p.Flags
+                    Width = width
+                    Precision = precision
+                    Type = p.Type
+                    TypeChar = p.TypeChar
+                }
+        | _ -> ValueNone
+
     /// The target-neutral `HoleForm` of a placeholder, or `ValueNone` for a specifier no
     /// backend renders faithfully. Parity with F# `printf` under `InvariantCulture` is the
-    /// bar for accepting. `widthDim` and `precisionDim` are `p`'s own slots, already narrowed.
-    let private tryLowerableForm (p: FormatPlaceholder) (widthDim: Dim) (precisionDim: Dim) : HoleForm voption =
+    /// bar for accepting.
+    let private tryLowerableForm (p: NarrowPlaceholder) : HoleForm voption =
+        let precisionDim = p.Precision
         let precIsStar = precisionDim = Dim.Star
 
         let flags = p.Flags
@@ -202,10 +228,10 @@ module PrintfHoleForm =
         let plusSign = has '+'
         let spaceSign = has ' '
 
-        let widthIsStar = widthDim = Dim.Star
+        let widthIsStar = p.Width = Dim.Star
 
         let width =
-            match widthDim with
+            match p.Width with
             | Dim.Literal w -> Some w
             | Dim.Absent
             | Dim.Star -> None
@@ -373,6 +399,18 @@ module PrintfHoleForm =
             // them only as an argument with no consumer. Defer it.
             let deferIfStarPrec r = if precIsStar then ValueNone else r
 
+            // `%08e` / `%08g`: zero-pad after any sign, rendering with `p`'s own letter case.
+            // `ExpCompactZeroPad` holds a static precision only, so `%08.*e` is deferred.
+            let expCompactZeroPad (upper: char) (lower: char) =
+                if precIsStar then
+                    ValueNone
+                else
+                    let tc = if p.TypeChar = upper then upper else lower
+
+                    ValueSome(
+                        HoleForm.Field(FieldFormat.ExpCompactZeroPad(literalPrecOr 6, zpWidth (), tc), Alignment.None)
+                    )
+
             match p.Type with
             | FormatType.String
             | FormatType.Object
@@ -409,34 +447,12 @@ module PrintfHoleForm =
                     field (FieldFormat.Fixed(precOrDefault 6))
             | FormatType.FloatExponential ->
                 if zeroPad then
-                    // `%08e`/`%014e`: zero-pad after any sign, static precision only, so a
-                    // star precision (`%08.*e`) is deferred.
-                    if precIsStar then
-                        ValueNone
-                    else
-                        let tc = if p.TypeChar = 'E' then 'E' else 'e'
-
-                        ValueSome(
-                            HoleForm.Field(
-                                FieldFormat.ExpCompactZeroPad(literalPrecOr 6, zpWidth (), tc),
-                                Alignment.None
-                            )
-                        )
+                    expCompactZeroPad 'E' 'e'
                 else
                     field (FieldFormat.Exponential(precOrDefault 6, p.TypeChar = 'E'))
             | FormatType.FloatCompact ->
                 if zeroPad then
-                    if precIsStar then
-                        ValueNone
-                    else
-                        let tc = if p.TypeChar = 'G' then 'G' else 'g'
-
-                        ValueSome(
-                            HoleForm.Field(
-                                FieldFormat.ExpCompactZeroPad(literalPrecOr 6, zpWidth (), tc),
-                                Alignment.None
-                            )
-                        )
+                    expCompactZeroPad 'G' 'g'
                 else
                     field (FieldFormat.Compact(precOrDefault 6, p.TypeChar = 'G'))
             | FormatType.UnsignedDecimalInt ->
@@ -483,9 +499,9 @@ module PrintfHoleForm =
         if (has '+' || has ' ') && has '-' && has '0' then
             HoleVerdict.SignLeftAlignZeroPad
         else
-            match narrowDim p.Width, narrowDim p.Precision with
-            | ValueSome widthDim, ValueSome precisionDim ->
-                match tryLowerableForm p widthDim precisionDim with
+            match narrowPlaceholder p with
+            | ValueSome narrow ->
+                match tryLowerableForm narrow with
                 | ValueSome form -> HoleVerdict.Lowerable form
                 | ValueNone -> HoleVerdict.Residual
-            | _ -> HoleVerdict.OversizedDimension
+            | ValueNone -> HoleVerdict.OversizedDimension

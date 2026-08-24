@@ -170,34 +170,34 @@ module internal ElaborateClassMembers =
             EqArray.ofSeq (seq { for p in sc.Params -> (p.DeclSite.BoundVar, Unification.zonk ctx.Store p.Type) })
 
         let chainArgs (e: Expr<SyntaxToken>) : EqArray<TExpr> =
-            let raw =
-                match e with
-                | Expr.HighPrecedenceApp(argExpr = arg) -> peelOneArg (translateExpr ctx) arg
-                | Expr.App(argExprs = args) -> peelCtorArgs (translateExpr ctx) args
-                | _ -> EqArray.empty
-
-            raw
+            match e with
+            | Expr.HighPrecedenceApp(argExpr = arg) -> peelOneArg (translateExpr ctx) arg
+            | Expr.App(argExprs = args) -> peelCtorArgs (translateExpr ctx) args
+            | _ -> EqArray.empty
 
         let lets = ResizeArray<TCtorLet>()
-        let mutable ctorBody = TSecondaryCtorBodyG.Chain EqArray.empty
-        let fieldInits = ResizeArray<TCtorFieldInit>()
 
         // The explicit field-init form `new(args) = { f = e; … }` stores into declared
         // instance fields and has no primary-ctor chain; the LAST `LongIdent` segment
         // identifies the field.
-        let fieldInitsOf (inits: ImmutableArray<FieldInitializer<SyntaxToken>>) =
-            for FieldInitializer(longIdent = li; expr = e) in inits do
-                if not li.Idents.IsEmpty then
-                    fieldInits.Add
-                        {
-                            Field = ctx.NameOf li.Idents.[li.Idents.Length - 1]
-                            Init = translateExpr ctx e
-                        }
+        let fieldInitsOf (inits: ImmutableArray<FieldInitializer<SyntaxToken>>) : EqArray<TCtorFieldInit> =
+            EqArray.ofSeq (
+                seq {
+                    for FieldInitializer(longIdent = li; expr = e) in inits do
+                        if not li.Idents.IsEmpty then
+                            {
+                                Field = ctx.NameOf li.Idents.[li.Idents.Length - 1]
+                                Init = translateExpr ctx e
+                            }
+                }
+            )
 
         let diagnoseDropped (tok: SyntaxToken) (what: string) =
             ctx.Report(tok, Kind.NotYetSupported(sprintf "%s in a secondary constructor of '%s'" what className))
 
-        let rec go (ace: AdditionalConstrExpr<SyntaxToken>) =
+        // Every form reaches an `Init`, so the body is a return value rather than a slot the
+        // walk fills: an unwritten one is not a state a secondary constructor has.
+        let rec go (ace: AdditionalConstrExpr<SyntaxToken>) : TSecondaryCtorBodyG<TExpr> =
             match ace with
             | AdditionalConstrExpr.LetIn(binding = b; body = body) ->
                 // Only a simple name binds. The slot keeps just the bound variable key, so the
@@ -228,15 +228,14 @@ module internal ElaborateClassMembers =
             | AdditionalConstrExpr.Init initExpr ->
                 match initExpr with
                 | AdditionalConstrInitExpr.Expression e
-                | AdditionalConstrInitExpr.Delegated(expr = e) -> ctorBody <- TSecondaryCtorBodyG.Chain(chainArgs e)
+                | AdditionalConstrInitExpr.Delegated(expr = e) -> TSecondaryCtorBodyG.Chain(chainArgs e)
                 | AdditionalConstrInitExpr.Explicit(initializers = inits) ->
-                    fieldInitsOf inits
-                    ctorBody <- TSecondaryCtorBodyG.ExplicitFieldInit(EqArray.ofSeq fieldInits)
+                    TSecondaryCtorBodyG.ExplicitFieldInit(fieldInitsOf inits)
 
-        go sc.Body
+        let body = go sc.Body
 
         {
             Params = parms
             Lets = EqArray.ofSeq lets
-            Body = ctorBody
+            Body = body
         }

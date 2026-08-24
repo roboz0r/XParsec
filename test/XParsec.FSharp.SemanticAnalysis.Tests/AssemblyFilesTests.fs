@@ -127,6 +127,39 @@ let tests =
     testList
         "AssemblyFiles (multi-file front end)"
         [
+            // A file publishes the surface it froze, so refusing to freeze one that reported an
+            // error would report every name it exports as missing, once per later file.
+            test "an error in file 1 leaves the rest of its surface visible to file 2" {
+                let file1 =
+                    "\
+namespace Test.A
+
+module M =
+    type T = { value: int }
+
+    let f (x: int) : int = x + 1
+
+    let bad = notDefinedAnywhere 1
+"
+
+                let all =
+                    analyseAssembly
+                        asm
+                        realProvider.Value
+                        [ impl "file1.fs" file1; impl "file2.fs" (usesFile1 "T" "f") ]
+                    |> files
+
+                Expect.hasLength all 2 "both files analysed"
+
+                Expect.isNonEmpty (unresolvedErrors all.[0]) "file 1 reports its own unresolved name"
+
+                Expect.isEmpty
+                    (definitionErrors all.[1])
+                    (sprintf
+                        "file 2 inherits none of file 1's fault (diagnostics: %A)"
+                        (all.[1].Frozen.Residue.Diagnostics |> List.map (fun d -> d.Message)))
+            }
+
             test "file 2 resolves file 1's type + saturated function by QUALIFIED name" {
                 let file2 =
                     "\

@@ -323,12 +323,14 @@ let unitStampTests =
             }
         ]
 
-// A file whose analysis reported an error carries a tree the pool build's invariants do not
-// hold over, so the freeze is skipped and the diagnostics are the whole output.
+// Elaboration drops a declaration it cannot translate while the side tables keyed by that
+// declaration's bound variables survive, so the pool build PROJECTS each side table onto the
+// bound variables it interned. The alternative, refusing to freeze the file at all, empties the
+// surface it publishes and turns one fault into a fault per later file of the assembly.
 [<Tests>]
-let freezeGateTests =
+let freezeProjectionTests =
     testList
-        "Freeze is gated on the analysed file being error-free"
+        "Freezing a file whose analysis reported an error"
         [
             test "a match on an unresolved case surfaces the name error rather than a pool break" {
                 let src = "let w = Wrap 1\nlet v = match w with | Wrap x -> x\n"
@@ -339,8 +341,21 @@ let freezeGateTests =
                 Expect.isNonEmpty
                     (pools.Residue.Diagnostics |> List.filter Diagnostic.isError)
                     "the unresolved-identifier error reaches the caller"
+            }
 
-                Expect.isEmpty pools.Roots "a file that failed analysis freezes to no decls"
+            test "the declarations that did resolve survive the freeze" {
+                let src = "let good = 1\nlet bad = notDefinedAnywhere 2\nlet alsoGood = 3\n"
+                let lexed, file = parseFile src
+                let origin = LexedFile.inAssembly testAsm (AssemblyFileId.ofText src) lexed
+                let pools = Pipeline.analyseFor testCompiling realProvider.Value origin file
+
+                Expect.isNonEmpty
+                    (pools.Residue.Diagnostics |> List.filter Diagnostic.isError)
+                    "the unresolved-identifier error reaches the caller"
+
+                let names = Set.ofArray pools.BoundVarNames
+                Expect.isTrue (names.Contains "good") "the binding before the fault is frozen"
+                Expect.isTrue (names.Contains "alsoGood") "the binding after the fault is frozen"
             }
         ]
 
@@ -525,7 +540,7 @@ let funVerdictLambdaKeyTests =
                     "verdict rebuilt under its lambda key"
             }
 
-            test "a FunVerdicts key that does not point to a pooled lambda faults in toPools" {
+            test "a FunVerdicts key that does not point to a pooled lambda is dropped" {
                 let src = "let f = fun x -> x + 1\n"
                 let _, frozen = poolsFor src
                 let rePool = rePoolFor src
@@ -537,7 +552,8 @@ let funVerdictLambdaKeyTests =
                     }
 
                 // A key on a token index past the end of any lexed file — a lambda-keyed entry
-                // that does not point to a pooled lambda.
+                // that does not point to a pooled lambda, the shape a file whose elaboration
+                // dropped the enclosing declaration arrives in.
                 let bogus = LambdaKey(Anchor.ofStored 1_000_000)
 
                 let injected =
@@ -545,7 +561,7 @@ let funVerdictLambdaKeyTests =
                         FunVerdicts = Map.ofList [ bogus, verdict ]
                     }
 
-                Expect.throws (fun () -> rePool injected |> ignore) "unresolved lambda-keyed verdict faults"
+                Expect.isEmpty (rePool injected).FunVerdicts "the unresolved lambda-keyed verdict is projected away"
             }
 
             test "a verdict reaches EVERY pooled lambda its key identifies" {
@@ -642,16 +658,16 @@ let private lastBindingDropped () =
 [<Tests>]
 let staleSideTableEntryTests =
     testList
-        "TastPools faults on a side-table entry whose declaration left the tree"
+        "TastPools projects a side-table entry whose declaration left the tree"
         [
-            // The control: the fault below is caused by the STALE ENTRY, not by the decl
-            // being gone. Pruning both is the fix the fault demands, and it pools cleanly.
+            // The control: pruning the declaration and its entries together pools cleanly, so the
+            // projections below are what changes, not the missing declaration.
             test "a declaration pruned together with its entries pools cleanly" {
                 let dropped = lastBindingDropped ()
                 dropped.RePool dropped.Pruned |> ignore
             }
 
-            test "a retained ModuleMembers entry faults, identifying that table" {
+            test "a retained ModuleMembers entry is dropped" {
                 let dropped = lastBindingDropped ()
 
                 let injected =
@@ -659,20 +675,16 @@ let staleSideTableEntryTests =
                         ModuleMembers = Map.add dropped.BoundVar dropped.Member dropped.Pruned.ModuleMembers
                     }
 
-                Expect.throwsC
-                    (fun () -> dropped.RePool injected |> ignore)
-                    (fun ex ->
-                        Expect.stringContains
-                            ex.Message
-                            "ModuleMembers"
-                            "the fault names the table holding the stale entry"
-                    )
+                Expect.equal
+                    (dropped.RePool injected).ModuleMembers.Length
+                    (dropped.RePool dropped.Pruned).ModuleMembers.Length
+                    "the stale entry adds no row"
             }
 
-            // The SAME dropped bound variable in a different table, so the reported name is
-            // diagnostic. `BindingTyparArities` reaches the pools as a `BoundVarColumn` — no key
-            // at all — yet its key still has to identify a slot, so it faults the same way.
-            test "a retained BindingTyparArities entry faults, identifying that table" {
+            // The SAME dropped bound variable in a different table. `BindingTyparArities` reaches
+            // the pools as a `BoundVarColumn` — no key at all — so a stale entry has no slot to
+            // land in and is projected away the same way.
+            test "a retained BindingTyparArities entry is dropped" {
                 let dropped = lastBindingDropped ()
 
                 let injected =
@@ -680,14 +692,14 @@ let staleSideTableEntryTests =
                         BindingTyparArities = Map.add dropped.BoundVar 0 dropped.Pruned.BindingTyparArities
                     }
 
-                Expect.throwsC
-                    (fun () -> dropped.RePool injected |> ignore)
-                    (fun ex ->
-                        Expect.stringContains
-                            ex.Message
-                            "BindingTyparArities"
-                            "the fault names the table holding the stale entry"
-                    )
+                Expect.equal
+                    ((dropped.RePool injected).BindingTyparArities
+                     |> Array.filter ValueOption.isSome
+                     |> Array.length)
+                    ((dropped.RePool dropped.Pruned).BindingTyparArities
+                     |> Array.filter ValueOption.isSome
+                     |> Array.length)
+                    "the stale entry fills no slot"
             }
 
             // `ChildColumn` is CSR: `Start` and `Ids` are two independently length-prefixed wire

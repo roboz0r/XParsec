@@ -142,6 +142,20 @@ let tests =
                 Expect.equal r.Denominator (bigint 2) "denominator positive"
             }
 
+            // The only construction the private constructor cannot police, so the
+            // representation puts `0/1` at the zero-initialised struct.
+            test "the default Rational is canonical" {
+                let d = Unchecked.defaultof<Rational>
+                Expect.equal d.Numerator (bigint 0) "default numerator is 0"
+                Expect.equal d.Denominator (bigint 1) "default denominator is 1, not 0"
+                Expect.equal d Rational.Zero "the default equals Zero"
+                Expect.equal (d.GetHashCode()) (Rational.Zero.GetHashCode()) "and hashes as Zero"
+
+                Expect.isTrue
+                    (Array.zeroCreate<Rational> 3 |> Array.forall (fun r -> r = Rational.Zero))
+                    "an array of them starts canonical"
+            }
+
             test "MeasureTerm equality is structural after normalisation" {
                 let a = measure [ "m", 1; "s", -1 ]
                 let b = measure [ "s", -1; "m", 1 ]

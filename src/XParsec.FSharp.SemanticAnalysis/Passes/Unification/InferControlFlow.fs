@@ -115,13 +115,12 @@ module internal UnificationInferControlFlow =
                 let disposable =
                     enumInfo.InterfaceImpls
                     |> Array.exists (fun impl ->
-                        match impl.Resolution with
-                        | InterfaceImplResolution.Resolved resolved ->
+                        match InterfaceImplResolution.tryIface impl.Resolution with
+                        | ValueSome resolved ->
                             match inst resolved with
                             | TyClass(ifaceKey, _) -> RuntimeNames.matchesKey ctx.CapabilityIds.Disposable ifaceKey
                             | _ -> false
-                        | InterfaceImplResolution.Pending
-                        | InterfaceImplResolution.Rejected -> false
+                        | ValueNone -> false
                     )
 
                 // `Current`'s instantiated type is the loop element type.
@@ -458,8 +457,8 @@ module internal UnificationInferControlFlow =
         let picked =
             host.InterfaceImpls
             |> Array.tryPick (fun impl ->
-                match impl.Resolution with
-                | InterfaceImplResolution.Resolved resolved ->
+                match InterfaceImplResolution.tryIface impl.Resolution with
+                | ValueSome resolved ->
                     match zonk ctx.Store (instantiateMember ctx.Store (host.TypeParams, args) resolved) with
                     | TyClass(ifaceKey, ifaceArgs) when
                         RuntimeNames.matchesKey ctx.CapabilityIds.Enumerable ifaceKey
@@ -467,8 +466,7 @@ module internal UnificationInferControlFlow =
                         ->
                         Some(ifaceArgs.[0], ForInEnumeratorG.Interface)
                     | _ -> None
-                | InterfaceImplResolution.Pending
-                | InterfaceImplResolution.Rejected -> None
+                | ValueNone -> None
             )
 
         match picked with

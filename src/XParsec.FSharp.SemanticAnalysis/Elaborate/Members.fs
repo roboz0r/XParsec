@@ -248,10 +248,9 @@ module internal ElaborateMembers =
             EqArray.ofSeq (
                 seq {
                     for impl in host.InterfaceImpls do
-                        match impl.Resolution with
-                        | InterfaceImplResolution.Resolved ifaceTy -> yield (ifaceTy, translate impl.Elements)
-                        | InterfaceImplResolution.Pending
-                        | InterfaceImplResolution.Rejected -> ()
+                        match InterfaceImplResolution.tryIface impl.Resolution with
+                        | ValueSome ifaceTy -> yield (ifaceTy, translate impl.Elements)
+                        | ValueNone -> ()
                 }
             )
 

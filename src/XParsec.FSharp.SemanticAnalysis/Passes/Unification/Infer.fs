@@ -186,13 +186,12 @@ module UnificationInfer =
         : bool =
         host.InterfaceImpls
         |> Array.exists (fun impl ->
-            match impl.Resolution with
-            | InterfaceImplResolution.Resolved resolved ->
+            match InterfaceImplResolution.tryIface impl.Resolution with
+            | ValueSome resolved ->
                 match zonk ctx.Store (instantiateMember ctx.Store (host.TypeParams, args) resolved) with
                 | TyClass(ifaceKey, _) -> RuntimeNames.matchesKey ctx.CapabilityIds.Disposable ifaceKey
                 | _ -> false
-            | InterfaceImplResolution.Pending
-            | InterfaceImplResolution.Rejected -> false
+            | ValueNone -> false
         )
 
     /// The ref-struct carve-out: a `[<IsByRefLike>]` class can't be boxed to `IDisposable`,
@@ -412,9 +411,7 @@ module UnificationInfer =
             | Pat.Op _ ->
                 let key = CstKeys.ofPat b.pattern
                 tvOf ctx key |> ignore
-                // Drop any annotation-derived forward scheme so this group's bodies type
-                // with monomorphic self/sibling references, forbidding polymorphic recursion.
-                ctx.Bindings.Scheme.Remove key
+                barPolymorphicRecursion ctx key
             | _ -> ()
 
         for b in bindings do
