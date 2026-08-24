@@ -688,4 +688,107 @@ printfn \"%d\" (Shared.dup ())
                         "contributed by more than one file"
                         (sprintf "layout rejects the split module; got %A" m)
             }
+
+            // A prior file's module VALUE. The front end resolves and types it; codegen has a
+            // local re-home for a module FUNCTION only (`ClrRecipes.emitExternalCall` through
+            // `env.LocalModuleFns`), so the read falls to a `MemberRef` scoped by the value's
+            // own-assembly home: a self-`AssemblyRef`, and a method ref to a static field.
+            ptest "GAP a prior file's module VALUE reads through a local field, not a self-AssemblyRef" {
+                let file1 =
+                    "\
+namespace CrossFile
+
+module Lib =
+    let v : int = 5
+"
+
+                let file2 =
+                    "\
+open CrossFile.Lib
+
+printfn \"%d\" (v + 1 + CrossFile.Lib.v)
+"
+
+                let asmName = "CrossFileValue"
+                let bytes = compileTwoFiles asmName file1 file2
+                let refs = peAssemblyRefs bytes
+
+                Expect.isFalse
+                    (refs |> List.contains asmName)
+                    (sprintf "the emitted PE must not reference its own assembly '%s'; refs = %A" asmName refs)
+
+                let exitCode, output = runEntryPoint bytes
+                Expect.equal exitCode 0 (sprintf "expected exit 0; stdout was %A" output)
+                Expect.equal (output.Replace("\r", "").Trim()) "11" "5 + 1 + 5"
+            }
+
+            // A case qualified by its MODULE in expression position. The front end mints a
+            // free TyVar for it (see `LongIdentResolutionTests`), and Elaborate freezes the
+            // name as `TExpr.External` with no key, so emission finds no recipe.
+            ptest "GAP a module-qualified union case constructs across a file boundary" {
+                let file1 =
+                    "\
+namespace CrossFile
+
+module Lib =
+    type Color =
+        | Red
+        | Green of int
+"
+
+                let file2 =
+                    "\
+open CrossFile.Lib
+
+let a (c: Color) =
+    match c with
+    | Red -> 0
+    | Green n -> n
+
+printfn \"%d\" (a (CrossFile.Lib.Green 3) + a CrossFile.Lib.Red)
+"
+
+                let asmName = "CrossFileModuleCase"
+                let bytes = compileTwoFiles asmName file1 file2
+                let exitCode, output = runEntryPoint bytes
+                Expect.equal exitCode 0 (sprintf "expected exit 0; stdout was %A" output)
+                Expect.equal (output.Replace("\r", "").Trim()) "3" "Green 3 + Red"
+            }
+
+            // The type-qualified spelling of the same case is the control: it runs today.
+            test "a type-qualified union case constructs and matches across a file boundary" {
+                let file1 =
+                    "\
+namespace CrossFile
+
+module Lib =
+    type Color =
+        | Red
+        | Green of int
+"
+
+                let file2 =
+                    "\
+open CrossFile.Lib
+
+let a (c: Color) =
+    match c with
+    | Color.Red -> 0
+    | Color.Green n -> n
+
+printfn \"%d\" (a (Color.Green 3) + a Color.Red)
+"
+
+                let asmName = "CrossFileTypeCase"
+                let bytes = compileTwoFiles asmName file1 file2
+                let refs = peAssemblyRefs bytes
+
+                Expect.isFalse
+                    (refs |> List.contains asmName)
+                    (sprintf "the emitted PE must not reference its own assembly '%s'; refs = %A" asmName refs)
+
+                let exitCode, output = runEntryPoint bytes
+                Expect.equal exitCode 0 (sprintf "expected exit 0; stdout was %A" output)
+                Expect.equal (output.Replace("\r", "").Trim()) "3" "Green 3 + Red"
+            }
         ]

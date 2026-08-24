@@ -1,0 +1,320 @@
+# Long-identifier resolution: one FCS-shaped algorithm over entity-scoped queries
+
+**Status (2026-08-23): design CONFIRMED by the user (forks A–C settled, §5); step 1 LANDED.**
+Root causes reproduced; the FCS algorithm below is read from `D:\roboz0r\fsharp` (line numbers
+cite `src/Compiler/Checking/NameResolution.fs` unless stated) and cross-checked with
+`dotnet fsi`. The red surface is `LongIdentResolutionTests` (SemanticAnalysis) and the
+`GAP` `ptest`s in `CrossFileTests` (Clr).
+
+## 1. What was reported, and what it actually is
+
+Three agents reported "cross-file name resolution is fundamentally broken". The stacked
+provider is sound: every genuinely cross-file shape (module value, module fn, module-held union
+case bare or type-qualified, namespace-level union, record) resolves through
+`AnalysedAssembly.analyse`, and mistyped probes report the right mismatch, so the resolutions
+are real rather than a silently-minted `TyVar`. The defects are:
+
+1. **A case qualified by a MODULE is never a case — single-file or cross-file.** Local:
+   `Elaborate/Patterns.fs:141-155` and `InferPat.fs:112-125` admit one segment, or two where
+   segment 0 is the UNION's name (`TypeRegistry.localQualifiedCase`, `TypeRegistry.fs:792`,
+   `c.UnionName = qualifier`). External: `Scope.fs:stampPatCasesWith` (`:199-222`) stamps 1–2
+   segments and `ExternalUnionCase.ResolvesWith` (`ExternalDeclarations.fs:167-170`) requires
+   the qualifier to equal `UnionKey.Name`. `M.Red` and `Test.A.M.Red` fall through in both.
+2. **The pattern failure is a crash, not a diagnostic.** `Elaborate.fs:305-312` runs
+   `elaborateDecls` under `try … with _ -> [], [||]` once any error exists; `translatePat`'s
+   `| _ -> failwithf "TODO"` throws on the unhandled `Pat.Named`, decls become `[]`, but
+   `ModuleMembers` (`:322`) is still filled, and `TastPools.toPools` (`TastPools.fs:318`)
+   faults on the orphan. Any `UndefinedPatternDiscriminator` reproduces it.
+3. **The expression failure is silent.** `Scope.fs:405-419` suppresses the unresolved error
+   when `TryLookupUnionCase last` hits by BARE case name (qualifier ignored) but stamps only a
+   2-segment type-qualified spelling; `InferIdentExpr.fs:164-176` then mints a free `TyVar`.
+   `let a () : int = Test.A.M.Red` reports nothing; Clr dies with "no call recipe for external".
+4. **(True cross-file, codegen) a prior file's module VALUE self-references.**
+   `ClrRecipes.emitExternalCall:312-320` re-homes a FUNCTION through `env.LocalModuleFns`
+   (`SymbolKey` → `MethodDef`); there is no value twin. `Assembler.ModuleValues` (`:408-411`)
+   is per-file by `BoundVarId`, so the read falls to a `MemberRef` scoped by
+   `openSig.Origin = SymbolHome.InFile` of the same assembly — a self-`AssemblyRef`, and a
+   METHOD ref to a static field besides. `fieldDefHandles[FieldKey.ModuleValue key]`
+   (`Assembler.fs:336`) already holds the assembly-wide handle.
+
+Items 2 and 4 are bounded and independent of this design; see §7.
+
+## 2. The shape of defects 1 and 3: segment-by-segment speculation
+
+Every qualified-name site reconstructs the module / type / member split of a dotted string on
+its own, against per-KIND string-keyed lookups. The sinks, by file (count of the speculating
+calls — `TryLookupUnionCase`, `ResolvesWith`, `localQualifiedCase`, `isCaseName`, `casesNamed`,
+`tryClassifyExternalType`, `tryPickExternalType`, `LocalModules`, `tryStampExternalValue`,
+`isWrittenTypeNameInScope`, `tryUnionBare`, `resolveQualifiedCtor`, `tryExternalStaticLongIdent`):
+`Scope.fs` 18, `ExternalSymbolProviders.fs` 15, `TypeRegistry.fs` 9, `NameResolution.fs` 7,
+`TypeRefStamp.fs` 5, `InferPat.fs` 4, `InferResolve.fs` 4, and 3 each in `InferIdentExpr.fs`,
+`InheritParent.fs`, `Elaborate/Patterns.fs`, `Elaborate/Resolve.fs`.
+
+Four distinct mechanisms answer "what does `A.B.C` denote", none of them the same:
+
+| Mechanism | Where | What it can see |
+|---|---|---|
+| `OpenScope.tryResolve` over `provider.TryLookup` (dotted string ⊕ each open prefix) | `Scope.fs:tryStampExternalValue:47`, `OpenScope.fs:64` | external VALUES, by qualified spelling |
+| `tryPickExternalType` with `arityProbes` (name, `` name`n ``, per prefix) then `SymbolKeyOps.tryDottedInModule` | `ExternalTypeProbe.fs:68`, `PublishedSurface.fs:240`, `SymbolKeyOps.fs:162` | external TYPES; peels ONE trailing segment through `ModuleContainers` |
+| `TypeRegistry.tryWinner` over `pathReaches` (`WrittenTypeName.Path` walked from the use site's container and opens) | `TypeRegistry.fs:216-330` | LOCAL types — already FCS-shaped for the type axis |
+| `ctx.Resolution.LocalModules` keyed by BARE module name, last two segments only | `Scope.fs:336-360`, `PassContext.fs:185` | local module VALUES; `A.M.f` and `M.f` collapse to `M` |
+
+And union cases have no path mechanism at all: `PublishedSurface.UnionCases` is keyed by bare
+case name (`PublishedSurface.fs:123-126`, "first declaration wins"), and `ResolvesWith` admits
+only the declaring type's short name as qualifier.
+
+The user's framing (2026-08-23): analysis knows the identifier is `M.Red` or `Test.A.M.Red`; it
+should ask about the whole identifier in its syntactic position and get one answer, rather than
+speculating whether a segment is a namespace / module / type / member.
+
+## 3. What FCS does (verified)
+
+Three entry points, one per syntactic position, each over `id :: rest`. Results combine with
+`+++` (`NameResolution.fs:1730`): lazy, FIRST success wins, errors accumulate only on total
+failure.
+
+**Environment** (`NameResolutionEnv`, `:395-442`). The tables that matter here:
+`eModulesAndNamespaces: NameMultiMap<ModuleOrNamespaceRef>` — FIRST-segment entries only;
+`eUnqualifiedItems` — values, union cases (non-RQA), active patterns, and unqualified TYPE names;
+`ePatItems` — cases, active patterns, literals; `eTyconsByDemangledNameAndArity`; and a
+`eFullyQualified*` twin of the module and tycon tables that `open` never changes (`global.`).
+
+How they are filled: a file's own `namespace X.Y.Z` adds its root modules and types
+(`CheckDeclarations.fs:344`); `module M = …` adds `M` to `eModulesAndNamespaces`
+(`AddLocalSubModule`, `:237`); `open P` adds P's TYPES (cases into `eUnqualifiedItems` and
+`ePatItems` unless the union is RQA or IL, `:1280-1300`), VALUES, and its NESTED modules as
+first-segment entries (`AddModuleOrNamespaceContentsToNameEnv`, `:1455-1477`); an
+`[<AutoOpen>]` module's contents are added when the module itself is (`:1444-1449`). Inside
+`namespace X.Y.Z` there is an implicit open of `X.Y.Z` (`CheckDeclarations.fs:352`).
+
+**Module path** (`ResolveLongIdentAsModuleOrNamespaceThen`, `:2606`): ONLY the first segment is
+looked up in `eModulesAndNamespaces` (`:2532-2600` walks nested modules greedily, but `…Then` is
+called with `[]`, `:2607`). Everything after the first segment is resolved INSIDE the entity by
+the position-specific `f`, which recurses into a sub-module only when nothing else in that
+module answers.
+
+**Expression** (`ResolveExprLongIdentPrim`, `:3146`):
+
+- Single ident (`:3166-3260`): `eUnqualifiedItems` (a value wins outright; a type name → ctor
+  or type ref) → type name by arity → error.
+- Compound (`:3262-3370`): if `id` is a VALUE in `eUnqualifiedItems`, take it and leave `rest`
+  for dot-lookup (`:3268-3276`, "values take total priority, constructors do NOT"). Otherwise
+  `moduleSearch +++ tyconSearch +++ envSearch` (`:3313`): module path first, then `id` as a
+  type with `rest` inside it, then any other unqualified item with `rest` as dot-lookup.
+- Inside a module (`ResolveExprLongIdentInModuleOrNamespace`, `:3009`): value (`:3013`) →
+  exception (`:3017`) → union case, SUCCESS IMMEDIATELY unless RQA (`:3022-3033`) → type, with
+  `rest` resolved inside it (`:3037-3069`) → sub-module recursion (`:3073-3084`) → the RQA
+  case as last fallback (`:3086`). The RQA hit carries a flag; `CheckExpressions.fs:2063-2064`
+  turns it into FS0035. `dotnet fsi` agrees: `M.Red` on an RQA `M.Color` is FS0035, and
+  `M.Circle`, `M.Square n`, `M.Color.Red` resolve.
+- Inside a type (`ResolveLongIdentInTypePrim`, `:2745`): union case (expr/pattern kinds,
+  `:2755`) → anonymous-record field → intrinsic members (props, methods, IL fields, events,
+  record fields, `:2770-2840`) → nested types, only when `rest` is non-empty or the flag asks
+  for type refs (`:2871-2887`).
+
+**Pattern** (`ResolvePatternLongIdentPrim`, `:3463`):
+
+- Single ident (`:3472-3510`): `ePatItems` else a NEW variable binding (with the upper-case
+  warning). A multi-segment name is NEVER a binding.
+- Compound (`:3512-3538`): `tyconSearch +++ moduleSearch` — **TYPE FIRST**, the reverse of
+  expression position. Leftover `rest` after the item is an error ("not a constructor or
+  literal", `:3537`).
+- Inside a module (`ResolvePatternLongIdentInModuleOrNamespace`, `:3381`): union case
+  (`:3383`, RQA flag carried, `CheckPatterns.fs:649-650` reports it) → exception → active
+  pattern → value (a literal) → type-then-`rest` inside it → ctor (only when `rest` is empty) →
+  sub-module recursion (`:3444-3452`).
+
+**Type** (`ResolveTypeLongIdentPrim`, `:3681`):
+
+- Single ident: by name AND arity (`:3692`), with a name-only fallback for error reporting.
+- Compound: `tyconSearch` (nested type under an unqualified type) collected TOGETHER with
+  `modulSearch` (`AddResults`, `:3741` — all results, then the ambiguity check), not first-wins.
+
+The structural facts to carry over: the FIRST segment is classified once against the
+environment; every later segment is resolved within the entity already found; the order within
+an entity is fixed by position; a bare case-name reverse index exists nowhere.
+
+## 4. Design
+
+### 4.1 One resolver, three entry points, one result type
+
+A new module `Passes/NameResolution/LongIdent.fs` owns:
+
+```fsharp
+[<RequireQualifiedAccess>]
+type ResolvedItem =
+    | Value of ValueRef              // local binding site, or ExternalSymbol + SymbolKey
+    | UnionCase of UnionCaseRef * requiresQualifiedAccess: bool
+    | EnumCase of TypeKey * name: string
+    | Type of TypeRef                // local TypeIdentity or external (TypeKey, shape), with arity
+    | Ctor of TypeRef                // a type name in expression position
+    | StaticMember of TypeRef * name: string
+    | ModuleOrNamespace of Container // only a prefix resolved; the caller decides if that is an error
+    | Unresolved of UnresolvedName   // which segment failed, inside which entity — the diagnostic's payload
+
+val resolveExpr:    PassContext -> UseSite -> LongIdent<SyntaxToken> -> ResolvedItem * rest: SyntaxToken list
+val resolvePattern: PassContext -> UseSite -> LongIdent<SyntaxToken> -> ResolvedItem
+val resolveType:    PassContext -> UseSite -> WrittenTypeName -> arity: int -> ResolvedItem
+```
+
+`rest` on the expression form is FCS's "remaining identifiers": `r.X.Y` after `r` resolves to a
+value is a field/member chain, which the existing `inferLongIdentFieldChain`
+(`InferIdentExpr.fs:40-46`) already handles.
+
+Every consumer that today reads `ExternalUnionCaseStamp`, `ExternalValue`, `ResolvedType`,
+`ExternalStaticQualifier`, `ExternalEnumCaseStamp` or the `LocalModules` binding becomes a
+reader of ONE stamp, `Resolution.Resolved: NodeKey → ResolvedItem`. The per-kind tables are
+deleted once nothing reads them (additive swap, then delete, per the F# design rules).
+
+### 4.2 The entity-contents query, answered by both halves
+
+The algorithm needs exactly one question of a scope: *what does bare `name` mean inside entity
+`E`, in position `P`?* — plus *which entities does first-segment `s` denote at this use site?*.
+That is the interface the provider and the file's own registry both implement:
+
+```fsharp
+type IScopeContents =
+    /// `s` as a module or namespace, seen from `useSite`: the file's own scopes and opens
+    /// (TypeRegistry.pathReaches), then the provider's `ModuleContainers` under each open
+    /// prefix and the language prelude, then `s` as a fully-qualified root.
+    abstract FirstSegment: useSite: UseSite -> s: string -> Container list
+    abstract ValueIn:      Container -> name: string -> ValueRef voption
+    abstract UnionCaseIn:  Container -> name: string -> UnionCaseRef voption   // RQA flag on the ref
+    abstract TypeIn:       Container -> name: string -> arity: int voption -> TypeRef list
+    abstract SubModuleIn:  Container -> name: string -> Container voption
+    abstract CaseOfType:   TypeRef -> name: string -> UnionCaseRef voption
+    abstract StaticOfType: TypeRef -> name: string -> bool
+    abstract NestedTypeIn: TypeRef -> name: string -> TypeRef voption
+```
+
+`Container` is the existing `ModuleContainer` (`SymbolKeys.fs:51`) — a namespace or a module
+key — which both halves already speak: `TypeRegistry.LocalContainers` maps source paths to it,
+and `PublishedSurface.ModuleContainers` (`PublishedSurface.fs:36,145`) maps them to
+`TypeContainer.InModule m`. So `FirstSegment` for the provider is a lookup of `prefix + "." + s`
+in `ModuleContainers` for each open prefix, and `SubModuleIn c s` is the same table keyed by
+`moduleFullName c + "." + s`. Neither needs a new producer; the surface already publishes the
+chain (`addModuleContainer`, `:65-73`).
+
+What the surface does NOT have and must gain: **a per-container index**. `Symbols` is keyed by
+qualified spelling, `UnionCases` by bare case name, `TypesByName` by compiled name. `ValueIn`,
+`UnionCaseIn` and `TypeIn` need `Container → name → item`. `PublishedSurface.ofBuilder`
+derives indexes already (`:181`); a container-keyed index derived from the same tables is one
+more, and `toProvider` (`:230`) hands it to a new `KeyIndexedChannels` field. The bare-name
+`UnionCases` table then has no reader and goes.
+
+On the local side, `TypeRegistry` already answers `TypeIn` (`tryWinner` with a path — the
+reach machinery is the FCS module walk for types). `ValueIn` replaces `LocalModules`, keyed by
+`ModuleContainer` rather than the bare last segment. `UnionCaseIn` is `casesNamed` filtered to
+the container.
+
+`OpenScope` keeps `Prefixes`/`Locals`/`Abbrevs`; `FirstSegment` is where it is consulted, once,
+instead of being re-applied by every probe (`candidates`, `OpenScope.fs:47`). The composite
+provider (`ExternalSymbolProviders.composite`) answers `FirstSegment` by concatenating its
+layers nearest-first, which preserves file-order shadowing across the stack.
+
+### 4.3 Position-specific order, encoded once
+
+`resolveExpr` inside a container: `ValueIn → UnionCaseIn (non-RQA wins now) → TypeIn (then rest
+inside the type) → SubModuleIn (recurse) → the RQA case`. `resolvePattern` inside a container:
+`UnionCaseIn → ValueIn (literal) → TypeIn (then case inside it) → SubModuleIn`. At the top:
+expression is `value-in-env → module → type → env-item`; pattern is `type → module`. Type
+position collects module and type results and reports ambiguity.
+
+The RQA flag rides the `UnionCase` result; the report (`Kind` for FS0035) is the consumer's,
+exactly as FCS splits `Item.UnionCase(_, showDeprecated)` from `CheckExpressions`. So
+`ResolvesWith`, `bareCaseNamespaceOpen` and `IsRequireQualifiedAccess` post-filters go: a bare
+`Red` is in the unqualified items only when its union is non-RQA and its container is open,
+which is what `FirstSegment`-less lookup over the use site's open containers yields.
+
+### 4.4 What the diagnostics become
+
+`ResolvedItem.Unresolved` says WHICH segment failed and INSIDE WHAT: "`Red` is not a value,
+constructor, namespace or type in module `Test.A.M`" (FCS `undefinedNameValueConstructorNamespaceOrType`,
+`:3120`) rather than the two current families ("Unresolved identifier", "The type … is not
+defined") chosen by whichever probe gave up last. The suppression list at `Scope.fs:112-131` —
+seven disjuncts that each stand in for a later pass resolving the name — is replaced by the
+stamp itself: an `Unresolved` stamp IS the report.
+
+## 5. Design forks
+
+**A. One environment vs. two halves behind one query.** FCS builds a single `NameResolutionEnv`
+incrementally as declarations and opens are checked. We could do the same — fold the file's
+declarations and every provider layer into one set of tables per scope. The cost is that the
+provider stack is already the assembly's environment and `TypeRegistry` already ranks local
+claims by position (`claimRank`, `TypeRegistry.fs:282`); merging would re-derive both.
+**Decided (user, 2026-08-23):** two implementations of `IScopeContents` (registry, composite
+provider), consulted local-first by the resolver, which is the precedence `classifyTypeRef`
+(`TypeRefStamp.fs:53-60`) already encodes for types. Mid-file `open` order — a later `open`
+shadows an earlier `open` AND an earlier local `let` (`dotnet fsi` prints `1 2 20` for the
+fixture in `LongIdentResolutionTests`, "GAP: `open` order within a file") — is a FOLLOW-UP,
+pinned there as `ptest`s with type-based assertions. When it lands, `FirstSegment`/`ValueIn`
+take the `BindingRank` the registry already computes, applied across both halves.
+
+**B. Where the stamp lives.** Keep the per-kind side tables and have the new resolver fill them
+(smallest diff), or replace them with `Resolved: NodeKey → ResolvedItem` (one reader shape).
+**Decided (user, 2026-08-23):** the single table, landed additively: the resolver fills BOTH
+for one step, consumers migrate, per-kind tables are deleted. The per-kind tables are what let a site stamp
+one kind and forget another — defect 3 is exactly `ExternalUnionCaseStamp` unfilled while the
+suppression fired.
+
+**C. Whether `rest` survives on the expression form.** FCS returns remaining identifiers and
+lets the checker dot-lookup them. The alternative is to resolve the whole chain here, including
+record fields and members. **Recommendation:** return `rest` — member/field resolution needs
+the anchor's TYPE, which Unification owns, and `inferLongIdentFieldChain` exists.
+
+## 6. Steps
+
+Each step leaves the tree green and is a separate review.
+
+1. **Pin the red surface — LANDED.** `test/XParsec.FSharp.SemanticAnalysis.Tests/LongIdentResolutionTests.fs`:
+   nine cross-file shapes that resolve today as `test` (two of them mistyped, asserting the
+   mismatch so a resolution is known to be typed rather than a `TyVar`), and nine `GAP` `ptest`s
+   with the assertion the fix must satisfy — module-qualified case in expression position (typed)
+   and in pattern position (three-segment cross-file, after `open` of the namespace, and
+   single-file), the RQA case reached through its module (reported, not unresolved), the
+   undefined discriminator (reported, not a crash), and the two `open`-order fixtures.
+   `CrossFileTests` (Clr) gained the module-VALUE self-ref and module-qualified case as `ptest`s,
+   with the type-qualified case as the running control. Both suites green: 1411 + 1546.
+2. **`IScopeContents` on both halves, no consumer.** Container-keyed index in
+   `PublishedSurface.ofBuilder` + `toProvider`; `TypeRegistry` gains `ValueIn` (replacing the
+   `LocalModules` fill) and `UnionCaseIn`; `composite` concatenates `FirstSegment`.
+   `PublishedSurfaceTests` asserts the index is key-ordered like the rest. Exit: tests of the
+   query against a two-file fixture, both halves.
+3. **`LongIdent.resolveExpr` / `resolvePattern` / `resolveType`** in `Passes/NameResolution/LongIdent.fs`,
+   with `Resolution.Resolved` filled ALONGSIDE the existing stamps by `Scope.fs`'s expression
+   arm (`:380-460`), `stampPatCasesWith` and `classifyTypeRef`. A comparison assertion in the
+   tests that the new stamp agrees with the old ones on the whole corpus is the safety net.
+   Exit: step 1's `ptest`s flip to `test`; the suppression list at `Scope.fs:112-131` is
+   replaced by the stamp.
+4. **Consumers read `Resolved`.** `InferIdentExpr.fs:56-110`, `InferPat.fs:59-210`,
+   `Elaborate/Patterns.fs:52-155`, `Elaborate/Idents.fs`, `InferResolve.fs:115`,
+   `InheritParent.fs`. Exit: no reader of `ExternalUnionCaseStamp`, `ExternalStaticQualifier`,
+   `ExternalEnumCaseStamp`, `LocalModules`; delete them.
+5. **Delete the speculation.** `TryLookupUnionCase`, `ResolvesWith`, `localQualifiedCase`,
+   `isCaseName`/`casesNamed` (as global reverse lookups), `tryDottedInModule`, `arityProbes`'
+   per-prefix loop, `ExternalUnionCase.UnionKey`-by-name checks. Score by the runtime checks
+   removed, per the repo rule.
+
+## 7. Independent of this plan, land first
+
+- **Elaborate must not swallow.** `Elaborate.fs:305-312`: a file with error diagnostics should
+  skip `toPools` (nothing is code-generated after an error) or `ModuleMembers` must be pruned
+  with the decls. Until then every pattern-resolution error is a crash and steps 1–3 cannot
+  report what they find.
+- **`LocalModuleValues`.** A `RegisterLocalModuleValue(SymbolKey, FieldDef)` twin of
+  `ClrProvider.RegisterLocalModuleFn` (`ClrProvider.fs:47`), consulted in `emitExternalCall`
+  before the `MemberRef` fallback, and a value-position emit that `ldsfld`s it rather than
+  `call`ing. The Js backend needs the same check.
+
+## 8. Settled semantics (user, 2026-08-23)
+
+- Local-first between the registry and the provider stack is the initial rule (fork A);
+  mid-file `open` order is a follow-up, pinned as `ptest`s.
+- Pattern position is type-first, expression position module-first — match FCS, do not unify
+  the two orders.
+- An RQA case reached through its module (`M.Red`) resolves and is then reported (FS0035), as
+  `dotnet fsi` does; it is not an unresolved name.
+- `module A.B.C` as a whole file still homes in the global namespace (the known gap in
+  [fsi-front-end-plan](fsi-front-end-plan.md) follow-ups); `FirstSegment` inherits that until
+  it is fixed, which is orthogonal. The `open`-order fixtures deliberately use `namespace` +
+  nested `module` so they pin only the ordering.
