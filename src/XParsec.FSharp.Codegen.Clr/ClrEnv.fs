@@ -356,6 +356,11 @@ type internal ClrEnv
     /// mint an `AssemblyRef`-scoped `MemberRef` back into the very assembly being emitted.
     let localModuleFns = Dictionary<SymbolKey, EntityHandle>()
 
+    /// Module-level VALUES homed in this compilation's own assembly, by `ValueKey` → the local
+    /// static `FieldDef`. A cross-file read freezes to `External` exactly as a call does, and
+    /// is answered with a `ldsfld` rather than a method ref.
+    let localModuleValues = Dictionary<SymbolKey, EntityHandle>()
+
     /// Project-local `[<Struct>]` value-type keys, so a user struct emits as
     /// `ELEMENT_TYPE_VALUETYPE` rather than `ELEMENT_TYPE_CLASS` in every signature.
     let userValueTypes = System.Collections.Generic.HashSet<TypeKey>()
@@ -556,6 +561,7 @@ type internal ClrEnv
 
     member _.UserTypes = userTypes
     member _.LocalModuleFns = localModuleFns
+    member _.LocalModuleValues = localModuleValues
     member _.UserValueTypes = userValueTypes
     member _.GenericUnions = genericUnions
     member _.GenericRecords = genericRecords

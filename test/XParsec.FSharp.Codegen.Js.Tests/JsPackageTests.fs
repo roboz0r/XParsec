@@ -390,6 +390,50 @@ module Reader =
                     Expect.equal code 0 (sprintf "node exits 0 (%s)" actual)
                     Expect.equal actual "42" "the cross-file call resolved through the emitted sibling module"
             }
+
+            // A module VALUE, not a function: the consumer reads the declaring file's export
+            // both bare (after `open`) and qualified.
+            test "a cross-file module VALUE runs under Node through its barrel" {
+                let declaring =
+                    "\
+namespace Test.Pkg
+
+module Consts =
+    let v : int = 5
+"
+
+                let consuming =
+                    "\
+namespace Test.Pkg
+
+module Use =
+    open Test.Pkg.Consts
+
+    let total () : int = v + 1 + Test.Pkg.Consts.v
+"
+
+                let pkg =
+                    compilePackage
+                        [
+                            AssemblyFiles.SourceFile.ofText "consts.fs" declaring
+                            AssemblyFiles.SourceFile.ofText "use.fs" consuming
+                        ]
+
+                expectImportsResolvable pkg
+
+                let root = tmpDir "js-package-value"
+                JsDriver.materialise root pkg
+                let entry = IO.Path.Combine(root, "main.mjs")
+
+                IO.File.WriteAllText(entry, "import { total } from \"./Test.Pkg/index.mjs\";\nconsole.log(total());\n")
+
+                match runNode entry with
+                | None -> skiptest "node not found on PATH"
+                | Some(code, out) ->
+                    let actual = out.Replace("\r", "").Trim()
+                    Expect.equal code 0 (sprintf "node exits 0 (%s)" actual)
+                    Expect.equal actual "11" "5 + 1 + 5 through the sibling module's exported value"
+            }
         ]
 
 /// A `tmp/<name>` package whose two `.fs` files each declare an inline `pick`, in `order`.

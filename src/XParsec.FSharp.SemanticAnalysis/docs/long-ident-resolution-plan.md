@@ -275,11 +275,33 @@ Each step leaves the tree green and is a separate review.
    undefined discriminator (reported, not a crash), and the two `open`-order fixtures.
    `CrossFileTests` (Clr) gained the module-VALUE self-ref and module-qualified case as `ptest`s,
    with the type-qualified case as the running control. Both suites green: 1411 + 1546.
-2. **`IScopeContents` on both halves, no consumer.** Container-keyed index in
-   `PublishedSurface.ofBuilder` + `toProvider`; `TypeRegistry` gains `ValueIn` (replacing the
-   `LocalModules` fill) and `UnionCaseIn`; `composite` concatenates `FirstSegment`.
-   `PublishedSurfaceTests` asserts the index is key-ordered like the rest. Exit: tests of the
-   query against a two-file fixture, both halves.
+2. **`IScopeContents` on both halves, no consumer — LANDED.** `ExternalSymbols.fs` declares
+   the query (`TryContainer` / `TryValue` / `TryUnionCase` / `TypesNamed`, all scoped to a
+   `ModuleContainer`) and `IExternalSymbolResolver.Scope` exposes it; `ScopeContents.composite`
+   is the nearest-first composition `stack` uses; the decorator forwards; metadata and
+   named-channel sources answer `ScopeContents.empty`. `PublishedSurface.toProvider` derives
+   the container-keyed indexes from the tables already published — symbols by `Key.Decl`,
+   cases by `UnionKey.Container`, types by `TypeKey.Container` — and the container set from
+   every key's containment chain plus each namespace prefix, so a module holding only values
+   is a container too. The local half is `LocalScope.fs` over `TypeRegistry`'s claims and a
+   new `Resolution.LocalModulePaths` (source path → members) filled beside `LocalModules`.
+
+   Two things changed shape on the way. `PublishedSurface.UnionCases` is keyed by the declaring
+   union's compiled name plus the case name, so every case is retained; the bare-name
+   first-wins index the legacy `TryLookupUnionCase` channel answers from is derived in
+   `toProvider`, and on a bare-name collision within ONE surface the winner is now the
+   ordinal-first key rather than the first declaration (the cross-file order is the stack's,
+   unchanged). And `FirstSegment` is not on the interface: it is the resolver's job (step 3),
+   composed from `OpenScope` prefixes and `TryContainer`.
+
+   `ScopeContentsTests` covers both halves and the composition. Suites green: 1419 / 1547 / 666.
+
+   **Follow-up surfaced:** a `[<CompilationRepresentation(ModuleSuffix)>]` module's container
+   is published under its COMPILED name only (`ModuleKey.Name` is `ListModule`), while its
+   values get a source-spelling alias (`SignatureResolution.fs:672-684`) and its types none.
+   `TryContainer "Vesper.List"` therefore misses on the published half until the surface
+   carries the source path beside the compiled one; the local half (`LocalContainers`, keyed
+   by source path) already has it.
 3. **`LongIdent.resolveExpr` / `resolvePattern` / `resolveType`** in `Passes/NameResolution/LongIdent.fs`,
    with `Resolution.Resolved` filled ALONGSIDE the existing stamps by `Scope.fs`'s expression
    arm (`:380-460`), `stampPatCasesWith` and `classifyTypeRef`. A comparison assertion in the
@@ -295,16 +317,18 @@ Each step leaves the tree green and is a separate review.
    per-prefix loop, `ExternalUnionCase.UnionKey`-by-name checks. Score by the runtime checks
    removed, per the repo rule.
 
-## 7. Independent of this plan, land first
+## 7. Independent of this plan — LANDED (2026-08-23)
 
-- **Elaborate must not swallow.** `Elaborate.fs:305-312`: a file with error diagnostics should
-  skip `toPools` (nothing is code-generated after an error) or `ModuleMembers` must be pruned
-  with the decls. Until then every pattern-resolution error is a crash and steps 1–3 cannot
-  report what they find.
-- **`LocalModuleValues`.** A `RegisterLocalModuleValue(SymbolKey, FieldDef)` twin of
-  `ClrProvider.RegisterLocalModuleFn` (`ClrProvider.fs:47`), consulted in `emitExternalCall`
-  before the `MemberRef` fallback, and a value-position emit that `ldsfld`s it rather than
-  `call`ing. The Js backend needs the same check.
+- **Elaborate degrades totally.** `Elaborate.run` empties every bound-variable-keyed side
+  table (`ModuleMembers`, `GenericFnSchemes`, `BindingTyparArities`) with the decls it drops,
+  so `toPools` no longer faults on an orphan; "undefined pattern discriminator is REPORTED, not
+  a crash" is a running test.
+- **`LocalModuleValues`.** `ClrProvider.RegisterLocalModuleValue`, filled by the assembler's
+  field pass for every `FieldKey.ModuleValue`, and answered in `TryEmitCall` as a `ldsfld`
+  recipe (arity 0, one push) ahead of the external-call path, so a function-typed value still
+  takes its arguments through `Invoke`. "a prior file's module VALUE reads through a local
+  field" runs. The Js backend had no such gap: "a cross-file module VALUE runs under Node"
+  passed on the first run and stays as the control.
 
 ## 8. Settled semantics (user, 2026-08-23)
 

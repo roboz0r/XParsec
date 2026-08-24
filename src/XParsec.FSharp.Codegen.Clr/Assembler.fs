@@ -351,6 +351,13 @@ type internal Assembler
 
             fieldDefHandles.Add(fs.Key, h)
 
+            // A SIBLING file's cross-file read of this value resolves to the local `FieldDef`
+            // instead of an `AssemblyRef`-scoped member ref, as `RegisterLocalModuleFn` does
+            // for a function. Keyed by the `SymbolKey` a reference spells.
+            match fs.Key with
+            | FieldKey.ModuleValue mvKey -> provider.RegisterLocalModuleValue(mvKey, toEntity h)
+            | _ -> ()
+
             // A numeric enum case field: attach its `Constant` row now, in field
             // order, so the `Constant.Parent` column is ascending.
             match enumFieldConstants.TryGetValue fs.Key with

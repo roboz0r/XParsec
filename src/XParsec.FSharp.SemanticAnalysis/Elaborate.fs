@@ -304,14 +304,28 @@ module Elaborate =
         // nothing is code-generated, so degrade; unguarded otherwise, so a real bug surfaces.
         let hasErrors = ctx.Diagnostics |> Seq.exists Diagnostic.isError
 
-        let decls, specializations =
+        let elaborated =
             if hasErrors then
                 try
-                    elaborateDecls ()
+                    ValueSome(elaborateDecls ())
                 with _ ->
-                    [], [||]
+                    ValueNone
             else
-                elaborateDecls ()
+                ValueSome(elaborateDecls ())
+
+        let decls, specializations =
+            match elaborated with
+            | ValueSome result -> result
+            | ValueNone -> [], [||]
+
+        // A degraded tree introduces no bound variable, so every table keyed by one is empty
+        // with it: `TastPools.toPools` faults on an entry whose declaration is absent.
+        let boundVarTable
+            (entries: seq<System.Collections.Generic.KeyValuePair<BoundVarKey, 'v>>)
+            : Map<BoundVarKey, 'v> =
+            match elaborated with
+            | ValueSome _ -> entries |> Seq.map (fun kv -> kv.Key, kv.Value) |> Map.ofSeq
+            | ValueNone -> Map.empty
 
         {
             Decls = EqArray.ofList decls
@@ -322,19 +336,13 @@ module Elaborate =
             Diagnostics = List.ofSeq ctx.Diagnostics
             IntrinsicReprKeys = System.Collections.Generic.Dictionary(ctx.Types.IntrinsicReprKeys)
             GlobalValueKeys = System.Collections.Generic.HashSet(ctx.Bindings.GlobalValueKeys)
-            ModuleMembers = ctx.Bindings.ModuleMembers |> Seq.map (fun kv -> kv.Key, kv.Value) |> Map.ofSeq
+            ModuleMembers = boundVarTable ctx.Bindings.ModuleMembers
             // Filled by the Pipeline once escape analysis has run.
             ClosureReprs = Map.empty
             FunVerdicts = Map.empty
-            GenericFnSchemes =
-                ctx.GenericFnSchemes.AsDictionary()
-                |> Seq.map (fun kv -> kv.Key, kv.Value)
-                |> Map.ofSeq
+            GenericFnSchemes = boundVarTable (ctx.GenericFnSchemes.AsDictionary())
             Accessibility =
                 System.Collections.Generic.Dictionary(ctx.Bindings.Accessibility)
                 :> System.Collections.Generic.IReadOnlyDictionary<_, _>
-            BindingTyparArities =
-                ctx.Bindings.BindingTyparArities
-                |> Seq.map (fun kv -> kv.Key, kv.Value)
-                |> Map.ofSeq
+            BindingTyparArities = boundVarTable ctx.Bindings.BindingTyparArities
         }

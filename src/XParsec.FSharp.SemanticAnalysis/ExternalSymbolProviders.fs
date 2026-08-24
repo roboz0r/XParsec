@@ -42,6 +42,7 @@ module ExternalSymbolProviders =
             TryLookupIndexSignature: string -> (FrozenType * FrozenType) list
             IntrinsicTypeMap: IntrinsicTypeMap
             Platform: IPlatformFacts voption
+            Scope: IScopeContents
         }
 
     module NamedChannels =
@@ -49,6 +50,7 @@ module ExternalSymbolProviders =
         /// Every channel misses, so override just what the source models.
         let empty: NamedChannels =
             {
+                Scope = ScopeContents.empty
                 TryLookup = fun _ -> ValueNone
                 TryLookupType = fun _ -> ValueNone
                 TryLookupUnionCase = fun _ -> ValueNone
@@ -75,12 +77,14 @@ module ExternalSymbolProviders =
             TryRecordsWithField: string -> EqArray<ExternalRecordCandidate>
             AmbientOpenPrefixes: string list
             IntrinsicTypeMap: IntrinsicTypeMap
+            Scope: IScopeContents
         }
 
     module KeyIndexedChannels =
 
         let empty: KeyIndexedChannels =
             {
+                Scope = ScopeContents.empty
                 ShapesByKey = Dictionary() :> IReadOnlyDictionary<_, _>
                 MembersByKey = Dictionary() :> IReadOnlyDictionary<_, _>
                 ResolveTypeName = fun _ -> ValueNone
@@ -135,6 +139,7 @@ module ExternalSymbolProviders =
             {
                 Named =
                     { NamedChannels.empty with
+                        Scope = channels.Scope
                         TryLookup = channels.TryLookup
                         TryLookupUnionCase = channels.TryLookupUnionCase
                         TryRecordsWithField = channels.TryRecordsWithField
@@ -156,6 +161,7 @@ module ExternalSymbolProviders =
         { new IExternalSymbolProvider
 
           interface IExternalSymbolResolver with
+              member _.Scope = named.Scope
               member _.TryLookup name = named.TryLookup name
               member _.TryLookupType(name: string) = channels.TypeByName name
               member _.TryLookupUnionCase caseName = named.TryLookupUnionCase caseName
@@ -207,6 +213,9 @@ module ExternalSymbolProviders =
     [<AbstractClass>]
     type ProviderDecorator(inner: IExternalSymbolProvider) =
 
+        abstract Scope: IScopeContents
+        default _.Scope = inner.Scope
+
         abstract TryLookup: name: string -> ExternalSymbol voption
         default _.TryLookup name = inner.TryLookup name
 
@@ -246,6 +255,7 @@ module ExternalSymbolProviders =
         interface IExternalSymbolProvider
 
         interface IExternalSymbolResolver with
+            member this.Scope = this.Scope
             member this.TryLookup name = this.TryLookup name
             member this.TryLookupType(name: string) = this.TryLookupTypeByName name
             member this.TryLookupUnionCase caseName = this.TryLookupUnionCase caseName
@@ -281,6 +291,7 @@ module ExternalSymbolProviders =
         let providers = List.toArray providers
 
         let intrinsics = mergeIntrinsics providers
+        let scope = ScopeContents.composite [ for p in providers -> p.Scope ]
 
         // The array-valued lookups keep their own loop: their empty sentinel is `[||]`.
         let inline firstHit (f: IExternalSymbolProvider -> 'a voption) : 'a voption =
@@ -345,6 +356,8 @@ module ExternalSymbolProviders =
         { new IExternalSymbolProvider
 
           interface IExternalSymbolResolver with
+              member _.Scope = scope
+
               member _.TryLookup name =
                   firstHit (fun s -> s.TryLookup name) |> ValueOption.map stampSymbol
 

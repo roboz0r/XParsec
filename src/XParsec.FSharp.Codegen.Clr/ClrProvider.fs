@@ -46,6 +46,11 @@ type ClrProvider
     /// cross-file call to it resolves to its local `MethodDef` rather than an external member ref.
     member _.RegisterLocalModuleFn(key: SymbolKey, handle: EntityHandle) : unit = env.LocalModuleFns.[key] <- handle
 
+    /// Register a module-level value's static field emitted into this assembly (by its
+    /// `ValueKey`) so a cross-file read of it loads the local `FieldDef`.
+    member _.RegisterLocalModuleValue(key: SymbolKey, handle: EntityHandle) : unit =
+        env.LocalModuleValues.[key] <- handle
+
     /// Record a project-local `[<Struct>]` value type so `encodeType` emits it as
     /// `ELEMENT_TYPE_VALUETYPE`.
     member _.RegisterUserValueType(key: TypeKey) : unit = env.UserValueTypes.Add key |> ignore
@@ -304,7 +309,21 @@ type ClrProvider
                 // Only a binding key identifies a module function; an operator-as-value does not,
                 // and operators are expanded to `TExpr.ILIntrinsic` before emission anyway.
                 match key with
-                | ValueSome(SymbolKey.Binding binding) -> recipes.EmitExternalCall(binding, fnTy)
+                | ValueSome(SymbolKey.Binding binding as valueKey) ->
+                    // A module VALUE of this assembly is a static field: load it, and let the
+                    // caller `Invoke` any arguments a function-typed value takes.
+                    match env.LocalModuleValues.TryGetValue valueKey with
+                    | true, field ->
+                        ValueSome
+                            {
+                                Emit =
+                                    fun il ->
+                                        il.Encoder.OpCode ILOpCode.Ldsfld
+                                        il.Encoder.Token field
+                                Arity = CallArity.Flat 0
+                                Pushes = 1
+                            }
+                    | _ -> recipes.EmitExternalCall(binding, fnTy)
                 | _ -> ValueNone
 
         member _.TryEmitCtor(key, chosen, tyArgs, argTypes) =

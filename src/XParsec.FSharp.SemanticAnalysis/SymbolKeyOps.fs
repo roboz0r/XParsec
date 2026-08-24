@@ -255,6 +255,14 @@ module SymbolKeyOps =
         | ModuleContainer.InNamespace ns -> TypeContainer.InNamespace ns
         | ModuleContainer.InModule m -> TypeContainer.InModule m
 
+    /// The module or namespace a type is declared DIRECTLY in; `ValueNone` for a nested type,
+    /// whose scope is its outer type.
+    let tryModuleContainerOf (c: TypeContainer) : ModuleContainer voption =
+        match c with
+        | TypeContainer.InNamespace ns -> ValueSome(ModuleContainer.InNamespace ns)
+        | TypeContainer.InModule m -> ValueSome(ModuleContainer.InModule m)
+        | TypeContainer.InType _ -> ValueNone
+
     let bindingKeyOf (decl: ModuleContainer) (name: string) : BindingKey = { Decl = decl; Name = name }
 
     let valueKey (decl: ModuleContainer) (name: string) : SymbolKey =

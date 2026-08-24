@@ -362,7 +362,7 @@ module N =
                     // leaving `ModuleMembers` filled for decls it dropped; `TastPools.toPools`
                     // then faults. The report exists (`UndefinedPatternDiscriminator`) and
                     // never reaches the caller.
-                    ptest "GAP undefined pattern discriminator is REPORTED, not a crash" {
+                    test "undefined pattern discriminator is REPORTED, not a crash" {
                         let all =
                             analyse
                                 [

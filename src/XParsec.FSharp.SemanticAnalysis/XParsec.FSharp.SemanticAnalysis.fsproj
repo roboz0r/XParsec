@@ -120,6 +120,7 @@
     <Compile Include="ExternalTypeProbe.fs" />
     <Compile Include="AttributeResolution.fs" />
     <Compile Include="Containment.fs" />
+    <Compile Include="LocalScope.fs" />
     <Compile Include="TypeLayout.fs" />
     <Compile Include="MemberNames.fs" />
     <Compile Include="PropertyAccessors.fs" />

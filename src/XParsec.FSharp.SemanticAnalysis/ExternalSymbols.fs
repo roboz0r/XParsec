@@ -45,9 +45,74 @@ type ExternalTypeShape =
         | Abbrev(arity = a)
         | Unmodelled(arity = a) -> a
 
+/// The contents of a module or namespace, one segment at a time: what a dotted name's
+/// resolution asks after its first segment has been classified. Every answer is scoped to the
+/// entity asked about, so no bare-name reverse index takes part.
+type IScopeContents =
+    /// The module or namespace the dotted SOURCE path denotes.
+    abstract TryContainer: sourcePath: string -> ModuleContainer voption
+    /// The value `name` declared directly in `container`.
+    abstract TryValue: container: ModuleContainer * name: string -> ExternalSymbol voption
+    /// The union case `name` of a union declared directly in `container`; the answer carries
+    /// its `[<RequireQualifiedAccess>]` flag for the caller to report.
+    abstract TryUnionCase: container: ModuleContainer * name: string -> ExternalUnionCase voption
+    /// Every type named `name` declared directly in `container`, one per generic arity.
+    abstract TypesNamed: container: ModuleContainer * name: string -> EqArray<struct (TypeKey * ExternalTypeShape)>
+
+[<RequireQualifiedAccess>]
+module ScopeContents =
+
+    /// Every query a miss: a source with no module structure to expose.
+    let empty: IScopeContents =
+        { new IScopeContents with
+            member _.TryContainer _ = ValueNone
+            member _.TryValue(_, _) = ValueNone
+            member _.TryUnionCase(_, _) = ValueNone
+            member _.TypesNamed(_, _) = EqArray.empty
+        }
+
+    /// The nearest-first composition: a container, value or case is the first source's that
+    /// declares it, and a type name is the first source's non-empty arity set.
+    let composite (sources: IScopeContents list) : IScopeContents =
+        match sources with
+        | [] -> empty
+        | [ single ] -> single
+        | _ ->
+            let sources = List.toArray sources
+
+            let inline firstHit (f: IScopeContents -> 'a voption) : 'a voption =
+                let mutable result = ValueNone
+                let mutable i = 0
+
+                while result.IsNone && i < sources.Length do
+                    result <- f sources.[i]
+                    i <- i + 1
+
+                result
+
+            { new IScopeContents with
+                member _.TryContainer path = firstHit (fun s -> s.TryContainer path)
+                member _.TryValue(c, name) = firstHit (fun s -> s.TryValue(c, name))
+
+                member _.TryUnionCase(c, name) =
+                    firstHit (fun s -> s.TryUnionCase(c, name))
+
+                member _.TypesNamed(c, name) =
+                    let mutable result = EqArray.empty
+                    let mutable i = 0
+
+                    while result.Length = 0 && i < sources.Length do
+                        result <- sources.[i].TypesNamed(c, name)
+                        i <- i + 1
+
+                    result
+            }
+
 /// The RESOLVER view of the external-symbol contract: spelling → identity, opens-aware.
 /// Downstream of name resolution, passes speak the key-addressed store view instead.
 type IExternalSymbolResolver =
+    /// The module structure this source declares, for segment-by-segment resolution.
+    abstract Scope: IScopeContents
     /// `name` is the compiled name ("op_Addition", not "(+)").
     abstract TryLookup: name: string -> ExternalSymbol voption
     /// Look up a `type` by canonical compiled name, returning its REGISTERED identity plus

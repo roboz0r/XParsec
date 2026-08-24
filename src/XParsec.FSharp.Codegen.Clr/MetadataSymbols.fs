@@ -643,6 +643,8 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
     interface IExternalSymbolProvider
 
     interface IExternalSymbolResolver with
+        // IL metadata exposes no module structure: a namespace is a prefix of a type name.
+        member _.Scope = ScopeContents.empty
         member _.TryLookup _ = ValueNone
 
         // Bare IL has no module chains, so a name IS the identity.

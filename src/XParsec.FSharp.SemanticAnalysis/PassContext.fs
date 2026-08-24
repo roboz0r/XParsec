@@ -183,6 +183,10 @@ type PassContextResolution =
         /// A local module's short name (`SetTree`) → its directly-declared `let` bindings.
         /// Whole-file, so a reader MUST honour `VisibleFrom`.
         LocalModules: Dictionary<string, Dictionary<string, LocalModuleMember>>
+        /// A scope's dotted SOURCE path (`N.SetTree`; the namespace path alone for its direct
+        /// declarations; `""` under no namespace) → its directly-declared `let` bindings.
+        /// Whole-file, so a reader MUST honour `VisibleFrom`.
+        LocalModulePaths: Dictionary<string, Dictionary<string, LocalModuleMember>>
         /// A local TYPE's short name (`SetIterator`) → the short name of the module it is
         /// declared inside (`SetTree`). Absent for a type at namespace / file top level.
         TypeEnclosingModule: Dictionary<string, string>
@@ -217,6 +221,7 @@ module PassContextResolution =
             ExternalUnionRecordQualifier = SideTable<_>()
             AttributeVerdicts = SideTable<_>()
             LocalModules = Dictionary<_, _>()
+            LocalModulePaths = Dictionary<_, _>(System.StringComparer.Ordinal)
             TypeEnclosingModule = Dictionary<_, _>()
         }
 

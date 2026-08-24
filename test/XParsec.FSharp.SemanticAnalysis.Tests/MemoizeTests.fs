@@ -34,6 +34,8 @@ type private CountingProvider(name: string) =
     interface IExternalSymbolProvider
 
     interface IExternalSymbolResolver with
+        member _.Scope = ScopeContents.empty
+
         member _.TryLookup n =
             lookupHits <- lookupHits + 1
 

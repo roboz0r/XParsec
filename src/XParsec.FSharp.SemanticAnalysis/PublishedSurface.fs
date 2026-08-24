@@ -34,7 +34,7 @@ type PublishedSurfaceBuilder =
         /// Dotted source path of a declared module -> the container a type it holds sits in.
         /// What makes a written `A.M.T` reach the type compiled as `A.M+T`.
         ModuleContainers: Dictionary<string, TypeContainer>
-        /// Bare case name -> the union declaring it. First declaration wins.
+        /// Declaring union's compiled name + `.` + case name -> the case; every case published.
         UnionCases: Dictionary<string, ExternalUnionCase>
         /// Field name -> every record declaring it, a MULTIMAP rather than first-wins: a field
         /// name is deliberately shared across records, so each one ADDS a candidate.
@@ -118,11 +118,11 @@ module PublishedSurfaceBuilder =
                 buf.Add candidate
                 surface.RecordFields.[f] <- buf
 
-    /// Index a union case by its BARE name. First declaration wins on a collision; an RQA
-    /// union's cases carry the flag so a consumer's bare `Red` is rejected.
+    /// Index a union case under its declaring union's compiled name plus its own
+    /// (`` Test.A.M+Color.Red ``), so every published case is retained. An RQA union's cases
+    /// carry the flag so a consumer's bare `Red` is rejected.
     let addUnionCase (surface: PublishedSurfaceBuilder) (case: ExternalUnionCase) : unit =
-        if not (surface.UnionCases.ContainsKey case.Case.Name) then
-            surface.UnionCases.[case.Case.Name] <- case
+        surface.UnionCases.[SymbolKeyOps.typeMetaName case.UnionKey + "." + case.Case.Name] <- case
 
 /// One entry of a published table. A key-ordered array of these rather than a dictionary,
 /// because the surface is a VALUE: fixing the order is what lets two of them compare, and
@@ -143,7 +143,7 @@ type PublishedSurface =
         TypesByName: EqArray<SurfaceEntry<string, TypeKey>>
         /// Dotted source path of a declared module -> the container a type it holds sits in.
         ModuleContainers: EqArray<SurfaceEntry<string, TypeContainer>>
-        /// Bare case name -> the union declaring it.
+        /// Declaring union's compiled name + `.` + case name -> the case.
         UnionCases: EqArray<SurfaceEntry<string, ExternalUnionCase>>
         /// Field name -> every record declaring it.
         RecordFields: EqArray<SurfaceEntry<string, EqArray<ExternalRecordCandidate>>>
@@ -227,12 +227,113 @@ module PublishedSurface =
 
     let private keyIndex (entries: EqArray<SurfaceEntry<TypeKey, 'V>>) = index entries HashIdentity.Structural
 
+    /// A scope's contents derived from the published tables: every symbol, case and type is
+    /// filed under the container its key declares, so a segment-by-segment read of `A.M.x`
+    /// asks the module `A.M` for `x` rather than a name index for `A.M.x`.
+    let private scopeOf (surface: PublishedSurface) : IScopeContents =
+        let valuesIn =
+            Dictionary<struct (ModuleContainer * string), ExternalSymbol>(HashIdentity.Structural)
+
+        for e in surface.Symbols do
+            // A `ModuleSuffix` module publishes each member twice, under the compiled and the
+            // source spelling; both carry one key, and the first entry is kept.
+            valuesIn.TryAdd(struct (e.Value.Key.Decl, e.Value.Key.Name), e.Value) |> ignore
+
+        let casesIn =
+            Dictionary<struct (ModuleContainer * string), ExternalUnionCase>(HashIdentity.Structural)
+
+        for e in surface.UnionCases do
+            match SymbolKeyOps.tryModuleContainerOf e.Value.UnionKey.Container with
+            | ValueSome c -> casesIn.TryAdd(struct (c, e.Value.Case.Name), e.Value) |> ignore
+            | ValueNone -> ()
+
+        let typesIn =
+            Dictionary<struct (ModuleContainer * string), ResizeArray<struct (TypeKey * ExternalTypeShape)>>(
+                HashIdentity.Structural
+            )
+
+        for e in surface.ShapesByKey do
+            match SymbolKeyOps.tryModuleContainerOf e.Key.Container with
+            | ValueSome c ->
+                let slot = struct (c, e.Key.Name)
+
+                match typesIn.TryGetValue slot with
+                | true, arities -> arities.Add(struct (e.Key, e.Value))
+                | _ ->
+                    let arities = ResizeArray 1
+                    arities.Add(struct (e.Key, e.Value))
+                    typesIn.[slot] <- arities
+            | ValueNone -> ()
+
+        // Every module and namespace a published key sits in, each module's enclosing chain
+        // and every prefix of each namespace: `System` is a namespace wherever
+        // `System.Collections` is, and a module holding only values is still a module.
+        let containers = Dictionary<string, ModuleContainer>(StringComparer.Ordinal)
+
+        let rec noteNamespace (dotted: string) =
+            if
+                dotted.Length > 0
+                && containers.TryAdd(dotted, ModuleContainer.InNamespace(SymbolKeyOps.namespaceKey dotted))
+            then
+                match dotted.LastIndexOf '.' with
+                | i when i > 0 -> noteNamespace (dotted.Substring(0, i))
+                | _ -> ()
+
+        let rec noteContainer (c: ModuleContainer) =
+            match c with
+            | ModuleContainer.InNamespace ns -> noteNamespace ns.Dotted
+            | ModuleContainer.InModule m ->
+                if containers.TryAdd(SymbolKeyOps.moduleFullName m, c) then
+                    noteContainer m.Container
+
+        for e in surface.ShapesByKey do
+            match SymbolKeyOps.tryModuleContainerOf e.Key.Container with
+            | ValueSome c -> noteContainer c
+            | ValueNone -> noteNamespace e.Key.Namespace.Dotted
+
+        for e in surface.Symbols do
+            noteContainer e.Value.Key.Decl
+
+        for e in surface.ModuleContainers do
+            match e.Value with
+            | TypeContainer.InModule m -> noteContainer (ModuleContainer.InModule m)
+            | TypeContainer.InNamespace ns -> noteNamespace ns.Dotted
+            | TypeContainer.InType _ -> ()
+
+        { new IScopeContents with
+            member _.TryContainer path =
+                match containers.TryGetValue path with
+                | true, c -> ValueSome c
+                | _ -> ValueNone
+
+            member _.TryValue(container, name) =
+                match valuesIn.TryGetValue(struct (container, name)) with
+                | true, sym -> ValueSome sym
+                | _ -> ValueNone
+
+            member _.TryUnionCase(container, name) =
+                match casesIn.TryGetValue(struct (container, name)) with
+                | true, uc -> ValueSome uc
+                | _ -> ValueNone
+
+            member _.TypesNamed(container, name) =
+                match typesIn.TryGetValue(struct (container, name)) with
+                | true, arities -> EqArray.ofResizeArray arities
+                | _ -> EqArray.empty
+        }
+
     let toProvider (surface: PublishedSurface) : IExternalSymbolProvider =
         let typesByName = nameIndex surface.TypesByName
         let moduleContainers = nameIndex surface.ModuleContainers
-        let unionCases = nameIndex surface.UnionCases
         let recordFields = nameIndex surface.RecordFields
         let symbols = nameIndex surface.Symbols
+
+        // The bare-name reverse index the legacy `TryLookupUnionCase` channel answers from:
+        // the first case in key order wins a bare-name collision.
+        let unionCases = Dictionary<string, ExternalUnionCase>(StringComparer.Ordinal)
+
+        for e in surface.UnionCases do
+            unionCases.TryAdd(e.Value.Case.Name, e.Value) |> ignore
 
         // Two spellings arrive: the canonical metadata name, a direct hit; and the dotted
         // spelling source writes for a module-held type (`M.T`), resolved through the
@@ -253,6 +354,7 @@ module PublishedSurface =
         ExternalSymbolProviders.ofKeyedChannels (
             ExternalSymbolProviders.KeyedChannels.ofKeyIndexes
                 { ExternalSymbolProviders.KeyIndexedChannels.empty with
+                    Scope = scopeOf surface
                     ShapesByKey = keyIndex surface.ShapesByKey
                     MembersByKey = keyIndex surface.MembersByKey
                     ResolveTypeName = tryTypeKey

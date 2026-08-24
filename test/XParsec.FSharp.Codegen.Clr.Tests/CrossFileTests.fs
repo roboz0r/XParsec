@@ -693,7 +693,7 @@ printfn \"%d\" (Shared.dup ())
             // local re-home for a module FUNCTION only (`ClrRecipes.emitExternalCall` through
             // `env.LocalModuleFns`), so the read falls to a `MemberRef` scoped by the value's
             // own-assembly home: a self-`AssemblyRef`, and a method ref to a static field.
-            ptest "GAP a prior file's module VALUE reads through a local field, not a self-AssemblyRef" {
+            test "a prior file's module VALUE reads through a local field, not a self-AssemblyRef" {
                 let file1 =
                     "\
 namespace CrossFile
