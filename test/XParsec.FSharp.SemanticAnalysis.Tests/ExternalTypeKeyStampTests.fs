@@ -114,7 +114,13 @@ let tests =
                                     match n with
                                     | "Early.Thing" ->
                                         ValueSome(
-                                            ExternalTypeShape.Union(0, EqArray.empty, EqArray.empty, SymbolOrigin.Empty)
+                                            ExternalTypeShape.Union(
+                                                0,
+                                                EqArray.empty,
+                                                EqArray.empty,
+                                                SymbolOrigin.Empty,
+                                                false
+                                            )
                                         )
                                     | "Late.Thing" ->
                                         ValueSome(

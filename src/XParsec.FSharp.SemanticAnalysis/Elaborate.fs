@@ -305,22 +305,19 @@ module Elaborate =
         let hasErrors = ctx.Diagnostics |> Seq.exists Diagnostic.isError
 
         let elaborated =
-            if hasErrors then
-                try
-                    ValueSome(elaborateDecls ())
-                with _ ->
-                    ValueNone
-            else
+            try
                 ValueSome(elaborateDecls ())
+            with _ when hasErrors ->
+                ValueNone
 
         let decls, specializations =
             match elaborated with
             | ValueSome result -> result
             | ValueNone -> [], [||]
 
-        // A degraded tree introduces no bound variable, so every table keyed by one is empty
+        // A degraded tree introduces no bound variable, so every table keyed by one empties
         // with it: `TastPools.toPools` faults on an entry whose declaration is absent.
-        let boundVarTable
+        let emptyIfDegraded
             (entries: seq<System.Collections.Generic.KeyValuePair<BoundVarKey, 'v>>)
             : Map<BoundVarKey, 'v> =
             match elaborated with
@@ -336,13 +333,13 @@ module Elaborate =
             Diagnostics = List.ofSeq ctx.Diagnostics
             IntrinsicReprKeys = System.Collections.Generic.Dictionary(ctx.Types.IntrinsicReprKeys)
             GlobalValueKeys = System.Collections.Generic.HashSet(ctx.Bindings.GlobalValueKeys)
-            ModuleMembers = boundVarTable ctx.Bindings.ModuleMembers
+            ModuleMembers = emptyIfDegraded ctx.Bindings.ModuleMembers
             // Filled by the Pipeline once escape analysis has run.
             ClosureReprs = Map.empty
             FunVerdicts = Map.empty
-            GenericFnSchemes = boundVarTable (ctx.GenericFnSchemes.AsDictionary())
+            GenericFnSchemes = emptyIfDegraded (ctx.GenericFnSchemes.AsDictionary())
             Accessibility =
                 System.Collections.Generic.Dictionary(ctx.Bindings.Accessibility)
                 :> System.Collections.Generic.IReadOnlyDictionary<_, _>
-            BindingTyparArities = boundVarTable ctx.Bindings.BindingTyparArities
+            BindingTyparArities = emptyIfDegraded ctx.Bindings.BindingTyparArities
         }

@@ -87,7 +87,8 @@ let private typeByName (name: string) : ExternalTypeShape voption =
                 EqArray.singleton (
                     FrozenNominal.OfClass(SymbolKeyOps.qualifiedTypeKeyOf "J" 1, EqArray.singleton marker)
                 ),
-                origin
+                origin,
+                false
             )
         )
     | "Abb" -> ValueSome(ExternalTypeShape.Abbrev(1, marker))
@@ -200,7 +201,7 @@ let tests =
 
             test "a union-case field is covariant and the union's interface args invariant" {
                 match wrapped.TryLookupType "Uni" |> ExternalSymbols.typeShapeOf with
-                | ValueSome(ExternalTypeShape.Union(_, cases, ifaces, _)) ->
+                | ValueSome(ExternalTypeShape.Union(_, cases, ifaces, _, _)) ->
                     Expect.equal
                         cases.[0].FrozenFieldTypes
                         (EqArray.singleton (witness Variance.Co))

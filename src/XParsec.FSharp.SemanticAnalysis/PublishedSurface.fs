@@ -294,18 +294,20 @@ module PublishedSurface =
         for e in surface.Symbols do
             noteContainer e.Value.Key.Decl
 
-            // A `ModuleSuffix` module's members are also published under the SOURCE spelling
-            // (`Vesper.List.fold` beside `Vesper.ListModule.fold`), so that spelling's prefix
-            // is the module's source path: the path an `open` or a qualified name writes.
-            match e.Key.LastIndexOf '.' with
-            | cut when cut > 0 -> containers.TryAdd(e.Key.Substring(0, cut), e.Value.Key.Decl) |> ignore
-            | _ -> ()
-
         for e in surface.ModuleContainers do
             match e.Value with
             | TypeContainer.InModule m -> noteContainer (ModuleContainer.InModule m)
             | TypeContainer.InNamespace ns -> noteNamespace ns.Dotted
             | TypeContainer.InType _ -> ()
+
+        // Last, so an inferred alias never displaces a declared container: a `ModuleSuffix`
+        // module's members are also published under the SOURCE spelling (`Vesper.List.fold`
+        // beside `Vesper.ListModule.fold`), so that spelling's prefix is the module's source
+        // path: the path an `open` or a qualified name writes.
+        for e in surface.Symbols do
+            match e.Key.LastIndexOf '.' with
+            | cut when cut > 0 -> containers.TryAdd(e.Key.Substring(0, cut), e.Value.Key.Decl) |> ignore
+            | _ -> ()
 
         { new IScopeContents with
             member _.TryContainer path =

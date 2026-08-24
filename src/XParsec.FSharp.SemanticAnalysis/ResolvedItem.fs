@@ -64,11 +64,15 @@ type ResolvedItem =
     /// reached other than through the union's own name, which F# reports as FS0035.
     | UnionCase of case: ResolvedUnionCase * requiresQualification: bool
     | EnumCase of owner: ResolvedTypeRef * name: string
-    /// A type name: a constructor in expression position, a type reference in type position.
+    /// A type name that denotes its constructor: written in expression position, and
+    /// constructible from the bare name (a class of this file, or a referenced class whose
+    /// arity the written form fixes).
+    | Ctor of ResolvedTypeRef
     | Type of ResolvedTypeRef
     | StaticMember of owner: ResolvedTypeRef * name: string
     /// Every segment consumed by the module path, so the name denotes no value.
     | ModuleOrNamespace of ModuleContainer
-    /// `count` unions visible at the use site each declare a case `name`.
-    | AmbiguousCase of name: string * count: int
+    /// Several unions visible at the use site each declare a case `name`: the claims, in
+    /// scope order.
+    | AmbiguousCase of name: string * claims: UnionCaseInfo[]
     | Unresolved of UnresolvedName

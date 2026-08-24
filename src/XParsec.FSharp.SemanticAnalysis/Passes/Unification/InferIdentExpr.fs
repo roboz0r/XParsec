@@ -47,13 +47,12 @@ module internal UnificationInferIdentExpr =
         // A union case reached through its module (`Test.A.M.Red`), its type or bare, in
         // either half, as NameResolution stamped it. An external one is typed off the same
         // case stamp the 2-segment arm below reads.
-        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent _) when
+        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent _) & Resolves ResolvedStamps.tryUnionCase ctx.Resolution.Resolved node.Key case when
             not (ctx.Bindings.Binding.ContainsKey node.Key)
-            && (ResolvedStamps.tryUnionCase ctx.Resolution.Resolved node.Key).IsSome
             ->
-            match ResolvedStamps.tryUnionCase ctx.Resolution.Resolved node.Key with
-            | ValueSome(ResolvedUnionCase.Local info) -> ctorType ctx info
-            | _ ->
+            match case with
+            | ResolvedUnionCase.Local info -> ctorType ctx info
+            | ResolvedUnionCase.External _ ->
                 match tryExternalCtorType ctx node.Key with
                 | ValueSome t -> t
                 | ValueNone -> inferIdentDefault ctx e node
@@ -151,7 +150,11 @@ module internal UnificationInferIdentExpr =
 
                         match info with
                         | ValueSome i -> ctorType ctx i
-                        | ValueNone when count >= 2 -> errorTy ctx node.Tok (Kind.AmbiguousConstructor(n, count))
+                        | ValueNone when count >= 2 ->
+                            if ResolvedStamps.isAmbiguousCase ctx.Resolution.Resolved node.Key then
+                                TyVar(freshTyVar ctx)
+                            else
+                                errorTy ctx node.Tok (Kind.AmbiguousConstructor(n, count))
                         | ValueNone ->
                             // External union case ctor (`Some` / `None` from a referenced
                             // package): typed as `field… -> TyUnion(union, …)`, so the

@@ -152,7 +152,7 @@ module UnificationInfer =
             match ctx.Provider.TryLookupType declKey with
             | ValueSome(ExternalTypeShape.Class shape) ->
                 ExternalSymbols.instantiateInterfaces shape (args.AsSpan().ToArray())
-            | ValueSome(ExternalTypeShape.Union(_, _, ifaces, _)) ->
+            | ValueSome(ExternalTypeShape.Union(_, _, ifaces, _, _)) ->
                 ExternalSymbols.instantiateInterfacesOf ifaces (args.AsSpan().ToArray())
             // A capability interface that inherits another (`enumerator : disposable`) makes
             // `use e` on an abstract `enumerator<'T>` disposable, matching the BCL's

@@ -237,7 +237,7 @@ module FrozenSignature =
                     let caseShapes = EqArray.ofSeq [ for c in cases -> caseShapeOf c ]
 
                     register
-                        (ExternalTypeShape.Union(arity, caseShapes, EqArray.empty, origin))
+                        (ExternalTypeShape.Union(arity, caseShapes, EqArray.empty, origin, td.IsRequireQualifiedAccess))
                         (ValueSome(membersOf typeKey arity members))
 
                     registerCases caseShapes

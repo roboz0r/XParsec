@@ -88,7 +88,7 @@ module EmitJsContext =
     /// module at each `UnionCons` site.
     let private externalUnion (provider: IExternalSymbolProvider) (key: TypeKey) : JsUnionInfo voption =
         match provider.TryLookupType key with
-        | ValueSome(ExternalTypeShape.Union(_, cases, _, origin)) ->
+        | ValueSome(ExternalTypeShape.Union(_, cases, _, origin, _)) ->
             let struct (baseName, home) = importedAs "union" key origin
 
             let info, _ =

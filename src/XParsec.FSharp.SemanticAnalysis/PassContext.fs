@@ -51,6 +51,19 @@ module ResolvedStamps =
         | ValueSome(ResolvedItem.UnionCase(ResolvedUnionCase.External uc, _)) -> ValueSome uc
         | _ -> ValueNone
 
+    /// The union case of this file stamped at `key`.
+    let tryLocalUnionCase (stamps: SideTable<ResolvedItem>) (key: NodeKey) : UnionCaseInfo voption =
+        match stamps.TryGetValue key with
+        | ValueSome(ResolvedItem.UnionCase(ResolvedUnionCase.Local info, _)) -> ValueSome info
+        | _ -> ValueNone
+
+    /// NameResolution reported the bare case name at `key` as ambiguous, so a later pass
+    /// types the use as unresolved without a second report.
+    let isAmbiguousCase (stamps: SideTable<ResolvedItem>) (key: NodeKey) : bool =
+        match stamps.TryGetValue key with
+        | ValueSome(ResolvedItem.AmbiguousCase _) -> true
+        | _ -> false
+
     /// The referenced-assembly enum an `E.C1` access stamped at `key` is a case of: its
     /// nominal key at arity 0, equal to the key an `(x: E)` annotation mints.
     let tryExternalEnumCase (stamps: SideTable<ResolvedItem>) (key: NodeKey) : TypeKey voption =

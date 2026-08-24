@@ -14,12 +14,14 @@ type ExternalTypeShape =
     /// for, carried so a consuming unit reads the same layout the declaring one did.
     | Record of arity: int * fields: EqArray<ExternalFieldShape> * origin: SymbolOrigin * isValueType: bool
     /// Case order matches source. `interfaces` are the union's directly-declared
-    /// `interface <ty>` impls.
+    /// `interface <ty>` impls. `requiresQualifiedAccess` is the union's
+    /// `[<RequireQualifiedAccess>]`, so a case reached through the type carries the flag.
     | Union of
         arity: int *
         cases: EqArray<ExternalCaseShape> *
         interfaces: EqArray<FrozenNominal> *
-        origin: SymbolOrigin
+        origin: SymbolOrigin *
+        requiresQualifiedAccess: bool
     /// An external enum: named constant cases in source order. No `arity`, because enums are
     /// never generic; the numeric / string / mixed variant is DERIVED from `cases`, never baked.
     | Enum of cases: EqArray<ExternalEnumCaseShape> * origin: SymbolOrigin

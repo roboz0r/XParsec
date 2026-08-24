@@ -146,7 +146,10 @@ module SignatureResolution =
             let interfaces =
                 freezeInterfaces ctx info.TypeParams (interfaceSpecsOf extensionElems)
 
-            publishShape sctx key (ExternalTypeShape.Union(arity, cases, interfaces, SymbolOrigin.Empty))
+            publishShape
+                sctx
+                key
+                (ExternalTypeShape.Union(arity, cases, interfaces, SymbolOrigin.Empty, info.IsRequireQualifiedAccess))
 
             // A list is written only as `[]` / `::`, so indexing the cons-list's case names
             // would only shadow a user union declaring a case of the same name.

@@ -485,7 +485,9 @@ type internal ClrEnv
     /// construction (`Some` / `None`).
     let externalUnionShape (key: TypeKey) (arity: int) : (EqArray<ExternalCaseShape> * SymbolOrigin) voption =
         match lookupTypeByKey key with
-        | ValueSome(ExternalTypeShape.Union(a, cases, _, origin)) when a = arity && origin.Home <> SymbolHome.Unstamped ->
+        | ValueSome(ExternalTypeShape.Union(a, cases, _, origin, _)) when
+            a = arity && origin.Home <> SymbolHome.Unstamped
+            ->
             ValueSome(cases, origin)
         | _ -> ValueNone
 

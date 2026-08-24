@@ -12,11 +12,16 @@ module NameResolutionLongIdent =
 
     // --- The external probes: a written spelling against the referenced contracts ---------
 
+    /// The widest generic arity probed for a spelling written without type args. A wider
+    /// generic type resolves only with written type args, whose count fixes the arity.
+    [<Literal>]
+    let MaxProbedQualifierArity = 4
+
     /// A qualifier written without type args: its arity is not recoverable at the use site,
-    /// so probe bare, then `` `1 ``..`` `4 ``.
+    /// so probe bare, then `` `1 ``..`` `MaxProbedQualifierArity ``.
     let qualifierProbes (candidate: string) : struct (string * int) list =
         [
-            for a in 0..4 ->
+            for a in 0..MaxProbedQualifierArity ->
                 struct ((if a = 0 then
                              candidate
                          else
@@ -97,6 +102,70 @@ module NameResolutionLongIdent =
         match r.Item with
         | ResolvedItem.Unresolved _ -> true
         | _ -> false
+
+    let private unresolvedInEnv (segment: string) (rest: int) : Resolution =
+        resolved
+            (ResolvedItem.Unresolved
+                {
+                    Segment = segment
+                    Within = ResolutionScope.Environment
+                })
+            rest
+
+    let private unresolvedInContainer (c: ModuleContainer) (segment: string) (rest: int) : Resolution =
+        resolved
+            (ResolvedItem.Unresolved
+                {
+                    Segment = segment
+                    Within = ResolutionScope.Container c
+                })
+            rest
+
+    let private unresolvedInType (t: ResolvedTypeRef) (segment: string) (rest: int) : Resolution =
+        resolved
+            (ResolvedItem.Unresolved
+                {
+                    Segment = segment
+                    Within = ResolutionScope.Type t
+                })
+            rest
+
+    /// The first item any step yields, else the first miss any step yields. A step's
+    /// `Unresolved` result is a miss: remembered, while every later step still answers.
+    let private tryFirstOf (steps: (unit -> Resolution voption) list) : Resolution voption =
+        let mutable hit = ValueNone
+        let mutable miss = ValueNone
+
+        for step in steps do
+            if hit.IsNone then
+                match step () with
+                | ValueSome r when isUnresolved r ->
+                    if miss.IsNone then
+                        miss <- ValueSome r
+                | ValueSome r -> hit <- ValueSome r
+                | ValueNone -> ()
+
+        match hit with
+        | ValueSome r -> ValueSome r
+        | ValueNone -> miss
+
+    /// `tryFirstOf`, with `fallback` when no step yields anything.
+    let private firstOf (steps: (unit -> Resolution voption) list) (fallback: Resolution) : Resolution =
+        match tryFirstOf steps with
+        | ValueSome r -> r
+        | ValueNone -> fallback
+
+    /// The item a type name at the END of a written name denotes. In expression position a
+    /// constructible type stands for its constructor: a class of this file, or a referenced
+    /// class at arity 0. A generic referenced class is constructible only through the
+    /// enclosing `TypeApp`, which resolves it at its exact arity.
+    let private finalTypeItem (position: Position) (t: ResolvedTypeRef) : ResolvedItem =
+        match position, t with
+        | Position.Pattern, _ -> ResolvedItem.Type t
+        | Position.Expression, ResolvedTypeRef.Local claim when claim.Kind = TypeDeclKind.Class -> ResolvedItem.Ctor t
+        | Position.Expression, ResolvedTypeRef.External(_, ExternalTypeShape.Class info) when info.TyparArity = 0 ->
+            ResolvedItem.Ctor t
+        | Position.Expression, _ -> ResolvedItem.Type t
 
     let private enclosingOf (useSite: UseSite) : ModuleContainer =
         match useSite.Container with
@@ -191,37 +260,6 @@ module NameResolutionLongIdent =
         | ResolvedUnionCase.Local info -> (TypeRegistry.unionOfCase ctx.Types info).IsRequireQualifiedAccess
         | ResolvedUnionCase.External uc -> uc.IsRequireQualifiedAccess
 
-    /// The case `name` of the external union `key`, with the `[<RequireQualifiedAccess>]` flag
-    /// the declaring surface published for it.
-    let private externalCaseOfUnion
-        (ctx: PassContext)
-        (key: TypeKey)
-        (cases: EqArray<ExternalCaseShape>)
-        (name: string)
-        : ExternalUnionCase voption =
-        match EqArray.tryFind (fun (c: ExternalCaseShape) -> c.Name = name) cases with
-        | ValueNone -> ValueNone
-        | ValueSome case ->
-            let ofKey (uc: ExternalUnionCase) = uc.UnionKey = key
-
-            let published =
-                match SymbolKeyOps.tryModuleContainerOf key.Container with
-                | ValueSome c -> ctx.Resolver.Scope.TryUnionCase(c, name) |> ValueOption.filter ofKey
-                | ValueNone -> ValueNone
-
-            match published with
-            | ValueSome uc -> ValueSome uc
-            | ValueNone ->
-                match ctx.Resolver.TryLookupUnionCase name |> ValueOption.filter ofKey with
-                | ValueSome uc -> ValueSome uc
-                | ValueNone ->
-                    ValueSome
-                        {
-                            UnionKey = key
-                            Case = case
-                            IsRequireQualifiedAccess = false
-                        }
-
     /// A static member `name`, or the setter of a write-only property `name`, is declared.
     let private declaresStatic (members: TypeMemberInfo[]) (name: string) : bool =
         let setter = AccessorNames.setterName name
@@ -274,9 +312,17 @@ module NameResolutionLongIdent =
             | TypeDeclKind.IntrinsicRepr -> staticMember ()
         | ResolvedTypeRef.External(key, shape) ->
             match shape with
-            | ExternalTypeShape.Union(cases = cases) ->
-                match externalCaseOfUnion ctx key cases name with
-                | ValueSome uc -> ValueSome(ResolvedItem.UnionCase(ResolvedUnionCase.External uc, false))
+            | ExternalTypeShape.Union(cases = cases; requiresQualifiedAccess = rqa) ->
+                match EqArray.tryFind (fun (c: ExternalCaseShape) -> c.Name = name) cases with
+                | ValueSome case ->
+                    let uc: ExternalUnionCase =
+                        {
+                            UnionKey = key
+                            Case = case
+                            IsRequireQualifiedAccess = rqa
+                        }
+
+                    ValueSome(ResolvedItem.UnionCase(ResolvedUnionCase.External uc, false))
                 | ValueNone -> staticIf (declaresExternalMember ctx key name)
             | ExternalTypeShape.Enum(cases = cases) ->
                 if cases |> EqArray.exists (fun c -> c.Name = name) then
@@ -310,10 +356,8 @@ module NameResolutionLongIdent =
             valueIn ctx useSite c name
             |> ValueOption.map (fun v -> resolved (ResolvedItem.Value v) next)
 
-        let case = caseIn ctx useSite c name
-
-        let caseIf (admit: bool -> bool) () =
-            match case with
+        let caseWhere (admit: bool -> bool) () =
+            match caseIn ctx useSite c name with
             | ValueSome uc ->
                 let requiresQualification = isRequireQualifiedAccess ctx uc
 
@@ -323,16 +367,22 @@ module NameResolutionLongIdent =
                     ValueNone
             | ValueNone -> ValueNone
 
-        let types = typesIn ctx useSite c name
+        // The case of a union without `[<RequireQualifiedAccess>]`.
+        let plainCase = caseWhere not
+        // The RQA case, expression position's last resort: it resolves, then reports FS0035.
+        let rqaCase = caseWhere id
+        // Pattern position admits both; the flag rides the item.
+        let anyCase = caseWhere (fun _ -> true)
 
-        let inTypes () =
-            match types, atEnd with
-            | [], _ -> ValueNone
-            | t :: _, true -> ValueSome(resolved (ResolvedItem.Type t) next)
-            | _, false ->
-                types
-                |> tryPickV (fun t -> inType ctx position t names.[next])
-                |> ValueOption.map (fun item -> resolved item (next + 1))
+        let types () =
+            match typesIn ctx useSite c name with
+            | [] -> ValueNone
+            | t :: _ when atEnd -> ValueSome(resolved (finalTypeItem position t) next)
+            | (t :: _) as claims ->
+                match claims |> tryPickV (fun t -> inType ctx position t names.[next]) with
+                | ValueSome item -> ValueSome(resolved item (next + 1))
+                // A type answered for the name but not the member: that is the miss.
+                | ValueNone -> ValueSome(unresolvedInType t names.[next] (next + 1))
 
         let sub () =
             match subContainer ctx c name with
@@ -342,40 +392,10 @@ module NameResolutionLongIdent =
 
         let steps =
             match position with
-            | Position.Expression -> [ value; caseIf not; inTypes; sub; caseIf id ]
-            | Position.Pattern -> [ caseIf (fun _ -> true); value; inTypes; sub ]
+            | Position.Expression -> [ value; plainCase; types; sub; rqaCase ]
+            | Position.Pattern -> [ anyCase; value; types; sub ]
 
-        let mutable hit = ValueNone
-        let mutable subMiss = ValueNone
-
-        for step in steps do
-            if hit.IsNone then
-                match step () with
-                | ValueSome r when isUnresolved r ->
-                    if subMiss.IsNone then
-                        subMiss <- ValueSome r
-                | ValueSome r -> hit <- ValueSome r
-                | ValueNone -> ()
-
-        match hit, subMiss, types with
-        | ValueSome r, _, _ -> r
-        | ValueNone, ValueSome r, _ -> r
-        | ValueNone, ValueNone, t :: _ when not atEnd ->
-            resolved
-                (ResolvedItem.Unresolved
-                    {
-                        Segment = names.[next]
-                        Within = ResolutionScope.Type t
-                    })
-                (next + 1)
-        | ValueNone, ValueNone, _ ->
-            resolved
-                (ResolvedItem.Unresolved
-                    {
-                        Segment = name
-                        Within = ResolutionScope.Container c
-                    })
-                next
+        firstOf steps (unresolvedInContainer c name next)
 
     // --- The environment: what a bare first segment denotes -----------------------------
 
@@ -409,7 +429,7 @@ module NameResolutionLongIdent =
         | [||] ->
             tryExternalCase ctx ValueNone name
             |> ValueOption.map (fun uc -> ResolvedItem.UnionCase(ResolvedUnionCase.External uc, false))
-        | many -> ValueSome(ResolvedItem.AmbiguousCase(name, many.Length))
+        | many -> ValueSome(ResolvedItem.AmbiguousCase(name, many))
 
     /// A bare type name at any arity: this file's claim in scope, else the referenced contracts.
     let private typeInEnv (ctx: PassContext) (useSite: UseSite) (name: string) : ResolvedTypeRef voption =
@@ -454,16 +474,7 @@ module NameResolutionLongIdent =
                     tryClassifyExternalType ctx qualifierProbes names.[0]
                     |> ValueOption.map (fun hit -> ResolvedTypeRef.External(hit.UseSiteKey, hit.Shape))
 
-            found
-            |> ValueOption.map (fun t ->
-                resolved
-                    (ResolvedItem.Unresolved
-                        {
-                            Segment = second
-                            Within = ResolutionScope.Type t
-                        })
-                    2
-            )
+            found |> ValueOption.map (fun t -> unresolvedInType t second 2)
 
     /// The whole spelling as a value of the referenced contracts: the module path of a
     /// metadata source, which exposes no module structure, and the source-spelled alias of
@@ -485,7 +496,7 @@ module NameResolutionLongIdent =
             | Position.Expression ->
                 tryClassifyExternalType ctx qualifierProbes whole
                 |> ValueOption.map (fun hit ->
-                    resolved (ResolvedItem.Type(ResolvedTypeRef.External(hit.UseSiteKey, hit.Shape))) n
+                    resolved (finalTypeItem position (ResolvedTypeRef.External(hit.UseSiteKey, hit.Shape))) n
                 )
             | Position.Pattern -> ValueNone
 
@@ -506,22 +517,11 @@ module NameResolutionLongIdent =
         let prefixMiss () =
             tryClassifyExternalType ctx qualifierProbes prefix
             |> ValueOption.map (fun hit ->
-                resolved
-                    (ResolvedItem.Unresolved
-                        {
-                            Segment = last
-                            Within = ResolutionScope.Type(ResolvedTypeRef.External(hit.UseSiteKey, hit.Shape))
-                        })
-                    n
+                unresolvedInType (ResolvedTypeRef.External(hit.UseSiteKey, hit.Shape)) last n
             )
 
-        let mutable result = ValueNone
-
-        for step in [ asType; prefixMember; indexedCase; prefixMiss ] do
-            if result.IsNone then
-                result <- step ()
-
-        result
+        [ asType; prefixMember; indexedCase; prefixMiss ]
+        |> tryPickV (fun step -> step ())
 
     /// The module path from `names.[0]`, each candidate scope tried in turn; the first item
     /// wins, else the first miss.
@@ -531,50 +531,11 @@ module NameResolutionLongIdent =
         (position: Position)
         (names: string[])
         : Resolution voption =
-        let mutable hit = ValueNone
-        let mutable miss = ValueNone
-
-        for c in firstSegmentContainers ctx useSite names.[0] do
-            if hit.IsNone then
-                let r = inContainer ctx useSite position c names 1
-
-                if isUnresolved r then
-                    if miss.IsNone then
-                        miss <- ValueSome r
-                else
-                    hit <- ValueSome r
-
-        match hit with
-        | ValueSome r -> ValueSome r
-        | ValueNone -> miss
-
-    /// The first item any step yields, else the first miss any step yields, else `fallback`.
-    let private firstOf (steps: (unit -> Resolution voption) list) (fallback: Resolution) : Resolution =
-        let mutable hit = ValueNone
-        let mutable miss = ValueNone
-
-        for step in steps do
-            if hit.IsNone then
-                match step () with
-                | ValueSome r when isUnresolved r ->
-                    if miss.IsNone then
-                        miss <- ValueSome r
-                | ValueSome r -> hit <- ValueSome r
-                | ValueNone -> ()
-
-        match hit, miss with
-        | ValueSome r, _ -> r
-        | ValueNone, ValueSome r -> r
-        | ValueNone, ValueNone -> fallback
-
-    let private unresolvedInEnv (segment: string) (rest: int) : Resolution =
-        resolved
-            (ResolvedItem.Unresolved
-                {
-                    Segment = segment
-                    Within = ResolutionScope.Environment
-                })
-            rest
+        tryFirstOf
+            [
+                for c in firstSegmentContainers ctx useSite names.[0] ->
+                    fun () -> ValueSome(inContainer ctx useSite position c names 1)
+            ]
 
     /// A name in expression position whose first segment is not a lexically bound variable.
     /// Single segment: value, case, type. Several: a value with the rest as its member chain,
@@ -583,21 +544,18 @@ module NameResolutionLongIdent =
     let resolveExpr (ctx: PassContext) (useSite: UseSite) (names: string[]) : Resolution =
         let first = names.[0]
 
-        match names.Length with
-        | 1 ->
-            match valueInEnv ctx useSite first with
-            | ValueSome v -> resolved (ResolvedItem.Value v) 1
-            | ValueNone ->
+        match valueInEnv ctx useSite first with
+        | ValueSome v -> resolved (ResolvedItem.Value v) 1
+        | ValueNone ->
+            match names.Length with
+            | 1 ->
                 match caseInEnv ctx useSite first with
                 | ValueSome item -> resolved item 1
                 | ValueNone ->
                     match typeInEnv ctx useSite first with
-                    | ValueSome t -> resolved (ResolvedItem.Type t) 1
+                    | ValueSome t -> resolved (finalTypeItem Position.Expression t) 1
                     | ValueNone -> unresolvedInEnv first 1
-        | n ->
-            match valueInEnv ctx useSite first with
-            | ValueSome v -> resolved (ResolvedItem.Value v) 1
-            | ValueNone ->
+            | n ->
                 firstOf
                     [
                         (fun () -> modulePath ctx useSite Position.Expression names)

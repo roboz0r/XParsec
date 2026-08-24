@@ -17,9 +17,9 @@ let private provider: IExternalSymbolProvider =
                 fun n ->
                     match n with
                     | "Tests.Colour" ->
-                        ValueSome(ExternalTypeShape.Union(0, EqArray.empty, EqArray.empty, SymbolOrigin.Empty))
+                        ValueSome(ExternalTypeShape.Union(0, EqArray.empty, EqArray.empty, SymbolOrigin.Empty, false))
                     | "Other.Palette" ->
-                        ValueSome(ExternalTypeShape.Union(0, EqArray.empty, EqArray.empty, SymbolOrigin.Empty))
+                        ValueSome(ExternalTypeShape.Union(0, EqArray.empty, EqArray.empty, SymbolOrigin.Empty, false))
                     | "Tests.Widget" -> ValueSome(ExternalTypeShape.Record(0, EqArray.empty, SymbolOrigin.Empty, false))
                     | "Tests.Gadget" ->
                         ValueSome(ExternalTypeShape.Class(ExternalClassShape.basic (0, false, SymbolOrigin.Empty)))

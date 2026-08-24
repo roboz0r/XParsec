@@ -36,13 +36,11 @@ module NameResolutionScope =
                     IsMutable = false
                 }
             )
-        // An external CLASS name in expression position is a ctor-sugar application
-        // (`InvalidOperationException "x"`, `System.Exception "x"`). A generic one was
-        // stamped at its exact arity by the enclosing `TypeApp` visit.
-        | ResolvedItem.Type(ResolvedTypeRef.External(typeKey, ExternalTypeShape.Class info)) when
-            info.TyparArity = 0 && not (ctx.Resolution.ResolvedType.ContainsKey key)
-            ->
-            ctx.Resolution.ResolvedType.Set(key, typeKey)
+        // A referenced class in expression position is a ctor-sugar application
+        // (`InvalidOperationException "x"`, `System.Exception "x"`); a generic one is
+        // stamped at its exact arity by the enclosing `TypeApp` visit instead.
+        | ResolvedItem.Ctor(ResolvedTypeRef.External(typeKey, _)) -> ctx.Resolution.ResolvedType.Set(key, typeKey)
+        | ResolvedItem.Ctor(ResolvedTypeRef.Local _)
         | ResolvedItem.Value _
         | ResolvedItem.UnionCase _
         | ResolvedItem.EnumCase _
@@ -75,8 +73,8 @@ module NameResolutionScope =
             | ExternalTypeShape.Abbrev _
             | ExternalTypeShape.Unmodelled _ -> false
 
-    /// The diagnostic a resolution in expression position owes. A type name stands for its
-    /// constructor, so only a class, or a generic the enclosing `TypeApp` applied, is a value.
+    /// The diagnostic a resolution in expression position owes. A `Ctor` is a value; any
+    /// other type name is not, except a generic the enclosing `TypeApp` applied.
     let private reportExpr (ctx: PassContext) (e: Expr<SyntaxToken>) (names: string[]) (r: Resolution) : unit =
         let tok = CstKeys.firstTokenOfExpr e
         let key = CstKeys.ofExpr e
@@ -101,9 +99,10 @@ module NameResolutionScope =
                 unresolved ()
         | ResolvedItem.UnionCase(case, true) ->
             ctx.Report(tok, Kind.RequireQualifiedAccessCase(case.UnionName, case.CaseName))
+        | ResolvedItem.AmbiguousCase(name, claims) -> ctx.Report(tok, Kind.AmbiguousConstructor(name, claims.Length))
         | ResolvedItem.ModuleOrNamespace _ -> unresolved ()
-        | ResolvedItem.Type _ when ctx.Resolution.ResolvedType.ContainsKey key -> ()
-        | ResolvedItem.Type(ResolvedTypeRef.Local claim) when claim.Kind <> TypeDeclKind.Class -> unresolved ()
+        | ResolvedItem.Ctor _ -> ()
+        | ResolvedItem.Type(ResolvedTypeRef.Local _) -> unresolved ()
         | ResolvedItem.Type(ResolvedTypeRef.External(_, shape)) when shape.TyparArity <> 0 -> unresolved ()
         // A member chain on a resolved item is resolved by no later pass yet, except the field
         // chain on a local module value, which is anchored like a lexical binding.
@@ -256,6 +255,8 @@ module NameResolutionScope =
             match item with
             | ResolvedItem.UnionCase(case, true) ->
                 ctx.Report(CstKeys.firstTokenOfPat pat, Kind.RequireQualifiedAccessCase(case.UnionName, case.CaseName))
+            | ResolvedItem.AmbiguousCase(name, claims) ->
+                ctx.Report(CstKeys.firstTokenOfPat pat, Kind.AmbiguousConstructor(name, claims.Length))
             | _ -> ()
 
     /// Stamp every union-case and enum-case discriminator in `p`, including the alternatives

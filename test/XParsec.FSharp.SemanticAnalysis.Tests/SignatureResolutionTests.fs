@@ -148,7 +148,7 @@ let tests =
                     depProvider
                         [
                             SymbolKeyOps.typeKeyOfArity "Dep" "Widget" 1,
-                            ExternalTypeShape.Union(1, EqArray.empty, EqArray.empty, SymbolOrigin.Empty)
+                            ExternalTypeShape.Union(1, EqArray.empty, EqArray.empty, SymbolOrigin.Empty, false)
                         ]
 
                 let r =
@@ -464,7 +464,7 @@ let tests =
                         "namespace App\n\nmodule M =\n    type Thing<'T> =\n        | ([]): Thing<'T>\n        | (::): Head: 'T * Tail: Thing<'T> -> Thing<'T>\n"
 
                 match shapeOf r "Thing`1" with
-                | ExternalTypeShape.Union(arity, cases, _, _) ->
+                | ExternalTypeShape.Union(arity, cases, _, _, _) ->
                     Expect.equal arity 1 "Union carries the declared arity"
                     Expect.equal cases.Length 2 "two cases published"
                     Expect.equal cases.[0].Name "Empty" "`([])` names the nullary case by its canonical ctor form"

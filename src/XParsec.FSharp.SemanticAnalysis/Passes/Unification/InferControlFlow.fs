@@ -580,7 +580,7 @@ module internal UnificationInferControlFlow =
         // capability as in the class arm, giving the boxing `Interface` enumerator.
         | TyUnion(nameKey, args) ->
             match ctx.Provider.TryLookupType nameKey with
-            | ValueSome(ExternalTypeShape.Union(_, _, interfaces, _)) ->
+            | ValueSome(ExternalTypeShape.Union(_, _, interfaces, _, _)) ->
                 let argArr = args.AsSpan().ToArray()
 
                 match pickEnumerableElem ctx (ExternalSymbols.instantiateInterfacesOf interfaces argArr) with

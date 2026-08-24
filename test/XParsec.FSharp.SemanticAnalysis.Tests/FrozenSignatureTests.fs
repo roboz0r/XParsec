@@ -131,7 +131,7 @@ let tests =
                 | other -> failtestf "Point did not project as a Record: %A" other
 
                 match store.TryLookupType(typeKeyOf frozen "Opt") with
-                | ValueSome(ExternalTypeShape.Union(1, cases, _, origin)) ->
+                | ValueSome(ExternalTypeShape.Union(1, cases, _, origin, _)) ->
                     Expect.equal
                         (cases |> EqArray.map (fun c -> c.Name))
                         (EqArray.ofSeq [ "Nope"; "Just" ])

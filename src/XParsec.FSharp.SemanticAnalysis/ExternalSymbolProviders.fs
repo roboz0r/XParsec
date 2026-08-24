@@ -343,8 +343,8 @@ module ExternalSymbolProviders =
                         }
                 | ExternalTypeShape.Record(arity, fields, o, isValueType) ->
                     ExternalTypeShape.Record(arity, fields, home o h, isValueType)
-                | ExternalTypeShape.Union(arity, cases, ifaces, o) ->
-                    ExternalTypeShape.Union(arity, cases, ifaces, home o h)
+                | ExternalTypeShape.Union(arity, cases, ifaces, o, rqa) ->
+                    ExternalTypeShape.Union(arity, cases, ifaces, home o h, rqa)
                 | ExternalTypeShape.Enum(cases, o) -> ExternalTypeShape.Enum(cases, home o h)
                 | ExternalTypeShape.IntrinsicInterface s ->
                     ExternalTypeShape.IntrinsicInterface { s with Origin = home s.Origin h }
@@ -494,8 +494,8 @@ module ExternalSymbolProviders =
                     origin,
                     isValueType
                 )
-            | ExternalTypeShape.Union(arity, cases, ifaces, origin) ->
-                ExternalTypeShape.Union(arity, cases |> EqArray.map mapCase, mapInterfaces ifaces, origin)
+            | ExternalTypeShape.Union(arity, cases, ifaces, origin, rqa) ->
+                ExternalTypeShape.Union(arity, cases |> EqArray.map mapCase, mapInterfaces ifaces, origin, rqa)
             // A primitive's class surface maps identically to `Class`, interfaces included.
             | ExternalTypeShape.Intrinsic({ Class = ValueSome surface } as s) ->
                 ExternalTypeShape.Intrinsic
