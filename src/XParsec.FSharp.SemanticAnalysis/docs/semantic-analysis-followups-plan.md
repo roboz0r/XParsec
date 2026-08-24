@@ -19,13 +19,6 @@ subagent report.
 Plain, verbatim and triple-quoted strings decode through `Lexing.decodeStringEscape`;
 the interpolated path bypasses it. Found while landing the shared escape decoder.
 
-### Cross-file resolution — a module-held union's case does not resolve from another file
-
-With file 1 declaring `module M` / `type Holder = Wrap of obj`, file 2 gets "Unresolved
-identifier: Wrap" both bare (after `open`) and as `Holder.Wrap`; the namespace-level
-declaration resolves. Found while testing the cross-file obj-box fix; the CrossFileTests
-case pins the namespace-level shape and notes the gap.
-
 ### `TastPools.toPools` — a `match` on an unresolved case crashes instead of diagnosing
 
 In the module-held shape above, adding `match w with | Wrap v -> …` crashes analysis

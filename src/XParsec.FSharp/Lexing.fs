@@ -263,7 +263,7 @@ type FormatPlaceholder =
         /// The raw type letter (`'x'` vs `'X'`, `'e'` vs `'E'`, …). `Type`
         /// collapses the case-bearing specifiers, so the literal letter is kept
         /// here for consumers that must render the format in the right case
-        /// (`PrintfHoleForm.tryClassify`).
+        /// (`PrintfHoleForm.classify`).
         TypeChar: char
     }
 
@@ -1280,14 +1280,85 @@ module Lexing =
 
     // https://fsharp.github.io/fslang-spec/lexical-analysis/#35-strings-and-characters
 
+    /// A char literal's body as `pCharChar` classifies it. `InvalidTrigraph` is a well-formed
+    /// `\DDD` above 255, which lexes as its own token.
     [<Struct>]
     [<RequireQualifiedAccess>]
     type CharChar =
-        | Simple of c: char
-        | Escaped of c: char
-        | UnicodeShort of c: char
-        | Trigraph of c: char
-        | InvalidTrigraph of i: int
+        | Valid
+        | InvalidTrigraph
+
+    let private allHexDigits (span: ReadOnlySpan<char>) =
+        let mutable i = 0
+
+        while i < span.Length && Char.IsAsciiHexDigit span.[i] do
+            i <- i + 1
+
+        i = span.Length
+
+    /// The value one escape body (`raw` starts with `\`) denotes. Shared by the char and
+    /// string contexts, which differ only in how they render the non-`Char` cases.
+    [<RequireQualifiedAccess>]
+    type EscapeCode =
+        /// A simple escape, `\xHH`, a `\DDD` up to 255, or a `\u`/`\U` in the BMP outside
+        /// the surrogate range.
+        | Char of c: char
+        /// A `\u`/`\U` in U+D800–U+DFFF.
+        | LoneSurrogate of c: char
+        /// A `\UXXXXXXXX` above the BMP, up to U+10FFFF.
+        | Astral of codePoint: int
+        /// `\DDD` above 255.
+        | TrigraphOutOfRange
+        /// `\UXXXXXXXX` above 0x10FFFF.
+        | NotUnicodeScalar
+        /// An unknown escape (`\q`) or a truncated long form (`\u12`).
+        | Malformed
+
+    /// Decode one escape body. Total over any string.
+    let decodeEscapeCode (raw: string) : EscapeCode =
+        let bmp (code: int) =
+            if code >= 0xD800 && code <= 0xDFFF then
+                EscapeCode.LoneSurrogate(char code)
+            else
+                EscapeCode.Char(char code)
+
+        if raw.Length < 2 || raw.[0] <> '\\' then
+            EscapeCode.Malformed
+        else
+            match raw.[1] with
+            | 'u' when raw.Length = 6 ->
+                match UInt16.TryParse(raw.AsSpan 2, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture) with
+                | true, code -> bmp (int code)
+                | false, _ -> EscapeCode.Malformed
+            | 'x' when raw.Length = 4 ->
+                match Byte.TryParse(raw.AsSpan 2, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture) with
+                | true, code -> EscapeCode.Char(char code)
+                | false, _ -> EscapeCode.Malformed
+            | 'U' when raw.Length = 10 ->
+                match UInt32.TryParse(raw.AsSpan 2, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture) with
+                | true, code when code > 0x10FFFFu -> EscapeCode.NotUnicodeScalar
+                | true, code when code > 0xFFFFu -> EscapeCode.Astral(int code)
+                | true, code -> bmp (int code)
+                | false, _ -> EscapeCode.Malformed
+            | d when isDigit d && raw.Length = 4 ->
+                match Int32.TryParse(raw.AsSpan 1, NumberStyles.None, CultureInfo.InvariantCulture) with
+                | true, code when code <= 255 -> EscapeCode.Char(char code)
+                | true, _ -> EscapeCode.TrigraphOutOfRange
+                | false, _ -> EscapeCode.Malformed
+            | _ when raw.Length = 2 ->
+                match raw.[1] with
+                | '"' -> EscapeCode.Char '"'
+                | '\\' -> EscapeCode.Char '\\'
+                | '\'' -> EscapeCode.Char '\''
+                | 'n' -> EscapeCode.Char '\n'
+                | 't' -> EscapeCode.Char '\t'
+                | 'b' -> EscapeCode.Char '\b'
+                | 'r' -> EscapeCode.Char '\r'
+                | 'a' -> EscapeCode.Char '\a'
+                | 'f' -> EscapeCode.Char '\f'
+                | 'v' -> EscapeCode.Char '\v'
+                | _ -> EscapeCode.Malformed
+            | _ -> EscapeCode.Malformed
 
     /// One string-context escape token, decoded. `Text` is the only case a well-formed
     /// program produces; the other two denote no character and exist for the caller to
@@ -1303,85 +1374,39 @@ module Lexing =
         /// `\UXXXXXXXX` above 0x10FFFF: fsc's error FS1245.
         | NotUnicodeScalar
 
-    /// Decode one string-context escape token's text (`raw` starts with `\`). Total over
-    /// every token `pStringEscapeToken` emits, and matches fsc's string-literal decoding
+    /// Decode one string-context escape token's text. Matches fsc's string-literal decoding
     /// except for the two non-`Text` cases, which fsc wraps (FS1252) or refuses (FS1245).
     let decodeStringEscape (raw: string) : DecodedEscape =
-        let verbatim = DecodedEscape.Text raw
+        match decodeEscapeCode raw with
+        | EscapeCode.Char c -> DecodedEscape.Text(string c)
+        // fsc substitutes U+FFFD for a lone surrogate in a string literal.
+        | EscapeCode.LoneSurrogate _ -> DecodedEscape.Text "\uFFFD"
+        | EscapeCode.Astral codePoint -> DecodedEscape.Text(Char.ConvertFromUtf32 codePoint)
+        | EscapeCode.TrigraphOutOfRange -> DecodedEscape.TrigraphOutOfRange
+        | EscapeCode.NotUnicodeScalar -> DecodedEscape.NotUnicodeScalar
+        | EscapeCode.Malformed -> DecodedEscape.Text raw
 
-        if raw.Length < 2 || raw.[0] <> '\\' then
-            verbatim
-        else
-            match raw.[1] with
-            | '"' -> DecodedEscape.Text "\""
-            | '\\' -> DecodedEscape.Text "\\"
-            | '\'' -> DecodedEscape.Text "'"
-            | 'n' -> DecodedEscape.Text "\n"
-            | 't' -> DecodedEscape.Text "\t"
-            | 'b' -> DecodedEscape.Text "\b"
-            | 'r' -> DecodedEscape.Text "\r"
-            | 'a' -> DecodedEscape.Text "\a"
-            | 'f' -> DecodedEscape.Text "\f"
-            | 'v' -> DecodedEscape.Text "\v"
-            | 'u' when raw.Length = 6 ->
-                match UInt16.TryParse(raw.AsSpan 2, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture) with
-                | true, code when code >= 0xD800us && code <= 0xDFFFus ->
-                    // fsc substitutes U+FFFD for a lone surrogate in a string literal.
-                    DecodedEscape.Text "\uFFFD"
-                | true, code -> DecodedEscape.Text(string (char code))
-                | false, _ -> verbatim
-            | 'x' when raw.Length = 4 ->
-                match Byte.TryParse(raw.AsSpan 2, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture) with
-                | true, code -> DecodedEscape.Text(string (char code))
-                | false, _ -> verbatim
-            | 'U' when raw.Length = 10 ->
-                match UInt32.TryParse(raw.AsSpan 2, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture) with
-                | true, code when code > 0x10FFFFu -> DecodedEscape.NotUnicodeScalar
-                | true, code when code >= 0xD800u && code <= 0xDFFFu -> DecodedEscape.Text "\uFFFD"
-                | true, code -> DecodedEscape.Text(Char.ConvertFromUtf32(int code))
-                | false, _ -> verbatim
-            | d when isDigit d && raw.Length = 4 ->
-                match Int32.TryParse(raw.AsSpan 1, NumberStyles.None, CultureInfo.InvariantCulture) with
-                | true, code when code <= 255 -> DecodedEscape.Text(string (char code))
-                | true, _ -> DecodedEscape.TrigraphOutOfRange
-                | false, _ -> verbatim
-            | _ -> verbatim
-
-    /// Decode one CHAR-literal escape body (`raw` starts with `\`), `ValueNone` for a body
-    /// `pCharChar` refuses. A char literal keeps a lone surrogate (`'\uD800'` is U+D800),
-    /// unlike the string context's U+FFFD substitution.
+    /// Decode one CHAR-literal escape body, `ValueNone` for a body `pCharChar` refuses: an
+    /// unknown escape, any `\U` form, or a trigraph above 255. A char literal keeps a lone
+    /// surrogate (`'\uD800'` is U+D800), unlike the string context's U+FFFD substitution.
     let decodeCharEscape (raw: string) : char voption =
-        if raw.Length < 2 || raw.[0] <> '\\' then
+        if raw.Length >= 2 && raw.[1] = 'U' then
             ValueNone
         else
-            match raw.[1] with
-            | _ when raw.Length = 2 ->
-                match raw.[1] with
-                | '"' -> ValueSome '"'
-                | '\\' -> ValueSome '\\'
-                | '\'' -> ValueSome '\''
-                | 'n' -> ValueSome '\n'
-                | 't' -> ValueSome '\t'
-                | 'b' -> ValueSome '\b'
-                | 'r' -> ValueSome '\r'
-                | 'a' -> ValueSome '\a'
-                | 'f' -> ValueSome '\f'
-                | 'v' -> ValueSome '\v'
-                | _ -> ValueNone
-            | 'u' when raw.Length = 6 ->
-                match UInt16.TryParse(raw.AsSpan 2, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture) with
-                | true, code -> ValueSome(char code)
-                | false, _ -> ValueNone
-            | 'x' when raw.Length = 4 ->
-                match Byte.TryParse(raw.AsSpan 2, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture) with
-                | true, code -> ValueSome(char code)
-                | false, _ -> ValueNone
-            | d when isDigit d && raw.Length = 4 ->
-                match Int32.TryParse(raw.AsSpan 1, NumberStyles.None, CultureInfo.InvariantCulture) with
-                | true, code when code <= 255 -> ValueSome(char code)
-                | _ -> ValueNone
-            | _ -> ValueNone
+            match decodeEscapeCode raw with
+            | EscapeCode.Char c
+            | EscapeCode.LoneSurrogate c -> ValueSome c
+            | EscapeCode.Astral _
+            | EscapeCode.TrigraphOutOfRange
+            | EscapeCode.NotUnicodeScalar
+            | EscapeCode.Malformed -> ValueNone
 
+    let private pCharValid (n: int) (reader: Reader<char, LexBuilder, ReadableString>) =
+        reader.SkipN(n)
+        preturn CharChar.Valid reader
+
+    /// Consume and classify a char literal's body. The shape is checked here; the value is
+    /// `decodeCharEscape`'s.
     let pCharChar (reader: Reader<char, LexBuilder, ReadableString>) =
         let span = reader.PeekN(2)
 
@@ -1391,104 +1416,53 @@ module Lexing =
             match span[0] with
             | '"' -> fail (Unexpected '"') reader
             | ('\n' | '\t' | '\r' | '\b' | '\a' | '\f' | '\v' | '\\') as c -> fail (Unexpected c) reader
-            | c ->
-                reader.Skip()
-                preturn (CharChar.Simple c) reader
+            | _ -> pCharValid 1 reader
         | _ ->
             match span[0], span[1] with
-            // Escape chars ["\'ntbrafv]
-            | '\\', '"' ->
-                // Escaped quote
-                reader.SkipN(2)
-                preturn (CharChar.Escaped '"') reader
-            | '\\', '\\' ->
-                // Escaped backslash
-                reader.SkipN(2)
-                preturn (CharChar.Escaped '\\') reader
-            | '\\', '\'' ->
-                // Escaped single quote
-                reader.SkipN(2)
-                preturn (CharChar.Escaped '\'') reader
-            | '\\', 'n' ->
-                reader.SkipN(2)
-                preturn (CharChar.Escaped '\n') reader
-            | '\\', 't' ->
-                reader.SkipN(2)
-                preturn (CharChar.Escaped '\t') reader
-            | '\\', 'b' ->
-                reader.SkipN(2)
-                preturn (CharChar.Escaped '\b') reader
-            | '\\', 'r' ->
-                reader.SkipN(2)
-                preturn (CharChar.Escaped '\r') reader
-            | '\\', 'a' ->
-                reader.SkipN(2)
-                preturn (CharChar.Escaped '\a') reader
-            | '\\', 'f' ->
-                reader.SkipN(2)
-                preturn (CharChar.Escaped '\f') reader
-            | '\\', 'v' ->
-                reader.SkipN(2)
-                preturn (CharChar.Escaped '\v') reader
+            | '\\', ('"' | '\\' | '\'' | 'n' | 't' | 'b' | 'r' | 'a' | 'f' | 'v') -> pCharValid 2 reader
             | '\\', 'u' ->
-                // unicodegraph-short
                 let span = reader.PeekN(6)
 
-                if span.Length = 6 then
-                    let hex = span.Slice(2, 4)
-
-                    match UInt16.TryParse(hex, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture) with
-                    | true, code ->
-                        reader.SkipN(6)
-                        preturn (CharChar.UnicodeShort(char code)) reader
-                    | false, _ -> fail (Unexpected '\\') reader
+                if span.Length = 6 && allHexDigits (span.Slice 2) then
+                    pCharValid 6 reader
                 else
                     fail (Unexpected '\\') reader
             | '\\', 'x' ->
-                // hex escape \xHH
                 let span = reader.PeekN(4)
 
-                if span.Length = 4 then
-                    let hex = span.Slice(2, 2)
-
-                    match Byte.TryParse(hex, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture) with
-                    | true, code ->
-                        reader.SkipN(4)
-                        preturn (CharChar.Escaped(char code)) reader
-                    | false, _ -> fail (Unexpected '\\') reader
+                if span.Length = 4 && allHexDigits (span.Slice 2) then
+                    pCharValid 4 reader
                 else
                     fail (Unexpected '\\') reader
-            | '\\', c ->
-                if isDigit c then
-                    // trigraph
-                    let span = reader.PeekN(4)
+            | '\\', c when isDigit c ->
+                let span = reader.PeekN(4)
 
-                    if span.Length = 4 then
-                        let digits = span.Slice(1, 3)
+                if span.Length = 4 && isDigit span[2] && isDigit span[3] then
+                    let code =
+                        (int span[1] - int '0') * 100
+                        + (int span[2] - int '0') * 10
+                        + (int span[3] - int '0')
 
-                        match Int32.TryParse(digits, NumberStyles.None, CultureInfo.InvariantCulture) with
-                        | true, code when code <= 255 ->
-                            reader.SkipN(4)
-                            preturn (CharChar.Trigraph(char code)) reader
-                        | true, code ->
-                            reader.SkipN(4)
-                            preturn (CharChar.InvalidTrigraph code) reader
-                        | false, _ -> fail (Unexpected '\\') reader
-                    else
-                        fail (Unexpected '\\') reader
+                    reader.SkipN(4)
+
+                    preturn
+                        (if code <= 255 then
+                             CharChar.Valid
+                         else
+                             CharChar.InvalidTrigraph)
+                        reader
                 else
                     fail (Unexpected '\\') reader
-            | c, _ ->
-                reader.Skip()
-                preturn (CharChar.Simple c) reader
+            | '\\', _ -> fail (Unexpected '\\') reader
+            | _ -> pCharValid 1 reader
 
     let pCharToken =
         let pLiteral =
             between (pchar '\'') (pchar '\'') pCharChar
             |>> (fun x ->
                 match x with
-                | CharChar.InvalidTrigraph _ -> Token.InvalidCharTrigraphLiteral
-                | _ -> Token.CharLiteral
+                | CharChar.InvalidTrigraph -> Token.InvalidCharTrigraphLiteral
+                | CharChar.Valid -> Token.CharLiteral
             )
 
         parser {
@@ -1521,14 +1495,6 @@ module Lexing =
     // Fragment: plain text inside a triple-quoted string (stops at ", %)
     let pTripleStringFragmentToken =
         pToken pSkipVerbatimStringFragmentChars Token.StringFragment
-
-    let private allHexDigits (span: ReadOnlySpan<char>) =
-        let mutable ok = true
-
-        for i in 0 .. span.Length - 1 do
-            ok <- ok && Char.IsAsciiHexDigit span.[i]
-
-        ok
 
     // Escape sequence inside a regular string: \n, \t, \xHH, \uXXXX, \UXXXXXXXX, \DDD, etc.
     // A long form whose body is not all hex/decimal digits is lexed as the 2-char

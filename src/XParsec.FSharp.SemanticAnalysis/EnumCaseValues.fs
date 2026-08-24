@@ -21,15 +21,14 @@ type internal EnumCaseRejection =
     /// `| A = 1 + 1`, `| A = B`: not a literal at all.
     | NotConstant
 
-// `| C = v` → the case's compile-time literal. The `.fsi` front end and the Elaborate pass
-// both read this grammar; reading it twice would let the two drift.
+// `| C = v` → the case's compile-time literal. Read once, at type registration; every later
+// pass reads the registered `EnumTypeInfo.Cases`.
 
 module internal EnumCaseValues =
 
     /// `onInvalid` receives a string-escape verdict (`Kind.EscapeTrigraphOutOfRange` /
-    /// `Kind.EscapeNotUnicodeScalar`) at its token; a caller whose pass re-reads the same
-    /// declaration later passes an ignore to keep the report single.
-    let rec tryResolve
+    /// `Kind.EscapeNotUnicodeScalar`) at its token.
+    let rec private tryResolve
         (nameOf: SyntaxToken -> string)
         (onInvalid: SyntaxToken -> Kind -> unit)
         (v: Expr<SyntaxToken>)
@@ -71,3 +70,44 @@ module internal EnumCaseValues =
             | Ok(TEnumLiteral.Int _) -> Error EnumCaseRejection.NotConstant
             | Error e -> Error e
         | _ -> Error EnumCaseRejection.NotConstant
+
+    let private rejectionKind (e: EnumCaseRejection) : Kind =
+        match e with
+        | EnumCaseRejection.NotRepresentable ->
+            Kind.Message
+                "An enum case value is not representable at its authored width (a negative value has no unsigned representation)"
+        | EnumCaseRejection.CustomLiteral ->
+            Kind.Message
+                "An enum case value must be a primitive integer literal; a custom numeric literal ('52I') is a call to a NumericLiteral module, not a constant"
+        | EnumCaseRejection.NotAnEnumConstant spelling ->
+            Kind.Message(
+                sprintf
+                    "An enum case value must be an integer or string literal; '%s' is not a valid enum constant"
+                    spelling
+            )
+        | EnumCaseRejection.InterpolatedString ->
+            Kind.Message "An enum case value must be a literal string; an interpolated string is not a constant"
+        | EnumCaseRejection.NegativeUnsigned ->
+            Kind.Message "A negative enum case value has no unsigned representation; use a signed integer width"
+        | EnumCaseRejection.NotConstant -> Kind.EnumCaseNotConstant
+
+    /// `| C = v` as a `TEnumCase`. A rejected value is `ValueNone`, reported at the case
+    /// identifier through `report`; a string-escape verdict is reported at its token.
+    let resolveCase
+        (nameOf: SyntaxToken -> string)
+        (report: SyntaxToken -> Kind -> unit)
+        (ident: SyntaxToken)
+        (v: Expr<SyntaxToken>)
+        : TEnumCase =
+        let value =
+            match tryResolve nameOf report v with
+            | Ok lit -> ValueSome lit
+            | Error e ->
+                report ident (rejectionKind e)
+                ValueNone
+
+        {
+            Name = nameOf ident
+            Value = value
+            Tok = ident
+        }

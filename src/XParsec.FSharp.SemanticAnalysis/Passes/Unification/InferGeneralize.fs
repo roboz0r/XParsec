@@ -204,15 +204,11 @@ module internal UnificationInferGeneralize =
     /// `ctx.ListLiterals` (`ValueNone` if none). A look-up only: whether to flip the
     /// container to the Vesper or the FSharp.Core list stays with each caller.
     let tryListLiteralElem (ctx: PassContext) (root: TyVarId) : SemType voption =
-        let lits = ctx.ListLiterals
         let mutable result = ValueNone
-        let mutable i = 0
 
-        while result.IsNone && i < lits.Count do
-            if (UnionFind.find ctx.Store lits.[i].Var).Id = root then
-                result <- ValueSome lits.[i].Elem
-
-            i <- i + 1
+        for lit in ctx.ListLiterals do
+            if result.IsNone && (UnionFind.find ctx.Store lit.Var).Id = root then
+                result <- ValueSome lit.Elem
 
         result
 

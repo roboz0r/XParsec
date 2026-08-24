@@ -302,20 +302,9 @@ module InlineReduction =
                      }
                      :: acc)
             | TExpr.Lambda(param, _, _, _), _ ->
-                let case =
-                    match param with
-                    | TPat.NamedSimple _ -> "NamedSimple"
-                    | TPat.Wildcard _ -> "Wildcard"
-                    | TPat.Tuple _ -> "Tuple"
-                    | TPat.Const _ -> "Const"
-                    | TPat.Record _ -> "Record"
-                    | TPat.Union(caseName = n) -> "Union " + n
-                    | TPat.TypeTestAs _ -> "TypeTestAs"
-                    | TPat.Null _ -> "Null"
-                    | TPat.EnumCase(caseName = n) -> "EnumCase " + n
-                    | TPat.Or _ -> "Or"
-
-                failwithf "InlineReduction: inline parameter destructuring is out of scope: %s" case
+                failwithf
+                    "InlineReduction: inline parameter destructuring is out of scope: %s"
+                    (TastWalk.patCaseName param)
             | _, _ :: _ -> failwith "InlineReduction: over-application of an inline function"
 
         let bindings, core = peel expanded args []

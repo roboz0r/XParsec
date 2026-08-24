@@ -106,24 +106,11 @@ module ResolvedTypes =
     /// Best-effort attribution for a decl-level diagnostic: the first `NamedSimple` bound
     /// in the binding's pattern, and no place in the file otherwise.
     let declSite (d: TDecl) : Site =
-        let rec firstNamed (p: TPat) : Site option =
-            match p with
-            | TPat.NamedSimple(tok = tok) -> Some(Site.ofToken tok)
-            | TPat.Wildcard _
-            | TPat.Null _
-            | TPat.EnumCase _
-            | TPat.Const _ -> None
-            | TPat.Tuple(items, _, _)
-            | TPat.Union(_, items, _, _)
-            | TPat.Or(items, _, _) -> items |> Seq.tryPick firstNamed
-            | TPat.Record(fields, _, _) -> fields |> Seq.tryPick (fun (_, sub) -> firstNamed sub)
-            | TPat.TypeTestAs(_, inner, _, _) -> firstNamed inner
-
         match d with
         | TDecl.Let(binding, _, _, _) ->
-            match firstNamed binding with
-            | Some site -> site
-            | None -> Site.Nowhere
+            match TastWalk.namedSimplesOfTPat binding with
+            | struct (_, tok) :: _ -> Site.ofToken tok
+            | [] -> Site.Nowhere
         | _ -> Site.Nowhere
 
     let private walkDecl (ctx: PassContext) (allowed: HashSet<TyVarId>) (d: TDecl) : unit =

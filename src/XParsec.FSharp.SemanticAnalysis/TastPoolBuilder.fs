@@ -97,16 +97,16 @@ module TastPoolBuilder =
         else
             ofRow b.OvDecls.[i - b.DeclBase]
 
-    /// The bound-variable resolver. An overlay bound variable has no row, only its id, so
-    /// `ofMinted` receives the id itself.
+    /// The bound-variable resolver: a base-pool id reads the base column, an overlay-minted
+    /// one has no row.
     let inline private readBoundVar
         (b: PoolBuilder)
         (id: BoundVarId)
-        ([<InlineIfLambda>] ofBase: FrozenPools -> int -> 'a)
+        ([<InlineIfLambda>] ofBase: FrozenPools -> BoundVarId -> 'a)
         ([<InlineIfLambda>] ofMinted: BoundVarId -> 'a)
         : 'a =
         let (BoundVarId i) = id
-        if i < b.BoundVarBase then ofBase b.Base i else ofMinted id
+        if i < b.BoundVarBase then ofBase b.Base id else ofMinted id
 
     /// The node's type. The BASE column holds a row id of the base pool's type table; an
     /// OVERLAY row holds the type itself, a retyped node minting types the base never had.
@@ -226,12 +226,12 @@ module TastPoolBuilder =
     /// How a bound variable id is SPELLED: the base pool's naming column, or `Minted` for a bound variable
     /// this overlay handed out, which no source spells.
     let boundVarNaming (b: PoolBuilder) (id: BoundVarId) : BoundVarNaming =
-        readBoundVar b id (fun p i -> FrozenPools.boundVarNaming p (BoundVarId i)) BoundVarNaming.Minted
+        readBoundVar b id FrozenPools.boundVarNaming BoundVarNaming.Minted
 
     /// Where a bound variable's name is spelled. `Anchor.nowhere` where no node spells it: an
     /// overlay-minted bound variable, or a declaration's pattern-less key slot.
     let boundVarTok (b: PoolBuilder) (id: BoundVarId) : Anchor =
-        readBoundVar b id (fun p i -> p.BoundVarToks.[i]) (fun _ -> Anchor.nowhere)
+        readBoundVar b id (fun p (BoundVarId i) -> p.BoundVarToks.[i]) (fun _ -> Anchor.nowhere)
 
     // The size of the expr and bound variable id spaces: the next append takes the count itself.
 
@@ -316,6 +316,16 @@ module TastPoolBuilder =
     /// name, which the columns address only positionally. Indexed once per builder.
     let moduleMembers (b: PoolBuilder) : IReadOnlyDictionary<BoundVarId, ModuleBindingInfo> =
         b.ModuleMemberIndex.Force()
+
+    /// The module-level binding a root `let` decl's bound variable identifies. Every named root
+    /// binding has an entry; a miss is a decl pruned without its entry.
+    let moduleMemberOf (b: PoolBuilder) (boundVar: BoundVarId) : ModuleBindingInfo =
+        match (moduleMembers b).TryGetValue boundVar with
+        | true, info -> info
+        | _ ->
+            failwithf
+                "TastPoolBuilder.moduleMemberOf: root binding %O has no ModuleMembers entry; Elaborate records one for every named root binding, so prune the decl where its entry is pruned"
+                boundVar
 
     /// The bound on every `SpecializationId` an edge can carry.
     let specializationCount (b: PoolBuilder) : int = b.Base.Specializations.Length

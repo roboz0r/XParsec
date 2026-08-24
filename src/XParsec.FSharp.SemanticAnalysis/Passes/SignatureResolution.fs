@@ -158,48 +158,45 @@ module SignatureResolution =
 
             publishMembers sctx key (resolveBodyMembers sctx key info.TypeParams extensionElems)
 
-    /// A case value is a literal, never a type reference, so the enum's surface is read
-    /// straight off the CST. One unreadable case downgrades the whole enum: a partial table
-    /// would answer `E.C1` for the survivors and "no such case" for the rest.
-    let private publishEnum (sctx: SigCtx) (id: TypeIdentity) (cases: EnumTypeCases<SyntaxToken>) : unit =
+    /// Publish the registered enum's case table. One rejected case (reported at registration)
+    /// downgrades the whole enum: a partial table would answer `E.C1` for the survivors and
+    /// "no such case" for the rest.
+    let private publishEnum (sctx: SigCtx) (id: TypeIdentity) : unit =
         let ctx = sctx.Pass
-        let shapes = ResizeArray<ExternalEnumCaseShape>(cases.Length)
-        let mutable broken = ValueNone
 
-        for EnumTypeCase(ident = cid; constValue = v) in cases do
-            let name = ctx.NameOf cid
+        match TypeRegistry.tryEnumByKey ctx.Types id.Key with
+        | ValueNone -> ()
+        | ValueSome info ->
+            let shapes = ResizeArray<ExternalEnumCaseShape>(info.Cases.Length)
+            let mutable broken = ValueNone
 
-            match EnumCaseValues.tryResolve ctx.NameOf (fun t kind -> ctx.Report(t, kind)) v with
-            | Ok(TEnumLiteral.Int n) ->
-                shapes.Add
-                    {
-                        Name = name
-                        Value = ExternalEnumCaseValue.IntVal(snd (TEnumCases.integralValue n))
-                    }
-            | Ok(TEnumLiteral.String s) ->
-                shapes.Add
-                    {
-                        Name = name
-                        Value = ExternalEnumCaseValue.StringVal s
-                    }
-            | Error _ -> broken <- ValueSome name
+            for c in info.Cases do
+                match c.Value with
+                | ValueSome(TEnumLiteral.Int n) ->
+                    shapes.Add
+                        {
+                            Name = c.Name
+                            Value = ExternalEnumCaseValue.IntVal(snd (TEnumCases.integralValue n))
+                        }
+                | ValueSome(TEnumLiteral.String s) ->
+                    shapes.Add
+                        {
+                            Name = c.Name
+                            Value = ExternalEnumCaseValue.StringVal s
+                        }
+                | ValueNone -> broken <- ValueSome c.Name
 
-        match broken with
-        | ValueSome name ->
-            ctx.Report(
-                id.DeclSite.Tok,
-                Kind.Message(sprintf "Enum case '%s' of '%s' has no constant value" name id.Name)
-            )
-
-            publishShape
-                sctx
-                id.Key
-                (ExternalTypeShape.Unmodelled(
-                    UnmodelledReason.ExtractionFailed(sprintf "enum case '%s' has no constant value" name),
-                    0
-                ))
-        | ValueNone ->
-            publishShape sctx id.Key (ExternalTypeShape.Enum(EqArray.ofResizeArray shapes, SymbolOrigin.Empty))
+            match broken with
+            | ValueSome name ->
+                publishShape
+                    sctx
+                    id.Key
+                    (ExternalTypeShape.Unmodelled(
+                        UnmodelledReason.ExtractionFailed(sprintf "enum case '%s' has no constant value" name),
+                        0
+                    ))
+            | ValueNone ->
+                publishShape sctx id.Key (ExternalTypeShape.Enum(EqArray.ofResizeArray shapes, SymbolOrigin.Empty))
 
     // --- abbreviations --------------------------------------------------------------------
 
@@ -220,7 +217,11 @@ module SignatureResolution =
 
     /// `type t = (# "…" #)` written in a SIGNATURE: the same primitive binding it is in an
     /// implementation, and registering its entry already filed the repr below.
-    let private publishIntrinsicAbbrev (sctx: SigCtx) (id: TypeIdentity) (rhs: Type<SyntaxToken>) : unit =
+    let private publishIntrinsicAbbrev
+        (sctx: SigCtx)
+        (id: TypeIdentity)
+        (kindTag: ExternKind<SyntaxToken> voption)
+        : unit =
         let ctx = sctx.Pass
         let canon = TypeRegistry.intrinsicKeyOf ctx.Types id.Name
 
@@ -230,8 +231,8 @@ module SignatureResolution =
             | _ -> IntrinsicPlatform.Unsupported sctx.Inputs.Target
 
         let declared =
-            match rhs with
-            | Type.ILIntrinsic(kindTag = ValueSome(ExternKind.Class _)) -> DeclaredRepr.Heritable
+            match kindTag with
+            | ValueSome(ExternKind.Class _) -> DeclaredRepr.Heritable
             | _ -> DeclaredRepr.Opaque
 
         PublishedSurfaceBuilder.addDeclaredRepr sctx.Surface canon declared
@@ -520,9 +521,9 @@ module SignatureResolution =
         match decl with
         | SigDecl.Record(extensions = ext) -> publishRecord sctx id ext
         | SigDecl.Union(extensions = ext) -> publishUnion sctx id ext
-        | SigDecl.Enum(cases = cases) -> publishEnum sctx id cases
+        | SigDecl.Enum _ -> publishEnum sctx id
         | SigDecl.Abbrev _ -> publishAbbrev sctx id
-        | SigDecl.IntrinsicAbbrev(rhs = rhs) -> publishIntrinsicAbbrev sctx id rhs
+        | SigDecl.IntrinsicAbbrev(kindTag = tag) -> publishIntrinsicAbbrev sctx id tag
         | SigDecl.Extern(typeName = tn; kindTag = kindTag; members = members) ->
             publishExtern sctx id tn kindTag members
         | SigDecl.ClassLike(typeName = tn; form = form; elements = elems) -> publishClassLike sctx id tn form elems
@@ -564,9 +565,10 @@ module SignatureResolution =
         // implementation group's phases.
         for struct (id, decl) in claims do
             match decl with
-            | SigDecl.Abbrev(typeName = tn; rhs = rhs; extensions = ext)
-            | SigDecl.IntrinsicAbbrev(typeName = tn; rhs = rhs; extensions = ext) ->
+            | SigDecl.Abbrev(typeName = tn; rhs = rhs; extensions = ext) ->
                 registerAbbreviationDecl ctx id tn rhs ext.IsSome
+            | SigDecl.IntrinsicAbbrev(typeName = tn; kindTag = tag; instrParts = parts; extensions = ext) ->
+                registerIntrinsicReprDecl ctx id tn tag parts ext.IsSome
             | SigDecl.Record _
             | SigDecl.Union _
             | SigDecl.Enum _

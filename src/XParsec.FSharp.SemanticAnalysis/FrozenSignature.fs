@@ -330,7 +330,6 @@ module FrozenSignature =
 
         // Every binding fact below is read at the bound variable ID the decl's own pattern carries.
         let bindingValReprs = DenseTable.index frozen.BindingValReprs
-        let moduleMembers = DenseTable.index frozen.ModuleMembers
 
         let bindingValRepr (boundVar: BoundVarId) : TastAccessor.ValRepr voption =
             match bindingValReprs.TryGetValue boundVar with
@@ -364,15 +363,11 @@ module FrozenSignature =
                                     Pattern = TastAccessor.PNamed boundVar
                                     Ty = ty
                                 } ->
-                match moduleMembers.TryGetValue boundVar with
-                | true, info ->
-                    match info.Key with
-                    | SymbolKey.Binding bindingKey when exported info.Key -> addValue bindingKey boundVar ty
-                    | _ -> ()
-                | _ ->
-                    failwithf
-                        "FrozenSignature: root binding %O has no ModuleMembers entry; Elaborate records one for every named root binding, so prune the decl where its entry is pruned"
-                        boundVar
+                let info = TastPoolBuilder.moduleMemberOf pool boundVar
+
+                match info.Key with
+                | SymbolKey.Binding bindingKey when exported info.Key -> addValue bindingKey boundVar ty
+                | _ -> ()
             | _ -> ()
 
         // --- intrinsic / primitive type shapes ----------------------------------------

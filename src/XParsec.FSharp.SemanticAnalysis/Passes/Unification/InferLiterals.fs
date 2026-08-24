@@ -217,7 +217,13 @@ module internal UnificationInferLiterals =
     /// Whether every specifier is one the inline lowering handles; a `false` keeps the
     /// FSharp.Core cold path. A `%%` escape is its own string part, never a placeholder.
     let lowerablePlaceholders (placeholders: FormatPlaceholder list) : bool =
-        placeholders |> List.forall (fun p -> (PrintfHoleForm.tryClassify p).IsSome)
+        placeholders
+        |> List.forall (fun p ->
+            match PrintfHoleForm.classify p with
+            | PrintfHoleForm.HoleVerdict.Lowerable _ -> true
+            | PrintfHoleForm.HoleVerdict.Residual
+            | PrintfHoleForm.HoleVerdict.SignLeftAlignZeroPad -> false
+        )
 
     /// Types a format-string literal whose EXPECTED type is already a
     /// `PrintfFormat<Printer,State,Residue,Result>` (`let fmt : StringFormat<_> = "%d"`).

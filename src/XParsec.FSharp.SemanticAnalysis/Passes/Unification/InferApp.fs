@@ -138,7 +138,6 @@ module internal UnificationInferApp =
         (ctx: PassContext)
         (tok: SyntaxToken)
         (argExpr: Expr<SyntaxToken>)
-        (argTy: SemType)
         (dom: SemType)
         : bool =
         // Syntactic check FIRST: the peel is cheap, while the slot check ground-folds the
@@ -159,13 +158,11 @@ module internal UnificationInferApp =
                 else
                     let allowed = disjuncts |> List.map (fun v -> v.Render) |> String.concat " | "
 
-                    let err =
-                        errorTy
-                            ctx
-                            tok
-                            (Kind.Message(sprintf "%s is not one of the allowed literal values: %s" lit.Render allowed))
+                    ctx.Report(
+                        tok,
+                        Kind.Message(sprintf "%s is not one of the allowed literal values: %s" lit.Render allowed)
+                    )
 
-                    unify ctx tok argTy err
                     true
 
     let rec inferApp
@@ -192,7 +189,7 @@ module internal UnificationInferApp =
                     // A literal-union parameter consults the argument EXPRESSION for a syntactic
                     // constant; skip `unifyArg` when that handles the slot, as it rejects a
                     // `string`. It otherwise accepts a ground subtype upcast.
-                    if not (tryAdmitLiteralConstArg ctx node.Tok args.[i] argTy dom) then
+                    if not (tryAdmitLiteralConstArg ctx node.Tok args.[i] dom) then
                         unifyArg ctx node.Tok argTy dom
 
                     currTy <- cod
@@ -330,11 +327,19 @@ module internal UnificationInferApp =
                                             "printf %a/%t requires a sink type (System.IO.TextWriter / System.Text.StringBuilder) not available on this target"
                                     )
 
-                                // `%+-08.2f`: a forced sign combined with both `-` and `0`
-                                // is a compile-time error, not a residual — F# renders the
-                                // sign then right-zero-pads, which this compiler rejects.
-                                match specs |> List.tryFind PrintfHoleForm.hasSignLeftAlignZeroPad with
-                                | Some p ->
+                                // The first specifier that does not lower: a rejected flag
+                                // combination is an error, a cold residual (a runtime-width
+                                // zero-pad such as `%0*d`) keeps the generic printf shape.
+                                let firstNotLowerable =
+                                    specs
+                                    |> List.tryPick (fun p ->
+                                        match PrintfHoleForm.classify p with
+                                        | PrintfHoleForm.HoleVerdict.Lowerable _ -> None
+                                        | verdict -> Some(struct (p, verdict))
+                                    )
+
+                                match firstNotLowerable with
+                                | Some(struct (p, PrintfHoleForm.HoleVerdict.SignLeftAlignZeroPad)) ->
                                     ctx.Report(
                                         node.Tok,
                                         Kind.Message(
@@ -343,18 +348,7 @@ module internal UnificationInferApp =
                                                 (PrintfHoleForm.renderPlaceholder p)
                                         )
                                     )
-                                | None -> ()
-
-                                // Cold residuals: a specifier no backend renders faithfully,
-                                // such as the runtime-width zero-pads (`%0*d`, `%0*A`).
-                                match
-                                    specs
-                                    |> List.tryFind (fun p ->
-                                        not (PrintfHoleForm.hasSignLeftAlignZeroPad p)
-                                        && (PrintfHoleForm.tryClassify p).IsNone
-                                    )
-                                with
-                                | Some p ->
+                                | Some(struct (p, _)) ->
                                     ctx.Report(
                                         node.Tok,
                                         Kind.Message(

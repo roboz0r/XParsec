@@ -871,18 +871,15 @@ module NameResolutionMemberRegistration =
         for td in defs do
             classifyDeclaredTypes ctx td
 
+        // The claim classified an `(# … #)` RHS as `IntrinsicRepr` and any other as
+        // `Abbreviation`; the RHS shape dispatches here by the same rule.
         for claimed in claims do
-            match claimed.Identity.Kind with
-            | TypeDeclKind.Abbreviation
-            | TypeDeclKind.IntrinsicRepr ->
-                match claimed.Defn with
-                | TypeDefn.Abbrev(typeName = tn; typ = rhs; extensions = ext) ->
-                    registerAbbreviationDecl ctx claimed.Identity tn rhs ext.IsSome
-                | _ -> ()
-            | TypeDeclKind.Record
-            | TypeDeclKind.Union
-            | TypeDeclKind.Enum
-            | TypeDeclKind.Class -> ()
+            match claimed.Defn with
+            | TypeDefn.Abbrev(typeName = tn; typ = Type.ILIntrinsic(kindTag = tag; instrParts = parts); extensions = ext) ->
+                registerIntrinsicReprDecl ctx claimed.Identity tn tag parts ext.IsSome
+            | TypeDefn.Abbrev(typeName = tn; typ = rhs; extensions = ext) ->
+                registerAbbreviationDecl ctx claimed.Identity tn rhs ext.IsSome
+            | _ -> ()
 
         for claimed in claims do
             registerDetail ctx claimed.Identity claimed.Defn

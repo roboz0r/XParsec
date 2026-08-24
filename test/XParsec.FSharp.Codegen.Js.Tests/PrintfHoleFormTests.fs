@@ -4,7 +4,7 @@ open Expecto
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.SemanticAnalysis
 
-// `tryClassify` is the accept-gate both backends share: it either classifies a hole into
+// `classify` is the accept-gate both backends share: it either classifies a hole into
 // a `HoleForm` or defers it to the cold path. Byte-parity of the classified output is
 // pinned by the per-target specifier suites; what is left here is a non-vacuity guard.
 
@@ -57,14 +57,17 @@ let tests =
                     |> List.choose (fun spec ->
                         match Lexing.parseFormatSpecifier spec with
                         | ValueNone -> None
-                        | ValueSome p -> Some(PrintfHoleForm.tryClassify p)
+                        | ValueSome p -> Some(PrintfHoleForm.classify p)
                     )
 
-                Expect.isGreaterThan
-                    (classified |> List.filter (fun c -> c.IsSome) |> List.length)
-                    0
-                    "some holes classify"
+                let lowerable (v: PrintfHoleForm.HoleVerdict) =
+                    match v with
+                    | PrintfHoleForm.HoleVerdict.Lowerable _ -> true
+                    | PrintfHoleForm.HoleVerdict.Residual
+                    | PrintfHoleForm.HoleVerdict.SignLeftAlignZeroPad -> false
 
-                Expect.isGreaterThan (classified |> List.filter (fun c -> c.IsNone) |> List.length) 0 "some holes defer"
+                Expect.isGreaterThan (classified |> List.filter lowerable |> List.length) 0 "some holes classify"
+
+                Expect.isGreaterThan (classified |> List.filter (lowerable >> not) |> List.length) 0 "some holes defer"
             }
         ]

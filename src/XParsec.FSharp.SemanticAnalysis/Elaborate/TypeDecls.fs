@@ -199,103 +199,62 @@ module internal ElaborateTypeDecls =
                 List.ofSeq env
             )
 
-    /// Resolve one enum case's value `Expr` to a `TEnumLiteral`, reporting whatever the
-    /// shared projection declined as a hard error at `idTok`.
-    let private resolveEnumCaseValue
-        (ctx: PassContext)
-        (idTok: SyntaxToken)
-        (v: Expr<SyntaxToken>)
-        : TEnumLiteral voption =
-        match EnumCaseValues.tryResolve ctx.NameOf (fun t kind -> ctx.Report(t, kind)) v with
-        | Ok lit -> ValueSome lit
-        | Error e ->
-            let kind =
-                match e with
-                | EnumCaseRejection.NotRepresentable ->
-                    Kind.Message
-                        "An enum case value is not representable at its authored width (a negative value has no unsigned representation)"
-                | EnumCaseRejection.CustomLiteral ->
-                    Kind.Message
-                        "An enum case value must be a primitive integer literal; a custom numeric literal ('52I') is a call to a NumericLiteral module, not a constant"
-                | EnumCaseRejection.NotAnEnumConstant spelling ->
-                    Kind.Message(
-                        sprintf
-                            "An enum case value must be an integer or string literal; '%s' is not a valid enum constant"
-                            spelling
-                    )
-                | EnumCaseRejection.InterpolatedString ->
-                    Kind.Message "An enum case value must be a literal string; an interpolated string is not a constant"
-                | EnumCaseRejection.NegativeUnsigned ->
-                    Kind.Message "A negative enum case value has no unsigned representation; use a signed integer width"
-                | EnumCaseRejection.NotConstant -> Kind.EnumCaseNotConstant
-
-            ctx.Report(idTok, kind)
-
-            ValueNone
-
-    /// Surface a `TypeDefn.Enum` as a `TDecl.Type`: the ordered case→literal table is
-    /// recorded on the node, but the numeric / string / mixed variant is left DERIVABLE
-    /// rather than stored. A mix of int and string case values is accepted with a warning.
+    /// Surface a `TypeDefn.Enum` as a `TDecl.Type` from the registered `EnumTypeInfo`: the
+    /// ordered case→literal table is recorded on the node, but the numeric / string / mixed
+    /// variant is left DERIVABLE rather than stored. A mix of int and string case values is
+    /// accepted with a warning.
     let private tryEnumType
         (ctx: PassContext)
-        (c: DeclContainment<SyntaxToken>)
+        (ns: string option)
         (name: string)
-        (cases: EnumTypeCases<SyntaxToken>)
+        (declKey: NodeKey voption)
         : (TDecl * (TyVarId * SemType) list) option =
-        let ns = DeclContainment.namespaceOpt c
-        // The key of the type being LOWERED, minted from the module the walk is in, so the
-        // surfaced decl, an `(x: E)` annotation and an `E.C1` access share one identity. It
-        // stands alone: no registry entry is consulted, so a rejected duplicate still keys.
-        let key = ctx.DeclaredTypeKey(name, 0)
+        let resolved =
+            match declKey with
+            | ValueSome k ->
+                match ctx.Resolution.ResolvedType.TryGetValue k with
+                | ValueSome key -> TypeRegistry.tryEnumByKey ctx.Types key
+                | ValueNone -> ValueNone
+            | ValueNone -> ValueNone
 
-        let tcases =
-            EqArray.ofSeq (
-                seq {
-                    for EnumTypeCase(ident = id; constValue = v) in cases ->
-                        {
-                            Name = ctx.NameOf id
-                            Value = resolveEnumCaseValue ctx id v
-                            Tok = id
-                        }
-                }
-            )
+        match resolved with
+        | ValueNone -> None
+        | ValueSome info ->
+            let tcases = info.Cases
 
-        // Enum cases parse with `sepBy1`, so `[0]` is always there to pin the warning to.
-        match TEnumCases.classify tcases with
-        | ValueSome TEnumVariant.Mixed ->
-            let (EnumTypeCase(ident = firstId)) = cases.[0]
+            // Enum cases parse with `sepBy1`, so `[0]` is always there to pin the warning to.
+            match TEnumCases.classify tcases with
+            | ValueSome TEnumVariant.Mixed -> ctx.Report(tcases.[0].Tok, Kind.HeterogeneousEnum name)
+            | _ -> ()
 
-            ctx.Report(firstId, Kind.HeterogeneousEnum name)
-        | _ -> ()
-
-        match TEnumCases.firstKindConflict tcases with
-        | ValueSome conflict ->
-            ctx.Report(
-                conflict.Tok,
-                Kind.Message(
-                    sprintf
-                        "Enum '%s' mixes integral widths '%s' and '%s'; a CLR enum has a single underlying type"
-                        name
-                        conflict.Established
-                        conflict.Offending
+            match TEnumCases.firstKindConflict tcases with
+            | ValueSome conflict ->
+                ctx.Report(
+                    conflict.Tok,
+                    Kind.Message(
+                        sprintf
+                            "Enum '%s' mixes integral widths '%s' and '%s'; a CLR enum has a single underlying type"
+                            name
+                            conflict.Established
+                            conflict.Offending
+                    )
                 )
-            )
-        | ValueNone -> ()
+            | ValueNone -> ()
 
-        Some(
-            mkTypeDecl
-                name
-                key
-                ns
-                (EqArray.ofList [])
-                // An enum's cases are always qualified (`E.C1`), so RQA adds nothing.
-                false
-                (TTypeKind.Enum tcases)
-                // An enum synthesises no equality / comparison members; these go unread.
-                EqualityVerdict.Structural
-                ComparisonVerdict.NoComparison,
-            []
-        )
+            Some(
+                mkTypeDecl
+                    name
+                    info.TypeKey
+                    ns
+                    (EqArray.ofList [])
+                    // An enum's cases are always qualified (`E.C1`), so RQA adds nothing.
+                    false
+                    (TTypeKind.Enum tcases)
+                    // An enum synthesises no equality / comparison members; these go unread.
+                    EqualityVerdict.Structural
+                    ComparisonVerdict.NoComparison,
+                []
+            )
 
     /// Surface a `TypeDefn.Record` as a `TDecl.Type` from the resolved `RecordTypeInfo`.
     /// Field types are remapped through the declaring-type typars, as for a union.
@@ -686,7 +645,7 @@ module internal ElaborateTypeDecls =
             tryUnionType ctx ns (typeNameSimple ctx tn) (typeNameDeclKey ctx tn) ext
         | TypeDefn.Record(typeName = tn; extensions = ext) ->
             tryRecordType ctx ns (typeNameSimple ctx tn) (typeNameDeclKey ctx tn) ext
-        | TypeDefn.Enum(typeName = tn; cases = cases) -> tryEnumType ctx c (typeNameSimple ctx tn) cases
+        | TypeDefn.Enum(typeName = tn) -> tryEnumType ctx ns (typeNameSimple ctx tn) (typeNameDeclKey ctx tn)
         // A transparent alias surfaces its resolved RHS; an inline intrinsic-abbrev has a
         // host in `IntrinsicAbbrevHost` and surfaces its members instead (lift-only).
         | TypeDefn.Abbrev(typeName = tn; extensions = ext) ->

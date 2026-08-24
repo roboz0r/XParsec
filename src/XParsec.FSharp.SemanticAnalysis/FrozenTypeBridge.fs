@@ -184,13 +184,6 @@ module FrozenTypeBridge =
         (declArgs: FrozenType[])
         (ifaces: FrozenNominal seq)
         : EqArray<FrozenType> voption =
-        let mutable result = ValueNone
-        use e = ifaces.GetEnumerator()
-
-        while result.IsNone && e.MoveNext() do
-            let iface = e.Current
-
-            if iface.Key = target then
-                result <- ValueSome(iface.Args |> EqArray.map (substituteDeclaring declArgs))
-
-        result
+        match ifaces |> Seq.tryFind (fun iface -> iface.Key = target) with
+        | Some iface -> ValueSome(iface.Args |> EqArray.map (substituteDeclaring declArgs))
+        | None -> ValueNone

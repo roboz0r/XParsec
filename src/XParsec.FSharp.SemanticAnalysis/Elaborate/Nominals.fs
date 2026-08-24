@@ -41,6 +41,20 @@ module internal ElaborateNominals =
         | TyUnion(key, _) -> TypeRegistry.tryUnionByKey ctx.Types key
         | _ -> ValueNone
 
+    /// A provider-published union: its case shapes and the type arguments `ty` is
+    /// instantiated at.
+    [<return: Struct>]
+    let (|ExternalUnion|_|)
+        (ctx: PassContext)
+        (ty: SemType)
+        : struct (EqArray<ExternalCaseShape> * EqArray<SemType>) voption =
+        match Unification.zonk ctx.Store ty with
+        | TyUnion(key, args) ->
+            match ctx.Provider.TryLookupType key with
+            | ValueSome(ExternalTypeShape.Union(cases = cases)) -> ValueSome(struct (cases, args))
+            | _ -> ValueNone
+        | _ -> ValueNone
+
     /// The enum key for a two-segment `E.C1` access/pattern. The node's own `TyEnum` type
     /// resolves every valid case; the local registry is the error-path fallback only, where
     /// an invalid case (`E.BadCase`, diagnosed upstream) left the node's type un-pinned.

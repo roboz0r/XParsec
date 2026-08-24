@@ -139,16 +139,12 @@ module TSpecializationG =
         : TPatG<'ty, 'tok, 'id> * TExprG<'ty, 'tok, 'id> =
         match entry.Decl with
         | TDeclG.Let(pat, value, _, _) -> pat, value
-        | other ->
+        | TDeclG.Expression _ ->
             let (SpecializationId i) = spec
-
-            let case =
-                match other with
-                | TDeclG.Let _ -> "Let"
-                | TDeclG.Expression _ -> "Expression"
-                | TDeclG.Type _ -> "Type"
-
-            failwithf "TSpecialization: specialization %d is not a `TDecl.Let`: %s" i case
+            failwithf "TSpecialization: specialization %d is a `TDecl.Expression`, not a `TDecl.Let`" i
+        | TDeclG.Type _ ->
+            let (SpecializationId i) = spec
+            failwithf "TSpecialization: specialization %d is a `TDecl.Type`, not a `TDecl.Let`" i
 
 [<RequireQualifiedAccess>]
 module TastFileG =

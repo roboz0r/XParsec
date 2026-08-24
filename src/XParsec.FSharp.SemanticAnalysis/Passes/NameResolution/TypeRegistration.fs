@@ -428,7 +428,8 @@ module NameResolutionTypeRegistration =
         /// the inline-IL spelling parses here too and claims what it claims in a `.fs`.
         | IntrinsicAbbrev of
             typeName: TypeName<SyntaxToken> *
-            rhs: Type<SyntaxToken> *
+            kindTag: ExternKind<SyntaxToken> voption *
+            instrParts: ImmutableArray<StringPart<SyntaxToken>> *
             extensions: TypeExtensionElementsSignature<SyntaxToken> voption
         /// `type t = extern`: the platform supplies the representation, and which spelling is
         /// the paired implementation's business.
@@ -457,7 +458,7 @@ module NameResolutionTypeRegistration =
         | TypeSignature.Enum(typeName = tn; cases = cs) -> SigDecl.Enum(tn, cs)
         | TypeSignature.Abbrev(typeName = tn; typ = rhs; extensions = ext) ->
             match rhs with
-            | Type.ILIntrinsic _ -> SigDecl.IntrinsicAbbrev(tn, rhs, ext)
+            | Type.ILIntrinsic(kindTag = tag; instrParts = parts) -> SigDecl.IntrinsicAbbrev(tn, tag, parts, ext)
             | _ -> SigDecl.Abbrev(tn, rhs, ext)
         | TypeSignature.Extern(typeName = tn; kindTag = tag; members = ms) -> SigDecl.Extern(tn, tag, ms)
         | TypeSignature.Anon(typeName = tn; elements = els)
@@ -582,10 +583,11 @@ module NameResolutionTypeRegistration =
                 CstTypeWalk.iterTypeUnionCase it c
 
             extensions ext
-        | SigDecl.Abbrev(rhs = rhs; extensions = ext)
-        | SigDecl.IntrinsicAbbrev(rhs = rhs; extensions = ext) ->
+        | SigDecl.Abbrev(rhs = rhs; extensions = ext) ->
             CstTypeWalk.iterType it rhs
             extensions ext
+        // An `(# … #)` RHS is an IL string: it writes no type name.
+        | SigDecl.IntrinsicAbbrev(extensions = ext) -> extensions ext
         | SigDecl.Extern(members = members) -> extensions members
         | SigDecl.ClassLike(elements = els) -> CstTypeWalk.iterTypeElementsSignatureStructure it els
         | SigDecl.TypeExtension(elements = TypeExtensionElementsSignature(elements = els)) ->
@@ -939,9 +941,10 @@ module NameResolutionTypeRegistration =
         for c in caseInfos do
             prependToIndex ctx.Types.CtorIndex c.Name c
 
-    /// Register an enum's nominal identity + case-name set, so a `(x: E)` annotation resolves
-    /// to `TyEnum Key` and a qualified `E.C1` can validate the case name. Enums are non-generic
-    /// and have no member side tables; the case→literal VALUES are resolved later, in Elaborate.
+    /// Register an enum's nominal identity and its case table, so a `(x: E)` annotation
+    /// resolves to `TyEnum Key` and a qualified `E.C1` can validate the case name. Enums are
+    /// non-generic and have no member side tables. The case values are resolved and their
+    /// rejections reported here, once; Elaborate and the `.fsi` publisher read the table.
     let registerEnumDecl
         (ctx: PassContext)
         (id: TypeIdentity)
@@ -957,40 +960,82 @@ module NameResolutionTypeRegistration =
             (Attributes.attributesOfTypeName tn)
         |> ignore
 
-        let name = id.Name
         let declSite = id.DeclSite
-        let caseNames = [| for EnumTypeCase(ident = cid) in cases -> ctx.NameOf cid |]
 
-        // The case VALUES, but ONLY when EVERY case is a string literal, because the
-        // literal-union admission runs before Elaborate resolves the full case table. The
-        // projection peels a paren, so `| A = ("auto")` counts; one non-string case ⇒ `ValueNone`.
-        let caseStringValues =
-            let vals =
-                [|
-                    for EnumTypeCase(constValue = v) in cases do
-                        // Elaborate re-resolves each case value and reports there, so an
-                        // escape verdict here would be a duplicate.
-                        match EnumCaseValues.tryResolve ctx.NameOf (fun _ _ -> ()) v with
-                        | Ok(TEnumLiteral.String s) -> yield s
-                        | _ -> ()
-                |]
+        let resolved =
+            EqArray.ofSeq (
+                seq {
+                    for EnumTypeCase(ident = cid; constValue = v) in cases ->
+                        EnumCaseValues.resolveCase ctx.NameOf (fun t kind -> ctx.Report(t, kind)) cid v
+                }
+            )
 
-            if vals.Length = cases.Length && cases.Length > 0 then
-                ValueSome vals
-            else
-                ValueNone
-
-        let info = EnumTypeInfo(name, caseNames, caseStringValues, declSite.Key, id.Key)
+        let info = EnumTypeInfo(id.Name, resolved, declSite.Key, id.Key)
         TypeRegistry.registerEnum ctx.Types info
 
         // Record the decl-site identity so `Elaborate.tryEnumType`
         // recovers the SAME key the annotation path resolves to.
         ctx.Resolution.ResolvedType.Set(declSite.Key, info.TypeKey)
 
-    /// Register a `type X = …` abbreviation. An `(# … #)` RHS is a primitive BINDING, not a
-    /// transparent alias: it lands in `IntrinsicReprKeys` as canon key → IL string, so the
-    /// name resolves to `TyConst key`. Only the ENTRY registers; the RHS is forced at GROUP
-    /// CLOSE.
+    /// Register a `type X = (# … #)` primitive BINDING: it lands in `IntrinsicReprKeys` as
+    /// canon key → IL string, so the name resolves to `TyConst key`. A `with member …`
+    /// augmentation registers the type as a member host as well, without withdrawing it
+    /// from `IntrinsicReprKeys`.
+    let registerIntrinsicReprDecl
+        (ctx: PassContext)
+        (id: TypeIdentity)
+        (tn: TypeName<SyntaxToken>)
+        (tag: ExternKind<SyntaxToken> voption)
+        (instrParts: ImmutableArray<StringPart<SyntaxToken>>)
+        (hasAugmentation: bool)
+        : unit =
+        let name = id.Name
+        let repr = IntrinsicReprs.ilString ctx.NameOf instrParts
+        // Filed on the KEY axis alone, so a consumer holding a resolved intrinsic key
+        // never has to project it back to a name. The `class` tag rides the same entry:
+        // heritability is a property of this repr.
+        ctx.Types.IntrinsicReprKeys.[TypeRegistry.intrinsicKeyOf ctx.Types name] <-
+            {
+                Platform = repr
+                Heritable =
+                    match tag with
+                    | ValueSome(ExternKind.Class _) -> true
+                    | ValueSome(ExternKind.Interface _)
+                    | ValueNone -> false
+            }
+
+        if hasAugmentation then
+            // The self-type key is the contract-sourced intrinsic identity, read through
+            // `intrinsicKeyOf` so it agrees with the abbrev's use-site key even when the
+            // declaring namespace is not `Vesper`. It also ADDRESSES the host table, so
+            // the lookup key and the self-type key are the same one value.
+            let selfKey = TypeRegistry.intrinsicKeyOf ctx.Types name
+            let typeParams = mkTypeParams ctx.Store (typarNamesOfTypeName ctx tn)
+
+            ctx.Types.IntrinsicAbbrevHost.[selfKey] <-
+                IntrinsicAbbrevInfo(name, typeParams, id.DeclSite, id.Key, selfKey)
+
+        match tag with
+        // Untagged `(# "…" #)` is an opaque value repr, never a base; a `class`-tagged
+        // one already recorded `Heritable = true` above. Nothing extra either way.
+        | ValueNone
+        | ValueSome(ExternKind.Class _) -> ()
+        // `(# interface "…" #)` parses but cannot be inherited: an interface goes in
+        // `implements`, not `extends`, and has no base `.ctor` to chain to. Rejected
+        // here; its `Heritable` is `false`, so it never reaches codegen's base path.
+        | ValueSome(ExternKind.Interface _) ->
+            ctx.Report(
+                id.DeclSite.Tok,
+                Kind.NotYetSupported(
+                    sprintf
+                        "a heritable external interface base ('(# interface \"…\" #)') on type '%s'; only '(# class \"…\" #)' may be inherited"
+                        name
+                )
+            )
+
+    /// Register a `type X = …` transparent alias. Only the ENTRY registers; the RHS is forced
+    /// at GROUP CLOSE. An alias declares nothing of its own, so a `with member …`
+    /// augmentation is diagnosed and dropped.
     let registerAbbreviationDecl
         (ctx: PassContext)
         (id: TypeIdentity)
@@ -999,97 +1044,28 @@ module NameResolutionTypeRegistration =
         (hasAugmentation: bool)
         : unit =
         let name = id.Name
-        let key = id.Key
         let typeParams = mkTypeParams ctx.Store (typarNamesOfTypeName ctx tn)
 
-        // Only an `(# … #)` RHS may carry a `with member …` augmentation because a transparent
-        // alias (`type bad = int with member …`) has no nominal identity to hang a member
-        // on. Registered as a host without withdrawing the type from `IntrinsicReprKeys`.
-        let registerMemberHostIfAny () =
-            if hasAugmentation then
-                // The self-type key is the contract-sourced intrinsic identity, read through
-                // `intrinsicKeyOf` so it agrees with the abbrev's use-site key even when the
-                // declaring namespace is not `Vesper`. It also ADDRESSES the host table, so
-                // the lookup key and the self-type key are the same one value.
-                let selfKey = TypeRegistry.intrinsicKeyOf ctx.Types name
+        // Every posture and `[<AllowNullLiteral>]` belongs on the type it abbreviates.
+        Attributes.validateTypeDefnAttributes
+            ctx
+            Attributes.TypeDefnKind.Abbrev
+            id.DeclSite.Tok
+            (Attributes.attributesOfTypeName tn)
+        |> ignore
 
-                ctx.Types.IntrinsicAbbrevHost.[selfKey] <-
-                    IntrinsicAbbrevInfo(name, typeParams, id.DeclSite, key, selfKey)
-
-        // The claim classified the RHS once, onto `id.Kind`; the RHS match here only extracts
-        // the intrinsic payload, and a disagreement between the two is a claim-phase fault.
-        match id.Kind, rhs with
-        | TypeDeclKind.IntrinsicRepr, Type.ILIntrinsic(kindTag = tag; instrParts = parts) ->
-            let repr = IntrinsicReprs.ilString ctx.NameOf parts
-            // Filed on the KEY axis alone, so a consumer holding a resolved intrinsic key
-            // never has to project it back to a name. The `class` tag rides the same entry:
-            // heritability is a property of this repr.
-            ctx.Types.IntrinsicReprKeys.[TypeRegistry.intrinsicKeyOf ctx.Types name] <-
-                {
-                    Platform = repr
-                    Heritable =
-                        match tag with
-                        | ValueSome(ExternKind.Class _) -> true
-                        | ValueSome(ExternKind.Interface _)
-                        | ValueNone -> false
-                }
-
-            registerMemberHostIfAny ()
-
-            match tag with
-            // Untagged `(# "…" #)` is an opaque value repr, never a base; a `class`-tagged
-            // one already recorded `Heritable = true` above. Nothing extra either way.
-            | ValueNone
-            | ValueSome(ExternKind.Class _) -> ()
-            // `(# interface "…" #)` parses but cannot be inherited: an interface goes in
-            // `implements`, not `extends`, and has no base `.ctor` to chain to. Rejected
-            // here; its `Heritable` is `false`, so it never reaches codegen's base path.
-            | ValueSome(ExternKind.Interface _) ->
-                ctx.Report(
-                    id.DeclSite.Tok,
-                    Kind.NotYetSupported(
-                        sprintf
-                            "a heritable external interface base ('(# interface \"…\" #)') on type '%s'; only '(# class \"…\" #)' may be inherited"
-                            name
-                    )
+        if hasAugmentation then
+            ctx.Report(
+                id.DeclSite.Tok,
+                Kind.Message(
+                    sprintf
+                        "Type abbreviation '%s' cannot carry augmentation members: only an inline-IL abbreviation ('type %s = (# \"…\" #) with member …') may declare members"
+                        name
+                        name
                 )
-        | TypeDeclKind.IntrinsicRepr, _ ->
-            failwithf
-                "TypeRegistration.registerAbbreviationDecl: type '%s' is claimed IntrinsicRepr over a non-intrinsic RHS"
-                name
-        | TypeDeclKind.Abbreviation, Type.ILIntrinsic _ ->
-            failwithf
-                "TypeRegistration.registerAbbreviationDecl: type '%s' is claimed Abbreviation over an intrinsic RHS"
-                name
-        | (TypeDeclKind.Record | TypeDeclKind.Union | TypeDeclKind.Class | TypeDeclKind.Enum), _ ->
-            failwithf
-                "TypeRegistration.registerAbbreviationDecl: type '%s' is claimed %A, not an abbreviation"
-                name
-                id.Kind
-        | TypeDeclKind.Abbreviation, _ ->
-            // An alias renames one type as another and declares nothing of its own, so
-            // every posture and `[<AllowNullLiteral>]` belongs on the type it abbreviates.
-            Attributes.validateTypeDefnAttributes
-                ctx
-                Attributes.TypeDefnKind.Abbrev
-                id.DeclSite.Tok
-                (Attributes.attributesOfTypeName tn)
-            |> ignore
+            )
 
-            // A transparent-alias abbrev cannot carry members: diagnose and drop the
-            // augmentation, but still register the alias so references keep resolving.
-            if hasAugmentation then
-                ctx.Report(
-                    id.DeclSite.Tok,
-                    Kind.Message(
-                        sprintf
-                            "Type abbreviation '%s' cannot carry augmentation members: only an inline-IL abbreviation ('type %s = (# \"…\" #) with member …') may declare members"
-                            name
-                            name
-                    )
-                )
+        let info =
+            AbbreviationInfo(name, typeParams, rhs, id.DeclSite, typarConstraintsOfTypeName tn, id.Key)
 
-            let info =
-                AbbreviationInfo(name, typeParams, rhs, id.DeclSite, typarConstraintsOfTypeName tn, key)
-
-            TypeRegistry.registerAbbrev ctx.Types info
+        TypeRegistry.registerAbbrev ctx.Types info

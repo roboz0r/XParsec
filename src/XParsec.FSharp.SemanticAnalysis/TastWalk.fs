@@ -140,6 +140,20 @@ module TastWalk =
         | TPatG.EnumCase(tok = tok)
         | TPatG.Or(tok = tok) -> tok
 
+    /// The pattern's case, with the case name of a `Union` / `EnumCase`, for a fault message.
+    let patCaseName (p: TPatG<'ty, 'tok, 'id>) : string =
+        match p with
+        | TPatG.NamedSimple _ -> "NamedSimple"
+        | TPatG.Wildcard _ -> "Wildcard"
+        | TPatG.Tuple _ -> "Tuple"
+        | TPatG.Const _ -> "Const"
+        | TPatG.Record _ -> "Record"
+        | TPatG.Union(caseName = n) -> "Union " + n
+        | TPatG.TypeTestAs _ -> "TypeTestAs"
+        | TPatG.Null _ -> "Null"
+        | TPatG.EnumCase(caseName = n) -> "EnumCase " + n
+        | TPatG.Or _ -> "Or"
+
     /// One level of a curried `App` chain: in `f a b`, `a`'s `AppResultTy` is the type of
     /// `f a` (the partial application, not `a`) and `AppTok` is that `App` node's token.
     type AppArgG<'ty, 'tok, 'id> =
@@ -956,11 +970,11 @@ module TastWalk =
 
         acc
 
-    /// Every bound-variable-site `NodeKey` introduced by a `TPat`. A `TExpr.Var` carries its
-    /// binding-site key directly, so a free variable is a `Var` whose key is not in scope.
-    let rec boundVarsOfTPat (p: TPat) : NodeKey list =
+    /// Every `NamedSimple` a `TPat` binds, in source order, as its binding-site `NodeKey` and
+    /// the token spelling the name.
+    let rec namedSimplesOfTPat (p: TPat) : struct (NodeKey * SyntaxToken) list =
         match p with
-        | TPat.NamedSimple(k, _, _) -> [ k ]
+        | TPat.NamedSimple(k, _, tok) -> [ struct (k, tok) ]
         // An or-pattern that binds names is rejected before lowering, so its alternatives
         // introduce no bound variables here.
         | TPat.Or _
@@ -971,19 +985,24 @@ module TastWalk =
         | TPat.Tuple(items, _, _) ->
             [
                 for sub in items do
-                    yield! boundVarsOfTPat sub
+                    yield! namedSimplesOfTPat sub
             ]
         | TPat.Record(fields, _, _) ->
             [
                 for (_, sub) in fields do
-                    yield! boundVarsOfTPat sub
+                    yield! namedSimplesOfTPat sub
             ]
         | TPat.Union(_, fields, _, _) ->
             [
                 for sub in fields do
-                    yield! boundVarsOfTPat sub
+                    yield! namedSimplesOfTPat sub
             ]
-        | TPat.TypeTestAs(_, inner, _, _) -> boundVarsOfTPat inner
+        | TPat.TypeTestAs(_, inner, _, _) -> namedSimplesOfTPat inner
+
+    /// Every bound-variable-site `NodeKey` introduced by a `TPat`. A `TExpr.Var` carries its
+    /// binding-site key directly, so a free variable is a `Var` whose key is not in scope.
+    let boundVarsOfTPat (p: TPat) : NodeKey list =
+        namedSimplesOfTPat p |> List.map (fun (struct (k, _)) -> k)
 
     /// Free variables of `body` RELATIVE to the `bound0` seed: every `TExpr.Var` whose
     /// binding site is neither in the seed nor introduced by a scope the walk enters

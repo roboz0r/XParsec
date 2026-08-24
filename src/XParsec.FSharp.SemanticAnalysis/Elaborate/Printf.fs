@@ -266,9 +266,10 @@ module internal ElaboratePrintf =
 
                 // Classified once: the node carries the `HoleForm`, so no consumer re-derives it.
                 let holeForm =
-                    match PrintfHoleForm.tryClassify placeholder with
-                    | ValueSome hf -> hf
-                    | ValueNone ->
+                    match PrintfHoleForm.classify placeholder with
+                    | PrintfHoleForm.HoleVerdict.Lowerable hf -> hf
+                    | PrintfHoleForm.HoleVerdict.Residual
+                    | PrintfHoleForm.HoleVerdict.SignLeftAlignZeroPad ->
                         failwith "Elaborate.translatePrintfFormat: unsupported specifier (marker invariant broken)"
 
                 match holeForm with
@@ -348,9 +349,10 @@ module internal ElaboratePrintf =
                         failwith "Elaborate.translatePrintfPartial: unparsable specifier (marker invariant broken)"
 
                 let holeForm =
-                    match PrintfHoleForm.tryClassify placeholder with
-                    | ValueSome hf -> hf
-                    | ValueNone ->
+                    match PrintfHoleForm.classify placeholder with
+                    | PrintfHoleForm.HoleVerdict.Lowerable hf -> hf
+                    | PrintfHoleForm.HoleVerdict.Residual
+                    | PrintfHoleForm.HoleVerdict.SignLeftAlignZeroPad ->
                         failwith "Elaborate.translatePrintfPartial: unsupported specifier (marker invariant broken)"
 
                 let holeTy, restTy =

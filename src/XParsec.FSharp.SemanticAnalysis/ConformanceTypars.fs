@@ -111,7 +111,6 @@ module ConformanceTypars =
     /// `^T1 -> ^T2 -> ^T3` into one `^T` binds `y` at `x`'s type.
     let checkFile (provider: IExternalSymbolProvider) (pools: FrozenPools) : TyparMismatch list =
         let pool = TastPoolBuilder.openOver pools
-        let moduleMembers = DenseTable.index pools.ModuleMembers
 
         [
             for decl in TastAccessor.roots pool do
@@ -120,16 +119,8 @@ module ConformanceTypars =
                                         Pattern = TastAccessor.PNamed boundVar
                                         Ty = ty
                                     } ->
-                    let info =
-                        match moduleMembers.TryGetValue boundVar with
-                        | true, mi -> mi
-                        | _ ->
-                            failwithf
-                                "ConformanceTypars: root binding %O has no ModuleMembers entry; Elaborate records one for every named root binding, so prune the decl where its entry is pruned"
-                                boundVar
-
                     let resolved =
-                        lookupNames info
+                        lookupNames (TastPoolBuilder.moduleMemberOf pool boundVar)
                         |> List.tryPick (fun n ->
                             match provider.TryLookup n with
                             | ValueSome s -> Some(n, s)

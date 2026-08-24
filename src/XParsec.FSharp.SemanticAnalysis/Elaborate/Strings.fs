@@ -35,9 +35,10 @@ module internal ElaborateStrings =
                 // The same gate as the printf path: only specifiers representable as a
                 // structured `Format` lower, and the classification is kept on the node
                 // rather than re-derived per backend.
-                match PrintfHoleForm.tryClassify p with
-                | ValueSome hf -> Some(HoleSpecSource.Classified hf)
-                | ValueNone -> None
+                match PrintfHoleForm.classify p with
+                | PrintfHoleForm.HoleVerdict.Lowerable hf -> Some(HoleSpecSource.Classified hf)
+                | PrintfHoleForm.HoleVerdict.Residual
+                | PrintfHoleForm.HoleVerdict.SignLeftAlignZeroPad -> None
             | ValueNone -> None
         | ValueNone ->
             let fmt =

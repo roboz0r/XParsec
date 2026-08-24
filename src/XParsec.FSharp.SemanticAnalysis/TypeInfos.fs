@@ -257,18 +257,34 @@ type IntrinsicAbbrevInfo
 /// An enum declaration (`type E = | C1 = v1 | …`): non-generic, no member side tables, a
 /// closed named set of cases.
 [<Sealed>]
-type EnumTypeInfo(name: string, caseNames: string[], caseStringValues: string[] voption, declKey: NodeKey, key: TypeKey)
-    =
+type EnumTypeInfo(name: string, cases: EqArray<TEnumCase>, declKey: NodeKey, key: TypeKey) =
     member val Name = name
-    /// Case identifiers in declaration order.
-    member val CaseNames = caseNames
+    /// The cases in declaration order, each with its resolved literal (`ValueNone` for a
+    /// rejected value, reported at registration).
+    member val Cases: EqArray<TEnumCase> = cases
+
     /// The case VALUES when every case is a string literal (`| Auto = "auto"`, `| A =
     /// ("auto")`), in declaration order; `ValueNone` for numeric / mixed / computed.
-    member val CaseStringValues: string[] voption = caseStringValues
+    member val CaseStringValues: string[] voption =
+        let vals =
+            [|
+                for c in cases do
+                    match c.Value with
+                    | ValueSome(TEnumLiteral.String s) -> yield s
+                    | _ -> ()
+            |]
+
+        if vals.Length = cases.Length && cases.Length > 0 then
+            ValueSome vals
+        else
+            ValueNone
+
     member val DeclKey = declKey
     member val TypeKey: TypeKey = key
     member this.Key: SymbolKey = SymbolKey.Type this.TypeKey
-    member this.HasCase(n: string) = Array.contains n caseNames
+
+    member this.HasCase(n: string) =
+        cases |> EqArray.exists (fun c -> c.Name = n)
 
 /// `InProgress` is set while translating the RHS, so a re-entrant translation of the same
 /// abbrev detects the cycle. `Filled` is terminal.

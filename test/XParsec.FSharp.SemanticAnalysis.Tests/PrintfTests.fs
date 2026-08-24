@@ -534,12 +534,13 @@ let tests =
 
                 match Lexing.parseFormatSpecifier "%+08.2f" with
                 | ValueSome ph ->
-                    match PrintfHoleForm.tryClassify ph with
-                    | ValueSome(PrintfHoleForm.HoleForm.Field(PrintfHoleForm.FieldFormat.ForcedSign(false,
-                                                                                                    PrintfHoleForm.Prec.Const 2,
-                                                                                                    'f',
-                                                                                                    Some 8),
-                                                              PrintfHoleForm.Alignment.None)) -> ()
+                    match PrintfHoleForm.classify ph with
+                    | PrintfHoleForm.HoleVerdict.Lowerable(PrintfHoleForm.HoleForm.Field(PrintfHoleForm.FieldFormat.ForcedSign(false,
+                                                                                                                               PrintfHoleForm.Prec.Const 2,
+                                                                                                                               'f',
+                                                                                                                               Some 8),
+                                                                                         PrintfHoleForm.Alignment.None)) ->
+                        ()
                     | other -> failtestf "expected ForcedSign(+, .2, 'f', zeroPad 8), got: %A" other
                 | ValueNone -> failtest "expected a placeholder"
             }
@@ -550,12 +551,13 @@ let tests =
 
                 match Lexing.parseFormatSpecifier "% 08.2f" with
                 | ValueSome ph ->
-                    match PrintfHoleForm.tryClassify ph with
-                    | ValueSome(PrintfHoleForm.HoleForm.Field(PrintfHoleForm.FieldFormat.ForcedSign(true,
-                                                                                                    PrintfHoleForm.Prec.Const 2,
-                                                                                                    'f',
-                                                                                                    Some 8),
-                                                              PrintfHoleForm.Alignment.None)) -> ()
+                    match PrintfHoleForm.classify ph with
+                    | PrintfHoleForm.HoleVerdict.Lowerable(PrintfHoleForm.HoleForm.Field(PrintfHoleForm.FieldFormat.ForcedSign(true,
+                                                                                                                               PrintfHoleForm.Prec.Const 2,
+                                                                                                                               'f',
+                                                                                                                               Some 8),
+                                                                                         PrintfHoleForm.Alignment.None)) ->
+                        ()
                     | other -> failtestf "expected ForcedSign(space, .2, 'f', zeroPad 8), got: %A" other
                 | ValueNone -> failtest "expected a placeholder"
             }
@@ -579,7 +581,11 @@ let tests =
                         (tast.Diagnostics |> List.map (fun d -> d.Message)))
 
                 match Lexing.parseFormatSpecifier "%+-08.2f" with
-                | ValueSome ph -> Expect.isTrue (PrintfHoleForm.tryClassify ph).IsNone "tryClassify declines the combo"
+                | ValueSome ph ->
+                    Expect.equal
+                        (PrintfHoleForm.classify ph)
+                        PrintfHoleForm.HoleVerdict.SignLeftAlignZeroPad
+                        "classify rejects the combo"
                 | ValueNone -> failtest "expected a placeholder"
             }
 
@@ -589,12 +595,13 @@ let tests =
 
                 match Lexing.parseFormatSpecifier "%+-8.2f" with
                 | ValueSome ph ->
-                    match PrintfHoleForm.tryClassify ph with
-                    | ValueSome(PrintfHoleForm.HoleForm.Field(PrintfHoleForm.FieldFormat.ForcedSign(false,
-                                                                                                    PrintfHoleForm.Prec.Const 2,
-                                                                                                    'f',
-                                                                                                    None),
-                                                              PrintfHoleForm.Alignment.Const(-8))) -> ()
+                    match PrintfHoleForm.classify ph with
+                    | PrintfHoleForm.HoleVerdict.Lowerable(PrintfHoleForm.HoleForm.Field(PrintfHoleForm.FieldFormat.ForcedSign(false,
+                                                                                                                               PrintfHoleForm.Prec.Const 2,
+                                                                                                                               'f',
+                                                                                                                               None),
+                                                                                         PrintfHoleForm.Alignment.Const(-8))) ->
+                        ()
                     | other -> failtestf "expected ForcedSign(+, .2, 'f', no pad) left-aligned to 8, got: %A" other
                 | ValueNone -> failtest "expected a placeholder"
             }
@@ -605,9 +612,11 @@ let tests =
 
                 match Lexing.parseFormatSpecifier "%-05.2f" with
                 | ValueSome ph ->
-                    match PrintfHoleForm.tryClassify ph with
-                    | ValueSome(PrintfHoleForm.HoleForm.Field(PrintfHoleForm.FieldFormat.FixedRightZeroPad(2, 5),
-                                                              PrintfHoleForm.Alignment.None)) -> ()
+                    match PrintfHoleForm.classify ph with
+                    | PrintfHoleForm.HoleVerdict.Lowerable(PrintfHoleForm.HoleForm.Field(PrintfHoleForm.FieldFormat.FixedRightZeroPad(2,
+                                                                                                                                      5),
+                                                                                         PrintfHoleForm.Alignment.None)) ->
+                        ()
                     | other -> failtestf "expected FixedRightZeroPad(2, 5), got: %A" other
                 | ValueNone -> failtest "expected a placeholder"
             }
@@ -622,8 +631,9 @@ let tests =
 
                 match Lexing.parseFormatSpecifier "%-*A" with
                 | ValueSome ph ->
-                    match PrintfHoleForm.tryClassify ph with
-                    | ValueSome(PrintfHoleForm.HoleForm.PercentA(PrintfHoleForm.PrintWidth.Star, _)) -> ()
+                    match PrintfHoleForm.classify ph with
+                    | PrintfHoleForm.HoleVerdict.Lowerable(PrintfHoleForm.HoleForm.PercentA(PrintfHoleForm.PrintWidth.Star,
+                                                                                            _)) -> ()
                     | other -> failtestf "expected PercentA(Star), got: %A" other
                 | ValueNone -> failtest "expected a placeholder"
             }
@@ -634,8 +644,9 @@ let tests =
 
                 match Lexing.parseFormatSpecifier "%+*A" with
                 | ValueSome ph ->
-                    match PrintfHoleForm.tryClassify ph with
-                    | ValueSome(PrintfHoleForm.HoleForm.PercentA(PrintfHoleForm.PrintWidth.Star, _)) -> ()
+                    match PrintfHoleForm.classify ph with
+                    | PrintfHoleForm.HoleVerdict.Lowerable(PrintfHoleForm.HoleForm.PercentA(PrintfHoleForm.PrintWidth.Star,
+                                                                                            _)) -> ()
                     | other -> failtestf "expected PercentA(Star), got: %A" other
                 | ValueNone -> failtest "expected a placeholder"
             }

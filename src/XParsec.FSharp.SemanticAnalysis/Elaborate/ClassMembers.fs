@@ -197,12 +197,6 @@ module internal ElaborateClassMembers =
         let diagnoseDropped (tok: SyntaxToken) (what: string) =
             ctx.Report(tok, Kind.NotYetSupported(sprintf "%s in a secondary constructor of '%s'" what className))
 
-        // `()` alone stays silent: dropping it loses nothing.
-        let isUnitConst (e: Expr<SyntaxToken>) =
-            match e with
-            | Expr.EmptyBlock(lParen = ParenKind.Paren _) -> true
-            | _ -> false
-
         let rec go (ace: AdditionalConstrExpr<SyntaxToken>) =
             match ace with
             | AdditionalConstrExpr.LetIn(binding = b; body = body) ->
@@ -223,14 +217,10 @@ module internal ElaborateClassMembers =
 
                 go body
             | AdditionalConstrExpr.SequenceAfter(stmt = stmt; rest = rest) ->
-                if not (isUnitConst stmt) then
-                    diagnoseDropped (CstKeys.siteOfExpr stmt).Tok "a statement before the constructor chain call"
-
+                diagnoseDropped (CstKeys.siteOfExpr stmt).Tok "a statement before the constructor chain call"
                 go rest
             | AdditionalConstrExpr.SequenceBefore(before = before; expr = e) ->
-                if not (isUnitConst e) then
-                    diagnoseDropped (CstKeys.siteOfExpr e).Tok "a 'then' statement after the constructor chain call"
-
+                diagnoseDropped (CstKeys.siteOfExpr e).Tok "a 'then' statement after the constructor chain call"
                 go before
             | AdditionalConstrExpr.Conditional(ifToken = ifTok; thenBranch = t) ->
                 diagnoseDropped ifTok "a conditional constructor chain"
