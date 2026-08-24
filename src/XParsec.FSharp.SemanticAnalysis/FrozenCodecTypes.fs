@@ -65,7 +65,9 @@ module FrozenCodecTypes =
         for _ in 1..n do
             let k = readSymbolRef r
             let v = readVal r
-            d.[k] <- v
+
+            if not (d.TryAdd(k, v)) then
+                failwithf "readSymbolDict: key %O appears twice" k
 
         d :> System.Collections.Generic.IReadOnlyDictionary<SymbolKey, 'v>
 
@@ -91,7 +93,9 @@ module FrozenCodecTypes =
         for _ in 1..n do
             let k = readTypeKeyRef r
             let v = readVal r
-            d.[k] <- v
+
+            if not (d.TryAdd(k, v)) then
+                failwithf "readTypeKeyDict: key %O appears twice" k
 
         d :> System.Collections.Generic.IReadOnlyDictionary<TypeKey, 'v>
 
@@ -107,7 +111,10 @@ module FrozenCodecTypes =
         let s = System.Collections.Generic.HashSet<SymbolKey>(n)
 
         for _ in 1..n do
-            s.Add(readSymbolRef r) |> ignore
+            let k = readSymbolRef r
+
+            if not (s.Add k) then
+                failwithf "readSymbolSet: key %O appears twice" k
 
         s :> System.Collections.Generic.IReadOnlySet<SymbolKey>
 

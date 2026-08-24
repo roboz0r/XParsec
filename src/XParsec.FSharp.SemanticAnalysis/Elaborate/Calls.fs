@@ -144,7 +144,7 @@ module internal ElaborateCalls =
         : TExpr =
         let key =
             match ctx.Resolution.LocalMemberCall.TryGetValue callKey with
-            | ValueSome resolved -> ValueSome resolved.Key
+            | ValueSome resolved -> ValueSome(SymbolKey.Member resolved.Key)
             | ValueNone ->
                 // External overload discrimination reads the object argument's declaring-type args
                 // and the ground operand element types; a non-ground operand declines to the

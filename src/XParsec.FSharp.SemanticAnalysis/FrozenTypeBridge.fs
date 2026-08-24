@@ -4,7 +4,7 @@ namespace XParsec.FSharp.SemanticAnalysis
 /// counterpart, because that split is the point of `FrozenType`.
 [<AutoOpen>]
 module FrozenTypeBridge =
-    let rec toFrozenWith (onVar: SemType -> FrozenType) (ty: SemType) : FrozenType =
+    let rec toFrozenWith (onVar: TyVarId -> FrozenType) (ty: SemType) : FrozenType =
         let go = toFrozenWith onVar
 
         match ty with
@@ -32,10 +32,10 @@ module FrozenTypeBridge =
                 }
         | TyTypar(axis, index) -> FTTypar(axis, index)
         | TyUnknown reason -> FTUnknown reason
-        | TyVar _ -> onVar ty
+        | TyVar tv -> onVar tv
 
     let toFrozen (ty: SemType) : FrozenType =
-        toFrozenWith (fun v -> failwithf "FrozenType.toFrozen: cannot freeze SemType: %A" v) ty
+        toFrozenWith (fun tv -> failwithf "FrozenType.toFrozen: cannot freeze SemType: %A" (TyVar tv)) ty
 
     /// Two templates of ONE signature must share a `methodVar` memo to agree on `j`.
     let rec instantiateWith

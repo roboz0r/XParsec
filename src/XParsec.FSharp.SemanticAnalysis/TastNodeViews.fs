@@ -192,6 +192,18 @@ module TastNodeViews =
             Value: ExprId
         }
 
+    /// The scalar payload of an `InlineCall` node; its args are the node's `exprChildren`.
+    [<Struct>]
+    type InlineCallView =
+        {
+            /// The specialization slot this call identifies: an index into the pools'
+            /// `Specializations` root array, NOT into any column a node handle reads.
+            Spec: SpecializationId
+            /// The file this call's own anchor is read against, and its arguments' too, they
+            /// being CALLER material. NOT the entry's: the entry states its own origin.
+            Source: AssemblyFilePath
+        }
+
     /// One arm of a `Match` / `TryWith`, its pattern and guard/body expressions held as
     /// handles.
     type Arm = TMatchArmG<PatId, ExprId>

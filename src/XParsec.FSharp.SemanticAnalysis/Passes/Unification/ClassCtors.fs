@@ -168,11 +168,7 @@ module internal UnificationClassCtors =
     let fillBaseCtorCall (ctx: PassContext) (info: ClassTypeInfo) : unit =
         match info.BaseType, info.BaseCtorArgs with
         | ValueSome baseTy, ValueSome argExpr ->
-            let node: NodeSite =
-                {
-                    Key = CstKeys.ofExpr argExpr
-                    Tok = CstKeys.firstTokenOfExpr argExpr
-                }
+            let node = CstKeys.siteOfExpr argExpr
 
             enterLevel ctx
 

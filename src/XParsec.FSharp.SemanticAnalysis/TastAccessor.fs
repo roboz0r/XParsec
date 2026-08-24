@@ -48,6 +48,7 @@ module TastAccessor =
     type MethodCallView = TastNodeViews.MethodCallView
     type StaticFieldGetView = TastNodeViews.StaticFieldGetView
     type StaticFieldSetView = TastNodeViews.StaticFieldSetView
+    type InlineCallView = TastNodeViews.InlineCallView
     type Arm = TastNodeViews.Arm
     type MatchView = TastNodeViews.MatchView
     type TryWithView = TastNodeViews.TryWithView
@@ -289,12 +290,10 @@ module TastAccessor =
     let private (|ERecordClone|_|) (e: ExprId) : RecordCloneView voption =
         match payload e with
         | ExprPayload.RecordClone overrideNames ->
-            let es = exprChildren e
-
             ValueSome
                 {
-                    Source = es.[0]
-                    Overrides = Array.map2 (fun n v -> (n, v)) overrideNames es.[1..]
+                    Source = exprChild e 0
+                    Overrides = overrideNames |> Array.mapi (fun i n -> (n, exprChild e (i + 1)))
                 }
         | _ -> ValueNone
 
@@ -377,14 +376,12 @@ module TastAccessor =
     let private (|EMethodCall|_|) (e: ExprId) : MethodCallView voption =
         match payload e with
         | ExprPayload.MethodCall p ->
-            let es = exprChildren e
-
             ValueSome
                 {
-                    ObjArg = es.[0]
+                    ObjArg = exprChild e 0
                     Key = p.Key
                     Via = p.Via
-                    Args = EqArray.ofArray es.[1..]
+                    Args = EqArray.init (exprChildCount e - 1) (fun i -> exprChild e (i + 1))
                 }
         | _ -> ValueNone
 
@@ -440,27 +437,13 @@ module TastAccessor =
         expect "TastAccessor.exprStaticMethodCallKey: not a StaticMethodCall node" (|EStaticMethodCall|_|) e
 
     [<return: Struct>]
-    let private (|EInlineCall|_|) (e: ExprId) : SpecializationId voption =
+    let private (|EInlineCall|_|) (e: ExprId) : InlineCallView voption =
         match payload e with
-        | ExprPayload.InlineCall p -> ValueSome p.Spec
+        | ExprPayload.InlineCall p -> ValueSome { Spec = p.Spec; Source = p.Path }
         | _ -> ValueNone
 
-    /// The specialization slot an `InlineCall` identifies: an index into the pools'
-    /// `Specializations` root array, NOT into any column this handle reads. The call's args
-    /// are the node's `exprChildren`.
-    let exprInlineCallSpec (e: ExprId) : SpecializationId =
-        expect "TastAccessor.exprInlineCallSpec: not an InlineCall node" (|EInlineCall|_|) e
-
-    [<return: Struct>]
-    let private (|EInlineCallSource|_|) (e: ExprId) : AssemblyFilePath voption =
-        match payload e with
-        | ExprPayload.InlineCall p -> ValueSome p.Path
-        | _ -> ValueNone
-
-    /// The file an `InlineCall`'s own anchor is read against, and its arguments' too, they being
-    /// CALLER material. NOT the entry's: the entry states its own origin.
-    let exprInlineCallSource (e: ExprId) : AssemblyFilePath =
-        expect "TastAccessor.exprInlineCallSource: not an InlineCall node" (|EInlineCallSource|_|) e
+    let exprInlineCall (e: ExprId) : InlineCallView =
+        expect "TastAccessor.exprInlineCall: not an InlineCall node" (|EInlineCall|_|) e
 
     [<return: Struct>]
     let private (|ECallerExprSource|_|) (e: ExprId) : AssemblyFilePath voption =
@@ -856,10 +839,19 @@ module TastAccessor =
     /// Visit each immediate child expression. NOT `mapChildren` with the result thrown
     /// away: `mapChildren` copies a row when a child moves, and a visit must append nothing.
     let iterChildren (f: ExprId -> unit) (e: ExprId) : unit =
-        for c in exprChildren e do
-            f c
+        for i in 0 .. exprChildCount e - 1 do
+            f (exprChild e i)
 
-    let existsChild (p: ExprId -> bool) (e: ExprId) : bool = exprChildren e |> Array.exists p
+    let existsChild (p: ExprId -> bool) (e: ExprId) : bool =
+        let n = exprChildCount e
+        let mutable i = 0
+        let mutable found = false
+
+        while not found && i < n do
+            found <- p (exprChild e i)
+            i <- i + 1
+
+        found
 
     /// Peel a curried `App` chain into the applied function and its argument levels. The
     /// inverse of `mintAppChain`.

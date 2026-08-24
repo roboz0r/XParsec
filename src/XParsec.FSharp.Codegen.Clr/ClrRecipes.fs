@@ -336,11 +336,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
                     let instArr =
                         TastLower.matchInstantiationPartial methodTyparArity [ openSig.Signature ] [ fnTy ]
 
-                    TastLower.solvePhantomTypars
-                        methodTyparArity
-                        openSig.Constraints
-                        tryExternalInterfaceWitness
-                        instArr
+                    TastLower.solvePhantomTypars openSig.Constraints tryExternalInterfaceWitness instArr
 
                     let methodArgs =
                         [

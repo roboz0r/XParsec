@@ -7,6 +7,7 @@ open XParsec.FSharp.SemanticAnalysis
 open ExternalTypeProbe
 open NameResolutionLongIdent
 open NameResolutionTypeRefStamp
+open UnificationTranslate
 
 // Scope tracking and ident-use resolution for NameResolution. Every name not lexically bound
 // is resolved once by `NameResolutionLongIdent` and stamped into `ctx.Resolution.Resolved`
@@ -235,6 +236,49 @@ module NameResolutionScope =
         | Pat.Missing
         | Pat.SkipsTokens _ -> []
 
+    /// The visitor for every type NAME written at a DECLARING position. Classify each name
+    /// (a claim in scope wins, else the external universe) and diagnose a SINGLE-SEGMENT one
+    /// that resolves to neither (FS0039); a DOTTED name is judged where its path's scope is resolved.
+    let classifyingTypeIter (ctx: PassContext) : CstTypeWalk.TypeIter =
+        // `float<kg>` is a measured carrier, not a generic type applied to a type argument.
+        // Neither the carrier (there is no arity-1 `float` to find) nor the measure is a type
+        // reference, so classification stops here, exactly where translation stops.
+        let isMeasuredCarrier (t: Type<SyntaxToken>) =
+            match t with
+            | Type.GenericType(longIdent = li; typeArgs = args) ->
+                li.Idents.Length = 1
+                && args.Length = 1
+                && isNumericCarrier (ctx.NameOf li.Idents.[0])
+            | _ -> false
+
+        { CstTypeWalk.identityTypeIter with
+            VisitType =
+                fun _ t ->
+                    if isMeasuredCarrier t then
+                        false
+                    else
+                        match CstKeys.ofTypeRef t with
+                        | ValueSome typeRef ->
+                            match classifyTypeRef ctx typeRef with
+                            | TypeRefVerdict.UnknownType when
+                                typeRef.LongIdent.Idents.Length = 1
+                                // A target-optional primitive name is language-known: it
+                                // resolves to its key with no contract behind it, and
+                                // `PlatformTypes` reports the mention instead.
+                                && (RuntimeNames.tryTargetOptionalPrimitiveKey (ctx.NameOf typeRef.Site.Tok)).IsNone
+                                ->
+                                ctx.UndefinedType(
+                                    Site.ofTokenOr (Site.ofLongIdent typeRef.LongIdent) typeRef.Site.Tok,
+                                    ctx.NameOf typeRef.Site.Tok
+                                )
+                            | TypeRefVerdict.UnknownType
+                            | TypeRefVerdict.LocalType
+                            | TypeRefVerdict.ExternalType _ -> ()
+                        | ValueNone -> ()
+
+                        true
+        }
+
     /// Resolve a discriminator in pattern position and stamp what it denotes at the pattern's
     /// key. A single ident that denotes nothing is a bound variable, which has no stamp.
     let private resolvePatNames
@@ -260,9 +304,8 @@ module NameResolutionScope =
             | _ -> ()
 
     /// Stamp every union-case and enum-case discriminator in `p`, including the alternatives
-    /// and sub-patterns that introduce no bound variable. Embedded type names go through
-    /// `typeIter`, which may also diagnose an unknown one.
-    let stampPatCasesWith (ctx: PassContext) (typeIter: CstTypeWalk.TypeIter) (p: Pat<SyntaxToken>) : unit =
+    /// and sub-patterns that introduce no bound variable.
+    let private stampPatCasesWith (ctx: PassContext) (typeIter: CstTypeWalk.TypeIter) (p: Pat<SyntaxToken>) : unit =
         let visit (pat: Pat<SyntaxToken>) : unit =
             match pat with
             | Pat.NamedSimple t -> resolvePatNames ctx pat (ImmutableArray.Create t)
@@ -281,10 +324,15 @@ module NameResolutionScope =
             }
             p
 
-    /// `stampPatCasesWith` under the plain stamping visitor: the body / value-position
-    /// form, where an unresolved name is not an error.
+    /// The body / value-position form: an embedded type name that resolves to nothing is
+    /// stamped and left alone.
     let stampPatCases (ctx: PassContext) (p: Pat<SyntaxToken>) : unit =
         stampPatCasesWith ctx (stampTypeIter ctx) p
+
+    /// The DECLARING-position form: an embedded type name that resolves to nothing is
+    /// diagnosed (FS0039).
+    let stampPatCasesDeclaring (ctx: PassContext) (p: Pat<SyntaxToken>) : unit =
+        stampPatCasesWith ctx (classifyingTypeIter ctx) p
 
     /// Lambda args / for-in / match-arm patterns can't carry `mutable`, so every
     /// bound variable they introduce is immutable.

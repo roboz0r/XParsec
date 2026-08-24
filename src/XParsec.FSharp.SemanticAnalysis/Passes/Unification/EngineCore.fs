@@ -377,7 +377,7 @@ module UnificationEngineCore =
     /// Peel `k` domains off the `TyFun(a, b)` chain into the `k+1` types
     /// `[dom0; …; dom_{k-1}; residualCodomain]` aligned to a `Fun`(k+1)`'s type args, or
     /// `None` if the chain is too short. The residual codomain is returned WHOLE.
-    let peelFunDomains (store: TypeStore) (k: int) (a: SemType) (b: SemType) : SemType list option =
+    let private peelFunDomains (store: TypeStore) (k: int) (a: SemType) (b: SemType) : SemType list option =
         let rec go i (dom: SemType) (cod: SemType) (acc: SemType list) =
             let acc = dom :: acc
 
@@ -389,6 +389,23 @@ module UnificationEngineCore =
                 | _ -> None
 
         go 0 a b []
+
+    /// The `k+1` types of the `TyFun(a, b)` chain aligned to `targs`, when `tyCtor`/`targs`
+    /// instantiate a `Fun`(k+1)` slot and the chain is long enough. `ValueNone` for any other
+    /// nominal, and for a chain shorter than the slot's arity.
+    let tryFunSlotPeel
+        (store: TypeStore)
+        (tyCtor: TypeKey)
+        (targs: EqArray<SemType>)
+        (a: SemType)
+        (b: SemType)
+        : SemType list voption =
+        match funSlotArityOfArgs tyCtor targs.Length with
+        | Some k ->
+            match peelFunDomains store k a b with
+            | Some tys -> ValueSome tys
+            | None -> ValueNone
+        | None -> ValueNone
 
     /// `keyOf` applied to the capability that `key` spells under either of its two nominal
     /// names; any other key passes through. Allocation-free: `keyOf` is inlined at each site.

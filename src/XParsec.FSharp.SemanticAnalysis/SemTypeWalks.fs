@@ -259,7 +259,7 @@ module SemTypePatterns =
 module SemType =
     /// Rebuild with `f` applied to each DIRECT child; a leaf (incl. `TyVar`) returns
     /// unchanged, and so does a node whose children all come back reference-equal; a ground
-    /// subtree therefore walks allocation-free. `TyOr` excepted: it always rebuilds via `MkUnion`.
+    /// subtree therefore walks allocation-free.
     let mapChildren (f: SemType -> SemType) (t: SemType) : SemType =
         match t with
         | TyConst(name, args) ->
@@ -290,7 +290,10 @@ module SemType =
             match EqArray.mapPreserve f args with
             | ValueNone -> t
             | ValueSome args' -> TyClass(key, args')
-        | TyOr disjuncts -> disjuncts.Map f
+        | TyOr disjuncts ->
+            match disjuncts.MapPreserve f with
+            | ValueNone -> t
+            | ValueSome t' -> t'
         | TyKeyOf ty ->
             let ty' = f ty
             if refEq ty' ty then t else TyKeyOf ty'

@@ -32,15 +32,12 @@ module Freeze =
         (schemes: Dictionary<TyVarId, struct (SchemeId * int)>)
         (t: SemType)
         : FrozenType =
-        let onVar (v: SemType) : FrozenType =
-            match v with
-            | TyVar tv ->
-                // Key on the union-find ROOT: two `TyVar` nodes in the same class are
-                // the same typar and must land on the same `FTLocalTypar`.
-                match schemes.TryGetValue((UnionFind.find store tv).Id) with
-                | true, struct (scheme, index) -> FTLocalTypar(scheme, index)
-                | _ -> FTUnknown UnknownReason.UnresolvedTypar
-            | _ -> failwithf "Freeze.freezeTy: `toFrozenWith` invoked the TyVar policy on a non-TyVar: %A" v
+        let onVar (tv: TyVarId) : FrozenType =
+            // Key on the union-find ROOT: two `TyVar` nodes in the same class are
+            // the same typar and must land on the same `FTLocalTypar`.
+            match schemes.TryGetValue((UnionFind.find store tv).Id) with
+            | true, struct (scheme, index) -> FTLocalTypar(scheme, index)
+            | _ -> FTUnknown UnknownReason.UnresolvedTypar
 
         // Deep-`zonk` first: elaboration leaves fields holding a `TyVar` root linked to a
         // concrete type, so only a genuinely UNLINKED root reaches `onVar`.

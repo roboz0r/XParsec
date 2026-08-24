@@ -476,28 +476,28 @@ module internal ElaborateExpr =
         // `newarr` / `ldelem.any` carry one element-type operand, but the source `!0`
         // placeholder is unparsed tokens: recover the element from the node's declared
         // types. Normalised (`ldelem.any` → `ldelem`) to the spelling codegen reads.
-        if opCode.StartsWith "newarr" then
+        if opCode.StartsWith("newarr", StringComparison.Ordinal) then
             let elem =
                 match Unification.zonk ctx.Store ty with
                 | TyArray elem -> elem
                 | other -> failwithf "Elaborate: 'newarr' result is not a rank-1 array: %A" other
 
             TExpr.ILIntrinsic("newarr", ValueSome elem, tArgs, ty, tok)
-        elif opCode.StartsWith "ldelem" then
+        elif opCode.StartsWith("ldelem", StringComparison.Ordinal) then
             TExpr.ILIntrinsic("ldelem", ValueSome(Unification.zonk ctx.Store ty), tArgs, ty, tok)
-        elif opCode.StartsWith "stelem" then
+        elif opCode.StartsWith("stelem", StringComparison.Ordinal) then
             // `arr.[i] <- v`. The store's result is `unit`, so the element type is
             // recovered from the value operand (the 3rd arg: array, index, value),
             // not the node's result type as `ldelem` does.
             let elem = Unification.zonk ctx.Store (typeOfKey ctx (CstKeys.ofExpr args.[2]))
             TExpr.ILIntrinsic("stelem", ValueSome elem, tArgs, ty, tok)
-        elif opCode.StartsWith "box" then
+        elif opCode.StartsWith("box", StringComparison.Ordinal) then
             // `box value` — the boxed type is the *argument's* static type (the
             // result is always `obj`), so recover it from the single value operand.
             // On a reference type `box` is a runtime no-op.
             let elem = Unification.zonk ctx.Store (typeOfKey ctx (CstKeys.ofExpr args.[0]))
             TExpr.ILIntrinsic("box", ValueSome elem, tArgs, ty, tok)
-        elif opCode.StartsWith "ilzero" then
+        elif opCode.StartsWith("ilzero", StringComparison.Ordinal) then
             // `Unchecked.defaultof<'T>` — `ilzero`'s result IS the defaulted `'T`, so
             // the operand type is the node's result type. The source `type ('T)` clause
             // is decorative; the result type is authoritative.

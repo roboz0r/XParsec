@@ -353,49 +353,6 @@ module NameResolutionTypeRegistration =
             | ValueSome identity -> ValueSome { Identity = identity; Defn = td }
             | ValueNone -> ValueNone
 
-    /// The visitor for every type NAME written at a DECLARING position. Classify each name
-    /// (a claim in scope wins, else the external universe) and diagnose a SINGLE-SEGMENT one
-    /// that resolves to neither (FS0039); a DOTTED name is judged where its path's scope is resolved.
-    let private classifyingTypeIter (ctx: PassContext) : CstTypeWalk.TypeIter =
-        // `float<kg>` is a measured carrier, not a generic type applied to a type argument.
-        // Neither the carrier (there is no arity-1 `float` to find) nor the measure is a type
-        // reference, so classification stops here, exactly where translation stops.
-        let isMeasuredCarrier (t: Type<SyntaxToken>) =
-            match t with
-            | Type.GenericType(longIdent = li; typeArgs = args) ->
-                li.Idents.Length = 1
-                && args.Length = 1
-                && isNumericCarrier (ctx.NameOf li.Idents.[0])
-            | _ -> false
-
-        { CstTypeWalk.identityTypeIter with
-            VisitType =
-                fun _ t ->
-                    if isMeasuredCarrier t then
-                        false
-                    else
-                        match CstKeys.ofTypeRef t with
-                        | ValueSome typeRef ->
-                            match classifyTypeRef ctx typeRef with
-                            | TypeRefVerdict.UnknownType when
-                                typeRef.LongIdent.Idents.Length = 1
-                                // A target-optional primitive name is language-known: it
-                                // resolves to its key with no contract behind it, and
-                                // `PlatformTypes` reports the mention instead.
-                                && (RuntimeNames.tryTargetOptionalPrimitiveKey (ctx.NameOf typeRef.Site.Tok)).IsNone
-                                ->
-                                ctx.UndefinedType(
-                                    Site.ofTokenOr (Site.ofLongIdent typeRef.LongIdent) typeRef.Site.Tok,
-                                    ctx.NameOf typeRef.Site.Tok
-                                )
-                            | TypeRefVerdict.UnknownType
-                            | TypeRefVerdict.LocalType
-                            | TypeRefVerdict.ExternalType _ -> ()
-                        | ValueNone -> ()
-
-                        true
-        }
-
     /// The three bodied class-like spellings, which differ only in what the BODY means: a
     /// `struct` is a value type, an `interface` is one whether or not its members say so, and
     /// a bare body is an interface exactly when every member it holds is abstract.
@@ -562,7 +519,7 @@ module NameResolutionTypeRegistration =
     /// constraints, its fields or cases, its base, its interfaces and its `val`s. A member
     /// signature is NOT structure, and is classified with the member below.
     let classifyDeclaredSigTypes (ctx: PassContext) (decl: SigDecl) : unit =
-        let it = classifyingTypeIter ctx
+        let it = NameResolutionScope.classifyingTypeIter ctx
 
         let extensions (ext: TypeExtensionElementsSignature<SyntaxToken> voption) =
             match ext with
@@ -598,26 +555,26 @@ module NameResolutionTypeRegistration =
         | SigDecl.Opaque _ -> ()
 
     let classifyValSigTypes (ctx: PassContext) (vs: ValSig<SyntaxToken>) : unit =
-        CstTypeWalk.iterValSigTypes (classifyingTypeIter ctx) vs
+        CstTypeWalk.iterValSigTypes (NameResolutionScope.classifyingTypeIter ctx) vs
 
     /// Classify + stamp what ONE member signature writes. Held apart from the declaring
     /// type's structure above: a member is published or dropped on its own.
     let classifyCurriedSigTypes (ctx: PassContext) (cs: CurriedSig<SyntaxToken>) : unit =
-        CstTypeWalk.iterTypeCurriedSig (classifyingTypeIter ctx) cs
+        CstTypeWalk.iterTypeCurriedSig (NameResolutionScope.classifyingTypeIter ctx) cs
 
     /// `classifyCurriedSigTypes` for a `new: … -> T` constructor signature.
     let classifyUncurriedSigTypes (ctx: PassContext) (sign: UncurriedSig<SyntaxToken>) : unit =
-        CstTypeWalk.iterTypeUncurriedSig (classifyingTypeIter ctx) sign
+        CstTypeWalk.iterTypeUncurriedSig (NameResolutionScope.classifyingTypeIter ctx) sign
 
     /// Classify + stamp every type name in ONE type definition's declared surface, under the
     /// scope in force at its group. The `inherit` clause is stamped but NOT diagnosed here: it
     /// resolves against the referent's registered DETAIL, so its verdict waits for group close.
     let classifyDeclaredTypes (ctx: PassContext) (td: TypeDefn<SyntaxToken>) : unit =
-        let it = classifyingTypeIter ctx
+        let it = NameResolutionScope.classifyingTypeIter ctx
 
         CstTypeWalk.iterTypeDefnTypes
             it
-            (NameResolutionScope.stampPatCasesWith ctx it)
+            (NameResolutionScope.stampPatCasesDeclaring ctx)
             (CstTypeWalk.iterType (stampTypeIter ctx))
             td
 
@@ -626,7 +583,7 @@ module NameResolutionTypeRegistration =
     /// (`fun (x: A) …`, a nested `let`'s pats, a `for`-in bound variable, a match arm's type test).
     let private classifyingExprWalker (ctx: PassContext) (it: CstTypeWalk.TypeIter) : CstWalk.ExprWalker<unit> =
         let onType = CstTypeWalk.iterType it
-        let onPat = NameResolutionScope.stampPatCasesWith ctx it
+        let onPat = NameResolutionScope.stampPatCasesDeclaring ctx
 
         let onPats (ps: ImmutableArray<Pat<SyntaxToken>>) =
             for p in ps do
@@ -662,14 +619,14 @@ module NameResolutionTypeRegistration =
     /// return-type annotations, and every annotation reachable in its body. Runs at the term's
     /// own position in the scan, so the registry holds exactly the types declared ABOVE it.
     let classifyTermTypes (ctx: PassContext) (m: ModuleElem<SyntaxToken>) : unit =
-        let it = classifyingTypeIter ctx
+        let it = NameResolutionScope.classifyingTypeIter ctx
         let walker = classifyingExprWalker ctx it
 
         let binding (b: Binding<SyntaxToken>) =
-            NameResolutionScope.stampPatCasesWith ctx it b.pattern
+            NameResolutionScope.stampPatCasesDeclaring ctx b.pattern
 
             for p in b.argumentPats do
-                NameResolutionScope.stampPatCasesWith ctx it p
+                NameResolutionScope.stampPatCasesDeclaring ctx p
 
             match b.returnType with
             | ValueSome(ReturnType(typ = t)) -> CstTypeWalk.iterType it t

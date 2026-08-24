@@ -92,7 +92,6 @@ module TastLower =
     /// whose `ci` is already solved, `tryWitness` reads that type's actual impl of
     /// `target`'s interface, and `target`'s typars are recovered from the witness.
     let solvePhantomTypars
-        (typarCount: int)
         (constraints: FrozenConstraint list)
         (tryWitness: FrozenType -> TypeKey -> EqArray<FrozenType> voption)
         (instArr: FrozenType voption[])
@@ -127,7 +126,7 @@ module TastLower =
                                 | ValueSome witnessArgs ->
                                     let holes =
                                         matchInstantiationPartial
-                                            typarCount
+                                            instArr.Length
                                             [ target ]
                                             [ FTClass(ifaceKey, witnessArgs) ]
 

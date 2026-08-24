@@ -9,9 +9,10 @@ open XParsec.FSharp.Parser
 /// target whose platform reprs a signature's `type t = extern` resolves against.
 type CompilingAssembly = { Name: AssemblyName; Target: string }
 
-[<Sealed>]
 type KeyedTable<'K, 'V when 'K: equality>() =
     let dict = Dictionary<'K, 'V>(HashIdentity.Structural)
+
+    member internal _.Backing = dict
 
     member _.Count = dict.Count
 
@@ -22,14 +23,21 @@ type KeyedTable<'K, 'V when 'K: equality>() =
 
     member _.Set(key: 'K, value: 'V) = dict[key] <- value
 
-    member _.Remove(key: 'K) = dict.Remove key |> ignore
-
     member _.ContainsKey(key: 'K) = dict.ContainsKey key
 
     /// A live view of the backing dictionary, not a copy: later `Set`s show through it.
     member _.AsDictionary() : IReadOnlyDictionary<'K, 'V> = dict :> _
 
+/// A `KeyedTable` whose entries may also be retracted.
+[<Sealed>]
+type RevocableKeyedTable<'K, 'V when 'K: equality>() =
+    inherit KeyedTable<'K, 'V>()
+
+    member this.Remove(key: 'K) = this.Backing.Remove key |> ignore
+
 type SideTable<'V> = KeyedTable<NodeKey, 'V>
+
+type RevocableSideTable<'V> = RevocableKeyedTable<NodeKey, 'V>
 
 type BoundVarTable<'V> = KeyedTable<BoundVarKey, 'V>
 
@@ -116,7 +124,7 @@ type PassContextBindings =
         Binding: SideTable<ResolvedBinding>
         /// Keyed by the binding's pattern `NodeKey`. Present only for a single-name or
         /// operator name that generalises; destructuring patterns and lambda parameters get none.
-        Scheme: SideTable<TypeScheme>
+        Scheme: RevocableSideTable<TypeScheme>
         TypeVar: SideTable<TyVarId>
         Escape: SideTable<EscapeState>
         /// Bindings inside a named `module Foo = …`: which compiled module name (`Foo`/`FooModule`,
@@ -136,7 +144,7 @@ module PassContextBindings =
     let empty () : PassContextBindings =
         {
             Binding = SideTable<_>()
-            Scheme = SideTable<_>()
+            Scheme = RevocableSideTable<_>()
             TypeVar = SideTable<_>()
             Escape = SideTable<_>()
             ModuleMembers = Dictionary<_, _>()
@@ -517,12 +525,14 @@ type PassContext(provider: IExternalSymbolProvider, file: LexedFile, assembly: C
         (TypeRegistry.tryUnionByKey types RuntimeNames.vesperListKey).IsSome
         || (provider.TryLookupType RuntimeNames.vesperListKey).IsSome
 
-    /// `x?name` sites, swept once inference has settled: a `Root` that zonks to a concrete
-    /// non-`dynamic` type is an implicit escape and warns unless `DynamicEscapeSuppressed`.
+    /// `x?name` sites eligible for the sweep once inference has settled: a `Root` that zonks
+    /// to a concrete non-`dynamic` type is an implicit escape and warns.
     member val DynamicEscapes = ResizeArray<DynamicEscapeSite>() with get
 
-    /// `?` node keys whose escape warning an ascription on the `?` itself (`(d?foo : int)`) suppresses.
-    member val DynamicEscapeSuppressed = HashSet<NodeKey>() with get
+    /// Drops the `?` node's escape site, an ascription on the `?` itself (`(d?foo : int)`)
+    /// being an explicit assertion of the escaped type.
+    member this.SuppressDynamicEscape(key: NodeKey) =
+        this.DynamicEscapes.RemoveAll(fun site -> site.Node.Key = key) |> ignore
 
     /// Type names this file's SOURCE wrote and nothing defined. The unifier's `TyUnknown` arm
     /// stays silent for these, because its message blames a missing package, not a spelling mistake.

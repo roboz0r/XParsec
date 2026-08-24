@@ -270,13 +270,14 @@ module InlineExpand =
             (site: Site)
             (e: TastAccessor.ExprId)
             : TastAccessor.ExprId =
-            let spec = TastAccessor.exprInlineCallSpec e
+            let call = TastAccessor.exprInlineCall e
+            let spec = call.Spec
             let entry = TastAccessor.specialization pool spec
 
             // The node states the domain of its own anchor; the descent derives the same thing
             // from the edges it came through. A disagreement is the only warning: an anchor read
             // in the wrong file's index space resolves in range and points to an unrelated token.
-            let stated = domainOf (TastAccessor.exprInlineCallSource e)
+            let stated = domainOf call.Source
 
             if stated <> domain then
                 failwithf

@@ -75,11 +75,13 @@ module Conformance =
             | ImplShape.Enum
             | ImplShape.Other _ -> ValueNone
 
+    /// One declared type name carrying its side's shape.
     [<Struct; NoEquality; NoComparison>]
-    type SigDecl = { Name: string; Shape: SigShape }
+    type Decl<'Shape> = { Name: string; Shape: 'Shape }
 
-    [<Struct; NoEquality; NoComparison>]
-    type ImplDecl = { Name: string; Shape: ImplShape }
+    type SigDecl = Decl<SigShape>
+
+    type ImplDecl = Decl<ImplShape>
 
     [<RequireQualifiedAccess>]
     type ConformanceError =

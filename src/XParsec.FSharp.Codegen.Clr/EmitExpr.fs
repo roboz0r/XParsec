@@ -112,7 +112,7 @@ module EmitExpr =
         // A surviving `Range` was reported at Elaborate as `RangeNotFirstClassValue`.
         | ExprShape.Range -> failwithf "Emit: unsupported expression: %A" e
 
-        | ExprShape.InlineCall -> TastLower.inlineCallUnexpanded (TastAccessor.exprInlineCallSpec e)
+        | ExprShape.InlineCall -> TastLower.inlineCallUnexpanded (TastAccessor.exprInlineCall e).Spec
         | ExprShape.CallerExpr -> TastLower.callerExprUnexpanded ()
         | ExprShape.TraitCall -> TastLower.traitCallUnresolved (TastAccessor.exprTraitCallMemberName e)
 

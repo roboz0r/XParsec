@@ -198,16 +198,17 @@ module UnificationSubsume =
         // string`). The converse, plain `string` into a literal, is not admitted here, because
         // a `string` source reaches `subsumesNominal` and is `Unrelated`.
         | TyLiteral v, TyConst(key, _) when key = RuntimeNames.literalBaseKey v -> SubsumeOutcome.Subtype
-        // A structural `TyFun(a, …)` IS a subtype of `Vesper.Fun`(k+1)<a1..ak, r>`: peel
-        // `k = targs.Length - 1` domains, each invariant-`Equal` to its `Fun` arg, and the
-        // residual codomain matched WHOLE (it may be a further curried function).
-        | TyFun(a, b), (TyClass(tk, targs)) when funSlotArityOfArgs tk targs.Length |> Option.isSome ->
-            let k = targs.Length - 1
-
-            match peelFunDomains ctx.Store k a b with
-            | Some tys when List.forall2 (fun s t -> subsumes ctx s t = SubsumeOutcome.Equal) tys (EqArray.toList targs) ->
+        // A structural `TyFun(a, …)` IS a subtype of `Vesper.Fun`(k+1)<a1..ak, r>` when each
+        // peeled domain is invariant-`Equal` to its `Fun` arg and the residual codomain
+        // matches WHOLE (it may be a further curried function).
+        | TyFun(a, b), (TyClass(tk, targs)) ->
+            match tryFunSlotPeel ctx.Store tk targs a b with
+            | ValueSome tys when
+                List.forall2 (fun s t -> subsumes ctx s t = SubsumeOutcome.Equal) tys (EqArray.toList targs)
+                ->
                 SubsumeOutcome.Subtype
-            | _ -> SubsumeOutcome.Unrelated
+            | ValueSome _ -> SubsumeOutcome.Unrelated
+            | ValueNone -> subsumesNominal ctx src tgt
         | _ -> subsumesNominal ctx src tgt
 
     /// The nominal core of `subsumes` (no union operands): `src` subsumes `tgt` iff it

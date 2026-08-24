@@ -240,10 +240,13 @@ and [<Sealed>] TyDisjuncts private (disjuncts: EqSet<SemType>) =
 
         TyDisjuncts(EqSet.ofSeq acc)
 
-    /// Substituting can collapse the set (`'T | string` with `'T := string` → `string`), so
-    /// the result is a `SemType`, not a `TyDisjuncts`.
-    member _.Map(f: SemType -> SemType) : SemType =
-        SemType.MkUnion(seq { for d in disjuncts -> f d })
+    /// `f` applied to each disjunct, or `ValueNone` when every disjunct maps reference-equal.
+    /// Substituting can collapse the set (`'T | string` with `'T := string` → `string`), so a
+    /// mapped result is a `SemType`, not a `TyDisjuncts`.
+    member _.MapPreserve(f: SemType -> SemType) : SemType voption =
+        match EqArray.mapPreserve f (EqArray.ofImmutable disjuncts.Underlying) with
+        | ValueNone -> ValueNone
+        | ValueSome mapped -> ValueSome(SemType.MkUnion mapped)
 
     override _.Equals(other) =
         match other with

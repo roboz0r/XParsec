@@ -8,13 +8,12 @@ type RegionId =
     new(raw) = { Raw = raw }
     static member Unknown = RegionId(-1)
 
-/// `Rational.create` canonicalises (`gcd(|Numerator|, Denominator) = 1`, `Denominator > 0`);
-/// the raw constructor does not, and `Equals` compares fields, so only canonical values match.
+/// A canonical rational: `gcd(|Numerator|, Denominator) = 1` and `Denominator > 0`.
 [<Struct; CustomEquality; CustomComparison>]
 type Rational =
     val Numerator: bigint
     val Denominator: bigint
-    new(n: bigint, d: bigint) = { Numerator = n; Denominator = d }
+    private new(n: bigint, d: bigint) = { Numerator = n; Denominator = d }
 
     static member create(n: bigint, d: bigint) : Rational =
         if d.IsZero then

@@ -200,15 +200,24 @@ module NodeKey =
 /// A key's number IS its token's character offset, but a key cannot be inverted back to a
 /// token, so the token travels beside it.
 [<Struct>]
-type NodeSite = { Key: NodeKey; Tok: SyntaxToken }
+type NodeSite =
+    private
+        {
+            SiteKey: NodeKey
+            SiteTok: SyntaxToken
+        }
+
+    member this.Key: NodeKey = this.SiteKey
+
+    member this.Tok: SyntaxToken = this.SiteTok
 
 [<RequireQualifiedAccess>]
 module NodeSite =
 
     let ofToken (kind: NodeKind) (tok: SyntaxToken) : NodeSite =
         {
-            Key = NodeKey.ofToken tok kind
-            Tok = tok
+            SiteKey = NodeKey.ofToken tok kind
+            SiteTok = tok
         }
 
 /// Identity of a source LAMBDA expression: the INDEX of its anchor token, not the character

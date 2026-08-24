@@ -54,21 +54,22 @@ module Unification =
         | TyFun(p, r) when groups > 0 -> TyFun(p, setterSemType (groups - 1) r)
         | value -> TyFun(value, TyConst(RuntimeNames.unitKey, EqArray.empty))
 
-    /// The ABI order an abstract slot's own typars take, minted from its elaborated signature
-    /// because it has no body to infer one from. The declaring type's typars are FIXED — they
-    /// are the type's axis, not the method's — and a seed typar already linked to a concrete
-    /// type is no longer one.
-    let private canonicalSlotTypars
+    /// The ABI order a member's own typars take, in canonical F# order: the explicitly-declared
+    /// `<'C>` typars first (source order), then every remaining free root of `memberTy` by first
+    /// appearance. The declaring type's typars are FIXED — they are the type's axis, not the
+    /// method's — and a seed typar already linked to a concrete type is no longer one.
+    let private canonicalMemberTypars
         (ctx: PassContext)
         (declTypars: EqArray<string * TyVarId>)
         (mInfo: TypeMemberInfo)
-        (sigTy: SemType)
+        (memberTy: SemType)
         : GeneralizedTypars =
         let rootOf (tv: TyVarId) =
             match zonk ctx.Store (TyVar tv) with
             | TyVar r -> ValueSome(UnionFind.find ctx.Store r)
             | _ -> ValueNone
 
+        // Zonked HERE because a class typar's root can move while a body types.
         let fixedRoots = HashSet<TyVarId>()
 
         for (_, ptv) in declTypars do
@@ -89,6 +90,9 @@ module Unification =
                 | _ -> None
             )
 
+        // Every registered member typar has a real source name (`'a`) that survives into the
+        // emitted GenericParam; keyed by root identity, so `canonical` synthesises `M0`, `M1`, …
+        // only for an unregistered root.
         let knownNames = Dictionary<TyVarId, string>()
 
         for (name, ptv) in seed do
@@ -98,7 +102,7 @@ module Unification =
                     knownNames.[r.Id] <- name
             | ValueNone -> ()
 
-        GeneralizedTypars.canonical ctx.Store declared fixedRoots knownNames (zonk ctx.Store sigTy)
+        GeneralizedTypars.canonical ctx.Store declared fixedRoots knownNames (zonk ctx.Store memberTy)
 
     /// Parameters for a registry-driven walk over a class or union's member bodies.
     /// `PrelinkExtras` runs after the typar scope is set but before `this` is bound.
@@ -117,9 +121,7 @@ module Unification =
             Generalise: bool
         }
 
-    /// Stamp a member's `CanonicalTypars` in canonical F# order, post-inference:
-    /// explicitly-declared `<'C>` typars first (source order), then every remaining free
-    /// root of the member type by first appearance, excluding the enclosing class typars.
+    /// Stamp a member's `CanonicalTypars` post-inference, after resolving its defaults.
     let private generaliseMemberTypars
         (ctx: PassContext)
         (outerLevel: int)
@@ -134,54 +136,7 @@ module Unification =
             // quantifying the arithmetic typar.
             UnificationInferGeneralize.applyDefaults ctx.Store memberTy outerLevel
 
-            // The enclosing class typars: a `'T` is a declaring-axis param, not a method
-            // one. Zonked HERE because a class typar's root can move while a body types.
-            let fixedRoots = HashSet<TyVarId>()
-
-            for (_, ptv) in classTypars do
-                match zonk ctx.Store (TyVar ptv) with
-                | TyVar r -> fixedRoots.Add((UnionFind.find ctx.Store r).Id) |> ignore
-                | _ -> ()
-
-            // The leading `DeclaredTyparCount` seed entries are the explicit `<'C>` typars
-            // (source order); the annotation-implicit rest order by first appearance, like
-            // body-inferred ones.
-            let seed = EqArray.toList mInfo.SeedTypars
-
-            // A declared typar inference pinned to a concrete type is no longer one.
-            let declared =
-                seed
-                |> List.truncate mInfo.DeclaredTyparCount
-                |> List.choose (fun (name, ptv) ->
-                    match zonk ctx.Store (TyVar ptv) with
-                    | TyVar r ->
-                        let root = UnionFind.find ctx.Store r
-
-                        if (ctx.Store.Link root).IsNone then
-                            Some(name, root.Id)
-                        else
-                            None
-                    | _ -> None
-                )
-
-            // Every registered method typar has a real source name (`'a`) that survives
-            // into the emitted GenericParam; key those by root identity, so `canonical`
-            // synthesises `M0`, `M1`, … only for an unregistered root.
-            let knownNames = Dictionary<TyVarId, string>()
-
-            for (name, ptv) in seed do
-                match zonk ctx.Store (TyVar ptv) with
-                | TyVar r ->
-                    let root = UnionFind.find ctx.Store r
-
-                    if not (knownNames.ContainsKey root.Id) then
-                        knownNames.[root.Id] <- name
-                | _ -> ()
-
-            let gt =
-                GeneralizedTypars.canonical ctx.Store declared fixedRoots knownNames (zonk ctx.Store memberTy)
-
-            mInfo.Generalise gt
+            mInfo.Generalise(canonicalMemberTypars ctx classTypars mInfo memberTy)
         | _ -> ()
 
     /// Walk every method / property / auto-property body under a typar scope seeded
@@ -301,7 +256,7 @@ module Unification =
                             // An abstract method has no body to infer, so mint its
                             // canonical ABI order from the elaborated signature.
                             if mInfo.Kind = ClassMemberKind.Method && not mInfo.SeedTypars.IsEmpty then
-                                mInfo.Generalise(canonicalSlotTypars ctx fc.TypeParams mInfo sigTy)
+                                mInfo.Generalise(canonicalMemberTypars ctx fc.TypeParams mInfo sigTy)
                         finally
                             ctx.Resolution.TyparScope <- savedMScope
                     | _ -> ()

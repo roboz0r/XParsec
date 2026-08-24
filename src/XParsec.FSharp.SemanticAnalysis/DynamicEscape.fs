@@ -10,10 +10,8 @@ module DynamicEscape =
 
     let run (ctx: PassContext) : unit =
         for site in ctx.DynamicEscapes do
-            if not (ctx.DynamicEscapeSuppressed.Contains site.Node.Key) then
-                match Unification.zonk ctx.Store (TyVar site.Root) with
-                // Default fired (stayed `dynamic`) or still open, so there is no unchecked escape.
-                | TyDynamic -> ()
-                | TyVar _ -> ()
-                | escaped ->
-                    ctx.Report(site.Node.Tok, Kind.DynamicEscape(UnificationEngineCore.shown ctx.Store escaped))
+            match Unification.zonk ctx.Store (TyVar site.Root) with
+            // Default fired (stayed `dynamic`) or still open, so there is no unchecked escape.
+            | TyDynamic -> ()
+            | TyVar _ -> ()
+            | escaped -> ctx.Report(site.Node.Tok, Kind.DynamicEscape(UnificationEngineCore.shown ctx.Store escaped))

@@ -39,6 +39,11 @@ module FrozenCodec =
         if ChildColumn.length col <> poolSize then
             failwithf "FrozenCodec: %s delimits %d slots but its pool holds %d" name (ChildColumn.length col) poolSize
 
+    /// A decoded parallel column carries one slot per entry of the pool it is indexed by.
+    let private checkColumn (name: string) (poolSize: int) (col: 'v[]) =
+        if col.Length <> poolSize then
+            failwithf "FrozenCodec: %s holds %d slots but its pool holds %d" name col.Length poolSize
+
     /// One optional value per bound variable slot, in bound-variable pool order. NO id is written,
     /// because the slot's POSITION is the bound variable, so the wire carries a presence byte per slot.
     let private writeBoundVarColumn (w: FrozenWriter) (writeVal: FrozenWriter -> 'v -> unit) (col: BoundVarColumn<'v>) =
@@ -537,6 +542,12 @@ module FrozenCodec =
         checkSlots "PatChildren" patPayloads.Length patChildren
         checkSlots "DeclExprChildren" declPayloads.Length declExprChildren
         checkSlots "DeclPatChildren" declPayloads.Length declPatChildren
+        checkColumn "ExprTys" exprPayloads.Length exprTys
+        checkColumn "ExprToks" exprPayloads.Length exprToks
+        checkColumn "ExprVarBoundVar" exprPayloads.Length exprVarBoundVar
+        checkColumn "PatTys" patPayloads.Length patTys
+        checkColumn "PatToks" patPayloads.Length patToks
+        checkColumn "BoundVarToks" boundVarNames.Length boundVarToks
 
         {
             Path = path

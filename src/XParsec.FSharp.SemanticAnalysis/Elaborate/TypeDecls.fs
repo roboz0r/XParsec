@@ -51,6 +51,42 @@ module internal ElaborateTypeDecls =
         else
             ValueNone
 
+    /// The decl's freeze env: the declaring typars, extended in place with every generic
+    /// method's own as the members elaborate. The cut from `TyVar` is deferred and applied to
+    /// the whole decl at once.
+    let private mkDeclEnv (ctx: PassContext) (typeParams: EqArray<string * TyVarId>) : ResizeArray<TyVarId * SemType> =
+        ResizeArray(mkDeclTyparEnv ctx.Store typeParams)
+
+    /// What a host surfacer elaborates its members under: the decl's freeze env, its
+    /// declaring typar names in declaration order, its self-type, and the elaborator bound to
+    /// that self-type.
+    [<NoEquality; NoComparison>]
+    type private DeclScope =
+        {
+            Env: ResizeArray<TyVarId * SemType>
+            DeclTypars: string list
+            SelfTy: SemType
+            ElaborateOne: TTypeMember -> TTypeMember
+        }
+
+    /// The elaboration scope of a decl whose self-type `mkSelfTy` builds from the declaring
+    /// typars' `TyVar` roots.
+    let private mkDeclScope
+        (ctx: PassContext)
+        (typeParams: EqArray<string * TyVarId>)
+        (mkSelfTy: EqArray<SemType> -> SemType)
+        : DeclScope =
+        let env = mkDeclEnv ctx typeParams
+        let declTypars = [ for (n, _) in typeParams -> n ]
+        let selfTy = mkSelfTy (declTyparArgs ctx.Store typeParams)
+
+        {
+            Env = env
+            DeclTypars = declTypars
+            SelfTy = selfTy
+            ElaborateOne = mkMemberElaborator selfTy declTypars env
+        }
+
     /// Classify an object-model body as an interface and build its methods from the
     /// resolved member signatures. An `Anon`/`Interface` body registers as a class.
     let private tryInterfaceMethods
@@ -78,10 +114,7 @@ module internal ElaborateTypeDecls =
             | ValueSome info ->
                 // The member signatures were typed under the class's typar scope, so they
                 // share these prototype TyVars and the remap reaches every one.
-                let markers = mkDeclTyparEnv ctx.Store info.TypeParams
-                // The decl's freeze env: declaring typars plus every generic method's own.
-                // The cut from `TyVar` is deferred and applied to the whole decl at once.
-                let env = ResizeArray markers
+                let env = mkDeclEnv ctx info.TypeParams
 
                 let methods =
                     EqArray.ofSeq (
@@ -151,8 +184,12 @@ module internal ElaborateTypeDecls =
         match resolved with
         | ValueNone -> None
         | ValueSome info ->
-            let markers = mkDeclTyparEnv ctx.Store info.TypeParams
-            let env = ResizeArray markers
+            let {
+                    Env = env
+                    DeclTypars = declTypars
+                    ElaborateOne = elaborateOne
+                } =
+                mkDeclScope ctx info.TypeParams (fun args -> TyUnion(info.TypeKey, args))
 
             let cases =
                 EqArray.ofSeq (
@@ -175,13 +212,6 @@ module internal ElaborateTypeDecls =
                             { Name = c.Name; Fields = fields }
                     }
                 )
-
-            // A generic union's members carry the declaring typars as `TyVar` roots in the
-            // self-type; the later cut takes them to `TyTypar`, exactly like case fields.
-            let declTypars = [ for (n, _) in info.TypeParams -> n ]
-
-            let selfTy = TyUnion(info.TypeKey, declTyparArgs ctx.Store info.TypeParams)
-            let elaborateOne = mkMemberElaborator selfTy declTypars env
 
             let members, interfaces =
                 elaborateHostMembers ctx (info :> IInterfaceImplHost) ext elaborateOne
@@ -276,8 +306,12 @@ module internal ElaborateTypeDecls =
         match resolved with
         | ValueNone -> None
         | ValueSome info ->
-            let markers = mkDeclTyparEnv ctx.Store info.TypeParams
-            let env = ResizeArray markers
+            let {
+                    Env = env
+                    DeclTypars = declTypars
+                    ElaborateOne = elaborateOne
+                } =
+                mkDeclScope ctx info.TypeParams (fun args -> TyRecord(info.TypeKey, args))
 
             let fields =
                 EqArray.ofSeq (
@@ -290,10 +324,6 @@ module internal ElaborateTypeDecls =
                             }
                     }
                 )
-
-            let declTypars = [ for (n, _) in info.TypeParams -> n ]
-            let selfTy = TyRecord(info.TypeKey, declTyparArgs ctx.Store info.TypeParams)
-            let elaborateOne = mkMemberElaborator selfTy declTypars env
 
             let members, interfaces =
                 elaborateHostMembers ctx (info :> IInterfaceImplHost) ext elaborateOne
@@ -420,8 +450,13 @@ module internal ElaborateTypeDecls =
         match TypeRegistry.tryClassByKey ctx.Types (ctx.DeclaredTypeKey(name, arity)) with
         | ValueNone -> None
         | ValueSome info ->
-            let markers = mkDeclTyparEnv ctx.Store info.TypeParams
-            let env = ResizeArray markers
+            let {
+                    Env = env
+                    DeclTypars = declTypars
+                    SelfTy = selfTy
+                    ElaborateOne = elaborateOne
+                } =
+                mkDeclScope ctx info.TypeParams (fun args -> TyClass(info.TypeKey, args))
 
             let ctorParams =
                 EqArray.ofSeq (
@@ -447,12 +482,6 @@ module internal ElaborateTypeDecls =
                             }
                     }
                 )
-
-            let declTypars = [ for (n, _) in info.TypeParams -> n ]
-
-            let selfTy = TyClass(info.TypeKey, declTyparArgs ctx.Store info.TypeParams)
-
-            let elaborateOne = mkMemberElaborator selfTy declTypars env
 
             let members = elaborateClassElements ctx info elaborateOne elements
             let interfaces = elaborateClassInterfaces ctx info elaborateOne
@@ -555,11 +584,12 @@ module internal ElaborateTypeDecls =
         match TypeRegistry.tryIntrinsicAbbrevHostByCanon ctx.Types name with
         | ValueNone -> None
         | ValueSome info ->
-            let markers = mkDeclTyparEnv ctx.Store info.TypeParams
-            let env = ResizeArray markers
-            let declTypars = [ for (n, _) in info.TypeParams -> n ]
-            let selfTy = TyConst(info.SelfKey, declTyparArgs ctx.Store info.TypeParams)
-            let elaborateOne = mkMemberElaborator selfTy declTypars env
+            let {
+                    Env = env
+                    DeclTypars = declTypars
+                    ElaborateOne = elaborateOne
+                } =
+                mkDeclScope ctx info.TypeParams (fun args -> TyConst(info.SelfKey, args))
 
             let members, _ =
                 elaborateHostMembers ctx (info :> IInterfaceImplHost) ext elaborateOne

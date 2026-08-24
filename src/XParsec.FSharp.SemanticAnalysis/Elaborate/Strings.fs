@@ -45,7 +45,13 @@ module internal ElaborateStrings =
                 match formatClause with
                 | ValueSome fc ->
                     let raw = ctx.NameOf fc
-                    let f = if raw.StartsWith ":" then raw.Substring 1 else raw
+
+                    let f =
+                        if raw.StartsWith(":", System.StringComparison.Ordinal) then
+                            raw.Substring 1
+                        else
+                            raw
+
                     if f.Length = 0 then None else Some f
                 | ValueNone -> None
 

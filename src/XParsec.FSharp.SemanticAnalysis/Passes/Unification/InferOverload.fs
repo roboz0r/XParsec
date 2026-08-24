@@ -341,18 +341,15 @@ module UnificationInferOverload =
         // A metavar on NEITHER axis: not generic in anything the key can denote. It goes into an
         // argSig, which is a key, so every such position must freeze to the SAME value, or a
         // half-inferred signature mints a different key per inference run.
-        let onVar (v: SemType) : FrozenType =
-            match v with
-            | TyVar tv ->
-                let root = UnionFind.find store tv
+        let onVar (tv: TyVarId) : FrozenType =
+            let root = UnionFind.find store tv
 
-                match declEnv.TryGetValue root.Id with
-                | true, i -> FTTypar(TyparAxis.Declaring, i)
-                | _ ->
-                    match methodEnv.TryGetValue root.Id with
-                    | true, j -> FTTypar(TyparAxis.Method, j)
-                    | _ -> FTUnknown UnknownReason.UnresolvedTypar
-            | _ -> FTUnknown UnknownReason.UnresolvedTypar
+            match declEnv.TryGetValue root.Id with
+            | true, i -> FTTypar(TyparAxis.Declaring, i)
+            | _ ->
+                match methodEnv.TryGetValue root.Id with
+                | true, j -> FTTypar(TyparAxis.Method, j)
+                | _ -> FTUnknown UnknownReason.UnresolvedTypar
 
         EqArray.ofList
             [
@@ -373,8 +370,8 @@ module UnificationInferOverload =
         (declKey: TypeKey)
         (declTypars: EqArray<string * TyVarId>)
         (m: TypeMemberInfo)
-        : SymbolKey =
-        SymbolKeyOps.memberKey
+        : MemberKey =
+        SymbolKeyOps.memberKeyOf
             declKey
             m.Name
             (freezeUserMemberArgSig store declTypars m)
@@ -547,12 +544,9 @@ module UnificationInferOverload =
         let store = ctx.Store
         let methodEnv = frozenAxisEnv store m.EffectiveMethodTypars
 
-        let onVar (v: SemType) : FrozenType =
-            match v with
-            | TyVar tv ->
-                match methodEnv.TryGetValue (UnionFind.find store tv).Id with
-                | true, j -> FTTypar(TyparAxis.Method, j)
-                | _ -> FTUnknown UnknownReason.UnresolvedTypar
+        let onVar (tv: TyVarId) : FrozenType =
+            match methodEnv.TryGetValue (UnionFind.find store tv).Id with
+            | true, j -> FTTypar(TyparAxis.Method, j)
             | _ -> FTUnknown UnknownReason.UnresolvedTypar
 
         let atLevel = instantiateMember store (level.TypeParams, level.Args) m.Type

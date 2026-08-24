@@ -71,7 +71,9 @@ module LocalMemberKeys =
         match local with
         | ValueSome nm ->
             ValueSome(
-                UnificationInferOverload.frozenUserMemberKey ctx.Store nm.Decl.TypeKey nm.Decl.TypeParams nm.Member
+                SymbolKey.Member(
+                    UnificationInferOverload.frozenUserMemberKey ctx.Store nm.Decl.TypeKey nm.Decl.TypeParams nm.Member
+                )
             )
         | ValueNone ->
             match ctx.Provider.TryLookupMembers(declKey, memberName) with

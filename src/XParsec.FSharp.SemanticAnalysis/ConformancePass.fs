@@ -110,7 +110,7 @@ module ConformancePass =
         let checkImport (imp: Conformance.ImportBinding) : Conformance.ConformanceError list =
             let path = imp.Ref.Path
 
-            if not (path.StartsWith "./") then
+            if not (path.StartsWith("./", System.StringComparison.Ordinal)) then
                 [ Conformance.ConformanceError.ImportUnknownAsset(imp.Name, path) ]
             else
                 let assetRel = path.Substring 2

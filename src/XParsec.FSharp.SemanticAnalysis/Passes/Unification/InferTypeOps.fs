@@ -157,7 +157,7 @@ module internal UnificationInferTypeOps =
             // assertion, so it suppresses the implicit dynamic-escape warning. An annotation
             // on the binding (`let n : int = d?foo`) is not on the `?` node and still warns.
             match inner with
-            | Expr.DynamicLookup _ -> ctx.DynamicEscapeSuppressed.Add(CstKeys.ofExpr inner) |> ignore
+            | Expr.DynamicLookup _ -> ctx.SuppressDynamicEscape(CstKeys.ofExpr inner)
             | _ -> ()
 
             annTy

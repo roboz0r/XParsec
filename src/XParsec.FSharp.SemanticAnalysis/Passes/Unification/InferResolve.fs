@@ -174,6 +174,22 @@ module internal UnificationInferResolve =
             PartialMatches: ResolvedRecord list
         }
 
+    /// How a record literal or pattern names its type: `{ X = … }` against the unqualified
+    /// field-set index, or `{ R.X = … }` against the records whose simple name is `R`.
+    type RecordLookup =
+        | Bare
+        | Qualified of typeName: string
+
+    /// The record's own simple (segment) name, driving both the "has no field" diagnostic
+    /// and the qualified-literal qualifier match (`R` in `{ R.X = … }`). Taken off the
+    /// `TypeKey`, never the `+`-mangled compiled meta name (`Test.A.M+R` → `M+R`).
+    let resolvedRecordDisplayName (r: ResolvedRecord) : string =
+        match r with
+        | LocalRecord info -> info.Name
+        | ExternalRecord candidate ->
+            let (DisplayName shown) = SymbolKeyOps.typeSimpleName candidate.TypeKey
+            shown
+
     /// Whether a provider (cross-file) record candidate belongs to the UNQUALIFIED field-set
     /// index a bare `{ X = … }` literal reads: not `[<RequireQualifiedAccess>]`, and its
     /// declaring module/namespace reachable unqualified under the opens in force here.
@@ -200,11 +216,12 @@ module internal UnificationInferResolve =
 
     /// The verdict for the typed field set `names` at `useSite`, unioning LOCAL and provider
     /// candidates; only the FIRST field's candidates need fetching, since a record declaring
-    /// every typed field declares the first. `bareIndex` scope/RQA-gates the provider half.
+    /// every typed field declares the first. `Bare` scope/RQA-gates the provider half;
+    /// `Qualified` keeps the candidates whose simple name is the qualifier.
     let recordFieldSetVerdict
         (ctx: PassContext)
         (useSite: UseSite)
-        (bareIndex: bool)
+        (lookup: RecordLookup)
         (names: string list)
         : RecordFieldSetVerdict =
         match names with
@@ -216,13 +233,22 @@ module internal UnificationInferResolve =
         | first :: _ ->
             let providerRecords =
                 ctx.TryRecordsWithField first
-                |> EqArray.filter (fun cand -> not bareIndex || admitsBareExternalRecord ctx cand)
+                |> EqArray.filter (fun cand ->
+                    match lookup with
+                    | Bare -> admitsBareExternalRecord ctx cand
+                    | Qualified _ -> true
+                )
 
-            let candidates =
+            let withFirstField =
                 [
                     for info in TypeRegistry.recordsWithField ctx.Types useSite first -> LocalRecord info
                     for cand in providerRecords -> ExternalRecord cand
                 ]
+
+            let candidates =
+                match lookup with
+                | Bare -> withFirstField
+                | Qualified typeName -> withFirstField |> List.filter (fun r -> resolvedRecordDisplayName r = typeName)
 
             // The classifier's dedup is first-wins, so listing local candidates first is
             // what pins a `TypeKey` present both locally and via a provider to the LOCAL
@@ -239,16 +265,6 @@ module internal UnificationInferResolve =
                 PartialMatches = classification.Partial
             }
 
-    /// The record's own simple (segment) name, driving both the "has no field" diagnostic
-    /// and the qualified-literal qualifier match (`R` in `{ R.X = … }`). Taken off the
-    /// `TypeKey`, never the `+`-mangled compiled meta name (`Test.A.M+R` → `M+R`).
-    let resolvedRecordDisplayName (r: ResolvedRecord) : string =
-        match r with
-        | LocalRecord info -> info.Name
-        | ExternalRecord candidate ->
-            let (DisplayName shown) = SymbolKeyOps.typeSimpleName candidate.TypeKey
-            shown
-
     /// The record a literal / pattern resolves to, or `ValueNone` with the diagnostic already
     /// emitted. CONSTRUCTION resolves ONLY on `ExactMatch`: there is no missing-field check,
     /// so accepting a superset would silently build a record with unset fields.
@@ -264,18 +280,15 @@ module internal UnificationInferResolve =
             match TypeRegistry.tryRecord ctx.Types useSite typeName with
             | ValueSome info -> ValueSome(LocalRecord info)
             | ValueNone ->
-                // Local miss on a qualified record: filter the field-set candidates by
-                // simple name == qualifier. A unique survivor is the external record named.
-                match
-                    (recordFieldSetVerdict ctx useSite false names).PartialMatches
-                    |> List.filter (fun r -> resolvedRecordDisplayName r = typeName)
-                with
+                // Local miss on a qualified record: a unique survivor among the field-set
+                // candidates named `typeName` is the external record named.
+                match (recordFieldSetVerdict ctx useSite (Qualified typeName) names).PartialMatches with
                 | [ only ] -> ValueSome only
                 | _ ->
                     ctx.Report(diagTok, Kind.Message(sprintf "Unknown record type qualifier: %s" typeName))
                     ValueNone
         | None ->
-            let verdict = recordFieldSetVerdict ctx useSite true names
+            let verdict = recordFieldSetVerdict ctx useSite Bare names
 
             match verdict.Exact with
             | RecordFieldClassifier.ExactMatch.Unique r -> ValueSome r
@@ -366,7 +379,7 @@ module internal UnificationInferResolve =
                 // (`Vesper.Option`1` reads as `Vesper.Option` in a user diagnostic).
                 ValueSome
                     {
-                        Qualifier = SymbolKeyOps.bareName (SymbolKeyOps.qualifiedName (SymbolKey.Type qualifierKey))
+                        Qualifier = SymbolKeyOps.bareName (SymbolKeyOps.typeMetaName qualifierKey)
                         MemberName = ctx.NameOf li.Idents.[li.Idents.Length - 1]
                     }
             | ValueNone -> ValueNone

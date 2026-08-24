@@ -178,7 +178,7 @@ module EmitCall =
                     // A phantom typar, one in no parameter and no result like `fold`'s
                     // enumerator `'E` in `'S :> IStructSeq<'T,'E>`, survives matching as
                     // `ValueNone`; solve it from the constraint's interface witness.
-                    TastLower.solvePhantomTypars sm.Typars sm.Constraints (tryInterfaceWitness env) instArr
+                    TastLower.solvePhantomTypars sm.Constraints (tryInterfaceWitness env) instArr
 
                     let inst =
                         [

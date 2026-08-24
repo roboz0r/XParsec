@@ -29,7 +29,7 @@ type ParamAttrs =
 
     static member Default = { CallAtMostOnce = false }
 
-    member this.IsDefault = not this.CallAtMostOnce
+    member this.IsDefault = this = ParamAttrs.Default
 
 [<RequireQualifiedAccess>]
 type TPatG<'ty, 'tok, 'id> =

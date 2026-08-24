@@ -24,7 +24,7 @@ module internal ElaborateAccess =
     let private tryAccessorTarget (ctx: PassContext) (callKey: NodeKey) (objArg: TExpr) : AccessorTarget voption =
         match ctx.Resolution.LocalMemberCall.TryGetValue callKey with
         | ValueSome pinned ->
-            let declKey = SymbolKeyOps.declTypeKeyOf "Elaborate: accessor call" pinned.Key
+            let declKey = pinned.Key.Decl
 
             let objArg =
                 match Unification.zonk ctx.Store (TastWalk.exprTy objArg) with

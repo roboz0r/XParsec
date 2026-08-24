@@ -470,7 +470,7 @@ module EmitJs =
         // reports every one it mints, so reaching here means a program already known bad.
         | ExprShape.Range -> failwithf "EmitJs: unsupported expression %A" e
 
-        | ExprShape.InlineCall -> TastLower.inlineCallUnexpanded (TastAccessor.exprInlineCallSpec e)
+        | ExprShape.InlineCall -> TastLower.inlineCallUnexpanded (TastAccessor.exprInlineCall e).Spec
         | ExprShape.CallerExpr -> TastLower.callerExprUnexpanded ()
         | ExprShape.TraitCall -> TastLower.traitCallUnresolved (TastAccessor.exprTraitCallMemberName e)
 
