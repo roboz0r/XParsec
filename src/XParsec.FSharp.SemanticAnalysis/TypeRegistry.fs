@@ -198,12 +198,12 @@ module TypeRegistry =
 
     /// The module / namespace this `open` resolves to, if THIS file declares it. Its written path is
     /// resolved from the scope it is written in.
-    let private openedContainer (types: PassContextTypes) (o: LocalOpen) : ModuleContainer voption =
+    let openedContainer (types: PassContextTypes) (o: LocalOpen) : ModuleContainer voption =
         tryContainerOfPath types o.Scope o.Path
 
     /// The scope the dotted SOURCE `path` reaches when written INSIDE `enclosing`, and `enclosing`
     /// itself for an empty path. An EXACT descent, no walking outward.
-    let private containerUnder
+    let tryContainerUnder
         (types: PassContextTypes)
         (enclosing: ModuleContainer)
         (path: string)
@@ -243,7 +243,7 @@ module TypeRegistry =
             let reaches = ResizeArray()
 
             for h in here.SelfAndAncestors do
-                match containerUnder types h path with
+                match tryContainerUnder types h path with
                 | ValueSome reached ->
                     reaches.Add
                         {
@@ -256,7 +256,7 @@ module TypeRegistry =
             for o in useSite.Opens do
                 match openedContainer types o with
                 | ValueSome opened ->
-                    match containerUnder types opened path with
+                    match tryContainerUnder types opened path with
                     | ValueSome reached ->
                         reaches.Add
                             {
@@ -341,6 +341,23 @@ module TypeRegistry =
 
             best
         | false, _ -> ValueNone
+
+    /// Every claim the written name reaches at `useSite`, at any arity, best rank first: the
+    /// candidate set a qualified case (`Choice.Choice1Of3`) is looked up inside.
+    let writtenTypeClaims (types: PassContextTypes) (useSite: UseSite) (written: WrittenTypeName) : TypeIdentity list =
+        match types.TypeClaims.TryGetValue written.Name with
+        | true, claims ->
+            let reaches = pathReaches types useSite written.Path
+
+            [
+                for c in claims do
+                    match claimRank useSite reaches c with
+                    | ValueSome r -> struct (r, c)
+                    | ValueNone -> ()
+            ]
+            |> List.sortByDescending (fun struct (r, _) -> r)
+            |> List.map (fun struct (_, c) -> c)
+        | false, _ -> []
 
     /// Is the type `key` (claimed under the short name `name`) visible from `useSite`? The kind
     /// indexes map a name to KEYS, but the scoping facts live on the CLAIM.

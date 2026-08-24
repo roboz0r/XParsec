@@ -43,6 +43,15 @@ module SideTablePatterns =
     [<return: Struct>]
     let (|Stamped|_|) (table: SideTable<'V>) (key: NodeKey) (_scrutinee: 'a) : 'V voption = table.TryGetValue key
 
+[<RequireQualifiedAccess>]
+module ResolvedStamps =
+
+    /// The union case stamped at `key`, in either half.
+    let tryUnionCase (stamps: SideTable<ResolvedItem>) (key: NodeKey) : ResolvedUnionCase voption =
+        match stamps.TryGetValue key with
+        | ValueSome(ResolvedItem.UnionCase(case, _)) -> ValueSome case
+        | _ -> ValueNone
+
 type PassContextBindings =
     {
         Binding: SideTable<ResolvedBinding>
@@ -77,15 +86,6 @@ module PassContextBindings =
             GlobalValueKeys = HashSet<_>()
             BindingTyparArities = Dictionary<_, _>()
         }
-
-/// One `let`-bound value / function of a local module. `VisibleFrom` is the offset from which
-/// it answers for its name: its own, or the enclosing `rec` scope's keyword when there is one.
-[<Struct>]
-type LocalModuleMember =
-    {
-        BindingSite: NodeKey
-        VisibleFrom: int
-    }
 
 /// What a written type name resolves to, as NameResolution's classifying walk found it. Recorded
 /// at every type reference the walk visits, so ABSENT means unvisited, not "resolved to nothing".
@@ -145,6 +145,10 @@ type PassContextResolution =
         /// Keyed by the folded `x.M(…)` call whose object argument is a typar coerced to a
         /// project-local interface (`'T :> IFace`): that interface's key and type arguments.
         TyparInterfaceCall: SideTable<TypeKey * EqArray<SemType>>
+        /// Keyed by a name use in expression, pattern or type position: what the name denotes,
+        /// resolved once in F#'s order. Absent at a pattern ident ⇒ a bound variable; absent at
+        /// an expression ident ⇒ a lexically bound variable, read from `Bindings.Binding`.
+        Resolved: SideTable<ResolvedItem>
         /// Keyed by an `Expr.Ident` / `Expr.LongIdentOrOp` at an external-value use-site.
         ExternalValue: SideTable<SymbolKey>
         /// Keyed by an external value/operator use-site. The whole symbol, not just its key,
@@ -207,6 +211,7 @@ module PassContextResolution =
             LocalMemberCall = SideTable<_>()
             TyparInterfaceCall = SideTable<_>()
             ExternalOptionalFill = SideTable<_>()
+            Resolved = SideTable<_>()
             ExternalValue = SideTable<_>()
             ExternalSymbolStamp = SideTable<_>()
             ExternalUnionCaseStamp = SideTable<_>()

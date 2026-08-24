@@ -44,6 +44,19 @@ module internal UnificationInferIdentExpr =
             && ctx.Bindings.Binding.ContainsKey(NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent)
             ->
             inferLongIdentFieldChain ctx node li
+        // A union case reached through its module (`Test.A.M.Red`), its type or bare, in
+        // either half, as NameResolution stamped it. An external one is typed off the same
+        // case stamp the 2-segment arm below reads.
+        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent _) when
+            not (ctx.Bindings.Binding.ContainsKey node.Key)
+            && (ResolvedStamps.tryUnionCase ctx.Resolution.Resolved node.Key).IsSome
+            ->
+            match ResolvedStamps.tryUnionCase ctx.Resolution.Resolved node.Key with
+            | ValueSome(ResolvedUnionCase.Local info) -> ctorType ctx info
+            | _ ->
+                match tryExternalCtorType ctx node.Key with
+                | ValueSome t -> t
+                | ValueNone -> inferIdentDefault ctx e node
         // An EXTERNAL enum-case access `E.C1`, whose anchor resolves to a provider enum, not a
         // project-local one. Types as the nominal `TyEnum key`, the same key an `(x: E)`
         // annotation resolves to, so the two unify.

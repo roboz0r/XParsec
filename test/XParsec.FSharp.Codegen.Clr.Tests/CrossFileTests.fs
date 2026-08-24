@@ -725,7 +725,7 @@ printfn \"%d\" (v + 1 + CrossFile.Lib.v)
             // A case qualified by its MODULE in expression position. The front end mints a
             // free TyVar for it (see `LongIdentResolutionTests`), and Elaborate freezes the
             // name as `TExpr.External` with no key, so emission finds no recipe.
-            ptest "GAP a module-qualified union case constructs across a file boundary" {
+            test "a module-qualified union case constructs across a file boundary" {
                 let file1 =
                     "\
 namespace CrossFile

@@ -17,19 +17,15 @@ let private asm: CompilingAssembly =
         Target = "none"
     }
 
-/// The provider view each file pushed for the files after it, in file order.
-let private publishedViews (files: (string * string) list) : IExternalSymbolProvider list =
+/// The provider view each unit pushed for the units after it, in order.
+let private publishedViewsOfUnits (units: SourceUnit list) : IExternalSymbolProvider list =
     let analysed =
         AnalysedAssembly.analyse
             Pipeline.analyseFor
             realProvider.Value
             {
                 Assembly = asm
-                Units =
-                    [
-                        for (id, text) in files ->
-                            AssemblyUnit.parse Set.empty (SourceUnit.ofImplementation (SourceFile.ofText id text))
-                    ]
+                Units = [ for u in units -> AssemblyUnit.parse Set.empty u ]
             }
 
     analysed.Units
@@ -39,6 +35,13 @@ let private publishedViews (files: (string * string) list) : IExternalSymbolProv
         | UnitOutcome.Failed(leading, rest) ->
             failtestf "unit failed to parse: %A" [ for e in leading :: rest -> e.Id.Name, e.Failure.Diagnostics ]
     )
+
+/// `publishedViewsOfUnits` over implementation-only files.
+let private publishedViews (files: (string * string) list) : IExternalSymbolProvider list =
+    publishedViewsOfUnits
+        [
+            for (id, text) in files -> SourceUnit.ofImplementation (SourceFile.ofText id text)
+        ]
 
 let private lib =
     "\
@@ -151,6 +154,44 @@ let tests =
                         | other -> failtestf "one Box: %A" other
 
                         Expect.equal (scope.TypesNamed(m, "Light")).Length 0 "Light is N's"
+                    }
+
+                    // The source-spelled alias is published by the signature path, so the
+                    // unit carries an `.fsi`.
+                    test "a ModuleSuffix module is a container under its source path and its compiled name" {
+                        let signature =
+                            SourceFile.ofText
+                                "lib.fsi"
+                                "\
+namespace Test.A
+
+type Bag<'T> = { Items: 'T list }
+
+[<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
+module Bag =
+    val size : int
+"
+
+                        let implementation =
+                            SourceFile.ofText
+                                "lib.fs"
+                                "\
+namespace Test.A
+
+type Bag<'T> = { Items: 'T list }
+
+[<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
+module Bag =
+    let size : int = 0
+"
+
+                        let scope =
+                            (publishedViewsOfUnits [ SourceUnit.paired signature implementation ]).[0].Scope
+
+                        let bySource = containerOrFail scope "Test.A.Bag"
+                        let byCompiled = containerOrFail scope "Test.A.BagModule"
+                        Expect.equal bySource byCompiled "one module, two spellings"
+                        Expect.isTrue (scope.TryValue(bySource, "size")).IsSome "its value answers under either"
                     }
 
                     test "a composed stack answers from every file, nearest first" {

@@ -110,22 +110,29 @@ module internal UnificationInferPat =
             ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, ValueSome ty)
             ty
         | Pat.Named(longIdent = li; argumentPats = args) when
-            li.Idents.Length >= 1
-            && (let last = ctx.NameOf li.Idents.[li.Idents.Length - 1]
-                last.Length > 0 && System.Char.IsUpper last.[0])
-            && (li.Idents.Length = 1
-                && TypeRegistry.isCaseName ctx.Types (ctx.UseSiteAt key) (ctx.NameOf li.Idents.[0])
-                || li.Idents.Length = 2
-                   && (
-                       match TypeRegistry.tryUnionBare ctx.Types (ctx.UseSiteAt key) (ctx.NameOf li.Idents.[0]) with
-                       | ValueSome info ->
-                           let caseName = ctx.NameOf li.Idents.[1]
-                           info.Cases |> Array.exists (fun c -> c.Name = caseName)
-                       | ValueNone -> false
-                   ))
+            (match ResolvedStamps.tryUnionCase ctx.Resolution.Resolved key with
+             | ValueSome(ResolvedUnionCase.Local _) -> true
+             | _ -> false)
+            || li.Idents.Length >= 1
+               && (let last = ctx.NameOf li.Idents.[li.Idents.Length - 1]
+                   last.Length > 0 && System.Char.IsUpper last.[0])
+               && (li.Idents.Length = 1
+                   && TypeRegistry.isCaseName ctx.Types (ctx.UseSiteAt key) (ctx.NameOf li.Idents.[0])
+                   || li.Idents.Length = 2
+                      && (
+                          match TypeRegistry.tryUnionBare ctx.Types (ctx.UseSiteAt key) (ctx.NameOf li.Idents.[0]) with
+                          | ValueSome info ->
+                              let caseName = ctx.NameOf li.Idents.[1]
+                              info.Cases |> Array.exists (fun c -> c.Name = caseName)
+                          | ValueNone -> false
+                      ))
             ->
+            // A case of a union declared in this file, by whichever path NameResolution reached
+            // it: through its module (`M.Red`), its type (`Color.Red`), or bare.
             let info =
-                if li.Idents.Length = 1 then
+                match ResolvedStamps.tryUnionCase ctx.Resolution.Resolved key with
+                | ValueSome(ResolvedUnionCase.Local i) -> ValueSome i
+                | _ when li.Idents.Length = 1 ->
                     let name = ctx.NameOf li.Idents.[0]
 
                     match resolveCtorName ctx (ctx.UseSiteAt key) name with
@@ -135,7 +142,7 @@ module internal UnificationInferPat =
 
                         ValueNone
                     | _ -> ValueNone
-                else
+                | _ ->
                     let typeName = ctx.NameOf li.Idents.[0]
                     let caseName = ctx.NameOf li.Idents.[1]
                     resolveQualifiedCtor ctx (ctx.UseSiteAt key) typeName caseName

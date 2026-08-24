@@ -5,55 +5,156 @@ open XParsec.FSharp
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open ExternalTypeProbe
+open NameResolutionLongIdent
 open NameResolutionTypeRefStamp
 
-// Scope tracking and ident-use resolution for NameResolution. Every
-// spelling→identity result is stamped into a `ctx.Resolution` side table keyed by
-// the use-site `NodeKey`; later passes read the stamp, never the spelling again.
+// Scope tracking and ident-use resolution for NameResolution. Every name not lexically bound
+// is resolved once by `NameResolutionLongIdent` and stamped into `ctx.Resolution.Resolved`
+// keyed by the use-site `NodeKey`; the per-kind side tables are derived from that one stamp
+// for the passes still reading them. Later passes read the stamps, never the spelling again.
 
 module NameResolutionScope =
 
     type Scope = Map<string, NodeKey * bool>
 
-    /// F# keeps no global reverse index for union cases: a bare `Some`/`Red` resolves
-    /// only when its declaring union's namespace is opened or auto-opened. Mirror that,
-    /// so a union in the root namespace always matches, its bare candidate being itself.
-    let private bareCaseNamespaceOpen (scope: OpenScope) (uc: ExternalUnionCase) : bool =
-        // The SOURCE spelling of the declaring union, so `` Vesper.Choice`2 `` qualifies as
-        // `Vesper.Choice` and a module-held `CrossFile.Lib+Shape` as `CrossFile.Lib.Shape`.
-        let qualified = SymbolKeyOps.typeSourceName uc.UnionKey
-        (OpenScope.tryQualify scope (fun c -> c = qualified) uc.UnionKey.Name).IsSome
-
-    /// The external union case a reference resolves to. `qualifier` is the written
-    /// declaring type (`Option.Some` ⇒ `ValueSome "Option"`), `ValueNone` for a bare
-    /// reference, which alone is gated on the declaring namespace being open.
-    let private tryExternalCase
-        (ctx: PassContext)
-        (qualifier: string voption)
-        (caseName: string)
-        : ExternalUnionCase voption =
-        ctx.Resolver.TryLookupUnionCase caseName
-        |> ValueOption.filter (fun uc -> uc.ResolvesWith qualifier)
-        |> ValueOption.filter (fun uc ->
-            match qualifier with
-            | ValueSome _ -> true
-            | ValueNone -> bareCaseNamespaceOpen ctx.Resolution.OpenScope uc
-        )
-
-    /// Resolve an external VALUE reference and stamp both channels: the `SymbolKey` and
-    /// the whole symbol. Both or neither: with only the symbol the ref freezes to a
-    /// KEYLESS `External`, and inline bodies are spliced by key, so the body is lost.
-    let private tryStampExternalValue (ctx: PassContext) (key: NodeKey) (name: string) : bool =
-        match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Resolver.TryLookup name with
-        | ValueSome sym ->
+    /// The per-kind stamps a resolution feeds. A local module value keyed at `key` binds it
+    /// as a plain local ident is bound.
+    let private stampItem (ctx: PassContext) (key: NodeKey) (item: ResolvedItem) : unit =
+        match item with
+        | ResolvedItem.Value(ResolvedValue.External sym) ->
+            // Both channels or neither: with only the symbol the ref freezes to a KEYLESS
+            // `External`, and inline bodies are spliced by key, so the body is lost.
             ctx.Resolution.ExternalValue.Set(key, SymbolKey.Binding sym.Key)
             ctx.Resolution.ExternalSymbolStamp.Set(key, sym)
-            true
-        | ValueNone -> false
+        | ResolvedItem.Value(ResolvedValue.Local m) ->
+            ctx.Bindings.Binding.Set(
+                key,
+                {
+                    BindingSite = m.BindingSite
+                    IsInline = false
+                    IsMutable = false
+                }
+            )
+        | ResolvedItem.UnionCase(ResolvedUnionCase.External uc, _) -> ctx.Resolution.ExternalUnionCaseStamp.Set(key, uc)
+        | ResolvedItem.EnumCase(ResolvedTypeRef.External(enumKey, _), _) ->
+            ctx.Resolution.ExternalEnumCaseStamp.Set(key, enumKey)
+        // An external CLASS name in expression position is a ctor-sugar application
+        // (`InvalidOperationException "x"`, `System.Exception "x"`). A generic one was
+        // stamped at its exact arity by the enclosing `TypeApp` visit.
+        | ResolvedItem.Type(ResolvedTypeRef.External(typeKey, ExternalTypeShape.Class info)) when
+            info.TyparArity = 0 && not (ctx.Resolution.ResolvedType.ContainsKey key)
+            ->
+            ctx.Resolution.ResolvedType.Set(key, typeKey)
+        | ResolvedItem.StaticMember(ResolvedTypeRef.External(typeKey, shape), _) ->
+            match shape with
+            | ExternalTypeShape.Class info when info.TyparArity = 0 ->
+                ctx.Resolution.ExternalStaticQualifier.Set(key, typeKey)
+            | ExternalTypeShape.Intrinsic { Id = { Canon = canon } } when canon.TyparArity = 0 ->
+                ctx.Resolution.ExternalStaticQualifier.Set(key, canon)
+            | ExternalTypeShape.Union _
+            | ExternalTypeShape.Record _ -> ctx.Resolution.ExternalUnionRecordQualifier.Set(key, SymbolKey.Type typeKey)
+            | _ -> ()
+        // An external UNION or RECORD qualifier has no static fields, so an unresolved last
+        // segment is a member miss Unification diagnoses by this key.
+        | ResolvedItem.Unresolved {
+                                      Within = ResolutionScope.Type(ResolvedTypeRef.External(typeKey,
+                                                                                             (ExternalTypeShape.Union _ | ExternalTypeShape.Record _)))
+                                  } -> ctx.Resolution.ExternalUnionRecordQualifier.Set(key, SymbolKey.Type typeKey)
+        | ResolvedItem.Value _
+        | ResolvedItem.UnionCase _
+        | ResolvedItem.EnumCase _
+        | ResolvedItem.Type _
+        | ResolvedItem.StaticMember _
+        | ResolvedItem.ModuleOrNamespace _
+        | ResolvedItem.AmbiguousCase _
+        | ResolvedItem.Unresolved _ -> ()
 
-    /// True if `name` resolves to an external union case WITHOUT a qualifier.
-    let private resolvesAsBareExternalCase (ctx: PassContext) (name: string) : bool =
-        (tryExternalCase ctx ValueNone name).IsSome
+    /// A type whose member misses are Unification's to report, with the precise `NoCase` /
+    /// `NoMember`, so no report is owed here.
+    let private missReportedDownstream (owner: ResolvedTypeRef) : bool =
+        match owner with
+        | ResolvedTypeRef.Local claim ->
+            match claim.Kind with
+            | TypeDeclKind.Union
+            | TypeDeclKind.Record
+            | TypeDeclKind.Enum -> true
+            | TypeDeclKind.Class
+            | TypeDeclKind.Abbreviation
+            | TypeDeclKind.IntrinsicRepr -> false
+        | ResolvedTypeRef.External(_, shape) ->
+            match shape with
+            | ExternalTypeShape.Union _
+            | ExternalTypeShape.Record _
+            | ExternalTypeShape.Enum _ -> true
+            | ExternalTypeShape.Class _
+            | ExternalTypeShape.Intrinsic _
+            | ExternalTypeShape.IntrinsicInterface _
+            | ExternalTypeShape.Abbrev _
+            | ExternalTypeShape.Unmodelled _ -> false
+
+    /// The diagnostic a resolution in expression position owes. A type name stands for its
+    /// constructor, so only a class, or a generic the enclosing `TypeApp` applied, is a value.
+    let private reportExpr (ctx: PassContext) (e: Expr<SyntaxToken>) (names: string[]) (r: Resolution) : unit =
+        let tok = CstKeys.firstTokenOfExpr e
+        let key = CstKeys.ofExpr e
+        let written = String.concat "." names
+
+        let unresolved () =
+            match names.Length with
+            | 1 -> ctx.Report(tok, Kind.Message(sprintf "Unresolved identifier: %s" written))
+            | _ -> ctx.Report(tok, Kind.UnresolvedQualifiedName written)
+
+        match r.Item with
+        | ResolvedItem.Unresolved {
+                                      Segment = segment
+                                      Within = ResolutionScope.Type owner
+                                  } ->
+            if not (missReportedDownstream owner) then
+                ctx.Report(tok, Kind.NoMember(owner.Key.Name, MemberNoun.ValueOrMember, segment))
+        | ResolvedItem.Unresolved _ ->
+            // The printf family is a front-end intrinsic, typed from its format string
+            // rather than a provider symbol, so no contract declares it.
+            if (PrintfSpec.tryFamily written).IsNone then
+                unresolved ()
+        | ResolvedItem.UnionCase(case, true) ->
+            ctx.Report(tok, Kind.RequireQualifiedAccessCase(case.UnionName, case.CaseName))
+        | ResolvedItem.ModuleOrNamespace _ -> unresolved ()
+        | ResolvedItem.Type _ when ctx.Resolution.ResolvedType.ContainsKey key -> ()
+        | ResolvedItem.Type(ResolvedTypeRef.Local claim) when claim.Kind <> TypeDeclKind.Class -> unresolved ()
+        | ResolvedItem.Type(ResolvedTypeRef.External(_, shape)) when shape.TyparArity <> 0 -> unresolved ()
+        // A member chain on a resolved item is resolved by no later pass yet, except the field
+        // chain on a local module value, which is anchored like a lexical binding.
+        | ResolvedItem.Value(ResolvedValue.Local _) -> ()
+        | _ when r.Rest < names.Length -> unresolved ()
+        | _ -> ()
+
+    /// Resolve a name in expression position that is not lexically bound, stamp what it
+    /// denotes at `e`'s key, and report what it owes.
+    let private resolveExprNames
+        (ctx: PassContext)
+        (e: Expr<SyntaxToken>)
+        (idents: ImmutableArray<SyntaxToken>)
+        : unit =
+        let key = CstKeys.ofExpr e
+        let names = [| for id in idents -> ctx.NameOf id |]
+        let r = resolveExpr ctx (ctx.UseSiteAt key) names
+        ctx.Resolution.Resolved.Set(key, r.Item)
+
+        match r.Item with
+        | ResolvedItem.Value(ResolvedValue.Local m) when r.Rest < names.Length ->
+            // A module-level value of this file anchoring a field chain (`v.X.Y`): keyed on the
+            // anchor token, as a lexical anchor is, so the chain reads the anchor's type there.
+            ctx.Bindings.Binding.Set(
+                NodeKey.ofToken idents.[0] NodeKind.ExprIdent,
+                {
+                    BindingSite = m.BindingSite
+                    IsInline = false
+                    IsMutable = false
+                }
+            )
+        | item -> stampItem ctx key item
+
+        reportExpr ctx e names r
 
     /// The written type name an `Expr.TypeApp`'s applied expression spells, when it could
     /// denote a type; `ValueNone` for shapes that never can (e.g. an applied expression).
@@ -63,18 +164,18 @@ module NameResolutionScope =
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) -> ValueSome(ctx.WrittenTypeNameOf li)
         | _ -> ValueNone
 
-    let private resolveIdent (ctx: PassContext) (scope: Scope list) (tok: SyntaxToken) (useKey: NodeKey) =
-        let name = ctx.NameOf tok
+    let rec private lookupLexical (scope: Scope list) (name: string) : (NodeKey * bool) voption =
+        match scope with
+        | [] -> ValueNone
+        | innermost :: enclosing ->
+            match Map.tryFind name innermost with
+            | Some bs -> ValueSome bs
+            | None -> lookupLexical enclosing name
 
-        let rec lookup (s: Scope list) =
-            match s with
-            | [] -> ValueNone
-            | innermost :: enclosing ->
-                match Map.tryFind name innermost with
-                | Some bs -> ValueSome bs
-                | None -> lookup enclosing
+    let private resolveIdent (ctx: PassContext) (scope: Scope list) (e: Expr<SyntaxToken>) (tok: SyntaxToken) =
+        let useKey = CstKeys.ofExpr e
 
-        match lookup scope with
+        match lookupLexical scope (ctx.NameOf tok) with
         | ValueSome(bindingSite, isMutable) ->
             ctx.Bindings.Binding.Set(
                 useKey,
@@ -84,51 +185,7 @@ module NameResolutionScope =
                     IsMutable = isMutable
                 }
             )
-        | ValueNone ->
-            if not (tryStampExternalValue ctx useKey name) then
-                let bareCase = tryExternalCase ctx ValueNone name
-
-                match bareCase with
-                | ValueSome uc -> ctx.Resolution.ExternalUnionCaseStamp.Set(useKey, uc)
-                | ValueNone -> ()
-
-                // The first hit in candidate order IS what the name resolves to.
-                let bareHit = tryClassifyExternalType ctx (arityProbes 0) name
-
-                // A single-ident external CLASS in expression position is a ctor-sugar
-                // application (`InvalidOperationException "x"`). Class-only: `float x`
-                // resolves to a real external type but is not constructible.
-                if not (ctx.Resolution.ResolvedType.ContainsKey useKey) then
-                    match bareHit with
-                    | ValueSome hit ->
-                        match hit.Shape with
-                        | ExternalTypeShape.Class info when info.TyparArity = 0 ->
-                            ctx.Resolution.ResolvedType.Set(useKey, hit.UseSiteKey)
-                        | _ -> ()
-                    | ValueNone -> ()
-                // Each disjunct suppresses the unresolved diagnostic for a name a later
-                // pass does resolve. The local reads answer AS SEEN FROM `useKey`: a
-                // class or union declared below the use neither suppresses nor binds.
-                if
-                    TypeRegistry.isCaseName ctx.Types (ctx.UseSiteAt useKey) name
-                    || (TypeRegistry.tryClass ctx.Types (ctx.UseSiteAt useKey) name).IsSome
-                    // A generic prefix (`EqualityComparer<int>`) had `ResolvedType`
-                    // stamped at exact arity by the enclosing TypeApp visit.
-                    || ctx.Resolution.ResolvedType.ContainsKey useKey
-                    || (
-                        match bareHit with
-                        | ValueSome hit -> hit.Shape.TyparArity = 0
-                        | ValueNone -> false
-                    )
-                    // Stamped just above, so downstream reads the identity by key.
-                    || bareCase.IsSome
-                    // The printf family is a front-end intrinsic, typed from its format
-                    // string rather than a provider symbol, so no contract declares it.
-                    || (PrintfSpec.tryFamily name |> ValueOption.isSome)
-                then
-                    ()
-                else
-                    ctx.Report(tok, Kind.Message(sprintf "Unresolved identifier: %s" name))
+        | ValueNone -> resolveExprNames ctx e (ImmutableArray.Create tok)
 
     /// True if `name` is a ctor reference in pattern position: uppercase-leading (per
     /// the F# spec) AND a case-registry hit, so an unrelated uppercase bound variable still
@@ -137,7 +194,7 @@ module NameResolutionScope =
         name.Length > 0
         && System.Char.IsUpper name.[0]
         && (TypeRegistry.isCaseName ctx.Types useSite name
-            || resolvesAsBareExternalCase ctx name)
+            || (tryExternalCase ctx ValueNone name).IsSome)
 
     /// Every (name, NodeKey) pair introduced by a pattern; [] for patterns that
     /// bind nothing (Wildcard, Const, nullary ctors).
@@ -196,36 +253,36 @@ module NameResolutionScope =
         | Pat.Missing
         | Pat.SkipsTokens _ -> []
 
-    /// Stamp every external union-case ctor in `p` (1- and 2-segment names only), including
-    /// the alternatives and sub-patterns that introduce no bound variable. Embedded type
-    /// names go through `typeIter`, which may also diagnose an unknown one.
+    /// Resolve a discriminator in pattern position and stamp what it denotes at the pattern's
+    /// key. A single ident that denotes nothing is a bound variable, which has no stamp.
+    let private resolvePatNames
+        (ctx: PassContext)
+        (pat: Pat<SyntaxToken>)
+        (idents: ImmutableArray<SyntaxToken>)
+        : unit =
+        let key = CstKeys.ofPat pat
+        let names = [| for id in idents -> ctx.NameOf id |]
+        let r = resolvePattern ctx (ctx.UseSiteAt key) names
+
+        match r.Item, names.Length with
+        | ResolvedItem.Unresolved _, 1 -> ()
+        | item, _ ->
+            ctx.Resolution.Resolved.Set(key, item)
+            stampItem ctx key item
+
+            match item with
+            | ResolvedItem.UnionCase(case, true) ->
+                ctx.Report(CstKeys.firstTokenOfPat pat, Kind.RequireQualifiedAccessCase(case.UnionName, case.CaseName))
+            | _ -> ()
+
+    /// Stamp every union-case and enum-case discriminator in `p`, including the alternatives
+    /// and sub-patterns that introduce no bound variable. Embedded type names go through
+    /// `typeIter`, which may also diagnose an unknown one.
     let stampPatCasesWith (ctx: PassContext) (typeIter: CstTypeWalk.TypeIter) (p: Pat<SyntaxToken>) : unit =
         let visit (pat: Pat<SyntaxToken>) : unit =
             match pat with
-            | Pat.NamedSimple t ->
-                match tryExternalCase ctx ValueNone (ctx.NameOf t) with
-                | ValueSome uc -> ctx.Resolution.ExternalUnionCaseStamp.Set(CstKeys.ofPat pat, uc)
-                | ValueNone -> ()
-            | Pat.Named(longIdent = li) ->
-                if li.Idents.Length = 1 || li.Idents.Length = 2 then
-                    let caseName = ctx.NameOf li.Idents.[li.Idents.Length - 1]
-
-                    let qualifier =
-                        if li.Idents.Length = 2 then
-                            ValueSome(ctx.NameOf li.Idents.[0])
-                        else
-                            ValueNone
-
-                    match tryExternalCase ctx qualifier caseName with
-                    | ValueSome uc -> ctx.Resolution.ExternalUnionCaseStamp.Set(CstKeys.ofPat pat, uc)
-                    | ValueNone -> ()
-
-                // `| E.C1` — a two-segment external enum-case pattern (a named constant,
-                // binds nothing). An enum name is never a union.
-                if li.Idents.Length = 2 then
-                    match tryExternalEnumCaseKey ctx (ctx.NameOf li.Idents.[0]) (ctx.NameOf li.Idents.[1]) with
-                    | ValueSome k -> ctx.Resolution.ExternalEnumCaseStamp.Set(CstKeys.ofPat pat, k)
-                    | ValueNone -> ()
+            | Pat.NamedSimple t -> resolvePatNames ctx pat (ImmutableArray.Create t)
+            | Pat.Named(longIdent = li) -> resolvePatNames ctx pat li.Idents
             | Pat.Typed(typ = t)
             | Pat.TypeTestAs(typ = t)
             | Pat.TypeTest(typ = t) -> CstTypeWalk.iterType typeIter t
@@ -288,6 +345,14 @@ module NameResolutionScope =
         | ValueSome sym -> ctx.Resolution.ExternalSymbolStamp.Set(key, sym)
         | ValueNone -> ()
 
+    /// Resolve an external VALUE reference by its compiled spelling and stamp both channels.
+    let private tryStampExternalValue (ctx: PassContext) (key: NodeKey) (name: string) : bool =
+        match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Resolver.TryLookup name with
+        | ValueSome sym ->
+            stampItem ctx key (ResolvedItem.Value(ResolvedValue.External sym))
+            true
+        | ValueNone -> false
+
     /// A desugared `InfixApp` / `PrefixApp` operator: stamp the symbol for the compiled
     /// operator name the desugaring recorded. `::` is not an `OpName` and `op_AddressOf`
     /// has no provider symbol, so both take the no-stamp arm.
@@ -296,30 +361,27 @@ module NameResolutionScope =
         | ValueSome(DesugaredForm.OpName name) -> stampExternalSymbol ctx (CstKeys.ofExpr e) name
         | _ -> ()
 
+    /// The enclosing `TypeApp` visit resolved this applied name at its exact arity.
+    let private resolvedByTypeApp (ctx: PassContext) (e: Expr<SyntaxToken>) : bool =
+        ctx.Resolution.Resolved.ContainsKey(CstKeys.ofExpr e)
+
     let private visit (ctx: PassContext) (scope: Scope list) (e: Expr<SyntaxToken>) : unit =
         // Stamp every external type name embedded in this node's annotations. Recursion
         // into child expressions is the walker's, so each name is stamped once.
         stampExprEmbeddedTypes ctx e
 
         match e with
-        | Expr.Ident tok -> resolveIdent ctx scope tok (CstKeys.ofExpr e)
+        | Expr.Ident _
+        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent _) when resolvedByTypeApp ctx e -> ()
+        | Expr.Ident tok -> resolveIdent ctx scope e tok
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
-            resolveIdent ctx scope li.Idents.[0] (CstKeys.ofExpr e)
+            resolveIdent ctx scope e li.Idents.[0]
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) ->
             // Multi-segment: a chained field access (`r.X.Y`, anchor local) or a qualified
             // name (`Math.PI`, provider). Field resolution waits for the anchor's type.
             let anchorIdent = li.Idents.[0]
-            let anchorName = ctx.NameOf anchorIdent
 
-            let rec lookup (s: Scope list) =
-                match s with
-                | [] -> ValueNone
-                | innermost :: enclosing ->
-                    match Map.tryFind anchorName innermost with
-                    | Some bs -> ValueSome bs
-                    | None -> lookup enclosing
-
-            match lookup scope with
+            match lookupLexical scope (ctx.NameOf anchorIdent) with
             | ValueSome(bindingSite, isMutable) ->
                 // Key the anchor's binding entry under ExprIdent on the anchor token
                 // so later passes look up the anchor's type by the same key.
@@ -331,180 +393,7 @@ module NameResolutionScope =
                         IsMutable = isMutable
                     }
                 )
-            | ValueNone ->
-                // `Module.member` on a *local* (in-file) module: the module tree is
-                // flattened before this walk, so neither the provider nor the anchor lookup
-                // can see it. Resolving here gives it the shape a plain local ident takes.
-                let tryLocalModuleMember () : bool =
-                    if li.Idents.Length >= 2 then
-                        let moduleName = ctx.NameOf li.Idents.[li.Idents.Length - 2]
-                        let memberName = ctx.NameOf li.Idents.[li.Idents.Length - 1]
-
-                        match ctx.Resolution.LocalModules.TryGetValue moduleName with
-                        | true, members ->
-                            match members.TryGetValue memberName with
-                            | true, m when m.VisibleFrom <= (ctx.UseSiteAt(CstKeys.ofExpr e)).Offset ->
-                                ctx.Bindings.Binding.Set(
-                                    CstKeys.ofExpr e,
-                                    {
-                                        BindingSite = m.BindingSite
-                                        IsInline = false
-                                        IsMutable = false
-                                    }
-                                )
-
-                                true
-                            | _ -> false
-                        | false, _ -> false
-                    else
-                        false
-
-                let resolveQualifiedExternal () =
-                    let qualName = li.Idents |> Seq.map ctx.NameOf |> String.concat "."
-                    // Every local read below answers AS SEEN FROM this expression: a type
-                    // declared under it cannot answer for the qualifier.
-                    let useSite = ctx.UseSiteAt(CstKeys.ofExpr e)
-
-                    if not (tryStampExternalValue ctx (CstKeys.ofExpr e) qualName) then
-                        // `Result2.Ok` — a two-segment qualified LOCAL ctor; suppress, a
-                        // later pass resolves it through the type registry.
-                        let isQualifiedCtor =
-                            li.Idents.Length = 2
-                            && TypeRegistry.localQualifiedCase
-                                ctx.Types
-                                useSite
-                                (ctx.NameOf li.Idents.[0])
-                                (ctx.NameOf li.Idents.[1])
-
-                        // `Math.Pi` / `Box.Empty` — two-segment qualified static member,
-                        // incl. union augmentation statics. Same suppression.
-                        let isQualifiedStatic =
-                            li.Idents.Length = 2
-                            && (let typeName = ctx.NameOf li.Idents.[0]
-                                let memberName = ctx.NameOf li.Idents.[1]
-
-                                let declares name =
-                                    (TypeRegistry.tryStaticMember ctx.Types useSite typeName name).IsSome
-
-                                // A WRITE-ONLY property is declared under `set_P` alone, so the
-                                // name still resolves here; Unification says it cannot be read.
-                                declares memberName || declares (AccessorNames.setterName memberName))
-
-                        // `A.T` — a project-local TYPE named through its module, so the
-                        // reference is a ctor / static qualifier, not a value. Suppress.
-                        let isLocalQualifiedType =
-                            TypeRegistry.isWrittenTypeNameInScope ctx.Types useSite (ctx.WrittenTypeNameOf li)
-
-                        // `E.C1` — the anchor resolves to a project-local enum. Suppress, so a bad
-                        // last segment gets the precise "Enum 'E' has no case 'C'" instead of a
-                        // redundant unresolved-qualified-name on top of it.
-                        let isEnumCase =
-                            li.Idents.Length = 2
-                            && (TypeRegistry.tryEnum ctx.Types useSite (ctx.NameOf li.Idents.[0])).IsSome
-
-                        // `Result.Ok` — a qualified *external* union case, written without
-                        // type args, so a generic union offers no arity to probe. The case
-                        // name is unique in the reverse index: resolve it arity-free.
-                        let isExternalQualifiedCase =
-                            li.Idents.Length >= 2
-                            && (ctx.Resolver.TryLookupUnionCase(ctx.NameOf li.Idents.[li.Idents.Length - 1])).IsSome
-
-                        // Stamp the resolved case identity. Tighter than the `.IsSome`
-                        // suppression above because the qualifier must match the union's short
-                        // name, so `WrongType.Some` suppresses the error yet stamps nothing.
-                        if li.Idents.Length = 2 then
-                            match
-                                tryExternalCase ctx (ValueSome(ctx.NameOf li.Idents.[0])) (ctx.NameOf li.Idents.[1])
-                            with
-                            | ValueSome uc -> ctx.Resolution.ExternalUnionCaseStamp.Set(CstKeys.ofExpr e, uc)
-                            | ValueNone -> ()
-
-                        // Classify the whole name and the qualifier prefix. The whole name is
-                        // written without type args (arity-0); the prefix's arity is not.
-                        let qualHit = tryClassifyExternalType ctx (arityProbes 0) qualName
-
-                        let prefix =
-                            seq { for i in 0 .. li.Idents.Length - 2 -> ctx.NameOf li.Idents.[i] }
-                            |> String.concat "."
-
-                        let prefixHit = tryClassifyExternalType ctx qualifierProbes prefix
-
-                        // `E.C1` — an external enum whose prefix declares the case. Stamp the
-                        // enum's nominal key, so the node types as `TyEnum key` by key read.
-                        if li.Idents.Length = 2 then
-                            match prefixHit with
-                            | ValueSome({
-                                            Shape = ExternalTypeShape.Enum(cases = cases)
-                                        } as hit) when
-                                (let caseName = ctx.NameOf li.Idents.[1]
-                                 cases |> EqArray.exists (fun c -> c.Name = caseName))
-                                ->
-                                ctx.Resolution.ExternalEnumCaseStamp.Set(CstKeys.ofExpr e, hit.UseSiteKey)
-                            | _ -> ()
-
-                        // The whole name as an external class (`System.Exception "x"`, a
-                        // ctor-sugar application) → `ResolvedType`; else the folded prefix
-                        // (`System.Console` in `System.Console.Out`, class or intrinsic).
-                        if not (ctx.Resolution.ResolvedType.ContainsKey(CstKeys.ofExpr e)) then
-                            match qualHit with
-                            | ValueSome({ Shape = ExternalTypeShape.Class info } as hit) when info.TyparArity = 0 ->
-                                ctx.Resolution.ResolvedType.Set(CstKeys.ofExpr e, hit.UseSiteKey)
-                            | _ ->
-                                match prefixHit with
-                                | ValueSome({
-                                                ProbedTyparArity = 0
-                                                Shape = ExternalTypeShape.Class info
-                                            } as hit) when info.TyparArity = 0 ->
-                                    ctx.Resolution.ExternalStaticQualifier.Set(CstKeys.ofExpr e, hit.UseSiteKey)
-                                | ValueSome {
-                                                ProbedTyparArity = 0
-                                                Shape = ExternalTypeShape.Intrinsic { Id = { Canon = canon } }
-                                            } when canon.TyparArity = 0 ->
-                                    ctx.Resolution.ExternalStaticQualifier.Set(CstKeys.ofExpr e, canon)
-                                | _ -> ()
-
-                        // An external UNION or RECORD qualifier has no static fields, so an
-                        // unresolved last segment is a genuine member miss, so stamp its key to be
-                        // diagnosed. A class qualifier is not: it stays a fresh TyVar.
-                        match prefixHit with
-                        | ValueSome({ Shape = ExternalTypeShape.Union _ } as hit)
-                        | ValueSome({ Shape = ExternalTypeShape.Record _ } as hit) ->
-                            ctx.Resolution.ExternalUnionRecordQualifier.Set(
-                                CstKeys.ofExpr e,
-                                SymbolKey.Type(hit.UseSiteKey)
-                            )
-                        | _ -> ()
-
-                        // A whole-name hit is a bare type ref; a prefix hit a folded static
-                        // access (`System.Console.Out`). `Shape.TyparArity` must agree with
-                        // the probe: a bare-keyed generic union is NOT an arity-0 type.
-                        let qualIsExternalType =
-                            match qualHit with
-                            | ValueSome hit -> hit.Shape.TyparArity = 0
-                            | ValueNone -> false
-
-                        let isExternalStaticMember =
-                            match prefixHit with
-                            | ValueSome hit -> hit.ProbedTyparArity = 0 && hit.Shape.TyparArity = 0
-                            | ValueNone -> false
-
-                        if
-                            isQualifiedCtor
-                            || isQualifiedStatic
-                            || isLocalQualifiedType
-                            || isEnumCase
-                            || isExternalQualifiedCase
-                            // A generic prefix (`…List<int>.Empty`) was stamped by TypeApp.
-                            || ctx.Resolution.ResolvedType.ContainsKey(CstKeys.ofExpr e)
-                            || qualIsExternalType
-                            || isExternalStaticMember
-                        then
-                            ()
-                        else
-                            ctx.Report(CstKeys.firstTokenOfExpr e, Kind.UnresolvedQualifiedName qualName)
-
-                if not (tryLocalModuleMember ()) then
-                    resolveQualifiedExternal ()
+            | ValueNone -> resolveExprNames ctx e li.Idents
         | Expr.LongIdentOrOp(LongIdentOrOp.Op(IdentOrOp.ParenOp(opName = OpName.SymbolicOp op))) when
             (Desugar.symbolicOpCompiledName op.Token |> ValueOption.isSome)
             ->
@@ -535,22 +424,23 @@ module NameResolutionScope =
             ctx.Report(CstKeys.firstTokenOfExpr e, Kind.OperatorFormQualifiedName displayName)
         | Expr.TypeApp(expr = expr; types = types) ->
             // The type-arg count lives on THIS node, so the applied name and its arity are
-            // classified together, so `EqualityComparer<int>.Default` resolves at the exact
+            // resolved together, so `EqualityComparer<int>.Default` resolves at the exact
             // arity. A local claim wins: `T<'a>(…)` in `T`'s own file means `T`'s decl.
             match typeAppTypeName ctx expr with
-            | ValueSome written when
-                not (TypeRegistry.isWrittenTypeNameInScope ctx.Types (ctx.UseSiteAt(CstKeys.ofExpr expr)) written)
-                ->
-                match tryClassifyExternalType ctx (arityProbes types.Length) written.Written with
-                | ValueSome hit when hit.Shape.TyparArity = types.Length ->
-                    let key = hit.UseSiteKey
-                    ctx.Resolution.ResolvedType.Set(CstKeys.ofExpr expr, key)
+            | ValueSome written ->
+                let key = CstKeys.ofExpr expr
 
-                    match hit.Shape with
-                    | ExternalTypeShape.Class _ -> ctx.Resolution.ExternalStaticQualifier.Set(CstKeys.ofExpr expr, key)
+                match resolveType ctx (ctx.UseSiteAt key) written types.Length with
+                | ResolvedItem.Type(ResolvedTypeRef.Local _) as item -> ctx.Resolution.Resolved.Set(key, item)
+                | ResolvedItem.Type(ResolvedTypeRef.External(typeKey, shape)) as item ->
+                    ctx.Resolution.Resolved.Set(key, item)
+                    ctx.Resolution.ResolvedType.Set(key, typeKey)
+
+                    match shape with
+                    | ExternalTypeShape.Class _ -> ctx.Resolution.ExternalStaticQualifier.Set(key, typeKey)
                     | _ -> ()
                 | _ -> ()
-            | _ -> ()
+            | ValueNone -> ()
         | Expr.InfixApp _
         | Expr.PrefixApp _ -> stampDesugaredOperator ctx e
         // `x?name` — stamp `op_Dynamic`. The SET form (`x?name <- v`) parses as

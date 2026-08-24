@@ -302,12 +302,58 @@ Each step leaves the tree green and is a separate review.
    `TryContainer "Vesper.List"` therefore misses on the published half until the surface
    carries the source path beside the compiled one; the local half (`LocalContainers`, keyed
    by source path) already has it.
-3. **`LongIdent.resolveExpr` / `resolvePattern` / `resolveType`** in `Passes/NameResolution/LongIdent.fs`,
-   with `Resolution.Resolved` filled ALONGSIDE the existing stamps by `Scope.fs`'s expression
-   arm (`:380-460`), `stampPatCasesWith` and `classifyTypeRef`. A comparison assertion in the
-   tests that the new stamp agrees with the old ones on the whole corpus is the safety net.
-   Exit: step 1's `ptest`s flip to `test`; the suppression list at `Scope.fs:112-131` is
-   replaced by the stamp.
+3. **`LongIdent.resolveExpr` / `resolvePattern` / `resolveType` — LANDED.**
+   `Passes/NameResolution/LongIdent.fs` (module `NameResolutionLongIdent`, compiled before
+   `TypeRefStamp.fs`, which now owns the external probes too) resolves a name in FCS's order
+   over both halves, local first: the first segment against the environment (`valueInEnv`,
+   `caseInEnv`, `typeInEnv`, `firstSegmentContainers`), every later segment inside the entity
+   found (`inContainer` with the position-specific step order, `inType`). `ResolvedItem`
+   (`ResolvedItem.fs`, before `PassContext.fs`) is the one result type;
+   `Resolution.Resolved: NodeKey → ResolvedItem` is the one stamp. `Scope.fs` DERIVES every
+   per-kind stamp from it (`stampItem`) and owes exactly one report per resolution
+   (`reportExpr`), so the seven-disjunct suppression list is gone; the printf family is the
+   one remaining exemption, being a front-end intrinsic no contract declares.
+   `classifyTypeRef` derives its verdict from `resolveType`. The six `GAP` `ptest`s flipped,
+   the Clr module-qualified case too. Suites: 1426 / 1548 / 666.
+
+   Consumers that had to read `Resolved` for the module-qualified LOCAL case to type and
+   lower (the start of step 4): `InferPat`, `InferIdentExpr`, `Elaborate/Patterns`,
+   `Elaborate/Resolve`, through `ResolvedStamps.tryUnionCase`.
+
+   What the suites forced, and why it stays until step 5:
+   - **Metadata sources expose no module structure**, so after the structured module path
+     the WHOLE spelling is looked up as a value (`wholeNameValue`) BEFORE the type-first
+     step. `Set.singleton` against the built `Vesper.Set` is a metadata module path, and the
+     generic class `Set<'T>` would otherwise claim it as a static member and leave a TyVar.
+     **Follow-up (user, 2026-08-23):** the correct shape is a consolidated signature file
+     overlaid on a referenced Vesper assembly — `publishing-format-plan.md` PF1/PF3 applied
+     to the reference, not only to a source package: the `.dll` is the runtime artifact and
+     the `.fsi` beside it the contract the resolver reads. A referenced `Vesper.Set` then
+     answers `Scope.TryContainer "Vesper.Set"` through the signature path, which also
+     publishes the `ModuleSuffix` alias, and `wholeNameValue` goes with step 5. Metadata
+     alone stays the channel for a non-Vesper assembly (the BCL), whose types the folded
+     probes already reach.
+   - **An external class's static member is not existence-checked** (`inType`); Unification
+     reads members by the stamped key, and the stub providers in `ExternalTypeKeyStampTests`
+     publish no members. Local nominals and external unions / records are checked.
+   - **The bare-name reverse index stays the last resort** for a type-qualified case
+     (`folded.indexedCase`): the stub in `ExternalUnionCaseStampTests` publishes cases but no
+     types, and `OpenResolutionTests` pins `Color.Red` resolving with `Tests` NOT opened,
+     which F# rejects. Both are findings for step 5, when `TryLookupUnionCase` goes.
+   - `valueInEnv` reads this file's OPENED modules only; the enclosing scopes' `let`s are
+     bound by the walk in declaration order (`let f x = … f …` without `rec` stays
+     unresolved, as `ExpansionTests` pins).
+
+   New diagnostic: `Kind.RequireQualifiedAccessCase` (FS0035), reported at the use in both
+   positions when a case of a `[<RequireQualifiedAccess>]` union is reached other than
+   through its union's name. A bare RQA case is no longer in the environment at all
+   (`caseInEnv` filters it), as in FCS.
+
+   The `ModuleSuffix` follow-up from step 2 is half closed: `PublishedSurface.scopeOf` derives
+   the source-path container from the alias symbols the SIGNATURE path publishes
+   (`SignatureResolution.fs:672-684`), pinned in `ScopeContentsTests`. An implementation-
+   published surface (`FrozenSignature.addValue`) has no source name to alias by; the frozen
+   file would have to carry a module's source name beside its compiled one.
 4. **Consumers read `Resolved`.** `InferIdentExpr.fs:56-110`, `InferPat.fs:59-210`,
    `Elaborate/Patterns.fs:52-155`, `Elaborate/Idents.fs`, `InferResolve.fs:115`,
    `InheritParent.fs`. Exit: no reader of `ExternalUnionCaseStamp`, `ExternalStaticQualifier`,
@@ -315,7 +361,10 @@ Each step leaves the tree green and is a separate review.
 5. **Delete the speculation.** `TryLookupUnionCase`, `ResolvesWith`, `localQualifiedCase`,
    `isCaseName`/`casesNamed` (as global reverse lookups), `tryDottedInModule`, `arityProbes`'
    per-prefix loop, `ExternalUnionCase.UnionKey`-by-name checks. Score by the runtime checks
-   removed, per the repo rule.
+   removed, per the repo rule. `wholeNameValue` and `folded.indexedCase` are gated on the
+   signature overlay for referenced Vesper assemblies (step 3's first follow-up): until a
+   referenced `Vesper.*` DLL carries its consolidated `.fsi`, its modules are reachable only
+   by the whole spelling.
 
 ## 7. Independent of this plan — LANDED (2026-08-23)
 

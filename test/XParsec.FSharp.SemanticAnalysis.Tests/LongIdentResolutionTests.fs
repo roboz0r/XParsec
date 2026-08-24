@@ -6,10 +6,9 @@ open XParsec.FSharp.SemanticAnalysis.AssemblyFiles
 open XParsec.FSharp.SemanticAnalysis.AssemblyAnalysis
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
-// How a dotted name resolves, in each syntactic position, across and within files. The
-// `ptest`s pin the gaps `docs/long-ident-resolution-plan.md` is landing: a case qualified by
-// its MODULE rather than its type, a diagnosed pattern that crashes instead of reporting, and
-// `open` shadowing an earlier declaration mid-file.
+// How a dotted name resolves, in each syntactic position, across and within files: through a
+// module path, a type, or bare after an `open`, in F#'s order. The `ptest`s pin the one gap
+// left: a later `open` shadowing an earlier declaration mid-file.
 
 let private asm: CompilingAssembly =
     {
@@ -225,14 +224,11 @@ module N =
                 ]
 
             testList
-                "GAP: a case qualified by its MODULE is not a case"
+                "a case qualified by its MODULE"
                 [
-                    // Expression position. FCS: `Test.A.M` is a module path, `Red` is found
-                    // in the module's contents as a union case. Today `Scope.fs` suppresses
-                    // the unresolved error off a bare case-name hit but stamps nothing, and
-                    // `InferIdentExpr` mints a free TyVar, so the mismatch below goes
-                    // unreported and codegen faults later.
-                    ptest "GAP module-qualified nullary case in expression position is typed" {
+                    // Expression position: `Test.A.M` is a module path and `Red` a case in the
+                    // module's contents, typed as the union, so the mismatch is reported.
+                    test "module-qualified nullary case in expression position is typed" {
                         let all =
                             analyse
                                 [
@@ -249,7 +245,7 @@ module N =
 
                         Expect.isTrue (errorsOf all.[1] |> List.exists typeMismatch) (sprintf "%A" (errorsOf all.[1]))
                     }
-                    ptest "GAP module-qualified payload case in expression position is typed" {
+                    test "module-qualified payload case in expression position is typed" {
                         let all =
                             analyse
                                 [
@@ -266,9 +262,8 @@ module N =
 
                         Expect.isTrue (errorsOf all.[1] |> List.exists typeMismatch) (sprintf "%A" (errorsOf all.[1]))
                     }
-                    // Pattern position, cross-file. Today this CRASHES in `TastPools.toPools`
-                    // rather than resolving.
-                    ptest "GAP module-qualified case pattern, cross-file, three segments" {
+                    // Pattern position, cross-file, the root namespace as the first segment.
+                    test "module-qualified case pattern, cross-file, three segments" {
                         let all =
                             analyse
                                 [
@@ -288,7 +283,7 @@ module N =
 
                         Expect.isEmpty (errorsOf all.[1]) "resolves as the case"
                     }
-                    ptest "GAP module-qualified case pattern after opening the namespace" {
+                    test "module-qualified case pattern after opening the namespace" {
                         let all =
                             analyse
                                 [
@@ -307,8 +302,8 @@ let a (c: M.Color) =
 
                         Expect.isEmpty (errorsOf all.[1]) "resolves as the case"
                     }
-                    // Pattern position, SINGLE file: not a cross-file defect at all.
-                    ptest "GAP module-qualified case pattern within one file" {
+                    // Pattern position, SINGLE file: the local half answers the same query.
+                    test "module-qualified case pattern within one file" {
                         let all =
                             analyse
                                 [
@@ -333,10 +328,9 @@ module N =
                         Expect.isEmpty (errorsOf all.[0]) "resolves as the case"
                     }
                     // FCS resolves the case through the module path and THEN reports FS0035
-                    // (`CheckExpressions.fs:2063`); `dotnet fsi` agrees. Until the resolver
-                    // carries the flag there is no `Kind` for it, so the assertion is only that
-                    // an error is reported and the program is not silently accepted.
-                    ptest "GAP module-qualified case of a RequireQualifiedAccess union resolves, then is reported" {
+                    // (`CheckExpressions.fs:2063`); `dotnet fsi` agrees. Here the resolver
+                    // carries the flag and `Kind.RequireQualifiedAccessCase` is the report.
+                    test "module-qualified case of a RequireQualifiedAccess union resolves, then is reported" {
                         let all =
                             analyse
                                 [
@@ -351,17 +345,22 @@ module N =
 "
                                 ]
 
-                        Expect.isNonEmpty (errorsOf all.[1]) "FS0035: include the union type's name"
+                        let requiresQualification (d: Diagnostic) =
+                            match d.Kind with
+                            | Kind.RequireQualifiedAccessCase("Color", "Red") -> true
+                            | _ -> false
+
+                        Expect.isTrue
+                            (errorsOf all.[1] |> List.exists requiresQualification)
+                            (sprintf "FS0035 naming Color.Red; got %A" (errorsOf all.[1]))
                     }
                 ]
 
             testList
-                "GAP: a diagnosed pattern crashes instead of reporting"
+                "a diagnosed pattern reports"
                 [
-                    // `Elaborate.fs:305` swallows its own exception once an error exists,
-                    // leaving `ModuleMembers` filled for decls it dropped; `TastPools.toPools`
-                    // then faults. The report exists (`UndefinedPatternDiscriminator`) and
-                    // never reaches the caller.
+                    // `Elaborate.run` degrades totally on a diagnosed error: the decls and
+                    // every bound-variable table go together, so the report reaches the caller.
                     test "undefined pattern discriminator is REPORTED, not a crash" {
                         let all =
                             analyse

@@ -116,6 +116,7 @@
     <Compile Include="Intrinsics.fs" />
     <Compile Include="TypeInfos.fs" />
     <Compile Include="TypeRegistry.fs" />
+    <Compile Include="ResolvedItem.fs" />
     <Compile Include="PassContext.fs" />
     <Compile Include="ExternalTypeProbe.fs" />
     <Compile Include="AttributeResolution.fs" />
@@ -126,6 +127,7 @@
     <Compile Include="PropertyAccessors.fs" />
     <Compile Include="AssignTarget.fs" />
     <Compile Include="Passes\Desugar.fs" />
+    <Compile Include="Passes\NameResolution\LongIdent.fs" />
     <Compile Include="Passes\NameResolution\TypeRefStamp.fs" />
     <!-- After name resolution: an attribute is decoded by RESOLVING its long-ident
          as a type, not by matching its short name. -->

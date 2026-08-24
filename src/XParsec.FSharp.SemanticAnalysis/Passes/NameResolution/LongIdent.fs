@@ -1,0 +1,659 @@
+namespace XParsec.FSharp.SemanticAnalysis.Passes
+
+open XParsec.FSharp.SemanticAnalysis
+open ExternalTypeProbe
+
+/// Resolution of a written name in F#'s order. The first segment is classified once against
+/// the use site's environment; each later segment is looked up inside the entity already
+/// found; the order of the lookups inside an entity is fixed by the syntactic position. Both
+/// halves of the program answer every lookup, this file's own declarations first: `LocalScope`
+/// over the registry, `IExternalSymbolResolver.Scope` over the referenced surfaces.
+module NameResolutionLongIdent =
+
+    // --- The external probes: a written spelling against the referenced contracts ---------
+
+    /// A qualifier written without type args: its arity is not recoverable at the use site,
+    /// so probe bare, then `` `1 ``..`` `4 ``.
+    let qualifierProbes (candidate: string) : struct (string * int) list =
+        [
+            for a in 0..4 ->
+                struct ((if a = 0 then
+                             candidate
+                         else
+                             SymbolKeyOps.arityName candidate a),
+                        a)
+        ]
+
+    /// The unfiltered `tryPickExternalType`: the first hit, whatever it is.
+    let tryClassifyExternalType
+        (ctx: PassContext)
+        (probes: string -> struct (string * int) list)
+        (name: string)
+        : ExternalTypeHit voption =
+        tryPickExternalType ctx probes ValueSome name
+
+    /// An enum-case access `E.C1` resolved to the enum's nominal key, at arity 0.
+    let tryExternalEnumCaseKey (ctx: PassContext) (anchorName: string) (caseName: string) : TypeKey voption =
+        tryPickExternalType
+            ctx
+            (arityProbes 0)
+            (fun hit ->
+                match hit.Shape with
+                | ExternalTypeShape.Enum(cases = cases) when
+                    cases |> EqArray.exists (fun (c: ExternalEnumCaseShape) -> c.Name = caseName)
+                    ->
+                    ValueSome hit.UseSiteKey
+                | _ -> ValueNone
+            )
+            anchorName
+
+    /// F# keeps no global reverse index for union cases: a bare `Some`/`Red` resolves
+    /// only when its declaring union's namespace is opened or auto-opened. Mirror that,
+    /// so a union in the root namespace always matches, its bare candidate being itself.
+    let private bareCaseNamespaceOpen (scope: OpenScope) (uc: ExternalUnionCase) : bool =
+        // The SOURCE spelling of the declaring union, so `` Vesper.Choice`2 `` qualifies as
+        // `Vesper.Choice` and a module-held `CrossFile.Lib+Shape` as `CrossFile.Lib.Shape`.
+        let qualified = SymbolKeyOps.typeSourceName uc.UnionKey
+        (OpenScope.tryQualify scope (fun c -> c = qualified) uc.UnionKey.Name).IsSome
+
+    /// The external union case a reference resolves to through the bare-name reverse index.
+    /// `qualifier` is the written declaring type (`Option.Some` ⇒ `ValueSome "Option"`),
+    /// `ValueNone` for a bare reference, which alone is gated on the declaring namespace
+    /// being open.
+    let tryExternalCase (ctx: PassContext) (qualifier: string voption) (caseName: string) : ExternalUnionCase voption =
+        ctx.Resolver.TryLookupUnionCase caseName
+        |> ValueOption.filter (fun uc -> uc.ResolvesWith qualifier)
+        |> ValueOption.filter (fun uc ->
+            match qualifier with
+            | ValueSome _ -> true
+            | ValueNone -> bareCaseNamespaceOpen ctx.Resolution.OpenScope uc
+        )
+
+    // --- The resolver -----------------------------------------------------------------
+
+    [<RequireQualifiedAccess>]
+    type Position =
+        | Expression
+        | Pattern
+
+    /// A resolved item and the index of the first segment left over, which is a member of it.
+    [<Struct; NoEquality; NoComparison>]
+    type Resolution = { Item: ResolvedItem; Rest: int }
+
+    let private resolved (item: ResolvedItem) (rest: int) : Resolution = { Item = item; Rest = rest }
+
+    let private tryPickV (f: 'T -> 'U voption) (xs: 'T list) : 'U voption =
+        let rec go xs =
+            match xs with
+            | [] -> ValueNone
+            | x :: rest ->
+                match f x with
+                | ValueSome v -> ValueSome v
+                | ValueNone -> go rest
+
+        go xs
+
+    let private isUnresolved (r: Resolution) : bool =
+        match r.Item with
+        | ResolvedItem.Unresolved _ -> true
+        | _ -> false
+
+    let private enclosingOf (useSite: UseSite) : ModuleContainer =
+        match useSite.Container with
+        | ValueSome h -> h
+        | ValueNone -> ModuleContainer.InNamespace NamespaceKey.Global
+
+    let private childPath (c: ModuleContainer) (name: string) : string =
+        match SymbolKeyOps.containerFullName c with
+        | "" -> name
+        | full -> full + "." + name
+
+    /// The module `name` declared directly in `c`, in either half.
+    let private subContainer (ctx: PassContext) (c: ModuleContainer) (name: string) : ModuleContainer voption =
+        match TypeRegistry.tryContainerUnder ctx.Types c name with
+        | ValueSome sub -> ValueSome sub
+        | ValueNone -> ctx.Resolver.Scope.TryContainer(childPath c name)
+
+    /// Every module or namespace `segment` denotes at `useSite`, nearest first: a module
+    /// abbreviation's target, a child of an enclosing scope, a child of an opened scope, a root.
+    let private firstSegmentContainers (ctx: PassContext) (useSite: UseSite) (segment: string) : ModuleContainer list =
+        let found = ResizeArray<ModuleContainer>()
+
+        let add (c: ModuleContainer voption) =
+            match c with
+            | ValueSome c when not (found.Contains c) -> found.Add c
+            | _ -> ()
+
+        let atPath (path: string) =
+            add (LocalScope.tryContainer ctx path)
+            add (ctx.Resolver.Scope.TryContainer path)
+
+        match Map.tryFind segment ctx.Resolution.OpenScope.Abbrevs with
+        | Some target -> atPath target
+        | None ->
+            for h in (enclosingOf useSite).SelfAndAncestors do
+                add (TypeRegistry.tryContainerUnder ctx.Types h segment)
+                add (ctx.Resolver.Scope.TryContainer(childPath h segment))
+
+            for o in useSite.Opens do
+                match TypeRegistry.openedContainer ctx.Types o with
+                | ValueSome opened -> add (TypeRegistry.tryContainerUnder ctx.Types opened segment)
+                | ValueNone -> ()
+
+            for p in ctx.Resolution.OpenScope.Prefixes do
+                atPath (p + "." + segment)
+
+            atPath segment
+
+        List.ofSeq found
+
+    // --- The contents of one entity -----------------------------------------------------
+
+    let private valueIn
+        (ctx: PassContext)
+        (useSite: UseSite)
+        (c: ModuleContainer)
+        (name: string)
+        : ResolvedValue voption =
+        match LocalScope.tryValue ctx useSite c name with
+        | ValueSome m -> ValueSome(ResolvedValue.Local m)
+        | ValueNone -> ctx.Resolver.Scope.TryValue(c, name) |> ValueOption.map ResolvedValue.External
+
+    let private caseIn
+        (ctx: PassContext)
+        (useSite: UseSite)
+        (c: ModuleContainer)
+        (name: string)
+        : ResolvedUnionCase voption =
+        match LocalScope.tryUnionCase ctx useSite c name with
+        | ValueSome info -> ValueSome(ResolvedUnionCase.Local info)
+        | ValueNone ->
+            ctx.Resolver.Scope.TryUnionCase(c, name)
+            |> ValueOption.map ResolvedUnionCase.External
+
+    let private typesIn
+        (ctx: PassContext)
+        (useSite: UseSite)
+        (c: ModuleContainer)
+        (name: string)
+        : ResolvedTypeRef list =
+        match LocalScope.typesNamed ctx useSite c name with
+        | [] ->
+            [
+                for struct (key, shape) in (ctx.Resolver.Scope.TypesNamed(c, name)).Underlying ->
+                    ResolvedTypeRef.External(key, shape)
+            ]
+        | claims -> List.map ResolvedTypeRef.Local claims
+
+    /// The declaring union's `[<RequireQualifiedAccess>]`.
+    let private isRequireQualifiedAccess (ctx: PassContext) (case: ResolvedUnionCase) : bool =
+        match case with
+        | ResolvedUnionCase.Local info -> (TypeRegistry.unionOfCase ctx.Types info).IsRequireQualifiedAccess
+        | ResolvedUnionCase.External uc -> uc.IsRequireQualifiedAccess
+
+    /// The case `name` of the external union `key`, with the `[<RequireQualifiedAccess>]` flag
+    /// the declaring surface published for it.
+    let private externalCaseOfUnion
+        (ctx: PassContext)
+        (key: TypeKey)
+        (cases: EqArray<ExternalCaseShape>)
+        (name: string)
+        : ExternalUnionCase voption =
+        match EqArray.tryFind (fun (c: ExternalCaseShape) -> c.Name = name) cases with
+        | ValueNone -> ValueNone
+        | ValueSome case ->
+            let ofKey (uc: ExternalUnionCase) = uc.UnionKey = key
+
+            let published =
+                match SymbolKeyOps.tryModuleContainerOf key.Container with
+                | ValueSome c -> ctx.Resolver.Scope.TryUnionCase(c, name) |> ValueOption.filter ofKey
+                | ValueNone -> ValueNone
+
+            match published with
+            | ValueSome uc -> ValueSome uc
+            | ValueNone ->
+                match ctx.Resolver.TryLookupUnionCase name |> ValueOption.filter ofKey with
+                | ValueSome uc -> ValueSome uc
+                | ValueNone ->
+                    ValueSome
+                        {
+                            UnionKey = key
+                            Case = case
+                            IsRequireQualifiedAccess = false
+                        }
+
+    /// A static member `name`, or the setter of a write-only property `name`, is declared.
+    let private declaresStatic (members: TypeMemberInfo[]) (name: string) : bool =
+        let setter = AccessorNames.setterName name
+
+        members
+        |> Array.exists (fun m -> m.IsStatic && (m.Name = name || m.Name = setter))
+
+    let private declaresExternalMember (ctx: PassContext) (key: TypeKey) (name: string) : bool =
+        (ctx.Provider.TryLookupMembers(key, name)).Length > 0
+        || (ctx.Provider.TryLookupMembers(key, AccessorNames.setterName name)).Length > 0
+
+    /// `name` inside the type `t`: a union or enum case in either position; in expression
+    /// position also a static member. A member's existence is checked on this file's own
+    /// nominals and on an external union or record, which bear no static fields; an external
+    /// class's members are Unification's, which reads them by the stamped key.
+    let private inType
+        (ctx: PassContext)
+        (position: Position)
+        (t: ResolvedTypeRef)
+        (name: string)
+        : ResolvedItem voption =
+        let staticMember () =
+            match position with
+            | Position.Expression -> ValueSome(ResolvedItem.StaticMember(t, name))
+            | Position.Pattern -> ValueNone
+
+        let staticIf (declared: bool) =
+            if declared then staticMember () else ValueNone
+
+        match t with
+        | ResolvedTypeRef.Local claim ->
+            match claim.Kind with
+            | TypeDeclKind.Union ->
+                match TypeRegistry.tryUnionByKey ctx.Types claim.Key with
+                | ValueSome u ->
+                    match u.Cases |> Array.tryFind (fun c -> c.Name = name) with
+                    | Some info -> ValueSome(ResolvedItem.UnionCase(ResolvedUnionCase.Local info, false))
+                    | None -> staticIf (declaresStatic u.Members name)
+                | ValueNone -> ValueNone
+            | TypeDeclKind.Enum ->
+                match TypeRegistry.tryEnumByKey ctx.Types claim.Key with
+                | ValueSome e when e.HasCase name -> ValueSome(ResolvedItem.EnumCase(t, name))
+                | _ -> ValueNone
+            | TypeDeclKind.Class
+            | TypeDeclKind.Record ->
+                match TypeRegistry.tryNominalByKey ctx.Types claim.Key with
+                | ValueSome decl -> staticIf (declaresStatic decl.Members name)
+                | ValueNone -> ValueNone
+            | TypeDeclKind.Abbreviation
+            | TypeDeclKind.IntrinsicRepr -> staticMember ()
+        | ResolvedTypeRef.External(key, shape) ->
+            match shape with
+            | ExternalTypeShape.Union(cases = cases) ->
+                match externalCaseOfUnion ctx key cases name with
+                | ValueSome uc -> ValueSome(ResolvedItem.UnionCase(ResolvedUnionCase.External uc, false))
+                | ValueNone -> staticIf (declaresExternalMember ctx key name)
+            | ExternalTypeShape.Enum(cases = cases) ->
+                if cases |> EqArray.exists (fun c -> c.Name = name) then
+                    ValueSome(ResolvedItem.EnumCase(t, name))
+                else
+                    ValueNone
+            | ExternalTypeShape.Record _ -> staticIf (declaresExternalMember ctx key name)
+            | ExternalTypeShape.Class _
+            | ExternalTypeShape.Intrinsic _
+            | ExternalTypeShape.IntrinsicInterface _
+            | ExternalTypeShape.Abbrev _
+            | ExternalTypeShape.Unmodelled _ -> staticMember ()
+
+    /// `names.[i..]` inside the module or namespace `c`. Expression position: value, case of a
+    /// union without `[<RequireQualifiedAccess>]`, type, sub-module, then the case with it.
+    /// Pattern position: case, value, type, sub-module. The first item wins; on a total miss
+    /// the deepest miss is the answer.
+    let rec private inContainer
+        (ctx: PassContext)
+        (useSite: UseSite)
+        (position: Position)
+        (c: ModuleContainer)
+        (names: string[])
+        (i: int)
+        : Resolution =
+        let name = names.[i]
+        let next = i + 1
+        let atEnd = next = names.Length
+
+        let value () =
+            valueIn ctx useSite c name
+            |> ValueOption.map (fun v -> resolved (ResolvedItem.Value v) next)
+
+        let case = caseIn ctx useSite c name
+
+        let caseIf (admit: bool -> bool) () =
+            match case with
+            | ValueSome uc ->
+                let requiresQualification = isRequireQualifiedAccess ctx uc
+
+                if admit requiresQualification then
+                    ValueSome(resolved (ResolvedItem.UnionCase(uc, requiresQualification)) next)
+                else
+                    ValueNone
+            | ValueNone -> ValueNone
+
+        let types = typesIn ctx useSite c name
+
+        let inTypes () =
+            match types, atEnd with
+            | [], _ -> ValueNone
+            | t :: _, true -> ValueSome(resolved (ResolvedItem.Type t) next)
+            | _, false ->
+                types
+                |> tryPickV (fun t -> inType ctx position t names.[next])
+                |> ValueOption.map (fun item -> resolved item (next + 1))
+
+        let sub () =
+            match subContainer ctx c name with
+            | ValueSome s when atEnd -> ValueSome(resolved (ResolvedItem.ModuleOrNamespace s) next)
+            | ValueSome s -> ValueSome(inContainer ctx useSite position s names next)
+            | ValueNone -> ValueNone
+
+        let steps =
+            match position with
+            | Position.Expression -> [ value; caseIf not; inTypes; sub; caseIf id ]
+            | Position.Pattern -> [ caseIf (fun _ -> true); value; inTypes; sub ]
+
+        let mutable hit = ValueNone
+        let mutable subMiss = ValueNone
+
+        for step in steps do
+            if hit.IsNone then
+                match step () with
+                | ValueSome r when isUnresolved r ->
+                    if subMiss.IsNone then
+                        subMiss <- ValueSome r
+                | ValueSome r -> hit <- ValueSome r
+                | ValueNone -> ()
+
+        match hit, subMiss, types with
+        | ValueSome r, _, _ -> r
+        | ValueNone, ValueSome r, _ -> r
+        | ValueNone, ValueNone, t :: _ when not atEnd ->
+            resolved
+                (ResolvedItem.Unresolved
+                    {
+                        Segment = names.[next]
+                        Within = ResolutionScope.Type t
+                    })
+                (next + 1)
+        | ValueNone, ValueNone, _ ->
+            resolved
+                (ResolvedItem.Unresolved
+                    {
+                        Segment = name
+                        Within = ResolutionScope.Container c
+                    })
+                next
+
+    // --- The environment: what a bare first segment denotes -----------------------------
+
+    /// A module-level value: one of this file's OPENED scopes, then the referenced surfaces
+    /// through the `open`s and the prelude. The enclosing scopes' values are bound by the
+    /// walk itself, in declaration order, so a `let` is in scope below its own body only.
+    let private valueInEnv (ctx: PassContext) (useSite: UseSite) (name: string) : ResolvedValue voption =
+        let local =
+            useSite.Opens
+            |> tryPickV (fun o ->
+                match TypeRegistry.openedContainer ctx.Types o with
+                | ValueSome opened -> LocalScope.tryValue ctx useSite opened name
+                | ValueNone -> ValueNone
+            )
+
+        match local with
+        | ValueSome m -> ValueSome(ResolvedValue.Local m)
+        | ValueNone ->
+            OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Resolver.TryLookup name
+            |> ValueOption.map ResolvedValue.External
+
+    /// A bare union case: a case of a union without `[<RequireQualifiedAccess>]` visible at
+    /// the use site, this file's first. Several local unions declaring it is ambiguous.
+    let private caseInEnv (ctx: PassContext) (useSite: UseSite) (name: string) : ResolvedItem voption =
+        let locals =
+            TypeRegistry.casesNamed ctx.Types useSite name
+            |> Array.filter (fun c -> not (TypeRegistry.unionOfCase ctx.Types c).IsRequireQualifiedAccess)
+
+        match locals with
+        | [| only |] -> ValueSome(ResolvedItem.UnionCase(ResolvedUnionCase.Local only, false))
+        | [||] ->
+            tryExternalCase ctx ValueNone name
+            |> ValueOption.map (fun uc -> ResolvedItem.UnionCase(ResolvedUnionCase.External uc, false))
+        | many -> ValueSome(ResolvedItem.AmbiguousCase(name, many.Length))
+
+    /// A bare type name at any arity: this file's claim in scope, else the referenced contracts.
+    let private typeInEnv (ctx: PassContext) (useSite: UseSite) (name: string) : ResolvedTypeRef voption =
+        match TypeRegistry.tryTypeClaimAnyArity ctx.Types useSite name with
+        | ValueSome claim -> ValueSome(ResolvedTypeRef.Local claim)
+        | ValueNone ->
+            tryClassifyExternalType ctx qualifierProbes name
+            |> ValueOption.map (fun hit -> ResolvedTypeRef.External(hit.UseSiteKey, hit.Shape))
+
+    /// `names.[0]` as a type in the environment and `names.[1]` inside it: every claim of this
+    /// file in scope under the name, then the referenced contracts at each arity. A type that
+    /// answers for the name but not for the member is the miss returned.
+    let private typeFirst
+        (ctx: PassContext)
+        (useSite: UseSite)
+        (position: Position)
+        (names: string[])
+        : Resolution voption =
+        let second = names.[1]
+
+        let local =
+            TypeRegistry.writtenTypeClaims ctx.Types useSite (WrittenTypeName.bare names.[0])
+            |> List.map ResolvedTypeRef.Local
+
+        let hit =
+            match local |> tryPickV (fun t -> inType ctx position t second) with
+            | ValueSome item -> ValueSome item
+            | ValueNone ->
+                tryPickExternalType
+                    ctx
+                    qualifierProbes
+                    (fun hit -> inType ctx position (ResolvedTypeRef.External(hit.UseSiteKey, hit.Shape)) second)
+                    names.[0]
+
+        match hit with
+        | ValueSome item -> ValueSome(resolved item 2)
+        | ValueNone ->
+            let found =
+                match local with
+                | t :: _ -> ValueSome t
+                | [] ->
+                    tryClassifyExternalType ctx qualifierProbes names.[0]
+                    |> ValueOption.map (fun hit -> ResolvedTypeRef.External(hit.UseSiteKey, hit.Shape))
+
+            found
+            |> ValueOption.map (fun t ->
+                resolved
+                    (ResolvedItem.Unresolved
+                        {
+                            Segment = second
+                            Within = ResolutionScope.Type t
+                        })
+                    2
+            )
+
+    /// The whole spelling as a value of the referenced contracts: the module path of a
+    /// metadata source, which exposes no module structure, and the source-spelled alias of
+    /// a `ModuleSuffix` module.
+    let private wholeNameValue (ctx: PassContext) (names: string[]) : Resolution voption =
+        OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Resolver.TryLookup (String.concat "." names)
+        |> ValueOption.map (fun sym -> resolved (ResolvedItem.Value(ResolvedValue.External sym)) names.Length)
+
+    /// The referenced contracts probed by the folded spelling, a whole name at a time: the
+    /// whole name as a type, then the prefix as a type and the last segment inside it.
+    let private folded (ctx: PassContext) (position: Position) (names: string[]) : Resolution voption =
+        let n = names.Length
+        let whole = String.concat "." names
+        let prefix = String.concat "." names.[.. n - 2]
+        let last = names.[n - 1]
+
+        let asType () =
+            match position with
+            | Position.Expression ->
+                tryClassifyExternalType ctx qualifierProbes whole
+                |> ValueOption.map (fun hit ->
+                    resolved (ResolvedItem.Type(ResolvedTypeRef.External(hit.UseSiteKey, hit.Shape))) n
+                )
+            | Position.Pattern -> ValueNone
+
+        let prefixMember () =
+            tryPickExternalType
+                ctx
+                qualifierProbes
+                (fun hit -> inType ctx position (ResolvedTypeRef.External(hit.UseSiteKey, hit.Shape)) last)
+                prefix
+            |> ValueOption.map (fun item -> resolved item n)
+
+        // The bare-name reverse index, matched on the written qualifier: the channel a
+        // source with no type table still answers through.
+        let indexedCase () =
+            tryExternalCase ctx (ValueSome names.[n - 2]) last
+            |> ValueOption.map (fun uc -> resolved (ResolvedItem.UnionCase(ResolvedUnionCase.External uc, false)) n)
+
+        let prefixMiss () =
+            tryClassifyExternalType ctx qualifierProbes prefix
+            |> ValueOption.map (fun hit ->
+                resolved
+                    (ResolvedItem.Unresolved
+                        {
+                            Segment = last
+                            Within = ResolutionScope.Type(ResolvedTypeRef.External(hit.UseSiteKey, hit.Shape))
+                        })
+                    n
+            )
+
+        let mutable result = ValueNone
+
+        for step in [ asType; prefixMember; indexedCase; prefixMiss ] do
+            if result.IsNone then
+                result <- step ()
+
+        result
+
+    /// The module path from `names.[0]`, each candidate scope tried in turn; the first item
+    /// wins, else the first miss.
+    let private modulePath
+        (ctx: PassContext)
+        (useSite: UseSite)
+        (position: Position)
+        (names: string[])
+        : Resolution voption =
+        let mutable hit = ValueNone
+        let mutable miss = ValueNone
+
+        for c in firstSegmentContainers ctx useSite names.[0] do
+            if hit.IsNone then
+                let r = inContainer ctx useSite position c names 1
+
+                if isUnresolved r then
+                    if miss.IsNone then
+                        miss <- ValueSome r
+                else
+                    hit <- ValueSome r
+
+        match hit with
+        | ValueSome r -> ValueSome r
+        | ValueNone -> miss
+
+    /// The first item any step yields, else the first miss any step yields, else `fallback`.
+    let private firstOf (steps: (unit -> Resolution voption) list) (fallback: Resolution) : Resolution =
+        let mutable hit = ValueNone
+        let mutable miss = ValueNone
+
+        for step in steps do
+            if hit.IsNone then
+                match step () with
+                | ValueSome r when isUnresolved r ->
+                    if miss.IsNone then
+                        miss <- ValueSome r
+                | ValueSome r -> hit <- ValueSome r
+                | ValueNone -> ()
+
+        match hit, miss with
+        | ValueSome r, _ -> r
+        | ValueNone, ValueSome r -> r
+        | ValueNone, ValueNone -> fallback
+
+    let private unresolvedInEnv (segment: string) (rest: int) : Resolution =
+        resolved
+            (ResolvedItem.Unresolved
+                {
+                    Segment = segment
+                    Within = ResolutionScope.Environment
+                })
+            rest
+
+    /// A name in expression position whose first segment is not a lexically bound variable.
+    /// Single segment: value, case, type. Several: a value with the rest as its member chain,
+    /// the module path in both its forms (structured, then the whole spelling as a value), a
+    /// type with the second segment inside it, the folded external spelling.
+    let resolveExpr (ctx: PassContext) (useSite: UseSite) (names: string[]) : Resolution =
+        let first = names.[0]
+
+        match names.Length with
+        | 1 ->
+            match valueInEnv ctx useSite first with
+            | ValueSome v -> resolved (ResolvedItem.Value v) 1
+            | ValueNone ->
+                match caseInEnv ctx useSite first with
+                | ValueSome item -> resolved item 1
+                | ValueNone ->
+                    match typeInEnv ctx useSite first with
+                    | ValueSome t -> resolved (ResolvedItem.Type t) 1
+                    | ValueNone -> unresolvedInEnv first 1
+        | n ->
+            match valueInEnv ctx useSite first with
+            | ValueSome v -> resolved (ResolvedItem.Value v) 1
+            | ValueNone ->
+                firstOf
+                    [
+                        (fun () -> modulePath ctx useSite Position.Expression names)
+                        (fun () -> wholeNameValue ctx names)
+                        (fun () -> typeFirst ctx useSite Position.Expression names)
+                        (fun () -> folded ctx Position.Expression names)
+                    ]
+                    (unresolvedInEnv first n)
+
+    /// A name in pattern position. Single segment: a case visible at the use site, else a
+    /// bound variable, which is the `Unresolved` answer. Several: a type with the second
+    /// segment inside it, the module path, the folded external spelling.
+    let resolvePattern (ctx: PassContext) (useSite: UseSite) (names: string[]) : Resolution =
+        let first = names.[0]
+
+        match names.Length with
+        | 1 ->
+            match caseInEnv ctx useSite first with
+            | ValueSome item -> resolved item 1
+            | ValueNone -> unresolvedInEnv first 1
+        | n ->
+            firstOf
+                [
+                    (fun () -> typeFirst ctx useSite Position.Pattern names)
+                    (fun () -> modulePath ctx useSite Position.Pattern names)
+                    (fun () -> folded ctx Position.Pattern names)
+                ]
+                (unresolvedInEnv first n)
+
+    /// A written type name at `arity`: a claim of this file in scope at the use site, at that
+    /// arity else at any, then the referenced contracts at exactly that arity.
+    let resolveType (ctx: PassContext) (useSite: UseSite) (written: WrittenTypeName) (arity: int) : ResolvedItem =
+        let local =
+            match TypeRegistry.tryWrittenTypeClaim ctx.Types useSite written arity with
+            | ValueSome claim -> ValueSome claim
+            | ValueNone -> TypeRegistry.tryWrittenTypeClaimAnyArity ctx.Types useSite written
+
+        match local with
+        | ValueSome claim -> ResolvedItem.Type(ResolvedTypeRef.Local claim)
+        | ValueNone ->
+            match
+                tryPickExternalType
+                    ctx
+                    (arityProbes arity)
+                    (fun hit ->
+                        if hit.Shape.TyparArity = hit.ProbedTyparArity then
+                            ValueSome(struct (hit.UseSiteKey, hit.Shape))
+                        else
+                            ValueNone
+                    )
+                    written.Written
+            with
+            | ValueSome(struct (key, shape)) -> ResolvedItem.Type(ResolvedTypeRef.External(key, shape))
+            | ValueNone ->
+                ResolvedItem.Unresolved
+                    {
+                        Segment = written.Name
+                        Within = ResolutionScope.Environment
+                    }

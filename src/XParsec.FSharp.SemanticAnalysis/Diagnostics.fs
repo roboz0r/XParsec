@@ -324,6 +324,8 @@ type Kind =
     | UndefinedPatternDiscriminator of name: string
     | NullaryConstructorPattern of name: string * arity: int
     | AmbiguousConstructor of name: string * candidates: int
+    /// A case of a `[<RequireQualifiedAccess>]` union written without its union's name.
+    | RequireQualifiedAccessCase of unionName: string * caseName: string
     | ConstructorArity of name: string * expected: int * got: int
     | NewRequiresClassType
     | ImmutableFieldAssignment of field: string
@@ -407,6 +409,7 @@ module Kind =
         | Kind.UndefinedPatternDiscriminator _
         | Kind.UnresolvedQualifiedName _ -> DiagCode.FSharp 39 // UndefinedName
         | Kind.TypeArgArity _ -> DiagCode.FSharp 33 // TyconBadArgs
+        | Kind.RequireQualifiedAccessCase _ -> DiagCode.FSharp 35 // Deprecated
         // ── Constructors: fsc's "union case expects N arguments" covers both the wrong
         // count and the nullary-in-pattern-position case.
         | Kind.ConstructorArity _
@@ -507,6 +510,8 @@ module Kind =
                 "Ambiguous constructor '%s': declared in %d union types, so add a qualifier or annotation"
                 name
                 candidates
+        | Kind.RequireQualifiedAccessCase(unionName, caseName) ->
+            sprintf "The union case '%s' requires qualified access: write '%s.%s'" caseName unionName caseName
         | Kind.ConstructorArity(name, expected, got) ->
             sprintf "Constructor '%s' expects %d argument(s) but got %d" name expected got
         | Kind.NewRequiresClassType -> "'new' requires a class type"
@@ -605,6 +610,7 @@ module Kind =
         | Kind.UndefinedPatternDiscriminator _
         | Kind.NullaryConstructorPattern _
         | Kind.AmbiguousConstructor _
+        | Kind.RequireQualifiedAccessCase _
         | Kind.ConstructorArity _
         | Kind.NewRequiresClassType
         | Kind.ImmutableFieldAssignment _

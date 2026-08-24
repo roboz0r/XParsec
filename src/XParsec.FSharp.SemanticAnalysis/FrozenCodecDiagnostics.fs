@@ -416,6 +416,10 @@ module FrozenCodecDiagnostics =
             w.Write binding
             writeStringList w via
         | Kind.AllowNullLiteralOnWrongKind -> w.Write 48uy
+        | Kind.RequireQualifiedAccessCase(unionName, caseName) ->
+            w.Write 50uy
+            w.Write unionName
+            w.Write caseName
         | Kind.PackageSet fault ->
             w.Write 49uy
             writePackageSetFault w fault
@@ -535,6 +539,9 @@ module FrozenCodecDiagnostics =
             Kind.CyclicInline(binding, readStringList r)
         | 48uy -> Kind.AllowNullLiteralOnWrongKind
         | 49uy -> Kind.PackageSet(readPackageSetFault r)
+        | 50uy ->
+            let unionName = r.ReadString()
+            Kind.RequireQualifiedAccessCase(unionName, r.ReadString())
         | b -> failwithf "FrozenCodec: unknown Kind tag %d" b
 
     let writeDiagnostic (w: FrozenWriter) (d: XParsec.FSharp.SemanticAnalysis.Diagnostic) =
