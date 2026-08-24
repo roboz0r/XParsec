@@ -332,12 +332,7 @@ module Regions =
             // every argument.
             let fn, args = TastWalk.collectAppChain [] e
 
-            joinArms
-                ctx
-                s
-                e
-                [ yield inferRegion s ctx fn; for (a, _, _) in args -> inferRegion s ctx a ]
-                RegionId.Unknown
+            joinArms ctx s e [ yield inferRegion s ctx fn; for a in args -> inferRegion s ctx a.Arg ] RegionId.Unknown
         | TExpr.MethodCall(objArg, _, _, args, _, _) ->
             joinArms ctx s e [ yield inferRegion s ctx objArg; for a in args -> inferRegion s ctx a ] RegionId.Unknown
         | TExpr.StaticMethodCall(_, args, _, _) ->

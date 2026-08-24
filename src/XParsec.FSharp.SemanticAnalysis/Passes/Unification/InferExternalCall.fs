@@ -310,29 +310,22 @@ module internal UnificationInferExternalCall =
         (fn: Expr<SyntaxToken>)
         (argExpr: Expr<SyntaxToken>)
         : SemType voption =
+        // The object argument's own declaration and the type args it is instantiated at;
         // `ValueNone` for anything but a project-local class / union / record.
-        let localHost
-            (objArgTy: SemType)
-            : struct (TypeKey * EqArray<string * TyVarId> * EqArray<SemType> * TypeMemberInfo[]) voption =
+        let localHost (objArgTy: SemType) : struct (TypeRegistry.NominalDecl * EqArray<SemType>) voption =
             match resolveStep ctx.Store objArgTy with
-            | TyClass(hostKey, args) ->
-                match TypeRegistry.tryClassByKey ctx.Types hostKey with
-                | ValueSome info -> ValueSome(struct (info.TypeKey, info.TypeParams, args, info.Members))
-                | ValueNone -> ValueNone
-            | TyUnion(hostKey, args) ->
-                match TypeRegistry.tryUnionByKey ctx.Types hostKey with
-                | ValueSome info -> ValueSome(struct (info.TypeKey, info.TypeParams, args, info.Members))
-                | ValueNone -> ValueNone
-            | TyRecord(hostKey, args) ->
-                match TypeRegistry.tryRecordByKey ctx.Types hostKey with
-                | ValueSome info -> ValueSome(struct (info.TypeKey, info.TypeParams, args, info.Members))
-                | ValueNone -> ValueNone
+            | TyNominal(hostKey, args) ->
+                TypeRegistry.tryNominalByKey ctx.Types hostKey
+                |> ValueOption.map (fun decl -> struct (decl, args))
             | _ -> ValueNone
 
         let resolveOn (objArgTy: SemType) (memberName: string) : SemType voption =
             match localHost objArgTy with
             | ValueNone -> ValueNone
-            | ValueSome(struct (declKey, typeParams, args, members)) ->
+            | ValueSome(struct (decl, args)) ->
+                let declKey = decl.TypeKey
+                let typeParams = decl.TypeParams
+                let members = decl.Members
                 let argTy = infer ctx argExpr
                 let argElems = argElemsOf ctx.Store argTy
 

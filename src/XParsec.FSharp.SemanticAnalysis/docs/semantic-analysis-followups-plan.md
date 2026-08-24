@@ -378,11 +378,6 @@ Deletes: the `Offset` field doc, which currently has to spell that convention ou
 arguments. A `KindRegistry<'Info>` bundling the two would delete the per-field "keyed by
 `TypeKey`" / "same shape as…" doc chain.
 
-### `RecordFieldClassifier.fs:11` — one verdict across two fields
-
-`Exact: 'cand voption` plus `ExactCount: int` encode a single three-state result, which is why
-both fields needed docs. `NoMatch | Unique of 'cand | Ambiguous of int` collapses it.
-
 ### `Anchor.fs:155` — `AssemblyFilePath.nowhere` is a sentinel, not a case
 
 The `Assembly` half landed with step 1 of
@@ -544,14 +539,6 @@ then answers every index-signature query from that constant `fun _ -> []`. A pro
 acquires index signatures and holds `InModule` keys has no way to publish them and gets no
 compile error. The fix is a channel on `KeyIndexedChannels`, not a comment.
 
-### `Passes/Unification/EngineCore.fs:321` and `:354` — the two capability-key chains are one function
-
-`capabilityCanonKey` and `capabilityPlatformKey` are structurally identical five-way match chains
-over `caps.Enumerable / Enumerator / Disposable / Equatable / Comparable`, differing only in the
-body of the local `pick`: `ValueOption.defaultValue c.Key c.CanonKey` versus `c.Key`. ~30
-duplicated lines. One chain parameterised by the key selector removes a copy — subject to the
-allocation-free requirement the surviving comment states.
-
 ### `Passes/Unification/EngineCore.fs:392` — the intrinsic-canon lookup's central rule is unenforced
 
 `canonKey` is a two-tier, forward-only, memoized `SymbolKey → SymbolKey` map whose invariant is
@@ -584,14 +571,6 @@ The `funSlotArityOfArgs` guard followed by `peelFunDomains` appears here and at
 name-spelling divergence is fixed (both sites now pass a `TypeKey`), but the duplication
 remains: one `tryFunSlotPeel` returning the aligned `k+1` types would carry both.
 
-### `Passes/Unification/Subsume.fs:132`, `:142` — the carrier-node triple is enumerated at six sites
-
-`TyKeyOf | TyIndexedAccess | TyConditional` is matched as a group in `isGroundEval`,
-`hasCarriedNode` and twice in `tryFoldCarried`, and again at `Regions.fs:151`,
-`InferOverload.fs:58-59`, `EngineCore.fs:581` and `Engine.fs:506`. A `SemType.isCarrier`
-recognizer (or an active pattern) would give the concept one name; adding a fourth type-level
-form currently means finding all of them.
-
 ### `Passes/Unification/InferGeneralize.fs:23` — `instantiate` keeps four parallel maps over one root set
 
 `subst`, `freshOf`, `constraintSubst` (seeded from `subst`) and `quantifiedRoots` (seeded from
@@ -611,15 +590,6 @@ array built against the frozen/ABI typar index is applied to the wrong roots by 
 The doc that claimed the two orders match ("This reproduces the order `Unification.generalise`
 collects them in") was deleted in the comment sweep; the divergence itself is untested.
 
-### `Inline.fs:247`, `:327` — the `(TExpr * SemType * SyntaxToken)` argument triple wants a record
-
-`betaReduce` and `deriveInlineTypeArgs` both take `(TExpr * SemType * SyntaxToken) list` and both
-destructure it positionally (`(arg, _, appTok)`, `[ for (a, _, _) in args -> … ]`). The middle
-component is the applying `App` node's RESULT type, which `betaReduce` ignores entirely and
-`deriveInlineTypeArgs` reads only from the LAST element — a fact that currently only exists as
-prose. A named record (`Arg` / `AppResultTy` / `AppTok`) removes both the wide tuple and the
-comment.
-
 ### `Inline.fs:177` — an un-expanded `StaticOptimization` reaches codegen and emits silently
 
 The deleted `inlineExpand` doc asserted that "NEITHER backend can emit" `StaticOptimization` or
@@ -632,20 +602,6 @@ optimisation over the default, never a different meaning. The residue is only th
 are unlike and were documented as one case: `TraitCall` surviving expansion is a compiler fault,
 `StaticOptimization` surviving it is a missed optimisation with no diagnostic. Worth a
 `StaticOptimization`-survived counter or debug warning rather than a fault.
-
-### `Passes/InlineSpecTable.fs:69` — `Outlining`'s three `Edge*` fields want to be one record
-
-`EdgeTok`, `EdgeOrigin` and `EdgeTy` are declared together, documented by one shared comment
-block, and consumed together at exactly one site (`:302`, building the `TExpr.InlineCall`). An
-`Edge = { Tok; Origin; Ty }` record makes "these three are the CALL SITE's, never read off the
-entry" structural instead of prose, and shrinks a 9-field record carrying two thunks.
-
-### `Passes/InlineSpecTable.fs:148` — DFS colouring is three untyped `int`s
-
-`let unvisited, onPath, finished = 0, 1, 2` with an `int[]` state array. The middle state is
-load-bearing (an edge into `onPath` is a cycle, an edge into `finished` is legal sharing), and a
-three-case DU makes the `state.[j] = onPath` / `= unvisited` tests exhaustive instead of
-comparisons against magic numbers.
 
 ### `Passes/NameResolution/MemberRegistration.fs:761` — the heritable-base result wants two named cases, not a `struct` tuple + a `.ctor` probe
 
@@ -737,14 +693,6 @@ record host, and `walkTypeBodies` then loops over the empties. Each field needed
 "empty for unions". A DU of two cases — a class body and a nominal-host body — would delete those
 lines and stop the host path from having to name fields it does not have.
 
-### `Elaborate/Resolve.fs:174` — four active patterns differ only by the `ClassMemberKind` tested
-
-`(|ClassTailMethod|_|)` (`:174`), `(|ClassTailProperty|_|)` (`:181`), `(|StaticMethod|_|)` (`:188`)
-and `(|StaticMember|_|)` (`:195`) are the same four lines each: call the `try*` resolver, filter on
-`m.Kind`, and re-project the LongIdent's last segment through `ctx.NameOf`. `StaticMember` is
-`StaticMethod` with the filter dropped. Two helpers parameterised by the wanted `ClassMemberKind`
-would collapse all four, and would put the `li.Idents.[li.Idents.Length - 1]` re-read in one place.
-
 ### `Passes/Regions.fs:6` — the pass contract lives in a `Pre:`/`Post:` prose header
 
 *Half landed 2026-08-13: `run` returns a `RegionVerdicts`, so the representation axis is no longer
@@ -754,16 +702,6 @@ Which side tables `run` requires (`Bindings.Binding`, `Bindings.TypeVar`) and wh
 (`Bindings.Escape`, `Store.Region`) is stated only in the file header, and the same shape recurs in
 `Validation.fs`, `Desugar.fs` and `RefCellPromotion.fs`. An explicit input record (the tables read),
 threaded by `Pipeline`, would delete four prose headers and turn the ordering into a compile error.
-
-### `Passes/Validation.fs:56`, `:93` — the record-field mutability check is written twice
-
-`checkAssignment`'s multi-segment `LongIdent` arm (`:56-91`) and its `DotLookup` arm (`:93-112`) run
-the same five steps against different object arguments: look the object argument's `TypeVar` up, `Unification.zonk`
-it, require `TyRecord(recKey, _)`, `TypeRegistry.tryRecordByKey` + `Array.tryFind` on `Name`, and
-report `Kind.ImmutableFieldAssignment` when `not field.IsMutable`. Only how the object-argument key and the
-field token are obtained differs (`li.Idents.[0]`/`[1]` versus `CstKeys.ofExpr r`/`li.Idents.[0]`). A
-`checkFieldIsMutable (ctx) (objArgKey: NodeKey) (fieldTok: SyntaxToken)` helper collapses both, and
-gives the deferred deeper-chain case (`r.A.X <- v`) one place to grow into.
 
 ### `Passes/Desugar.fs:95` — the type-body traversal is a third hand-rolled copy
 
@@ -917,17 +855,6 @@ parameterised by a per-node handler would make the parallelism mechanical instea
 to the reader; a new `SemType` case added to `unify` alone currently degrades overload filtering
 silently to `| _ -> false`. The sweep cut the twenty-one-line header to three, so the invitation
 to diff is gone but the duplication is not.
-
-### `Passes/Unification/InferExternalCall.fs:406` — `localHost` returns a four-wide anonymous struct tuple
-
-`localHost` yields `struct (TypeKey * EqArray<string * TyVarId> * EqArray<SemType> *
-TypeMemberInfo[])`, and its single consumer immediately destructures it into `declKey`,
-`typeParams`, `args`, `members`. Nothing but position distinguishes the two `EqArray`s at the
-call site, and the three arms building it (`TyClass` / `TyUnion` / `TyRecord`) repeat the same
-four-field projection off three different `*Info` records. A named record — or reusing whatever
-common shape those three `Info` types already share — makes the positions checkable and deletes
-the comment that had to spell the tuple out (cut to one line by the comment sweep, so the debt
-is now invisible).
 
 ### `Passes/Unification/InferExternalCall.fs:494` — `LocalMemberCall` is typed `SymbolKey` but only ever holds `SymbolKey.Member`
 

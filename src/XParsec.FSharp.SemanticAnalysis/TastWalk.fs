@@ -140,23 +140,39 @@ module TastWalk =
         | TPatG.EnumCase(tok = tok)
         | TPatG.Or(tok = tok) -> tok
 
-    /// Peel a curried `App` chain into the applied function and the arguments paired with
-    /// each `App` node's *result* type. The inverse of `rebuildApp`.
+    /// One level of a curried `App` chain: in `f a b`, `a`'s `AppResultTy` is the type of
+    /// `f a` (the partial application, not `a`) and `AppTok` is that `App` node's token.
+    type AppArgG<'ty, 'tok, 'id> =
+        {
+            Arg: TExprG<'ty, 'tok, 'id>
+            AppResultTy: 'ty
+            AppTok: 'tok
+        }
+
+    type AppArg = AppArgG<SemType, SyntaxToken, NodeKey>
+
+    /// Peel a curried `App` chain into the applied function and its argument levels. The
+    /// inverse of `rebuildApp`.
     let rec collectAppChain
-        (acc: (TExprG<'ty, 'tok, 'id> * 'ty * 'tok) list)
+        (acc: AppArgG<'ty, 'tok, 'id> list)
         (e: TExprG<'ty, 'tok, 'id>)
-        : TExprG<'ty, 'tok, 'id> * (TExprG<'ty, 'tok, 'id> * 'ty * 'tok) list =
+        : TExprG<'ty, 'tok, 'id> * AppArgG<'ty, 'tok, 'id> list =
         match e with
-        | TExprG.App(fn, arg, ty, tok) -> collectAppChain ((arg, ty, tok) :: acc) fn
+        | TExprG.App(fn, arg, ty, tok) ->
+            collectAppChain
+                ({
+                    Arg = arg
+                    AppResultTy = ty
+                    AppTok = tok
+                 }
+                 :: acc)
+                fn
         | fn -> fn, acc
 
-    /// Re-fold a function + (arg, result-type, tok) arguments back into a curried
-    /// `App` chain. The inverse of `collectAppChain`.
-    let rebuildApp
-        (fn: TExprG<'ty, 'tok, 'id>)
-        (args: (TExprG<'ty, 'tok, 'id> * 'ty * 'tok) list)
-        : TExprG<'ty, 'tok, 'id> =
-        List.fold (fun acc (arg, resTy, tok) -> TExprG.App(acc, arg, resTy, tok)) fn args
+    /// Re-fold a function and its argument levels back into a curried `App` chain. The
+    /// inverse of `collectAppChain`.
+    let rebuildApp (fn: TExprG<'ty, 'tok, 'id>) (args: AppArgG<'ty, 'tok, 'id> list) : TExprG<'ty, 'tok, 'id> =
+        List.fold (fun acc (a: AppArgG<'ty, 'tok, 'id>) -> TExprG.App(acc, a.Arg, a.AppResultTy, a.AppTok)) fn args
 
     /// Rewrite hooks. Every `OverrideX` receives the active `Mapper`, so an override can
     /// recurse manually (e.g. to bind a key before walking the body). `ValueSome` replaces

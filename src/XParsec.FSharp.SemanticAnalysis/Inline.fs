@@ -231,12 +231,12 @@ module Inline =
     /// Beta-reduce a curried lambda against its applied arguments, lowering each application to
     /// a `TExpr.Let` sited at that application, its bound variable keeping the lambda parameter's own
     /// token. A leftover lambda is a partial application and is returned as it stands.
-    let rec betaReduce (fn: TExpr) (args: (TExpr * SemType * SyntaxToken) list) : TExpr =
+    let rec betaReduce (fn: TExpr) (args: TastWalk.AppArg list) : TExpr =
         match fn, args with
         | _, [] -> fn
-        | TExpr.Lambda(TPat.NamedSimple(k, paramTy, patTok), lamBody, _, _), (arg, _, appTok) :: rest ->
+        | TExpr.Lambda(TPat.NamedSimple(k, paramTy, patTok), lamBody, _, _), a :: rest ->
             let reduced = betaReduce lamBody rest
-            TExpr.Let(TPat.NamedSimple(k, paramTy, patTok), arg, reduced, TastWalk.exprTy reduced, appTok)
+            TExpr.Let(TPat.NamedSimple(k, paramTy, patTok), a.Arg, reduced, TastWalk.exprTy reduced, a.AppTok)
         | TExpr.Lambda(param, _, _, _), _ ->
             failwithf "Inline.betaReduce: inline parameter destructuring is out of scope: %A" param
         | _, _ :: _ -> failwith "Inline.betaReduce: over-application of an inline function"
@@ -294,8 +294,8 @@ module Inline =
                                      bad.Add k |> ignore
                              | _ -> TastWalk.iterExpr iter fn)
 
-                            for (a, _, _) in args do
-                                TastWalk.iterExpr iter a
+                            for a in args do
+                                TastWalk.iterExpr iter a.Arg
 
                             false
                         | TExpr.Var(k, _, _) when candidates.ContainsKey k ->
@@ -311,11 +311,7 @@ module Inline =
     /// Recover an inline binding's type arguments at a call site by matching its declared
     /// parameter and return types against the actual argument types. A typar the arguments do
     /// not pin is left as its own `TyVar`. Returned in `quantifiedTypars` order.
-    let internal deriveInlineTypeArgs
-        (store: TypeStore)
-        (declTy: SemType)
-        (args: (TExpr * SemType * SyntaxToken) list)
-        : SemType[] =
+    let internal deriveInlineTypeArgs (store: TypeStore) (declTy: SemType) (args: TastWalk.AppArg list) : SemType[] =
         let typars = quantifiedTypars store declTy
 
         if typars.Length = 0 then
@@ -372,14 +368,14 @@ module Inline =
 
             let nArgs = List.length args
 
-            pairGo (SemTypeQuery.Funs.domains store nArgs declTy) [ for (a, _, _) in args -> TastWalk.exprTy a ]
+            pairGo (SemTypeQuery.Funs.domains store nArgs declTy) [ for a in args -> TastWalk.exprTy a.Arg ]
 
             // Pair the result position too: `failwith`'s only typar `'T` sits in the RETURN
-            // (`string -> 'T`), so the parameter walk leaves it unbound. The last argument's
-            // recorded type is the whole application's result.
+            // (`string -> 'T`), so the parameter walk leaves it unbound. The last level's
+            // `AppResultTy` is the whole application's result.
             if nArgs > 0 then
                 let declRetTy = SemTypeQuery.Funs.resultAfter store nArgs declTy
-                let _, actualRetTy, _ = args |> List.last
+                let actualRetTy = (List.last args).AppResultTy
                 go declRetTy actualRetTy
 
             Array.mapi

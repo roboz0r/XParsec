@@ -390,15 +390,18 @@ module UnificationEngineCore =
 
         go 0 a b []
 
-    /// Fold a capability interface's two nominal keys to the canonical one: its BCL platform
-    /// key (`System.Collections.Generic.IEnumerable\`1`) and its canonical key
-    /// (`Vesper.Collections.seq`). Any other key passes through.
-    let capabilityCanonKey (ctx: PassContext) (key: TypeKey) : TypeKey =
+    /// `keyOf` applied to the capability that `key` spells under either of its two nominal
+    /// names; any other key passes through. Allocation-free: `keyOf` is inlined at each site.
+    let inline private capabilityKeyBy
+        (ctx: PassContext)
+        ([<InlineIfLambda>] keyOf: RuntimeNames.CapabilityIdentity -> TypeKey)
+        (key: TypeKey)
+        : TypeKey =
         let caps = ctx.CapabilityIds
 
         let inline pick (cap: RuntimeNames.CapabilityIdentity voption) : TypeKey voption =
             match cap with
-            | ValueSome c when c.Matches key -> ValueSome(ValueOption.defaultValue c.Key c.CanonKey)
+            | ValueSome c when c.Matches key -> ValueSome(keyOf c)
             | _ -> ValueNone
 
         match pick caps.Enumerable with
@@ -420,37 +423,18 @@ module UnificationEngineCore =
                         match pick caps.Comparable with
                         | ValueSome k -> k
                         | ValueNone -> key
+
+    /// Fold a capability interface's two nominal keys to the canonical one: its BCL platform
+    /// key (`System.Collections.Generic.IEnumerable\`1`) and its canonical key
+    /// (`Vesper.Collections.seq`). Any other key passes through.
+    let capabilityCanonKey (ctx: PassContext) (key: TypeKey) : TypeKey =
+        capabilityKeyBy ctx (fun c -> ValueOption.defaultValue c.Key c.CanonKey) key
 
     /// The mirror fold, to a capability's PLATFORM key
     /// (`Vesper.Collections.enumerator\`1` → `System.Collections.Generic.IEnumerator\`1`).
     /// MEMBER LOOKUP only: the canonical shape carries no member table, the platform's does.
     let capabilityPlatformKey (ctx: PassContext) (key: TypeKey) : TypeKey =
-        let caps = ctx.CapabilityIds
-
-        let inline pick (cap: RuntimeNames.CapabilityIdentity voption) : TypeKey voption =
-            match cap with
-            | ValueSome c when c.Matches key -> ValueSome c.Key
-            | _ -> ValueNone
-
-        match pick caps.Enumerable with
-        | ValueSome k -> k
-        | ValueNone ->
-
-            match pick caps.Enumerator with
-            | ValueSome k -> k
-            | ValueNone ->
-
-                match pick caps.Disposable with
-                | ValueSome k -> k
-                | ValueNone ->
-
-                    match pick caps.Equatable with
-                    | ValueSome k -> k
-                    | ValueNone ->
-
-                        match pick caps.Comparable with
-                        | ValueSome k -> k
-                        | ValueNone -> key
+        capabilityKeyBy ctx (fun c -> c.Key) key
 
     /// Do two nominal keys denote the same type, reconciling a capability's two names? For
     /// key-EQUALITY seams only, never inside the base/interface-chain LOOKUPS: rewriting a

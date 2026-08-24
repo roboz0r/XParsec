@@ -55,8 +55,8 @@ module UnificationInferOverload =
         | other, TyTypar(TyparAxis.Method, i) -> matchMethodTypar store canon binds i other
         // Applicability-OPAQUE, not bindable: their structural identity can't be decided until
         // a call site grounds them, so they stay "matches anything" and the commit seam decides.
-        | (TyKeyOf _ | TyIndexedAccess _ | TyConditional _), _
-        | _, (TyKeyOf _ | TyIndexedAccess _ | TyConditional _) -> true
+        | TyCarrier, _
+        | _, TyCarrier -> true
         // A non-literal union parameter / a carried-node union argument stay opaque,
         // because their disjuncts can carry a not-yet-ground node.
         | _, TyOr ds when not (isPureLiteralUnion store ds) -> true

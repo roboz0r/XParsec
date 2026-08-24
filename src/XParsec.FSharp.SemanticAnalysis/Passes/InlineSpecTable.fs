@@ -63,6 +63,17 @@ module InlineSpecTable =
             Site: SyntaxToken
         }
 
+    /// The position, anchor domain and result type of an EDGE, taken from the call site and
+    /// never read off the entry: a reused entry's types belong to the thaw that built it, where
+    /// the edge belongs to the material the call was written in.
+    [<NoEquality; NoComparison>]
+    type Edge =
+        {
+            Tok: SyntaxToken
+            Path: AssemblyFilePath
+            Ty: SemType
+        }
+
     /// ONE outlined reduction, as the table consumes it: everything needed to reuse an entry
     /// or mint one, and to build the edge that points to whichever it was.
     [<NoEquality; NoComparison>]
@@ -79,12 +90,7 @@ module InlineSpecTable =
             /// The file the entry's nodes stay anchored in: the template's, which for a
             /// template of this file is the file being compiled.
             Path: AssemblyFilePath
-            /// The position, anchor domain and result type of the EDGE, taken from the call site
-            /// and never read off the entry: a reused entry's types belong to the thaw that built
-            /// it, where this node belongs to the material the call was written in.
-            EdgeTok: SyntaxToken
-            EdgePath: AssemblyFilePath
-            EdgeTy: SemType
+            Edge: Edge
             /// The edge's arguments when an interned entry is REUSED. A thunk because walking
             /// them is an expansion in its own right; the minting path uses the survivors instead.
             ReuseArgs: unit -> TExpr list
@@ -139,37 +145,45 @@ module InlineSpecTable =
     let private entryValue (entries: TSpecialization[]) (spec: SpecializationId) : TExpr =
         snd (TSpecializationG.binding spec entries.[checkedSlot entries spec])
 
+    /// An entry's state in `findCycle`'s depth-first search. An edge into an `OnPath` entry
+    /// closes a cycle; an edge into a `Finished` entry is sharing, so a diamond is legal.
+    type private DfsMark =
+        | Unvisited
+        | OnPath
+        | Finished
+
     /// The first cycle in the specialization graph, as the entries ON it in call order (so a
     /// direct self-reference is a one-element list). Checked on the TABLE, where a cycle is
     /// finite and inspectable, rather than during the substitution that would not terminate.
     let findCycle (entries: TSpecialization[]) : SpecializationId list voption =
-        // An edge back into the current DFS path is a cycle; an edge into a FINISHED entry is
-        // ordinary sharing, so a diamond is legal and must not be reported.
-        let unvisited, onPath, finished = 0, 1, 2
-        let state = Array.create entries.Length unvisited
+        let state = Array.create entries.Length DfsMark.Unvisited
         let path = ResizeArray<int>()
         let mutable found = ValueNone
 
         let rec visit (i: int) =
-            state.[i] <- onPath
+            state.[i] <- DfsMark.OnPath
             path.Add i
 
             for spec in edges (entryValue entries (SpecializationId i)) do
                 if ValueOption.isNone found then
                     let j = checkedSlot entries spec
 
-                    if state.[j] = onPath then
+                    match state.[j] with
+                    | DfsMark.OnPath ->
                         let start = path.IndexOf j
                         found <- ValueSome [ for k in start .. path.Count - 1 -> SpecializationId path.[k] ]
-                    elif state.[j] = unvisited then
-                        visit j
+                    | DfsMark.Unvisited -> visit j
+                    | DfsMark.Finished -> ()
 
             path.RemoveAt(path.Count - 1)
-            state.[i] <- finished
+            state.[i] <- DfsMark.Finished
 
         for i in 0 .. entries.Length - 1 do
-            if ValueOption.isNone found && state.[i] = unvisited then
-                visit i
+            if ValueOption.isNone found then
+                match state.[i] with
+                | DfsMark.Unvisited -> visit i
+                | DfsMark.OnPath
+                | DfsMark.Finished -> ()
 
         found
 
@@ -299,7 +313,7 @@ module InlineSpecTable =
                     let spec, survivors = mintEntry o t
                     spec, [ for p in survivors -> p.Arg ]
 
-            TExpr.InlineCall(spec, EqArray.ofList args, o.EdgePath, o.EdgeTy, o.EdgeTok)
+            TExpr.InlineCall(spec, EqArray.ofList args, o.Edge.Path, o.Edge.Ty, o.Edge.Tok)
 
         /// Materialise the table, and discharge the two facts about it that no single entry can
         /// see: acyclicity, and that a fused entry is named by exactly one edge. `declExprs` is

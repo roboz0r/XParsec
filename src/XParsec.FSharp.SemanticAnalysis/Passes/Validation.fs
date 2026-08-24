@@ -27,6 +27,26 @@ module Validation =
         // A compound holds a free var iff any child does; leaves hold none.
         | t -> SemType.existsChild (hasFreeTyVar store quantified) t
 
+    /// Report `ImmutableFieldAssignment` at `fieldTok` when `objArgKey`'s type is a record
+    /// whose field of that name is immutable. An untyped object argument, a non-record type or
+    /// an unknown field reports nothing.
+    let private checkFieldIsMutable (ctx: PassContext) (objArgKey: NodeKey) (fieldTok: SyntaxToken) : unit =
+        match ctx.Bindings.TypeVar.TryGetValue objArgKey with
+        | ValueSome tv ->
+            match Unification.zonk ctx.Store (TyVar tv) with
+            | TyRecord(recKey, _) ->
+                let fieldName = ctx.NameOf fieldTok
+
+                match TypeRegistry.tryRecordByKey ctx.Types recKey with
+                | ValueSome info ->
+                    match info.Fields |> Array.tryFind (fun f -> f.Name = fieldName) with
+                    | Some field when not field.IsMutable ->
+                        ctx.Report(fieldTok, Kind.ImmutableFieldAssignment fieldName)
+                    | _ -> ()
+                | ValueNone -> ()
+            | _ -> ()
+        | ValueNone -> ()
+
     /// `lhs <- rhs` with a single-name `lhs` whose `ResolvedBinding` says
     /// `IsMutable = false` is an error. An array-slot LHS is out of scope because it
     /// routes through different mutability rules.
@@ -66,22 +86,7 @@ module Validation =
                 let anchorKey = NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent
 
                 match ctx.Bindings.Binding.TryGetValue anchorKey with
-                | ValueSome rb ->
-                    match ctx.Bindings.TypeVar.TryGetValue rb.BindingSite with
-                    | ValueSome tv ->
-                        match Unification.zonk ctx.Store (TyVar tv) with
-                        | TyRecord(recKey, _) ->
-                            let fieldName = ctx.NameOf li.Idents.[1]
-
-                            match TypeRegistry.tryRecordByKey ctx.Types recKey with
-                            | ValueSome info ->
-                                match info.Fields |> Array.tryFind (fun f -> f.Name = fieldName) with
-                                | Some field when not field.IsMutable ->
-                                    ctx.Report(li.Idents.[1], Kind.ImmutableFieldAssignment fieldName)
-                                | _ -> ()
-                            | ValueNone -> ()
-                        | _ -> ()
-                    | ValueNone -> ()
+                | ValueSome rb -> checkFieldIsMutable ctx rb.BindingSite li.Idents.[1]
                 | ValueNone -> ()
         | Expr.Ident _
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent _) ->
@@ -93,23 +98,7 @@ module Validation =
         | Expr.DotLookup(expr = r; longIdentOrOp = LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
             // A free TyVar object argument (unresolved record) skips silently; the
             // deferred-field-access check surfaces those.
-            let rKey = CstKeys.ofExpr r
-
-            match ctx.Bindings.TypeVar.TryGetValue rKey with
-            | ValueSome tv ->
-                match Unification.zonk ctx.Store (TyVar tv) with
-                | TyRecord(recKey, _) ->
-                    let fieldName = ctx.NameOf li.Idents.[0]
-
-                    match TypeRegistry.tryRecordByKey ctx.Types recKey with
-                    | ValueSome info ->
-                        match info.Fields |> Array.tryFind (fun f -> f.Name = fieldName) with
-                        | Some field when not field.IsMutable ->
-                            ctx.Report(li.Idents.[0], Kind.ImmutableFieldAssignment fieldName)
-                        | _ -> ()
-                    | ValueNone -> ()
-                | _ -> ()
-            | ValueNone -> ()
+            checkFieldIsMutable ctx (CstKeys.ofExpr r) li.Idents.[0]
         | _ -> ()
 
     let private checkUnresolvedDotAccesses (ctx: PassContext) : unit =

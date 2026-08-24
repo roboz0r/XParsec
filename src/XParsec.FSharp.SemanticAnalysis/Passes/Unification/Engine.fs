@@ -509,9 +509,7 @@ module UnificationEngine =
         | TyVar _
         | TyUnknown _
         | TyTypar _
-        | TyKeyOf _
-        | TyIndexedAccess _
-        | TyConditional _ -> Defer
+        | TyCarrier -> Defer
         | TyNull -> Satisfied
         // ANY disjunct carrying `null` admits it, so one `null` disjunct decides the union and
         // an ungrounded one defers. `never` has no disjunct to carry `null`.

@@ -93,12 +93,21 @@ module InlineExpansion =
         | ValueSome reentered ->
             TExpr.InlineCall(
                 reentered.Spec,
-                EqArray.ofList [ for (a, _, _) in call.Args -> call.Walk a ],
+                EqArray.ofList [ for a in call.Args -> call.Walk a.Arg ],
                 pathOf x at,
                 call.Ty,
                 call.Tok
             )
         | ValueNone -> fresh ()
+
+    /// An argument level for a call that was not written as an `App` chain (a member's object
+    /// argument, a tuple element, a static call's argument): its result type is `a`'s own.
+    let private levelOf (a: TExpr) (tok: SyntaxToken) : TastWalk.AppArg =
+        {
+            Arg = a
+            AppResultTy = TastWalk.exprTy a
+            AppTok = tok
+        }
 
     /// A METHOD call's applied arguments opened to the parameters the lifted body curried: the
     /// lift wraps one lambda per PARAMETER, so `M(a, b)`'s one tuple and the curried `M a b`'s
@@ -106,15 +115,12 @@ module InlineExpansion =
     let private untupleMemberArgs
         (storage: MemberStorage)
         (widths: EqArray<int>)
-        (args: (TExpr * SemType * SyntaxToken) list)
-        : (TExpr * SemType * SyntaxToken) list voption =
-        let asTuple (arg: TExpr, _, _) =
-            match arg with
+        (args: TastWalk.AppArg list)
+        : TastWalk.AppArg list voption =
+        let asTuple (a: TastWalk.AppArg) : TastWalk.AppArg list voption =
+            match a.Arg with
             | TExpr.Tuple(items, _, _) ->
-                ValueSome
-                    [
-                        for it in EqArray.toList items -> it, TastWalk.exprTy it, TastWalk.exprTok it
-                    ]
+                ValueSome [ for it in EqArray.toList items -> levelOf it (TastWalk.exprTok it) ]
             | _ -> ValueNone
 
         match storage with
@@ -127,7 +133,7 @@ module InlineExpansion =
         (x: Expander)
         (walk: TExpr -> TExpr)
         (markedFn: TExpr)
-        (args: (TExpr * SemType * SyntaxToken) list)
+        (args: TastWalk.AppArg list)
         : AppliedFunction =
         // Read THROUGH any caller mark: a fused external value in function position is still the
         // function it was before the fusion marked it.
@@ -154,7 +160,7 @@ module InlineExpansion =
                                 untupleMemberArgs storage widths args
                                 |> ValueOption.map (fun opened ->
                                     match objArg with
-                                    | ValueSome r -> (r, TastWalk.exprTy r, memberTok) :: opened
+                                    | ValueSome r -> levelOf r memberTok :: opened
                                     | ValueNone -> opened
                                 )
                             RebuiltFn = fun () -> walk markedFn
@@ -204,9 +210,12 @@ module InlineExpansion =
                     }
                 Shareable = SemTypeQuery.isGround x.Ctx.Store call.Ty
                 Path = template.Path
-                EdgeTok = call.Tok
-                EdgePath = pathOf x at
-                EdgeTy = call.Ty
+                Edge =
+                    {
+                        Tok = call.Tok
+                        Path = pathOf x at
+                        Ty = call.Ty
+                    }
                 ReuseArgs = fun () -> []
                 Build = fun _ -> { Body = body; Survivors = [] }
             }
@@ -289,9 +298,12 @@ module InlineExpansion =
                             Peeled.isClosed peeled
                             && resolved.TypeArgs |> Array.forall (SemTypeQuery.isGround x.Ctx.Store)
                         Path = template.Path
-                        EdgeTok = call.Tok
-                        EdgePath = caller
-                        EdgeTy = call.Ty
+                        Edge =
+                            {
+                                Tok = call.Tok
+                                Path = caller
+                                Ty = call.Ty
+                            }
                         ReuseArgs = fun () -> peeled.Params |> List.map (fun p -> walkAt x at p.Arg)
                         Build = fun spec -> reduceClassified x (Descent.enter at call template.Path spec) peeled
                     }
@@ -308,7 +320,7 @@ module InlineExpansion =
         (key: SymbolKey)
         (ty: SemType)
         (tok: SyntaxToken)
-        (args: (TExpr * SemType * SyntaxToken) list)
+        (args: TastWalk.AppArg list)
         : TExpr voption =
         match lookupExternal x.Ctx x.Specs (ValueSome key) with
         | ValueSome served ->
@@ -369,14 +381,13 @@ module InlineExpansion =
                         // A rebuild walks the arguments as the CALLER's own material.
                         | AppliedFunction.Opaque rebuiltFn ->
                             ValueSome(
-                                TastWalk.rebuildApp (rebuiltFn ()) [ for (a, ty, tok) in appArgs -> walk a, ty, tok ]
+                                TastWalk.rebuildApp (rebuiltFn ()) [ for a in appArgs -> { a with Arg = walk a.Arg } ]
                             )
                     // A dispatched SRTP trait call, whose body the provider serves. The INTRINSIC
                     // operator surface arrives here: `1 &&& 2` dispatches to `Vesper.int`'s
                     // `(&&&)`, and a primitive has no type to hang a method on.
                     | TExpr.StaticMethodCall(key, args, ty, tok) ->
-                        let callArgs =
-                            [ for a in EqArray.toList args -> a, TastWalk.exprTy a, TastWalk.exprTok a ]
+                        let callArgs = [ for a in EqArray.toList args -> levelOf a (TastWalk.exprTok a) ]
 
                         tryExpandServed x at walk key ty tok callArgs
                     // A PROPERTY read applies nothing, so the `App` arm never classifies it: its
@@ -385,7 +396,7 @@ module InlineExpansion =
                     | TExpr.ExternalMember(objArg, key, _, MemberStorage.Property, _, ty, tok) ->
                         let callArgs =
                             match objArg with
-                            | ValueSome r -> [ r, TastWalk.exprTy r, tok ]
+                            | ValueSome r -> [ levelOf r tok ]
                             | ValueNone -> []
 
                         tryExpandServed x at walk key ty tok callArgs

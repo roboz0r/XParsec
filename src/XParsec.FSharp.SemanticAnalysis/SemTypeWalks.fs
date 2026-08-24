@@ -240,6 +240,17 @@ module SemTypePatterns =
         | TyRecord(key, args) -> ValueSome(struct (key, args))
         | _ -> ValueNone
 
+    /// A type-level node still carried unevaluated: `keyof T`, `T[K]` or a conditional. Does
+    /// NOT zonk: match an already-resolved type. An exhaustive match over `SemType` spells the
+    /// three cases out instead, so the compiler reports a new carrier form there.
+    [<return: Struct>]
+    let (|TyCarrier|_|) (ty: SemType) : unit voption =
+        match ty with
+        | TyKeyOf _
+        | TyIndexedAccess _
+        | TyConditional _ -> ValueSome()
+        | _ -> ValueNone
+
 /// One-level structural walks over `SemType`'s DIRECT children. PURELY structural:
 /// nothing here resolves or zonks, so a `TyVar` is a leaf. A walk that needs the
 /// resolved view takes it first, then delegates the child-carrying remainder here.

@@ -97,7 +97,7 @@ module InlineReduction =
             /// The arguments AS APPLIED: what the entry's parameters were peeled against, so an
             /// edge's arguments align to them positionally. Unwalked: only the edge answer walks
             /// them, and only the ones it carries.
-            Args: (TExpr * SemType * SyntaxToken) list
+            Args: TastWalk.AppArg list
             /// Walks one of `Args`, the CALLER's own material, expanded however the call is answered.
             Walk: TExpr -> TExpr
         }
@@ -160,7 +160,7 @@ module InlineReduction =
             Key: SymbolKey voption
             /// A member's arguments are the call's ONE tupled argument OPENED to the declared
             /// parameters; `ValueNone` is one that does not open.
-            Args: (TExpr * SemType * SyntaxToken) list voption
+            Args: TastWalk.AppArg list voption
             /// A thunk: the walk a member needs is wasted on any answer but the rebuild.
             RebuiltFn: unit -> TExpr
         }
@@ -178,7 +178,7 @@ module InlineReduction =
         /// A function with an inline body, and the arguments its parameters are peeled against.
         /// For a member the object argument leads, so this is not the list the application was
         /// written with.
-        | Template of id: TemplateId * body: TemplateBody * args: (TExpr * SemType * SyntaxToken) list
+        | Template of id: TemplateId * body: TemplateBody * args: TastWalk.AppArg list
         /// A saturated use of an inline-first lambda parameter: the bound lambda is spliced at
         /// this use, so its closure never exists.
         | Fused of FusedLambda
@@ -204,7 +204,7 @@ module InlineReduction =
         (mint: unit -> NodeKey)
         (siteTok: SyntaxToken)
         (decl: TDecl)
-        (args: (TExpr * SemType * SyntaxToken) list)
+        (args: TastWalk.AppArg list)
         : {| Body: TExpr; TypeArgs: SemType[] |} =
         match decl with
         | TDecl.Let(_, _, _, declTy) ->
@@ -279,18 +279,16 @@ module InlineReduction =
         (caller: AssemblyFilePath)
         (paramAttrs: EqArray<ParamAttrs>)
         (expanded: TExpr)
-        (args: (TExpr * SemType * SyntaxToken) list)
+        (args: TastWalk.AppArg list)
         : Peeled =
         // Carry the template's own bound variable token so an entry's parameter keeps the position it was
         // written at. The application node's is not carried: that position belongs to the EDGE.
-        let rec peel
-            (fn: TExpr)
-            (args: (TExpr * SemType * SyntaxToken) list)
-            (acc: InlineParam list)
-            : InlineParam list * TExpr =
+        let rec peel (fn: TExpr) (args: TastWalk.AppArg list) (acc: InlineParam list) : InlineParam list * TExpr =
             match fn, args with
             | _, [] -> List.rev acc, fn
-            | TExpr.Lambda(TPat.NamedSimple(k, paramTy, patTok), body, _, _), (arg, _, _) :: rest ->
+            | TExpr.Lambda(TPat.NamedSimple(k, paramTy, patTok), body, _, _), (a: TastWalk.AppArg) :: rest ->
+                let arg = a.Arg
+
                 peel
                     body
                     rest

@@ -4,16 +4,18 @@ namespace XParsec.FSharp.SemanticAnalysis
 /// could mean, as a function of two field-name sets alone.
 module RecordFieldClassifier =
 
+    /// The candidates whose declared field set EQUALS the typed set, deduped by key.
+    [<RequireQualifiedAccess>]
+    type ExactMatch<'cand> =
+        | NoMatch
+        | Unique of 'cand
+        | Ambiguous of count: int
+
     type FieldSetClassification<'cand> =
         {
-            /// The unique candidate whose declared fields EQUAL the typed set, else `ValueNone`
-            /// (zero, or ambiguous).
-            Exact: 'cand voption
-            /// Distinct exact matches after dedup, which splits "no match" (0) from
-            /// "ambiguous" (>1).
-            ExactCount: int
+            Exact: ExactMatch<'cand>
             /// Candidates whose declared fields ⊇ the typed set (deduped by key, first wins).
-            /// `Exact`, when present, is one of these.
+            /// A `Unique` exact match is one of these.
             Partial: 'cand list
         }
 
@@ -39,8 +41,8 @@ module RecordFieldClassifier =
         {
             Exact =
                 match exact with
-                | [ struct (only, _) ] -> ValueSome only
-                | _ -> ValueNone
-            ExactCount = List.length exact
+                | [] -> ExactMatch.NoMatch
+                | [ struct (only, _) ] -> ExactMatch.Unique only
+                | many -> ExactMatch.Ambiguous(List.length many)
             Partial = partial |> List.map (fun struct (cand, _) -> cand)
         }

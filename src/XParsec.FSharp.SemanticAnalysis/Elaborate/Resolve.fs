@@ -136,35 +136,52 @@ module internal ElaborateResolve =
     [<return: Struct>]
     let (|CtorRef|_|) (ctx: PassContext) (e: Expr<SyntaxToken>) : string voption = tryCtorRef ctx e
 
+    /// The member name a chain resolves to: its last segment.
+    let private lastSegmentName (ctx: PassContext) (li: LongIdent<SyntaxToken>) : string =
+        ctx.NameOf li.Idents.[li.Idents.Length - 1]
+
+    /// `var.M` on a class-anchored local binding, when `M` is an instance member of `kind`.
+    let private classAnchorOfKind
+        (ctx: PassContext)
+        (kind: ClassMemberKind)
+        (li: LongIdent<SyntaxToken>)
+        : (NodeKey * SemType * string) voption =
+        match tryLongIdentClassAnchor ctx li with
+        | ValueSome(bs, ty, m) when m.Kind = kind -> ValueSome(bs, ty, lastSegmentName ctx li)
+        | _ -> ValueNone
+
+    /// `C.M` on a class / union / record `C`, when `M` is a static member of `kind`;
+    /// `ValueNone` admits every static member.
+    let private staticMemberOfKind
+        (ctx: PassContext)
+        (kind: ClassMemberKind voption)
+        (li: LongIdent<SyntaxToken>)
+        : (TypeKey * string) voption =
+        match tryLongIdentStaticMember ctx li with
+        | ValueSome nm ->
+            match kind with
+            | ValueSome k when nm.Member.Kind <> k -> ValueNone
+            | _ -> ValueSome(nm.Decl.TypeKey, lastSegmentName ctx li)
+        | ValueNone -> ValueNone
+
     [<return: Struct>]
     let (|ClassAnchorMethod|_|) (ctx: PassContext) (li: LongIdent<SyntaxToken>) : (NodeKey * SemType * string) voption =
-        match tryLongIdentClassAnchor ctx li with
-        | ValueSome(bs, ty, m) when m.Kind = ClassMemberKind.Method ->
-            ValueSome(bs, ty, ctx.NameOf li.Idents.[li.Idents.Length - 1])
-        | _ -> ValueNone
+        classAnchorOfKind ctx ClassMemberKind.Method li
 
     [<return: Struct>]
     let (|ClassAnchorProperty|_|)
         (ctx: PassContext)
         (li: LongIdent<SyntaxToken>)
         : (NodeKey * SemType * string) voption =
-        match tryLongIdentClassAnchor ctx li with
-        | ValueSome(bs, ty, m) when m.Kind = ClassMemberKind.Property ->
-            ValueSome(bs, ty, ctx.NameOf li.Idents.[li.Idents.Length - 1])
-        | _ -> ValueNone
+        classAnchorOfKind ctx ClassMemberKind.Property li
 
     [<return: Struct>]
     let (|StaticMethod|_|) (ctx: PassContext) (li: LongIdent<SyntaxToken>) : (TypeKey * string) voption =
-        match tryLongIdentStaticMember ctx li with
-        | ValueSome nm when nm.Member.Kind = ClassMemberKind.Method ->
-            ValueSome(nm.Decl.TypeKey, ctx.NameOf li.Idents.[li.Idents.Length - 1])
-        | _ -> ValueNone
+        staticMemberOfKind ctx (ValueSome ClassMemberKind.Method) li
 
     [<return: Struct>]
     let (|StaticMember|_|) (ctx: PassContext) (li: LongIdent<SyntaxToken>) : (TypeKey * string) voption =
-        match tryLongIdentStaticMember ctx li with
-        | ValueSome nm -> ValueSome(nm.Decl.TypeKey, ctx.NameOf li.Idents.[li.Idents.Length - 1])
-        | ValueNone -> ValueNone
+        staticMemberOfKind ctx ValueNone li
 
     /// `ClassName<'args>.Member` — a static member access on an *explicitly* instantiated
     /// generic class, which parses as `DotLookup(TypeApp(ClassName, <'args>), .Member)`, not
@@ -277,9 +294,7 @@ module internal ElaborateResolve =
             | ValueSome(ifaceKey, ifaceArgs) ->
                 match tryChainObjArgTy ctx li with
                 | ValueNone -> ValueNone
-                | ValueSome objArgTy ->
-                    let memberName = ctx.NameOf li.Idents.[li.Idents.Length - 1]
-                    ValueSome(chainPrefix li, objArgTy, ifaceKey, ifaceArgs, memberName)
+                | ValueSome objArgTy -> ValueSome(chainPrefix li, objArgTy, ifaceKey, ifaceArgs, lastSegmentName ctx li)
 
     /// The `ResolvedExternalMember` Unification recorded for this node, if any.
     [<return: Struct>]

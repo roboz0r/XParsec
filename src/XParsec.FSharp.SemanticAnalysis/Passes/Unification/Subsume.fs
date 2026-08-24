@@ -129,9 +129,7 @@ module UnificationSubsume =
     let rec private isGroundEval (store: TypeStore) (t: SemType) : bool =
         match resolveStep store t with
         | TyVar _
-        | TyKeyOf _
-        | TyIndexedAccess _
-        | TyConditional _ -> false
+        | TyCarrier -> false
         | t -> SemType.forallChildren (isGroundEval store) t
 
     /// A carried type-level node (`keyof`/`T[K]`/conditional) occurs anywhere in `t`. Only such
@@ -139,9 +137,7 @@ module UnificationSubsume =
     /// must NOT act as a wildcard, or every union-typed argument matches every same-arity slot.
     let rec hasCarriedNode (store: TypeStore) (t: SemType) : bool =
         match resolveStep store t with
-        | TyKeyOf _
-        | TyIndexedAccess _
-        | TyConditional _ -> true
+        | TyCarrier -> true
         | t -> SemType.existsChild (hasCarriedNode store) t
 
     /// Subtyping query distinct from `unify`: does a value of type `src` coerce to `tgt`? It
@@ -314,12 +310,8 @@ module UnificationSubsume =
     /// so a caller re-entering on it makes progress rather than looping.
     let tryFoldCarried (ctx: PassContext) (t: SemType) : SemType voption =
         match t with
-        | TyKeyOf _
-        | TyIndexedAccess _
-        | TyConditional _ ->
+        | TyCarrier ->
             match evalTypeLevel ctx t with
-            | TyKeyOf _
-            | TyIndexedAccess _
-            | TyConditional _ -> ValueNone
+            | TyCarrier -> ValueNone
             | folded -> ValueSome folded
         | _ -> ValueNone

@@ -166,12 +166,11 @@ module internal UnificationInferResolve =
         | ExternalRecord c -> Set.ofSeq c.FieldNames
 
     /// A pure field-set verdict, no diagnostics. `PartialMatches` = every record whose
-    /// declared field set ⊇ the typed set, deduped by `TypeKey`. `ExactMatch` = the unique
-    /// partial whose set EQUALS it; `ExactCount` splits "no match" (0) from "ambiguous" (>1).
+    /// declared field set ⊇ the typed set, deduped by `TypeKey`. `Exact` = the partials whose
+    /// set EQUALS it.
     type RecordFieldSetVerdict =
         {
-            ExactMatch: ResolvedRecord voption
-            ExactCount: int
+            Exact: RecordFieldClassifier.ExactMatch<ResolvedRecord>
             PartialMatches: ResolvedRecord list
         }
 
@@ -211,8 +210,7 @@ module internal UnificationInferResolve =
         match names with
         | [] ->
             {
-                ExactMatch = ValueNone
-                ExactCount = 0
+                Exact = RecordFieldClassifier.ExactMatch.NoMatch
                 PartialMatches = []
             }
         | first :: _ ->
@@ -237,8 +235,7 @@ module internal UnificationInferResolve =
                     (Set.ofList names)
 
             {
-                ExactMatch = classification.Exact
-                ExactCount = classification.ExactCount
+                Exact = classification.Exact
                 PartialMatches = classification.Partial
             }
 
@@ -280,23 +277,24 @@ module internal UnificationInferResolve =
         | None ->
             let verdict = recordFieldSetVerdict ctx useSite true names
 
-            match verdict.ExactMatch with
-            | ValueSome r -> ValueSome r
-            | ValueNone ->
-                if verdict.ExactCount = 0 then
-                    ctx.Report(
-                        diagTok,
-                        Kind.Message(sprintf "No record type matches the field set: %s" (String.concat ", " names))
+            match verdict.Exact with
+            | RecordFieldClassifier.ExactMatch.Unique r -> ValueSome r
+            | RecordFieldClassifier.ExactMatch.NoMatch ->
+                ctx.Report(
+                    diagTok,
+                    Kind.Message(sprintf "No record type matches the field set: %s" (String.concat ", " names))
+                )
+
+                ValueNone
+            | RecordFieldClassifier.ExactMatch.Ambiguous count ->
+                ctx.Report(
+                    diagTok,
+                    Kind.Message(
+                        sprintf
+                            "Field set is ambiguous (%d candidate record types); add a qualifier or annotation"
+                            count
                     )
-                else
-                    ctx.Report(
-                        diagTok,
-                        Kind.Message(
-                            sprintf
-                                "Field set is ambiguous (%d candidate record types); add a qualifier or annotation"
-                                verdict.ExactCount
-                        )
-                    )
+                )
 
                 ValueNone
 
