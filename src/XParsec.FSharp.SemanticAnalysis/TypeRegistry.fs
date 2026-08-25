@@ -502,9 +502,7 @@ module TypeRegistry =
 
     /// `LocalContainerPaths` restricted to modules; a namespace's source path is its own
     /// dotted name, so it needs no entry.
-    let declaredModulePaths
-        (types: PassContextTypes)
-        : System.Collections.Generic.IReadOnlyDictionary<ModuleKey, string> =
+    let declaredModulePaths (types: PassContextTypes) : EqDict<ModuleKey, string> =
         let d = Dictionary<ModuleKey, string>()
 
         for KeyValue(container, path) in types.LocalContainerPaths do
@@ -512,7 +510,7 @@ module TypeRegistry =
             | ModuleContainer.InModule m -> d.[m] <- path
             | ModuleContainer.InNamespace _ -> ()
 
-        d
+        EqDict.ofSeq d
 
     let noteNominalTypeName (types: PassContextTypes) (name: string) : unit =
         types.NominalTypeNames.Add name |> ignore

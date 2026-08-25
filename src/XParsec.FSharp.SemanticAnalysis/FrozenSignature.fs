@@ -43,8 +43,8 @@ module FrozenSignature =
         // Internal-or-better: keep `Public` + `Internal`, drop `Private`. A key ABSENT from
         // the table is `Public` (an unmarked decl), so it is exported.
         let exported (key: SymbolKey) : bool =
-            match frozen.Residue.Accessibility.TryGetValue key with
-            | true, Accessibility.Private -> false
+            match EqDict.tryFind key frozen.Residue.Accessibility with
+            | ValueSome Accessibility.Private -> false
             | _ -> true
 
         let surface = PublishedSurfaceBuilder.create ()

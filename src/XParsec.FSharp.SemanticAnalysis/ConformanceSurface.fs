@@ -82,9 +82,9 @@ module ConformanceSurface =
                     yield Conformance.ConformanceError.MissingInImpl(named entry.Key)
 
             for entry in published.DeclaredReprs do
-                match implReprs.TryGetValue entry.Key with
-                | false, _ -> yield Conformance.ConformanceError.ExternWithoutIntrinsic(named entry.Key)
-                | true, repr ->
+                match EqDict.tryFind entry.Key implReprs with
+                | ValueNone -> yield Conformance.ConformanceError.ExternWithoutIntrinsic(named entry.Key)
+                | ValueSome repr ->
                     if repr.Heritable <> entry.Value.IsHeritable then
                         yield Conformance.ConformanceError.HeritabilityMismatch(named entry.Key)
 

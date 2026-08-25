@@ -1007,14 +1007,14 @@ let globalAttributeTests =
                 | other -> failtestf "expected a single TDecl.Let, got %A" other
 
                 Expect.equal
-                    (tast.GlobalValueKeys |> Seq.map SymbolKeyOps.simpleName |> List.ofSeq)
+                    (tast.GlobalValueKeys |> EqSet.toList |> List.map SymbolKeyOps.simpleName)
                     [ DisplayName "undefined" ]
                     "the binding's own identity carries the declaration"
             }
 
             test "an unmarked binding records no global" {
                 let tast = analyse "module M\n\nlet emptyDocs = (# \"[]\" #)\n"
-                Expect.isEmpty tast.GlobalValueKeys "nothing declared, nothing recorded"
+                Expect.isTrue tast.GlobalValueKeys.IsEmpty "nothing declared, nothing recorded"
             }
 
             test "[<Global>] on a body that is not a bare intrinsic is an error citing the binding" {
@@ -1045,7 +1045,7 @@ let globalAttributeTests =
                 // definition the attribute exists to suppress.
                 let tast = analyse "module M\n\n[<Global>]\nlet _ = (# \"undefined\" #)\n"
 
-                Expect.isEmpty tast.GlobalValueKeys "nothing was recorded"
+                Expect.isTrue tast.GlobalValueKeys.IsEmpty "nothing was recorded"
 
                 match tast.Diagnostics |> Diagnostic.errors |> List.map (fun d -> d.Message) with
                 | [ msg ] -> Expect.stringContains msg "this binding has no single name" "the pattern is blamed"
@@ -1071,7 +1071,7 @@ let globalAttributeTests =
 
                 let tast = analyse src
 
-                Expect.isEmpty tast.GlobalValueKeys "the user's GlobalAttribute cannot hijack the compiler's"
+                Expect.isTrue tast.GlobalValueKeys.IsEmpty "the user's GlobalAttribute cannot hijack the compiler's"
 
                 match tast.Diagnostics |> Diagnostic.errors |> List.map (fun d -> d.Message) with
                 | [ msg ] -> Expect.stringContains msg "restates the target global" "so the binding reads as unmarked"

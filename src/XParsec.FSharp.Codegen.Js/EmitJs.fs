@@ -861,7 +861,7 @@ module EmitJs =
                 match (TastAccessor.declLet d).Pattern with
                 | TastAccessor.PNamed b ->
                     match moduleMembers.TryGetValue b with
-                    | true, info -> globals.Contains info.Key
+                    | true, info -> EqSet.contains info.Key globals
                     | _ -> false
                 | _ -> false
             | DeclShape.Expression -> false

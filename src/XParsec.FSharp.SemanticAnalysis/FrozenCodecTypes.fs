@@ -46,14 +46,13 @@ module FrozenCodecTypes =
 
     // ── the key-REFERENCE-keyed container ───────────────────────────────────
 
-    /// A length-prefixed entry sequence in the dictionary's own enumeration order, so the read
-    /// side rebuilds an unordered `Dictionary` behind the read-only view. `writeKey` interns
-    /// its key, so a key costs one id.
+    /// A length-prefixed entry sequence in the dictionary's own enumeration order. `writeKey`
+    /// interns its key, so a key costs one id.
     let private writeRefDict
         (w: FrozenWriter)
         (writeKey: FrozenWriter -> 'k -> unit)
         (writeVal: FrozenWriter -> 'v -> unit)
-        (d: System.Collections.Generic.IReadOnlyDictionary<'k, 'v>)
+        (d: EqDict<'k, 'v>)
         =
         w.Write d.Count
 
@@ -67,7 +66,7 @@ module FrozenCodecTypes =
         (label: string)
         (readKey: FrozenReader -> 'k)
         (readVal: FrozenReader -> 'v)
-        : System.Collections.Generic.IReadOnlyDictionary<'k, 'v> =
+        : EqDict<'k, 'v> =
         let n = r.ReadInt32()
         let d = System.Collections.Generic.Dictionary<'k, 'v>(n)
 
@@ -78,36 +77,36 @@ module FrozenCodecTypes =
             if not (d.TryAdd(k, v)) then
                 failwithf "%s: key %O appears twice" label k
 
-        d :> System.Collections.Generic.IReadOnlyDictionary<'k, 'v>
+        EqDict.ofSeq d
 
-    let writeSymbolDict w writeVal (d: System.Collections.Generic.IReadOnlyDictionary<SymbolKey, 'v>) =
+    let writeSymbolDict w writeVal (d: EqDict<SymbolKey, 'v>) =
         writeRefDict w writeSymbolRef writeVal d
 
-    let readSymbolDict r readVal : System.Collections.Generic.IReadOnlyDictionary<SymbolKey, 'v> =
+    let readSymbolDict r readVal : EqDict<SymbolKey, 'v> =
         readRefDict r "readSymbolDict" readSymbolRef readVal
 
     /// `writeSymbolDict` over the narrow key, for a table only nominal TYPES address.
-    let writeTypeKeyDict w writeVal (d: System.Collections.Generic.IReadOnlyDictionary<TypeKey, 'v>) =
+    let writeTypeKeyDict w writeVal (d: EqDict<TypeKey, 'v>) =
         writeRefDict w writeTypeKeyRef writeVal d
 
-    let readTypeKeyDict r readVal : System.Collections.Generic.IReadOnlyDictionary<TypeKey, 'v> =
+    let readTypeKeyDict r readVal : EqDict<TypeKey, 'v> =
         readRefDict r "readTypeKeyDict" readTypeKeyRef readVal
 
     /// `writeSymbolDict` over the narrow key, for a table keyed only by declared MODULES.
-    let writeModuleDict w writeVal (d: System.Collections.Generic.IReadOnlyDictionary<ModuleKey, 'v>) =
+    let writeModuleDict w writeVal (d: EqDict<ModuleKey, 'v>) =
         writeRefDict w writeModuleRef writeVal d
 
-    let readModuleDict r readVal : System.Collections.Generic.IReadOnlyDictionary<ModuleKey, 'v> =
+    let readModuleDict r readVal : EqDict<ModuleKey, 'v> =
         readRefDict r "readModuleDict" readModuleRef readVal
 
     /// The membership-only twin of `writeSymbolDict`, a `SymbolKey` set with no payload.
-    let writeSymbolSet (w: FrozenWriter) (s: System.Collections.Generic.IReadOnlySet<SymbolKey>) =
-        w.Write s.Count
+    let writeSymbolSet (w: FrozenWriter) (s: EqSet<SymbolKey>) =
+        w.Write s.Length
 
         for k in s do
             writeSymbolRef w k
 
-    let readSymbolSet (r: FrozenReader) : System.Collections.Generic.IReadOnlySet<SymbolKey> =
+    let readSymbolSet (r: FrozenReader) : EqSet<SymbolKey> =
         let n = r.ReadInt32()
         let s = System.Collections.Generic.HashSet<SymbolKey>(n)
 
@@ -117,7 +116,7 @@ module FrozenCodecTypes =
             if not (s.Add k) then
                 failwithf "readSymbolSet: key %O appears twice" k
 
-        s :> System.Collections.Generic.IReadOnlySet<SymbolKey>
+        EqSet.ofSeq s
 
     // ── non-generic payloads the tree / side tables carry ──────────────
 

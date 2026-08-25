@@ -6,6 +6,7 @@
   <ItemGroup>
     <Compile Include="EqArray.fs" />
     <Compile Include="EqSet.fs" />
+    <Compile Include="EqDict.fs" />
     <Compile Include="Fifo.fs" />
     <Compile Include="Compression.fs" />
     <Compile Include="RecordFieldClassifier.fs" />

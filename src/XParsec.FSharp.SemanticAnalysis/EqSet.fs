@@ -151,6 +151,9 @@ module EqSet =
 
     let private asArray (xs: EqSet<'T>) : EqArray<'T> = EqArray.ofImmutable xs.Underlying
 
+    /// Uses `EqualityComparer<'T>.Default`, so callers need no `'T: equality` constraint.
+    let contains (value: 'T) (xs: EqSet<'T>) : bool = EqArray.contains value (asArray xs)
+
     let toList (xs: EqSet<'T>) : 'T list = EqArray.toList (asArray xs)
 
     let iter (action: 'T -> unit) (xs: EqSet<'T>) : unit = EqArray.iter action (asArray xs)

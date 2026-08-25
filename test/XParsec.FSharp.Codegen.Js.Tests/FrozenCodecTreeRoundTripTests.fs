@@ -16,10 +16,9 @@ let private gated = compiledBy "js"
 let private frozenFiles: (string * FrozenPools) list =
     gated |> List.map (fun p -> p.Name, frozenOfJs p.Source)
 
-/// Equality is taken on the DU the columns encode: `FrozenPools` carries two
-/// `IReadOnlyDictionary` fields that a derived `=` would compare by reference.
+/// Equality is taken on the DU the columns encode, `FrozenPools` itself carrying no equality.
 let private survivesRoundTrip (f: FrozenPools) : bool =
-    TastFileG.structurallyEqual (TastUnpool.ofPools f) (TastUnpool.ofPools (FrozenCodec.thaw (FrozenCodec.flatten f)))
+    TastUnpool.ofPools f = TastUnpool.ofPools (FrozenCodec.thaw (FrozenCodec.flatten f))
 
 /// A pools value bearing a specialization entry, an `InlineCall` edge referencing it, and a
 /// `CallerExpr` mark. No corpus program reaches any of the three, so the carriers are grafted

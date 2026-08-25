@@ -216,9 +216,7 @@ let private checkProgram (src: string) =
     // The interconversion gate: `ofPools ∘ rePool` reconstructs a structurally-equal file. Both
     // sides speak the pool's own dense identity, so the comparison needs no widening — the ids the
     // re-pool assigns must be the ids the tree already bore, the two walks being the same walk.
-    Expect.isTrue
-        (TastFileG.structurallyEqual (TastUnpool.ofPools pools) frozen)
-        "ofPools (rePool f) round-trips to a structurally-equal frozen file"
+    Expect.equal (TastUnpool.ofPools pools) frozen "ofPools (rePool f) round-trips to a structurally-equal frozen file"
 
 // Representative programs, spanning bound variable shapes (lambda / let-in / for), control flow
 // (if / match) and the type + value forms (record decl, record literal, field access).

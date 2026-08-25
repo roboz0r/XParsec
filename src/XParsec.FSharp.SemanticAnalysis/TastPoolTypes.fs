@@ -124,10 +124,10 @@ type FrozenFileResidue =
         // Qualified: `XParsec.FSharp.Parser` is opened here and declares its own
         // `Diagnostic`, which the bare name would bind to.
         Diagnostics: XParsec.FSharp.SemanticAnalysis.Diagnostic list
-        IntrinsicReprKeys: System.Collections.Generic.IReadOnlyDictionary<TypeKey, IntrinsicReprInfo>
-        GlobalValueKeys: System.Collections.Generic.IReadOnlySet<SymbolKey>
-        ModuleSourcePaths: System.Collections.Generic.IReadOnlyDictionary<ModuleKey, string>
-        Accessibility: System.Collections.Generic.IReadOnlyDictionary<SymbolKey, Accessibility>
+        IntrinsicReprKeys: EqDict<TypeKey, IntrinsicReprInfo>
+        GlobalValueKeys: EqSet<SymbolKey>
+        ModuleSourcePaths: EqDict<ModuleKey, string>
+        Accessibility: EqDict<SymbolKey, Accessibility>
     }
 
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
@@ -139,9 +139,9 @@ module FrozenFileResidue =
         match container with
         | ModuleContainer.InNamespace ns -> ns.Dotted
         | ModuleContainer.InModule m ->
-            match res.ModuleSourcePaths.TryGetValue m with
-            | true, path -> path
-            | _ ->
+            match EqDict.tryFind m res.ModuleSourcePaths with
+            | ValueSome path -> path
+            | ValueNone ->
                 failwithf
                     "FrozenFileResidue.sourcePathOf: module %s has no ModuleSourcePaths entry, so this pool was built from a partial scope table"
                     (SymbolKeyOps.moduleFullName m)
@@ -249,10 +249,10 @@ module FrozenPools =
             Residue =
                 {
                     Diagnostics = []
-                    IntrinsicReprKeys = readOnlyDict []
-                    GlobalValueKeys = System.Collections.Generic.HashSet()
-                    ModuleSourcePaths = readOnlyDict []
-                    Accessibility = readOnlyDict []
+                    IntrinsicReprKeys = EqDict.empty
+                    GlobalValueKeys = EqSet.empty
+                    ModuleSourcePaths = EqDict.empty
+                    Accessibility = EqDict.empty
                 }
             ModuleMembers = [||]
             ClosureReprs = [||]

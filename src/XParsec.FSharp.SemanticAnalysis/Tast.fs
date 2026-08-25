@@ -57,15 +57,15 @@ type TastFileG<'ty, 'tok, 'id when 'id: comparison> =
         Diagnostics: XParsec.FSharp.SemanticAnalysis.Diagnostic list
         /// This file's OWN intrinsics: the `SymbolKey` of a `type x = (# "…" #)` abbrev →
         /// its target representation. Keyed by identity: a name cannot say WHICH `int` it means.
-        IntrinsicReprKeys: System.Collections.Generic.IReadOnlyDictionary<TypeKey, IntrinsicReprInfo>
+        IntrinsicReprKeys: EqDict<TypeKey, IntrinsicReprInfo>
         /// The `[<Global>]` module-level bindings: values that ARE a target global (JS
         /// `undefined`), so the declaring file emits no definition for one.
-        GlobalValueKeys: System.Collections.Generic.IReadOnlySet<SymbolKey>
+        GlobalValueKeys: EqSet<SymbolKey>
         /// Each module this file declares → the dotted SOURCE path an `open` or a qualified
         /// name writes it as (`Vesper.Collections.List` for the module compiled as
         /// `Vesper.Collections.ListModule`). A namespace needs no entry: its source path is
         /// its own dotted name.
-        ModuleSourcePaths: System.Collections.Generic.IReadOnlyDictionary<ModuleKey, string>
+        ModuleSourcePaths: EqDict<ModuleKey, string>
         /// A module-level binding's bound variable → its named-module placement (`module Foo`'s
         /// functions emit on a real `Foo`/`FooModule` static class, not the anonymous
         /// "Program" class).
@@ -89,7 +89,7 @@ type TastFileG<'ty, 'tok, 'id when 'id: comparison> =
         Specializations: EqArray<TSpecializationG<'ty, 'tok, 'id>>
         /// Declared accessibility of each top-level entity (type / module value / inline
         /// value); a key ABSENT here is `Public`. A type MEMBER's rides on the member itself.
-        Accessibility: System.Collections.Generic.IReadOnlyDictionary<SymbolKey, Accessibility>
+        Accessibility: EqDict<SymbolKey, Accessibility>
         /// A module binding's typar count, keyed by the bound variable its pattern introduces.
         BindingTyparArities: Map<BoundVarKeyG<'id>, int>
     }
@@ -150,38 +150,6 @@ module TSpecializationG =
         | TDeclG.Type _ ->
             let (SpecializationId i) = spec
             failwithf "TSpecialization: specialization %d is a `TDecl.Type`, not a `TDecl.Let`" i
-
-[<RequireQualifiedAccess>]
-module TastFileG =
-    let private dictEqual
-        (a: System.Collections.Generic.IReadOnlyDictionary<'k, 'v>)
-        (b: System.Collections.Generic.IReadOnlyDictionary<'k, 'v>)
-        : bool =
-        a.Count = b.Count
-        && a
-           |> Seq.forall (fun (KeyValue(k, v)) ->
-               match b.TryGetValue k with
-               | true, v2 -> v = v2
-               | _ -> false
-           )
-
-    /// Whole-file structural equality. `a = b` is UNSOUND on a rebuilt file:
-    /// `IntrinsicReprKeys`, `GlobalValueKeys`, `ModuleSourcePaths` and `Accessibility` are
-    /// read-only collection interfaces, whose contents the derived `=` compares by reference.
-    let structurallyEqual (a: TastFileG<'ty, 'tok, 'id>) (b: TastFileG<'ty, 'tok, 'id>) : bool =
-        a.Decls = b.Decls
-        && a.Diagnostics = b.Diagnostics
-        && dictEqual a.IntrinsicReprKeys b.IntrinsicReprKeys
-        && a.GlobalValueKeys.SetEquals b.GlobalValueKeys
-        && dictEqual a.ModuleSourcePaths b.ModuleSourcePaths
-        && a.ModuleMembers = b.ModuleMembers
-        && a.ClosureReprs = b.ClosureReprs
-        && a.FunVerdicts = b.FunVerdicts
-        && a.GenericFnSchemes = b.GenericFnSchemes
-        && a.InlineBodies = b.InlineBodies
-        && a.Specializations = b.Specializations
-        && dictEqual a.Accessibility b.Accessibility
-        && a.BindingTyparArities = b.BindingTyparArities
 
 // Parallel `FrozenType` aliases, spoken by the freeze step and the backends.
 

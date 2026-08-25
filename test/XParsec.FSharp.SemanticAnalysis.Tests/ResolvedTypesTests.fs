@@ -78,14 +78,14 @@ let tests =
                         InlineBodies = EqArray.empty
                         Specializations = EqArray.empty
                         Diagnostics = []
-                        IntrinsicReprKeys = System.Collections.Generic.Dictionary()
-                        GlobalValueKeys = System.Collections.Generic.HashSet()
-                        ModuleSourcePaths = System.Collections.Generic.Dictionary()
+                        IntrinsicReprKeys = EqDict.empty
+                        GlobalValueKeys = EqSet.empty
+                        ModuleSourcePaths = EqDict.empty
                         ModuleMembers = Map.empty
                         ClosureReprs = Map.empty
                         FunVerdicts = Map.empty
                         GenericFnSchemes = Map.empty
-                        Accessibility = System.Collections.Generic.Dictionary()
+                        Accessibility = EqDict.empty
                         BindingTyparArities = Map.empty
                     }
 
@@ -138,14 +138,14 @@ let tests =
                         InlineBodies = EqArray.empty
                         Specializations = EqArray.empty
                         Diagnostics = []
-                        IntrinsicReprKeys = System.Collections.Generic.Dictionary()
-                        GlobalValueKeys = System.Collections.Generic.HashSet()
-                        ModuleSourcePaths = System.Collections.Generic.Dictionary()
+                        IntrinsicReprKeys = EqDict.empty
+                        GlobalValueKeys = EqSet.empty
+                        ModuleSourcePaths = EqDict.empty
                         ModuleMembers = Map.empty
                         ClosureReprs = Map.empty
                         FunVerdicts = Map.empty
                         GenericFnSchemes = Map.empty
-                        Accessibility = System.Collections.Generic.Dictionary()
+                        Accessibility = EqDict.empty
                         BindingTyparArities = Map.empty
                     }
 

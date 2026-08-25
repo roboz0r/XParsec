@@ -346,16 +346,14 @@ module Elaborate =
             // Slot order: the `SpecializationId`s the decls' edges carry index THIS array.
             Specializations = EqArray.ofArray specializations
             Diagnostics = List.ofSeq ctx.Diagnostics
-            IntrinsicReprKeys = System.Collections.Generic.Dictionary(ctx.Types.IntrinsicReprKeys)
-            GlobalValueKeys = System.Collections.Generic.HashSet(ctx.Bindings.GlobalValueKeys)
+            IntrinsicReprKeys = EqDict.ofSeq ctx.Types.IntrinsicReprKeys
+            GlobalValueKeys = EqSet.ofSeq ctx.Bindings.GlobalValueKeys
             ModuleSourcePaths = TypeRegistry.declaredModulePaths ctx.Types
             ModuleMembers = emptyIfDegraded ctx.Bindings.ModuleMembers
             // Filled by the Pipeline once escape analysis has run.
             ClosureReprs = Map.empty
             FunVerdicts = Map.empty
             GenericFnSchemes = emptyIfDegraded (ctx.GenericFnSchemes.AsDictionary())
-            Accessibility =
-                System.Collections.Generic.Dictionary(ctx.Bindings.Accessibility)
-                :> System.Collections.Generic.IReadOnlyDictionary<_, _>
+            Accessibility = EqDict.ofSeq ctx.Bindings.Accessibility
             BindingTyparArities = emptyIfDegraded ctx.Bindings.BindingTyparArities
         }

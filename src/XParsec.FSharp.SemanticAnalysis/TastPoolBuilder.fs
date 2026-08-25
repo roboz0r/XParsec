@@ -305,12 +305,11 @@ module TastPoolBuilder =
     /// This file's OWN intrinsic-repr type declarations. A backend reads it to tell a
     /// declaration of a PLATFORM REPRESENTATION, which already exists on the target, from one
     /// it must emit.
-    let intrinsicReprKeys (b: PoolBuilder) : IReadOnlyDictionary<TypeKey, IntrinsicReprInfo> =
-        b.Base.Residue.IntrinsicReprKeys
+    let intrinsicReprKeys (b: PoolBuilder) : EqDict<TypeKey, IntrinsicReprInfo> = b.Base.Residue.IntrinsicReprKeys
 
     /// This file's OWN `[<Global>]` bindings. The target already owns the thing declared, so
     /// a backend emits nothing for one.
-    let globalValueKeys (b: PoolBuilder) : IReadOnlySet<SymbolKey> = b.Base.Residue.GlobalValueKeys
+    let globalValueKeys (b: PoolBuilder) : EqSet<SymbolKey> = b.Base.Residue.GlobalValueKeys
 
     /// This file's module-level bindings by bound variable: the SYMBOL identity behind a `let` decl's
     /// name, which the columns address only positionally. Indexed once per builder.

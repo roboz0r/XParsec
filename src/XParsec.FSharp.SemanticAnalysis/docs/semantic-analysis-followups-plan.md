@@ -108,17 +108,6 @@ Related: the 15 reserved bits are padding. The prose describing them as a future
 per-spawning-construct counter was speculative and is cut; if that plan is dead the bits could
 fund a narrower `Raw`.
 
-### `Tast.fs:61` — `TastFileG` derives an unsound structural `=`
-
-Three fields are read-only collection interfaces that compare by REFERENCE:
-`IntrinsicReprKeys: IReadOnlyDictionary<…>` (`:74`), `GlobalValueKeys` (`:85`) and
-`Accessibility` (`:152`). So `a = b` compiles and silently answers wrong on any rebuilt file.
-`TastFileG.structurallyEqual` (`:190`) is the workaround, and every caller has to remember it
-(`FrozenCodecTreeRoundTripTests.fs:42`, `TastPoolsTests.fs:262`). No live misuse found — latent.
-
-Giving those three equatable wrapper types in the shape of the existing `EqArray` deletes the
-workaround function and its doc along with it.
-
 ### `TastDecl.fs:129` and `:205` — `ThisKey` is stored twice and cannot differ
 
 `TClassG.ThisKey` (`Elaborate/TypeDecls.fs:701`) and every instance member's
