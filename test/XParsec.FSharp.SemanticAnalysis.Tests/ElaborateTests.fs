@@ -1264,6 +1264,54 @@ let stringEscapeTests =
                 | other -> failtestf "expected a string const let, got %A" other
             }
 
+            test "an interpolated string with no hole decodes its escapes" {
+                let tast = analyse "let s = $\"a\\tb\\u0041\""
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+
+                match tast.Decls.[0] with
+                | TDecl.Let(_, TExpr.Const(TConstValue.String s, _, _), _, _) ->
+                    Expect.equal s "a\tbA" "the interpolated path decodes as the plain one does"
+                | other -> failtestf "expected a string const let, got %A" other
+            }
+
+            test "an interpolated string with a hole decodes the escapes in its literal runs" {
+                let tast = analyse "let x = 42\nlet s = $\"a\\tb{x}c\\nd\""
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+
+                match tast.Decls |> EqArray.last with
+                | TDecl.Let(_, TExpr.Format(_, segs, _, _), _, _) ->
+                    let lits =
+                        EqArray.toList segs
+                        |> List.choose (
+                            function
+                            | FormatSeg.Lit text -> Some text
+                            | _ -> None
+                        )
+
+                    Expect.equal lits [ "a\tb"; "c\nd" ] "each literal run carries decoded text"
+                | other -> failtestf "expected a Format let, got %A" other
+            }
+
+            test "a verbatim interpolated string keeps its backslashes" {
+                let tast = analyse "let s = $@\"a\\tb\""
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+
+                match tast.Decls.[0] with
+                | TDecl.Let(_, TExpr.Const(TConstValue.String s, _, _), _, _) ->
+                    Expect.equal s "a\\tb" "a verbatim string decodes no escape"
+                | other -> failtestf "expected a string const let, got %A" other
+            }
+
+            test "a triple-quoted interpolated string keeps its backslashes" {
+                let tast = analyse "let s = $\"\"\"a\\tb\"\"\""
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+
+                match tast.Decls.[0] with
+                | TDecl.Let(_, TExpr.Const(TConstValue.String s, _, _), _, _) ->
+                    Expect.equal s "a\\tb" "a triple-quoted string decodes no escape"
+                | other -> failtestf "expected a string const let, got %A" other
+            }
+
             test "an unknown and a truncated escape stay verbatim, no diagnostics" {
                 let tast = analyse "let s = \"\\q \\u12\""
                 Expect.isEmpty tast.Diagnostics "fsc keeps both verbatim without a warning"

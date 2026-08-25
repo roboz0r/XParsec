@@ -25,11 +25,13 @@ FunctionOrValue:
         Expr:
           Ident           'idx'             Identifier          tok=  36  pos= 127
         }                 '}'               InterpolatedExpressionClose  tok=  37  pos= 130
-        Text              '[\"'             InterpolatedStringFragment  tok=  38  pos= 131
-        FormatSpec        '%s'              FormatPlaceholder   tok=  39  pos= 134
-        {                 '{'               InterpolatedExpressionOpen  tok=  40  pos= 136
+        Text              '['               InterpolatedStringFragment  tok=  38  pos= 131
+        Text              '\"'              EscapeSequence      tok=  39  pos= 132
+        FormatSpec        '%s'              FormatPlaceholder   tok=  40  pos= 134
+        {                 '{'               InterpolatedExpressionOpen  tok=  41  pos= 136
         Expr:
-          Ident           'name'            Identifier          tok=  41  pos= 137
-        }                 '}'               InterpolatedExpressionClose  tok=  42  pos= 141
-        Text              '\"]'             InterpolatedStringFragment  tok=  43  pos= 142
-                          '"'               InterpolatedStringClose  tok=  44  pos= 145
+          Ident           'name'            Identifier          tok=  42  pos= 137
+        }                 '}'               InterpolatedExpressionClose  tok=  43  pos= 141
+        Text              '\"'              EscapeSequence      tok=  44  pos= 142
+        Text              ']'               InterpolatedStringFragment  tok=  45  pos= 144
+                          '"'               InterpolatedStringClose  tok=  46  pos= 145

@@ -18,10 +18,14 @@
 86, Whitespace
 87, InterpolatedStringOpen
 89, InterpolatedStringFragment
+107, EscapeSequence
+109, InterpolatedStringFragment
 123, InterpolatedExpressionOpen
 124, Identifier
 128, InterpolatedExpressionClose
 129, InterpolatedStringFragment
+130, EscapeSequence
+132, InterpolatedStringFragment
 133, InterpolatedStringClose
 134, Newline
 135, Identifier

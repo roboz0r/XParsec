@@ -78,15 +78,24 @@ module internal ElaborateStrings =
                 segments.Add(FormatSeg.Lit(litRun.ToString()))
                 litRun.Clear() |> ignore
 
+        // `%%` collapses to `%`, because an interpolated string rides the same `PrintfFormat`
+        // machinery as printf. An escape denoting no character keeps the whole string on the
+        // literal-stitch fallback, which reports it.
+        let appendLiteralToken (t: SyntaxToken) =
+            match t.Token with
+            | Token.EscapeSequence ->
+                match Lexing.decodeStringEscape (ctx.NameOf t) with
+                | Lexing.DecodedEscape.Text text -> litRun.Append text |> ignore
+                | Lexing.DecodedEscape.TrigraphOutOfRange
+                | Lexing.DecodedEscape.NotUnicodeScalar -> lowerable <- false
+            | _ -> litRun.Append((ctx.NameOf t).Replace("%%", "%")) |> ignore
+
         for part in parts do
             if lowerable then
                 match part with
-                // `%%` collapses to `%`, because an interpolated string rides the same
-                // `PrintfFormat` machinery as printf. Escape sequences stay VERBATIM: the
-                // literal-stitch path does not unescape them either.
                 | StringPart.Text t
                 | StringPart.EscapeSequence t
-                | StringPart.VerbatimEscapeQuote t -> litRun.Append((ctx.NameOf t).Replace("%%", "%")) |> ignore
+                | StringPart.VerbatimEscapeQuote t -> appendLiteralToken t
                 | StringPart.EscapePercent _ -> litRun.Append('%') |> ignore
                 | StringPart.Expr(formatSpecifier = fs; lBrace = lBrace; expr = holeExpr; formatClause = fc) ->
                     hasHole <- true

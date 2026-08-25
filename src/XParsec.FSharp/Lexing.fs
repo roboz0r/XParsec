@@ -618,9 +618,6 @@ module internal Errors =
 
     let expectedQuote: ErrorType<char, LexBuilder> = Message "Expected '"
 
-    let expectedInterpolatedFragmentChar: ErrorType<char, LexBuilder> =
-        Message "Expected interpolated string fragment character"
-
     let expectedOperator: ErrorType<char, LexBuilder> = Message "Expected operator"
 
     let expectedDirectiveAtStart: ErrorType<char, LexBuilder> =
@@ -892,6 +889,9 @@ module Lexing =
     let private isInterpolated3FragmentChar c =
         c <> '"' && c <> '{' && c <> '}' && c <> '%'
 
+    let private isInterpolatedFragmentChar c =
+        c <> '"' && c <> '{' && c <> '}' && c <> '%' && c <> '\\'
+
     let private isVerbatimInterpolatedFragmentChar c = c <> '"' && c <> '{' && c <> '}'
 
     let private isNotNewline c = c <> '\n' && c <> '\r'
@@ -910,6 +910,9 @@ module Lexing =
 
     let private pSkipInterpolated3FragmentChars =
         skipMany1Satisfies isInterpolated3FragmentChar
+
+    let private pSkipInterpolatedFragmentChars =
+        skipMany1Satisfies isInterpolatedFragmentChar
 
     let private pSkipVerbatimInterpolatedFragmentChars =
         skipMany1Satisfies isVerbatimInterpolatedFragmentChar
@@ -1682,33 +1685,21 @@ module Lexing =
     let pInterpolatedStringEndToken =
         pTokenPopCtx (pchar '"') Token.InterpolatedStringClose LexContext.InterpolatedString
 
-    /// Skips the text of a non-verbatim interpolated string fragment, stopping before `"`, `{`,
-    /// `}` or `%`. A backslash takes the following character with it, or ends the fragment when
-    /// it is the last character of the input.
-    let private pSkipInterpolatedFragmentChars (reader: Reader<char, LexBuilder, ReadableString>) =
-        let mutable more = true
-        let mutable consumedAny = false
-
-        while more do
-            match reader.Peek() with
-            | ValueSome '\\' ->
-                let span = reader.PeekN(2)
-
-                if span.Length >= 2 then reader.SkipN(2) else reader.Skip()
-
-                consumedAny <- true
-            | ValueSome c when c <> '"' && c <> '{' && c <> '}' && c <> '%' ->
-                reader.Skip()
-                consumedAny <- true
-            | _ -> more <- false
-
-        if consumedAny then
-            preturn () reader
-        else
-            fail expectedInterpolatedFragmentChar reader
-
     let pInterpolatedStringFragmentToken =
         pToken pSkipInterpolatedFragmentChars Token.InterpolatedStringFragment
+
+    /// Escape sequence inside a non-verbatim interpolated string. The forms and the decoding
+    /// are a plain string's, except that `{`, `}` and `%` keep their interpolation meaning:
+    /// a backslash before one of them is a one-character escape denoting a literal backslash.
+    let pInterpolatedStringEscapeToken (reader: Reader<char, LexBuilder, ReadableString>) =
+        let span = reader.PeekN(2)
+
+        match span.Length with
+        | 2 when span.[1] = '{' || span.[1] = '}' || span.[1] = '%' ->
+            let pos = reader.Position
+            reader.Skip()
+            updateUserState (LexBuilder.append Token.EscapeSequence pos CtxOp.NoOp) reader
+        | _ -> pStringEscapeToken reader
 
     let pInterpolated3StringFragmentToken =
         pToken pSkipInterpolated3FragmentChars Token.Interpolated3StringFragment
@@ -3213,6 +3204,7 @@ module Lexing =
                     | '}' -> pInterpolatedStringFragmentRBraces
                     | '"' -> pInterpolatedStringEndToken
                     | '%' -> pFormatSpecifierTokens
+                    | '\\' -> pInterpolatedStringEscapeToken
                     | _ -> pInterpolatedStringFragmentToken
 
                 | LexContext.VerbatimInterpolatedString ->

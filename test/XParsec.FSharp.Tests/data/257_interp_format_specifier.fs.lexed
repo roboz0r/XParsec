@@ -37,11 +37,13 @@
 127, Identifier
 130, InterpolatedExpressionClose
 131, InterpolatedStringFragment
+132, EscapeSequence
 134, FormatPlaceholder
 136, InterpolatedExpressionOpen
 137, Identifier
 141, InterpolatedExpressionClose
-142, InterpolatedStringFragment
+142, EscapeSequence
+144, InterpolatedStringFragment
 145, InterpolatedStringClose
 146, Newline
 147, EOF

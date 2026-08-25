@@ -184,7 +184,7 @@ let tests =
                         let expected =
                             [
                                 0, Token.InterpolatedStringOpen
-                                2, Token.InterpolatedStringFragment
+                                2, Token.EscapeSequence
                                 3, Token.UnterminatedInterpolatedString
                                 3, Token.EOF
                             ]
@@ -351,6 +351,106 @@ let tests =
                             |> List.map (fun (pos, tok) -> PositionedToken.Create(tok, pos))
 
                         testLexed "\"\\u12\"" expected
+                    }
+
+                    test "An interpolated string escape is its own token" {
+                        // $"\n"
+                        let expected =
+                            [
+                                0, Token.InterpolatedStringOpen
+                                2, Token.EscapeSequence
+                                4, Token.InterpolatedStringClose
+                                5, Token.EOF
+                            ]
+                            |> List.map (fun (pos, tok) -> PositionedToken.Create(tok, pos))
+
+                        testLexed "$\"\\n\"" expected
+                    }
+
+                    test "An interpolated string escape splits the fragments around it" {
+                        // $"a\tb{x}cA"
+                        let expected =
+                            [
+                                0, Token.InterpolatedStringOpen
+                                2, Token.InterpolatedStringFragment
+                                3, Token.EscapeSequence
+                                5, Token.InterpolatedStringFragment
+                                6, Token.InterpolatedExpressionOpen
+                                7, Token.Identifier
+                                8, Token.InterpolatedExpressionClose
+                                9, Token.InterpolatedStringFragment
+                                11, Token.InterpolatedStringClose
+                                12, Token.EOF
+                            ]
+                            |> List.map (fun (pos, tok) -> PositionedToken.Create(tok, pos))
+
+                        testLexed "$\"a\\tb{x}cA\"" expected
+                    }
+
+                    test "A brace keeps its interpolation meaning after a backslash" {
+                        // $"a\{x}b" — fsc keeps the backslash literal and opens the hole.
+                        let expected =
+                            [
+                                0, Token.InterpolatedStringOpen
+                                2, Token.InterpolatedStringFragment
+                                3, Token.EscapeSequence
+                                4, Token.InterpolatedExpressionOpen
+                                5, Token.Identifier
+                                6, Token.InterpolatedExpressionClose
+                                7, Token.InterpolatedStringFragment
+                                8, Token.InterpolatedStringClose
+                                9, Token.EOF
+                            ]
+                            |> List.map (fun (pos, tok) -> PositionedToken.Create(tok, pos))
+
+                        testLexed "$\"a\\{x}b\"" expected
+                    }
+
+                    test "A format specifier keeps its meaning after a backslash" {
+                        // $"a\%d{x}"
+                        let expected =
+                            [
+                                0, Token.InterpolatedStringOpen
+                                2, Token.InterpolatedStringFragment
+                                3, Token.EscapeSequence
+                                4, Token.FormatPlaceholder
+                                6, Token.InterpolatedExpressionOpen
+                                7, Token.Identifier
+                                8, Token.InterpolatedExpressionClose
+                                9, Token.InterpolatedStringClose
+                                10, Token.EOF
+                            ]
+                            |> List.map (fun (pos, tok) -> PositionedToken.Create(tok, pos))
+
+                        testLexed "$\"a\\%d{x}\"" expected
+                    }
+
+                    test "A verbatim interpolated string keeps a backslash in its fragment" {
+                        // $@"\n"
+                        let expected =
+                            [
+                                0, Token.VerbatimInterpolatedStringOpen
+                                3, Token.VerbatimInterpolatedStringFragment
+                                5, Token.VerbatimInterpolatedStringClose
+                                6, Token.EOF
+                            ]
+                            |> List.map (fun (pos, tok) -> PositionedToken.Create(tok, pos))
+
+                        testLexed "$@\"\\n\"" expected
+                    }
+
+                    test "A triple-quoted interpolated string keeps a backslash in its fragment" {
+                        // $"""\n"""
+                        let expected =
+                            [
+                                0, Token.Interpolated3StringOpen
+                                4, Token.Interpolated3StringFragment
+                                6, Token.Interpolated3StringClose
+                                9, Token.EOF
+                            ]
+                            |> List.map (fun (pos, tok) -> PositionedToken.Create(tok, pos))
+
+                        testLexed "$\"\"\"\\n\"\"\"" expected
                     }
                 ]
 
