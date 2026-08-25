@@ -219,6 +219,25 @@ let tests =
                     | ValueNone -> failtest $"union U`{arity} not registered"
             }
 
+            test "a member-less record and union each get their own ThisKey" {
+                let ctx = analyse "type R = { A: int }\ntype U =\n    | Ua of int"
+
+                let r = expectRecord ctx "R"
+                let u = expectUnion ctx "U"
+
+                Expect.equal
+                    r.ThisKey
+                    (BoundVarKey.ofDeclaredThis r.DeclSite.Key)
+                    "R's `this` is minted from its declaration"
+
+                Expect.equal
+                    u.ThisKey
+                    (BoundVarKey.ofDeclaredThis u.DeclSite.Key)
+                    "U's `this` is minted from its declaration"
+
+                Expect.notEqual r.ThisKey u.ThisKey "two member-less types do not share a `this` bound variable"
+            }
+
             test "mutable field IsMutable is true" {
                 let ctx = analyse "type P = { X: int; mutable Y: int }"
 

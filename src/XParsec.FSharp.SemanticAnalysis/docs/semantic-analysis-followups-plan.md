@@ -115,15 +115,13 @@ fund a narrower `Raw`.
 pure function of the declaration's `NodeKey` (`BoundVarKey.ofDeclaredThis`,
 `MemberRegistration.fs:607`). The member-level copies are derivable from the class-level one.
 
-### `TypeInfos.fs:231`, `:293`, `:346` — `ThisKey` defaults to a well-formed wrong value
+### `TypeInfos.fs` — `ThisName`'s setter is dead on three infos
 
-`RecordTypeInfo`, `UnionTypeInfo` and `IntrinsicAbbrevInfo` default `ThisKey` to
-`Unchecked.defaultof<BoundVarKey>`. `BoundVarKeyG` is `[<Struct>]` over `NodeKey`
-(`TastDecl.fs:12-16`, `NodeKey.fs:124-127`), so that default is a perfectly well-formed
-`BoundVar(NodeKey 0UL)` — offset 0, `NodeKind.Unknown` — not a detectable "unset". It is assigned
-only when the type has members (`MemberRegistration.fs:1102`, `:1110`, `:1126`). `ClassTypeInfo`
-takes `thisKey` as a constructor parameter instead; the other three could do the same, or carry
-a `voption`.
+Found landing the `ThisKey` initialiser fix (2026-08-25). `RecordTypeInfo`, `UnionTypeInfo`
+and `IntrinsicAbbrevInfo` carry `member val ThisName = "this" with get, set` and nothing in
+`src/` assigns it, so the field is a constant with a dead setter. `ClassTypeInfo` takes
+`thisName` as a constructor parameter and honours an `as`-bound name; the `as`-rename story
+for the other three is unimplemented or handled per-member elsewhere.
 
 ### `Passes/Unification/Translate.fs:506` — the measure carrier is the last by-name reach
 
@@ -483,18 +481,6 @@ invisible. Note also that those deleted comments were wrong about both tables �
 `FunVerdicts` "node-keyed" (it is `Map<LambdaKey, FunVerdict>`) and attributed the decision to
 `inferApp` (it is `recordFunArityVerdicts`), which is the kind of drift a snapshot step that the
 type system does not name will keep producing.
-
-### `TypeInfos.fs:176` — an unset `ThisKey` is a *valid* boundVar key, not a detectable hole
-
-`RecordTypeInfo`, `UnionTypeInfo` and `IntrinsicAbbrevInfo` all default `ThisKey` to
-`Unchecked.defaultof<BoundVarKey>`, and the docs cut here said it is "set during registration when
-there are members" — i.e. left at the default for every type without members. `BoundVarKey` is
-`[<Struct>] BoundVar of NodeKey` and `NodeKey` is a struct over a `uint64`, so the default is not
-null and cannot fault: it is `BoundVar(NodeKey 0UL)`, a structurally legal key naming offset 0.
-Anything that reads `ThisKey` off a member-less type therefore aliases whatever boundVar holds the
-zero key rather than failing. `ClassTypeInfo` takes `thisKey` as a constructor parameter instead
-and has no such state, which is the shape the other three should have — or the field should be a
-`voption` so "not registered" is representable.
 
 ### `TypeInfos.fs:181` — the nominal-identity and `IInterfaceImplHost` blocks are written out four times
 

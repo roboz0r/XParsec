@@ -704,13 +704,12 @@ module NameResolutionMemberRegistration =
     /// union or record; must run after the type itself is registered. The extraction is
     /// kind-agnostic, so only the write-back target differs and each arm sets its own `info`.
     let private registerNominalMember (ctx: PassContext) (id: TypeIdentity) (td: TypeDefn<SyntaxToken>) : unit =
-        let extract (declKey: NodeKey) (typeParams: EqArray<string * TyVarId>) elems =
+        let extract (typeParams: EqArray<string * TyVarId>) elems =
             let typarNames = [ for (n, _) in typeParams -> n ]
 
             {|
                 Members = extractMembers ctx id.DeclSite.Tok typarNames elems
                 InterfaceImpls = extractInterfaceImpls ctx typarNames elems
-                ThisKey = BoundVarKey.ofDeclaredThis declKey
             |}
 
         match td with
@@ -719,34 +718,31 @@ module NameResolutionMemberRegistration =
 
             match TypeRegistry.tryUnionByKey ctx.Types id.Key with
             | ValueSome info ->
-                let x = extract info.DeclSite.Key info.TypeParams elems
+                let x = extract info.TypeParams elems
                 info.Members <- x.Members
                 info.InterfaceImpls <- x.InterfaceImpls
-                info.ThisKey <- x.ThisKey
             | ValueNone -> ()
         | TypeDefn.Record(extensions = ValueSome(TypeExtensionElements(elements = elems))) ->
             rejectAugmentationConstructors ctx elems
 
             match TypeRegistry.tryRecordByKey ctx.Types id.Key with
             | ValueSome info ->
-                let x = extract info.DeclSite.Key info.TypeParams elems
+                let x = extract info.TypeParams elems
                 info.Members <- x.Members
                 info.InterfaceImpls <- x.InterfaceImpls
-                info.ThisKey <- x.ThisKey
             | ValueNone -> ()
         // An inline intrinsic-abbrev host (`type X = (# … #) with member …`): stamp its
-        // augmentation members + `ThisKey` as the union/record arms do. The host is filed
-        // under the intrinsic's CANON key, which the claim's name resolves to.
+        // augmentation members as the union/record arms do. The host is filed under the
+        // intrinsic's CANON key, which the claim's name resolves to.
         | TypeDefn.Abbrev(extensions = ValueSome(TypeExtensionElements(elements = elems))) ->
             match TypeRegistry.tryIntrinsicAbbrevHostByCanon ctx.Types id.Name with
             | ValueSome info ->
                 requireInlineMembers ctx id.Name elems
-                let x = extract info.DeclSite.Key info.TypeParams elems
-                info.Members <- x.Members
+                let x = extract info.TypeParams elems
                 // `interface … with` on an intrinsic host is diagnosed by
                 // `requireInlineMembers`, never stamped: the host has no representation
                 // to carry the interface slots.
-                info.ThisKey <- x.ThisKey
+                info.Members <- x.Members
             | ValueNone -> ()
         | _ -> ()
 

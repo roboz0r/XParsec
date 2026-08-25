@@ -180,7 +180,7 @@ type RecordTypeInfo
     /// Augmentation members (`with member …` / `static member …`); empty for a plain record.
     member val Members: TypeMemberInfo[] = [||] with get, set
     member val ThisName = "this" with get, set
-    member val ThisKey = Unchecked.defaultof<BoundVarKey> with get, set
+    member val ThisKey = BoundVarKey.ofDeclaredThis declSite.Key
     member val InterfaceImpls: ClassInterfaceImplInfo[] = [||] with get, set
     /// `[<Struct>]` record — a `System.ValueType`-based value type.
     member val IsValueType: bool = false with get, set
@@ -239,7 +239,7 @@ type UnionTypeInfo
     /// Augmentation members (`with member …` / `static member …`); empty for a plain union.
     member val Members: TypeMemberInfo[] = [||] with get, set
     member val ThisName = "this" with get, set
-    member val ThisKey = Unchecked.defaultof<BoundVarKey> with get, set
+    member val ThisKey = BoundVarKey.ofDeclaredThis declSite.Key
     member val InterfaceImpls: ClassInterfaceImplInfo[] = [||] with get, set
     /// The declaration's attributes, resolved and folded at registration.
     member val Attributes: TAttributes = EqArray.empty with get, set
@@ -286,7 +286,7 @@ type IntrinsicAbbrevInfo
     member val DeclSite = declSite
     member val Members: TypeMemberInfo[] = [||] with get, set
     member val ThisName = "this" with get, set
-    member val ThisKey = Unchecked.defaultof<BoundVarKey> with get, set
+    member val ThisKey = BoundVarKey.ofDeclaredThis declSite.Key
     member val InterfaceImpls: ClassInterfaceImplInfo[] = [||] with get, set
 
     interface IInterfaceImplHost with
