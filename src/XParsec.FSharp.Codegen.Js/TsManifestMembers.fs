@@ -157,7 +157,7 @@ module internal TsManifestMembers =
         (isGlobal: bool)
         (nsPath: string)
         (ex: Schema.Export)
-        : (string * ExternalTypeShape) option =
+        : (MintedType * ExternalTypeShape) option =
         let build name tp members heritage isInterface =
             let origin = originFor ctx nsPath
             let declared = declaredIdentity ctx nsPath name tp
@@ -183,7 +183,7 @@ module internal TsManifestMembers =
                 | ValueNone -> heritageInterfaces
 
             Some(
-                declared.QualifiedName,
+                declared,
                 ExternalTypeShape.Class
                     {
                         TyparArity = tp
@@ -211,7 +211,7 @@ module internal TsManifestMembers =
             // `type X = …` is a transparent abbreviation: a use of `name` expands to the
             // target's `FrozenType`. `mint`, not `declaredIdentity`, because an alias never
             // enters the ctx table, so it stays `FTConst` and expands through this `Abbrev`.
-            Some((mint nsPath name tp).QualifiedName, ExternalTypeShape.Abbrev(tp, toFrozen ctx target))
+            Some(mint nsPath name tp, ExternalTypeShape.Abbrev(tp, toFrozen ctx target))
         | Schema.Export.Enum(name, members) ->
             // A computed (non-constant) member has no value to reference it by, so it
             // cannot be a case at all and is dropped.
@@ -237,7 +237,7 @@ module internal TsManifestMembers =
                 )
                 |> EqArray.ofList
 
-            Some(qualify nsPath name, ExternalTypeShape.Enum(cases, origin))
+            Some(mint nsPath name 0, ExternalTypeShape.Enum(cases, origin))
         | _ -> None
 
     /// One ERASING nominal per distinct anonymous object shape reachable from the exports,
@@ -246,7 +246,7 @@ module internal TsManifestMembers =
     let buildStructuralTypes
         (ctx: TranslateCtx)
         (flatExports: (string * Schema.Export) list)
-        : (string * ExternalTypeShape) list =
+        : (MintedType * ExternalTypeShape) list =
         flatExports
         |> List.collect (fun (_, ex) -> exportTypeRefs ex)
         |> List.collect structuralShapesIn
@@ -278,7 +278,7 @@ module internal TsManifestMembers =
                 )
                 |> EqArray.ofList
 
-            declared.QualifiedName,
+            declared,
             ExternalTypeShape.Class
                 {
                     TyparArity = 0
@@ -327,7 +327,7 @@ module internal TsManifestMembers =
         (moduleSpec: string)
         (isGlobalPack: bool)
         (flatExports: (string * Schema.Export) list)
-        : (string * ExternalTypeShape) list =
+        : (MintedType * ExternalTypeShape) list =
         let overloadedFns =
             flatExports
             |> List.choose (fun (nsPath, ex) ->
@@ -384,7 +384,7 @@ module internal TsManifestMembers =
                 )
                 |> EqArray.ofList
 
-            declared.QualifiedName,
+            declared,
             ExternalTypeShape.Class
                 {
                     TyparArity = 0

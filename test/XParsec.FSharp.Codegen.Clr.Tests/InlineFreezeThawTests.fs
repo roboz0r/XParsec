@@ -204,36 +204,30 @@ let private publishing (unitASource: string) : IExternalSymbolProvider =
 
     let bodies = dict published
 
-    let symbols =
-        published
-        |> List.map (fun (key, body) ->
-            let declTy =
-                match body.Decl with
-                | TDeclG.Let(_, _, _, ty) -> ty
-                | other -> failtestf "a published body is not a `let`: %A" other
+    // The vocabulary as a referenced assembly publishes it: B reaches `Kinds.kindOf` by
+    // walking A's module, as it reaches any other referenced value.
+    let surface =
+        PublishedSurface.build (fun b ->
+            for (key, body) in published do
+                let declTy =
+                    match body.Decl with
+                    | TDeclG.Let(_, _, _, ty) -> ty
+                    | other -> failtestf "a published body is not a `let`: %A" other
 
-            let binding =
-                match key with
-                | SymbolKey.Binding b -> b
-                | other -> failtestf "a published inline value is not a binding key: %A" other
+                let binding =
+                    match key with
+                    | SymbolKey.Binding b -> b
+                    | other -> failtestf "a published inline value is not a binding key: %A" other
 
-            let scheme = asSymbolScheme declTy
+                let scheme = asSymbolScheme declTy
 
-            SymbolKeyOps.qualifiedName key,
-            ExternalSymbols.scheme binding.Decl binding.Name scheme (typarArity scheme) []
+                ExternalSymbols.scheme binding.Decl binding.Name scheme (typarArity scheme) []
+                |> PublishedSurfaceBuilder.addValue b ValueNone
         )
-        |> dict
 
     ExternalSymbolProviders.composite
         [
-            ExternalSymbolProviders.ofNamedChannels
-                { ExternalSymbolProviders.NamedChannels.empty with
-                    TryLookup =
-                        fun name ->
-                            match symbols.TryGetValue name with
-                            | true, s -> ValueSome s
-                            | _ -> ValueNone
-                }
+            PublishedSurface.toProvider surface
             ClrSymbolProviders.buildContract defaultPackages
         ]
     |> ExternalSymbolProviders.withInlineBodies (fun k ->

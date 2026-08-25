@@ -6,17 +6,6 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Passes
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
-/// A stand-in dependency: the types a package this one resolves against publishes, filled
-/// through the same accumulator a real producer fills.
-let depProvider (types: (TypeKey * ExternalTypeShape) list) : IExternalSymbolProvider =
-    let b = PublishedSurfaceBuilder.create ()
-
-    for (key, shape) in types do
-        PublishedSurfaceBuilder.addTypeName b key
-        PublishedSurfaceBuilder.addShape b key shape
-
-    PublishedSurface.toProvider (PublishedSurface.ofBuilder b)
-
 /// What one `.fsi` publishes, and everything it reported doing so.
 type Resolved =
     {
@@ -118,16 +107,16 @@ let membersOf (r: Resolved) (suffix: string) : ExternalMember list =
     | Some(_, members) -> members
     | None -> failtestf "no members published for '%s'. Member tables: %A" suffix (List.map fst named)
 
-/// The symbol published for the val whose binding key ends `.suffix`.
-let symbolOf (r: Resolved) (suffix: string) : ExternalSymbol =
+/// The symbol published for the val bound as `name`.
+let symbolOf (r: Resolved) (name: string) : ExternalSymbol =
     let entries =
         [
-            for e: SurfaceEntry<string, ExternalSymbol> in r.Surface.Symbols -> e.Key, e.Value
+            for e: SurfaceEntry<BindingKey, ExternalSymbol> in r.Surface.Symbols -> e.Key, e.Value
         ]
 
-    match entries |> List.tryFind (fun (name, _) -> name.EndsWith("." + suffix)) with
+    match entries |> List.tryFind (fun (key, _) -> key.Name = name) with
     | Some(_, sym) -> sym
-    | None -> failtestf "val '%s' was not published. Symbols: %A" suffix (List.map fst entries)
+    | None -> failtestf "val '%s' was not published. Symbols: %A" name (List.map fst entries)
 
 /// The `interface <ty>` impls a PRIMITIVE declares. Empty for a source that binds only a
 /// representation, which is indistinguishable here from a primitive that declares none.
@@ -145,7 +134,7 @@ let tests =
                 // A dependency's `Union` shape must bake `TyUnion` at resolution time, whether
                 // the reference is fully qualified or reached via an `open`.
                 let dep =
-                    depProvider
+                    providerOfTypes
                         [
                             SymbolKeyOps.typeKeyOfArity "Dep" "Widget" 1,
                             ExternalTypeShape.Union(1, EqArray.empty, EqArray.empty, SymbolOrigin.Empty, false)

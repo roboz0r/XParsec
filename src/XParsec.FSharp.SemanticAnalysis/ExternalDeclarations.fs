@@ -80,7 +80,6 @@ module InlineBody =
 
 type ExternalSymbol =
     {
-        Name: string
         /// The symbol's type SCHEME over its own typars, baked as `FTTypar(Declaring,i)`.
         Scheme: FrozenType
         TyparArity: int
@@ -89,8 +88,8 @@ type ExternalSymbol =
         Constraints: ExternalConstraint list
         /// Where the symbol lives. `SymbolOrigin.Empty` until a resolving source fills it.
         Origin: SymbolOrigin
-        /// Interned identity: declaring container + simple name, for exact identity checks
-        /// ("is this `Vesper.Collections.List.fold`?") instead of suffix-matching the written name.
+        /// The symbol's identity. Every written spelling that reaches this symbol carries it,
+        /// so an identity check ("is this `Vesper.Collections.List.fold`?") is an equality test.
         Key: BindingKey
         /// The producer's SOURCE parameter grouping; `ValueNone` for anything not
         /// contract-extracted.

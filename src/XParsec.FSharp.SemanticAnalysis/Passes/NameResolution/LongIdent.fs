@@ -476,13 +476,6 @@ module NameResolutionLongIdent =
 
             found |> ValueOption.map (fun t -> unresolvedInType t second 2)
 
-    /// The whole spelling as a value of the referenced contracts: the module path of a
-    /// metadata source, which exposes no module structure, and the source-spelled alias of
-    /// a `ModuleSuffix` module.
-    let private wholeNameValue (ctx: PassContext) (names: string[]) : Resolution voption =
-        OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Resolver.TryLookup (String.concat "." names)
-        |> ValueOption.map (fun sym -> resolved (ResolvedItem.Value(ResolvedValue.External sym)) names.Length)
-
     /// The referenced contracts probed by the folded spelling, a whole name at a time: the
     /// whole name as a type, then the prefix as a type and the last segment inside it.
     let private folded (ctx: PassContext) (position: Position) (names: string[]) : Resolution voption =
@@ -537,10 +530,23 @@ module NameResolutionLongIdent =
                     fun () -> ValueSome(inContainer ctx useSite position c names 1)
             ]
 
+    /// The readings of a several-segment name, in the order `position` tries them.
+    let private qualifiedReadings
+        (ctx: PassContext)
+        (useSite: UseSite)
+        (position: Position)
+        (names: string[])
+        : (unit -> Resolution voption) list =
+        let viaModulePath () = modulePath ctx useSite position names
+        let viaTypeFirst () = typeFirst ctx useSite position names
+        let viaFolded () = folded ctx position names
+
+        match position with
+        | Position.Expression -> [ viaModulePath; viaTypeFirst; viaFolded ]
+        | Position.Pattern -> [ viaTypeFirst; viaModulePath; viaFolded ]
+
     /// A name in expression position whose first segment is not a lexically bound variable.
-    /// Single segment: value, case, type. Several: a value with the rest as its member chain,
-    /// the module path in both its forms (structured, then the whole spelling as a value), a
-    /// type with the second segment inside it, the folded external spelling.
+    /// Single segment: value, case, type. Several: `qualifiedReadings`.
     let resolveExpr (ctx: PassContext) (useSite: UseSite) (names: string[]) : Resolution =
         let first = names.[0]
 
@@ -555,19 +561,10 @@ module NameResolutionLongIdent =
                     match typeInEnv ctx useSite first with
                     | ValueSome t -> resolved (finalTypeItem Position.Expression t) 1
                     | ValueNone -> unresolvedInEnv first 1
-            | n ->
-                firstOf
-                    [
-                        (fun () -> modulePath ctx useSite Position.Expression names)
-                        (fun () -> wholeNameValue ctx names)
-                        (fun () -> typeFirst ctx useSite Position.Expression names)
-                        (fun () -> folded ctx Position.Expression names)
-                    ]
-                    (unresolvedInEnv first n)
+            | n -> firstOf (qualifiedReadings ctx useSite Position.Expression names) (unresolvedInEnv first n)
 
     /// A name in pattern position. Single segment: a case visible at the use site, else a
-    /// bound variable, which is the `Unresolved` answer. Several: a type with the second
-    /// segment inside it, the module path, the folded external spelling.
+    /// bound variable, which is the `Unresolved` answer. Several: `qualifiedReadings`.
     let resolvePattern (ctx: PassContext) (useSite: UseSite) (names: string[]) : Resolution =
         let first = names.[0]
 
@@ -576,14 +573,7 @@ module NameResolutionLongIdent =
             match caseInEnv ctx useSite first with
             | ValueSome item -> resolved item 1
             | ValueNone -> unresolvedInEnv first 1
-        | n ->
-            firstOf
-                [
-                    (fun () -> typeFirst ctx useSite Position.Pattern names)
-                    (fun () -> modulePath ctx useSite Position.Pattern names)
-                    (fun () -> folded ctx Position.Pattern names)
-                ]
-                (unresolvedInEnv first n)
+        | n -> firstOf (qualifiedReadings ctx useSite Position.Pattern names) (unresolvedInEnv first n)
 
     /// A written type name at `arity`: a claim of this file in scope at the use site, at that
     /// arity else at any, then the referenced contracts at exactly that arity.

@@ -53,7 +53,9 @@ type ExternalTypeShape =
 type IScopeContents =
     /// The module or namespace the dotted SOURCE path denotes.
     abstract TryContainer: sourcePath: string -> ModuleContainer voption
-    /// The value `name` declared directly in `container`.
+    /// The value `name` declared directly in `container`. A value answers under its compiled
+    /// short name and under the short name its source writes, which a `[<CompiledName>]`
+    /// makes differ.
     abstract TryValue: container: ModuleContainer * name: string -> ExternalSymbol voption
     /// The union case `name` of a union declared directly in `container`; the answer carries
     /// its `[<RequireQualifiedAccess>]` flag for the caller to report.
@@ -518,16 +520,10 @@ module ExternalSymbols =
 
             inst scheme fresh
 
-    /// The module-qualified compiled name (`Vesper.Collections.ListModule.fold`), bare for
-    /// an unqualified binding.
-    let private valueSymbolName (key: BindingKey) : string =
-        SymbolKeyOps.qualifiedName (SymbolKey.Binding key)
-
-    /// The zero the two builders below copy from; `Name` is derived from `key` and `Scheme`
-    /// is the deferred sentinel until filled.
+    /// The zero the two builders below copy from; `Scheme` is the deferred sentinel until
+    /// filled.
     let private ofBindingKey (key: BindingKey) : ExternalSymbol =
         {
-            Name = valueSymbolName key
             Scheme = deferredTemplate
             TyparArity = 0
             Constraints = []

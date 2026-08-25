@@ -163,6 +163,23 @@ let poolsFor (src: string) : FrozenPools * Pooled.TastFile =
 /// freeze's.
 let rePoolFor (src: string) : Pooled.TastFile -> FrozenPools = TastPools.rePool (freezeFor src)
 
+/// A stand-in dependency publishing `symbols` as a referenced package publishes its values.
+let providerOfValues (symbols: ExternalSymbol list) : IExternalSymbolProvider =
+    PublishedSurface.build (fun b ->
+        for sym in symbols do
+            PublishedSurfaceBuilder.addValue b ValueNone sym
+    )
+    |> PublishedSurface.toProvider
+
+/// `providerOfValues` for the type shapes a referenced package publishes.
+let providerOfTypes (types: (TypeKey * ExternalTypeShape) list) : IExternalSymbolProvider =
+    PublishedSurface.build (fun b ->
+        for (key, shape) in types do
+            PublishedSurfaceBuilder.addTypeName b key
+            PublishedSurfaceBuilder.addShape b key shape
+    )
+    |> PublishedSurface.toProvider
+
 /// Parse `input` and run Desugar + NameResolution against `provider`. Run
 /// `Passes.Unification.run` on the returned pair to continue into inference.
 let analyseNameRes (provider: IExternalSymbolProvider) (input: string) : PassContext * ImplementationFile<SyntaxToken> =

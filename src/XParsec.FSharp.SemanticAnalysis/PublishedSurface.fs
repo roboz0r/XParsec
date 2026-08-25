@@ -44,8 +44,11 @@ type PublishedSurfaceBuilder =
         /// Field name -> every record declaring it, a MULTIMAP rather than first-wins: a field
         /// name is deliberately shared across records, so each one ADDS a candidate.
         RecordFields: Dictionary<string, ResizeArray<ExternalRecordCandidate>>
-        /// Values, keyed as a binding key renders: `.`-joined.
-        Symbols: Dictionary<string, ExternalSymbol>
+        /// Every published value, one entry per identity.
+        Symbols: Dictionary<BindingKey, ExternalSymbol>
+        /// The source spelling of a value whose compiled name differs, and the binding it
+        /// names. First spelling wins.
+        SourceSpellings: Dictionary<SourceSpelling, BindingKey>
         /// Prefixes a consumer resolves through with no `open` of its own.
         mutable AmbientOpenPrefixes: string list
     }
@@ -62,7 +65,8 @@ module PublishedSurfaceBuilder =
             ModuleContainers = Dictionary(StringComparer.Ordinal)
             UnionCases = Dictionary(StringComparer.Ordinal)
             RecordFields = Dictionary(StringComparer.Ordinal)
-            Symbols = Dictionary(StringComparer.Ordinal)
+            Symbols = Dictionary(HashIdentity.Structural)
+            SourceSpellings = Dictionary(HashIdentity.Structural)
             AmbientOpenPrefixes = []
         }
 
@@ -123,19 +127,16 @@ module PublishedSurfaceBuilder =
                 buf.Add candidate
                 surface.RecordFields.[f] <- buf
 
-    /// Publishes the value under its compiled name, and under `source` where the two differ:
-    /// `Vesper.List.fold` beside `Vesper.ListModule.fold`, sharing the compiled binding key. An
-    /// existing alias entry wins; only a module `source.Path` is added to `ModuleContainers`.
+    /// Publishes the value under its own identity, and records `source` as a second spelling
+    /// reaching it where the two differ: `Vesper.List.fold` beside `Vesper.ListModule.fold`.
+    /// Only a module `source.Path` is added to `ModuleContainers`.
     let addValue (surface: PublishedSurfaceBuilder) (source: SourceSpelling voption) (sym: ExternalSymbol) : unit =
-        surface.Symbols.[sym.Name] <- sym
+        surface.Symbols.[sym.Key] <- sym
 
         match source with
         | ValueSome s ->
-            let written = SymbolKeyOps.qualify s.Path s.Name
-
-            if written <> sym.Name then
-                if not (surface.Symbols.ContainsKey written) then
-                    surface.Symbols.[written] <- { sym with Name = written }
+            if s.Path <> SymbolKeyOps.containerFullName sym.Key.Decl || s.Name <> sym.Key.Name then
+                surface.SourceSpellings.TryAdd(s, sym.Key) |> ignore
 
                 match sym.Key.Decl with
                 | ModuleContainer.InModule m ->
@@ -172,8 +173,10 @@ type PublishedSurface =
         UnionCases: EqArray<SurfaceEntry<string, ExternalUnionCase>>
         /// Field name -> every record declaring it.
         RecordFields: EqArray<SurfaceEntry<string, EqArray<ExternalRecordCandidate>>>
-        /// Values, keyed as a binding key renders: `.`-joined.
-        Symbols: EqArray<SurfaceEntry<string, ExternalSymbol>>
+        /// Every published value, one entry per identity.
+        Symbols: EqArray<SurfaceEntry<BindingKey, ExternalSymbol>>
+        /// The source spelling of a value whose compiled name differs, and the binding it names.
+        SourceSpellings: EqArray<SurfaceEntry<SourceSpelling, BindingKey>>
         /// Derived from the `Intrinsic` shapes above. The BUILDER has no such field, so a
         /// producer cannot put a CAPABILITY interface here: it carries its platform name on
         /// its own identity and must stay OFF this axis.
@@ -201,6 +204,12 @@ module PublishedSurface =
     let private byTypeKey (d: Dictionary<TypeKey, 'V>) : EqArray<SurfaceEntry<TypeKey, 'V>> =
         ordered SymbolKeyOps.typeMetaName (seq { for KeyValue(k, v) in d -> k, v })
 
+    /// The whole name a source spelling writes: `Vesper.List.fold`.
+    let private writtenName (s: SourceSpelling) : string = SymbolKeyOps.qualify s.Path s.Name
+
+    let private bindingName (k: BindingKey) : string =
+        SymbolKeyOps.qualifiedName (SymbolKey.Binding k)
+
     /// Copy the builder's tables into the value. A producer that keeps writing to the builder
     /// afterwards no longer changes what it published.
     let ofBuilder (b: PublishedSurfaceBuilder) : PublishedSurface =
@@ -220,7 +229,8 @@ module PublishedSurface =
                 b.RecordFields
                 |> Seq.map (fun (KeyValue(k, cs)) -> k, EqArray.ofResizeArray cs)
                 |> ordered id
-            Symbols = byName b.Symbols
+            Symbols = ordered bindingName (seq { for KeyValue(k, v) in b.Symbols -> k, v })
+            SourceSpellings = ordered writtenName (seq { for KeyValue(k, v) in b.SourceSpellings -> k, v })
             Intrinsics =
                 IntrinsicTypeMap.ofSeq (
                     seq {
@@ -236,6 +246,13 @@ module PublishedSurface =
                 )
             AmbientOpenPrefixes = EqArray.ofList b.AmbientOpenPrefixes
         }
+
+    /// The surface `fill` accumulates. `ofBuilder` is for a producer threading one builder
+    /// through a pass; this is for a surface assembled in one place.
+    let build (fill: PublishedSurfaceBuilder -> unit) : PublishedSurface =
+        let b = PublishedSurfaceBuilder.create ()
+        fill b
+        ofBuilder b
 
     /// The lookup index over one published table. Derived on demand, never part of the value,
     /// because a `Dictionary` compares by reference.
@@ -256,13 +273,21 @@ module PublishedSurface =
     /// filed under the container its key declares, so a segment-by-segment read of `A.M.x`
     /// asks the module `A.M` for `x` rather than a name index for `A.M.x`.
     let private scopeOf (surface: PublishedSurface) : IScopeContents =
+        let symbols = index surface.Symbols HashIdentity.Structural
+
         let valuesIn =
             Dictionary<struct (ModuleContainer * string), ExternalSymbol>(HashIdentity.Structural)
 
         for e in surface.Symbols do
-            // A `ModuleSuffix` module publishes each member twice, under the compiled and the
-            // source spelling; both carry one key, and the first entry is kept.
-            valuesIn.TryAdd(struct (e.Value.Key.Decl, e.Value.Key.Name), e.Value) |> ignore
+            valuesIn.[struct (e.Key.Decl, e.Key.Name)] <- e.Value
+
+        // A source spelling answers in the container of the binding it names: `Vesper.Set.empty`
+        // reaches the binding compiled as `SetModule.Empty`. A compiled short name already
+        // filed wins.
+        for e in surface.SourceSpellings do
+            match symbols.TryGetValue e.Value with
+            | true, sym -> valuesIn.TryAdd(struct (e.Value.Decl, e.Key.Name), sym) |> ignore
+            | _ -> ()
 
         let casesIn =
             Dictionary<struct (ModuleContainer * string), ExternalUnionCase>(HashIdentity.Structural)
@@ -317,9 +342,9 @@ module PublishedSurface =
             | ValueNone -> noteNamespace e.Key.Namespace.Dotted
 
         for e in surface.Symbols do
-            noteContainer e.Value.Key.Decl
+            noteContainer e.Key.Decl
 
-        // Last, so a compiled path already registered wins. `e.Key` is the source spelling:
+        // Last, so a compiled path already registered wins. `e.Key` is the source path:
         // `Vesper.List` beside the compiled `Vesper.ListModule`.
         for e in surface.ModuleContainers do
             match e.Value with
@@ -356,7 +381,18 @@ module PublishedSurface =
         let typesByName = nameIndex surface.TypesByName
         let moduleContainers = nameIndex surface.ModuleContainers
         let recordFields = nameIndex surface.RecordFields
-        let symbols = nameIndex surface.Symbols
+
+        // The legacy by-NAME value channel, and the one place a written value name is
+        // rendered: every other consumer of a value reaches it by `BindingKey`.
+        let symbols = Dictionary<string, ExternalSymbol>(StringComparer.Ordinal)
+
+        for e in surface.Symbols do
+            symbols.[bindingName e.Key] <- e.Value
+
+        for e in surface.SourceSpellings do
+            match symbols.TryGetValue(bindingName e.Value) with
+            | true, sym -> symbols.TryAdd(writtenName e.Key, sym) |> ignore
+            | _ -> ()
 
         // The bare-name reverse index the legacy `TryLookupUnionCase` channel answers from:
         // the first case in key order wins a bare-name collision.

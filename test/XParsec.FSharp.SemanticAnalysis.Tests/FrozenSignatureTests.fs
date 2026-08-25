@@ -314,11 +314,11 @@ module M =
                             parsed.Tree
                         |> fst
 
-                let fsiSymbolBySuffix (name: string) : ExternalSymbol option =
+                let fsiSymbolNamed (name: string) : ExternalSymbol option =
                     let mutable found = None
 
-                    for entry: SurfaceEntry<string, ExternalSymbol> in sigSurface.Symbols do
-                        if found.IsNone && entry.Key.EndsWith("." + name) then
+                    for entry: SurfaceEntry<BindingKey, ExternalSymbol> in sigSurface.Symbols do
+                        if found.IsNone && entry.Key.Name = name then
                             found <- Some entry.Value
 
                     found
@@ -327,7 +327,7 @@ module M =
                 let mutable checked' = 0
 
                 for (name, key) in moduleBindings frozen do
-                    match store.TryLookupByKey key, fsiSymbolBySuffix name with
+                    match store.TryLookupByKey key, fsiSymbolNamed name with
                     | ValueSome proj, Some fsi ->
                         checked' <- checked' + 1
                         Expect.equal proj.TyparArity fsi.TyparArity (sprintf "%s: typar arity agrees" name)

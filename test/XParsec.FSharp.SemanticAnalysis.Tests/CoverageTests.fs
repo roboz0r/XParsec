@@ -1066,20 +1066,13 @@ let tests =
                 let provider: IExternalSymbolProvider =
                     ExternalSymbolProviders.composite
                         [
-                            ExternalSymbolProviders.ofNamedChannels
-                                { ExternalSymbolProviders.NamedChannels.empty with
-                                    TryLookup =
-                                        fun name ->
-                                            if name = "Math.pi" then
-                                                ValueSome(
-                                                    ExternalSymbols.monoFrozen
-                                                        (SymbolKeyOps.inNamespace "")
-                                                        name
-                                                        (FrozenTypeBridge.toFrozen BuiltinTypes.tyFloat)
-                                                )
-                                            else
-                                                ValueNone
-                                }
+                            providerOfValues
+                                [
+                                    ExternalSymbols.monoFrozen
+                                        (ModuleContainer.InModule(SymbolKeyOps.moduleInNamespace "" "Math"))
+                                        "pi"
+                                        (FrozenTypeBridge.toFrozen BuiltinTypes.tyFloat)
+                                ]
                             realProvider.Value
                         ]
 

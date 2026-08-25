@@ -130,6 +130,21 @@ let tests =
                     (sprintf "a global-pack free function must emit no import, got:\n%s" js)
             }
 
+            test "(b'') the mount namespace is a scope holding both its values and its types" {
+                // Name resolution reads `Js.spin` and `Js.Widget` segment by segment, so the
+                // manifest's scope answers for the mount namespace on both axes. A values-only
+                // scope reports the container `Js` and then misses `Widget` inside it.
+                let raw = TsManifestProvider.providerOfManifest es2015Manifest
+                let js = SymbolKeyOps.inNamespace "Js"
+
+                Expect.isTrue (raw.Scope.TryContainer "Js").IsSome "the mount prefix is a container"
+                Expect.isTrue (raw.Scope.TryValue(js, "spin")).IsSome "the free function answers inside it"
+
+                Expect.isNonEmpty
+                    (EqArray.toList (raw.Scope.TypesNamed(js, "Widget")))
+                    "the exported class answers inside it"
+            }
+
             test "(c) CONTROL: a non-global package's free function still emits its normal import" {
                 // `somepkg` is not a global home, so `poke()` is imported normally from its
                 // runtime module: the no-import behaviour fires only for a global pack.

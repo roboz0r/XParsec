@@ -100,17 +100,12 @@ module ConformanceSurface =
     /// implementation value the signature omits.
     let checkValues (published: PublishedSurface) (frozen: FrozenPools) : Conformance.ConformanceError list =
         let defined = definedValues frozen
-        let seen = HashSet<BindingKey>(HashIdentity.Structural)
 
         [
             for entry in published.Symbols do
-                // A signature publishes a `ModuleSuffix` module's members twice, under the
-                // compiled name and the written one, on the one identity.
-                let key = entry.Value.Key
-
-                if seen.Add key && not (defined.Contains key) then
+                if not (defined.Contains entry.Key) then
                     yield
                         Conformance.ConformanceError.ValueMissingInImpl(
-                            SymbolKeyOps.qualifiedName (SymbolKey.Binding key)
+                            SymbolKeyOps.qualifiedName (SymbolKey.Binding entry.Key)
                         )
         ]

@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.Codegen.Js
 
+open System.Collections.Generic
 open System.IO
 
 open XParsec.FSharp.SemanticAnalysis
@@ -8,8 +9,9 @@ open Vesper.Ts.Manifest
 open XParsec.FSharp.Codegen.Js.TsManifestTranslate
 open XParsec.FSharp.Codegen.Js.TsManifestMembers
 
-/// A parsed TS manifest → an `IExternalSymbolProvider`: value symbols (free functions and
-/// variables), the type/synthetic-type table, and the by-name lookup maps over both.
+/// A parsed TS manifest → an `IExternalSymbolProvider`, through the `PublishedSurface` a
+/// referenced Vesper package publishes: values, types, their members, and the scope holding
+/// both, so a written `Js.spin` and `Js.Widget` resolve segment by segment.
 module TsManifestProvider =
 
     let private singleSignature (name: string) (sigs: Schema.Signature list) : Schema.Signature =
@@ -35,11 +37,7 @@ module TsManifestProvider =
             ImportForm = importFormOfShape import
         }
 
-    let private toFunctionSymbol
-        (ctx: TranslateCtx)
-        (nsPath: string)
-        (ex: Schema.Export)
-        : (string * ExternalSymbol) option =
+    let private toFunctionSymbol (ctx: TranslateCtx) (nsPath: string) (ex: Schema.Export) : ExternalSymbol option =
         match ex with
         | Schema.Export.Function(name, signatures, import) ->
             let sg = singleSignature name signatures
@@ -63,15 +61,11 @@ module TsManifestProvider =
                 ExternalSymbols.scheme decl name frozenTy sg.TypeParams []
                 |> stampValueSymbol origin import
 
-            Some(sym.Name, sym)
+            Some sym
         | _ -> None
 
     /// `_isConst` is dropped: the imported binding is read by name either way.
-    let private toValueSymbol
-        (ctx: TranslateCtx)
-        (nsPath: string)
-        (ex: Schema.Export)
-        : (string * ExternalSymbol) option =
+    let private toValueSymbol (ctx: TranslateCtx) (nsPath: string) (ex: Schema.Export) : ExternalSymbol option =
         match ex with
         | Schema.Export.Variable(name, ty, _isConst, import) ->
             let origin, decl = declaringContainer ctx nsPath
@@ -80,11 +74,28 @@ module TsManifestProvider =
                 ExternalSymbols.monoFrozen decl name (toFrozen ctx ty)
                 |> stampValueSymbol origin import
 
-            Some(sym.Name, sym)
+            Some sym
         | _ -> None
 
-    /// Resolves every map and guard in the manifest EAGERLY into by-name channels.
-    let private manifestChannels (man: Schema.PackageManifest) : ExternalSymbolProviders.NamedChannels =
+    /// The `{ [k: K]: V }` signatures a manifest type carries, keyed by the type's identity.
+    /// The one manifest channel a `PublishedSurface` has no table for.
+    type private IndexSignatures
+        (inner: IExternalSymbolProvider, byType: Dictionary<TypeKey, (FrozenType * FrozenType) list>) =
+        inherit ExternalSymbolProviders.ProviderDecorator(inner)
+
+        override _.TryLookupIndexSignature key =
+            match byType.TryGetValue key with
+            | true, pairs -> pairs
+            | _ -> []
+
+    type private ManifestPublication =
+        {
+            Surface: PublishedSurface
+            IndexSignatures: Dictionary<TypeKey, (FrozenType * FrozenType) list>
+        }
+
+    /// Resolves every map and guard in the manifest EAGERLY into what it publishes.
+    let private publicationOf (man: Schema.PackageManifest) : ManifestPublication =
         let pkg = man.Package
         // Flat single-file package: the module specifier IS the package name.
         let moduleSpec = pkg
@@ -107,25 +118,28 @@ module TsManifestProvider =
         let syntheticTypes =
             buildOverloadGroupingTypes ctx moduleSpec isGlobalPack flatExports
 
-        let regularTypeNames = regularTypes |> List.map fst |> Set.ofList
+        let declaredTypes = HashSet<TypeKey>(HashIdentity.Structural)
+
+        for (declared, _) in regularTypes do
+            declaredTypes.Add declared.Key |> ignore
 
         do
-            for (qn, _) in syntheticTypes do
-                if Set.contains qn regularTypeNames then
+            for (declared, _) in syntheticTypes do
+                if declaredTypes.Contains declared.Key then
                     failwithf
                         "synthetic free-function-overload grouping type '%s' collides with a real exported type of the same name; rename the module or the type"
-                        qn
+                        declared.QualifiedName
 
         do
-            for (qn, _) in structuralTypes do
-                if Set.contains qn regularTypeNames then
-                    failwithf "synthetic structural type '%s' collides with a real exported type of the same name" qn
+            for (declared, _) in structuralTypes do
+                if declaredTypes.Contains declared.Key then
+                    failwithf
+                        "synthetic structural type '%s' collides with a real exported type of the same name"
+                        declared.QualifiedName
 
-        let types = (regularTypes @ syntheticTypes @ structuralTypes) |> Map.ofList
-
-        // Free functions and variables share this by-name map. An OVERLOADED function is
+        // Free functions and variables both publish as values. An OVERLOADED function is
         // excluded: it resolves as a static of its synthetic grouping type, not by bare name.
-        let funcs =
+        let values =
             (flatExports
              |> List.choose (fun (nsPath, ex) ->
                  match ex with
@@ -133,24 +147,31 @@ module TsManifestProvider =
                  | _ -> toFunctionSymbol ctx nsPath ex
              ))
             @ (flatExports |> List.choose (fun (nsPath, ex) -> toValueSymbol ctx nsPath ex))
-            |> Map.ofList
 
-        let membersOf (key: ExternalMemberName) : EqArray<ExternalMember> =
-            match Map.tryFind key.DeclaringType types with
-            | Some(ExternalTypeShape.Class shape) -> shape.Members |> EqArray.filter (fun m -> m.Name = key.Name)
-            | _ -> EqArray.empty
+        let surface =
+            PublishedSurface.build (fun published ->
+                for sym in values do
+                    PublishedSurfaceBuilder.addValue published ValueNone sym
 
-        // The TS `{ [k: K]: V }` signatures a type carries, under the SAME qualified name its
-        // members register under, so one key answers a member and an index lookup alike.
-        let indexSigs =
+                for (declared, shape) in regularTypes @ syntheticTypes @ structuralTypes do
+                    PublishedSurfaceBuilder.addTypeName published declared.Key
+                    PublishedSurfaceBuilder.addShape published declared.Key shape
+
+                    match shape with
+                    | ExternalTypeShape.Class shape ->
+                        PublishedSurfaceBuilder.addMembers published declared.Key shape.Members
+                    | _ -> ()
+            )
+
+        let indexSignatures =
             let named =
                 flatExports
                 |> List.choose (fun (nsPath, ex) ->
                     match ex with
                     | Schema.Export.Interface(name, tp, _, _, ((_ :: _) as index)) ->
-                        Some((declaredIdentity ctx nsPath name tp).QualifiedName, index)
+                        Some((declaredIdentity ctx nsPath name tp).Key, index)
                     | Schema.Export.Class(name, tp, _, _, _, ((_ :: _) as index)) ->
-                        Some((declaredIdentity ctx nsPath name tp).QualifiedName, index)
+                        Some((declaredIdentity ctx nsPath name tp).Key, index)
                     | _ -> None
                 )
 
@@ -158,35 +179,26 @@ module TsManifestProvider =
                 flatExports
                 |> List.collect (fun (_, ex) -> exportTypeRefs ex)
                 |> List.collect structuralIndexSigsIn
-                |> List.map (fun (hash, index) -> (structuralKey hash).QualifiedName, index)
+                |> List.map (fun (hash, index) -> (structuralKey hash).Key, index)
 
-            (named @ structural)
-            |> List.distinctBy fst
-            |> List.map (fun (qn, index) -> qn, index |> List.map (fun (k, v) -> toFrozen ctx k, toFrozen ctx v))
-            |> Map.ofList
+            let byType =
+                Dictionary<TypeKey, (FrozenType * FrozenType) list>(HashIdentity.Structural)
 
-        { ExternalSymbolProviders.NamedChannels.empty with
-            TryLookup =
-                fun name ->
-                    match Map.tryFind name funcs with
-                    | Some s -> ValueSome s
-                    | None -> ValueNone
-            TryLookupType =
-                fun name ->
-                    match Map.tryFind name types with
-                    | Some s -> ValueSome s
-                    | None -> ValueNone
-            TryLookupMembers = membersOf
-            TryLookupIndexSignature =
-                fun typeName ->
-                    match Map.tryFind typeName indexSigs with
-                    | Some pairs -> pairs
-                    | None -> []
+            for (key, index) in named @ structural do
+                byType.TryAdd(key, index |> List.map (fun (k, v) -> toFrozen ctx k, toFrozen ctx v))
+                |> ignore
+
+            byType
+
+        {
+            Surface = surface
+            IndexSignatures = indexSignatures
         }
 
     /// Build a provider from an already-parsed manifest.
     let providerOfManifest (man: Schema.PackageManifest) : IExternalSymbolProvider =
-        ExternalSymbolProviders.ofNamedChannels (manifestChannels man)
+        let published = publicationOf man
+        IndexSignatures(PublishedSurface.toProvider published.Surface, published.IndexSignatures)
 
     /// Parse a manifest JSON file and build its provider.
     let tryLoadFile (path: string) : Result<IExternalSymbolProvider, string> =

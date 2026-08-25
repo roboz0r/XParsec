@@ -10,23 +10,21 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 /// The bare `op_*` spellings resolve unqualified here, as the real prelude auto-opens
 /// `Vesper.Core`'s operator module. A qualified operator compiles to `A.B.op_Addition`.
 let private provider: IExternalSymbolProvider =
-    let mono name =
-        ValueSome(
-            ExternalSymbols.monoFrozen (SymbolKeyOps.inNamespace "") name (FTConst(RuntimeNames.intKey, EqArray.empty))
-        )
+    let mono decl name =
+        ExternalSymbols.monoFrozen decl name (FTConst(RuntimeNames.intKey, EqArray.empty))
 
-    ExternalSymbolProviders.ofNamedChannels
-        { ExternalSymbolProviders.NamedChannels.empty with
-            TryLookup =
-                fun n ->
-                    match n with
-                    | "A.B.thing" -> mono "thing"
-                    | "A.B.op_Addition" -> mono "op_Addition"
-                    | "op_Addition" -> mono "op_Addition"
-                    | "op_Dynamic" -> mono "op_Dynamic"
-                    | "op_DynamicAssignment" -> mono "op_DynamicAssignment"
-                    | _ -> ValueNone
-        }
+    // `module B` in `namespace A`, as the source spelling `A.B.thing` reads.
+    let moduleB = ModuleContainer.InModule(SymbolKeyOps.moduleInNamespace "A" "B")
+    let root = SymbolKeyOps.inNamespace ""
+
+    providerOfValues
+        [
+            mono moduleB "thing"
+            mono moduleB "op_Addition"
+            mono root "op_Addition"
+            mono root "op_Dynamic"
+            mono root "op_DynamicAssignment"
+        ]
 
 let private analyse (input: string) = analyseNameRes provider input
 

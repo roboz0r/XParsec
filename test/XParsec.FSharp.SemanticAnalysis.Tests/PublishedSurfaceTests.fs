@@ -87,9 +87,7 @@ let tests =
             // two equal and fails here, rather than landing unnoticed.
             test "a tupled `ValRepr` still compares by its pool" {
                 let symbol (valRepr: TastAccessor.ValRepr voption) =
-                    let b = PublishedSurfaceBuilder.create ()
-
-                    b.Symbols.["f"] <-
+                    PublishedSurface.build (fun b ->
                         { ExternalSymbols.scheme
                               (SymbolKeyOps.inNamespace "Ns")
                               "f"
@@ -98,8 +96,8 @@ let tests =
                               [] with
                             ValRepr = valRepr
                         }
-
-                    PublishedSurface.ofBuilder b
+                        |> PublishedSurfaceBuilder.addValue b ValueNone
+                    )
 
                 // `a * b -> r`: one group of width 2, which mints a tuple PATTERN into a
                 // standalone pool. A width-1 group mints a bound var, which is an integer.

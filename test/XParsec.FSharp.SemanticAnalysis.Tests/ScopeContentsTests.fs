@@ -88,6 +88,8 @@ module Bag =
 
     let size : int = 0
 
+    let ``a.size`` : int = 0
+
     [<CompiledName(\"Count\")>]
     let count : int = 0
 "
@@ -101,6 +103,11 @@ type Bag<'T> = { Items: 'T list }
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 module Bag =
     val size : int
+
+    val ``a.size`` : int
+
+    [<CompiledName(\"Count\")>]
+    val count : int
 "
 
 let private containerOrFail (scope: IScopeContents) (path: string) : ModuleContainer =
@@ -118,6 +125,20 @@ let private expectBagSpellings (view: IExternalSymbolProvider) : unit =
     let byCompiled = containerOrFail view.Scope "Test.A.BagModule"
     Expect.equal bySource byCompiled "one module, two spellings"
     Expect.isTrue (view.Scope.TryValue(bySource, "size")).IsSome "its value answers under either"
+
+    match view.Scope.TryValue(bySource, "count"), view.Scope.TryValue(bySource, "Count") with
+    | ValueSome bySourceName, ValueSome byCompiledName ->
+        Expect.equal bySourceName.Key.Name "Count" "the source short name reaches the compiled binding"
+        Expect.equal byCompiledName.Key bySourceName.Key "one binding under both short names"
+    | other -> failtestf "a [<CompiledName>] value answers under either short name: %A" other
+
+    // A short name is read off the binding key, never split back out of a rendered one:
+    // `` `a.size` `` renders `Test.A.BagModule.a.size`, whose last dotted segment is `size`.
+    match view.Scope.TryValue(bySource, "size"), view.Scope.TryValue(bySource, "a.size") with
+    | ValueSome plain, ValueSome quoted ->
+        Expect.equal plain.Key.Name "size" "a quoted name holding a dot claims no sibling's slot"
+        Expect.equal quoted.Key.Name "a.size" "and answers under the whole name it binds"
+    | other -> failtestf "both bindings answer under their own short names: %A" other
 
 [<Tests>]
 let tests =
