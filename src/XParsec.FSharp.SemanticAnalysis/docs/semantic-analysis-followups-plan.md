@@ -261,13 +261,16 @@ unreachable. If that holds, the `expandingTemplate` wrapper at `:409` is pure ov
 long ident that is neither symbolic nor qualified, carrying an explicit `TODO`. Active-pattern
 and nil op-names used as values are rejected rather than resolved.
 
-### `ExternalSymbolProviders.fs` — `KeyIndexedChannels` cannot publish index signatures
+### `PublishedSurface` has no index-signature table
 
-The record has no index-signature channel, so `ofKeyIndexes` builds its `Named` from
-`NamedChannels.empty` without overriding `TryLookupIndexSignature`, and `ofKeyedChannels`'s store view
-then answers every index-signature query from that constant `fun _ -> []`. A producer that
-acquires index signatures and holds `InModule` keys has no way to publish them and gets no
-compile error. The fix is a channel on `KeyIndexedChannels`, not a comment.
+Residue of the `KeyIndexedChannels.IndexSignaturesByKey` channel (landed 2026-08-25):
+`TsManifestProvider.fs:82-89` still publishes index signatures through a private
+`ProviderDecorator` because `PublishedSurfaceBuilder`/`PublishedSurface` carry no table for
+them. Connecting it is a published-surface format change governed by
+docs/publishing-format-plan.md.
+
+Also noted: every `KeyIndexedChannels` construction site uses `{ KeyIndexedChannels.empty
+with … }`, so a new channel defaults silently rather than forcing producers to consider it.
 
 ### `Passes/Unification/EngineCore.fs:392` — the intrinsic-canon lookup's central rule is unenforced
 

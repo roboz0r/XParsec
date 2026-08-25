@@ -36,6 +36,8 @@ module ExternalSymbolProviders =
             /// A type's FULL member list, in DECLARATION order, because the by-name overload
             /// scan and the by-key selection both depend on that order.
             MembersByKey: IReadOnlyDictionary<TypeKey, EqArray<ExternalMember>>
+            /// A type's `{ [k: K]: V }` signatures, in declaration order.
+            IndexSignaturesByKey: IReadOnlyDictionary<TypeKey, (FrozenType * FrozenType) list>
             /// Every published value, one entry per identity.
             SymbolsByKey: IReadOnlyDictionary<BindingKey, ExternalSymbol>
             TryRecordsWithField: string -> EqArray<ExternalRecordCandidate>
@@ -52,6 +54,7 @@ module ExternalSymbolProviders =
                 Scope = ScopeContents.empty
                 ShapesByKey = Dictionary() :> IReadOnlyDictionary<_, _>
                 MembersByKey = Dictionary() :> IReadOnlyDictionary<_, _>
+                IndexSignaturesByKey = Dictionary() :> IReadOnlyDictionary<_, _>
                 SymbolsByKey = Dictionary() :> IReadOnlyDictionary<_, _>
                 TryRecordsWithField = fun _ -> EqArray.empty
                 Platform = ValueNone
@@ -101,9 +104,10 @@ module ExternalSymbolProviders =
                       }
                   |> ExternalSymbols.memberByKey key
 
-              // A published surface carries no index signatures; `IndexSignatures` decorates
-              // the provider with them.
-              member _.TryLookupIndexSignature _ = []
+              member _.TryLookupIndexSignature key =
+                  match channels.IndexSignaturesByKey.TryGetValue key with
+                  | true, pairs -> pairs
+                  | _ -> []
 
               member _.TryLookupByKey key =
                   match channels.SymbolsByKey.TryGetValue key with
