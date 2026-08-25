@@ -43,6 +43,25 @@ module CstKeys =
         | LetOrUseKeyword.Use t
         | LetOrUseKeyword.UseBang t -> t
 
+    let firstTokenOfControlFlowKeyword (kw: ControlFlowKeyword<SyntaxToken>) : SyntaxToken =
+        match kw with
+        | ControlFlowKeyword.Yield t
+        | ControlFlowKeyword.YieldBang t
+        | ControlFlowKeyword.Return t
+        | ControlFlowKeyword.ReturnBang t
+        | ControlFlowKeyword.Do t
+        | ControlFlowKeyword.DoBang t -> t
+
+    /// The opening delimiter of a string literal, which precedes every part of it.
+    let firstTokenOfStringKind (kind: StringKind<SyntaxToken>) : SyntaxToken =
+        match kind with
+        | StringKind.String t
+        | StringKind.VerbatimString t
+        | StringKind.String3 t
+        | StringKind.InterpolatedString t
+        | StringKind.VerbatimInterpolatedString t
+        | StringKind.Interpolated3String t -> t
+
     let rec firstTokenOfExpr (e: Expr<SyntaxToken>) : SyntaxToken =
         match e with
         | Expr.Const c -> firstTokenOfConstant c
@@ -60,8 +79,15 @@ module CstKeys =
         | Expr.EnclosedBlock(lParen = pk) -> firstTokenOfParenKind pk
         | Expr.EmptyBlock(lParen = pk) -> firstTokenOfParenKind pk
         | Expr.IfThenElse(ifToken = t) -> t
-        | Expr.Tuple(exprs = exprs) when exprs.Length > 0 -> firstTokenOfExpr exprs.[0]
-        | Expr.Sequential(exprs = exprs) when exprs.Length > 0 -> firstTokenOfExpr exprs.[0]
+        | Expr.Tuple(exprs = exprs) ->
+            match exprs.Length with
+            | 0 -> failwithf "CstKeys.firstTokenOfExpr: tuple expression retains no token: %A" e
+            | _ -> firstTokenOfExpr exprs.[0]
+        | Expr.Sequential(exprs = exprs) ->
+            match exprs.Length with
+            | 0 -> failwithf "CstKeys.firstTokenOfExpr: sequential expression retains no token: %A" e
+            | _ -> firstTokenOfExpr exprs.[0]
+        | Expr.StructTuple(structToken = t) -> t
         | Expr.TypeAnnotation(expr = inner) -> firstTokenOfExpr inner
         | Expr.StaticUpcast(colonGreaterThan = t) -> t
         | Expr.DynamicTypeTest(colonQuestionMark = t) -> t
@@ -74,27 +100,36 @@ module CstKeys =
         | Expr.TryWith(tryToken = t) -> t
         | Expr.TryFinally(tryToken = t) -> t
         | Expr.Assignment(arrow = t) -> t
-        | Expr.String(kind = kind) ->
-            match kind with
-            | StringKind.String t
-            | StringKind.VerbatimString t
-            | StringKind.String3 t
-            | StringKind.InterpolatedString t
-            | StringKind.VerbatimInterpolatedString t
-            | StringKind.Interpolated3String t -> t
+        | Expr.String(kind = kind) -> firstTokenOfStringKind kind
         | Expr.DotLookup(expr = inner) -> firstTokenOfExpr inner
         | Expr.DynamicLookup(questionMark = t) -> t
         | Expr.TypeApp(expr = inner) -> firstTokenOfExpr inner
         | Expr.Record(lBrace = pk) -> firstTokenOfParenKind pk
         | Expr.RecordClone(lBrace = pk) -> firstTokenOfParenKind pk
         | Expr.New(newToken = t) -> t
+        | Expr.Object(lBrace = t) -> t
         | Expr.ILIntrinsic(lHashParen = t) -> t
-        | Expr.LibraryOnlyStaticOptimization(clauses = clauses) when clauses.Length > 0 -> clauses.[0].WhenToken
+        | Expr.LibraryOnlyStaticOptimization(defaultExpr = defaultExpr; clauses = clauses) ->
+            match clauses.Length with
+            | 0 -> firstTokenOfExpr defaultExpr
+            | _ -> clauses.[0].WhenToken
         | Expr.IndexedLookup(lBracket = t) -> t
         | Expr.StaticMemberInvocation(lParen = t) -> t
-        | _ -> failwithf "CstKeys.firstTokenOfExpr: TODO %A" e
+        | Expr.OptionalArgExpr(questionMark = t) -> t
+        | Expr.ControlFlow(keyword = kw) -> firstTokenOfControlFlowKeyword kw
+        | Expr.Wildcard(underscore = t) -> t
+        | Expr.Pat(pattern = inner) -> firstTokenOfPat inner
+        | Expr.SliceFrom(expr = inner) -> firstTokenOfExpr inner
+        | Expr.SliceTo(dotdot = t) -> t
+        | Expr.SliceFromTo(startExpr = inner) -> firstTokenOfExpr inner
+        | Expr.SliceAll(star = t) -> t
+        | Expr.SkipsTokens tokens ->
+            match tokens.Length with
+            | 0 -> failwithf "CstKeys.firstTokenOfExpr: skipped-token expression retains no token: %A" e
+            | _ -> tokens.[0]
+        | Expr.Missing -> failwithf "CstKeys.firstTokenOfExpr: missing expression retains no token"
 
-    let rec firstTokenOfPat (p: Pat<SyntaxToken>) : SyntaxToken =
+    and firstTokenOfPat (p: Pat<SyntaxToken>) : SyntaxToken =
         match p with
         | Pat.Const c -> firstTokenOfConstant c
         | Pat.NamedSimple t -> t
@@ -102,18 +137,36 @@ module CstKeys =
         | Pat.Wildcard t -> t
         | Pat.EnclosedBlock(lParen = pk) -> firstTokenOfParenKind pk
         | Pat.EmptyBlock(lParen = pk) -> firstTokenOfParenKind pk
-        | Pat.Tuple(patterns = pats) when pats.Length > 0 -> firstTokenOfPat pats.[0]
+        | Pat.Tuple(patterns = pats) ->
+            match pats.Length with
+            | 0 -> failwithf "CstKeys.firstTokenOfPat: tuple pattern retains no token: %A" p
+            | _ -> firstTokenOfPat pats.[0]
+        | Pat.StructTuple(structToken = t) -> t
+        | Pat.Elems(pats = pats) ->
+            match pats.Length with
+            | 0 -> failwithf "CstKeys.firstTokenOfPat: element-list pattern retains no token: %A" p
+            | _ -> firstTokenOfPat pats.[0]
         | Pat.Typed(pat = inner) -> firstTokenOfPat inner
         | Pat.Attributed(pat = inner) -> firstTokenOfPat inner
         | Pat.As(pat = inner) -> firstTokenOfPat inner
         | Pat.Or(left = inner) -> firstTokenOfPat inner
+        | Pat.And(left = inner) -> firstTokenOfPat inner
         | Pat.Record(lBrace = t) -> t
         | Pat.Op io -> firstTokenOfIdentOrOp io
+        | Pat.OpNamed(ident = io) -> firstTokenOfIdentOrOp io
+        | Pat.NamedFieldPats(longIdent = li) -> firstTokenOfLongIdent li
         | Pat.Cons(consToken = t) -> t
         | Pat.TypeTestAs(colonQuestion = t) -> t
         | Pat.TypeTest(colonQuestion = t) -> t
         | Pat.Null t -> t
-        | _ -> failwithf "CstKeys.firstTokenOfPat: TODO %A" p
+        | Pat.Optional(questionMark = t) -> t
+        | Pat.String(kind = kind) -> firstTokenOfStringKind kind
+        | Pat.Expr(expr = inner) -> firstTokenOfExpr inner
+        | Pat.SkipsTokens tokens ->
+            match tokens.Length with
+            | 0 -> failwithf "CstKeys.firstTokenOfPat: skipped-token pattern retains no token: %A" p
+            | _ -> tokens.[0]
+        | Pat.Missing -> failwithf "CstKeys.firstTokenOfPat: missing pattern retains no token"
 
     /// The leftmost token a type header retains: its attributes' `[<`, else the declared name.
     let tryFirstTokenOfTypeName (tn: TypeName<SyntaxToken>) : SyntaxToken voption =

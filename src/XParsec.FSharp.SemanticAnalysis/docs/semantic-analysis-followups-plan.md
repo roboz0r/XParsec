@@ -19,10 +19,18 @@ subagent report.
 Plain, verbatim and triple-quoted strings decode through `Lexing.decodeStringEscape`;
 the interpolated path bypasses it. Found while landing the shared escape decoder.
 
-### `CstKeys.fs:105`, `CstKeys.fs:127` — unimplemented shapes fail at runtime
+### `CstKeys.fs` — `kindOfExpr` and `siteOfPat` collapse most shapes to `NodeKind.Unknown`
 
-`firstTokenOfExpr` and `firstTokenOfPat` still end in `failwithf "… TODO %A"`. Prototype-stage
-gap; listed because the header comment that used to flag it is gone.
+Found landing the `firstTokenOfExpr`/`firstTokenOfPat` completion (2026-08-25). Both kind
+matches end in `| _ -> NodeKind.Unknown`, so every shape without a dedicated `NodeKind`
+(`Pat.And`, `Pat.Optional`, `Expr.Object`, `Expr.ControlFlow`, the slices, …) keys as
+`Unknown`. Two distinct nodes starting at the same offset — a `Pat.And` and its left
+sub-pattern — can then collide on a `NodeKey`. The fix adds `NodeKind` enum values, which
+touches the wire-format enum.
+
+Related residue: `Expr.Missing`, `Pat.Missing` and empty `Tuple`/`Sequential`/`Elems`/
+`SkipsTokens` genuinely retain no token and still raise (now with the shape named). Making
+them honest means a `voption` return rippling through `siteOfExpr`/`ofExpr`/`siteOfPat`/`ofPat`.
 
 ### `TastExpr.fs:317` — `TraitCall` can only search the LEFT operand's support set
 

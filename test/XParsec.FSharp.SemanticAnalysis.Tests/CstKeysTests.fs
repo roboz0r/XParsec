@@ -117,6 +117,132 @@ let tests =
                 Expect.equal key.Kind NodeKind.PatWildcard "kind"
             }
 
+            test "ofExpr StructTuple keys on the struct keyword's offset" {
+                let exprs =
+                    ImmutableArray.Create(
+                        Expr.Ident(mkToken Token.Identifier 8),
+                        Expr.Ident(mkToken Token.Identifier 11)
+                    )
+
+                let key =
+                    CstKeys.ofExpr (
+                        Expr.StructTuple(
+                            mkToken Token.KWStruct 0,
+                            mkToken Token.KWLParen 7,
+                            exprs,
+                            ImmutableArray.Create(mkToken Token.OpComma 9),
+                            mkToken Token.KWRParen 12
+                        )
+                    )
+
+                Expect.equal key.Offset 0 "offset is the struct keyword's"
+            }
+
+            test "ofExpr ControlFlow keys on the yield keyword's offset" {
+                let keyword = ControlFlowKeyword.Yield(mkToken Token.KWYield 0)
+
+                let key =
+                    CstKeys.ofExpr (Expr.ControlFlow(keyword, Expr.Ident(mkToken Token.Identifier 6)))
+
+                Expect.equal key.Offset 0 "offset is the yield keyword's"
+            }
+
+            test "ofExpr Wildcard keys on the underscore's offset" {
+                let key = CstKeys.ofExpr (Expr.Wildcard(mkToken Token.Wildcard 3))
+                Expect.equal key.Offset 3 "offset is the underscore's"
+            }
+
+            test "ofExpr SliceAll keys on the star's offset" {
+                let key = CstKeys.ofExpr (Expr.SliceAll(mkToken Token.OpMultiply 6))
+                Expect.equal key.Offset 6 "offset is the star's"
+            }
+
+            test "ofExpr OptionalArgExpr keys on the question mark's offset" {
+                let key =
+                    CstKeys.ofExpr (Expr.OptionalArgExpr(mkToken Token.OpDynamic 4, mkToken Token.Identifier 5))
+
+                Expect.equal key.Offset 4 "offset is the question mark's"
+            }
+
+            test "ofExpr SliceTo keys on the range operator's offset" {
+                let key =
+                    CstKeys.ofExpr (Expr.SliceTo(mkToken Token.OpRange 4, Expr.Ident(mkToken Token.Identifier 6)))
+
+                Expect.equal key.Offset 4 "offset is the range operator's"
+            }
+
+            test "ofExpr Pat descends into the wrapped pattern" {
+                let key = CstKeys.ofExpr (Expr.Pat(Pat.NamedSimple(mkToken Token.Identifier 9)))
+                Expect.equal key.Offset 9 "offset is the wrapped pattern's"
+            }
+
+            test "ofExpr SkipsTokens keys on the first skipped token's offset" {
+                let skipped =
+                    ImmutableArray.Create(mkToken Token.Identifier 2, mkToken Token.Identifier 5)
+
+                let key = CstKeys.ofExpr (Expr.SkipsTokens skipped)
+                Expect.equal key.Offset 2 "offset is the first skipped token's"
+            }
+
+            test "ofPat And keys on the left pattern's offset" {
+                let left = Pat.NamedSimple(mkToken Token.Identifier 0)
+                let right = Pat.NamedSimple(mkToken Token.Identifier 4)
+                let key = CstKeys.ofPat (Pat.And(left, mkToken Token.OpAmp 2, right))
+                Expect.equal key.Offset 0 "offset is the left pattern's"
+            }
+
+            test "ofPat Optional keys on the question mark's offset" {
+                let key =
+                    CstKeys.ofPat (Pat.Optional(mkToken Token.OpDynamic 0, Pat.NamedSimple(mkToken Token.Identifier 1)))
+
+                Expect.equal key.Offset 0 "offset is the question mark's"
+            }
+
+            test "ofPat OpNamed keys on the operator's opening paren" {
+                let ident =
+                    IdentOrOp.ParenOp(
+                        mkToken Token.KWLParen 4,
+                        OpName.SymbolicOp(mkToken Token.OpAddition 5),
+                        mkToken Token.KWRParen 6
+                    )
+
+                let key = CstKeys.ofPat (Pat.OpNamed(ident, ImmutableArray.Empty))
+                Expect.equal key.Offset 4 "offset is the opening paren's"
+            }
+
+            test "ofPat NamedFieldPats keys on the long ident's first token" {
+                let key =
+                    CstKeys.ofPat (
+                        Pat.NamedFieldPats(
+                            mkLongIdent 3,
+                            mkToken Token.KWLParen 8,
+                            ImmutableArray.Empty,
+                            ImmutableArray.Empty,
+                            mkToken Token.KWRParen 9
+                        )
+                    )
+
+                Expect.equal key.Offset 3 "offset is the long ident's first token's"
+            }
+
+            test "ofPat String keys on the opening quote's offset" {
+                let key =
+                    CstKeys.ofPat (
+                        Pat.String(
+                            StringKind.String(mkToken Token.StringOpen 2),
+                            ImmutableArray.Empty,
+                            mkToken Token.StringClose 6
+                        )
+                    )
+
+                Expect.equal key.Offset 2 "offset is the opening quote's"
+            }
+
+            test "ofPat Expr descends into the wrapped expression" {
+                let key = CstKeys.ofPat (Pat.Expr(Expr.Ident(mkToken Token.Identifier 11)))
+                Expect.equal key.Offset 11 "offset is the wrapped expression's"
+            }
+
             test "ofBinding uses the binding pattern's NodeKey" {
                 let patIdent = mkToken Token.Identifier 4
 
