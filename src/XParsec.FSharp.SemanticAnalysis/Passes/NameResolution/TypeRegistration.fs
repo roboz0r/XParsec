@@ -353,6 +353,27 @@ module NameResolutionTypeRegistration =
             | ValueSome identity -> ValueSome { Identity = identity; Defn = td }
             | ValueNone -> ValueNone
 
+    /// Report a standalone `type T with …`, whose members reach no registry. The augmentation
+    /// forms written on a definition (`type T = … with member …`) are silent here.
+    let rejectDetachedTypeExtension (ctx: PassContext) (td: TypeDefn<SyntaxToken>) : unit =
+        match td with
+        | TypeDefn.TypeExtension(typeName = TypeName(ident = nameLi) as tn) when nameLi.Idents.Length > 0 ->
+            match CstKeys.tryFirstTokenOfTypeName tn with
+            | ValueSome tok ->
+                let name = (ctx.WrittenTypeNameOf nameLi).Written
+
+                ctx.Report(
+                    tok,
+                    Kind.NotYetSupported(
+                        sprintf
+                            "a detached type augmentation ('type %s with …'); declare its members in the definition of '%s'"
+                            name
+                            name
+                    )
+                )
+            | ValueNone -> ()
+        | _ -> ()
+
     /// The three bodied class-like spellings, which differ only in what the BODY means: a
     /// `struct` is a value type, an `interface` is one whether or not its members say so, and
     /// a bare body is an interface exactly when every member it holds is abstract.

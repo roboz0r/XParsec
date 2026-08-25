@@ -886,6 +886,12 @@ module NameResolutionMemberRegistration =
         for td in defs do
             validateInterfaceTypeDefn ctx td
 
+    /// Report every detached augmentation in the group. Runs over the CST, since such a
+    /// declaration registers no type.
+    let private rejectGroupDetachedExtensions (ctx: PassContext) (defs: ImmutableArray<TypeDefn<SyntaxToken>>) : unit =
+        for td in defs do
+            rejectDetachedTypeExtension ctx td
+
     /// Force every alias body in the group, leaving each in a terminal state. `forceFill` is
     /// idempotent, so this reaches exactly the aliases nothing referenced (a cyclic pair among
     /// them diagnoses here).
@@ -925,6 +931,7 @@ module NameResolutionMemberRegistration =
         registerGroupAbbrevEntries ctx claims
         registerGroupDetail ctx claims
         validateGroupInterfaces ctx defs
+        rejectGroupDetachedExtensions ctx defs
         forceGroupAbbrevBodies ctx claims
         let classes = fillGroupBaseTypes ctx claims
         checkGroupInheritanceCycles ctx classes

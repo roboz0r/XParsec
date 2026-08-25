@@ -900,6 +900,45 @@ let tests =
                         (tast.Diagnostics |> List.map (fun d -> d.Message)))
             }
 
+            // A standalone `type U with …` registers none of its members, so the drop is
+            // reported rather than silent.
+            test "a detached type augmentation is reported as unsupported" {
+                let lexed, file =
+                    parseFile "type U =\n    | A of int\n    | B\n\ntype U with\n\n    member this.M = 1"
+
+                let tast =
+                    Pipeline.analyseSemFor testCompiling realProvider.Value (LexedFile.ofText lexed) file
+
+                let detached =
+                    tast.Diagnostics
+                    |> List.filter (fun d -> Diagnostic.isError d && d.Message.Contains "a detached type augmentation")
+
+                Expect.equal
+                    (List.length detached)
+                    1
+                    (sprintf
+                        "expected exactly one detached-augmentation error, got: %A"
+                        (tast.Diagnostics |> List.map (fun d -> d.Message)))
+
+                Expect.isTrue
+                    (detached |> List.forall (fun d -> d.Message.Contains "'U'"))
+                    "the detached-augmentation error names the extended type"
+            }
+
+            test "an attached `with` augmentation is accepted" {
+                let lexed, file =
+                    parseFile "type U =\n    | A of int\n    | B\n\n    with\n\n    member this.M = 1"
+
+                let tast =
+                    Pipeline.analyseSemFor testCompiling realProvider.Value (LexedFile.ofText lexed) file
+
+                Expect.isEmpty
+                    (tast.Diagnostics |> List.filter Diagnostic.isError)
+                    (sprintf
+                        "expected no errors for an attached augmentation, got: %A"
+                        (tast.Diagnostics |> List.map (fun d -> d.Message)))
+            }
+
             test "Arity-overloaded types under one namespace mint unique keys" {
                 // `Choice\`2` / `Choice\`3` share a namespace and short name yet mint
                 // distinct keys, so no collision is reported.

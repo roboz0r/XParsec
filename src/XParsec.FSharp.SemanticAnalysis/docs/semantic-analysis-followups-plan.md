@@ -505,10 +505,10 @@ means nothing. An `EqArray<string * TyVarId>` plus a separate `int` cannot enfor
 reading — a type splitting the declared prefix from the implicit tail would settle which one is
 true and remove the need for the sentence.
 
-### `TypeRegistration.fs` — a detached `type U with …` extension is dropped wholesale
+### `TypeRegistration.fs` — a detached `type U with …` extension is unsupported, not registered
 
-Found landing the augmentation-constructor diagnostic (2026-08-24). A standalone
-`TypeDefn.TypeExtension` registers nothing ("`TypeExtension` … register nothing, so they claim
-nothing"), so every member of a detached augmentation — not just a `new` — is discarded with no
-diagnostic. The attached-`with` form is handled; the detached form needs either registration or
-a "not supported" report.
+The reporting half landed 2026-08-25: `rejectDetachedTypeExtension` reports every standalone
+`TypeDefn.TypeExtension` as `NotYetSupported`, including the dotted form
+(`type System.String with …`). The open half is the feature: registering a detached
+augmentation's members. Extensions on a qualified external type are a separate deferred case,
+tracked in docs/ts-provider-implementation-plan.md.
