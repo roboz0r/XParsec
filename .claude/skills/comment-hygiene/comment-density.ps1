@@ -1,27 +1,54 @@
 <#
 .SYNOPSIS
-    Reports comment density for F# sources (.fs / .fsi) under the current directory.
+    Reports comment density for F# (.fs / .fsi / .fsx) and C# (.cs) sources.
 
 .DESCRIPTION
-    Classifies every line of every F# file as code, comment or blank, and reports the
+    Classifies every line of every source file as code, comment or blank, and reports the
     code:comment ratio per file, worst first.
 
-    Comments are found with an F#-aware scan rather than a regex, so `//` inside a string
-    literal is not a comment, `(*)` is the multiplication operator rather than a block
-    comment, and `(* … *)` nests. Regular, verbatim (`@"…"`) and triple-quoted strings are
-    all tracked across line boundaries.
+    Comments are found with a language-aware scan rather than a regex, so `//` inside a string
+    literal is not a comment. The lexer switches on extension:
+      * F# — `(* … *)` nests, `(*)` is the multiplication operator.
+      * C# — `/* … */` does not nest, `$@"` / `@$"` open a verbatim string.
+    Regular, verbatim (`@"…"`) and triple-quoted / raw (`"""…"""`) strings are tracked across
+    line boundaries in both.
 
-    Two numbers matter, and both are reported:
-      * RATIO  — code lines per comment line. The house target is 6:1.
-      * BLOCKS — consecutive comment lines. A block of 3+ lines should be rare; a comment
+    Four numbers matter:
+      * RATIO  — CODE lines per PROSE line. The house target is 6:1.
+      * BLOCKS — consecutive prose lines. A block of 3+ lines should be rare; a comment
                  longer than the code it describes usually means an invariant that belongs
                  in the type system is being argued in prose instead.
+      * PROSE  — comment lines that are not XML-doc scaffolding.
+      * DELIM  — code lines holding nothing but `(){}[];,`. Excluded from CODE.
+
+    PROSE and DELIM exist for the same reason: measuring C# on F#'s scale. Both ends of the
+    ratio carry scaffolding that is not the thing being counted, and each language carries a
+    different amount of it, so the raw numbers are not comparable.
+
+    `/// <summary>` and `/// </summary>` carry no content, so an XML-documented member costs
+    two comment lines before a word is written and a one-sentence summary already reads as a
+    3-line block. Structural tag lines are counted separately and are transparent to block
+    runs: they neither extend a block nor break one.
+
+    A brace or a lone `)` is the same defect at the other end. C# puts far more of them on
+    their own line than F# does, and a formatter that breaks one argument per line — csharpier
+    is the case in hand — multiplies them. Counting those as code inflates the denominator and
+    reports a genuinely comment-heavy C# file as comfortable. F# is measured the same way,
+    which barely moves it: that is the evidence the correction is real rather than a thumb on
+    the scale for one language.
+
+    COMMENT (raw comment lines) and RawCode are kept on the object and in the CSV, so the
+    unfiltered numbers are still available.
 
 .PARAMETER Path
     Directory to scan. Defaults to the current directory.
 
+.PARAMETER Language
+    Restrict the scan to one language. `All` (default), `FSharp` or `CSharp`; `fs` and `cs`
+    are accepted as aliases, and the whole set is case-insensitive.
+
 .PARAMETER Threshold
-    Target code:comment ratio. Files below it are marked. Default 6.
+    Target code:prose ratio. Files below it are marked. Default 6.
 
 .PARAMETER MinBlock
     Comment-block length considered too long. Default 3.
@@ -33,24 +60,31 @@
     List every comment block of MinBlock+ lines, with file and line number.
 
 .PARAMETER Exclude
-    Regex of paths to skip. Default skips bin/obj output directories.
+    Regex of paths to skip. Default skips bin/obj output and generated C#.
 
 .PARAMETER Csv
     Also write the per-file table to this path as CSV.
 
 .EXAMPLE
     ./comment-density.ps1
-    Every F# file under the current directory, worst ratio first.
+    Every F# and C# file under the current directory, worst ratio first.
 
 .EXAMPLE
-    ./comment-density.ps1 -Path src/XParsec.FSharp.SemanticAnalysis -Top 10 -Detail
+    ./comment-density.ps1 -Path src/MyProject -Top 10 -Detail
     The ten densest files in one project, plus their long comment blocks.
+
+.EXAMPLE
+    ./comment-density.ps1 -Path src/MyProject -Language CSharp -Csv density.csv
 #>
 
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $false, Position = 0)]
     [string]$Path = ".",
+
+    [Parameter(Mandatory = $false)]
+    [ValidateSet("All", "FSharp", "CSharp", "fs", "cs")]
+    [string]$Language = "All",
 
     [Parameter(Mandatory = $false)]
     [double]$Threshold = 6.0,
@@ -68,7 +102,7 @@ param(
     [switch]$PassThru,
 
     [Parameter(Mandatory = $false)]
-    [string]$Exclude = '[\\/](bin|obj|node_modules|dist)[\\/]',
+    [string]$Exclude = '[\\/](bin|obj|node_modules|fable_modules|packages|dist|\.fable)[\\/]|\.(g|designer|generated)\.cs$',
 
     [Parameter(Mandatory = $false)]
     [string]$Csv
@@ -76,16 +110,39 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-# One file's lines classified as Code / Comment / Blank, with the comment blocks located.
+$Language =
+    switch ($Language) {
+        "fs" { "FSharp" }
+        "cs" { "CSharp" }
+        default { $Language }
+    }
+
+# A code line holding nothing but structure. Counted, but kept out of CODE — see .DESCRIPTION.
+# Safe as a whole-line test: a line this shape can hold no string and no comment.
+$DelimiterOnlyPattern = '^[(){}\[\];,]+$'
+
+# A comment line holding only XML-doc structure. `<see cref="X"/>` and `<param name="x">Text`
+# are content and do NOT match: the tag has to be structural AND alone on the line.
+$TagOnlyPattern =
+    '^(?:</?(?:summary|remarks|para|list|item|term|description|returns|value|example|code|' +
+    'exception|typeparam|param|seealso|inheritdoc)\b[^>]*>\s*)+$'
+
+# One file's lines classified as Code / Comment / Blank, with the prose blocks located.
 # The scanner carries string and block-comment state across lines, so a `//` inside a
 # multi-line string literal cannot be mistaken for a comment.
-function Measure-FSharpFile {
-    param([string]$FilePath)
+function Measure-SourceFile {
+    param(
+        [string]$FilePath,
+        [ValidateSet("FSharp", "CSharp")][string]$Lang
+    )
 
+    $isFSharp = $Lang -eq "FSharp"
     $lines = [System.IO.File]::ReadAllLines($FilePath)
 
     $code = 0
+    $delimiter = 0
     $comment = 0
+    $prose = 0
     $blank = 0
     $trailing = 0
 
@@ -113,8 +170,11 @@ function Measure-FSharpFile {
             $next = if ($i + 1 -lt $len) { $line[$i + 1] } else { [char]0 }
 
             if ($blockDepth -gt 0) {
-                if ($c -eq '*' -and $next -eq ')') { $blockDepth--; $i += 2; continue }
-                if ($c -eq '(' -and $next -eq '*') { $blockDepth++; $i += 2; continue }
+                if ($isFSharp) {
+                    if ($c -eq '*' -and $next -eq ')') { $blockDepth--; $i += 2; continue }
+                    if ($c -eq '(' -and $next -eq '*') { $blockDepth++; $i += 2; continue }
+                }
+                elseif ($c -eq '*' -and $next -eq '/') { $blockDepth = 0; $i += 2; continue }
                 $i++
                 continue
             }
@@ -149,11 +209,19 @@ function Measure-FSharpFile {
                 break
             }
 
-            if ($c -eq '(' -and $next -eq '*') {
-                # `(*)` is the multiplication operator, not an unterminated block comment.
-                if ($i + 2 -lt $len -and $line[$i + 2] -eq ')') { $sawCode = $true; $i += 3; continue }
+            if ($isFSharp) {
+                if ($c -eq '(' -and $next -eq '*') {
+                    # `(*)` is the multiplication operator, not an unterminated block comment.
+                    if ($i + 2 -lt $len -and $line[$i + 2] -eq ')') { $sawCode = $true; $i += 3; continue }
+                    $sawComment = $true
+                    $blockDepth++
+                    $i += 2
+                    continue
+                }
+            }
+            elseif ($c -eq '/' -and $next -eq '*') {
                 $sawComment = $true
-                $blockDepth++
+                $blockDepth = 1
                 $i += 2
                 continue
             }
@@ -172,8 +240,16 @@ function Measure-FSharpFile {
                 $sawCode = $true; $inVerbatim = $true; $i += 2; continue
             }
 
+            # C# `$@"…"` / `@$"…"`. A bare `$"…"` needs no case: `$` falls through to the
+            # default and the quote opens an ordinary string on the next pass.
+            if (-not $isFSharp -and (($c -eq '$' -and $next -eq '@') -or ($c -eq '@' -and $next -eq '$'))) {
+                if ($i + 2 -lt $len -and $line[$i + 2] -eq '"') {
+                    $sawCode = $true; $inVerbatim = $true; $i += 3; continue
+                }
+            }
+
             if ($c -eq "'") {
-                # A char literal (`'x'`, `'\n'`) versus a typar tick (`'T`).
+                # A char literal (`'x'`, `'\n'`) versus F#'s typar tick (`'T`).
                 if ($next -eq '\') { $i += 2; while ($i -lt $len -and $line[$i] -ne "'") { $i++ }; $i++ }
                 elseif ($i + 2 -lt $len -and $line[$i + 2] -eq "'") { $i += 3 }
                 else { $i++ }
@@ -188,7 +264,7 @@ function Measure-FSharpFile {
         $isCommentLine = (-not $sawCode) -and $sawComment
 
         if ($sawCode) {
-            $code++
+            if ($line.Trim() -match $DelimiterOnlyPattern) { $delimiter++ } else { $code++ }
             if ($sawComment) { $trailing++ }
         }
         elseif ($isCommentLine) {
@@ -199,8 +275,15 @@ function Measure-FSharpFile {
         }
 
         if ($isCommentLine -and $line.Trim().Length -gt 0) {
-            if ($runLength -eq 0) { $runStart = $n + 1 }
-            $runLength++
+            $body = $line.Trim() -replace '^(///|//|\*)\s*', ''
+            $isTagOnly = $body.Length -gt 0 -and $body -match $TagOnlyPattern
+
+            # Tag-only lines are transparent: they neither extend a block nor break one.
+            if (-not $isTagOnly) {
+                $prose++
+                if ($runLength -eq 0) { $runStart = $n + 1 }
+                $runLength++
+            }
         }
         else {
             if ($runLength -ge $MinBlock) {
@@ -214,13 +297,17 @@ function Measure-FSharpFile {
         $blocks.Add([pscustomobject]@{ Line = $runStart; Length = $runLength })
     }
 
-    $ratio = if ($comment -eq 0) { [double]::PositiveInfinity } else { $code / $comment }
+    $ratio = if ($prose -eq 0) { [double]::PositiveInfinity } else { $code / $prose }
     $maxBlock = if ($blocks.Count -eq 0) { 0 } else { [int]($blocks | Measure-Object -Property Length -Maximum).Maximum }
 
     [pscustomobject]@{
         File      = $FilePath
+        Language  = $Lang
         Code      = $code
+        Delimiter = $delimiter
+        RawCode   = $code + $delimiter
         Comment   = $comment
+        Prose     = $prose
         Blank     = $blank
         Ratio     = $ratio
         Trailing  = $trailing
@@ -229,6 +316,24 @@ function Measure-FSharpFile {
         Blocks    = $blocks
     }
 }
+
+function Get-SourceLanguage {
+    param([string]$Extension)
+    switch ($Extension.ToLowerInvariant()) {
+        ".fs" { "FSharp" }
+        ".fsi" { "FSharp" }
+        ".fsx" { "FSharp" }
+        ".cs" { "CSharp" }
+        default { $null }
+    }
+}
+
+$extensions =
+    switch ($Language) {
+        "FSharp" { @("*.fs", "*.fsi", "*.fsx") }
+        "CSharp" { @("*.cs") }
+        default { @("*.fs", "*.fsi", "*.fsx", "*.cs") }
+    }
 
 $target = (Resolve-Path -Path $Path).Path
 
@@ -239,20 +344,25 @@ if (Test-Path -Path $target -PathType Leaf) {
 }
 else {
     $root = $target
+    # -Unique: `Get-ChildItem -Recurse -Include` yields a file once per matching pattern.
     $files =
-        @(Get-ChildItem -Path $root -Recurse -File -Include *.fs, *.fsi |
+        @(Get-ChildItem -Path $root -Recurse -File -Include $extensions |
           Where-Object { $_.FullName -notmatch $Exclude } |
-          Sort-Object FullName)
+          Sort-Object FullName -Unique)
 }
 
+$files = @($files | Where-Object { Get-SourceLanguage $_.Extension })
+
 if ($files.Count -eq 0) {
-    Write-Host "No .fs or .fsi files found under $root" -ForegroundColor Yellow
+    Write-Host "No F# or C# files found under $root" -ForegroundColor Yellow
     return
 }
 
-$results = @(foreach ($f in $files) { Measure-FSharpFile -FilePath $f.FullName })
+$results = @(foreach ($f in $files) {
+    Measure-SourceFile -FilePath $f.FullName -Lang (Get-SourceLanguage $f.Extension)
+})
 
-# Worst (densest) first: a lower code:comment ratio is more comment per unit of code.
+# Worst (densest) first: a lower code:prose ratio is more comment per unit of code.
 $ranked = $results | Sort-Object Ratio
 
 # Objects instead of a table, so the caller can filter, sort and group them.
@@ -262,15 +372,16 @@ if ($PassThru) {
 }
 $shown = if ($Top -gt 0) { $ranked | Select-Object -First $Top } else { $ranked }
 
-$fmt = "{0,-52} {1,6} {2,8} {3,9} {4,7} {5,6}"
+$fmt = "{0,-46} {1,-4} {2,6} {3,6} {4,8} {5,6} {6,9} {7,7} {8,5}"
 Write-Host ""
-Write-Host ($fmt -f "file", "code", "comment", "ratio", "blocks", "max") -ForegroundColor Cyan
-Write-Host ($fmt -f ("-" * 52), "------", "--------", "---------", "-------", "------") -ForegroundColor DarkGray
+Write-Host ($fmt -f "file", "lang", "code", "delim", "comment", "prose", "ratio", "blocks", "max") -ForegroundColor Cyan
+Write-Host ($fmt -f ("-" * 46), "----", "------", "------", "--------", "------", "---------", "-------", "-----") -ForegroundColor DarkGray
 
 foreach ($r in $shown) {
     $rel = [System.IO.Path]::GetRelativePath($root, $r.File)
-    if ($rel.Length -gt 52) { $rel = "..." + $rel.Substring($rel.Length - 49) }
+    if ($rel.Length -gt 46) { $rel = "..." + $rel.Substring($rel.Length - 43) }
 
+    $tag = if ($r.Language -eq "FSharp") { "F#" } else { "C#" }
     $ratioText = if ([double]::IsInfinity($r.Ratio)) { "  --  " } else { "{0,6:0.0}:1" -f $r.Ratio }
     $colour =
         if ([double]::IsInfinity($r.Ratio)) { "DarkGray" }
@@ -278,22 +389,34 @@ foreach ($r in $shown) {
         elseif ($r.Ratio -lt $Threshold) { "Yellow" }
         else { "Green" }
 
-    Write-Host ($fmt -f $rel, $r.Code, $r.Comment, $ratioText, $r.LongBlocks, $r.MaxBlock) -ForegroundColor $colour
+    Write-Host ($fmt -f $rel, $tag, $r.Code, $r.Delimiter, $r.Comment, $r.Prose, $ratioText, $r.LongBlocks, $r.MaxBlock) -ForegroundColor $colour
 }
 
-$totalCode = ($results | Measure-Object -Property Code -Sum).Sum
-$totalComment = ($results | Measure-Object -Property Comment -Sum).Sum
-$totalBlocks = ($results | Measure-Object -Property LongBlocks -Sum).Sum
-$totalRatio = if ($totalComment -eq 0) { [double]::PositiveInfinity } else { $totalCode / $totalComment }
-$below = @($results | Where-Object { $_.Ratio -lt $Threshold }).Count
+function Write-Totals {
+    param([string]$Label, $Set)
+    if ($Set.Count -eq 0) { return }
+    $c = ($Set | Measure-Object -Property Code -Sum).Sum
+    $p = ($Set | Measure-Object -Property Prose -Sum).Sum
+    $b = ($Set | Measure-Object -Property LongBlocks -Sum).Sum
+    $ratio = if ($p -eq 0) { [double]::PositiveInfinity } else { $c / $p }
+    $below = @($Set | Where-Object { $_.Ratio -lt $Threshold }).Count
+    Write-Host ("{0,-8} {1,3} files: {2,6} code, {3,5} prose, {4,5:0.0}:1 — {5} below target, {6} blocks of {7}+" -f
+        $Label, $Set.Count, $c, $p, $ratio, $below, $b, $MinBlock)
+}
 
 Write-Host ""
-Write-Host ("{0} files: {1} code, {2} comment, {3:0.0}:1 overall" -f $results.Count, $totalCode, $totalComment, $totalRatio)
-Write-Host ("{0} below the {1}:1 target; {2} comment blocks of {3}+ lines" -f $below, $Threshold, $totalBlocks, $MinBlock)
+Write-Totals "ALL" $results
+$byLang = $results | Group-Object Language
+if ($byLang.Count -gt 1) {
+    foreach ($g in ($byLang | Sort-Object Name)) {
+        $label = if ($g.Name -eq "FSharp") { "  F#" } else { "  C#" }
+        Write-Totals $label @($g.Group)
+    }
+}
 
 if ($Detail) {
     Write-Host ""
-    Write-Host "Comment blocks of $MinBlock+ lines:" -ForegroundColor Cyan
+    Write-Host "Prose blocks of $MinBlock+ lines:" -ForegroundColor Cyan
 
     foreach ($r in $shown) {
         if ($r.Blocks.Count -eq 0) { continue }
@@ -307,7 +430,7 @@ if ($Detail) {
 
 if ($Csv) {
     $results |
-        Select-Object File, Code, Comment, Blank,
+        Select-Object File, Language, Code, Delimiter, RawCode, Comment, Prose, Blank,
             @{ n = "Ratio"; e = { if ([double]::IsInfinity($_.Ratio)) { "" } else { "{0:0.00}" -f $_.Ratio } } },
             Trailing, LongBlocks, MaxBlock |
         Sort-Object Ratio |

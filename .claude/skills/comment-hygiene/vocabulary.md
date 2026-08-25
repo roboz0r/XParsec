@@ -1,24 +1,18 @@
 # Retired vocabulary
 
-The H18 word list with the senses each word was covering and the term that replaced it. Every
-replacement is a word this codebase already used for that concept; none is a coinage. Load this
+The H18 word list: the senses each word was covering and the term that replaced it. Load this
 when writing a name or a comment, and when triaging an H18 grep hit.
 
-The general test needs no list: **a term appearing across three unrelated subsystems is either
-genuinely universal or overloaded, and there are very few genuinely universal terms.**
+**The replacement column is the worked project's, not a prescription.** What transfers is the
+method — split the senses, then reuse the word YOUR codebase already has — and the "kept for"
+verdicts, which mark the term-of-art meaning each word is reserved for in any codebase. The
+pure metaphors — `holder`, `spine`, `drain`, `face`, `flow` — were simple substitutions;
+their replacements, the two diagnostics, and the three-subsystems test are in `taxonomy.md`'s
+H18 section.
 
-Two diagnostics identify the mode before any renaming. The word is a metaphor rather than a term of
-art (`holder`, `spine`, `drain`, `face`, `harvest`), so a picture accepts any concept that fits
-it and accretes. Or the word *is* a term of art, for something else (`head`, `binder`,
-`receiver`, `arrow`, `flow`, `leaf`, `tail`), which is worse, because a reader who knows the
-term is actively misled rather than merely uninformed.
-
-## Where the structural vocabulary is allowed
-
-In the lexer and parser, structural-descriptive terms are fine and grammar-production names win:
-`headBindingPattern`, `parseHead`, `PatHeadOperatorParser` mirror `pars.fsy` and stay. In
-SemanticAnalysis and the backends the lexical terminology disappears, and the name states the
-semantic role instead.
+**Where structural vocabulary is allowed:** in a lexer or parser, grammar-production names
+win (`headBindingPattern`, `parseHead`, `PatHeadOperatorParser` stay); past the parser the
+name states the semantic role.
 
 ## `head`
 
@@ -35,17 +29,15 @@ where being the top element is the point. `header` and `ahead`/`lookAhead` never
 | innermost enclosing scope | `current` / `innermost`, with `enclosing` for the rest |
 | shallow zonk | `zonkShallow` |
 
-Avoid `callee` unless caller and callee are both in scope and the relationship is the point. Do
-not reach for `binder` for the LHS of a binding; it collides with the monadic sense below.
-
-`headKey` was the defect that exposed the mode: a `NodeKey` for `li.Idents.[0]` in six files and a
-`TypeKey` for a type constructor in another.
+Avoid `callee` unless caller and callee are both in scope and the relationship is the point;
+do not reach for `binder` for the LHS of a binding (collides with the monadic sense).
+`headKey` exposed the mode: a `NodeKey` for `li.Idents.[0]` in six files and a `TypeKey` for
+a type constructor in another.
 
 ## `receiver`
 
-Retired outright, with no surviving sense. It is Smalltalk message-passing heritage rather than
-compiler vocabulary, and it was doing seven jobs, two of them outright misnomers: a static
-access receives nothing, and a trait's support type is a type rather than an expression.
+Retired outright, no surviving sense: Smalltalk heritage doing seven jobs, two of them
+misnomers (a static access receives nothing; a trait's support type is not an expression).
 
 | sense | term |
 | --- | --- |
@@ -57,23 +49,16 @@ access receives nothing, and a trait's support type is a type rather than an exp
 | the IL instance operand | "this pointer", ECMA-335's own wording |
 | the type constructed by `new T(args)` | `ctorTy` |
 
-For the instance operand, `objTy` reads as "the SemType for `obj`", `target` collides with the
-backend target, and `instance` collides with generic instantiation.
-
-In `System.Console.Out`, `System` is the `anchorIdent` before resolution and a namespace after;
-`System.Console` is the `prefix` before and a type after. Those are CST syntax, not a TAST
-expression.
+For the instance operand: `objTy` reads as "the SemType for `obj`", `target` collides with
+the backend target, `instance` with generic instantiation.
 
 ## `binder`
 
-Kept for the monadic `'a -> M<'b>` (`XParsec/Combinators.fs`, the `Vesper.Option` and
-`Vesper.Result` ports). The word does not apply to `let x = 1`: the LHS construct is a **pattern**, a
-name it introduces is a **bound variable** (`BoundVar*`), and `Binding` is the whole `let x = 1`
-construct. `Binding` and `binding` were being used for each other's referent on adjacent lines.
-
-"Spells" and "spelling" are fine while referring to source characters as input: a token's glyph,
-a CLR metadata name. Once those characters are resolved it is a name, an identifier or a type,
-so a method recording one is `SetBoundVarName`.
+Kept for the monadic `'a -> M<'b>` (parser combinators, the `Option`/`Result` ports). For
+`let x = 1`: the LHS construct is a **pattern**, a name it introduces is a **bound variable**
+(`BoundVar*`), and `Binding` is the whole construct. "Spells"/"spelling" are fine for source
+characters as input; once resolved it is a name, an identifier or a type, so a method
+recording one is `SetBoundVarName`.
 
 ## `leaf`
 
@@ -90,15 +75,13 @@ Kept for a tree node with no children and for a profiler's leaf or self frame.
 | typar dictionary key | `TyparKey` |
 | a scalar `%A` prints atomically | `atom` |
 
-Separating the senses surfaced two falsehoods: a callback named `leaf` that fires at interior
-nodes, and a name asserting a stack position its value does not have, since tests composed it
-first. A comment forced to negate its own noun is the tell.
+Separating the senses surfaced two falsehoods — a callback named `leaf` that fires at
+interior nodes, and a name asserting a stack position its value does not have. A comment
+forced to negate its own noun is the tell.
 
 ## `tail`
 
-Kept for a cons cell (`head :: tail`, `List.Tail`), where no more appropriate word refers to the
-actual content of the list, and for tail calls and tail position, which is the term of art used
-for its real meaning.
+Kept for a cons cell (`head :: tail`, `List.Tail`) and for tail calls and tail position.
 
 | sense | term |
 | --- | --- |
@@ -112,50 +95,35 @@ for its real meaning.
 | a dispatcher's final arm | `fallback` |
 | the JS trampoline | `TrampolineParams`, `buildTrampolineBody` |
 
-Do not name the provider stack's last layer `bcl…`: it reads any referenced .NET assembly rather
-than only the base class library. "Tail" was flatly wrong for it too, because it appends one
-layer last rather than covering everything after the first.
+Do not name the provider stack's last layer `bcl…`: it reads any referenced .NET assembly,
+not only the base class library.
 
 ## `arrow`
 
-Reserved for the ECMAScript and TypeScript concept: an arrow function, TS `=>`. An F# or Vesper
-function type, lambda or closure gets `function`, `lambda` or `closure` as the context calls
-for, never "arrow type" or "arrow signature" for `'a -> 'b`. Naming the `->` token `arrow` in
-the parser is fine, because that is the glyph rather than a concept.
-
-`Vesper.Fun` lowers to a real JS arrow function while staying a nominal interface on CLR, so one
-word for both makes the lowering boundary invisible in exactly the comments meant to explain it.
+Reserved for the ECMAScript/TypeScript concept: an arrow function, TS `=>`. An F# function
+type, lambda or closure gets `function`, `lambda` or `closure`, never "arrow type" or "arrow
+signature" for `'a -> 'b` — one word for both hides the lowering boundary. Naming the `->`
+token `arrow` in the parser is fine: that is the glyph, not a concept.
 
 ## `contract`
 
 Names one thing: the set of types and function signatures a signature file publishes **after
-analysis**. A file at any stage is a *[parsed|analysed] (signature|implementation) file*, never
-"a contract", "a contract file" or "a `.fsi` contract".
+analysis**. A file at any stage is a *[parsed|analysed] (signature|implementation) file*,
+never "a contract", "a contract file" or "a `.fsi` contract". Legitimate and untouched: the
+provider-layer `Contract` types and builders, "the contract stack/provider/surface", "a
+contract extracted from a real `.fsi`", "the implementation does not answer the contract".
 
-Legitimate and untouched: `PackageProviders.Contract`, `buildContract*`, `composeContract`,
-`compilationContract`, "the contract stack/provider/surface", "a contract
-extracted from a real `.fsi`", "the implementation does not answer the contract".
-
-Retired: "contract `.fsi` files in compile order" becomes *signature files in compile order*; "a
-contract with no companion implementation" becomes *a signature file with none*; "a `.fs` owes
-no contract" becomes *owes no signature file*; "per-contract" becomes *per signature file*. In
-``an `.fsi` contract's rebuilt pattern`` the pattern does come from the analysed contract, so
-drop the ``.fsi`` rather than renaming.
-
-`ParsedManifest` holds `ReadSourceUnit list`, each half a `ReadFile<_>`.
+Retired: "contract `.fsi` files in compile order" → *signature files in compile order*; "a
+contract with no companion implementation" → *a signature file with none*; "a `.fs` owes no
+contract" → *owes no signature file*; "per-contract" → *per signature file*. In ``an `.fsi`
+contract's rebuilt pattern`` the pattern does come from the analysed contract, so drop the
+``.fsi`` rather than renaming.
 
 ## `package`
 
-Names the distributable artifact: a compiled assembly with the supporting parts a consumer links
-against. `JsPackage` — modules, runtime assets and the `index.mjs` barrel — is the one this repo
-builds today, and a NuGet package is the CLR equivalent when one exists. npm's `package.json`
-sense is the same sense.
-
-An input on disk is a **project**: a directory holding `manifest.<target>.toml` and the sources
-it lists, compiled from source on every build. The unit being compiled is an **assembly**, and a
-pre-built dependency read as metadata is a **reference assembly**. Four words, four things, and
-`ExternalSymbolProviders` already draws the line — "a referenced project beats a referenced
-assembly".
+Names the distributable artifact: a compiled assembly with the supporting parts a consumer
+links against — a JS package of modules, runtime assets and an `index.mjs` barrel, or a NuGet
+package on CLR (npm's `package.json` sense).
 
 | sense | term |
 | --- | --- |
@@ -166,35 +134,25 @@ assembly".
 | a pre-built dependency read as metadata | *reference assembly* (layer 2) |
 | the emitted, consumable artifact | *package* (`JsPackage`) |
 
-Legitimate and untouched: `JsPackage`, `JsPackageModule`, `JsPackageOutput`,
-`Vesper.Ts.Manifest.Schema.PackageManifest`, `PackageJsonInfoCache`.
-
-Unswept, each naming a project or a project set: `PackageSetFault`, `PackageProviders`,
-`ConformancePass.PackageOutcome`, `packageDir`, `packageName`, `selfPackage`, `buildPackage`.
-Add no more.
+Four words, four things, and the worked project's own provider layer already drew the line —
+"a referenced project beats a referenced assembly".
 
 ## `harvest`
 
-Retired as a wrong metaphor, since code does not grow on its own and is not consumed. One word
-had been covering two operations, and the split is the point:
-
-- **extract / extraction** reads declared facts out of a parsed artifact into a table
-  (`extractIntrinsicReprsInto`, `extractCompanion`). Already established as `Vesper.Ts.Extractor`,
-  `extractTypeSig`, `ExtractCtx`.
-- **lift / lifting** turns a type member into a standalone this-first curried inline body
-  (`SymbolProviders.liftMemberBody`). It mints new lambda nodes, so it is not extraction.
-  `collect` was unavailable, because `collectInlineBodies` is its caller.
-
-Derived nouns: "harvest store" became "inline-body store", "harvest-only decl" became "lift-only
-decl", and "member harvest" became "surfaced member set".
+Retired as a wrong metaphor — code does not grow and is not consumed. One word covered two
+operations: **extract / extraction** reads declared facts out of a parsed artifact into a
+table (`extractIntrinsicReprsInto`, `extractCompanion`); **lift / lifting** turns a type
+member into a standalone this-first curried inline body (`liftMemberBody`) — it mints new
+lambda nodes, so it is not extraction (`collect` was unavailable: `collectInlineBodies` is
+its caller). Derived nouns: "harvest store" → "inline-body store", "harvest-only decl" →
+"lift-only decl", "member harvest" → "surfaced member set".
 
 ## `name` (the verb)
 
-Kept for literally assigning a name: a backend names an unnamed construct after its slot, F#
-names operators specially (`+` → `op_Addition`). Every noun use is untouched. CLAUDE.md's
-construction 5 retires the verb in doc comments; this is the H18 side of the same rule. The
+Kept for literally assigning a name (`+` → `op_Addition`); every noun use is untouched. The
 verb is a term of art for assigning a name, so "an id names the row" sends a reader looking
-for a naming step that does not exist. ~108 verb hits over 67 files, unswept.
+for a naming step that does not exist. `writing.md`'s construction 5 retires the verb in doc
+comments; this is the H18 side of the same rule.
 
 | sense | term |
 | --- | --- |
@@ -210,6 +168,6 @@ The negated form (`names no type`) is H17, and the H17 entry sends its positive 
 
 ## Naming a new operation
 
-Grep for what the sibling operation is already called before coining anything. Where one word is
-doing two jobs, split it rather than picking a third. When a rename cannot find an existing
-word, the concept is not modelled, which is a type candidate.
+Grep for what the sibling operation is already called before coining anything. Where one word
+is doing two jobs, split it rather than picking a third. When a rename cannot find an
+existing word, the concept is not modelled — a type candidate.
