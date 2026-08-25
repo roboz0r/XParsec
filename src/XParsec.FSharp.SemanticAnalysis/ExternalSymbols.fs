@@ -613,15 +613,15 @@ module ExternalSymbols =
         let noLocal = localTyparInTemplate
         instantiateWith decl methodOpen noLocal (ExternalSignature.openTemplate m.Signature)
 
-    /// A member's method-typar BOUNDS at a use site, one per index.
+    /// A member's method-typar BOUNDS at a use site, one per method typar.
     /// `FTTypar(Declaring,i)` → `declaringArgs.[i]`; a `FTTypar(Method,j)` ref stays an
-    /// inert marker. Empty when uncarried.
+    /// inert marker.
     let instantiateSignatureBounds (m: ExternalMember) (declaringArgs: SemType[]) : EqArray<SemType voption> =
         let decl i = declaringArgs.[i]
         let methodOpen j = TyTypar(TyparAxis.Method, j)
         let noLocal = localTyparInTemplate
 
-        m.Signature.MethodTyparBounds
+        m.Signature.MethodTypars
         |> EqArray.map (ValueOption.map (fun ft -> instantiateWith decl methodOpen noLocal ft))
 
     let instantiateFieldType (f: ExternalFieldShape) (declaringArgs: SemType[]) : SemType =

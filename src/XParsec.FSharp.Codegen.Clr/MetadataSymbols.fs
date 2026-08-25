@@ -362,7 +362,6 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
                 IsStatic = m.IsStatic
                 Signature =
                     MetadataMapping.methodSignature arity methodTyparArity (ExternalSignature.tupledParams argSig, ret)
-                MethodTyparArity = methodTyparArity
                 Origin = origin
                 OptionalDefaults = MetadataMapping.optionalDefaults (m.GetParameters())
             }

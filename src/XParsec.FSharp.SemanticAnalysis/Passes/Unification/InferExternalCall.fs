@@ -64,12 +64,12 @@ module internal UnificationInferExternalCall =
                         |> Array.exists (fun m ->
                             match List.tryItem i (memberParamTypes ctx.Store declArgs m) with
                             | Some(TyTypar(TyparAxis.Method, j)) ->
-                                match ExternalSymbols.instantiateSignatureBounds m declArgs |> EqArray.tryItem j with
-                                | ValueSome(ValueSome bound) ->
+                                match (ExternalSymbols.instantiateSignatureBounds m declArgs).[j] with
+                                | ValueSome bound ->
                                     match boundLiteralStrings ctx bound with
                                     | ValueSome set -> Set.contains s set
                                     | ValueNone -> false
-                                | _ -> false
+                                | ValueNone -> false
                             | _ -> false
                         )
 
@@ -125,12 +125,12 @@ module internal UnificationInferExternalCall =
                 | ValueSome s ->
                     for j in referencedMethodTypars ctx.Store paramTys.[i] do
                         if not (Set.contains j bareTypars) && not (seed.ContainsKey j) then
-                            match bounds |> EqArray.tryItem j with
-                            | ValueSome(ValueSome bound) ->
+                            match bounds.[j] with
+                            | ValueSome bound ->
                                 match boundLiteralStrings ctx bound with
                                 | ValueSome set when Set.contains s set -> seed.[j] <- TyLiteral(LiteralConst.String s)
                                 | _ -> ()
-                            | _ -> ()
+                            | ValueNone -> ()
                 | ValueNone -> ()
 
             [ for kv in seed -> kv.Key, kv.Value ]

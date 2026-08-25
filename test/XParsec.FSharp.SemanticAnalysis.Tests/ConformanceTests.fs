@@ -1002,7 +1002,6 @@ let private mkMember
           SymbolKeyOps.memberKeyOf (SymbolKeyOps.qualifiedTypeKeyOf "C" 0) name EqArray.empty 0 MemberKind.Method
       ) with
         Signature = mkSignature 0 methodTyparArity parameters ret
-        MethodTyparArity = methodTyparArity
     }
 
 /// A contract provider publishing exactly `overloads`, keyed by member name only:

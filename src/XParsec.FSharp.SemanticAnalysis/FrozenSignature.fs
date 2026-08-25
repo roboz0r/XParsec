@@ -74,7 +74,6 @@ module FrozenSignature =
                 IsStatic = isStatic
                 Storage = storage
                 Signature = signature
-                MethodTyparArity = methodArity
                 Origin = originIn declKey.Namespace
             }
 

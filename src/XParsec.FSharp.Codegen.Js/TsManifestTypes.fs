@@ -384,22 +384,22 @@ module internal TsManifestTranslate =
 
     let signatureOf (ctx: TranslateCtx) (declTyparArity: int) (sg: Schema.Signature) : ExternalSignature =
         // A bound (`<Key extends keyof Events>`) is carried faithfully so the front end can
-        // keyof-fold it at the call site. Unconstrained yields EMPTY, not an array of `ValueNone`.
-        let bounds =
-            if sg.TypeParamBounds |> List.exists Option.isSome then
-                sg.TypeParamBounds
-                |> List.map (
-                    function
-                    | Some b -> ValueSome(toFrozen ctx b)
-                    | None -> ValueNone
-                )
-                |> EqArray.ofList
-            else
-                EqArray.empty
+        // keyof-fold it at the call site.
+        let methodTypars =
+            sg.TypeParamBounds
+            |> List.map (
+                function
+                | Some b -> ValueSome(toFrozen ctx b)
+                | None -> ValueNone
+            )
+            |> EqArray.ofList
 
         // A TS signature has ONE parameter list, so one argument group.
-        { ExternalSignature.make (declTyparArity, sg.TypeParams, paramsFrozen ctx sg.Params, toFrozen ctx sg.Returns) with
-            MethodTyparBounds = bounds
+        {
+            DeclaringTyparArity = declTyparArity
+            MethodTypars = methodTypars
+            ArgGroups = EqArray.singleton (paramsFrozen ctx sg.Params)
+            Return = toFrozen ctx sg.Returns
         }
 
     /// Each overload's parameter shapes as its `argSig`, KEEPING THE FIRST of any that intern

@@ -182,17 +182,23 @@ type ExternalRecordCandidate =
 type ExternalSignature =
     {
         DeclaringTyparArity: int
-        MethodTyparArity: int
+        /// The member's OWN generic parameters, one entry per typar in declaration order:
+        /// index `j` holds the `j`-th typar's UPPER BOUND (`<Key extends keyof Events>`),
+        /// baked over the DECLARING typars (`keyof Events` at `Emitter<R>` → `TyKeyOf R`).
+        /// `ValueNone` for an unconstrained typar.
+        MethodTypars: EqArray<FrozenType voption>
         /// One entry per `->` the source wrote, each already .NET-tupled: `M: a * b -> r` holds
         /// `[a * b]` and the curried `M: a -> b -> r` holds `[a; b]`. EMPTY for a value member,
         /// whose type is `Return` with no `->` in front of it.
         ArgGroups: EqArray<FrozenType>
         Return: FrozenType
-        /// Per-method-typar UPPER BOUND (`<Key extends keyof Events>`): index `j` is the
-        /// `j`-th method typar's bound, baked over the DECLARING typars (`keyof Events` at
-        /// `Emitter<R>` → `TyKeyOf R`). Length `MethodTyparArity`, or EMPTY when none.
-        MethodTyparBounds: EqArray<FrozenType voption>
     }
+
+    /// The member's own generic parameter count (`Take<TSource>` ⇒ 1).
+    member s.MethodTyparArity = s.MethodTypars.Length
+
+    /// `n` method typars, none of them constrained.
+    static member unbounded(n: int) : EqArray<FrozenType voption> = EqArray.init n (fun _ -> ValueNone)
 
     /// The sentinel a contract-layer member carries until the finalize pass fills its groups /
     /// `Return` from the stashed signature CST. `argGroupCount` is already known there, and
@@ -200,10 +206,9 @@ type ExternalSignature =
     static member deferred(declaringTyparArity: int, methodTyparArity: int, argGroupCount: int) : ExternalSignature =
         {
             DeclaringTyparArity = declaringTyparArity
-            MethodTyparArity = methodTyparArity
+            MethodTypars = ExternalSignature.unbounded methodTyparArity
             ArgGroups = EqArray.ofList (List.replicate argGroupCount deferredTemplate)
             Return = deferredTemplate
-            MethodTyparBounds = EqArray.empty
         }
 
     /// The .NET norm: ONE argument group, taking the tupled `parameters` whole, and no method
@@ -214,10 +219,9 @@ type ExternalSignature =
         : ExternalSignature =
         {
             DeclaringTyparArity = declaringTyparArity
-            MethodTyparArity = methodTyparArity
+            MethodTypars = ExternalSignature.unbounded methodTyparArity
             ArgGroups = EqArray.singleton parameters
             Return = return'
-            MethodTyparBounds = EqArray.empty
         }
 
     /// A FIELD or PROPERTY, whose type is `return'` with no `->` in front of it. Distinct from
@@ -226,10 +230,9 @@ type ExternalSignature =
     static member value(declaringTyparArity: int, methodTyparArity: int, return': FrozenType) : ExternalSignature =
         {
             DeclaringTyparArity = declaringTyparArity
-            MethodTyparArity = methodTyparArity
+            MethodTypars = ExternalSignature.unbounded methodTyparArity
             ArgGroups = EqArray.empty
             Return = return'
-            MethodTyparBounds = EqArray.empty
         }
 
     /// One group per `->` the source wrote, each holding that group's own tupled domain.
@@ -238,10 +241,9 @@ type ExternalSignature =
         : ExternalSignature =
         {
             DeclaringTyparArity = declaringTyparArity
-            MethodTyparArity = methodTyparArity
+            MethodTypars = ExternalSignature.unbounded methodTyparArity
             ArgGroups = EqArray.ofList argGroups
             Return = return'
-            MethodTyparBounds = EqArray.empty
         }
 
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
@@ -343,9 +345,6 @@ type ExternalMember =
         /// the access. `ValueNone` for a member with a runtime slot to read.
         ConstValue: TConstValue voption
         Signature: ExternalSignature
-        /// The member's OWN generic parameter count (`Take<TSource>` ⇒ 1); `0` for every
-        /// property and constructor.
-        MethodTyparArity: int
         Origin: SymbolOrigin
         /// Interned identity: the OPEN declaring type (its `argSig` in `!0`-typars) + name
         /// + kind.
@@ -372,7 +371,6 @@ type ExternalMember =
             Storage = MemberStorage.Method
             ConstValue = ValueNone
             Signature = ExternalSignature.deferred (0, 0, 1)
-            MethodTyparArity = 0
             Origin = SymbolOrigin.Empty
             Key = key
             OptionalDefaults = []
@@ -382,6 +380,10 @@ type ExternalMember =
 
     /// A value member (field or property): no parameters, the value in `Return`.
     member m.IsValueMember = m.Storage.IsValueMember
+
+    /// The member's OWN generic parameter count (`Take<TSource>` ⇒ 1); `0` for every
+    /// property and constructor.
+    member m.MethodTyparArity = m.Signature.MethodTyparArity
 
     /// The canonical `.ctor` shape, keyed as a `MemberKind.Method` over `declKey`.
     static member ctor

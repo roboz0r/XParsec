@@ -41,7 +41,6 @@ let overloadMember (paramFts: FrozenType list) (methodTyparArity: int) : Externa
               MemberKind.Method
       ) with
         IsStatic = true
-        MethodTyparArity = methodTyparArity
         Signature = TestHelpers.mkSignature 0 methodTyparArity parameters unitFt
     }
 

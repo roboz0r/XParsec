@@ -117,7 +117,6 @@ let tests =
                 let m: ExternalMember =
                     { TestHelpers.mkMember "genericMethod" with
                         Signature = signature
-                        MethodTyparArity = 2
                     }
 
                 let level = 7
@@ -172,7 +171,6 @@ let tests =
                                 else
                                     MemberStorage.Method
                             Signature = signature
-                            MethodTyparArity = methodTyparArity
                         }
 
                     let args = argsForArity declTyparArity

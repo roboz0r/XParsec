@@ -60,7 +60,7 @@ let (|TyClass|_|) (t: SemType) =
     | SemType.TyClass(k, args) -> Some(nominalDisplayName k, args)
     | _ -> None
 
-/// A ONE-argument-group `ExternalSignature` with `MethodTyparBounds` defaulted to empty —
+/// A ONE-argument-group `ExternalSignature` whose method typars are all unconstrained —
 /// reflection, `.fsi` and JS-native producers carry no keyof bound. Call it qualified from a
 /// file that must not take this module's shadow `TyUnion`/`TyRecord`/`TyClass` constructors.
 let mkSignature

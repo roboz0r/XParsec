@@ -174,7 +174,6 @@ module SignatureResolutionMembers =
         { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey m.Name argSig ownTypars.Length kind) with
             IsStatic = m.IsStatic
             Storage = storage
-            MethodTyparArity = ownTypars.Length
             Signature = signature
         }
 

@@ -209,20 +209,11 @@ Deletes: "The `type` / `and` keyword itself is not kept, but nothing can be writ
 and this token, so file-order visibility is exact here." — the anchor becomes exact instead of
 argued.
 
-### `ExternalSymbols.fs:225` — `MethodTyparBounds` has two admissible lengths
+### `ExternalDeclarations.fs` — `ExternalMember.ctor` keys a generic ctor at arity 0
 
-Documented as "length `MethodTyparArity`, or EMPTY when none" — a choice no type enforces,
-which is why the consumer at `Passes/Unification/InferExternalCall.fs:80` has to use
-`Array.tryItem`. Folding the bounds into the arity, or into a per-typar record, deletes both the
-prose and the defensive read.
-
-Related but NOT a defect: `ExternalSignature.MethodTyparArity` (`:219`) and
-`ExternalMember.MethodTyparArity` (`:270`) hold the same number, and the member field is a
-cached copy — `VesperLib.fs:408-431` reads `sign.MethodTyparArity` off the frozen signature to
-overwrite the extraction-time `0` placeholder on both the member and its key. A sweep agent
-reported the signature-side field as having no production reader; that is wrong, and those lines
-are the sync point. Deriving the member field rather than storing it is still an option, but
-nothing is out of sync today.
+Found landing the `MethodTypars` fold (2026-08-25). The `ctor` static hardcodes `0` for the
+key's `MethodTyparArity` while accepting an arbitrary `signature`, so a generic-ctor signature
+would key under `0`. No producer currently constructs one.
 
 ### `PassContext.fs:200` — `ExternalStaticQualifier`'s payload shape is a writer-side promise
 
