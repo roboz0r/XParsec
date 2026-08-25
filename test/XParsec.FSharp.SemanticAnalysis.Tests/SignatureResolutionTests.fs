@@ -478,13 +478,13 @@ let tests =
 
                 let provider = r.Provider
 
-                match provider.TryLookupUnionCase "Red" with
-                | ValueSome uc -> Expect.isTrue uc.IsRequireQualifiedAccess "Red's union (Color) is RQA"
-                | ValueNone -> failtest "Red case not found in the reverse index"
+                match provider.TryLookupUnionCases "Red" with
+                | EqOne uc -> Expect.isTrue uc.IsRequireQualifiedAccess "Red's union (Color) is RQA"
+                | other -> failtestf "Red case not found in the reverse index: %A" other
 
-                match provider.TryLookupUnionCase "Blue" with
-                | ValueSome uc -> Expect.isFalse uc.IsRequireQualifiedAccess "Blue's union (Hue) is not RQA"
-                | ValueNone -> failtest "Blue case not found in the reverse index"
+                match provider.TryLookupUnionCases "Blue" with
+                | EqOne uc -> Expect.isFalse uc.IsRequireQualifiedAccess "Blue's union (Hue) is not RQA"
+                | other -> failtestf "Blue case not found in the reverse index: %A" other
             }
 
             test "objnull abbrev (`obj | null`) resolves to the union `FTOr [obj; null]`" {

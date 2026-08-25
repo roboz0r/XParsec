@@ -190,17 +190,7 @@ module internal UnificationInferExternalCall =
                 declArgs
                 ctx.CurrentLevel
 
-        ctx.Resolution.ExternalAccess.Set(
-            fnKey,
-            {
-                Key = SymbolKey.Member chosen.Key
-                IsStatic = chosen.IsStatic
-                Storage = chosen.Storage
-                Signature = memberSig
-                ArgGroupWidths = ExternalSignature.argGroupWidths chosen.Signature
-                OptionalDefaults = chosen.OptionalDefaults
-            }
-        )
+        ctx.Resolution.ExternalAccess.Set(fnKey, ResolvedExternalMember.OfMember(chosen, memberSig))
 
         ctx.Store.SetLink(UnionFind.find ctx.Store (freshTv ctx fnKey), ValueSome memberSig)
         let resultTy = TyVar(freshTyVar ctx)

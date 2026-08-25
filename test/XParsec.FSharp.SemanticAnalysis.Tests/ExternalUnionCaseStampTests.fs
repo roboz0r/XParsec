@@ -7,28 +7,29 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Passes
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
-/// Two non-RQA unions: `Tests.Hue` (case `Blue`) sits in the ambient namespace `Tests`,
+/// Three non-RQA unions: `Tests.Hue` (case `Blue`) sits in the ambient namespace `Tests`,
 /// as the real prelude auto-opens the package namespace so `Some`/`None` are bare-visible;
-/// `Other.Shade` (case `Green`) does not, so bare `Green` needs an explicit `open Other`.
+/// `Other.Shade` and `Rival.Tint` (both case `Green`) do not, so bare `Green` needs an
+/// explicit `open Other`, and needs exactly one of the two opens to be unambiguous.
 let private provider: IExternalSymbolProvider =
-    ExternalSymbolProviders.ofNamedChannels
-        { ExternalSymbolProviders.NamedChannels.empty with
-            TryLookupUnionCase =
-                fun caseName ->
-                    let mk union name =
-                        ValueSome
-                            {
-                                UnionKey = SymbolKeyOps.qualifiedTypeKeyOf union 0
-                                Case = ExternalCaseShape.create (name, EqArray.empty)
-                                IsRequireQualifiedAccess = false
-                            }
+    providerOfSurface (fun b ->
+        publishUnion
+            b
+            (SymbolKeyOps.qualifiedTypeKeyOf "Tests.Hue" 0)
+            [ ExternalCaseShape.create ("Blue", EqArray.empty) ]
 
-                    match caseName with
-                    | "Blue" -> mk "Tests.Hue" "Blue"
-                    | "Green" -> mk "Other.Shade" "Green"
-                    | _ -> ValueNone
-            AmbientOpenPrefixes = [ "Tests" ]
-        }
+        publishUnion
+            b
+            (SymbolKeyOps.qualifiedTypeKeyOf "Other.Shade" 0)
+            [ ExternalCaseShape.create ("Green", EqArray.empty) ]
+
+        publishUnion
+            b
+            (SymbolKeyOps.qualifiedTypeKeyOf "Rival.Tint" 0)
+            [ ExternalCaseShape.create ("Green", EqArray.empty) ]
+
+        b.AmbientOpenPrefixes <- [ "Tests" ]
+    )
 
 let private analyse (input: string) = analyseNameRes provider input
 
@@ -107,8 +108,7 @@ let private assertPatStamped (input: string) (caseName: string) (expected: int) 
             ((ResolvedStamps.tryExternalUnionCase ctx.Resolution.Resolved (CstKeys.ofPat h)).IsSome)
             (sprintf "external case '%s' stamped at its ctor pattern in: %s" caseName input)
 
-/// Assert every `caseName` ctor in `input` is NOT stamped: its declaring namespace is
-/// not open, so the name binds a variable rather than resolving to an external case.
+/// Assert every `caseName` ctor in `input` is NOT stamped.
 let private assertPatNotStamped (input: string) (caseName: string) (expected: int) =
     let ctx, file = analyse input
     let ctors = caseCtors ctx file caseName
@@ -122,6 +122,12 @@ let private assertPatNotStamped (input: string) (caseName: string) (expected: in
 let private hasUnresolved (input: string) : bool =
     let ctx, _ = analyse input
     ctx.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "Unresolved")
+
+let private hasAmbiguousCtor (input: string) : bool =
+    let ctx, _ = analyse input
+
+    ctx.Diagnostics
+    |> Seq.exists (fun d -> d.Message.Contains "Ambiguous constructor 'Green'")
 
 [<Tests>]
 let tests =
@@ -160,9 +166,14 @@ let tests =
                 assertPatStamped "open Other\nlet f (o: obj) = match o with | Green -> 1 | _ -> 0" "Green" 1
             }
 
-            // `Union.Case` resolves without consulting the per-scope unqualified tables.
-            test "qualified case whose namespace is not opened is still stamped" {
-                assertPatStamped "let f (o: obj) = match o with | Shade.Green -> 1 | _ -> 0" "Green" 1
+            // `dotnet fsi` rejects the qualified form too (FS0039 on `Shade`): the union's
+            // own name has to be reachable before its case is.
+            test "qualified case whose namespace is not opened is not stamped" {
+                assertPatNotStamped "let f (o: obj) = match o with | Shade.Green -> 1 | _ -> 0" "Green" 1
+            }
+
+            test "qualified case is stamped once its namespace is opened" {
+                assertPatStamped "open Other\nlet f (o: obj) = match o with | Shade.Green -> 1 | _ -> 0" "Green" 1
             }
 
             // In expression position an unstamped bare case is a plain unresolved identifier.
@@ -172,5 +183,29 @@ let tests =
 
             test "bare case resolves in expression position once its namespace is opened" {
                 Expect.isFalse (hasUnresolved "open Other\nlet x = Green") "bare Green resolves under open Other"
+            }
+
+            // Two referenced unions claim the bare name, so the reference is reported rather
+            // than settled by index order. F# itself shadows instead, resolving to the last
+            // `open`.
+            test "a bare case both opened unions declare is ambiguous (expression)" {
+                Expect.isTrue
+                    (hasAmbiguousCtor "open Other\nopen Rival\nlet x = Green")
+                    "Green is claimed by Other.Shade and Rival.Tint"
+            }
+
+            test "a bare case both opened unions declare is ambiguous (pattern)" {
+                Expect.isTrue
+                    (hasAmbiguousCtor "open Other\nopen Rival\nlet f (o: obj) = match o with | Green -> 1 | _ -> 0")
+                    "Green is claimed by Other.Shade and Rival.Tint"
+            }
+
+            // The qualifier picks a union directly, so the second claim is irrelevant.
+            test "a qualifier resolves the ambiguity" {
+                let input =
+                    "open Other\nopen Rival\nlet f (o: obj) = match o with | Tint.Green -> 1 | _ -> 0"
+
+                Expect.isFalse (hasAmbiguousCtor input) "Tint.Green names its union"
+                assertPatStamped input "Green" 1
             }
         ]

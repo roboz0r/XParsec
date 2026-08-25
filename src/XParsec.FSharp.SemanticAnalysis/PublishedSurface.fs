@@ -150,6 +150,51 @@ module PublishedSurfaceBuilder =
     let addUnionCase (surface: PublishedSurfaceBuilder) (case: ExternalUnionCase) : unit =
         surface.UnionCases.[SymbolKeyOps.typeMetaName case.UnionKey + "." + case.Case.Name] <- case
 
+    /// The one entry point for publishing a type declaration: compiled name, module chain,
+    /// shape, member table, and the case or field index the shape implies. `members` is the
+    /// type's FULL member list in declaration order, duplicating a shape's own. The cons-list
+    /// is the one shape whose cases are left out of the case index.
+    let addTypeWith
+        (surface: PublishedSurfaceBuilder)
+        (key: TypeKey)
+        (shape: ExternalTypeShape)
+        (members: seq<ExternalMember>)
+        : unit =
+        addTypeName surface key
+        addShape surface key shape
+        addMembers surface key members
+
+        match shape with
+        | ExternalTypeShape.Union _ when RuntimeNames.isVesperListName (SymbolKeyOps.typeMetaName key) -> ()
+        | ExternalTypeShape.Union(cases = cases; requiresQualifiedAccess = rqa) ->
+            for case in cases do
+                addUnionCase
+                    surface
+                    {
+                        UnionKey = key
+                        Case = case
+                        IsRequireQualifiedAccess = rqa
+                    }
+        | ExternalTypeShape.Record(arity = arity; fields = fields; requiresQualifiedAccess = rqa) ->
+            addRecordCandidate
+                surface
+                {
+                    TypeKey = key
+                    TyparArity = arity
+                    FieldNames = fields |> EqArray.map (fun f -> f.Name)
+                    IsRequireQualifiedAccess = rqa
+                }
+        | ExternalTypeShape.Class _
+        | ExternalTypeShape.IntrinsicInterface _
+        | ExternalTypeShape.Enum _
+        | ExternalTypeShape.Intrinsic _
+        | ExternalTypeShape.Abbrev _
+        | ExternalTypeShape.Unmodelled _ -> ()
+
+    /// `addTypeWith` for a type publishing no member.
+    let addType (surface: PublishedSurfaceBuilder) (key: TypeKey) (shape: ExternalTypeShape) : unit =
+        addTypeWith surface key shape EqArray.empty
+
 /// One entry of a published table. A key-ordered array of these rather than a dictionary,
 /// because the surface is a VALUE: fixing the order is what lets two of them compare, and
 /// later hash, by contents.
@@ -394,12 +439,18 @@ module PublishedSurface =
             | true, sym -> symbols.TryAdd(writtenName e.Key, sym) |> ignore
             | _ -> ()
 
-        // The bare-name reverse index the legacy `TryLookupUnionCase` channel answers from:
-        // the first case in key order wins a bare-name collision.
-        let unionCases = Dictionary<string, ExternalUnionCase>(StringComparer.Ordinal)
+        // The bare-name reverse index `TryLookupUnionCases` answers from: every union
+        // declaring the name, in key order.
+        let unionCases =
+            Dictionary<string, ResizeArray<ExternalUnionCase>>(StringComparer.Ordinal)
 
         for e in surface.UnionCases do
-            unionCases.TryAdd(e.Value.Case.Name, e.Value) |> ignore
+            match unionCases.TryGetValue e.Value.Case.Name with
+            | true, buf -> buf.Add e.Value
+            | _ ->
+                let buf = ResizeArray<ExternalUnionCase>()
+                buf.Add e.Value
+                unionCases.[e.Value.Case.Name] <- buf
 
         // Two spellings arrive: the canonical metadata name, a direct hit; and the dotted
         // spelling source writes for a module-held type (`M.T`), resolved through the
@@ -429,11 +480,11 @@ module PublishedSurface =
                             match symbols.TryGetValue name with
                             | true, sym -> ValueSome sym
                             | _ -> ValueNone
-                    TryLookupUnionCase =
+                    TryLookupUnionCases =
                         fun caseName ->
                             match unionCases.TryGetValue caseName with
-                            | true, hit -> ValueSome hit
-                            | _ -> ValueNone
+                            | true, hits -> EqArray.ofResizeArray hits
+                            | _ -> EqArray.empty
                     TryRecordsWithField =
                         fun fieldName ->
                             match recordFields.TryGetValue fieldName with

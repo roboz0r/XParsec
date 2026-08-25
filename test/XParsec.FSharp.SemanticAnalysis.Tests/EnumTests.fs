@@ -251,6 +251,16 @@ let tests =
                     "an unknown enum case is diagnosed, mirroring the unknown-union-case miss"
             }
 
+            // `M.E.NotACase` is FS0039 in `dotnet fsi`, and a three-segment chain reports in
+            // neither pass: NameResolution defers to Unification
+            // (`Scope.missReportedDownstream`), whose enum arm matches TWO segments only.
+            ptest "GAP an unknown case on a module-qualified enum (M.E.NotACase) goes unreported" {
+                let tast =
+                    analyse "module M =\n    type E = | A = 0 | B = 1\n\nlet c = M.E.NotACase"
+
+                Expect.isNonEmpty (errors tast) "an unknown name on a module-qualified enum is diagnosed"
+            }
+
             // --- pattern matching (equality only) --------------------------------
 
             test "match on an enum scrutinee with a wildcard type-checks cleanly" {

@@ -154,13 +154,12 @@ module TsManifestProvider =
                     PublishedSurfaceBuilder.addValue published ValueNone sym
 
                 for (declared, shape) in regularTypes @ syntheticTypes @ structuralTypes do
-                    PublishedSurfaceBuilder.addTypeName published declared.Key
-                    PublishedSurfaceBuilder.addShape published declared.Key shape
+                    let members =
+                        match shape with
+                        | ExternalTypeShape.Class c -> c.Members
+                        | _ -> EqArray.empty
 
-                    match shape with
-                    | ExternalTypeShape.Class shape ->
-                        PublishedSurfaceBuilder.addMembers published declared.Key shape.Members
-                    | _ -> ()
+                    PublishedSurfaceBuilder.addTypeWith published declared.Key shape members
             )
 
         let indexSignatures =

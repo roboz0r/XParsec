@@ -140,6 +140,18 @@ module private MetadataMapping =
         | :? string as s -> Some(TConstValue.String s)
         | _ -> None
 
+    /// A `[<Literal>]` / `const` field's declared value. `None` where the value maps to no
+    /// `TConstValue` (a `null` reference constant, an unmapped kind).
+    let tryLiteralValue (f: FieldInfo) : TConstValue option =
+        match
+            (try
+                Some(f.GetRawConstantValue())
+             with _ ->
+                 None)
+        with
+        | Some v when not (isNull v) -> constOfBoxed v
+        | _ -> None
+
     /// Trailing omittable parameter defaults in declaration order. Walks from the end;
     /// stops at the first non-optional or non-representable-constant parameter.
     let optionalDefaults (ps: ParameterInfo[]) : OptionalDefault list =
@@ -303,23 +315,30 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
                 )
         }
 
-    /// A genuine public FIELD (`String.Empty`, `Vector3.X`, `ValueTuple.Item1`) as an
-    /// `ExternalMember`: read by `ldfld`/`ldsfld`, so `Storage = Field`, but shaped and
-    /// keyed as a property. A `[<Literal>]` or the enum `value__` yields `None`.
+    /// A public FIELD (`String.Empty`, `Vector3.X`) as an `ExternalMember`, shaped and keyed
+    /// as a property, read by `ldfld`/`ldsfld`. A `const` (`Int32.MaxValue`, `Math.PI`) also
+    /// carries its `ConstValue`. `None` for the enum `value__` and for an unmappable `const`.
     let fieldMemberOf (declKey: TypeKey) (origin: SymbolOrigin) (arity: int) (f: FieldInfo) : ExternalMember option =
-        if f.IsLiteral || f.IsSpecialName then
+        let constValue () =
+            if f.IsLiteral then
+                MetadataMapping.tryLiteralValue f |> Option.map ValueSome
+            else
+                Some ValueNone
+
+        if f.IsSpecialName then
             None
         else
-            match MetadataMapping.tryBuildType intrinsics f.FieldType with
-            | Some valueTy ->
+            match constValue (), MetadataMapping.tryBuildType intrinsics f.FieldType with
+            | Some constValue, Some valueTy ->
                 Some
                     { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey f.Name EqArray.empty 0 MemberKind.Property) with
                         IsStatic = f.IsStatic
                         Storage = MemberStorage.Field
+                        ConstValue = constValue
                         Signature = MetadataMapping.propertySignature arity valueTy
                         Origin = origin
                     }
-            | None -> None
+            | _ -> None
 
     /// A mapped method as an `ExternalMember`; `None` if its signature doesn't map.
     let methodMemberOf (declKey: TypeKey) (origin: SymbolOrigin) (arity: int) (m: MethodInfo) : ExternalMember option =
@@ -652,7 +671,7 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
             this.LookupTypeByName name
             |> ValueOption.map (ExternalSymbols.nameKeyedTypeHit name)
 
-        member _.TryLookupUnionCase _ = ValueNone
+        member _.TryLookupUnionCases _ = EqArray.empty
         // The metadata layer scrapes IL, never F# record tycons, so it never contributes to
         // the reverse field index (F#'s `isILOrRequiredQualifiedAccess` excludes IL too).
         member _.TryRecordsWithField _ = EqArray.empty

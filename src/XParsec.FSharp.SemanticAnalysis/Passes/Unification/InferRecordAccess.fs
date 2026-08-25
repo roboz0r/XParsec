@@ -39,13 +39,11 @@ module internal UnificationInferRecordAccess =
     /// The `ExternalAccess` an indexer accessor records. An accessor is a METHOD however its
     /// property was spelled, and takes no omittable optionals.
     let private indexerAccess (m: ExternalMember) (signature: SemType) : ResolvedExternalMember =
-        {
-            Key = SymbolKey.Member m.Key
+        { ResolvedExternalMember.OfMember(m, signature) with
             IsStatic = false
             Storage = MemberStorage.Method
-            Signature = signature
-            ArgGroupWidths = ExternalSignature.argGroupWidths m.Signature
             OptionalDefaults = []
+            ConstValue = ValueNone
         }
 
     let private pickSurface

@@ -177,7 +177,7 @@ module NameResolutionScope =
         name.Length > 0
         && System.Char.IsUpper name.[0]
         && (TypeRegistry.isCaseName ctx.Types useSite name
-            || (tryExternalCase ctx ValueNone name).IsSome)
+            || not (externalCasesInScope ctx name).IsEmpty)
 
     /// Every (name, NodeKey) pair introduced by a pattern; [] for patterns that
     /// bind nothing (Wildcard, Const, nullary ctors).

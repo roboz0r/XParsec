@@ -7,46 +7,32 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 // A short name resolves against the `open`s in scope, and only those declared above it.
 
-/// A provider knowing one qualified *value* (`A.B.thing`) and one qualified generic *type*
-/// (`Some.Where.Foo`1`) — the value and type channels of short-name resolution, no real metadata.
+/// A provider publishing two values in `module B` of `namespace A` (`thing` and the compiled
+/// operator `op_Addition`), one generic class (`Some.Where.Foo`1`) and two unions in
+/// `namespace Tests`. `Color` is `[<RequireQualifiedAccess>]`, `Hue` is ordinary. No prefix
+/// is ambient, so every name here needs the `open` its test writes.
 let private provider: IExternalSymbolProvider =
+    let moduleB = ModuleContainer.InModule(SymbolKeyOps.moduleInNamespace "A" "B")
+
     let mono name =
-        ValueSome(
-            ExternalSymbols.monoFrozen (SymbolKeyOps.inNamespace "") name (FTConst(RuntimeNames.intKey, EqArray.empty))
-        )
+        ExternalSymbols.monoFrozen moduleB name (FTConst(RuntimeNames.intKey, EqArray.empty))
 
-    // `Color` is `[<RequireQualifiedAccess>]` (its case `Red` carries the flag);
-    // `Hue` is an ordinary union (`Blue` does not).
-    let mkCase union rqa name =
-        ValueSome
-            {
-                UnionKey = SymbolKeyOps.qualifiedTypeKeyOf union 0
-                Case = ExternalCaseShape.create (name, EqArray.empty)
-                IsRequireQualifiedAccess = rqa
-            }
+    providerOfSurface (fun b ->
+        PublishedSurfaceBuilder.addValue b ValueNone (mono "thing")
+        // The qualified operator `A.B.(+)` resolves to its compiled name `A.B.op_Addition`.
+        PublishedSurfaceBuilder.addValue b ValueNone (mono "op_Addition")
+        publishClass b (SymbolKeyOps.qualifiedTypeKeyOf "Some.Where.Foo" 1) []
 
-    ExternalSymbolProviders.ofNamedChannels
-        { ExternalSymbolProviders.NamedChannels.empty with
-            TryLookup =
-                fun n ->
-                    if n = "A.B.thing" then mono "thing"
-                    // The qualified operator `A.B.(+)` resolves to its compiled name
-                    // `A.B.op_Addition`.
-                    elif n = "A.B.op_Addition" then mono "op_Addition"
-                    else ValueNone
-            TryLookupType =
-                fun n ->
-                    if n = "Some.Where.Foo`1" then
-                        ValueSome(ExternalTypeShape.Class(ExternalClassShape.basic (1, false, SymbolOrigin.Empty)))
-                    else
-                        ValueNone
-            TryLookupUnionCase =
-                fun caseName ->
-                    match caseName with
-                    | "Red" -> mkCase "Tests.Color" true "Red"
-                    | "Blue" -> mkCase "Tests.Hue" false "Blue"
-                    | _ -> ValueNone
-        }
+        publishRqaUnion
+            b
+            (SymbolKeyOps.qualifiedTypeKeyOf "Tests.Color" 0)
+            [ ExternalCaseShape.create ("Red", EqArray.empty) ]
+
+        publishUnion
+            b
+            (SymbolKeyOps.qualifiedTypeKeyOf "Tests.Hue" 0)
+            [ ExternalCaseShape.create ("Blue", EqArray.empty) ]
+    )
 
 let private analyse (input: string) =
     let lexed, file = parseFile input
@@ -106,11 +92,16 @@ let tests =
                 Expect.isTrue (hasUnresolved ctx) "bare Red is rejected for an RQA union"
             }
 
-            test "a qualified RQA case name still resolves" {
-                // Qualified `Color.Red` resolves WITHOUT its namespace opened — F#'s
-                // qualified case resolution doesn't consult the per-scope tables.
-                let ctx = analyse "let x = Color.Red"
+            test "a qualified RQA case name resolves under its open" {
+                let ctx = analyse "open Tests\nlet x = Color.Red"
                 Expect.isFalse (hasUnresolved ctx) "Color.Red resolves (qualified form is allowed)"
+            }
+
+            // `dotnet fsi` rejects this with FS0039 on `Color`: the union's own name needs
+            // `open Tests`, and qualifying the case does not supply it.
+            test "a qualified RQA case name without its open is unresolved" {
+                let ctx = analyse "let x = Color.Red"
+                Expect.isTrue (hasUnresolved ctx) "Color.Red is unresolved with Tests not opened"
             }
 
             // F# has no global reverse case index, so a bare non-RQA case is visible only

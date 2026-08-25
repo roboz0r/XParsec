@@ -185,24 +185,13 @@ module FrozenSignature =
                 let arity = td.TypeParams.Length
                 let origin = originIn typeKey.Namespace
 
-                PublishedSurfaceBuilder.addTypeName surface typeKey
-
                 let register (shape: ExternalTypeShape) (members: ResizeArray<ExternalMember> voption) =
-                    PublishedSurfaceBuilder.addShape surface typeKey shape
+                    let members =
+                        match members with
+                        | ValueSome ms -> ms :> seq<ExternalMember>
+                        | ValueNone -> Seq.empty
 
-                    match members with
-                    | ValueSome ms -> PublishedSurfaceBuilder.addMembers surface typeKey ms
-                    | ValueNone -> ()
-
-                let registerCases (caseShapes: EqArray<ExternalCaseShape>) =
-                    for shape in caseShapes do
-                        PublishedSurfaceBuilder.addUnionCase
-                            surface
-                            {
-                                UnionKey = typeKey
-                                Case = shape
-                                IsRequireQualifiedAccess = td.IsRequireQualifiedAccess
-                            }
+                    PublishedSurfaceBuilder.addTypeWith surface typeKey shape members
 
                 match td.Kind with
                 | TTypeKindG.Record {
@@ -223,19 +212,14 @@ module FrozenSignature =
                             ]
 
                     register
-                        (ExternalTypeShape.Record(arity, fieldShapes, origin, valueKind <> RecordValueKind.RefType))
+                        (ExternalTypeShape.Record(
+                            arity,
+                            fieldShapes,
+                            origin,
+                            valueKind <> RecordValueKind.RefType,
+                            td.IsRequireQualifiedAccess
+                        ))
                         (ValueSome(membersOf typeKey arity members))
-
-                    // An RQA record carries the flag so a consumer's bare `{ X = … }` literal
-                    // excludes it from the field-set index.
-                    PublishedSurfaceBuilder.addRecordCandidate
-                        surface
-                        {
-                            TypeKey = typeKey
-                            TyparArity = arity
-                            FieldNames = EqArray.ofSeq [ for f in fields -> f.Name ]
-                            IsRequireQualifiedAccess = td.IsRequireQualifiedAccess
-                        }
 
                 | TTypeKindG.Union { Cases = cases; Members = members } ->
                     let caseShapes = EqArray.ofSeq [ for c in cases -> caseShapeOf c ]
@@ -243,8 +227,6 @@ module FrozenSignature =
                     register
                         (ExternalTypeShape.Union(arity, caseShapes, EqArray.empty, origin, td.IsRequireQualifiedAccess))
                         (ValueSome(membersOf typeKey arity members))
-
-                    registerCases caseShapes
 
                 | TTypeKindG.Class c ->
                     let members = membersOf typeKey arity c.Members
@@ -405,8 +387,7 @@ module FrozenSignature =
                         IntrinsicShape.Scalar(typeKey, typeKey.TyparArity, IntrinsicPlatform.Repr repr.Platform)
                     )
 
-            PublishedSurfaceBuilder.addShape surface typeKey shape
-            PublishedSurfaceBuilder.addTypeName surface typeKey
+            PublishedSurfaceBuilder.addType surface typeKey shape
 
         // A frozen impl file publishes no `[<AutoOpen>]` surface: a later file in the SAME
         // namespace reaches these types through its own header, not here.

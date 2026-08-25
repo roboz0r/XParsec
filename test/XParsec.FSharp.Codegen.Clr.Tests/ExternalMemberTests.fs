@@ -477,12 +477,35 @@ let tests =
                 | other -> failtestf "expected the same keyed Console.Out ExternalMember, got %A" other
             }
 
-            // `System.Math.PI` is a const field, which is not modelled. The F# is valid, so
-            // the unmatched name must fall through without a "no accessible member" error.
-            test "a non-member name on a resolved external type does not error" {
-                let provider = ClrSymbolProviders.buildContract []
-                let tast = analyseWith provider "let p = System.Math.PI"
-                Expect.isEmpty (errors tast) "System.Math.PI (a field) falls through silently, no false error"
+            // Assert on the TYPE: a name that fell through `inType`'s existence check
+            // elaborates to a leaked `TyVar` with no diagnostic, which an errors-only
+            // assertion calls green.
+            test "a `[<Literal>]` field on an external type resolves and types" {
+                let provider = ClrSymbolProviders.buildContract [ vesperCorePackage ]
+                let ctx, tast = analyseWithCtx provider "let p = System.Math.PI"
+
+                Expect.isEmpty (errors tast) "System.Math.PI resolves against the metadata-backed contract"
+
+                match tast.Decls with
+                | EqList [ TDecl.Let(ty = ty) ] ->
+                    match Unification.zonk ctx.Store ty with
+                    | TyConst(k, _) -> Expect.equal k RuntimeNames.floatKey "System.Math.PI is a float"
+                    | other -> failtestf "expected `p` to type as float, got %A" other
+                | other -> failtestf "expected a single let binding, got %A" other
+            }
+
+            // A `const` has no runtime field slot, so `ldsfld` against one is invalid IL:
+            // the access must arrive at codegen already substituted by its value.
+            test "a `[<Literal>]` field is const-substituted, not loaded" {
+                let provider = ClrSymbolProviders.buildContract [ vesperCorePackage ]
+                let _, tast = analyseWithCtx provider "let m = System.Int32.MaxValue"
+
+                Expect.isEmpty (errors tast) "System.Int32.MaxValue resolves"
+
+                match tast.Decls with
+                | EqList [ TDecl.Let(value = TExpr.Const(TConstValue.Integral(IntKind.Int32, bits), _, _)) ] ->
+                    Expect.equal bits (int64 System.Int32.MaxValue) "the declared constant is substituted"
+                | other -> failtestf "expected `m` to elaborate to an Int32 constant, got %A" other
             }
 
             test "a non-generic external static property emits and runs" {

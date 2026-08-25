@@ -76,6 +76,7 @@ let private typeByName (name: string) : ExternalTypeShape voption =
                         Frozen = marker
                     },
                 origin,
+                false,
                 false
             )
         )
@@ -110,17 +111,17 @@ let private fake: IExternalSymbolProvider =
                     else
                         ValueNone
             TryLookupType = typeByName
-            TryLookupUnionCase =
+            TryLookupUnionCases =
                 fun caseName ->
                     if caseName = "C" then
-                        ValueSome
+                        EqArray.singleton
                             {
                                 UnionKey = SymbolKeyOps.typeKeyOfArity origin.Namespace.Dotted "Uni" 1
                                 Case = markerCase
                                 IsRequireQualifiedAccess = false
                             }
                     else
-                        ValueNone
+                        EqArray.empty
             AmbientOpenPrefixes = [ "Amb" ]
             TryLookupMembers =
                 fun q ->
@@ -242,13 +243,13 @@ let tests =
             }
 
             test "the reverse union-case channel maps case fields covariantly" {
-                match wrapped.TryLookupUnionCase "C" with
-                | ValueSome uc ->
+                match wrapped.TryLookupUnionCases "C" with
+                | EqOne uc ->
                     Expect.equal
                         uc.Case.FrozenFieldTypes
                         (EqArray.singleton (witness Variance.Co))
                         "reverse case field root is co"
-                | ValueNone -> failtest "union case should resolve"
+                | other -> failtestf "expected one declaring union for 'C', got %A" other
             }
 
             test "an Abbrev body is NOT threaded (no intrinsic variance) — the marker survives" {

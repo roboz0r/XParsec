@@ -17,6 +17,18 @@ open XParsec.FSharp.SemanticAnalysis.ElaborateExprArgs
 /// projection.
 module internal ElaborateExpr =
 
+    /// An external member access. A `[<Literal>]` / `const` becomes the constant it declares.
+    let private externalMemberExpr
+        (objArg: TExpr voption)
+        (info: ResolvedExternalMember)
+        (memberName: string)
+        (ty: SemType)
+        (tok: SyntaxToken)
+        : TExpr =
+        match info.ConstValue with
+        | ValueSome c -> TExpr.Const(c, ty, tok)
+        | ValueNone -> TExpr.ExternalMember(objArg, info.Key, memberName, info.Storage, info.ArgGroupWidths, ty, tok)
+
     let rec translateExpr (ctx: PassContext) (e: Expr<SyntaxToken>) : TExpr =
         let key = CstKeys.ofExpr e
         let ty = typeOfKey ctx key
@@ -38,7 +50,7 @@ module internal ElaborateExpr =
         // Always static, so there is no object argument (`ValueNone`).
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) & ExternalAccess ctx info when li.Idents.Length >= 2 ->
             let memberName = ctx.NameOf li.Idents.[li.Idents.Length - 1]
-            TExpr.ExternalMember(ValueNone, info.Key, memberName, info.Storage, info.ArgGroupWidths, ty, tok)
+            externalMemberExpr ValueNone info memberName ty tok
         // `E.C1` — an enum-case access (project-local or external). Enum cases are
         // static fields on the enum type, so this lowers to `StaticFieldGet`; the
         // case's underlying literal stays on the frozen `TTypeKind.Enum` case table.
@@ -302,7 +314,7 @@ module internal ElaborateExpr =
                 else
                     ValueSome(translateExpr ctx r)
 
-            TExpr.ExternalMember(objArg, info.Key, memberName, info.Storage, info.ArgGroupWidths, ty, tok)
+            externalMemberExpr objArg info memberName ty tok
         // `ClassName<'args>.Prop` — static property read on an explicitly
         // instantiated generic class (`Set<'T>.Empty`). The `<'args>` only pinned
         // the instantiation in inference and is carried on `ty`.

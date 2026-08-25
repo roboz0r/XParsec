@@ -7,25 +7,27 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Passes
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
+let private gadgetKey = SymbolKeyOps.qualifiedTypeKeyOf "Tests.Gadget" 0
+
 /// Union `Tests.Colour`, record `Tests.Widget` and class `Tests.Gadget` sit in the
 /// ambient namespace `Tests`; union `Other.Palette` needs an explicit `open Other`.
-/// No union case resolves at all, so every `.Nope` below is an unresolved member.
+/// `Gadget.Make` is the one declared member, so every `.Nope` below misses.
 let private provider: IExternalSymbolProvider =
-    ExternalSymbolProviders.ofNamedChannels
-        { ExternalSymbolProviders.NamedChannels.empty with
-            TryLookupType =
-                fun n ->
-                    match n with
-                    | "Tests.Colour" ->
-                        ValueSome(ExternalTypeShape.Union(0, EqArray.empty, EqArray.empty, SymbolOrigin.Empty, false))
-                    | "Other.Palette" ->
-                        ValueSome(ExternalTypeShape.Union(0, EqArray.empty, EqArray.empty, SymbolOrigin.Empty, false))
-                    | "Tests.Widget" -> ValueSome(ExternalTypeShape.Record(0, EqArray.empty, SymbolOrigin.Empty, false))
-                    | "Tests.Gadget" ->
-                        ValueSome(ExternalTypeShape.Class(ExternalClassShape.basic (0, false, SymbolOrigin.Empty)))
-                    | _ -> ValueNone
-            AmbientOpenPrefixes = [ "Tests" ]
-        }
+    providerOfSurface (fun b ->
+        publishUnion b (SymbolKeyOps.qualifiedTypeKeyOf "Tests.Colour" 0) []
+        publishUnion b (SymbolKeyOps.qualifiedTypeKeyOf "Other.Palette" 0) []
+
+        publishClass
+            b
+            gadgetKey
+            [
+                mkStaticProperty gadgetKey "Make" (FTConst(RuntimeNames.intKey, EqArray.empty))
+            ]
+
+        publishRecord b (SymbolKeyOps.qualifiedTypeKeyOf "Tests.Widget" 0) []
+
+        b.AmbientOpenPrefixes <- [ "Tests" ]
+    )
 
 let private analyse (input: string) = analyseNameRes provider input
 
@@ -58,8 +60,8 @@ let tests =
                     "Widget.Nope — record qualifier stamped"
             }
 
-            // A class may carry unmodelled static fields, so an unresolved member name on one
-            // stays a fresh TyVar rather than becoming a miss.
+            // NameResolution reports a class qualifier's miss itself; this stamp is the
+            // union/record channel Unification reports through.
             test "class qualifier is not stamped" {
                 let ctx, file = analyse "let x = Gadget.Nope"
                 let e = firstBindingExpr file
@@ -105,12 +107,24 @@ let tests =
                     "Colour.Nope diagnosed as a missing member"
             }
 
-            test "an unresolved member name on a class qualifier raises no member-miss diagnostic" {
+            // The shape carries the class's full member list, so a name absent from it is a
+            // miss, as `dotnet fsi` reports it.
+            test "an unresolved member name on a class qualifier raises the member-miss diagnostic" {
                 let ctx = diagnose "let x = Gadget.Nope"
 
-                Expect.isFalse
+                Expect.isTrue
                     (ctx.Diagnostics
-                     |> Seq.exists (fun d -> d.Message.Contains "has no value or member"))
-                    "Gadget.Nope — no member-miss diagnostic for a class qualifier"
+                     |> Seq.exists (fun d -> d.Message.Contains "has no value or member 'Nope'"))
+                    "Gadget.Nope diagnosed as a missing member"
+            }
+
+            // `Make` is a static PROPERTY, so `Gadget.Make` is the value itself and the
+            // binding type-checks outright.
+            test "a declared static member on a class qualifier resolves cleanly" {
+                let ctx = diagnose "let x = Gadget.Make"
+
+                Expect.isEmpty
+                    (ctx.Diagnostics |> Diagnostic.errors)
+                    "Gadget.Make is declared, so the whole binding checks"
             }
         ]

@@ -73,7 +73,7 @@ module EmitJsContext =
     /// home module at each construction site.
     let private externalRecord (provider: IExternalSymbolProvider) (key: TypeKey) : JsRecordInfo voption =
         match provider.TryLookupType key with
-        | ValueSome(ExternalTypeShape.Record(_, fields, origin, _)) ->
+        | ValueSome(ExternalTypeShape.Record(_, fields, origin, _, _)) ->
             let struct (name, home) = importedAs "record" key origin
 
             ValueSome

@@ -117,7 +117,7 @@ let tests =
                 let store = provider :> IExternalSymbolStore
 
                 match store.TryLookupType(typeKeyOf frozen "Box") with
-                | ValueSome(ExternalTypeShape.Record(1, fields, origin, isValueType)) ->
+                | ValueSome(ExternalTypeShape.Record(1, fields, origin, isValueType, _)) ->
                     Expect.equal (fields |> EqArray.map (fun f -> f.Name)) (EqArray.ofSeq [ "value" ]) "Box field names"
                     Expect.equal origin.Home.AssemblyOption (ValueSome testAsm) "Box carries home-assembly origin"
                     Expect.isFalse isValueType "a plain record projects as a reference layout"
@@ -146,18 +146,13 @@ let tests =
 
                 let resolver = FrozenSignature.toSignatures origin frozen :> IExternalSymbolResolver
 
-                match resolver.TryLookupUnionCase "Just" with
-                | ValueSome uc ->
+                match resolver.TryLookupUnionCases "Just" with
+                | EqOne uc ->
                     Expect.equal uc.UnionKey.TyparArity 1 "Just's declaring union arity"
                     Expect.equal uc.Case.Name "Just" "matched case name"
-                | ValueNone -> failtest "union case 'Just' did not resolve"
+                | other -> failtestf "expected one declaring union for 'Just', got %A" other
 
-                Expect.isSome
-                    (resolver.TryLookupUnionCase "Nope"
-                     |> function
-                         | ValueSome _ -> Some()
-                         | _ -> None)
-                    "Nope resolves"
+                Expect.isNonEmpty (resolver.TryLookupUnionCases "Nope") "Nope resolves"
             }
 
             test "augmentation members project on the store view" {

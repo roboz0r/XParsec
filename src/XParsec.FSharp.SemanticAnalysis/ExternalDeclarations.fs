@@ -161,13 +161,6 @@ type ExternalUnionCase =
         IsRequireQualifiedAccess: bool
     }
 
-    /// Does a reference written with `qualifier` resolve to this case? A bare (`ValueNone`)
-    /// one does not when the union is RQA, because F# requires `Color.Red`.
-    member uc.ResolvesWith(qualifier: string voption) : bool =
-        match qualifier with
-        | ValueNone -> not uc.IsRequireQualifiedAccess
-        | ValueSome q -> uc.UnionKey.Name = q
-
 /// One hit from the per-field reverse index: a record declaring the queried field. Field
 /// TYPES are not here, because they come from the shape.
 type ExternalRecordCandidate =
@@ -346,6 +339,9 @@ type ExternalMember =
         /// `Field` / `Property` (value members) vs `Method`. `Field` vs `Property` matters
         /// only at CLR emission (`ldfld` vs `call get_X`).
         Storage: MemberStorage
+        /// A `[<Literal>]` / C# `const`'s declared value, which elaboration substitutes for
+        /// the access. `ValueNone` for a member with a runtime slot to read.
+        ConstValue: TConstValue voption
         Signature: ExternalSignature
         /// The member's OWN generic parameter count (`Take<TSource>` ⇒ 1); `0` for every
         /// property and constructor.
@@ -374,6 +370,7 @@ type ExternalMember =
             Name = key.Name
             IsStatic = false
             Storage = MemberStorage.Method
+            ConstValue = ValueNone
             Signature = ExternalSignature.deferred (0, 0, 1)
             MethodTyparArity = 0
             Origin = SymbolOrigin.Empty

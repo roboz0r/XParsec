@@ -12,7 +12,14 @@ type ExternalTypeShape =
     | Abbrev of arity: int * frozen: FrozenType
     /// Field order matches source. `isValueType` is the `[<Struct>]` the declaration asked
     /// for, carried so a consuming unit reads the same layout the declaring one did.
-    | Record of arity: int * fields: EqArray<ExternalFieldShape> * origin: SymbolOrigin * isValueType: bool
+    /// `requiresQualifiedAccess` is the record's `[<RequireQualifiedAccess>]`, which forces a
+    /// consumer to write `{ R.X = … }`.
+    | Record of
+        arity: int *
+        fields: EqArray<ExternalFieldShape> *
+        origin: SymbolOrigin *
+        isValueType: bool *
+        requiresQualifiedAccess: bool
     /// Case order matches source. `interfaces` are the union's directly-declared
     /// `interface <ty>` impls. `requiresQualifiedAccess` is the union's
     /// `[<RequireQualifiedAccess>]`, so a case reached through the type carries the flag.
@@ -123,9 +130,10 @@ type IExternalSymbolResolver =
     /// its body shape from the one hit.
     abstract TryLookupType: name: string -> struct (TypeKey * ExternalTypeShape) voption
 
-    /// Reverse case-name lookup: a bare case name → its declaring union, so `Some 5` /
-    /// `None` type without an annotation. First declaration wins on a name collision.
-    abstract TryLookupUnionCase: caseName: string -> ExternalUnionCase voption
+    /// Reverse case-name lookup: a bare case name → every union declaring a case of that
+    /// name, so `Some 5` / `None` type without an annotation. Unfiltered by scope; the caller
+    /// narrows to the `open`s at the use site.
+    abstract TryLookupUnionCases: caseName: string -> EqArray<ExternalUnionCase>
 
     /// A field name → every record declaring a field of that name; unqualified
     /// record-literal / record-pattern resolution intersects these sets to pin the type.

@@ -52,26 +52,22 @@ module NameResolutionLongIdent =
             )
             anchorName
 
-    /// F# keeps no global reverse index for union cases: a bare `Some`/`Red` resolves
-    /// only when its declaring union's namespace is opened or auto-opened. Mirror that,
-    /// so a union in the root namespace always matches, its bare candidate being itself.
-    let private bareCaseNamespaceOpen (scope: OpenScope) (uc: ExternalUnionCase) : bool =
+    /// A bare `Red` needs its declaring union `Color` in scope, which an `open` or an
+    /// auto-open of its namespace supplies. A union in the root namespace always matches.
+    let private declaringUnionInScope (scope: OpenScope) (uc: ExternalUnionCase) : bool =
         // The SOURCE spelling of the declaring union, so `` Vesper.Choice`2 `` qualifies as
         // `Vesper.Choice` and a module-held `CrossFile.Lib+Shape` as `CrossFile.Lib.Shape`.
         let qualified = SymbolKeyOps.typeSourceName uc.UnionKey
         (OpenScope.tryQualify scope (fun c -> c = qualified) uc.UnionKey.Name).IsSome
 
-    /// The external union case a reference resolves to through the bare-name reverse index.
-    /// `qualifier` is the written declaring type (`Option.Some` ⇒ `ValueSome "Option"`),
-    /// `ValueNone` for a bare reference, which alone is gated on the declaring namespace
-    /// being open.
-    let tryExternalCase (ctx: PassContext) (qualifier: string voption) (caseName: string) : ExternalUnionCase voption =
-        ctx.Resolver.TryLookupUnionCase caseName
-        |> ValueOption.filter (fun uc -> uc.ResolvesWith qualifier)
-        |> ValueOption.filter (fun uc ->
-            match qualifier with
-            | ValueSome _ -> true
-            | ValueNone -> bareCaseNamespaceOpen ctx.Resolution.OpenScope uc
+    /// Every external union case a BARE `caseName` claims: a case of a union in scope and
+    /// without `[<RequireQualifiedAccess>]`. Two claims are an ambiguity for the caller to
+    /// report. A written qualifier (`Color.Red`) resolves through `inType` instead.
+    let externalCasesInScope (ctx: PassContext) (caseName: string) : EqArray<ExternalUnionCase> =
+        ctx.Resolver.TryLookupUnionCases caseName
+        |> EqArray.filter (fun uc ->
+            not uc.IsRequireQualifiedAccess
+            && declaringUnionInScope ctx.Resolution.OpenScope uc
         )
 
     // --- The resolver -----------------------------------------------------------------
@@ -267,14 +263,18 @@ module NameResolutionLongIdent =
         members
         |> Array.exists (fun m -> m.IsStatic && (m.Name = name || m.Name = setter))
 
-    let private declaresExternalMember (ctx: PassContext) (key: TypeKey) (name: string) : bool =
-        (ctx.Provider.TryLookupMembers(key, name)).Length > 0
-        || (ctx.Provider.TryLookupMembers(key, AccessorNames.setterName name)).Length > 0
+    /// `declaresStatic` over a referenced type's published members. An instance member does
+    /// NOT answer: F# rejects `T.InstanceMember` with FS3214.
+    let private declaresExternalStatic (ctx: PassContext) (key: TypeKey) (name: string) : bool =
+        let anyStatic (n: string) =
+            ctx.Provider.TryLookupMembers(key, n) |> EqArray.exists (fun m -> m.IsStatic)
+
+        anyStatic name || anyStatic (AccessorNames.setterName name)
 
     /// `name` inside the type `t`: a union or enum case in either position; in expression
-    /// position also a static member. A member's existence is checked on this file's own
-    /// nominals and on an external union or record, which bear no static fields; an external
-    /// class's members are Unification's, which reads them by the stamped key.
+    /// position also a static member, which must be declared on the type. An abbreviation, an
+    /// intrinsic repr and an unmodelled type admit a static unchecked, for Unification to
+    /// resolve.
     let private inType
         (ctx: PassContext)
         (position: Position)
@@ -302,6 +302,8 @@ module NameResolutionLongIdent =
             | TypeDeclKind.Enum ->
                 match TypeRegistry.tryEnumByKey ctx.Types claim.Key with
                 | ValueSome e when e.HasCase name -> ValueSome(ResolvedItem.EnumCase(t, name))
+                // `MyEnum.Nope` is FS0039. A static inherited from `System.Enum` would be
+                // the only other answer, and the local type registry carries none.
                 | _ -> ValueNone
             | TypeDeclKind.Class
             | TypeDeclKind.Record ->
@@ -323,16 +325,18 @@ module NameResolutionLongIdent =
                         }
 
                     ValueSome(ResolvedItem.UnionCase(ResolvedUnionCase.External uc, false))
-                | ValueNone -> staticIf (declaresExternalMember ctx key name)
+                | ValueNone -> staticIf (declaresExternalStatic ctx key name)
             | ExternalTypeShape.Enum(cases = cases) ->
                 if cases |> EqArray.exists (fun c -> c.Name = name) then
                     ValueSome(ResolvedItem.EnumCase(t, name))
                 else
-                    ValueNone
-            | ExternalTypeShape.Record _ -> staticIf (declaresExternalMember ctx key name)
+                    // `E.Equals` reaches a static inherited from `System.Enum`, which the
+                    // member table carries.
+                    staticIf (declaresExternalStatic ctx key name)
+            | ExternalTypeShape.Record _
             | ExternalTypeShape.Class _
+            | ExternalTypeShape.IntrinsicInterface _ -> staticIf (declaresExternalStatic ctx key name)
             | ExternalTypeShape.Intrinsic _
-            | ExternalTypeShape.IntrinsicInterface _
             | ExternalTypeShape.Abbrev _
             | ExternalTypeShape.Unmodelled _ -> staticMember ()
 
@@ -417,19 +421,27 @@ module NameResolutionLongIdent =
             OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Resolver.TryLookup name
             |> ValueOption.map ResolvedValue.External
 
+    /// One claim resolves; several are ambiguous.
+    let private caseAmong (name: string) (claims: ResolvedUnionCase[]) : ResolvedItem voption =
+        match claims.Length with
+        | 0 -> ValueNone
+        | 1 -> ValueSome(ResolvedItem.UnionCase(claims.[0], false))
+        | _ -> ValueSome(ResolvedItem.AmbiguousCase(name, claims))
+
     /// A bare union case: a case of a union without `[<RequireQualifiedAccess>]` visible at
-    /// the use site, this file's first. Several local unions declaring it is ambiguous.
+    /// the use site. This file's own unions shadow every referenced one.
     let private caseInEnv (ctx: PassContext) (useSite: UseSite) (name: string) : ResolvedItem voption =
         let locals =
             TypeRegistry.casesNamed ctx.Types useSite name
             |> Array.filter (fun c -> not (TypeRegistry.unionOfCase ctx.Types c).IsRequireQualifiedAccess)
 
         match locals with
-        | [| only |] -> ValueSome(ResolvedItem.UnionCase(ResolvedUnionCase.Local only, false))
         | [||] ->
-            tryExternalCase ctx ValueNone name
-            |> ValueOption.map (fun uc -> ResolvedItem.UnionCase(ResolvedUnionCase.External uc, false))
-        | many -> ValueSome(ResolvedItem.AmbiguousCase(name, many))
+            externalCasesInScope ctx name
+            |> EqArray.map ResolvedUnionCase.External
+            |> EqArray.toArray
+            |> caseAmong name
+        | _ -> locals |> Array.map ResolvedUnionCase.Local |> caseAmong name
 
     /// A bare type name at any arity: this file's claim in scope, else the referenced contracts.
     let private typeInEnv (ctx: PassContext) (useSite: UseSite) (name: string) : ResolvedTypeRef voption =
@@ -501,20 +513,13 @@ module NameResolutionLongIdent =
                 prefix
             |> ValueOption.map (fun item -> resolved item n)
 
-        // The bare-name reverse index, matched on the written qualifier: the channel a
-        // source with no type table still answers through.
-        let indexedCase () =
-            tryExternalCase ctx (ValueSome names.[n - 2]) last
-            |> ValueOption.map (fun uc -> resolved (ResolvedItem.UnionCase(ResolvedUnionCase.External uc, false)) n)
-
         let prefixMiss () =
             tryClassifyExternalType ctx qualifierProbes prefix
             |> ValueOption.map (fun hit ->
                 unresolvedInType (ResolvedTypeRef.External(hit.UseSiteKey, hit.Shape)) last n
             )
 
-        [ asType; prefixMember; indexedCase; prefixMiss ]
-        |> tryPickV (fun step -> step ())
+        [ asType; prefixMember; prefixMiss ] |> tryPickV (fun step -> step ())
 
     /// The module path from `names.[0]`, each candidate scope tried in turn; the first item
     /// wins, else the first miss.

@@ -163,22 +163,64 @@ let poolsFor (src: string) : FrozenPools * Pooled.TastFile =
 /// freeze's.
 let rePoolFor (src: string) : Pooled.TastFile -> FrozenPools = TastPools.rePool (freezeFor src)
 
+/// A stand-in dependency over the surface `fill` accumulates. Every table a real reference
+/// answers from is filled, scope contents included.
+let providerOfSurface (fill: PublishedSurfaceBuilder -> unit) : IExternalSymbolProvider =
+    PublishedSurface.build fill |> PublishedSurface.toProvider
+
 /// A stand-in dependency publishing `symbols` as a referenced package publishes its values.
 let providerOfValues (symbols: ExternalSymbol list) : IExternalSymbolProvider =
-    PublishedSurface.build (fun b ->
+    providerOfSurface (fun b ->
         for sym in symbols do
             PublishedSurfaceBuilder.addValue b ValueNone sym
     )
-    |> PublishedSurface.toProvider
 
 /// `providerOfValues` for the type shapes a referenced package publishes.
 let providerOfTypes (types: (TypeKey * ExternalTypeShape) list) : IExternalSymbolProvider =
-    PublishedSurface.build (fun b ->
+    providerOfSurface (fun b ->
         for (key, shape) in types do
-            PublishedSurfaceBuilder.addTypeName b key
-            PublishedSurfaceBuilder.addShape b key shape
+            PublishedSurfaceBuilder.addType b key shape
     )
-    |> PublishedSurface.toProvider
+
+/// A static get-only property `decl.name : ret`. Copy it with `{ … with … }` for an instance
+/// member, a method or an overload.
+let mkStaticProperty (decl: TypeKey) (name: string) (ret: FrozenType) : ExternalMember =
+    { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf decl name EqArray.empty 0 MemberKind.Property) with
+        IsStatic = true
+        Storage = MemberStorage.Property
+        Signature = ExternalSignature.value (decl.TyparArity, 0, ret)
+    }
+
+let publishUnion (b: PublishedSurfaceBuilder) (key: TypeKey) (cases: ExternalCaseShape list) : unit =
+    PublishedSurfaceBuilder.addType
+        b
+        key
+        (ExternalTypeShape.Union(key.TyparArity, EqArray.ofList cases, EqArray.empty, SymbolOrigin.Empty, false))
+
+/// `publishUnion` for a `[<RequireQualifiedAccess>]` union: a consumer must write `Color.Red`.
+let publishRqaUnion (b: PublishedSurfaceBuilder) (key: TypeKey) (cases: ExternalCaseShape list) : unit =
+    PublishedSurfaceBuilder.addType
+        b
+        key
+        (ExternalTypeShape.Union(key.TyparArity, EqArray.ofList cases, EqArray.empty, SymbolOrigin.Empty, true))
+
+let publishRecord (b: PublishedSurfaceBuilder) (key: TypeKey) (fields: ExternalFieldShape list) : unit =
+    PublishedSurfaceBuilder.addType
+        b
+        key
+        (ExternalTypeShape.Record(key.TyparArity, EqArray.ofList fields, SymbolOrigin.Empty, false, false))
+
+/// Publish the class `key` with `members`. Build each member over this same `key`, which its
+/// `MemberKey` names as the declaring type.
+let publishClass (b: PublishedSurfaceBuilder) (key: TypeKey) (members: ExternalMember list) : unit =
+    PublishedSurfaceBuilder.addTypeWith
+        b
+        key
+        (ExternalTypeShape.Class
+            { ExternalClassShape.basic (key.TyparArity, false, SymbolOrigin.Empty) with
+                Members = EqArray.ofList members
+            })
+        members
 
 /// Parse `input` and run Desugar + NameResolution against `provider`. Run
 /// `Passes.Unification.run` on the returned pair to continue into inference.

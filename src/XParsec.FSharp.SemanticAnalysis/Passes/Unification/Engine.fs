@@ -438,17 +438,7 @@ module UnificationEngine =
                     | ValueSome m when not m.IsStatic ->
                         let memberSig = ExternalSymbols.openSignature m argArr
 
-                        ctx.Resolution.ExternalAccess.Set(
-                            d.Use.Key,
-                            {
-                                Key = SymbolKey.Member m.Key
-                                IsStatic = false
-                                Storage = m.Storage
-                                Signature = memberSig
-                                ArgGroupWidths = ExternalSignature.argGroupWidths m.Signature
-                                OptionalDefaults = m.OptionalDefaults
-                            }
-                        )
+                        ctx.Resolution.ExternalAccess.Set(d.Use.Key, ResolvedExternalMember.OfMember(m, memberSig))
 
                         // The application linked the arg into `d.ResultTv`'s domain while the
                         // object argument was deferred, so the `obj` parameter of `GetHashCode(obj)`

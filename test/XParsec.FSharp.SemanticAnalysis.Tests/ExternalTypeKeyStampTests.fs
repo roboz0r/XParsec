@@ -7,20 +7,29 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Passes
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
+let private widgetKey = SymbolKeyOps.qualifiedTypeKeyOf "Tests.Widget" 0
+let private boxKey = SymbolKeyOps.qualifiedTypeKeyOf "Tests.Box" 1
+
 /// `Tests` is ambient because the real prelude auto-opens the package namespace.
 let private provider: IExternalSymbolProvider =
-    ExternalSymbolProviders.ofNamedChannels
-        { ExternalSymbolProviders.NamedChannels.empty with
-            TryLookupType =
-                fun n ->
-                    match n with
-                    | "Tests.Widget" ->
-                        ValueSome(ExternalTypeShape.Class(ExternalClassShape.basic (0, false, SymbolOrigin.Empty)))
-                    | "Tests.Box`1" ->
-                        ValueSome(ExternalTypeShape.Class(ExternalClassShape.basic (1, false, SymbolOrigin.Empty)))
-                    | _ -> ValueNone
-            AmbientOpenPrefixes = [ "Tests" ]
-        }
+    providerOfSurface (fun b ->
+        publishClass
+            b
+            widgetKey
+            [
+                mkStaticProperty widgetKey "Make" (FTConst(RuntimeNames.intKey, EqArray.empty))
+            ]
+
+        // `Box<'T>.Empty : Box<'T>` — the static's own type names the declaring typar.
+        publishClass
+            b
+            boxKey
+            [
+                mkStaticProperty boxKey "Empty" (FTClass(boxKey, EqArray.ofList [ FTTypar(TyparAxis.Declaring, 0) ]))
+            ]
+
+        b.AmbientOpenPrefixes <- [ "Tests" ]
+    )
 
 let private analyse (input: string) = analyseNameRes provider input
 
@@ -107,31 +116,12 @@ let tests =
             // `Late`, so it resolves to the union and no constructible-class stamp appears.
             test "classification commits to the first hit — a shadowed class stays shadowed" {
                 let shadowingProvider: IExternalSymbolProvider =
-                    ExternalSymbolProviders.ofNamedChannels
-                        { ExternalSymbolProviders.NamedChannels.empty with
-                            TryLookupType =
-                                fun n ->
-                                    match n with
-                                    | "Early.Thing" ->
-                                        ValueSome(
-                                            ExternalTypeShape.Union(
-                                                0,
-                                                EqArray.empty,
-                                                EqArray.empty,
-                                                SymbolOrigin.Empty,
-                                                false
-                                            )
-                                        )
-                                    | "Late.Thing" ->
-                                        ValueSome(
-                                            ExternalTypeShape.Class(
-                                                ExternalClassShape.basic (0, false, SymbolOrigin.Empty)
-                                            )
-                                        )
-                                    | _ -> ValueNone
-                            // Candidate order is this list's order — `Early` wins.
-                            AmbientOpenPrefixes = [ "Early"; "Late" ]
-                        }
+                    providerOfSurface (fun b ->
+                        publishUnion b (SymbolKeyOps.qualifiedTypeKeyOf "Early.Thing" 0) []
+                        publishClass b (SymbolKeyOps.qualifiedTypeKeyOf "Late.Thing" 0) []
+                        // Candidate order is this list's order — `Early` wins.
+                        b.AmbientOpenPrefixes <- [ "Early"; "Late" ]
+                    )
 
                 let ctx, file = analyseNameRes shadowingProvider "let x = Thing 1"
 

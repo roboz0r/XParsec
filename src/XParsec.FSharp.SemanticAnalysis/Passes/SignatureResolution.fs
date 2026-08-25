@@ -19,29 +19,18 @@ module SignatureResolution =
     // --- publication ------------------------------------------------------------------
 
     let private publishShape (sctx: SigCtx) (key: TypeKey) (shape: ExternalTypeShape) : unit =
-        PublishedSurfaceBuilder.addShape sctx.Surface key shape
+        PublishedSurfaceBuilder.addType sctx.Surface key shape
+
+    let private publishShapeWith
+        (sctx: SigCtx)
+        (key: TypeKey)
+        (shape: ExternalTypeShape)
+        (members: seq<ExternalMember>)
+        : unit =
+        PublishedSurfaceBuilder.addTypeWith sctx.Surface key shape members
 
     let private publishMembers (sctx: SigCtx) (key: TypeKey) (members: ExternalMember list) : unit =
         PublishedSurfaceBuilder.addMembers sctx.Surface key members
-
-    let private publishUnionCases
-        (sctx: SigCtx)
-        (unionKey: TypeKey)
-        (rqa: bool)
-        (cases: EqArray<ExternalCaseShape>)
-        : unit =
-        for case in cases do
-            PublishedSurfaceBuilder.addUnionCase
-                sctx.Surface
-                {
-                    UnionKey = unionKey
-                    Case = case
-                    IsRequireQualifiedAccess = rqa
-                }
-
-    let private publishBodiedSurface (sctx: SigCtx) (key: TypeKey) (surface: BodiedSurface) : BodiedSurface =
-        publishMembers sctx key surface.Members
-        surface
 
     // --- registration -------------------------------------------------------------------
 
@@ -94,16 +83,16 @@ module SignatureResolution =
                             : ExternalFieldShape
                     ]
 
-            publishShape sctx key (ExternalTypeShape.Record(arity, fields, SymbolOrigin.Empty, info.IsValueType))
-
-            PublishedSurfaceBuilder.addRecordCandidate
-                sctx.Surface
-                {
-                    TypeKey = key
-                    TyparArity = arity
-                    FieldNames = fields |> EqArray.map (fun f -> f.Name)
-                    IsRequireQualifiedAccess = info.IsRequireQualifiedAccess
-                }
+            publishShape
+                sctx
+                key
+                (ExternalTypeShape.Record(
+                    arity,
+                    fields,
+                    SymbolOrigin.Empty,
+                    info.IsValueType,
+                    info.IsRequireQualifiedAccess
+                ))
 
             match extensions with
             | ValueSome(TypeExtensionElementsSignature(elements = elems)) ->
@@ -146,17 +135,13 @@ module SignatureResolution =
             let interfaces =
                 freezeInterfaces ctx info.TypeParams (interfaceSpecsOf extensionElems)
 
-            publishShape
+            let members = resolveBodyMembers sctx key info.TypeParams extensionElems
+
+            publishShapeWith
                 sctx
                 key
                 (ExternalTypeShape.Union(arity, cases, interfaces, SymbolOrigin.Empty, info.IsRequireQualifiedAccess))
-
-            // A list is written only as `[]` / `::`, so indexing the cons-list's case names
-            // would only shadow a user union declaring a case of the same name.
-            if not (RuntimeNames.isVesperListName (SymbolKeyOps.typeMetaName key)) then
-                publishUnionCases sctx key info.IsRequireQualifiedAccess cases
-
-            publishMembers sctx key (resolveBodyMembers sctx key info.TypeParams extensionElems)
+                members
 
     /// Publish the registered enum's case table. One rejected case (reported at registration)
     /// downgrades the whole enum: a partial table would answer `E.C1` for the survivors and
@@ -341,7 +326,7 @@ module SignatureResolution =
 
         match platform with
         | IntrinsicPlatform.Repr repr ->
-            publishShape
+            publishShapeWith
                 sctx
                 id.Key
                 (ExternalTypeShape.IntrinsicInterface
@@ -353,8 +338,9 @@ module SignatureResolution =
                         Interfaces = shape.FrozenInterfaces
                         Origin = SymbolOrigin.Empty
                     })
+                shape.Members
         // CANON-ONLY: the same interface, reachable by its own name alone.
-        | IntrinsicPlatform.Unsupported _ -> publishShape sctx id.Key (ExternalTypeShape.Class shape)
+        | IntrinsicPlatform.Unsupported _ -> publishShapeWith sctx id.Key (ExternalTypeShape.Class shape) shape.Members
 
     /// A heritable primitive (`obj` / `exn`) ALWAYS carries a supertype surface: a later
     /// `inherit` has nothing else to read its heritability off, which is why a member-less
@@ -403,8 +389,9 @@ module SignatureResolution =
         (id: TypeIdentity)
         (platform: IntrinsicPlatform)
         (classSurface: IntrinsicClassSurface voption)
+        (members: seq<ExternalMember>)
         : unit =
-        publishShape
+        publishShapeWith
             sctx
             id.Key
             (ExternalTypeShape.Intrinsic
@@ -417,6 +404,7 @@ module SignatureResolution =
                         }
                     Class = classSurface
                 })
+            members
 
     let private publishExtern
         (sctx: SigCtx)
@@ -448,14 +436,20 @@ module SignatureResolution =
             declared
             |> ValueOption.map (fun elems ->
                 requireInlineExternMembers ctx id elems
-
-                publishBodiedSurface sctx id.Key (bodiedClassSurface sctx id tn (externDeclaresInterface form) elems)
+                bodiedClassSurface sctx id tn (externDeclaresInterface form) elems
             )
+
+        // `scalarSurface` drops the shape's members, so the declared list is what reaches
+        // the member table.
+        let members =
+            match surface with
+            | ValueSome s -> s.Members
+            | ValueNone -> []
 
         match form with
         | DeclaredRepr.Capability -> publishCapability sctx id platform surface
-        | DeclaredRepr.Heritable -> publishExternPrimitive sctx id platform (heritableSurface platform surface)
-        | DeclaredRepr.Opaque -> publishExternPrimitive sctx id platform (scalarSurface surface)
+        | DeclaredRepr.Heritable -> publishExternPrimitive sctx id platform (heritableSurface platform surface) members
+        | DeclaredRepr.Opaque -> publishExternPrimitive sctx id platform (scalarSurface surface) members
 
     // --- class-like ------------------------------------------------------------------------
 
@@ -472,8 +466,7 @@ module SignatureResolution =
             | SigClassForm.Struct -> false
             | SigClassForm.Bodied -> bodyIsInterface elems
 
-        let surface =
-            publishBodiedSurface sctx id.Key (bodiedClassSurface sctx id tn isInterface elems)
+        let surface = bodiedClassSurface sctx id tn isInterface elems
 
         let shape =
             match form with
@@ -487,7 +480,7 @@ module SignatureResolution =
             | SigClassForm.Bodied
             | SigClassForm.Interface -> surface.Shape
 
-        publishShape sctx id.Key (ExternalTypeShape.Class shape)
+        publishShapeWith sctx id.Key (ExternalTypeShape.Class shape) surface.Members
 
     /// An opaque abstract type (`type T`) has no body shape. It resolves as a non-interface
     /// class, so codegen can mint a ref off the origin.

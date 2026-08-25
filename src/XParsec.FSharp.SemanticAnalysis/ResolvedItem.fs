@@ -72,7 +72,7 @@ type ResolvedItem =
     | StaticMember of owner: ResolvedTypeRef * name: string
     /// Every segment consumed by the module path, so the name denotes no value.
     | ModuleOrNamespace of ModuleContainer
-    /// Several unions visible at the use site each declare a case `name`: the claims, in
-    /// scope order.
-    | AmbiguousCase of name: string * claims: UnionCaseInfo[]
+    /// Several unions visible at the use site each declare a case `name`. A local claim
+    /// shadows every referenced one, so the claims are all local or all referenced.
+    | AmbiguousCase of name: string * claims: ResolvedUnionCase[]
     | Unresolved of UnresolvedName

@@ -31,7 +31,7 @@ the settled semantics, the corrected premises, and the work left.
 - Every published scope is TOTAL: a source answering for a container answers for its values
   and its types alike, the TS manifest included, which publishes a `PublishedSurface` like
   any other referenced package (`TsManifestProvider.publicationOf`).
-- Suites at the last landed step: SemanticAnalysis 1472, Clr 1549, Js 667.
+- Suites at the last landed step: SemanticAnalysis 1479, Clr 1550, Js 667.
 
 ## 2. Premises corrected by the wiring survey (2026-08-24)
 
@@ -67,12 +67,15 @@ in §3.
 
 ## 3. What still feeds each fallback
 
-- **`folded.indexedCase`** — the bare-case-name reverse index behind the legacy
-  `TryLookupUnionCase` channel. Feeders: the stub provider in `ExternalUnionCaseStampTests`
-  publishes cases but no types, and `OpenResolutionTests` pins `Color.Red` resolving with
-  `Tests` NOT opened, which `dotnet fsi` rejects.
-- **`inType` skips the existence check for an external class's static member**, because the
-  stub providers in `ExternalTypeKeyStampTests` publish no members.
+- **`folded.indexedCase`** — DELETED in R3b, against a dead path: both feeders went in R3
+  and all three suites stayed green without it. `tryExternalCase`'s `qualifier` parameter and
+  `ExternalUnionCase.ResolvesWith` went with it, a qualified case now resolving only through
+  its declaring type.
+- **`inType`'s existence check for a referenced type's static member** — added in R3,
+  extended in R3b to referenced enums and capability interfaces and narrowed to STATIC
+  members; R3c put the LOCAL enum arm back on the checked side with the other local arms.
+  `staticMember ()` unchecked now survives only where nothing is knowable: an abbreviation,
+  an intrinsic repr and an unmodelled type, which publish no member table.
 - Carried, out of scope here: `tryStaticQualifier` answers only for a non-generic class, so a
   generic class's static reached without type arguments still falls to the TyVar fallback;
   mid-file `open` order (`BindingRank` across both halves) stays pinned as `ptest`s;
@@ -95,18 +98,70 @@ Each step leaves the tree green and is a separate review.
    feeder: the TS manifest publishes a scope, and the stubs in `ExternalSymbolStampTests`,
    `CoverageTests` and `InlineFreezeThawTests` publish through `PublishedSurface` instead of
    a bare `TryLookup` channel.
-3. **R3 — Honest stubs, honest pins.** Rebuild the stub providers in
-   `ExternalUnionCaseStampTests` / `ExternalTypeKeyStampTests` through the real surface
-   builder (`FrozenSignature` / `PublishedSurface`) so they publish types, cases and members
-   with real scope contents, per `test/CLAUDE.md` ("wire real contracts"); flip
-   `OpenResolutionTests` to F#'s semantics (`Color.Red` with `Tests` not opened is
-   unresolved); add the static-member existence check in `inType` now that stubs publish
-   members.
-4. **R4 — Delete the reverse index and the legacy channels.** `folded.indexedCase`, the
-   provider-level `TryLookupUnionCase`, `ResolvesWith`, `localQualifiedCase`,
-   `casesNamed`-as-global-reverse-lookup, `tryDottedInModule`, and `arityProbes`' per-prefix
-   loop. Score the step by the runtime checks removed, per the repo rule.
-5. **R5 — `Symbols` is keyed by identity. LANDED (2026-08-25), ahead of R3/R4.** Brought
+3. **R3 — Honest stubs, honest pins. LANDED (2026-08-25).** Four stub providers
+   (`ExternalUnionCaseStampTests`, `ExternalTypeKeyStampTests`, `OpenResolutionTests`,
+   `ExternalUnionRecordQualifierStampTests`) publish through `PublishedSurface` and the
+   `providerOfSurface` / `publishUnion` / `publishClass` helpers, so types, cases, members
+   and scope come off one table. The bare-case namespace gate became
+   `declaringUnionInScope`, applied to a qualified reference too: `Color.Red` and
+   `Shade.Green` with their namespaces unopened are FS0039 in `dotnet fsi`, and are now
+   unresolved here. `inType` checks an external class's static member exists, which turned
+   the CLR suite's `System.Math.PI` pin red — a finding, since the fall-through elaborated
+   to `External("System.Math.PI", ValueNone, TyVar 0)`, a leaked free type variable with no
+   diagnostic. That pin is now a `ptest` asserting the name resolves and `p` types as
+   `float`, which goes green when `MetadataSymbols.fieldMemberOf` stops dropping
+   `[<Literal>]` fields. It asserts the TYPE rather than the diagnostic, so a return of the
+   silent fall-through leaves it red.
+4. **R3b — R3's review findings. LANDED (2026-08-25).**
+   - `PublishedSurfaceBuilder.addTypeWith` is the one entry point for publishing a type: the
+     name, shape, member table and the case or field index the shape implies, so a producer
+     filling one table and not another is no longer expressible. All four producers
+     (`FrozenSignature`, `SignatureResolution`, `TsManifestProvider`, `TestHelpers`) go
+     through it. `ExternalTypeShape.Record` gained `requiresQualifiedAccess`, which had
+     lived only on `ExternalRecordCandidate` while `Union` carried its own.
+   - `declaresExternalStatic` filters on `IsStatic`, as its local twin `declaresStatic`
+     always did. `T.InstanceMember` is FS3214 in `dotnet fsi`; against a referenced type it
+     had been resolving, and R3 widened that to every class.
+   - `inType`'s EXTERNAL `Enum` arm falls through to the member check rather than missing
+     outright: `System.DayOfWeek.Equals(1, 1)` compiles in `dotnet fsi`, and the metadata
+     member table carries the inherited static. `IntrinsicInterface` joins the checked arms,
+     its members being published by `publishExtern`.
+   - `MetadataSymbols` publishes `[<Literal>]` fields with their `TConstValue`, and
+     elaboration substitutes the constant. This closes R3's `System.Math.PI` pin and the
+     wider hole it stood for: EVERY BCL `const` (`Int32.MaxValue`, `Math.E`,
+     `Char.MaxValue`) was FS0039 under R3's check.
+   - `TryLookupUnionCase` became `TryLookupUnionCases`, a multimap like its
+     `TryRecordsWithField` sibling. First-wins could not survive a scope filter applied to
+     its single answer: two unions declaring `Green` where the key-first one is out of scope
+     dropped the in-scope one.
+5. **R3c — R3b's review findings. LANDED (2026-08-25).**
+   - `tryExternalCase` picked the FIRST case surviving the scope filter, in provider order
+     then key order, which decided a two-union collision by an order no use site can see.
+     It is `externalCasesInScope`, returning every claim, and `caseInEnv` runs one 0/1/many
+     match over both halves: `AmbiguousCase` now covers two REFERENCED unions as it already
+     covered two of this file's, so `ResolvedItem.AmbiguousCase` carries `ResolvedUnionCase`.
+     Pinned in `ExternalUnionCaseStampTests` over both positions. NOTE this is not F#, which
+     shadows to the last `open` in both halves alike (`probe2.fsx`); reconciling the compiler
+     to shadowing is one change across both halves, not an external-only one.
+   - The cons-list case-index exception moved from `SignatureResolution` into
+     `addTypeWith`, and `addTypeUnindexed` is deleted. `FrozenSignature.toSurface` publishes
+     the same union with no exception, so `Cons` / `Empty` were out of the bare-name table
+     for the compilation that declares the cons-list and back in it for every dependent
+     reading it frozen. Pinned in `PublishedSurfaceTests`.
+   - `MemberStorage.Literal` is deleted; `ExternalMember.ConstValue` alone carries the
+     `[<Literal>]`. The case could never reach `TExpr.ExternalMember`, elaboration having
+     substituted the constant, so it cost two `failwithf` guards and a `FrozenCodec` tag on
+     both sides that could not be written or read, plus a `Storage`/`ConstValue` pairing
+     maintained by hand in `fieldMemberOf` and overridden in `indexerAccess`.
+   - `inType`'s LOCAL `Enum` arm misses rather than admitting every name as an unchecked
+     static. `MyEnum.Nope` is FS0039, and R3b's justification does not hold: Unification's
+     enum arm reports `NoCase` for `MyEnum.Equals` too, so it resolves nothing here. A local
+     enum's inherited `System.Enum` statics are the same gap `MyClass.Equals` falls into.
+6. **R4 — Delete the remaining legacy channels.** The provider-level
+   `TryLookupUnionCases`, `localQualifiedCase`, `casesNamed`-as-global-reverse-lookup,
+   `tryDottedInModule`, and `arityProbes`' per-prefix loop. Score the step by the runtime
+   checks removed, per the repo rule.
+7. **R5 — `Symbols` is keyed by identity. LANDED (2026-08-25), ahead of R3/R4.** Brought
    forward because R2 shipped a defect: `scopeOf` recovered a source short name by splitting
    the rendered key at its last `.`, so a binding whose own name holds a dot
    (`` let ``a.size`` ``, which F# accepts) claimed the slot of a sibling named `size`.

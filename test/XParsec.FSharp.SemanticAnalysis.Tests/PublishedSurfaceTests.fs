@@ -113,4 +113,38 @@ let tests =
                     (symbol (tupled ()))
                     "the same signature, published twice, while the handles are live"
             }
+
+            // The cons-list exception belongs to `addTypeWith`, so it holds for the same
+            // union arriving from `SignatureResolution` and from `FrozenSignature` alike.
+            test "the cons-list's cases are published on the shape but not indexed by name" {
+                let union =
+                    ExternalTypeShape.Union(
+                        1,
+                        EqArray.ofList
+                            [
+                                ExternalCaseShape.create (RuntimeNames.consCaseName, EqArray.empty)
+                                ExternalCaseShape.create (RuntimeNames.emptyCaseName, EqArray.empty)
+                            ],
+                        EqArray.empty,
+                        SymbolOrigin.Empty,
+                        false
+                    )
+
+                let listSurface =
+                    PublishedSurface.build (fun b -> PublishedSurfaceBuilder.addType b RuntimeNames.vesperListKey union)
+
+                Expect.isEmpty listSurface.UnionCases "no cons-list case is indexed by name"
+
+                Expect.equal
+                    (listSurface.ShapesByKey |> EqArray.map (fun e -> e.Value))
+                    (EqArray.singleton union)
+                    "the shape still carries both cases"
+
+                // The same shape under any other key IS indexed, so the assertion above is
+                // the exception firing rather than the whole union going unpublished.
+                let otherSurface =
+                    PublishedSurface.build (fun b -> PublishedSurfaceBuilder.addType b (key "Ns" "Chain" 1) union)
+
+                Expect.equal otherSurface.UnionCases.Length 2 "an ordinary union of the same shape is indexed"
+            }
         ]

@@ -465,7 +465,7 @@ type internal ClrEnv
     /// Referenced-assembly record shape by key + arity.
     let externalRecordShape (key: TypeKey) (arity: int) : (EqArray<ExternalFieldShape> * SymbolOrigin) voption =
         match lookupTypeByKey key with
-        | ValueSome(ExternalTypeShape.Record(a, fields, origin, _)) when
+        | ValueSome(ExternalTypeShape.Record(a, fields, origin, _, _)) when
             a = arity && origin.Home <> SymbolHome.Unstamped
             ->
             ValueSome(fields, origin)

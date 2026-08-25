@@ -474,6 +474,9 @@ type ResolvedExternalMember =
         /// The resolved member's trailing optional-parameter defaults. Empty for a member
         /// with no omittable optionals.
         OptionalDefaults: OptionalDefault list
+        /// A `[<Literal>]` / C# `const`'s declared value, which elaboration substitutes for
+        /// the access. `ValueNone` for a member with a runtime slot to read.
+        ConstValue: TConstValue voption
     }
 
     member m.IsValueMember = m.Storage.IsValueMember
@@ -488,6 +491,7 @@ type ResolvedExternalMember =
             Signature = signature
             ArgGroupWidths = ExternalSignature.argGroupWidths m.Signature
             OptionalDefaults = m.OptionalDefaults
+            ConstValue = m.ConstValue
         }
 
 /// A member access on a *project-local* type that inference resolved, recorded per access
