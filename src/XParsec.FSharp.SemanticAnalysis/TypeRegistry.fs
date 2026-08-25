@@ -568,18 +568,26 @@ module TypeRegistry =
     /// holding a `TyClass` key asks.
     let containsClassKey (types: PassContextTypes) (key: TypeKey) : bool = (tryByTypeKey types.Class key).IsSome
 
+    /// One leg of a member-host cascade: `info` widened to `IInterfaceImplHost`, else the
+    /// result of the next probe.
+    let inline private hostOr<'Info when 'Info :> IInterfaceImplHost>
+        (info: 'Info voption)
+        ([<InlineIfLambda>] next: unit -> IInterfaceImplHost voption)
+        : IInterfaceImplHost voption =
+        match info with
+        | ValueSome info -> ValueSome(info :> IInterfaceImplHost)
+        | ValueNone -> next ()
+
     /// A class, union *or* record by key, as the shared `IInterfaceImplHost`, so a union's or
     /// record's declared interfaces participate in subtyping like a class's.
     let tryInterfaceImplHostByKey (types: PassContextTypes) (key: TypeKey) : IInterfaceImplHost voption =
-        match tryByTypeKey types.Class key with
-        | ValueSome info -> ValueSome(info :> IInterfaceImplHost)
-        | ValueNone ->
-            match tryByTypeKey types.Union key with
-            | ValueSome info -> ValueSome(info :> IInterfaceImplHost)
-            | ValueNone ->
-                match tryByTypeKey types.Record key with
-                | ValueSome info -> ValueSome(info :> IInterfaceImplHost)
-                | ValueNone -> ValueNone
+        hostOr
+            (tryByTypeKey types.Class key)
+            (fun () ->
+                hostOr
+                    (tryByTypeKey types.Union key)
+                    (fun () -> hostOr (tryByTypeKey types.Record key) (fun () -> ValueNone))
+            )
 
     /// An enum needs no short-name index of its own, being never generic: its claim is always
     /// `(container, name, 0)` and carries the key.
@@ -747,29 +755,25 @@ module TypeRegistry =
     /// A union, record or inline intrinsic-abbrev host by bare short name, as the shared
     /// `IInterfaceImplHost`. Classes are excluded, because they fill through their own path.
     let tryNonClassMemberHost (types: PassContextTypes) (useSite: UseSite) (name: string) : IInterfaceImplHost voption =
-        match tryUnionBare types useSite name with
-        | ValueSome info -> ValueSome(info :> IInterfaceImplHost)
-        | ValueNone ->
-            match tryRecord types useSite name with
-            | ValueSome info -> ValueSome(info :> IInterfaceImplHost)
-            | ValueNone -> tryIntrinsicAbbrevHostByName types name
+        hostOr
+            (tryUnionBare types useSite name)
+            (fun () -> hostOr (tryRecord types useSite name) (fun () -> tryIntrinsicAbbrevHostByName types name))
 
-    /// The key-addressed twin of the above, for what a DECLARATION claims, because two sibling
-    /// modules may each declare `T`. Every kind answers by KEY, but by a DIFFERENT key for the
-    /// intrinsic arm, which is why the name is still a parameter: an intrinsic binding carries
-    /// two, the container-homed claim `key` identifying it here and the namespace-homed canon
-    /// addressing the host table, which the name resolves to through `IntrinsicKeys`.
-    let tryNonClassMemberHostByKey
-        (types: PassContextTypes)
-        (key: TypeKey)
-        (name: string)
-        : IInterfaceImplHost voption =
-        match tryByTypeKey types.Union key with
-        | ValueSome info -> ValueSome(info :> IInterfaceImplHost)
-        | ValueNone ->
-            match tryByTypeKey types.Record key with
-            | ValueSome info -> ValueSome(info :> IInterfaceImplHost)
-            | ValueNone -> tryIntrinsicAbbrevHostByName types name
+    /// The addresses a type DECLARATION answers under: the container-homed nominal claim
+    /// `Key`, and the declared bare `Name`, which reaches an intrinsic binding's
+    /// namespace-homed canon key through `IntrinsicKeys`. Built by `PassContext` from a single
+    /// declared `(name, arity)`.
+    [<Struct>]
+    type DeclaredTypeAddress = { Key: TypeKey; Name: string }
+
+    /// The address-addressed twin of the above, for what a DECLARATION claims, because two
+    /// sibling modules may each declare `T`.
+    let tryNonClassMemberHostByDecl (types: PassContextTypes) (decl: DeclaredTypeAddress) : IInterfaceImplHost voption =
+        hostOr
+            (tryByTypeKey types.Union decl.Key)
+            (fun () ->
+                hostOr (tryByTypeKey types.Record decl.Key) (fun () -> tryIntrinsicAbbrevHostByName types decl.Name)
+            )
 
     /// The declaring union of a registered case: the case carries its union's `TypeKey`, so no
     /// use site is needed, and a caller holding a case got it from a scoped read anyway.

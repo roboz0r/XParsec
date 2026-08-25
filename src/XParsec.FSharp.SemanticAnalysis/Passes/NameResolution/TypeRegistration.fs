@@ -118,7 +118,7 @@ module NameResolutionTypeRegistration =
         let (TypeName(ident = nameLi)) = tn
         let name = ctx.NameOf nameLi.Idents.[0]
 
-        TypeRegistry.tryNonClassMemberHostByKey ctx.Types (ctx.DeclaredTypeKey(name, arityOfTypeName ctx tn)) name
+        TypeRegistry.tryNonClassMemberHostByDecl ctx.Types (ctx.DeclaredTypeAddress(name, arityOfTypeName ctx tn))
 
     /// Mint the project-local `SymbolKey` for a type declaration, under the declaring
     /// containment's containment chain. The collision branch is an INTERNAL-ERROR BACKSTOP

@@ -223,14 +223,12 @@ The three writers (`Passes/NameResolution/Scope.fs:679`, `:687`, `:816`) all gat
 that. A key type carrying the guarantee would make the re-query provably unnecessary instead of
 conventionally so.
 
-### `TypeRegistry.fs:704` — `tryNonClassMemberHostByKey` takes a key and a name that must agree
+### `TypeRegistry.fs` — `tryInterfaceImplHostByKey` omits the intrinsic-abbrev leg
 
-The `key` addresses the union and record tables (`:709`, `:712`); the `name` addresses
-`IntrinsicAbbrevHost` (`:715`), whose tables are bare-name keyed. Nothing forces the two to
-describe the same declaration. The sole call site derives both from one `TypeName` —
-`TypeRegistration.fs:147` takes the name, `:149` builds the key from that same name — so a
-single argument carrying both would be sound and would delete the doc clause explaining why
-the name is passed alongside the key.
+Found landing the host-cascade collapse (2026-08-25). The Class → Union → Record cascade has
+no intrinsic-abbrev probe, so a `TyConst`-keyed intrinsic abbrev with `with member …` and
+declared interfaces does not participate in subtyping through `EngineCore.fs:569` /
+`Infer.fs:252`. Adding the leg is a behaviour change; likely a genuine gap.
 
 ## Dead or duplicated structure
 
@@ -521,17 +519,6 @@ means nothing. An `EqArray<string * TyVarId>` plus a separate `int` cannot enfor
 reading — a type splitting the declared prefix from the implicit tail would settle which one is
 true and remove the need for the sentence.
 
-### `TypeRegistry.fs:548` — three `IInterfaceImplHost` resolvers repeat one cascade
-
-`tryInterfaceImplHostByKey` (Class → Union → Record, by key), `tryNonClassMemberHost`
-(Union → Record → `IntrinsicAbbrevHost`, by name) and `tryNonClassMemberHostByKey`
-(Union → Record → `IntrinsicAbbrevHost`, by key *and* name) are the same nested
-`match … | ValueSome info -> ValueSome(info :> IInterfaceImplHost) | ValueNone -> …` written
-three times, differing only in which tables are probed and how. The intrinsic-abbrev leg is what
-forces the third one to take both a key and a name, since its table is bare-name keyed while the
-other two are `TypeKey` keyed — so the duplication is really a symptom of that one table having a
-different key type from its siblings. A list of probes folded over, or a `TypeKey`-keyed
-intrinsic-abbrev host, would collapse all three.
 ### `TypeRegistration.fs` — a detached `type U with …` extension is dropped wholesale
 
 Found landing the augmentation-constructor diagnostic (2026-08-24). A standalone

@@ -608,6 +608,14 @@ type PassContext(provider: IExternalSymbolProvider, file: LexedFile, assembly: C
     member this.DeclaredTypeKey(name: string, arity: int) : TypeKey =
         LocalSymbolKey.ofType (SymbolKeyOps.typeContainerOf this.CurrentContainer) name arity
 
+    /// Both addresses of a type DECLARED where the walk stands, derived from the one declared
+    /// `(name, arity)`.
+    member this.DeclaredTypeAddress(name: string, arity: int) : TypeRegistry.DeclaredTypeAddress =
+        {
+            Key = this.DeclaredTypeKey(name, arity)
+            Name = name
+        }
+
     /// Source text of `token`, a backtick-escaped identifier reading as the name it spells.
     /// Empty for virtual (synthesised) tokens.
     member this.NameOf(token: SyntaxToken) : string =
