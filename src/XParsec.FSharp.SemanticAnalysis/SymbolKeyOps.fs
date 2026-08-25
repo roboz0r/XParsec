@@ -164,25 +164,6 @@ module SymbolKeyOps =
 
             k
 
-    /// Resolve a WRITTEN dotted type name against an `exact` index keyed by `typeMetaName`,
-    /// reaching the one spelling that is not that rendering: `Test.A.M.T`, keyed `Test.A.M+T`.
-    let tryDottedInModule
-        (exact: string -> 'T voption)
-        (moduleContainer: string -> TypeContainer voption)
-        (probe: string)
-        : 'T voption =
-        match exact probe with
-        | ValueSome _ as hit -> hit
-        | ValueNone ->
-            let dot = probe.LastIndexOf '.'
-
-            if dot <= 0 || dot = probe.Length - 1 then
-                ValueNone
-            else
-                match moduleContainer (probe.Substring(0, dot)) with
-                | ValueSome container -> exact (typeMetaName (typeKeyOfSegment container (probe.Substring(dot + 1))))
-                | ValueNone -> ValueNone
-
     /// A BARE source name plus its arity as an INT.
     let typeKeyOfContainer (container: TypeContainer) (name: string) (arity: int) : TypeKey =
         {
@@ -221,18 +202,6 @@ module SymbolKeyOps =
             let d = ns.Dotted
             if d = "" then m.Name else d + "." + m.Name
         | ModuleContainer.InModule parent -> moduleFullName parent + "." + m.Name
-
-    /// The dotted spelling SOURCE writes for a type (`CrossFile.Lib.Shape`): every containment
-    /// segment joined by `.`, with no `+` mangling and no `` `N `` suffix. This is what an
-    /// `open` prefix qualifies, and what a written qualifier is compared against.
-    let rec typeSourceName (t: TypeKey) : string =
-        let prefix =
-            match t.Container with
-            | TypeContainer.InNamespace ns -> ns.Dotted
-            | TypeContainer.InModule m -> moduleFullName m
-            | TypeContainer.InType outer -> typeSourceName outer
-
-        if prefix = "" then t.Name else prefix + "." + t.Name
 
     /// Containment is a `ModuleContainer` chain, never a dotted string: only the producer knows which
     /// segments are namespace and which are module.

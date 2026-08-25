@@ -181,23 +181,23 @@ let tests =
                         let m = containerOrFail scope "Test.A.M"
                         let n = containerOrFail scope "Test.A.N"
 
-                        match scope.TryUnionCase(m, "Red"), scope.TryUnionCase(n, "Red") with
-                        | ValueSome inM, ValueSome inN ->
+                        match scope.UnionCasesNamed(m, "Red"), scope.UnionCasesNamed(n, "Red") with
+                        | EqOne inM, EqOne inN ->
                             Expect.equal inM.UnionKey.Name "Color" "M's Red is Color's"
                             Expect.equal inN.UnionKey.Name "Light" "N's Red is Light's"
                             Expect.isFalse inM.IsRequireQualifiedAccess "Color is not RQA"
                         | other -> failtestf "both modules declare a Red: %A" other
 
-                        Expect.isTrue (scope.TryUnionCase(m, "Off")).IsNone "Off is N's, not M's"
+                        Expect.isEmpty (scope.UnionCasesNamed(m, "Off")) "Off is N's, not M's"
                     }
 
                     test "an RQA union's case answers with the flag set" {
                         let scope = (publishedViews [ "lib.fs", rqaLib ]).[0].Scope
                         let m = containerOrFail scope "Test.A.M"
 
-                        match scope.TryUnionCase(m, "Red") with
-                        | ValueSome uc -> Expect.isTrue uc.IsRequireQualifiedAccess "the flag rides the answer"
-                        | ValueNone -> failtest "Red resolves through its module; the report is the caller's"
+                        match scope.UnionCasesNamed(m, "Red") with
+                        | EqOne uc -> Expect.isTrue uc.IsRequireQualifiedAccess "the flag rides the answer"
+                        | other -> failtestf "Red resolves through its module; the report is the caller's: %A" other
                     }
 
                     test "types answer by name within a module, carrying their arity" {
@@ -230,13 +230,13 @@ let tests =
                         | ValueSome sym -> Expect.equal sym.Key.Name "Count" "the alias carries the compiled key"
                         | ValueNone -> failtest "a [<CompiledName>] binding publishes its source spelling"
 
-                        match view.TryLookupType "Test.A.Bag.Tag" with
-                        | ValueSome(struct (key, _)) ->
+                        match view.Scope.TypesNamed(containerOrFail view.Scope "Test.A.Bag", "Tag") with
+                        | EqOne(struct (key, _)) ->
                             Expect.equal
                                 (SymbolKeyOps.typeMetaName key)
                                 "Test.A.BagModule+Tag"
                                 "the source path reaches the compiled module"
-                        | ValueNone -> failtest "a type the module holds resolves under the module's source path"
+                        | other -> failtestf "a type the module holds resolves under the module's source path: %A" other
                     }
 
                     test "a composed stack answers from every file, nearest first" {

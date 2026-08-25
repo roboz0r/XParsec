@@ -470,21 +470,26 @@ let tests =
 
             test "[<RequireQualifiedAccess>] rides the published case index" {
                 // The flag is what lets a consumer's bare `Red` be rejected while a bare `Blue`
-                // resolves; it reaches them through the reverse case-name index.
+                // resolves; it reaches them through the declaring module's scope.
                 let r =
                     resolveFsi
                         "app.fsi"
                         "namespace App\n\nmodule M =\n    [<RequireQualifiedAccess>]\n    type Color =\n        | Red\n        | Green\n\n    type Hue =\n        | Blue\n        | Cyan\n"
 
-                let provider = r.Provider
+                let scope = r.Provider.Scope
 
-                match provider.TryLookupUnionCases "Red" with
+                let m =
+                    match scope.TryContainer "App.M" with
+                    | ValueSome c -> c
+                    | ValueNone -> failtest "App.M is a published module"
+
+                match scope.UnionCasesNamed(m, "Red") with
                 | EqOne uc -> Expect.isTrue uc.IsRequireQualifiedAccess "Red's union (Color) is RQA"
-                | other -> failtestf "Red case not found in the reverse index: %A" other
+                | other -> failtestf "Red case not declared in App.M: %A" other
 
-                match provider.TryLookupUnionCases "Blue" with
+                match scope.UnionCasesNamed(m, "Blue") with
                 | EqOne uc -> Expect.isFalse uc.IsRequireQualifiedAccess "Blue's union (Hue) is not RQA"
-                | other -> failtestf "Blue case not found in the reverse index: %A" other
+                | other -> failtestf "Blue case not declared in App.M: %A" other
             }
 
             test "objnull abbrev (`obj | null`) resolves to the union `FTOr [obj; null]`" {
@@ -708,9 +713,9 @@ let tests =
             }
 
             // …and the SOURCE still writes `Test.A.M.T`, which is not the metadata name
-            // `Test.A.M+T`, so it reaches the identity by a redirect over the declared module
-            // containment — re-cutting a key would absorb `M` into the namespace path.
-            test "a module-held contract type still resolves by the name the source WRITES" {
+            // `Test.A.M+T`, so it reaches the identity through the declaring module on the
+            // scope — re-cutting a key would absorb `M` into the namespace path.
+            test "a module-held contract type resolves through its declaring module" {
                 let r =
                     resolveFsi "a.fsi" "namespace Test.A\n\nmodule M =\n    type T = { X: int }\n"
 
@@ -730,16 +735,24 @@ let tests =
                         TyparArity = 0
                     }
 
-                match r.Provider.TryLookupType "Test.A.M.T" with
-                | ValueSome(struct (key, ExternalTypeShape.Record _)) ->
-                    Expect.equal key expected "the written name resolves to the registered InModule identity"
-                | ValueSome(struct (_, other)) -> failtestf "the name resolved, but with the wrong shape: %A" other
-                | ValueNone -> failtest "the written dotted spelling must still resolve"
+                let scope = r.Provider.Scope
 
-                // The redirect is a containment lookup, not a name-shaped guess.
+                let m =
+                    match scope.TryContainer "Test.A.M" with
+                    | ValueSome c -> c
+                    | ValueNone -> failtest "Test.A.M is a published module"
+
+                match scope.TypesNamed(m, "T") with
+                | EqOne(struct (key, ExternalTypeShape.Record _)) ->
+                    Expect.equal key expected "the written name resolves to the registered InModule identity"
+                | other -> failtestf "the module publishes exactly one T, a Record: %A" other
+
+                // A containment lookup, not a name-shaped guess.
+                Expect.isEmpty (scope.TypesNamed(m, "Nope")) "an unknown member of M misses"
+
                 Expect.isTrue
-                    (r.Provider.TryLookupType "Test.A.M.Nope" |> ValueOption.isNone)
-                    "an unknown member of M misses"
+                    (r.Provider.TryLookupType "Test.A.M.T" |> ValueOption.isNone)
+                    "the by-name channel answers for the compiled rendering alone"
             }
 
             test "`when 'T : equality` is captured, and applied to the fresh TyVar at instantiation" {

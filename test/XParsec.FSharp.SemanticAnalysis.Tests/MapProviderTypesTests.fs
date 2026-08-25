@@ -101,9 +101,41 @@ let private memberByName (t: string) (m: string) : ExternalMember voption =
     else
         ValueNone
 
+let private rootContainer = ModuleContainer.InNamespace NamespaceKey.Global
+
+let private uniCase: ExternalUnionCase =
+    {
+        UnionKey = SymbolKeyOps.typeKeyOfArity origin.Namespace.Dotted "Uni" 1
+        Case = markerCase
+        IsRequireQualifiedAccess = false
+    }
+
+let private fakeScope: IScopeContents =
+    { new IScopeContents with
+        member _.TryContainer _ = ValueNone
+
+        member _.TryValue(_, name) =
+            if name = "sym" then
+                ValueSome(ExternalSymbols.monoFrozen (SymbolKeyOps.inNamespace "") "sym" marker)
+            else
+                ValueNone
+
+        member _.UnionCasesNamed(_, name) =
+            if name = "C" then
+                EqArray.singleton uniCase
+            else
+                EqArray.empty
+
+        member _.TypesNamed(_, name) =
+            match typeByName name with
+            | ValueSome shape -> EqArray.singleton (ExternalSymbols.nameKeyedTypeHit name shape)
+            | ValueNone -> EqArray.empty
+    }
+
 let private fake: IExternalSymbolProvider =
     ExternalSymbolProviders.ofNamedChannels
         { ExternalSymbolProviders.NamedChannels.empty with
+            Scope = fakeScope
             TryLookup =
                 fun name ->
                     if name = "sym" then
@@ -111,17 +143,6 @@ let private fake: IExternalSymbolProvider =
                     else
                         ValueNone
             TryLookupType = typeByName
-            TryLookupUnionCases =
-                fun caseName ->
-                    if caseName = "C" then
-                        EqArray.singleton
-                            {
-                                UnionKey = SymbolKeyOps.typeKeyOfArity origin.Namespace.Dotted "Uni" 1
-                                Case = markerCase
-                                IsRequireQualifiedAccess = false
-                            }
-                    else
-                        EqArray.empty
             AmbientOpenPrefixes = [ "Amb" ]
             TryLookupMembers =
                 fun q ->
@@ -242,14 +263,25 @@ let tests =
                 Expect.equal all.[0].Signature.Return (witness Variance.Co) "overloads: Return co"
             }
 
-            test "the reverse union-case channel maps case fields covariantly" {
-                match wrapped.TryLookupUnionCases "C" with
+            test "the scope's union-case channel maps case fields covariantly" {
+                match wrapped.Scope.UnionCasesNamed(rootContainer, "C") with
                 | EqOne uc ->
                     Expect.equal
                         uc.Case.FrozenFieldTypes
                         (EqArray.singleton (witness Variance.Co))
-                        "reverse case field root is co"
+                        "scoped case field root is co"
                 | other -> failtestf "expected one declaring union for 'C', got %A" other
+            }
+
+            test "the scope's value and type channels carry the same transform" {
+                match wrapped.Scope.TryValue(rootContainer, "sym") with
+                | ValueSome s -> Expect.equal s.Scheme (witness Variance.Co) "scoped Scheme root is co"
+                | ValueNone -> failtest "sym is declared in the root namespace"
+
+                match wrapped.Scope.TypesNamed(rootContainer, "Rec") with
+                | EqOne(struct (_, ExternalTypeShape.Record(fields = fields))) ->
+                    Expect.equal fields.[0].Frozen (witness Variance.Co) "scoped record field root is co"
+                | other -> failtestf "expected a Record shape for 'Rec', got %A" other
             }
 
             test "an Abbrev body is NOT threaded (no intrinsic variance) — the marker survives" {

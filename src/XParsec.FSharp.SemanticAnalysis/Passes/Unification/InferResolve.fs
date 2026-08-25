@@ -122,31 +122,6 @@ module internal UnificationInferResolve =
             | 1 -> ValueSome(TyFun(fields.[0], unionTy))
             | _ -> ValueSome(TyFun(TyTuple(EqArray.ofArray fields), unionTy))
 
-    /// The union case `name` refers to at `useSite`. `count = 0` is "no such ctor HERE":
-    /// either no union declares it or the one that does is declared below the use;
-    /// `count >= 2` is ambiguous. The caller emits the diagnostic.
-    let resolveCtorName (ctx: PassContext) (useSite: UseSite) (name: string) : UnionCaseInfo voption * int =
-        match TypeRegistry.casesNamed ctx.Types useSite name with
-        | [||] -> ValueNone, 0
-        | [| only |] -> ValueSome only, 1
-        | infos -> ValueNone, infos.Length
-
-    let resolveQualifiedCtor
-        (ctx: PassContext)
-        (useSite: UseSite)
-        (typeName: string)
-        (caseName: string)
-        : UnionCaseInfo voption =
-        // Case names are globally unique (even across arity-overloaded unions like
-        // `Choice\`2`…`Choice\`7`), so resolve through the reverse case index and let the
-        // written qualifier pick the union: a bare `Union.[typeName]` misses arity overloads.
-        match
-            TypeRegistry.casesNamed ctx.Types useSite caseName
-            |> Array.tryFind (fun c -> c.UnionName = typeName)
-        with
-        | Some c -> ValueSome c
-        | None -> ValueNone
-
     /// The local|external record identity a field set resolves to.
     type ResolvedRecord =
         | LocalRecord of RecordTypeInfo

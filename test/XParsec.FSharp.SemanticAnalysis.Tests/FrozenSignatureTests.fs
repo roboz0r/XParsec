@@ -141,18 +141,24 @@ let tests =
                 | other -> failtestf "Opt did not project as a generic Union: %A" other
             }
 
-            test "union cases resolve by bare case name" {
+            test "union cases resolve in their declaring module" {
                 let origin, frozen = freezeWithOrigin projectionSrc
 
-                let resolver = FrozenSignature.toSignatures origin frozen :> IExternalSymbolResolver
+                let scope =
+                    (FrozenSignature.toSignatures origin frozen :> IExternalSymbolResolver).Scope
 
-                match resolver.TryLookupUnionCases "Just" with
+                let m =
+                    match scope.TryContainer "Test.Sig.M" with
+                    | ValueSome c -> c
+                    | ValueNone -> failtest "Test.Sig.M is a published module"
+
+                match scope.UnionCasesNamed(m, "Just") with
                 | EqOne uc ->
                     Expect.equal uc.UnionKey.TyparArity 1 "Just's declaring union arity"
                     Expect.equal uc.Case.Name "Just" "matched case name"
                 | other -> failtestf "expected one declaring union for 'Just', got %A" other
 
-                Expect.isNonEmpty (resolver.TryLookupUnionCases "Nope") "Nope resolves"
+                Expect.isNonEmpty (scope.UnionCasesNamed(m, "Nope")) "Nope resolves"
             }
 
             test "augmentation members project on the store view" {

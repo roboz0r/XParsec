@@ -52,7 +52,6 @@ type private CountingProvider(name: string) =
         member this.TryLookupType(n: string) =
             this.TypeByName n |> ValueOption.map (ExternalSymbols.nameKeyedTypeHit n)
 
-        member _.TryLookupUnionCases _ = EqArray.empty
         member _.TryRecordsWithField _ = EqArray.empty
         member _.AmbientOpenPrefixes = []
 

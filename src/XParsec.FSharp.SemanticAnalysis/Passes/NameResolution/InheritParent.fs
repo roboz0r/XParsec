@@ -4,6 +4,7 @@ open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open UnificationEngineCore
 open ExternalTypeProbe
+open NameResolutionLongIdent
 open NameResolutionTypeRefStamp
 
 // Resolving an `inherit` clause's PARENT, at registration time and in the scope the clause is
@@ -173,9 +174,10 @@ module NameResolutionInheritParent =
                 // The contract's ctor-bearing intrinsic surface for the name, as its canon.
                 let tryCtorBearingCanon () =
                     match
-                        tryPickExternalType
+                        tryPickExternalWritten
                             ctx
-                            (arityProbes targs.Length)
+                            (ctx.UseSiteAt diagKey)
+                            [ targs.Length ]
                             (fun hit -> ExternalSymbols.intrinsicClassOf hit.Shape)
                             name
                     with
@@ -211,7 +213,14 @@ module NameResolutionInheritParent =
                 let resolveThroughProvider () =
                     // `inherit X` is a name WRITTEN AT A SITE, so it resolves through the same
                     // opens-aware engine as any written type name.
-                    match tryPickExternalType ctx (arityProbes targs.Length) (providerBaseOf targs.Length) name with
+                    match
+                        tryPickExternalWritten
+                            ctx
+                            (ctx.UseSiteAt diagKey)
+                            [ targs.Length ]
+                            (providerBaseOf targs.Length)
+                            name
+                    with
                     | ValueSome(ProviderBase.Class key) -> ValueSome(TyClass(key, EqArray.ofList targs))
                     | ValueSome(ProviderBase.HeritableCanon id) -> ValueSome(TyConst(id.Canon, EqArray.ofList targs))
                     | ValueSome(ProviderBase.HeritablePlatform id) ->

@@ -107,9 +107,9 @@ module internal UnificationInferIdentExpr =
             | ValueNone ->
                 match TypeRegistry.tryUnionBare ctx.Types useSite anchorName with
                 | ValueSome _ ->
-                    // Qualified ctor reference, resolved through the union registry
-                    // and so bypassing the `CtorIndex` ambiguity check.
-                    match resolveQualifiedCtor ctx useSite anchorName memberName with
+                    // Qualified ctor reference (`Color.Red`), stamped upstream and read
+                    // here by node key.
+                    match ResolvedStamps.tryLocalUnionCase ctx.Resolution.Resolved node.Key with
                     | ValueSome info -> ctorType ctx info
                     | ValueNone ->
                         orWriteOnly (fun () ->
@@ -146,15 +146,11 @@ module internal UnificationInferIdentExpr =
 
                     match singleSegName with
                     | ValueSome n ->
-                        let info, count = resolveCtorName ctx (ctx.UseSiteAt node.Key) n
-
-                        match info with
+                        match ResolvedStamps.tryLocalUnionCase ctx.Resolution.Resolved node.Key with
                         | ValueSome i -> ctorType ctx i
-                        | ValueNone when count >= 2 ->
-                            if ResolvedStamps.isAmbiguousCase ctx.Resolution.Resolved node.Key then
-                                TyVar(freshTyVar ctx)
-                            else
-                                errorTy ctx node.Tok (Kind.AmbiguousConstructor(n, count))
+                        // NameResolution reported the ambiguity; the use types as a fresh variable.
+                        | ValueNone when ResolvedStamps.isAmbiguousCase ctx.Resolution.Resolved node.Key ->
+                            TyVar(freshTyVar ctx)
                         | ValueNone ->
                             // External union case ctor (`Some` / `None` from a referenced
                             // package): typed as `field… -> TyUnion(union, …)`, so the

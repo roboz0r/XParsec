@@ -64,9 +64,11 @@ type IScopeContents =
     /// short name and under the short name its source writes, which a `[<CompiledName>]`
     /// makes differ.
     abstract TryValue: container: ModuleContainer * name: string -> ExternalSymbol voption
-    /// The union case `name` of a union declared directly in `container`; the answer carries
-    /// its `[<RequireQualifiedAccess>]` flag for the caller to report.
-    abstract TryUnionCase: container: ModuleContainer * name: string -> ExternalUnionCase voption
+    /// Every case named `name` of a union declared directly in `container`; each answer
+    /// carries its `[<RequireQualifiedAccess>]` flag for the caller to report. Two answers
+    /// are two unions of the container declaring the name, which the caller reports as an
+    /// ambiguity.
+    abstract UnionCasesNamed: container: ModuleContainer * name: string -> EqArray<ExternalUnionCase>
     /// Every type named `name` declared directly in `container`, one per generic arity.
     abstract TypesNamed: container: ModuleContainer * name: string -> EqArray<struct (TypeKey * ExternalTypeShape)>
 
@@ -78,12 +80,14 @@ module ScopeContents =
         { new IScopeContents with
             member _.TryContainer _ = ValueNone
             member _.TryValue(_, _) = ValueNone
-            member _.TryUnionCase(_, _) = ValueNone
+            member _.UnionCasesNamed(_, _) = EqArray.empty
             member _.TypesNamed(_, _) = EqArray.empty
         }
 
-    /// The nearest-first composition: a container, value or case is the first source's that
-    /// declares it, and a type name is the first source's non-empty arity set.
+    /// The nearest-first composition: a container or value is the first source's that
+    /// declares it, and a type name is the first source's non-empty arity set. Union cases
+    /// are the UNION across sources: a case name recurs across packages, and the caller
+    /// decides between the claims.
     let composite (sources: IScopeContents list) : IScopeContents =
         match sources with
         | [] -> empty
@@ -105,8 +109,12 @@ module ScopeContents =
                 member _.TryContainer path = firstHit (fun s -> s.TryContainer path)
                 member _.TryValue(c, name) = firstHit (fun s -> s.TryValue(c, name))
 
-                member _.TryUnionCase(c, name) =
-                    firstHit (fun s -> s.TryUnionCase(c, name))
+                member _.UnionCasesNamed(c, name) =
+                    EqArray.ofSeq
+                        [
+                            for s in sources do
+                                yield! s.UnionCasesNamed(c, name)
+                        ]
 
                 member _.TypesNamed(c, name) =
                     let mutable result = EqArray.empty
@@ -129,11 +137,6 @@ type IExternalSymbolResolver =
     /// Look up a `type` by canonical compiled name, returning its REGISTERED identity plus
     /// its body shape from the one hit.
     abstract TryLookupType: name: string -> struct (TypeKey * ExternalTypeShape) voption
-
-    /// Reverse case-name lookup: a bare case name → every union declaring a case of that
-    /// name, so `Some 5` / `None` type without an annotation. Unfiltered by scope; the caller
-    /// narrows to the `open`s at the use site.
-    abstract TryLookupUnionCases: caseName: string -> EqArray<ExternalUnionCase>
 
     /// A field name → every record declaring a field of that name; unqualified
     /// record-literal / record-pattern resolution intersects these sets to pin the type.

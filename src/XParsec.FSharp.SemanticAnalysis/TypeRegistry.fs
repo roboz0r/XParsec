@@ -821,15 +821,6 @@ module TypeRegistry =
         | true, infos -> infos |> EqArray.exists (caseVisibleAt types useSite)
         | false, _ -> false
 
-    /// Is `qualifier.caseName` a *local* union-case reference visible from `useSite`?
-    /// Arity-safe: `Choice.Choice1Of3` reaches ``Choice`3``.
-    let localQualifiedCase (types: PassContextTypes) (useSite: UseSite) (qualifier: string) (caseName: string) : bool =
-        match types.CtorIndex.TryGetValue caseName with
-        | true, infos ->
-            infos
-            |> EqArray.exists (fun c -> c.UnionName = qualifier && caseVisibleAt types useSite c)
-        | false, _ -> false
-
     /// Record the decl-site origin of a freshly-minted `SymbolKey`. Returns the PRIOR
     /// declaration's `NodeKey` if a DIFFERENT declaration already minted `key`.
     let recordKeyOrigin (types: PassContextTypes) (declKey: NodeKey) (key: SymbolKey) : NodeKey voption =

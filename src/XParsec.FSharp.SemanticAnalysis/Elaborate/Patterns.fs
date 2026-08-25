@@ -140,19 +140,12 @@ module internal ElaboratePatterns =
             TPat.EnumCase(enumKey, ctx.NameOf li.Idents.[1], ty, tok)
         | Pat.Named(longIdent = li; argumentPats = args) when
             (ResolvedStamps.tryUnionCase ctx.Resolution.Resolved key).IsSome
-            || (li.Idents.Length >= 1
-                && (let last = ctx.NameOf li.Idents.[li.Idents.Length - 1]
+            || (li.Idents.Length = 1
+                && (let last = ctx.NameOf li.Idents.[0]
 
                     last.Length > 0
                     && System.Char.IsUpper last.[0]
-                    && (li.Idents.Length = 1
-                        && TypeRegistry.isCaseName ctx.Types (ctx.UseSiteAt key) last
-                        || li.Idents.Length = 2
-                           && TypeRegistry.localQualifiedCase
-                               ctx.Types
-                               (ctx.UseSiteAt key)
-                               (ctx.NameOf li.Idents.[0])
-                               last)))
+                    && TypeRegistry.isCaseName ctx.Types (ctx.UseSiteAt key) last))
             ->
             let caseName = ctx.NameOf li.Idents.[li.Idents.Length - 1]
 

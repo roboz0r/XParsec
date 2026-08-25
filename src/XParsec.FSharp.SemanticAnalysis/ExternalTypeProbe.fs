@@ -12,8 +12,8 @@ module ExternalTypeProbe =
             /// abbrev, an intrinsic or an unmodelled shape takes the probed compiled name,
             /// dealiasing on read.
             UseSiteKey: TypeKey
-            /// The arity the PROBE asked for, not necessarily the shape's own: a bare-keyed
-            /// generic (`Vesper.Option`, arity 1) hits the bare probe.
+            /// The arity the PROBE asked for, which a shape declining it still answers under:
+            /// the caller compares the two.
             ProbedTyparArity: int
             Shape: ExternalTypeShape
         }
@@ -32,19 +32,21 @@ module ExternalTypeProbe =
         | ExternalTypeShape.Intrinsic _
         | ExternalTypeShape.Unmodelled _ -> SymbolKeyOps.qualifiedTypeKeyOf probe arity
 
-    /// Per qualified candidate, probe every pair `probes` yields and take the first hit
-    /// `pick` admits.
+    /// Per qualified candidate, probe the compiled name each of `arities` keys it under
+    /// (`` Name`2 ``, and `Name` at arity 0) and take the first hit `pick` admits.
     let tryPickExternalType
         (ctx: PassContext)
-        (probes: string -> struct (string * int) list)
+        (arities: int list)
         (pick: ExternalTypeHit -> 'T voption)
         (name: string)
         : 'T voption =
         let lookup (candidate: string) : 'T voption =
-            let rec go (remaining: struct (string * int) list) =
+            let rec go (remaining: int list) =
                 match remaining with
                 | [] -> ValueNone
-                | struct (probe, arity) :: rest ->
+                | arity :: rest ->
+                    let probe = SymbolKeyOps.arityName candidate arity
+
                     match ctx.Resolver.TryLookupType probe with
                     | ValueSome(struct (key, shape)) ->
                         let hit =
@@ -59,26 +61,15 @@ module ExternalTypeProbe =
                         | ValueNone -> go rest
                     | ValueNone -> go rest
 
-            go (probes candidate)
+            go arities
 
         OpenScope.tryResolve ctx.Resolution.OpenScope lookup name
-
-    /// Metadata keys a generic type `` Name`arity `` while the contract layer keys it bare,
-    /// so the arity-suffixed name is probed first and wins when both could match.
-    let arityProbes (arity: int) (candidate: string) : struct (string * int) list =
-        if arity = 0 then
-            [ struct (candidate, 0) ]
-        else
-            [
-                struct (SymbolKeyOps.arityName candidate arity, arity)
-                struct (candidate, arity)
-            ]
 
     /// At exactly `arity`: a shape whose own typar count differs is not a hit.
     let tryResolveExternalTypeKey (ctx: PassContext) (name: string) (arity: int) : TypeKey voption =
         tryPickExternalType
             ctx
-            (arityProbes arity)
+            [ arity ]
             (fun hit ->
                 if hit.Shape.TyparArity = hit.ProbedTyparArity then
                     ValueSome hit.UseSiteKey

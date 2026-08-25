@@ -335,11 +335,19 @@ module PublishedSurface =
             | _ -> ()
 
         let casesIn =
-            Dictionary<struct (ModuleContainer * string), ExternalUnionCase>(HashIdentity.Structural)
+            Dictionary<struct (ModuleContainer * string), ResizeArray<ExternalUnionCase>>(HashIdentity.Structural)
 
         for e in surface.UnionCases do
             match SymbolKeyOps.tryModuleContainerOf e.Value.UnionKey.Container with
-            | ValueSome c -> casesIn.TryAdd(struct (c, e.Value.Case.Name), e.Value) |> ignore
+            | ValueSome c ->
+                let slot = struct (c, e.Value.Case.Name)
+
+                match casesIn.TryGetValue slot with
+                | true, claims -> claims.Add e.Value
+                | _ ->
+                    let claims = ResizeArray 1
+                    claims.Add e.Value
+                    casesIn.[slot] <- claims
             | ValueNone -> ()
 
         let typesIn =
@@ -411,10 +419,10 @@ module PublishedSurface =
                 | true, sym -> ValueSome sym
                 | _ -> ValueNone
 
-            member _.TryUnionCase(container, name) =
+            member _.UnionCasesNamed(container, name) =
                 match casesIn.TryGetValue(struct (container, name)) with
-                | true, uc -> ValueSome uc
-                | _ -> ValueNone
+                | true, claims -> EqArray.ofResizeArray claims
+                | _ -> EqArray.empty
 
             member _.TypesNamed(container, name) =
                 match typesIn.TryGetValue(struct (container, name)) with
@@ -424,7 +432,6 @@ module PublishedSurface =
 
     let toProvider (surface: PublishedSurface) : IExternalSymbolProvider =
         let typesByName = nameIndex surface.TypesByName
-        let moduleContainers = nameIndex surface.ModuleContainers
         let recordFields = nameIndex surface.RecordFields
 
         // The legacy by-NAME value channel, and the one place a written value name is
@@ -439,34 +446,12 @@ module PublishedSurface =
             | true, sym -> symbols.TryAdd(writtenName e.Key, sym) |> ignore
             | _ -> ()
 
-        // The bare-name reverse index `TryLookupUnionCases` answers from: every union
-        // declaring the name, in key order.
-        let unionCases =
-            Dictionary<string, ResizeArray<ExternalUnionCase>>(StringComparer.Ordinal)
-
-        for e in surface.UnionCases do
-            match unionCases.TryGetValue e.Value.Case.Name with
-            | true, buf -> buf.Add e.Value
-            | _ ->
-                let buf = ResizeArray<ExternalUnionCase>()
-                buf.Add e.Value
-                unionCases.[e.Value.Case.Name] <- buf
-
-        // Two spellings arrive: the canonical metadata name, a direct hit; and the dotted
-        // spelling source writes for a module-held type (`M.T`), resolved through the
-        // declared modules.
+        // The canonical metadata name only. The dotted spelling source writes for a
+        // module-held type (`M.T`) is reached through the module, on the scope.
         let tryTypeKey (probe: string) : TypeKey voption =
-            let exact (name: string) =
-                match typesByName.TryGetValue name with
-                | true, key -> ValueSome key
-                | _ -> ValueNone
-
-            let moduleContainer (path: string) =
-                match moduleContainers.TryGetValue path with
-                | true, container -> ValueSome container
-                | _ -> ValueNone
-
-            SymbolKeyOps.tryDottedInModule exact moduleContainer probe
+            match typesByName.TryGetValue probe with
+            | true, key -> ValueSome key
+            | _ -> ValueNone
 
         ExternalSymbolProviders.ofKeyedChannels (
             ExternalSymbolProviders.KeyedChannels.ofKeyIndexes
@@ -480,11 +465,6 @@ module PublishedSurface =
                             match symbols.TryGetValue name with
                             | true, sym -> ValueSome sym
                             | _ -> ValueNone
-                    TryLookupUnionCases =
-                        fun caseName ->
-                            match unionCases.TryGetValue caseName with
-                            | true, hits -> EqArray.ofResizeArray hits
-                            | _ -> EqArray.empty
                     TryRecordsWithField =
                         fun fieldName ->
                             match recordFields.TryGetValue fieldName with

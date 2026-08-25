@@ -671,7 +671,6 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
             this.LookupTypeByName name
             |> ValueOption.map (ExternalSymbols.nameKeyedTypeHit name)
 
-        member _.TryLookupUnionCases _ = EqArray.empty
         // The metadata layer scrapes IL, never F# record tycons, so it never contributes to
         // the reverse field index (F#'s `isILOrRequiredQualifiedAccess` excludes IL too).
         member _.TryRecordsWithField _ = EqArray.empty

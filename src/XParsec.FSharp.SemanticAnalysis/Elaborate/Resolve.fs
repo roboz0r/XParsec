@@ -117,17 +117,6 @@ module internal ElaborateResolve =
                 let n = ctx.NameOf li.Idents.[0]
 
                 if isCase n then ValueSome n else ValueNone
-            | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
-                li.Idents.Length = 2
-                && TypeRegistry.localQualifiedCase
-                    ctx.Types
-                    (ctx.UseSiteAt key)
-                    (ctx.NameOf li.Idents.[0])
-                    (ctx.NameOf li.Idents.[1])
-                ->
-                // `localQualifiedCase` already confirmed the case belongs to the
-                // qualifier's union (arity-safe over `Choice\`2`…`Choice\`7`).
-                ValueSome(ctx.NameOf li.Idents.[1])
             | _ -> ValueNone
 
     [<return: Struct>]

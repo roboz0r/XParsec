@@ -35,7 +35,6 @@ module ExternalSymbolProviders =
         {
             TryLookup: string -> ExternalSymbol voption
             TryLookupType: string -> ExternalTypeShape voption
-            TryLookupUnionCases: string -> EqArray<ExternalUnionCase>
             TryRecordsWithField: string -> EqArray<ExternalRecordCandidate>
             AmbientOpenPrefixes: string list
             TryLookupMembers: ExternalMemberName -> EqArray<ExternalMember>
@@ -53,7 +52,6 @@ module ExternalSymbolProviders =
                 Scope = ScopeContents.empty
                 TryLookup = fun _ -> ValueNone
                 TryLookupType = fun _ -> ValueNone
-                TryLookupUnionCases = fun _ -> EqArray.empty
                 TryRecordsWithField = fun _ -> EqArray.empty
                 AmbientOpenPrefixes = []
                 TryLookupMembers = fun _ -> EqArray.empty
@@ -73,7 +71,6 @@ module ExternalSymbolProviders =
             /// Written type name -> registered identity.
             ResolveTypeName: string -> TypeKey voption
             TryLookup: string -> ExternalSymbol voption
-            TryLookupUnionCases: string -> EqArray<ExternalUnionCase>
             TryRecordsWithField: string -> EqArray<ExternalRecordCandidate>
             AmbientOpenPrefixes: string list
             IntrinsicTypeMap: IntrinsicTypeMap
@@ -89,7 +86,6 @@ module ExternalSymbolProviders =
                 MembersByKey = Dictionary() :> IReadOnlyDictionary<_, _>
                 ResolveTypeName = fun _ -> ValueNone
                 TryLookup = fun _ -> ValueNone
-                TryLookupUnionCases = fun _ -> EqArray.empty
                 TryRecordsWithField = fun _ -> EqArray.empty
                 AmbientOpenPrefixes = []
                 IntrinsicTypeMap = IntrinsicTypeMap.empty
@@ -141,7 +137,6 @@ module ExternalSymbolProviders =
                     { NamedChannels.empty with
                         Scope = channels.Scope
                         TryLookup = channels.TryLookup
-                        TryLookupUnionCases = channels.TryLookupUnionCases
                         TryRecordsWithField = channels.TryRecordsWithField
                         AmbientOpenPrefixes = channels.AmbientOpenPrefixes
                         IntrinsicTypeMap = channels.IntrinsicTypeMap
@@ -164,7 +159,6 @@ module ExternalSymbolProviders =
               member _.Scope = named.Scope
               member _.TryLookup name = named.TryLookup name
               member _.TryLookupType(name: string) = channels.TypeByName name
-              member _.TryLookupUnionCases caseName = named.TryLookupUnionCases caseName
               member _.TryRecordsWithField fieldName = named.TryRecordsWithField fieldName
               member _.AmbientOpenPrefixes = named.AmbientOpenPrefixes
           interface IExternalSymbolStore with
@@ -222,9 +216,6 @@ module ExternalSymbolProviders =
         abstract TryLookupTypeByName: name: string -> struct (TypeKey * ExternalTypeShape) voption
         default _.TryLookupTypeByName name = inner.TryLookupType name
 
-        abstract TryLookupUnionCases: caseName: string -> EqArray<ExternalUnionCase>
-        default _.TryLookupUnionCases caseName = inner.TryLookupUnionCases caseName
-
         abstract TryRecordsWithField: fieldName: string -> EqArray<ExternalRecordCandidate>
         default _.TryRecordsWithField fieldName = inner.TryRecordsWithField fieldName
 
@@ -258,7 +249,6 @@ module ExternalSymbolProviders =
             member this.Scope = this.Scope
             member this.TryLookup name = this.TryLookup name
             member this.TryLookupType(name: string) = this.TryLookupTypeByName name
-            member this.TryLookupUnionCases caseName = this.TryLookupUnionCases caseName
             member this.TryRecordsWithField fieldName = this.TryRecordsWithField fieldName
             member this.AmbientOpenPrefixes = this.AmbientOpenPrefixes
 
@@ -366,15 +356,6 @@ module ExternalSymbolProviders =
                   |> ValueOption.map (fun (struct (key, shape)) ->
                       struct (key, stampType (foldIntrinsicSurface key shape))
                   )
-
-              // UNION, not first-hit-wins: a case name can recur across unions in DIFFERENT
-              // packages, and the `open`s at the use site decide which a bare `Red` is.
-              member _.TryLookupUnionCases caseName =
-                  EqArray.ofSeq
-                      [
-                          for s in providers do
-                              yield! s.TryLookupUnionCases caseName
-                      ]
 
               // UNION, not first-hit-wins: a field name can recur across records in
               // DIFFERENT packages, and unqualified record resolution must intersect over
@@ -530,20 +511,37 @@ module ExternalSymbolProviders =
             | ExternalTypeShape.Intrinsic _
             | ExternalTypeShape.Unmodelled _ -> shape
 
+        let mapSymbol (s: ExternalSymbol) = { s with Scheme = co s.Scheme }
+
+        // The scope answers for the same values, cases and types the by-name channels do, so
+        // it carries the same transform.
+        let mappedScope =
+            { new IScopeContents with
+                member _.TryContainer path = inner.Scope.TryContainer path
+
+                member _.TryValue(c, name) =
+                    inner.Scope.TryValue(c, name) |> ValueOption.map mapSymbol
+
+                member _.UnionCasesNamed(c, name) =
+                    inner.Scope.UnionCasesNamed(c, name)
+                    |> EqArray.map (fun uc -> { uc with Case = mapCase uc.Case })
+
+                member _.TypesNamed(c, name) =
+                    inner.Scope.TypesNamed(c, name)
+                    |> EqArray.map (fun (struct (key, shape)) -> struct (key, mapShape shape))
+            }
+
         // An `ExternalRecordCandidate` carries identity + field NAMES only, and value-ness is
         // a layout not a type: neither channel carries a position to map.
         { new ProviderDecorator(inner) with
+            override _.Scope = mappedScope
+
             override _.TryLookup name =
-                inner.TryLookup name
-                |> ValueOption.map (fun s -> { s with Scheme = co s.Scheme })
+                inner.TryLookup name |> ValueOption.map mapSymbol
 
             override _.TryLookupTypeByName name =
                 inner.TryLookupType name
                 |> ValueOption.map (fun (struct (key, shape)) -> struct (key, mapShape shape))
-
-            override _.TryLookupUnionCases caseName =
-                inner.TryLookupUnionCases caseName
-                |> EqArray.map (fun uc -> { uc with Case = mapCase uc.Case })
 
             override _.TryLookupTypeByKey key =
                 inner.TryLookupType key |> ValueOption.map mapShape
@@ -613,7 +611,6 @@ module ExternalSymbolProviders =
         let membersByKey = ConcurrentDictionary<MemberKey, ExternalMember voption>()
 
         let indexSigs = ConcurrentDictionary<TypeKey, (FrozenType * FrozenType) list>()
-        let unionCases = ConcurrentDictionary<string, EqArray<ExternalUnionCase>>()
 
         let recordsByField =
             ConcurrentDictionary<string, EqArray<ExternalRecordCandidate>>()
@@ -641,9 +638,6 @@ module ExternalSymbolProviders =
 
             override _.TryLookupTypeByName name =
                 typesByName.GetOrAdd(name, (fun n -> inner.TryLookupType n))
-
-            override _.TryLookupUnionCases caseName =
-                unionCases.GetOrAdd(caseName, (fun n -> inner.TryLookupUnionCases n))
 
             override _.TryRecordsWithField fieldName =
                 recordsByField.GetOrAdd(fieldName, (fun n -> inner.TryRecordsWithField n))

@@ -31,7 +31,7 @@ the settled semantics, the corrected premises, and the work left.
 - Every published scope is TOTAL: a source answering for a container answers for its values
   and its types alike, the TS manifest included, which publishes a `PublishedSurface` like
   any other referenced package (`TsManifestProvider.publicationOf`).
-- Suites at the last landed step: SemanticAnalysis 1479, Clr 1550, Js 667.
+- Suites at the last landed step: SemanticAnalysis 1480, Clr 1550, Js 667.
 
 ## 2. Premises corrected by the wiring survey (2026-08-24)
 
@@ -157,10 +157,40 @@ Each step leaves the tree green and is a separate review.
      static. `MyEnum.Nope` is FS0039, and R3b's justification does not hold: Unification's
      enum arm reports `NoCase` for `MyEnum.Equals` too, so it resolves nothing here. A local
      enum's inherited `System.Enum` statics are the same gap `MyClass.Equals` falls into.
-6. **R4 — Delete the remaining legacy channels.** The provider-level
-   `TryLookupUnionCases`, `localQualifiedCase`, `casesNamed`-as-global-reverse-lookup,
-   `tryDottedInModule`, and `arityProbes`' per-prefix loop. Score the step by the runtime
-   checks removed, per the repo rule.
+6. **R4 — Delete the remaining legacy channels. LANDED (2026-08-25).** All five named
+   channels are gone; a written name now reaches a referenced case or type through the
+   container that declares it.
+   - `IExternalSymbolResolver.TryLookupUnionCases` is deleted, and
+     `IScopeContents.TryUnionCase` is `UnionCasesNamed`, a multimap like its `TypesNamed`
+     sibling. `externalCasesInScope` walks the root namespace plus every active `open`
+     prefix, so the `[<RequireQualifiedAccess>]` filter and the 0/1/many `AmbiguousCase`
+     match are the only checks left. R3c's 0/1/many now covers a QUALIFIED `M.Red` too,
+     where the single-answer channel had picked by insertion order.
+   - `localQualifiedCase`, `resolveCtorName` and `resolveQualifiedCtor` are deleted:
+     Unification and Elaborate read `ResolvedStamps.tryLocalUnionCase` at the node key.
+     That removes three re-derivations of a resolution NameResolution had already made, the
+     `not (isAmbiguousCase …)` guards that existed only to suppress the duplicate
+     `AmbiguousConstructor` report, and `inferLocalCasePattern`'s `voption` parameter with
+     its dead arm. `casesNamed` survives as `caseInEnv`'s scoped bare-case read, its one
+     remaining caller.
+   - `SymbolKeyOps.tryDottedInModule` is deleted and `PublishedSurface`'s `ResolveTypeName`
+     answers for the compiled rendering alone. `tryPickExternalWritten` falls through to
+     `IScopeContents.TypesNamed` over the containers the written path denotes, which is
+     what `resolveType`, `typeInEnv`, `typeFirst`, `folded` and `resolveInheritParent` all
+     take. `SymbolKeyOps.typeSourceName` went with the check it fed.
+   - The `probes: string -> (string * int) list` parameter is an `int list`: both probe
+     builders were `arityName candidate` over an arity set, so `arityProbes` is `[ arity ]`
+     and `qualifierProbes` is `qualifierArities`. The per-arity fallback probe is deleted —
+     a generic type is keyed `` Name`arity `` in the name index and by its key's own arity
+     on the scope, so the bare probe answered for nothing.
+   - Two findings, both fixed here: `mapProviderTypes` decorated the by-name channels and
+     left `Scope` untouched, so `Vesper.Set.empty` reached JS with an undecorated scheme
+     while a bare `empty` reached it decorated; and `tryExternalEnumCaseKey` had lost its
+     last caller to the `ResolvedItem.EnumCase` stamp.
+   - **Still open**, the sixth channel R5's note anticipated: `IExternalSymbolResolver.TryLookup`
+     and `toProvider`'s by-name value index. Its four production readers (`valueInEnv`,
+     `stampExternalSymbol` / `tryStampExternalValue`, `CoreAccess`, `ConformanceTypars`) each
+     need their own container or key, and `TryLookupByKey` renders a `BindingKey` to reach it.
 7. **R5 — `Symbols` is keyed by identity. LANDED (2026-08-25), ahead of R3/R4.** Brought
    forward because R2 shipped a defect: `scopeOf` recovered a source short name by splitting
    the rendered key at its last `.`, so a binding whose own name holds a dot
@@ -169,8 +199,8 @@ Each step leaves the tree green and is a separate review.
    BindingKey` deleted the split, the cloned `{ sym with Name = written }` record,
    `ExternalSymbol.Name` (a cache of `Key`'s rendering, and the field the clone corrupted),
    and `checkValues`' `seen: HashSet<BindingKey>`. A value name is now rendered in exactly one
-   place, `toProvider`'s by-name channel, which R4 deletes. Pinned in
-   `ScopeContentsTests.expectBagSpellings` over both producers.
+   place, `toProvider`'s by-name channel, which R4 left standing (see R4's last bullet).
+   Pinned in `ScopeContentsTests.expectBagSpellings` over both producers.
 
 Deferred beyond this doc (move to their homes when this doc is deleted): the mid-file `open`
 order follow-up (`BindingRank` applied across both halves — its `ptest`s state the assertion);

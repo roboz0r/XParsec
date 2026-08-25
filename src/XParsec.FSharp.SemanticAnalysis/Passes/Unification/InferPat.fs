@@ -21,42 +21,19 @@ module internal UnificationInferPat =
         let tok = CstKeys.firstTokenOfPat p
 
         match p with
-        | Pat.NamedSimple t when
-            let n = ctx.NameOf t
+        | Pat.NamedSimple t & Resolves ResolvedStamps.tryLocalUnionCase ctx.Resolution.Resolved key info ->
+            // Nullary case of a union declared in this file, stamped upstream and read here
+            // by node key. An uppercase ident denoting no case in scope carries no stamp and
+            // stays an ordinary bound variable, as in F#.
+            if info.Fields.Length <> 0 then
+                ctx.Report(tok, Kind.NullaryConstructorPattern(ctx.NameOf t, info.Fields.Length))
 
-            n.Length > 0
-            && System.Char.IsUpper n.[0]
-            && TypeRegistry.isCaseName ctx.Types (ctx.UseSiteAt key) n
-            ->
-            // An uppercase-leading bare ident matching a ctor IN SCOPE HERE is reinterpreted as
-            // a nullary ctor pattern. A case whose union is declared BELOW is not in scope here,
-            // so that ident stays an ordinary bound variable, as in F#.
-            let n = ctx.NameOf t
-            let info, count = resolveCtorName ctx (ctx.UseSiteAt key) n
-
-            match info with
-            | ValueSome i when i.Fields.Length = 0 ->
-                let unionInfo = TypeRegistry.unionOfCase ctx.Types i
-                let args, _ = freshNamedInstance ctx unionInfo.TypeParams
-                let ty = TyUnion(unionInfo.TypeKey, args)
-                let nodeTv = freshTv ctx key
-                ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, ValueSome ty)
-                ty
-            | ValueSome i ->
-                ctx.Report(tok, Kind.NullaryConstructorPattern(n, i.Fields.Length))
-
-                let unionInfo = TypeRegistry.unionOfCase ctx.Types i
-                let args, _ = freshNamedInstance ctx unionInfo.TypeParams
-                let ty = TyUnion(unionInfo.TypeKey, args)
-                let nodeTv = freshTv ctx key
-                ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, ValueSome ty)
-                ty
-            | ValueNone when count >= 2 ->
-                if not (ResolvedStamps.isAmbiguousCase ctx.Resolution.Resolved key) then
-                    ctx.Report(tok, Kind.AmbiguousConstructor(n, count))
-
-                TyVar(freshTv ctx key)
-            | ValueNone -> TyVar(freshTv ctx key)
+            let unionInfo = TypeRegistry.unionOfCase ctx.Types info
+            let args, _ = freshNamedInstance ctx unionInfo.TypeParams
+            let ty = TyUnion(unionInfo.TypeKey, args)
+            let nodeTv = freshTv ctx key
+            ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, ValueSome ty)
+            ty
         | Pat.NamedSimple t & Resolves ResolvedStamps.tryExternalUnionCase ctx.Resolution.Resolved key uc ->
             // Nullary case of an *external* (referenced-package) union (`None`), stamped
             // upstream and read here by node key. A bare RQA case is NOT stamped, so it
@@ -113,41 +90,6 @@ module internal UnificationInferPat =
         | Pat.Named(argumentPats = args) & Resolves ResolvedStamps.tryLocalUnionCase ctx.Resolution.Resolved key info ->
             // A case of a union declared in this file, by whichever path NameResolution
             // reached it: through its module (`M.Red`), its type (`Color.Red`), or bare.
-            inferLocalCasePattern ctx key tok args (ValueSome info)
-        | Pat.Named(longIdent = li; argumentPats = args) when
-            li.Idents.Length >= 1
-            && (let last = ctx.NameOf li.Idents.[li.Idents.Length - 1]
-                last.Length > 0 && System.Char.IsUpper last.[0])
-            && (li.Idents.Length = 1
-                && TypeRegistry.isCaseName ctx.Types (ctx.UseSiteAt key) (ctx.NameOf li.Idents.[0])
-                || li.Idents.Length = 2
-                   && (
-                       match TypeRegistry.tryUnionBare ctx.Types (ctx.UseSiteAt key) (ctx.NameOf li.Idents.[0]) with
-                       | ValueSome info ->
-                           let caseName = ctx.NameOf li.Idents.[1]
-                           info.Cases |> Array.exists (fun c -> c.Name = caseName)
-                       | ValueNone -> false
-                   ))
-            ->
-            // A local case NameResolution left un-stamped, resolved by the speculation plan
-            // step 5 deletes.
-            let info =
-                if li.Idents.Length = 1 then
-                    let name = ctx.NameOf li.Idents.[0]
-
-                    match resolveCtorName ctx (ctx.UseSiteAt key) name with
-                    | ValueSome i, _ -> ValueSome i
-                    | ValueNone, count when count >= 2 ->
-                        if not (ResolvedStamps.isAmbiguousCase ctx.Resolution.Resolved key) then
-                            ctx.Report(tok, Kind.AmbiguousConstructor(name, count))
-
-                        ValueNone
-                    | _ -> ValueNone
-                else
-                    let typeName = ctx.NameOf li.Idents.[0]
-                    let caseName = ctx.NameOf li.Idents.[1]
-                    resolveQualifiedCtor ctx (ctx.UseSiteAt key) typeName caseName
-
             inferLocalCasePattern ctx key tok args info
         | Pat.Named(longIdent = li; argumentPats = args) & Resolves ResolvedStamps.tryExternalUnionCase ctx.Resolution.Resolved key uc ->
             // A case WITH FIELDS of an *external* union (`Some x`, `Result.Ok x`), bare or
@@ -345,47 +287,39 @@ module internal UnificationInferPat =
         | _ -> TyVar(freshTv ctx key)
 
     /// A case pattern of a union declared in this file: the sub-patterns unify against the
-    /// case's field types in the union's fresh instantiation. `ValueNone` walks the
-    /// sub-patterns and leaves the node a fresh variable.
+    /// case's field types in the union's fresh instantiation.
     and inferLocalCasePattern
         (ctx: PassContext)
         (key: NodeKey)
         (tok: SyntaxToken)
         (argPats: ImmutableArray<Pat<SyntaxToken>>)
-        (info: UnionCaseInfo voption)
+        (i: UnionCaseInfo)
         : SemType =
-        match info with
-        | ValueNone ->
-            for sub in argPats do
-                inferPat ctx sub |> ignore
+        // The parser wraps multi-arg ctor patterns in
+        // `EnclosedBlock(Tuple [...])`; flatten to the field list.
+        let subPats =
+            if argPats.Length = 1 then
+                unwrapCtorArgPattern argPats.[0]
+            else
+                List.ofSeq argPats
 
-            TyVar(freshTv ctx key)
-        | ValueSome i ->
-            // The parser wraps multi-arg ctor patterns in
-            // `EnclosedBlock(Tuple [...])`; flatten to the field list.
-            let subPats =
-                if argPats.Length = 1 then
-                    unwrapCtorArgPattern argPats.[0]
-                else
-                    List.ofSeq argPats
+        if subPats.Length <> i.Fields.Length then
+            ctx.Report(tok, Kind.ConstructorArity(i.Name, i.Fields.Length, subPats.Length))
 
-            if subPats.Length <> i.Fields.Length then
-                ctx.Report(tok, Kind.ConstructorArity(i.Name, i.Fields.Length, subPats.Length))
+        let unionInfo = TypeRegistry.unionOfCase ctx.Types i
+        let args, subst = freshNamedInstance ctx unionInfo.TypeParams
+        let m = min subPats.Length i.Fields.Length
 
-            let unionInfo = TypeRegistry.unionOfCase ctx.Types i
-            let args, subst = freshNamedInstance ctx unionInfo.TypeParams
-            let m = min subPats.Length i.Fields.Length
+        for j = 0 to m - 1 do
+            let sub = subPats.[j]
+            let subTy = inferPat ctx sub
+            unify ctx (CstKeys.firstTokenOfPat sub) subTy (substituteWith ctx.Store subst i.Fields.[j])
 
-            for j = 0 to m - 1 do
-                let sub = subPats.[j]
-                let subTy = inferPat ctx sub
-                unify ctx (CstKeys.firstTokenOfPat sub) subTy (substituteWith ctx.Store subst i.Fields.[j])
+        // Walk any extra sub-patterns so bound variables still register.
+        for j = m to subPats.Length - 1 do
+            inferPat ctx subPats.[j] |> ignore
 
-            // Walk any extra sub-patterns so bound variables still register.
-            for j = m to subPats.Length - 1 do
-                inferPat ctx subPats.[j] |> ignore
-
-            let ty = TyUnion(unionInfo.TypeKey, args)
-            let nodeTv = freshTv ctx key
-            ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, ValueSome ty)
-            ty
+        let ty = TyUnion(unionInfo.TypeKey, args)
+        let nodeTv = freshTv ctx key
+        ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, ValueSome ty)
+        ty
