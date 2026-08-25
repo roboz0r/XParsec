@@ -237,7 +237,7 @@ let private syntheticTypeName (moduleSpec: string) : string =
     else
         string (System.Char.ToUpperInvariant lastSeg.[0]) + lastSeg.Substring 1
 
-/// Loader invariant: every `Function` export resolves via `TryLookup`; every
+/// Loader invariant: every `Function` export resolves through its container; every
 /// `Interface`/`Class` via `TryLookupType`, and each member via `TryLookupMembers`.
 let testProviderResolves (path: string) =
     match Codec.deserialize (File.ReadAllText path) with
@@ -259,11 +259,11 @@ let testProviderResolves (path: string) =
                 if signatures.Length > 1 then
                     // An OVERLOADED free function is not a bare function — it is
                     // grouped as static members of the synthetic
-                    // per-module type, so it must NOT resolve via `TryLookup`, while the
+                    // per-module type, so it must NOT resolve as a container value, while the
                     // synthetic type resolves via `TryLookupType` and its overloads via
                     // `TryLookupMembers` (one member per signature, distinct keys).
                     Expect.isTrue
-                        (prov.TryLookup(q name)).IsNone
+                        (ScopeContents.tryValueAt prov.Scope (q name)).IsNone
                         $"overloaded function '{q name}' should NOT resolve as a bare free function"
 
                     let synthName = q (syntheticTypeName man.Package)
@@ -289,7 +289,9 @@ let testProviderResolves (path: string) =
                         overloads.Length
                         $"overloaded function '{name}' members must have distinct keys"
                 else
-                    Expect.isTrue (prov.TryLookup(q name)).IsSome $"function '{q name}' should resolve"
+                    Expect.isTrue
+                        (ScopeContents.tryValueAt prov.Scope (q name)).IsSome
+                        $"function '{q name}' should resolve"
             | Schema.Export.Interface(name, typeParams, members, heritage, _)
             | Schema.Export.Class(name, typeParams, members, heritage, _, _) ->
                 // THE LOOKUP CONTRACT (`SymbolKeyOps.arityName`): the provider keys types
@@ -380,7 +382,9 @@ let testProviderResolves (path: string) =
                             resolved.Length
                             $"overloaded member '{name}.{m.Name}' members must have distinct keys"
             | Schema.Export.Variable(name, _, _, _) ->
-                Expect.isTrue (prov.TryLookup(q name)).IsSome $"variable '{q name}' should resolve"
+                Expect.isTrue
+                    (ScopeContents.tryValueAt prov.Scope (q name)).IsSome
+                    $"variable '{q name}' should resolve"
             | Schema.Export.TypeAlias(name, typeParams, _) ->
                 // Same lookup contract: a GENERIC alias (`Handler<T>`, mitt's `Handler`) is
                 // keyed under its arity-suffixed name (`Handler\`1`), so suffix before the

@@ -15,60 +15,45 @@ let private tagged (name: string) (tag: string) : IExternalSymbolProvider =
             Namespace = SymbolKeyOps.namespaceKey tag
         }
 
-    let taggedMember (t: string) (m: string) : ExternalMember voption =
-        if t = name && m = name then
-            ValueSome
-                { ExternalMember.OfKey(
-                      SymbolKeyOps.memberKeyOf
-                          (SymbolKeyOps.typeKeyOf origin.Namespace.Dotted name)
-                          name
-                          EqArray.empty
-                          0
-                          MemberKind.Method
-                  ) with
-                    IsStatic = true
-                    Signature =
-                        TestHelpers.mkSignature
-                            0
-                            0
-                            (FTConst(RuntimeNames.unitKey, EqArray.empty))
-                            (FTConst(RuntimeNames.opaqueKey tag, EqArray.empty))
-                    Origin = origin
-                }
-        else
-            ValueNone
+    let typeKey = SymbolKeyOps.qualifiedTypeKeyOf name 0
 
-    ExternalSymbolProviders.ofNamedChannels
-        { ExternalSymbolProviders.NamedChannels.empty with
-            TryLookup =
-                fun n ->
-                    if n = name then
-                        ValueSome
-                            { ExternalSymbols.monoFrozen
-                                  (SymbolKeyOps.inNamespace "")
-                                  name
-                                  (FTConst(RuntimeNames.opaqueKey tag, EqArray.empty)) with
-                                Origin = origin
-                            }
-                    else
-                        ValueNone
-            TryLookupType =
-                fun n ->
-                    if n = name then
-                        ValueSome(ExternalTypeShape.Class(ExternalClassShape.basic (0, false, origin)))
-                    else
-                        ValueNone
-            TryLookupMembers =
-                fun q ->
-                    match taggedMember q.DeclaringType q.Name with
-                    | ValueSome mem -> EqArray.singleton mem
-                    | ValueNone -> EqArray.empty
+    let taggedMember =
+        { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf typeKey name EqArray.empty 0 MemberKind.Method) with
+            IsStatic = true
+            Signature =
+                TestHelpers.mkSignature
+                    0
+                    0
+                    (FTConst(RuntimeNames.unitKey, EqArray.empty))
+                    (FTConst(RuntimeNames.opaqueKey tag, EqArray.empty))
+            Origin = origin
         }
+
+    TestHelpers.providerOfSurface (fun b ->
+        PublishedSurfaceBuilder.addValue
+            b
+            ValueNone
+            { ExternalSymbols.monoFrozen
+                  (SymbolKeyOps.inNamespace "")
+                  name
+                  (FTConst(RuntimeNames.opaqueKey tag, EqArray.empty)) with
+                Origin = origin
+            }
+
+        PublishedSurfaceBuilder.addTypeWith
+            b
+            typeKey
+            (ExternalTypeShape.Class
+                { ExternalClassShape.basic (0, false, origin) with
+                    Members = EqArray.singleton taggedMember
+                })
+            [ taggedMember ]
+    )
 
 /// The `TyConst` tag carried by a resolved value symbol, for asserting which
 /// source won.
 let private valueTag (provider: IExternalSymbolProvider) (name: string) : string voption =
-    match provider.TryLookup name with
+    match ScopeContents.tryValueAt provider.Scope name with
     | ValueSome sym ->
         match ExternalSymbols.instantiateSymbol (TypeStore()) sym 0 with
         | TyConst(key, _) ->
@@ -135,7 +120,7 @@ let tests =
             test "empty list behaves as nullProvider" {
                 let composed = ExternalSymbolProviders.composite []
 
-                Expect.isTrue (composed.TryLookup "anything" |> ValueOption.isNone) "value miss"
+                Expect.isTrue (ScopeContents.tryValueAt composed.Scope "anything" |> ValueOption.isNone) "value miss"
                 Expect.isTrue (composed.TryLookupType "anything" |> ValueOption.isNone) "type miss"
 
                 Expect.isTrue

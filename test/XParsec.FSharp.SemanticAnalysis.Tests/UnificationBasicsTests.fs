@@ -140,20 +140,13 @@ let tests =
                 // `FTUnknown` into the symbol itself. Referencing it must diagnose once
                 // that `FTUnknown` reaches unification, not silently succeed.
                 let brokenProvider =
-                    ExternalSymbolProviders.ofNamedChannels
-                        { ExternalSymbolProviders.NamedChannels.empty with
-                            TryLookup =
-                                fun name ->
-                                    if name = "broken" then
-                                        ValueSome(
-                                            ExternalSymbols.monoFrozen
-                                                (SymbolKeyOps.inNamespace "")
-                                                "broken"
-                                                (FTUnknown(UnknownReason.UndefinedName "Missing.Thing"))
-                                        )
-                                    else
-                                        ValueNone
-                        }
+                    providerOfValues
+                        [
+                            ExternalSymbols.monoFrozen
+                                (SymbolKeyOps.inNamespace "")
+                                "broken"
+                                (FTUnknown(UnknownReason.UndefinedName "Missing.Thing"))
+                        ]
 
                 let provider =
                     ExternalSymbolProviders.composite [ brokenProvider; realProvider.Value ]
@@ -182,23 +175,16 @@ let tests =
             // thing to fix. The message must identify the construct, because the sentinel carries
             // no position back from the extraction that minted it.
             test "an unfreezable signature reports once, identifying the construct" {
-                let brokenProvider =
-                    ExternalSymbolProviders.ofNamedChannels
-                        { ExternalSymbolProviders.NamedChannels.empty with
-                            TryLookup =
-                                fun name ->
-                                    if name = "broken" then
-                                        let unfreezable = ExternalSignature.unfreezable "'Widget' is a delegate type"
+                let unfreezable = ExternalSignature.unfreezable "'Widget' is a delegate type"
 
-                                        ValueSome(
-                                            ExternalSymbols.monoFrozen
-                                                (SymbolKeyOps.inNamespace "")
-                                                "broken"
-                                                (FTFun(unfreezable, unfreezable))
-                                        )
-                                    else
-                                        ValueNone
-                        }
+                let brokenProvider =
+                    providerOfValues
+                        [
+                            ExternalSymbols.monoFrozen
+                                (SymbolKeyOps.inNamespace "")
+                                "broken"
+                                (FTFun(unfreezable, unfreezable))
+                        ]
 
                 let provider =
                     ExternalSymbolProviders.composite [ brokenProvider; realProvider.Value ]

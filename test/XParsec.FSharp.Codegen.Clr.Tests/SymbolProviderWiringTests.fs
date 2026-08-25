@@ -22,21 +22,23 @@ let tests =
                 let empty = ClrSymbolProviders.buildContract []
 
                 Expect.isTrue
-                    (empty.TryLookup "List.fold" |> ValueOption.isNone)
+                    (ScopeContents.tryValueAt empty.Scope "List.fold" |> ValueOption.isNone)
                     "List.fold no longer comes from a backstop (it is a Vesper.List contract symbol now)"
 
                 Expect.isTrue
-                    (empty.TryLookup "op_Addition" |> ValueOption.isNone)
+                    (ScopeContents.tryValueAt empty.Scope "op_Addition" |> ValueOption.isNone)
                     "op_Addition no longer comes from the backstop (it is a contract symbol now)"
 
-                Expect.isTrue (empty.TryLookup "no.such.symbol" |> ValueOption.isNone) "unknown name misses"
+                Expect.isTrue
+                    (ScopeContents.tryValueAt empty.Scope "no.such.symbol" |> ValueOption.isNone)
+                    "unknown name misses"
 
                 // With the Vesper.List manifest, `fold` resolves under its SOURCE-qualified
                 // name (`Vesper.Collections.List.fold`, not compiled `ListModule.fold`).
                 let contract =
                     ClrSymbolProviders.buildContract [ vesperListPackage; vesperCorePackage ]
 
-                match contract.TryLookup "Vesper.Collections.List.fold" with
+                match ScopeContents.tryValueAt contract.Scope "Vesper.Collections.List.fold" with
                 | ValueSome _ -> ()
                 | ValueNone -> failtest "List.fold resolves (source-qualified) from the Vesper.List contract"
             }
@@ -65,10 +67,10 @@ let tests =
                 // An operator resolves only under its qualified `[<AutoOpen>]`-module name,
                 // so a bare `op_Addition` misses the provider while the qualified name hits.
                 Expect.isTrue
-                    (provider.TryLookup "op_Addition" |> ValueOption.isNone)
+                    (ScopeContents.tryValueAt provider.Scope "op_Addition" |> ValueOption.isNone)
                     "bare op_Addition is a provider miss (no mock backstop)"
 
-                match provider.TryLookup "Vesper.ArithmeticOperators.op_Addition" with
+                match ScopeContents.tryValueAt provider.Scope "Vesper.ArithmeticOperators.op_Addition" with
                 | ValueSome _ -> ()
                 | ValueNone -> failtest "op_Addition resolves (qualified) from the Vesper.Core contract"
             }

@@ -103,7 +103,7 @@ let private boxProvider: IExternalSymbolProvider =
 
 /// The frozen RETURN of a manifest free function (its `Scheme` is `FTFun(_, ret)`).
 let private returnOf (name: string) : FrozenType =
-    match boxProviderRaw.TryLookup name with
+    match ScopeContents.tryValueAt boxProviderRaw.Scope name with
     | ValueSome sym ->
         match sym.Scheme with
         | FTFun(_, ret) -> ret

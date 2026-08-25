@@ -171,7 +171,7 @@ let tests =
                 // A ref whose `home = es2015` mints under the `Js` namespace, so its
                 // qualified name is `Js.Widget`, not the bare `Widget`. The home rides the
                 // SHAPE, not the key, so B's key must resolve to an es2015-homed shape.
-                match bProviderRaw.TryLookup "theWidget" with
+                match ScopeContents.tryValueAt bProviderRaw.Scope "theWidget" with
                 | ValueSome sym ->
                     match sym.Scheme with
                     | FTClass(key, _) ->

@@ -105,11 +105,7 @@ let tests =
 
                 // First-hit-wins: only `myId` comes from the stub; the `int`/`bool`
                 // intrinsics the RHS types through fall through to `realProvider`.
-                let myIdStub: IExternalSymbolProvider =
-                    ExternalSymbolProviders.ofNamedChannels
-                        { ExternalSymbolProviders.NamedChannels.empty with
-                            TryLookup = fun name -> if name = "myId" then ValueSome myIdSymbol else ValueNone
-                        }
+                let myIdStub: IExternalSymbolProvider = providerOfValues [ myIdSymbol ]
 
                 let provider = ExternalSymbolProviders.composite [ myIdStub; realProvider.Value ]
 

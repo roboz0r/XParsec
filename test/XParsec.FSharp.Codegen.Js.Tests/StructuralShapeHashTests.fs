@@ -6,8 +6,8 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.SchemaDsl
 
-// A `Variable` export's scheme is its frozen type, so `provider.TryLookup` is how these
-// fixtures observe what an anonymous object shape froze to.
+// A `Variable` export's scheme is its frozen type, so reading it off the provider's scope is
+// how these fixtures observe what an anonymous object shape froze to.
 
 /// A `number`-typed field named `n`.
 let private numField (n: string) : string * Schema.TypeRef = n, named "number"
@@ -67,7 +67,7 @@ let private provider: IExternalSymbolProvider =
 
 /// The frozen scheme a fixture variable resolves to.
 let private schemeOf (name: string) : FrozenType =
-    match provider.TryLookup name with
+    match ScopeContents.tryValueAt provider.Scope name with
     | ValueSome sym -> sym.Scheme
     | ValueNone -> failtestf "fixture variable '%s' did not resolve" name
 

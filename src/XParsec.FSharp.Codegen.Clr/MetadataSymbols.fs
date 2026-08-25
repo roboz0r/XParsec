@@ -664,7 +664,6 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
     interface IExternalSymbolResolver with
         // IL metadata exposes no module structure: a namespace is a prefix of a type name.
         member _.Scope = ScopeContents.empty
-        member _.TryLookup _ = ValueNone
 
         // Bare IL has no module chains, so a name IS the identity.
         member this.TryLookupType(name: string) =
@@ -705,8 +704,8 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
         // .NET metadata has no TS index-signature concept, so an indexer is a `get_Item`
         // member, served through `TryLookupMember`.
         member _.TryLookupIndexSignature _ = []
-        // The metadata layer models no free-function symbols at all (`TryLookup` is a
-        // constant miss), so its key-addressed twin is one too.
+        // The metadata layer models types and their members alone; a free function is
+        // outside what IL declares.
         member _.TryLookupByKey _ = ValueNone
         // The metadata layer CONSUMES the axis to canonicalize BCL names; it declares none.
         member _.IntrinsicTypeMap = IntrinsicTypeMap.empty

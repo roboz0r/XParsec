@@ -55,7 +55,8 @@ module ConformanceTypars =
     [<NoEquality; NoComparison>]
     type TyparMismatch =
         {
-            /// The provider name the binding resolved under (e.g. `ListModule.fold`).
+            /// The binding key's qualified rendering, for the message alone
+            /// (`Vesper.ListModule.fold`).
             Name: string
             Declared: FrozenType
             Inferred: FrozenType
@@ -87,22 +88,6 @@ module ConformanceTypars =
     /// equality fails exactly when a `.fs` `<'b,'a>` meets a `.fsi` `<'a,'b>`.
     let schemesAgree (declared: FrozenType) (inferred: FrozenType) : bool = normAxis declared = normAxis inferred
 
-    /// The lookup names to try, most-specific first: the binding's own key
-    /// (`Vesper.ArithmeticOperators.op_Addition`, the name a `.fsi` in a namespace publishes),
-    /// then the module-qualified one (`ListModule.fold`), then the bare one, which covers a
-    /// top-level binding.
-    let private lookupNames (mi: ModuleBindingInfo) : string list =
-        [
-            SymbolKeyOps.qualifiedName mi.Key
-
-            match mi.DeclaringModule with
-            | ValueSome m -> m.Name + "." + mi.Name
-            | ValueNone -> ()
-
-            mi.Name
-        ]
-        |> List.distinct
-
     /// Check every generic module binding of a frozen implementation file against the contract
     /// `provider`, in source-declaration order. A binding the provider does not publish, or a
     /// monomorphic one, has no typar order to compare and is skipped.
@@ -119,20 +104,14 @@ module ConformanceTypars =
                                         Pattern = TastAccessor.PNamed boundVar
                                         Ty = ty
                                     } ->
-                    let resolved =
-                        lookupNames (TastPoolBuilder.moduleMemberOf pool boundVar)
-                        |> List.tryPick (fun n ->
-                            match provider.TryLookup n with
-                            | ValueSome s -> Some(n, s)
-                            | ValueNone -> None
-                        )
+                    let key = (TastPoolBuilder.moduleMemberOf pool boundVar).Key
 
-                    match resolved with
-                    | Some(n, sym) when sym.TyparArity > 0 ->
+                    match provider.TryLookupByKey key with
+                    | ValueSome sym when sym.TyparArity > 0 ->
                         if not (schemesAgree sym.Scheme ty) then
                             yield
                                 {
-                                    Name = n
+                                    Name = SymbolKeyOps.qualifiedName key
                                     Declared = normAxis sym.Scheme
                                     Inferred = normAxis ty
                                 }

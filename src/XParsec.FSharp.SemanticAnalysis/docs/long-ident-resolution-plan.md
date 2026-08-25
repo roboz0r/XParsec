@@ -1,10 +1,11 @@
 # Long-identifier resolution — the remaining deletions
 
-**Status (2026-08-24): the resolver is LANDED; this doc scopes what is left of the original
+**Status (2026-08-25): every step is LANDED.** This doc scoped what was left of the original
 step 5 ("delete the speculation"), re-planned after a wiring survey corrected one of its
-premises.** The original design (FCS-shaped algorithm, forks A–C, steps 1–4) was confirmed by
+premises. The original design (FCS-shaped algorithm, forks A–C, steps 1–4) was confirmed by
 the user on 2026-08-23 and is now code; this rewrite drops the landed history and keeps only
-the settled semantics, the corrected premises, and the work left.
+the settled semantics, the corrected premises, and the deletions each step made. What remains
+is the deferred list at the end of §4.
 
 ## 1. What exists now
 
@@ -24,8 +25,8 @@ the settled semantics, the corrected premises, and the work left.
   container — and a path a type resolves through — whichever half built the surface (R1).
   `scopeOf` files a value in its declaring container under its key's short name and under its
   source spelling's, so `Vesper.Set.empty` reaches `SetModule.Empty` (R2, R5).
-- A value's written name is rendered in one place, `toProvider`'s by-name channel; every
-  other consumer reaches a value by `BindingKey`.
+- A value is reached through its declaring container or by `BindingKey`; the provider stack
+  renders a value name nowhere (R6).
 - Expression position resolves `modulePath → typeFirst → folded`; pattern position
   `typeFirst → modulePath → folded`. Both read the order off `qualifiedReadings`.
 - Every published scope is TOTAL: a source answering for a container answers for its values
@@ -51,9 +52,9 @@ path**:
 - The built target artifact is **never read for symbols** — the `.dll` is an emit-time
   `AssemblyRef` and a runtime load only (`PackageHarness.fs:50-62`).
 - The scope-less sources (`Scope = ScopeContents.empty`) are layer 2 only: the BCL metadata
-  reader (`MetadataSymbols.fs:647`), whose `TryLookup` is unconditionally `ValueNone`
-  (`:648`), and the JS stub tables (`JsNativeSymbols.fs:89-97`), which answer for types
-  alone. No Vesper symbol resolves through them. The TS manifest channel was the exception,
+  reader (`MetadataSymbols.fs:666`), which models types and their members alone, and the JS
+  stub tables (`JsNativeSymbols.fs:89-97`), which answer for types alone. No Vesper symbol
+  resolves through them. The TS manifest channel was the exception,
   and is the one production feeder R2 had to fix: its own `Js.spin` resolved by whole name.
   It now publishes a `PublishedSurface` and takes `toProvider` wholesale, so its values,
   types, members and scope come off one table; `IndexSignatures` decorates that provider with
@@ -187,19 +188,35 @@ Each step leaves the tree green and is a separate review.
      left `Scope` untouched, so `Vesper.Set.empty` reached JS with an undecorated scheme
      while a bare `empty` reached it decorated; and `tryExternalEnumCaseKey` had lost its
      last caller to the `ResolvedItem.EnumCase` stamp.
-   - **Still open**, the sixth channel R5's note anticipated: `IExternalSymbolResolver.TryLookup`
-     and `toProvider`'s by-name value index. Its four production readers (`valueInEnv`,
-     `stampExternalSymbol` / `tryStampExternalValue`, `CoreAccess`, `ConformanceTypars`) each
-     need their own container or key, and `TryLookupByKey` renders a `BindingKey` to reach it.
-7. **R5 — `Symbols` is keyed by identity. LANDED (2026-08-25), ahead of R3/R4.** Brought
+   - The sixth channel R5's note anticipated was left standing here; R6 deletes it.
+7. **R6 — the by-name value channel is deleted. LANDED (2026-08-25).**
+   `IExternalSymbolResolver.TryLookup` and `toProvider`'s by-name value index are gone, so a
+   value is reached only through its declaring container or its `BindingKey`, and a value name
+   is rendered nowhere in the provider stack.
+   - `ScopeContents.tryValueAt` reads a written name off an `IScopeContents`: its leading
+     segments are the container, its last segment the short name. `OpenScope.tryResolve` over
+     it is `NameResolutionLongIdent.externalValueInScope`, which `valueInEnv`,
+     `stampExternalSymbol` and `tryStampExternalValue` share; `PassContext.CoreAccess` reads
+     it against the ambient prefixes.
+   - `KeyIndexedChannels.SymbolsByKey: BindingKey -> ExternalSymbol` is what
+     `TryLookupByKey` answers from. `EmitJsContext.externalValueRef` and
+     `JsFlatFns.externalGroups` had been rendering a `SymbolKey` to reach the name index and
+     now take the key channel; `ConformanceTypars.checkFile` reads the binding's own key,
+     which retires `lookupNames`' three-probe fall-through.
+   - `ScopeContents.decorate` is the one place a scope's answers are rewritten.
+     `stack` applies the home stamp there, which `TryLookup` alone had carried, so a value
+     read off a composed scope now carries the `SymbolHome` JS import emission needs;
+     `withInlineBodies` and `mapProviderTypes` decorate through the same function, and
+     `memoize` caches the four scope queries as it caches the key channels.
+8. **R5 — `Symbols` is keyed by identity. LANDED (2026-08-25), ahead of R3/R4.** Brought
    forward because R2 shipped a defect: `scopeOf` recovered a source short name by splitting
    the rendered key at its last `.`, so a binding whose own name holds a dot
    (`` let ``a.size`` ``, which F# accepts) claimed the slot of a sibling named `size`.
    `Symbols: BindingKey -> ExternalSymbol` beside `SourceSpellings: SourceSpelling ->
    BindingKey` deleted the split, the cloned `{ sym with Name = written }` record,
    `ExternalSymbol.Name` (a cache of `Key`'s rendering, and the field the clone corrupted),
-   and `checkValues`' `seen: HashSet<BindingKey>`. A value name is now rendered in exactly one
-   place, `toProvider`'s by-name channel, which R4 left standing (see R4's last bullet).
+   and `checkValues`' `seen: HashSet<BindingKey>`. A value name was left rendered in exactly
+   one place, `toProvider`'s by-name channel, which R6 deleted.
    Pinned in `ScopeContentsTests.expectBagSpellings` over both producers.
 
 Deferred beyond this doc (move to their homes when this doc is deleted): the mid-file `open`

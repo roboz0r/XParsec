@@ -58,7 +58,7 @@ let tests =
                 // `theBox`'s frozen scheme is `FTClass` keyed to the foreign `Box`1`, not an
                 // opaque `FTConst`, even though B's own registry never saw `Box`. The key is
                 // nominal and carries no home; the SHAPE it resolves to is what is homed in A.
-                match bProviderRaw.TryLookup "theBox" with
+                match ScopeContents.tryValueAt bProviderRaw.Scope "theBox" with
                 | ValueSome sym ->
                     match sym.Scheme with
                     | FTClass(key, args) ->

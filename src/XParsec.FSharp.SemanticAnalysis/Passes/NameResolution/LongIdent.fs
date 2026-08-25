@@ -46,6 +46,12 @@ module NameResolutionLongIdent =
 
         EqArray.ofResizeArray hits
 
+    /// The referenced value a WRITTEN name denotes at the use site: the name itself, then the
+    /// name under each active `open` prefix, first hit winning. A dotted name's leading
+    /// segments are its container and its last segment the value's short name.
+    let externalValueInScope (ctx: PassContext) (written: string) : ExternalSymbol voption =
+        OpenScope.tryResolve ctx.Resolution.OpenScope (ScopeContents.tryValueAt ctx.Resolver.Scope) written
+
     // --- The resolver -----------------------------------------------------------------
 
     [<RequireQualifiedAccess>]
@@ -466,9 +472,7 @@ module NameResolutionLongIdent =
 
         match local with
         | ValueSome m -> ValueSome(ResolvedValue.Local m)
-        | ValueNone ->
-            OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Resolver.TryLookup name
-            |> ValueOption.map ResolvedValue.External
+        | ValueNone -> externalValueInScope ctx name |> ValueOption.map ResolvedValue.External
 
     /// One claim resolves; several are ambiguous.
     let private caseAmong (name: string) (claims: ResolvedUnionCase[]) : ResolvedItem voption =

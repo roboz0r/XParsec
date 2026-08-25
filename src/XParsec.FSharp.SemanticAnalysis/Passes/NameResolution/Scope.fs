@@ -370,16 +370,16 @@ module NameResolutionScope =
 
         s
 
-    /// Resolve an operator/value spelling through the opens-aware resolver view and, on
-    /// a hit, stamp the full symbol so its scheme is instantiated by key later.
+    /// Resolve an operator/value spelling against the referenced surfaces and, on a hit, stamp
+    /// the full symbol so its scheme is instantiated by key later.
     let private stampExternalSymbol (ctx: PassContext) (key: NodeKey) (name: string) : unit =
-        match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Resolver.TryLookup name with
+        match NameResolutionLongIdent.externalValueInScope ctx name with
         | ValueSome sym -> ctx.Resolution.ExternalSymbolStamp.Set(key, sym)
         | ValueNone -> ()
 
     /// Resolve an external VALUE reference by its compiled spelling and stamp both channels.
     let private tryStampExternalValue (ctx: PassContext) (key: NodeKey) (name: string) : bool =
-        match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Resolver.TryLookup name with
+        match NameResolutionLongIdent.externalValueInScope ctx name with
         | ValueSome sym ->
             stampItem ctx key (ResolvedItem.Value(ResolvedValue.External sym))
             true

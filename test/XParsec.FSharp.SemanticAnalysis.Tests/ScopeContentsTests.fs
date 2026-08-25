@@ -226,7 +226,7 @@ let tests =
                         let view = (publishedViews [ "lib.fs", bagImplementation ]).[0]
                         expectBagSpellings view
 
-                        match view.TryLookup "Test.A.Bag.count" with
+                        match ScopeContents.tryValueAt view.Scope "Test.A.Bag.count" with
                         | ValueSome sym -> Expect.equal sym.Key.Name "Count" "the alias carries the compiled key"
                         | ValueNone -> failtest "a [<CompiledName>] binding publishes its source spelling"
 

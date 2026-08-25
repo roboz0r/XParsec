@@ -184,13 +184,10 @@ let tests =
                 match store.TryLookupByKey answerKey with
                 | ValueSome s ->
                     Expect.equal s.TyparArity 0 "answer is monomorphic"
-                    // The resolver view answers the SAME entry by rendered name.
-                    Expect.isSome
-                        (resolver.TryLookup(SymbolKeyOps.qualifiedName answerKey)
-                         |> function
-                             | ValueSome _ -> Some()
-                             | _ -> None)
-                        "answer resolves by name"
+                    // The scope answers the SAME entry for the name the source writes.
+                    Expect.isTrue
+                        (ScopeContents.tryValueAt resolver.Scope (SymbolKeyOps.qualifiedName answerKey)).IsSome
+                        "answer resolves through its container"
                 | ValueNone -> failtest "answer did not project"
 
                 match store.TryLookupByKey(bindingKey frozen "ident") with
@@ -230,9 +227,9 @@ let tests =
                 Expect.equal (store.TryLookupByKey secretKey) ValueNone "private 'secret' is NOT exported (by key)"
 
                 Expect.equal
-                    (resolver.TryLookup(SymbolKeyOps.qualifiedName secretKey))
+                    (ScopeContents.tryValueAt resolver.Scope (SymbolKeyOps.qualifiedName secretKey))
                     ValueNone
-                    "private 'secret' is NOT exported (by name)"
+                    "private 'secret' is NOT exported (through its container)"
 
                 let sharedKey = bindingKey frozen "shared"
 

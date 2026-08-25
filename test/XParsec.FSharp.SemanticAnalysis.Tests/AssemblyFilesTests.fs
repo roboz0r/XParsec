@@ -268,12 +268,12 @@ module Shared =
                 let name = "Test.Shared.dup"
 
                 let symEarlier =
-                    match (viewEarlier :> IExternalSymbolResolver).TryLookup name with
+                    match ScopeContents.tryValueAt viewEarlier.Scope name with
                     | ValueSome s -> s
                     | ValueNone -> failtest "earlier file did not export dup"
 
                 let symLater =
-                    match (viewLater :> IExternalSymbolResolver).TryLookup name with
+                    match ScopeContents.tryValueAt viewLater.Scope name with
                     | ValueSome s -> s
                     | ValueNone -> failtest "later file did not export dup"
 
@@ -284,7 +284,7 @@ module Shared =
                 let composedNearestLater =
                     ExternalSymbolProviders.composite [ viewLater; viewEarlier ] :> IExternalSymbolResolver
 
-                match composedNearestLater.TryLookup name with
+                match ScopeContents.tryValueAt composedNearestLater.Scope name with
                 | ValueSome s -> Expect.equal s.Scheme symLater.Scheme "nearest (later) file's dup wins"
                 | ValueNone -> failtest "composed provider did not resolve dup"
 
@@ -292,7 +292,7 @@ module Shared =
                 let composedNearestEarlier =
                     ExternalSymbolProviders.composite [ viewEarlier; viewLater ] :> IExternalSymbolResolver
 
-                match composedNearestEarlier.TryLookup name with
+                match ScopeContents.tryValueAt composedNearestEarlier.Scope name with
                 | ValueSome s ->
                     Expect.equal s.Scheme symEarlier.Scheme "nearest (earlier) file's dup wins when it is first"
                 | ValueNone -> failtest "composed provider did not resolve dup"
@@ -338,7 +338,7 @@ module C =
                 let name = "Test.Shared.dup"
 
                 let schemeOf (f: FrozenFile) =
-                    match (f.View :> IExternalSymbolResolver).TryLookup name with
+                    match ScopeContents.tryValueAt f.View.Scope name with
                     | ValueSome s -> s.Scheme
                     | ValueNone -> failtestf "file did not export %s" name
 
@@ -352,7 +352,7 @@ module C =
                 Expect.isEmpty errors "file 3 binding the nearer (string) dup to a string is clean"
 
                 // `Scoped` is the composed provider file 3 was analysed against.
-                match (all.[2].Scoped :> IExternalSymbolResolver).TryLookup name with
+                match ScopeContents.tryValueAt all.[2].Scoped.Scope name with
                 | ValueSome s ->
                     Expect.equal s.Scheme schemeLater "file 3 resolves dup to the NEARER file's declaration"
                 | ValueNone -> failtest "file 3's scoped provider did not resolve dup"
@@ -514,7 +514,7 @@ module N =
                     (unresolvedErrors f2)
                     (sprintf "cross-file field read resolves clean (diagnostics: %A)" f2.Frozen.Residue.Diagnostics)
 
-                match (f2.View :> IExternalSymbolResolver).TryLookup "Test.B.N.z" with
+                match ScopeContents.tryValueAt f2.View.Scope "Test.B.N.z" with
                 | ValueSome sym ->
                     Expect.equal sym.Scheme (FTConst(RuntimeNames.intKey, EqArray.empty)) "r.X types as int cross-file"
                 | ValueNone -> failtest "file 2 did not export z"
@@ -571,7 +571,7 @@ module N =
 
                 // Typing as `R` and not a fresh TyVar is what proves it found file 1's record.
                 let expectRecordR (name: string) =
-                    match (f2.View :> IExternalSymbolResolver).TryLookup name with
+                    match ScopeContents.tryValueAt f2.View.Scope name with
                     | ValueSome sym ->
                         match sym.Scheme with
                         | FTRecord(key, _) ->
@@ -1403,7 +1403,7 @@ module M =
 
                 // The signature carries no template — the implementation's is layered back on
                 // under the same key, so a later file still splices rather than calling.
-                match all.[0].View.TryLookup "Test.A.M.twice" with
+                match ScopeContents.tryValueAt all.[0].View.Scope "Test.A.M.twice" with
                 | ValueSome s -> Expect.isTrue s.InlineBody.IsSome "the published symbol carries its body"
                 | ValueNone -> failtest "twice did not publish"
             }
@@ -1548,7 +1548,7 @@ module M =
                         ]
                     |> files
 
-                match (all.[0].View :> IExternalSymbolResolver).TryLookup "Test.A.M.shown" with
+                match ScopeContents.tryValueAt all.[0].View.Scope "Test.A.M.shown" with
                 | ValueSome s ->
                     match s.Origin.Home.DeclaringFile with
                     | ValueSome f -> Expect.equal f.Relative.Name "file1.fs" "homed at the compiled file"

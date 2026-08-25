@@ -10,14 +10,37 @@ let private origin = SymbolOrigin.Empty
 
 /// An inner provider answering only `name`, counting per-channel hits. It implements the
 /// interface directly rather than wrapping `NamedChannels`, whose `TryLookupMemberByKey` is
-/// derived from `TryLookupMembers`, so `MemberKeyHits` would count a different channel.
+/// derived from `TryLookupMembers`, so `MemberKeyHits` would count a different channel. The
+/// value channel is the SCOPE, which is where a published value lives.
 type private CountingProvider(name: string) =
-    let mutable lookupHits = 0
+    let mutable valueHits = 0
     let mutable typeHits = 0
     let mutable memberKeyHits = 0
     let mutable valueTypeHits = 0
     let mutable tupleTypeHits = 0
-    member _.LookupHits = lookupHits
+
+    let scope =
+        { new IScopeContents with
+            member _.TryContainer _ = ValueNone
+
+            member _.TryValue(_, n) =
+                valueHits <- valueHits + 1
+
+                if n = name then
+                    ValueSome(
+                        ExternalSymbols.monoFrozen
+                            (SymbolKeyOps.inNamespace "")
+                            n
+                            (FTConst(RuntimeNames.opaqueKey "tag", EqArray.empty))
+                    )
+                else
+                    ValueNone
+
+            member _.UnionCasesNamed(_, _) = EqArray.empty
+            member _.TypesNamed(_, _) = EqArray.empty
+        }
+
+    member _.ValueHits = valueHits
     member _.TypeHits = typeHits
     member _.MemberKeyHits = memberKeyHits
     member _.ValueTypeHits = valueTypeHits
@@ -34,20 +57,7 @@ type private CountingProvider(name: string) =
     interface IExternalSymbolProvider
 
     interface IExternalSymbolResolver with
-        member _.Scope = ScopeContents.empty
-
-        member _.TryLookup n =
-            lookupHits <- lookupHits + 1
-
-            if n = name then
-                ValueSome(
-                    ExternalSymbols.monoFrozen
-                        (SymbolKeyOps.inNamespace "")
-                        n
-                        (FTConst(RuntimeNames.opaqueKey "tag", EqArray.empty))
-                )
-            else
-                ValueNone
+        member _.Scope = scope
 
         member this.TryLookupType(n: string) =
             this.TypeByName n |> ValueOption.map (ExternalSymbols.nameKeyedTypeHit n)
@@ -93,7 +103,7 @@ let tests =
                 let inner = CountingProvider "known"
                 let cached = ExternalSymbolProviders.memoize inner
 
-                match cached.TryLookup "known" with
+                match ScopeContents.tryValueAt cached.Scope "known" with
                 | ValueSome s ->
                     match ExternalSymbols.instantiateSymbol (TypeStore()) s 0 with
                     | TyConst(key, _) ->
@@ -109,33 +119,36 @@ let tests =
                 let inner = CountingProvider "known"
                 let cached = ExternalSymbolProviders.memoize inner
 
-                cached.TryLookup "known" |> ignore
-                cached.TryLookup "known" |> ignore
-                cached.TryLookup "known" |> ignore
+                ScopeContents.tryValueAt cached.Scope "known" |> ignore
+                ScopeContents.tryValueAt cached.Scope "known" |> ignore
+                ScopeContents.tryValueAt cached.Scope "known" |> ignore
 
-                Expect.equal inner.LookupHits 1 "inner hit once for three lookups"
+                Expect.equal inner.ValueHits 1 "inner hit once for three lookups"
             }
 
             test "a repeated MISS is cached too (no re-hit)" {
                 let inner = CountingProvider "known"
                 let cached = ExternalSymbolProviders.memoize inner
 
-                Expect.isTrue (cached.TryLookup "absent" |> ValueOption.isNone) "miss reads as None"
-                cached.TryLookup "absent" |> ignore
+                Expect.isTrue
+                    (ScopeContents.tryValueAt cached.Scope "absent" |> ValueOption.isNone)
+                    "miss reads as None"
 
-                Expect.equal inner.LookupHits 1 "a cached miss does not re-consult the inner"
+                ScopeContents.tryValueAt cached.Scope "absent" |> ignore
+
+                Expect.equal inner.ValueHits 1 "a cached miss does not re-consult the inner"
             }
 
             test "channels cache independently" {
                 let inner = CountingProvider "known"
                 let cached = ExternalSymbolProviders.memoize inner
 
-                cached.TryLookup "known" |> ignore
-                cached.TryLookup "known" |> ignore
+                ScopeContents.tryValueAt cached.Scope "known" |> ignore
+                ScopeContents.tryValueAt cached.Scope "known" |> ignore
                 cached.TryLookupType "known" |> ignore
                 cached.TryLookupType "known" |> ignore
 
-                Expect.equal inner.LookupHits 1 "value channel hit once"
+                Expect.equal inner.ValueHits 1 "value channel hit once"
                 Expect.equal inner.TypeHits 1 "type channel hit once"
             }
 

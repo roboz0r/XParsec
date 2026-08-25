@@ -851,19 +851,10 @@ let enforcementTests =
 // The `.fs`-inferred scheme (`FTTypar(Method, i)`) vs the `.fsi`-declared one
 // (`FTTypar(Declaring, i)`): positional, so `=` fails on a typar-ORDER difference.
 
-/// A contract provider that publishes exactly `entries` (name → declared scheme) and
-/// nothing else — the `.fsi` side of one `checkFile` run.
-let private contractProvider (entries: (string * ExternalSymbol) list) : IExternalSymbolProvider =
-    let m = Map.ofList entries
-
-    ExternalSymbolProviders.ofNamedChannels
-        { ExternalSymbolProviders.NamedChannels.empty with
-            TryLookup =
-                fun name ->
-                    match Map.tryFind name m with
-                    | Some s -> ValueSome s
-                    | None -> ValueNone
-        }
+/// A contract provider that publishes exactly `declared` and nothing else — the `.fsi` side
+/// of one `checkFile` run.
+let private contractProvider (declared: ExternalSymbol list) : IExternalSymbolProvider =
+    TestHelpers.providerOfValues declared
 
 /// Run the `.fs` through the real frozen self-host pipeline, so a generic binding's
 /// typar order is inference's own rather than a hand-built `FrozenType`.
@@ -913,7 +904,7 @@ let typarConformanceTests =
                 // inferred scheme is `'a -> 'b -> 'b` = `M1 -> M0 -> M0`, the REVERSE
                 // positional skeleton of the `.fsi`'s `'a -> 'b -> 'b` = `D0 -> D1 -> D1`.
                 let contract =
-                    contractProvider [ "f", ExternalSymbols.scheme (SymbolKeyOps.inNamespace "") "f" fScheme 2 [] ]
+                    contractProvider [ ExternalSymbols.scheme (SymbolKeyOps.inNamespace "") "f" fScheme 2 [] ]
 
                 let tast = frozenOf "let f<'b,'a> (x: 'a) (y: 'b) : 'b = y"
                 Expect.isEmpty tast.Residue.Diagnostics "no diagnostics"
@@ -927,7 +918,7 @@ let typarConformanceTests =
                 // No explicit `<…>`: the canonical order IS appearance order, matching the
                 // `.fsi`. The very same binding+contract that fails above now conforms.
                 let contract =
-                    contractProvider [ "f", ExternalSymbols.scheme (SymbolKeyOps.inNamespace "") "f" fScheme 2 [] ]
+                    contractProvider [ ExternalSymbols.scheme (SymbolKeyOps.inNamespace "") "f" fScheme 2 [] ]
 
                 let tast = frozenOf "let f (x: 'a) (y: 'b) : 'b = y"
                 Expect.isEmpty tast.Residue.Diagnostics "no diagnostics"
@@ -946,7 +937,7 @@ let typarConformanceTests =
 
             test "an inline binding's typar order is checked: `<'b,'a>` reorder → TyparMismatch" {
                 let contract =
-                    contractProvider [ "f", ExternalSymbols.scheme (SymbolKeyOps.inNamespace "") "f" fScheme 2 [] ]
+                    contractProvider [ ExternalSymbols.scheme (SymbolKeyOps.inNamespace "") "f" fScheme 2 [] ]
 
                 let tast = frozenOf "let inline f<'b,'a> (x: 'a) (y: 'b) : 'b = y"
                 Expect.isEmpty tast.Residue.Diagnostics "no diagnostics"
@@ -958,7 +949,7 @@ let typarConformanceTests =
 
             test "an inline binding in appearance order conforms → no mismatch" {
                 let contract =
-                    contractProvider [ "f", ExternalSymbols.scheme (SymbolKeyOps.inNamespace "") "f" fScheme 2 [] ]
+                    contractProvider [ ExternalSymbols.scheme (SymbolKeyOps.inNamespace "") "f" fScheme 2 [] ]
 
                 let tast = frozenOf "let inline f (x: 'a) (y: 'b) : 'b = y"
                 Expect.isEmpty tast.Residue.Diagnostics "no diagnostics"
@@ -973,7 +964,6 @@ let typarConformanceTests =
                 let contract =
                     contractProvider
                         [
-                            "f",
                             ExternalSymbols.scheme
                                 (SymbolKeyOps.inNamespace "")
                                 "f"

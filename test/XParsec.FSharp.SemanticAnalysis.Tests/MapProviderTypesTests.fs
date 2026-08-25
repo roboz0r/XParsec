@@ -136,12 +136,6 @@ let private fake: IExternalSymbolProvider =
     ExternalSymbolProviders.ofNamedChannels
         { ExternalSymbolProviders.NamedChannels.empty with
             Scope = fakeScope
-            TryLookup =
-                fun name ->
-                    if name = "sym" then
-                        ValueSome(ExternalSymbols.monoFrozen (SymbolKeyOps.inNamespace "") "sym" marker)
-                    else
-                        ValueNone
             TryLookupType = typeByName
             AmbientOpenPrefixes = [ "Amb" ]
             TryLookupMembers =
@@ -177,7 +171,7 @@ let tests =
         "ExternalSymbolProviders.mapProviderTypes"
         [
             test "a symbol Scheme is mapped covariantly" {
-                match wrapped.TryLookup "sym" with
+                match ScopeContents.tryValueAt wrapped.Scope "sym" with
                 | ValueSome s -> Expect.equal s.Scheme (witness Variance.Co) "Scheme root is co"
                 | ValueNone -> failtest "sym should resolve"
             }
@@ -298,6 +292,9 @@ let tests =
                 Expect.equal (wrapped.IsValueType clsKey) (ValueSome true) "value-ness delegated"
                 Expect.equal (wrapped.TryRecordsWithField "f") (EqArray.singleton candidate) "candidates delegated"
                 Expect.isTrue (wrapped.TryLookupType "unknown" |> ValueOption.isNone) "unknown type misses"
-                Expect.isTrue (wrapped.TryLookup "unknown" |> ValueOption.isNone) "unknown symbol misses"
+
+                Expect.isTrue
+                    (ScopeContents.tryValueAt wrapped.Scope "unknown" |> ValueOption.isNone)
+                    "unknown symbol misses"
             }
         ]

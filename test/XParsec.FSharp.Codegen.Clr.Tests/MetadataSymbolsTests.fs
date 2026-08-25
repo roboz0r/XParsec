@@ -250,7 +250,9 @@ let tests =
 
             test "the metadata layer resolves no values" {
                 // Module values / operators are not a metadata surface at all.
-                Expect.isTrue (provider.TryLookup "op_Addition" |> ValueOption.isNone) "no value surface"
+                Expect.isTrue
+                    (ScopeContents.tryValueAt provider.Scope "op_Addition" |> ValueOption.isNone)
+                    "no value surface"
             }
 
             test "the path-taking reader resolves identically to the host-TPA one" {

@@ -434,18 +434,6 @@ module PublishedSurface =
         let typesByName = nameIndex surface.TypesByName
         let recordFields = nameIndex surface.RecordFields
 
-        // The legacy by-NAME value channel, and the one place a written value name is
-        // rendered: every other consumer of a value reaches it by `BindingKey`.
-        let symbols = Dictionary<string, ExternalSymbol>(StringComparer.Ordinal)
-
-        for e in surface.Symbols do
-            symbols.[bindingName e.Key] <- e.Value
-
-        for e in surface.SourceSpellings do
-            match symbols.TryGetValue(bindingName e.Value) with
-            | true, sym -> symbols.TryAdd(writtenName e.Key, sym) |> ignore
-            | _ -> ()
-
         // The canonical metadata name only. The dotted spelling source writes for a
         // module-held type (`M.T`) is reached through the module, on the scope.
         let tryTypeKey (probe: string) : TypeKey voption =
@@ -460,11 +448,7 @@ module PublishedSurface =
                     ShapesByKey = keyIndex surface.ShapesByKey
                     MembersByKey = keyIndex surface.MembersByKey
                     ResolveTypeName = tryTypeKey
-                    TryLookup =
-                        fun name ->
-                            match symbols.TryGetValue name with
-                            | true, sym -> ValueSome sym
-                            | _ -> ValueNone
+                    SymbolsByKey = index surface.Symbols HashIdentity.Structural
                     TryRecordsWithField =
                         fun fieldName ->
                             match recordFields.TryGetValue fieldName with

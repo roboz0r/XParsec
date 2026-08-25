@@ -94,7 +94,7 @@ let tests =
                 let addName = "Vesper.ArithmeticOperators.op_Addition"
 
                 let add =
-                    match contract.TryLookup addName with
+                    match ScopeContents.tryValueAt contract.Scope addName with
                     | ValueSome s -> s
                     | ValueNone -> failtestf "the Vesper.Core contract publishes %s" addName
 
@@ -108,24 +108,21 @@ let tests =
                 let reversed =
                     ExternalSymbolProviders.composite
                         [
-                            ExternalSymbolProviders.ofNamedChannels
-                                { ExternalSymbolProviders.NamedChannels.empty with
-                                    TryLookup =
-                                        fun name ->
-                                            if name = addName then
-                                                ValueSome
-                                                    { add with
-                                                        Scheme = reverseTypars add.Scheme
-                                                    }
-                                            else
-                                                ValueNone
-                                }
+                            PublishedSurface.build (fun b ->
+                                PublishedSurfaceBuilder.addValue
+                                    b
+                                    ValueNone
+                                    { add with
+                                        Scheme = reverseTypars add.Scheme
+                                    }
+                            )
+                            |> PublishedSurface.toProvider
                             contract
                         ]
 
                 Expect.contains
                     (sweep reversed |> List.map (fun m -> m.Name))
-                    addName
+                    (SymbolKeyOps.qualifiedName (SymbolKey.Binding add.Key))
                     "an inline binding is compared, not exempt"
             }
 

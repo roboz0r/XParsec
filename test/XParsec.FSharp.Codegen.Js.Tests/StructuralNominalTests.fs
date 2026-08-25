@@ -52,7 +52,7 @@ let private provider: IExternalSymbolProvider =
 
 /// The qualified nominal name a structural-typed variable froze to (its `FTClass` key).
 let private typeNameOf (varName: string) : string =
-    match provider.TryLookup varName with
+    match ScopeContents.tryValueAt provider.Scope varName with
     | ValueSome sym ->
         match sym.Scheme with
         | FTClass(key, _) -> SymbolKeyOps.typeMetaName key

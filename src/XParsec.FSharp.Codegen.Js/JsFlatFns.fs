@@ -28,7 +28,7 @@ module JsFlatFns =
         : TastAccessor.ArgGroup list voption =
         match key with
         | ValueSome key ->
-            match provider.TryLookup(SymbolKeyOps.qualifiedName key) with
+            match provider.TryLookupByKey key with
             | ValueSome sym -> sym.ValRepr |> ValueOption.map (fun vr -> vr.Groups)
             | ValueNone -> ValueNone
         | ValueNone -> ValueNone

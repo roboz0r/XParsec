@@ -321,8 +321,9 @@ type PassContext(provider: IExternalSymbolProvider, file: LexedFile, assembly: C
     /// Narrowed on purpose: a pass holding only this cannot reach a spelling lookup.
     member _.Provider: IExternalSymbolStore = provider
 
-    /// The RESOLVER view (`string → identity`), the only string-lookup handle a `PassContext`
-    /// exposes. Read by NameResolution, which stamps each result for later passes to read.
+    /// The RESOLVER view (written spelling → identity), the only spelling-lookup handle a
+    /// `PassContext` exposes. Read by NameResolution, which stamps each result for later
+    /// passes to read.
     member _.Resolver: IExternalSymbolResolver = provider
 
     /// A field name → every external record declaring it. Not a spelling lookup: a bare
@@ -339,7 +340,7 @@ type PassContext(provider: IExternalSymbolProvider, file: LexedFile, assembly: C
     member val CoreAccess: Lazy<CoreAccessIntrinsics> =
         lazy
             (let one (name: string) =
-                OpenScope.tryResolve ambientOpenScope provider.TryLookup name
+                OpenScope.tryResolve ambientOpenScope (ScopeContents.tryValueAt provider.Scope) name
 
              {
                  GetIndex = one "GetIndex"

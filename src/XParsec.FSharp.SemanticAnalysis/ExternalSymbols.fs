@@ -127,13 +127,44 @@ module ScopeContents =
                     result
             }
 
+    /// The value a written name denotes: its leading segments are the container and its last
+    /// segment the short name; an unqualified name is read against the root namespace.
+    let tryValueAt (scope: IScopeContents) (written: string) : ExternalSymbol voption =
+        match written.LastIndexOf '.' with
+        | i when i > 0 ->
+            match scope.TryContainer(written.Substring(0, i)) with
+            | ValueSome c -> scope.TryValue(c, written.Substring(i + 1))
+            | ValueNone -> ValueNone
+        | _ -> scope.TryValue(ModuleContainer.InNamespace NamespaceKey.Global, written)
+
+    /// `inner` with each answer rewritten: `value` over a value, `case` over a union case,
+    /// `shape` over a type shape. `TryContainer` passes through.
+    let decorate
+        (value: ExternalSymbol -> ExternalSymbol)
+        (case: ExternalUnionCase -> ExternalUnionCase)
+        (shape: ExternalTypeShape -> ExternalTypeShape)
+        (inner: IScopeContents)
+        : IScopeContents =
+        { new IScopeContents with
+            member _.TryContainer path = inner.TryContainer path
+
+            member _.TryValue(c, name) =
+                inner.TryValue(c, name) |> ValueOption.map value
+
+            member _.UnionCasesNamed(c, name) =
+                inner.UnionCasesNamed(c, name) |> EqArray.map case
+
+            member _.TypesNamed(c, name) =
+                inner.TypesNamed(c, name)
+                |> EqArray.map (fun (struct (key, s)) -> struct (key, shape s))
+        }
+
 /// The RESOLVER view of the external-symbol contract: spelling → identity, opens-aware.
 /// Downstream of name resolution, passes speak the key-addressed store view instead.
 type IExternalSymbolResolver =
-    /// The module structure this source declares, for segment-by-segment resolution.
+    /// The module structure this source declares, for segment-by-segment resolution. The one
+    /// route to a published VALUE: a value is reached through its declaring container.
     abstract Scope: IScopeContents
-    /// `name` is the compiled name ("op_Addition", not "(+)").
-    abstract TryLookup: name: string -> ExternalSymbol voption
     /// Look up a `type` by canonical compiled name, returning its REGISTERED identity plus
     /// its body shape from the one hit.
     abstract TryLookupType: name: string -> struct (TypeKey * ExternalTypeShape) voption
