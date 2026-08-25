@@ -61,6 +61,11 @@ type TastFileG<'ty, 'tok, 'id when 'id: comparison> =
         /// The `[<Global>]` module-level bindings: values that ARE a target global (JS
         /// `undefined`), so the declaring file emits no definition for one.
         GlobalValueKeys: System.Collections.Generic.IReadOnlySet<SymbolKey>
+        /// Each module this file declares → the dotted SOURCE path an `open` or a qualified
+        /// name writes it as (`Vesper.Collections.List` for the module compiled as
+        /// `Vesper.Collections.ListModule`). A namespace needs no entry: its source path is
+        /// its own dotted name.
+        ModuleSourcePaths: System.Collections.Generic.IReadOnlyDictionary<ModuleKey, string>
         /// A module-level binding's bound variable → its named-module placement (`module Foo`'s
         /// functions emit on a real `Foo`/`FooModule` static class, not the anonymous
         /// "Program" class).
@@ -161,13 +166,14 @@ module TastFileG =
            )
 
     /// Whole-file structural equality. `a = b` is UNSOUND on a rebuilt file:
-    /// `IntrinsicReprKeys`, `GlobalValueKeys` and `Accessibility` are read-only collection
-    /// interfaces, whose contents the derived `=` compares by reference.
+    /// `IntrinsicReprKeys`, `GlobalValueKeys`, `ModuleSourcePaths` and `Accessibility` are
+    /// read-only collection interfaces, whose contents the derived `=` compares by reference.
     let structurallyEqual (a: TastFileG<'ty, 'tok, 'id>) (b: TastFileG<'ty, 'tok, 'id>) : bool =
         a.Decls = b.Decls
         && a.Diagnostics = b.Diagnostics
         && dictEqual a.IntrinsicReprKeys b.IntrinsicReprKeys
         && a.GlobalValueKeys.SetEquals b.GlobalValueKeys
+        && dictEqual a.ModuleSourcePaths b.ModuleSourcePaths
         && a.ModuleMembers = b.ModuleMembers
         && a.ClosureReprs = b.ClosureReprs
         && a.FunVerdicts = b.FunVerdicts

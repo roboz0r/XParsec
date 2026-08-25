@@ -31,6 +31,11 @@ module FrozenCodecTypes =
 
     let readTypeKeyRef (r: FrozenReader) : TypeKey = r.Types.[readTypeKeyId r]
 
+    let writeModuleRef (w: FrozenWriter) (m: ModuleKey) =
+        writeModuleId w (w.Types.InternModule m)
+
+    let readModuleRef (r: FrozenReader) : ModuleKey = r.Types.[readModuleId r]
+
     /// The file a set of anchors index, which need NOT be the file the blob is keyed by, so
     /// that file's identity, and a hash of the contents the indices were taken against, have
     /// to be in the blob. A reference like the three above: interned once per file.
@@ -39,65 +44,61 @@ module FrozenCodecTypes =
 
     let readFilePathRef (r: FrozenReader) : AssemblyFilePath = r.Types.[readFilePathId r]
 
-    // ── the `SymbolKey`-keyed container ─────────────────────────────────────
+    // ── the key-REFERENCE-keyed container ───────────────────────────────────
 
-    /// A length-prefixed entry sequence in the dictionary's own enumeration order: no
-    /// canonical order is imposed, so the read side rebuilds an unordered `Dictionary`
-    /// behind the read-only view.
-    let writeSymbolDict
+    /// A length-prefixed entry sequence in the dictionary's own enumeration order, so the read
+    /// side rebuilds an unordered `Dictionary` behind the read-only view. `writeKey` interns
+    /// its key, so a key costs one id.
+    let private writeRefDict
         (w: FrozenWriter)
+        (writeKey: FrozenWriter -> 'k -> unit)
         (writeVal: FrozenWriter -> 'v -> unit)
-        (d: System.Collections.Generic.IReadOnlyDictionary<SymbolKey, 'v>)
+        (d: System.Collections.Generic.IReadOnlyDictionary<'k, 'v>)
         =
         w.Write d.Count
 
         for KeyValue(k, v) in d do
-            writeSymbolRef w k
+            writeKey w k
             writeVal w v
 
-    let readSymbolDict
+    /// `label` prefixes the duplicate-key failure message with the calling codec.
+    let private readRefDict
         (r: FrozenReader)
+        (label: string)
+        (readKey: FrozenReader -> 'k)
         (readVal: FrozenReader -> 'v)
-        : System.Collections.Generic.IReadOnlyDictionary<SymbolKey, 'v> =
+        : System.Collections.Generic.IReadOnlyDictionary<'k, 'v> =
         let n = r.ReadInt32()
-        let d = System.Collections.Generic.Dictionary<SymbolKey, 'v>(n)
+        let d = System.Collections.Generic.Dictionary<'k, 'v>(n)
 
         for _ in 1..n do
-            let k = readSymbolRef r
+            let k = readKey r
             let v = readVal r
 
             if not (d.TryAdd(k, v)) then
-                failwithf "readSymbolDict: key %O appears twice" k
+                failwithf "%s: key %O appears twice" label k
 
-        d :> System.Collections.Generic.IReadOnlyDictionary<SymbolKey, 'v>
+        d :> System.Collections.Generic.IReadOnlyDictionary<'k, 'v>
+
+    let writeSymbolDict w writeVal (d: System.Collections.Generic.IReadOnlyDictionary<SymbolKey, 'v>) =
+        writeRefDict w writeSymbolRef writeVal d
+
+    let readSymbolDict r readVal : System.Collections.Generic.IReadOnlyDictionary<SymbolKey, 'v> =
+        readRefDict r "readSymbolDict" readSymbolRef readVal
 
     /// `writeSymbolDict` over the narrow key, for a table only nominal TYPES address.
-    let writeTypeKeyDict
-        (w: FrozenWriter)
-        (writeVal: FrozenWriter -> 'v -> unit)
-        (d: System.Collections.Generic.IReadOnlyDictionary<TypeKey, 'v>)
-        =
-        w.Write d.Count
+    let writeTypeKeyDict w writeVal (d: System.Collections.Generic.IReadOnlyDictionary<TypeKey, 'v>) =
+        writeRefDict w writeTypeKeyRef writeVal d
 
-        for KeyValue(k, v) in d do
-            writeTypeKeyRef w k
-            writeVal w v
+    let readTypeKeyDict r readVal : System.Collections.Generic.IReadOnlyDictionary<TypeKey, 'v> =
+        readRefDict r "readTypeKeyDict" readTypeKeyRef readVal
 
-    let readTypeKeyDict
-        (r: FrozenReader)
-        (readVal: FrozenReader -> 'v)
-        : System.Collections.Generic.IReadOnlyDictionary<TypeKey, 'v> =
-        let n = r.ReadInt32()
-        let d = System.Collections.Generic.Dictionary<TypeKey, 'v>(n)
+    /// `writeSymbolDict` over the narrow key, for a table keyed only by declared MODULES.
+    let writeModuleDict w writeVal (d: System.Collections.Generic.IReadOnlyDictionary<ModuleKey, 'v>) =
+        writeRefDict w writeModuleRef writeVal d
 
-        for _ in 1..n do
-            let k = readTypeKeyRef r
-            let v = readVal r
-
-            if not (d.TryAdd(k, v)) then
-                failwithf "readTypeKeyDict: key %O appears twice" k
-
-        d :> System.Collections.Generic.IReadOnlyDictionary<TypeKey, 'v>
+    let readModuleDict r readVal : System.Collections.Generic.IReadOnlyDictionary<ModuleKey, 'v> =
+        readRefDict r "readModuleDict" readModuleRef readVal
 
     /// The membership-only twin of `writeSymbolDict`, a `SymbolKey` set with no payload.
     let writeSymbolSet (w: FrozenWriter) (s: System.Collections.Generic.IReadOnlySet<SymbolKey>) =
@@ -317,11 +318,21 @@ module FrozenCodecTypes =
             FrozenConstraint.Coercion(typarIndex, target)
         | b -> failwithf "FrozenCodec: unknown FrozenConstraint tag %d" b
 
-    let writeModuleBindingInfo (w: FrozenWriter) (m: ModuleBindingInfo) = writeSymbolRef w m.Key
+    let writeModuleBindingInfo (w: FrozenWriter) (m: ModuleBindingInfo) =
+        writeSymbolRef w m.Key
+        w.Write m.SourceName
 
     let readModuleBindingInfo (r: FrozenReader) : ModuleBindingInfo =
-        match readSymbolRef r with
-        | SymbolKey.Binding bk -> { Container = bk.Decl; Name = bk.Name }
+        let key = readSymbolRef r
+        let sourceName = r.ReadString()
+
+        match key with
+        | SymbolKey.Binding bk ->
+            {
+                Container = bk.Decl
+                Name = bk.Name
+                SourceName = sourceName
+            }
         | k -> failwithf "FrozenCodec: a ModuleBindingInfo stored a non-Binding key: %A" k
 
     let writeIntrinsicReprInfo (w: FrozenWriter) (i: IntrinsicReprInfo) =

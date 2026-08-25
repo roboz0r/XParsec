@@ -432,6 +432,7 @@ module TastConvert =
             Diagnostics = tf.Diagnostics
             IntrinsicReprKeys = tf.IntrinsicReprKeys
             GlobalValueKeys = tf.GlobalValueKeys
+            ModuleSourcePaths = tf.ModuleSourcePaths
             ModuleMembers = tf.ModuleMembers
             ClosureReprs = tf.ClosureReprs
             FunVerdicts = tf.FunVerdicts

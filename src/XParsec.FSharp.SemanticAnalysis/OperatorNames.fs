@@ -103,5 +103,5 @@ module OperatorNames =
         match ofIdentOp nameOf idOp with
         | ValueSome opName ->
             let prefix = li.Idents |> Seq.map nameOf |> String.concat "."
-            ValueSome(if prefix.Length = 0 then opName else prefix + "." + opName)
+            ValueSome(SymbolKeyOps.qualify prefix opName)
         | ValueNone -> ValueNone

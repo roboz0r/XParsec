@@ -17,8 +17,9 @@ module FrozenCodecRows =
     let private writeNamespaceId (w: FrozenWriter) (NamespaceId i) = w.Write i
     let private readNamespaceId (r: FrozenReader) : NamespaceId = NamespaceId(r.ReadInt32())
 
-    let private writeModuleId (w: FrozenWriter) (ModuleId i) = w.Write i
-    let private readModuleId (r: FrozenReader) : ModuleId = ModuleId(r.ReadInt32())
+    /// Public: a table keyed by the declaring module writes its key as a module-table row.
+    let writeModuleId (w: FrozenWriter) (ModuleId i) = w.Write i
+    let readModuleId (r: FrozenReader) : ModuleId = ModuleId(r.ReadInt32())
 
     /// Public: a nominal type key crosses the wire on its own, as a `PooledTypeDecl`'s
     /// identity or a constrained interface, and not only inside a type.

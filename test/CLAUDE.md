@@ -30,7 +30,7 @@ fresh comparison.
 
 ## Resolving symbols in a test
 
-Wire real contracts (`ReferencedProject.buildProvider`, `ClrSymbolProviders.buildContract [manifest]`)
+Wire real contracts (`PackageProviders.buildProvider`, `ClrSymbolProviders.buildContract [manifest]`)
 rather than a hardcoded provider, and prove a new front-end resolution feature against a real
 `.fsi` with no backstop. A hardcoded provider declares ops with ad-hoc shapes that can diverge
 from the real contracts, which hides gaps in contract-backed resolution.

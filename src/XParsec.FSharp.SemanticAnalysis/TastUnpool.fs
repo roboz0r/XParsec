@@ -320,6 +320,7 @@ module TastUnpool =
             Diagnostics = pools.Residue.Diagnostics
             IntrinsicReprKeys = pools.Residue.IntrinsicReprKeys
             GlobalValueKeys = pools.Residue.GlobalValueKeys
+            ModuleSourcePaths = pools.Residue.ModuleSourcePaths
             ModuleMembers = boundVarKeyedMap readmittedBoundVar pools.ModuleMembers
             ClosureReprs = boundVarKeyedMap readmittedBoundVar pools.ClosureReprs
             FunVerdicts = pools.FunVerdicts |> Array.map (fun (id, v) -> lambdaKeyOf id, v) |> Map.ofArray

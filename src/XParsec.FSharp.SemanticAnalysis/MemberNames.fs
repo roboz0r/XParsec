@@ -6,8 +6,8 @@ open XParsec.FSharp.Parser
 /// member name as the binding's bound pattern, so both are read off that pattern.
 module MemberNames =
 
-    /// The pattern actually naming the member, under any annotation / attribute / paren
-    /// wrapping: `member this.M` names by `NamedSimple`, `member (+)` by `Op`.
+    /// The pattern that supplies the member's name, under any annotation / attribute / paren
+    /// wrapping: `member this.M` yields a `NamedSimple`, `member (+)` an `Op`.
     let rec private namingPat (p: Pat<SyntaxToken>) : Pat<SyntaxToken> voption =
         match p with
         | Pat.NamedSimple _

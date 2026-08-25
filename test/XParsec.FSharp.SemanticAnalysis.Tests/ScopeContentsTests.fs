@@ -75,6 +75,34 @@ module M =
         | Green of int
 "
 
+/// A `ModuleSuffix` module: `Test.A.Bag` in source, `Test.A.BagModule` compiled.
+let private bagImplementation =
+    "\
+namespace Test.A
+
+type Bag<'T> = { Items: 'T list }
+
+[<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
+module Bag =
+    type Tag = { Label: string }
+
+    let size : int = 0
+
+    [<CompiledName(\"Count\")>]
+    let count : int = 0
+"
+
+let private bagSignature =
+    "\
+namespace Test.A
+
+type Bag<'T> = { Items: 'T list }
+
+[<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
+module Bag =
+    val size : int
+"
+
 let private containerOrFail (scope: IScopeContents) (path: string) : ModuleContainer =
     match scope.TryContainer path with
     | ValueSome c -> c
@@ -84,6 +112,12 @@ let private moduleName (c: ModuleContainer) : string =
     match c with
     | ModuleContainer.InModule m -> m.Name
     | ModuleContainer.InNamespace ns -> "namespace " + ns.Dotted
+
+let private expectBagSpellings (view: IExternalSymbolProvider) : unit =
+    let bySource = containerOrFail view.Scope "Test.A.Bag"
+    let byCompiled = containerOrFail view.Scope "Test.A.BagModule"
+    Expect.equal bySource byCompiled "one module, two spellings"
+    Expect.isTrue (view.Scope.TryValue(bySource, "size")).IsSome "its value answers under either"
 
 [<Tests>]
 let tests =
@@ -158,42 +192,30 @@ let tests =
                         Expect.equal (scope.TypesNamed(m, "Light")).Length 0 "Light is N's"
                     }
 
-                    // The source-spelled alias is published by the signature path, so the
-                    // unit carries an `.fsi`.
-                    test "a ModuleSuffix module is a container under its source path and its compiled name" {
-                        let signature =
-                            SourceFile.ofText
-                                "lib.fsi"
-                                "\
-namespace Test.A
+                    test "a signature publishes a ModuleSuffix module under its source path and its compiled name" {
+                        let unit =
+                            SourceUnit.paired
+                                (SourceFile.ofText "lib.fsi" bagSignature)
+                                (SourceFile.ofText "lib.fs" bagImplementation)
 
-type Bag<'T> = { Items: 'T list }
+                        expectBagSpellings (publishedViewsOfUnits [ unit ]).[0]
+                    }
 
-[<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
-module Bag =
-    val size : int
-"
+                    test "an implementation with no signature publishes the source spelling too" {
+                        let view = (publishedViews [ "lib.fs", bagImplementation ]).[0]
+                        expectBagSpellings view
 
-                        let implementation =
-                            SourceFile.ofText
-                                "lib.fs"
-                                "\
-namespace Test.A
+                        match view.TryLookup "Test.A.Bag.count" with
+                        | ValueSome sym -> Expect.equal sym.Key.Name "Count" "the alias carries the compiled key"
+                        | ValueNone -> failtest "a [<CompiledName>] binding publishes its source spelling"
 
-type Bag<'T> = { Items: 'T list }
-
-[<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
-module Bag =
-    let size : int = 0
-"
-
-                        let scope =
-                            (publishedViewsOfUnits [ SourceUnit.paired signature implementation ]).[0].Scope
-
-                        let bySource = containerOrFail scope "Test.A.Bag"
-                        let byCompiled = containerOrFail scope "Test.A.BagModule"
-                        Expect.equal bySource byCompiled "one module, two spellings"
-                        Expect.isTrue (scope.TryValue(bySource, "size")).IsSome "its value answers under either"
+                        match view.TryLookupType "Test.A.Bag.Tag" with
+                        | ValueSome(struct (key, _)) ->
+                            Expect.equal
+                                (SymbolKeyOps.typeMetaName key)
+                                "Test.A.BagModule+Tag"
+                                "the source path reaches the compiled module"
+                        | ValueNone -> failtest "a type the module holds resolves under the module's source path"
                     }
 
                     test "a composed stack answers from every file, nearest first" {

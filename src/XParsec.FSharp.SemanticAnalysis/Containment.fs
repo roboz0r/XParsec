@@ -40,7 +40,7 @@ module Containment =
             for md in c.Modules do
                 let src = this.NameOf md.Ident
                 container <- ModuleContainer.InModule(SymbolKeyOps.moduleKeyOf container (this.CompiledModuleName md))
-                path <- if path.Length = 0 then src else path + "." + src
+                path <- SymbolKeyOps.qualify path src
                 scopes.Add(path, container)
 
             List.ofSeq scopes

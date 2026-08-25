@@ -6,16 +6,19 @@
 [core-lib-architecture](core-lib-architecture.md)) carries two kinds of
 information:
 
-1. a **runtime** — the BCL-only `Vesper.Core.dll` the backend emits, holding only
-   what the target ABI can express (real types, real method bodies); and
+1. a **runtime** — the **target artifact** the backend emits, holding only
+   what the target ABI can express (real types, real method bodies). On CLR that
+   is the BCL-only `Vesper.Core.dll`; on JS it is a directory of `.mjs` modules;
+   a future target has its own native format. "Target artifact" below means any
+   of these; `.dll` appears only where the point is CLR-specific.
 2. a **contract** — the `.fsi` signatures plus the manifest, holding everything
    the front-end needs that **IL (or JS, or any target ABI) cannot represent**.
 
 The runtime's distribution form is settled: it's a normal per-target artifact —
-one impl DLL per package ([core-lib-architecture](core-lib-architecture.md)).
+one target artifact per package ([core-lib-architecture](core-lib-architecture.md)).
 This plan settles the open
 question for the *contract*: **in what form is the not-IL-representable metadata
-published, and where does it live relative to the runtime artifact?**
+published, and where does it live relative to the target artifact?**
 
 Two well-known poles bound the design space, and this plan rejects both:
 
@@ -50,7 +53,7 @@ the manifest's `impl` inline `.fs` (e.g. `ops-platform.clr.fs`) ≙ optimization
 |---|---|---|---|
 | **F#** | .NET only | yes | metadata + runtime both in the PE (one artifact) |
 | **Fable** | JS / others | no (transpiler) | all source, rebuild everything each consume |
-| **Vesper** | **multi-target** | **yes** (per-target BCL-only `.dll`) | **per-target runtime + one neutral contract** |
+| **Vesper** | **multi-target** | **yes** (per-target artifact: BCL-only `.dll`, `.mjs` tree, …) | **per-target runtime + one neutral contract** |
 
 The two facts that place Vesper in its own position:
 
@@ -60,32 +63,33 @@ The two facts that place Vesper in its own position:
    must also read. This is precisely why Fable *cannot reuse* F#'s pickle and
    falls back to source.
 2. **Fable rebuilds from source only because it has no stable runtime to ship —
-   Vesper does.** The backend emits a real BCL-only DLL; rebuilding the runtime
-   from source on every consume buys nothing. Fable's source bundle is a
+   Vesper does.** Each backend emits a real target artifact; rebuilding the
+   runtime from source on every consume buys nothing. Fable's source bundle is a
    workaround for a missing backend, not a virtue to copy.
 
 So Vesper lands where **OCaml, Scala, and TypeScript** already live: a per-target
-runtime artifact + a target-neutral metadata channel, tied by a manifest — which
+artifact + a target-neutral metadata channel, tied by a manifest — which
 is what `../../Vesper.Core/manifest.toml` + `.fsi` + the selective inline `.fs`
 already are. This plan ratifies and bounds that, it does not invent it.
 
-## Runtime artifact ≠ distribution package
+## Target artifact ≠ distribution package
 
-The decisive sharpening: the **runtime artifact** (`.dll`) and the **distribution
-package** (`.nupkg` / npm tarball / …) are *different containers*, and the
-metadata belongs to the second, never the first.
+The decisive sharpening: the **target artifact** (a CLR `.dll`, a JS `.mjs`
+directory, a future target's native format) and the **distribution package**
+(`.nupkg` / npm tarball / …) are *different containers*, and the metadata
+belongs to the second, never the first.
 
-- **Embedding metadata in the runtime artifact is pure deadweight.** The runtime
+- **Embedding metadata in the target artifact is pure deadweight.** The runtime
   loader cannot use the contract — only the *compiler* reads it, and only at
   compile time. F#'s `FSharpSignatureData`/`FSharpOptimizationData` resources sit
   inside `FSharp.Core.dll` in every deployed app forever, swelling every copy for
   data the CLR never touches. Kotlin's `@Metadata` annotation baked into each
   `.class` is the same anti-pattern on the JVM.
 - **A package manager already gives a neutral, multi-file container.** A `.nupkg`
-  is a zip with arbitrary entries; it can hold the runtime `.dll`, the `.fsi`
-  contract, the manifest, and (if ever needed) a serialised metadata sidecar as
-  *separate entries*. The metadata rides the package, the runtime artifact stays
-  lean. This is exactly OCaml's `.cmi`/`.cmx` (sidecar files next to the
+  or tarball is an archive with arbitrary entries; it can hold the target
+  artifact, the `.fsi` contract, the manifest, and (if ever needed) a serialised
+  metadata sidecar as *separate entries*. The metadata rides the package, the
+  target artifact stays lean. This is exactly OCaml's `.cmi`/`.cmx` (sidecar files next to the
   `.cmo`/`.cmxa`) and Scala's `.tasty` (a **separate entry in the jar**, not bytes
   inside the `.class`).
 
@@ -94,7 +98,7 @@ metadata belongs to the second, never the first.
 Three independent choices, so prior art can be placed precisely:
 
 - **Carrier**: (a) source files in the package · (b) serialised sidecar file in
-  the package · (c) embedded resource/section in the **runtime artifact** ·
+  the package · (c) embedded resource/section in the **target artifact** ·
   (d) custom attributes on runtime members.
 - **Encoding**: (a) the language's own surface syntax · (b) a structured *public*
   spec (JSON / protobuf / TASTy-style) · (c) a private binary pickle.
@@ -132,12 +136,13 @@ reason as the F# pickle.
   `.fsi` set and resolves the `depends-on` closure itself
   (`ReferencedProject.fs:246-345`); ratify it. TypeScript's `.d.ts` is the
   precedent.
-- **PF2 — Metadata never rides the runtime artifact.** No pickled resource or PE
-  section in any `Vesper.*.dll`; no metadata-bearing custom attribute beyond what
-  the runtime itself needs. The runtime loader cannot use the contract, so any
-  such bytes are deadweight in every deployed copy (the F#/Kotlin anti-pattern).
+- **PF2 — Metadata never rides the target artifact.** No pickled resource or PE
+  section in any `Vesper.*.dll`, no contract-bearing module in an emitted `.mjs`
+  tree; no metadata-bearing custom attribute beyond what the runtime itself
+  needs. The runtime loader cannot use the contract, so any such bytes are
+  deadweight in every deployed copy (the F#/Kotlin anti-pattern).
 - **PF3 — The distribution package carries the metadata, as separate entries.**
-  A package = { per-target runtime artifact(s) + neutral contract (`.fsi`) +
+  A package = { per-target artifact(s) + neutral contract (`.fsi`) +
   manifest [+ optional serialised sidecar, PF6] }, each a distinct entry in the
   package container (`.nupkg`/…). Mirrors OCaml's sidecar files and Scala's
   separate `.tasty` jar entries; explicitly **not** Kotlin's in-`.class`
@@ -157,7 +162,9 @@ reason as the F# pickle.
   shipped. Caveat to watch: re-typechecking an inline body needs the library's
   *original typing environment* (its `open`s, internals, and transitive dependency
   signatures), not just the contract surface — clean for shallow-dependency libraries,
-  and the depth at which it degrades is exactly the pressure toward PF6.
+  and the depth at which it degrades is exactly the pressure toward PF6. PF9's
+  published-surface-only rule bounds this caveat: a conforming inline body needs only
+  the contract closure.
 - **PF5 — Any resolved/serialised form is a local, content-addressed build
   cache — never published.** If consume-time parse+resolve shows up in a profile,
   cache the resolved `IExternalSymbolProvider` keyed on source content hash, in
@@ -182,20 +189,62 @@ reason as the F# pickle.
   indexing). That equality is what licenses consuming the serialised form *instead of*
   source; it generalises the Edge-A typar-index round-trip test, and it can
   be run from the day `TExpr<FrozenType>` exists — long before any sidecar is shipped.
-- **PF7 — Multi-target shapes the carrier.** Per-target runtime artifacts; **one
+- **PF7 — Multi-target shapes the carrier.** One target artifact per target; **one
   neutral contract** shared across targets. This is *why* the contract cannot
   live in any target's artifact (reinforces PF2) and points toward a shared
   contract package consumed by per-target runtime packages — to be reconciled
   with the deferred rollup/merge decision
   ([core-lib-architecture](core-lib-architecture.md)).
-- **PF8 — The `.fsi` contract is always a committed artifact.** Either
-  hand-authored, or generated from `.fs` *and committed alongside it* — never an
-  ephemeral build product regenerated on the fly. Consequences: a publishable
-  `.fsi` is always present (PF1 can never fall through), the source-level
-  conformance gate (`Conformance.fs`, P4) always has both sides committed to
-  diff, and any future PF6 sidecar derives from the committed `.fsi` (or the TAST
-  checked from it) regardless of how the `.fsi` was produced. Reviewers see the
-  contract change in the diff either way.
+- **PF8 — The contract is hand-authored and committed, or printed from the
+  checked surface at build time.** Two provenances, one format:
+  - A **contract-first** package commits its hand-authored `.fsi`, which
+    *constrains* the implementation — each `Vesper.*` is this kind, its `.fsi`
+    being carried FSharp.Core documentation. The source-level conformance gate
+    (`Conformance.fs`, P4) checks impl against contract, and reviewers see
+    contract changes in the diff.
+  - Every other package's `.fsi` is a **build output**: the compiler already
+    holds the checked surface (`PublishedSurface` / `FrozenSignature`), and a
+    signature printer emits the `.fsi` beside the target artifact at the publish
+    boundary. A user authors only `.fs`. Drift is structurally impossible; the
+    gate is the round-trip property `parse(print(surface)) = surface`, runnable
+    in CI from the day the printer exists. The printer emits everything the
+    target ABI cannot carry — RQA, `[<AutoOpen>]`, abbreviations, and a
+    `[<CompilationRepresentation(ModuleSuffix)>]` module's source name.
+
+  A consumer cannot tell the provenances apart: both publish identically
+  (PF1/PF3) and are read through the same signature-resolution path, so a
+  publishable `.fsi` is always present and PF1 can never fall through. Within
+  one build, a project reference hands the consumer the in-memory surface
+  directly; the printed `.fsi` exists only where the producer's compilation is
+  not in memory — a referenced prebuilt target artifact, or a distribution
+  package. This is TypeScript's `declaration: true` (emitted `.d.ts` beside the
+  build output), and it is how OCaml's `.cmi` and Scala's `.tasty` are produced
+  — nobody hand-commits a sidecar; only the encoding here is surface syntax
+  rather than binary (PF1).
+- **PF9 — Inline bodies ship as printed source under a published-surface-only
+  rule; no bundled binary format.** The build prints the `inline`-marked
+  bindings, fully qualified, into a companion fragment beside the printed
+  `.fsi` — the generated twin of the manifest's hand-listed `impl` files. What
+  makes re-typechecking at consume sound is a publish-time check the language
+  already implies: **an inline body may reference only the published surface**
+  (F# rejects an `inline` function whose body uses insufficiently accessible
+  values), so the printed body re-resolves in a fresh environment seeded with
+  the package's own contract closure. This closes PF4's typing-environment
+  caveat for conforming packages, and a package whose inline bodies cannot meet
+  the rule is a PF6 trigger, not a reason to bundle.
+
+  A custom binary format bundling contract + bodies is rejected on the carrier
+  axis: the package container already provides cohabitation (two entries in one
+  `.nupkg`/tarball are as together as two sections in one blob), and bundling
+  welds the stability-wanting textual contract to the churn-prone bodies
+  channel, inheriting the schema-brittleness only the bodies could ever
+  justify. The two channels also have different readers: every consumer reads
+  the contract (resolver, LSP, doc tooling, humans), only an optimising compile
+  reads bodies, and bundling forces the union of requirements on every reader.
+  If a serialised typed form is ever warranted it is PF6, **bodies-only**,
+  beside a still-textual `.fsi` — OCaml's actual layout (`.cmi` interface
+  beside `.cmx` inline info). PF6's equality oracle is shared: the test that
+  validates a printed body today licenses the pickle tomorrow.
 
 ## Triggers to revisit
 
@@ -216,16 +265,25 @@ reason as the F# pickle.
 
 ## Risks / open questions
 
-- **Contract ↔ runtime drift.** `.fsi` (contract) and `.fs` (runtime) must agree;
-  the source-level conformance check (`Conformance.fs`, P4) is the publish-time
-  gate, mirroring how F# checks impl against signature *before* it pickles. PF1
-  keeps that gate as the same source-level check already run per package; a PF6
-  sidecar would have to validate the serialised artifact too.
-- **Canonical direction of the `.fsi`/`.fs` pair — RESOLVED (PF8).** The `.fsi`
-  is always a committed artifact (hand-authored, or generated-but-committed), so
-  it is always available to publish and to conformance-check, and a future PF6
-  sidecar derives from it. The only residual choice — hand-author vs. generate —
-  is a per-package authoring convenience, not a distribution-format question.
+- **Contract ↔ runtime drift.** `.fsi` (contract) and `.fs` (runtime) must
+  agree. The gate depends on provenance (PF8): a hand-authored contract is
+  checked by the source-level conformance check (`Conformance.fs`, P4),
+  mirroring how F# checks impl against signature *before* it pickles; a printed
+  contract cannot drift, and its gate is the `parse(print(surface)) = surface`
+  round-trip. A stale printed `.fsi` beside a rebuilt target artifact is still
+  possible operationally — the publish step must emit both from one
+  compilation. A PF6 sidecar would have to validate the serialised artifact
+  too.
+- **Canonical direction of the `.fsi`/`.fs` pair — RESOLVED (PF8).** Per
+  package: contract-first (hand-authored, committed, constrains the impl — the
+  `Vesper.*` libraries) or implementation-first (`.fsi` printed at build). Both
+  publish identically, so the choice is an authoring discipline, not a
+  distribution-format question, and a future PF6 sidecar derives from the
+  checked surface in either case.
+- **The signature printer is a new component (PF8/PF9).** Print direction does
+  not exist yet; only parse does. Its correctness burden is the round-trip gate,
+  and its completeness burden is the not-target-representable metadata table
+  above — a construct the printer drops is a construct consumers silently lose.
 - **Versioning.** Source-contract version = package version (free). A PF6 sidecar
   needs its own schema version stamp — the exact thing that bites F# / OCaml /
   Rust cross-version. Treat the schema as a public, versioned contract from day
@@ -243,7 +301,7 @@ reason as the F# pickle.
 ## Cross-references
 
 - [core-lib-architecture](core-lib-architecture.md) — the per-package runtime
-  split (one impl DLL per package), the contract/runtime two-artifact split
+  split (one target artifact per package), the contract/runtime two-artifact split
   (`.fsi` vs `.fs`) this plan distributes, and the deferred rollup/merge decision
   this plan's PF7 feeds.
 - [function-representation-plan](function-representation-plan.md) — `Fun`, the

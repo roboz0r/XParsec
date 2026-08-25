@@ -341,21 +341,22 @@ module FrozenSignature =
             | true, vr when not (List.isEmpty vr.Groups) -> ValueSome(valReprToDeclaring pool valReprPats vr)
             | _ -> ValueNone
 
-        let addValue (bindingKey: BindingKey) (boundVar: BoundVarId) (ty: FrozenType) =
+        let addValue (info: ModuleBindingInfo) (boundVar: BoundVarId) (ty: FrozenType) =
             let scheme = ConformanceTypars.toDeclaringAxis ty
 
             let sym =
-                { ExternalSymbols.scheme
-                      bindingKey.Decl
-                      bindingKey.Name
-                      scheme
-                      (FrozenPools.typarArity frozen boundVar)
-                      [] with
-                    Origin = originIn bindingKey.Decl.Namespace
+                { ExternalSymbols.scheme info.Container info.Name scheme (FrozenPools.typarArity frozen boundVar) [] with
+                    Origin = originIn info.Container.Namespace
                     ValRepr = bindingValRepr boundVar
                 }
 
-            surface.Symbols.[sym.Name] <- sym
+            let source: SourceSpelling =
+                {
+                    Path = FrozenFileResidue.sourcePathOf frozen.Residue info.Container
+                    Name = info.SourceName
+                }
+
+            PublishedSurfaceBuilder.addValue surface (ValueSome source) sym
 
         // EVERY module binding rides `Decls`, `inline` ones included, and its identity is in
         // `ModuleMembers`, a TOP-LEVEL binding's too, keyed in the file's namespace so it
@@ -369,9 +370,8 @@ module FrozenSignature =
                                 } ->
                 let info = TastPoolBuilder.moduleMemberOf pool boundVar
 
-                match info.Key with
-                | SymbolKey.Binding bindingKey when exported info.Key -> addValue bindingKey boundVar ty
-                | _ -> ()
+                if exported info.Key then
+                    addValue info boundVar ty
             | _ -> ()
 
         // --- intrinsic / primitive type shapes ----------------------------------------

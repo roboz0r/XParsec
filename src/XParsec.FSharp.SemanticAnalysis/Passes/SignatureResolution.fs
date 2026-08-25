@@ -620,10 +620,12 @@ module SignatureResolution =
         classifyValSigTypes ctx valSig
 
         if isPublished access then
+            let sourceName = OperatorNames.ofDeclaredName ctx.NameOf ident
+
             let compiledName =
                 match AttributeDecode.tryCompiledName ctx.NameOf (ctx.ResolveAttributes attrs) with
                 | ValueSome n -> ValueSome n
-                | ValueNone -> OperatorNames.ofDeclaredName ctx.NameOf ident
+                | ValueNone -> sourceName
 
             match compiledName with
             | ValueNone -> ()
@@ -672,23 +674,17 @@ module SignatureResolution =
                         ValRepr = valRepr
                     }
 
-                sctx.Surface.Symbols.[sym.Name] <- sym
+                let source =
+                    sourceName
+                    |> ValueOption.map (fun n ->
+                        {
+                            Path = DeclContainment.sourcePath ctx.NameOf containment
+                            Name = n
+                        }
+                        : SourceSpelling
+                    )
 
-                // Source-name alias for a `ModuleSuffix` module's members: `List.fold`
-                // alongside the compiled `ListModule.fold`.
-                match OperatorNames.ofDeclaredName ctx.NameOf ident with
-                | ValueSome sourceName ->
-                    let path = DeclContainment.sourcePath ctx.NameOf containment
-
-                    let written =
-                        if path.Length = 0 then
-                            sourceName
-                        else
-                            path + "." + sourceName
-
-                    if written <> sym.Name && not (sctx.Surface.Symbols.ContainsKey written) then
-                        sctx.Surface.Symbols.[written] <- { sym with Name = written }
-                | ValueNone -> ()
+                PublishedSurfaceBuilder.addValue sctx.Surface source sym
 
     // --- the walk -------------------------------------------------------------------
 

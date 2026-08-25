@@ -103,8 +103,8 @@ type PassContextTypes =
         /// THE name table: short name → every `(container, name, arity)` claim under it, of any
         /// KIND. At most one type may hold a claim; several under one name are ranked.
         TypeClaims: Dictionary<string, ResizeArray<TypeIdentity>>
-        /// The module / namespace scopes this file DECLARES, keyed by the dotted SOURCE path
-        /// an `open` names them by (`"N"`, `"N.A"`), not the compiled name a `ModuleKey` holds.
+        /// The module / namespace scopes this file DECLARES, keyed by the dotted SOURCE path an
+        /// `open` writes (`"N"`, `"N.A"`), not the compiled name a `ModuleKey` holds.
         LocalContainers: Dictionary<string, ModuleContainer>
         /// The INVERSE of `LocalContainers`. A qualifier is written relative to a SCOPE (`A.T`
         /// inside `module N.B` means `N.A.T`), so resolving one needs that scope's path.
@@ -499,6 +499,20 @@ module TypeRegistry =
     let noteLocalContainer (types: PassContextTypes) (path: string) (container: ModuleContainer) : unit =
         types.LocalContainers.[path] <- container
         types.LocalContainerPaths.[container] <- path
+
+    /// `LocalContainerPaths` restricted to modules; a namespace's source path is its own
+    /// dotted name, so it needs no entry.
+    let declaredModulePaths
+        (types: PassContextTypes)
+        : System.Collections.Generic.IReadOnlyDictionary<ModuleKey, string> =
+        let d = Dictionary<ModuleKey, string>()
+
+        for KeyValue(container, path) in types.LocalContainerPaths do
+            match container with
+            | ModuleContainer.InModule m -> d.[m] <- path
+            | ModuleContainer.InNamespace _ -> ()
+
+        d
 
     let noteNominalTypeName (types: PassContextTypes) (name: string) : unit =
         types.NominalTypeNames.Add name |> ignore

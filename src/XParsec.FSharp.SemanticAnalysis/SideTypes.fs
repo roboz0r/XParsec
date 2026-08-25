@@ -14,6 +14,9 @@ type ModuleBindingInfo =
     {
         Container: ModuleContainer
         Name: string
+        /// The short name a use site writes; `[<CompiledName>]` is what makes it differ from
+        /// `Name`. The declaring scope's source path is in `FrozenFileResidue.ModuleSourcePaths`.
+        SourceName: string
     }
 
     member this.Key: SymbolKey = SymbolKeyOps.valueKey this.Container this.Name

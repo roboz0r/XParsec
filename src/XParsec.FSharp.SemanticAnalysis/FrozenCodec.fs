@@ -447,18 +447,21 @@ module FrozenCodec =
         writeListWith w writeDiagnostic res.Diagnostics
         writeTypeKeyDict w writeIntrinsicReprInfo res.IntrinsicReprKeys
         writeSymbolSet w res.GlobalValueKeys
+        writeModuleDict w (fun w (path: string) -> w.Write path) res.ModuleSourcePaths
         writeSymbolDict w writeAccessibility res.Accessibility
 
     let private readResidue (r: FrozenReader) : FrozenFileResidue =
         let diagnostics = readListWith r readDiagnostic
         let intrinsicReprKeys = readTypeKeyDict r readIntrinsicReprInfo
         let globalValueKeys = readSymbolSet r
+        let moduleSourcePaths = readModuleDict r (fun r -> r.ReadString())
         let accessibility = readSymbolDict r readAccessibility
 
         {
             Diagnostics = diagnostics
             IntrinsicReprKeys = intrinsicReprKeys
             GlobalValueKeys = globalValueKeys
+            ModuleSourcePaths = moduleSourcePaths
             Accessibility = accessibility
         }
 

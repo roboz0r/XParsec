@@ -126,33 +126,36 @@ module Elaborate =
 
                 ctx.GenericFnSchemes.Set(boundVar, constraints)
 
-    /// `[<CompiledName>]`, else the source name. The same reading a `.fsi` publishes under, so
-    /// a consumer resolving `Set.empty` to `SetModule.Empty` finds the method this emits.
-    let private emittedNameOfBinding (ctx: PassContext) (b: Binding<SyntaxToken>) : string voption =
-        MemberNames.ofBinding ctx b
-        |> ValueOption.map (fun m ->
-            match AttributeDecode.tryCompiledName ctx.NameOf (ctx.ResolveAttributes b.attributes) with
-            | ValueSome cn -> cn
-            | ValueNone -> m.Name
-        )
-
-    /// A pattern with no single bound variable (`let (a, b) = p`) has no name to export,
-    /// so records nothing.
-    let private recordExportedBinding
+    /// The binding's exportable identity: `Name` is `[<CompiledName>]`, else the source name,
+    /// the reading a `.fsi` publishes under (`Set.empty` ⇒ `SetModule.Empty`). `ValueNone` for
+    /// a pattern with no single bound variable (`let (a, b) = p`) and for an active-pattern name.
+    let private exportedBindingInfo
         (ctx: PassContext)
         (container: ModuleContainer)
         (b: Binding<SyntaxToken>)
-        (emittedName: string voption)
+        : ModuleBindingInfo voption =
+        MemberNames.ofBinding ctx b
+        |> ValueOption.map (fun m ->
+            {
+                Container = container
+                Name =
+                    match AttributeDecode.tryCompiledName ctx.NameOf (ctx.ResolveAttributes b.attributes) with
+                    | ValueSome cn -> cn
+                    | ValueNone -> m.Name
+                SourceName = m.Name
+            }
+        )
+
+    /// Records the binding's identity and its declared accessibility, returning its key.
+    /// `ValueNone` when either `info` or `boundVar` is absent, which records nothing.
+    let private recordExportedBinding
+        (ctx: PassContext)
+        (b: Binding<SyntaxToken>)
+        (info: ModuleBindingInfo voption)
         (boundVar: BoundVarKey voption)
         : SymbolKey voption =
-        match emittedName, boundVar with
-        | ValueSome compiledNm, ValueSome bk ->
-            let info: ModuleBindingInfo =
-                {
-                    Container = container
-                    Name = compiledNm
-                }
-
+        match info, boundVar with
+        | ValueSome info, ValueSome bk ->
             ctx.Bindings.ModuleMembers.[bk] <- info
             ctx.Bindings.Accessibility.[info.Key] <- accessibilityOfToken b.access
             ValueSome info.Key
@@ -198,8 +201,9 @@ module Elaborate =
         // addresses a pattern node that `translatePat` erases for `let (x: int) = …`.
         let boundVar = if elided then ValueNone else BoundVarKey.ofPat tpat
 
-        let emittedName = emittedNameOfBinding ctx b
-        let exportedKey = recordExportedBinding ctx container b emittedName boundVar
+        let info = exportedBindingInfo ctx container b
+        let emittedName = info |> ValueOption.map (fun i -> i.Name)
+        let exportedKey = recordExportedBinding ctx b info boundVar
 
         let valT = translateBinding ctx b
         let declTy = typeOfKey ctx (CstKeys.ofBinding b)
@@ -333,6 +337,7 @@ module Elaborate =
             Diagnostics = List.ofSeq ctx.Diagnostics
             IntrinsicReprKeys = System.Collections.Generic.Dictionary(ctx.Types.IntrinsicReprKeys)
             GlobalValueKeys = System.Collections.Generic.HashSet(ctx.Bindings.GlobalValueKeys)
+            ModuleSourcePaths = TypeRegistry.declaredModulePaths ctx.Types
             ModuleMembers = emptyIfDegraded ctx.Bindings.ModuleMembers
             // Filled by the Pipeline once escape analysis has run.
             ClosureReprs = Map.empty

@@ -386,6 +386,7 @@ module TastPools =
                         Diagnostics = file.Diagnostics
                         IntrinsicReprKeys = file.IntrinsicReprKeys
                         GlobalValueKeys = file.GlobalValueKeys
+                        ModuleSourcePaths = file.ModuleSourcePaths
                         Accessibility = file.Accessibility
                     }
                 ModuleMembers = remapSideTable tryBoundVarIdOf file.ModuleMembers

@@ -87,6 +87,13 @@ module SymbolKeyOps =
     /// (`` Vesper.Choice`2 `` ⇒ `Choice`). A name with no `.` comes back bare.
     let shortName (compiled: string) : string = bareName (snd (splitLastDot compiled))
 
+    /// Join a dotted `prefix` to `name`; an empty prefix gives the bare name. The inverse of
+    /// `splitLastDot`.
+    let qualify (prefix: string) (name: string) : string =
+        match prefix.Length with
+        | 0 -> name
+        | _ -> prefix + "." + name
+
     // --- Namespaces ------------------------------------------------------------------
 
     /// Segment a dotted namespace string; `""` ⇒ the EMPTY path, the global namespace.
@@ -364,10 +371,7 @@ module SymbolKeyOps =
     let qualifiedName (k: SymbolKey) : string =
         match k with
         | SymbolKey.Type t -> typeMetaName t
-        | SymbolKey.Binding b ->
-            match containerFullName b.Decl with
-            | "" -> b.Name
-            | h -> h + "." + b.Name
+        | SymbolKey.Binding b -> qualify (containerFullName b.Decl) b.Name
         | SymbolKey.Member m -> m.Name
 
     /// The last `.` segment is the simple name, the prefix the namespace.

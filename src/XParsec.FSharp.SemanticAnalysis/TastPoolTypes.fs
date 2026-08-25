@@ -126,8 +126,25 @@ type FrozenFileResidue =
         Diagnostics: XParsec.FSharp.SemanticAnalysis.Diagnostic list
         IntrinsicReprKeys: System.Collections.Generic.IReadOnlyDictionary<TypeKey, IntrinsicReprInfo>
         GlobalValueKeys: System.Collections.Generic.IReadOnlySet<SymbolKey>
+        ModuleSourcePaths: System.Collections.Generic.IReadOnlyDictionary<ModuleKey, string>
         Accessibility: System.Collections.Generic.IReadOnlyDictionary<SymbolKey, Accessibility>
     }
+
+[<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
+module FrozenFileResidue =
+
+    /// The dotted SOURCE path `container` is written as. A module's is declared, a
+    /// namespace's is its own dotted name.
+    let sourcePathOf (res: FrozenFileResidue) (container: ModuleContainer) : string =
+        match container with
+        | ModuleContainer.InNamespace ns -> ns.Dotted
+        | ModuleContainer.InModule m ->
+            match res.ModuleSourcePaths.TryGetValue m with
+            | true, path -> path
+            | _ ->
+                failwithf
+                    "FrozenFileResidue.sourcePathOf: module %s has no ModuleSourcePaths entry, so this pool was built from a partial scope table"
+                    (SymbolKeyOps.moduleFullName m)
 
 /// THE frozen file: the expr, pat and decl struct-of-arrays columns, each indexable by the
 /// matching `*PoolId`, plus the decl roots in source order. A bound variable IS its slot, indexable
@@ -234,6 +251,7 @@ module FrozenPools =
                     Diagnostics = []
                     IntrinsicReprKeys = readOnlyDict []
                     GlobalValueKeys = System.Collections.Generic.HashSet()
+                    ModuleSourcePaths = readOnlyDict []
                     Accessibility = readOnlyDict []
                 }
             ModuleMembers = [||]
