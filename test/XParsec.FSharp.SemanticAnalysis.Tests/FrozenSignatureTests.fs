@@ -32,9 +32,9 @@ let private membersOfType (frozen: FrozenPools) (name: string) : Pooled.TTypeMem
         | _ -> None
     )
 
-/// Every module-level binding's `(source name, SymbolKey)`. An `inline` binding rides
+/// Every module-level binding's `(source name, BindingKey)`. An `inline` binding rides
 /// BOTH `Decls` and the inline vocabulary, so the concatenation can list it twice.
-let private moduleBindings (frozen: FrozenPools) : (string * SymbolKey) list =
+let private moduleBindings (frozen: FrozenPools) : (string * BindingKey) list =
     let file = duOf frozen
 
     let fromDecls =
@@ -45,7 +45,7 @@ let private moduleBindings (frozen: FrozenPools) : (string * SymbolKey) list =
                 match BoundVarKey.ofPat pattern with
                 | ValueSome boundVar ->
                     match Map.tryFind boundVar file.ModuleMembers with
-                    | Some info -> Some(info.Name, info.Key)
+                    | Some info -> Some(info.Name, info.BindingKey)
                     | None -> None
                 | ValueNone -> None
             | _ -> None
@@ -55,13 +55,13 @@ let private moduleBindings (frozen: FrozenPools) : (string * SymbolKey) list =
         EqArray.toList file.InlineBodies
         |> List.choose (fun iv ->
             match iv.Key with
-            | SymbolKey.Binding bk -> Some(bk.Name, iv.Key)
+            | SymbolKey.Binding bk -> Some(bk.Name, bk)
             | _ -> None
         )
 
     fromDecls @ fromInline
 
-let private bindingKey (frozen: FrozenPools) (name: string) : SymbolKey =
+let private bindingKey (frozen: FrozenPools) (name: string) : BindingKey =
     moduleBindings frozen |> List.find (fun (n, _) -> n = name) |> snd
 
 /// One integer per curried group (`0` = a `unit` group, `1` = simple, `N` = a tuple of
@@ -184,9 +184,9 @@ let tests =
                 match store.TryLookupByKey answerKey with
                 | ValueSome s ->
                     Expect.equal s.TyparArity 0 "answer is monomorphic"
-                    // The scope answers the SAME entry for the name the source writes.
+                    // The scope answers the SAME entry through the container that declares it.
                     Expect.isTrue
-                        (ScopeContents.tryValueAt resolver.Scope (SymbolKeyOps.qualifiedName answerKey)).IsSome
+                        (resolver.Scope.TryValue(answerKey.Decl, answerKey.Name)).IsSome
                         "answer resolves through its container"
                 | ValueNone -> failtest "answer did not project"
 
@@ -206,7 +206,7 @@ let tests =
 
                 let bodies = InlineBodies.index (InlineBodies.collect origin frozen)
 
-                Expect.isTrue (bodies key).IsSome "the bodies half is keyed by the binding key"
+                Expect.isTrue (bodies (SymbolKey.Binding key)).IsSome "the bodies half is keyed by the binding key"
 
                 // The file's view is the two layered, which is what a later file resolves.
                 let view =
@@ -227,7 +227,7 @@ let tests =
                 Expect.equal (store.TryLookupByKey secretKey) ValueNone "private 'secret' is NOT exported (by key)"
 
                 Expect.equal
-                    (ScopeContents.tryValueAt resolver.Scope (SymbolKeyOps.qualifiedName secretKey))
+                    (resolver.Scope.TryValue(secretKey.Decl, secretKey.Name))
                     ValueNone
                     "private 'secret' is NOT exported (through its container)"
 

@@ -10,47 +10,33 @@ open ExternalTypeProbe
 /// over the registry, `IExternalSymbolResolver.Scope` over the referenced surfaces.
 module NameResolutionLongIdent =
 
-    // --- The external probes: a written spelling against the referenced contracts ---------
-
-    /// The widest generic arity probed for a spelling written without type args. A wider
-    /// generic type resolves only with written type args, whose count fixes the arity.
+    /// The widest generic arity the NAME route probes for a spelling written without type
+    /// args. A name index is unenumerable, so its arity suffix has to be guessed.
     [<Literal>]
     let MaxProbedQualifierArity = 4
 
-    /// A qualifier written without type args: its arity is not recoverable at the use site,
-    /// so probe every arity up to `MaxProbedQualifierArity`, narrowest first.
-    let qualifierArities: int list = [ 0..MaxProbedQualifierArity ]
+    /// The generic arity a written spelling asks for.
+    [<RequireQualifiedAccess>]
+    type WrittenArity =
+        /// Type args were written, so the count is known and a shape of any other arity
+        /// declines. `Vesper.Fun` is declared at 2, 3, 4 and 5.
+        | Exact of int
+        /// A qualifier written without type args. Every arity a container publishes answers,
+        /// narrowest first; the name route guesses `0 .. MaxProbedQualifierArity`.
+        | Any
 
-    /// The referenced containers a BARE name is read against: the root namespace, plus every
-    /// active `open` prefix and namespace header that names one.
-    let private openedContainers (ctx: PassContext) : ModuleContainer list =
-        [
-            ModuleContainer.InNamespace NamespaceKey.Global
-            for p in ctx.Resolution.OpenScope.Prefixes do
-                match ctx.Resolver.Scope.TryContainer p with
-                | ValueSome c -> c
-                | ValueNone -> ()
-        ]
+    module private WrittenArity =
 
-    /// Every external union case a BARE `caseName` claims: a case, without
-    /// `[<RequireQualifiedAccess>]`, of a union declared directly in an opened container.
-    /// Two claims are an ambiguity for the caller to report. A written qualifier
-    /// (`Color.Red`) resolves through `inType` instead.
-    let externalCasesInScope (ctx: PassContext) (caseName: string) : EqArray<ExternalUnionCase> =
-        let hits = ResizeArray<ExternalUnionCase>()
+        /// The arity suffixes the NAME route probes, narrowest first.
+        let probes (arity: WrittenArity) : int list =
+            match arity with
+            | WrittenArity.Exact n -> [ n ]
+            | WrittenArity.Any -> [ 0..MaxProbedQualifierArity ]
 
-        for c in openedContainers ctx do
-            for uc in (ctx.Resolver.Scope.UnionCasesNamed(c, caseName)).Underlying do
-                if not uc.IsRequireQualifiedAccess && not (hits.Contains uc) then
-                    hits.Add uc
-
-        EqArray.ofResizeArray hits
-
-    /// The referenced value a WRITTEN name denotes at the use site: the name itself, then the
-    /// name under each active `open` prefix, first hit winning. A dotted name's leading
-    /// segments are its container and its last segment the value's short name.
-    let externalValueInScope (ctx: PassContext) (written: string) : ExternalSymbol voption =
-        OpenScope.tryResolve ctx.Resolution.OpenScope (ScopeContents.tryValueAt ctx.Resolver.Scope) written
+        let admits (arity: WrittenArity) (shape: ExternalTypeShape) : bool =
+            match arity with
+            | WrittenArity.Exact n -> shape.TyparArity = n
+            | WrittenArity.Any -> true
 
     // --- The resolver -----------------------------------------------------------------
 
@@ -198,7 +184,7 @@ module NameResolutionLongIdent =
     /// empty path denotes the containers a BARE name is read against.
     let private containersAtPath (ctx: PassContext) (useSite: UseSite) (path: string) : ModuleContainer list =
         match path.Length with
-        | 0 -> openedContainers ctx
+        | 0 -> ScopeContents.openedContainers ctx.Resolver.Scope ctx.Resolution.OpenScope.Prefixes
         | _ ->
             let segments = path.Split '.'
 
@@ -217,51 +203,79 @@ module NameResolutionLongIdent =
 
             descend (firstSegmentContainers ctx useSite segments.[0]) 1
 
-    /// A WRITTEN spelling against the referenced contracts, at each of `arities`: the compiled
-    /// name probed, then the types published by the containers the written path denotes. The
-    /// second half is the one route to a module-held type, whose compiled name `+`-nests where
-    /// the source dots.
+    /// The referenced value the written `path`.`name` denotes at the use site: the first
+    /// container the path denotes that declares `name`.
+    let externalValueInScope
+        (ctx: PassContext)
+        (useSite: UseSite)
+        (path: string)
+        (name: string)
+        : ExternalSymbol voption =
+        containersAtPath ctx useSite path
+        |> tryPickV (fun c -> ctx.Resolver.Scope.TryValue(c, name))
+
+    /// Every external union case a BARE `caseName` claims: a case, without
+    /// `[<RequireQualifiedAccess>]`, of a union declared directly in an opened container.
+    /// Two claims are an ambiguity for the caller to report. A written qualifier
+    /// (`Color.Red`) resolves through `inType` instead.
+    let externalCasesInScope (ctx: PassContext) (useSite: UseSite) (caseName: string) : EqArray<ExternalUnionCase> =
+        EqArray.ofSeq
+            [
+                for c in containersAtPath ctx useSite "" do
+                    for uc in (ctx.Resolver.Scope.UnionCasesNamed(c, caseName)).Underlying do
+                        if not uc.IsRequireQualifiedAccess then
+                            uc
+            ]
+
+    /// A WRITTEN type spelling against the referenced contracts: the types published by the
+    /// containers the written path denotes, narrowest arity first, then the arity suffixes
+    /// probed against the sources that key a type by NAME alone. The first half is the one
+    /// route to a module-held type, whose compiled name `+`-nests where the source dots, and
+    /// the one route to an arity wider than `MaxProbedQualifierArity`.
     let tryPickExternalWritten
         (ctx: PassContext)
         (useSite: UseSite)
-        (arities: int list)
-        (pick: ExternalTypeHit -> 'T voption)
+        (arity: WrittenArity)
+        (pick: TypeKey -> ExternalTypeShape -> 'T voption)
         (written: string)
         : 'T voption =
-        match tryPickExternalType ctx arities pick written with
-        | ValueSome v -> ValueSome v
-        | ValueNone ->
-            let dot = written.LastIndexOf '.'
-            let path = if dot < 0 then "" else written.Substring(0, dot)
-            let name = if dot < 0 then written else written.Substring(dot + 1)
+        let dot = written.LastIndexOf '.'
+        let path = if dot < 0 then "" else written.Substring(0, dot)
+        let name = if dot < 0 then written else written.Substring(dot + 1)
 
+        let admitted (c: ModuleContainer) =
+            ctx.Resolver.Scope.TypesNamed(c, name)
+            |> EqArray.toArray
+            |> Array.filter (fun (struct (_, shape)) -> WrittenArity.admits arity shape)
+            |> Array.sortBy (fun (struct (_, shape)) -> shape.TyparArity)
+            |> List.ofArray
+
+        let published =
             containersAtPath ctx useSite path
-            |> tryPickV (fun c ->
-                let published = ctx.Resolver.Scope.TypesNamed(c, name)
+            |> tryPickV (fun c -> admitted c |> tryPickV (fun (struct (key, shape)) -> pick key shape))
 
-                arities
-                |> tryPickV (fun arity ->
-                    published
-                    |> EqArray.tryFind (fun (struct (_, shape)) -> shape.TyparArity = arity)
-                    |> ValueOption.bind (fun (struct (key, shape)) ->
-                        pick
-                            {
-                                UseSiteKey = key
-                                ProbedTyparArity = arity
-                                Shape = shape
-                            }
-                    )
+        match published with
+        | ValueSome _ as hit -> hit
+        | ValueNone ->
+            tryPickExternalType
+                ctx
+                (WrittenArity.probes arity)
+                (fun key shape ->
+                    if WrittenArity.admits arity shape then
+                        pick key shape
+                    else
+                        ValueNone
                 )
-            )
+                written
 
-    /// `tryPickExternalWritten` unfiltered: the first hit, whatever it is.
+    /// `tryPickExternalWritten` unfiltered: the first hit at the arity asked for.
     let private classifyExternalWritten
         (ctx: PassContext)
         (useSite: UseSite)
-        (arities: int list)
+        (arity: WrittenArity)
         (written: string)
-        : ExternalTypeHit voption =
-        tryPickExternalWritten ctx useSite arities ValueSome written
+        : struct (TypeKey * ExternalTypeShape) voption =
+        tryPickExternalWritten ctx useSite arity (fun key shape -> ValueSome(struct (key, shape))) written
 
     // --- The contents of one entity -----------------------------------------------------
 
@@ -309,6 +323,16 @@ module NameResolutionLongIdent =
         match case with
         | ResolvedUnionCase.Local info -> (TypeRegistry.unionOfCase ctx.Types info).IsRequireQualifiedAccess
         | ResolvedUnionCase.External uc -> uc.IsRequireQualifiedAccess
+
+    /// One claim resolves, carrying its declaring union's `[<RequireQualifiedAccess>]` for
+    /// the caller to report; several are ambiguous.
+    let private caseAmong (ctx: PassContext) (name: string) (claims: ResolvedUnionCase[]) : ResolvedItem voption =
+        match claims.Length with
+        | 0 -> ValueNone
+        | 1 ->
+            let uc = claims.[0]
+            ValueSome(ResolvedItem.UnionCase(uc, isRequireQualifiedAccess ctx uc))
+        | _ -> ValueSome(ResolvedItem.AmbiguousCase(name, claims))
 
     /// A static member `name`, or the setter of a write-only property `name`, is declared.
     let private declaresStatic (members: TypeMemberInfo[]) (name: string) : bool =
@@ -415,16 +439,10 @@ module NameResolutionLongIdent =
             |> ValueOption.map (fun v -> resolved (ResolvedItem.Value v) next)
 
         let caseWhere (admit: bool -> bool) () =
-            let claims =
-                casesIn ctx useSite c name
-                |> Array.filter (isRequireQualifiedAccess ctx >> admit)
-
-            match claims.Length with
-            | 0 -> ValueNone
-            | 1 ->
-                let uc = claims.[0]
-                ValueSome(resolved (ResolvedItem.UnionCase(uc, isRequireQualifiedAccess ctx uc)) next)
-            | _ -> ValueSome(resolved (ResolvedItem.AmbiguousCase(name, claims)) next)
+            casesIn ctx useSite c name
+            |> Array.filter (isRequireQualifiedAccess ctx >> admit)
+            |> caseAmong ctx name
+            |> ValueOption.map (fun item -> resolved item next)
 
         // The case of a union without `[<RequireQualifiedAccess>]`.
         let plainCase = caseWhere not
@@ -472,14 +490,9 @@ module NameResolutionLongIdent =
 
         match local with
         | ValueSome m -> ValueSome(ResolvedValue.Local m)
-        | ValueNone -> externalValueInScope ctx name |> ValueOption.map ResolvedValue.External
-
-    /// One claim resolves; several are ambiguous.
-    let private caseAmong (name: string) (claims: ResolvedUnionCase[]) : ResolvedItem voption =
-        match claims.Length with
-        | 0 -> ValueNone
-        | 1 -> ValueSome(ResolvedItem.UnionCase(claims.[0], false))
-        | _ -> ValueSome(ResolvedItem.AmbiguousCase(name, claims))
+        | ValueNone ->
+            externalValueInScope ctx useSite "" name
+            |> ValueOption.map ResolvedValue.External
 
     /// A bare union case: a case of a union without `[<RequireQualifiedAccess>]` visible at
     /// the use site. This file's own unions shadow every referenced one.
@@ -490,19 +503,19 @@ module NameResolutionLongIdent =
 
         match locals with
         | [||] ->
-            externalCasesInScope ctx name
+            externalCasesInScope ctx useSite name
             |> EqArray.map ResolvedUnionCase.External
             |> EqArray.toArray
-            |> caseAmong name
-        | _ -> locals |> Array.map ResolvedUnionCase.Local |> caseAmong name
+            |> caseAmong ctx name
+        | _ -> locals |> Array.map ResolvedUnionCase.Local |> caseAmong ctx name
 
     /// A bare type name at any arity: this file's claim in scope, else the referenced contracts.
     let private typeInEnv (ctx: PassContext) (useSite: UseSite) (name: string) : ResolvedTypeRef voption =
         match TypeRegistry.tryTypeClaimAnyArity ctx.Types useSite name with
         | ValueSome claim -> ValueSome(ResolvedTypeRef.Local claim)
         | ValueNone ->
-            classifyExternalWritten ctx useSite qualifierArities name
-            |> ValueOption.map (fun hit -> ResolvedTypeRef.External(hit.UseSiteKey, hit.Shape))
+            classifyExternalWritten ctx useSite WrittenArity.Any name
+            |> ValueOption.map (fun (struct (key, shape)) -> ResolvedTypeRef.External(key, shape))
 
     /// `names.[0]` as a type in the environment and `names.[1]` inside it: every claim of this
     /// file in scope under the name, then the referenced contracts at each arity. A type that
@@ -526,8 +539,8 @@ module NameResolutionLongIdent =
                 tryPickExternalWritten
                     ctx
                     useSite
-                    qualifierArities
-                    (fun hit -> inType ctx position (ResolvedTypeRef.External(hit.UseSiteKey, hit.Shape)) second)
+                    WrittenArity.Any
+                    (fun key shape -> inType ctx position (ResolvedTypeRef.External(key, shape)) second)
                     names.[0]
 
         match hit with
@@ -537,8 +550,8 @@ module NameResolutionLongIdent =
                 match local with
                 | t :: _ -> ValueSome t
                 | [] ->
-                    classifyExternalWritten ctx useSite qualifierArities names.[0]
-                    |> ValueOption.map (fun hit -> ResolvedTypeRef.External(hit.UseSiteKey, hit.Shape))
+                    classifyExternalWritten ctx useSite WrittenArity.Any names.[0]
+                    |> ValueOption.map (fun (struct (key, shape)) -> ResolvedTypeRef.External(key, shape))
 
             found |> ValueOption.map (fun t -> unresolvedInType t second 2)
 
@@ -558,9 +571,9 @@ module NameResolutionLongIdent =
         let asType () =
             match position with
             | Position.Expression ->
-                classifyExternalWritten ctx useSite qualifierArities whole
-                |> ValueOption.map (fun hit ->
-                    resolved (finalTypeItem position (ResolvedTypeRef.External(hit.UseSiteKey, hit.Shape))) n
+                classifyExternalWritten ctx useSite WrittenArity.Any whole
+                |> ValueOption.map (fun (struct (key, shape)) ->
+                    resolved (finalTypeItem position (ResolvedTypeRef.External(key, shape))) n
                 )
             | Position.Pattern -> ValueNone
 
@@ -568,15 +581,15 @@ module NameResolutionLongIdent =
             tryPickExternalWritten
                 ctx
                 useSite
-                qualifierArities
-                (fun hit -> inType ctx position (ResolvedTypeRef.External(hit.UseSiteKey, hit.Shape)) last)
+                WrittenArity.Any
+                (fun key shape -> inType ctx position (ResolvedTypeRef.External(key, shape)) last)
                 prefix
             |> ValueOption.map (fun item -> resolved item n)
 
         let prefixMiss () =
-            classifyExternalWritten ctx useSite qualifierArities prefix
-            |> ValueOption.map (fun hit ->
-                unresolvedInType (ResolvedTypeRef.External(hit.UseSiteKey, hit.Shape)) last n
+            classifyExternalWritten ctx useSite WrittenArity.Any prefix
+            |> ValueOption.map (fun (struct (key, shape)) ->
+                unresolvedInType (ResolvedTypeRef.External(key, shape)) last n
             )
 
         [ asType; prefixMember; prefixMiss ] |> tryPickV (fun step -> step ())
@@ -655,13 +668,8 @@ module NameResolutionLongIdent =
                 tryPickExternalWritten
                     ctx
                     useSite
-                    [ arity ]
-                    (fun hit ->
-                        if hit.Shape.TyparArity = hit.ProbedTyparArity then
-                            ValueSome(ResolvedTypeRef.External(hit.UseSiteKey, hit.Shape))
-                        else
-                            ValueNone
-                    )
+                    (WrittenArity.Exact arity)
+                    (fun key shape -> ValueSome(ResolvedTypeRef.External(key, shape)))
                     written.Written
             with
             | ValueSome t -> ResolvedItem.Type t

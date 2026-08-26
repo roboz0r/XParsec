@@ -1,11 +1,12 @@
 # Long-identifier resolution — the remaining deletions
 
-**Status (2026-08-25): every step is LANDED.** This doc scoped what was left of the original
-step 5 ("delete the speculation"), re-planned after a wiring survey corrected one of its
-premises. The original design (FCS-shaped algorithm, forks A–C, steps 1–4) was confirmed by
-the user on 2026-08-23 and is now code; this rewrite drops the landed history and keeps only
-the settled semantics, the corrected premises, and the deletions each step made. What remains
-is the deferred list at the end of §4.
+**Status (2026-08-25): R1–R7 are LANDED; R8 is planned and unstarted.** This doc scoped what
+was left of the original step 5 ("delete the speculation"), re-planned after a wiring survey
+corrected one of its premises. The original design (FCS-shaped algorithm, forks A–C, steps
+1–4) was confirmed by the user on 2026-08-23 and is now code; this rewrite drops the landed
+history and keeps only the settled semantics, the corrected premises, and the deletions each
+step made. R8 (§5) is the last by-name channel and wants the semantic confirmations listed
+there before it starts. What also remains is the deferred list at the end of §4.
 
 ## 1. What exists now
 
@@ -32,12 +33,12 @@ is the deferred list at the end of §4.
 - Every published scope is TOTAL: a source answering for a container answers for its values
   and its types alike, the TS manifest included, which publishes a `PublishedSurface` like
   any other referenced package (`TsManifestProvider.publicationOf`).
-- Suites at the last landed step: SemanticAnalysis 1480, Clr 1550, Js 667.
+- Suites at the last landed step (R7): SemanticAnalysis 1482, Clr 1550, Js 667.
 
 ## 2. Premises corrected by the wiring survey (2026-08-24)
 
 The original step-3 follow-up assumed `Set.singleton` against the built `Vesper.Set` resolved
-through a scope-less metadata channel, and gated step 5 on "a consolidated signature file
+through a scope-less metadata channel, and gated the original step 5 on "a consolidated signature file
 overlaid on a referenced Vesper assembly". The survey shows the overlay **already is the live
 path**:
 
@@ -60,7 +61,7 @@ path**:
   types, members and scope come off one table; `IndexSignatures` decorates that provider with
   the one channel a surface has no room for.
 
-So step 5 is **not** gated on a distribution-format change. The distribution boundary —
+So the original step 5 is **not** gated on a distribution-format change. The distribution boundary —
 consuming a package without its sources — is [publishing-format-plan](publishing-format-plan.md)
 PF8/PF9's scope: the printed `.fsi` rides beside the target artifact and enters this same
 signature path, with no resolver change. The gates on the deletions are the specific feeders
@@ -218,6 +219,68 @@ Each step leaves the tree green and is a separate review.
    and `checkValues`' `seen: HashSet<BindingKey>`. A value name was left rendered in exactly
    one place, `toProvider`'s by-name channel, which R6 deleted.
    Pinned in `ScopeContentsTests.expectBagSpellings` over both producers.
+9. **R7 — one container walk, one hit constructor. LANDED (2026-08-25).** R6's review found
+   the resolver split across three scope rules and the type route split across two hit
+   producers. Both are one rule and one producer here.
+   - `containersAtPath ctx useSite path` is the single container walk, and
+     `NameResolutionLongIdent.externalValueInScope`, `externalCasesInScope` and
+     `tryPickExternalWritten` are three reads off it. The `OpenScope.tryResolve` value route
+     is deleted, so a written value name reaches a module abbreviation and the use site's
+     enclosing chain exactly as a written type name does. `externalValueInScope` takes the
+     qualifier and the short name APART: `OperatorNames.qualifiedOpName` had joined
+     `li.Idents` for `A.B.(+)` and `ScopeContents.tryValueAt` split the result at its last
+     `.`, the join/split pair R5 deleted one layer down. `qualifiedOpName` survives as the
+     RENDERING two elaboration sites want; `Scope.fs` reads `ofIdentOp` and the path.
+     `tryValueAt` survives for a LITERAL spelling, which is what tests assert against.
+   - `openedContainers` deduplicates, which `firstSegmentContainers` always did.
+     `OpenScope.Prefixes` is a cons list, so `namespace Vesper` under an ambient `Vesper`
+     prelude prefix listed the container twice, and `externalCasesInScope` paid for it with
+     an `ExternalUnionCase`-by-value scan. `ScopeContents.composite` deduplicates
+     `UnionCasesNamed` across sources, which puts the bare and the qualified case paths on
+     the same answer: a duplicate had reached `caseWhere`'s 0/1/many unfiltered and reported
+     `M.Red` ambiguous while a bare `Red` resolved.
+   - `caseAmong` takes the `[<RequireQualifiedAccess>]` reading as a parameter and is the one
+     0/1/many rule. `inContainer.caseWhere` had a second copy of it, and `caseAmong` had
+     restated the flag as a literal `false`.
+   - `ExternalTypeHit` is deleted; both routes yield the `struct (TypeKey *
+     ExternalTypeShape)` pair the channels already carry. `UseSiteKey` was the registered key
+     from one producer and `useSiteKeyOf`'s cut of the probe string from the other, and
+     `ProbedTyparArity` was a free variable on one and definitionally equal to the shape's own
+     arity on the other, so the `Shape.TyparArity = ProbedTyparArity` check callers wrote read
+     two ways. `useSiteKeyOf` is deleted: a nominal shape always took the registered key, and
+     for an abbrev, an intrinsic and an unmodelled shape the probe's cut equals the registered
+     key wherever the name route answers — a name-keyed source mints its key from the same
+     name (`ExternalSymbols.nameKeyedTypeHit`), and a key-indexed source answers that route
+     only under its compiled rendering.
+   - `WrittenArity` replaces the probe list at the call sites, so the arity QUESTION is typed
+     rather than encoded as `[ n ]` versus `[ 0..4 ]`. `Exact n` admits one arity on both
+     routes; `Any` admits every arity a container publishes and guesses
+     `0 .. MaxProbedQualifierArity` on the name route. A referenced generic wider than the cap
+     now resolves. R8 (§5) enumerates the name route's sources, which retires the guess.
+   - The scope route runs FIRST, so a published surface answers with its registered identity
+     rather than a cut of the spelling. `stack` folds the intrinsic surface onto the scope's
+     types, which `TryLookupType` alone had carried, and decorates unconditionally rather than
+     only under a home stamp.
+   - `IExternalSymbolStore.TryLookupByKey` and `ICodegenSymbols.TryLookupOpenSignature` take a
+     `BindingKey`. Three implementations had a `Member`/`Type` arm returning `ValueNone`,
+     `tryInlineBody` matched `SymbolKey.Binding` before calling one, and
+     `ClrRecipes.emitExternalCall` held a `BindingKey` and wrapped it to call the other.
+     `ModuleBindingInfo.BindingKey` is the identity; `Key` wraps it.
+   - `KeyedChannels` carries every channel `ofKeyedChannels` forwards; `NamedChannels` is the
+     name-keyed source's own contract, and loses `Scope`. `ofKeyIndexes` had filled four
+     fields of a nested `NamedChannels` and left `TryLookupIndexSignature` and `Platform` at a
+     default `ofKeyedChannels` still read, so a key-indexed source could not answer either by
+     construction rather than by declaration.
+   - `ScopeContents.memoize` sits beside `decorate`, and `mapProviderTypes` maps a symbol
+     through one named function on both the scope and the key channel.
+   - Pinned in `ScopeContentsTests` ("composition"), over the two deduplications.
+     `ReferencedProjectTests` pins the arity question: `Vesper.Fun` is declared at 2, 3, 4 and
+     5 in one namespace, and it went red while the scope route admitted any published arity.
+
+**The by-name TYPE channel stays through R7, and R8 (§5) deletes it.** R7 shipped with the
+claim that a metadata type has "no container to walk". That is wrong, and §5 records the
+correction: `MetadataMapping.declTypeKey` already builds the full `InType` / `InNamespace`
+chain. What the metadata layer lacks is a DIRECTORY, which R8 supplies.
 
 Deferred beyond this doc (move to their homes when this doc is deleted): the mid-file `open`
 order follow-up (`BindingRank` applied across both halves — its `ptest`s state the assertion);
@@ -225,7 +288,107 @@ the generic-class static TyVar fallback; contract-build cost — `buildProviderS
 re-analyses the full closure (nine packages for `Vesper.Set`) on every contract build, which
 is publishing-format-plan PF5's content-hash cache when it shows in a profile.
 
-## 5. Settled semantics (user, 2026-08-23)
+## 5. R8 — the by-name TYPE channel is deleted. PLANNED, unstarted.
+
+### The premise R7 got wrong
+
+R7 shipped saying `IExternalSymbolResolver.TryLookupType` is "the contract for a source whose
+types have no container to walk". A metadata type has a container:
+`MetadataMapping.declTypeKey` (`MetadataSymbols.fs:219-233`) builds the chain by recursion
+through `Type.DeclaringType` — `InType` when nested, `InNamespace(t.Namespace)` at the root —
+and its comment says outright that it avoids cutting `FullName`. The resolver's own side
+agrees: `ExternalSymbols.nameKeyedTypeHit` → `SymbolKeyOps.qualifiedTypeKeyOf` →
+`typeKeyOf` (`SymbolKeyOps.fs:153-164`) splits the namespace at the last `.` and parses `+`
+into the same `InType` chain, round-tripping through `typeMetaName`.
+
+What `MetadataSymbols` lacks is a DIRECTORY: it is demand-driven, `asm.GetType(name)` per
+name behind `resolveCache`, so it holds no set of types to file under a container.
+
+The second half of the R7 objection was cost, and it does not survive measurement. Over this
+machine's reference closure, `GetExportedTypes()` plus `GetGenericArguments().Length` per
+generic — no members, no signatures, no `computeType`:
+
+| | |
+|---|---|
+| assemblies | 193 |
+| top-level exported types | 6339 |
+| namespaces including prefixes | 206 |
+| `(namespace, name)` slots | 4950 |
+| elapsed | 38 ms |
+
+38 ms behind a `lazy`, once per provider. Reproduce with a scratch `.fsx` that opens a
+`MetadataLoadContext` over `AppContext.GetData "TRUSTED_PLATFORM_ASSEMBLIES"` and folds
+`GetExportedTypes()`; it needs `#r` on the
+`System.Reflection.MetadataLoadContext.dll` beside a built test project.
+
+### What R8 does
+
+Steps 1 and 2 are independent; 3 needs both; 5 needs 4. Each leaves the tree green.
+
+1. **`MetadataSymbols` publishes a real `IScopeContents`.** A `lazy` directory over
+   `GetExportedTypes()`, holding `namespace → name → arities` for TOP-LEVEL types, plus every
+   namespace prefix as its own container. `TypesNamed` resolves each arity's shape through the
+   existing `computeType` cache, so the shape stays demand-driven; the directory carries
+   identity alone. `TryValue` and `UnionCasesNamed` miss: IL declares no free function and no
+   F# union case. `GetExportedTypes()` selects exactly the types the existing `tryAsm`
+   `t.IsVisible` filter admits, so visibility is unchanged.
+2. **`JsNativeSymbols` publishes one too**, off the `Map<string, ExternalTypeShape>` it
+   already holds — a smaller version of the same directory.
+3. **`tryPickExternalWritten` loses its second half**, becoming the container walk alone.
+   `WrittenArity.probes` and `MaxProbedQualifierArity` go with it, and an arity is then
+   whatever a container publishes rather than a guess.
+4. **`tryPickRuntimeType` splits into its two queries.** Its doc says "Never a source-written
+   name" (`ExternalSymbols.fs:413-415`) and one of its two callers contradicts that:
+   `IntrinsicResolve.tryResolveIntrinsicKey` (`Intrinsics.fs:12-23`) falls through to it, and
+   `NameResolutionInheritParent.resolveInheritArgName` (`InheritParent.fs:76`) reaches that
+   fall-through with `ctx.NameOf li.Idents.[0]`, a bare name as WRITTEN. The other caller,
+   `JsExternalMembers.exnReprOf` (`JsExternalMembers.fs:135`), passes a platform repr. So the
+   `AmbientOpenPrefixes` scan is load-bearing for the first caller and dead weight for the
+   second, and one name covers two queries. Split them: an exact repr/canon lookup on
+   `IExternalSymbolStore`, and a written bare name taking the container walk with every other
+   written name.
+5. **`IExternalSymbolResolver.TryLookupType` is deleted**, step 4 having given both halves a
+   home. `NamedChannels`, `KeyedChannels.ofNamed` and `ExternalTypeProbe` go with it.
+
+### Scope and risk
+
+- A nested type stays outside the directory: `ModuleContainer` spells `InNamespace` and
+  `InModule` only. Nothing is lost, because a written `Outer.Inner` misses the name index
+  today as well — reflection spells nesting `+`, so `asm.GetType("Ns.Outer.Inner")` finds
+  nothing, and `typeFirst` is what reaches such a name. `inType`'s arms are union case, enum
+  case and static member, so a nested type is unreachable in BOTH designs. R8 neither fixes
+  nor worsens that; it is its own gap, and `MetadataSymbols` publishing `MembersByKey` for a
+  nested type is where a fix would start.
+- `MetadataLoadContext` is not thread-safe. The enumeration takes the existing `gate`, and
+  the `lazy` must not hold it across `computeType`.
+- `ScopeContents.composite` picks the FIRST source answering `TryContainer`, so a directory
+  answering for a path it did not find would take a real module's slot. A directory built
+  from what the assemblies declare answers for 206 namespaces rather than for any dotted
+  path, which is what makes step 1 safe where R6's proposed `ofNameKeyedTypes` adapter was
+  not.
+- Deleting `TryLookupType` moves BCL type resolution onto the scope wholesale. Expect the CLR
+  suite to be the one that finds the gaps; a red test there is a finding about the directory's
+  contents, not a reason to restore the fallback.
+
+### Confirm before starting
+
+- **The arity cap costs nothing today.** Across the whole BCL closure, no `(namespace, name)`
+  slot has only arities above `MaxProbedQualifierArity` — every wide `Func` / `Action` /
+  `Tuple` name also carries a narrow one. So step 3 is correctness by construction rather than
+  a live defect, and R8's case rests on the single route, not on the cap.
+- **A directory is eager where the rest of the layer is lazy.** 38 ms and ~5000 slots is the
+  price of every compile that touches the metadata provider, including the ones that resolve
+  two BCL names. Per-assembly laziness is available (build a namespace's slot set on first
+  `TryContainer` for it) at the cost of a second index; it is worth having only if the flat
+  38 ms shows in a profile.
+- **Which of `tryPickRuntimeType`'s two inputs is the contract**, since step 4 has the doc
+  and one caller disagreeing. An intrinsic reached by written name (`inherit exn`) and one
+  reached by platform repr (`"System.Exception"`) want different lookups; confirm that
+  routing the written half through the container walk is right before R8 assumes it, because
+  an intrinsic's canon is registered under `Vesper.exn` while the repr names a BCL type, and
+  the two land in different containers.
+
+## 6. Settled semantics (user, 2026-08-23)
 
 - Local-first between the registry and the provider stack; mid-file `open` order is the
   pinned follow-up.

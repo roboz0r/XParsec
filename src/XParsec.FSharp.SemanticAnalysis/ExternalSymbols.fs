@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+open System.Collections.Concurrent
 open System.Collections.Generic
 
 // The declaration SHAPE a lookup carries, the resolver / store / codegen contracts that
@@ -84,10 +85,13 @@ module ScopeContents =
             member _.TypesNamed(_, _) = EqArray.empty
         }
 
+    /// A union case's identity: two entries agreeing here are the same case reached twice.
+    let private caseIdentity (uc: ExternalUnionCase) = struct (uc.UnionKey, uc.Case.Name)
+
     /// The nearest-first composition: a container or value is the first source's that
     /// declares it, and a type name is the first source's non-empty arity set. Union cases
-    /// are the UNION across sources: a case name recurs across packages, and the caller
-    /// decides between the claims.
+    /// are the UNION across sources, one entry per identity: a case name recurs across
+    /// packages, and the caller decides between the claims.
     let composite (sources: IScopeContents list) : IScopeContents =
         match sources with
         | [] -> empty
@@ -110,10 +114,14 @@ module ScopeContents =
                 member _.TryValue(c, name) = firstHit (fun s -> s.TryValue(c, name))
 
                 member _.UnionCasesNamed(c, name) =
+                    let seen = HashSet<struct (TypeKey * string)>(HashIdentity.Structural)
+
                     EqArray.ofSeq
                         [
                             for s in sources do
-                                yield! s.UnionCasesNamed(c, name)
+                                for uc in (s.UnionCasesNamed(c, name)).Underlying do
+                                    if seen.Add(caseIdentity uc) then
+                                        uc
                         ]
 
                 member _.TypesNamed(c, name) =
@@ -127,8 +135,10 @@ module ScopeContents =
                     result
             }
 
-    /// The value a written name denotes: its leading segments are the container and its last
-    /// segment the short name; an unqualified name is read against the root namespace.
+    /// The value a LITERAL dotted spelling denotes: its leading segments are the container
+    /// and its last segment the short name. A caller holding the qualifier and the short name
+    /// apart passes them apart — resolution does, through `containersAtPath`, because a
+    /// binding's own name may hold a dot (`` let ``a.size`` ``).
     let tryValueAt (scope: IScopeContents) (written: string) : ExternalSymbol voption =
         match written.LastIndexOf '.' with
         | i when i > 0 ->
@@ -137,12 +147,27 @@ module ScopeContents =
             | ValueNone -> ValueNone
         | _ -> scope.TryValue(ModuleContainer.InNamespace NamespaceKey.Global, written)
 
+    /// The containers a BARE name is read against: the root namespace, then each of
+    /// `prefixes` that names one, deduplicated. `OpenScope.Prefixes` repeats a prefix a
+    /// namespace header and an ambient prelude both carry.
+    let openedContainers (scope: IScopeContents) (prefixes: string list) : ModuleContainer list =
+        let found = ResizeArray<ModuleContainer>()
+        found.Add(ModuleContainer.InNamespace NamespaceKey.Global)
+
+        for p in prefixes do
+            match scope.TryContainer p with
+            | ValueSome c when not (found.Contains c) -> found.Add c
+            | _ -> ()
+
+        List.ofSeq found
+
     /// `inner` with each answer rewritten: `value` over a value, `case` over a union case,
-    /// `shape` over a type shape. `TryContainer` passes through.
+    /// `shape` over a type shape at the identity it answered under. `TryContainer` passes
+    /// through.
     let decorate
         (value: ExternalSymbol -> ExternalSymbol)
         (case: ExternalUnionCase -> ExternalUnionCase)
-        (shape: ExternalTypeShape -> ExternalTypeShape)
+        (shape: TypeKey -> ExternalTypeShape -> ExternalTypeShape)
         (inner: IScopeContents)
         : IScopeContents =
         { new IScopeContents with
@@ -156,7 +181,35 @@ module ScopeContents =
 
             member _.TypesNamed(c, name) =
                 inner.TypesNamed(c, name)
-                |> EqArray.map (fun (struct (key, s)) -> struct (key, shape s))
+                |> EqArray.map (fun (struct (key, s)) -> struct (key, shape key s))
+        }
+
+    /// `inner` with every query cached, MISSES included. The resolver repeats a segment read
+    /// once per candidate spelling, and a contract is immutable for a compile.
+    let memoize (inner: IScopeContents) : IScopeContents =
+        let containers = ConcurrentDictionary<string, ModuleContainer voption>()
+
+        let values =
+            ConcurrentDictionary<struct (ModuleContainer * string), ExternalSymbol voption>()
+
+        let cases =
+            ConcurrentDictionary<struct (ModuleContainer * string), EqArray<ExternalUnionCase>>()
+
+        let types =
+            ConcurrentDictionary<struct (ModuleContainer * string), EqArray<struct (TypeKey * ExternalTypeShape)>>()
+
+        { new IScopeContents with
+            member _.TryContainer path =
+                containers.GetOrAdd(path, (fun p -> inner.TryContainer p))
+
+            member _.TryValue(c, name) =
+                values.GetOrAdd(struct (c, name), (fun (struct (c, n)) -> inner.TryValue(c, n)))
+
+            member _.UnionCasesNamed(c, name) =
+                cases.GetOrAdd(struct (c, name), (fun (struct (c, n)) -> inner.UnionCasesNamed(c, n)))
+
+            member _.TypesNamed(c, name) =
+                types.GetOrAdd(struct (c, name), (fun (struct (c, n)) -> inner.TypesNamed(c, n)))
         }
 
 /// The RESOLVER view of the external-symbol contract: spelling → identity, opens-aware.
@@ -211,7 +264,7 @@ type IExternalSymbolStore =
 
     /// A value/free-function symbol by resolved key: the channel a VALUE splice site
     /// reaches an `InlineBody` through.
-    abstract TryLookupByKey: key: SymbolKey -> ExternalSymbol voption
+    abstract TryLookupByKey: key: BindingKey -> ExternalSymbol voption
 
     /// The `(canon, platform-repr)` declarations this provider carries, readable both ways:
     /// `int` → `"System.Int32"` and `"System.Exception"` → `exn`. Empty from providers
@@ -276,7 +329,7 @@ type ICodegenSymbols =
     /// interface would `MissingMethodException`.
     abstract TryRebaseCapabilityMember: key: SymbolKey -> SymbolKey voption
     /// The open `FrozenType` signature of a module-level function by its value key.
-    abstract TryLookupOpenSignature: key: SymbolKey -> CodegenOpenSignature voption
+    abstract TryLookupOpenSignature: key: BindingKey -> CodegenOpenSignature voption
     /// The platform spelling emission mints a primitive reference through: `int` →
     /// `"System.Int32"`. `ValueNone` for a canon with no repr on the compiling target.
     abstract TryPlatformRepr: canon: TypeKey -> string voption

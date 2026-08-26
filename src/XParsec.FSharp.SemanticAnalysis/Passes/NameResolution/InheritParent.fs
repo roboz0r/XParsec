@@ -104,15 +104,15 @@ module NameResolutionInheritParent =
 
     /// A published type at the written arity, else a heritable primitive. Any other shape
     /// declines, so the open-prefix scan continues past it.
-    let private providerBaseOf (arity: int) (hit: ExternalTypeHit) : ProviderBase voption =
-        match hit.Shape with
-        | ExternalTypeShape.Class shape when shape.TyparArity = arity ->
-            if shape.IsInterface then
+    let private providerBaseOf (arity: int) (key: TypeKey) (shape: ExternalTypeShape) : ProviderBase voption =
+        match shape with
+        | ExternalTypeShape.Class info when info.TyparArity = arity ->
+            if info.IsInterface then
                 ValueSome ProviderBase.Interface
             else
-                ValueSome(ProviderBase.Class hit.UseSiteKey)
+                ValueSome(ProviderBase.Class key)
         | _ ->
-            ExternalSymbols.intrinsicClassOf hit.Shape
+            ExternalSymbols.intrinsicClassOf shape
             |> ValueOption.map (fun (struct (id, surface)) ->
                 if surface.Members |> EqArray.exists (fun m -> m.Name = ".ctor") then
                     ProviderBase.HeritableCanon id
@@ -177,8 +177,8 @@ module NameResolutionInheritParent =
                         tryPickExternalWritten
                             ctx
                             (ctx.UseSiteAt diagKey)
-                            [ targs.Length ]
-                            (fun hit -> ExternalSymbols.intrinsicClassOf hit.Shape)
+                            (WrittenArity.Exact targs.Length)
+                            (fun _ shape -> ExternalSymbols.intrinsicClassOf shape)
                             name
                     with
                     | ValueSome(struct (id, surface)) when surface.Members |> EqArray.exists (fun m -> m.Name = ".ctor") ->
@@ -217,7 +217,7 @@ module NameResolutionInheritParent =
                         tryPickExternalWritten
                             ctx
                             (ctx.UseSiteAt diagKey)
-                            [ targs.Length ]
+                            (WrittenArity.Exact targs.Length)
                             (providerBaseOf targs.Length)
                             name
                     with

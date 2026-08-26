@@ -19,7 +19,9 @@ type ModuleBindingInfo =
         SourceName: string
     }
 
-    member this.Key: SymbolKey = SymbolKeyOps.valueKey this.Container this.Name
+    member this.BindingKey: BindingKey = SymbolKeyOps.bindingKeyOf this.Container this.Name
+
+    member this.Key: SymbolKey = SymbolKey.Binding this.BindingKey
 
     /// The named module this binding is declared in, or `ValueNone` for a top-level `let`.
     member this.DeclaringModule: ModuleKey voption =

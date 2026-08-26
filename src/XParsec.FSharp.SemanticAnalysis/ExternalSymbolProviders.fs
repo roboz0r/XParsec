@@ -40,7 +40,6 @@ module ExternalSymbolProviders =
             TryLookupIndexSignature: string -> (FrozenType * FrozenType) list
             IntrinsicTypeMap: IntrinsicTypeMap
             Platform: IPlatformFacts voption
-            Scope: IScopeContents
         }
 
     module NamedChannels =
@@ -48,7 +47,6 @@ module ExternalSymbolProviders =
         /// Every channel misses, so override just what the source models.
         let empty: NamedChannels =
             {
-                Scope = ScopeContents.empty
                 TryLookupType = fun _ -> ValueNone
                 TryRecordsWithField = fun _ -> EqArray.empty
                 AmbientOpenPrefixes = []
@@ -90,25 +88,32 @@ module ExternalSymbolProviders =
                 IntrinsicTypeMap = IntrinsicTypeMap.empty
             }
 
-    /// Type channels answered BY KEY, whichever way the source came by them:
-    /// `ofNamed` renders the key onto a name index, `ofKeyIndexes` reads a real one.
+    /// Every channel `ofKeyedChannels` serves, with the type channels answered BY KEY
+    /// whichever way the source came by them: `ofNamed` renders the key onto a name index,
+    /// `ofKeyIndexes` reads a real one.
     type KeyedChannels =
         {
-            Named: NamedChannels
             /// Identity + shape from one read. Derived by both builders, never supplied.
             TypeByName: string -> struct (TypeKey * ExternalTypeShape) voption
             TypeShapeByKey: TypeKey -> ExternalTypeShape voption
             TypeMembersByKey: KeyedMemberName -> EqArray<ExternalMember>
-            /// A value by identity. Only `ofKeyIndexes` supplies one: a name-keyed source
-            /// models types and their members alone.
-            SymbolByKey: SymbolKey -> ExternalSymbol voption
+            /// A value by identity. `ofNamed` misses: a name-keyed source models types and
+            /// their members alone.
+            SymbolByKey: BindingKey -> ExternalSymbol voption
+            /// The module structure the source declares. `ofNamed` supplies
+            /// `ScopeContents.empty`: a name-keyed type has no container to walk.
+            Scope: IScopeContents
+            TryRecordsWithField: string -> EqArray<ExternalRecordCandidate>
+            AmbientOpenPrefixes: string list
+            TryLookupIndexSignature: TypeKey -> (FrozenType * FrozenType) list
+            IntrinsicTypeMap: IntrinsicTypeMap
+            Platform: IPlatformFacts voption
         }
 
     module KeyedChannels =
 
         let ofNamed (channels: NamedChannels) : KeyedChannels =
             {
-                Named = channels
                 TypeByName =
                     fun name ->
                         channels.TryLookupType name
@@ -116,6 +121,12 @@ module ExternalSymbolProviders =
                 TypeShapeByKey = fun key -> channels.TryLookupType(SymbolKeyOps.typeMetaName key)
                 TypeMembersByKey = ExternalMemberName.ofKeyed >> channels.TryLookupMembers
                 SymbolByKey = fun _ -> ValueNone
+                Scope = ScopeContents.empty
+                TryRecordsWithField = channels.TryRecordsWithField
+                AmbientOpenPrefixes = channels.AmbientOpenPrefixes
+                TryLookupIndexSignature = SymbolKeyOps.typeMetaName >> channels.TryLookupIndexSignature
+                IntrinsicTypeMap = channels.IntrinsicTypeMap
+                Platform = channels.Platform
             }
 
         let ofKeyIndexes (channels: KeyIndexedChannels) : KeyedChannels =
@@ -135,23 +146,12 @@ module ExternalSymbolProviders =
                         ]
                 | _ -> EqArray.empty
 
-            let symbolByKey (key: SymbolKey) : ExternalSymbol voption =
-                match key with
-                | SymbolKey.Binding b ->
-                    match channels.SymbolsByKey.TryGetValue b with
-                    | true, sym -> ValueSome sym
-                    | _ -> ValueNone
-                | SymbolKey.Member _
-                | SymbolKey.Type _ -> ValueNone
+            let symbolByKey (key: BindingKey) : ExternalSymbol voption =
+                match channels.SymbolsByKey.TryGetValue key with
+                | true, sym -> ValueSome sym
+                | _ -> ValueNone
 
             {
-                Named =
-                    { NamedChannels.empty with
-                        Scope = channels.Scope
-                        TryRecordsWithField = channels.TryRecordsWithField
-                        AmbientOpenPrefixes = channels.AmbientOpenPrefixes
-                        IntrinsicTypeMap = channels.IntrinsicTypeMap
-                    }
                 TypeByName =
                     fun name ->
                         match channels.ResolveTypeName name with
@@ -160,18 +160,24 @@ module ExternalSymbolProviders =
                 TypeShapeByKey = shapeByKey
                 TypeMembersByKey = membersNamed
                 SymbolByKey = symbolByKey
+                Scope = channels.Scope
+                TryRecordsWithField = channels.TryRecordsWithField
+                AmbientOpenPrefixes = channels.AmbientOpenPrefixes
+                // A published surface has no room for an index signature; `IndexSignatures`
+                // decorates the provider with it.
+                TryLookupIndexSignature = fun _ -> []
+                IntrinsicTypeMap = channels.IntrinsicTypeMap
+                Platform = ValueNone
             }
 
     let ofKeyedChannels (channels: KeyedChannels) : IExternalSymbolProvider =
-        let named = channels.Named
-
         { new IExternalSymbolProvider
 
           interface IExternalSymbolResolver with
-              member _.Scope = named.Scope
+              member _.Scope = channels.Scope
               member _.TryLookupType(name: string) = channels.TypeByName name
-              member _.TryRecordsWithField fieldName = named.TryRecordsWithField fieldName
-              member _.AmbientOpenPrefixes = named.AmbientOpenPrefixes
+              member _.TryRecordsWithField fieldName = channels.TryRecordsWithField fieldName
+              member _.AmbientOpenPrefixes = channels.AmbientOpenPrefixes
           interface IExternalSymbolStore with
               member _.TryLookupType(key: TypeKey) = channels.TypeShapeByKey key
 
@@ -193,13 +199,12 @@ module ExternalSymbolProviders =
                       }
                   |> ExternalSymbols.memberByKey key
 
-              member _.TryLookupIndexSignature key =
-                  named.TryLookupIndexSignature(SymbolKeyOps.typeMetaName key)
+              member _.TryLookupIndexSignature key = channels.TryLookupIndexSignature key
 
               member _.TryLookupByKey key = channels.SymbolByKey key
 
-              member _.IntrinsicTypeMap = named.IntrinsicTypeMap
-              member _.Platform = named.Platform
+              member _.IntrinsicTypeMap = channels.IntrinsicTypeMap
+              member _.Platform = channels.Platform
         }
 
     let ofNamedChannels (channels: NamedChannels) : IExternalSymbolProvider =
@@ -238,7 +243,7 @@ module ExternalSymbolProviders =
         abstract TryLookupIndexSignature: key: TypeKey -> (FrozenType * FrozenType) list
         default _.TryLookupIndexSignature key = inner.TryLookupIndexSignature key
 
-        abstract TryLookupByKey: key: SymbolKey -> ExternalSymbol voption
+        abstract TryLookupByKey: key: BindingKey -> ExternalSymbol voption
         default _.TryLookupByKey key = inner.TryLookupByKey key
 
         abstract IntrinsicTypeMap: IntrinsicTypeMap
@@ -346,13 +351,11 @@ module ExternalSymbolProviders =
                 | ExternalTypeShape.Unmodelled _ -> shape
 
         // The scope answers for the same values and types the key channels do, so it carries
-        // the same home stamp. A union case takes its origin from its declaring union's shape.
+        // the same home stamp and the same intrinsic fold. A union case takes its origin from
+        // its declaring union's shape.
         let scope =
-            let composed = ScopeContents.composite [ for p in providers -> p.Scope ]
-
-            match stampHome with
-            | ValueNone -> composed
-            | ValueSome _ -> ScopeContents.decorate stampSymbol id stampType composed
+            ScopeContents.composite [ for p in providers -> p.Scope ]
+            |> ScopeContents.decorate stampSymbol id (fun key shape -> stampType (foldIntrinsicSurface key shape))
 
         { new IExternalSymbolProvider
 
@@ -525,7 +528,7 @@ module ExternalSymbolProviders =
         // carries the same transform.
         let mappedScope =
             inner.Scope
-            |> ScopeContents.decorate mapSymbol (fun uc -> { uc with Case = mapCase uc.Case }) mapShape
+            |> ScopeContents.decorate mapSymbol (fun uc -> { uc with Case = mapCase uc.Case }) (fun _ -> mapShape)
 
         // An `ExternalRecordCandidate` carries identity + field NAMES only, and value-ness is
         // a layout not a type: neither channel carries a position to map.
@@ -551,8 +554,7 @@ module ExternalSymbolProviders =
                 inner.TryLookupIndexSignature key |> List.map (fun (k, v) -> contra k, co v)
 
             override _.TryLookupByKey key =
-                inner.TryLookupByKey key
-                |> ValueOption.map (fun s -> { s with Scheme = co s.Scheme })
+                inner.TryLookupByKey key |> ValueOption.map mapSymbol
         }
         :> IExternalSymbolProvider
 
@@ -572,7 +574,8 @@ module ExternalSymbolProviders =
                 InlineBody = bodies (SymbolKey.Member m.Key)
             }
 
-        let scope = inner.Scope |> ScopeContents.decorate stampSymbol id id
+        let scope =
+            inner.Scope |> ScopeContents.decorate stampSymbol id (fun _ shape -> shape)
 
         { new ProviderDecorator(inner) with
             override _.Scope = scope
@@ -607,7 +610,7 @@ module ExternalSymbolProviders =
         let recordsByField =
             ConcurrentDictionary<string, EqArray<ExternalRecordCandidate>>()
 
-        let symbolsByKey = ConcurrentDictionary<SymbolKey, ExternalSymbol voption>()
+        let symbolsByKey = ConcurrentDictionary<BindingKey, ExternalSymbol voption>()
         let valueTypes = ConcurrentDictionary<TypeKey, bool voption>()
 
         // Only `IsValueType` is cached: it reaches a metadata name lookup, where `TupleType`
@@ -624,33 +627,7 @@ module ExternalSymbolProviders =
                      }
                  ))
 
-        // The scope caches on the same terms as the key channels: the resolver repeats a
-        // segment read once per candidate spelling.
-        let scope =
-            let containers = ConcurrentDictionary<string, ModuleContainer voption>()
-
-            let values =
-                ConcurrentDictionary<struct (ModuleContainer * string), ExternalSymbol voption>()
-
-            let cases =
-                ConcurrentDictionary<struct (ModuleContainer * string), EqArray<ExternalUnionCase>>()
-
-            let types =
-                ConcurrentDictionary<struct (ModuleContainer * string), EqArray<struct (TypeKey * ExternalTypeShape)>>()
-
-            { new IScopeContents with
-                member _.TryContainer path =
-                    containers.GetOrAdd(path, (fun p -> inner.Scope.TryContainer p))
-
-                member _.TryValue(c, name) =
-                    values.GetOrAdd(struct (c, name), (fun (struct (c, n)) -> inner.Scope.TryValue(c, n)))
-
-                member _.UnionCasesNamed(c, name) =
-                    cases.GetOrAdd(struct (c, name), (fun (struct (c, n)) -> inner.Scope.UnionCasesNamed(c, n)))
-
-                member _.TypesNamed(c, name) =
-                    types.GetOrAdd(struct (c, name), (fun (struct (c, n)) -> inner.Scope.TypesNamed(c, n)))
-            }
+        let scope = ScopeContents.memoize inner.Scope
 
         { new ProviderDecorator(inner) with
             override _.Scope = scope
@@ -685,5 +662,5 @@ module ExternalSymbolProviders =
     let tryInlineBody (p: IExternalSymbolStore) (key: SymbolKey) : InlineBody voption =
         match key with
         | SymbolKey.Member m -> p.TryLookupMemberByKey m |> ValueOption.bind (fun em -> em.InlineBody)
-        | SymbolKey.Binding _ -> p.TryLookupByKey key |> ValueOption.bind (fun s -> s.InlineBody)
+        | SymbolKey.Binding b -> p.TryLookupByKey b |> ValueOption.bind (fun s -> s.InlineBody)
         | SymbolKey.Type _ -> ValueNone

@@ -132,29 +132,34 @@ let private fakeScope: IScopeContents =
             | ValueNone -> EqArray.empty
     }
 
+let private fakeNamed: ExternalSymbolProviders.NamedChannels =
+    { ExternalSymbolProviders.NamedChannels.empty with
+        TryLookupType = typeByName
+        AmbientOpenPrefixes = [ "Amb" ]
+        TryLookupMembers =
+            fun q ->
+                match memberByName q.DeclaringType q.Name with
+                | ValueSome mem -> EqArray.singleton mem
+                | ValueNone -> EqArray.empty
+        TryRecordsWithField =
+            fun fieldName ->
+                if fieldName = "f" then
+                    EqArray.singleton candidate
+                else
+                    EqArray.empty
+        Platform =
+            ValueSome
+                { new IPlatformFacts with
+                    member _.IsValueType _ = ValueSome true
+                    member _.TupleType _ = ValueNone
+                }
+    }
+
+// A name-keyed source given a scope, so `mapProviderTypes` has both halves to rewrite.
 let private fake: IExternalSymbolProvider =
-    ExternalSymbolProviders.ofNamedChannels
-        { ExternalSymbolProviders.NamedChannels.empty with
+    ExternalSymbolProviders.ofKeyedChannels
+        { ExternalSymbolProviders.KeyedChannels.ofNamed fakeNamed with
             Scope = fakeScope
-            TryLookupType = typeByName
-            AmbientOpenPrefixes = [ "Amb" ]
-            TryLookupMembers =
-                fun q ->
-                    match memberByName q.DeclaringType q.Name with
-                    | ValueSome mem -> EqArray.singleton mem
-                    | ValueNone -> EqArray.empty
-            TryRecordsWithField =
-                fun fieldName ->
-                    if fieldName = "f" then
-                        EqArray.singleton candidate
-                    else
-                        EqArray.empty
-            Platform =
-                ValueSome
-                    { new IPlatformFacts with
-                        member _.IsValueType _ = ValueSome true
-                        member _.TupleType _ = ValueNone
-                    }
         }
 
 let private wrapped = ExternalSymbolProviders.mapProviderTypes resolveMarker fake

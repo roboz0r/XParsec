@@ -104,14 +104,14 @@ module ConformanceTypars =
                                         Pattern = TastAccessor.PNamed boundVar
                                         Ty = ty
                                     } ->
-                    let key = (TastPoolBuilder.moduleMemberOf pool boundVar).Key
+                    let key = (TastPoolBuilder.moduleMemberOf pool boundVar).BindingKey
 
                     match provider.TryLookupByKey key with
                     | ValueSome sym when sym.TyparArity > 0 ->
                         if not (schemesAgree sym.Scheme ty) then
                             yield
                                 {
-                                    Name = SymbolKeyOps.qualifiedName key
+                                    Name = SymbolKeyOps.qualifiedName (SymbolKey.Binding key)
                                     Declared = normAxis sym.Scheme
                                     Inferred = normAxis ty
                                 }

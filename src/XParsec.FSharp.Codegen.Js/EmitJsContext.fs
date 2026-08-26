@@ -403,7 +403,8 @@ module EmitJsContext =
     let externalValueRef (provider: IExternalSymbolProvider) (key: SymbolKey voption) : JsValueRef =
         let resolved =
             match key with
-            | ValueSome k -> provider.TryLookupByKey k
+            | ValueSome(SymbolKey.Binding b) -> provider.TryLookupByKey b
+            | ValueSome _ -> ValueNone
             | ValueNone -> ValueNone
 
         match resolved with

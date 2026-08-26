@@ -27,10 +27,11 @@ module JsFlatFns =
         (key: SymbolKey voption)
         : TastAccessor.ArgGroup list voption =
         match key with
-        | ValueSome key ->
+        | ValueSome(SymbolKey.Binding key) ->
             match provider.TryLookupByKey key with
             | ValueSome sym -> sym.ValRepr |> ValueOption.map (fun vr -> vr.Groups)
             | ValueNone -> ValueNone
+        | ValueSome _
         | ValueNone -> ValueNone
 
     /// A tuple argument becomes N positional reads, so an impure one is spilled to a `_tg`

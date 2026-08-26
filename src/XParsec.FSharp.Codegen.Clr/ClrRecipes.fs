@@ -238,7 +238,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
         let valueKey = SymbolKey.Binding binding
         let compiledFullName = SymbolKeyOps.qualifiedName valueKey
 
-        match symbols.TryLookupOpenSignature valueKey with
+        match symbols.TryLookupOpenSignature binding with
         | ValueNone -> ValueNone
         | ValueSome openSig ->
             // The open curried signature *template*: its method typars are already

@@ -339,8 +339,19 @@ type PassContext(provider: IExternalSymbolProvider, file: LexedFile, assembly: C
     /// hits what a per-node resolve would. `lazy`, so a file with no such access pays nothing.
     member val CoreAccess: Lazy<CoreAccessIntrinsics> =
         lazy
-            (let one (name: string) =
-                OpenScope.tryResolve ambientOpenScope (ScopeContents.tryValueAt provider.Scope) name
+            (let containers =
+                ScopeContents.openedContainers provider.Scope ambientOpenScope.Prefixes
+
+             let one (name: string) =
+                 containers
+                 |> List.tryPick (fun c ->
+                     match provider.Scope.TryValue(c, name) with
+                     | ValueSome sym -> Some sym
+                     | ValueNone -> None
+                 )
+                 |> function
+                     | Some sym -> ValueSome sym
+                     | None -> ValueNone
 
              {
                  GetIndex = one "GetIndex"

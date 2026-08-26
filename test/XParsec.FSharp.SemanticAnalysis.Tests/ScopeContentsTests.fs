@@ -140,6 +140,39 @@ let private expectBagSpellings (view: IExternalSymbolProvider) : unit =
         Expect.equal quoted.Key.Name "a.size" "and answers under the whole name it binds"
     | other -> failtestf "both bindings answer under their own short names: %A" other
 
+// --- Composition ------------------------------------------------------------------------
+
+let private caseOf (unionKey: TypeKey) (name: string) : ExternalUnionCase =
+    {
+        UnionKey = unionKey
+        Case = ExternalCaseShape.create (name, EqArray.empty)
+        IsRequireQualifiedAccess = false
+    }
+
+/// A scope declaring `cases` in every container, and answering `TryContainer` for `paths`.
+let private scopeOfCases (paths: string list) (cases: ExternalUnionCase list) : IScopeContents =
+    { new IScopeContents with
+        member _.TryContainer path =
+            if List.contains path paths then
+                ValueSome(ModuleContainer.InNamespace(SymbolKeyOps.namespaceKey path))
+            else
+                ValueNone
+
+        member _.TryValue(_, _) = ValueNone
+
+        member _.UnionCasesNamed(_, name) =
+            EqArray.ofList
+                [
+                    for c in cases do
+                        if c.Case.Name = name then
+                            c
+                ]
+
+        member _.TypesNamed(_, _) = EqArray.empty
+    }
+
+let private root = ModuleContainer.InNamespace NamespaceKey.Global
+
 [<Tests>]
 let tests =
     testList
@@ -305,6 +338,38 @@ module P =
                         | other -> failtestf "one Box: %A" other
 
                         Expect.isEmpty (LocalScope.typesNamed ctx UseSite.unbounded m "Light") "Light is N's"
+                    }
+                ]
+            testList
+                "composition"
+                [
+                    test "two sources publishing the SAME case answer once; two unions answer twice" {
+                        let color = SymbolKeyOps.typeKeyOfArity "Test" "Color" 0
+                        let light = SymbolKeyOps.typeKeyOfArity "Test" "Light" 0
+
+                        let shared = caseOf color "Red"
+
+                        // The `.fsi` and `.fs` halves of one package both publish its cases.
+                        let composed =
+                            ScopeContents.composite
+                                [ scopeOfCases [] [ shared ]; scopeOfCases [] [ shared; caseOf light "Red" ] ]
+
+                        match EqArray.toArray (composed.UnionCasesNamed(root, "Red")) with
+                        | [| a; b |] ->
+                            Expect.equal a.UnionKey color "the shared case, once"
+                            Expect.equal b.UnionKey light "the second union's own claim"
+                        | other -> failtestf "one entry per case identity: %A" other
+                    }
+
+                    test "a prefix listed twice names its container once" {
+                        let scope = scopeOfCases [ "Vesper" ] []
+
+                        // A `namespace Vesper` header under an ambient `Vesper` prelude prefix.
+                        match ScopeContents.openedContainers scope [ "Vesper"; "Vesper" ] with
+                        | [ r; v ] ->
+                            Expect.equal r root "the root namespace leads"
+                            Expect.equal (moduleName v) "namespace Vesper" "the prefix, once"
+                        | other -> failtestf "the root plus one container: %A" other
                     }
                 ]
         ]
