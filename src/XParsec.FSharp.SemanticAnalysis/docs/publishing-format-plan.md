@@ -259,7 +259,11 @@ reason as the F# pickle.
   Make "can't run the parser, or can't keep the cache" the trigger.
 - **Consume-time parse+resolve shows up in a profile** — reach for PF5 (local
   cache) first, *not* PF6 (published serialised form). The cache solves the speed
-  problem without the distribution-format cost.
+  problem without the distribution-format cost. The measured shape today:
+  `PackageProviders.buildProviderSeeded` (`PackageProviders.fs:115`) re-analyses the full
+  dependency closure on every contract build — nine packages for `Vesper.Set` — so the cache
+  key is the closure's source content, and a hit skips `AssemblyAnalysis.analyseUnits`
+  entirely.
 - **The contract stabilises** — once the language stops churning, the cost of
   maintaining a serialised schema (PF6) drops, lowering the bar to adopt it.
 

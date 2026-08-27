@@ -669,6 +669,8 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
             (fun () ->
                 let slots = HashSet<struct (string * string * int)>()
 
+                // Top level only: `ModuleContainer` spells `InNamespace` and `InModule`, so a
+                // nested type stays out. `MetadataSymbolsTests` pins the gap that leaves.
                 let addType (t: Type) =
                     if not t.IsNested && t.IsVisible then
                         let ns =

@@ -351,6 +351,20 @@ let tests =
                     Expect.equal (List.head arities) 0 "the narrowest is the delegate with no args"
             }
 
+            // `System.Environment.SpecialFolder.Desktop` compiles in `dotnet fsi`. Reflection
+            // spells nesting `+`, so the directory files top-level types alone and
+            // `asm.GetType "System.Environment.SpecialFolder"` misses; `inType`'s arms are union
+            // case, enum case and static member, which leaves a nested type reachable by no
+            // written route. Closing this publishes the declaring type as a container, with
+            // `MembersByKey` for what it nests.
+            ptest "GAP a nested type is reachable by its written dotted name" {
+                let scope = provider.Scope
+
+                match scope.TryContainer "System.Environment" with
+                | ValueNone -> failtest "a type that nests others is a container"
+                | ValueSome c -> Expect.equal (scope.TypesNamed(c, "SpecialFolder")).Length 1 "the nested enum resolves"
+            }
+
             test "the scope publishes no values and no union cases" {
                 let scope = provider.Scope
 

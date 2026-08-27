@@ -386,6 +386,9 @@ module N =
                     }
                 ]
 
+            // Closing this gap ranks BOTH halves by `BindingRank`, the local registry and the
+            // provider stack alike: a declaration and an `open` each take effect from their own
+            // rank rather than for the whole file.
             testList
                 "GAP: `open` order within a file"
                 [

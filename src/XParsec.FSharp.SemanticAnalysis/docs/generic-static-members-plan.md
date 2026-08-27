@@ -96,6 +96,31 @@ unification first is what makes carrying it correct rather than a guess: once th
 are unified into the fresh declaring instance, that instance ZONKED is the instantiation, with
 no separate derivation to keep in step. Do them in that order.
 
+## The referenced-class half: no type arguments written at all
+
+The above is the local `Box<'T>` chain, where the instantiation is written and dropped. A
+REFERENCED generic class reached with no type arguments loses it one stage earlier, in name
+resolution. `ResolvedStamps.tryStaticQualifier` (`PassContext.fs:76-83`) admits
+`ExternalTypeShape.Class` at `TyparArity = 0` and an intrinsic at canon arity 0, so
+`splitExternalStaticPrefix` (`InferResolve.fs:373`) misses for a generic one and the access
+elaborates to an unkeyed `TExpr.External` holding the written name, with no diagnostic — the
+silent fall-through class the `System.Math.PI` finding belonged to. Under an annotation that node
+carries the annotated type; with nothing to type it, a free type variable.
+
+`dotnet fsi` accepts the shape and takes the instantiation from context:
+
+```fsharp
+let c : System.Collections.Generic.EqualityComparer<int> =
+    System.Collections.Generic.EqualityComparer.Default
+```
+
+Pinned by `ExternalMemberTests` ("GAP a generic class's static reached without written type
+arguments"), which asserts the elaborated `ExternalMember` and its declaring key rather than the
+absence of diagnostics. Landing it means `tryStaticQualifier` answering at any arity and
+`inferExternalStaticMember` receiving fresh declaring args to unify — the same fresh-args-then-
+zonk discipline Work step 1 states for the written case, with inference supplying what the source
+does not write.
+
 ## Work
 
 1. **Unify.** `freshMemberInstance` gains a form handing back the fresh declaring args alongside

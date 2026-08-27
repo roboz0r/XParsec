@@ -477,6 +477,38 @@ let tests =
                 | other -> failtestf "expected the same keyed Console.Out ExternalMember, got %A" other
             }
 
+            // `EqualityComparer.Default` with the typar inferred from the annotation compiles in
+            // `dotnet fsi`. `ResolvedStamps.tryStaticQualifier` admits `TyparArity = 0` only, so
+            // no qualifier reaches inference and the access elaborates to an unkeyed
+            // `TExpr.External` holding the written name, typed here by the annotation and by a
+            // free `TyVar` without one. Assert on the elaborated node, which an errors-only
+            // assertion would call green either way.
+            ptest "GAP a generic class's static reached without written type arguments" {
+                let provider = ClrSymbolProviders.buildContract [ vesperCorePackage ]
+
+                let tast =
+                    analyseWith
+                        provider
+                        "let c : System.Collections.Generic.EqualityComparer<int> = System.Collections.Generic.EqualityComparer.Default"
+
+                Expect.isEmpty (errors tast) "the declaring instantiation comes off the annotation"
+
+                match tast.Decls with
+                | EqList [ TDecl.Let(
+                               value = TExpr.ExternalMember(ValueNone,
+                                                            SymbolKey.Member { Decl = decl; Name = "Default" },
+                                                            _,
+                                                            _,
+                                                            _,
+                                                            _,
+                                                            _)) ] ->
+                    Expect.equal
+                        decl
+                        (SymbolKeyOps.typeKeyOfArity "System.Collections.Generic" "EqualityComparer" 1)
+                        "Default declaring type"
+                | other -> failtestf "expected a static `Default` ExternalMember, got %A" other
+            }
+
             // Assert on the TYPE: a name that fell through `inType`'s existence check
             // elaborates to a leaked `TyVar` with no diagnostic, which an errors-only
             // assertion calls green.
