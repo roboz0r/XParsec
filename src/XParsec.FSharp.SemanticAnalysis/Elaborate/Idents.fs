@@ -34,8 +34,8 @@ module internal ElaborateIdents =
                     match Desugar.symbolicOpCompiledName op.Token with
                     | ValueSome n -> n
                     | ValueNone -> ctx.NameOf(CstKeys.firstTokenOfExpr e)
-                // `A.B.(+)` — qualified operator form: carry the same `A.B.op_Addition` key NameResolution resolved and
-                // the provider keys on.
+                // `A.B.(+)` — the joined `A.B.op_Addition` spelling, matching the qualifier
+                // and short name NameResolution resolved.
                 | Expr.LongIdentOrOp(LongIdentOrOp.QualifiedOp(longIdent = li; op = idOp)) ->
                     match OperatorNames.qualifiedOpName ctx.NameOf li idOp with
                     | ValueSome n -> n

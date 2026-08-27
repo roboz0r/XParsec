@@ -436,12 +436,11 @@ module NameResolutionScope =
             | ValueNone -> ()
         | Expr.LongIdentOrOp(LongIdentOrOp.QualifiedOp(longIdent = li; op = idOp)) ->
             // `A.B.(+)` — translate the operator segment to its compiled name
-            // (`op_Addition`) and route `A.B.op_Addition` through the value long-ident
-            // machinery. Only the qualified form needs this; bare ops come from the prelude.
-            match OperatorNames.ofIdentOp ctx.NameOf idOp with
-            | ValueSome opName ->
-                let path = li.Idents |> Seq.map ctx.NameOf |> String.concat "."
-
+            // (`op_Addition`) and route it through the value long-ident machinery under the
+            // container `A.B` denotes. Only the qualified form needs this; bare ops come from
+            // the prelude.
+            match OperatorNames.qualifiedOpParts ctx.NameOf li idOp with
+            | ValueSome(struct (path, opName)) ->
                 if not (tryStampExternalValue ctx (CstKeys.ofExpr e) path opName) then
                     ctx.Report(
                         CstKeys.firstTokenOfExpr e,

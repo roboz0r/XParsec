@@ -1,6 +1,6 @@
 # Long-identifier resolution — the remaining deletions
 
-**Status (2026-08-25): R1–R7 are LANDED; R8 is planned and unstarted.** This doc scoped what
+**Status (2026-08-25): R1–R7.1 are LANDED; R8 is planned and unstarted.** This doc scoped what
 was left of the original step 5 ("delete the speculation"), re-planned after a wiring survey
 corrected one of its premises. The original design (FCS-shaped algorithm, forks A–C, steps
 1–4) was confirmed by the user on 2026-08-23 and is now code; this rewrite drops the landed
@@ -33,7 +33,7 @@ there before it starts. What also remains is the deferred list at the end of §4
 - Every published scope is TOTAL: a source answering for a container answers for its values
   and its types alike, the TS manifest included, which publishes a `PublishedSurface` like
   any other referenced package (`TsManifestProvider.publicationOf`).
-- Suites at the last landed step (R7): SemanticAnalysis 1482, Clr 1550, Js 667.
+- Suites at the last landed step (R7.1): SemanticAnalysis 1483, Clr 1550, Js 667.
 
 ## 2. Premises corrected by the wiring survey (2026-08-24)
 
@@ -276,6 +276,26 @@ Each step leaves the tree green and is a separate review.
    - Pinned in `ScopeContentsTests` ("composition"), over the two deduplications.
      `ReferencedProjectTests` pins the arity question: `Vesper.Fun` is declared at 2, 3, 4 and
      5 in one namespace, and it went red while the scope route admitted any published arity.
+10. **R7.1 — the `IScopeContents` ordering and identity contracts. LANDED (2026-08-25).** R7's
+    review found the arity ordering asserted at one consumer and settled nowhere.
+    - **`TypesNamed` answers ASCENDING by arity, and `UnionCasesNamed` one entry per declaring
+      union.** Both are stated on `IScopeContents`, so the implementations R8 steps 1 and 2 add
+      are written against them rather than retrofitted. `PublishedSurface.scopeOf` sorts each
+      arity slot once at build. `ShapesByKey` is ordered by ORDINAL metadata name, under which
+      `` P`10 `` precedes `` P`2 ``, so the two orders had agreed below arity 10 by coincidence;
+      `ScopeContentsTests` "a name declared at several arities answers narrowest first" declares
+      `P` at 0, 2 and 10 and goes red on `[0; 10; 2]` without the sort.
+    - `tryPickExternalWritten` reads the channel in its own order and drops the per-query
+      `toArray`/`filter`/`sortBy`/`ofArray` chain. `typesIn` and the written-type route had
+      disagreed about which arity a container's claim resolves to.
+    - `ScopeContents.tryValueIn` is the one "first container declaring `name`" rule;
+      `PassContext.CoreAccess` had a second copy in `option`.
+    - `CaseClaim` carries a case beside its `[<RequireQualifiedAccess>]`, read once.
+      `caseWhere` had filtered on the flag and `caseAmong` re-derived it for the survivor.
+    - `OperatorNames.qualifiedOpParts` is the one rule for how a qualified operator name is
+      spelled; `qualifiedOpName` joins it for the two elaboration sites that render, and
+      `Scope.fs` takes the parts rather than re-deriving the join.
+    - `ScopeContents.mapValues` for the value-only decoration `stampInlineBodies` wants.
 
 **The by-name TYPE channel stays through R7, and R8 (§5) deletes it.** R7 shipped with the
 claim that a metadata type has "no container to walk". That is wrong, and §5 records the
@@ -336,7 +356,19 @@ Steps 1 and 2 are independent; 3 needs both; 5 needs 4. Each leaves the tree gre
    already holds — a smaller version of the same directory.
 3. **`tryPickExternalWritten` loses its second half**, becoming the container walk alone.
    `WrittenArity.probes` and `MaxProbedQualifierArity` go with it, and an arity is then
-   whatever a container publishes rather than a guess.
+   whatever a container publishes rather than a guess. Two R7 review findings land here:
+   - The `WrittenArity.admits` re-check wrapped around `pick` on the name route
+     (`LongIdent.fs:257-266`) never fires. `tryPickExternalType` already gates on
+     `shape.TyparArity = arity` for each arity in `probes`, so `Exact n` implies it and `Any`
+     admits everything. It is deleted with the route it guards.
+   - **The written spelling is then taken APART, as the value route already takes it.** The
+     only reason `tryPickExternalWritten` accepts a joined `written: string` and re-splits it
+     at the last dot is `OpenScope.tryResolve` on the name route. With that gone, callers pass
+     the qualifier and the short name, `containersAtPath` stops dispatching on `path.Length`,
+     and the `""`-for-bare sentinel at six call sites (`externalCasesInScope`, and `Scope.fs`
+     at four operator/dynamic-lookup sites) goes with it. This is the same join/split pair R7
+     deleted one layer down; R7 left it on the type route because the name route still needed
+     the join.
 4. **`tryPickRuntimeType` splits into its two queries.** Its doc says "Never a source-written
    name" (`ExternalSymbols.fs:413-415`) and one of its two callers contradicts that:
    `IntrinsicResolve.tryResolveIntrinsicKey` (`Intrinsics.fs:12-23`) falls through to it, and
@@ -348,7 +380,22 @@ Steps 1 and 2 are independent; 3 needs both; 5 needs 4. Each leaves the tree gre
    `IExternalSymbolStore`, and a written bare name taking the container walk with every other
    written name.
 5. **`IExternalSymbolResolver.TryLookupType` is deleted**, step 4 having given both halves a
-   home. `NamedChannels`, `KeyedChannels.ofNamed` and `ExternalTypeProbe` go with it.
+   home. `NamedChannels`, `KeyedChannels.ofNamed` and `ExternalTypeProbe` go with it. Two more
+   R7 review findings land here:
+   - `stack` spells `stampType (foldIntrinsicSurface key shape)` three times
+     (`ExternalSymbolProviders.fs:356, 367-368, 383`). Deleting the resolver overload removes
+     one; bind the remaining composition once.
+   - **`KeyedChannels` goes too.** R7 flattened `NamedChannels` into it, leaving an 11-field
+     record with 9 function-typed fields — the record-of-closures shape the root `CLAUDE.md`
+     calls a smell. Once `ofNamed` is deleted it wraps a single source and buys nothing that
+     `ProviderDecorator(nullProvider)` — 30 lines up the same file, `abstract`/`default`
+     members rather than closure fields — does not already buy. `PublishedSurface.toProvider`
+     and the ~10 test stubs become `{ new ProviderDecorator(nullProvider) with … }`, and
+     `nullProvider` is minted directly rather than through `ofNamedChannels`.
+     Weigh honestly before committing: `{ Channels.empty with X = … }` reads better than an
+     object expression at a test stub, and `ofNamed`'s four adaptations (`typeMetaName`,
+     `ExternalMemberName.ofKeyed`, `nameKeyedTypeHit`, arity rendering) move into the sources
+     that need them. If the stub ergonomics win, say so in this doc and keep the record.
 
 ### Scope and risk
 

@@ -65,12 +65,12 @@ type IScopeContents =
     /// short name and under the short name its source writes, which a `[<CompiledName>]`
     /// makes differ.
     abstract TryValue: container: ModuleContainer * name: string -> ExternalSymbol voption
-    /// Every case named `name` of a union declared directly in `container`; each answer
-    /// carries its `[<RequireQualifiedAccess>]` flag for the caller to report. Two answers
-    /// are two unions of the container declaring the name, which the caller reports as an
-    /// ambiguity.
+    /// Every case named `name` of a union declared directly in `container`, one entry per
+    /// declaring union, each carrying its `[<RequireQualifiedAccess>]` flag. Two answers are
+    /// an ambiguity for the caller to report.
     abstract UnionCasesNamed: container: ModuleContainer * name: string -> EqArray<ExternalUnionCase>
-    /// Every type named `name` declared directly in `container`, one per generic arity.
+    /// Every type named `name` declared directly in `container`, one per generic arity,
+    /// ASCENDING by arity: a spelling written without type args takes the narrowest.
     abstract TypesNamed: container: ModuleContainer * name: string -> EqArray<struct (TypeKey * ExternalTypeShape)>
 
 [<RequireQualifiedAccess>]
@@ -90,8 +90,9 @@ module ScopeContents =
 
     /// The nearest-first composition: a container or value is the first source's that
     /// declares it, and a type name is the first source's non-empty arity set. Union cases
-    /// are the UNION across sources, one entry per identity: a case name recurs across
-    /// packages, and the caller decides between the claims.
+    /// are the UNION across sources: a case name recurs across packages, and the caller
+    /// decides between the claims. A package's `.fsi` and `.fs` halves both publish its
+    /// union, and the shared case answers once.
     let composite (sources: IScopeContents list) : IScopeContents =
         match sources with
         | [] -> empty
@@ -160,6 +161,30 @@ module ScopeContents =
             | _ -> ()
 
         List.ofSeq found
+
+    /// The value `name` denotes among `containers`: the first of them declaring it.
+    let tryValueIn (scope: IScopeContents) (containers: ModuleContainer list) (name: string) : ExternalSymbol voption =
+        let rec go cs =
+            match cs with
+            | [] -> ValueNone
+            | c :: rest ->
+                match scope.TryValue(c, name) with
+                | ValueSome _ as hit -> hit
+                | ValueNone -> go rest
+
+        go containers
+
+    /// `inner` with each value answer rewritten. Every other channel passes through.
+    let mapValues (value: ExternalSymbol -> ExternalSymbol) (inner: IScopeContents) : IScopeContents =
+        { new IScopeContents with
+            member _.TryContainer path = inner.TryContainer path
+
+            member _.TryValue(c, name) =
+                inner.TryValue(c, name) |> ValueOption.map value
+
+            member _.UnionCasesNamed(c, name) = inner.UnionCasesNamed(c, name)
+            member _.TypesNamed(c, name) = inner.TypesNamed(c, name)
+        }
 
     /// `inner` with each answer rewritten: `value` over a value, `case` over a union case,
     /// `shape` over a type shape at the identity it answered under. `TryContainer` passes

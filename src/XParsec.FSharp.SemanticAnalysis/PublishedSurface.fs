@@ -368,6 +368,16 @@ module PublishedSurface =
                     typesIn.[slot] <- arities
             | ValueNone -> ()
 
+        // `ShapesByKey` is ordered by ORDINAL metadata name, under which `` P`10 `` precedes
+        // `` P`2 ``; `TypesNamed` answers narrowest arity first.
+        let byArity =
+            System.Comparison<struct (TypeKey * ExternalTypeShape)>(fun (struct (a, _)) (struct (b, _)) ->
+                compare a.TyparArity b.TyparArity
+            )
+
+        for arities in typesIn.Values do
+            arities.Sort byArity
+
         // Every module and namespace a published key sits in, each module's enclosing chain
         // and every prefix of each namespace: `System` is a namespace wherever
         // `System.Collections` is, and a module holding only values is still a module.

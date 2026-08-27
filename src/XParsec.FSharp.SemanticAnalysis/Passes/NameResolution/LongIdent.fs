@@ -211,8 +211,7 @@ module NameResolutionLongIdent =
         (path: string)
         (name: string)
         : ExternalSymbol voption =
-        containersAtPath ctx useSite path
-        |> tryPickV (fun c -> ctx.Resolver.Scope.TryValue(c, name))
+        ScopeContents.tryValueIn ctx.Resolver.Scope (containersAtPath ctx useSite path) name
 
     /// Every external union case a BARE `caseName` claims: a case, without
     /// `[<RequireQualifiedAccess>]`, of a union declared directly in an opened container.
@@ -243,16 +242,23 @@ module NameResolutionLongIdent =
         let path = if dot < 0 then "" else written.Substring(0, dot)
         let name = if dot < 0 then written else written.Substring(dot + 1)
 
-        let admitted (c: ModuleContainer) =
-            ctx.Resolver.Scope.TypesNamed(c, name)
-            |> EqArray.toArray
-            |> Array.filter (fun (struct (_, shape)) -> WrittenArity.admits arity shape)
-            |> Array.sortBy (fun (struct (_, shape)) -> shape.TyparArity)
-            |> List.ofArray
+        // Depends on `TypesNamed` answering narrowest arity first.
+        let pickAdmitted (c: ModuleContainer) : 'T voption =
+            let declared = (ctx.Resolver.Scope.TypesNamed(c, name)).Underlying
+            let mutable result = ValueNone
+            let mutable i = 0
 
-        let published =
-            containersAtPath ctx useSite path
-            |> tryPickV (fun c -> admitted c |> tryPickV (fun (struct (key, shape)) -> pick key shape))
+            while result.IsNone && i < declared.Length do
+                let (struct (key, shape)) = declared.[i]
+
+                if WrittenArity.admits arity shape then
+                    result <- pick key shape
+
+                i <- i + 1
+
+            result
+
+        let published = containersAtPath ctx useSite path |> tryPickV pickAdmitted
 
         match published with
         | ValueSome _ as hit -> hit
@@ -318,21 +324,44 @@ module NameResolutionLongIdent =
             ]
         | claims -> List.map ResolvedTypeRef.Local claims
 
-    /// The declaring union's `[<RequireQualifiedAccess>]`.
-    let private isRequireQualifiedAccess (ctx: PassContext) (case: ResolvedUnionCase) : bool =
-        match case with
-        | ResolvedUnionCase.Local info -> (TypeRegistry.unionOfCase ctx.Types info).IsRequireQualifiedAccess
-        | ResolvedUnionCase.External uc -> uc.IsRequireQualifiedAccess
+    /// A union-case claim beside its declaring union's `[<RequireQualifiedAccess>]`.
+    [<Struct; NoEquality; NoComparison>]
+    type private CaseClaim =
+        {
+            Case: ResolvedUnionCase
+            RequiresQualifiedAccess: bool
+        }
+
+    module private CaseClaim =
+
+        let read (ctx: PassContext) (case: ResolvedUnionCase) : CaseClaim =
+            let rqa =
+                match case with
+                | ResolvedUnionCase.Local info -> (TypeRegistry.unionOfCase ctx.Types info).IsRequireQualifiedAccess
+                | ResolvedUnionCase.External uc -> uc.IsRequireQualifiedAccess
+
+            {
+                Case = case
+                RequiresQualifiedAccess = rqa
+            }
+
+        /// A claim the caller has already filtered to a union without
+        /// `[<RequireQualifiedAccess>]`.
+        let plain (case: ResolvedUnionCase) : CaseClaim =
+            {
+                Case = case
+                RequiresQualifiedAccess = false
+            }
 
     /// One claim resolves, carrying its declaring union's `[<RequireQualifiedAccess>]` for
     /// the caller to report; several are ambiguous.
-    let private caseAmong (ctx: PassContext) (name: string) (claims: ResolvedUnionCase[]) : ResolvedItem voption =
+    let private caseAmong (name: string) (claims: CaseClaim[]) : ResolvedItem voption =
         match claims.Length with
         | 0 -> ValueNone
         | 1 ->
-            let uc = claims.[0]
-            ValueSome(ResolvedItem.UnionCase(uc, isRequireQualifiedAccess ctx uc))
-        | _ -> ValueSome(ResolvedItem.AmbiguousCase(name, claims))
+            let claim = claims.[0]
+            ValueSome(ResolvedItem.UnionCase(claim.Case, claim.RequiresQualifiedAccess))
+        | _ -> ValueSome(ResolvedItem.AmbiguousCase(name, claims |> Array.map (fun c -> c.Case)))
 
     /// A static member `name`, or the setter of a write-only property `name`, is declared.
     let private declaresStatic (members: TypeMemberInfo[]) (name: string) : bool =
@@ -440,8 +469,9 @@ module NameResolutionLongIdent =
 
         let caseWhere (admit: bool -> bool) () =
             casesIn ctx useSite c name
-            |> Array.filter (isRequireQualifiedAccess ctx >> admit)
-            |> caseAmong ctx name
+            |> Array.map (CaseClaim.read ctx)
+            |> Array.filter (fun claim -> admit claim.RequiresQualifiedAccess)
+            |> caseAmong name
             |> ValueOption.map (fun item -> resolved item next)
 
         // The case of a union without `[<RequireQualifiedAccess>]`.
@@ -501,13 +531,17 @@ module NameResolutionLongIdent =
             TypeRegistry.casesNamed ctx.Types useSite name
             |> Array.filter (fun c -> not (TypeRegistry.unionOfCase ctx.Types c).IsRequireQualifiedAccess)
 
+        // Both halves are filtered to unions without `[<RequireQualifiedAccess>]`.
         match locals with
         | [||] ->
             externalCasesInScope ctx useSite name
-            |> EqArray.map ResolvedUnionCase.External
             |> EqArray.toArray
-            |> caseAmong ctx name
-        | _ -> locals |> Array.map ResolvedUnionCase.Local |> caseAmong ctx name
+            |> Array.map (ResolvedUnionCase.External >> CaseClaim.plain)
+            |> caseAmong name
+        | _ ->
+            locals
+            |> Array.map (ResolvedUnionCase.Local >> CaseClaim.plain)
+            |> caseAmong name
 
     /// A bare type name at any arity: this file's claim in scope, else the referenced contracts.
     let private typeInEnv (ctx: PassContext) (useSite: UseSite) (name: string) : ResolvedTypeRef voption =

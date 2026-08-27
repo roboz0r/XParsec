@@ -188,8 +188,8 @@ module internal UnificationInferIdentExpr =
     and qualifiedNameOf (ctx: PassContext) (e: Expr<SyntaxToken>) : string =
         match e with
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) -> li.Idents |> Seq.map ctx.NameOf |> String.concat "."
-        // `A.B.(+)`: rebuild the same compiled name (`A.B.op_Addition`) NameResolution
-        // resolved through the provider, so the round-trip matches its key.
+        // `A.B.(+)` — the joined `A.B.op_Addition` spelling, matching the qualifier and short
+        // name NameResolution resolved.
         | Expr.LongIdentOrOp(LongIdentOrOp.QualifiedOp(longIdent = li; op = idOp)) ->
             match OperatorNames.qualifiedOpName ctx.NameOf li idOp with
             | ValueSome n -> n

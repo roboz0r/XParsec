@@ -574,8 +574,7 @@ module ExternalSymbolProviders =
                 InlineBody = bodies (SymbolKey.Member m.Key)
             }
 
-        let scope =
-            inner.Scope |> ScopeContents.decorate stampSymbol id (fun _ shape -> shape)
+        let scope = inner.Scope |> ScopeContents.mapValues stampSymbol
 
         { new ProviderDecorator(inner) with
             override _.Scope = scope

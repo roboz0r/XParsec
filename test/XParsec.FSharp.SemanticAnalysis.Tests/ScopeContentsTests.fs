@@ -64,6 +64,18 @@ module N =
         | Off
 "
 
+/// One name at three arities in a single module, declared WIDEST first. The published tables
+/// are ordered by ORDINAL metadata name, under which `` P`10 `` precedes `` P`2 ``.
+let private arityLib =
+    "\
+namespace Test.Ar
+
+module M =
+    type P<'A, 'B, 'C, 'D, 'E, 'F, 'G, 'H, 'I, 'J> = { Ten: int }
+    type P<'A, 'B> = { Two: int }
+    type P = { N: int }
+"
+
 let private rqaLib =
     "\
 namespace Test.A
@@ -244,6 +256,18 @@ let tests =
                         | other -> failtestf "one Box: %A" other
 
                         Expect.equal (scope.TypesNamed(m, "Light")).Length 0 "Light is N's"
+                    }
+
+                    test "a name declared at several arities answers narrowest first" {
+                        let scope = (publishedViews [ "lib.fs", arityLib ]).[0].Scope
+                        let m = containerOrFail scope "Test.Ar.M"
+
+                        let arities =
+                            [
+                                for struct (key, _) in (scope.TypesNamed(m, "P")).Underlying -> key.TyparArity
+                            ]
+
+                        Expect.equal arities [ 0; 2; 10 ] "every declared arity, ascending"
                     }
 
                     test "a signature publishes a ModuleSuffix module under its source path and its compiled name" {

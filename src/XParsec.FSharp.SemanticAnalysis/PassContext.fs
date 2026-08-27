@@ -343,15 +343,7 @@ type PassContext(provider: IExternalSymbolProvider, file: LexedFile, assembly: C
                 ScopeContents.openedContainers provider.Scope ambientOpenScope.Prefixes
 
              let one (name: string) =
-                 containers
-                 |> List.tryPick (fun c ->
-                     match provider.Scope.TryValue(c, name) with
-                     | ValueSome sym -> Some sym
-                     | ValueNone -> None
-                 )
-                 |> function
-                     | Some sym -> ValueSome sym
-                     | None -> ValueNone
+                 ScopeContents.tryValueIn provider.Scope containers name
 
              {
                  GetIndex = one "GetIndex"

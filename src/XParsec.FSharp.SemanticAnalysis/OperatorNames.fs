@@ -93,15 +93,23 @@ module OperatorNames =
         | IdentOrOp.ParenOp(opName = OpName.ActivePatternOp _) -> ValueNone
         | _ -> ofPatOp nameOf idOp
 
-    /// `A.B.(+)` → `"A.B.op_Addition"`; an empty qualifier gives the bare
-    /// `"op_Addition"`. `ValueNone` for a non-symbolic op segment.
+    /// `A.B.(+)` → `("A.B", "op_Addition")`: the qualifier and the operator's compiled short
+    /// name, which resolution reads against a container. An empty qualifier is the bare form.
+    /// `ValueNone` for a non-symbolic op segment.
+    let qualifiedOpParts
+        (nameOf: SyntaxToken -> string)
+        (li: LongIdent<SyntaxToken>)
+        (idOp: IdentOrOp<SyntaxToken>)
+        : struct (string * string) voption =
+        match ofIdentOp nameOf idOp with
+        | ValueSome opName -> ValueSome(struct (li.Idents |> Seq.map nameOf |> String.concat ".", opName))
+        | ValueNone -> ValueNone
+
+    /// `qualifiedOpParts` joined: `A.B.(+)` → `"A.B.op_Addition"`.
     let qualifiedOpName
         (nameOf: SyntaxToken -> string)
         (li: LongIdent<SyntaxToken>)
         (idOp: IdentOrOp<SyntaxToken>)
         : string voption =
-        match ofIdentOp nameOf idOp with
-        | ValueSome opName ->
-            let prefix = li.Idents |> Seq.map nameOf |> String.concat "."
-            ValueSome(SymbolKeyOps.qualify prefix opName)
-        | ValueNone -> ValueNone
+        qualifiedOpParts nameOf li idOp
+        |> ValueOption.map (fun (struct (prefix, opName)) -> SymbolKeyOps.qualify prefix opName)
