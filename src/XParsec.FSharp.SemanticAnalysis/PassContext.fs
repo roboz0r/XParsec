@@ -71,14 +71,14 @@ module ResolvedStamps =
         | ValueSome(ResolvedItem.EnumCase(ResolvedTypeRef.External(enumKey, _), _)) -> ValueSome enumKey
         | _ -> ValueNone
 
-    /// The non-generic referenced-assembly type a static access `T.member` stamped at `key`
-    /// is qualified by: a class by its key, an intrinsic by its canon.
+    /// The referenced-assembly type a static access `T.member` stamped at `key` is qualified
+    /// by: a class by its key at its declared `TyparArity`, an intrinsic by its canon.
     let tryStaticQualifier (stamps: SideTable<ResolvedItem>) (key: NodeKey) : TypeKey voption =
         match stamps.TryGetValue key with
         | ValueSome(ResolvedItem.StaticMember(ResolvedTypeRef.External(typeKey, shape), _)) ->
             match shape with
-            | ExternalTypeShape.Class info when info.TyparArity = 0 -> ValueSome typeKey
-            | ExternalTypeShape.Intrinsic { Id = { Canon = canon } } when canon.TyparArity = 0 -> ValueSome canon
+            | ExternalTypeShape.Class _ -> ValueSome typeKey
+            | ExternalTypeShape.Intrinsic { Id = { Canon = canon } } -> ValueSome canon
             | _ -> ValueNone
         | _ -> ValueNone
 
@@ -218,6 +218,10 @@ type PassContextResolution =
         /// `arr.[i]`, `arr.Length`): the intrinsic's key, so the splice is by KEY.
         IntrinsicKey: SideTable<SymbolKey>
         TypeTestTargets: SideTable<SemType>
+        /// Keyed by a project-local static member access (the qualified read / call funcExpr,
+        /// or an assignment's LHS access): the declaring type's instantiation at that site,
+        /// one entry per declared typar.
+        StaticDeclaringArgs: SideTable<EqArray<SemType>>
         /// Keyed by a `use` binding's pattern `NodeKey`: how the bound variable is disposed.
         UseDispose: SideTable<Disposal>
         /// Keyed by a `for x in src do …` node. Absent ⇒ the interface path (which range
@@ -258,6 +262,7 @@ module PassContextResolution =
             ExternalSymbolStamp = SideTable<_>()
             IntrinsicKey = SideTable<_>()
             TypeTestTargets = SideTable<_>()
+            StaticDeclaringArgs = SideTable<_>()
             UseDispose = SideTable<_>()
             ForInShape = SideTable<_>()
             ResolvedType = SideTable<_>()

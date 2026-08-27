@@ -181,23 +181,31 @@ module internal ElaborateExpr =
 
             TExpr.PropertyGet(objArg, key, viaOfObjArg ctx objArg, ty, tok)
         | Expr.App(
-            funcExpr = Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(StaticMethod ctx (declKey, memberName)))
-            argExprs = args) -> mkStaticMethodCall ctx declKey memberName (peelCtorArgs (translateExpr ctx) args) ty tok
+            funcExpr = Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(StaticMethod ctx (declKey, memberName))) & fn
+            argExprs = args) ->
+            let declArgs = staticDeclArgsAt ctx declKey tok (CstKeys.ofExpr fn)
+            mkStaticMethodCall ctx declKey declArgs memberName (peelCtorArgs (translateExpr ctx) args) ty tok
         | Expr.HighPrecedenceApp(
-            funcExpr = Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(StaticMethod ctx (declKey, memberName)))
-            argExpr = arg) -> mkStaticMethodCall ctx declKey memberName (peelOneArg (translateExpr ctx) arg) ty tok
+            funcExpr = Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(StaticMethod ctx (declKey, memberName))) & fn
+            argExpr = arg) ->
+            let declArgs = staticDeclArgsAt ctx declKey tok (CstKeys.ofExpr fn)
+            mkStaticMethodCall ctx declKey declArgs memberName (peelOneArg (translateExpr ctx) arg) ty tok
         // `ClassName<'args>.Method args` — static call on an explicitly instantiated
         // generic class (`Set<'T>.Singleton value`). The `<'args>` makes the funcExpr
         // a `DotLookup` over a `TypeApp` rather than a folded `LongIdent`.
-        | Expr.App(funcExpr = TypeAppStaticMember ctx (declKey, memberName, ClassMemberKind.Method); argExprs = args) ->
-            mkStaticMethodCall ctx declKey memberName (peelCtorArgs (translateExpr ctx) args) ty tok
+        | Expr.App(
+            funcExpr = TypeAppStaticMember ctx (declKey, memberName, ClassMemberKind.Method) & fn; argExprs = args) ->
+            let declArgs = staticDeclArgsAt ctx declKey tok (CstKeys.ofExpr fn)
+            mkStaticMethodCall ctx declKey declArgs memberName (peelCtorArgs (translateExpr ctx) args) ty tok
         | Expr.HighPrecedenceApp(
-            funcExpr = TypeAppStaticMember ctx (declKey, memberName, ClassMemberKind.Method); argExpr = arg) ->
-            mkStaticMethodCall ctx declKey memberName (peelOneArg (translateExpr ctx) arg) ty tok
+            funcExpr = TypeAppStaticMember ctx (declKey, memberName, ClassMemberKind.Method) & fn; argExpr = arg) ->
+            let declArgs = staticDeclArgsAt ctx declKey tok (CstKeys.ofExpr fn)
+            mkStaticMethodCall ctx declKey declArgs memberName (peelOneArg (translateExpr ctx) arg) ty tok
         // `ClassName.X` — static property read (or method-as-value).
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(StaticMember ctx (declKey, memberName))) ->
+            let declArgs = staticDeclArgsAt ctx declKey tok key
             let key = LocalSymbolKey.ofProperty declKey memberName
-            TExpr.StaticPropertyGet(key, ty, tok)
+            TExpr.StaticPropertyGet(key, declArgs, ty, tok)
         | CtorRef ctx caseName ->
             // Bare or qualified ctor reference outside an App. The result type
             // distinguishes a nullary ctor (→ `UnionCons`) from a ctor-as-value
@@ -316,11 +324,11 @@ module internal ElaborateExpr =
 
             externalMemberExpr objArg info memberName ty tok
         // `ClassName<'args>.Prop` — static property read on an explicitly
-        // instantiated generic class (`Set<'T>.Empty`). The `<'args>` only pinned
-        // the instantiation in inference and is carried on `ty`.
+        // instantiated generic class (`Set<'T>.Empty`).
         | TypeAppStaticMember ctx (declKey, memberName, ClassMemberKind.Property) ->
+            let declArgs = staticDeclArgsAt ctx declKey tok key
             let key = LocalSymbolKey.ofProperty declKey memberName
-            TExpr.StaticPropertyGet(key, ty, tok)
+            TExpr.StaticPropertyGet(key, declArgs, ty, tok)
         | Expr.DotLookup(expr = r; longIdentOrOp = LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
             ElaborateAccess.translateDotLookup translateExpr ctx r (ctx.NameOf li.Idents.[0]) ty tok
         | Expr.DynamicLookup(expr = r; ident = idTok) ->

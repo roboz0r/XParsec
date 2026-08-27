@@ -335,7 +335,7 @@ module Regions =
             joinArms ctx s e [ yield inferRegion s ctx fn; for a in args -> inferRegion s ctx a.Arg ] RegionId.Unknown
         | TExpr.MethodCall(objArg, _, _, args, _, _) ->
             joinArms ctx s e [ yield inferRegion s ctx objArg; for a in args -> inferRegion s ctx a ] RegionId.Unknown
-        | TExpr.StaticMethodCall(_, args, _, _) ->
+        | TExpr.StaticMethodCall(args = args) ->
             joinArms ctx s e [ for a in args -> inferRegion s ctx a ] RegionId.Unknown
         // Resolved to a `StaticMethodCall` by inline expansion; walk args defensively
         // in case a residual one survives so captures inside it still register.

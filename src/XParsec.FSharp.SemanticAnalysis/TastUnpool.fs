@@ -36,7 +36,7 @@ module TastUnpool =
         | ExprPayload.Const value -> TExprG.Const(value, ty, tok)
         | ExprPayload.External p -> TExprG.External(p.CompiledName, p.Key, ty, tok)
         | ExprPayload.Null -> TExprG.Null(ty, tok)
-        | ExprPayload.StaticPropertyGet key -> TExprG.StaticPropertyGet(key, ty, tok)
+        | ExprPayload.StaticPropertyGet p -> TExprG.StaticPropertyGet(p.Key, p.DeclArgs, ty, tok)
         | ExprPayload.StaticFieldGet p -> TExprG.StaticFieldGet(p.DeclKey, p.FieldName, ty, tok)
         | ExprPayload.Lambda ->
             let param = nextP ()
@@ -123,7 +123,7 @@ module TastUnpool =
         | ExprPayload.PropertyGet p ->
             let objArg = nextE ()
             TExprG.PropertyGet(objArg, p.Key, p.Via, ty, tok)
-        | ExprPayload.StaticMethodCall key -> TExprG.StaticMethodCall(key, EqArray.ofArray es, ty, tok)
+        | ExprPayload.StaticMethodCall p -> TExprG.StaticMethodCall(p.Key, p.DeclArgs, EqArray.ofArray es, ty, tok)
         | ExprPayload.StaticFieldSet p ->
             let value = nextE ()
             TExprG.StaticFieldSet(p.DeclKey, p.FieldName, value, ty, tok)

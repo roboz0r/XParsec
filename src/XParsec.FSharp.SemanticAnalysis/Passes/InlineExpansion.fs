@@ -386,7 +386,7 @@ module InlineExpansion =
                     // A dispatched SRTP trait call, whose body the provider serves. The INTRINSIC
                     // operator surface arrives here: `1 &&& 2` dispatches to `Vesper.int`'s
                     // `(&&&)`, and a primitive has no type to hang a method on.
-                    | TExpr.StaticMethodCall(key, args, ty, tok) ->
+                    | TExpr.StaticMethodCall(key, _, args, ty, tok) ->
                         let callArgs = [ for a in EqArray.toList args -> levelOf a (TastWalk.exprTok a) ]
 
                         tryExpandServed x at walk key ty tok callArgs

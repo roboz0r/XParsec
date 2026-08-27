@@ -18,7 +18,7 @@ let private callKeys (tast: TastFile) : ResizeArray<SymbolKey> =
                 fun _ e ->
                     match e with
                     | TExpr.MethodCall(_, k, _, _, _, _)
-                    | TExpr.StaticMethodCall(k, _, _, _) -> calls.Add k
+                    | TExpr.StaticMethodCall(k, _, _, _, _) -> calls.Add k
                     | _ -> ()
 
                     true
@@ -756,7 +756,7 @@ let tests =
                     |> Option.defaultWith (fun () -> failwithf "expected a let, got %A" tast.Decls)
 
                 match valExpr with
-                | TExpr.StaticPropertyGet(SymbolKey.Member { Decl = decl; Name = name }, ty, _) ->
+                | TExpr.StaticPropertyGet(SymbolKey.Member { Decl = decl; Name = name }, _, ty, _) ->
                     Expect.equal (SymbolKeyOps.bareName decl.Name) "C" "class name"
                     Expect.equal name "Origin" "property name"
                     Expect.equal ty BuiltinTypes.tyInt "ty is int"
@@ -780,7 +780,7 @@ let tests =
                     |> Option.defaultWith (fun () -> failwithf "expected a let, got %A" tast.Decls)
 
                 match valExpr with
-                | TExpr.StaticMethodCall(SymbolKey.Member { Decl = decl; Name = methodName }, args, ty, _) ->
+                | TExpr.StaticMethodCall(SymbolKey.Member { Decl = decl; Name = methodName }, _, args, ty, _) ->
                     Expect.equal (SymbolKeyOps.bareName decl.Name) "C" "class name"
                     Expect.equal methodName "M" "method name"
                     Expect.equal args.Length 1 "one arg"
@@ -788,6 +788,55 @@ let tests =
                 | _ -> failtestf "expected StaticMethodCall, got %A" valExpr
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
+            }
+
+            test "TAST: `Box<int>.P` carries the written declaring instantiation" {
+                let tast =
+                    analyse "type Box<'T>() =\n    static member P with get () : int = 5\nlet r = Box<int>.P"
+
+                let valExpr =
+                    tast.Decls
+                    |> EqArray.toList
+                    |> List.tryPick (
+                        function
+                        | TDecl.Let(_, v, _, _) -> Some v
+                        | _ -> None
+                    )
+                    |> Option.defaultWith (fun () -> failwithf "expected a let, got %A" tast.Decls)
+
+                match valExpr with
+                | TExpr.StaticPropertyGet(_, declArgs, _, _) ->
+                    Expect.equal (EqArray.toList declArgs) [ BuiltinTypes.tyInt ] "declArgs is the written <int>"
+                | _ -> failtestf "expected StaticPropertyGet, got %A" valExpr
+
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+            }
+
+            test "TAST: `Box<string>.P <- 3` pins the setter's 'T to string, so the int write errors" {
+                let tast =
+                    analyse (
+                        String.concat
+                            "\n"
+                            [
+                                "type Box<'T>() ="
+                                "    static member P with get () : int = 0 and set (w: 'T) = ()"
+                                "Box<string>.P <- 3"
+                            ]
+                    )
+
+                Expect.isTrue
+                    (tast.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "mismatch"))
+                    (sprintf "the written <string> rejects the int value, got %A" tast.Diagnostics)
+            }
+
+            test "TAST: a static access's written type-arg arity mismatch is diagnosed" {
+                let tast =
+                    analyse "type Box<'T>() =\n    static member P with get () : int = 5\nlet r = Box<int, string>.P"
+
+                Expect.isTrue
+                    (tast.Diagnostics
+                     |> Seq.exists (fun d -> d.Message.Contains "expects 1 type argument(s) but got 2"))
+                    (sprintf "written arity 2 against declared 1 diagnoses, got %A" tast.Diagnostics)
             }
 
             test "TAST: class surfaces as TTypeKind.Class" {

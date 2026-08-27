@@ -198,12 +198,14 @@ module FrozenCodec =
             w.Write 26uy
             writeSymbolRef w p.Key
             writeCallVia w p.Via
-        | ExprPayload.StaticMethodCall key ->
+        | ExprPayload.StaticMethodCall p ->
             w.Write 27uy
-            writeSymbolRef w key
-        | ExprPayload.StaticPropertyGet key ->
+            writeSymbolRef w p.Key
+            writeEqArrayWith w writeTypeRef p.DeclArgs
+        | ExprPayload.StaticPropertyGet p ->
             w.Write 28uy
-            writeSymbolRef w key
+            writeSymbolRef w p.Key
+            writeEqArrayWith w writeTypeRef p.DeclArgs
         | ExprPayload.StaticFieldGet p ->
             w.Write 29uy
             writeTypeKeyRef w p.DeclKey
@@ -298,8 +300,14 @@ module FrozenCodec =
             let key = readSymbolRef r
             let via = readCallVia r
             ExprPayload.PropertyGet {| Key = key; Via = via |}
-        | 27uy -> ExprPayload.StaticMethodCall(readSymbolRef r)
-        | 28uy -> ExprPayload.StaticPropertyGet(readSymbolRef r)
+        | 27uy ->
+            let key = readSymbolRef r
+            let declArgs = readEqArrayWith r readTypeRef
+            ExprPayload.StaticMethodCall {| Key = key; DeclArgs = declArgs |}
+        | 28uy ->
+            let key = readSymbolRef r
+            let declArgs = readEqArrayWith r readTypeRef
+            ExprPayload.StaticPropertyGet {| Key = key; DeclArgs = declArgs |}
         | 29uy ->
             let declKey = readTypeKeyRef r
             let fieldName = r.ReadString()

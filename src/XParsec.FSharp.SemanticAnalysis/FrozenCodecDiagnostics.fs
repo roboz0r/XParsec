@@ -190,6 +190,9 @@ module FrozenCodecDiagnostics =
             w.Write 3uy
             w.Write propertyName
             w.Write bindingName
+        | InternalBreak.UnstampedStaticDeclArgs declaringType ->
+            w.Write 4uy
+            w.Write declaringType
 
     let private readInternalBreak (r: FrozenReader) : InternalBreak =
         match r.ReadByte() with
@@ -202,6 +205,7 @@ module FrozenCodecDiagnostics =
         | 3uy ->
             let propertyName = r.ReadString()
             InternalBreak.NonAccessorInWithClause(propertyName, r.ReadString())
+        | 4uy -> InternalBreak.UnstampedStaticDeclArgs(r.ReadString())
         | b -> failwithf "FrozenCodec: unknown InternalBreak tag %d" b
 
     let private writePackageSetFault (w: FrozenWriter) (f: PackageSetFault) =

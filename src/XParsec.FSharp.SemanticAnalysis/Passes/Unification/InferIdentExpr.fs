@@ -103,7 +103,10 @@ module internal UnificationInferIdentExpr =
                 | ValueNone -> fallback ()
 
             match TypeRegistry.tryStaticMember ctx.Types useSite anchorName memberName with
-            | ValueSome hit -> freshMemberInstance ctx hit
+            | ValueSome hit ->
+                let declArgs, memberTy = freshMemberInstanceArgs ctx hit
+                ctx.Resolution.StaticDeclaringArgs.Set(node.Key, declArgs)
+                memberTy
             | ValueNone ->
                 match TypeRegistry.tryUnionBare ctx.Types useSite anchorName with
                 | ValueSome _ ->
@@ -196,18 +199,24 @@ module internal UnificationInferIdentExpr =
             | ValueNone -> ctx.NameOf(CstKeys.firstTokenOfExpr e)
         | _ -> ctx.NameOf(CstKeys.firstTokenOfExpr e)
 
-    /// `Set<'T>.Empty` parses as `DotLookup(TypeApp(ClassName, <'args>), .Member)`, and
-    /// inferring that prefix as a value would yield the ctor function type.
+    /// `Set<'T>.Empty` parses as `DotLookup(TypeApp(ClassName, <'args>), .Member)`. The
+    /// written `<'args>` are unified into the declaring instantiation, stamped at `node`.
     and tryLocalTypeAppStaticMember
         (ctx: PassContext)
+        (node: NodeSite)
         (qualifier: Expr<SyntaxToken>)
         (memberTok: SyntaxToken)
         : SemType voption =
         match qualifier with
         // The written class name's own token IS the use site.
-        | Expr.TypeApp(expr = CstKeys.SingleIdent classTok) ->
+        | Expr.TypeApp(expr = CstKeys.SingleIdent classTok; types = writtenTys) ->
             let useSite = ctx.UseSiteAt(NodeKey.ofToken classTok NodeKind.ExprIdent)
 
-            TypeRegistry.tryStaticMember ctx.Types useSite (ctx.NameOf classTok) (ctx.NameOf memberTok)
-            |> ValueOption.map (freshMemberInstance ctx)
+            match TypeRegistry.tryStaticMember ctx.Types useSite (ctx.NameOf classTok) (ctx.NameOf memberTok) with
+            | ValueSome hit ->
+                let declArgs, memberTy = freshMemberInstanceArgs ctx hit
+                unifyWrittenDeclArgs ctx classTok writtenTys declArgs
+                ctx.Resolution.StaticDeclaringArgs.Set(node.Key, declArgs)
+                ValueSome memberTy
+            | ValueNone -> ValueNone
         | _ -> ValueNone

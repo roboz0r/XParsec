@@ -391,11 +391,19 @@ module TastAccessor =
     [<return: Struct>]
     let private (|EStaticPropertyGet|_|) (e: ExprId) : SymbolKey voption =
         match payload e with
-        | ExprPayload.StaticPropertyGet key -> ValueSome key
+        | ExprPayload.StaticPropertyGet p -> ValueSome p.Key
         | _ -> ValueNone
 
     let exprStaticPropertyGetKey (e: ExprId) : SymbolKey =
         expect "TastAccessor.exprStaticPropertyGetKey: not a StaticPropertyGet node" (|EStaticPropertyGet|_|) e
+
+    /// The declaring type's instantiation at a `StaticPropertyGet` / `StaticMethodCall` site;
+    /// empty for a non-generic declaring type.
+    let exprStaticDeclArgs (e: ExprId) : EqArray<FrozenType> =
+        match payload e with
+        | ExprPayload.StaticPropertyGet p -> p.DeclArgs
+        | ExprPayload.StaticMethodCall p -> p.DeclArgs
+        | other -> failwithf "TastAccessor.exprStaticDeclArgs: not a static member access node: %A" other
 
     [<return: Struct>]
     let private (|EStaticFieldGet|_|) (e: ExprId) : StaticFieldGetView voption =
@@ -429,7 +437,7 @@ module TastAccessor =
     [<return: Struct>]
     let private (|EStaticMethodCall|_|) (e: ExprId) : SymbolKey voption =
         match payload e with
-        | ExprPayload.StaticMethodCall key -> ValueSome key
+        | ExprPayload.StaticMethodCall p -> ValueSome p.Key
         | _ -> ValueNone
 
     /// The resolved member key; the call's args are the node's `exprChildren`.

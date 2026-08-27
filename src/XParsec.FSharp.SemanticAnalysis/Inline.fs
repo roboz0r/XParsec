@@ -135,15 +135,22 @@ module Inline =
                 // The operands are POST-substitution (`sub supportTy` already pinned `k`): the
                 // support type's declaring-type args and the substituted operand element types
                 // discriminate `op_Addition(Vec2, Vec2)` from `op_Addition(Vec2, float)`.
+                let declArgs = LocalMemberKeys.nominalArgs ctx.Store (sub supportTy)
+
                 let operands =
-                    LocalMemberKeys.externalOperands
-                        ctx.Store
-                        (LocalMemberKeys.nominalArgs ctx.Store (sub supportTy))
-                        [ for a in args -> sub (TastWalk.exprTy a) ]
+                    LocalMemberKeys.externalOperands ctx.Store declArgs [ for a in args -> sub (TastWalk.exprTy a) ]
 
                 match LocalMemberKeys.totalMemberKey ctx k memberName operands with
                 | ValueSome memberKey ->
-                    ValueSome(TExpr.StaticMethodCall(memberKey, EqArray.map (TastWalk.mapExpr m) args, sub ty, tok))
+                    ValueSome(
+                        TExpr.StaticMethodCall(
+                            memberKey,
+                            EqArray.ofArray declArgs,
+                            EqArray.map (TastWalk.mapExpr m) args,
+                            sub ty,
+                            tok
+                        )
+                    )
                 | ValueNone -> decline ()
             | ValueNone -> decline ()
 

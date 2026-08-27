@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+open XParsec.FSharp
 open XParsec.FSharp.Parser
 
 /// What an assignment's left-hand side is written on. `x.P <- v` and `x.[i] <- v` carry the
@@ -17,10 +18,14 @@ type AssignTarget =
     /// `x.P <- v`: a member slot, written through `set_P` when the object argument declares
     /// one, and as a field otherwise.
     | Slot of objArg: AssignObjArg * slot: SyntaxToken
-    /// `C.P <- v`: a STATIC member slot, written through the `set_P` the qualifier's type
-    /// declares. There is no object argument, so `Slot`'s paths do not apply. The resolved
-    /// setter rides along, so neither pass looks one up again.
-    | StaticSlot of setter: TypeRegistry.NominalMember * slot: SyntaxToken
+    /// `C.P <- v`: a STATIC member slot, written through the resolved `setter` the
+    /// qualifier's type declares. `tyArgs` is the qualifier's written `<'args>`
+    /// (`C<int>.P <- v`), empty for the bare form.
+    | StaticSlot of
+        setter: TypeRegistry.NominalMember *
+        qualifier: SyntaxToken *
+        tyArgs: ImArr<Type<SyntaxToken>> *
+        slot: SyntaxToken
     /// `x.[i] <- v`, written through `set_Item` or an element-store intrinsic.
     | Indexed of objArg: Expr<SyntaxToken> * index: Expr<SyntaxToken>
     /// `x?n <- v`, written through `op_DynamicAssignment`.
@@ -50,12 +55,19 @@ module AssignTarget =
     /// `C.P <- v` where the qualifier resolves to a type declaring a static `set_P`. The written
     /// qualifier's own token IS the use site, so a type declared below the write does not
     /// answer for its name.
-    let private tryStaticSlot (ctx: PassContext) (qualifier: SyntaxToken) (slot: SyntaxToken) : AssignTarget voption =
+    let private tryStaticSlot
+        (ctx: PassContext)
+        (qualifier: SyntaxToken)
+        (tyArgs: ImArr<Type<SyntaxToken>>)
+        (slot: SyntaxToken)
+        : AssignTarget voption =
         let useSite = ctx.UseSiteAt(NodeKey.ofToken qualifier NodeKind.ExprIdent)
         let setterName = AccessorNames.setterName (ctx.NameOf slot)
 
         TypeRegistry.tryStaticMember ctx.Types useSite (ctx.NameOf qualifier) setterName
-        |> ValueOption.map (fun setter -> AssignTarget.StaticSlot(setter, slot))
+        |> ValueOption.map (fun setter ->
+            AssignTarget.StaticSlot(setter = setter, qualifier = qualifier, tyArgs = tyArgs, slot = slot)
+        )
 
     let ofExpr (ctx: PassContext) (left: Expr<SyntaxToken>) : AssignLhs =
         let unwrapped = unwrap left
@@ -65,10 +77,9 @@ module AssignTarget =
             // `C<int>.P <- v`: the qualifier is a TYPE, not a value to resolve an object
             // argument from, so the write reaches its slot through the static setter.
             | Expr.DotLookup(
-                expr = Expr.TypeApp(expr = CstKeys.SingleIdent qualifier); longIdentOrOp = LongIdentOrOp.LongIdent li) when
-                li.Idents.Length = 1
-                ->
-                tryStaticSlot ctx qualifier li.Idents.[0]
+                expr = Expr.TypeApp(expr = CstKeys.SingleIdent qualifier; types = tyArgs)
+                longIdentOrOp = LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
+                tryStaticSlot ctx qualifier tyArgs li.Idents.[0]
                 |> ValueOption.defaultValue AssignTarget.Plain
             | Expr.DotLookup(expr = Expr.TypeApp _) -> AssignTarget.Plain
             | Expr.DotLookup(expr = r; longIdentOrOp = LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
@@ -85,7 +96,7 @@ module AssignTarget =
             // `C.P <- v` folds into ONE LongIdent too. The arm above already took every anchor
             // that IS a local binding, so what reaches here is a type qualifier.
             | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when li.Idents.Length = 2 ->
-                tryStaticSlot ctx li.Idents.[0] li.Idents.[1]
+                tryStaticSlot ctx li.Idents.[0] ImArr.Empty li.Idents.[1]
                 |> ValueOption.defaultValue AssignTarget.Plain
             | _ -> AssignTarget.Plain
 

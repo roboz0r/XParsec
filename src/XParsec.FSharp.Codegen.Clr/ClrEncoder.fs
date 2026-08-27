@@ -281,27 +281,6 @@ type internal ClrEncoder(env: ClrEnv) =
 
         collect "declaring" decl, collect "method" meth
 
-    /// The same recovery for a caller carrying a fallback: `ValueNone` when any typar of
-    /// either axis surfaces in no parameter and no result (`Box<'T>.Describe (x: 'T) : int`
-    /// called from a concrete context), so the failure is an answer rather than an exception.
-    let tryRecoverOpenTypars
-        (declTyparArity: int)
-        (methodTyparArity: int)
-        (openT: FrozenType)
-        (instT: FrozenType)
-        : (FrozenType list * FrozenType list) voption =
-        let decl, meth = fillOpenTyparSlots declTyparArity methodTyparArity openT instT
-
-        let collect (slots: FrozenType voption[]) =
-            if slots |> Array.forall ValueOption.isSome then
-                ValueSome [ for s in slots -> s.Value ]
-            else
-                ValueNone
-
-        match collect decl, collect meth with
-        | ValueSome declaringArgs, ValueSome methodArgs -> ValueSome(declaringArgs, methodArgs)
-        | _ -> ValueNone
-
     /// The member-ref parent: the declaring `TypeRef`, wrapped in a `TypeSpec` instantiation when
     /// generic (`EqualityComparer`1<int>`). A struct declaring type (`Span`1<char>`, a struct
     /// record) must be tagged `VALUETYPE` or the runtime rejects the ref ("value type mismatch").
@@ -345,9 +324,6 @@ type internal ClrEncoder(env: ClrEnv) =
 
     member _.RecoverOpenTypars(declTyparArity, methodTyparArity, openT, instT) =
         recoverOpenTypars declTyparArity methodTyparArity openT instT
-
-    member _.TryRecoverOpenTypars(declTyparArity, methodTyparArity, openT, instT) =
-        tryRecoverOpenTypars declTyparArity methodTyparArity openT instT
 
     member _.MethodSpec(handle, args) = methodSpec handle args
 

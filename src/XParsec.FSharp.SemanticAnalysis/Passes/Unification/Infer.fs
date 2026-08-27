@@ -114,7 +114,7 @@ module UnificationInfer =
                     let args = [ for t in typeArgsCst -> translateType ctx t ]
                     inferExternalStaticMember ctx node.Key declTypeKey args li.Idents.[0]
                 | ValueNone ->
-                    match tryLocalTypeAppStaticMember ctx r li.Idents.[0] with
+                    match tryLocalTypeAppStaticMember ctx node r li.Idents.[0] with
                     | ValueSome ty -> ty
                     | ValueNone -> inferFieldAccess infer ctx node r li.Idents.[0]
             | Expr.IndexedLookup(expr = objArg; indexExpr = idx) -> inferIndexedLookup infer ctx node objArg idx

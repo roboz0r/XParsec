@@ -433,7 +433,7 @@ type private Renderer() =
 
             push (shownName key)
 
-        | TExpr.StaticMethodCall(key, args, _, _) ->
+        | TExpr.StaticMethodCall(key, _, args, _, _) ->
             push (memberDeclName key)
             push "."
             push (shownName key)
@@ -449,7 +449,7 @@ type private Renderer() =
 
             push ")"
 
-        | TExpr.StaticPropertyGet(key, _, _) ->
+        | TExpr.StaticPropertyGet(key, _, _, _) ->
             push (memberDeclName key)
             push "."
             push (shownName key)

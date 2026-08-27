@@ -238,6 +238,9 @@ type InternalBreak =
     /// property with no `with` clause at all is an implicit get, so the clause being
     /// PRESENT means its halves are named.
     | NonAccessorInWithClause of propertyName: string * bindingName: string
+    /// A static access on a GENERIC declaring type reached Elaborate with no
+    /// `StaticDeclaringArgs` stamp.
+    | UnstampedStaticDeclArgs of declaringType: string
 
 [<RequireQualifiedAccess>]
 module InternalBreak =
@@ -260,6 +263,10 @@ module InternalBreak =
                 "the `with` clause of property '%s' binds '%s'; the grammar admits only `get` and `set` there"
                 propertyName
                 bindingName
+        | InternalBreak.UnstampedStaticDeclArgs declaringType ->
+            sprintf
+                "a static access on generic type '%s' carries no declaring instantiation; inference did not stamp this site"
+                declaringType
 
 /// A construct with no syntax of its own that a lowering resolves out of a referenced
 /// package: `[…]` needs a cons-list type, `x?n` needs an `op_Dynamic` to call.

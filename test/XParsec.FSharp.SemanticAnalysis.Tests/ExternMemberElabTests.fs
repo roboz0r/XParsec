@@ -181,7 +181,7 @@ let tests =
                                 yield!
                                     TastWalk.chooseExpr
                                         (function
-                                        | TExpr.StaticMethodCall(k, _, _, _) -> ValueSome k
+                                        | TExpr.StaticMethodCall(k, _, _, _, _) -> ValueSome k
                                         | _ -> ValueNone)
                                         value
                             | _ -> ()

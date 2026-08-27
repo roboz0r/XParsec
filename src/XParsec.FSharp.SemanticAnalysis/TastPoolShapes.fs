@@ -303,8 +303,10 @@ module TastPoolShapes =
         | TExprG.New(className = className; key = key) -> ExprPayload.New {| ClassName = className; Key = key |}
         | TExprG.MethodCall(key = key; via = via) -> ExprPayload.MethodCall {| Key = key; Via = via |}
         | TExprG.PropertyGet(key = key; via = via) -> ExprPayload.PropertyGet {| Key = key; Via = via |}
-        | TExprG.StaticMethodCall(key = key) -> ExprPayload.StaticMethodCall key
-        | TExprG.StaticPropertyGet(key = key) -> ExprPayload.StaticPropertyGet key
+        | TExprG.StaticMethodCall(key = key; declArgs = declArgs) ->
+            ExprPayload.StaticMethodCall {| Key = key; DeclArgs = declArgs |}
+        | TExprG.StaticPropertyGet(key = key; declArgs = declArgs) ->
+            ExprPayload.StaticPropertyGet {| Key = key; DeclArgs = declArgs |}
         | TExprG.StaticFieldGet(declKey = declKey; fieldName = fieldName) ->
             ExprPayload.StaticFieldGet
                 {|

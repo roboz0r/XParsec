@@ -236,8 +236,16 @@ type ExprPayload =
             Key: SymbolKey
             Via: CallVia<FrozenType>
         |}
-    | StaticMethodCall of SymbolKey
-    | StaticPropertyGet of SymbolKey
+    | StaticMethodCall of
+        {|
+            Key: SymbolKey
+            DeclArgs: EqArray<FrozenType>
+        |}
+    | StaticPropertyGet of
+        {|
+            Key: SymbolKey
+            DeclArgs: EqArray<FrozenType>
+        |}
     | StaticFieldGet of
         {|
             DeclKey: TypeKey

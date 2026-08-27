@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.SemanticAnalysis.Passes
 
+open XParsec.FSharp
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
@@ -43,16 +44,21 @@ module internal UnificationInferAssign =
         | InstanceMemberPick.Unresolved _
         | InstanceMemberPick.NotFound -> ValueNone
 
-    /// The value type a STATIC `set_P` accepts, instantiated at fresh type args. An INDEXED
-    /// property is the one rejection left: `set_P : i -> v -> unit` wants an index the write
-    /// supplies nothing for.
+    /// The value type a STATIC `set_P` accepts, instantiated at fresh type args, which a
+    /// `C<int>.P <- v` qualifier's written `<'args>` unify into and which are stamped at
+    /// `access`. An INDEXED property (`set_P : i -> v -> unit`) is rejected.
     let private staticSlotValueTy
         (ctx: PassContext)
         (node: NodeSite)
+        (access: NodeSite)
+        (qualifier: SyntaxToken)
+        (tyArgs: ImArr<Type<SyntaxToken>>)
         (setter: TypeRegistry.NominalMember)
         (propName: string)
         : SemType =
-        let setterTy = freshMemberInstance ctx setter
+        let declArgs, setterTy = freshMemberInstanceArgs ctx setter
+        unifyWrittenDeclArgs ctx qualifier tyArgs declArgs
+        ctx.Resolution.StaticDeclaringArgs.Set(access.Key, declArgs)
 
         match zonk ctx.Store setterTy, SemTypeQuery.Funs.count ctx.Store setterTy with
         | TyFun(valueTy, _), 1 -> valueTy
@@ -97,7 +103,8 @@ module internal UnificationInferAssign =
             | _ -> linkLhs (resolveFieldStep ctx access slotTok objArgTy)
         // A static slot has only the setter to type it: no qualifier is walked the way an
         // object argument's `inherit` chain is.
-        | AssignTarget.StaticSlot(setter, slotTok) -> linkLhs (staticSlotValueTy ctx node setter (ctx.NameOf slotTok))
+        | AssignTarget.StaticSlot(setter = setter; qualifier = qualifier; tyArgs = tyArgs; slot = slotTok) ->
+            linkLhs (staticSlotValueTy ctx node access qualifier tyArgs setter (ctx.NameOf slotTok))
         // A getter of ANY provenance types the element. Failing that the slot is write-only,
         // whatever declared it, so the fresh var is left for the write to pin.
         | AssignTarget.Indexed(objArg, index) ->

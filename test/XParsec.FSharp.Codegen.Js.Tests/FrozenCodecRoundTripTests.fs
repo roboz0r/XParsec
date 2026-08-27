@@ -439,6 +439,7 @@ let tests =
                         Kind.Internal(InternalBreak.UnresolvedTyVars 3)
                         Kind.Internal(InternalBreak.MemberNotResolvable("mkMethodCall", "Widget", "M"))
                         Kind.Internal(InternalBreak.UnflattenedModule "Validation")
+                        Kind.Internal(InternalBreak.UnstampedStaticDeclArgs "Widget")
                         Kind.UnsupportedOnTarget("nativeint", "js")
                         Kind.UnsupportedOnTarget("voidptr", "js")
                         Kind.NoMember("Widget", MemberNoun.Field, "nope")

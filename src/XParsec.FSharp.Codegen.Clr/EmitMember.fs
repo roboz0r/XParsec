@@ -242,8 +242,9 @@ module EmitMember =
 
     let buildStaticPropertyGet (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         let key = TastAccessor.exprStaticPropertyGetKey e
+        let declArgs = TastAccessor.exprStaticDeclArgs e
         let ty = TastAccessor.exprTy e
-        let handle = resolveStaticMember env key [] ty
+        let handle = resolveStaticMember env key (EqArray.toList declArgs) []
         b.Add(ILInstr.Call(handle, 0, 1))
 
     let buildStaticFieldGet (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
@@ -283,7 +284,8 @@ module EmitMember =
 
         let handle =
             if isLocal then
-                resolveStaticMember env key [ for a in args -> typeOfExpr a ] ty
+                let declArgs = TastAccessor.exprStaticDeclArgs e
+                resolveStaticMember env key (EqArray.toList declArgs) [ for a in args -> typeOfExpr a ]
             else
                 // Reconstruct the member's .NET-tupled signature from the pushed args + result,
                 // so the ref can recover `Set<int>` from `op_Addition`'s open `Set<!0>`.

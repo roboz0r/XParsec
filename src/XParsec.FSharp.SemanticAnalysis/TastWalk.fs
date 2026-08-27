@@ -220,6 +220,11 @@ module TastWalk =
         | CallVia.Self
         | CallVia.Base -> v
 
+    let private mapTys (f: SemType -> SemType) (tys: EqArray<SemType>) : EqArray<SemType> =
+        match EqArray.mapPreserve f tys with
+        | ValueNone -> tys
+        | ValueSome tys' -> tys'
+
     let rec mapPat (m: Mapper) (p: TPat) : TPat =
         match m.OverridePat m p with
         | ValueSome p' -> p'
@@ -544,23 +549,25 @@ module TastWalk =
                     e
                 else
                     TExpr.PropertyGet(r', k, via', ty', tok)
-            | TExpr.StaticMethodCall(k, args, ty, tok) ->
+            | TExpr.StaticMethodCall(k, declArgs, args, ty, tok) ->
                 let ty' = f ty
+                let declArgs' = mapTys f declArgs
 
                 match EqArray.mapPreserve pe args with
                 | ValueNone ->
-                    if refEq ty' ty then
+                    if refEq ty' ty && refEq declArgs' declArgs then
                         e
                     else
-                        TExpr.StaticMethodCall(k, args, ty', tok)
-                | ValueSome args' -> TExpr.StaticMethodCall(k, args', ty', tok)
-            | TExpr.StaticPropertyGet(k, ty, tok) ->
+                        TExpr.StaticMethodCall(k, declArgs', args, ty', tok)
+                | ValueSome args' -> TExpr.StaticMethodCall(k, declArgs', args', ty', tok)
+            | TExpr.StaticPropertyGet(k, declArgs, ty, tok) ->
                 let ty' = f ty
+                let declArgs' = mapTys f declArgs
 
-                if refEq ty' ty then
+                if refEq ty' ty && refEq declArgs' declArgs then
                     e
                 else
-                    TExpr.StaticPropertyGet(k, ty', tok)
+                    TExpr.StaticPropertyGet(k, declArgs', ty', tok)
             | TExpr.StaticFieldGet(k, n, ty, tok) ->
                 let ty' = f ty
 
@@ -869,7 +876,7 @@ module TastWalk =
             | TExpr.StaticFieldSet(_, _, v, _, _) -> walk v
             | TExpr.UnionCons(_, args, _, _)
             | TExpr.New(_, _, args, _, _)
-            | TExpr.StaticMethodCall(_, args, _, _)
+            | TExpr.StaticMethodCall(args = args)
             | TExpr.TraitCall(_, _, args, _, _)
             | TExpr.InlineCall(args = args)
             | TExpr.ILIntrinsic(_, _, args, _, _) ->

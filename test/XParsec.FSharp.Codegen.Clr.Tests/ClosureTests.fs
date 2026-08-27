@@ -254,8 +254,11 @@ let tests =
                                 VisitExpr =
                                     fun _ e ->
                                         match e with
-                                        | TExpr.StaticMethodCall(SymbolKey.Member { Name = "op_Addition" }, args, _, _) ->
-                                            ownOpCallArities.Add args.Length
+                                        | TExpr.StaticMethodCall(SymbolKey.Member { Name = "op_Addition" },
+                                                                 _,
+                                                                 args,
+                                                                 _,
+                                                                 _) -> ownOpCallArities.Add args.Length
                                         | _ -> ()
 
                                         true

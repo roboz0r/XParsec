@@ -244,9 +244,16 @@ type TExprG<'ty, 'tok, 'id> =
         ty: 'ty *
         tok: 'tok
     | PropertyGet of objArg: TExprG<'ty, 'tok, 'id> * key: SymbolKey * via: CallVia<'ty> * ty: 'ty * tok: 'tok
-    /// Same arg-peeling as `MethodCall`; no object argument.
-    | StaticMethodCall of key: SymbolKey * args: EqArray<TExprG<'ty, 'tok, 'id>> * ty: 'ty * tok: 'tok
-    | StaticPropertyGet of key: SymbolKey * ty: 'ty * tok: 'tok
+    /// Same arg-peeling as `MethodCall`; no object argument. `declArgs` is the declaring
+    /// type's instantiation at this call site (`Box<int>.M` carries `[int]`), empty for a
+    /// non-generic declaring type.
+    | StaticMethodCall of
+        key: SymbolKey *
+        declArgs: EqArray<'ty> *
+        args: EqArray<TExprG<'ty, 'tok, 'id>> *
+        ty: 'ty *
+        tok: 'tok
+    | StaticPropertyGet of key: SymbolKey * declArgs: EqArray<'ty> * ty: 'ty * tok: 'tok
     /// Read of a class-level `static let` backing field: `ldsfld` against the class's
     /// private static field, no method call (a static PROPERTY is a `StaticPropertyGet`).
     /// `declKey` is the declaring class's `TypeKey`, because `MemberKind` has no `Field` case.

@@ -2,6 +2,7 @@ namespace XParsec.FSharp.SemanticAnalysis.Passes
 
 open System.Collections.Generic
 open System.Collections.Immutable
+open XParsec.FSharp
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
@@ -46,12 +47,28 @@ module internal UnificationInferResolve =
 
         EqArray.ofResizeArray acc, subst
 
-    /// A member's signature at FRESH args for its declaring type's typars. The explicit
-    /// `<'args>` a `C<int>.M` qualifier writes are NOT unified into these: the member's own
-    /// annotated type is what pins the instantiation.
-    let freshMemberInstance (ctx: PassContext) (hit: TypeRegistry.NominalMember) : SemType =
-        let _, subst = freshNamedInstance ctx hit.Decl.TypeParams
-        substituteWith ctx.Store subst hit.Member.Type
+    /// A member's signature at FRESH args for its declaring type's typars, paired with those
+    /// args.
+    let freshMemberInstanceArgs (ctx: PassContext) (hit: TypeRegistry.NominalMember) : EqArray<SemType> * SemType =
+        let args, subst = freshNamedInstance ctx hit.Decl.TypeParams
+        args, substituteWith ctx.Store subst hit.Member.Type
+
+    /// Unify a qualifier's written `<'args>` into the member's fresh declaring args, so
+    /// `C<string>.M` instantiates the member at `<string>`. An arity mismatch is diagnosed and
+    /// the args left fresh; an empty `writtenTys` (the bare `C.M`) unifies nothing.
+    let unifyWrittenDeclArgs
+        (ctx: PassContext)
+        (classTok: SyntaxToken)
+        (writtenTys: ImArr<Type<SyntaxToken>>)
+        (declArgs: EqArray<SemType>)
+        : unit =
+        if writtenTys.IsEmpty then
+            ()
+        elif writtenTys.Length <> declArgs.Length then
+            ctx.Report(classTok, Kind.TypeArgArity(ctx.NameOf classTok, declArgs.Length, writtenTys.Length))
+        else
+            for i in 0 .. declArgs.Length - 1 do
+                unify ctx classTok (translateType ctx writtenTys.[i]) declArgs.[i]
 
     /// Function value whose argument shape matches the primary constructor and whose result
     /// is the constructed `TyClass`, routing `Point(3, 4)` / `A.Point(3, 4)` (no `new`)
@@ -374,9 +391,9 @@ module internal UnificationInferResolve =
         | ValueSome declTypeKey -> ValueSome(declTypeKey, lastTok)
         | ValueNone -> ValueNone
 
-    /// Static member access on an external type, recording the resolved member's interned
-    /// `SymbolKey` so Elaborate stamps a `TExpr.ExternalMember`. `typeArgs` instantiate the
-    /// declaring type's typars: `EqualityComparer<int>.Default` types at `<int>`.
+    /// Static member access on an external type, recorded in `ExternalAccess` for Elaborate to
+    /// emit as a keyed `TExpr.ExternalMember`. `typeArgs` instantiate the declaring type's
+    /// typars (`EqualityComparer<int>.Default` types at `<int>`), and are fresh vars when empty.
     let inferExternalStaticMember
         (ctx: PassContext)
         (key: NodeKey)
@@ -386,9 +403,14 @@ module internal UnificationInferResolve =
         : SemType =
         let memberName = ctx.NameOf memberTok
 
+        let declaringArgs =
+            match typeArgs with
+            | [] -> Array.init declTypeKey.TyparArity (fun _ -> TyVar(freshTyVar ctx))
+            | written -> List.toArray written
+
         match ctx.Provider.TryLookupMember(declTypeKey, memberName) with
         | ValueSome m ->
-            let memberSig = ExternalSymbols.openSignature m (List.toArray typeArgs)
+            let memberSig = ExternalSymbols.openSignature m declaringArgs
 
             ctx.Resolution.ExternalAccess.Set(key, ResolvedExternalMember.OfMember(m, memberSig))
 

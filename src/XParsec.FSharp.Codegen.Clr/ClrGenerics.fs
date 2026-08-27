@@ -215,12 +215,12 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
             .MethodSignature(genericParameterCount = methodTyparCount, isInstanceMethod = not isStatic)
             .Parameters(
                 List.length paramTys,
-                // A `unit`-returning INSTANCE method is emitted `void`, so this MemberRef
-                // must encode `void` too or it misses the `MethodDef`
-                // (`MissingMethodException`). Static ones keep `unit`-as-`ValueTuple`.
+                // A `unit`-returning member Def is emitted `void`, static and instance alike,
+                // so this MemberRef must encode `void` too or it misses the `MethodDef`
+                // (`MissingMethodException`).
                 (fun (ret: ReturnTypeEncoder) ->
                     match retTy with
-                    | FTUnit when not isStatic -> ret.Void()
+                    | FTUnit -> ret.Void()
                     | _ -> encodeType (ret.Type()) retTy
                 ),
                 (fun (pars: ParametersEncoder) ->

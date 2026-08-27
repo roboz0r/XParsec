@@ -760,6 +760,48 @@ let staticTests =
                         ])
             }
 
+            // `P : int` does not mention `'T`, so the written `<int>` is what pins the
+            // declaring instantiation.
+            test "a generic class's static getter whose typar is not in its signature loads" {
+                runs
+                    "5"
+                    (String.concat
+                        "\n"
+                        [
+                            "type Box<'T>() ="
+                            "    static member P with get () = 5"
+                            "printfn \"%d\" Box<int>.P"
+                        ])
+            }
+
+            test "a generic class's static setter whose typar is not in its signature loads" {
+                runs
+                    "41"
+                    (String.concat
+                        "\n"
+                        [
+                            "type Box<'T>() ="
+                            "    static let mutable state = 0"
+                            "    static member P"
+                            "        with get () = state"
+                            "        and set (v: int) = state <- v"
+                            "Box<int>.P <- 41"
+                            "printfn \"%d\" Box<int>.P"
+                        ])
+            }
+
+            test "a generic class's static method whose typar is not in its signature loads" {
+                runs
+                    "6"
+                    (String.concat
+                        "\n"
+                        [
+                            "type Box<'T>() ="
+                            "    static member M (x: int) : int = x + 1"
+                            "printfn \"%d\" (Box<int>.M 5)"
+                        ])
+            }
+
             // The own-class `static member (+)` taken by value eta-reifies to
             // `fun a b -> V.op_Addition(a, b)`, a closure built inside a member body.
             test "List.fold over an own-op closure inside a member body" {

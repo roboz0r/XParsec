@@ -87,19 +87,6 @@ module EmitResolve =
         let instT = curriedFun argTys resultTy
         env.Provider.RecoverOpenTypars(declTyparArity, m.MethodTyparCount, openT, instT)
 
-    /// The same recovery for a caller carrying a fallback: `ValueNone` when a typar surfaces
-    /// in no parameter and no result.
-    let tryRecoverMemberInst
-        (env: EmitEnv)
-        (m: EmittedMember)
-        (declTyparArity: int)
-        (argTys: FrozenType list)
-        (resultTy: FrozenType)
-        : (FrozenType list * FrozenType list) voption =
-        let openT = curriedFun m.ParamTys m.RetTy
-        let instT = curriedFun argTys resultTy
-        env.Provider.TryRecoverOpenTypars(declTyparArity, m.MethodTyparCount, openT, instT)
-
     /// Pick the interface template a project-local class implements matching `ifaceKey`,
     /// instantiated at THIS object argument (`FTTypar(Declaring, i) := classArgs.[i]`).
     /// Direct-declared interfaces only, not those of base classes or transitive interfaces.
@@ -255,47 +242,14 @@ module EmitResolve =
         | FromObjArg parent -> env.Provider.ExternalMemberRefOn(key, parent, isProperty, false, memberTy)
         | RecoverFromSignature -> env.Provider.ExternalMemberRef(key, isProperty, false, memberTy)
 
-    /// Where a static member's DECLARING instantiation comes from at a call site, in
-    /// precedence order.
-    type private DeclaringInstantiation =
-        /// The result IS the declaring nominal (`Set<int>.Empty : Set<int>`), which identifies it.
-        | FromResultTy of FrozenType list
-        /// Matched out of the member's open signature against the call's types.
-        | FromSignature of FrozenType list
-        /// Nothing at the call site mentions the typars, so the declaring `!0…` stand in.
-        | OpenDeclaring
-
-    /// The declaring type's instantiation at THIS call site: a static member on a generic
-    /// class compiles to a `MemberRef` on the class `TypeSpec`, so a hardcoded declaring `!0`
-    /// mints `Set\`1<!0>::Empty`, an open typar with no owner, and the JIT throws
-    /// `BadImageFormatException`.
-    let private declaringInstantiation
-        (env: EmitEnv)
-        (key: TypeKey)
-        (typarCount: int)
-        (argTys: FrozenType list)
-        (resultTy: FrozenType)
-        (m: EmittedMember)
-        : DeclaringInstantiation =
-        match FrozenNominal.TryOfFrozen resultTy with
-        | ValueSome r when r.Key = key && r.Args.Length = typarCount -> FromResultTy(EqArray.toList r.Args)
-        | _ ->
-            match typarCount with
-            | 0 -> OpenDeclaring
-            | n ->
-                match tryRecoverMemberInst env m n argTys resultTy with
-                | ValueSome(declaringArgs, _) -> FromSignature declaringArgs
-                // `Box<'T>.Describe (x: 'T) : int` called from a concrete context.
-                | ValueNone -> OpenDeclaring
-
-    /// The static-member equivalent; `argTys` (empty for a property get) and `resultTy` recover
-    /// the instantiation. A GENERIC union fails loudly below rather than mint a malformed `Def`
-    /// call: a static member's typars aren't tied to the type's via `this`, so they stay open.
+    /// The static-member equivalent. `declArgs` instantiates the class `TypeSpec` the
+    /// `MemberRef` is minted on, so an arity mismatch against a generic declaring type fails,
+    /// as does a static member on a generic union.
     let resolveStaticMember
         (env: EmitEnv)
         (memberKey: SymbolKey)
+        (declArgs: FrozenType list)
         (argTys: FrozenType list)
-        (resultTy: FrozenType)
         : EntityHandle =
         // The emitted tables are keyed by `SymbolKey` directly, so the member key's `Decl`
         // and `Name` are the whole lookup and no class-name reverse index is needed.
@@ -303,13 +257,17 @@ module EmitResolve =
             let mk = SymbolKeyOps.asMemberKey "Emit: static member call" memberKey
             mk.Decl, mk.Name
 
-        let instantiationFor (typars: 'a list) (m: EmittedMember) : FrozenType list =
-            let typarCount = List.length typars
-
-            match declaringInstantiation env key typarCount argTys resultTy m with
-            | FromResultTy args
-            | FromSignature args -> args
-            | OpenDeclaring -> [ for i in 0 .. typarCount - 1 -> FTTypar(TyparAxis.Declaring, i) ]
+        let instantiationFor (typars: 'a list) : FrozenType list =
+            match List.length typars with
+            | 0 -> []
+            | n when List.length declArgs = n -> declArgs
+            | n ->
+                failwithf
+                    "Emit: static member '%A.%s' declares %d typar(s) but the node carries %d declaring args; emitting open declaring typars would not load"
+                    key
+                    name
+                    n
+                    (List.length declArgs)
 
         match env.Unions.TryGetValue key with
         | true, u ->
@@ -336,7 +294,7 @@ module EmitResolve =
                         env
                         c.Typars
                         key
-                        (instantiationFor c.Typars m)
+                        (instantiationFor c.Typars)
                         (UserMemberKind.Member(m.MetaName, true, m.MethodTyparCount, m.ParamTys, m.RetTy))
                         m.Handle
                 | false, _ -> failwithf "Emit: class '%A' has no emitted static member '%s'" key name

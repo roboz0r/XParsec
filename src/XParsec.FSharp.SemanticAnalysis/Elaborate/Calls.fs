@@ -195,23 +195,34 @@ module internal ElaborateCalls =
 
             TExpr.Null(ty, tok)
 
-    /// `StaticMethodCall` resolved to `declKey.memberName`.
+    /// The declaring instantiation stamped at a static access node, zonked. A missing stamp
+    /// yields empty args, and reports an internal break when `declKey` is generic.
+    let staticDeclArgsAt (ctx: PassContext) (declKey: TypeKey) (tok: SyntaxToken) (key: NodeKey) : EqArray<SemType> =
+        match ctx.Resolution.StaticDeclaringArgs.TryGetValue key with
+        | ValueSome a -> EqArray.map (Unification.zonk ctx.Store) a
+        | ValueNone ->
+            if declKey.TyparArity > 0 then
+                ctx.Report(tok, Kind.Internal(InternalBreak.UnstampedStaticDeclArgs(string declKey)))
+
+            EqArray.empty
+
+    /// `StaticMethodCall` resolved to `declKey.memberName`, at the declaring instantiation
+    /// `declArgs` (empty for a non-generic declaring type).
     let mkStaticMethodCall
         (ctx: PassContext)
         (declKey: TypeKey)
+        (declArgs: EqArray<SemType>)
         (memberName: string)
         (args: EqArray<TExpr>)
         (ty: SemType)
         (tok: SyntaxToken)
         : TExpr =
-        // A folded / type-qualified static call denotes a non-generic declaring type (generics
-        // need `<>`, handled at the qualifier), so it carries no declaring-type args; the
-        // operand element types alone discriminate a same-arity overload (e.g. an operator).
         let operands =
-            LocalMemberKeys.externalOperands ctx.Store [||] [ for a in args -> TastWalk.exprTy a ]
+            LocalMemberKeys.externalOperands ctx.Store (EqArray.toArray declArgs) [ for a in args -> TastWalk.exprTy a ]
 
         match LocalMemberKeys.totalMemberKey ctx declKey memberName operands with
-        | ValueSome key -> TExpr.StaticMethodCall(key, wrapObjArgsEq ctx.Store (memberParamTys ctx key) args, ty, tok)
+        | ValueSome key ->
+            TExpr.StaticMethodCall(key, declArgs, wrapObjArgsEq ctx.Store (memberParamTys ctx key) args, ty, tok)
         | ValueNone ->
             ctx.Report(
                 tok,
