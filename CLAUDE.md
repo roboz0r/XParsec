@@ -38,36 +38,26 @@ Where comments and code disagree confirm with the user, the expected semantics.
 
 ## F# design rules
 
-- Put a durable fact in the type system where it can be correct by construction, else in a test
-  that fails without it, else in a sited comment, in that order of preference.
+- Put a durable fact in the type system where it can be correct by construction, else in a test that fails without it, else in a sited comment, in that order of preference.
 - Immutable records and discriminated unions processed by pure functions should be the default shape of code.
   - Use `[Value]Option` and `Result` extensively but beware of `[Value]None` standing in for multiple downstream interpretations. That signals the need for a specific DU.
 - Mutation is justified on performance or algorithmic elegance grounds but must have a clear scope boundary.
 - Interfaces shall be used to segregate deterministic and non-deterministic code.
 - A tuple of three or more components becomes a record. Pairs are fine, except `string * string`.
-- "Parse, don't validate". Use types to encode facts about values. Score the change
-  by the runtime checks it deletes, not the sites it touches.
-- A stage that discards an intermediate makes consumers re-derive it is wrong.
-  Inevitably the two re-derivations disagree, and the disagreement then needs to be fixed by passing the intermediate, which should have happened when it was written.
-- `list` has two uses: a collection always iterated from 0, and an immutable stack. Reaching for
-  `@`, `List.rev` beside a consumer, `List.item` or `.Length` in a loop means the structure is
-  wrong, so change the structure rather than the call site.
+- "Parse, don't validate". Use types to encode facts about values. Score the change by the runtime checks it deletes, not the sites it touches.
+- A stage that discards an intermediate and makes consumers re-derive it is wrong. Inevitably the two derivations disagree, and the disagreement then needs to be fixed by passing the intermediate, which should have happened when it was written.
+- `list` has two uses: a collection always iterated from 0, and an immutable stack. Reaching for `@`, `List.rev` beside a consumer, `List.item` or `.Length` in a loop means the structure is wrong, so change the structure rather than the call site.
   - Use `EqArray` or `EqSet` for array-backed immutable collections with structural equality.
-- `[<Struct>]` only where object creation dominates passing. A value threaded through a provider chain
-  stays a reference record.
-- Swap a widely-used underlying type additively, behind a central alias, and delete the old one
-  in a separate change.
-- Excise a wart documented as harmless. The cleanup usually surfaces an invariant the compiler
-  can enforce, such as a field that proves to be write-once and can lose its setter.
-- A guard excused by "a consumer would fail" is papering over that consumer. Enumerate what it
-  drops on real input before accepting it.
+- `[<Struct>]` only where object creation dominates passing. A value threaded through a provider chain stays a reference record.
+- Swap a widely-used underlying type additively, behind a central alias, and delete the old one in a separate change.
+- Excise a wart documented as harmless. The cleanup usually surfaces an invariant the compiler can enforce, such as a field that proves to be write-once and can lose its setter.
+- A guard excused by "a consumer would fail" is papering over that consumer. Enumerate what it drops on real input before accepting it.
 - Scoping is strictly top-down. Machinery that resolves a name written later is a bug, not a feature. `let private` helpers must precede their use, and `and`-joined recursive groups are the only exception.
 - A record of closures (function-typed fields) is a smell that requires strong justification. Consider alternatives in order of preference:
   - Reordering to break a cycle
   - For narrow scopes, use indivudal function parameters
   - For sharing state across a boundary, use an interface
-- Do not rely on access modifiers to "protect" state. Being concerned that a user will use the
-  type wrongly is a signal the API is poorly designed.
+- Do not rely on access modifiers to "protect" state. Being concerned that a user will use the type wrongly is a signal the API is poorly designed.
 
 ## F# Nits
 
