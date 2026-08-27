@@ -16,9 +16,9 @@ let private provider =
 
 let private eqComparer = "System.Collections.Generic.EqualityComparer`1"
 
-// The by-name view answers the identity WITH the shape; these tests read the shape half.
+// A metadata RENDERING read through the store, by parsed key.
 let private typeShape (name: string) =
-    provider.TryLookupType name |> ExternalSymbols.typeShapeOf
+    ExternalSymbols.tryReprType provider name
 
 [<Tests>]
 let tests =
@@ -229,22 +229,15 @@ let tests =
             }
 
             test "an unknown type misses" {
-                Expect.isTrue (provider.TryLookupType "No.Such.Type`9" |> ValueOption.isNone) "unknown type miss"
+                Expect.isTrue (typeShape "No.Such.Type`9" |> ValueOption.isNone) "unknown type miss"
             }
 
-            // The two directions must invert: the key the by-name view reports renders back
-            // to the name that was asked for, ARITY INCLUDED: `EqualityComparer`1` is
-            // arity 1, not an arity-0 type whose name ends in a backtick.
-            test "the by-name view answers the identity its own name index round-trips to" {
-                match provider.TryLookupType eqComparer with
-                | ValueSome(struct (key, _)) ->
+            test "a rendering's parsed key round-trips, arity included" {
+                match ExternalSymbols.tryReprTypeAt provider eqComparer 0 with
+                | ValueSome(struct (key, shape)) ->
                     Expect.equal (SymbolKeyOps.typeMetaName key) eqComparer "key renders back to the name asked for"
                     Expect.equal key.TyparArity 1 "the `1 suffix is the key's arity, not part of its name"
-
-                    Expect.equal
-                        (provider.TryLookupType eqComparer |> ExternalSymbols.typeShapeOf)
-                        (provider.TryLookupType key)
-                        "the by-name and by-key views answer the same type"
+                    Expect.equal (ValueSome shape) (provider.TryLookupType key) "the parsed key reaches the same type"
                 | ValueNone -> failtestf "expected %s to resolve" eqComparer
             }
 
@@ -262,7 +255,7 @@ let tests =
                     ClrSymbolProviders.dotnetMetadataWith (MetadataSymbols.runtimeAssemblyPaths ()) intrinsics
                     |> List.exactlyOne
 
-                match reader.TryLookupType eqComparer |> ExternalSymbols.typeShapeOf, typeShape eqComparer with
+                match ExternalSymbols.tryReprType reader eqComparer, typeShape eqComparer with
                 | ValueSome(ExternalTypeShape.Class a), ValueSome(ExternalTypeShape.Class b) ->
                     Expect.equal a.TyparArity b.TyparArity "same arity"
                     Expect.equal a.IsInterface b.IsInterface "same interface-ness"
@@ -288,11 +281,13 @@ let tests =
                     ClrSymbolProviders.buildContractWithRefs None withoutLinq [ TestHelpers.vesperCorePackage ]
 
                 Expect.isTrue
-                    (fullProvider.TryLookupType "System.Linq.Enumerable" |> ValueOption.isSome)
+                    (ExternalSymbols.tryReprType fullProvider "System.Linq.Enumerable"
+                     |> ValueOption.isSome)
                     "full ref set resolves System.Linq.Enumerable"
 
                 Expect.isTrue
-                    (limited.TryLookupType "System.Linq.Enumerable" |> ValueOption.isNone)
+                    (ExternalSymbols.tryReprType limited "System.Linq.Enumerable"
+                     |> ValueOption.isNone)
                     "ref set without System.Linq.dll does not resolve System.Linq.Enumerable"
             }
 
@@ -315,7 +310,7 @@ let tests =
                     let reader =
                         ClrSymbolProviders.dotnetMetadataWith refPaths intrinsics |> List.exactlyOne
 
-                    match reader.TryLookupType "System.Text.StringBuilder" |> ExternalSymbols.typeShapeOf with
+                    match ExternalSymbols.tryReprType reader "System.Text.StringBuilder" with
                     | ValueSome(ExternalTypeShape.Class info) ->
                         // In the ref pack `StringBuilder` lives in System.Runtime (the
                         // facade), not System.Private.CoreLib, which also proves the load
@@ -325,5 +320,44 @@ let tests =
                             (ValueSome(AssemblyName "System.Runtime"))
                             "REF identity, not the impl"
                     | other -> failtestf "expected StringBuilder as a Class shape, got %A" other
+            }
+
+            test "the scope resolves a declared namespace and each dotted prefix to a container" {
+                let scope = provider.Scope
+
+                for path in [ "System"; "System.Collections"; "System.Collections.Generic" ] do
+                    match scope.TryContainer path with
+                    | ValueSome(ModuleContainer.InNamespace ns) -> Expect.equal ns.Dotted path "container namespace"
+                    | other -> failtestf "expected a namespace container for %s, got %A" path other
+
+                Expect.isTrue (scope.TryContainer "No.Such.Namespace").IsNone "an undeclared path misses"
+            }
+
+            test "a name declared at several arities answers ascending, narrowest first" {
+                let scope = provider.Scope
+
+                match scope.TryContainer "System" with
+                | ValueNone -> failtest "System is a container"
+                | ValueSome c ->
+                    let arities =
+                        [
+                            for struct (k, shape) in (scope.TypesNamed(c, "Action")).Underlying do
+                                Expect.equal shape.TyparArity k.TyparArity "key and shape agree on arity"
+                                k.TyparArity
+                        ]
+
+                    Expect.isTrue (arities.Length > 2) "Action is declared at several arities"
+                    Expect.sequenceEqual arities (List.sort arities) "ascending by arity"
+                    Expect.equal (List.head arities) 0 "the narrowest is the delegate with no args"
+            }
+
+            test "the scope publishes no values and no union cases" {
+                let scope = provider.Scope
+
+                match scope.TryContainer "System" with
+                | ValueNone -> failtest "System is a container"
+                | ValueSome c ->
+                    Expect.isTrue (scope.TryValue(c, "Console")).IsNone "IL declares no free value"
+                    Expect.equal (scope.UnionCasesNamed(c, "Some")).Length 0 "IL declares no union case"
             }
         ]

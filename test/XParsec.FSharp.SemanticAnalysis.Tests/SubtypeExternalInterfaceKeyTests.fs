@@ -37,28 +37,17 @@ let private widgetShape (ifaceKey: TypeKey) =
         }
     )
 
-/// Key-INDEXED channels, because name-indexed ones derive their keys with
-/// `qualifiedTypeKeyOf` and so cannot express an `InModule` identity at all.
+/// Key-INDEXED channels, because a name-derived key re-cut with `qualifiedTypeKeyOf`
+/// cannot express an `InModule` identity at all.
 let private providerFor (ifaceKey: TypeKey) : IExternalSymbolProvider =
     let shapes = Dictionary<TypeKey, ExternalTypeShape>()
     shapes.[widgetKey] <- widgetShape ifaceKey
     shapes.[ifaceKey] <- ifaceShape
 
-    let byName = Dictionary<string, TypeKey>()
-    byName.[SymbolKeyOps.typeMetaName widgetKey] <- widgetKey
-    byName.[SymbolKeyOps.typeMetaName ifaceKey] <- ifaceKey
-
-    ExternalSymbolProviders.ofKeyedChannels (
-        ExternalSymbolProviders.KeyedChannels.ofKeyIndexes
-            { ExternalSymbolProviders.KeyIndexedChannels.empty with
-                ShapesByKey = shapes
-                ResolveTypeName =
-                    fun n ->
-                        match byName.TryGetValue n with
-                        | true, k -> ValueSome k
-                        | _ -> ValueNone
-            }
-    )
+    ExternalSymbolProviders.ofKeyIndexedChannels
+        { ExternalSymbolProviders.KeyIndexedChannels.empty with
+            ShapesByKey = shapes
+        }
 
 let private ctxFor (ifaceKey: TypeKey) : PassContext =
     let lexed, _ = parseFile "let x = 1"

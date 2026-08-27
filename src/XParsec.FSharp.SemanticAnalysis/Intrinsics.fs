@@ -5,11 +5,6 @@ open XParsec.FSharp.Lexer
 
 module internal IntrinsicResolve =
 
-    let private intrinsicCanon (shape: ExternalTypeShape) : TypeKey voption =
-        match shape with
-        | ExternalTypeShape.Intrinsic { Id = { Canon = c } } -> ValueSome c
-        | _ -> ValueNone
-
     let tryResolveIntrinsicKey
         (provider: IExternalSymbolResolver)
         (intrinsicKeys: Dictionary<string, TypeKey>)
@@ -18,7 +13,16 @@ module internal IntrinsicResolve =
         match intrinsicKeys.TryGetValue name with
         | true, k -> Some k
         | _ ->
-            match ExternalSymbols.tryPickRuntimeType provider intrinsicCanon name with
+            let containers =
+                ScopeContents.openedContainers provider.Scope provider.AmbientOpenPrefixes
+
+            match
+                ScopeContents.tryPickTypeIn
+                    provider.Scope
+                    containers
+                    (fun _ shape -> ExternalSymbols.intrinsicCanonOf shape)
+                    name
+            with
             | ValueSome c -> Some c
             | ValueNone -> None
 

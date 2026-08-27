@@ -168,6 +168,19 @@ let rePoolFor (src: string) : Pooled.TastFile -> FrozenPools = TastPools.rePool 
 let providerOfSurface (fill: PublishedSurfaceBuilder -> unit) : IExternalSymbolProvider =
     PublishedSurface.build fill |> PublishedSurface.toProvider
 
+/// A stand-in dependency serving only the member channels, addressed by the declaring
+/// type's compiled RENDERING. Both member channels read `lookup`, so the by-key selection
+/// runs over the same overload set the by-name scan sees.
+let membersProvider (lookup: string -> string -> EqArray<ExternalMember>) : IExternalSymbolProvider =
+    { new ExternalSymbolProviders.ProviderDecorator(ExternalSymbolProviders.nullProvider) with
+        override _.TryLookupMembers(key, memberName) =
+            lookup (SymbolKeyOps.typeMetaName key) memberName
+
+        override _.TryLookupMemberByKey key =
+            lookup (SymbolKeyOps.typeMetaName key.Decl) key.Name
+            |> ExternalSymbols.memberByKey key
+    }
+
 /// A stand-in dependency publishing `symbols` as a referenced package publishes its values.
 let providerOfValues (symbols: ExternalSymbol list) : IExternalSymbolProvider =
     providerOfSurface (fun b ->

@@ -1,7 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis.Passes
 
 open XParsec.FSharp.SemanticAnalysis
-open ExternalTypeProbe
+open NameResolutionContainers
 
 /// Resolution of a written name in F#'s order. The first segment is classified once against
 /// the use site's environment; each later segment is looked up inside the entity already
@@ -9,34 +9,6 @@ open ExternalTypeProbe
 /// halves of the program answer every lookup, this file's own declarations first: `LocalScope`
 /// over the registry, `IExternalSymbolResolver.Scope` over the referenced surfaces.
 module NameResolutionLongIdent =
-
-    /// The widest generic arity the NAME route probes for a spelling written without type
-    /// args. A name index is unenumerable, so its arity suffix has to be guessed.
-    [<Literal>]
-    let MaxProbedQualifierArity = 4
-
-    /// The generic arity a written spelling asks for.
-    [<RequireQualifiedAccess>]
-    type WrittenArity =
-        /// Type args were written, so the count is known and a shape of any other arity
-        /// declines. `Vesper.Fun` is declared at 2, 3, 4 and 5.
-        | Exact of int
-        /// A qualifier written without type args. Every arity a container publishes answers,
-        /// narrowest first; the name route guesses `0 .. MaxProbedQualifierArity`.
-        | Any
-
-    module private WrittenArity =
-
-        /// The arity suffixes the NAME route probes, narrowest first.
-        let probes (arity: WrittenArity) : int list =
-            match arity with
-            | WrittenArity.Exact n -> [ n ]
-            | WrittenArity.Any -> [ 0..MaxProbedQualifierArity ]
-
-        let admits (arity: WrittenArity) (shape: ExternalTypeShape) : bool =
-            match arity with
-            | WrittenArity.Exact n -> shape.TyparArity = n
-            | WrittenArity.Any -> true
 
     // --- The resolver -----------------------------------------------------------------
 
@@ -131,87 +103,15 @@ module NameResolutionLongIdent =
             ResolvedItem.Ctor t
         | Position.Expression, _ -> ResolvedItem.Type t
 
-    let private enclosingOf (useSite: UseSite) : ModuleContainer =
-        match useSite.Container with
-        | ValueSome h -> h
-        | ValueNone -> ModuleContainer.InNamespace NamespaceKey.Global
-
-    let private childPath (c: ModuleContainer) (name: string) : string =
-        match SymbolKeyOps.containerFullName c with
-        | "" -> name
-        | full -> full + "." + name
-
-    /// The module `name` declared directly in `c`, in either half.
-    let private subContainer (ctx: PassContext) (c: ModuleContainer) (name: string) : ModuleContainer voption =
-        match TypeRegistry.tryContainerUnder ctx.Types c name with
-        | ValueSome sub -> ValueSome sub
-        | ValueNone -> ctx.Resolver.Scope.TryContainer(childPath c name)
-
-    /// Every module or namespace `segment` denotes at `useSite`, nearest first: a module
-    /// abbreviation's target, a child of an enclosing scope, a child of an opened scope, a root.
-    let private firstSegmentContainers (ctx: PassContext) (useSite: UseSite) (segment: string) : ModuleContainer list =
-        let found = ResizeArray<ModuleContainer>()
-
-        let add (c: ModuleContainer voption) =
-            match c with
-            | ValueSome c when not (found.Contains c) -> found.Add c
-            | _ -> ()
-
-        let atPath (path: string) =
-            add (LocalScope.tryContainer ctx path)
-            add (ctx.Resolver.Scope.TryContainer path)
-
-        match Map.tryFind segment ctx.Resolution.OpenScope.Abbrevs with
-        | Some target -> atPath target
-        | None ->
-            for h in (enclosingOf useSite).SelfAndAncestors do
-                add (TypeRegistry.tryContainerUnder ctx.Types h segment)
-                add (ctx.Resolver.Scope.TryContainer(childPath h segment))
-
-            for o in useSite.Opens do
-                match TypeRegistry.openedContainer ctx.Types o with
-                | ValueSome opened -> add (TypeRegistry.tryContainerUnder ctx.Types opened segment)
-                | ValueNone -> ()
-
-            for p in ctx.Resolution.OpenScope.Prefixes do
-                atPath (p + "." + segment)
-
-            atPath segment
-
-        List.ofSeq found
-
-    /// Every module or namespace the dotted `path` denotes at `useSite`, nearest first. An
-    /// empty path denotes the containers a BARE name is read against.
-    let private containersAtPath (ctx: PassContext) (useSite: UseSite) (path: string) : ModuleContainer list =
-        match path.Length with
-        | 0 -> ScopeContents.openedContainers ctx.Resolver.Scope ctx.Resolution.OpenScope.Prefixes
-        | _ ->
-            let segments = path.Split '.'
-
-            let rec descend (cs: ModuleContainer list) (i: int) =
-                if i = segments.Length then
-                    cs
-                else
-                    descend
-                        [
-                            for c in cs do
-                                match subContainer ctx c segments.[i] with
-                                | ValueSome sub -> sub
-                                | ValueNone -> ()
-                        ]
-                        (i + 1)
-
-            descend (firstSegmentContainers ctx useSite segments.[0]) 1
-
-    /// The referenced value the written `path`.`name` denotes at the use site: the first
-    /// container the path denotes that declares `name`.
+    /// The referenced value `qualifier`.`name` denotes at the use site: the first container
+    /// the qualifier denotes that declares `name`.
     let externalValueInScope
         (ctx: PassContext)
         (useSite: UseSite)
-        (path: string)
+        (qualifier: Qualifier)
         (name: string)
         : ExternalSymbol voption =
-        ScopeContents.tryValueIn ctx.Resolver.Scope (containersAtPath ctx useSite path) name
+        ScopeContents.tryValueIn ctx.Resolver.Scope (containersOf ctx useSite qualifier) name
 
     /// Every external union case a BARE `caseName` claims: a case, without
     /// `[<RequireQualifiedAccess>]`, of a union declared directly in an opened container.
@@ -220,68 +120,21 @@ module NameResolutionLongIdent =
     let externalCasesInScope (ctx: PassContext) (useSite: UseSite) (caseName: string) : EqArray<ExternalUnionCase> =
         EqArray.ofSeq
             [
-                for c in containersAtPath ctx useSite "" do
+                for c in containersOf ctx useSite Qualifier.Bare do
                     for uc in (ctx.Resolver.Scope.UnionCasesNamed(c, caseName)).Underlying do
                         if not uc.IsRequireQualifiedAccess then
                             uc
             ]
-
-    /// A WRITTEN type spelling against the referenced contracts: the types published by the
-    /// containers the written path denotes, narrowest arity first, then the arity suffixes
-    /// probed against the sources that key a type by NAME alone. The first half is the one
-    /// route to a module-held type, whose compiled name `+`-nests where the source dots, and
-    /// the one route to an arity wider than `MaxProbedQualifierArity`.
-    let tryPickExternalWritten
-        (ctx: PassContext)
-        (useSite: UseSite)
-        (arity: WrittenArity)
-        (pick: TypeKey -> ExternalTypeShape -> 'T voption)
-        (written: string)
-        : 'T voption =
-        let dot = written.LastIndexOf '.'
-        let path = if dot < 0 then "" else written.Substring(0, dot)
-        let name = if dot < 0 then written else written.Substring(dot + 1)
-
-        // Depends on `TypesNamed` answering narrowest arity first.
-        let pickAdmitted (c: ModuleContainer) : 'T voption =
-            let declared = (ctx.Resolver.Scope.TypesNamed(c, name)).Underlying
-            let mutable result = ValueNone
-            let mutable i = 0
-
-            while result.IsNone && i < declared.Length do
-                let (struct (key, shape)) = declared.[i]
-
-                if WrittenArity.admits arity shape then
-                    result <- pick key shape
-
-                i <- i + 1
-
-            result
-
-        let published = containersAtPath ctx useSite path |> tryPickV pickAdmitted
-
-        match published with
-        | ValueSome _ as hit -> hit
-        | ValueNone ->
-            tryPickExternalType
-                ctx
-                (WrittenArity.probes arity)
-                (fun key shape ->
-                    if WrittenArity.admits arity shape then
-                        pick key shape
-                    else
-                        ValueNone
-                )
-                written
 
     /// `tryPickExternalWritten` unfiltered: the first hit at the arity asked for.
     let private classifyExternalWritten
         (ctx: PassContext)
         (useSite: UseSite)
         (arity: WrittenArity)
-        (written: string)
+        (qualifier: Qualifier)
+        (name: string)
         : struct (TypeKey * ExternalTypeShape) voption =
-        tryPickExternalWritten ctx useSite arity (fun key shape -> ValueSome(struct (key, shape))) written
+        tryPickExternalWritten ctx useSite arity (fun key shape -> ValueSome(struct (key, shape))) qualifier name
 
     // --- The contents of one entity -----------------------------------------------------
 
@@ -521,7 +374,7 @@ module NameResolutionLongIdent =
         match local with
         | ValueSome m -> ValueSome(ResolvedValue.Local m)
         | ValueNone ->
-            externalValueInScope ctx useSite "" name
+            externalValueInScope ctx useSite Qualifier.Bare name
             |> ValueOption.map ResolvedValue.External
 
     /// A bare union case: a case of a union without `[<RequireQualifiedAccess>]` visible at
@@ -548,7 +401,7 @@ module NameResolutionLongIdent =
         match TypeRegistry.tryTypeClaimAnyArity ctx.Types useSite name with
         | ValueSome claim -> ValueSome(ResolvedTypeRef.Local claim)
         | ValueNone ->
-            classifyExternalWritten ctx useSite WrittenArity.Any name
+            classifyExternalWritten ctx useSite WrittenArity.Any Qualifier.Bare name
             |> ValueOption.map (fun (struct (key, shape)) -> ResolvedTypeRef.External(key, shape))
 
     /// `names.[0]` as a type in the environment and `names.[1]` inside it: every claim of this
@@ -575,6 +428,7 @@ module NameResolutionLongIdent =
                     useSite
                     WrittenArity.Any
                     (fun key shape -> inType ctx position (ResolvedTypeRef.External(key, shape)) second)
+                    Qualifier.Bare
                     names.[0]
 
         match hit with
@@ -584,7 +438,7 @@ module NameResolutionLongIdent =
                 match local with
                 | t :: _ -> ValueSome t
                 | [] ->
-                    classifyExternalWritten ctx useSite WrittenArity.Any names.[0]
+                    classifyExternalWritten ctx useSite WrittenArity.Any Qualifier.Bare names.[0]
                     |> ValueOption.map (fun (struct (key, shape)) -> ResolvedTypeRef.External(key, shape))
 
             found |> ValueOption.map (fun t -> unresolvedInType t second 2)
@@ -598,18 +452,25 @@ module NameResolutionLongIdent =
         (names: string[])
         : Resolution voption =
         let n = names.Length
-        let whole = String.concat "." names
-        let prefix = String.concat "." names.[.. n - 2]
         let last = names.[n - 1]
 
         let asType () =
             match position with
             | Position.Expression ->
-                classifyExternalWritten ctx useSite WrittenArity.Any whole
+                classifyExternalWritten ctx useSite WrittenArity.Any (Qualifier.Path names.[.. n - 2]) last
                 |> ValueOption.map (fun (struct (key, shape)) ->
                     resolved (finalTypeItem position (ResolvedTypeRef.External(key, shape))) n
                 )
             | Position.Pattern -> ValueNone
+
+        // The prefix as a type: its own last segment is the type name, the segments before
+        // it the qualifier.
+        let prefixName = names.[n - 2]
+
+        let prefixQualifier =
+            match n with
+            | 2 -> Qualifier.Bare
+            | _ -> Qualifier.Path names.[.. n - 3]
 
         let prefixMember () =
             tryPickExternalWritten
@@ -617,11 +478,12 @@ module NameResolutionLongIdent =
                 useSite
                 WrittenArity.Any
                 (fun key shape -> inType ctx position (ResolvedTypeRef.External(key, shape)) last)
-                prefix
+                prefixQualifier
+                prefixName
             |> ValueOption.map (fun item -> resolved item n)
 
         let prefixMiss () =
-            classifyExternalWritten ctx useSite WrittenArity.Any prefix
+            classifyExternalWritten ctx useSite WrittenArity.Any prefixQualifier prefixName
             |> ValueOption.map (fun (struct (key, shape)) ->
                 unresolvedInType (ResolvedTypeRef.External(key, shape)) last n
             )
@@ -704,7 +566,8 @@ module NameResolutionLongIdent =
                     useSite
                     (WrittenArity.Exact arity)
                     (fun key shape -> ValueSome(ResolvedTypeRef.External(key, shape)))
-                    written.Written
+                    (Qualifier.ofPath written.Path)
+                    written.Name
             with
             | ValueSome t -> ResolvedItem.Type t
             | ValueNone ->

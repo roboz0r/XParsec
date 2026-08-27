@@ -97,23 +97,4 @@ let tests =
                 Expect.equal (OpenScope.tryQualify scope (fun _ -> false) "x") ValueNone "no candidate resolves"
             }
 
-            test "tryResolve returns the looked-up value under the resolving prefix" {
-                let scope =
-                    { OpenScope.empty with
-                        Prefixes = [ "System.Collections.Generic" ]
-                    }
-
-                let lookup name =
-                    if name = "System.Collections.Generic.EqualityComparer" then
-                        ValueSome 42
-                    else
-                        ValueNone
-
-                Expect.equal
-                    (OpenScope.tryResolve scope lookup "EqualityComparer")
-                    (ValueSome 42)
-                    "resolves via the prefix"
-
-                Expect.equal (OpenScope.tryResolve scope lookup "Nope") ValueNone "unknown misses"
-            }
         ]

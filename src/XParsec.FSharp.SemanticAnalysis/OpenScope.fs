@@ -60,19 +60,6 @@ module OpenScope =
                     yield p + "." + expanded
         ]
 
-    /// Resolve `name` to a value via `lookup`, trying the bare/abbrev-expanded name then
-    /// each active prefix; first hit wins.
-    let tryResolve (scope: OpenScope) (lookup: string -> 'a voption) (name: string) : 'a voption =
-        let rec go cs =
-            match cs with
-            | [] -> ValueNone
-            | c :: rest ->
-                match lookup c with
-                | ValueSome _ as r -> r
-                | ValueNone -> go rest
-
-        go (candidates scope name)
-
     /// The fully-qualified name `name` resolves under, trying the bare/abbrev-expanded
     /// name then each active prefix; first `probe` hit wins.
     let tryQualify (scope: OpenScope) (probe: string -> bool) (name: string) : string voption =

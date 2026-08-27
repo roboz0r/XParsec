@@ -93,16 +93,16 @@ module OperatorNames =
         | IdentOrOp.ParenOp(opName = OpName.ActivePatternOp _) -> ValueNone
         | _ -> ofPatOp nameOf idOp
 
-    /// `A.B.(+)` → `("A.B", "op_Addition")`: the qualifier and the operator's compiled short
-    /// name, which resolution reads against a container. An empty qualifier is the bare form.
-    /// `ValueNone` for a non-symbolic op segment.
+    /// `A.B.(+)` → `([| "A"; "B" |], "op_Addition")`: the qualifier's segments and the
+    /// operator's compiled short name, which resolution reads against a container. Empty
+    /// segments are the bare form. `ValueNone` for a non-symbolic op segment.
     let qualifiedOpParts
         (nameOf: SyntaxToken -> string)
         (li: LongIdent<SyntaxToken>)
         (idOp: IdentOrOp<SyntaxToken>)
-        : struct (string * string) voption =
+        : struct (string[] * string) voption =
         match ofIdentOp nameOf idOp with
-        | ValueSome opName -> ValueSome(struct (li.Idents |> Seq.map nameOf |> String.concat ".", opName))
+        | ValueSome opName -> ValueSome(struct (li.Idents |> Seq.map nameOf |> Seq.toArray, opName))
         | ValueNone -> ValueNone
 
     /// `qualifiedOpParts` joined: `A.B.(+)` → `"A.B.op_Addition"`.
@@ -112,4 +112,4 @@ module OperatorNames =
         (idOp: IdentOrOp<SyntaxToken>)
         : string voption =
         qualifiedOpParts nameOf li idOp
-        |> ValueOption.map (fun (struct (prefix, opName)) -> SymbolKeyOps.qualify prefix opName)
+        |> ValueOption.map (fun (struct (segments, opName)) -> SymbolKeyOps.qualify (String.concat "." segments) opName)

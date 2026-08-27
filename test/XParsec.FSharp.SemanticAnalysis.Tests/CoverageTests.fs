@@ -1331,10 +1331,8 @@ let tests =
             // The stub channels layered OVER `realProvider`: `Vec2` is answered by the stub,
             // everything else falls through. `Vec2` is NOT a local type, so `totalMemberKey`
             // takes the external arm. The trivial file initialises what the picker reads.
-            let extCtx (stub: ExternalSymbolProviders.NamedChannels) : PassContext =
-                let provider =
-                    ExternalSymbolProviders.composite
-                        [ ExternalSymbolProviders.ofNamedChannels stub; realProvider.Value ]
+            let extCtx (stub: IExternalSymbolProvider) : PassContext =
+                let provider = ExternalSymbolProviders.composite [ stub; realProvider.Value ]
 
                 let lexed, file = parseFile "let _ = 0"
 
@@ -1350,16 +1348,14 @@ let tests =
                 let mIS = extMember2 stringFt // M(int, string) — the operand-matching overload
 
                 let ctx =
-                    extCtx
-                        { ExternalSymbolProviders.NamedChannels.empty with
-                            TryLookupMembers =
-                                (fun q ->
-                                    if q.DeclaringType = "Vec2" && q.Name = "M" then
-                                        EqArray.ofSeq [ mII; mIS ]
-                                    else
-                                        EqArray.empty
-                                )
-                        }
+                    extCtx (
+                        TestHelpers.membersProvider (fun declaringType name ->
+                            if declaringType = "Vec2" && name = "M" then
+                                EqArray.ofSeq [ mII; mIS ]
+                            else
+                                EqArray.empty
+                        )
+                    )
 
                 // No ground operands ⇒ keep the best-by-arity singular pick, `M(int, int)`.
                 let collapsed = LocalMemberKeys.totalMemberKey ctx extDeclKey "M" ValueNone
@@ -1390,16 +1386,14 @@ let tests =
                     }
 
                 let ctx =
-                    extCtx
-                        { ExternalSymbolProviders.NamedChannels.empty with
-                            TryLookupMembers =
-                                (fun q ->
-                                    if q.DeclaringType = "Vec2" && q.Name = "N" then
-                                        EqArray.singleton m1
-                                    else
-                                        EqArray.empty
-                                )
-                        }
+                    extCtx (
+                        TestHelpers.membersProvider (fun declaringType name ->
+                            if declaringType = "Vec2" && name = "N" then
+                                EqArray.singleton m1
+                            else
+                                EqArray.empty
+                        )
+                    )
 
                 let expected = ValueSome(SymbolKey.Member m1.Key)
 

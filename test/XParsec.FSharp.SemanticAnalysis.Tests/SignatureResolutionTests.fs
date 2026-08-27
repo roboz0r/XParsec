@@ -719,15 +719,6 @@ let tests =
                 let r =
                     resolveFsi "a.fsi" "namespace Test.A\n\nmodule M =\n    type T = { X: int }\n"
 
-                let byName =
-                    [ for e: SurfaceEntry<string, TypeKey> in r.Surface.TypesByName -> e.Key ]
-
-                Expect.contains byName "Test.A.M+T" "the identity index is keyed by the canonical `+`-nested rendering"
-
-                Expect.isFalse
-                    (List.contains "Test.A.M.T" byName)
-                    "the written dotted spelling is not separately registered"
-
                 let expected: TypeKey =
                     {
                         Container = TypeContainer.InModule(SymbolKeyOps.moduleInNamespace "Test.A" "M")
@@ -751,8 +742,12 @@ let tests =
                 Expect.isEmpty (scope.TypesNamed(m, "Nope")) "an unknown member of M misses"
 
                 Expect.isTrue
-                    (r.Provider.TryLookupType "Test.A.M.T" |> ValueOption.isNone)
-                    "the by-name channel answers for the compiled rendering alone"
+                    (r.Provider.TryLookupType expected |> ValueOption.isSome)
+                    "the store answers under the registered InModule identity"
+
+                Expect.isTrue
+                    (ExternalSymbols.tryReprType r.Provider "Test.A.M.T" |> ValueOption.isNone)
+                    "the dotted spelling read as a rendering misses; only the scope reaches it"
             }
 
             test "`when 'T : equality` is captured, and applied to the fresh TyVar at instantiation" {
@@ -1077,12 +1072,10 @@ let tests =
                             IntrinsicShape.Scalar(canon, 0, IntrinsicPlatform.Repr "System.Int32")
                         )
 
-                    ExternalSymbolProviders.ofKeyedChannels (
-                        ExternalSymbolProviders.KeyedChannels.ofKeyIndexes
-                            { ExternalSymbolProviders.KeyIndexedChannels.empty with
-                                ShapesByKey = shapes
-                            }
-                    )
+                    ExternalSymbolProviders.ofKeyIndexedChannels
+                        { ExternalSymbolProviders.KeyIndexedChannels.empty with
+                            ShapesByKey = shapes
+                        }
 
                 Expect.isTrue
                     (declaredInterfaces reprOnly intKey).IsEmpty

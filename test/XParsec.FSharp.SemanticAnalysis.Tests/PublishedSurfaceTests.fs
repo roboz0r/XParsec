@@ -22,7 +22,7 @@ let private surfaceOf (names: string list) : PublishedSurface =
 
     for n in names do
         let k = key "Ns" n 0
-        PublishedSurfaceBuilder.addTypeName b k
+        PublishedSurfaceBuilder.addModuleChain b k
         PublishedSurfaceBuilder.addShape b k (shapeOf 0)
 
         PublishedSurfaceBuilder.addUnionCase
@@ -48,11 +48,6 @@ let tests =
             test "tables are ordinal key-ordered" {
                 let surface = surfaceOf [ "Zeta"; "alpha"; "Beta" ]
 
-                let names = [ for e in surface.TypesByName -> e.Key ]
-                let sorted = names |> List.sortWith (fun a b -> System.String.CompareOrdinal(a, b))
-
-                Expect.equal names sorted "TypesByName is ordered by an ORDINAL comparison"
-
                 let shapeNames = [ for e in surface.ShapesByKey -> SymbolKeyOps.typeMetaName e.Key ]
 
                 Expect.equal
@@ -65,7 +60,6 @@ let tests =
                 let a = surfaceOf [ "Zeta"; "alpha"; "Beta" ]
                 let b = surfaceOf [ "Beta"; "Zeta"; "alpha" ]
 
-                Expect.equal a.TypesByName b.TypesByName "same types, published in a different order"
                 Expect.equal a.ShapesByKey b.ShapesByKey "same shapes, published in a different order"
                 Expect.equal a.UnionCases b.UnionCases "same union cases, published in a different order"
                 Expect.equal a b "the whole surface compares equal"

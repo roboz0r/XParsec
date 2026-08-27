@@ -1596,7 +1596,7 @@ type prim = extern with
                         ]
                     |> files
 
-                match (all.[0].View :> IExternalSymbolResolver).TryLookupType "Test.A.prim" with
+                match ExternalSymbols.tryReprTypeAt all.[0].View "Test.A.prim" 0 with
                 | ValueSome(struct (typeKey, _)) ->
                     match all.[0].View.TryLookupMember(typeKey, "Poke") with
                     | ValueSome m -> Expect.isTrue m.InlineBody.IsSome "the published member carries its body"
@@ -1632,10 +1632,7 @@ type prim = extern
                         ]
                     |> files
 
-                match
-                    (all.[0].View :> IExternalSymbolResolver).TryLookupType "Test.A.prim"
-                    |> ExternalSymbols.typeShapeOf
-                with
+                match ExternalSymbols.tryReprType all.[0].View "Test.A.prim" with
                 | ValueSome(ExternalTypeShape.Intrinsic {
                                                             Id = {
                                                                      Platform = IntrinsicPlatform.Repr platform
@@ -1675,10 +1672,7 @@ module N =
                     (f2.Frozen.Residue.Diagnostics |> List.filter Diagnostic.isError)
                     "file 2 leaves no unresolved TyVar behind the abbreviation"
 
-                match
-                    (all.[0].View :> IExternalSymbolResolver).TryLookupType "Test.A.myalias"
-                    |> ExternalSymbols.typeShapeOf
-                with
+                match ExternalSymbols.tryReprType all.[0].View "Test.A.myalias" with
                 | ValueSome(ExternalTypeShape.Abbrev(arity, _)) ->
                     Expect.equal arity 0 "`myalias` takes no type parameter"
                 | other -> failtestf "expected Test.A.myalias to publish as an abbreviation, got %A" other
@@ -1712,10 +1706,7 @@ module N =
                     (f2.Frozen.Residue.Diagnostics |> List.filter Diagnostic.isError)
                     (sprintf "file 2 expands `pair<int>` to `int * int` (diagnostics: %A)" f2.Frozen.Residue.Diagnostics)
 
-                match
-                    (all.[0].View :> IExternalSymbolResolver).TryLookupType "Test.A.pair`1"
-                    |> ExternalSymbols.typeShapeOf
-                with
+                match ExternalSymbols.tryReprType all.[0].View "Test.A.pair`1" with
                 | ValueSome(ExternalTypeShape.Abbrev(arity, _)) ->
                     Expect.equal arity 1 "`pair` takes one type parameter"
                 | other -> failtestf "expected Test.A.pair to publish as an abbreviation, got %A" other

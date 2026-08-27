@@ -4,7 +4,7 @@ open System.Collections.Immutable
 open XParsec.FSharp
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
-open ExternalTypeProbe
+open NameResolutionContainers
 open NameResolutionLongIdent
 open NameResolutionTypeRefStamp
 open UnificationTranslate
@@ -372,14 +372,14 @@ module NameResolutionScope =
 
     /// Resolve an operator/value spelling against the referenced surfaces and, on a hit, stamp
     /// the full symbol so its scheme is instantiated by key later.
-    let private stampExternalSymbol (ctx: PassContext) (key: NodeKey) (path: string) (name: string) : unit =
-        match NameResolutionLongIdent.externalValueInScope ctx (ctx.UseSiteAt key) path name with
+    let private stampExternalSymbol (ctx: PassContext) (key: NodeKey) (qualifier: Qualifier) (name: string) : unit =
+        match NameResolutionLongIdent.externalValueInScope ctx (ctx.UseSiteAt key) qualifier name with
         | ValueSome sym -> ctx.Resolution.ExternalSymbolStamp.Set(key, sym)
         | ValueNone -> ()
 
     /// Resolve an external VALUE reference by its compiled spelling and stamp both channels.
-    let private tryStampExternalValue (ctx: PassContext) (key: NodeKey) (path: string) (name: string) : bool =
-        match NameResolutionLongIdent.externalValueInScope ctx (ctx.UseSiteAt key) path name with
+    let private tryStampExternalValue (ctx: PassContext) (key: NodeKey) (qualifier: Qualifier) (name: string) : bool =
+        match NameResolutionLongIdent.externalValueInScope ctx (ctx.UseSiteAt key) qualifier name with
         | ValueSome sym ->
             stampItem ctx key (ResolvedItem.Value(ResolvedValue.External sym))
             true
@@ -390,7 +390,7 @@ module NameResolutionScope =
     /// has no provider symbol, so both take the no-stamp arm.
     let private stampDesugaredOperator (ctx: PassContext) (e: Expr<SyntaxToken>) : unit =
         match ctx.Desugared.TryGetValue(CstKeys.ofExpr e) with
-        | ValueSome(DesugaredForm.OpName name) -> stampExternalSymbol ctx (CstKeys.ofExpr e) "" name
+        | ValueSome(DesugaredForm.OpName name) -> stampExternalSymbol ctx (CstKeys.ofExpr e) Qualifier.Bare name
         | _ -> ()
 
     /// The enclosing `TypeApp` visit resolved this applied name at its exact arity.
@@ -432,7 +432,7 @@ module NameResolutionScope =
             // `(+)` used as a value is an ordinary external value ref, so it stamps
             // through the same channel pair. A miss is not diagnosed here.
             match Desugar.symbolicOpCompiledName op.Token with
-            | ValueSome name -> tryStampExternalValue ctx (CstKeys.ofExpr e) "" name |> ignore
+            | ValueSome name -> tryStampExternalValue ctx (CstKeys.ofExpr e) Qualifier.Bare name |> ignore
             | ValueNone -> ()
         | Expr.LongIdentOrOp(LongIdentOrOp.QualifiedOp(longIdent = li; op = idOp)) ->
             // `A.B.(+)` — translate the operator segment to its compiled name
@@ -440,11 +440,11 @@ module NameResolutionScope =
             // container `A.B` denotes. Only the qualified form needs this; bare ops come from
             // the prelude.
             match OperatorNames.qualifiedOpParts ctx.NameOf li idOp with
-            | ValueSome(struct (path, opName)) ->
-                if not (tryStampExternalValue ctx (CstKeys.ofExpr e) path opName) then
+            | ValueSome(struct (segments, opName)) ->
+                if not (tryStampExternalValue ctx (CstKeys.ofExpr e) (Qualifier.ofSegments segments) opName) then
                     ctx.Report(
                         CstKeys.firstTokenOfExpr e,
-                        Kind.UnresolvedQualifiedName(SymbolKeyOps.qualify path opName)
+                        Kind.UnresolvedQualifiedName(SymbolKeyOps.qualify (String.concat "." segments) opName)
                     )
             | ValueNone ->
                 // A non-symbolic op segment (active-pattern / nil / range) has no
@@ -478,11 +478,11 @@ module NameResolutionScope =
         // `x?name` — stamp `op_Dynamic`. The SET form (`x?name <- v`) parses as
         // `Assignment(DynamicLookup, v)`, whose inner `DynamicLookup` is visited and
         // stamped too, but the setter reads the enclosing node, so that stamp is inert.
-        | Expr.DynamicLookup _ -> stampExternalSymbol ctx (CstKeys.ofExpr e) "" OperatorData.OpDynamic
+        | Expr.DynamicLookup _ -> stampExternalSymbol ctx (CstKeys.ofExpr e) Qualifier.Bare OperatorData.OpDynamic
         // `x?name <- value` — stamp `op_DynamicAssignment` on the enclosing
         // `Assignment`, the node the setter is typed at.
         | Expr.Assignment(leftExpr = Expr.DynamicLookup _) ->
-            stampExternalSymbol ctx (CstKeys.ofExpr e) "" OperatorData.OpDynamicAssignment
+            stampExternalSymbol ctx (CstKeys.ofExpr e) Qualifier.Bare OperatorData.OpDynamicAssignment
         | _ -> ()
 
     let mkWalker (ctx: PassContext) : CstWalk.ExprWalker<Scope list> =

@@ -244,6 +244,28 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
     let gate = obj ()
     let resolveCache = Dictionary<string, Type option>(StringComparer.Ordinal)
 
+    // `ValueNone` when the core assembly fails to load. Forced only under `gate`.
+    let coreAssembly: Lazy<Assembly voption> =
+        lazy
+            (try
+                ValueSome mlc.CoreAssembly
+             with _ ->
+                 ValueNone)
+
+    let pathAssemblies: Lazy<Assembly[]> =
+        lazy
+            [|
+                for p in paths do
+                    match
+                        (try
+                            Some(mlc.LoadFromAssemblyPath p)
+                         with _ ->
+                             None)
+                    with
+                    | Some asm -> asm
+                    | None -> ()
+            |]
+
     let typeCache =
         ConcurrentDictionary<string, ExternalTypeShape voption>(StringComparer.Ordinal)
 
@@ -273,26 +295,15 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
                 with _ ->
                     None
 
+            let inCore =
+                match coreAssembly.Value with
+                | ValueSome core -> tryAsm core
+                | ValueNone -> None
+
             let found =
-                match
-                    (try
-                        tryAsm mlc.CoreAssembly
-                     with _ ->
-                         None)
-                with
+                match inCore with
                 | Some _ as r -> r
-                | None when name.Contains '.' ->
-                    paths
-                    |> Array.tryPick (fun p ->
-                        match
-                            (try
-                                Some(mlc.LoadFromAssemblyPath p)
-                             with _ ->
-                                 None)
-                        with
-                        | Some asm -> tryAsm asm
-                        | None -> None
-                    )
+                | None when name.Contains '.' -> pathAssemblies.Value |> Array.tryPick tryAsm
                 | None -> None
 
             resolveCache.[name] <- found
@@ -641,15 +652,57 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
                         resolve [||] 0
             )
 
-    // The metadata provider is string-keyed internally (its caches address the BCL
-    // compiled name); the store view projects the resolved key to that name.
-    member private _.LookupTypeByName(name: string) =
+    let lookupTypeByName (name: string) : ExternalTypeShape voption =
         match typeCache.TryGetValue name with
         | true, v -> v
         | _ ->
             let v = computeType name
             typeCache.[name] <- v
             v
+
+    /// Every `(namespace, plain name, arity)` the reference set exports at top level,
+    /// forwarded types included: `asm.GetType` follows a type forwarder, so the directory
+    /// must too. Identity alone; a slot's shape resolves on demand.
+    let directorySlots () : seq<struct (string * string * int)> =
+        lock
+            gate
+            (fun () ->
+                let slots = HashSet<struct (string * string * int)>()
+
+                let addType (t: Type) =
+                    if not t.IsNested && t.IsVisible then
+                        let ns =
+                            match t.Namespace with
+                            | null -> ""
+                            | ns -> ns
+
+                        slots.Add(struct (ns, SymbolKeyOps.bareName t.Name, t.GetGenericArguments().Length))
+                        |> ignore
+
+                // A forward whose target assembly is missing loads partially; the resolved
+                // types survive.
+                let salvage (f: unit -> Type[]) : Type[] =
+                    try
+                        f ()
+                    with
+                    | :? ReflectionTypeLoadException as e -> e.Types |> Array.filter (isNull >> not)
+                    | _ -> [||]
+
+                let addAssembly (asm: Assembly) =
+                    salvage asm.GetExportedTypes |> Array.iter addType
+                    salvage asm.GetForwardedTypes |> Array.iter addType
+
+                match coreAssembly.Value with
+                | ValueSome core -> addAssembly core
+                | ValueNone -> ()
+
+                Array.iter addAssembly pathAssemblies.Value
+
+                Seq.toArray slots :> seq<_>
+            )
+
+    let scope =
+        ScopeContents.typeDirectory directorySlots (fun key -> lookupTypeByName (SymbolKeyOps.typeMetaName key))
 
     member private _.LookupMembersByName(key: ExternalMemberName) =
         match membersCache.TryGetValue key with
@@ -662,13 +715,7 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
     interface IExternalSymbolProvider
 
     interface IExternalSymbolResolver with
-        // IL metadata exposes no module structure: a namespace is a prefix of a type name.
-        member _.Scope = ScopeContents.empty
-
-        // Bare IL has no module chains, so a name IS the identity.
-        member this.TryLookupType(name: string) =
-            this.LookupTypeByName name
-            |> ValueOption.map (ExternalSymbols.nameKeyedTypeHit name)
+        member _.Scope = scope
 
         // The metadata layer scrapes IL, never F# record tycons, so it never contributes to
         // the reverse field index (F#'s `isILOrRequiredQualifiedAccess` excludes IL too).
@@ -676,8 +723,9 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
         member _.AmbientOpenPrefixes = []
 
     interface IExternalSymbolStore with
-        member this.TryLookupType(key: TypeKey) =
-            this.LookupTypeByName(SymbolKeyOps.typeMetaName key)
+        // The caches address the BCL compiled name, so a key is rendered before the read.
+        member _.TryLookupType(key: TypeKey) =
+            lookupTypeByName (SymbolKeyOps.typeMetaName key)
 
         member this.TryLookupMembers(key, memberName) =
             this.LookupMembersByName(
@@ -718,9 +766,9 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
         // `Vesper.int` is a value type here because the repr its `.clr.fs` binds,
         // `System.Int32`, is one. A canon declared UNSUPPORTED on this target has no repr to
         // reflect; any other key answers under its plain metadata name.
-        member this.IsValueType(key: TypeKey) =
+        member _.IsValueType(key: TypeKey) =
             let reflected (name: string) =
-                match this.LookupTypeByName name with
+                match lookupTypeByName name with
                 | ValueSome(ExternalTypeShape.Class shape) -> ValueSome shape.Flags.IsValueType
                 | _ -> ValueNone
 

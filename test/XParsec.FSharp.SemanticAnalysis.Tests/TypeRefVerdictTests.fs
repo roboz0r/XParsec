@@ -10,8 +10,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 // `Type` node. These tests pin the verdict at representative annotation positions and, end
 // to end, the round-trip of the recorded key through the store view during inference.
 
-/// `ofNamedChannels` derives the store view from the same by-name table the resolver reads, so a
-/// key the resolver mints is served back by construction.
+/// The store view serves the same table the resolver's scope reads.
 let private provider: IExternalSymbolProvider =
     let widget =
         ExternalTypeShape.Class(ExternalClassShape.basic (0, false, SymbolOrigin.Empty))
@@ -19,16 +18,11 @@ let private provider: IExternalSymbolProvider =
     let box =
         ExternalTypeShape.Class(ExternalClassShape.basic (1, false, SymbolOrigin.Empty))
 
-    ExternalSymbolProviders.ofNamedChannels
-        { ExternalSymbolProviders.NamedChannels.empty with
-            TryLookupType =
-                fun n ->
-                    match n with
-                    | "Tests.Widget" -> ValueSome widget
-                    | "Tests.Box`1" -> ValueSome box
-                    | _ -> ValueNone
-            AmbientOpenPrefixes = [ "Tests" ]
-        }
+    providerOfSurface (fun b ->
+        PublishedSurfaceBuilder.addType b (SymbolKeyOps.qualifiedTypeKeyOf "Tests.Widget" 0) widget
+        PublishedSurfaceBuilder.addType b (SymbolKeyOps.qualifiedTypeKeyOf "Tests.Box`1" 1) box
+        b.AmbientOpenPrefixes <- [ "Tests" ]
+    )
 
 let private analyse (input: string) = analyseNameRes provider input
 

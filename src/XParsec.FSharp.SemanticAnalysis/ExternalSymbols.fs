@@ -85,6 +85,75 @@ module ScopeContents =
             member _.TypesNamed(_, _) = EqArray.empty
         }
 
+    /// An `IScopeContents` over TYPES declared in a namespace, and over those alone. `slots`
+    /// yields each declared `(namespace, plain name, arity)` once, on first query;
+    /// `resolveShape` supplies a slot's body on demand, dropping the slots it declines. A
+    /// container is a declared namespace or a dotted prefix of one.
+    let typeDirectory
+        (slots: unit -> seq<struct (string * string * int)>)
+        (resolveShape: TypeKey -> ExternalTypeShape voption)
+        : IScopeContents =
+        let index =
+            lazy
+                (let byName = Dictionary<struct (string * string), ResizeArray<int>>()
+                 let containers = HashSet<string>(System.StringComparer.Ordinal)
+
+                 for struct (ns, name, arity) in slots () do
+                     let arities =
+                         match byName.TryGetValue(struct (ns, name)) with
+                         | true, a -> a
+                         | _ ->
+                             let a = ResizeArray<int>()
+                             byName.[struct (ns, name)] <- a
+                             a
+
+                     arities.Add arity
+
+                     if ns.Length > 0 then
+                         containers.Add ns |> ignore
+                         let mutable dot = ns.IndexOf '.'
+
+                         while dot >= 0 do
+                             containers.Add(ns.Substring(0, dot)) |> ignore
+                             dot <- ns.IndexOf('.', dot + 1)
+
+                 for arities in byName.Values do
+                     arities.Sort()
+
+                 struct (byName, containers))
+
+        { new IScopeContents with
+            member _.TryContainer path =
+                let struct (_, containers) = index.Value
+
+                if containers.Contains path then
+                    ValueSome(ModuleContainer.InNamespace(SymbolKeyOps.namespaceKey path))
+                else
+                    ValueNone
+
+            member _.TryValue(_, _) = ValueNone
+            member _.UnionCasesNamed(_, _) = EqArray.empty
+
+            member _.TypesNamed(c, name) =
+                match c with
+                | ModuleContainer.InModule _ -> EqArray.empty
+                | ModuleContainer.InNamespace ns ->
+                    let struct (byName, _) = index.Value
+
+                    match byName.TryGetValue(struct (ns.Dotted, name)) with
+                    | true, arities ->
+                        EqArray.ofSeq
+                            [
+                                for arity in arities do
+                                    let key = SymbolKeyOps.typeKeyOfContainer (TypeContainer.InNamespace ns) name arity
+
+                                    match resolveShape key with
+                                    | ValueSome shape -> struct (key, shape)
+                                    | ValueNone -> ()
+                            ]
+                    | _ -> EqArray.empty
+        }
+
     /// A union case's identity: two entries agreeing here are the same case reached twice.
     let private caseIdentity (uc: ExternalUnionCase) = struct (uc.UnionKey, uc.Case.Name)
 
@@ -137,9 +206,9 @@ module ScopeContents =
             }
 
     /// The value a LITERAL dotted spelling denotes: its leading segments are the container
-    /// and its last segment the short name. A caller holding the qualifier and the short name
-    /// apart passes them apart — resolution does, through `containersAtPath`, because a
-    /// binding's own name may hold a dot (`` let ``a.size`` ``).
+    /// and its last segment the short name. Where the qualifier and the short name are
+    /// already separate, use `tryValueIn` instead: a binding's own name may contain a dot
+    /// (`` let ``a.size`` ``).
     let tryValueAt (scope: IScopeContents) (written: string) : ExternalSymbol voption =
         match written.LastIndexOf '.' with
         | i when i > 0 ->
@@ -161,6 +230,33 @@ module ScopeContents =
             | _ -> ()
 
         List.ofSeq found
+
+    /// The first hit `pick` admits among the types called `name` in `containers`, taking each
+    /// container's types narrowest arity first per `TypesNamed`.
+    let tryPickTypeIn
+        (scope: IScopeContents)
+        (containers: ModuleContainer list)
+        (pick: TypeKey -> ExternalTypeShape -> 'T voption)
+        (name: string)
+        : 'T voption =
+        let rec go (cs: ModuleContainer list) =
+            match cs with
+            | [] -> ValueNone
+            | c :: rest ->
+                let declared = (scope.TypesNamed(c, name)).Underlying
+                let mutable result = ValueNone
+                let mutable i = 0
+
+                while result.IsNone && i < declared.Length do
+                    let (struct (key, shape)) = declared.[i]
+                    result <- pick key shape
+                    i <- i + 1
+
+                match result with
+                | ValueSome _ -> result
+                | ValueNone -> go rest
+
+        go containers
 
     /// The value `name` denotes among `containers`: the first of them declaring it.
     let tryValueIn (scope: IScopeContents) (containers: ModuleContainer list) (name: string) : ExternalSymbol voption =
@@ -240,12 +336,9 @@ module ScopeContents =
 /// The RESOLVER view of the external-symbol contract: spelling → identity, opens-aware.
 /// Downstream of name resolution, passes speak the key-addressed store view instead.
 type IExternalSymbolResolver =
-    /// The module structure this source declares, for segment-by-segment resolution. The one
-    /// route to a published VALUE: a value is reached through its declaring container.
+    /// The module structure this source declares, for segment-by-segment resolution. A
+    /// published value or type is reached through its declaring container.
     abstract Scope: IScopeContents
-    /// Look up a `type` by canonical compiled name, returning its REGISTERED identity plus
-    /// its body shape from the one hit.
-    abstract TryLookupType: name: string -> struct (TypeKey * ExternalTypeShape) voption
 
     /// A field name → every record declaring a field of that name; unqualified
     /// record-literal / record-pattern resolution intersects these sets to pin the type.
@@ -367,15 +460,6 @@ type ICodegenSymbols =
 
 module ExternalSymbols =
 
-    /// Invert a NAME-INDEXED source's qualified name back to a key. Sound only when its
-    /// type keys are `InNamespace`. Arity comes from the SHAPE, never from the arity
-    /// probed for.
-    let nameKeyedTypeHit (name: string) (shape: ExternalTypeShape) : struct (TypeKey * ExternalTypeShape) =
-        struct (SymbolKeyOps.qualifiedTypeKeyOf name shape.TyparArity, shape)
-
-    let typeShapeOf (hit: struct (TypeKey * ExternalTypeShape) voption) : ExternalTypeShape voption =
-        hit |> ValueOption.map (fun (struct (_, shape)) -> shape)
-
     /// The one entry of a by-NAME overload set whose identity is `key`.
     let memberByKey (key: MemberKey) (candidates: EqArray<ExternalMember>) : ExternalMember voption =
         candidates |> EqArray.tryFind (fun m -> m.Key = key)
@@ -417,6 +501,12 @@ module ExternalSymbols =
         | ExternalTypeShape.IntrinsicInterface _ -> true
         | _ -> false
 
+    /// An intrinsic shape's canonical key.
+    let intrinsicCanonOf (shape: ExternalTypeShape) : TypeKey voption =
+        match shape with
+        | ExternalTypeShape.Intrinsic { Id = { Canon = c } } -> ValueSome c
+        | _ -> ValueNone
+
     /// The heritable-primitive surface a shape carries (`obj`/`exn`): what an `inherit` may write.
     let intrinsicClassOf (shape: ExternalTypeShape) : struct (IntrinsicIdentity * IntrinsicClassSurface) voption =
         match shape with
@@ -435,29 +525,22 @@ module ExternalSymbols =
         : struct (IntrinsicIdentity * IntrinsicClassSurface) voption =
         provider.TryLookupType canon |> ValueOption.bind intrinsicClassOf
 
-    /// Resolve a `(# "…" #)` REPR STRING to the first shape `choose` ACCEPTS; a rejected
-    /// shape does not stop the scan. Never a source-written name, because this would miss
-    /// the `open`s it was written under.
-    let tryPickRuntimeType
-        (provider: IExternalSymbolResolver)
-        (choose: ExternalTypeShape -> 'a voption)
+    /// The identity and shape the `(# "…" #)` REPR STRING `repr` denotes at `arity`. `repr`
+    /// is an exact metadata rendering read by key, with no opens applied; a source-written
+    /// name resolves through `IScopeContents` under the use site's opens instead.
+    let tryReprTypeAt
+        (store: IExternalSymbolStore)
         (repr: string)
-        : 'a voption =
-        match provider.TryLookupType repr |> typeShapeOf |> ValueOption.bind choose with
-        | ValueSome _ as hit -> hit
-        | ValueNone ->
-            provider.AmbientOpenPrefixes
-            |> List.tryPick (fun p ->
-                match provider.TryLookupType(p + "." + repr) |> typeShapeOf |> ValueOption.bind choose with
-                | ValueSome v -> Some v
-                | ValueNone -> None
-            )
-            |> function
-                | Some v -> ValueSome v
-                | None -> ValueNone
+        (arity: int)
+        : struct (TypeKey * ExternalTypeShape) voption =
+        let key = SymbolKeyOps.qualifiedTypeKeyOf repr arity
 
-    let tryRuntimeType (provider: IExternalSymbolResolver) (repr: string) : ExternalTypeShape voption =
-        tryPickRuntimeType provider ValueSome repr
+        match store.TryLookupType key with
+        | ValueSome shape when shape.TyparArity = key.TyparArity -> ValueSome(struct (key, shape))
+        | _ -> ValueNone
+
+    let tryReprType (store: IExternalSymbolStore) (repr: string) : ExternalTypeShape voption =
+        tryReprTypeAt store repr 0 |> ValueOption.map (fun (struct (_, shape)) -> shape)
 
     /// Resolve the language-capability identities from their canonical contract names
     /// (`Vesper.disposable`). Keys are minted at arity 0, because the fqn already carries the
@@ -472,9 +555,7 @@ module ExternalSymbols =
         // On CLR a capability anchor is an `IntrinsicInterface` carrying both names; on JS a
         // plain `Class` with only the canonical, which is the only name JS ever keys by.
         let resolveAnchorKey (canon: TypeKey) : RuntimeNames.CapabilityIdentity voption =
-            let lookup = SymbolKeyOps.typeMetaName canon
-
-            match provider.TryLookupType lookup |> typeShapeOf with
+            match provider.TryLookupType canon with
             | ValueSome(ExternalTypeShape.Intrinsic {
                                                         Id = {
                                                                  Platform = IntrinsicPlatform.Repr fqn

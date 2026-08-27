@@ -141,7 +141,7 @@ let tests =
                 // `int` is an `extern` paired with its sibling `.fs` `(# "System.Int32" #)`
                 // binding, so it surfaces as an `Intrinsic`: `canon` is the `.fsi` name `int`,
                 // `platform` the CLI repr codegen consumes. An intrinsic carries no `Origin`.
-                match provider.TryLookupType "Vesper.int" |> ExternalSymbols.typeShapeOf with
+                match ExternalSymbols.tryReprType provider "Vesper.int" with
                 | ValueSome(ExternalTypeShape.Intrinsic {
                                                             Id = {
                                                                      Canon = canon
@@ -193,7 +193,7 @@ let tests =
                 let provider, _ = builtProvider.Value
 
                 let expectCapability (lookup: string) (canonKey: TypeKey) (platformExpected: string) =
-                    match provider.TryLookupType lookup |> ExternalSymbols.typeShapeOf with
+                    match ExternalSymbols.tryReprType provider lookup with
                     | ValueSome(ExternalTypeShape.IntrinsicInterface iface) ->
                         Expect.equal
                             iface.Canon
@@ -234,10 +234,7 @@ let tests =
 
                 // `enumerator` inherits `disposable`, so the `use` / for-in disposability scan
                 // needs that inherited interface on the capability shape.
-                match
-                    provider.TryLookupType "Vesper.Collections.enumerator`1"
-                    |> ExternalSymbols.typeShapeOf
-                with
+                match ExternalSymbols.tryReprType provider "Vesper.Collections.enumerator`1" with
                 | ValueSome(ExternalTypeShape.IntrinsicInterface iface) ->
                     let ifaceNames =
                         iface.Interfaces |> EqArray.map (fun i -> SymbolKeyOps.typeMetaName i.Key)
@@ -255,7 +252,7 @@ let tests =
                 let provider, _ = builtProviderJs.Value
 
                 let expectSentinelRepr (lookup: string) (sentinel: string) =
-                    match provider.TryLookupType lookup |> ExternalSymbols.typeShapeOf with
+                    match ExternalSymbols.tryReprType provider lookup with
                     | ValueSome(ExternalTypeShape.IntrinsicInterface iface) ->
                         Expect.equal
                             iface.Platform
@@ -270,7 +267,7 @@ let tests =
                 // The shim abbreviates each BCL spelling to the canonical capability, so
                 // `interface System.IDisposable` records the canonical key on JS.
                 let expectShimAbbrev (bcl: string) (canonQualified: string) =
-                    match provider.TryLookupType bcl |> ExternalSymbols.typeShapeOf with
+                    match ExternalSymbols.tryReprType provider bcl with
                     | ValueSome(ExternalTypeShape.Abbrev(_, FTClass(key, _))) ->
                         Expect.equal
                             (SymbolKeyOps.typeMetaName key)
@@ -357,7 +354,7 @@ let tests =
                 // `type Fun<'A,'B>` parses as an anonymous (`= begin … end`) type, so the
                 // extractor records a non-interface `Class` shape. Generic compiled names are
                 // arity-suffixed (`Fun`2`), matching the emitted metadata name.
-                match provider.TryLookupType "Vesper.Fun`2" with
+                match ExternalSymbols.tryReprTypeAt provider "Vesper.Fun`2" 0 with
                 | ValueSome(struct (key, ExternalTypeShape.Class info)) ->
                     Expect.equal info.TyparArity 2 "Fun has two typars"
 
@@ -376,7 +373,10 @@ let tests =
                 // The namespace retry lives in the ambient open scope, probed by the pipeline
                 // behind explicit opens, so a bare `int` is a miss at the provider surface.
                 let provider, _ = builtProvider.Value
-                Expect.isTrue (provider.TryLookupType "int" |> ValueOption.isNone) "bare int is a provider miss"
+
+                Expect.isTrue
+                    (ExternalSymbols.tryReprType provider "int" |> ValueOption.isNone)
+                    "bare int is a provider miss"
             }
 
             test "the contract surfaces its [<AutoOpen>] modules + the language prelude as the ambient prefix set" {
@@ -399,7 +399,10 @@ let tests =
 
             test "an unknown type misses" {
                 let provider, _ = builtProvider.Value
-                Expect.isTrue (provider.TryLookupType "NoSuchType" |> ValueOption.isNone) "unknown type miss"
+
+                Expect.isTrue
+                    (ExternalSymbols.tryReprType provider "NoSuchType" |> ValueOption.isNone)
+                    "unknown type miss"
             }
 
             // A program resolves `+` and `hash` purely through the contract's `[<AutoOpen>]`

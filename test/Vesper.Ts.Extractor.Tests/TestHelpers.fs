@@ -269,7 +269,7 @@ let testProviderResolves (path: string) =
                     let synthName = q (syntheticTypeName man.Package)
 
                     Expect.isTrue
-                        (prov.TryLookupType synthName).IsSome
+                        (ExternalSymbols.tryReprType prov synthName).IsSome
                         $"synthetic grouping type '{synthName}' should resolve"
 
                     let overloads =
@@ -300,13 +300,13 @@ let testProviderResolves (path: string) =
                 // front-end `TypeTranslate` speak. A generic type (`Box<T>`) resolves ONLY
                 // under `Box\`1`, never the bare `Box`, so suffix here deliberately.
                 let name = SymbolKeyOps.arityName (q name) typeParams
-                Expect.isTrue (prov.TryLookupType name).IsSome $"type '{name}' should resolve"
+                Expect.isTrue (ExternalSymbols.tryReprType prov name).IsSome $"type '{name}' should resolve"
 
                 // Generics: the declaring-axis arity round-trips — a
                 // generic `Box<T>`/`Container<T>` resolves to an `ExternalTypeShape.Class`
                 // whose `TyparArity` equals the emitted `typeParams`. Trivially 0 for the
                 // (many) non-generic fixtures; exercises the count on `generics`.
-                match prov.TryLookupType name |> ExternalSymbols.typeShapeOf with
+                match ExternalSymbols.tryReprType prov name with
                 | ValueSome(ExternalTypeShape.Class shape) ->
                     Expect.equal shape.TyparArity typeParams $"type '{name}' arity must equal its typeParams"
                 | _ -> ()
@@ -335,7 +335,7 @@ let testProviderResolves (path: string) =
                         )
                     )
 
-                match prov.TryLookupType name |> ExternalSymbols.typeShapeOf with
+                match ExternalSymbols.tryReprType prov name with
                 | ValueSome(ExternalTypeShape.Class shape) ->
                     let baseCount = if shape.FrozenBaseType.IsSome then 1 else 0
                     let enumerableCount = if injectedEnumerable then 1 else 0
@@ -390,18 +390,18 @@ let testProviderResolves (path: string) =
                 // keyed under its arity-suffixed name (`Handler\`1`), so suffix before the
                 // lookup — the bare-name read is exactly the pre-existing miss this fixes.
                 let name = SymbolKeyOps.arityName (q name) typeParams
-                Expect.isTrue (prov.TryLookupType name).IsSome $"type alias '{name}' should resolve"
+                Expect.isTrue (ExternalSymbols.tryReprType prov name).IsSome $"type alias '{name}' should resolve"
 
                 // A generic alias (`Pair<A,B>`) resolves to an `Abbrev` whose arity equals
                 // its `typeParams`.
-                match prov.TryLookupType name |> ExternalSymbols.typeShapeOf with
+                match ExternalSymbols.tryReprType prov name with
                 | ValueSome(ExternalTypeShape.Abbrev(arity, _)) ->
                     Expect.equal arity typeParams $"type alias '{name}' arity must equal its typeParams"
                 | _ -> ()
             | Schema.Export.Enum(name, _) ->
                 // The enum NAME resolves; its MEMBERS are stubbed on the provider, so only
                 // the type-name resolution is asserted.
-                Expect.isTrue (prov.TryLookupType(q name)).IsSome $"enum '{q name}' should resolve"
+                Expect.isTrue (ExternalSymbols.tryReprType prov (q name)).IsSome $"enum '{q name}' should resolve"
             | Schema.Export.Namespace(nsName, nested) ->
                 // Item 17: the namespace container holds no symbol of its own; recurse into
                 // its members under the extended prefix so each resolves via its qualified

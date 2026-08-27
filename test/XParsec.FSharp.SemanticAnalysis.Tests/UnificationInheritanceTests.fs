@@ -122,6 +122,19 @@ let tests =
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
 
+            test "a local type sharing an intrinsic's name wins in an inherit argument" {
+                let input =
+                    "type Box<'a>(v: 'a) =\n    member this.V = v\n"
+                    + "type exn = { X: int }\n"
+                    + "type W(v: exn) =\n    inherit Box<exn>(v)\n"
+                    + "let w = W({ X = 1 })\nlet r = w.V.X"
+
+                let ctx = analyse input
+                let patKey = NodeKey.ofSource (input.IndexOf "r = w.V.X") NodeKind.PatIdent
+                Expect.equal (typeOf ctx patKey) BuiltinTypes.tyInt "r : int — 'a bound to the local record"
+                Expect.isEmpty ctx.Diagnostics "no diagnostics"
+            }
+
             test "instance member on arity-overloaded class resolves per arity" {
                 // `Box`1`/`Box`2` share a short name, so each class's body must be walked by
                 // its arity-key: a bare-name miss leaves `this`/ctor params unbound and

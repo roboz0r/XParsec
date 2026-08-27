@@ -23,16 +23,11 @@ let private provider: IExternalSymbolProvider =
             SymbolOrigin.Empty
         )
 
-    ExternalSymbolProviders.ofNamedChannels
-        { ExternalSymbolProviders.NamedChannels.empty with
-            TryLookupType =
-                fun n ->
-                    match n with
-                    | "Tests.Direction" -> ValueSome(enum [ "Up"; "Down" ])
-                    | "Other.Mode" -> ValueSome(enum [ "On" ])
-                    | _ -> ValueNone
-            AmbientOpenPrefixes = [ "Tests" ]
-        }
+    providerOfSurface (fun b ->
+        PublishedSurfaceBuilder.addType b (SymbolKeyOps.qualifiedTypeKeyOf "Tests.Direction" 0) (enum [ "Up"; "Down" ])
+        PublishedSurfaceBuilder.addType b (SymbolKeyOps.qualifiedTypeKeyOf "Other.Mode" 0) (enum [ "On" ])
+        b.AmbientOpenPrefixes <- [ "Tests" ]
+    )
 
 let private analyse (input: string) = analyseNameRes provider input
 

@@ -6,7 +6,7 @@ open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open UnificationEngineCore
 open UnificationTranslate
-open ExternalTypeProbe
+
 open NameResolutionTypeRefStamp
 open NameResolutionScope
 open NameResolutionTypeRegistration

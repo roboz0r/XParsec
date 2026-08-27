@@ -15,15 +15,10 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 /// (`int`, `string`) still resolve through the real contract stack.
 let private providerFor (shape: ExternalTypeShape) : IExternalSymbolProvider =
     let stub =
-        ExternalSymbolProviders.ofNamedChannels
-            { ExternalSymbolProviders.NamedChannels.empty with
-                TryLookupType =
-                    fun n ->
-                        match n with
-                        | "Tests.Widget" -> ValueSome shape
-                        | _ -> ValueNone
-                AmbientOpenPrefixes = [ "Tests" ]
-            }
+        providerOfSurface (fun b ->
+            PublishedSurfaceBuilder.addType b (SymbolKeyOps.qualifiedTypeKeyOf "Tests.Widget" 0) shape
+            b.AmbientOpenPrefixes <- [ "Tests" ]
+        )
 
     ExternalSymbolProviders.composite [ stub; realProvider.Value ]
 

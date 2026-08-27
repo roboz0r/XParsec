@@ -94,7 +94,11 @@ let tests =
                     ExternalSymbolProviders.composite [ tagged "x" "a"; tagged "y" "b"; tagged "z" "c" ]
 
                 Expect.equal (valueTag composed "nope") ValueNone "value miss"
-                Expect.isTrue (composed.TryLookupType "nope" |> ValueOption.isNone) "type miss"
+
+                Expect.isTrue
+                    (composed.TryLookupType(SymbolKeyOps.qualifiedTypeKeyOf "nope" 0)
+                     |> ValueOption.isNone)
+                    "type miss"
 
                 Expect.isTrue
                     (composed.TryLookupMember(SymbolKeyOps.qualifiedTypeKeyOf "nope" 0, "nope")
@@ -107,7 +111,7 @@ let tests =
                 let b = tagged "shared" "b"
                 let composed = ExternalSymbolProviders.composite [ a; b ]
 
-                match composed.TryLookupType "shared" |> ExternalSymbols.typeShapeOf with
+                match composed.TryLookupType(SymbolKeyOps.qualifiedTypeKeyOf "shared" 0) with
                 | ValueSome(ExternalTypeShape.Class info) ->
                     Expect.equal info.Origin.Namespace.Dotted "a" "type: a wins"
                 | other -> failtestf "expected Class shape from a, got %A" other
@@ -121,7 +125,11 @@ let tests =
                 let composed = ExternalSymbolProviders.composite []
 
                 Expect.isTrue (ScopeContents.tryValueAt composed.Scope "anything" |> ValueOption.isNone) "value miss"
-                Expect.isTrue (composed.TryLookupType "anything" |> ValueOption.isNone) "type miss"
+
+                Expect.isTrue
+                    (composed.TryLookupType(SymbolKeyOps.qualifiedTypeKeyOf "anything" 0)
+                     |> ValueOption.isNone)
+                    "type miss"
 
                 Expect.isTrue
                     (composed.TryLookupMember(SymbolKeyOps.qualifiedTypeKeyOf "anything" 0, "x")

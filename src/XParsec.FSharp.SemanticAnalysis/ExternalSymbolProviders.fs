@@ -28,47 +28,18 @@ module ExternalMemberName =
 module ExternalSymbolProviders =
 
 
-    /// Channels whose types' identities are not a field: a name IS the identity, so a type
-    /// key is minted from the name and a key lookup is the rendered name lookup. A source
-    /// holding `TypeContainer.InModule` types supplies `KeyIndexedChannels` instead.
-    type NamedChannels =
-        {
-            TryLookupType: string -> ExternalTypeShape voption
-            TryRecordsWithField: string -> EqArray<ExternalRecordCandidate>
-            AmbientOpenPrefixes: string list
-            TryLookupMembers: ExternalMemberName -> EqArray<ExternalMember>
-            TryLookupIndexSignature: string -> (FrozenType * FrozenType) list
-            IntrinsicTypeMap: IntrinsicTypeMap
-            Platform: IPlatformFacts voption
-        }
-
-    module NamedChannels =
-
-        /// Every channel misses, so override just what the source models.
-        let empty: NamedChannels =
-            {
-                TryLookupType = fun _ -> ValueNone
-                TryRecordsWithField = fun _ -> EqArray.empty
-                AmbientOpenPrefixes = []
-                TryLookupMembers = fun _ -> EqArray.empty
-                TryLookupIndexSignature = fun _ -> []
-                IntrinsicTypeMap = IntrinsicTypeMap.empty
-                Platform = ValueNone
-            }
-
-    /// Channels that HOLD their types' identities. Needed when a type is
-    /// `TypeContainer.InModule`, whose rendering is not what the source writes.
+    /// The published-surface contract, indexed by identity throughout: a type is reachable
+    /// whatever its container renders as.
     type KeyIndexedChannels =
         {
             ShapesByKey: IReadOnlyDictionary<TypeKey, ExternalTypeShape>
             /// A type's FULL member list, in DECLARATION order, because the by-name overload
             /// scan and the by-key selection both depend on that order.
             MembersByKey: IReadOnlyDictionary<TypeKey, EqArray<ExternalMember>>
-            /// Written type name -> registered identity.
-            ResolveTypeName: string -> TypeKey voption
             /// Every published value, one entry per identity.
             SymbolsByKey: IReadOnlyDictionary<BindingKey, ExternalSymbol>
             TryRecordsWithField: string -> EqArray<ExternalRecordCandidate>
+            Platform: IPlatformFacts voption
             AmbientOpenPrefixes: string list
             IntrinsicTypeMap: IntrinsicTypeMap
             Scope: IScopeContents
@@ -81,108 +52,39 @@ module ExternalSymbolProviders =
                 Scope = ScopeContents.empty
                 ShapesByKey = Dictionary() :> IReadOnlyDictionary<_, _>
                 MembersByKey = Dictionary() :> IReadOnlyDictionary<_, _>
-                ResolveTypeName = fun _ -> ValueNone
                 SymbolsByKey = Dictionary() :> IReadOnlyDictionary<_, _>
                 TryRecordsWithField = fun _ -> EqArray.empty
+                Platform = ValueNone
                 AmbientOpenPrefixes = []
                 IntrinsicTypeMap = IntrinsicTypeMap.empty
             }
 
-    /// Every channel `ofKeyedChannels` serves, with the type channels answered BY KEY
-    /// whichever way the source came by them: `ofNamed` renders the key onto a name index,
-    /// `ofKeyIndexes` reads a real one.
-    type KeyedChannels =
-        {
-            /// Identity + shape from one read. Derived by both builders, never supplied.
-            TypeByName: string -> struct (TypeKey * ExternalTypeShape) voption
-            TypeShapeByKey: TypeKey -> ExternalTypeShape voption
-            TypeMembersByKey: KeyedMemberName -> EqArray<ExternalMember>
-            /// A value by identity. `ofNamed` misses: a name-keyed source models types and
-            /// their members alone.
-            SymbolByKey: BindingKey -> ExternalSymbol voption
-            /// The module structure the source declares. `ofNamed` supplies
-            /// `ScopeContents.empty`: a name-keyed type has no container to walk.
-            Scope: IScopeContents
-            TryRecordsWithField: string -> EqArray<ExternalRecordCandidate>
-            AmbientOpenPrefixes: string list
-            TryLookupIndexSignature: TypeKey -> (FrozenType * FrozenType) list
-            IntrinsicTypeMap: IntrinsicTypeMap
-            Platform: IPlatformFacts voption
-        }
+    let ofKeyIndexedChannels (channels: KeyIndexedChannels) : IExternalSymbolProvider =
+        let membersNamed (key: KeyedMemberName) : EqArray<ExternalMember> =
+            match channels.MembersByKey.TryGetValue key.DeclaringType with
+            | true, ms ->
+                EqArray.ofSeq
+                    [
+                        for m in ms do
+                            if m.Name = key.Name then
+                                m
+                    ]
+            | _ -> EqArray.empty
 
-    module KeyedChannels =
-
-        let ofNamed (channels: NamedChannels) : KeyedChannels =
-            {
-                TypeByName =
-                    fun name ->
-                        channels.TryLookupType name
-                        |> ValueOption.map (ExternalSymbols.nameKeyedTypeHit name)
-                TypeShapeByKey = fun key -> channels.TryLookupType(SymbolKeyOps.typeMetaName key)
-                TypeMembersByKey = ExternalMemberName.ofKeyed >> channels.TryLookupMembers
-                SymbolByKey = fun _ -> ValueNone
-                Scope = ScopeContents.empty
-                TryRecordsWithField = channels.TryRecordsWithField
-                AmbientOpenPrefixes = channels.AmbientOpenPrefixes
-                TryLookupIndexSignature = SymbolKeyOps.typeMetaName >> channels.TryLookupIndexSignature
-                IntrinsicTypeMap = channels.IntrinsicTypeMap
-                Platform = channels.Platform
-            }
-
-        let ofKeyIndexes (channels: KeyIndexedChannels) : KeyedChannels =
-            let shapeByKey (key: TypeKey) : ExternalTypeShape voption =
-                match channels.ShapesByKey.TryGetValue key with
-                | true, shape -> ValueSome shape
-                | _ -> ValueNone
-
-            let membersNamed (key: KeyedMemberName) : EqArray<ExternalMember> =
-                match channels.MembersByKey.TryGetValue key.DeclaringType with
-                | true, ms ->
-                    EqArray.ofSeq
-                        [
-                            for m in ms do
-                                if m.Name = key.Name then
-                                    m
-                        ]
-                | _ -> EqArray.empty
-
-            let symbolByKey (key: BindingKey) : ExternalSymbol voption =
-                match channels.SymbolsByKey.TryGetValue key with
-                | true, sym -> ValueSome sym
-                | _ -> ValueNone
-
-            {
-                TypeByName =
-                    fun name ->
-                        match channels.ResolveTypeName name with
-                        | ValueSome key -> shapeByKey key |> ValueOption.map (fun shape -> struct (key, shape))
-                        | ValueNone -> ValueNone
-                TypeShapeByKey = shapeByKey
-                TypeMembersByKey = membersNamed
-                SymbolByKey = symbolByKey
-                Scope = channels.Scope
-                TryRecordsWithField = channels.TryRecordsWithField
-                AmbientOpenPrefixes = channels.AmbientOpenPrefixes
-                // A published surface has no room for an index signature; `IndexSignatures`
-                // decorates the provider with it.
-                TryLookupIndexSignature = fun _ -> []
-                IntrinsicTypeMap = channels.IntrinsicTypeMap
-                Platform = ValueNone
-            }
-
-    let ofKeyedChannels (channels: KeyedChannels) : IExternalSymbolProvider =
         { new IExternalSymbolProvider
 
           interface IExternalSymbolResolver with
               member _.Scope = channels.Scope
-              member _.TryLookupType(name: string) = channels.TypeByName name
               member _.TryRecordsWithField fieldName = channels.TryRecordsWithField fieldName
               member _.AmbientOpenPrefixes = channels.AmbientOpenPrefixes
           interface IExternalSymbolStore with
-              member _.TryLookupType(key: TypeKey) = channels.TypeShapeByKey key
+              member _.TryLookupType(key: TypeKey) =
+                  match channels.ShapesByKey.TryGetValue key with
+                  | true, shape -> ValueSome shape
+                  | _ -> ValueNone
 
               member _.TryLookupMembers(key, memberName) =
-                  channels.TypeMembersByKey
+                  membersNamed
                       {
                           DeclaringType = key
                           Name = memberName
@@ -192,38 +94,36 @@ module ExternalSymbolProviders =
               // the exact-identity selection out of that name's overload set. A
               // first-in-declaration-order pick would answer with a SIBLING overload.
               member _.TryLookupMemberByKey(key: MemberKey) =
-                  channels.TypeMembersByKey
+                  membersNamed
                       {
                           DeclaringType = key.Decl
                           Name = key.Name
                       }
                   |> ExternalSymbols.memberByKey key
 
-              member _.TryLookupIndexSignature key = channels.TryLookupIndexSignature key
+              // A published surface carries no index signatures; `IndexSignatures` decorates
+              // the provider with them.
+              member _.TryLookupIndexSignature _ = []
 
-              member _.TryLookupByKey key = channels.SymbolByKey key
+              member _.TryLookupByKey key =
+                  match channels.SymbolsByKey.TryGetValue key with
+                  | true, sym -> ValueSome sym
+                  | _ -> ValueNone
 
               member _.IntrinsicTypeMap = channels.IntrinsicTypeMap
               member _.Platform = channels.Platform
         }
 
-    let ofNamedChannels (channels: NamedChannels) : IExternalSymbolProvider =
-        ofKeyedChannels (KeyedChannels.ofNamed channels)
-
     /// Every channel a miss.
-    let nullProvider: IExternalSymbolProvider = ofNamedChannels NamedChannels.empty
+    let nullProvider: IExternalSymbolProvider =
+        ofKeyIndexedChannels KeyIndexedChannels.empty
 
-    /// Every channel defaults to forwarding `inner`, so a subclass overrides only what it
-    /// changes. The two `TryLookupType` overloads are named apart because an override's
-    /// argument type is otherwise all that tells them apart.
+    /// Every channel defaults to forwarding `inner`.
     [<AbstractClass>]
     type ProviderDecorator(inner: IExternalSymbolProvider) =
 
         abstract Scope: IScopeContents
         default _.Scope = inner.Scope
-
-        abstract TryLookupTypeByName: name: string -> struct (TypeKey * ExternalTypeShape) voption
-        default _.TryLookupTypeByName name = inner.TryLookupType name
 
         abstract TryRecordsWithField: fieldName: string -> EqArray<ExternalRecordCandidate>
         default _.TryRecordsWithField fieldName = inner.TryRecordsWithField fieldName
@@ -231,8 +131,8 @@ module ExternalSymbolProviders =
         abstract AmbientOpenPrefixes: string list
         default _.AmbientOpenPrefixes = inner.AmbientOpenPrefixes
 
-        abstract TryLookupTypeByKey: key: TypeKey -> ExternalTypeShape voption
-        default _.TryLookupTypeByKey key = inner.TryLookupType key
+        abstract TryLookupType: key: TypeKey -> ExternalTypeShape voption
+        default _.TryLookupType key = inner.TryLookupType key
 
         abstract TryLookupMembers: key: TypeKey * memberName: string -> EqArray<ExternalMember>
         default _.TryLookupMembers(key, memberName) = inner.TryLookupMembers(key, memberName)
@@ -256,12 +156,11 @@ module ExternalSymbolProviders =
 
         interface IExternalSymbolResolver with
             member this.Scope = this.Scope
-            member this.TryLookupType(name: string) = this.TryLookupTypeByName name
             member this.TryRecordsWithField fieldName = this.TryRecordsWithField fieldName
             member this.AmbientOpenPrefixes = this.AmbientOpenPrefixes
 
         interface IExternalSymbolStore with
-            member this.TryLookupType(key: TypeKey) = this.TryLookupTypeByKey key
+            member this.TryLookupType(key: TypeKey) = this.TryLookupType key
             member this.TryLookupMembers(key, memberName) = this.TryLookupMembers(key, memberName)
             member this.TryLookupMemberByKey(key: MemberKey) = this.TryLookupMemberByKey key
             member this.TryLookupIndexSignature(key: TypeKey) = this.TryLookupIndexSignature key
@@ -350,23 +249,20 @@ module ExternalSymbolProviders =
                 | ExternalTypeShape.Intrinsic _
                 | ExternalTypeShape.Unmodelled _ -> shape
 
+        let stampHit (key: TypeKey) (shape: ExternalTypeShape) : ExternalTypeShape =
+            stampType (foldIntrinsicSurface key shape)
+
         // The scope answers for the same values and types the key channels do, so it carries
         // the same home stamp and the same intrinsic fold. A union case takes its origin from
         // its declaring union's shape.
         let scope =
             ScopeContents.composite [ for p in providers -> p.Scope ]
-            |> ScopeContents.decorate stampSymbol id (fun key shape -> stampType (foldIntrinsicSurface key shape))
+            |> ScopeContents.decorate stampSymbol id stampHit
 
         { new IExternalSymbolProvider
 
           interface IExternalSymbolResolver with
               member _.Scope = scope
-
-              member _.TryLookupType(name: string) =
-                  firstHit (fun s -> s.TryLookupType name)
-                  |> ValueOption.map (fun (struct (key, shape)) ->
-                      struct (key, stampType (foldIntrinsicSurface key shape))
-                  )
 
               // UNION, not first-hit-wins: a field name can recur across records in
               // DIFFERENT packages, and unqualified record resolution must intersect over
@@ -381,8 +277,7 @@ module ExternalSymbolProviders =
               member _.AmbientOpenPrefixes = ambient
           interface IExternalSymbolStore with
               member _.TryLookupType(key: TypeKey) =
-                  firstHit (fun s -> s.TryLookupType key)
-                  |> ValueOption.map (foldIntrinsicSurface key >> stampType)
+                  firstHit (fun s -> s.TryLookupType key) |> ValueOption.map (stampHit key)
 
               // A type's members live in one assembly, so a later source never *adds*
               // overloads and the first source that knows the type wins the whole set.
@@ -535,11 +430,7 @@ module ExternalSymbolProviders =
         { new ProviderDecorator(inner) with
             override _.Scope = mappedScope
 
-            override _.TryLookupTypeByName name =
-                inner.TryLookupType name
-                |> ValueOption.map (fun (struct (key, shape)) -> struct (key, mapShape shape))
-
-            override _.TryLookupTypeByKey key =
+            override _.TryLookupType key =
                 inner.TryLookupType key |> ValueOption.map mapShape
 
             override _.TryLookupMembers(key, memberName) =
@@ -594,9 +485,6 @@ module ExternalSymbolProviders =
     /// for a compile, so a `ValueNone` / empty result is as stable as a hit. Apply ONCE, atop a
     /// composed stack, whose fall-through and rewrites would otherwise re-run per call.
     let memoize (inner: IExternalSymbolProvider) : IExternalSymbolProvider =
-        let typesByName =
-            ConcurrentDictionary<string, struct (TypeKey * ExternalTypeShape) voption>()
-
         let typesByKey = ConcurrentDictionary<TypeKey, ExternalTypeShape voption>()
 
         let memberSets =
@@ -631,13 +519,10 @@ module ExternalSymbolProviders =
         { new ProviderDecorator(inner) with
             override _.Scope = scope
 
-            override _.TryLookupTypeByName name =
-                typesByName.GetOrAdd(name, (fun n -> inner.TryLookupType n))
-
             override _.TryRecordsWithField fieldName =
                 recordsByField.GetOrAdd(fieldName, (fun n -> inner.TryRecordsWithField n))
 
-            override _.TryLookupTypeByKey key =
+            override _.TryLookupType key =
                 typesByKey.GetOrAdd(key, (fun k -> inner.TryLookupType k))
 
             override _.TryLookupMembers(key, memberName) =

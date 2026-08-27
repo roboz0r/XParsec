@@ -3,7 +3,7 @@ namespace XParsec.FSharp.SemanticAnalysis.Passes
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open UnificationEngineCore
-open ExternalTypeProbe
+open NameResolutionContainers
 open NameResolutionLongIdent
 open NameResolutionTypeRefStamp
 
@@ -73,18 +73,29 @@ module NameResolutionInheritParent =
         (name: string)
         (args: EqArray<SemType>)
         : SemType =
-        match IntrinsicResolve.tryResolveIntrinsicKey ctx.Resolver ctx.Types.IntrinsicKeys name with
-        | Some k -> TyConst(k, args)
-        | None ->
-            match TypeRegistry.tryRecord ctx.Types useSite name with
-            | ValueSome info -> TyRecord(info.TypeKey, args)
+        match TypeRegistry.tryRecord ctx.Types useSite name with
+        | ValueSome info -> TyRecord(info.TypeKey, args)
+        | ValueNone ->
+            match TypeRegistry.tryUnionBare ctx.Types useSite name with
+            | ValueSome info -> TyUnion(info.TypeKey, args)
             | ValueNone ->
-                match TypeRegistry.tryUnionBare ctx.Types useSite name with
-                | ValueSome info -> TyUnion(info.TypeKey, args)
+                match TypeRegistry.tryClass ctx.Types useSite name with
+                | ValueSome info -> TyClass(info.TypeKey, args)
                 | ValueNone ->
-                    match TypeRegistry.tryClass ctx.Types useSite name with
-                    | ValueSome info -> TyClass(info.TypeKey, args)
-                    | ValueNone -> TyConst(RuntimeNames.opaqueKey name, EqArray.empty)
+                    match ctx.Types.IntrinsicKeys.TryGetValue name with
+                    | true, k -> TyConst(k, args)
+                    | _ ->
+                        match
+                            tryPickExternalWritten
+                                ctx
+                                useSite
+                                WrittenArity.Any
+                                (fun _ shape -> ExternalSymbols.intrinsicCanonOf shape)
+                                Qualifier.Bare
+                                name
+                        with
+                        | ValueSome c -> TyConst(c, args)
+                        | ValueNone -> TyConst(RuntimeNames.opaqueKey name, EqArray.empty)
 
     /// An `inherit` parent that a provider answers for, rather than the project-local type
     /// registry. Already discriminated: the arm a caller takes is fixed here, so no caller
@@ -179,6 +190,7 @@ module NameResolutionInheritParent =
                             (ctx.UseSiteAt diagKey)
                             (WrittenArity.Exact targs.Length)
                             (fun _ shape -> ExternalSymbols.intrinsicClassOf shape)
+                            Qualifier.Bare
                             name
                     with
                     | ValueSome(struct (id, surface)) when surface.Members |> EqArray.exists (fun m -> m.Name = ".ctor") ->
@@ -190,8 +202,8 @@ module NameResolutionInheritParent =
                 // ctors falls back to inheriting by canon, and only a base with neither gets
                 // the "did not resolve" diagnostic.
                 let reprToExternalBase (repr: string) =
-                    match tryResolveExternalTypeKey ctx repr targs.Length with
-                    | ValueSome extKey -> ValueSome(TyClass(extKey, EqArray.ofList targs))
+                    match ExternalSymbols.tryReprTypeAt ctx.Provider repr targs.Length with
+                    | ValueSome(struct (extKey, _)) -> ValueSome(TyClass(extKey, EqArray.ofList targs))
                     | ValueNone ->
                         match tryCtorBearingCanon () with
                         | ValueSome t -> ValueSome t
@@ -219,6 +231,7 @@ module NameResolutionInheritParent =
                             (ctx.UseSiteAt diagKey)
                             (WrittenArity.Exact targs.Length)
                             (providerBaseOf targs.Length)
+                            Qualifier.Bare
                             name
                     with
                     | ValueSome(ProviderBase.Class key) -> ValueSome(TyClass(key, EqArray.ofList targs))

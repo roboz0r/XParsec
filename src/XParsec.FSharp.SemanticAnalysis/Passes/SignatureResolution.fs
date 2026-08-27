@@ -508,7 +508,7 @@ module SignatureResolution =
             let key =
                 SymbolKeyOps.typeKeyOfContainer (localTypeContainer ctx containment) name arity
 
-            PublishedSurfaceBuilder.addTypeName sctx.Surface key
+            PublishedSurfaceBuilder.addModuleChain sctx.Surface key
             publishShape sctx key (ExternalTypeShape.Unmodelled(reason, arity))
 
     /// The shape ONE claimed declaration publishes, once every declaration in its group has
@@ -544,7 +544,7 @@ module SignatureResolution =
             match claimSigTypeIdentity ctx containment visibleFrom decl with
             | ValueSome id ->
                 claims.Add(struct (id, decl))
-                PublishedSurfaceBuilder.addTypeName sctx.Surface id.Key
+                PublishedSurfaceBuilder.addModuleChain sctx.Surface id.Key
             | ValueNone ->
                 match SigDecl.unmodelledReason decl with
                 | ValueSome reason -> publishUnmodelled sctx containment (SigDecl.typeName decl) reason

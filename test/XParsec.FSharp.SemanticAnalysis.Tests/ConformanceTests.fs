@@ -1008,10 +1008,7 @@ let private mkMember
 /// A contract provider publishing exactly `overloads`, keyed by member name only:
 /// the stub serves whatever qualified name the `.fs` type resolves under.
 let private memberContractProvider (overloads: ExternalMember list) : IExternalSymbolProvider =
-    ExternalSymbolProviders.ofNamedChannels
-        { ExternalSymbolProviders.NamedChannels.empty with
-            TryLookupMembers = fun q -> overloads |> List.filter (fun m -> m.Name = q.Name) |> EqArray.ofList
-        }
+    TestHelpers.membersProvider (fun _ name -> overloads |> List.filter (fun m -> m.Name = name) |> EqArray.ofList)
 
 [<Tests>]
 let memberTyparConformanceTests =

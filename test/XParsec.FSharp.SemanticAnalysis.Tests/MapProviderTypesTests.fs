@@ -128,26 +128,32 @@ let private fakeScope: IScopeContents =
 
         member _.TypesNamed(_, name) =
             match typeByName name with
-            | ValueSome shape -> EqArray.singleton (ExternalSymbols.nameKeyedTypeHit name shape)
+            | ValueSome shape ->
+                EqArray.singleton (struct (SymbolKeyOps.qualifiedTypeKeyOf name shape.TyparArity, shape))
             | ValueNone -> EqArray.empty
     }
 
-let private fakeNamed: ExternalSymbolProviders.NamedChannels =
-    { ExternalSymbolProviders.NamedChannels.empty with
-        TryLookupType = typeByName
-        AmbientOpenPrefixes = [ "Amb" ]
-        TryLookupMembers =
-            fun q ->
-                match memberByName q.DeclaringType q.Name with
-                | ValueSome mem -> EqArray.singleton mem
-                | ValueNone -> EqArray.empty
-        TryRecordsWithField =
-            fun fieldName ->
-                if fieldName = "f" then
-                    EqArray.singleton candidate
-                else
-                    EqArray.empty
-        Platform =
+// A key-channel source given a scope, so `mapProviderTypes` rewrites both.
+let private fake: IExternalSymbolProvider =
+    { new ExternalSymbolProviders.ProviderDecorator(ExternalSymbolProviders.nullProvider) with
+        override _.Scope = fakeScope
+        override _.AmbientOpenPrefixes = [ "Amb" ]
+
+        override _.TryLookupType key =
+            typeByName (SymbolKeyOps.typeMetaName key)
+
+        override _.TryLookupMembers(key, memberName) =
+            match memberByName (SymbolKeyOps.typeMetaName key) memberName with
+            | ValueSome mem -> EqArray.singleton mem
+            | ValueNone -> EqArray.empty
+
+        override _.TryRecordsWithField fieldName =
+            if fieldName = "f" then
+                EqArray.singleton candidate
+            else
+                EqArray.empty
+
+        override _.Platform =
             ValueSome
                 { new IPlatformFacts with
                     member _.IsValueType _ = ValueSome true
@@ -155,18 +161,15 @@ let private fakeNamed: ExternalSymbolProviders.NamedChannels =
                 }
     }
 
-// A name-keyed source given a scope, so `mapProviderTypes` has both halves to rewrite.
-let private fake: IExternalSymbolProvider =
-    ExternalSymbolProviders.ofKeyedChannels
-        { ExternalSymbolProviders.KeyedChannels.ofNamed fakeNamed with
-            Scope = fakeScope
-        }
-
 let private wrapped = ExternalSymbolProviders.mapProviderTypes resolveMarker fake
+
+/// The mapped shape the compiled rendering `name` reaches, by key.
+let private shapeNamed (name: string) : ExternalTypeShape voption =
+    wrapped.TryLookupType(SymbolKeyOps.qualifiedTypeKeyOf name 0)
 
 /// The `Class` shape of `Cls`, or fail.
 let private clsShape () =
-    match wrapped.TryLookupType "Cls" |> ExternalSymbols.typeShapeOf with
+    match shapeNamed "Cls" with
     | ValueSome(ExternalTypeShape.Class info) -> info
     | other -> failtestf "expected a Class shape, got %A" other
 
@@ -214,14 +217,14 @@ let tests =
             }
 
             test "a record field is covariant" {
-                match wrapped.TryLookupType "Rec" |> ExternalSymbols.typeShapeOf with
+                match shapeNamed "Rec" with
                 | ValueSome(ExternalTypeShape.Record(fields = fields)) ->
                     Expect.equal fields.[0].Frozen (witness Variance.Co) "record field root is co"
                 | other -> failtestf "expected a Record shape, got %A" other
             }
 
             test "a union-case field is covariant and the union's interface args invariant" {
-                match wrapped.TryLookupType "Uni" |> ExternalSymbols.typeShapeOf with
+                match shapeNamed "Uni" with
                 | ValueSome(ExternalTypeShape.Union(_, cases, ifaces, _, _)) ->
                     Expect.equal
                         cases.[0].FrozenFieldTypes
@@ -284,7 +287,7 @@ let tests =
             }
 
             test "an Abbrev body is NOT threaded (no intrinsic variance) — the marker survives" {
-                match wrapped.TryLookupType "Abb" |> ExternalSymbols.typeShapeOf with
+                match shapeNamed "Abb" with
                 | ValueSome(ExternalTypeShape.Abbrev(_, body)) ->
                     Expect.equal body marker "the abbreviation body is left for its expansion seam"
                 | other -> failtestf "expected an Abbrev shape, got %A" other
@@ -296,7 +299,7 @@ let tests =
                 Expect.equal wrapped.AmbientOpenPrefixes [ "Amb" ] "ambient delegated"
                 Expect.equal (wrapped.IsValueType clsKey) (ValueSome true) "value-ness delegated"
                 Expect.equal (wrapped.TryRecordsWithField "f") (EqArray.singleton candidate) "candidates delegated"
-                Expect.isTrue (wrapped.TryLookupType "unknown" |> ValueOption.isNone) "unknown type misses"
+                Expect.isTrue (shapeNamed "unknown" |> ValueOption.isNone) "unknown type misses"
 
                 Expect.isTrue
                     (ScopeContents.tryValueAt wrapped.Scope "unknown" |> ValueOption.isNone)

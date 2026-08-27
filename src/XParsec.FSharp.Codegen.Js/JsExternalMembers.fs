@@ -132,7 +132,7 @@ module JsExternalMembers =
         match inheritedReprOf provider key with
         // The PLATFORM repr, not `canon`: `canon` has no JS class analogue.
         | ValueSome platform ->
-            match ExternalSymbols.tryRuntimeType provider platform with
+            match ExternalSymbols.tryReprType provider platform with
             | ValueSome(ExternalTypeShape.Class _) -> ValueSome platform
             | _ -> ValueNone
         | ValueNone -> ValueNone

@@ -34,8 +34,6 @@ type PublishedSurfaceBuilder =
         DeclaredReprs: Dictionary<TypeKey, DeclaredRepr>
         /// A type's FULL member list, in DECLARATION order: the overload scan depends on it.
         MembersByKey: Dictionary<TypeKey, ResizeArray<ExternalMember>>
-        /// Canonical compiled name -> the registered identity. First declaration wins.
-        TypesByName: Dictionary<string, TypeKey>
         /// Dotted source path of a declared module -> the container a type it holds sits in.
         /// What makes a written `A.M.T` reach the type compiled as `A.M+T`.
         ModuleContainers: Dictionary<string, TypeContainer>
@@ -61,7 +59,6 @@ module PublishedSurfaceBuilder =
             ShapesByKey = Dictionary()
             DeclaredReprs = Dictionary()
             MembersByKey = Dictionary()
-            TypesByName = Dictionary(StringComparer.Ordinal)
             ModuleContainers = Dictionary(StringComparer.Ordinal)
             UnionCases = Dictionary(StringComparer.Ordinal)
             RecordFields = Dictionary(StringComparer.Ordinal)
@@ -82,16 +79,9 @@ module PublishedSurfaceBuilder =
         | ModuleContainer.InModule parent -> addModuleContainer surface parent
         | ModuleContainer.InNamespace _ -> ()
 
-    /// Index a type's identity by the name a consumer writes: its compiled name, and the
-    /// enclosing module chain that makes a written `A.M.T` reach it. An `InType`-nested or
-    /// namespace-direct type contributes no module container.
-    let addTypeName (surface: PublishedSurfaceBuilder) (key: TypeKey) : unit =
-        let name = SymbolKeyOps.typeMetaName key
-
-        // First declaration wins on a compiled-name collision.
-        if not (surface.TypesByName.ContainsKey name) then
-            surface.TypesByName.[name] <- key
-
+    /// Index the enclosing module chain that makes a written `A.M.T` reach the type compiled
+    /// as `A.M+T`. An `InType`-nested or namespace-direct type has no enclosing module.
+    let addModuleChain (surface: PublishedSurfaceBuilder) (key: TypeKey) : unit =
         match key.Container with
         | TypeContainer.InModule m -> addModuleContainer surface m
         | TypeContainer.InNamespace _
@@ -160,7 +150,7 @@ module PublishedSurfaceBuilder =
         (shape: ExternalTypeShape)
         (members: seq<ExternalMember>)
         : unit =
-        addTypeName surface key
+        addModuleChain surface key
         addShape surface key shape
         addMembers surface key members
 
@@ -210,8 +200,6 @@ type PublishedSurface =
         DeclaredReprs: EqArray<SurfaceEntry<TypeKey, DeclaredRepr>>
         /// A type's FULL member list, in DECLARATION order: the overload scan depends on it.
         MembersByKey: EqArray<SurfaceEntry<TypeKey, EqArray<ExternalMember>>>
-        /// Canonical compiled name -> the registered identity.
-        TypesByName: EqArray<SurfaceEntry<string, TypeKey>>
         /// Dotted source path of a declared module -> the container a type it holds sits in.
         ModuleContainers: EqArray<SurfaceEntry<string, TypeContainer>>
         /// Declaring union's compiled name + `.` + case name -> the case.
@@ -267,7 +255,6 @@ module PublishedSurface =
                 b.MembersByKey
                 |> Seq.map (fun (KeyValue(k, ms)) -> k, EqArray.ofResizeArray ms)
                 |> ordered SymbolKeyOps.typeMetaName
-            TypesByName = byName b.TypesByName
             ModuleContainers = byName b.ModuleContainers
             UnionCases = byName b.UnionCases
             RecordFields =
@@ -441,30 +428,19 @@ module PublishedSurface =
         }
 
     let toProvider (surface: PublishedSurface) : IExternalSymbolProvider =
-        let typesByName = nameIndex surface.TypesByName
         let recordFields = nameIndex surface.RecordFields
 
-        // The canonical metadata name only. The dotted spelling source writes for a
-        // module-held type (`M.T`) is reached through the module, on the scope.
-        let tryTypeKey (probe: string) : TypeKey voption =
-            match typesByName.TryGetValue probe with
-            | true, key -> ValueSome key
-            | _ -> ValueNone
-
-        ExternalSymbolProviders.ofKeyedChannels (
-            ExternalSymbolProviders.KeyedChannels.ofKeyIndexes
-                { ExternalSymbolProviders.KeyIndexedChannels.empty with
-                    Scope = scopeOf surface
-                    ShapesByKey = keyIndex surface.ShapesByKey
-                    MembersByKey = keyIndex surface.MembersByKey
-                    ResolveTypeName = tryTypeKey
-                    SymbolsByKey = index surface.Symbols HashIdentity.Structural
-                    TryRecordsWithField =
-                        fun fieldName ->
-                            match recordFields.TryGetValue fieldName with
-                            | true, cs -> cs
-                            | _ -> EqArray.empty
-                    AmbientOpenPrefixes = List.ofSeq surface.AmbientOpenPrefixes
-                    IntrinsicTypeMap = surface.Intrinsics
-                }
-        )
+        ExternalSymbolProviders.ofKeyIndexedChannels
+            { ExternalSymbolProviders.KeyIndexedChannels.empty with
+                Scope = scopeOf surface
+                ShapesByKey = keyIndex surface.ShapesByKey
+                MembersByKey = keyIndex surface.MembersByKey
+                SymbolsByKey = index surface.Symbols HashIdentity.Structural
+                TryRecordsWithField =
+                    fun fieldName ->
+                        match recordFields.TryGetValue fieldName with
+                        | true, cs -> cs
+                        | _ -> EqArray.empty
+                AmbientOpenPrefixes = List.ofSeq surface.AmbientOpenPrefixes
+                IntrinsicTypeMap = surface.Intrinsics
+            }

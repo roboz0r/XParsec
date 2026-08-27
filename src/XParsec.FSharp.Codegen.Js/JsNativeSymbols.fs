@@ -59,14 +59,34 @@ module JsNativeSymbols =
                 Origin = errorOrigin
             }
 
-    /// Keyed as a by-name lookup spells it: the bare `Error`, because the global has no
-    /// namespace to qualify it.
-    let private types: Map<string, ExternalTypeShape> = Map [ "Error", errorShape ]
+    /// The stub table, one entry per identity.
+    let private types: (TypeKey * ExternalTypeShape) list = [ errorTypeKey, errorShape ]
 
-    let private membersOf (key: ExternalMemberName) : EqArray<ExternalMember> =
-        match Map.tryFind key.DeclaringType types with
-        | Some(ExternalTypeShape.Class shape) -> shape.Members |> EqArray.filter (fun m -> m.Name = key.Name)
-        | _ -> EqArray.empty
+    let private shapesByKey = readOnlyDict types
+
+    let private membersByKey =
+        readOnlyDict
+            [
+                for key, shape in types do
+                    match shape with
+                    | ExternalTypeShape.Class c -> key, c.Members
+                    | _ -> ()
+            ]
+
+    let private directorySlots () : seq<struct (string * string * int)> =
+        seq {
+            for key, _ in types do
+                struct (SymbolKeyOps.typeNs key, key.Name, key.TyparArity)
+        }
+
+    let private scope: IScopeContents =
+        ScopeContents.typeDirectory
+            directorySlots
+            (fun key ->
+                match shapesByKey.TryGetValue key with
+                | true, s -> ValueSome s
+                | _ -> ValueNone
+            )
 
     let private platformFacts: IPlatformFacts =
         { new IPlatformFacts with
@@ -84,16 +104,12 @@ module JsNativeSymbols =
                     ValueSome(RuntimeNames.arrayTypeKey 1)
         }
 
-    /// The stub table as a provider.
     let provider: IExternalSymbolProvider =
-        ExternalSymbolProviders.ofNamedChannels
-            { ExternalSymbolProviders.NamedChannels.empty with
-                TryLookupType =
-                    fun name ->
-                        match Map.tryFind name types with
-                        | Some s -> ValueSome s
-                        | None -> ValueNone
-                TryLookupMembers = membersOf
+        ExternalSymbolProviders.ofKeyIndexedChannels
+            { ExternalSymbolProviders.KeyIndexedChannels.empty with
+                Scope = scope
+                ShapesByKey = shapesByKey
+                MembersByKey = membersByKey
                 Platform = ValueSome platformFacts
             }
 

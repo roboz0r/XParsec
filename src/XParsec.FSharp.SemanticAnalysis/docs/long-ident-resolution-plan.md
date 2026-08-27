@@ -1,12 +1,11 @@
 # Long-identifier resolution — the remaining deletions
 
-**Status (2026-08-25): R1–R7.1 are LANDED; R8 is planned and unstarted.** This doc scoped what
-was left of the original step 5 ("delete the speculation"), re-planned after a wiring survey
-corrected one of its premises. The original design (FCS-shaped algorithm, forks A–C, steps
-1–4) was confirmed by the user on 2026-08-23 and is now code; this rewrite drops the landed
-history and keeps only the settled semantics, the corrected premises, and the deletions each
-step made. R8 (§5) is the last by-name channel and wants the semantic confirmations listed
-there before it starts. What also remains is the deferred list at the end of §4.
+**Status (2026-08-26): R1–R8 are LANDED (R8 uncommitted, awaiting review).** This doc scoped
+what was left of the original step 5 ("delete the speculation"), re-planned after a wiring
+survey corrected one of its premises. The original design (FCS-shaped algorithm, forks A–C,
+steps 1–4) was confirmed by the user on 2026-08-23 and is now code. R8's five steps all landed
+on 2026-08-26 under the confirmations in §5; the scope is complete, so this doc is ready for
+deletion once the deferred list at the end of §4 moves to its homes.
 
 ## 1. What exists now
 
@@ -308,7 +307,7 @@ the generic-class static TyVar fallback; contract-build cost — `buildProviderS
 re-analyses the full closure (nine packages for `Vesper.Set`) on every contract build, which
 is publishing-format-plan PF5's content-hash cache when it shows in a profile.
 
-## 5. R8 — the by-name TYPE channel is deleted. PLANNED, unstarted.
+## 5. R8 — the by-name TYPE channel is deleted. LANDED (2026-08-26).
 
 ### The premise R7 got wrong
 
@@ -351,7 +350,10 @@ Steps 1 and 2 are independent; 3 needs both; 5 needs 4. Each leaves the tree gre
    existing `computeType` cache, so the shape stays demand-driven; the directory carries
    identity alone. `TryValue` and `UnionCasesNamed` miss: IL declares no free function and no
    F# union case. `GetExportedTypes()` selects exactly the types the existing `tryAsm`
-   `t.IsVisible` filter admits, so visibility is unchanged.
+   `t.IsVisible` filter admits, so visibility is unchanged. `GetForwardedTypes()` names join
+   the directory (identity alone): `asm.GetType` follows a type forwarder while
+   `GetExportedTypes()` omits it, so a facade-heavy reference set would otherwise lose names
+   the demand-driven path resolves.
 2. **`JsNativeSymbols` publishes one too**, off the `Map<string, ExternalTypeShape>` it
    already holds — a smaller version of the same directory.
 3. **`tryPickExternalWritten` loses its second half**, becoming the container walk alone.
@@ -378,7 +380,13 @@ Steps 1 and 2 are independent; 3 needs both; 5 needs 4. Each leaves the tree gre
    `AmbientOpenPrefixes` scan is load-bearing for the first caller and dead weight for the
    second, and one name covers two queries. Split them: an exact repr/canon lookup on
    `IExternalSymbolStore`, and a written bare name taking the container walk with every other
-   written name.
+   written name. The walk reads the use site's own `open`s where the scan read the ambient
+   prefixes alone, a confirmed widening.
+   `resolveInheritArgName` also checks intrinsics BEFORE the local registry, so a provider
+   answer shadows a local declaration in inherit-arg position. An intrinsic is an ordinary
+   type everywhere outside the hardcoded literal type names (user, 2026-08-26): the registry
+   arms run first, and the intrinsic read joins the container walk with every other written
+   name.
 5. **`IExternalSymbolResolver.TryLookupType` is deleted**, step 4 having given both halves a
    home. `NamedChannels`, `KeyedChannels.ofNamed` and `ExternalTypeProbe` go with it. Two more
    R7 review findings land here:
@@ -417,23 +425,19 @@ Steps 1 and 2 are independent; 3 needs both; 5 needs 4. Each leaves the tree gre
   suite to be the one that finds the gaps; a red test there is a finding about the directory's
   contents, not a reason to restore the fallback.
 
-### Confirm before starting
+### Confirmed (user, 2026-08-26)
 
-- **The arity cap costs nothing today.** Across the whole BCL closure, no `(namespace, name)`
-  slot has only arities above `MaxProbedQualifierArity` — every wide `Func` / `Action` /
-  `Tuple` name also carries a narrow one. So step 3 is correctness by construction rather than
-  a live defect, and R8's case rests on the single route, not on the cap.
-- **A directory is eager where the rest of the layer is lazy.** 38 ms and ~5000 slots is the
-  price of every compile that touches the metadata provider, including the ones that resolve
-  two BCL names. Per-assembly laziness is available (build a namespace's slot set on first
-  `TryContainer` for it) at the cost of a second index; it is worth having only if the flat
-  38 ms shows in a profile.
-- **Which of `tryPickRuntimeType`'s two inputs is the contract**, since step 4 has the doc
-  and one caller disagreeing. An intrinsic reached by written name (`inherit exn`) and one
-  reached by platform repr (`"System.Exception"`) want different lookups; confirm that
-  routing the written half through the container walk is right before R8 assumes it, because
-  an intrinsic's canon is registered under `Vesper.exn` while the repr names a BCL type, and
-  the two land in different containers.
+- **The arity cap and probe list go.** `TypeKey` already carries the plain `Name` plus
+  `TyparArity: int`; the backtick suffix is a rendering (`typeMetaName`), so the cap was an
+  artifact of the `string ->` channel alone. Measured: no BCL `(namespace, name)` slot holds
+  only arities above the cap, so step 3 is correctness by construction, not a live-defect fix.
+- **The directory is eagerly built.** 38 ms behind a `lazy` is accepted; no per-assembly
+  second index.
+- **Step 4's split is the contract.** The written half (an intrinsic reached as `inherit exn`)
+  takes the container walk under the use site's opens; the platform repr
+  (`"System.Exception"`) takes an exact `IExternalSymbolStore` lookup and reads no opens. The
+  canon living under `Vesper.exn` while the repr names a BCL type is why the two are separate
+  queries. Intrinsics receive no special resolution outside the hardcoded literal type names.
 
 ## 6. Settled semantics (user, 2026-08-23)
 

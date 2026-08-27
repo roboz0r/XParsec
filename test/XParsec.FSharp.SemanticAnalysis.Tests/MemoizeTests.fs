@@ -8,10 +8,9 @@ open XParsec.FSharp.SemanticAnalysis
 
 let private origin = SymbolOrigin.Empty
 
-/// An inner provider answering only `name`, counting per-channel hits. It implements the
-/// interface directly rather than wrapping `NamedChannels`, whose `TryLookupMemberByKey` is
-/// derived from `TryLookupMembers`, so `MemberKeyHits` would count a different channel. The
-/// value channel is the SCOPE, which is where a published value lives.
+/// An inner provider serving only `name`, counting per-channel hits. It implements the
+/// interface directly: a decorated stub derives `TryLookupMemberByKey` from
+/// `TryLookupMembers`, so `MemberKeyHits` would count a different channel.
 type private CountingProvider(name: string) =
     let mutable valueHits = 0
     let mutable typeHits = 0
@@ -46,28 +45,21 @@ type private CountingProvider(name: string) =
     member _.ValueTypeHits = valueTypeHits
     member _.TupleTypeHits = tupleTypeHits
 
-    member private _.TypeByName(n: string) =
-        typeHits <- typeHits + 1
-
-        if n = name then
-            ValueSome(ExternalTypeShape.Class(ExternalClassShape.basic (0, false, origin)))
-        else
-            ValueNone
-
     interface IExternalSymbolProvider
 
     interface IExternalSymbolResolver with
         member _.Scope = scope
-
-        member this.TryLookupType(n: string) =
-            this.TypeByName n |> ValueOption.map (ExternalSymbols.nameKeyedTypeHit n)
-
         member _.TryRecordsWithField _ = EqArray.empty
         member _.AmbientOpenPrefixes = []
 
     interface IExternalSymbolStore with
-        member this.TryLookupType(key: TypeKey) =
-            this.TypeByName(SymbolKeyOps.typeMetaName key)
+        member _.TryLookupType(key: TypeKey) =
+            typeHits <- typeHits + 1
+
+            if key.Name = name then
+                ValueSome(ExternalTypeShape.Class(ExternalClassShape.basic (0, false, origin)))
+            else
+                ValueNone
 
         member _.TryLookupMembers(_, _) = EqArray.empty
 
@@ -143,10 +135,11 @@ let tests =
                 let inner = CountingProvider "known"
                 let cached = ExternalSymbolProviders.memoize inner
 
+                let knownKey = SymbolKeyOps.typeKeyOf "" "known"
                 ScopeContents.tryValueAt cached.Scope "known" |> ignore
                 ScopeContents.tryValueAt cached.Scope "known" |> ignore
-                cached.TryLookupType "known" |> ignore
-                cached.TryLookupType "known" |> ignore
+                cached.TryLookupType knownKey |> ignore
+                cached.TryLookupType knownKey |> ignore
 
                 Expect.equal inner.ValueHits 1 "value channel hit once"
                 Expect.equal inner.TypeHits 1 "type channel hit once"

@@ -234,12 +234,16 @@ module internal UnificationTranslate =
             | ValueSome m ->
                 let mt = translateMeasure ctx carrierTok m
                 let tv = freshTyVar ctx
+                let carrierSite = CstKeys.typeRefSite t
                 // Resolve the carrier (`float`) BY NAME: the measure arg is not a type arg, so
                 // the carrier is wanted at arity 0 and its verdict was recorded at written arity 1.
                 ctx.Store.SetLink(
                     UnionFind.find ctx.Store tv,
                     ValueSome(
-                        resolveBareTypeName ctx carrierTok (fun name -> tryResolveExternalType ctx name EqArray.empty)
+                        resolveBareTypeName
+                            ctx
+                            carrierTok
+                            (fun name -> tryResolveExternalType ctx (ctx.UseSiteAt carrierSite.Key) name EqArray.empty)
                     )
                 )
 
@@ -526,12 +530,17 @@ module internal UnificationTranslate =
     /// wanted at arity 0 where any verdict for that name was recorded at its written arity 1.
     and private tryResolveExternalType
         (ctx: PassContext)
-        (qualName: string)
+        (useSite: UseSite)
+        (name: string)
         (translatedArgs: EqArray<SemType>)
         : SemType voption =
-        match ExternalTypeProbe.tryResolveExternalTypeKey ctx qualName translatedArgs.Length with
-        | ValueSome symKey -> tryExternalTypeOfKey ctx symKey translatedArgs
-        | ValueNone -> ValueNone
+        NameResolutionContainers.tryPickExternalWritten
+            ctx
+            useSite
+            (NameResolutionContainers.WrittenArity.Exact translatedArgs.Length)
+            (fun key shape -> buildExternalTy ctx key shape translatedArgs)
+            NameResolutionContainers.Qualifier.Bare
+            name
 
     /// Attach to the constrained typar's TyVar through the current
     /// `ctx.Resolution.TyparScope`.

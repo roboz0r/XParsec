@@ -2,6 +2,7 @@ namespace XParsec.FSharp.SemanticAnalysis
 
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
+open NameResolutionContainers
 
 [<AutoOpen>]
 module AttributeResolution =
@@ -20,7 +21,14 @@ module AttributeResolution =
 
                 match TypeRegistry.tryWrittenTypeClaim this.Types useSite w typeRef.TyparArity with
                 | ValueSome claim -> ValueSome claim.Key
-                | ValueNone -> ExternalTypeProbe.tryResolveExternalTypeKey this w.Written typeRef.TyparArity
+                | ValueNone ->
+                    tryPickExternalWritten
+                        this
+                        useSite
+                        (WrittenArity.Exact typeRef.TyparArity)
+                        (fun key _ -> ValueSome key)
+                        (Qualifier.ofPath w.Path)
+                        w.Name
 
             match tryName (written.Name + RuntimeNames.AttributeSuffix) with
             | ValueSome k -> ValueSome k

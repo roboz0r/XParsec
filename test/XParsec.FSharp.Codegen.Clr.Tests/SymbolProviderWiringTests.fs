@@ -49,7 +49,7 @@ let tests =
                 // The provider answers the QUALIFIED name; short names come from the
                 // ambient open scope. `int` is an `extern` paired with a `.fs`
                 // `(# "System.Int32" #)`, so it surfaces `Intrinsic`, not opaque `Class`.
-                match provider.TryLookupType "Vesper.int" |> ExternalSymbols.typeShapeOf with
+                match ExternalSymbols.tryReprType provider "Vesper.int" with
                 | ValueSome(ExternalTypeShape.Intrinsic {
                                                             Id = {
                                                                      Canon = canon
