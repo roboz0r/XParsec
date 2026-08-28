@@ -240,6 +240,11 @@ type PassContextResolution =
         /// declarations; `""` under no namespace) → its directly-declared `let` bindings.
         /// Whole-file, so a reader MUST honour `VisibleFrom`.
         LocalModulePaths: Dictionary<string, Dictionary<string, LocalModuleMember>>
+        /// Keyed by a module-level `[<Literal>]` binding's pattern `NodeKey` (the
+        /// `LocalModuleMember.BindingSite` a value resolution yields): the RHS's folded
+        /// constant. Written at the binding's position in the registration scan, so a
+        /// reader above the binding misses.
+        LiteralValues: SideTable<TConstValue>
     }
 
 module PassContextResolution =
@@ -269,6 +274,7 @@ module PassContextResolution =
             TypeRefVerdicts = SideTable<_>()
             AttributeVerdicts = SideTable<_>()
             LocalModulePaths = Dictionary<_, _>(System.StringComparer.Ordinal)
+            LiteralValues = SideTable<_>()
         }
 
 /// An `x?name` site whose result var (`Root`) may escape `dynamic` through context; for

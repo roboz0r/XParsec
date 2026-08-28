@@ -547,6 +547,11 @@ type internal Assembler
     // Everything else a `TypeDefinition` row needs comes from the layout.
     let typeRowExtras = Dictionary<TypeSlotKey, TypeRowExtras>()
 
+    // The frozen-attribute `CustomAttribute` rows and skips (`PrepareCustomAttributeRows`).
+    // The rows are flushed once in `Finalise`; SRM sorts the table by parent, so add order
+    // is free.
+    let mutable attributeRows: AttributeRowPrep.Prepared = { Rows = []; Skipped = [] }
+
     member _.Provider = provider
     member _.Icodegen = icodegen
     member _.Ctx = ctx
@@ -573,6 +578,19 @@ type internal Assembler
     member _.AddPrepared(key: MethodKey, m: PreparedMethod) = prepared.Add(key, m)
 
     member _.AddTypeRowExtras(key: TypeSlotKey, extras: TypeRowExtras) = typeRowExtras.Add(key, extras)
+
+    /// The generalised `CustomAttribute` rows: one per frozen attribute on the assembly's
+    /// type declarations, their own members, and record fields. A union-case or enum-case
+    /// attribute has no metadata parent row of its own and emits no row.
+    member _.PrepareCustomAttributeRows() =
+        attributeRows <-
+            AttributeRowPrep.prepare
+                provider
+                classes
+                enums
+                layoutHandles
+                fieldDefHandles
+                [ for f in files -> f.Layout.Partitioned ]
 
     // Monomorphic: the construction-site `newobj` targets the ctor's `Def` directly. A
     // generic closure mints a fresh `MemberRef` at the use site, so its entry stays unset.
@@ -982,6 +1000,9 @@ type internal Assembler
                 layoutHandles.TotalMethods
 
     member this.Finalise() : ClrArtifact =
+        for struct (parent, attrCtor, blob) in attributeRows.Rows do
+            ctx.AddCustomAttribute(parent, attrCtor, blob) |> ignore
+
         let rowOf (h: EntityHandle) = MetadataTokens.GetRowNumber h
 
         let verifyTypeHandle (slot: TypeSlot) (actual: TypeDefinitionHandle) =
@@ -1183,4 +1204,5 @@ type internal Assembler
             Project = project
             Pe = pe
             ReferencedAssemblies = ctx.ReferencedAssemblyNames
+            SkippedAttributeRows = attributeRows.Skipped
         }

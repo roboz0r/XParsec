@@ -6,6 +6,7 @@
   <ItemGroup>
     <Compile Include="RefPack.fs" />
     <Compile Include="ClrTuples.fs" />
+    <Compile Include="AttributeRows.fs" />
     <Compile Include="MetadataSymbols.fs" />
     <Compile Include="ClrSymbolProviders.fs" />
     <Compile Include="ProjectInfo.fs" />
@@ -48,6 +49,7 @@
     <Compile Include="Materialise.fs" />
     <Compile Include="AssemblerScaffold.fs" />
     <Compile Include="ClosureVerdictRewrite.fs" />
+    <Compile Include="AttributeRowPrep.fs" />
     <Compile Include="Assembler.fs" />
     <Compile Include="NominalEmit.fs" />
     <Compile Include="Codegen.fs" />

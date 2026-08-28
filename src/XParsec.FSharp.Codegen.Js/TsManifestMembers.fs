@@ -200,6 +200,7 @@ module internal TsManifestMembers =
                                 // A global pack's types emit as bare names, with no `import`.
                                 Global = isGlobal
                             }
+                        Attributes = EqArray.empty
                         Origin = origin
                     }
             )
@@ -222,17 +223,21 @@ module internal TsManifestMembers =
                 |> List.choose (fun (caseName, v) ->
                     match v with
                     | Some(Schema.LiteralValue.IntVal n) ->
-                        Some
+                        Some(
                             {
                                 Name = caseName
                                 Value = ExternalEnumCaseValue.IntVal n
                             }
+                            : ExternalEnumCaseShape
+                        )
                     | Some(Schema.LiteralValue.StringVal s) ->
-                        Some
+                        Some(
                             {
                                 Name = caseName
                                 Value = ExternalEnumCaseValue.StringVal s
                             }
+                            : ExternalEnumCaseShape
+                        )
                     | None -> None
                 )
                 |> EqArray.ofList
@@ -292,6 +297,7 @@ module internal TsManifestMembers =
                             // No home module to import: the shape itself emits nothing.
                             Global = true
                         }
+                    Attributes = EqArray.empty
                     Origin = origin
                 }
         )
@@ -401,6 +407,7 @@ module internal TsManifestMembers =
                             // `util.format` (Namespace).
                             ImportForm = groupImportForm
                         }
+                    Attributes = EqArray.empty
                     Origin = origin
                 }
         )

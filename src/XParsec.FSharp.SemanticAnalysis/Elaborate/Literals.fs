@@ -13,7 +13,7 @@ open XParsec.FSharp.SemanticAnalysis.Passes
 /// consumer with a diagnostic channel can distinguish them (`52I` is not an out-of-range
 /// magnitude). The lexer's `NumericLiteralRejection` minus the `NotNumeric` that throws.
 [<RequireQualifiedAccess>]
-type internal ConstRejection =
+type internal LiteralRejection =
     /// A custom numeric literal (`52I`): a call into a `NumericLiteral<suffix>` module, so
     /// there is no constant to project, by construction.
     | CustomLiteral
@@ -23,46 +23,23 @@ type internal ConstRejection =
 
 module internal ElaborateLiterals =
 
-    /// A char literal that reaches here already lexed clean; decode its (possibly escaped)
-    /// single character.
-    let private parseCharLiteral (text: string) : char =
-        let inner = text.Substring(1, text.Length - 2)
-
-        if inner.Length = 1 then
-            inner.[0]
-        else
-            match Lexing.decodeCharEscape inner with
-            | ValueSome c -> c
-            | ValueNone -> failwithf "Elaborate.parseCharLiteral: unexpected char literal text %s" text
-
     /// Projection of a constant literal onto `TConstValue`, never a truncation. Bool / char
     /// / well-formed primitive numeric literals always resolve; a consumer that can report a
     /// user error (enum case values) calls this rather than the throwing `parseConst`.
-    let tryParseConst (ctx: PassContext) (c: Constant<SyntaxToken>) : Result<TConstValue, ConstRejection> =
-        let parseLiteral (t: SyntaxToken) : Result<TConstValue, ConstRejection> =
-            let text = ctx.NameOf t
+    let tryParseConst (ctx: PassContext) (c: Constant<SyntaxToken>) : Result<TConstValue, LiteralRejection> =
+        match ConstFold.tryLiteral ctx.NameOf c with
+        | Ok v -> Ok v
+        | Error NumericLiteralRejection.CustomLiteral -> Error LiteralRejection.CustomLiteral
+        | Error NumericLiteralRejection.OutOfRange -> Error LiteralRejection.OutOfRange
+        | Error NumericLiteralRejection.NotNumeric ->
+            // `Constant.Literal` admits only numeric / bool / char, so a `NotNumeric`
+            // here is a producer bug and throws rather than reaching the result type.
+            let t =
+                match c with
+                | Constant.Literal t
+                | Constant.MeasuredLiteral(value = t) -> t
 
-            match t.Token with
-            | Token.KWTrue -> Ok(TConstValue.Bool true)
-            | Token.KWFalse -> Ok(TConstValue.Bool false)
-            | Token.CharLiteral -> Ok(TConstValue.Char(parseCharLiteral text))
-            | _ ->
-                // `Constant.Literal` admits only numeric / bool / char, so a `NotNumeric`
-                // here is a producer bug and throws rather than reaching the result type.
-                // The reader hands the kind back as an `IntKind`, which rides through unmapped.
-                match NumericLiterals.parseNumericLiteral t.Token text with
-                | Ok(NumericLiteralValue.Integral(k, bits)) -> Ok(TConstValue.Integral(k, bits))
-                | Ok(NumericLiteralValue.Float n) -> Ok(TConstValue.Float n)
-                | Ok(NumericLiteralValue.Float32 n) -> Ok(TConstValue.Float32 n)
-                | Ok(NumericLiteralValue.Decimal n) -> Ok(TConstValue.Decimal n)
-                | Error NumericLiteralRejection.CustomLiteral -> Error ConstRejection.CustomLiteral
-                | Error NumericLiteralRejection.OutOfRange -> Error ConstRejection.OutOfRange
-                | Error NumericLiteralRejection.NotNumeric ->
-                    failwithf "Elaborate.tryParseConst: %A is not a literal token" t.Token
-
-        match c with
-        | Constant.Literal t -> parseLiteral t
-        | Constant.MeasuredLiteral(value = t) -> parseLiteral t
+            failwithf "Elaborate.tryParseConst: %A is not a literal token" t.Token
 
     let parseConst (ctx: PassContext) (c: Constant<SyntaxToken>) : TConstValue =
         match tryParseConst ctx c with

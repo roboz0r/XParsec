@@ -42,13 +42,14 @@ module internal EnumCaseValues =
                 | Constant.Literal t
                 | Constant.MeasuredLiteral(value = t) -> t
 
-            match NumericLiterals.parseNumericLiteral t.Token (nameOf t) with
+            match ConstFold.tryLiteral nameOf c with
             // `isEnumBase` excludes exactly the pointer pair.
-            | Ok(NumericLiteralValue.Integral(k, bits)) when IntKind.isEnumBase k ->
+            | Ok(TConstValue.Integral(k, bits)) when IntKind.isEnumBase k ->
                 Ok(TEnumLiteral.Int(TConstValue.Integral(k, bits)))
             | Error NumericLiteralRejection.CustomLiteral -> Error EnumCaseRejection.CustomLiteral
             | Error NumericLiteralRejection.OutOfRange -> Error EnumCaseRejection.NotRepresentable
-            // `NotNumeric` is the bool / char token `Constant.Literal` also admits.
+            // The remaining `Ok`s are the bool / char / float / decimal constants
+            // `Constant.Literal` also admits, and the pointer-width pair.
             | Error NumericLiteralRejection.NotNumeric
             | Ok _ -> Error(EnumCaseRejection.NotAnEnumConstant(nameOf t))
         // Plain / verbatim / triple-quoted strings are constants; `$"…"` is the one `String`
@@ -96,6 +97,7 @@ module internal EnumCaseValues =
     let resolveCase
         (nameOf: SyntaxToken -> string)
         (report: SyntaxToken -> Kind -> unit)
+        (attributes: TAttributes)
         (ident: SyntaxToken)
         (v: Expr<SyntaxToken>)
         : TEnumCase =
@@ -110,4 +112,5 @@ module internal EnumCaseValues =
             Name = nameOf ident
             Value = value
             Tok = ident
+            Attributes = attributes
         }

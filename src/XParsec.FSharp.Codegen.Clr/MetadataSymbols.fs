@@ -477,13 +477,20 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
             | Some frozen -> FrozenNominal.TryOfFrozen frozen
             | None -> ValueNone
 
-    /// `[<AllowNullLiteral>]` is emitted into metadata and visible in reflection-only loads.
+    /// The Vesper spelling of `[<AllowNullLiteral>]`, as this backend's emitted
+    /// `CustomAttribute` row carries it.
+    let vesperAllowNullLiteralName =
+        SymbolKeyOps.typeMetaName RuntimeNames.allowNullLiteralAttributeKey
+
+    /// `[<AllowNullLiteral>]` read off the type's `CustomAttribute` rows: FSharp.Core's
+    /// spelling for an fsc-compiled assembly, the Vesper spelling for a Vesper-emitted one.
     let hasAllowNullLiteral (t: Type) : bool =
         t.CustomAttributes
         |> Seq.exists (fun a ->
-            match a.AttributeType.FullName with
-            | "Microsoft.FSharp.Core.AllowNullLiteralAttribute" -> true
-            | _ -> false
+            let n = a.AttributeType.FullName
+
+            n = "Microsoft.FSharp.Core.AllowNullLiteralAttribute"
+            || n = vesperAllowNullLiteralName
         )
 
     let decodeClassFlags (t: Type) : ExternalClassFlags =
@@ -517,6 +524,7 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
                             FrozenInterfaces = buildClassInterfaces t
                             FrozenBaseType = buildClassBaseType t
                             Flags = decodeClassFlags t
+                            Attributes = EqArray.empty
                             Origin = originOf t
                         }
 

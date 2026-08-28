@@ -18,6 +18,7 @@ let private provider: IExternalSymbolProvider =
                     Name = n
                     Value = ExternalEnumCaseValue.IntVal(int64 i)
                 }
+                : ExternalEnumCaseShape
             )
             |> EqArray.ofList,
             SymbolOrigin.Empty

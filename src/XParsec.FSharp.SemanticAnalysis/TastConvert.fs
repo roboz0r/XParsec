@@ -187,6 +187,7 @@ module TastConvert =
         {
             Name = c.Name
             Fields = EqArray.map (fun (n, ty) -> n, f ty) c.Fields
+            Attributes = c.Attributes
         }
 
     let recordField (f: 'a -> 'b) (fld: TRecordFieldG<'a>) : TRecordFieldG<'b> =
@@ -194,6 +195,7 @@ module TastConvert =
             Name = fld.Name
             Type = f fld.Type
             IsMutable = fld.IsMutable
+            Attributes = fld.Attributes
         }
 
     // The type-declaration cluster: a functor in `('ty, 'tok, 'id, 'body)`. Every function
@@ -231,6 +233,7 @@ module TastConvert =
             Body = fBody m.Body
             ReturnTy = fTy m.ReturnTy
             MethodTypeParams = EqArray.map (fun (n, ty) -> n, fTy ty) m.MethodTypeParams
+            Attributes = m.Attributes
         }
 
     let classLet (fTy: 'a -> 'b) (fBody: 'ba -> 'bb) (l: TClassLetG<'a, 'ba>) : TClassLetG<'b, 'bb> =
@@ -290,6 +293,7 @@ module TastConvert =
             Name = c.Name
             Value = c.Value
             Tok = fTok c.Tok
+            Attributes = c.Attributes
         }
 
     let kind (m: DeclRebuild<'a, 'b, 'ta, 'tb, 'ia, 'ib, 'ba, 'bb>) (k: TTypeKindG<'a, 'ta, 'ia, 'ba>) =
@@ -343,10 +347,8 @@ module TastConvert =
             TypeKey = td.TypeKey
             Namespace = td.Namespace
             TypeParams = td.TypeParams
-            IsRequireQualifiedAccess = td.IsRequireQualifiedAccess
             Kind = kind m td.Kind
-            EqualitySupport = td.EqualitySupport
-            ComparisonSupport = td.ComparisonSupport
+            Attributes = td.Attributes
         }
 
     let decl (f: 'a -> 'b) (fTok: 'ta -> 'tb) (d: TDeclG<'a, 'ta, 'id>) : TDeclG<'b, 'tb, 'id> =

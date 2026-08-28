@@ -179,7 +179,8 @@ type GlobalAttribute =
 /// <c>selector</c> of the committed runtime asset <c>path</c> of the declaring package.
 /// <c>path</c> is <c>"./"</c> plus a manifest <c>[core] runtime</c> entry; <c>selector</c>
 /// must equal the binding's emitted name; the body must be <c>jsNative</c>.</summary>
-[<AttributeUsage(AttributeTargets.Property ||| AttributeTargets.Field, AllowMultiple = false)>]
+[<AttributeUsage(AttributeTargets.Method ||| AttributeTargets.Property ||| AttributeTargets.Field,
+                 AllowMultiple = false)>]
 [<Sealed>]
 type ImportAttribute =
     inherit Attribute

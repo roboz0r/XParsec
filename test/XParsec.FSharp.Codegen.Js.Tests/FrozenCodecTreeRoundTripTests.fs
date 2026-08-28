@@ -211,6 +211,131 @@ let tests =
                         (name + " did not survive flatten/thaw structurally")
                 }
 
+            // The corpus writes no attributes, so the five `Attributes` slots (type decl,
+            // member, union case, record field, enum case) would round-trip vacuously empty.
+            // This source populates every one and asserts on the DECODED tree.
+            test "attributes at every declaration position ride the frozen tree and round-trip" {
+                let f =
+                    frozenOfJs (
+                        String.concat
+                            "\n"
+                            [
+                                "type MarkAttribute(n: int, s: string) ="
+                                "    member this.N = n"
+                                ""
+                                "type Targets ="
+                                "    | A = 1"
+                                "    | B = 2"
+                                ""
+                                "[<Mark(-3, \"hi\", Extra = (Targets.A ||| Targets.B))>]"
+                                "type Point = { [<Mark(1, \"f\")>] X: int }"
+                                ""
+                                "[<Mark(2, \"u\")>]"
+                                "[<RequireQualifiedAccess>]"
+                                "type Shape = | [<Mark(3, \"c\")>] Circle of int"
+                                ""
+                                "type Palette = | [<Mark(4, \"e\")>] Red = 1"
+                                ""
+                                "type Widget() ="
+                                "    [<Mark(5, \"m\")>]"
+                                "    member this.M() = 1"
+                            ]
+                    )
+
+                let decoded = TastUnpool.ofPools (FrozenCodec.thaw (FrozenCodec.flatten f))
+
+                let typeDecl name =
+                    decoded.Decls
+                    |> EqArray.toList
+                    |> List.tryPick (fun d ->
+                        match d with
+                        | TDeclG.Type td when td.Name = name -> Some td
+                        | _ -> None
+                    )
+                    |> Option.defaultWith (fun () -> failtestf "no decoded type decl named %s" name)
+
+                let markArgs (attrs: TAttributes) =
+                    match attrs |> EqArray.toList |> List.filter (fun a -> a.Key.Name = "MarkAttribute") with
+                    | [ a ] -> EqArray.toList a.Args
+                    | other -> failtestf "expected exactly one Mark attribute, got %d" (List.length other)
+
+                let int32 (v: int64) =
+                    TConstValue.Integral(XParsec.FSharp.Lexer.IntKind.Int32, v)
+
+                let positional (v: TConstValue) : TAttributeArg =
+                    {
+                        Name = ValueNone
+                        Value = v
+                        EnumKey = ValueNone
+                    }
+
+                Expect.equal
+                    (markArgs (typeDecl "Point").Attributes)
+                    [
+                        positional (int32 -3L)
+                        positional (TConstValue.String "hi")
+                        {
+                            Name = ValueSome "Extra"
+                            Value = int32 3L
+                            EnumKey = ValueSome (typeDecl "Targets").TypeKey
+                        }
+                    ]
+                    "the type decl's folded args came back off the wire, enum identity included"
+
+                let fieldAttrs =
+                    match (typeDecl "Point").Kind with
+                    | TTypeKindG.Record r -> r.Fields.[0].Attributes
+                    | other -> failtestf "Point is not a record: %A" other
+
+                Expect.equal
+                    (markArgs fieldAttrs)
+                    [ positional (int32 1L); positional (TConstValue.String "f") ]
+                    "the record field's attribute came back off the wire"
+
+                let caseAttrs =
+                    match (typeDecl "Shape").Kind with
+                    | TTypeKindG.Union u -> u.Cases.[0].Attributes
+                    | other -> failtestf "Shape is not a union: %A" other
+
+                Expect.equal
+                    (markArgs caseAttrs)
+                    [ positional (int32 3L); positional (TConstValue.String "c") ]
+                    "the union case's folded args came back off the wire"
+
+                // The verdicts are VIEWS over the attribute list, so asserting them on the
+                // decoded tree pins that the list they derive from round-tripped.
+                Expect.isTrue
+                    (typeDecl "Shape").IsRequireQualifiedAccess
+                    "[<RequireQualifiedAccess>] is derivable off the wire"
+
+                Expect.equal
+                    (typeDecl "Point").EqualitySupport
+                    EqualityVerdict.Structural
+                    "the record's structural default is derivable off the wire"
+
+                let enumCaseAttrs =
+                    match (typeDecl "Palette").Kind with
+                    | TTypeKindG.Enum cases -> cases.[0].Attributes
+                    | other -> failtestf "Palette is not an enum: %A" other
+
+                Expect.equal
+                    (markArgs enumCaseAttrs)
+                    [ positional (int32 4L); positional (TConstValue.String "e") ]
+                    "the enum case's folded args came back off the wire"
+
+                let memberAttrs =
+                    TTypeKindG.members (typeDecl "Widget").Kind
+                    |> EqArray.toList
+                    |> List.pick (fun m -> if m.Name = "M" then Some m.Attributes else None)
+
+                Expect.equal
+                    (markArgs memberAttrs)
+                    [ positional (int32 5L); positional (TConstValue.String "m") ]
+                    "the member's folded args came back off the wire"
+
+                Expect.isTrue (survivesRoundTrip f) "the attributed file survived flatten/thaw structurally"
+            }
+
             // The corpus leaves the specialization array and the `InlineCall`/`CallerExpr`
             // payloads at zero. Assert on the decoded carriers themselves: an entry the writer
             // skipped and the reader defaulted to empty is invisible to a tree comparison.

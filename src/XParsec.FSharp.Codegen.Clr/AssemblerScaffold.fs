@@ -131,4 +131,5 @@ module internal AssemblerScaffold =
             Project = project
             Pe = ctx.Serialize(mainDef)
             ReferencedAssemblies = ctx.ReferencedAssemblyNames
+            SkippedAttributeRows = []
         }

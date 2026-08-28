@@ -430,6 +430,12 @@ module FrozenCodecDiagnostics =
         | Kind.EscapeNotUnicodeScalar raw ->
             w.Write 52uy
             w.Write raw
+        | Kind.NotConstantExpression -> w.Write 53uy
+        | Kind.AttributeTargetInvalid(element, validOn) ->
+            w.Write 54uy
+            w.Write element
+            w.Write validOn
+        | Kind.ReferenceEqualityOnStruct -> w.Write 55uy
 
     let private readKind (r: FrozenReader) : Kind =
         match r.ReadByte() with
@@ -550,6 +556,11 @@ module FrozenCodecDiagnostics =
             Kind.RequireQualifiedAccessCase(unionName, r.ReadString())
         | 51uy -> Kind.EscapeTrigraphOutOfRange(r.ReadString())
         | 52uy -> Kind.EscapeNotUnicodeScalar(r.ReadString())
+        | 53uy -> Kind.NotConstantExpression
+        | 54uy ->
+            let element = r.ReadInt32()
+            Kind.AttributeTargetInvalid(element, r.ReadInt32())
+        | 55uy -> Kind.ReferenceEqualityOnStruct
         | b -> failwithf "FrozenCodec: unknown Kind tag %d" b
 
     let writeDiagnostic (w: FrozenWriter) (d: XParsec.FSharp.SemanticAnalysis.Diagnostic) =

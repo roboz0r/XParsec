@@ -749,11 +749,31 @@ module internal NominalEmit =
                 }
             )
 
-        let emitsEqualityTriple = td.EqualitySupport = EqualityVerdict.Structural
-
-        if emitsEqualityTriple then
+        // The equality triple / comparison pair follow the verdicts for a record / union
+        // alone, matching the rows `LayoutNodes` lays out: a class layout has no equality /
+        // comparison rows, and an `IEquatable` / `IComparable` impl row without the bodies
+        // would make the type unloadable.
+        let isDataShape =
             match input with
-            | NominalEmissionInput.Union _ ->
+            | NominalEmissionInput.Union _
+            | NominalEmissionInput.Record _ -> true
+            | NominalEmissionInput.Class _ -> false
+
+        let emitsEqualityTriple =
+            isDataShape && td.EqualitySupport = EqualityVerdict.Structural
+
+        let emitsComparisonPair =
+            isDataShape && td.ComparisonSupport = ComparisonVerdict.Structural
+
+        // The support records mint field / member refs, so each is built only under its
+        // verdict.
+        let typedCompareTo () =
+            toEntity (asm.MethodDef(MethodKey.CmpCompareToTyped td.Key))
+
+        match input with
+        | NominalEmissionInput.Class _ -> ()
+        | NominalEmissionInput.Union _ ->
+            if emitsEqualityTriple then
                 let support: Emit.UnionEqualitySupport =
                     {
                         SelfType = selfTypeHandle
@@ -772,7 +792,25 @@ module internal NominalEmit =
                     (Emit.buildUnionGetHashCode support)
                     (Emit.buildUnionEquals support)
                     (Emit.buildUnionEqualsTyped support)
-            | NominalEmissionInput.Record _ ->
+
+            if emitsComparisonPair then
+                let cmpSupport: Emit.UnionComparisonSupport =
+                    {
+                        SelfType = selfTypeHandle
+                        SelfTy = selfTyMarkers
+                        TagField = tagFieldRef ()
+                        Fields = structuralFields ()
+                        ComparerDefault = fun t -> provider.ComparerDefault t
+                        ComparerCompare = fun t -> provider.ComparerCompare t
+                        ArgumentExceptionCtor = provider.ArgumentExceptionCtor
+                        MismatchMessage = ctx.UserString "Object type mismatch"
+                    }
+
+                prepareComparisonPair
+                    (Emit.buildUnionCompareTo cmpSupport)
+                    (Emit.buildUnionCompareToObj cmpSupport (typedCompareTo ()))
+        | NominalEmissionInput.Record _ ->
+            if emitsEqualityTriple then
                 let support: Emit.RecordEqualitySupport =
                     {
                         SelfType = selfTypeHandle
@@ -789,31 +827,8 @@ module internal NominalEmit =
                     (Emit.buildRecordGetHashCode support)
                     (Emit.buildRecordEquals recordIsStruct support)
                     (Emit.buildRecordEqualsTyped recordIsStruct support)
-            | NominalEmissionInput.Class _ -> ()
 
-        let emitsComparisonPair = td.ComparisonSupport = ComparisonVerdict.Structural
-
-        if emitsComparisonPair then
-            let typedCompareTo = toEntity (asm.MethodDef(MethodKey.CmpCompareToTyped td.Key))
-
-            match input with
-            | NominalEmissionInput.Union _ ->
-                let cmpSupport: Emit.UnionComparisonSupport =
-                    {
-                        SelfType = selfTypeHandle
-                        SelfTy = selfTyMarkers
-                        TagField = tagFieldRef ()
-                        Fields = structuralFields ()
-                        ComparerDefault = fun t -> provider.ComparerDefault t
-                        ComparerCompare = fun t -> provider.ComparerCompare t
-                        ArgumentExceptionCtor = provider.ArgumentExceptionCtor
-                        MismatchMessage = ctx.UserString "Object type mismatch"
-                    }
-
-                prepareComparisonPair
-                    (Emit.buildUnionCompareTo cmpSupport)
-                    (Emit.buildUnionCompareToObj cmpSupport typedCompareTo)
-            | NominalEmissionInput.Record _ ->
+            if emitsComparisonPair then
                 let cmpSupport: Emit.RecordComparisonSupport =
                     {
                         SelfType = selfTypeHandle
@@ -827,8 +842,7 @@ module internal NominalEmit =
 
                 prepareComparisonPair
                     (Emit.buildRecordCompareTo recordIsStruct cmpSupport)
-                    (Emit.buildRecordCompareToObj recordIsStruct cmpSupport typedCompareTo)
-            | NominalEmissionInput.Class _ -> ()
+                    (Emit.buildRecordCompareToObj recordIsStruct cmpSupport (typedCompareTo ()))
 
         // The synthesised `IStructuralFormattable.Format(IFormatSink)` (`%A`), emitted for
         // every record and union independently of the equality / comparison verdicts.

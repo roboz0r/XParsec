@@ -519,8 +519,8 @@ module NameResolutionMemberRegistration =
             // The SHAPE attributes, matched by short name because the `.fsi` extractor decodes
             // the same ones with no resolver. `AllowNullLiteral` is on the decoded record too,
             // but reading it here would skip the FS0934 kind check below.
-            let classAttrs =
-                AttributeDecode.decodeClassAttributes (ctx.ResolveAttributes(Attributes.attributesOfTypeName tn))
+            let resolvedAttrs = ctx.ResolveAttributes(Attributes.attributesOfTypeName tn)
+            let classAttrs = AttributeDecode.decodeClassAttributes resolvedAttrs
 
             // `[<Struct>]` (or the `type X = struct … end` shape) ⇒ value type. Known before
             // the preamble is extracted: a struct may not carry an instance one.
@@ -560,54 +560,36 @@ module NameResolutionMemberRegistration =
             info.IsByRefLike <- classAttrs.IsByRefLike
             info.InstanceFields <- structure.InstanceFields
 
-            // Validate the declaration's attributes against the class kind (FS0382 / FS0377 /
-            // FS0934). The all-abstract form (`type IFoo = abstract M: int`) declares an
-            // INTERFACE and is judged as one, though it registers a `ClassTypeInfo` all the same.
-            let classKind =
-                if info.IsInterface then Attributes.TypeDefnKind.Interface
-                elif isValueType then Attributes.TypeDefnKind.Struct
-                else Attributes.TypeDefnKind.RefClass
+            // The all-abstract form (`type IFoo = abstract M: int`) declares an INTERFACE and
+            // is judged as one, though it registers a `ClassTypeInfo` all the same.
+            let tattrs =
+                Attributes.foldAndValidateTypeDefn ctx info.DefnKind id.DeclSite.Tok resolvedAttrs
 
-            let attrV =
-                Attributes.validateTypeDefnAttributes ctx classKind id.DeclSite.Tok (Attributes.attributesOfTypeName tn)
+            info.Attributes <- tattrs
 
             info.Declared <-
                 {
                     IsSealed = classAttrs.IsSealed
                     IsAbstract = false
-                    AllowNullLiteral = attrV.AllowNullLiteral
+                    AllowNullLiteral = AttributeVerdicts.allowNullLiteral info.DefnKind tattrs
                 }
-
-            info.EqualitySupport <-
-                match attrV.Equality with
-                | ValueSome v -> v
-                | ValueNone ->
-                    if isValueType then
-                        EqualityVerdict.Structural
-                    else
-                        EqualityVerdict.Reference
-
-            info.ComparisonSupport <-
-                match attrV.Comparison with
-                | ValueSome v -> v
-                | ValueNone -> ComparisonVerdict.NoComparison
 
             TypeRegistry.registerClass ctx.Types info
 
     /// The explicit `interface … end` shape claims no type, so there is no `ClassTypeInfo` for a
     /// verdict to land on, whereas the all-abstract form registers as a class and takes its
-    /// verdicts there. Kind LEGALITY still applies here, so run it and discard the rest.
+    /// verdicts there. Kind LEGALITY still applies here, so run it and drop the fold's product.
     let private validateInterfaceTypeDefn (ctx: PassContext) (td: TypeDefn<SyntaxToken>) : unit =
         match td with
         | TypeDefn.Interface(typeName = tn) ->
             let (TypeName(ident = nameLi)) = tn
 
             if nameLi.Idents.Length = 1 then
-                Attributes.validateTypeDefnAttributes
+                Attributes.foldAndValidateTypeDefn
                     ctx
-                    Attributes.TypeDefnKind.Interface
+                    TypeDefnKind.Interface
                     nameLi.Idents.[0]
-                    (Attributes.attributesOfTypeName tn)
+                    (ctx.ResolveAttributes(Attributes.attributesOfTypeName tn))
                 |> ignore
         | _ -> ()
 

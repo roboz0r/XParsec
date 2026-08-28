@@ -35,6 +35,15 @@ type ClrProvider
     /// `CustomAttribute` constructor stamped on a `[<IsByRefLike>]` value type.
     member _.IsByRefLikeAttrCtor: EntityHandle = env.EIsByRefLikeAttrCtor.Value
 
+    /// `System.AttributeUsageAttribute::.ctor(System.AttributeTargets)` — the CLR spelling
+    /// a `[<AttributeUsage>]` row is written against.
+    member _.AttributeUsageAttrCtor: EntityHandle = env.EAttributeUsageAttrCtor.Value
+
+    /// A referenced-assembly attribute class's `.ctor` `MemberRef`, chosen by
+    /// positional-argument count.
+    member _.TryExternalAttributeCtor(key: TypeKey, argCount: int) : EntityHandle voption =
+        ext.ExternalAttributeCtor(key, argCount)
+
     /// Member ref to `System.Object::.ctor()` for a union's base-ctor chain.
     member _.ObjectCtorRef: EntityHandle = env.EObjectCtor.Value
 

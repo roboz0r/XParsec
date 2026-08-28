@@ -20,11 +20,12 @@ module internal LocalSymbolKey =
         SymbolKeyOps.memberKey declKey name EqArray.empty 0 MemberKind.Property
 
 [<Sealed>]
-type RecordFieldInfo(name: string, ty: SemType, isMutable: bool, declKey: NodeKey) =
+type RecordFieldInfo(name: string, ty: SemType, isMutable: bool, declKey: NodeKey, attributes: TAttributes) =
     member val Name = name
     member val Type = ty
     member val IsMutable = isMutable
     member val DeclKey = declKey
+    member val Attributes: TAttributes = attributes
 
 /// Properties are read-only (get-only); an `AutoProperty` also lands here as `Property`.
 [<RequireQualifiedAccess>]
@@ -90,7 +91,8 @@ type UnionCaseInfo
         unionKey: TypeKey,
         fields: SemType[],
         fieldNames: string voption[],
-        declKey: NodeKey
+        declKey: NodeKey,
+        attributes: TAttributes
     ) =
     member val Name = name
     /// The declaring union's short name AS WRITTEN, compared against a written qualifier
@@ -100,6 +102,7 @@ type UnionCaseInfo
     member val Fields = fields
     member val FieldNames = fieldNames
     member val DeclKey = declKey
+    member val Attributes: TAttributes = attributes
 
 [<RequireQualifiedAccess>]
 type InterfaceImplResolution =
@@ -174,9 +177,6 @@ type RecordTypeInfo
     member val Fields = fields
     member val DeclSite = declSite
     member val TyparConstraints = typarConstraints
-    member val EqualitySupport = EqualityVerdict.Structural with get, set
-    member val ComparisonSupport = ComparisonVerdict.NoComparison with get, set
-    member val IsRequireQualifiedAccess = false with get, set
     /// Augmentation members (`with member …` / `static member …`); empty for a plain record.
     member val Members: TypeMemberInfo[] = [||] with get, set
     member val ThisName = "this" with get, set
@@ -184,6 +184,27 @@ type RecordTypeInfo
     member val InterfaceImpls: ClassInterfaceImplInfo[] = [||] with get, set
     /// `[<Struct>]` record — a `System.ValueType`-based value type.
     member val IsValueType: bool = false with get, set
+    /// The declaration's attributes, resolved and folded at registration.
+    member val Attributes: TAttributes = EqArray.empty with get, set
+
+    /// The legality-axis kind: `[<Struct>]` selects the value-type form.
+    member this.DefnKind: TypeDefnKind =
+        if this.IsValueType then
+            TypeDefnKind.StructRecord
+        else
+            TypeDefnKind.Record
+
+    /// The attribute-decided verdict, else `Structural`.
+    member this.EqualitySupport: EqualityVerdict =
+        AttributeVerdicts.equalitySupport this.DefnKind this.Attributes
+
+    /// The attribute-decided verdict, else `NoComparison`.
+    member this.ComparisonSupport: ComparisonVerdict =
+        AttributeVerdicts.comparisonSupport this.DefnKind this.Attributes
+
+    /// `[<RequireQualifiedAccess>]`: a bare `{ X = … }` does not resolve to this record.
+    member this.IsRequireQualifiedAccess: bool =
+        AttributeVerdicts.isRequireQualifiedAccess this.Attributes
 
     interface IInterfaceImplHost with
         member this.Key = this.Key
@@ -219,11 +240,21 @@ type UnionTypeInfo
     member val Members: TypeMemberInfo[] = [||] with get, set
     member val ThisName = "this" with get, set
     member val ThisKey = Unchecked.defaultof<BoundVarKey> with get, set
-    member val EqualitySupport = EqualityVerdict.Structural with get, set
-    member val ComparisonSupport = ComparisonVerdict.NoComparison with get, set
-    /// `[<RequireQualifiedAccess>]`: `Color.Red` is then required, not a bare `Red`.
-    member val IsRequireQualifiedAccess = false with get, set
     member val InterfaceImpls: ClassInterfaceImplInfo[] = [||] with get, set
+    /// The declaration's attributes, resolved and folded at registration.
+    member val Attributes: TAttributes = EqArray.empty with get, set
+
+    /// The attribute-decided verdict, else `Structural`.
+    member this.EqualitySupport: EqualityVerdict =
+        AttributeVerdicts.equalitySupport TypeDefnKind.Union this.Attributes
+
+    /// The attribute-decided verdict, else `NoComparison`.
+    member this.ComparisonSupport: ComparisonVerdict =
+        AttributeVerdicts.comparisonSupport TypeDefnKind.Union this.Attributes
+
+    /// `[<RequireQualifiedAccess>]`: `Color.Red` is then required, not a bare `Red`.
+    member this.IsRequireQualifiedAccess: bool =
+        AttributeVerdicts.isRequireQualifiedAccess this.Attributes
 
     interface IInterfaceImplHost with
         member this.Key = this.Key
@@ -274,7 +305,7 @@ type IntrinsicAbbrevInfo
 /// An enum declaration (`type E = | C1 = v1 | …`): non-generic, no member side tables, a
 /// closed named set of cases.
 [<Sealed>]
-type EnumTypeInfo(name: string, cases: EqArray<TEnumCase>, declKey: NodeKey, key: TypeKey) =
+type EnumTypeInfo(name: string, cases: EqArray<TEnumCase>, declKey: NodeKey, key: TypeKey, attributes: TAttributes) =
     member val Name = name
     /// The cases in declaration order, each with its resolved literal (`ValueNone` for a
     /// rejected value, reported at registration).
@@ -299,6 +330,7 @@ type EnumTypeInfo(name: string, cases: EqArray<TEnumCase>, declKey: NodeKey, key
     member val DeclKey = declKey
     member val TypeKey: TypeKey = key
     member this.Key: SymbolKey = SymbolKey.Type this.TypeKey
+    member val Attributes: TAttributes = attributes
 
     member this.HasCase(n: string) =
         cases |> EqArray.exists (fun c -> c.Name = n)
@@ -440,8 +472,24 @@ type ClassTypeInfo
     /// `[<IsByRefLike>]` — a byref-like (`ref struct`) value type; implies `IsValueType`.
     member val IsByRefLike: bool = false with get, set
     member val InstanceFields: ClassFieldInfo[] = [||] with get, set
-    member val EqualitySupport = EqualityVerdict.Reference with get, set
-    member val ComparisonSupport = ComparisonVerdict.NoComparison with get, set
+    /// The declaration's attributes, resolved and folded at registration.
+    member val Attributes: TAttributes = EqArray.empty with get, set
+
+    /// The legality-axis kind: the all-abstract interface shape, the `[<Struct>]` /
+    /// byref-like value type, or a reference class.
+    member this.DefnKind: TypeDefnKind =
+        if this.IsInterface then TypeDefnKind.Interface
+        elif this.IsValueType then TypeDefnKind.StructClass
+        else TypeDefnKind.RefClass
+
+    /// The attribute-decided verdict, else `Reference` for a reference class / interface and
+    /// `Structural` for a value type.
+    member this.EqualitySupport: EqualityVerdict =
+        AttributeVerdicts.equalitySupport this.DefnKind this.Attributes
+
+    /// The attribute-decided verdict, else `NoComparison`.
+    member this.ComparisonSupport: ComparisonVerdict =
+        AttributeVerdicts.comparisonSupport this.DefnKind this.Attributes
 
     interface IInterfaceImplHost with
         member this.Key = this.Key

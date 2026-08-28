@@ -404,6 +404,39 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                         ArgCount = List.length paramTys
                     }
 
+    /// Mint the `MemberRef` for a referenced-assembly attribute class's `.ctor`, chosen by
+    /// positional-argument count. An attribute class is non-generic, so the parent is the bare
+    /// `TypeRef`. `ValueNone` ⇒ the type or an arity-matching ctor did not resolve; the caller
+    /// emits no `CustomAttribute` row.
+    let externalAttributeCtor (key: TypeKey) (argCount: int) : EntityHandle voption =
+        match symbols.TryLookupCtor(key, ValueNone, argCount) with
+        | ValueNone -> ValueNone
+        | ValueSome chosenCtor ->
+            match env.ClassOrigin key with
+            | ClassOrigin.Local _
+            | ClassOrigin.Unresolved -> ValueNone
+            | ClassOrigin.Foreign tref ->
+                let paramTys =
+                    openParams
+                        (sprintf "attribute ctor of '%s'" (SymbolKeyOps.typeMetaName key))
+                        chosenCtor.Key.ArgSig.Length
+                        (ExternalSignature.tupledParameters chosenCtor.Signature)
+
+                let s = BlobBuilder()
+
+                BlobEncoder(s)
+                    .MethodSignature(isInstanceMethod = true)
+                    .Parameters(
+                        List.length paramTys,
+                        (fun (ret: ReturnTypeEncoder) -> ret.Void()),
+                        (fun (pars: ParametersEncoder) ->
+                            for p in paramTys do
+                                encodeType (pars.AddParameter().Type()) p
+                        )
+                    )
+
+                ValueSome(toEntity (ctx.MemberRef(tref, ".ctor", s)))
+
     /// Mint the `MemberRef` for one named field on a referenced-assembly record at `args`, with
     /// its declared type after the use-site substitution, which a `FieldGet` encodes next.
     let externalRecordField
@@ -491,6 +524,8 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
         externalUnionCaseField key args caseName fieldIndex
 
     member _.ExternalCtor(key, chosen, tyArgs, argTypes) = externalCtor key chosen tyArgs argTypes
+
+    member _.ExternalAttributeCtor(key, argCount) = externalAttributeCtor key argCount
 
     member _.ExternalRecordField(key, args, fieldName) = externalRecordField key args fieldName
 

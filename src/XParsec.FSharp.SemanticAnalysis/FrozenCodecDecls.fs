@@ -164,30 +164,24 @@ module FrozenCodecDecls =
         writeTypeKeyRef w td.TypeKey
         writeOptionWith w (fun w (s: string) -> w.Write s) td.Namespace
         writeStringArray w td.TypeParams
-        w.Write td.IsRequireQualifiedAccess
         writeTypeKind w td.Kind
-        writeEqualityVerdict w td.EqualitySupport
-        writeComparisonVerdict w td.ComparisonSupport
+        writeTAttributes w td.Attributes
 
     and readTypeDecl (r: FrozenReader) : PooledTypeDecl =
         let name = r.ReadString()
         let typeKey = readTypeKeyRef r
         let ns = readOptionWith r (fun r -> r.ReadString())
         let typeParams = readStringArray r
-        let isRqa = r.ReadBoolean()
         let kind = readTypeKind r
-        let equalitySupport = readEqualityVerdict r
-        let comparisonSupport = readComparisonVerdict r
+        let attributes = readTAttributes r
 
         {
             Name = name
             TypeKey = typeKey
             Namespace = ns
             TypeParams = typeParams
-            IsRequireQualifiedAccess = isRqa
             Kind = kind
-            EqualitySupport = equalitySupport
-            ComparisonSupport = comparisonSupport
+            Attributes = attributes
         }
 
     and private writeTypeKind (w: FrozenWriter) (k: TTypeKindG<FrozenType, Anchor, BoundVarId, ExprPoolId>) =
@@ -359,6 +353,7 @@ module FrozenCodecDecls =
         writeExprPoolId w m.Body
         writeTypeRef w m.ReturnTy
         writeMethodTypeParams w m.MethodTypeParams
+        writeTAttributes w m.Attributes
 
     and private readTypeMember (r: FrozenReader) : TTypeMemberG<FrozenType, BoundVarId, ExprPoolId> =
         let name = r.ReadString()
@@ -385,6 +380,7 @@ module FrozenCodecDecls =
         let body = readExprPoolId r
         let returnTy = readTypeRef r
         let methodTypeParams = readMethodTypeParams r
+        let attributes = readTAttributes r
 
         {
             Name = name
@@ -400,6 +396,7 @@ module FrozenCodecDecls =
             Body = body
             ReturnTy = returnTy
             MethodTypeParams = methodTypeParams
+            Attributes = attributes
         }
 
     and private writeClassLet (w: FrozenWriter) (l: TClassLetG<FrozenType, ExprPoolId>) =

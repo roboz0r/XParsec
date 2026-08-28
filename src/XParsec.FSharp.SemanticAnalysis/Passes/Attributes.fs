@@ -10,142 +10,23 @@ open XParsec.FSharp.SemanticAnalysis
 
 module Attributes =
 
-    /// The axis the attribute-legality matrices key on: one case per shape a declaration can
-    /// take, because a record may carry `[<ReferenceEquality>]` where a class cannot.
-    [<RequireQualifiedAccess>]
-    type TypeDefnKind =
-        | Record
-        | Union
-        | Enum
-        | Abbrev
-        | Struct
-        | RefClass
-        | Interface
-
-    /// What a declaration's attributes decided, each already checked legal for its kind: an
-    /// attribute this kind may not carry supplies no verdict, only its complaint.
-    type TypeDefnAttrVerdict =
-        {
-            /// `ValueNone` where no legal attribute spoke, leaving the caller's per-kind default.
-            Equality: EqualityVerdict voption
-            Comparison: ComparisonVerdict voption
-            AllowNullLiteral: bool
-        }
-
-    type private EqCompAttr<'Verdict> =
-        {
-            Key: TypeKey
-            Verdict: 'Verdict
-            LegalKinds: TypeDefnKind list
-            OnWrongKind: Kind
-        }
-
-    let private anyKind =
-        [
-            TypeDefnKind.Record
-            TypeDefnKind.Union
-            TypeDefnKind.Enum
-            TypeDefnKind.Abbrev
-            TypeDefnKind.Struct
-            TypeDefnKind.RefClass
-            TypeDefnKind.Interface
-        ]
-
-    /// A structural posture states what the FIELDS decide, so only the kinds that have them.
-    let private structuralKinds =
-        [ TypeDefnKind.Record; TypeDefnKind.Union; TypeDefnKind.Struct ]
-
-    /// Reference identity additionally bars a struct, which has none.
-    let private referenceKinds = [ TypeDefnKind.Record; TypeDefnKind.Union ]
-
-    /// A custom posture needs members to carry it, which an interface cannot declare.
-    let private customKinds = anyKind |> List.except [ TypeDefnKind.Interface ]
-
-    /// FS0934. `[<AllowNullLiteral>]` states that `null` inhabits the type, which only a
-    /// reference can hold. A record or union reaches `null` through `| null` instead, a struct
-    /// (an enum included) has no reference to hold it, and an abbreviation states nothing.
-    let private allowNullLiteralKinds =
-        [ TypeDefnKind.RefClass; TypeDefnKind.Interface ]
-
-    /// The equality axis. Table ORDER is the within-axis verdict priority.
-    let private equalityAttrs: EqCompAttr<EqualityVerdict> list =
-        [
-            {
-                Key = RuntimeNames.structuralEqualityAttributeKey
-                Verdict = EqualityVerdict.Structural
-                LegalKinds = structuralKinds
-                OnWrongKind = Kind.StructuralEqualityAttributeOnWrongKind
-            }
-            {
-                Key = RuntimeNames.referenceEqualityAttributeKey
-                Verdict = EqualityVerdict.Reference
-                LegalKinds = referenceKinds
-                OnWrongKind = Kind.StructuralEqualityAttributeOnWrongKind
-            }
-            {
-                Key = RuntimeNames.noEqualityAttributeKey
-                Verdict = EqualityVerdict.NoEquality
-                LegalKinds = anyKind
-                OnWrongKind = Kind.StructuralEqualityAttributeOnWrongKind
-            }
-            {
-                Key = RuntimeNames.customEqualityAttributeKey
-                Verdict = EqualityVerdict.Custom
-                LegalKinds = customKinds
-                OnWrongKind = Kind.CustomEqualityAttributeOnInterface
-            }
-        ]
-
-    /// Likewise in priority order. Comparison is OPT-IN where equality is not:
-    /// `[<StructuralComparison>]` is what buys a record the synthesised pair.
-    let private comparisonAttrs: EqCompAttr<ComparisonVerdict> list =
-        [
-            {
-                Key = RuntimeNames.structuralComparisonAttributeKey
-                Verdict = ComparisonVerdict.Structural
-                LegalKinds = structuralKinds
-                OnWrongKind = Kind.StructuralEqualityAttributeOnWrongKind
-            }
-            {
-                Key = RuntimeNames.noComparisonAttributeKey
-                Verdict = ComparisonVerdict.NoComparison
-                LegalKinds = anyKind
-                OnWrongKind = Kind.StructuralEqualityAttributeOnWrongKind
-            }
-            {
-                Key = RuntimeNames.customComparisonAttributeKey
-                Verdict = ComparisonVerdict.Custom
-                LegalKinds = customKinds
-                OnWrongKind = Kind.CustomEqualityAttributeOnInterface
-            }
-        ]
-
-    /// No first-wins short-circuit, so a contradictory mix stays visible to the FS0377 check.
-    let private presentAttrs (a: ResolvedAttributes) (rows: EqCompAttr<'Verdict> list) : EqCompAttr<'Verdict> list =
-        rows |> List.filter (fun r -> a.Has r.Key)
-
-    let private isLegalOn (kind: TypeDefnKind) (r: EqCompAttr<'Verdict>) : bool = List.contains kind r.LegalKinds
-
-    let private legalOn (kind: TypeDefnKind) (rows: EqCompAttr<'Verdict> list) : EqCompAttr<'Verdict> list =
-        rows |> List.filter (isLegalOn kind)
-
     let private wrongKindDiagnostics (kind: TypeDefnKind) (rows: EqCompAttr<'Verdict> list) : Kind list =
         rows
-        |> List.filter (fun r -> not (isLegalOn kind r))
-        |> List.map (fun r -> r.OnWrongKind)
+        |> List.filter (fun r -> not (AttributeVerdicts.isLegalOn kind r))
+        |> List.map (AttributeVerdicts.wrongKindDiag kind)
 
     /// Every attribute-against-kind check a type declaration gets: FS0382 legality + FS0377
     /// invalid-mix on the equality / comparison axes, and FS0934 on `[<AllowNullLiteral>]`,
-    /// all reported at `declTok`.
+    /// all reported at `declTok`. Verdicts come from `AttributeVerdicts` over the same
+    /// `attrs`.
     let validateTypeDefnAttributes
         (ctx: PassContext)
         (kind: TypeDefnKind)
         (declTok: SyntaxToken)
-        (attrs: Attributes<SyntaxToken> voption)
-        : TypeDefnAttrVerdict =
-        let a = ctx.ResolveAttributes attrs
-        let eq = presentAttrs a equalityAttrs
-        let cmp = presentAttrs a comparisonAttrs
+        (attrs: TAttributes)
+        : unit =
+        let eq = AttributeVerdicts.presentRows attrs AttributeVerdicts.equalityAttrs
+        let cmp = AttributeVerdicts.presentRows attrs AttributeVerdicts.comparisonAttrs
 
         // Once per distinct complaint: two attributes illegal the same way are one mistake.
         for d in List.distinct (wrongKindDiagnostics kind eq @ wrongKindDiagnostics kind cmp) do
@@ -162,24 +43,39 @@ module Attributes =
         if eq.Length > 1 || cmp.Length > 1 || (structuralCmp && nonStructuralEq) then
             ctx.Report(declTok, Kind.InvalidEqualityAttributeMix)
 
-        // Off the LEGAL rows only: a posture just refused for this kind must not go on to
-        // stamp the verdict it asked for, or the report is advice the compiler ignored.
-        let firstVerdict (rows: EqCompAttr<'Verdict> list) =
-            match legalOn kind rows with
-            | r :: _ -> ValueSome r.Verdict
-            | [] -> ValueNone
-
-        let allowNullLiteral = a.Has RuntimeNames.allowNullLiteralAttributeKey
-        let legalNullLiteral = allowNullLiteral && List.contains kind allowNullLiteralKinds
-
-        if allowNullLiteral && not legalNullLiteral then
+        if
+            AttributeVerdicts.has attrs RuntimeNames.allowNullLiteralAttributeKey
+            && not (AttributeVerdicts.allowNullLiteral kind attrs)
+        then
             ctx.Report(declTok, Kind.AllowNullLiteralOnWrongKind)
 
-        {
-            Equality = firstVerdict eq
-            Comparison = firstVerdict cmp
-            AllowNullLiteral = legalNullLiteral
-        }
+    /// The element classification fsc enforces `[<AttributeUsage>]` against for a type
+    /// declaration of `kind`: every value-type kind is a `Struct` element.
+    let private attrTargetOfKind (kind: TypeDefnKind) : AttrTarget =
+        match kind with
+        | TypeDefnKind.Interface -> AttrTarget.Interface
+        | TypeDefnKind.Enum -> AttrTarget.Enum
+        | TypeDefnKind.Abbrev -> AttrTarget.Abbreviation
+        | TypeDefnKind.StructRecord
+        | TypeDefnKind.StructUnion
+        | TypeDefnKind.StructClass -> AttrTarget.Struct
+        | TypeDefnKind.Record
+        | TypeDefnKind.Union
+        | TypeDefnKind.RefClass -> AttrTarget.Class
+
+    /// Fold a type declaration's attributes under its element classification.
+    let foldTypeDefn (ctx: PassContext) (kind: TypeDefnKind) (attrs: ResolvedAttributes) : TAttributes =
+        AttributeFold.build ctx (attrTargetOfKind kind) attrs
+
+    let foldAndValidateTypeDefn
+        (ctx: PassContext)
+        (kind: TypeDefnKind)
+        (declTok: SyntaxToken)
+        (attrs: ResolvedAttributes)
+        : TAttributes =
+        let tattrs = foldTypeDefn ctx kind attrs
+        validateTypeDefnAttributes ctx kind declTok tattrs
+        tattrs
 
     let private mergeParamAttrSets (ctx: PassContext) (acc: ParamAttrs) (sets: Attributes<SyntaxToken>) : ParamAttrs =
         let a = ctx.ResolveAttributes(ValueSome sets)

@@ -446,6 +446,9 @@ type ExternalClassShape =
         /// The declared base type; `ValueNone` for an interface and for `System.Object`.
         FrozenBaseType: FrozenNominal voption
         Flags: ExternalClassFlags
+        /// The declaration's attributes, resolved and constant-folded. Empty from a producer
+        /// reading compiled metadata, which carries no Vesper attribute rows.
+        Attributes: TAttributes
         Origin: SymbolOrigin
     }
 
@@ -458,6 +461,7 @@ type ExternalClassShape =
             FrozenInterfaces = EqArray.empty
             FrozenBaseType = ValueNone
             Flags = ExternalClassFlags.Default
+            Attributes = EqArray.empty
             Origin = origin
         }
 

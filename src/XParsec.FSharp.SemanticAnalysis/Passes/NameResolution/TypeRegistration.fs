@@ -615,6 +615,26 @@ module NameResolutionTypeRegistration =
                     env
         }
 
+    /// Fold a module `let` binding marked `[<Literal>]` and record the constant in
+    /// `ctx.Resolution.LiteralValues` under the binding-site key. Folding runs at the
+    /// binding's own position, so an EARLIER literal it references resolves and a later one
+    /// does not; an RHS outside the constant domain is diagnosed at its first token (FS0267).
+    let private registerLiteralBinding (ctx: PassContext) (b: Binding<SyntaxToken>) : unit =
+        if (ctx.ResolveAttributes b.attributes).Has RuntimeNames.literalAttributeKey then
+            let useSite = ctx.UseSiteAt(CstKeys.ofBinding b)
+
+            match
+                ConstFold.tryConstant
+                    ctx.NameOf
+                    (fun t k -> ctx.Report(t, k))
+                    (AttributeFold.tryNamedConstant ctx useSite)
+                    b.expr
+            with
+            | Ok v ->
+                for (_, key) in NameResolutionScope.bindingsOfPat ctx b.pattern do
+                    ctx.Resolution.LiteralValues.Set(key, v.Value)
+            | Error e -> ctx.Report(CstKeys.firstTokenOfExpr b.expr, ConstFold.rejectionKind e)
+
     /// Classify + stamp every type name a module-level TERM writes: a `let`'s parameter and
     /// return-type annotations, and every annotation reachable in its body. Runs at the term's
     /// own position in the scan, so the registry holds exactly the types declared ABOVE it.
@@ -638,6 +658,7 @@ module NameResolutionTypeRegistration =
         | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(bindings = bindings)) ->
             for b in bindings do
                 binding b
+                registerLiteralBinding ctx b
         | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Do(expr = e))
         | ModuleElem.Expression e -> CstWalk.iterExpr walker () e
         | _ -> ()
@@ -690,14 +711,15 @@ module NameResolutionTypeRegistration =
                 | ValueNone -> ()
 
                 for f in fields do
-                    let (RecordField(mutableToken = mt; ident = fid; typ = ft)) = f
+                    let (RecordField(attributes = fAttrs; mutableToken = mt; ident = fid; typ = ft)) = f
 
                     fieldInfos.Add(
                         RecordFieldInfo(
                             ctx.NameOf fid,
                             translateType ctx ft,
                             mt.IsSome,
-                            NodeKey.ofToken fid NodeKind.DeclType
+                            NodeKey.ofToken fid NodeKind.DeclType,
+                            AttributeFold.resolveAndBuild ctx AttrTarget.RecordField fAttrs
                         )
                     )
             )
@@ -709,39 +731,15 @@ module NameResolutionTypeRegistration =
 
         // `[<Struct>]` record ⇒ value type. `struct … end` is a shape of its own, never a
         // record, so this is the whole verdict the group struct-field cycle check reaches.
-        info.IsValueType <- isStructAttributed ctx tn
+        let isStruct = isStructAttributed ctx tn
+        info.IsValueType <- isStruct
 
-        // Validate the declaration's attributes against the record kind
-        // (FS0382 / FS0377 / FS0934) and read the resolved verdicts.
-        let attrV =
-            Attributes.validateTypeDefnAttributes
+        info.Attributes <-
+            Attributes.foldAndValidateTypeDefn
                 ctx
-                Attributes.TypeDefnKind.Record
+                info.DefnKind
                 declSite.Tok
-                (Attributes.attributesOfTypeName tn)
-
-        // Explicit equality attribute wins; absent, the default is Structural when every
-        // field is immutable and Reference otherwise.
-        info.EqualitySupport <-
-            match attrV.Equality with
-            | ValueSome v -> v
-            | ValueNone ->
-                if fieldInfos |> Array.forall (fun fi -> not fi.IsMutable) then
-                    EqualityVerdict.Structural
-                else
-                    EqualityVerdict.Reference
-
-        // Comparison defaults to NoComparison, explicit attribute overrides.
-        info.ComparisonSupport <-
-            match attrV.Comparison with
-            | ValueSome v -> v
-            | ValueNone -> ComparisonVerdict.NoComparison
-
-        // `[<RequireQualifiedAccess>]` keeps this record out of a cross-file
-        // consumer's bare `{ X = … }` field-set index (`Elaborate` projects it
-        // onto the frozen decl; `FrozenSignature` / `InferResolve` honour it).
-        info.IsRequireQualifiedAccess <-
-            AttributeDecode.decodeRequireQualifiedAccess (ctx.ResolveAttributes(Attributes.attributesOfTypeName tn))
+                (ctx.ResolveAttributes(Attributes.attributesOfTypeName tn))
 
         rejectCustomOnDataType ctx declSite.Tok info.EqualitySupport info.ComparisonSupport
 
@@ -834,7 +832,7 @@ module NameResolutionTypeRegistration =
                 | ValueSome cs -> translateConstraints ctx cs
                 | ValueNone -> ()
 
-                for UnionTypeCase(data = data) in cases do
+                for UnionTypeCase(attributes = caseAttrs; data = data) in cases do
                     match inspectCaseData ctx data with
                     | ValueSome shape ->
                         let fieldTys = shape.FieldTypes |> Array.map (translateType ctx)
@@ -842,7 +840,15 @@ module NameResolutionTypeRegistration =
                         // The case carries its union's own claim KEY, so "which union
                         // declares this case" never re-resolves a name.
                         caseInfos.Add(
-                            UnionCaseInfo(shape.Name, name, id.Key, fieldTys, shape.FieldNames, declSite.Key)
+                            UnionCaseInfo(
+                                shape.Name,
+                                name,
+                                id.Key,
+                                fieldTys,
+                                shape.FieldNames,
+                                declSite.Key,
+                                AttributeFold.resolveAndBuild ctx AttrTarget.UnionCase caseAttrs
+                            )
                         )
                     | ValueNone -> ()
             )
@@ -852,32 +858,15 @@ module NameResolutionTypeRegistration =
         let info =
             UnionTypeInfo(name, typeParams, caseInfos, id.DeclSite, typarConstraints, id.Key)
 
-        // Validate the declaration's attributes against the union kind
-        // (FS0382 / FS0377 / FS0934) and read the resolved verdicts.
-        let attrV =
-            Attributes.validateTypeDefnAttributes
+        info.Attributes <-
+            Attributes.foldAndValidateTypeDefn
                 ctx
-                Attributes.TypeDefnKind.Union
+                (if isStructAttributed ctx tn then
+                     TypeDefnKind.StructUnion
+                 else
+                     TypeDefnKind.Union)
                 declSite.Tok
-                (Attributes.attributesOfTypeName tn)
-
-        // Union equality defaults to Structural, explicit attribute overrides.
-        info.EqualitySupport <-
-            match attrV.Equality with
-            | ValueSome v -> v
-            | ValueNone -> EqualityVerdict.Structural
-
-        // Comparison defaults to NoComparison, explicit attribute overrides.
-        info.ComparisonSupport <-
-            match attrV.Comparison with
-            | ValueSome v -> v
-            | ValueNone -> ComparisonVerdict.NoComparison
-
-        // `[<RequireQualifiedAccess>]` keeps this union's cases out of a
-        // cross-file consumer's bare case index (`Elaborate` projects it onto
-        // the frozen decl; `FrozenSignature` honours it).
-        info.IsRequireQualifiedAccess <-
-            AttributeDecode.decodeRequireQualifiedAccess (ctx.ResolveAttributes(Attributes.attributesOfTypeName tn))
+                (ctx.ResolveAttributes(Attributes.attributesOfTypeName tn))
 
         rejectCustomOnDataType ctx declSite.Tok info.EqualitySupport info.ComparisonSupport
 
@@ -900,26 +889,29 @@ module NameResolutionTypeRegistration =
         (tn: TypeName<SyntaxToken>)
         (cases: EnumTypeCases<SyntaxToken>)
         : unit =
-        // Nothing is stamped on an enum: equality on one is universal, and being a value
-        // type it is refused `[<AllowNullLiteral>]`. Only the kind-legality check applies.
-        Attributes.validateTypeDefnAttributes
-            ctx
-            Attributes.TypeDefnKind.Enum
-            id.DeclSite.Tok
-            (Attributes.attributesOfTypeName tn)
-        |> ignore
+        let tattrs =
+            Attributes.foldAndValidateTypeDefn
+                ctx
+                TypeDefnKind.Enum
+                id.DeclSite.Tok
+                (ctx.ResolveAttributes(Attributes.attributesOfTypeName tn))
 
         let declSite = id.DeclSite
 
         let resolved =
             EqArray.ofSeq (
                 seq {
-                    for EnumTypeCase(ident = cid; constValue = v) in cases ->
-                        EnumCaseValues.resolveCase ctx.NameOf (fun t kind -> ctx.Report(t, kind)) cid v
+                    for EnumTypeCase(attributes = caseAttrs; ident = cid; constValue = v) in cases ->
+                        EnumCaseValues.resolveCase
+                            ctx.NameOf
+                            (fun t kind -> ctx.Report(t, kind))
+                            (AttributeFold.resolveAndBuild ctx AttrTarget.EnumCase caseAttrs)
+                            cid
+                            v
                 }
             )
 
-        let info = EnumTypeInfo(id.Name, resolved, declSite.Key, id.Key)
+        let info = EnumTypeInfo(id.Name, resolved, declSite.Key, id.Key, tattrs)
         TypeRegistry.registerEnum ctx.Types info
 
         // Record the decl-site identity so `Elaborate.tryEnumType`
@@ -995,12 +987,13 @@ module NameResolutionTypeRegistration =
         let name = id.Name
         let typeParams = mkTypeParams ctx.Store (typarNamesOfTypeName ctx tn)
 
-        // Every posture and `[<AllowNullLiteral>]` belongs on the type it abbreviates.
-        Attributes.validateTypeDefnAttributes
+        // Every posture and `[<AllowNullLiteral>]` belongs on the type it abbreviates; an
+        // abbreviation stores no attributes of its own, so the fold's product is dropped.
+        Attributes.foldAndValidateTypeDefn
             ctx
-            Attributes.TypeDefnKind.Abbrev
+            TypeDefnKind.Abbrev
             id.DeclSite.Tok
-            (Attributes.attributesOfTypeName tn)
+            (ctx.ResolveAttributes(Attributes.attributesOfTypeName tn))
         |> ignore
 
         if hasAugmentation then

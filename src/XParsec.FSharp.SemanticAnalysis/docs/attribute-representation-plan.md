@@ -94,8 +94,10 @@ and those verdicts become derived views over it. One representation with compute
 three lossy decodings — and it is what lets the CLR emit a row carrying the attribute's actual
 arguments instead of reconstructing them from a `bool`.
 
-Frozen-format change, so the codec and `Cache.CodeVersion` (currently `Cache.fs:52`, `31`)
-come along.
+Frozen-format change, so the codec (`FrozenCodecDecls.fs`) comes along. *(Corrected
+2026-08-28: `Cache.fs` was deleted in `8430062c` and the codec carries no version constant.
+Nothing in `src/` persists frozen bytes across runs, so the format break is free; the
+round-trip suites — `FrozenCodecTreeRoundTripTests`, `FrozenBlobSizeTests` — are the gate.)*
 
 ## Work
 
@@ -114,7 +116,29 @@ come along.
    repr to an external type, so `AbstractClassAttribute`'s `inherit Attribute()` in
    `prim-types-attr.js.fs` failed on the sentinel; it now falls back to the ctor-bearing canon,
    the same rule the provider arm already had.
-2. Land attributes verbatim in the FrozenTast; rebuild the verdicts as views.
+2. ~~Land attributes verbatim in the FrozenTast; rebuild the verdicts as views.~~ **DONE
+   (2026-08-28).** `TAttribute = { Key: TypeKey; Args: EqArray<TAttributeArg> }` with
+   constant-folded `TConstValue` args (`AttributeFold.build`), stored on `TTypeDeclG`,
+   `TTypeMemberG`, `TUnionCaseG`, `TRecordFieldG`, `TEnumCaseG` and codec'd; the CST first
+   gained an `attributes` slot on `EnumTypeCase` (sub-step 2a). `EqualitySupport`,
+   `ComparisonSupport` and `IsRequireQualifiedAccess` are now member views over `Attributes`
+   via the one `AttributeVerdicts` decode both the validation pass and the views read.
+   Landing it surfaced two findings: frozen class decls had hardcoded `Reference` equality,
+   silently dropping equality attributes (and the honest verdict exposed a `NominalEmit` gate
+   that emitted `IEquatable` rows without bodies for `[<Struct>]` classes — fixed by gating on
+   the data shape); and a fold gap where an argument-bearing attribute before a sibling in one
+   bracket (`[<Mark(2, "u"); RequireQualifiedAccess>]`) misfolds — open follow-up, ptest-pinned
+   in `AttributeFoldTests`. *(Cleanup pass 2026-08-28: an attribute with a rejected argument is
+   now omitted WHOLE, so a frozen `Args` list is never positionally shifted; `TAttributeArg`
+   carries the argument's enum identity (`EnumKey`), set by the fold and kept through `|||`
+   chains of one enum; the registry's stored verdicts (`TypeInfos`'s
+   `EqualitySupport`/`ComparisonSupport`/`IsRequireQualifiedAccess`) became views over
+   `Attributes`, same as the frozen decl's; and the per-site `AttrTarget` projection collapsed
+   into `Attributes.foldAndValidateTypeDefn`.)* Still
+   attribute-less: typar defns, parameters, signature `ArgSpec`/`val`s, exception decls,
+   class `let`/`do` preambles, module-level `let`s (enforced but not stored), abbreviations;
+   `DeclaredClassFlags`/`ClassValueKind`/`RecordValueKind`/`IsValueType` stay stored, since
+   they mix attribute facts with keyword and external-metadata facts.
 3. ~~Delete `AttributeDecode`'s name lists and `TypeTranslate.fs:166,171`.~~ **DONE
    (2026-08-17)**, as the `.fsi` front-end work's final step. Attribute
    resolution is `PassContext.ResolveAttributes` (site-memoised, unresolved = error on both
@@ -125,29 +149,78 @@ come along.
    `SignatureResolution.fs` now takes the first retained token, as the impl path already did.
    Remaining silently-unresolved positions are the ones no consumer reads yet — member,
    union-case, field and enum-case attributes — which step 2's whole-tree landing covers.
-4. CLR: emit `CustomAttribute` rows for resolved usages, generalising the `IsByRefLike`
-   machinery at `ClrEnv.fs:193` to an arbitrary attribute ctor plus blob-encoded arguments.
-5. CLR: fix `hasAllowNullLiteral` to accept the Vesper key, and decide whether the rows are
-   **authoritative** (readers for the other nine; the DLL becomes self-sufficient) or
-   **advisory** (emitted for external .NET tooling, contract stays the carrier for
-   Vesper→Vesper). That fork is really a publishing question.
+4. ~~CLR: emit `CustomAttribute` rows for resolved usages, generalising the `IsByRefLike`
+   machinery at `ClrEnv.fs:193` to an arbitrary attribute ctor plus blob-encoded arguments.~~
+   **DONE (2026-08-28).** `Assembler.PrepareCustomAttributeRows` walks every partitioned type
+   decl, its own members and record fields, resolving each `TAttribute` to a ctor handle —
+   the local `TypeDef` ctor, a contract `MemberRef` (`ClrExternalMembers.externalAttributeCtor`),
+   or the BCL spelling for a `ClrAttributeNames`-mapped key (`[<AttributeUsage>]` ⇒
+   `System.AttributeUsageAttribute(System.AttributeTargets)`) — with the II.23.3 blob encoded
+   off the folded `TConstValue`s (`AttributeBlob.tryEncode`). An unresolvable ctor or an
+   argument outside the encodable constant domain skips the row rather than failing the
+   compile; *(cleanup pass 2026-08-28)* each skip's reason is filed on
+   `ClrArtifact.SkippedAttributeRows` (`AttributeCtorResolution`), and a named enum-typed
+   argument encodes II.23.3's enum form (`0x55` + the enum type's SerString) off
+   `TAttributeArg.EnumKey`. The keyword-derived `IsByRefLike` row stays as-is; the
+   `[<IsByRefLike>]` spelling is deduped by key. Union-case and enum-case rows are still
+   unemitted (ptest-pinned in `AttributeRowTests`).
+5. ~~CLR: fix `hasAllowNullLiteral` to accept the Vesper key~~ **DONE (2026-08-28)** — it now
+   matches the FSharp.Core spelling and `typeMetaName allowNullLiteralAttributeKey`. The fork
+   is decided **advisory** for now: rows serve external .NET tooling and the AllowNullLiteral
+   readback; the `.fsi` contract stays the Vesper→Vesper carrier and no readers for the other
+   markers were added. `AttributeRowTests` pins the emit + `MetadataSymbols` round trip.
 6. ~~JS: drop declarations whose base chain reaches `Attribute` at emit.~~ **DONE
    (2026-08-16).** `EmitJs`'s decl filter drops any class whose base carries an intrinsic
    repr, which reaches `Attribute` (`"!Vesper.Attribute"`) and the `exn` roster alike, before
    `EmitJsTypes`' `inherit` guard sees it. `prim-types-attr.js.fs` binds the sentinel and
    `compiler-attributes.fs` is now in the js `impl` list.
-7. Enforce `AttributeUsage` targets — currently decoded by nothing, so `[<Global>]` on a type
-   would emit a row rather than erroring. Prerequisite: a `ConstFold` module in
+7. ~~Enforce `AttributeUsage` targets — currently decoded by nothing, so `[<Global>]` on a type
+   would emit a row rather than erroring.~~ **DONE (2026-08-28).**
+   `AttributeFold.build`/`resolveAndBuild` take an `AttrTarget` — the element classification
+   fsc uses for FS0842, probed: a module is `Class`, a module value
+   `Property|Field|ReturnValue`, a function-typed or generalised value `Method|ReturnValue`, a
+   record field `Property|Field`, a union case `Method|Property`, an enum case `Field` — and
+   each attribute's declared mask (local registry first, else the contract shape's
+   `Attributes`; unreachable ⇒ `All`) is checked at every fold position, signature and impl
+   path alike; a module `let` enforces without folding
+   (`AttributeFold.enforceTargets` in `Elaborate.translateModuleLet`). Mismatch ⇒
+   `Kind.AttributeTargetInvalid`, error severity under FS0842's number and wording (fsc files
+   it as a warning), at the attribute's type name. `[<Global>]` on a type now errors. Landing
+   it surfaced one mask fault: `[<Import>]` is written on module FUNCTIONS
+   (`ops-platform-runtime.js.fs`, `comparison-runtime.js.fs`), which fsc classifies as
+   methods, so `ImportAttribute`'s declared mask gains `Method`. Open follow-ups:
+   `AllowMultiple` / `Inherited` enforcement (`AllowMultiple` ptest-pinned in
+   `AttributeFoldTests`), and the still-unfolded positions (typar defns, parameters,
+   signature `val`s, abstract member signatures, exception decls, class preambles, modules)
+   pass unchecked. *(Cleanup pass 2026-08-28: each `ConstRejection` case now reports its own
+   claim through `ConstFold.rejectionKind` — an out-of-range literal is no longer "not a
+   valid constant expression" — and `Kind.AttributeArgNotConstant` was renamed
+   `Kind.NotConstantExpression`, since a `[<Literal>]` RHS reports it too.)*
+   Prerequisite (landed earlier): a `ConstFold` module in
    SemanticAnalysis, sibling of `EnumCaseValues` and in its style —
-   `tryConstant: TExpr -> Result<TConstValue, ConstRejection>` — folding the closed
-   attribute-argument constant domain: a literal; an enum-member reference read from the
-   registry or `ExternalEnumCaseShape.Value`; `|||`/`&&&`/`^^^` on integral constants of one
-   width; unary minus. Anything else in attribute position is a diagnostic (F#'s FS0267), not a
-   silent pass-through. This needs NO provider change: enum values already cross the seam as
-   `IntVal`/`StringVal` (`ExternalDeclarations.fs:141`), and the fold rules are language
-   semantics, so they live in analysis once rather than per provider. An `expr -> expr`
-   evaluator seam was considered and rejected here; that shape belongs to backend optimisation
-   passes downstream of freeze. Step 4's blob encoding consumes the same `TConstValue`.
+   `tryConstant: ... -> Expr<SyntaxToken> -> Result<TConstValue, ConstRejection>` *(tier
+   corrected 2026-08-28: attribute arguments are held as raw CST on
+   `ResolvedAttribute.Construction` and never reach elaboration, so the fold takes the CST
+   expression; an identifier argument resolves through name resolution — an enum case or a
+   `[<Literal>]` value, a value claim shadowing a case as expression resolution orders them —
+   via a single `tryNamedConstant` lookup the caller wires)* — folding the
+   closed attribute-argument constant domain: a literal; a named-constant reference (an
+   enum member read from the registry or `ExternalEnumCaseShape.Value`, or a module-level
+   `[<Literal>]` value, whose RHS folds through the same domain at registration into
+   `Resolution.LiteralValues` under top-down scoping); `|||`/`&&&`/`^^^` on integral constants
+   of one width; unary minus. Anything else in attribute position is a diagnostic (F#'s
+   FS0267), not a silent pass-through — as is a `[<Literal>]` RHS outside the domain (fsc's
+   FS0267 there too, probed 2026-08-28). fsc's literal-body domain is wider — `+`, `*`,
+   `<<<`, string concatenation all fold there (F# 5+) — and a named literal is accepted as an
+   enum case's value; both are open follow-ups, as is the literal CONTRACT leg: a `.fsi`
+   carries a literal's value (`[<Literal>] val Mask: int = 3`; omitting the value is FS0876),
+   but `ExternalSymbol` carries no constant yet, so a literal declared in another file or
+   assembly does not fold. This needs NO provider change for enums: values already cross the
+   seam as `IntVal`/`StringVal` (`ExternalDeclarations.fs:141`), and the fold rules are
+   language semantics, so they live in analysis once rather than per provider. An
+   `expr -> expr` evaluator seam was considered and rejected here; that shape belongs to
+   backend optimisation passes downstream of freeze. Step 4's blob encoding consumes the same
+   `TConstValue`.
 
 ## Consequence for the manifests
 
@@ -158,3 +231,33 @@ That surfaced one thing worth carrying into step 1: `prim-types-attr.fsi` declar
 so `inherit Attribute()` resolved only by falling through to the platform repr, and only where
 that repr names a real type. It now declares `new: unit -> Attribute` — the ctor the ten
 `inherit` clauses were already calling — and both targets take the same ctor-bearing path.
+
+## Review pass (2026-08-28, second cleanup)
+
+- The attribute value model (`TAttribute[Arg]`, `TAttributes`) and the verdict decode
+  (`TypeDefnKind`, `EqCompAttr`, `AttributeVerdicts`) moved out of `TastDecl.fs` into
+  `AttributeVerdicts.fs`, compiled just before it.
+- `TypeDefnKind` now carries struct-ness (`StructRecord` / `StructUnion` / `StructClass`),
+  so one classification feeds both the legality matrices and the `AttrTarget` projection;
+  the `isStruct` parameter on `Attributes.foldTypeDefn` / `foldAndValidateTypeDefn` is gone.
+  `[<ReferenceEquality>]` on a value type now reports FS0376
+  (`Kind.ReferenceEqualityOnStruct`), matching fsc, alongside the FS0842 target error the
+  contract's `AttributeUsage(Class)` mask already produced. A struct UNION's kind is
+  registration-side only: `TUnionG` carries no value kind yet, so the frozen `DefnKind`
+  reads `Union` (struct unions are unlowered; see `struct-union-layout-plan.md`).
+- **The mutable-record equality divergence is dropped**: a record with a mutable field now
+  defaults to `Structural`, as fsc's does (probed: `{ mutable Y }` compares structurally,
+  struct or not), so the CLR now emits its equality triple. The default is decided in the
+  single `AttributeVerdicts.equalitySupport`; reinstating a divergence or a compiler option
+  is a change to that one function, though an option would have to thread to every view
+  read-site and would make a frozen tree's meaning depend on out-of-band state.
+- `ResolvedAttribute` carries the `CstKeys.TypeRef` resolution already computed, so
+  `AttributeFold` reports at `entry.TypeRef.Site` instead of re-deriving it behind a
+  silent-`ValueNone` guard.
+- CLR row prep moved out of `Assembler` into `AttributeRowPrep.prepare`. Skips are
+  structured (`ClrArtifact.SkippedAttributeRows: SkippedAttributeRow list`, reason DU), and
+  the enum-SerString fallback is gone: a named argument typed by a referenced-assembly enum
+  skips its row as `ForeignEnumArgument` instead of writing a plain name that cannot bind.
+  A positional enum argument no longer consults the enum name at all (the fixed-argument
+  encoding follows the ctor parameter type). The property-row placement (`get_` method, not
+  a `Property` row) is ptest-pinned in `AttributeRowTests` beside the case-row gap.

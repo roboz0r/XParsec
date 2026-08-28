@@ -112,6 +112,7 @@ let private pokeMemberWith (paramTy: FrozenType) (mkBody: BoundVarId -> Pooled.T
         Body = { Pool = pool; Id = body }
         ReturnTy = ftInt
         MethodTypeParams = EqArray.empty
+        Attributes = EqArray.empty
     }
 
 /// `member inline _.Poke (x: 'paramTy) : int = (# template x : int #)`.

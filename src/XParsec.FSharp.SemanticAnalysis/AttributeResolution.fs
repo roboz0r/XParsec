@@ -76,7 +76,13 @@ module AttributeResolution =
                                     v
 
                             match verdict with
-                            | AttributeVerdict.Resolved k -> resolved.Add { Key = k; Construction = construction }
+                            | AttributeVerdict.Resolved k ->
+                                resolved.Add
+                                    {
+                                        Key = k
+                                        TypeRef = typeRef
+                                        Construction = construction
+                                    }
                             | AttributeVerdict.Reported -> ()
 
                 { Entries = List.ofSeq resolved }

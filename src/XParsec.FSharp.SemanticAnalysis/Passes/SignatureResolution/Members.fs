@@ -338,7 +338,15 @@ module SignatureResolutionMembers =
             ]
 
         let attrs = Attributes.attributesOfTypeName tn
-        let decoded = AttributeDecode.decodeClassAttributes (ctx.ResolveAttributes attrs)
+        let resolvedAttrs = ctx.ResolveAttributes attrs
+        let decoded = AttributeDecode.decodeClassAttributes resolvedAttrs
+
+        let kind =
+            if isInterface then TypeDefnKind.Interface
+            elif decoded.IsValueType then TypeDefnKind.StructClass
+            else TypeDefnKind.RefClass
+
+        let foldedAttrs = Attributes.foldTypeDefn ctx kind resolvedAttrs
 
         let shape =
             underTypars
@@ -373,6 +381,7 @@ module SignatureResolutionMembers =
                                     }
                                 IsValueType = decoded.IsValueType
                             }
+                        Attributes = foldedAttrs
                         Origin = SymbolOrigin.Empty
                     }
                 )

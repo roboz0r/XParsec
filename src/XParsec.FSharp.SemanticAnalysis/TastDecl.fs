@@ -84,17 +84,46 @@ and TTypeDeclG<'ty, 'tok, 'id, 'body> =
         Namespace: string option
         /// Declared type parameters in source order (e.g. `["'A"; "'B"]`).
         TypeParams: EqArray<string>
-        /// `[<RequireQualifiedAccess>]`, type-level so it covers records AND unions: a bare
-        /// `{ X = … }` or a bare case name does not resolve to this type.
-        IsRequireQualifiedAccess: bool
         Kind: TTypeKindG<'ty, 'tok, 'id, 'body>
-        /// Defaults to `Structural`.
-        EqualitySupport: EqualityVerdict
-        /// Defaults to `NoComparison`, because comparison is opt-in.
-        ComparisonSupport: ComparisonVerdict
+        /// The declaration's attributes, resolved and constant-folded. The equality /
+        /// comparison / qualified-access verdicts are views over this list.
+        Attributes: TAttributes
     }
 
     member this.Key: SymbolKey = SymbolKey.Type this.TypeKey
+
+    /// The legality-axis kind of `Kind`: the same axis the attribute-validation pass judged
+    /// the declaration under.
+    member this.DefnKind: TypeDefnKind =
+        match this.Kind with
+        | TTypeKindG.Record r ->
+            match r.ValueKind with
+            | RecordValueKind.RefType -> TypeDefnKind.Record
+            | RecordValueKind.Struct -> TypeDefnKind.StructRecord
+        // The frozen tree carries no union value kind: a `[<Struct>]` union is not lowered.
+        | TTypeKindG.Union _ -> TypeDefnKind.Union
+        | TTypeKindG.Enum _ -> TypeDefnKind.Enum
+        | TTypeKindG.Abbrev _ -> TypeDefnKind.Abbrev
+        | TTypeKindG.Interface _ -> TypeDefnKind.Interface
+        | TTypeKindG.Class c ->
+            match c.ValueKind with
+            | ClassValueKind.RefType -> TypeDefnKind.RefClass
+            | ClassValueKind.Struct
+            | ClassValueKind.RefStruct -> TypeDefnKind.StructClass
+
+    /// `[<RequireQualifiedAccess>]`, type-level so it covers records AND unions: a bare
+    /// `{ X = … }` or a bare case name does not resolve to this type.
+    member this.IsRequireQualifiedAccess: bool =
+        AttributeVerdicts.isRequireQualifiedAccess this.Attributes
+
+    /// The attribute-decided verdict, else the kind's default: `Reference` for a reference
+    /// class / interface, `Structural` for every data kind.
+    member this.EqualitySupport: EqualityVerdict =
+        AttributeVerdicts.equalitySupport this.DefnKind this.Attributes
+
+    /// The attribute-decided verdict, else `NoComparison`: comparison is opt-in.
+    member this.ComparisonSupport: ComparisonVerdict =
+        AttributeVerdicts.comparisonSupport this.DefnKind this.Attributes
 
 and [<RequireQualifiedAccess>] TTypeKindG<'ty, 'tok, 'id, 'body> =
     | Interface of methods: EqArray<TAbstractMethodG<'ty>>
@@ -172,6 +201,7 @@ and TUnionCaseG<'ty> =
     {
         Name: string
         Fields: EqArray<string voption * 'ty>
+        Attributes: TAttributes
     }
 
 /// A resolved enum-case literal. Only `Int` / `String` are representable; the elaborator
@@ -193,16 +223,18 @@ and TEnumCaseG<'tok> =
         /// hard error was reported; the case is kept so its siblings live.
         Value: TEnumLiteral voption
         Tok: 'tok
+        Attributes: TAttributes
     }
 
 /// One field of a `TTypeKind.Record`. `Type` carries the field's declared type, which for a generic
 /// record uses the declaring type's typar markers (`TyTypar(Declaring, i)`). `IsMutable` is the
-/// source-level `mutable` annotation, and gates the equality triple's all-immutable case.
+/// source-level `mutable` annotation.
 and TRecordFieldG<'ty> =
     {
         Name: string
         Type: 'ty
         IsMutable: bool
+        Attributes: TAttributes
     }
 
 and [<RequireQualifiedAccess>] TMemberKind =
@@ -234,6 +266,8 @@ and TTypeMemberG<'ty, 'id, 'body> =
         /// the declaring type's `TypeParams`. Each entry pairs the source name with the
         /// typar's own type.
         MethodTypeParams: EqArray<string * 'ty>
+        /// The member's attributes, resolved and constant-folded.
+        Attributes: TAttributes
     }
 
 /// One `[static] let [mutable] x = <init>` of a class preamble: a private static field the

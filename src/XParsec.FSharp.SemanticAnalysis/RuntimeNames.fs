@@ -101,6 +101,7 @@ module RuntimeNames =
     let noComparisonAttributeKey: TypeKey = attributeKey "NoComparison"
     let customComparisonAttributeKey: TypeKey = attributeKey "CustomComparison"
     let allowNullLiteralAttributeKey: TypeKey = attributeKey "AllowNullLiteral"
+    let literalAttributeKey: TypeKey = attributeKey "Literal"
     let globalAttributeKey: TypeKey = attributeKey "Global"
     let importAttributeKey: TypeKey = attributeKey "Import"
     let abstractClassAttributeKey: TypeKey = attributeKey "AbstractClass"
@@ -115,6 +116,12 @@ module RuntimeNames =
 
     let compilationRepresentationAttributeKey: TypeKey =
         attributeKey "CompilationRepresentation"
+
+    let attributeUsageAttributeKey: TypeKey = attributeKey "AttributeUsage"
+
+    /// The `AttributeTargets` flags enum typing `[<AttributeUsage>]`'s first argument.
+    let attributeTargetsKey: TypeKey =
+        SymbolKeyOps.typeKeyOf intrinsicNamespace "AttributeTargets"
 
     /// `[<IsByRefLike>]` resolves to the BCL declaration: byref-likeness is a CLR-only
     /// concept, so no Vesper declaration exists and on JS the spelling is an ordinary

@@ -217,6 +217,17 @@ module Elaborate =
 
         let quantEnv = moduleLetQuantEnv ctx b declTy
 
+        // fsc classifies a module binding by its inferred shape: a function type and a
+        // generalised (explicitly generic) value are both methods; any other value is a
+        // property / field.
+        let attrElement =
+            match Unification.zonk ctx.Store declTy with
+            | TyFun _ -> AttrTarget.ModuleFunction
+            | _ when not (List.isEmpty quantEnv) -> AttrTarget.ModuleFunction
+            | _ -> AttrTarget.ModuleValue
+
+        AttributeFold.enforceTargets ctx attrElement (ctx.ResolveAttributes b.attributes)
+
         // A bound-variable-less pattern has nowhere to file the typar-axis width.
         match boundVar with
         | ValueSome bk ->

@@ -253,6 +253,7 @@ module FrozenSignature =
                                     Declared = c.Declared
                                     IsValueType = (c.ValueKind <> ClassValueKind.RefType)
                                 }
+                            Attributes = td.Attributes
                             Origin = origin
                         }
 
@@ -274,6 +275,7 @@ module FrozenSignature =
                             FrozenInterfaces = EqArray.empty
                             FrozenBaseType = ValueNone
                             Flags = ExternalClassFlags.Default
+                            Attributes = td.Attributes
                             Origin = origin
                         }
 

@@ -3,12 +3,13 @@ namespace XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 
-/// One written attribute, resolved: the declaration's `TypeKey` and the construction as
-/// written, which is where the arguments are read from.
+/// One written attribute, resolved: the declaration's `TypeKey`, the construction as
+/// written (where the arguments are read from), and the attribute's own type reference.
 [<NoEquality; NoComparison>]
 type ResolvedAttribute =
     {
         Key: TypeKey
+        TypeRef: CstKeys.TypeRef
         Construction: ObjectConstruction<SyntaxToken>
     }
 
@@ -161,6 +162,3 @@ module AttributeDecode =
             IsValueType = attrs.Has RuntimeNames.structAttributeKey || isByRefLike
             IsByRefLike = isByRefLike
         }
-
-    let decodeRequireQualifiedAccess (attrs: ResolvedAttributes) : bool =
-        attrs.Has RuntimeNames.requireQualifiedAccessAttributeKey

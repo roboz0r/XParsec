@@ -301,6 +301,83 @@ module Intrinsic =
         | Intrinsic.DynamicSet -> "the dynamic-set operator '?<-' (op_DynamicAssignment)"
         | Intrinsic.GetIndex -> "the index-signature intrinsic 'GetIndex'"
 
+/// `System.AttributeTargets` flag values (ECMA-335 §II.23.1.1; `Vesper.AttributeTargets`
+/// declares the same numbers), plus fsc's wording for a flag set.
+[<RequireQualifiedAccess>]
+module AttributeTargetFlags =
+
+    [<Literal>]
+    let Assembly = 1
+
+    [<Literal>]
+    let Module = 2
+
+    [<Literal>]
+    let Class = 4
+
+    [<Literal>]
+    let Struct = 8
+
+    [<Literal>]
+    let Enum = 16
+
+    [<Literal>]
+    let Constructor = 32
+
+    [<Literal>]
+    let Method = 64
+
+    [<Literal>]
+    let Property = 128
+
+    [<Literal>]
+    let Field = 256
+
+    [<Literal>]
+    let Event = 512
+
+    [<Literal>]
+    let Interface = 1024
+
+    [<Literal>]
+    let Parameter = 2048
+
+    [<Literal>]
+    let Delegate = 4096
+
+    [<Literal>]
+    let ReturnValue = 8192
+
+    [<Literal>]
+    let GenericParameter = 16384
+
+    [<Literal>]
+    let All = 32767
+
+    /// fsc's rendering of a flag set (FS0842): lowercase words in ascending flag order,
+    /// comma-separated — `"property, field, return value"`.
+    let words (mask: int) : string =
+        [
+            Assembly, "assembly"
+            Module, "module"
+            Class, "class"
+            Struct, "struct"
+            Enum, "enum"
+            Constructor, "constructor"
+            Method, "method"
+            Property, "property"
+            Field, "field"
+            Event, "event"
+            Interface, "interface"
+            Parameter, "parameter"
+            Delegate, "delegate"
+            ReturnValue, "return value"
+            GenericParameter, "generic parameter"
+        ]
+        |> List.filter (fun (flag, _) -> mask &&& flag <> 0)
+        |> List.map snd
+        |> String.concat ", "
+
 /// WHAT a diagnostic says. A case carries the facts its sentence is built from, never the
 /// sentence, so a consumer selects on the verdict instead of parsing English.
 [<RequireQualifiedAccess>]
@@ -360,6 +437,14 @@ type Kind =
     | InvalidEqualityAttributeMix
     /// `[<AllowNullLiteral>]` on a kind with no reference slot for `null` to occupy.
     | AllowNullLiteralOnWrongKind
+    /// `[<ReferenceEquality>]` on a value type, which has no reference identity to compare.
+    | ReferenceEqualityOnStruct
+    /// An expression outside the constant domain, in attribute-argument (`[<Foo(1 + x)>]`)
+    /// or `[<Literal>]`-RHS position.
+    | NotConstantExpression
+    /// The attribute's declared `[<AttributeUsage>]` mask admits none of the flags the
+    /// written-on element occupies. Both are `AttributeTargetFlags` sets.
+    | AttributeTargetInvalid of element: int * validOn: int
     /// `attribute` is the posture attribute (`[<CustomEquality>]`); `capability` the
     /// resolved interface it demands, as this compilation's provider spells it.
     | CapabilityNotImplemented of attribute: string * capability: string
@@ -458,6 +543,10 @@ module Kind =
         | Kind.CustomEqualityAttributeOnInterface -> DiagCode.FSharp 382
         | Kind.InvalidEqualityAttributeMix -> DiagCode.FSharp 377
         | Kind.AllowNullLiteralOnWrongKind -> DiagCode.FSharp 934
+        | Kind.ReferenceEqualityOnStruct -> DiagCode.FSharp 376
+        | Kind.NotConstantExpression -> DiagCode.FSharp 267 // tcInvalidConstantExpression
+        // fsc files this as a WARNING; here the mismatch is an error.
+        | Kind.AttributeTargetInvalid _ -> DiagCode.FSharp 842 // tcAttributeIsNotValidForLanguageElement
         | Kind.MemberAndLocalBindingClash _ -> DiagCode.FSharp 905
         | Kind.DuplicateMember _ -> DiagCode.FSharp 438
         | Kind.CyclicType(via = TypeCycle.Immediate) -> DiagCode.FSharp 954 // tcTypeDefinitionIsCyclicThroughInheritance
@@ -556,6 +645,14 @@ module Kind =
             "This type uses an invalid mix of the attributes 'NoEquality', 'ReferenceEquality', 'StructuralEquality', 'NoComparison' and 'StructuralComparison'."
         | Kind.AllowNullLiteralOnWrongKind ->
             "Records, union, abbreviations and struct types cannot have the 'AllowNullLiteral' attribute"
+        | Kind.ReferenceEqualityOnStruct ->
+            "The 'ReferenceEquality' attribute cannot be used on structs. Consider using the 'StructuralEquality' attribute instead, or implement an override for 'System.Object.Equals(obj)'."
+        | Kind.NotConstantExpression -> "This is not a valid constant expression or custom attribute value"
+        | Kind.AttributeTargetInvalid(element, validOn) ->
+            sprintf
+                "This attribute cannot be applied to %s. Valid targets are: %s"
+                (AttributeTargetFlags.words element)
+                (AttributeTargetFlags.words validOn)
         | Kind.CapabilityNotImplemented(attribute, capability) ->
             sprintf "A type with %s must implement '%s'." attribute capability
         | Kind.CapabilityNotDeclared(attribute, capabilityWord) ->
@@ -648,6 +745,9 @@ module Kind =
         | Kind.CustomEqualityAttributeOnInterface
         | Kind.InvalidEqualityAttributeMix
         | Kind.AllowNullLiteralOnWrongKind
+        | Kind.ReferenceEqualityOnStruct
+        | Kind.NotConstantExpression
+        | Kind.AttributeTargetInvalid _
         | Kind.CapabilityNotImplemented _
         | Kind.CapabilityNotDeclared _
         | Kind.MissingGetHashCodeOverride

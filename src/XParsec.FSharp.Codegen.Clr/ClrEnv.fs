@@ -190,6 +190,40 @@ type internal ClrEnv
 
              toEntity (ctx.MemberRef(eIsByRefLikeAttr.Value, ".ctor", s)))
 
+    // `System.AttributeUsageAttribute::.ctor(System.AttributeTargets)` — the CLR spelling of a
+    // `[<AttributeUsage>]` row (`ClrAttributeNames` carries the key mapping).
+    let eAttributeUsageAttrCtor =
+        lazy
+            (let attrRef =
+                toEntity (
+                    ctx.TypeRef(
+                        coreRef.Value,
+                        ClrAttributeNames.AttributeUsageNamespace,
+                        ClrAttributeNames.AttributeUsageName
+                    )
+                )
+
+             let targetsRef =
+                 toEntity (
+                     ctx.TypeRef(
+                         coreRef.Value,
+                         ClrAttributeNames.AttributeTargetsNamespace,
+                         ClrAttributeNames.AttributeTargetsName
+                     )
+                 )
+
+             let s = BlobBuilder()
+
+             BlobEncoder(s)
+                 .MethodSignature(isInstanceMethod = true)
+                 .Parameters(
+                     1,
+                     (fun (ret: ReturnTypeEncoder) -> ret.Void()),
+                     (fun (pars: ParametersEncoder) -> pars.AddParameter().Type().Type(targetsRef, true))
+                 )
+
+             toEntity (ctx.MemberRef(attrRef, ".ctor", s)))
+
     let eTextWriter =
         lazy (toEntity (ctx.TypeRef(coreRef.Value, "System.IO", "TextWriter")))
 
@@ -540,6 +574,7 @@ type internal ClrEnv
     member _.EValueType = eValueType
     member _.EEnum = eEnum
     member _.EIsByRefLikeAttrCtor = eIsByRefLikeAttrCtor
+    member _.EAttributeUsageAttrCtor = eAttributeUsageAttrCtor
     member _.ETextWriter = eTextWriter
     member _.EStringBuilder = eStringBuilder
     member _.EConsole = eConsole

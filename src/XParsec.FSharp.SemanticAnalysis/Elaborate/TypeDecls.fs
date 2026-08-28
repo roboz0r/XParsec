@@ -143,10 +143,8 @@ module internal ElaborateTypeDecls =
         (key: TypeKey)
         (ns: string option)
         (typars: EqArray<string>)
-        (rqa: bool)
+        (attrs: TAttributes)
         (kind: TTypeKind)
-        (eq: EqualityVerdict)
-        (cmp: ComparisonVerdict)
         : TDecl =
         TDecl.Type
             {
@@ -154,10 +152,8 @@ module internal ElaborateTypeDecls =
                 TypeKey = key
                 Namespace = ns
                 TypeParams = typars
-                IsRequireQualifiedAccess = rqa
                 Kind = kind
-                EqualitySupport = eq
-                ComparisonSupport = cmp
+                Attributes = attrs
             }
 
     /// Surface a `TypeDefn.Union` as a `TDecl.Type` from the resolved `UnionTypeInfo`. Any
@@ -207,7 +203,11 @@ module internal ElaborateTypeDecls =
                                     }
                                 )
 
-                            { Name = c.Name; Fields = fields }
+                            {
+                                Name = c.Name
+                                Fields = fields
+                                Attributes = c.Attributes
+                            }
                     }
                 )
 
@@ -220,15 +220,13 @@ module internal ElaborateTypeDecls =
                     info.TypeKey
                     ns
                     (EqArray.ofList declTypars)
-                    info.IsRequireQualifiedAccess
+                    info.Attributes
                     (TTypeKind.Union
                         {
                             Cases = cases
                             Members = members
                             Interfaces = interfaces
-                        })
-                    info.EqualitySupport
-                    info.ComparisonSupport,
+                        }),
                 List.ofSeq env
             )
 
@@ -274,20 +272,7 @@ module internal ElaborateTypeDecls =
                 )
             | ValueNone -> ()
 
-            Some(
-                mkTypeDecl
-                    name
-                    info.TypeKey
-                    ns
-                    (EqArray.ofList [])
-                    // An enum's cases are always qualified (`E.C1`), so RQA adds nothing.
-                    false
-                    (TTypeKind.Enum tcases)
-                    // An enum synthesises no equality / comparison members; these go unread.
-                    EqualityVerdict.Structural
-                    ComparisonVerdict.NoComparison,
-                []
-            )
+            Some(mkTypeDecl name info.TypeKey ns (EqArray.ofList []) info.Attributes (TTypeKind.Enum tcases), [])
 
     /// Surface a `TypeDefn.Record` as a `TDecl.Type` from the resolved `RecordTypeInfo`.
     /// Field types are remapped through the declaring-type typars, as for a union.
@@ -324,6 +309,7 @@ module internal ElaborateTypeDecls =
                                 Name = f.Name
                                 Type = f.Type
                                 IsMutable = f.IsMutable
+                                Attributes = f.Attributes
                             }
                     }
                 )
@@ -343,16 +329,14 @@ module internal ElaborateTypeDecls =
                     info.TypeKey
                     ns
                     (EqArray.ofList declTypars)
-                    info.IsRequireQualifiedAccess
+                    info.Attributes
                     (TTypeKind.Record
                         {
                             Fields = fields
                             Members = members
                             Interfaces = interfaces
                             ValueKind = valueKind
-                        })
-                    info.EqualitySupport
-                    info.ComparisonSupport,
+                        }),
                 List.ofSeq env
             )
 
@@ -474,6 +458,9 @@ module internal ElaborateTypeDecls =
                                 Name = p.Name
                                 Type = p.Type
                                 IsMutable = false
+                                // Ctor-param attributes are an ArgSpec position and are not
+                                // stored.
+                                Attributes = EqArray.empty
                             }
                     }
                 )
@@ -487,6 +474,8 @@ module internal ElaborateTypeDecls =
                                 Name = fld.Name
                                 Type = fld.Type
                                 IsMutable = fld.IsMutable
+                                // A `val` field's attributes are not stored.
+                                Attributes = EqArray.empty
                             }
                     }
                 )
@@ -521,8 +510,7 @@ module internal ElaborateTypeDecls =
                     info.TypeKey
                     ns
                     (EqArray.ofList declTypars)
-                    // RQA gates only unqualified module-member access, not modelled here.
-                    false
+                    info.Attributes
                     (TTypeKind.Class
                         {
                             Fields = instanceFields
@@ -543,10 +531,7 @@ module internal ElaborateTypeDecls =
                                 elif info.IsValueType then ClassValueKind.Struct
                                 else ClassValueKind.RefType
                             HasPrimaryCtor = info.HasPrimaryCtor
-                        })
-                    // Classes are reference-equal by default.
-                    EqualityVerdict.Reference
-                    ComparisonVerdict.NoComparison,
+                        }),
                 List.ofSeq env
             )
 
@@ -573,12 +558,10 @@ module internal ElaborateTypeDecls =
                         info.TypeKey
                         ns
                         (EqArray.ofSeq (seq { for (n, _) in info.TypeParams -> n }))
-                        // RQA, equality and comparison are unread for a transparent alias:
-                        // every verdict is the body's.
-                        false
-                        (TTypeKind.Abbrev body)
-                        EqualityVerdict.Structural
-                        ComparisonVerdict.NoComparison,
+                        // A transparent alias carries no attributes of its own: every
+                        // verdict is the body's.
+                        EqArray.empty
+                        (TTypeKind.Abbrev body),
                     mkDeclTyparEnv ctx.Store info.TypeParams
                 )
 
@@ -622,15 +605,7 @@ module internal ElaborateTypeDecls =
                 }
 
             Some(
-                mkTypeDecl
-                    name
-                    info.TypeKey
-                    ns
-                    (EqArray.ofList declTypars)
-                    false
-                    (TTypeKind.Class clsG)
-                    EqualityVerdict.Reference
-                    ComparisonVerdict.NoComparison,
+                mkTypeDecl name info.TypeKey ns (EqArray.ofList declTypars) EqArray.empty (TTypeKind.Class clsG),
                 List.ofSeq env
             )
 
@@ -654,20 +629,14 @@ module internal ElaborateTypeDecls =
                 // wherever the interface is declared.
                 let key = ctx.DeclaredTypeKey(name, typars.Length)
 
-                Some(
-                    mkTypeDecl
-                        name
-                        key
-                        ns
-                        typars
-                        // RQA is unread for an interface.
-                        false
-                        (TTypeKind.Interface methods)
-                        // Interfaces synthesise no equality / comparison members; unread.
-                        EqualityVerdict.Structural
-                        ComparisonVerdict.NoComparison,
-                    env
-                )
+                let attrs =
+                    match TypeRegistry.tryClassByKey ctx.Types key with
+                    | ValueSome info -> info.Attributes
+                    // Registration files every all-abstract decl as a `ClassTypeInfo`, so a
+                    // miss is a producer bug, not an attribute-less interface.
+                    | ValueNone -> failwithf "tryTypeDecl: interface '%s' has no registered ClassTypeInfo" name
+
+                Some(mkTypeDecl name key ns typars attrs (TTypeKind.Interface methods), env)
             // Not all-abstract ⇒ class shape (`type C(x) = member …`).
             | None -> tryClassType ctx ns name arity body.elements
 

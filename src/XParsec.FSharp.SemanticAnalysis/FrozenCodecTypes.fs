@@ -189,6 +189,37 @@ module FrozenCodecTypes =
         | 7uy -> TConstValue.Unit
         | b -> failwithf "FrozenCodec: unknown TConstValue tag %d" b
 
+    let private writeTAttributeArg (w: FrozenWriter) (a: TAttributeArg) =
+        writeVOptionWith w (fun w (s: string) -> w.Write s) a.Name
+        writeTConstValue w a.Value
+        writeVOptionWith w writeTypeKeyRef a.EnumKey
+
+    let private readTAttributeArg (r: FrozenReader) : TAttributeArg =
+        let name = readVOptionWith r (fun r -> r.ReadString())
+        let value = readTConstValue r
+        let enumKey = readVOptionWith r readTypeKeyRef
+
+        {
+            Name = name
+            Value = value
+            EnumKey = enumKey
+        }
+
+    let private writeTAttribute (w: FrozenWriter) (a: TAttribute) =
+        writeTypeKeyRef w a.Key
+        writeEqArrayWith w writeTAttributeArg a.Args
+
+    let private readTAttribute (r: FrozenReader) : TAttribute =
+        let key = readTypeKeyRef r
+        let args = EqArray.ofArray (readArrayWith r readTAttributeArg)
+        { Key = key; Args = args }
+
+    let writeTAttributes (w: FrozenWriter) (attrs: TAttributes) =
+        writeEqArrayWith w writeTAttribute attrs
+
+    let readTAttributes (r: FrozenReader) : TAttributes =
+        EqArray.ofArray (readArrayWith r readTAttribute)
+
     let writeAccessibility (w: FrozenWriter) (a: Accessibility) =
         match a with
         | Accessibility.Public -> w.Write 0uy
@@ -225,34 +256,6 @@ module FrozenCodecTypes =
         | 0uy -> RecordValueKind.RefType
         | 1uy -> RecordValueKind.Struct
         | b -> failwithf "FrozenCodec: unknown RecordValueKind tag %d" b
-
-    let writeEqualityVerdict (w: FrozenWriter) (v: EqualityVerdict) =
-        match v with
-        | EqualityVerdict.Structural -> w.Write 0uy
-        | EqualityVerdict.Reference -> w.Write 1uy
-        | EqualityVerdict.Custom -> w.Write 2uy
-        | EqualityVerdict.NoEquality -> w.Write 3uy
-
-    let readEqualityVerdict (r: FrozenReader) : EqualityVerdict =
-        match r.ReadByte() with
-        | 0uy -> EqualityVerdict.Structural
-        | 1uy -> EqualityVerdict.Reference
-        | 2uy -> EqualityVerdict.Custom
-        | 3uy -> EqualityVerdict.NoEquality
-        | b -> failwithf "FrozenCodec: unknown EqualityVerdict tag %d" b
-
-    let writeComparisonVerdict (w: FrozenWriter) (v: ComparisonVerdict) =
-        match v with
-        | ComparisonVerdict.Structural -> w.Write 0uy
-        | ComparisonVerdict.Custom -> w.Write 1uy
-        | ComparisonVerdict.NoComparison -> w.Write 2uy
-
-    let readComparisonVerdict (r: FrozenReader) : ComparisonVerdict =
-        match r.ReadByte() with
-        | 0uy -> ComparisonVerdict.Structural
-        | 1uy -> ComparisonVerdict.Custom
-        | 2uy -> ComparisonVerdict.NoComparison
-        | b -> failwithf "FrozenCodec: unknown ComparisonVerdict tag %d" b
 
     let writeMemberStorage (w: FrozenWriter) (s: MemberStorage) =
         match s with
@@ -632,6 +635,8 @@ module FrozenCodecTypes =
             )
             c.Fields
 
+        writeTAttributes w c.Attributes
+
     let readUnionCase (r: FrozenReader) : Frozen.TUnionCase =
         let name = r.ReadString()
 
@@ -646,36 +651,48 @@ module FrozenCodecTypes =
                     )
             )
 
-        { Name = name; Fields = fields }
+        let attributes = readTAttributes r
+
+        {
+            Name = name
+            Fields = fields
+            Attributes = attributes
+        }
 
     let writeRecordField (w: FrozenWriter) (f: Frozen.TRecordField) =
         w.Write f.Name
         writeTypeRef w f.Type
         w.Write f.IsMutable
+        writeTAttributes w f.Attributes
 
     let readRecordField (r: FrozenReader) : Frozen.TRecordField =
         let name = r.ReadString()
         let ty = readTypeRef r
         let isMutable = r.ReadBoolean()
+        let attributes = readTAttributes r
 
         {
             Name = name
             Type = ty
             IsMutable = isMutable
+            Attributes = attributes
         }
 
     let writeEnumCase (w: FrozenWriter) (c: TEnumCaseG<Anchor>) =
         w.Write c.Name
         writeVOptionWith w writeTEnumLiteral c.Value
         writeAnchor w c.Tok
+        writeTAttributes w c.Attributes
 
     let readEnumCase (r: FrozenReader) : TEnumCaseG<Anchor> =
         let name = r.ReadString()
         let value = readVOptionWith r readTEnumLiteral
         let tok = readAnchor r
+        let attributes = readTAttributes r
 
         {
             Name = name
             Value = value
             Tok = tok
+            Attributes = attributes
         }

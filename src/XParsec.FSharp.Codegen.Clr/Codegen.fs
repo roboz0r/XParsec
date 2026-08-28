@@ -60,6 +60,9 @@ module Codegen =
             asm.PrepareStaticMethods f
             asm.PrepareMain f
 
+        // After Prepare, so a local attribute class's ctor handle is registered.
+        asm.PrepareCustomAttributeRows()
+
         // Write the MethodDef table in layout order, then the TypeDef rows +
         // sorted GenericParams, and serialise.
         asm.WriteMethods()

@@ -217,6 +217,35 @@ module internal NominalMembers =
 
         go (List.length members) interfaces
 
+/// Why a frozen attribute emitted no `CustomAttribute` row.
+[<RequireQualifiedAccess>]
+type SkippedAttributeRowReason =
+    /// The local attribute class declares no ctor taking this many positional arguments.
+    | NoMatchingCtor of positionalArgCount: int
+    /// Two or more local ctors take this many positional arguments; overload resolution is
+    /// not performed at row emission.
+    | AmbiguousCtor of positionalArgCount: int
+    /// A generic attribute class has no encodable ctor parent.
+    | GenericAttributeClass
+    /// No referenced-assembly ctor with this many positional arguments resolved.
+    | NoExternalCtor of positionalArgCount: int
+    /// An argument value is outside the II.23.3 encodable constant domain.
+    | UnencodableArgument
+    /// A named argument typed by a referenced-assembly enum, whose II.23.3 SerString would
+    /// need an assembly-qualified name.
+    | ForeignEnumArgument of enumKey: TypeKey
+
+/// One skipped row: the attribute, the declaration element it was written on, and why.
+/// Rows are advisory because the `.fsi` contract is the Vesper→Vesper carrier, so a skip
+/// does not fail the compile; it is filed on the artifact for diagnosis.
+type SkippedAttributeRow =
+    {
+        AttributeKey: TypeKey
+        /// The parent element as `Type` / `Type.Member` / `Type.Field`.
+        Parent: string
+        Reason: SkippedAttributeRowReason
+    }
+
 /// The in-memory assembled PE plus enough to inspect / write it.
 type ClrArtifact =
     {
@@ -228,6 +257,8 @@ type ClrArtifact =
         /// Simple names of every assembly the emitted PE binds against (its `AssemblyRef`
         /// table), which seed the ship set when materialising a runnable app.
         ReferencedAssemblies: string list
+        /// Frozen attributes that emitted no `CustomAttribute` row.
+        SkippedAttributeRows: SkippedAttributeRow list
     }
 
     member this.AssemblyName: string = this.Project.AssemblyName

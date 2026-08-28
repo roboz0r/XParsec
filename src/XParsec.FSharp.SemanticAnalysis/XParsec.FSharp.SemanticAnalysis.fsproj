@@ -46,6 +46,7 @@
     <Compile Include="ParseChain.fs" />
     <Compile Include="SideTypes.fs" />
     <Compile Include="TastExpr.fs" />
+    <Compile Include="AttributeVerdicts.fs" />
     <Compile Include="TastDecl.fs" />
     <Compile Include="Tast.fs" />
     <!-- Immediately after the shapes it is a functor over, and BEFORE the pools: the
@@ -57,6 +58,9 @@
     <!-- Ahead of the `.fsi` package extractor as well as the passes: both read the enum-case
          value grammar, so the reading is one function taking a token → text read. -->
     <Compile Include="StringLiterals.fs" />
+    <!-- Ahead of every literal reader: the enum-case reader and the elaborator's literal
+         projection both go through `ConstFold.tryLiteral`. -->
+    <Compile Include="ConstFold.fs" />
     <Compile Include="EnumCaseValues.fs" />
     <Compile Include="TastWalk.fs" />
     <Compile Include="TastPoolNodes.fs" />
@@ -121,6 +125,7 @@
     <Compile Include="LocalScope.fs" />
     <Compile Include="Containers.fs" />
     <Compile Include="AttributeResolution.fs" />
+    <Compile Include="AttributeFold.fs" />
     <Compile Include="Containment.fs" />
     <Compile Include="TypeLayout.fs" />
     <Compile Include="MemberNames.fs" />

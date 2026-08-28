@@ -166,13 +166,29 @@ module internal ElaborateMembers =
         : TTypeMember[] =
         match el with
         | TypeDefnElement.Member(MemberDefn.Member(
-            staticToken = s; keyword = kw; inlineToken = inlineTok; access = memberAccess; defn = d)) ->
+            attributes = memberAttrs
+            staticToken = s
+            keyword = kw
+            inlineToken = inlineTok
+            access = memberAccess
+            defn = d)) ->
             let isStatic = s.IsSome
             // Member-level accessibility rides `MemberDefn.Member.access` (`member private
             // this.M`), NOT the inner `Binding.access`, always `ValueNone` for a member.
             let memberAccessibility = accessibilityOfToken memberAccess
+            let decls = memberDecls ctx d
 
-            memberDecls ctx d
+            // A `PropertyWithGetSet` yields only `Property` decls, so the first decl's kind
+            // is the element's. `AbstractSignature` yields none: no element to check.
+            let usedOn =
+                match decls with
+                | [||] -> AttrTarget.Unchecked
+                | ds when ds.[0].Kind = TMemberKind.Property -> AttrTarget.Property
+                | _ -> AttrTarget.Method
+
+            let attributes = AttributeFold.resolveAndBuild ctx usedOn memberAttrs
+
+            decls
             |> Array.map (fun decl ->
                 let site =
                     {
@@ -203,6 +219,7 @@ module internal ElaborateMembers =
                         // An auto-property never carries its own generic params.
                         | ValueNone -> EqArray.empty
                         | ValueSome _ -> declaring.MethodTypeParams site
+                    Attributes = attributes
                 }
             )
         | _ -> [||]

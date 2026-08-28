@@ -216,25 +216,32 @@ let monoTests =
                 Expect.equal (hash.Invoke(p1, [||]) :?> int) (hash.Invoke(p2, [||]) :?> int) "equal records hash equal"
             }
 
-            test "a record with a mutable field does NOT declare its own equality triple" {
+            test "a record with a mutable field keeps the structural equality triple, as fsc's does" {
                 let artifact =
                     compileSource
-                        "RecEqMutSkip"
+                        "RecEqMut"
                         (String.concat "\n" [ "type Counter = { mutable Count: int }"; "let c = { Count = 0 }" ])
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "Counter"
 
-                Expect.isNull
-                    (ty.GetMethod("Equals", declaredInstance, null, [| typeof<obj> |], null))
-                    "no Equals(object) override on the record itself"
+                let equalsObj =
+                    ty.GetMethod("Equals", declaredInstance, null, [| typeof<obj> |], null)
 
-                Expect.isNull
+                Expect.isNotNull equalsObj "Equals(object) override on the record itself"
+
+                Expect.isNotNull
                     (ty.GetMethod("GetHashCode", declaredInstance, null, [||], null))
-                    "no GetHashCode override on the record itself"
+                    "GetHashCode override on the record itself"
 
                 let iface = typedefof<IEquatable<_>>.MakeGenericType ty
-                Expect.isFalse (iface.IsAssignableFrom ty) "Counter does not declare IEquatable<Counter>"
+                Expect.isTrue (iface.IsAssignableFrom ty) "Counter declares IEquatable<Counter>"
+
+                let mk (n: int) =
+                    ty.GetConstructor([| typeof<int> |]).Invoke [| n |]
+
+                Expect.isTrue (equalsObj.Invoke(mk 3, [| mk 3 |]) :?> bool) "equal fields ⇒ Equals(object) true"
+                Expect.isFalse (equalsObj.Invoke(mk 3, [| mk 4 |]) :?> bool) "Count differs ⇒ Equals(object) false"
             }
         ]
 
