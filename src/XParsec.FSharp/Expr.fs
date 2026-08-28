@@ -697,7 +697,8 @@ and RecordField<'T> =
 and RecordFields<'T> = ImArr<RecordField<'T>>
 
 // Represents: enum-type-defn and its cases
-and EnumTypeCase<'T> = | EnumTypeCase of ident: 'T * equals: 'T * constValue: Expr<'T>
+and EnumTypeCase<'T> =
+    | EnumTypeCase of attributes: Attributes<'T> voption * ident: 'T * equals: 'T * constValue: Expr<'T>
 
 and EnumTypeCases<'T> = ImArr<EnumTypeCase<'T>>
 

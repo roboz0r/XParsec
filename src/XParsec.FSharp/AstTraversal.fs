@@ -2138,8 +2138,9 @@ and walkTypeDefn (visitor: AstVisitor<'T>) (typeDefn: TypeDefn<'T>) : unit =
         visitor.VisitToken "=" equals
         visitor.EnterSection ""
 
-        for (EnumTypeCase(id, eq, value)) in cases do
+        for (EnumTypeCase(attrs, id, eq, value)) in cases do
             visitor.EnterSection "Case"
+            walkAttributesOpt visitor attrs
             visitor.VisitToken "ident" id
             visitor.VisitToken "=" eq
             walkExpr visitor value
@@ -2565,8 +2566,9 @@ and walkTypeSignature (visitor: AstVisitor<'T>) (typeSig: TypeSignature<'T>) : u
         visitor.VisitToken "=" equals
         visitor.EnterSection ""
 
-        for (EnumTypeCase(id, eq, value)) in cases do
+        for (EnumTypeCase(attrs, id, eq, value)) in cases do
             visitor.EnterSection "Case"
+            walkAttributesOpt visitor attrs
             visitor.VisitToken "ident" id
             visitor.VisitToken "=" eq
             walkExpr visitor value

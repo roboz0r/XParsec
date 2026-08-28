@@ -1198,10 +1198,11 @@ module RecordField =
 module EnumTypeCase =
     let parse: Parser<EnumTypeCase<SyntaxToken>, _, _, _> =
         parser {
+            let! attrs = opt Attributes.parse
             let! id = nextSyntaxIdentifierLMsg "Enum Name"
             let! eq = pEquals
             let! c = withContext OffsideContext.SeqBlock refExpr.Parser
-            return EnumTypeCase.EnumTypeCase(id, eq, c)
+            return EnumTypeCase.EnumTypeCase(attrs, id, eq, c)
         }
 
 [<RequireQualifiedAccess>]
