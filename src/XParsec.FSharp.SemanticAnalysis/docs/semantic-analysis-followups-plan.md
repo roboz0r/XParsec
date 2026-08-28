@@ -174,8 +174,7 @@ a `ResolvedType`-partitioning doc claiming the two tables partition by `NodeKind
 
 ### `Anchor.fs:155` — `AssemblyFilePath.nowhere` is a sentinel, not a case
 
-The `Assembly` half landed with step 1 of
-[manifest-default-front-end-plan.md](manifest-default-front-end-plan.md): it is
+The `Assembly` half landed 2026-08-19 with the manifest-default front-end migration: it is
 `AssemblyName voption`, and `CompilingAssembly.none` is gone. What remains is `Relative`,
 distinguished by `AssemblyFileId.nowhere` = `""`. The "no file is spelled `""`" invariant is
 unchecked; `AssemblyFilePath` could be a DU, or `Relative` a non-empty-string type.

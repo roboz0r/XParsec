@@ -1,8 +1,8 @@
 # Attributes are real types with a target representation
 
-**Status (2026-08-15): new plan.** Depends on
-[fsi-front-end-plan](fsi-front-end-plan.md) for key-based resolution in contracts. Delete
-when it lands (`feedback_plan_docs_ephemeral`).
+**Status (2026-08-15): new plan.** Its dependency — key-based attribute resolution in
+contracts, from the `.fsi` front-end work — landed 2026-08-17 (step 3 below records the
+outcome). Delete when this plan lands (`feedback_plan_docs_ephemeral`).
 
 ## The position
 
@@ -116,7 +116,7 @@ come along.
    the same rule the provider arm already had.
 2. Land attributes verbatim in the FrozenTast; rebuild the verdicts as views.
 3. ~~Delete `AttributeDecode`'s name lists and `TypeTranslate.fs:166,171`.~~ **DONE
-   (2026-08-17)** — see [fsi-front-end-plan](fsi-front-end-plan.md) step 5. Attribute
+   (2026-08-17)**, as the `.fsi` front-end work's final step. Attribute
    resolution is `PassContext.ResolveAttributes` (site-memoised, unresolved = error on both
    worlds), `AttributeDecode` reads by key off `ResolvedAttributes`, and
    `AttributeIdentityTests` pins "an unresolved attribute is always an error". Landing it

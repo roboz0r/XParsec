@@ -1,8 +1,7 @@
 # Integer-width printf holes on JS
 
-**Status (2026-08-23): a finding, unfixed.** Split out of the CLR one-width-handler work in
-[manifest-default-front-end-plan.md](../../XParsec.FSharp.SemanticAnalysis/docs/manifest-default-front-end-plan.md).
-That change deleted `PrintfHoleForm.rendersAnyWidth` / `rendersWidth`, the front-end gate that
+**Status (2026-08-23): a finding, unfixed.** Split out of the CLR one-width-handler work,
+which landed 2026-08-23. That change deleted `PrintfHoleForm.rendersAnyWidth` / `rendersWidth`, the front-end gate that
 refused a hole whose settled type its handler could not render. The gate was written from the
 CLR handler table, so it never covered JS, and its removal changes nothing here: the defect
 below was already reachable.

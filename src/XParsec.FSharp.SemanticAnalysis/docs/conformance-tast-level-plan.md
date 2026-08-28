@@ -125,6 +125,19 @@ its own:
 The first is the cheaper one and matches how the compiler treats every other unmodelled
 construct; take it unless delegates are on the roadmap.
 
+### Gap 3 — attribute arguments are compared nowhere. Decide with attribute-representation.
+
+A signature's attribute arguments are carried as written; no constant folding runs, and no
+conformance rule reads them on either route. (Relocated from the deleted fsi-front-end-plan,
+2026-08-28.) The trade to settle when a rule arrives: structural expression equality needs no
+folding but rejects `A ||| B` against `B ||| A`, and `1` against `0x1`, as mismatches;
+folding needs the evaluated values that
+[attribute-representation-plan](attribute-representation-plan.md) step 2 lands.
+
+**Premise to verify first, against fsc:** whether an attribute is expected on both halves of a
+pair at all, or whether F# takes the signature's alone. Do not design the check before probing
+`dotnet fsi` / fsc for that.
+
 ### Non-gaps, verified
 
 - **`[<Literal>]` signature values.** `registerValSig` publishes them, so

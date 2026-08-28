@@ -123,6 +123,23 @@ inaccessible.
   printed form. It does not; it degrades to an opaque `Structural` with a
   `StructuralObjectStubbed` warning. Decide which was intended.
 
+### B5. Two contracts name types outside their dependency closure, and the members are dropped **[V]**
+
+The `.fsi` front end drops a MEMBER whose signature names a type the compilation
+cannot resolve, reporting `ConformanceVerdict.SignatureNotPublished` (`V245`);
+each drop below is therefore a warning today and a hole in the published surface.
+(Relocated from the deleted fsi-front-end-plan, 2026-08-28.)
+
+- **`Vesper.List`'s `GetSlice` names `int option`** (`list.fsi:64`) while
+  `manifest.*.toml` depends on `Vesper.Core` alone. Either the dependency is
+  missing or the declaration does not belong in that contract. (The
+  `ResizeArray` half of this item is FIXED: it moved to `list-bcl.clr.fsi`, a
+  CLR-only signature file, because the RHS is a BCL type the js contract cannot
+  name.)
+- **`Vesper.Printf`'s `Formatter` constructors name `TextWriter` /
+  `StringBuilder`** (`formatter.fsi:13,17`), the same BCL-only case as
+  `ResizeArray` above — a `formatter-bcl.clr.fsi` split is the precedented fix.
+
 ---
 
 ## C. Type-refactor candidates

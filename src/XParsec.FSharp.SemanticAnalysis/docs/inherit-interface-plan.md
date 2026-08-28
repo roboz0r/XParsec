@@ -114,3 +114,22 @@ Once this lands, the comment on `FrozenSignature`'s class shape (and its twin in
 `LayoutNodes`) becomes unconditionally true, which is the invariant `FrozenNominal.OfFrozen`
 is asserting at both sites. No code change is needed there — the claim just stops having an
 exception.
+
+## Neighbouring defect: a bodied signature's `inherit` clause crashes on a name it already diagnosed
+
+Relocated from the deleted fsi-front-end-plan (2026-08-28); it is the same `inherit` narrowing,
+on the `.fsi` side.
+
+`SignatureResolution/Members.fs` narrows `FrozenBaseType` to `FrozenNominal` through
+``OfFrozen "an `inherit` clause"`` (`Members.fs:365`), which `failwithf`s on anything that does
+not name a type constructor. An undefined name reaches it as one: `Unification/Translate.fs`
+reports `UndefinedType` and returns `TyUnknown`, and `freezeOver` carries that to `FTUnknown`.
+So the base type faults where the interface list beside it — same walk, same freeze,
+`TryOfFrozen` (`Members.fs:297`) — drops silently, and a diagnosed source error becomes a
+compiler crash rather than a message.
+
+Settle whether the base type should degrade like the interfaces do, or whether an unresolved
+`inherit` should be a hard error raised as a diagnostic before the freeze ever sees it. The
+narrowing itself is wanted; only its behaviour on the diagnosed path is open. This is the
+recheck the code's own TODO deferred to the `.fsi` rebase: the `.fsi` front end's package fold
+did NOT close it.

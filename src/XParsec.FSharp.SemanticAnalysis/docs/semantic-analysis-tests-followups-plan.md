@@ -378,6 +378,16 @@ Out of reach of a comment-only sweep, since a test name is a string literal:
 - `PrintfTests.fs` — five tests named `"E1: …"`.
 - `ReferencedProjectTests.fs` — `"short names no longer resolve … (O3)"` (also **A4**).
 
+## A33. `SignatureResolutionTests`' later-file test lost its unresolved-name half
+
+"a signature referencing a type declared in a LATER file does not resolve" asserts only that
+`b.fsi` publishes its own type (`shapeOf r "+Thing"`); the rewrite against
+`SignatureResolution.run` dropped the check that `a.fsi`'s val survives carrying `TyUnknown`
+for the name it could not see. The within-file case ("a signature naming an out-of-scope type
+is reported, and the val still publishes") does assert the carried name, so the RETENTION rule
+itself is covered — what is not is that crossing a FILE boundary obeys it, which is the whole
+point of that fixture. Restore it against `symbolOf r "needsB"` and `instantiateSymbol`.
+
 ---
 
 # Part B — prose that should be a type
