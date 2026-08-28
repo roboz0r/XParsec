@@ -417,18 +417,13 @@ module RuntimeNames =
         [ "int8"; "int32"; "uint"; "uint8"; "double"; "single" ]
 
     /// The SOURCE SPELLINGS of the numeric primitives: each identity's own name plus the
-    /// aliases that dealias onto one. For the consumers that meet a spelling BEFORE any
-    /// identity exists for it: a source-written annotation, a TS manifest's bare reference.
+    /// aliases that dealias onto one. For a consumer that meets a spelling BEFORE any
+    /// identity exists for it, such as a measure carrier in a source-written annotation.
     let numericTypeNames: Set<string> =
         numericKeys
         |> Seq.map (fun k -> k.Name)
         |> Seq.append numericAliasNames
         |> Set.ofSeq
-
-    /// The name-axis projection of `referencePrimitiveKeys`; see `numericTypeNames`. No
-    /// aliases, because each of these is spelled one way.
-    let referencePrimitiveNames: Set<string> =
-        referencePrimitiveKeys |> Seq.map (fun k -> k.Name) |> Set.ofSeq
 
     /// NOT a `namespace Vesper` type: `null` is a keyword, so it has no declaring namespace
     /// and its identity is the bare name.

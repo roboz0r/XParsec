@@ -86,6 +86,7 @@
     <Compile Include="JsPackageTests.fs" />
     <Compile Include="RuntimeAssetTests.fs" />
     <Compile Include="JsNativeSymbolsTests.fs" />
+    <Compile Include="ManifestPrimitiveIdentityTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>

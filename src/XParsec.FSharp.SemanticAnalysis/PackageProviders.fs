@@ -217,6 +217,15 @@ module PackageProviders =
     /// platform metadata.
     let noPlatformMetadata: PlatformMetadataFactory = fun _ -> []
 
+    /// `factory` fired at most once per distinct axis. `factory` must be pure in the axis.
+    let memoPerAxis (factory: PlatformMetadataFactory) : PlatformMetadataFactory =
+        let cache =
+            System.Collections.Concurrent.ConcurrentDictionary<IntrinsicTypeMap, IExternalSymbolProvider list>(
+                HashIdentity.Structural
+            )
+
+        fun intrinsics -> cache.GetOrAdd(intrinsics, (fun m -> factory m))
+
     /// Compose layer-1 providers in dependency (topological) order ahead of `platformMetadata`.
     /// Each package resolves against its transitive `depends-on` closure, so a cross-package
     /// nominal type constructor kinds at bake time.
@@ -225,6 +234,9 @@ module PackageProviders =
         (orderedManifests: ParsedManifest list)
         (transitiveDeps: ReferencedProject.ManifestPath -> ReferencedProject.ManifestPath list)
         : AnalysedManifest =
+        // Fired once per package's dependency-closure axis and once for the merged axis.
+        let platformMetadata = memoPerAxis platformMetadata
+
         // `byPath` indexes each built provider by its manifest, so a package's dependency
         // providers resolve in O(closure).
         let builtPackages = ResizeArray<AnalysedManifest>()

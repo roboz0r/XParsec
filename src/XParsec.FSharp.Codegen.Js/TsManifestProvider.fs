@@ -95,7 +95,7 @@ module TsManifestProvider =
         }
 
     /// Resolves every map and guard in the manifest EAGERLY into what it publishes.
-    let private publicationOf (man: Schema.PackageManifest) : ManifestPublication =
+    let private publicationOf (intrinsics: IntrinsicTypeMap) (man: Schema.PackageManifest) : ManifestPublication =
         let pkg = man.Package
         // Flat single-file package: the module specifier IS the package name.
         let moduleSpec = pkg
@@ -107,7 +107,7 @@ module TsManifestProvider =
         // Flattening FROM the mount prefix is what registers `es2015`'s `Map` as `Js.Map`.
         let flatExports = flatten mountPrefix man.Exports
 
-        let ctx = buildCtx moduleSpec mountPrefix man.Refs flatExports
+        let ctx = buildCtx intrinsics moduleSpec mountPrefix man.Refs flatExports
 
         let regularTypes =
             flatExports
@@ -194,30 +194,34 @@ module TsManifestProvider =
             IndexSignatures = indexSignatures
         }
 
-    /// Build a provider from an already-parsed manifest.
-    let providerOfManifest (man: Schema.PackageManifest) : IExternalSymbolProvider =
-        let published = publicationOf man
+    /// Build a provider from an already-parsed manifest, minting `Vesper` identities for the
+    /// canon names `intrinsics` declares.
+    let providerOfManifest (intrinsics: IntrinsicTypeMap) (man: Schema.PackageManifest) : IExternalSymbolProvider =
+        let published = publicationOf intrinsics man
         IndexSignatures(PublishedSurface.toProvider published.Surface, published.IndexSignatures)
 
-    /// Parse a manifest JSON file and build its provider.
-    let tryLoadFile (path: string) : Result<IExternalSymbolProvider, string> =
+    /// Parse a manifest JSON file.
+    let tryLoadFile (path: string) : Result<Schema.PackageManifest, string> =
         try
-            File.ReadAllText path |> Codec.deserialize |> Result.map providerOfManifest
+            File.ReadAllText path |> Codec.deserialize
         with ex ->
             Error(sprintf "Failed to read TS manifest '%s': %s" path ex.Message)
 
     /// The TS-manifest providers as the JS layer-2 platform metadata, behind referenced-package
     /// contracts. `packageDirs` are `.fsi` package directories, `tsManifestPaths` extractor JSON.
     let buildContract (packageDirs: string list) (tsManifestPaths: string list) : IExternalSymbolProvider =
-        let tsProviders =
+        let manifests =
             tsManifestPaths
             |> List.map (fun p ->
                 match tryLoadFile p with
-                | Ok prov -> prov
+                | Ok man -> man
                 | Error msg -> failwith msg
             )
 
-        SymbolProviders.buildContractWithMetadata tsProviders Target.Js packageDirs
+        let tsMetadata: SymbolProviders.PlatformMetadataFactory =
+            fun intrinsics -> manifests |> List.map (providerOfManifest intrinsics)
+
+        (SymbolProviders.buildContract tsMetadata Target.Js packageDirs).Provider
         // Wraps the COMPOSED stack: its `float` must-repr-to-`number` check reads the merged axis.
         |> NumberCovariance.wrap
         |> ExternalSymbolProviders.memoize

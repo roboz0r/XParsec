@@ -354,8 +354,8 @@ The deleted module header read: "The canonical `*Key` identity of each well-know
 Identity is the key, never a string." Roughly a third of the module is the opposite — a
 platform-repr STRING axis: `objAbbrevName`, `systemObjectQualifiedName`, `textWriterTypeName`,
 `stringBuilderTypeName`, `stringWriterTypeName`, `arrayName`, `byrefName`,
-`arrayOfListName`, `nullTypeName`, `undefinedTypeName`, plus the `Set<string>` tables
-`numericTypeNames` / `referencePrimitiveNames` and the by-name recognisers `isVesperListName`,
+`arrayOfListName`, `nullTypeName`, `undefinedTypeName`, plus the `Set<string>` table
+`numericTypeNames` and the by-name recognisers `isVesperListName`,
 `isStructuralConstructorName`. Nothing in the types tells a caller which axis it is on, so
 `vesperListKey` / `isVesperListName` is a pair kept in step only by naming discipline. (The
 `matchesKey` / `matchesName` pair was the same shape; `matchesName` has since been deleted
@@ -495,8 +495,6 @@ neither … nor …**). Picking correctly is where the false comments surface.
 - `SymbolKeyOps.memberArity` restates its own one-line body (H3).
 - `ReferencedProject.targetKeys` is now "Same rule, same reason." — a bare back-reference,
   not self-contained. Pre-existing, not created by the sweep.
-- `RuntimeNames.referencePrimitiveNames` — `see \`numericTypeNames\`` is a cross-reference
-  that rots on rename.
 - `CstWalk.isStructShape` — the referent of "which" is ambiguous (the attribute, or the
   attributed type?).
 - `ElaborateExpr.translateNew` — "purely defensive for error paths" is an unverified

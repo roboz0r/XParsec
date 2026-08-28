@@ -243,7 +243,8 @@ let testProviderResolves (path: string) =
     match Codec.deserialize (File.ReadAllText path) with
     | Error e -> failtestf "manifest does not parse: %s" e
     | Ok man ->
-        let prov = TsManifestProvider.providerOfManifest man
+        // Name resolution reads no primitive identity, so the empty axis suffices.
+        let prov = TsManifestProvider.providerOfManifest IntrinsicTypeMap.empty man
 
         // A nested export is registered/looked up under its DOTTED QUALIFIED name
         // (`NS.Foo`), so recursion threads the namespace `prefix` and every lookup

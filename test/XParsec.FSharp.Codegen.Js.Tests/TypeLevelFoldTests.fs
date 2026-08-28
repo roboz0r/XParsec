@@ -157,7 +157,7 @@ let private busManifest: Schema.PackageManifest =
 let private busProvider: IExternalSymbolProvider =
     // Ambient AGGREGATED from the sources (not `stackJs []`): the intrinsic resolver reaches
     // `Vesper.unit` only through the `Vesper` open-prefix, which a dropped ambient would hide.
-    stackWithAmbient [ TsManifestProvider.providerOfManifest busManifest; jsProvider.Value ]
+    stackWithAmbient [ tsProviderOf busManifest; jsProvider.Value ]
 
 // A project-local record supplies the ground `Events` the folds read member names/types
 // off of: `ping : int`, `pong : string`.

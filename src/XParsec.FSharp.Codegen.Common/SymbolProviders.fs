@@ -47,12 +47,3 @@ module SymbolProviders =
         (packageDirs: string list)
         : PackageProviders.AnalysedManifest =
         buildContractWith ParsedManifest.ofManifest platformMetadata target packageDirs
-
-    /// `buildContract` over a FIXED provider list, wrapped as a constant factory: for a
-    /// backend whose platform metadata reads nothing from the intrinsic axis.
-    let buildContractWithMetadata
-        (platformMetadata: IExternalSymbolProvider list)
-        (target: string)
-        (packageDirs: string list)
-        : IExternalSymbolProvider =
-        (buildContract (fun _ -> platformMetadata) target packageDirs).Provider

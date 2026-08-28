@@ -77,8 +77,7 @@ let private manifestB: Schema.PackageManifest =
         Refs = [ refEntry "Widget" "es2015" Schema.RefKind.Class 0 ]
     }
 
-let private bProviderRaw: IExternalSymbolProvider =
-    TsManifestProvider.providerOfManifest manifestB
+let private bProviderRaw: IExternalSymbolProvider = tsProviderOf manifestB
 
 /// Emit with NO injected runtime modules: a global pack records no import, so it needs none.
 let private emitGlobal (contract: PackageProviders.AnalysedManifest) (input: string) : string =
@@ -134,7 +133,7 @@ let tests =
                 // Name resolution reads `Js.spin` and `Js.Widget` segment by segment, so the
                 // manifest's scope answers for the mount namespace on both axes. A values-only
                 // scope reports the container `Js` and then misses `Widget` inside it.
-                let raw = TsManifestProvider.providerOfManifest es2015Manifest
+                let raw = tsProviderOf es2015Manifest
                 let js = SymbolKeyOps.inNamespace "Js"
 
                 Expect.isTrue (raw.Scope.TryContainer "Js").IsSome "the mount prefix is a container"

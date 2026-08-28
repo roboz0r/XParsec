@@ -92,8 +92,7 @@ let private boxManifest: Schema.PackageManifest =
         Refs = []
     }
 
-let private boxProviderRaw: IExternalSymbolProvider =
-    TsManifestProvider.providerOfManifest boxManifest
+let private boxProviderRaw: IExternalSymbolProvider = tsProviderOf boxManifest
 
 /// Layered over the JS provider so `int`/`unit` resolve. The ambient must be aggregated
 /// from the sources: `Vesper.unit`/`Vesper.int` are reached only through the `Vesper`

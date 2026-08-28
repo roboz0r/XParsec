@@ -4,6 +4,7 @@ open Expecto
 open Vesper.Ts.Manifest
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Js
+open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 open XParsec.FSharp.Codegen.Js.Tests.SchemaDsl
 
 // A `Variable` export's scheme is its frozen type, so reading it off the provider's scope is
@@ -62,8 +63,7 @@ let private manifest: Schema.PackageManifest =
         Refs = []
     }
 
-let private provider: IExternalSymbolProvider =
-    TsManifestProvider.providerOfManifest manifest
+let private provider: IExternalSymbolProvider = tsProviderOf manifest
 
 /// The frozen scheme a fixture variable resolves to.
 let private schemeOf (name: string) : FrozenType =

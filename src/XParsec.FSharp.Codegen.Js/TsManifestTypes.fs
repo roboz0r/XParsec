@@ -84,6 +84,9 @@ module internal TsManifestTranslate =
 
     type TranslateCtx =
         {
+            /// The contract-declared intrinsic axis. A manifest-spelled canon name (`string`,
+            /// `float`, `undefined`) mints its `Vesper` identity only if declared here.
+            Intrinsics: IntrinsicTypeMap
             /// Names declared as an `Interface`/`Class`, keyed by their minted qualified name.
             /// Built over ALL flat exports first, so a signature referencing a LATER type resolves.
             Types: Map<string, TypeIdentity>
@@ -106,6 +109,7 @@ module internal TsManifestTranslate =
         member ctx.TryFindType(name: string) : TypeIdentity option = Map.tryFind name ctx.Types
 
     let buildCtx
+        (intrinsics: IntrinsicTypeMap)
         (moduleSpec: string)
         (mountPrefix: string)
         (refs: (string * Schema.RefEntry) list)
@@ -126,6 +130,7 @@ module internal TsManifestTranslate =
             |> Map.ofList
 
         {
+            Intrinsics = intrinsics
             Types = types
             Refs = Map.ofList refs
             ModuleSpec = moduleSpec
@@ -285,31 +290,17 @@ module internal TsManifestTranslate =
 
     // ─── TypeRef → FrozenType (member signature templates) ─────────────────
 
-    /// The contract intrinsics a manifest may spell that neither shared primitive core
-    /// holds: `undefined` (JS-only) and `bigint` (not a fixed-width scalar). Spelled as
-    /// the identities' own names, so every entry denotes a type that exists.
-    let private manifestSpellableExtras: Set<string> =
-        [ RuntimeNames.undefinedKey; RuntimeNames.bigintKey ]
-        |> Seq.map (fun k -> k.Name)
-        |> Set.ofSeq
-
     let rec toFrozen (ctx: TranslateCtx) (t: Schema.TypeRef) : FrozenType =
         let nominal name (args: FrozenType[]) =
-            // A name missing BOTH tables is either a primitive spelled canonically or genuinely
-            // external, decided on the name alone: no provider is in hand. A primitive mints the
-            // `Vesper` key, so a manifest `string`/`float` unifies with the front end's intrinsic.
+            // An axis-declared canon, `Unsupported` included, mints its `Vesper` key, so a
+            // manifest `string`/`float` unifies with the front end's intrinsic. The lookup is
+            // by canon, not platform repr, so `number` keeps its own identity.
             let intrinsicOrOpaque (name: string) : FrozenType =
-                let isVesperPrimitive =
-                    RuntimeNames.numericTypeNames.Contains name
-                    || RuntimeNames.referencePrimitiveNames.Contains name
-                    // Contract intrinsics absent from both cores. `null` is NOT here: it has no
-                    // `Vesper` namespace, so it mints the bare `nullKey` on the opaque branch.
-                    || manifestSpellableExtras.Contains name
+                let canon = RuntimeNames.primitiveKey name
 
-                if isVesperPrimitive then
-                    FTConst(RuntimeNames.primitiveKey name, EqArray.ofSeq args)
-                else
-                    FTConst(RuntimeNames.opaqueKey name, EqArray.ofSeq args)
+                match IntrinsicTypeMap.tryRepr canon ctx.Intrinsics with
+                | ValueSome _ -> FTConst(canon, EqArray.ofSeq args)
+                | ValueNone -> FTConst(RuntimeNames.opaqueKey name, EqArray.ofSeq args)
 
             // TS has no partial application and no arity overloading, so the APPLIED arg
             // count is the declared arity of an in-package reference.

@@ -41,8 +41,7 @@ let private manifestB: Schema.PackageManifest =
     }
 
 /// B's provider ALONE (no A), for inspecting the minted identity and the absent-home path.
-let private bProviderRaw: IExternalSymbolProvider =
-    TsManifestProvider.providerOfManifest manifestB
+let private bProviderRaw: IExternalSymbolProvider = tsProviderOf manifestB
 
 /// A program that reads `theBox`'s member. `theBox` is bound to a LOCAL first so `b.get()` is
 /// unambiguously member access on a value; a bare `theBox.get()` name-resolves as a dotted

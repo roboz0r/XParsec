@@ -407,19 +407,20 @@ let stackWithAmbient (sources: IExternalSymbolProvider list) : IExternalSymbolPr
     let ambient = sources |> List.collect (fun s -> s.AmbientOpenPrefixes)
     stackJs ambient sources
 
+/// `providerOfManifest` under the JS contract's intrinsic axis, so a manifest-spelled
+/// canon name (`string`, `float`, `undefined`) mints its `Vesper` identity as in production.
+let tsProviderOf (manifest: Schema.PackageManifest) : IExternalSymbolProvider =
+    TsManifestProvider.providerOfManifest jsProvider.Value.IntrinsicTypeMap manifest
+
 /// A TS-manifest provider layered over the JS-native provider, so the manifest's
 /// primitive/`int`/`string` argument types still resolve.
 let stackTs (manifest: Schema.PackageManifest) : IExternalSymbolProvider =
-    stackWithAmbient [ TsManifestProvider.providerOfManifest manifest; jsProvider.Value ]
+    stackWithAmbient [ tsProviderOf manifest; jsProvider.Value ]
 
 /// Like `stackTs` but layers SEVERAL TS-manifest providers (order preserved) over the
 /// JS-native provider, for a program driving more than one external package.
 let stackTsMany (manifests: Schema.PackageManifest list) : IExternalSymbolProvider =
-    stackWithAmbient
-        [
-            yield! manifests |> List.map TsManifestProvider.providerOfManifest
-            jsProvider.Value
-        ]
+    stackWithAmbient [ yield! manifests |> List.map tsProviderOf; jsProvider.Value ]
 
 /// The EMIT contract of a `stackTsMany` stack: that stack as the provider, re-seated in
 /// `jsContract`, so it carries the JS-native stubs' retention as its anchor domain. A TS

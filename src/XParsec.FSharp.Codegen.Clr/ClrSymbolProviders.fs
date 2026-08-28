@@ -7,35 +7,22 @@ open XParsec.FSharp.Codegen.Common
 /// layer-2 seam.
 module ClrSymbolProviders =
 
-    /// Reflection over the host runtime's assemblies. A seeded reader is a pure function of
-    /// `(intrinsics, paths)` and the paths are constant here, so memoising on the axis gives
-    /// one `MetadataLoadContext` per distinct axis rather than one per firing.
+    /// Reflection over the host runtime's assemblies. The module-level memo shares one
+    /// `MetadataLoadContext` per distinct axis across contract builds.
     let dotnetMetadata: SymbolProviders.PlatformMetadataFactory =
-        let seeded =
-            System.Collections.Concurrent.ConcurrentDictionary<IntrinsicTypeMap, IExternalSymbolProvider list>(
-                HashIdentity.Structural
-            )
-
-        fun intrinsics ->
+        PackageProviders.memoPerAxis (fun intrinsics ->
             if IntrinsicTypeMap.isEmpty intrinsics then
                 [ MetadataSymbols.provider ]
             else
-                seeded.GetOrAdd(
-                    intrinsics,
-                    fun m -> [ MetadataSymbols.createWith m (MetadataSymbols.runtimeAssemblyPaths ()) ]
-                )
+                [
+                    MetadataSymbols.createWith intrinsics (MetadataSymbols.runtimeAssemblyPaths ())
+                ]
+        )
 
     /// `dotnetMetadata` over an EXPLICIT reference set (a TFM ref pack + `<Reference>`s)
-    /// instead of the host TPA. Each call returns a FRESH factory with its own memo, because
-    /// `dotnetMetadata`'s process-wide one keys on the axis alone and so assumes the paths.
+    /// instead of the host TPA.
     let dotnetMetadataWith (dllPaths: string list) : SymbolProviders.PlatformMetadataFactory =
-        let seeded =
-            System.Collections.Concurrent.ConcurrentDictionary<IntrinsicTypeMap, IExternalSymbolProvider list>(
-                HashIdentity.Structural
-            )
-
-        // `createWith` over an empty axis IS `create`, so the empty case needs no branch.
-        fun intrinsics -> seeded.GetOrAdd(intrinsics, fun m -> [ MetadataSymbols.createWith m dllPaths ])
+        fun intrinsics -> [ MetadataSymbols.createWith intrinsics dllPaths ]
 
     /// One package read at most once per contract build: the seed compose and the stack
     /// compose share one set of trees, and a `preloaded` package's trees are served over a

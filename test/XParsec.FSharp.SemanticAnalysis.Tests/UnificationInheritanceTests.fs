@@ -44,6 +44,19 @@ let tests =
                 | ValueNone -> failtest "class type D not registered"
             }
 
+            // The registration-time mini translation (`resolveInheritArgName`) falls back to an
+            // opaque `TyConst` for a name nothing resolves, where the ordinary type walk
+            // diagnoses `UndefinedType` (see `TypeRefVerdictTests`).
+            ptest "GAP an unresolvable inherit type-argument mints an opaque TyConst undiagnosed" {
+                let ctx =
+                    analyse "type Box<'a>(v: obj) =\n    member this.V = v\ntype D() =\n    inherit Box<Gadget>(obj ())"
+
+                let errors =
+                    ctx.Diagnostics |> Diagnostic.errors |> Seq.map (fun d -> d.Kind) |> List.ofSeq
+
+                Expect.equal errors [ Kind.UndefinedType "Gadget" ] "the written name is diagnosed where it is written"
+            }
+
             test "generic base-ctor arg types under parent typar substitution" {
                 let ctx =
                     analyse

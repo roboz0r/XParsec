@@ -47,8 +47,7 @@ let private manifest: Schema.PackageManifest =
         Refs = []
     }
 
-let private provider: IExternalSymbolProvider =
-    TsManifestProvider.providerOfManifest manifest
+let private provider: IExternalSymbolProvider = tsProviderOf manifest
 
 /// The qualified nominal name a structural-typed variable froze to (its `FTClass` key).
 let private typeNameOf (varName: string) : string =

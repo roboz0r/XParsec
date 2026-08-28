@@ -296,9 +296,9 @@ an intrinsic/`extern` type is now a real, reusable capability, end-to-end (parse
   NEVER its `"!0[]"` repr, which is the mis-routing the earlier blanket decline was guarding against.
 - **Qualifying intrinsic identities (bare `TyConst("[]")`/`("string")` → namespaced) LANDED as its
   own milestone** — intrinsics carry qualified `Vesper.*` `SymbolKey`s. The successor work
-  (contract-sourced resolution, shadow-set deletion) has since landed too; its one residue that
-  touches this plan is the manifest translator's bare-name primitive recogniser, tracked in
-  [`bare-name-primitive-recognisers-plan.md`](bare-name-primitive-recognisers-plan.md).
+  (contract-sourced resolution, shadow-set deletion) has since landed too, including the manifest
+  translator's bare-name primitive recogniser, which now resolves against the contract-declared
+  intrinsic axis threaded through `TranslateCtx`.
   W9 landed indexers localized on top of the then-bare identities.
 - **Array contract-name reality (corrects §3 below):** the key-agreement string is NOT `"[]``1"`.
   The name is the bare `[]`: the escape is stripped at the token → name read, and a structural

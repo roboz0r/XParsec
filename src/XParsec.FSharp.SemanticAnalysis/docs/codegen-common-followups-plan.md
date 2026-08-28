@@ -43,8 +43,8 @@ naming the file that failed.
 `SymbolProviders.buildWith` (uncached, layer-1 only) is called once, by
 `ClrSymbolProviders.build`, which has no caller outside its own module. Its doc claimed the JS
 backend injects a tail through it; it does not — the JS backend reaches Common only via
-`buildContractWith "jsnative"` (`Codegen.Js/JsNativeSymbols.fs:195`) and
-`buildContractWithMetadata "tsmanifest"` (`Codegen.Js/TsManifestProvider.fs:218`). Decide
+`buildContractWith "jsnative"` (`Codegen.Js/JsNativeSymbols.fs`) and the axis-seeded
+`buildContract` factory in `Codegen.Js/TsManifestProvider.fs`. Decide
 whether the uncached path should exist at all.
 
 ### A4 — `StructuralFormatRecipe` is a `src/` module with no `src/` consumer
