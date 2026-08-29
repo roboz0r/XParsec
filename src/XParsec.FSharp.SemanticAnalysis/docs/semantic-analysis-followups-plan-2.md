@@ -221,7 +221,7 @@ now visits a `val` member's type (unreachable on legal F#; its consumers only st
 The first `List.map` collects each walked root as it is produced (`walkTop`), so the second
 `mapDeclExprs` pass and its discarded rebuild are deleted. Same objects, same order.
 
-### `Freeze.fs:44` — a residual typar degrades to `FTUnknown "?unresolved-typar"` with no diagnostic
+### `Freeze.fs:44` — a residual typar degrades to `FTUnknown "?unresolved-typar"` with no diagnostic **[LANDED — the diagnostic already existed; `freezeTy`'s tolerance claim was the error]**
 
 The `| _ -> FTUnknown "?unresolved-typar"` arm carried a comment asserting the case was "already
 an error-severity diagnostic on this decl". It is not, in general: the only pass that reports an
@@ -233,6 +233,29 @@ normal (`let f () = let g = fun x -> x in (g, g)`). Both cannot be right, and wh
 decides whether the arm owes a diagnostic or the sentinel is a legitimate value. I did not trace
 what consumes `FTUnknown` here; note that `ExternalSymbols.fs:802` uses an `FTUnknown` sentinel
 deliberately (`unfreezable`), so an `FTUnknown` reaching a consumer is not per se a bug.
+
+Resolution: DIAGNOSTIC, and it was already there. The sweep found `checkValueRestriction` and
+stopped; the reporter is `ResolvedTypes.run`, a whole-tree guard `Pipeline` runs at `:43` on
+`tast1` — the same tree `Freeze.run` then freezes. It convicts any free root outside the
+enclosing schemes with `Kind.Internal(InternalBreak.UnresolvedTyVars n)`, error severity.
+`ResolvedTypes`'s `allowed` set is scoped per binding while `Freeze.schemeBoundVars` pools every
+scheme in the file, so the guard's catch is the wider one and the sentinel arm sits strictly
+inside it.
+
+So the deleted comment was accurate and `freezeTy`'s doc was the error — including its example.
+Probed by freezing sixteen programs and counting `TypeRow.Unknown UnresolvedTypar` rows against
+the diagnostics: `let f () = let g = fun x -> x in (g, g)`, the cited "tolerated residual",
+yields zero rows and zero diagnostics, because `g` generalises and its root reaches
+`FTLocalTypar`. Of the sixteen only `let mutable m = []` produced a row, and it carried both the
+value-restriction message and the internal break. Generic record, union, class and abbreviation
+declarations all froze clean, so `ResolvedTypes`'s `TDecl.Type` skip left no observed hole.
+
+`freezeTy`'s doc now states the contract: an unquantified root freezes to the sentinel, which
+`ResolvedTypes` has already reported, making it a recovery value that keeps `freeze` total past
+that error. Two tests in `ResolvedTypesTests` pin the pairing in both directions — the sentinel
+arrives with the diagnostic, and the doc's own example freezes without one. The sentinel stays:
+`freeze` is total by design (`UnknownReason`'s doc says so), so a `Result` here would be a
+different decision, not this one.
 
 ### `ConformancePass.fs:316` — the conformance gate has no production consumer
 

@@ -25,8 +25,11 @@ module Freeze =
 
         map
 
-    /// A residual unlinked `TyVar` is TOLERATED here: in `let f () = let g = fun x -> x in
-    /// (g, g)`, `g`'s own root occurs nowhere in `f`'s type, so nothing ever remapped it.
+    /// A `TyVar` root quantified by some scheme becomes that scheme's `FTLocalTypar`. An
+    /// unquantified root freezes to `FTUnknown UnresolvedTypar`, which `ResolvedTypes.run` has
+    /// already reported as `InternalBreak.UnresolvedTyVars` against the decl holding it, so the
+    /// sentinel is a recovery value that keeps `freeze` total past that error.
+    /// `ResolvedTypesTests` pins the two together.
     let private freezeTy
         (store: TypeStore)
         (schemes: Dictionary<TyVarId, struct (SchemeId * int)>)

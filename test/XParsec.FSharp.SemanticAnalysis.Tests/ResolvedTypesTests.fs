@@ -161,6 +161,41 @@ let tests =
                 Expect.equal added 0 "TyVar bound by the matching scheme is allowed"
             }
 
+            // `Freeze.freezeTy` answers `FTUnknown UnresolvedTypar` for exactly the root this
+            // pass convicts, and `ResolvedTypes` runs on the same tree the freeze consumes
+            // (`Pipeline.analyseSemWithContextForCore`). These two pin that pairing, so a
+            // reader of the sentinel knows an error accompanies it and the freeze stays total.
+            test "the freeze sentinel arrives with this pass's diagnostic" {
+                let src = "let mutable m = []"
+
+                let sentinels =
+                    (freezeFor src).Types.Rows.Types
+                    |> Seq.filter (fun r ->
+                        match r with
+                        | TypeRow.Unknown UnknownReasonRow.UnresolvedTypar -> true
+                        | _ -> false
+                    )
+                    |> Seq.length
+
+                Expect.isGreaterThan sentinels 0 "the unquantified root freezes to the sentinel"
+                Expect.isTrue (hasResolvedTypesDiag (analyse src)) "and the same tree is convicted"
+            }
+
+            test "a clean file freezes no unresolved-typar sentinel" {
+                // The shape `freezeTy`'s doc once cited as a TOLERATED residual: `g` is
+                // generalised, so its root is quantified and reaches `FTLocalTypar`.
+                let sentinels =
+                    (freezeFor "let f () = let g = fun x -> x in (g, g)").Types.Rows.Types
+                    |> Seq.filter (fun r ->
+                        match r with
+                        | TypeRow.Unknown UnknownReasonRow.UnresolvedTypar -> true
+                        | _ -> false
+                    )
+                    |> Seq.length
+
+                Expect.equal sentinels 0 "every root resolves to its scheme"
+            }
+
             // A primitive annotation pins through the real `prim-types-*` contract
             // (`ExternalTypeShape.Intrinsic` → `TyConst name`), not a hardcoded arm — the
             // same contract the literal RHS uses, so both agree on `Vesper.int`.
