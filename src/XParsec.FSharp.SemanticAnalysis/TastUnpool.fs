@@ -154,7 +154,7 @@ module TastUnpool =
         | ExprPayload.TypeTest testTy ->
             let source = nextE ()
             TExprG.TypeTest(source, testTy, ty, tok)
-        | ExprPayload.TraitCall p -> TExprG.TraitCall(p.SupportTy, p.MemberName, EqArray.ofArray es, ty, tok)
+        | ExprPayload.TraitCall p -> TExprG.TraitCall(p.SupportTys, p.MemberName, EqArray.ofArray es, ty, tok)
 
     let substitutePat
         (widenBoundVar: BoundVarId -> 'id)

@@ -25,18 +25,6 @@ Related residue: `Expr.Missing`, `Pat.Missing` and empty `Tuple`/`Sequential`/`E
 `SkipsTokens` genuinely retain no token and still raise (now with the shape named). Making
 them honest means a `voption` return rippling through `siteOfExpr`/`ofExpr`/`siteOfPat`/`ofPat`.
 
-### `TastExpr.fs:317` — `TraitCall` can only search the LEFT operand's support set
-
-Superseded: the staged change is docs/trait-call-support-set-plan.md; delete this entry when it lands.
-
-It carries a single `supportTy: 'ty`, so F#'s `(^T1 or ^T2)` cannot be honoured: a member
-declared solely on the right operand — `static member (+) (i: int, v: Vector)` — is
-unreachable. The exemplar the deleted TODO named is
-`let inline lerp c p t = t * c + p * (GenericOne - c)` applied at
-`lerp 0.1f Vector2.Zero Vector2.One`, which needs `Vector2.op_Multiply` for `float32 * Vector2`.
-Carrying a candidate SET rather than one support type is the stated fix. The single-support-type shape
-is verified; the `applyDefaults` failure path the TODO described is not.
-
 ## Open: the function-type / `Fun` nominal relation
 
 Not from the comment sweep — split out of the annotation-seam work, and NOT to be actioned
@@ -383,18 +371,6 @@ default — a wrong-body expansion, not a decline. Nothing in the types ties the
 length or order to the CST clause list. Recording the constraints ON the clause (or keying them
 by the clause's own node key rather than the construct's) would make the misalignment
 unrepresentable and delete the eight-line header the sweep cut to three.
-
-### `Elaborate/Apply.fs:224` — SRTP trait calls search the left operand only
-
-Superseded: the staged change is docs/trait-call-support-set-plan.md; delete this entry when it lands.
-
-`TExpr.TraitCall` carries one support type, so `translateStaticMemberInvocation` takes
-`args.[0]`'s type and the `(^T1 or ^T2)` support set is never searched on the right. A member
-declared only on the right operand — the `int * Vector -> Vector` scalar-prefix multiply shape —
-therefore does not resolve, and the failure surfaces at inline expansion as a declined trait
-rather than at the invocation. Carrying a candidate set on the node is what would buy it. This
-is a genuine semantic gap rather than a comment defect; the note claiming it was the surviving
-half of a twelve-line doc, so it is recorded here before being shortened.
 
 ### `Elaborate/TypeDecls.fs:618` — the intrinsic-abbrev host reuses `TTypeKind.Class` as a never-emitted lift-only carrier
 

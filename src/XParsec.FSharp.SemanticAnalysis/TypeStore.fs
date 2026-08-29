@@ -54,6 +54,10 @@ type PayloadList<'T>(combine: 'T list -> 'T list -> 'T list) =
             this.Set(winner, combine (at winner) l)
             table.Remove(int loser.Id) |> ignore
 
+    member _.Entries() : (int * 'T list) list = [ for kv in table -> kv.Key, kv.Value ]
+
+    member _.Drop(rootId: int) : unit = table.Remove rootId |> ignore
+
 /// A `PayloadList` plus a reference-keyed `solved` set: a discharged item is recorded, not
 /// removed. One shared item stamped on several typars discharges once, hence `'T : not struct`.
 [<Sealed>]
@@ -73,6 +77,23 @@ type BoundTable<'T when 'T: not struct>(combine: 'T list -> 'T list -> 'T list) 
     member _.Solve(item: 'T) : unit = solved.Add item |> ignore
 
     member _.IsSolved(item: 'T) : bool = solved.Contains item
+
+    /// Every live (unsolved) bound in the table, compacting as it reads: an entry whose
+    /// bounds are all solved is dropped, so repeated sweeps stay proportional to the live
+    /// population. A shared bound stamped on several typars is returned once per carrier.
+    member _.LiveEntries() : 'T list =
+        let acc = ResizeArray<'T>()
+        let dead = ResizeArray<int>()
+
+        for (key, bounds) in items.Entries() do
+            match bounds |> List.filter (fun x -> not (solved.Contains x)) with
+            | [] -> dead.Add key
+            | live -> acc.AddRange live
+
+        for k in dead do
+            items.Drop k
+
+        List.ofSeq acc
 
 /// The metavar arena for one file: it mints `TyVarId`s with dense, monotone ids and owns
 /// the id-indexed arrays behind them. Grow-only; ids are never reused, so a `TyVarId` is a

@@ -280,11 +280,11 @@ type ExprPayload =
     | Upcast
     | Downcast
     | TypeTest of testTy: FrozenType
-    /// The support TYPE (a `FrozenType`, not a sub-expression) + member name; the args
-    /// are the child expressions.
+    /// The candidate support set (`FrozenType`s, not sub-expressions) + member name; the
+    /// args are the child expressions.
     | TraitCall of
         {|
-            SupportTy: FrozenType
+            SupportTys: EqArray<FrozenType>
             MemberName: string
         |}
     /// The specialization-table slot this call identifies, and the file the node's own anchor (and

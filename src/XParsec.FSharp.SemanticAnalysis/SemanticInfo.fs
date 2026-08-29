@@ -245,10 +245,12 @@ and [<Sealed>] MeasureTerm private (exponents: (string * Rational) list) =
             sb.ToString()
 
 /// Captured SRTP member-trait clause; `MemberName` is the compiled name (`"op_Addition"`,
-/// `"Zero"`).
+/// `"Zero"`). `SupportTys` is the declared `(^T1 or ^T2)` support set, instantiated for
+/// the use site; the bound stays undischarged until every element is pinned.
 and MemberSignature =
     {
         MemberName: string
+        SupportTys: EqArray<SemType>
         ArgTypes: EqArray<SemType>
         ReturnType: SemType
     }

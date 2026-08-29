@@ -198,8 +198,9 @@ module internal ElaborateApply =
             wrapOpenedBinds opened (TExpr.App(fnT, argT, ty, tok))
 
     /// `((^T1 or ^T2): (static member (+) : ^T1 * ^T2 -> ^T3) (x, y))` — an SRTP
-    /// member-trait call. `TExpr.TraitCall` carries ONE support type, the LEFT operand, so
-    /// a right-operand-only member (`int * Vector -> Vector`) does NOT resolve.
+    /// member-trait call. `TExpr.TraitCall` carries the candidate support set: the distinct
+    /// operand types in argument order, which inline expansion searches for the one nominal
+    /// declaring the member.
     let translateStaticMemberInvocation
         (translateExpr: TranslateExpr)
         (ctx: PassContext)
@@ -219,11 +220,15 @@ module internal ElaborateApply =
             | ValueNone -> failwithf "Elaborate: unsupported static-member-trait operator %A" ident
 
         let args = peelOneArg (translateExpr ctx) argExpr
-        // Substitution at expansion rewrites `^T1` to the concrete nominal, and this
-        // node to a `StaticMethodCall`.
-        let supportTy = if args.Length > 0 then TastWalk.exprTy args.[0] else ty
 
-        TExpr.TraitCall(supportTy, memberName, args, ty, tok)
+        // Substitution at expansion rewrites `^T1`/`^T2` to concrete nominals, and this
+        // node to a `StaticMethodCall`.
+        let supportTys =
+            match args.Length with
+            | 0 -> EqArray.singleton ty
+            | _ -> args |> EqArray.map TastWalk.exprTy |> EqArray.distinct
+
+        TExpr.TraitCall(supportTys, memberName, args, ty, tok)
 
     let translateInfix
         (translateExpr: TranslateExpr)

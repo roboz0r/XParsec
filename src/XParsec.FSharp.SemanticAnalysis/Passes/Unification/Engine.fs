@@ -753,55 +753,53 @@ module UnificationEngine =
 
         walk t
 
-    and private tryDeclaredIntrinsicMember
-        (ctx: PassContext)
-        (key: TypeKey)
-        (args: EqArray<SemType>)
-        (memberName: string)
-        : SemType voption =
-        let fromHost =
-            match ctx.Types.IntrinsicAbbrevHost.TryGetValue key with
-            | true, info ->
-                match info.Members |> Array.tryFind (fun m -> m.IsStatic && m.Name = memberName) with
-                | Some m -> ValueSome(instantiateMember ctx.Store (info.TypeParams, args) m.Type)
-                | None -> ValueNone
-            | false, _ -> ValueNone
-
-        match fromHost with
-        | ValueSome _ -> fromHost
-        | ValueNone ->
-            match ctx.Provider.TryLookupMember(key, memberName) with
-            | ValueSome m when m.IsStatic -> ValueSome(ExternalSymbols.openSignature m (EqArray.toArray args))
-            | _ -> ValueNone
-
-    /// Build the expected trait signature tupled or curried, picking whichever matches
-    /// the candidate's shape: F# accepts both `static member (+)(a, b)` and
-    /// `static member (+) a b` as satisfying a trait declared `^T * ^T -> ^T`.
+    /// Commit the picked trait member: unify it against the bound's expected signature,
+    /// in the same shape the read-only search matched it with.
     and private unifySrtpAgainst
         (ctx: PassContext)
         (tok: SyntaxToken)
         (candidate: SemType)
         (bound: MemberSignature)
         : unit =
-        let argTys = bound.ArgTypes
+        unify
+            ctx
+            tok
+            candidate
+            (UnificationTraitMembers.expectedShape ctx.Store bound.ArgTypes bound.ReturnType candidate)
 
-        let tupled =
-            match argTys.Length with
-            | 0 -> bound.ReturnType
-            | 1 -> TyFun(argTys.[0], bound.ReturnType)
-            | _ -> TyFun(TyTuple argTys, bound.ReturnType)
+    /// Attempt one SRTP member-trait bound through the shared search. With `force = false`
+    /// an unpinned support type defers the bound: solving against the first-pinned host
+    /// would force the other operands to ITS signature, and `3 * v` would pin to `int`'s
+    /// member before `Vec2`'s `int * Vec2` could win.
+    and private trySolveSrtpBound (ctx: PassContext) (tok: SyntaxToken) (b: MemberSignature) (force: bool) : unit =
+        let supportTys = EqArray.toArray b.SupportTys
 
-        match resolveStep ctx.Store candidate with
-        | TyFun(TyTuple _, _) -> unify ctx tok candidate tupled
-        | _ when argTys.Length >= 2 ->
-            let curried = EqArray.foldBack (fun a r -> TyFun(a, r)) argTys bound.ReturnType
+        // A QUANTIFIED free support typar is a scheme's type parameter: the bound travels
+        // with the template and inline expansion dispatches it per use site, so a forced
+        // attempt must not link it.
+        let anyQuantifiedFree () =
+            supportTys
+            |> Array.exists (fun t ->
+                match resolveStep ctx.Store (zonk ctx.Store t) with
+                | TyVar tv -> ctx.Store.Quantified(UnionFind.find ctx.Store tv)
+                | _ -> false
+            )
 
-            unify ctx tok candidate curried
-        | _ -> unify ctx tok candidate tupled
+        if not (force && anyQuantifiedFree ()) then
+            match UnificationTraitMembers.pick ctx b.MemberName b.ArgTypes b.ReturnType supportTys force with
+            | UnificationTraitMembers.TraitPick.Incomplete -> ()
+            | UnificationTraitMembers.TraitPick.NoSupport
+            | UnificationTraitMembers.TraitPick.NameOnly _ -> ctx.Store.Srtp.Solve b
+            // An ambiguous pick still commits the first winner: its signature grounds
+            // the operands for subsequent inference.
+            | UnificationTraitMembers.TraitPick.Resolved c
+            | UnificationTraitMembers.TraitPick.Ambiguous(first = c) ->
+                ctx.Store.Srtp.Solve b
+                unifySrtpAgainst ctx tok c.Ty b
 
     /// On-unified callback for SRTP member-trait bounds. The one `MemberSignature` is
-    /// shared by reference across every participating typar, so solving it through
-    /// whichever links first makes the others skip it. `tok` is the user's call site.
+    /// shared by reference across every participating typar, so solving it through any
+    /// of them makes the others skip it. `tok` is the user's call site.
     and private dischargeSrtpBounds (ctx: PassContext) (tok: SyntaxToken) (root: Rep) (linkTarget: SemType) : unit =
         let bounds = ctx.Store.Srtp.Live root
 
@@ -811,47 +809,15 @@ module UnificationEngine =
             for b in bounds do
                 // A sibling / reentrant discharge may have solved `b` since this snapshot.
                 if not (ctx.Store.Srtp.IsSolved b) then
-                    match resolveStep ctx.Store linkTarget with
-                    | TyConst(primKey, primArgs) ->
-                        match tryDeclaredIntrinsicMember ctx primKey primArgs b.MemberName with
-                        | ValueSome candTy ->
-                            ctx.Store.Srtp.Solve b
-                            unifySrtpAgainst ctx tok candTy b
-                        | ValueNone ->
-                            let primName = primKey.Name
+                    trySolveSrtpBound ctx tok b false
 
-                            ctx.Report(tok, Kind.NoMember(primName, MemberNoun.BuiltInStaticMember, b.MemberName))
-
-                            ctx.Store.Srtp.Solve b
-                    | TyClass(classKey, classArgs) ->
-                        match TypeRegistry.tryClassByKey ctx.Types classKey with
-                        | ValueSome info ->
-                            match info.Members |> Array.tryFind (fun m -> m.IsStatic && m.Name = b.MemberName) with
-                            | Some m ->
-                                let candTy = instantiateMember ctx.Store (info.TypeParams, classArgs) m.Type
-                                ctx.Store.Srtp.Solve b
-                                unifySrtpAgainst ctx tok candTy b
-                            | None ->
-                                let (DisplayName shown) = SymbolKeyOps.typeSimpleName classKey
-
-                                ctx.Report(tok, Kind.NoMember(shown, MemberNoun.StaticMember, b.MemberName))
-
-                                ctx.Store.Srtp.Solve b
-                        | ValueNone ->
-                            // Not project-local: a consumer dispatching `s + t` on an
-                            // `.fsi`-imported type reaches here.
-                            match ctx.Provider.TryLookupMember(classKey, b.MemberName) with
-                            | ValueSome m when m.IsStatic ->
-                                let candTy = ExternalSymbols.openSignature m (EqArray.toArray classArgs)
-
-                                ctx.Store.Srtp.Solve b
-                                unifySrtpAgainst ctx tok candTy b
-                            | _ ->
-                                // Unknown class, so the SRTP stays unsolved.
-                                ()
-                    | _ ->
-                        // Target not yet a concrete type-bearing shape, so the SRTP stays unsolved.
-                        ()
+    /// Force-attempt every live SRTP bound in the store; `tok` attributes any verdict.
+    /// The binding-boundary settling of SRTP bounds; the on-link discharge is only the
+    /// eager path.
+    let sweepSrtpBounds (ctx: PassContext) (tok: SyntaxToken) : unit =
+        for b in ctx.Store.Srtp.LiveEntries() do
+            if not (ctx.Store.Srtp.IsSolved b) then
+                trySolveSrtpBound ctx tok b true
 
     /// Coerce `src` to the nominal target `tgt` as an implicit/`:>` upcast: when `src`
     /// (or a base / interface) instantiates `tgt`'s nominal, `unify` the witness's type

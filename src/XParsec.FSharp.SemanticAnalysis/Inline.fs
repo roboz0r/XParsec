@@ -12,14 +12,17 @@ open XParsec.FSharp.SemanticAnalysis.Passes.UnificationEngineCore
 
 module Inline =
 
-    /// An SRTP trait call the expansion could NOT resolve: the substituted support type is not
-    /// a nominal, so no type can carry the named static member. `SupportTy` is that SUBSTITUTED
-    /// type and `MemberName` its compiled member name (`op_Addition`).
+    /// An SRTP trait call the expansion could NOT rewrite. `memberName` is the compiled
+    /// member name (`op_Addition`); the types are SUBSTITUTED.
     type UnresolvedTrait =
-        {
-            SupportTy: SemType
-            MemberName: string
-        }
+        /// No type in the support set carries the member; `supportTys` is the searched set.
+        | NoSupport of supportTys: EqArray<SemType> * memberName: string
+        /// More than one type carries the member; `supportTys` is those SUPPORTING types.
+        | Ambiguous of supportTys: EqArray<SemType> * memberName: string
+        /// Members of the name exist but no signature admits the operands (`1 + 1L`).
+        /// `candidateTy` is the first such member's type and `expectedTy` the trait
+        /// shape it was searched with; both are ground.
+        | SignatureMismatch of candidateTy: SemType * expectedTy: SemType
 
     /// A module-level `let` whose body is exactly one zero-operand intrinsic
     /// (`let undefined = (# "undefined" #)`), yielding the body to splice: such a binding is a
@@ -62,17 +65,6 @@ module Inline =
     let private isStructType (ctx: PassContext) (t: SemType) : bool =
         TypeLayout.ofSemType ctx t = TypeLayout.Value
 
-    /// The declaring `TypeKey` of an operand that can CARRY a static operator member, and so
-    /// the only shape an SRTP trait call can dispatch to. An intrinsic qualifies on the same
-    /// footing as a nominal: `int` declares `static member (&&&)` in its `.fsi`.
-    let private operatorHostKey (store: TypeStore) (t: SemType) : TypeKey voption =
-        match UnionFind.zonkShallow store t with
-        | TyClass(k, _)
-        | TyUnion(k, _)
-        | TyRecord(k, _) -> ValueSome k
-        | TyConst(k, _) -> ValueSome k
-        | _ -> ValueNone
-
     /// Build the typar-substituting mapper for one inline expansion. Typars are pinned by the
     /// time it runs, so a `StaticOptimization` keeps only the first clause whose constraints
     /// hold; `declined` is the sink for the trait calls that cannot be resolved.
@@ -101,49 +93,67 @@ module Inline =
             | ValueSome cl -> TastWalk.mapExpr m cl.Body
             | ValueNone -> TastWalk.mapExpr m defaultExpr
 
-        // Rewrite a substituted `TraitCall` to a `StaticMethodCall` on the support type's static
-        // operator member; an unpinned support type, or a host carrying no such member, declines.
-        // The result type is `sub ty`, because `Vec2 * float -> Vec2` returns neither operand's type.
+        // Rewrite a substituted `TraitCall` to a `StaticMethodCall` on the one support-set
+        // type whose static member matches; a failed search declines into `declined`. The
+        // result type is `sub ty`, because `Vec2 * float -> Vec2` returns neither operand's type.
         let resolveTraitCall
             (m: TastWalk.Mapper)
-            (supportTy: SemType)
+            (supportTys: EqArray<SemType>)
             (memberName: string)
             (args: EqArray<TExpr>)
             (ty: SemType)
             (tok: SyntaxToken)
             : TExpr voption =
-            let decline () =
-                declined.Add
-                    {
-                        SupportTy = sub supportTy
-                        MemberName = memberName
-                    }
+            let candidates = supportTys |> EqArray.map sub |> EqArray.distinct
+            let argTys = args |> EqArray.map (fun a -> sub (TastWalk.exprTy a))
+            let retTy = sub ty
+
+            let mint (c: UnificationTraitMembers.TraitCandidate) : SymbolKey =
+                match c.Source with
+                | UnificationTraitMembers.TraitMemberSource.User nm ->
+                    SymbolKey.Member(
+                        UnificationInferOverload.frozenUserMemberKey
+                            ctx.Store
+                            nm.Decl.TypeKey
+                            nm.Decl.TypeParams
+                            nm.Member
+                    )
+                | UnificationTraitMembers.TraitMemberSource.External em -> SymbolKey.Member em.Key
+
+            match UnificationTraitMembers.pick ctx memberName argTys retTy (EqArray.toArray candidates) true with
+            | UnificationTraitMembers.TraitPick.Resolved c ->
+                ValueSome(
+                    TExpr.StaticMethodCall(
+                        mint c,
+                        EqArray.ofArray c.DeclArgs,
+                        EqArray.map (TastWalk.mapExpr m) args,
+                        retTy,
+                        tok
+                    )
+                )
+            | UnificationTraitMembers.TraitPick.Ambiguous(first, rest) ->
+                declined.Add(
+                    UnresolvedTrait.Ambiguous(EqArray.ofList [ for c in first :: rest -> c.HostTy ], memberName)
+                )
 
                 ValueNone
+            | UnificationTraitMembers.TraitPick.NameOnly(first, unsupported) ->
+                (match unsupported with
+                 | [] ->
+                     declined.Add(
+                         UnresolvedTrait.SignatureMismatch(
+                             first.Ty,
+                             UnificationTraitMembers.expectedShape ctx.Store argTys retTy first.Ty
+                         )
+                     )
+                 | tys -> declined.Add(UnresolvedTrait.NoSupport(EqArray.ofList tys, memberName)))
 
-            match operatorHostKey ctx.Store (sub supportTy) with
-            | ValueSome k ->
-                // The operands are POST-substitution (`sub supportTy` already pinned `k`): the
-                // support type's declaring-type args and the substituted operand element types
-                // discriminate `op_Addition(Vec2, Vec2)` from `op_Addition(Vec2, float)`.
-                let declArgs = LocalMemberKeys.nominalArgs ctx.Store (sub supportTy)
-
-                let operands =
-                    LocalMemberKeys.externalOperands ctx.Store declArgs [ for a in args -> sub (TastWalk.exprTy a) ]
-
-                match LocalMemberKeys.totalMemberKey ctx k memberName operands with
-                | ValueSome memberKey ->
-                    ValueSome(
-                        TExpr.StaticMethodCall(
-                            memberKey,
-                            EqArray.ofArray declArgs,
-                            EqArray.map (TastWalk.mapExpr m) args,
-                            sub ty,
-                            tok
-                        )
-                    )
-                | ValueNone -> decline ()
-            | ValueNone -> decline ()
+                ValueNone
+            // Expansion is the last chance to pin, so an incomplete set is a decline too.
+            | UnificationTraitMembers.TraitPick.NoSupport
+            | UnificationTraitMembers.TraitPick.Incomplete ->
+                declined.Add(UnresolvedTrait.NoSupport(candidates, memberName))
+                ValueNone
 
         { TastWalk.identityMapper with
             MapType = sub
@@ -151,8 +161,8 @@ module Inline =
                 fun m e ->
                     match e with
                     | TExpr.StaticOptimization(clauses, def, _, _) -> ValueSome(resolveStaticOpt clauses def)
-                    | TExpr.TraitCall(supportTy, memberName, args, ty, tok) ->
-                        resolveTraitCall m supportTy memberName args ty tok
+                    | TExpr.TraitCall(supportTys, memberName, args, ty, tok) ->
+                        resolveTraitCall m supportTys memberName args ty tok
                     | _ -> ValueNone
         }
 
@@ -392,15 +402,33 @@ module Inline =
                 )
                 result
 
-    /// The verdict for a trait call the expansion could not dispatch. An operator is named as
-    /// the user WROTE it (`+`), never by the member it compiled to (`op_Addition`). A name
-    /// outside that table is not an operator at all: `(^T: (member GetAwaiter: …) x)`.
-    let internal unsupportedTrait (store: TypeStore) (u: UnresolvedTrait) : Kind =
-        let supportTy = shown store u.SupportTy
+    /// Report a trait call the expansion could not dispatch, at the user's call site. An
+    /// operator is named as the user WROTE it (`+`), never by the member it compiled to
+    /// (`op_Addition`). A name outside that table is not an operator at all:
+    /// `(^T: (member GetAwaiter: …) x)`.
+    let internal reportUnresolvedTrait (ctx: PassContext) (siteTok: SyntaxToken) (u: UnresolvedTrait) : unit =
+        let render (supportTys: EqArray<SemType>) =
+            supportTys
+            |> EqArray.toArray
+            |> Array.map (shown ctx.Store)
+            |> Array.distinct
+            |> EqArray.ofArray
 
-        match OperatorData.sourceSpelling u.MemberName with
-        | ValueSome symbol -> Kind.TraitNotSupported(supportTy, MemberNoun.Operator, symbol)
-        | ValueNone -> Kind.TraitNotSupported(supportTy, MemberNoun.Member, u.MemberName)
+        let spell (memberName: string) =
+            match OperatorData.sourceSpelling memberName with
+            | ValueSome symbol -> MemberNoun.Operator, symbol
+            | ValueNone -> MemberNoun.Member, memberName
+
+        match u with
+        | UnresolvedTrait.NoSupport(supportTys, memberName) ->
+            let noun, name = spell memberName
+            ctx.Report(siteTok, Kind.TraitNotSupported(render supportTys, noun, name))
+        | UnresolvedTrait.Ambiguous(supportTys, memberName) ->
+            let noun, name = spell memberName
+            ctx.Report(siteTok, Kind.TraitAmbiguous(render supportTys, noun, name))
+        | UnresolvedTrait.SignatureMismatch(candidateTy, expectedTy) ->
+            // Both sides are ground, so `unify` only renders the mismatch.
+            UnificationEngine.unify ctx siteTok candidateTy expectedTy
 
     /// How a diagnostic spells a SERVED template: as the user WROTE it wherever the name is an
     /// operator (`|>`, never `op_PipeRight`), because a spelling the source never contains cannot

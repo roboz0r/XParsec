@@ -27,29 +27,17 @@ don't, which is what licenses the "or diagnose" escape hatch. **Position: go as 
 this takes us.** If the diagnostic ever fires on code that genuinely should compile, that
 is the signal to reconsider — not before.
 
-## Deferred: disjunctive dispatch — lands via deferral on the existing read-only filter
+## LANDED: disjunctive dispatch
 
-The arithmetic bodies are 3-typar (`^T1 -> ^T2 -> ^T3`, faithful to the `.fsi`) but the
-trait call is **left-biased**: `TExpr.TraitCall` carries a single `supportTy`, set to the
-left operand's type. So `Vector + int` (nominal left) resolves; `int + Vector` does not —
-it errors in `Engine.dischargeSrtpBounds` (`Engine.fs:1005`), which fires eagerly on whichever
-participant links first and, for a primitive `^T1`, manufactures a homogeneous `t*t -> t`
-candidate that pins `^T2 := int` before the right operand is consulted. **That is a policy
-bug — eager dispatch — not a missing mechanism.**
-
-The fix is **deferral, not speculation.** Suspend the bound until its whole support set is
-ground (F#'s `SupportOfMemberConstraintIsFullySolved`), then collect `op_Addition`
-candidates from the support *set* — widen the single `supportTy` to a candidate set, the
-small half (~8 mechanical walker sites; neither backend has a `TraitCall` arm) — and pick
-among them **read-only**, exactly as method-overload resolution already does via the
-scratch-substitution matcher `matchTypes` (`InferOverload.fs:86`) + the `unifyAppliedSig`
-commit seam. Because this codebase **rejects implicit conversions** (they may fire only at a
-narrow post-resolution point — the argument to an already-resolved method — never as a
-driver of selection), the operands are concrete at dispatch time and the read-only filter
-*decides*; nothing is tentative, so the explicit no-speculative-unification stop
-(`InferTypeOps.fs:110-113`) **stays put**. Guard the homogeneous-primitive default
-(`tryPrimitiveTraitCandidate`) so it fires only when no nominal support type supplies a real
-member, and only in the final defaulting pass.
+`TExpr.TraitCall` carries `supportTys: EqArray<'ty>` and `MemberSignature` carries the
+declared `(^T1 or ^T2)` support set. `UnificationTraitMembers.pick` is the one search over
+that set — host enumeration, read-only applicability, and the winning member with its
+declaration for the key mint. `Engine.trySolveSrtpBound` defers a bound while a support
+type is unpinned and picks through it at a forced sweep (`Engine.sweepSrtpBounds`, run per
+binding group and per bare module expression); `Inline.resolveTraitCall` picks through it
+at expansion, with a unique applicable host rewriting and several declining as
+`Kind.TraitAmbiguous`, F#'s FS0043. `int + Vector` resolves; `Vector + int` still
+resolves.
 
 **Trial-unify-and-undo is NOT required.** The reversible-store line was investigated and set
 aside — see `unification-store-redesign-plan.md`. The residual genuinely-ambiguous cases (a

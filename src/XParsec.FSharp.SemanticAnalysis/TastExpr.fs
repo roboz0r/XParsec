@@ -305,9 +305,15 @@ type TExprG<'ty, 'tok, 'id> =
     /// `e :? T` type test. `testTy` is the tested-against type `T`; `ty` is always `bool`.
     | TypeTest of source: TExprG<'ty, 'tok, 'id> * testTy: 'ty * ty: 'ty * tok: 'tok
     /// SRTP member-trait call `((^T1 or ^T2): (static member (+) : ^T1 * ^T2 -> ^T3) (x, y))`.
-    /// `supportTy` is the LEFT operand's type ONLY, so a member declared solely on the right one
-    /// never resolves. Inline expansion rewrites this to a `StaticMethodCall` on a nominal.
-    | TraitCall of supportTy: 'ty * memberName: string * args: EqArray<TExprG<'ty, 'tok, 'id>> * ty: 'ty * tok: 'tok
+    /// `supportTys` is the candidate support set: the distinct operand types in argument order,
+    /// or the node's own `ty` when there are no arguments. Inline expansion rewrites this to a
+    /// `StaticMethodCall` on the one nominal in the set carrying the member.
+    | TraitCall of
+        supportTys: EqArray<'ty> *
+        memberName: string *
+        args: EqArray<TExprG<'ty, 'tok, 'id>> *
+        ty: 'ty *
+        tok: 'tok
     /// A call to the `spec`-th entry of the file's specialization table, applied to `args`.
     /// The body stays in the table, so N call sites are one entry and N edges. `path`/`tok`
     /// are the CALL SITE's; `args` are positional against the entry's SURVIVING parameters.

@@ -611,9 +611,19 @@ module TastAccessor =
         | _ -> ValueNone
 
     /// The compiled member name an SRTP `TraitCall` dispatches on (`op_Addition`); its
-    /// support type is a `FrozenType` and its operands are the `exprChildren`.
+    /// support types are `FrozenType`s and its operands are the `exprChildren`.
     let exprTraitCallMemberName (e: ExprId) : string =
         expect "TastAccessor.exprTraitCallMemberName: not a TraitCall node" (|ETraitCallMemberName|_|) e
+
+    [<return: Struct>]
+    let private (|ETraitCallSupportTys|_|) (e: ExprId) : EqArray<FrozenType> voption =
+        match payload e with
+        | ExprPayload.TraitCall p -> ValueSome p.SupportTys
+        | _ -> ValueNone
+
+    /// The candidate support set of an SRTP `TraitCall`, in argument order.
+    let exprTraitCallSupportTys (e: ExprId) : EqArray<FrozenType> =
+        expect "TastAccessor.exprTraitCallSupportTys: not a TraitCall node" (|ETraitCallSupportTys|_|) e
 
     [<return: Struct>]
     let private (|EStaticOptimizationDefault|_|) (e: ExprId) : ExprId voption =

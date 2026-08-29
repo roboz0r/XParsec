@@ -239,7 +239,7 @@ module FrozenCodec =
             writeTypeRef w testTy
         | ExprPayload.TraitCall p ->
             w.Write 38uy
-            writeTypeRef w p.SupportTy
+            writeEqArrayWith w writeTypeRef p.SupportTys
             w.Write p.MemberName
         | ExprPayload.InlineCall p ->
             w.Write 39uy
@@ -362,12 +362,12 @@ module FrozenCodec =
         | 36uy -> ExprPayload.Downcast
         | 37uy -> ExprPayload.TypeTest(readTypeRef r)
         | 38uy ->
-            let supportTy = readTypeRef r
+            let supportTys = readEqArrayWith r readTypeRef
             let memberName = r.ReadString()
 
             ExprPayload.TraitCall
                 {|
-                    SupportTy = supportTy
+                    SupportTys = supportTys
                     MemberName = memberName
                 |}
         | 39uy ->

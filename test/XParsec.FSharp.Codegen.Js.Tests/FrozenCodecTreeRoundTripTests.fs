@@ -173,6 +173,31 @@ let tests =
                 Expect.isTrue (survivesRoundTrip f) "generic-member file survived flatten/thaw structurally"
             }
 
+            // The corpus reaches no `TraitCall` payload: one survives freezing only inside a
+            // published inline template, which an UNCALLED user SRTP inline provides. Its two
+            // distinct typars must come back as a two-element support set.
+            test "a TraitCall payload's support set and member name round-trip" {
+                let f =
+                    frozenOfJs
+                        "module M\n\nmodule N =\n    let inline plus (a: ^T) (b: ^U) : ^T = ((^T or ^U): (static member (+): ^T * ^U -> ^T) (a, b))\n"
+
+                let payload =
+                    f.ExprPayloads
+                    |> Array.tryPick (fun p ->
+                        match p with
+                        | ExprPayload.TraitCall p -> Some p
+                        | _ -> None
+                    )
+
+                match payload with
+                | Some p ->
+                    Expect.equal p.SupportTys.Length 2 "both operand typars are candidates"
+                    Expect.equal p.MemberName "op_Addition" "the compiled member name"
+                | None -> failtest "no TraitCall payload in the frozen inline template"
+
+                Expect.isTrue (survivesRoundTrip f) "TraitCall file did not survive flatten/thaw structurally"
+            }
+
             // Every binding in the conformance corpus introduces a bound variable, so it never
             // exercised the seam where a side table is filed under a key the frozen tree does
             // not bear. These pin those shapes through the stored form.

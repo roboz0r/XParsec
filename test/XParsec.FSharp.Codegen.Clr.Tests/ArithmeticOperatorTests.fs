@@ -263,6 +263,45 @@ let tests =
                         ])
             }
 
+            // The member lives ONLY on the right operand's type: `int` declares no
+            // `op_Multiply(int, Vec2)`, so the dispatch must search past the left
+            // operand's type to Vec2's declaration.
+            test "a right-operand-only user operator (int * Vec2 -> Vec2) dispatches to its own static member" {
+                runs
+                    "6"
+                    (String.concat
+                        "\n"
+                        [
+                            "type Vec2(x: int, y: int) ="
+                            "    member this.X = x"
+                            "    member this.Y = y"
+                            "    static member ( * ) (s: int, v: Vec2) : Vec2 = Vec2(v.X * s, v.Y * s)"
+                            "let v = Vec2(2, 3)"
+                            "let r = 3 * v"
+                            "printfn \"%d\" r.X"
+                        ])
+            }
+
+            // Both operand types declare an applicable member, which F# refuses as FS0043
+            // ("A unique overload for method 'op_Addition' could not be determined") rather
+            // than preferring the left operand; this pins the same refusal.
+            test "an operator both operands' types declare diagnoses as ambiguous" {
+                failsWith
+                    "each support the operator '+', so the call is ambiguous"
+                    (String.concat
+                        "\n"
+                        [
+                            "type A() ="
+                            "    static member (+) (a: A, b: B) : int = 1"
+                            ""
+                            "and B() ="
+                            "    static member (+) (a: A, b: B) : int = 2"
+                            ""
+                            "let x = A() + B()"
+                            "ignore x"
+                        ])
+            }
+
             // `(+)`'s `.fsi` carries `default ^T1: int`, which grounds the operand at
             // generalisation when no use site does. Without it there is no member to
             // resolve and `let f a b = a + b` diagnoses instead.

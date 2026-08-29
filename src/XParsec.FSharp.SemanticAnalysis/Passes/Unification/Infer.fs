@@ -416,6 +416,16 @@ module UnificationInfer =
 
         exitLevel ctx
 
+        let settleTraitBounds () =
+            if not bindings.IsEmpty then
+                UnificationEngine.sweepSrtpBounds ctx (CstKeys.firstTokenOfPat bindings.[0].pattern)
+
+        // Settle deferred trait bounds BEFORE defaults run inside `generalise`: a bound
+        // with one pinned host solves now, pinning its free operands from the member's
+        // signature (`d?n + 1` context-pins the `?` result to `int`, firing the dynamic
+        // escape warning) where a default would ground them first and differently.
+        settleTraitBounds ()
+
         for b in bindings do
             if shouldGeneralise b then
                 let key = CstKeys.ofPat b.pattern
@@ -428,3 +438,8 @@ module UnificationInfer =
                     prepareListLiterals ctx zonked outerLevel
                     let scheme = generalise ctx.Store (zonk ctx.Store zonked) outerLevel
                     ctx.Bindings.Scheme.Set(key, scheme)
+
+        // Defaulting inside `generalise` grounds support typars without firing the
+        // on-unified callback, and a value-restricted binding never generalises at all,
+        // so the group's deferred trait bounds settle here.
+        settleTraitBounds ()

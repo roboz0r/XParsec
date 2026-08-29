@@ -459,7 +459,9 @@ let tests =
                         Kind.UnresolvedQualifiedName "A.B.c"
                         Kind.OperatorFormQualifiedName "A"
                         Kind.ConstraintNotSupported("int", "Equality")
-                        Kind.TraitNotSupported("Widget", MemberNoun.Operator, "+")
+                        Kind.TraitNotSupported(EqArray.singleton "Widget", MemberNoun.Operator, "+")
+                        Kind.TraitNotSupported(EqArray.ofList [ "Widget"; "Gadget" ], MemberNoun.Operator, "+")
+                        Kind.TraitAmbiguous(EqArray.ofList [ "Widget"; "Gadget" ], MemberNoun.Operator, "+")
                         Kind.UpcastUnrelated("int", "string")
                         Kind.DowncastUnrelated("int", "string")
                         Kind.MeasureMismatch("m", "s")

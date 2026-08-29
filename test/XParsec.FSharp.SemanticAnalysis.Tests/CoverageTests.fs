@@ -214,11 +214,13 @@ let tests =
             }
 
             test "assignment unifies left and right" {
-                // x is int (constrained by + 0); RHS is bool → mismatch.
+                // The assignment pins x to bool, so `x + 0`'s trait search reaches bool
+                // and finds no `+`: the diagnostic exists only because `<-` unified.
                 let tast = analyse "let f x = x + 0; x <- true"
 
                 let hasMismatch =
-                    tast.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "mismatch")
+                    tast.Diagnostics
+                    |> Seq.exists (fun d -> d.Message.Contains "The type 'bool' does not support the operator '+'")
 
                 Expect.isTrue hasMismatch "LHS/RHS type mismatch reported"
             }
@@ -237,11 +239,13 @@ let tests =
             }
 
             test "typed pattern conflict triggers mismatch" {
-                // x is int by annotation; using it as bool would mismatch.
+                // x is int by annotation, so `x + true` searches bool for `+` and finds
+                // no member.
                 let tast = analyse "let f (x: int) = x + true"
 
                 let hasMismatch =
-                    tast.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "mismatch")
+                    tast.Diagnostics
+                    |> Seq.exists (fun d -> d.Message.Contains "The type 'bool' does not support the operator '+'")
 
                 Expect.isTrue hasMismatch "int param + bool triggers mismatch"
             }

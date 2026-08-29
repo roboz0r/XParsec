@@ -299,9 +299,14 @@ module FrozenCodecDiagnostics =
             w.Write 10uy
             w.Write ty
             w.Write constraintName
-        | Kind.TraitNotSupported(supportTy, noun, name) ->
+        | Kind.TraitNotSupported(supportTys, noun, name) ->
             w.Write 11uy
-            w.Write supportTy
+            writeStringArray w supportTys
+            writeMemberNoun w noun
+            w.Write name
+        | Kind.TraitAmbiguous(supportTys, noun, name) ->
+            w.Write 56uy
+            writeStringArray w supportTys
             writeMemberNoun w noun
             w.Write name
         | Kind.UpcastUnrelated(source, target) ->
@@ -472,9 +477,9 @@ module FrozenCodecDiagnostics =
             let ty = r.ReadString()
             Kind.ConstraintNotSupported(ty, r.ReadString())
         | 11uy ->
-            let supportTy = r.ReadString()
+            let supportTys = readStringArray r
             let noun = readMemberNoun r
-            Kind.TraitNotSupported(supportTy, noun, r.ReadString())
+            Kind.TraitNotSupported(supportTys, noun, r.ReadString())
         | 12uy ->
             let source = r.ReadString()
             Kind.UpcastUnrelated(source, r.ReadString())
@@ -563,6 +568,10 @@ module FrozenCodecDiagnostics =
             let element = r.ReadInt32()
             Kind.AttributeTargetInvalid(element, r.ReadInt32())
         | 55uy -> Kind.ReferenceEqualityOnStruct
+        | 56uy ->
+            let supportTys = readStringArray r
+            let noun = readMemberNoun r
+            Kind.TraitAmbiguous(supportTys, noun, r.ReadString())
         | b -> failwithf "FrozenCodec: unknown Kind tag %d" b
 
     let writeDiagnostic (w: FrozenWriter) (d: XParsec.FSharp.SemanticAnalysis.Diagnostic) =

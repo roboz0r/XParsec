@@ -240,7 +240,7 @@ module InlineReduction =
                 Inline.inlineExpand ctx template.Decl template.Typars typeArgs
 
             for u in unresolved do
-                ctx.Report(siteTok, Inline.unsupportedTrait ctx.Store u)
+                Inline.reportUnresolvedTrait ctx siteTok u
 
             {|
                 // BoundVars are freshened so two expansions of one template cannot share a

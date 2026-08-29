@@ -143,6 +143,7 @@
          pass that asks one. It reads the engine core and the `SemType` shapes, nothing else. -->
     <Compile Include="SemTypeQuery.fs" />
     <Compile Include="Passes\Unification\Subsume.fs" />
+    <Compile Include="Passes\Unification\TraitMembers.fs" />
     <Compile Include="Passes\Unification\Engine.fs" />
     <Compile Include="Passes\Unification\Translate.fs" />
     <Compile Include="Passes\NameResolution\Scope.fs" />

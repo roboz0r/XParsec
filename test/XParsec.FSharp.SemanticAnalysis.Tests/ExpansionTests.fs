@@ -446,13 +446,15 @@ let tests =
             }
 
             test "match guard must be bool" {
-                // `y + 0` forces y : int, so the guard `y + 0` is int → must be bool → mismatch.
+                // The guard pins `y + 0`'s result to bool, so the `+` trait searches bool
+                // and finds no member: the diagnostic names the guard's type.
                 let tast = analyse "let f x = match x with | y when y + 0 -> 1 | _ -> 0"
 
                 let hasMismatch =
-                    tast.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "mismatch")
+                    tast.Diagnostics
+                    |> Seq.exists (fun d -> d.Message.Contains "The type 'bool' does not support the operator '+'")
 
-                Expect.isTrue hasMismatch "non-bool guard triggers mismatch"
+                Expect.isTrue hasMismatch "non-bool guard is diagnosed"
             }
 
             test "match arm bool guard typechecks" {

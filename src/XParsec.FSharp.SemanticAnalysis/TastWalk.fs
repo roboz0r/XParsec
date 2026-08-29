@@ -682,17 +682,17 @@ module TastWalk =
                     e
                 else
                     TExpr.Downcast(src', ty', tok)
-            | TExpr.TraitCall(supportTy, memberName, args, ty, tok) ->
-                let supportTy' = f supportTy
+            | TExpr.TraitCall(supportTys, memberName, args, ty, tok) ->
+                let supportTys' = mapTys f supportTys
                 let ty' = f ty
 
                 match EqArray.mapPreserve pe args with
                 | ValueNone ->
-                    if refEq supportTy' supportTy && refEq ty' ty then
+                    if refEq supportTys' supportTys && refEq ty' ty then
                         e
                     else
-                        TExpr.TraitCall(supportTy', memberName, args, ty', tok)
-                | ValueSome args' -> TExpr.TraitCall(supportTy', memberName, args', ty', tok)
+                        TExpr.TraitCall(supportTys', memberName, args, ty', tok)
+                | ValueSome args' -> TExpr.TraitCall(supportTys', memberName, args', ty', tok)
             | TExpr.TypeTest(src, testTy, ty, tok) ->
                 let src' = pe src
                 let testTy' = f testTy

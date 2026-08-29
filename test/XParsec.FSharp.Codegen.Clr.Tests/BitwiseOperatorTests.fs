@@ -106,6 +106,9 @@ let tests =
                 failsWith "does not support the operator" "let x = 1.0 &&& 2.0\nignore x"
                 failsWith "does not support the operator" "let x = 1.5M ||| 2.5M\nignore x"
                 failsWith "does not support the operator" "let x = ~~~1.0\nignore x"
-                failsWith "does not support the operator" "let x = 1.0 <<< 2\nignore x"
+                // The shift's support set is arg-derived, so `int` is searched too, but
+                // it carries `<<<` at its own signature and is not reported: only the
+                // memberless host is, matching F#'s FS0001 on the same program.
+                failsWith "The type 'float' does not support the operator '<<<'" "let x = 1.0 <<< 2\nignore x"
             }
         ]

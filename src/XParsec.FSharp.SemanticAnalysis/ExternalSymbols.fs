@@ -699,6 +699,7 @@ module ExternalSymbols =
                     let sig_: MemberSignature =
                         {
                             MemberName = mName
+                            SupportTys = EqArray.ofSeq (seq { for i in idxs -> fresh.[i] })
                             ArgTypes = EqArray.ofSeq (seq { for ft in argFts -> inst ft fresh })
                             ReturnType = inst retFt fresh
                         }

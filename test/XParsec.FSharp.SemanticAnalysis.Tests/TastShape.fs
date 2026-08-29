@@ -569,8 +569,8 @@ type private Renderer() =
             push " :? "
             push (tyName testTy)
             push ")"
-        | TExpr.TraitCall(supportTy, memberName, args, _, _) ->
-            push (tyName supportTy)
+        | TExpr.TraitCall(supportTys, memberName, args, _, _) ->
+            push (supportTys |> EqArray.toArray |> Array.map tyName |> String.concat " or ")
             push "."
             push memberName
             push "("

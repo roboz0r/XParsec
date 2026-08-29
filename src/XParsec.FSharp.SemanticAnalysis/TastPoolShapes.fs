@@ -365,10 +365,10 @@ module TastPoolShapes =
         | TExprG.Upcast _ -> ExprPayload.Upcast
         | TExprG.Downcast _ -> ExprPayload.Downcast
         | TExprG.TypeTest(testTy = testTy) -> ExprPayload.TypeTest testTy
-        | TExprG.TraitCall(supportTy = supportTy; memberName = memberName) ->
+        | TExprG.TraitCall(supportTys = supportTys; memberName = memberName) ->
             ExprPayload.TraitCall
                 {|
-                    SupportTy = supportTy
+                    SupportTys = supportTys
                     MemberName = memberName
                 |}
         | TExprG.InlineCall(spec = spec; path = path) -> ExprPayload.InlineCall {| Path = path; Spec = spec |}

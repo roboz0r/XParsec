@@ -403,8 +403,10 @@ type Kind =
     | UnresolvedQualifiedName of name: string
     | OperatorFormQualifiedName of firstSegment: string
     | ConstraintNotSupported of ty: string * constraintName: string
-    /// A trait call in an inline body that the support type does not satisfy.
-    | TraitNotSupported of supportTy: string * noun: MemberNoun * name: string
+    /// A trait call in an inline body that no type in the support set satisfies.
+    | TraitNotSupported of supportTys: EqArray<string> * noun: MemberNoun * name: string
+    /// A trait call in an inline body that more than one type in the support set satisfies.
+    | TraitAmbiguous of supportTys: EqArray<string> * noun: MemberNoun * name: string
 
     // ── Casts and type tests ───────────────────────────────────────────────────
     | UpcastUnrelated of source: string * target: string
@@ -575,6 +577,7 @@ module Kind =
         | Kind.Internal _
         | Kind.ConstraintNotSupported _
         | Kind.TraitNotSupported _
+        | Kind.TraitAmbiguous _
         | Kind.UpcastUnrelated _
         | Kind.AmbiguousConstructor _
         | Kind.NewRequiresClassType
@@ -613,8 +616,21 @@ module Kind =
             sprintf "Operator-form qualified names not yet resolved (starting at '%s')" firstSegment
         | Kind.ConstraintNotSupported(ty, constraintName) ->
             sprintf "The type '%s' does not support the '%s' constraint" ty constraintName
-        | Kind.TraitNotSupported(supportTy, noun, name) ->
-            sprintf "The type '%s' does not support the %s '%s'" supportTy (MemberNoun.word noun) name
+        | Kind.TraitNotSupported(supportTys, noun, name) ->
+            match supportTys.Length with
+            | 1 -> sprintf "The type '%s' does not support the %s '%s'" supportTys.[0] (MemberNoun.word noun) name
+            | _ ->
+                sprintf
+                    "Neither type '%s' supports the %s '%s'"
+                    (String.concat "' nor '" (EqArray.toArray supportTys))
+                    (MemberNoun.word noun)
+                    name
+        | Kind.TraitAmbiguous(supportTys, noun, name) ->
+            sprintf
+                "The types '%s' each support the %s '%s', so the call is ambiguous"
+                (String.concat "' and '" (EqArray.toArray supportTys))
+                (MemberNoun.word noun)
+                name
         | Kind.UpcastUnrelated(source, target) ->
             sprintf "Cannot upcast type '%s' to '%s', because neither inherits the other" source target
         | Kind.DowncastUnrelated(source, target) ->
@@ -732,6 +748,7 @@ module Kind =
         | Kind.Internal _
         | Kind.ConstraintNotSupported _
         | Kind.TraitNotSupported _
+        | Kind.TraitAmbiguous _
         | Kind.UpcastUnrelated _
         | Kind.DowncastUnrelated _
         | Kind.MeasureMismatch _

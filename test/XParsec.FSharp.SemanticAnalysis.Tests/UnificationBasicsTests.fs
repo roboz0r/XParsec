@@ -95,10 +95,15 @@ let tests =
             }
 
             test "type mismatch on int + bool emits a diagnostic" {
-                let ctx = analyse "let x = 1 + true"
+                // Trait verdicts are diagnosed at inline expansion, which this
+                // unification-only harness does not reach, so the full pipeline runs here.
+                let tast =
+                    let lexed, file = parseFile "let x = 1 + true"
+                    Pipeline.analyseSemFor testCompiling realProvider.Value (LexedFile.ofText lexed) file
 
                 let hasMismatch =
-                    ctx.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "mismatch")
+                    tast.Diagnostics
+                    |> Seq.exists (fun d -> d.Message.Contains "The type 'bool' does not support the operator '+'")
 
                 Expect.isTrue hasMismatch "Type mismatch diagnostic emitted"
             }

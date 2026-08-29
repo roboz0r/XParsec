@@ -44,7 +44,7 @@ misnomers (a static access receives nothing; a trait's support type is not an ex
 | instance operand of a member access (`r.X`, `r.M(a)`) | `objArg` / `objArgTy`, which is F#-compiler-native |
 | qualifying type of a static access | `qualifier`; a "search these type keys" list is a `surface` |
 | dotted lead-in during name resolution | `segments` / `anchorIdent` / `prefix` |
-| the SRTP trait's type | `supportTy` |
+| the SRTP trait's candidate types | `supportTys` (a search set; a single candidate in it is a `supportTy`) |
 | JS lowering where the instance is an explicit first parameter (`<Type>__<member>`) | "type-prefixed" |
 | the IL instance operand | "this pointer", ECMA-335's own wording |
 | the type constructed by `new T(args)` | `ctorTy` |
