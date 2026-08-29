@@ -505,7 +505,7 @@ module NameResolutionMemberRegistration =
             let thisName =
                 match asD with
                 | ValueSome(AsDefn(ident = aid)) -> ctx.NameOf aid
-                | ValueNone -> "this"
+                | ValueNone -> ThisBinding.DefaultName
 
             let thisKey = BoundVarKey.ofDeclaredThis declKey
             let baseKey = BoundVarKey.ofDeclaredBase declKey

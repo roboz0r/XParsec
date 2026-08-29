@@ -139,6 +139,14 @@ type ClassInterfaceImplInfo
     member val DeclSite = declSite
     member val Resolution: InterfaceImplResolution = InterfaceImplResolution.Pending with get, set
 
+[<RequireQualifiedAccess>]
+module ThisBinding =
+
+    /// The name bound to `this` in a member body of a declaration with no `as` clause. Only a
+    /// class can carry an `as`-bound name, so every other nominal host binds this.
+    [<Literal>]
+    let DefaultName = "this"
+
 /// The shared surface a nominal type exposes to the interface-impl machinery, implemented by
 /// the class, union, record and intrinsic-abbrev infos.
 type IInterfaceImplHost =
@@ -179,7 +187,7 @@ type RecordTypeInfo
     member val TyparConstraints = typarConstraints
     /// Augmentation members (`with member …` / `static member …`); empty for a plain record.
     member val Members: TypeMemberInfo[] = [||] with get, set
-    member val ThisName = "this" with get, set
+    member _.ThisName = ThisBinding.DefaultName
     member val ThisKey = BoundVarKey.ofDeclaredThis declSite.Key
     member val InterfaceImpls: ClassInterfaceImplInfo[] = [||] with get, set
     /// `[<Struct>]` record — a `System.ValueType`-based value type.
@@ -238,7 +246,7 @@ type UnionTypeInfo
     member val TyparConstraints = typarConstraints
     /// Augmentation members (`with member …` / `static member …`); empty for a plain union.
     member val Members: TypeMemberInfo[] = [||] with get, set
-    member val ThisName = "this" with get, set
+    member _.ThisName = ThisBinding.DefaultName
     member val ThisKey = BoundVarKey.ofDeclaredThis declSite.Key
     member val InterfaceImpls: ClassInterfaceImplInfo[] = [||] with get, set
     /// The declaration's attributes, resolved and folded at registration.
@@ -285,7 +293,7 @@ type IntrinsicAbbrevInfo
     member val TypeParams = typeParams
     member val DeclSite = declSite
     member val Members: TypeMemberInfo[] = [||] with get, set
-    member val ThisName = "this" with get, set
+    member _.ThisName = ThisBinding.DefaultName
     member val ThisKey = BoundVarKey.ofDeclaredThis declSite.Key
     member val InterfaceImpls: ClassInterfaceImplInfo[] = [||] with get, set
 

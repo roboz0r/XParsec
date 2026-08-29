@@ -115,13 +115,8 @@ fund a narrower `Raw`.
 pure function of the declaration's `NodeKey` (`BoundVarKey.ofDeclaredThis`,
 `MemberRegistration.fs:607`). The member-level copies are derivable from the class-level one.
 
-### `TypeInfos.fs` — `ThisName`'s setter is dead on three infos
-
-Found landing the `ThisKey` initialiser fix (2026-08-25). `RecordTypeInfo`, `UnionTypeInfo`
-and `IntrinsicAbbrevInfo` carry `member val ThisName = "this" with get, set` and nothing in
-`src/` assigns it, so the field is a constant with a dead setter. `ClassTypeInfo` takes
-`thisName` as a constructor parameter and honours an `as`-bound name; the `as`-rename story
-for the other three is unimplemented or handled per-member elsewhere.
+Not done (2026-08-28): only `TClassG` has a type-level `ThisKey`, so a record's or union's member
+is the sole carrier of its host's key; removal needs `ThisKey` hoisted to `TTypeDeclG` first.
 
 ### `Passes/Unification/Translate.fs:506` — the measure carrier is the last by-name reach
 
