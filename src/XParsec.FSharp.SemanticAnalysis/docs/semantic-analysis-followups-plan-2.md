@@ -192,15 +192,10 @@ type-definition version also routes argument patterns through `onPat` and handle
 of the two, and would make it impossible to add a `MethodOrPropDefn` case to one walk and forget
 the other.
 
-### `Passes/InlineExpansion.fs:472` — the root expressions are collected by re-running the decl mapper for its side effect
+### `Passes/InlineExpansion.fs:472` — the root expressions are collected by re-running the decl mapper for its side effect **[LANDED]**
 
-After the walk, `run` enumerates the finished decls by calling `mapDeclExprs` a second time with a
-function that appends to a `ResizeArray` and returns its argument unchanged, discarding the
-rebuilt `TDecl` with `|> ignore`. That rebuilds every declaration (and, through the type-decl
-mapper, every member body's spine) purely to enumerate the top-level expressions the spec table
-counts edges from. An `iterDeclExprs` sibling — or having the first `List.map` collect the roots
-as it goes — would drop a whole tree rebuild per file and make the intent readable without noting
-that the result is ignored.
+The first `List.map` collects each walked root as it is produced (`walkTop`), so the second
+`mapDeclExprs` pass and its discarded rebuild are deleted. Same objects, same order.
 
 ### `Freeze.fs:44` — a residual typar degrades to `FTUnknown "?unresolved-typar"` with no diagnostic
 

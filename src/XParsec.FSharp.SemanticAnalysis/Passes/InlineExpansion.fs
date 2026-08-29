@@ -497,22 +497,17 @@ module InlineExpansion =
                     LocalInlines = collectLocalInlines ctx decls
                 }
 
-            // The file's OWN declarations are inside no expansion, so they are walked at the top
-            // descent.
-            let expanded =
-                decls |> List.map (fun (d, env) -> mapDeclExprs (walkAt x Descent.top) d, env)
-
             // The roots the finished table counts edges from.
             let declExprs = ResizeArray<TExpr>()
 
-            for (d, _) in expanded do
-                mapDeclExprs
-                    (fun e ->
-                        declExprs.Add e
-                        e
-                    )
-                    d
-                |> ignore
+            // The file's OWN declarations are inside no expansion, so they are walked at the top
+            // descent, and each walked expression is retained as it is produced.
+            let walkTop (e: TExpr) : TExpr =
+                let walked = walkAt x Descent.top e
+                declExprs.Add walked
+                walked
+
+            let expanded = decls |> List.map (fun (d, env) -> mapDeclExprs walkTop d, env)
 
             {
                 Decls = expanded
