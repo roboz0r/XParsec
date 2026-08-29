@@ -285,14 +285,6 @@ Encoding the two outcomes in the type (a member that opened vs. one that did not
 remove the pairwise match over `lookupExternal x.Ctx x.Specs ext.Key, ext.Args` and the failure
 arm with it.
 
-### `Passes/Unification/InferGeneralize.fs:23` — `instantiate` keeps four parallel maps over one root set
-
-`subst`, `freshOf`, `constraintSubst` (seeded from `subst`) and `quantifiedRoots` (seeded from
-`freshOf.Keys`) are four structures indexed by the same quantified-root ids, differing only in
-which freshening policy each expresses. The 15 lines of prose cut from `:34` and the 12 from `:42`
-existed entirely to explain how they relate — a single "instantiation" record carrying the root,
-its fresh var and whether it was quantified would delete both blocks rather than shorten them.
-
 ### `Inline.fs:35` — `quantifiedTypars` order disagrees with the canonical typar order
 
 Verified NOT a defect (2026-08-23). The order differs from `GeneralizedTypars.canonical`, but

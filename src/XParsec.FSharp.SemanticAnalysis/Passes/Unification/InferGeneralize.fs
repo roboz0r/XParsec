@@ -17,41 +17,49 @@ module internal UnificationInferGeneralize =
     let iterTypeVarRoots (store: TypeStore) (onRoot: Rep -> unit) (t: SemType) : unit =
         t |> SemTypeWalk.iterSemTypeVars (fun tv -> onRoot (UnionFind.find store tv))
 
-    /// One use site's view of a scheme: the instantiated body, and the fresh TyVar minted for
-    /// each quantified root, keyed by that root.
+    /// The fresh TyVar one use site mints for a scheme root, and the reach of that freshening.
+    [<Struct>]
+    type RootInstance =
+        {
+            Fresh: TyVarId
+            /// Set for a root the scheme quantifies, whose fresh var replaces it in the
+            /// instantiated body as well as in constraint targets. Clear for a root captured
+            /// from a `Coercion` target while still free in the surrounding scope: that one is
+            /// replaced inside the target alone, so the body keeps its outer identity.
+            Quantified: bool
+        }
+
+    /// One use site's view of a scheme: the instantiated body, and the `RootInstance` for each
+    /// root the instantiation freshened, keyed by that root.
     type Instantiation =
         {
             Body: SemType
-            FreshOf: IReadOnlyDictionary<TyVarId, TyVarId>
+            Roots: IReadOnlyDictionary<TyVarId, RootInstance>
         }
 
-    /// Non-quantified TyVars are left alone, because they're free w.r.t. the
-    /// surrounding scope and must keep their identity. `scheme.Body` is
-    /// already zonked by `generalise`, so we don't follow Links here.
+    /// `scheme.Body` is already zonked by `generalise`, so Links are not followed here.
     let instantiateOpen (ctx: PassContext) (scheme: TypeScheme) : Instantiation =
-        let subst = Dictionary<TyVarId, SemType>()
-        let freshOf = Dictionary<TyVarId, TyVarId>()
+        let roots = Dictionary<TyVarId, RootInstance>()
 
-        for q in scheme.Quantified do
-            let qRoot = UnionFind.find ctx.Store q
+        let mint (root: TyVarId) (quantified: bool) =
             let fresh = ctx.NewTypeVar()
             ctx.Store.SetLevel(UnionFind.find ctx.Store fresh, ctx.CurrentLevel)
-            subst.[qRoot.Id] <- TyVar fresh
-            freshOf.[qRoot.Id] <- fresh
 
-        // EVERY quantified root is freshened per call in the constraint substitution,
-        // INCLUDING purely PHANTOM roots absent from the surface type (the enumerator `'E`
-        // in `fold`'s `'S :> IStructSeq<'T,'E>`), so `'E` stays a free generic method slot.
-        let constraintSubst = Dictionary<TyVarId, SemType>()
+            roots.[root] <-
+                {
+                    Fresh = fresh
+                    Quantified = quantified
+                }
 
-        for kv in subst do
-            constraintSubst.[kv.Key] <- kv.Value
+        // EVERY quantified root is freshened per call, INCLUDING purely PHANTOM roots absent
+        // from the surface type (the enumerator `'E` in `fold`'s `'S :> IStructSeq<'T,'E>`),
+        // so `'E` stays a free generic method slot.
+        for q in scheme.Quantified do
+            mint (UnionFind.find ctx.Store q).Id true
 
         // A `Coercion` target may ALSO reference still-free roots that are NOT quantified at
         // all, such as an outer-level placeholder that joined the bound when two roots unified. Left
         // verbatim it is SHARED, so the first call's grounding leaks into every later one.
-        let quantifiedRoots = HashSet<TyVarId>(freshOf.Keys)
-
         for (_, c) in scheme.Constraints do
             match c.Kind with
             | SemanticConstraintKind.Coercion target ->
@@ -60,22 +68,28 @@ module internal UnificationInferGeneralize =
                 |> iterTypeVarRoots
                     ctx.Store
                     (fun root ->
-                        if
-                            (ctx.Store.Link root).IsNone
-                            && not (quantifiedRoots.Contains root.Id)
-                            && not (constraintSubst.ContainsKey root.Id)
-                        then
-                            let fresh = ctx.NewTypeVar()
-                            ctx.Store.SetLevel(UnionFind.find ctx.Store fresh, ctx.CurrentLevel)
-                            constraintSubst.[root.Id] <- TyVar fresh
+                        if (ctx.Store.Link root).IsNone && not (roots.ContainsKey root.Id) then
+                            mint root.Id false
                     )
             | _ -> ()
+
+        /// The `substituteWith` view of the entries `accept` admits.
+        let substFor (accept: RootInstance -> bool) : Dictionary<TyVarId, SemType> =
+            let subst = Dictionary<TyVarId, SemType>()
+
+            for kv in roots do
+                if accept kv.Value then
+                    subst.[kv.Key] <- TyVar kv.Value.Fresh
+
+            subst
+
+        let constraintSubst = substFor (fun _ -> true)
 
         for (qTv, c) in scheme.Constraints do
             let qRoot = UnionFind.find ctx.Store qTv
 
-            match freshOf.TryGetValue qRoot.Id with
-            | true, fresh ->
+            match roots.TryGetValue qRoot.Id with
+            | true, inst when inst.Quantified ->
                 let c =
                     match c.Kind with
                     | SemanticConstraintKind.Coercion target ->
@@ -84,19 +98,19 @@ module internal UnificationInferGeneralize =
                         }
                     | _ -> c
 
-                addConstraintByKind ctx.Store fresh c
-            | false, _ -> ()
+                addConstraintByKind ctx.Store inst.Fresh c
+            | _ -> ()
 
         {
-            Body = substituteWith ctx.Store subst scheme.Body
-            FreshOf = freshOf
+            Body = substituteWith ctx.Store (substFor (fun inst -> inst.Quantified)) scheme.Body
+            Roots = roots
         }
 
     let instantiate (ctx: PassContext) (scheme: TypeScheme) : SemType = (instantiateOpen ctx scheme).Body
 
     /// The order explicit type arguments are supplied in: declared typars in source order,
     /// then the scheme's remaining quantified roots by first appearance. Entries are
-    /// union-find roots, so they index `Instantiation.FreshOf`.
+    /// union-find roots, so they index `Instantiation.Roots`.
     let explicitTyparOrder (ctx: PassContext) (declared: (string * TyVarId) list) (scheme: TypeScheme) : TyVarId list =
         let rootOf (tv: TyVarId) = (UnionFind.find ctx.Store tv).Id
         let quantified = HashSet<TyVarId>(scheme.Quantified |> Seq.map rootOf)

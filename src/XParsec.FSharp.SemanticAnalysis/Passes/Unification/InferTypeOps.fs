@@ -97,8 +97,8 @@ module internal UnificationInferTypeOps =
 
                 List.iter2
                     (fun root ex ->
-                        match inst.FreshOf.TryGetValue root with
-                        | true, fresh -> unify ctx tok (TyVar fresh) ex
+                        match inst.Roots.TryGetValue root with
+                        | true, r -> unify ctx tok (TyVar r.Fresh) ex
                         | _ -> ()
                     )
                     order
