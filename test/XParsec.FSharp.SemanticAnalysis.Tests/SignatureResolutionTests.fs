@@ -1088,4 +1088,29 @@ let tests =
                      |> EqArray.exists (fun iface -> iface.Key = RuntimeNames.equatableKey))
                     "the contract's `equatable<int>` survives a source that binds only a repr"
             }
+
+            test "a bodied signature's `inherit` of an undefined name diagnoses and publishes no base" {
+                let r =
+                    resolveFsi
+                        "app.fsi"
+                        (String.concat
+                            "\n"
+                            [
+                                "namespace App"
+                                ""
+                                "module M ="
+                                "    type C ="
+                                "        inherit Unknown"
+                                "        member P: int"
+                                ""
+                            ])
+
+                Expect.isTrue
+                    (r.Messages |> List.exists (fun m -> m.Contains "Unknown"))
+                    (sprintf "the undefined base is diagnosed (%A)" r.Messages)
+
+                match shapeOf r "C" with
+                | ExternalTypeShape.Class shape -> Expect.isTrue shape.FrozenBaseType.IsNone "no base type is published"
+                | other -> failtestf "expected a Class shape for C; got %A" other
+            }
         ]

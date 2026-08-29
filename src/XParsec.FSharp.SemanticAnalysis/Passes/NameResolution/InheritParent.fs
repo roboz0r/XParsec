@@ -182,6 +182,18 @@ module NameResolutionInheritParent =
 
                     ValueNone
 
+                let notAnInheritableInterface () =
+                    diagnose
+                        nameTok
+                        (Kind.Message(
+                            sprintf
+                                "Cannot inherit from interface '%s'; implement it with 'interface %s with'"
+                                name
+                                name
+                        ))
+
+                    ValueNone
+
                 // The contract's ctor-bearing intrinsic surface for the name, as its canon.
                 let tryCtorBearingCanon () =
                     match
@@ -242,7 +254,7 @@ module NameResolutionInheritParent =
                         | IntrinsicPlatform.Unsupported target ->
                             diagnose nameTok (Kind.UnsupportedOnTarget(name, target))
                             ValueNone
-                    | ValueSome ProviderBase.Interface -> notAClass ()
+                    | ValueSome ProviderBase.Interface -> notAnInheritableInterface ()
                     | ValueNone ->
                         // A name the name table knows at any arity is a project-local type of
                         // some other kind; one it does not know is unknown *here*, which
@@ -254,6 +266,7 @@ module NameResolutionInheritParent =
                             ValueNone
 
                 match TypeRegistry.tryClass ctx.Types (ctx.UseSiteAt diagKey) name with
+                | ValueSome info when info.IsInterface -> notAnInheritableInterface ()
                 | ValueSome info -> ValueSome(TyClass(info.TypeKey, EqArray.ofList targs))
                 | ValueNone ->
                     // Heritable-local arm: a `(# class … #)` intrinsic of THIS file. One read

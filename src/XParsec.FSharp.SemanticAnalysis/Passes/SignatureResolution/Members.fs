@@ -362,14 +362,16 @@ module SignatureResolutionMembers =
                              else
                                  EqArray.empty)
                         FrozenInterfaces = freezeInterfaces ctx typeParams interfaceTypes
-                        // TODO: an undefined `inherit` name is diagnosed and translates to
-                        // `TyUnknown`, which freezes unfreezable, so this throws where the
-                        // interfaces above drop. Diagnosed source, crashing pass.
                         FrozenBaseType =
                             baseTy
-                            |> ValueOption.map (fun t ->
-                                freezeOver ctx (typarEnv ctx (TyparOwner.Type typeParams)) (translateType ctx t)
-                                |> FrozenNominal.OfFrozen "an `inherit` clause"
+                            |> ValueOption.bind (fun t ->
+                                match
+                                    freezeOver ctx (typarEnv ctx (TyparOwner.Type typeParams)) (translateType ctx t)
+                                with
+                                // A base already diagnosed at translation (`UndefinedType` →
+                                // `TyUnknown`) publishes no base type.
+                                | FTUnknown _ -> ValueNone
+                                | frozen -> ValueSome(FrozenNominal.OfFrozen "an `inherit` clause" frozen)
                             )
                         Flags =
                             { ExternalClassFlags.Default with
