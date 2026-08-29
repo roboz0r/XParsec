@@ -6,37 +6,16 @@ open XParsec.FSharp.SemanticAnalysis
 /// a module function's open signature, but not `Instantiate` / constraints / inline bodies.
 module CodegenSymbols =
 
-    /// A provider may key a generic type BARE (`Vesper.Option`, contract layer) or
-    /// arity-suffixed (`Vesper.Option`1`, metadata layer): probe the key as-is, then a
-    /// name-equal arity-0 key, which renders bare.
-    let private reconciledLookup (probe: TypeKey -> 'a voption) (key: TypeKey) : 'a voption =
-        match probe key with
-        | ValueSome _ as hit -> hit
-        | ValueNone ->
-            let qual = SymbolKeyOps.typeMetaName key
-            let bare = SymbolKeyOps.bareName qual
-
-            if bare = qual then
-                ValueNone
-            else
-                probe (SymbolKeyOps.qualifiedTypeKeyOf bare 0)
-
-    /// The shape a resolved `SymbolKey` denotes, over either registration convention.
-    let lookupTypeByKey (symbols: ICodegenSymbols) (key: TypeKey) : ExternalTypeShape voption =
-        reconciledLookup symbols.TryLookupType key
-
-    /// The settled layout of a REFERENCED type, over either registration convention:
-    /// `Unsettled` for a non-type key, and for a name this compilation emits itself.
+    /// The settled layout of a REFERENCED type: `Unsettled` for a non-type key, and for a
+    /// name this compilation emits itself.
     let externalLayout (symbols: ICodegenSymbols) (key: TypeKey) : TypeLayout =
-        reconciledLookup symbols.IsValueType key |> TypeLayout.ofSettled
+        symbols.IsValueType key |> TypeLayout.ofSettled
 
     /// `false` is the floor: an `Unsettled` layout is tagged `CLASS`.
     let isValueType (symbols: ICodegenSymbols) (key: TypeKey) : bool =
         externalLayout symbols key = TypeLayout.Value
 
     let ofProvider (provider: IExternalSymbolProvider) : ICodegenSymbols =
-        let storeShape (k: TypeKey) : ExternalTypeShape voption = provider.TryLookupType k
-
         { new ICodegenSymbols with
             member _.TryLookupType key = provider.TryLookupType key
 
@@ -66,7 +45,7 @@ module CodegenSymbols =
                                        Name = memberName
                                        Kind = kind
                                    } ->
-                    match reconciledLookup storeShape declKey with
+                    match provider.TryLookupType declKey with
                     | ValueSome(ExternalTypeShape.IntrinsicInterface { Platform = platform }) ->
                         let members =
                             provider.TryLookupMembers(SymbolKeyOps.qualifiedTypeKeyOf platform 0, memberName)

@@ -36,7 +36,7 @@ module internal CapabilityCoSlots =
     let required (symbols: ICodegenSymbols) (interfaces: FrozenNominal list) : (FrozenNominal * CoSlot) list =
         [
             for iface in interfaces do
-                match CodegenSymbols.lookupTypeByKey symbols iface.Key with
+                match symbols.TryLookupType iface.Key with
                 | ValueSome(ExternalTypeShape.IntrinsicInterface { Platform = platform }) ->
                     for slot in ofPlatformInterface platform -> iface, slot
                 | _ -> ()

@@ -431,8 +431,6 @@ module Unification =
     /// yields `IEnumerable<'T>`). The forbidden set is derived from the capability's `Platform`
     /// plus its inherited closure; implementing another CAPABILITY from it stays legal.
     let private checkCapabilityInterfaceCollisions (ctx: PassContext) (info: IInterfaceImplHost) : unit =
-        // Names compare on the bare (arity-suffix-stripped) compiled name: the metadata
-        // layer keys `IEnumerable`1`, the contract layer `IEnumerable`.
         let resolvedImpls =
             [
                 for impl in info.InterfaceImpls do
@@ -445,26 +443,26 @@ module Unification =
         // The transitive interface closure of a capability's platform interface. Metadata
         // `FrozenInterfaces` is already transitive; the walk is what makes a contract-layer
         // provider, which records only direct bases, agree.
-        let rec closeOver (seen: Set<string>) (name: string) : Set<string> =
-            let bare = SymbolKeyOps.bareName name
+        let closeOver (platform: TypeKey) : HashSet<TypeKey> =
+            let seen = HashSet<TypeKey>()
 
-            if Set.contains bare seen then
-                seen
-            else
-                let seen = Set.add bare seen
+            let rec walk (key: TypeKey) =
+                if seen.Add key then
+                    match ctx.Provider.TryLookupType key with
+                    | ValueSome(ExternalTypeShape.Class shape) ->
+                        shape.FrozenInterfaces |> EqArray.iter (fun i -> walk i.Key)
+                    | _ -> ()
 
-                match ctx.Provider.TryLookupType(SymbolKeyOps.qualifiedTypeKeyOf name 0) with
-                | ValueSome(ExternalTypeShape.Class shape) ->
-                    (seen, shape.FrozenInterfaces)
-                    ||> EqArray.fold (fun acc i -> closeOver acc (SymbolKeyOps.typeMetaName i.Key))
-                | _ -> seen
+            walk platform
+            seen
 
         let capabilityInterfaces =
             [
                 for (_, key, shape) in resolvedImpls do
                     match shape with
                     | ValueSome(ExternalTypeShape.IntrinsicInterface cap) ->
-                        SymbolKeyOps.typeMetaName key, closeOver Set.empty cap.Platform
+                        // Arity 0 is lossless: a platform repr spells its own `` `N ``.
+                        SymbolKeyOps.typeMetaName key, closeOver (SymbolKeyOps.qualifiedTypeKeyOf cap.Platform 0)
                     | _ -> ()
             ]
 
@@ -476,10 +474,9 @@ module Unification =
                 | ValueSome(ExternalTypeShape.IntrinsicInterface _) -> ()
                 | _ ->
                     let qual = SymbolKeyOps.typeMetaName key
-                    let bare = SymbolKeyOps.bareName qual
 
                     for (capability, published) in capabilityInterfaces do
-                        if Set.contains bare published then
+                        if published.Contains key then
                             ctx.Report(
                                 impl.DeclSite.Tok,
                                 Kind.Message(

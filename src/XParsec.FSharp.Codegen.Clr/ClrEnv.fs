@@ -438,13 +438,8 @@ type internal ClrEnv
 
             toEntity (ctx.AssemblyRef an)
 
-    // A provider may key a generic type bare (`Vesper.Option`, contract layer) or arity-suffixed
-    // (`Vesper.Option`1`, metadata layer); this reconciles the two registration conventions.
-    let lookupTypeByKey (key: TypeKey) : ExternalTypeShape voption =
-        CodegenSymbols.lookupTypeByKey symbols key
-
     let lookupClassShape (key: TypeKey) : ExternalClassShape voption =
-        match lookupTypeByKey key with
+        match symbols.TryLookupType key with
         | ValueSome(ExternalTypeShape.Class info) -> ValueSome info
         | _ -> ValueNone
 
@@ -457,7 +452,7 @@ type internal ClrEnv
         | ModuleContainer.InNamespace ns -> toEntity (ctx.TypeRef(externalAsmRef origin.Home, ns.Dotted, m.Name))
 
     let rec externalClassRef (key: TypeKey) : EntityHandle voption =
-        match lookupTypeByKey key with
+        match symbols.TryLookupType key with
         | ValueSome(ExternalTypeShape.IntrinsicInterface { Platform = platform }) ->
             // A canonically-authored capability interface (`interface disposable`) has no emitted
             // type of its own, so re-resolve through its platform interface and the `InterfaceImpl`
@@ -498,7 +493,7 @@ type internal ClrEnv
 
     /// Referenced-assembly record shape by key + arity.
     let externalRecordShape (key: TypeKey) (arity: int) : (EqArray<ExternalFieldShape> * SymbolOrigin) voption =
-        match lookupTypeByKey key with
+        match symbols.TryLookupType key with
         | ValueSome(ExternalTypeShape.Record(a, fields, origin, _, _)) when
             a = arity && origin.Home <> SymbolHome.Unstamped
             ->
@@ -518,7 +513,7 @@ type internal ClrEnv
     /// Referenced-assembly union shape by key + arity, for cross-package case
     /// construction (`Some` / `None`).
     let externalUnionShape (key: TypeKey) (arity: int) : (EqArray<ExternalCaseShape> * SymbolOrigin) voption =
-        match lookupTypeByKey key with
+        match symbols.TryLookupType key with
         | ValueSome(ExternalTypeShape.Union(a, cases, _, origin, _)) when
             a = arity && origin.Home <> SymbolHome.Unstamped
             ->
@@ -616,7 +611,7 @@ type internal ClrEnv
     member _.ExternalModuleRef(origin: SymbolOrigin, m: ModuleKey) = externalModuleRef origin m
     member _.ExternalClassRef key = externalClassRef key
     member _.ClassOrigin key = classOrigin key
-    member _.LookupTypeByKey key = lookupTypeByKey key
+    member _.LookupTypeByKey key = symbols.TryLookupType key
     /// Drives the `VALUETYPE` vs `CLASS` element tag an encoded type spec carries.
     member _.ExternalIsValueType key = CodegenSymbols.isValueType symbols key
 

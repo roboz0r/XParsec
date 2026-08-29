@@ -87,7 +87,18 @@ module PublishedSurfaceBuilder =
         | TypeContainer.InNamespace _
         | TypeContainer.InType _ -> ()
 
+    /// Registering a shape whose `TyparArity` disagrees with `key`'s will fail: the two state
+    /// the same fact, and `typeKeyOfContainer` is the one minting rule for it.
     let addShape (surface: PublishedSurfaceBuilder) (key: TypeKey) (shape: ExternalTypeShape) : unit =
+        let minted = SymbolKeyOps.typeKeyOfContainer key.Container key.Name shape.TyparArity
+
+        if minted <> key then
+            failwithf
+                "addShape: '%s' is keyed at arity %d, its shape declares %d"
+                (SymbolKeyOps.typeMetaName key)
+                key.TyparArity
+                shape.TyparArity
+
         surface.ShapesByKey.[key] <- shape
 
     /// Record that `canon`'s representation is the target's to supply, in the form `repr`

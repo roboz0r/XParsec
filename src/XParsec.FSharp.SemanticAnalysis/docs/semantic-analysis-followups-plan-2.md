@@ -599,23 +599,41 @@ Belong in `.claude/skills/comment-hygiene/taxonomy.md`, recorded here so they ar
 
 ## From the `FrozenInterface` review
 
-### `Passes/Unification.fs:611` — the capability-collision closure is keyed by bare NAME strings
+### `Passes/Unification.fs:611` — the capability-collision closure is keyed by bare NAME strings **[LANDED — the closure is a `HashSet<TypeKey>`; the arity claim was false and the stripping was a live false-positive source]**
 
-`checkCapabilityInterfaceCollisions` walks the transitive interface closure of a capability's
-platform interface as a `Set<string>` of `SymbolKeyOps.bareName` values, seeded at `:630` from
-`IntrinsicInterfaceShape.Platform`, which is a bare `string` (`ExternalSymbols.fs:426`). Now
-that `FrozenInterfaces` carries a `FrozenInterface`, the fold at `:621` takes a `SymbolKey`
-and puts it back through `SymbolKeyOps.qualifiedName` purely to feed that set — a key that was
-unstringified upstream and re-stringified here. `Platform` and this `Set<string>` are the two
-remaining string carriers on the path.
+`checkCapabilityInterfaceCollisions` walked the transitive interface closure of a capability's
+platform interface as a `Set<string>` of `SymbolKeyOps.bareName` values, seeded from
+`IntrinsicInterfaceShape.Platform`.
 
-It is NOT simply a key comparison spelled with strings: it compares the BARE name, arity
-suffix stripped, and the comment at `:598` gives the reason — the metadata layer keys
-`` IEnumerable`1 `` while the contract layer keys `IEnumerable`. So a `Set<TypeKey>` would
-compare MORE than the current code does and would stop matching across the two layers.
+The prerequisite this entry named — is the arity difference between the metadata and contract
+layers real or a defect? — resolved to **neither: the difference does not exist.** Both layers
+key by `TypeKey` with a bare `Name` and `TyparArity` set from the declaration, and every
+generic CLR platform repr spells its own `` `N `` so `qualifiedTypeKeyOf platform 0` parses it
+back. Verified by deleting the stripping and running the CLR, JS and SemanticAnalysis suites
+green, and separately by disabling `CodegenSymbols.reconciledLookup`'s bare-key fallback, which
+also left the CLR suite green (see the follow-up below).
 
-The fix therefore has a prerequisite, not just a shape: settle whether that arity mismatch is
-a real difference between the layers or a defect in one of them. If it is a defect, `Platform`
-becomes a `TypeKey` (`ExternalSymbols.fs:687` already cuts one from it with
-`qualifiedTypeKeyOf platform 0`) and the closure a `Set<TypeKey>`. The comment the fix would
-delete is the two-line bare-name justification at `:598`.
+The stripping was not merely redundant. Because it folded `` System.IComparable`1 `` onto
+`System.IComparable`, a type implementing `comparable<'T>` and the non-generic
+`System.IComparable` — two interfaces with no inheritance edge between them, and no co-slot
+synthesising the second — was rejected. Pinned by "implementing the comparable capability and
+the non-generic IComparable is allowed" in `Codegen.Clr.Tests/RecordTests.fs`, with the old
+compare restored as a negative control.
+
+What the walk genuinely buys is the TRANSITIVITY reconciliation its second comment already
+states: reflection's `GetInterfaces()` is transitive while a `.fsi`'s `freezeInterfaces`
+records only what was written.
+
+`Platform` stays a `string` — it is the `(# … #)` repr text, and on JS it is the
+`!Vesper.Collections.seq` sentinel, which is not a type name.
+
+### Follow-up: `Codegen.Clr/CodegenSymbols.fs:12` — `reconciledLookup`'s bare-key fallback is unexercised **[LANDED — see `codegen-clr-followups-plan.md` B12]**
+
+Same false premise, one layer down: the doc claimed "a provider may key a generic type BARE
+(`Vesper.Option`, contract layer) or arity-suffixed". `reconciledLookup`, the free
+`lookupTypeByKey`, and the duplicate claim at `ClrEnv.fs:441` are deleted;
+`ICodegenSymbols.TryLookupType` is now the only probe.
+
+`ExternalSymbols.tryReprTypeAt`'s `shape.TyparArity = key.TyparArity` guard is generalised into
+`PublishedSurfaceBuilder.addShape`, so the divergence fails at registration rather than as a
+lookup miss the next retry papers over.

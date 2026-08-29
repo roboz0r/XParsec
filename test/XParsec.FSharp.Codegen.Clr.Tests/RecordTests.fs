@@ -605,6 +605,27 @@ let interfaceImplTests =
                      |> List.exists (fun d -> d.Message.Contains "platform interface of capability"))
                     (sprintf "the diagnostic names the capability collision (%A)" errors)
             }
+
+            // `comparable<'T>` publishes `System.IComparable<'T>`, which inherits nothing:
+            // the NON-generic `System.IComparable` is a separate interface with its own
+            // slot, and no co-slot synthesises it. The two names differ only by arity.
+            test "implementing the comparable capability and the non-generic IComparable is allowed" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type Money ="
+                            "    { Cents: int }"
+                            "    interface Vesper.comparable<Money> with"
+                            "        member this.CompareTo(that: Money) : int = this.Cents - that.Cents"
+                            "    interface System.IComparable with"
+                            "        member this.CompareTo(that: obj) : int = 0"
+                        ]
+
+                let errors = capabilityCollisionErrors src
+
+                Expect.isEmpty errors (sprintf "the two arities are distinct interfaces (%A)" errors)
+            }
         ]
 
 // `v.Method()` / `v.Property` on a record object argument, as opposed to the

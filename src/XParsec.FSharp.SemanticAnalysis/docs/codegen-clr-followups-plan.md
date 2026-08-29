@@ -385,17 +385,21 @@ A record computed once off `ExternalMember` — `{ Parameters; Return; IsPropert
 ArgSigLen; MethodTyparArity }` — makes the swap unwritable and deletes both surviving three-line
 docs, whose whole content is which slot means what.
 
-## B12. A normalised type key deletes `CodegenSymbols.reconciledLookup`
+## B12. A normalised type key deletes `CodegenSymbols.reconciledLookup` **[LANDED — the second convention did not exist]**
 
-A generic type is registered BARE (`Vesper.Option`, contract layer) or arity-suffixed
-(`Vesper.Option`1`, metadata layer), so every type-shape probe in the backend has to try both.
-`reconciledLookup` is that retry, and its three-line doc exists only to say the two conventions
-are real.
+The premise was that a generic type is registered BARE (`Vesper.Option`, contract layer) or
+arity-suffixed (``Vesper.Option`1``, metadata layer), so every backend type-shape probe had to
+try both. No producer registers a bare key: every one mints through `typeKeyOfContainer` from
+the declaration's typar count or from `GetGenericArguments().Length`, and the `(# … #)` reprs
+that go through `qualifiedTypeKeyOf … 0` all spell their own `` `N ``.
 
-The trap the retry leaves behind: `ICodegenSymbols.TryLookupType` is the RAW probe, and only the
-free function `lookupTypeByKey` reconciles. Nothing today calls the member directly, but the
-interface offers the wrong one first. Normalising the key at registration deletes the helper, its
-doc, and the choice.
+`reconciledLookup` and the free `lookupTypeByKey` are deleted, so `ICodegenSymbols.TryLookupType`
+is the only probe and the trap is gone. `CodegenSymbols.externalLayout` survives for the
+`TypeLayout.ofAnswer` projection.
+
+`PublishedSurfaceBuilder.addShape` now fails when a shape's `TyparArity` disagrees with its
+key's, which is the normalisation this entry asked for, sited at the single registration funnel.
+It fires nowhere across the CLR, JS, SemanticAnalysis, Vesper and FSharp suites.
 
 ## B13. `MetadataTailKey` — `ClrSymbolProviders`' two memos differ only in what they may key on
 
