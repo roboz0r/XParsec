@@ -83,8 +83,8 @@ hashable surface, on different axes:
   check covered, whereas in-process a file is lexed once and the `LexedFile` retained, so
   the check could not fire. Such a stamp must cover the determinants below.
 
-Sequencing: Merkle.Dag is a prototype outside this repo, and its integration follows
-[attribute-representation-plan](attribute-representation-plan.md). The manifest-default
+Sequencing: Merkle.Dag is a prototype outside this repo, and its integration was sequenced
+after the attribute-representation work, which landed 2026-08-28. The manifest-default
 migration it also needed landed 2026-08-23, so the per-file published surface the firewall
 keys on already exists on every path.
 

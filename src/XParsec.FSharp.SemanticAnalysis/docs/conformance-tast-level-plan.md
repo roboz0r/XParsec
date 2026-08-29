@@ -125,14 +125,13 @@ its own:
 The first is the cheaper one and matches how the compiler treats every other unmodelled
 construct; take it unless delegates are on the roadmap.
 
-### Gap 3 — attribute arguments are compared nowhere. Decide with attribute-representation.
+### Gap 3 — attribute arguments are compared nowhere
 
-A signature's attribute arguments are carried as written; no constant folding runs, and no
-conformance rule reads them on either route. (Relocated from the deleted fsi-front-end-plan,
-2026-08-28.) The trade to settle when a rule arrives: structural expression equality needs no
-folding but rejects `A ||| B` against `B ||| A`, and `1` against `0x1`, as mismatches;
-folding needs the evaluated values that
-[attribute-representation-plan](attribute-representation-plan.md) step 2 lands.
+No conformance rule reads a pair's attribute arguments on either route. (Relocated from the
+deleted fsi-front-end-plan, 2026-08-28.) The trade to settle when a rule arrives: structural
+expression equality needs no folding but rejects `A ||| B` against `B ||| A`, and `1` against
+`0x1`, as mismatches; comparing folded values is now possible, since `AttributeFold` folds
+each side's arguments to `TConstValue`s (landed 2026-08-28).
 
 **Premise to verify first, against fsc:** whether an attribute is expected on both halves of a
 pair at all, or whether F# takes the signature's alone. Do not design the check before probing

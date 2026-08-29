@@ -56,7 +56,7 @@ across the freeze boundary), steps 4 and 5 are one commit each.
   length-prefixed array. Prior art: `writeEqArrayWith w writeTypeRef` at
   `FrozenCodecDecls.fs:52`.
 - **There is no codec version constant** (`Cache.fs` and `CodeVersion` were deleted in
-  8430062c; `attribute-representation-plan.md:97` still cites it and is stale). The change is
+  8430062c). The change is
   a silent format break for any persisted frozen blob. Before landing, establish what persists
   frozen bytes across runs (reference-assembly manifests?) and either add a format version
   byte at the stream head as part of this step, or record why nothing persists.
@@ -86,7 +86,6 @@ across the freeze boundary), steps 4 and 5 are one commit each.
 
 - Delete the two entries this supersedes in `semantic-analysis-followups-plan.md`
   (`TastExpr.fs:317` TraitCall; `Elaborate/Apply.fs:224` left-operand-only).
-- Fix or delete the stale `CodeVersion` citation in `attribute-representation-plan.md:97`.
 - Delete this plan.
 
 ## Deferred

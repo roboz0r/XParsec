@@ -75,10 +75,14 @@ Net first-cut layout = the existing reference-union field set, emitted as a seal
 
 ## Work items
 
-1. **IR value-kind on the union decl.** The codegen union decl / `TTypeKindG.Union` carries no
-   value-kind today (only the class decl has `ValueKind : ClassValueKind`, `CodegenTypes.fs:137`;
-   `TypeSlotKind.Union` takes none). Add a value-type flag to the union codegen IR and thread it
-   into `Layout`'s union arm (`Layout.fs:363,792`) and `TypeSlotKind.Union`.
+1. **Value-kind on `TUnionG`.** The union decl carries no value kind at any level: `TUnionG`
+   has no `ValueKind` field (`TRecordG`/`TClassG` do), so `TTypeDeclG.DefnKind` reads a
+   `[<Struct>]` union as `TypeDefnKind.Union` (`TastDecl.fs`, the sited comment on the
+   `TTypeKindG.Union` arm) — struct-ness is registration-side only, and every post-freeze
+   consumer (the `AttributeVerdicts` legality matrices and views, the `AttrTarget` projection,
+   both backends) sees a reference union. Add the field to `TUnionG`, set it at freeze, carry
+   it through the codec, and thread it into `Layout`'s union arm and `TypeSlotKind.Union`
+   (which take none today; only the class path has `ClassValueKind`).
 2. **`UnionTypeInfo.IsValueType`** (SA): add the flag (currently only `ClassTypeInfo` has it),
    set at union registration from the `[<Struct>]` attribute (the same `classAttrs.IsValueType ||
    isStructShape` predicate `MemberRegistration.fs:604` already uses for classes; the struct-field

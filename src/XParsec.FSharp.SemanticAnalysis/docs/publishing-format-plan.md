@@ -269,6 +269,15 @@ reason as the F# pickle.
 
 ## Risks / open questions
 
+- **CLR attribute rows are advisory; the contract is the carrier (2026-08-28).** The CLR
+  backend emits `CustomAttribute` rows (`AttributeRowPrep`), but they serve external .NET
+  tooling and the one metadata readback that exists, `MetadataSymbols.hasAllowNullLiteral`.
+  Every other F# marker — the equality/comparison family, `[<RequireQualifiedAccess>]`,
+  `[<AutoOpen>]` — has no metadata reader; the `.fsi` contract carries their meaning between
+  Vesper compilations. A `.dll` consumed *without* its contract therefore loses a type's
+  equality and comparison posture and its null-inhabitation. PF1/PF3 make that configuration
+  unsupported (the package always ships the contract), but a raw-assembly-reference path, if
+  one is ever added, must either require the contract or grow readers for the marker rows.
 - **Contract ↔ runtime drift.** `.fsi` (contract) and `.fs` (runtime) must
   agree. The gate depends on provenance (PF8): a hand-authored contract is
   checked by the source-level conformance check (`Conformance.fs`, P4),
