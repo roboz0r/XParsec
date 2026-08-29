@@ -19,7 +19,12 @@ The 3-line comment-block ceiling holds across all 130 files of the project. What
 deletion-only work on files that never had an over-long block but carry prose the name and
 signature already say. Entries here come from that phase.
 
-### `Tast.fs:163` — three interface-typed fields make `TastFileG`'s derived `=` unsound
+### `Tast.fs:163` — three interface-typed fields make `TastFileG`'s derived `=` unsound **[LANDED — as `EqDict`/`EqSet`, not `Map`/`Set`]**
+
+The four collection fields (`ModuleSourcePaths` as well as the three below) are `EqDict`/`EqSet`,
+which keep O(1) lookup and carry structural equality, so `=` decides a rebuilt file.
+`structurallyEqual` and `dictEqual` are deleted, the mutable fill stays inside the passes, and
+`Elaborate.fs:349-357` converts once at the seam. `ElaborateTests`' "TastFile equality" pins it.
 
 `IntrinsicReprKeys` and `Accessibility` are `IReadOnlyDictionary<SymbolKey, _>` and
 `GlobalValueKeys` is `IReadOnlySet<SymbolKey>`, so the compiler-derived `=` on `TastFileG`

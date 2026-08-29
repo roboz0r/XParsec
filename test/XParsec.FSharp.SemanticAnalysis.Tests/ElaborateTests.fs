@@ -1485,3 +1485,35 @@ let typeAccessibilityTests =
                     "the struct's access token reaches the table"
             }
         ]
+
+[<Tests>]
+let tastFileEqualityTests =
+    // Populates all four collection fields: an intrinsic abbreviation, a `[<Global>]` binding,
+    // a nested module and a `private` binding.
+    let src =
+        "module M\n\ntype nat = (# \"number\" #)\n\n[<Global>]\nlet undefined = (# \"undefined\" #)\n\nlet private hidden = 1\n\nmodule Inner =\n    let y = 2\n"
+
+    testList
+        "TastFile equality"
+        [
+            test "two elaborations of the same source are `=`" {
+                let a = analyse src
+                let b = analyse src
+
+                Expect.isFalse a.IntrinsicReprKeys.IsEmpty "the source declares an intrinsic"
+                Expect.isFalse a.GlobalValueKeys.IsEmpty "the source declares a global"
+                Expect.isFalse a.ModuleSourcePaths.IsEmpty "the source declares a module"
+                Expect.isFalse a.Accessibility.IsEmpty "the source declares a private binding"
+
+                Expect.equal a b "separately built files with the same content are equal"
+            }
+
+            test "a dropped collection entry makes two files unequal" {
+                let a = analyse src
+
+                Expect.notEqual
+                    a
+                    { a with GlobalValueKeys = EqSet.empty }
+                    "the collection fields reach the derived equality"
+            }
+        ]
