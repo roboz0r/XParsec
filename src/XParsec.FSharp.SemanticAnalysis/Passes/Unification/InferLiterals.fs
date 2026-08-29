@@ -242,11 +242,9 @@ module internal UnificationInferLiterals =
             | ValueSome specs ->
                 let mint = freshHoleTy ctx (CstKeys.ofExpr litExpr)
 
-                match PrintfSpec.printerFromSlots mint specs args.[1] args.[2] args.[3] with
-                | ValueSome printer ->
-                    unify ctx tok printer args.[0]
-                    ValueSome expected
-                | ValueNone -> ValueNone
+                let printer = PrintfSpec.printerFromSlots mint specs args.[1] args.[2] args.[3]
+                unify ctx tok printer args.[0]
+                ValueSome expected
             | ValueNone -> ValueNone
         | _ -> ValueNone
 

@@ -91,15 +91,14 @@ module internal UnificationInferLiteralExpr =
                         if PrintfSpec.isCallbackHole p.Type then
                             ()
                         else
-                            match
+                            let ts =
                                 PrintfSpec.argTypes
                                     (freshHoleTy ctx (CstKeys.ofExpr e))
                                     ctx.Intrinsics.Unit
                                     ctx.Intrinsics.Unit
                                     p
-                            with
-                            | ValueSome ts -> unify ctx (CstKeys.firstTokenOfExpr e) holeTy (List.last ts)
-                            | ValueNone -> ()
+
+                            unify ctx (CstKeys.firstTokenOfExpr e) holeTy (List.last ts)
                     | ValueNone -> ()
                 | ValueNone -> ()
             | _ -> ()

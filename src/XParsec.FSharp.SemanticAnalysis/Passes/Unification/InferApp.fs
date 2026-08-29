@@ -277,163 +277,163 @@ module internal UnificationInferApp =
                         match formatSpecifiers ctx formatArg with
                         | ValueNone -> ValueNone
                         | ValueSome specs ->
-                            match PrintfSpec.appliedTypeOf (freshHoleTy ctx node.Key) specs fam with
-                            | ValueNone -> ValueNone
-                            | ValueSome(fnTy, fmtTy, _) ->
-                                // Stamp the function node so Elaborate threads the
-                                // curried result type through the App chain.
-                                ctx.Store.SetLink(UnionFind.find ctx.Store (freshTv ctx fnKey), ValueSome fnTy)
+                            let applied = PrintfSpec.appliedTypeOf (freshHoleTy ctx node.Key) specs fam
+                            let fnTy = applied.FnTy
+                            let fmtTy = applied.FormatTy
 
-                                let mutable currTy = fnTy
+                            // Stamp the function node so Elaborate threads the
+                            // curried result type through the App chain.
+                            ctx.Store.SetLink(UnionFind.find ctx.Store (freshTv ctx fnKey), ValueSome fnTy)
 
-                                for i in 0 .. args.Length - 1 do
-                                    let a = args.[i]
+                            let mutable currTy = fnTy
 
-                                    let argTy =
-                                        if i = idx then
-                                            // The format literal types as the PrintfFormat, not `string`.
-                                            ctx.Store.SetLink(
-                                                UnionFind.find ctx.Store (freshTv ctx (CstKeys.ofExpr a)),
-                                                ValueSome fmtTy
-                                            )
+                            for i in 0 .. args.Length - 1 do
+                                let a = args.[i]
 
-                                            fmtTy
-                                        else
-                                            infer ctx a
-
-                                    match resolveStep ctx.Store currTy with
-                                    | TyFun(dom, cod) ->
-                                        // Uniform over every arg, leading writer included: that
-                                        // slot is a resolved `TyClass` a real writer unifies with.
-                                        unify ctx node.Tok argTy dom
-                                        currTy <- cod
-                                    | _ ->
-                                        let resultTy = TyVar(freshTyVar ctx)
-                                        unify ctx node.Tok currTy (TyFun(argTy, resultTy))
-                                        currTy <- resultTy
-
-                                // A `%a`/`%t` callback hole lowers only where THIS target's
-                                // provider surfaces the family's sink type; there is no cold
-                                // fallback, so an unavailable sink is diagnosed here.
-                                let hasCallbackHole =
-                                    specs |> List.exists (fun p -> PrintfSpec.isCallbackHole p.Type)
-
-                                let rejectCallback = hasCallbackHole && not (PrintfSpec.callbackSinkAvailable fam)
-
-                                if rejectCallback then
-                                    ctx.Report(
-                                        node.Tok,
-                                        Kind.Message
-                                            "printf %a/%t requires a sink type (System.IO.TextWriter / System.Text.StringBuilder) not available on this target"
-                                    )
-
-                                // The first specifier that does not lower: a rejected flag
-                                // combination is an error, a cold residual (a runtime-width
-                                // zero-pad such as `%0*d`) keeps the generic printf shape.
-                                let firstNotLowerable =
-                                    specs
-                                    |> List.tryPick (fun p ->
-                                        match PrintfHoleForm.classify p with
-                                        | PrintfHoleForm.HoleVerdict.Lowerable _ -> None
-                                        | verdict -> Some(struct (p, verdict))
-                                    )
-
-                                match firstNotLowerable with
-                                | Some(struct (p, PrintfHoleForm.HoleVerdict.SignLeftAlignZeroPad)) ->
-                                    ctx.Report(
-                                        node.Tok,
-                                        Kind.Message(
-                                            sprintf
-                                                "printf format specifier %s combines a sign flag ('+'/' ') with both '-' and '0'; remove one of the flags"
-                                                (PrintfHoleForm.renderPlaceholder p)
+                                let argTy =
+                                    if i = idx then
+                                        // The format literal types as the PrintfFormat, not `string`.
+                                        ctx.Store.SetLink(
+                                            UnionFind.find ctx.Store (freshTv ctx (CstKeys.ofExpr a)),
+                                            ValueSome fmtTy
                                         )
-                                    )
-                                | Some(struct (p, PrintfHoleForm.HoleVerdict.OversizedDimension)) ->
-                                    ctx.Report(
-                                        node.Tok,
-                                        Kind.Message(
-                                            sprintf
-                                                "printf format specifier %s has a width or precision outside the range %d..%d"
-                                                (PrintfHoleForm.renderPlaceholder p)
-                                                System.Int32.MinValue
-                                                System.Int32.MaxValue
-                                        )
-                                    )
-                                | Some(struct (p, _)) ->
-                                    ctx.Report(
-                                        node.Tok,
-                                        Kind.Message(
-                                            sprintf
-                                                "printf format specifier %s cannot be lowered on this target"
-                                                (PrintfHoleForm.renderPlaceholder p)
-                                        )
-                                    )
-                                | None -> ()
 
-                                match PrintfSpec.sinkOf (qualifiedNameOf ctx fn) with
-                                | ValueSome sink when
-                                    not rejectCallback
-                                    && args.Length = PrintfSpec.totalArity specs + idx + 1
-                                    && lowerablePlaceholders specs
-                                    && (idx = 0
-                                        || (idx = 1
-                                            && (
-                                                match sink with
-                                                | PrintfSpec.PrintfSink.Writer _
-                                                | PrintfSpec.PrintfSink.Builder -> true
-                                                | _ -> false
-                                            )))
-                                    ->
-                                    // Keyed on the FAMILY, not the sink kind: `printf` prints to
-                                    // `StdOut` and still needs a capture-first scratch.
-                                    let scratch =
-                                        if hasCallbackHole && PrintfSpec.familyNeedsScratch fam then
-                                            match fam.ScratchSink with
-                                            | TyClass(scratchKey, _) as scratchTy ->
-                                                let scratchName = SymbolKeyOps.typeMetaName scratchKey
+                                        fmtTy
+                                    else
+                                        infer ctx a
 
-                                                // `ToString` is overloaded (`StringBuilder.ToString(int,
-                                                // int)`); pick the parameterless override.
-                                                let toString =
-                                                    ctx.Provider.TryLookupMembers(scratchKey, "ToString")
-                                                    |> EqArray.tryFind (fun m -> m.Key.ArgSig.Length = 0)
+                                match resolveStep ctx.Store currTy with
+                                | TyFun(dom, cod) ->
+                                    // Uniform over every arg, leading writer included: that
+                                    // slot is a resolved `TyClass` a real writer unifies with.
+                                    unify ctx node.Tok argTy dom
+                                    currTy <- cod
+                                | _ ->
+                                    let resultTy = TyVar(freshTyVar ctx)
+                                    unify ctx node.Tok currTy (TyFun(argTy, resultTy))
+                                    currTy <- resultTy
 
-                                                match toString with
-                                                | ValueSome m ->
-                                                    ValueSome
-                                                        {
-                                                            PrintfSpec.CallbackScratch.ScratchClassName = scratchName
-                                                            PrintfSpec.CallbackScratch.ScratchTy = scratchTy
-                                                            PrintfSpec.CallbackScratch.ToStringKey =
-                                                                SymbolKey.Member m.Key
-                                                        }
-                                                | ValueNone ->
-                                                    failwithf
-                                                        "InferApp: writer/builder %%a/%%t scratch sink %s resolved to a class with no parameterless ToString, so capture-first cannot be lowered"
-                                                        scratchName
-                                            | other ->
+                            // A `%a`/`%t` callback hole lowers only where THIS target's
+                            // provider surfaces the family's sink type; there is no cold
+                            // fallback, so an unavailable sink is diagnosed here.
+                            let hasCallbackHole =
+                                specs |> List.exists (fun p -> PrintfSpec.isCallbackHole p.Type)
+
+                            let rejectCallback = hasCallbackHole && not (PrintfSpec.callbackSinkAvailable fam)
+
+                            if rejectCallback then
+                                ctx.Report(
+                                    node.Tok,
+                                    Kind.Message
+                                        "printf %a/%t requires a sink type (System.IO.TextWriter / System.Text.StringBuilder) not available on this target"
+                                )
+
+                            // The first specifier that does not lower: a rejected flag
+                            // combination is an error, a cold residual (a runtime-width
+                            // zero-pad such as `%0*d`) keeps the generic printf shape.
+                            let firstNotLowerable =
+                                specs
+                                |> List.tryPick (fun p ->
+                                    match PrintfHoleForm.classify p with
+                                    | PrintfHoleForm.HoleVerdict.Lowerable _ -> None
+                                    | verdict -> Some(struct (p, verdict))
+                                )
+
+                            match firstNotLowerable with
+                            | Some(struct (p, PrintfHoleForm.HoleVerdict.SignLeftAlignZeroPad)) ->
+                                ctx.Report(
+                                    node.Tok,
+                                    Kind.Message(
+                                        sprintf
+                                            "printf format specifier %s combines a sign flag ('+'/' ') with both '-' and '0'; remove one of the flags"
+                                            (PrintfHoleForm.renderPlaceholder p)
+                                    )
+                                )
+                            | Some(struct (p, PrintfHoleForm.HoleVerdict.OversizedDimension)) ->
+                                ctx.Report(
+                                    node.Tok,
+                                    Kind.Message(
+                                        sprintf
+                                            "printf format specifier %s has a width or precision outside the range %d..%d"
+                                            (PrintfHoleForm.renderPlaceholder p)
+                                            System.Int32.MinValue
+                                            System.Int32.MaxValue
+                                    )
+                                )
+                            | Some(struct (p, _)) ->
+                                ctx.Report(
+                                    node.Tok,
+                                    Kind.Message(
+                                        sprintf
+                                            "printf format specifier %s cannot be lowered on this target"
+                                            (PrintfHoleForm.renderPlaceholder p)
+                                    )
+                                )
+                            | None -> ()
+
+                            match PrintfSpec.sinkOf (qualifiedNameOf ctx fn) with
+                            | ValueSome sink when
+                                not rejectCallback
+                                && args.Length = PrintfSpec.totalArity specs + idx + 1
+                                && lowerablePlaceholders specs
+                                && (idx = 0
+                                    || (idx = 1
+                                        && (
+                                            match sink with
+                                            | PrintfSpec.PrintfSink.Writer _
+                                            | PrintfSpec.PrintfSink.Builder -> true
+                                            | _ -> false
+                                        )))
+                                ->
+                                // Keyed on the FAMILY, not the sink kind: `printf` prints to
+                                // `StdOut` and still needs a capture-first scratch.
+                                let scratch =
+                                    if hasCallbackHole && PrintfSpec.familyNeedsScratch fam then
+                                        match fam.ScratchSink with
+                                        | TyClass(scratchKey, _) as scratchTy ->
+                                            let scratchName = SymbolKeyOps.typeMetaName scratchKey
+
+                                            // `ToString` is overloaded (`StringBuilder.ToString(int,
+                                            // int)`); pick the parameterless override.
+                                            let toString =
+                                                ctx.Provider.TryLookupMembers(scratchKey, "ToString")
+                                                |> EqArray.tryFind (fun m -> m.Key.ArgSig.Length = 0)
+
+                                            match toString with
+                                            | ValueSome m ->
+                                                ValueSome
+                                                    {
+                                                        PrintfSpec.CallbackScratch.ScratchClassName = scratchName
+                                                        PrintfSpec.CallbackScratch.ScratchTy = scratchTy
+                                                        PrintfSpec.CallbackScratch.ToStringKey = SymbolKey.Member m.Key
+                                                    }
+                                            | ValueNone ->
                                                 failwithf
-                                                    "InferApp: writer/builder %%a/%%t scratch sink is unresolved (%A) though callbackSinkAvailable passed the State gate, so resolveExternalSlots and the gate disagree"
-                                                    other
-                                        else
-                                            ValueNone
+                                                    "InferApp: writer/builder %%a/%%t scratch sink %s resolved to a class with no parameterless ToString, so capture-first cannot be lowered"
+                                                    scratchName
+                                        | other ->
+                                            failwithf
+                                                "InferApp: writer/builder %%a/%%t scratch sink is unresolved (%A) though callbackSinkAvailable passed the State gate, so resolveExternalSlots and the gate disagree"
+                                                other
+                                    else
+                                        ValueNone
 
-                                    ctx.PrintfLowering.Set(node.Key, PrintfSpec.PrintfLowering.Full(sink, scratch))
-                                // Partial-application marker: a fully-unapplied literal partial
-                                // (`printfn "%d"`), 1..K holes, no `%A`/`%O` (an unapplied one is
-                                // an unpinned typar). Elaborate synthesises a heap closure.
-                                | ValueSome sink when
-                                    idx = 0
-                                    && not formatRecovered
-                                    && args.Length = idx + 1
-                                    && specs.Length >= 1
-                                    && lowerablePlaceholders specs
-                                    && specs |> List.forall PrintfSpec.isUnaryConcreteHole
-                                    ->
-                                    ctx.PrintfLowering.Set(node.Key, PrintfSpec.PrintfLowering.Partial sink)
-                                | _ -> ()
+                                ctx.PrintfLowering.Set(node.Key, PrintfSpec.PrintfLowering.Full(sink, scratch))
+                            // Partial-application marker: a fully-unapplied literal partial
+                            // (`printfn "%d"`), 1..K holes, no `%A`/`%O` (an unapplied one is
+                            // an unpinned typar). Elaborate synthesises a heap closure.
+                            | ValueSome sink when
+                                idx = 0
+                                && not formatRecovered
+                                && args.Length = idx + 1
+                                && specs.Length >= 1
+                                && lowerablePlaceholders specs
+                                && specs |> List.forall PrintfSpec.isUnaryConcreteHole
+                                ->
+                                ctx.PrintfLowering.Set(node.Key, PrintfSpec.PrintfLowering.Partial sink)
+                            | _ -> ()
 
-                                ValueSome currTy
+                            ValueSome currTy
             | _ -> ValueNone
 
     and inferHighPrecApp

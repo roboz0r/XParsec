@@ -146,18 +146,12 @@ expressions sitting next to each other, and a reader of the type cannot tell tha
 record (or computing them behind a single constructor that cannot be bypassed) would delete the
 `// Derived below, off the pools themselves.` comment that currently carries the invariant.
 
-### `PrintfSpec.fs:132` — `argTypes` returns a `voption` that is never `ValueNone`, and three consumers branch on it
+### `PrintfSpec.fs:132` — `argTypes` returns a `voption` that is never `ValueNone`, and three consumers branch on it **[LANDED]**
 
-Every arm of `argTypes` yields `ValueSome`, including the `FormatFunction` / `Text` (`%a`/`%t`)
-arms, so its `SemType list voption` return can only ever be `ValueSome`. Three consumers still
-carry a dead failure path off it: `totalArity`'s `| ValueNone -> 0`, `appliedTypeOf`'s
-`mapAll … | ValueNone -> ValueNone` (and hence the `ValueNone` arms of `appliedTypeOf` and
-`printerFromSlots`), and the `match PrintfSpec.appliedTypeOf … | ValueNone -> ValueNone` defer in
-`InferApp.tryInferPrintfApp`, which was commented "an untyped specifier (`%a`/`%t`); defer to
-standard inference" — a case that cannot arise, since `argTypes` is exactly what types those two
-letters. The related `failwith` in `argType` guarding the same two letters is likewise reachable
-only if a future caller bypasses `argTypes`. Narrowing the return to `SemType list` would delete
-all four branches; that comment was removed rather than corrected in this sweep.
+`argTypes`, `appliedTypeOf` and `printerFromSlots` are total. A `FormatArgTy` classifier
+(`argTyOf`) states the letter table once and makes the `%a`/`%t` `failwith` unrepresentable;
+`appliedTypeOf` returns an `AppliedTypes` record. Six dead `ValueNone` branches went, across
+`PrintfSpec`, `InferApp`, `InferLiteralExpr` and `InferLiterals`.
 
 ### `Passes/Unification/Translate.fs:164` — both arms of the `TyparScopeStrict` branch mint the same TyVar four ways
 

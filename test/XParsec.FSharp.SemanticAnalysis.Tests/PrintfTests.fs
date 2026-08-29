@@ -139,7 +139,7 @@ let tests =
 
                     Expect.equal
                         (PrintfSpec.argTypes (recordingMint requested) tyUnit tyUnit (ph t))
-                        (ValueSome [ tyHole 1 ])
+                        [ tyHole 1 ]
                         (sprintf "%A : one minted arg" t)
 
                     Expect.sequenceEqual
@@ -159,7 +159,7 @@ let tests =
 
                     Expect.equal
                         (PrintfSpec.argTypes (recordingMint requested) tyUnit tyUnit (ph t))
-                        (ValueSome [ tyHole 1 ])
+                        [ tyHole 1 ]
                         (sprintf "%A : one minted arg" t)
 
                     Expect.sequenceEqual
@@ -180,7 +180,7 @@ let tests =
 
                     Expect.equal
                         (PrintfSpec.argTypes (recordingMint requested) tyUnit tyUnit (ph t))
-                        (ValueSome [ expected ])
+                        [ expected ]
                         (sprintf "%A : fixed" t)
 
                     Expect.isEmpty requested (sprintf "%A mints no metavar" t)
@@ -215,7 +215,7 @@ let tests =
 
                     Expect.equal
                         (PrintfSpec.argTypes (recordingMint requested) tyUnit tyUnit (ph t))
-                        (ValueSome [ tyHole 1 ])
+                        [ tyHole 1 ]
                         (sprintf "%A poly" t)
 
                     Expect.sequenceEqual requested [ PrintfSpec.FormatHoleTy.Free ] (sprintf "%A unconstrained" t)
@@ -229,7 +229,7 @@ let tests =
                 // %a : the printer `state -> tv -> residue` and the value `tv` — the
                 // SAME typar node in both slots, so exactly one metavar is minted.
                 match PrintfSpec.argTypes (recordingMint requested) state residue (ph FormatType.FormatFunction) with
-                | ValueSome [ TyFun(s, TyFun(tv1, r)); tv2 ] ->
+                | [ TyFun(s, TyFun(tv1, r)); tv2 ] ->
                     Expect.equal s state "printer's state arg"
                     Expect.equal r residue "printer's residue result"
                     Expect.equal tv1 tv2 "value arg is the same typar as the printer's inner arg"
@@ -245,7 +245,7 @@ let tests =
 
                 Expect.equal
                     (PrintfSpec.argTypes (recordingMint requested) state residue (ph FormatType.Text))
-                    (ValueSome [ TyFun(state, residue) ])
+                    [ TyFun(state, residue) ]
                     "%t printer"
 
                 Expect.isEmpty requested "%t mints no typar"
@@ -262,25 +262,25 @@ let tests =
                 // %*d : width int, then the minted value.
                 Expect.equal
                     (argTypesOf (star FormatDim.Star FormatDim.Absent FormatType.DecimalInt))
-                    (ValueSome [ tyInt; tyHole 1 ])
+                    [ tyInt; tyHole 1 ]
                     "%*d"
 
                 // %.*f : precision int, then the minted value.
                 Expect.equal
                     (argTypesOf (star FormatDim.Absent FormatDim.Star FormatType.FloatDecimal))
-                    (ValueSome [ tyInt; tyHole 1 ])
+                    [ tyInt; tyHole 1 ]
                     "%.*f"
 
                 // %*.*f : width int, precision int, then the minted value.
                 Expect.equal
                     (argTypesOf (star FormatDim.Star FormatDim.Star FormatType.FloatDecimal))
-                    (ValueSome [ tyInt; tyInt; tyHole 1 ])
+                    [ tyInt; tyInt; tyHole 1 ]
                     "%*.*f"
 
                 // A literal width consumes no extra argument.
                 Expect.equal
                     (argTypesOf (star (FormatDim.Literal(bigint 5)) FormatDim.Absent FormatType.DecimalInt))
-                    (ValueSome [ tyHole 1 ])
+                    [ tyHole 1 ]
                     "%5d"
             }
 
