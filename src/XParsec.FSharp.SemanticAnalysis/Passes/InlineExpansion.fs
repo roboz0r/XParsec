@@ -65,13 +65,14 @@ module InlineExpansion =
 
         let locals = Dictionary<NodeKey, TemplateBody>()
 
-        for (d, _) in decls do
+        for (d, env) in decls do
             match d with
             | TDecl.Let(TPat.NamedSimple(b, _, _) as pattern, _, true, _) ->
                 locals.[b] <-
                     {
                         Key = templateKey pattern
                         Decl = d
+                        Typars = ElaborateTypars.quantifiedRoots env
                         // Empty when the inline declared no recognised parameter attribute.
                         ParamAttrs =
                             match ctx.InlineParamAttrs.TryGetValue b with
@@ -278,7 +279,7 @@ module InlineExpansion =
             at
             call
             (fun () ->
-                let resolved = resolveAt x.Ctx x.Mint call.Tok template.Decl call.Args
+                let resolved = resolveAt x.Ctx x.Mint call.Tok template call.Args
                 let caller = pathOf x at
                 let peeled = classifyApplication caller template.ParamAttrs resolved.Body call.Args
 

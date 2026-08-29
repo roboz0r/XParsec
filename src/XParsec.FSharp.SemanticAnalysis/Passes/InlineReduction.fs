@@ -29,6 +29,10 @@ module InlineReduction =
         {
             Key: SymbolKey
             Decl: TDecl
+            /// The quantified typar roots at the position a type argument for each is supplied:
+            /// the declaration's own quantification env for a local template, the frozen typar
+            /// indices for a served one.
+            Typars: TyVarId[]
             ParamAttrs: EqArray<ParamAttrs>
             /// The file every anchor in `Decl` indexes: this file's own for a local template,
             /// the declaring file's for a served one.
@@ -225,13 +229,15 @@ module InlineReduction =
         (ctx: PassContext)
         (mint: unit -> NodeKey)
         (siteTok: SyntaxToken)
-        (decl: TDecl)
+        (template: TemplateBody)
         (args: TastWalk.AppArg list)
         : {| Body: TExpr; TypeArgs: SemType[] |} =
-        match decl with
+        match template.Decl with
         | TDecl.Let(_, _, _, declTy) ->
-            let typeArgs = Inline.deriveInlineTypeArgs ctx.Store declTy args
-            let expanded, unresolved = Inline.inlineExpand ctx decl typeArgs
+            let typeArgs = Inline.deriveInlineTypeArgs ctx.Store template.Typars declTy args
+
+            let expanded, unresolved =
+                Inline.inlineExpand ctx template.Decl template.Typars typeArgs
 
             for u in unresolved do
                 ctx.Report(siteTok, Inline.unsupportedTrait ctx.Store u)
@@ -394,10 +400,12 @@ module InlineReduction =
             ExternalSymbolProviders.tryInlineBody ctx.Provider key
             |> ValueOption.map (fun ib ->
                 let sources = SpecTable.retain ib.File specs
+                let thawed = InlineThaw.bodyAtPath ctx.Store sources ib.File.Path ib.Decl
 
                 {
                     Key = key
-                    Decl = InlineThaw.bodyAtPath ctx.Store sources ib.File.Path ib.Decl
+                    Decl = thawed.Decl
+                    Typars = thawed.Typars
                     ParamAttrs = ib.ParamAttrs
                     Path = ib.File.Path
                 }

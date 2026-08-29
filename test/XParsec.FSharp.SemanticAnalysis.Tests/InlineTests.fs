@@ -33,7 +33,7 @@ let private declType (tast: TastFile) : SemType =
 /// The template as a CONSUMER receives it: published into the file's inline vocabulary, then
 /// thawed into fresh `TyVar` roots of the RETURNED store — the only store they read back
 /// against. A decl from `tast.Decls` carries named `TyTypar`s instead and cannot stand in.
-let private thawedTemplate (letInline: string) : TypeStore * TDecl =
+let private thawedTemplate (letInline: string) : TypeStore * InlineThaw.ThawedTemplate =
     let input = "namespace Ns\n\nmodule M =\n    " + letInline + "\n"
     let lexed, file = parseFile input
     let source = LexedFile.ofText lexed
@@ -132,7 +132,7 @@ let tests =
                 let sources = LexedFiles.ofSeq [ source ]
 
                 let atOrigin =
-                    InlineThaw.bodyAtPath (TypeStore()) sources source.Path body
+                    (InlineThaw.bodyAtPath (TypeStore()) sources source.Path body).Decl
                     |> positions
                     |> tokenIndices
 
@@ -193,22 +193,17 @@ let tests =
             }
 
             test "monomorphic inline binding has no quantified typars" {
-                match firstDecl "let inline succ x = x + 1" with
-                | TDecl.Let(_, _, _, declTy) ->
-                    Expect.isEmpty (Inline.quantifiedTypars (TypeStore()) declTy) "no typars"
-                | other -> failtestf "unexpected %A" other
+                let _, template = thawedTemplate "let inline succ x = x + 1"
+                Expect.isEmpty template.Typars "no typars"
             }
 
             test "a thawed polymorphic template exposes one quantified typar" {
-                let store, decl = thawedTemplate "let inline id x = x"
+                let _, template = thawedTemplate "let inline id x = x"
 
-                match decl with
-                | TDecl.Let(_, _, _, declTy) ->
-                    Expect.equal
-                        (Inline.quantifiedTypars store declTy).Length
-                        1
-                        "id's single typar round-trips freeze → publish → thaw as one fresh root"
-                | other -> failtestf "unexpected %A" other
+                Expect.equal
+                    template.Typars.Length
+                    1
+                    "id's single typar round-trips freeze → publish → thaw as one fresh root"
             }
 
             test "expanding a monomorphic binding returns an equal body — and still WALKS it" {
@@ -219,7 +214,7 @@ let tests =
                     | TDecl.Let(_, v, _, _) -> v
                     | other -> failtestf "unexpected %A" other
 
-                let expanded, unresolved = Inline.inlineExpand ctx0 decl [||]
+                let expanded, unresolved = Inline.inlineExpand ctx0 decl [||] [||]
 
                 // Structurally the same body — there is no typar to substitute — but not the
                 // same object: the substituting walk is also what resolves `StaticOptimization`
@@ -229,8 +224,10 @@ let tests =
             }
 
             test "expanding a thawed polymorphic template substitutes the typar through the body" {
-                let _, decl = thawedTemplate "let inline id x = x"
-                let expanded, _ = Inline.inlineExpand ctx0 decl [| BuiltinTypes.tyInt |]
+                let _, template = thawedTemplate "let inline id x = x"
+
+                let expanded, _ =
+                    Inline.inlineExpand ctx0 template.Decl template.Typars [| BuiltinTypes.tyInt |]
 
                 // `id`'s body is `fun x -> x`; at 'a := int every position is concrete int.
                 match expanded with
@@ -246,17 +243,19 @@ let tests =
             }
 
             test "inlineExpand does not mutate the original decl" {
-                let store, decl = thawedTemplate "let inline id x = x"
+                let _, template = thawedTemplate "let inline id x = x"
                 // Expand once at int…
-                Inline.inlineExpand ctx0 decl [| BuiltinTypes.tyInt |] |> ignore
+                Inline.inlineExpand ctx0 template.Decl template.Typars [| BuiltinTypes.tyInt |]
+                |> ignore
 
                 // …the decl's own type must still carry a free typar so a
                 // second call-site can instantiate it independently.
-                match decl with
-                | TDecl.Let(_, _, _, declTy) ->
-                    Expect.equal (Inline.quantifiedTypars store declTy).Length 1 "typar still free after expansion"
+                match template.Decl with
+                | TDecl.Let(_, _, _, TyFun(TyVar a, TyVar b)) ->
+                    Expect.equal a b "`id : 'a -> 'a` still stands on one free root after expansion"
 
-                    let again, _ = Inline.inlineExpand ctx0 decl [| BuiltinTypes.tyBool |]
+                    let again, _ =
+                        Inline.inlineExpand ctx0 template.Decl template.Typars [| BuiltinTypes.tyBool |]
 
                     match again with
                     | TExpr.Lambda(TPat.NamedSimple(_, TyConst(k, _), _), _, _, _) when
@@ -272,7 +271,7 @@ let tests =
                 let decl =
                     TDecl.Expression(TExpr.Const(TConstValue.Unit, BuiltinTypes.tyUnit, dummyTok), BuiltinTypes.tyUnit)
 
-                Expect.throws (fun () -> Inline.inlineExpand ctx0 decl [||] |> ignore) "expects a TDecl.Let"
+                Expect.throws (fun () -> Inline.inlineExpand ctx0 decl [||] [||] |> ignore) "expects a TDecl.Let"
             }
 
             test "`let inline succ x = x + 1 in succ 41` keeps the inline template and outlines its use site" {
@@ -314,7 +313,7 @@ let tests =
 
                 // succ is monomorphic (int -> int) — expansion is a no-op
                 // substitution returning the retained `fun x -> x + 1` body.
-                match fst (Inline.inlineExpand ctx0 succDecl [||]) with
+                match fst (Inline.inlineExpand ctx0 succDecl [||] [||]) with
                 | TExpr.Lambda(TPat.NamedSimple(_, TyConst(k1, _), _),
                                TExpr.InlineCall(
                                    args = EqList [ TExpr.Var(_, TyConst(k2, _), _)
@@ -463,7 +462,7 @@ let tests =
 
                 let body =
                     match List.ofArray pools.InlineTemplates with
-                    | [ v ] -> thawPublished (TypeStore()) source (TastPoolBuilder.declTree pool v.Decl)
+                    | [ v ] -> thawPublishedDecl (TypeStore()) source (TastPoolBuilder.declTree pool v.Decl)
                     | other -> failtestf "expected exactly one published body, got %d" (List.length other)
 
                 let refs = ResizeArray<string * SymbolKey>()
@@ -543,7 +542,7 @@ let tests =
 
                 let body =
                     match List.ofArray pools.InlineTemplates with
-                    | [ v ] -> thawPublished (TypeStore()) source (TastPoolBuilder.declTree pool v.Decl)
+                    | [ v ] -> thawPublishedDecl (TypeStore()) source (TastPoolBuilder.declTree pool v.Decl)
                     | other -> failtestf "expected exactly one published body, got %d" (List.length other)
 
                 match body with

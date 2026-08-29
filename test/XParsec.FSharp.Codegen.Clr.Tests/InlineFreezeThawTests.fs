@@ -100,7 +100,7 @@ let private sourceOf (src: string) : LexedFile =
 /// the declaring file's tokens.
 let private thawFrom (store: TypeStore) (src: string) (decl: Wire.TDecl) : TDecl =
     let source = sourceOf src
-    InlineThaw.bodyAtPath store (LexedFiles.ofSeq [ source ]) source.Path decl
+    (InlineThaw.bodyAtPath store (LexedFiles.ofSeq [ source ]) source.Path decl).Decl
 
 /// The frozen `let` decl of a single-binding program, unpooled as a provider serves a body
 /// (`declTree`), the form `thawFrom` takes.

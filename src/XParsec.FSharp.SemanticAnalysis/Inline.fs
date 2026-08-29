@@ -29,15 +29,6 @@ module Inline =
         | TDecl.Let(_, body, _, _) when (TExprG.nullaryIntrinsicText body).IsSome -> ValueSome body
         | _ -> ValueNone
 
-    /// Quantified typars of an inline binding, in the order type arguments must be supplied
-    /// in: first occurrence in a pre-order walk of the binding's type. A measure-bearing root
-    /// (Link set to its carrier) is not a typar, so the Link is followed, not collected.
-    let quantifiedTypars (store: TypeStore) (declTy: SemType) : TyVarId[] =
-        let acc = ResizeArray<TyVarId>()
-        let seen = HashSet<TyVarId>()
-        SemTypeWalk.collectLinkedRoots store acc seen declTy
-        acc.ToArray()
-
     /// Substitute typar roots present in `subst`: chase each `TyVar` to its union-find root
     /// and swap. Roots absent from `subst` stay abstract.
     let rec private substType (store: TypeStore) (subst: Dictionary<TyVarId, SemType>) (t: SemType) : SemType =
@@ -165,13 +156,18 @@ module Inline =
                     | _ -> ValueNone
         }
 
-    /// Expand an `inline` binding's retained body for one call site. `typeArgs` are the caller's
-    /// types for the quantified typars, in `quantifiedTypars` order; supplying fewer leaves the
-    /// rest abstract. NodeKeys and tokens stay the template's, because freshening is the caller's job.
-    let inlineExpand (ctx: PassContext) (decl: TDecl) (typeArgs: SemType[]) : TExpr * UnresolvedTrait list =
+    /// Expand an `inline` binding's retained body for one call site. `typars` are the template's
+    /// quantified typar roots by type-argument position; `typeArgs` are the caller's types for
+    /// them at the same positions, and supplying fewer leaves the rest abstract. NodeKeys and
+    /// tokens stay the template's, because freshening is the caller's job.
+    let inlineExpand
+        (ctx: PassContext)
+        (decl: TDecl)
+        (typars: TyVarId[])
+        (typeArgs: SemType[])
+        : TExpr * UnresolvedTrait list =
         match decl with
-        | TDecl.Let(_, value, _, declTy) ->
-            let typars = quantifiedTypars ctx.Store declTy
+        | TDecl.Let(_, value, _, _) ->
             let subst = Dictionary<TyVarId, SemType>()
 
             typars
@@ -317,10 +313,13 @@ module Inline =
 
     /// Recover an inline binding's type arguments at a call site by matching its declared
     /// parameter and return types against the actual argument types. A typar the arguments do
-    /// not pin is left as its own `TyVar`. Returned in `quantifiedTypars` order.
-    let internal deriveInlineTypeArgs (store: TypeStore) (declTy: SemType) (args: TastWalk.AppArg list) : SemType[] =
-        let typars = quantifiedTypars store declTy
-
+    /// not pin is left as its own `TyVar`. Positional against `typars`.
+    let internal deriveInlineTypeArgs
+        (store: TypeStore)
+        (typars: TyVarId[])
+        (declTy: SemType)
+        (args: TastWalk.AppArg list)
+        : SemType[] =
         if typars.Length = 0 then
             [||]
         else

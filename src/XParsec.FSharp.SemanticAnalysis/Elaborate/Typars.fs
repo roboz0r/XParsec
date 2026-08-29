@@ -96,6 +96,26 @@ module internal ElaborateTypars =
 
         [ for i in 0 .. acc.Count - 1 -> acc.[i], TyTypar(TyparAxis.Method, i) ]
 
+    /// The env's typar roots at the position a type argument for each is supplied: declaring
+    /// axis first, then method axis, each in index order. A consumer's thaw of a template
+    /// frozen with this env recovers this array as `InlineThaw.ThawedTemplate.Typars`.
+    let quantifiedRoots (env: (TyVarId * SemType) list) : TyVarId[] =
+        let rank (target: SemType) : (int * int) voption =
+            match target with
+            | TyTypar(TyparAxis.Declaring, i) -> ValueSome(0, i)
+            | TyTypar(TyparAxis.Method, j) -> ValueSome(1, j)
+            | _ -> ValueNone
+
+        env
+        |> Seq.choose (fun (root, target) ->
+            match rank target with
+            | ValueSome r -> Some(r, root)
+            | ValueNone -> None
+        )
+        |> Seq.sortBy fst
+        |> Seq.map snd
+        |> Array.ofSeq
+
     /// The declaring-type typars as `SemType` args, for a member's `ThisTy` and the body's
     /// synthesised `this` self-type: each declared typar zonked to its root `TyVar`. They
     /// stay `TyVar`-shaped until `freezeTypars` remaps them to `TyTypar(Declaring, i)`.

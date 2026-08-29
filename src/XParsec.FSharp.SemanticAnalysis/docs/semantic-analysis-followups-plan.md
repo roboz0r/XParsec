@@ -279,18 +279,6 @@ Encoding the two outcomes in the type (a member that opened vs. one that did not
 remove the pairwise match over `lookupExternal x.Ctx x.Specs ext.Key, ext.Args` and the failure
 arm with it.
 
-### `Inline.fs:35` — `quantifiedTypars` order disagrees with the canonical typar order
-
-Verified NOT a defect (2026-08-23). The order differs from `GeneralizedTypars.canonical`, but
-`quantifiedTypars` has two production callers, `Inline.deriveInlineTypeArgs` and
-`Inline.inlineExpand`, and `InlineReduction.resolveAt` feeds the first straight into the
-second, so the order is only ever used self-consistently: `resolved.TypeArgs` reaches only
-`SpecializationKey`, and a template's `TyTypar(Method, j)` leaves are re-minted as fresh
-`TyVar`s by `InlineThaw.bodyAtPath` before `quantifiedTypars` sees them. Reversing the array
-outright leaves every suite green. The round trip is pinned by `ExpansionTests` "inline
-expansion at declared typars out of appearance order". Remaining option: derive the array
-from the scheme's recorded order so the two cannot diverge, which is a tidy-up rather than a fix.
-
 ### `Inline.fs:177` — an un-expanded `StaticOptimization` reaches codegen and emits silently
 
 The deleted `inlineExpand` doc asserted that "NEITHER backend can emit" `StaticOptimization` or
