@@ -153,16 +153,10 @@ record (or computing them behind a single constructor that cannot be bypassed) w
 `appliedTypeOf` returns an `AppliedTypes` record. Six dead `ValueNone` branches went, across
 `PrintfSpec`, `InferApp`, `InferLiteralExpr` and `InferLiterals`.
 
-### `Passes/Unification/Translate.fs:164` — both arms of the `TyparScopeStrict` branch mint the same TyVar four ways
+### `Passes/Unification/Translate.fs:164` — both arms of the `TyparScopeStrict` branch mint the same TyVar four ways **[LANDED]**
 
-In `translateType`'s `Type.VarType` arm, a typar not found in `TyparScope` runs one of two
-branches that differ only in whether a diagnostic is reported first: both then execute the same
-four lines (`ctx.NewTypeVar()`, `ctx.Store.SetLevel(UnionFind.find …, ctx.CurrentLevel)`,
-`ctx.Resolution.TyparScope.[name] <- tv`, `TyVar tv`). The first three of those are exactly
-`freshTyVar` plus a memoise, and `freshTyVar` is declared earlier in the same module. Hoisting
-the shared tail out of the `if` (and reusing `freshTyVar`) would collapse ~14 lines to ~5 and
-remove the risk of the two arms drifting apart — a level or a memoise fixed in one and not the
-other would be invisible.
+The strict-scope `ctx.Report` is a guarded prefix and the shared tail runs once, through
+`freshTyVar` plus the `TyparScope` memoise. The two rationale comments merged into one.
 
 ### `Diagnostics.fs:347` — `CyclicType(Inheritance)` is unpublished while `CyclicType(Immediate)` maps to FS0954
 
@@ -409,15 +403,9 @@ and `TypeDefn` has no exception form at all. Deleted rather than repaired.
 **Wants a test either way**: `type private X = delegate of …` asserting the elaborated
 accessibility, which pins down which of the two readings is true.
 
-### `Passes/Unification/Translate.fs`, `translateType` — a forked branch that does not fork
+### `Passes/Unification/Translate.fs`, `translateType` — a forked branch that does not fork **[LANDED]**
 
-In the `Type.VarType(Typar.Named | Typar.Static)` arm, the `TyparScopeStrict` true and false
-branches are byte-identical apart from the `ctx.Report` call: both run `NewTypeVar`,
-`SetLevel`, `TyparScope.[name] <- tv` and yield `TyVar tv`. Two comments sat above them
-asserting different rationales for what is the same three lines.
-
-The report wants to be a guarded prefix, not a branch. As written, an edit to the shared
-tail has to be made twice and nothing enforces that it is.
+Same finding as the `Translate.fs:164` entry above; landed with it.
 
 ### `Passes/InlineSpecTable.fs` — two different arities share the name "arity"
 

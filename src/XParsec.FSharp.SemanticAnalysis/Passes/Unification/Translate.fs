@@ -161,9 +161,10 @@ module internal UnificationTranslate =
             match ctx.Resolution.TyparScope.TryGetValue name with
             | true, tv -> TyVar tv
             | false, _ ->
+                // An implicit typar is minted at the current level, for generalisation at
+                // binding-group exit, and memoised so later occurrences share the TyVar. A
+                // strict scope (a type defn) forbids one, and reports it first.
                 if ctx.Resolution.TyparScopeStrict then
-                    // Type-defn fill-in: an implicit free typar isn't legal F#. Diagnose,
-                    // but still mint and memoise so later occurrences share the TyVar.
                     ctx.Report(
                         id,
                         Kind.Message(
@@ -173,17 +174,9 @@ module internal UnificationTranslate =
                         )
                     )
 
-                    let tv = ctx.NewTypeVar()
-                    ctx.Store.SetLevel(UnionFind.find ctx.Store tv, ctx.CurrentLevel)
-                    ctx.Resolution.TyparScope.[name] <- tv
-                    TyVar tv
-                else
-                    // Implicit typar: mint at the binding's current level so generalisation
-                    // at binding-group exit picks it up; memoise to share identity.
-                    let tv = ctx.NewTypeVar()
-                    ctx.Store.SetLevel(UnionFind.find ctx.Store tv, ctx.CurrentLevel)
-                    ctx.Resolution.TyparScope.[name] <- tv
-                    TyVar tv
+                let tv = freshTyVar ctx
+                ctx.Resolution.TyparScope.[name] <- tv
+                TyVar tv
         | Type.VarType(Typar.Anon _) ->
             // `_` typar — always fresh, never stored; distinct per occurrence.
             let tv = freshTyVar ctx
