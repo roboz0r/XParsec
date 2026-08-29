@@ -18,28 +18,30 @@ type Rational =
     /// onto the denominators, so equality over the stored fields IS value equality.
     val private denominatorLess1: bigint
 
+    /// Reduces `n`/`d` to lowest terms with a positive denominator. Raises `ArgumentException`
+    /// when `d` is zero.
     private new(n: bigint, d: bigint) =
+        if d.IsZero then
+            invalidArg "d" "Rational denominator must be nonzero"
+
+        let sign = if d.Sign < 0 then BigInteger.MinusOne else BigInteger.One
+        let n' = n * sign
+        let d' = d * sign
+        let g = BigInteger.GreatestCommonDivisor(BigInteger.Abs n', d')
+
         {
-            Numerator = n
-            denominatorLess1 = d - BigInteger.One
+            Numerator = n' / g
+            denominatorLess1 = (d' / g) - BigInteger.One
         }
 
     member this.Denominator: bigint = this.denominatorLess1 + BigInteger.One
 
-    static member create(n: bigint, d: bigint) : Rational =
-        if d.IsZero then
-            invalidArg "d" "Rational denominator must be nonzero"
+    static member create(n: bigint, d: bigint) : Rational = Rational(n, d)
 
-        let sign = if d.Sign < 0 then bigint -1 else bigint 1
-        let n' = n * sign
-        let d' = d * sign
-        let g = BigInteger.GreatestCommonDivisor(BigInteger.Abs n', d')
-        Rational(n' / g, d' / g)
+    static member ofInt(n: int) : Rational = Rational(bigint n, BigInteger.One)
 
-    static member ofInt(n: int) : Rational = Rational(bigint n, bigint 1)
-
-    static member Zero = Rational(bigint 0, bigint 1)
-    static member One = Rational(bigint 1, bigint 1)
+    static member Zero = Rational(BigInteger.Zero, BigInteger.One)
+    static member One = Rational(BigInteger.One, BigInteger.One)
 
     member this.IsZero = this.Numerator.IsZero
     member this.IsOne = this.Numerator = bigint 1 && this.Denominator = bigint 1

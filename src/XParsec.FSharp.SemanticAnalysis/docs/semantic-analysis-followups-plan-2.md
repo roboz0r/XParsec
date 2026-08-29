@@ -108,16 +108,13 @@ reader can tell it is unbuilt; if not, the tests go too.
 (`Lexed.GetTokenName`), so no name reaching a key carries one, and the arity-0 rule the
 predicate stood in for is now stated directly as `isStructuralConstructorName`.
 
-### `SemanticScalars.fs:14` — `Rational`'s `Equals` and `CompareTo` disagree on non-canonical values
+### `SemanticScalars.fs:14` — `Rational`'s `Equals` and `CompareTo` disagree on non-canonical values **[LANDED]**
 
-`Equals` compares `Numerator`/`Denominator` field-wise while `IComparable.CompareTo`
-cross-multiplies, so `Rational(1, 2)` and `Rational(2, 4)` compare equal but are not equal —
-a violation of the .NET contract that a type's comparison and equality agree, and one that
-would corrupt any sorted or keyed collection of rationals. The value-level fix would be to
-canonicalise in the constructor; the type-level one is to make the raw `new(n, d)` unreachable
-so `create` is the only way in, which is what the existing doc comment is really asking for
-when it says "only canonical values match". Nothing in-tree constructs a non-canonical
-`Rational` today, so this is latent rather than an observed failure.
+The reduction moved out of `Rational.create` and into the private `new(n, d)`, the single site
+that writes the fields. A non-canonical `Rational` is now unconstructible from inside the type
+as well as outside it, so field-wise `Equals` and cross-multiplying `CompareTo` agree on every
+value. `create` is a call to that constructor, and `ofInt` / `Zero` / `One` / `(~-)` reduce
+along with everything else.
 
 ### `TastAccessor.fs:763` — `declExpressionTy` has no consumer anywhere in the repo
 

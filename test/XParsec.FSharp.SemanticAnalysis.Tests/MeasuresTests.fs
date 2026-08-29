@@ -142,6 +142,32 @@ let tests =
                 Expect.equal r.Denominator (bigint 2) "denominator positive"
             }
 
+            test "Rational equality and comparison agree on unreduced inputs" {
+                let a = Rational.create (bigint 2, bigint 4)
+                let b = Rational.create (bigint 1, bigint 2)
+                Expect.equal a b "2/4 equals 1/2"
+                Expect.equal (a.GetHashCode()) (b.GetHashCode()) "and hashes the same"
+                Expect.equal (compare a b) 0 "and compares as 0"
+
+                let c = Rational.create (bigint -6, bigint -8)
+                Expect.equal c (Rational.create (bigint 3, bigint 4)) "-6/-8 equals 3/4"
+
+                Expect.equal
+                    (c.GetHashCode())
+                    ((Rational.create (bigint 3, bigint 4)).GetHashCode())
+                    "and hashes the same"
+
+                Expect.equal (compare c (Rational.create (bigint 3, bigint 4))) 0 "and compares as 0"
+
+                let third = Rational.create (bigint 2, bigint 6)
+                Expect.isTrue (compare third b < 0) "1/3 sorts below 1/2"
+
+                let asSet = Set.ofList [ a; b; third ]
+                let asKeys = [ a, 1; b, 2; third, 3 ] |> Map.ofList
+                Expect.equal asSet.Count 2 "a sorted collection collapses 2/4 with 1/2"
+                Expect.equal asKeys.Count 2 "a keyed collection collapses 2/4 with 1/2"
+            }
+
             // The only construction the private constructor cannot police, so the
             // representation puts `0/1` at the zero-initialised struct.
             test "the default Rational is canonical" {
