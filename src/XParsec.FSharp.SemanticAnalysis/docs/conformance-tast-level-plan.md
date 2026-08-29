@@ -7,13 +7,13 @@ compare.
 
 | Route | Entry | What it holds | Rules applied |
 |---|---|---|---|
-| In-assembly | `AssemblyFiles.conformanceDiagnostics`, live under `Publication.InAssembly` | the signature's `PublishedSurface` and provider, and the implementation frozen | `ConformanceSurface` + `ConformanceTypars`, over resolved identities |
+| In-assembly | `AssemblyAnalysis.conformSignature`, live under `Publication.InAssembly` | the signature's `PublishedSurface` and provider, and the implementation frozen | `ConformanceSurface` + `ConformanceTypars`, over resolved identities |
 | Package / manifest | `ConformancePass.checkManifest` → `check` | parse results only (`ReadFile<ParsedSignature>`) | the CST rule set, plus the manifest half of the `[<Import>]` check |
 
 The CST rule set re-derives, off syntax, facts that name resolution and Freeze have already
 established — type identity, value identity, compiled names, attribute identity. Two
 derivations of one fact, which is the shape this repo treats as wrong by default. Stage 1
-retired the in-assembly copy; the manifest route still runs it, and Stages 2 and 3 remove it.
+retired the in-assembly copy; the manifest route still runs it, and Stages 2a and 3 remove it.
 
 The costs that remain, on the manifest route only:
 
@@ -31,15 +31,15 @@ The costs that remain, on the manifest route only:
 | Value presence (`checkValuePresence`) | identifier text | `ConformanceSurface.checkValues`, by `BindingKey` |
 | Typar count/order | not checked — nothing frozen to compare | `ConformanceTypars.checkFile`/`checkMembers` |
 | `[<Import>]` well-formedness, selector vs emitted name | `summariseImports`, last-segment match | `Attributes.declareImportBinding`, keyed on `RuntimeNames.importAttributeKey` |
-| `jsNative` body | `Conformance.isJsNativeBody` | the same reader, called during elaboration |
-| Module decl path | `sigDeclPath`/`implDeclPath` | the same two, called from `conformanceDiagnostics` |
+| `jsNative` body | `Conformance.isJsNativeBody` | the same reader, called during elaboration. Both retire for the `nativeOnly` sentinel — Stage 2a.1 |
+| Module decl path | `sigDeclPath`/`implDeclPath` | the same two, called from `conformSignature` |
 
 ## Staged plan
 
 **Stage 1 — the in-assembly route adopts surface-vs-surface rules. LANDED.**
 `ConformanceSurface.checkTypes`/`checkValues` take type presence, the `extern` ↔ repr pairing
 and value presence off `r.Surface` and `impl.Frozen`, by resolved identity;
-`conformanceDiagnostics` no longer calls `Conformance.checkUnit`. The `[<Import>]` checks left
+`conformSignature` no longer calls `Conformance.checkUnit`. The `[<Import>]` checks left
 conformance altogether for `Attributes.declareImportBinding`, which reads the attribute by
 `RuntimeNames.importAttributeKey`. The package route keeps the CST rule set.
 
@@ -59,20 +59,143 @@ Acceptance evidence: `AssemblyFilesTests` compiles `type myalias = int` in an un
 against a second file annotating with it, plain and generic; `AnalysedConformance` reports a
 `.fsi` abbreviation the `.fs` omits and accepts a matching pair.
 
-**Stage 2 — the package route gains analysed halves.** Route `ConformancePass.check` through
-`AssemblyFiles.foldUnits` rather than over bare parse results. `ed575bc6` on `semantic-analysis`
-consolidated parsing into a single `foldUnits`, which is the seam this needs. The manifest half
-of the `[<Import>]` check (path against `[core] runtime`, selector against the asset's exports)
-is unaffected — it reads the manifest, not the CST.
+**Stage 2 — SUPERSEDED. The package route is deleted, not upgraded.** As written this stage
+routed `ConformancePass.check` through `AssemblyFiles.foldUnits`, keeping a second entry point
+onto the same verdicts. The in-assembly route already takes every pairing and presence verdict
+by resolved identity for a compiled assembly, so a second entry buys nothing; the package route
+goes instead. Stage 2a below is what it costs to get there.
 
-**Stage 3 — delete the CST rule set.** `Conformance.fs` loses `summariseSig`/`summariseImpl`/
-`summariseSigVals`/`summariseImplVals`/`boundName`/`checkValuePresence`/`summariseImports` and
-the provisional attribute reader; `ConformanceError`, `describe`, `isJsNativeBody` and the
-`sigDeclPath`/`implDeclPath` pairing check survive. `attributeShortName`-style matching then
-exists nowhere.
+**Stage 2a — lift `[<Import>]` to a Vesper-level concept. Blocks the deletion.**
 
-Deleting it costs nothing only once every verdict it takes is taken from the TAST, so Stage 3
-follows Stage 1a and Gap 2's decision.
+`ConformancePass.checkImport` is the one part of the package route that is not a second
+derivation. It reads the manifest, not the CST: the path must be `./` plus a `[core] runtime`
+asset of the declaring package, and that asset's ESM source must export the declared selector
+(`ConformancePass.exportedNames` scrapes it). Nothing else in the tree reads `[core] runtime`
+for this. `Attributes.declareImportBinding` covers the other four import verdicts —
+`JsNativeWithoutImport`, `ImportMalformed`, `ImportBodyNotJsNative`, `ImportSelectorMismatch` —
+and has no access to the manifest, so `ImportUnknownAsset` and `ImportMissingExport` have no
+second home.
+
+This check is why the CST rule set is still standing. `checkUnit` supplies its bindings through
+`summariseImports`, which pulls in `boundName`, `findAttribute`, `tryCompiledName` and
+`stringLiteralText`, so the "provisional, wrong level" attribute reader stays alive to serve it.
+Discharge the check elsewhere and the rest of the rule set falls out with no verdict lost.
+
+`[<Import>]` is the value-level counterpart of `extern`/`(# … #)`: the binding is declared in
+Vesper and represented by the target. `ImportAttribute` is already declared target-neutrally in
+`Vesper.Core/compiler-attributes.fs`, which both manifests list — the concept is neutral already
+and only the checking is JS-branded.
+
+**2a.1 — the body marker becomes an intrinsic sentinel.** `jsNative` is JS-branded, is declared
+in the JS-only `Vesper.Core/js-interop.js.fs`, and is matched by IDENTIFIER TEXT:
+`Conformance.isJsNativeBody` compares `nameOf tok` against `"jsNative"`, while the attribute
+beside it resolves through `RuntimeNames.importAttributeKey`. A shadowing `let jsNative = 42`
+therefore satisfies the body check — the defect the attribute reader was fixed for, still live on
+the other half of the rule. It is replaced, beside `ImportAttribute` in `compiler-attributes.fs`,
+by
+
+```fsharp
+let inline nativeOnly<'T> : 'T = (# "$use-import-attribute" : 'T #)
+```
+
+recognised by resolved key, which closes the shadowing hole. A `failwith` body would instead ship
+a live throw for a condition that is a compiler fault.
+
+The repr is a sentinel every backend refuses, CLR included: the declaration is target-neutral, so
+a CLR build compiles it whether or not any CLR file carries an `[<Import>]`. The refusal is an
+`InternalBreak` case — `ImportBodyNotDischarged of binding: string` — reported where the backend
+would otherwise emit the repr, in place of emitting it. It convicts the compiler rather than the
+source, because the user error it might be mistaken for is caught upstream: `nativeOnly` written
+without `[<Import>]` is obligation 1's converse and fails during analysis. Reaching a backend
+therefore means an `[<Import>]` that analysis accepted went undischarged.
+
+Both backends already read value-level `(# … #)` bodies to emit them — the JS one emits the
+sentinel's text today, as `js-interop.js.fs` shows — so the refusal is a case added where that
+read happens, not a new mechanism.
+
+**2a.2 — the neutral obligations, and one interface per target.** Five obligations, of which
+three are target-neutral outright and stay in `Attributes.declareImportBinding`: the body is the
+sentinel, the attribute carries two non-empty string literals, and the selector equals the emitted
+name. A target importing by name is what the third assumes, which ESM and Python both satisfy.
+
+The other two ask the same question of every target and answer it differently — an ESM specifier
+is relative and carries an extension where a Python one is dotted and carries none, and an ESM
+module publishes through `export` where a Python module publishes its top-level bindings, filtered
+by `__all__`. They become a target's own answer to two questions:
+
+```fsharp
+/// A target's module system, as an `[<Import>]` binding is checked against it.
+type IRuntimeModules =
+    /// The manifest-listed asset a written import path denotes.
+    abstract Resolve: path: string -> ImportResolution
+    /// The names an asset publishes to an importer.
+    abstract Provided: asset: RuntimeAsset -> Set<string>
+```
+
+The interface is declared here, beside the check. `Codegen.Common` holds no part of this: ESM and
+Python module resolution share no code, and a classifier the analysis needs cannot live
+downstream of it.
+
+**2a.3 — analysis records the obligation; the backend discharges it.** `Provided` reads asset
+files, and analysis stays deterministic, so the pass does not hold an `IRuntimeModules`. Instead
+`declareImportBinding` records each well-formed import — selector, path, emitted name, and the
+anchor it already minted — as a per-unit side product, modelled on `AnalysedUnit.Bodies`. The
+backend, which reads and writes files to emit anyway, resolves each record against its own module
+system and reports through the stored anchor, so the verdict keeps its position in the `.fs` where
+today it is unpositioned against the package.
+
+Nothing is re-derived: the pass has the selector and path resolved, and hands them on rather than
+leaving the backend to re-read the CST. The record does not enter `FrozenFileResidue` and the
+codec is untouched, because an import is discharged in the assembly that declares it and a
+reference package's imports were discharged when it was built.
+
+Mediating the read through the provider was considered and rejected: it puts the same filesystem
+read under analysis with an indirection in front of it. The cost of the split is that a target
+with no emission step never discharges 4 and 5, so a check-only invocation would want the backend
+half run explicitly.
+
+**2a.4 — the asset verdicts deconflate.** `ImportUnknownAsset` currently answers three distinct
+failures with one message, and `Resolve` separates them:
+
+```fsharp
+[<RequireQualifiedAccess>]
+type ImportResolution =
+    /// Not a module reference this target can read.
+    | Malformed
+    /// Well-formed, and names no asset in the manifest's `[core] runtime` list.
+    | NotListed
+    /// Listed in `[core] runtime`, and absent on disk.
+    | AssetMissing of asset: string
+    | Resolved of RuntimeAsset
+```
+
+`ImportUnknownAsset` retires for `ImportPathMalformed`, `ImportAssetNotListed` and
+`ImportAssetMissing`; `ImportMissingExport` survives unchanged, reported when `Provided` omits the
+selector. `AssetMissing` is a manifest fault rather than an import fault — a `runtime` entry
+absent on disk is broken whether or not a binding imports it — so it reports once against the
+manifest instead of once per importing binding.
+
+**Stage 3 — delete the CST rule set and the package route.** `ConformancePass.fs` goes
+entirely. `Conformance.fs` loses `summariseSig`/`summariseImpl`/`check`/`summariseSigVals`/
+`summariseImplVals`/`boundName`/`checkValuePresence`/`summariseImports`/`checkUnit`, the shape
+DUs, and the provisional attribute reader; `ConformanceError`, `describe` and the
+`sigDeclPath`/`implDeclPath` pairing check survive. `isJsNativeBody` goes with `jsNative` in
+Stage 2a.1, so identifier-text matching leaves the import rule and `attributeShortName`-style
+matching then exists nowhere.
+
+Stage 3 follows Stage 2a and Gap 2's decision. Two further costs to settle as it lands:
+
+- **The JS corpus loses its only whole-package check.** `Codegen.Clr.Tests` compiles every
+  `Vesper.*` package through the in-assembly route, so the CLR side is covered by construction.
+  `Codegen.Js.Tests` compiles only `Vesper.Core` (`JsPackageTests.fs:274`), so
+  `jsPackageConformanceTests` in `ConformanceTests.fs` is what currently holds the js manifests
+  to their contracts — including which surface is still un-ported. Either the js suite gains a
+  whole-corpus in-assembly compile, or that coverage goes with the route.
+- **`ConformanceVerdict.PairParseFailure` loses its producer.** `enforce` is its only one. It is
+  serialised at tag `3uy` (`FrozenCodecDiagnostics.fs:79`) and round-tripped by
+  `Codegen.Js.Tests/FrozenCodecRoundTripTests.fs:433`, so retiring the case renumbers the codec.
+  `SigWithoutImpl` is already producerless on the same DU, so the two retire together or not at
+  all — a separate change from this one.
 
 ## Gaps between the TAST and a full conformance check
 
@@ -152,7 +275,7 @@ pair at all, or whether F# takes the signature's alone. Do not design the check 
 
 1. **The module-decl guard stays syntactic.** It asks whether the two files are a pair at all,
    and two halves resolved under different headers publish into different namespaces, which
-   every finding below it would then be about. `conformanceDiagnostics` calls
+   every finding below it would then be about. `conformSignature` calls
    `Conformance.sigDeclPath`/`implDeclPath` directly, and its doc comment says why.
 
 2. **The `extern` species is carried, not re-derived.** `PublishedSurface.DeclaredReprs` maps a
@@ -168,16 +291,24 @@ pair at all, or whether F# takes the signature's alone. Do not design the check 
    during elaboration, ahead of the inline expansion that turns `jsNative` into the template it
    stands for, and reports positioned in the `.fs` rather than unpositioned against the `.fsi`.
 
-4. **Cost of Stage 2.** Making a manifest check analyse the package means every conformance run
-   pays for full analysis. If that is unacceptable, the alternative is that the package route
-   stays a cheap pre-analysis gate — which keeps two rule sets permanently and gives up the
-   point of the exercise. The recommendation is to accept the cost; the gate's only callers
-   today are tests.
+   The placement holds; the CST read does not. Stage 2a.1 replaces the identifier-text match with
+   the `nativeOnly` sentinel, read by resolved key like the attribute beside it.
 
-5. **Whether `[<Import>]` should become a codegen input.** `059dfd13` wired the attribute for
-   conformance only and touched no backend file, so the JS backend does not read it. Still out
-   of scope, but `AttributeDecode.tryImport` is now the key-based reader a backend would call,
-   and `ImportRef`/`ImportDecl` sit beside it rather than inside `Conformance`.
+4. **SUPERSEDED with Stage 2.** This recorded the cost of making the package route analyse its
+   package: every conformance run pays for full analysis. The route is deleted rather than
+   upgraded, so the cost is not incurred. The live question in its place is Stage 2a.3 — where the
+   asset read happens. Analysis holding an `IRuntimeModules` would keep the whole check in one
+   pass at the price of a filesystem read under analysis and an oracle threaded through
+   `CompilingAssembly` to some fifteen construction sites; recording the obligation and letting
+   the backend discharge it keeps analysis deterministic and the diagnostic positioned, and is
+   what Stage 2a takes.
+
+5. **DECIDED: `[<Import>]` becomes a codegen input.** `059dfd13` wired the attribute for
+   conformance only and touched no backend file, so no backend reads it today.
+   Stage 2a.3 makes the backend the party that discharges the path and selector against its own
+   module system, which is the first backend read of the attribute. `AttributeDecode.tryImport` is
+   the key-based reader it calls, with `ImportRef`/`ImportDecl` beside it rather than inside
+   `Conformance`. Emitting the import itself stays out of scope; this is the check alone.
 
 ## Scope and risk
 
@@ -194,12 +325,21 @@ Stage 1a touched `TastDecl.fs`, `TastConvert.fs`, `FrozenCodecDecls.fs` (kind ta
 `Vesper.*` corpus compiles unchanged through both backends: every abbreviation there is
 `.fsi`-declared, so the new implementation-side declaration matches a shape already published.
 
-Stage 2 changes what a package check costs and is the stage to land alone. Stage 3 is deletion.
+Stage 2a is the stage to land alone, and it lands in its own order: the `nativeOnly` sentinel
+(2a.1) first, because it is self-contained and closes a live shadowing hole; then the split of the
+five obligations and `IRuntimeModules` with the JS implementation (2a.2–2a.4). It touches
+`compiler-attributes.fs`/`.fsi`, `js-interop.js.fs`/`.fsi`, the three `[<Import>]`/`jsNative`
+sites in `Vesper.Comparison` and `Vesper.Core`, `Conformance.fs`, `Passes/Attributes.fs`,
+`AssemblyAnalysis.fs` for the per-unit record, and the JS backend's package build. Both backends
+gain the sentinel refusal.
+
+Stage 3 is deletion, and takes `ConformanceTests.fs`'s CST-route lists with it.
 
 ## Correction owed to another doc
 
 `semantic-analysis-followups-plan-2.md:243` states that nothing under `src/` calls the
 conformance gate, and that `ConformanceTypars.checkFile`/`checkMembers` are "tests only". That
-is stale: `AssemblyFiles.conformanceDiagnostics` calls both on the live in-assembly path, and
-their diagnostics reach the compilation. The section about `ConformancePass.checkManifest`/
-`enforce` having no production consumer does still hold.
+is stale: `AssemblyAnalysis.conformSignature` calls both on the live in-assembly path, and their
+diagnostics reach the compilation. `ConformancePass.checkManifest`/`enforce` do remain tests-only,
+and stay that way: the driver gate is the in-assembly route, and Stages 2a–3 below retire the CST
+one rather than wiring it up beside it. That section now carries the resolution.

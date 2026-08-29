@@ -8,6 +8,11 @@ open XParsec.FSharp.Parser
 // Manifest-driven `.fsi`↔`.fs` conformance: the pairs come from a package's manifest for one
 // target, on its own pairing key, so the js manifest's `prim-types-int.js.fs` pairs with
 // `prim-types-int.fsi`.
+//
+// The compiler's gate is `AssemblyAnalysis.conformSignature`, which takes the verdict over the
+// two ANALYSED halves as it homes a pair's signature for the next file. This module is the
+// cheap PRE-analysis route, over parse results alone; `docs/conformance-tast-level-plan.md`
+// Stages 2–3 retire it.
 
 module ConformancePass =
 

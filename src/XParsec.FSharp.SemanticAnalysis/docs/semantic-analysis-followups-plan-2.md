@@ -270,6 +270,34 @@ conformance verdicts are enforced by the test suite, not by the compiler driver.
 intentional for a prototype, but the build-failure wording was not describing any code, and if the
 gate is meant to be real the driver is where it is missing.
 
+Resolution: the driver gate exists and is a DIFFERENT rule set; `ConformancePass` gains no wiring.
+The finding above conflated two routes (see `conformance-tast-level-plan.md`, and the correction
+it already files against this section). `AssemblyAnalysis` conforms every pair over its two
+ANALYSED halves as `analyseUnits` walks the manifest, `AnalysedAssembly.gate` refuses emission on
+any error-severity diagnostic, and `ConformanceVerdict` carries error severity, so a conformance
+finding already fails a build. What is tests-only is `ConformancePass.checkManifest`/`enforce`,
+the cheap pre-analysis CST route over parse results; `TestHelpers.buildPackage` runs it to
+fail fast before an analysis the in-assembly route would fail anyway. Stages 2–3 of
+`conformance-tast-level-plan.md` retire it, and wiring a second rule set into the driver in the
+meantime would install exactly the two-derivations shape those stages exist to remove.
+
+Deleting it is the agreed direction, and it is not a straight cut: the route's `[<Import>]` asset
+check (`ImportUnknownAsset`, `ImportMissingExport`) reads the manifest rather than the CST and has
+no second implementation, and it is what keeps the CST rule set standing, because `checkUnit`
+supplies its bindings. `conformance-tast-level-plan.md` Stage 2a lifts `[<Import>]` to a
+target-neutral concept first, splitting the two dialect obligations onto an `IRuntimeModules` the
+backend implements.
+
+The timing the gate owes — a pair is checked before it is projected for the next file — was
+positional, held by the order of statements in `analyseUnits` and by nothing else. It is now
+structural: `conformSignature` homes the signature in its implementation AND takes the verdict,
+returning both as one `ConformedSignature`, and it is the only site that homes a signature for an
+assembly being compiled. A pair therefore cannot reach a later file's scope unchecked.
+
+Note the literal ordering cannot be "check, then project": `ConformanceTypars.checkFile` reads the
+homed provider, so the projection is an INPUT to the check. What precedes the check is the push
+onto the visibility stack, which is what a later file resolves through.
+
 ### `FrozenTypeBridge.fs:42` — `methodVar` memo sharing is a caller obligation nothing enforces
 
 `instantiateWith` takes `declaring` / `methodVar` / `localTypar` as bare functions, and the
@@ -389,7 +417,7 @@ type-addressing DU on a single channel record). The prose this would delete is t
 docs on the two types plus the two `empty` docs — one of which was a byte-near clone of the
 other and was removed in this sweep.
 
-### `VesperLib/Manifest.fs:38` — the deleted `.fs`-branch rationale did not match the tree
+### `VesperLib/Manifest.fs:38` — the deleted `.fs`-branch rationale did not match the tree **[RESOLVED — the manifest list selects; no code change]**
 
 `parseFileFull` carried: "The `.fs` branch is not a fallback: a package's per-target primitive
 companions (`prim-types-int.clr.fs`) and operator bodies (`ops-platform.clr.fs`) ship no `.fsi`."
@@ -401,6 +429,19 @@ shape: "not a fallback" argues against a design the code does not have). The ope
 I did not chase: what actually selects an implementation file for the extractor — the manifest's
 own file list, or the absence of a same-stem `.fsi`? If it is the former, the branch has nothing
 to do with `.fsi` presence at all.
+
+Resolution: the former, and the question was already stale when it was written — `VesperLib/`
+and `parseFileFull` were gone by the vesperlib split, and the successor path is
+`ReferencedProject` + `ParsedManifest`. A manifest's `[core] files` list selects every source
+file; `.fsi` presence on disk is never a decision input, and no directory scan discovers sources
+(`Directory.GetFiles` under `src/` appears only in the CLR backend's reference-assembly
+loading). `classifyFiles` (`ReferencedProject.fs:189`) classifies each entry by extension alone
+via `SourceFileKind.tryOfPath`, and `pairUp` (`:208`) pairs a `.fsi` with the implementation
+sharing its `pairingKey` — stem minus extension minus a trailing `.<target>` segment, so
+`prim-types-int.fsi` pairs with `prim-types-int.clr.fs` — required to be the very next entry.
+A listed `.fs` alone is a unit with `Signature = ValueNone` (`:223`); a listed `.fsi` whose
+companion is absent or non-adjacent is a parse error (`:230`). The deleted sentence was a comment
+defect only: the extension classifier it sat on read the path, never the file system.
 
 ### `XParsec.FSharp/Token.fs:2558` — `GetName`'s example contradicts the line under it **[LANDED — example corrected to "OpColonEquals"]**
 

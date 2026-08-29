@@ -69,53 +69,6 @@ module AssemblyAnalysis =
         IntrinsicReprs.ofImplementationInto reprs (SyntaxToken.nameIn lexed) file
         reprs
 
-    /// The implementation checked against its signature over the two ANALYSED halves: type and
-    /// value presence, the `extern` ↔ repr pairing, and typar ORDER, each by resolved identity.
-    /// The module-decl pairing alone stays SYNTACTIC.
-    let private conformanceDiagnostics
-        (assembly: AssemblyName)
-        (signature: ParsedFile<ParseChain.ParsedSignature>)
-        (implementation: ParsedFile<ParseChain.ParsedImplementation>)
-        (surface: PublishedSurface)
-        (published: IExternalSymbolProvider)
-        (frozen: FrozenPools)
-        : Diagnostic list =
-        let verdict (v: ConformanceVerdict) =
-            Diagnostic.nowhere (Kind.Conformance(assembly.Name, v))
-
-        let unimplemented (detail: string) =
-            verdict (ConformanceVerdict.Unimplemented(signature.Id.Name, detail))
-
-        let sigPath = Conformance.sigDeclPath signature.Parsed.Lexed signature.Parsed.Tree
-
-        let implPath =
-            Conformance.implDeclPath implementation.Parsed.Lexed implementation.Parsed.Tree
-
-        [
-            if sigPath <> implPath then
-                yield
-                    verdict (
-                        ConformanceVerdict.ModulePairingMismatch(
-                            signature.Id.Name,
-                            implementation.Id.Name,
-                            sigPath,
-                            implPath
-                        )
-                    )
-
-            for e in ConformanceSurface.checkTypes surface frozen do
-                yield unimplemented (Conformance.describe e)
-
-            for e in ConformanceSurface.checkValues surface frozen do
-                yield unimplemented (Conformance.describe e)
-
-            for m in ConformanceTypars.checkFile published frozen do
-                yield unimplemented (ConformanceTypars.describe m)
-
-            for m in ConformanceTypars.checkMembers published frozen do
-                yield unimplemented (ConformanceTypars.describeMember m)
-        ]
-
     /// One analysed unit of an assembly: the frozen file, the surface it publishes across the
     /// assembly boundary — its `.fsi`'s when it has one, else the one its implementation
     /// infers — and its splice templates.
@@ -243,6 +196,74 @@ module AssemblyAnalysis =
 
         retained, surface, diagnostics
 
+    /// A signature's provider as the LATER files of its assembly resolve it, and the verdict on
+    /// the pair that produced it. An empty `Conformance` means the two halves conform.
+    [<NoEquality; NoComparison>]
+    type private ConformedSignature =
+        {
+            /// The signature's surface, homed in the implementation file.
+            Published: IExternalSymbolProvider
+            Conformance: Diagnostic list
+        }
+
+    /// Home a resolved signature in its implementation and check the pair over the two ANALYSED
+    /// halves: type and value presence, the `extern` ↔ repr pairing, and typar ORDER, each by
+    /// resolved identity. The module-decl pairing alone stays SYNTACTIC.
+    ///
+    /// This is the only site that homes a signature for an assembly it is compiled in, so the
+    /// verdict is taken on every pair that reaches a later file's scope.
+    let private conformSignature
+        (assembly: AssemblyName)
+        (implementation: ParsedFile<ParseChain.ParsedImplementation>)
+        (impl: ImplAnalysis)
+        (r: ResolvedSignature)
+        : ConformedSignature =
+        // Homed in the IMPLEMENTATION file, so a later file of the same assembly resolves the
+        // signature's symbols as locals.
+        let published =
+            ExternalSymbolProviders.stack (ValueSome(SymbolHome.InFile impl.Retained.Path)) [] [ r.Published ]
+
+        let verdict (v: ConformanceVerdict) =
+            Diagnostic.nowhere (Kind.Conformance(assembly.Name, v))
+
+        let unimplemented (detail: string) =
+            verdict (ConformanceVerdict.Unimplemented(r.Signature.Id.Name, detail))
+
+        let sigPath =
+            Conformance.sigDeclPath r.Signature.Parsed.Lexed r.Signature.Parsed.Tree
+
+        let implPath =
+            Conformance.implDeclPath implementation.Parsed.Lexed implementation.Parsed.Tree
+
+        {
+            Published = published
+            Conformance =
+                [
+                    if sigPath <> implPath then
+                        yield
+                            verdict (
+                                ConformanceVerdict.ModulePairingMismatch(
+                                    r.Signature.Id.Name,
+                                    implementation.Id.Name,
+                                    sigPath,
+                                    implPath
+                                )
+                            )
+
+                    for e in ConformanceSurface.checkTypes r.Surface impl.Frozen do
+                        yield unimplemented (Conformance.describe e)
+
+                    for e in ConformanceSurface.checkValues r.Surface impl.Frozen do
+                        yield unimplemented (Conformance.describe e)
+
+                    for m in ConformanceTypars.checkFile published impl.Frozen do
+                        yield unimplemented (ConformanceTypars.describe m)
+
+                    for m in ConformanceTypars.checkMembers published impl.Frozen do
+                        yield unimplemented (ConformanceTypars.describeMember m)
+                ]
+        }
+
     /// Analyse a unit list in manifest order over `external`, with the language prelude at the
     /// visibility floor. Every implementation is analysed ONCE, one with no `.fsi` publishes
     /// the surface it infers, and each unit resolves only the units BEFORE it, nearest first.
@@ -316,26 +337,15 @@ module AssemblyAnalysis =
                         let surface, published, signatureFile =
                             match resolvedSignature with
                             | ValueSome r ->
-                                // Homed in the IMPLEMENTATION file when compiling, so a later
-                                // file of the same assembly resolves it as a local; bare when
-                                // referencing, the caller stamping the assembly home once.
                                 let published, conformance =
                                     match publication with
                                     | Publication.InAssembly ->
-                                        let homed =
-                                            ExternalSymbolProviders.stack
-                                                (ValueSome(SymbolHome.InFile impl.Retained.Path))
-                                                []
-                                                [ r.Published ]
+                                        let conformed = conformSignature assembly.Name parsedUnit.Implementation impl r
 
-                                        homed,
-                                        conformanceDiagnostics
-                                            assembly.Name
-                                            r.Signature
-                                            parsedUnit.Implementation
-                                            r.Surface
-                                            homed
-                                            impl.Frozen
+                                        conformed.Published, conformed.Conformance
+                                    // Published bare, the caller stamping the assembly home
+                                    // once. A reference was conformed when its own assembly was
+                                    // compiled.
                                     | Publication.AcrossAssemblies _ -> r.Published, []
 
                                 r.Surface,
