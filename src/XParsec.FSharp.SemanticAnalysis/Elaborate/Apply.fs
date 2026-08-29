@@ -230,6 +230,20 @@ module internal ElaborateApply =
 
         TExpr.TraitCall(supportTys, memberName, args, ty, tok)
 
+    /// The function expression an operator application applies: a `Var` for the `let`
+    /// binding stamped at `key`, else an `External` carrying the compiled `name` and the
+    /// `IntrinsicKey` stamp that splices the contract's `let inline` body by KEY.
+    let private operatorRef
+        (ctx: PassContext)
+        (key: NodeKey)
+        (name: string)
+        (opTy: SemType)
+        (tok: SyntaxToken)
+        : TExpr =
+        match ctx.Bindings.Binding.TryGetValue key with
+        | ValueSome rb -> TExpr.Var(rb.BindingSite, opTy, tok)
+        | ValueNone -> TExpr.External(name, ctx.Resolution.IntrinsicKey.TryGetValue key, opTy, tok)
+
     let translateInfix
         (translateExpr: TranslateExpr)
         (ctx: PassContext)
@@ -247,23 +261,21 @@ module internal ElaborateApply =
             let consName, _ = listCaseNames ctx resultTy
             TExpr.UnionCons(consName, EqArray.ofList [ translateExpr ctx left; translateExpr ctx right ], resultTy, tok)
         | _ ->
-            match OperatorNames.ofSymbolic (ctx.NameOf tok) tok with
-            | ValueSome name ->
-                // Reconstruct the operator's type from the resolved arms: re-instantiating
-                // the scheme would mint fresh TypeVars the TyVar table does not link, so
-                // the `External`'s carried type would not match the App chain's arms.
-                let leftTy = typeOfKey ctx (CstKeys.ofExpr left)
-                let rightTy = typeOfKey ctx (CstKeys.ofExpr right)
-                let partialTy = TyFun(rightTy, resultTy)
-                let opTy = TyFun(leftTy, partialTy)
-                // Unification stamped the resolved operator identity under this InfixApp
-                // key; carry it so the contract's `let inline` body splices by KEY.
-                // `ValueNone` ⇒ it did not resolve, which Unification already diagnosed.
-                let opKey = ctx.Resolution.IntrinsicKey.TryGetValue key
-                let opExpr = TExpr.External(name, opKey, opTy, tok)
-                let app1 = TExpr.App(opExpr, translateExpr ctx left, partialTy, tok)
-                TExpr.App(app1, translateExpr ctx right, resultTy, tok)
-            | ValueNone -> failwithf "Elaborate: InfixApp at %O is not a compiled-named operator" key
+            // Reconstruct the operator's type from the resolved arms, so the carried type
+            // shares TyVars with the App chain rather than fresh ones off the scheme.
+            let leftTy = typeOfKey ctx (CstKeys.ofExpr left)
+            let rightTy = typeOfKey ctx (CstKeys.ofExpr right)
+            let partialTy = TyFun(rightTy, resultTy)
+            let opTy = TyFun(leftTy, partialTy)
+
+            let name =
+                match OperatorNames.ofSymbolic (ctx.NameOf tok) tok with
+                | ValueSome name -> name
+                | ValueNone -> failwithf "Elaborate: InfixApp at %O is not a compiled-named operator" key
+
+            let opExpr = operatorRef ctx key name opTy tok
+            let app1 = TExpr.App(opExpr, translateExpr ctx left, partialTy, tok)
+            TExpr.App(app1, translateExpr ctx right, resultTy, tok)
 
     let translatePrefix
         (translateExpr: TranslateExpr)
@@ -284,8 +296,6 @@ module internal ElaborateApply =
             // Reconstruct from the resolved operand + result, not from the scheme.
             let operandTy = typeOfKey ctx (CstKeys.ofExpr operand)
             let opTy = TyFun(operandTy, resultTy)
-            // Carry the resolved prefix-operator identity so the body splices by KEY.
-            let opKey = ctx.Resolution.IntrinsicKey.TryGetValue key
-            let opExpr = TExpr.External(name, opKey, opTy, tok)
-            TExpr.App(opExpr, translateExpr ctx operand, resultTy, tok)
+
+            TExpr.App(operatorRef ctx key name opTy tok, translateExpr ctx operand, resultTy, tok)
         | ValueNone -> failwithf "Elaborate: PrefixApp at %O is not a compiled-named operator" key

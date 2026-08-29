@@ -54,6 +54,16 @@ let tests =
                 | other -> failtestf "unexpected decl: %A" other
             }
 
+            test "a `let`-bound custom operator's infix use lowers to the binding, not an External" {
+                let tast = analyse "let (>=>) (a: int) (b: int) = a\nlet x = 1 >=> 2"
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+
+                match tast.Decls.[1] with
+                | TDecl.Let(_, TExpr.App(TExpr.App(TExpr.Var _, _, _, _), _, _, _), _, ty) ->
+                    Expect.equal ty BuiltinTypes.tyInt "x : int"
+                | other -> failtestf "expected an App chain over a Var, got %A" other
+            }
+
             test "function-form `let f x = x + 1` produces same shape as fun-form" {
                 let tast = analyse "let f x = x + 1"
                 let intToInt = TyFun(BuiltinTypes.tyInt, BuiltinTypes.tyInt)

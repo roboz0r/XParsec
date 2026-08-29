@@ -360,19 +360,20 @@ module NameResolutionLongIdent =
 
     // --- The environment: what a bare first segment denotes -----------------------------
 
+    /// A `let` binding of one of this file's OPENED modules, visible at the use site.
+    let openedLocalValue (ctx: PassContext) (useSite: UseSite) (name: string) : LocalModuleMember voption =
+        useSite.Opens
+        |> tryPickV (fun o ->
+            match TypeRegistry.openedContainer ctx.Types o with
+            | ValueSome opened -> LocalScope.tryValue ctx useSite opened name
+            | ValueNone -> ValueNone
+        )
+
     /// A module-level value: one of this file's OPENED scopes, then the referenced surfaces
     /// through the `open`s and the prelude. The enclosing scopes' values are bound by the
     /// walk itself, in declaration order, so a `let` is in scope below its own body only.
     let private valueInEnv (ctx: PassContext) (useSite: UseSite) (name: string) : ResolvedValue voption =
-        let local =
-            useSite.Opens
-            |> tryPickV (fun o ->
-                match TypeRegistry.openedContainer ctx.Types o with
-                | ValueSome opened -> LocalScope.tryValue ctx useSite opened name
-                | ValueNone -> ValueNone
-            )
-
-        match local with
+        match openedLocalValue ctx useSite name with
         | ValueSome m -> ValueSome(ResolvedValue.Local m)
         | ValueNone ->
             externalValueInScope ctx useSite Qualifier.Bare name

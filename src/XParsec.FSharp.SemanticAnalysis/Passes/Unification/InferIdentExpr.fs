@@ -19,80 +19,84 @@ open UnificationInferRecordAccess
 
 module internal UnificationInferIdentExpr =
 
+    /// The value scheme stamped at a use-site key, instantiated at the current level: the
+    /// `let` binding, which shadows the provider symbol.
+    let tryInstantiateStampedValue (ctx: PassContext) (key: NodeKey) : SemType voption =
+        match ctx.Bindings.Binding.TryGetValue key with
+        | ValueSome rb -> ValueSome(instantiateBinding ctx rb)
+        | ValueNone ->
+            match ctx.Resolution.ExternalSymbolStamp.TryGetValue key with
+            | ValueSome sym -> ValueSome(ExternalSymbols.instantiateSymbol ctx.Store sym ctx.CurrentLevel)
+            | ValueNone -> ValueNone
+
     let inferIdentDefault (ctx: PassContext) (e: Expr<SyntaxToken>) (node: NodeSite) : SemType =
 
-        match ctx.Bindings.Binding.TryGetValue node.Key with
-        | ValueSome rb -> instantiateBinding ctx rb
+        // A stamped value beats a ctor of the same spelling.
+        match tryInstantiateStampedValue ctx node.Key with
+        | ValueSome ty -> ty
         | ValueNone ->
-            // Provider hits beat ctor-name resolution when both exist; a bare ident
-            // absent from the provider falls to the ctor registry below.
-            match ctx.Resolution.ExternalSymbolStamp.TryGetValue node.Key with
-            | ValueSome sym -> ExternalSymbols.instantiateSymbol ctx.Store sym ctx.CurrentLevel
-            | ValueNone ->
 
-                match tryExternalStaticLongIdent ctx node.Key e with
-                | ValueSome ty -> ty
+            match tryExternalStaticLongIdent ctx node.Key e with
+            | ValueSome ty -> ty
+            | ValueNone ->
+                let singleSegName =
+                    match e with
+                    | Expr.Ident t -> ValueSome(ctx.NameOf t)
+                    | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
+                        ValueSome(ctx.NameOf li.Idents.[0])
+                    | _ -> ValueNone
+
+                match singleSegName with
+                | ValueSome n ->
+                    match ResolvedStamps.tryLocalUnionCase ctx.Resolution.Resolved node.Key with
+                    | ValueSome i -> ctorType ctx i
+                    // NameResolution reported the ambiguity; the use types as a fresh variable.
+                    | ValueNone when ResolvedStamps.isAmbiguousCase ctx.Resolution.Resolved node.Key ->
+                        TyVar(freshTyVar ctx)
+                    | ValueNone ->
+                        // External union case ctor (`Some` / `None` from a referenced
+                        // package): typed as `field… -> TyUnion(union, …)`, so the
+                        // bare nullary form (`None`) lands as the union value.
+                        match tryExternalCtorType ctx node.Key with
+                        | ValueSome t -> t
+                        | ValueNone ->
+                            // Class-name-as-function: `Point(3, 4)` parses as
+                            // `Expr.App(Expr.Ident "Point", …)`, so return the ctor
+                            // as a function value and let the function arm type it.
+                            classCtorAsFunction ctx (ctx.UseSiteAt node.Key) n
                 | ValueNone ->
-                    let singleSegName =
+                    // A qualified name: `A.Point(3, 4)` denotes a TYPE through its module,
+                    // so it resolves through the type registry as a ctor reference.
+                    let localCtor =
                         match e with
-                        | Expr.Ident t -> ValueSome(ctx.NameOf t)
-                        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
-                            ValueSome(ctx.NameOf li.Idents.[0])
+                        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) ->
+                            tryWrittenClassCtorAsFunction ctx (ctx.UseSiteAt node.Key) (ctx.WrittenTypeNameOf li)
                         | _ -> ValueNone
 
-                    match singleSegName with
-                    | ValueSome n ->
-                        match ResolvedStamps.tryLocalUnionCase ctx.Resolution.Resolved node.Key with
-                        | ValueSome i -> ctorType ctx i
-                        // NameResolution reported the ambiguity; the use types as a fresh variable.
-                        | ValueNone when ResolvedStamps.isAmbiguousCase ctx.Resolution.Resolved node.Key ->
-                            TyVar(freshTyVar ctx)
-                        | ValueNone ->
-                            // External union case ctor (`Some` / `None` from a referenced
-                            // package): typed as `field… -> TyUnion(union, …)`, so the
-                            // bare nullary form (`None`) lands as the union value.
-                            match tryExternalCtorType ctx node.Key with
-                            | ValueSome t -> t
-                            | ValueNone ->
-                                // Class-name-as-function: `Point(3, 4)` parses as
-                                // `Expr.App(Expr.Ident "Point", …)`, so return the ctor
-                                // as a function value and let the function arm type it.
-                                classCtorAsFunction ctx (ctx.UseSiteAt node.Key) n
+                    match localCtor with
+                    | ValueSome ty -> ty
                     | ValueNone ->
-                        // A qualified name: `A.Point(3, 4)` denotes a TYPE through its module,
-                        // so it resolves through the type registry as a ctor reference.
-                        let localCtor =
-                            match e with
-                            | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) ->
-                                tryWrittenClassCtorAsFunction ctx (ctx.UseSiteAt node.Key) (ctx.WrittenTypeNameOf li)
-                            | _ -> ValueNone
-
-                        match localCtor with
-                        | ValueSome ty -> ty
-                        | ValueNone ->
-                            // A multi-segment qualified name that resolved to nothing. If its
-                            // qualifier resolves to a known external union/record, the last segment is a
-                            // missing member (`Option.Nope`), so diagnose rather than mint a TyVar.
-                            match tryQualifiedExternalMemberMiss ctx e with
-                            | ValueSome miss ->
-                                errorTy
-                                    ctx
-                                    node.Tok
-                                    (Kind.NoMember(miss.Qualifier, MemberNoun.ValueOrMember, miss.MemberName))
-                            | ValueNone -> TyVar(freshTyVar ctx)
+                        // A multi-segment qualified name that resolved to nothing. If its
+                        // qualifier resolves to a known external union/record, the last segment is a
+                        // missing member (`Option.Nope`), so diagnose rather than mint a TyVar.
+                        match tryQualifiedExternalMemberMiss ctx e with
+                        | ValueSome miss ->
+                            errorTy
+                                ctx
+                                node.Tok
+                                (Kind.NoMember(miss.Qualifier, MemberNoun.ValueOrMember, miss.MemberName))
+                        | ValueNone -> TyVar(freshTyVar ctx)
 
     let inferIdent (ctx: PassContext) (e: Expr<SyntaxToken>) (node: NodeSite) : SemType =
         match e with
-        // `(+)` used as a value: resolve the operator's compiled name through the provider
-        // and instantiate its scheme like any other external symbol. Nothing type-directed
-        // is needed here, because the SRTP trait call in the operator's contract body makes that choice.
+        // `(+)` used as a value: a `let`-bound operator in scope, else the provider's
+        // symbol, instantiated like any other external symbol. The SRTP trait call in the
+        // operator's contract body makes the type-directed choice.
         | Expr.LongIdentOrOp(LongIdentOrOp.Op(IdentOrOp.ParenOp(opName = OpName.SymbolicOp op))) ->
             match OperatorNames.ofSymbolic (ctx.NameOf op) op with
             | ValueSome name ->
-                // NameResolution stamped the resolved `ExternalSymbol` here; instantiate
-                // the scheme by key rather than re-resolving the spelling.
-                match ctx.Resolution.ExternalSymbolStamp.TryGetValue node.Key with
-                | ValueSome sym -> ExternalSymbols.instantiateSymbol ctx.Store sym ctx.CurrentLevel
+                match tryInstantiateStampedValue ctx node.Key with
+                | ValueSome ty -> ty
                 | ValueNone ->
                     errorTy
                         ctx

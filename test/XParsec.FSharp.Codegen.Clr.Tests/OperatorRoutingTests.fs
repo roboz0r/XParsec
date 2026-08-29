@@ -80,15 +80,15 @@ let tests =
         "OperatorRouting"
         [
             test "an operator whose contract is not referenced diagnoses by its SOURCE spelling" {
-                // The user typed `<`, never `op_LessThan`. The diagnostic omits the package too:
-                // the declaring contract is absent from the referenced set, so citing
-                // `Vesper.Comparison` would take a hardcoded operator→package table.
+                // The user typed `<`, so the diagnostic writes `<`, not `op_LessThan`, in FS0043's
+                // shape against the operand type.
                 let tast = analyseCoreOnly "let b = 2 < 3"
 
                 let messages = [ for d in tast.Diagnostics -> d.Message ]
 
                 Expect.isTrue
-                    (messages |> List.exists (fun m -> m.Contains "No definition for '<' found"))
+                    (messages
+                     |> List.exists (fun m -> m.Contains "does not support the operator '<'"))
                     (sprintf "expected the `<` not-in-scope diagnostic, got %A" messages)
 
                 Expect.isFalse
@@ -330,6 +330,10 @@ let tests =
                     )
 
                 Expect.isTrue addInLambda "the eta'd `(+)` is a two-lambda closure over an `add` ILIntrinsic"
+            }
+
+            test "a `let`-bound custom operator compiles to a call on the binding and runs" {
+                runs "3" "let (>=>) (a: int) (b: int) = a + b\nprintfn \"%d\" (1 >=> 2)"
             }
 
             test "`List.fold (+) 0 [1; 2; 3]` runs to 6 through the eta'd contract body" {

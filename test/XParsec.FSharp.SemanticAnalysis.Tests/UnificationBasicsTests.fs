@@ -58,18 +58,103 @@ let tests =
                 Expect.equal (typeOf ctx patKey) BuiltinTypes.tyInt "x : int"
             }
 
-            test "unknown custom infix operator diagnoses its composed compiled name" {
+            test "unknown custom infix operator diagnoses its SOURCE spelling in FS0043's shape" {
                 let ctx = analyse "let x = 1 >=> 2"
 
-                let hasComposedName =
+                let hasSpelling =
                     ctx.Diagnostics
-                    |> Seq.exists (fun d -> d.Message.Contains "op_GreaterEqualsGreater")
+                    |> Seq.exists (fun d -> d.Message.Contains "does not support the operator '>=>'")
 
                 Expect.isTrue
-                    hasComposedName
+                    hasSpelling
                     (sprintf
-                        "diagnostic should carry the composed name; got %A"
+                        "diagnostic should carry the written spelling; got %A"
                         (ctx.Diagnostics |> Seq.map (fun d -> d.Message) |> Seq.toList))
+            }
+
+            test "a module-level custom operator resolves infix in the same file" {
+                let src = "let (>=>) (a: int) (b: int) = a\nlet x = 1 >=> 2"
+                let ctx = analyse src
+                Expect.isEmpty (errors ctx) "local (>=>) resolves"
+                let patKey = NodeKey.ofSource (src.IndexOf "x") NodeKind.PatIdent
+                Expect.equal (typeOf ctx patKey) BuiltinTypes.tyInt "x : int"
+            }
+
+            test "a `let (+)` shadows the prelude operator below its definition" {
+                let src = "let (+) (a: int) (b: int) = \"s\"\nlet x = 3 + 4"
+                let ctx = analyse src
+                Expect.isEmpty (errors ctx) "shadowed + resolves"
+                let patKey = NodeKey.ofSource (src.IndexOf "x") NodeKind.PatIdent
+                Expect.equal (typeOf ctx patKey) BuiltinTypes.tyString "x : string — the local (+) won"
+            }
+
+            test "a use ABOVE the shadowing `let (+)` still binds the prelude" {
+                let src = "let y = 1 + 2\nlet (+) (a: int) (b: int) = \"s\"\nlet z = 3 + 4"
+                let ctx = analyse src
+                Expect.isEmpty (errors ctx) "both uses resolve"
+                let yKey = NodeKey.ofSource (src.IndexOf "y") NodeKind.PatIdent
+                let zKey = NodeKey.ofSource (src.IndexOf "z") NodeKind.PatIdent
+                Expect.equal (typeOf ctx yKey) BuiltinTypes.tyInt "y : int — prelude"
+                Expect.equal (typeOf ctx zKey) BuiltinTypes.tyString "z : string — local"
+            }
+
+            test "a mono `let (+)` shadows COMPLETELY: string + string below it is an error" {
+                let src = "let (+) (a: int) (b: int) = a\nlet s = \"a\" + \"b\""
+                let ctx = analyse src
+                Expect.isNonEmpty (errors ctx) "string + string must fail against the mono int (+)"
+            }
+
+            test "a `let rec` custom operator resolves its own infix use in its body" {
+                let src = "let rec (>=>) (a: int) (b: int) : int = b >=> a\nlet x = 1 >=> 2"
+                let ctx = analyse src
+                Expect.isEmpty (errors ctx) "recursive (>=>) resolves"
+                let patKey = NodeKey.ofSource (src.IndexOf "x") NodeKind.PatIdent
+                Expect.equal (typeOf ctx patKey) BuiltinTypes.tyInt "x : int"
+            }
+
+            test "a function-local custom operator resolves infix in the same body" {
+                let src = "let f () =\n    let (>=>) (a: int) (b: int) = a\n    1 >=> 2"
+                let ctx = analyse src
+                Expect.isEmpty (errors ctx) "nested (>=>) resolves"
+                let patKey = NodeKey.ofSource (src.IndexOf "f") NodeKind.PatIdent
+                Expect.equal (typeOf ctx patKey) (TyFun(BuiltinTypes.tyUnit, BuiltinTypes.tyInt)) "f : unit -> int"
+            }
+
+            test "a `let`-bound custom operator is referenceable as a value `(>=>)`" {
+                let src = "let (>=>) (a: int) (b: int) = a\nlet g = (>=>)\nlet x = g 1 2"
+                let ctx = analyse src
+
+                Expect.isEmpty
+                    (errors ctx)
+                    (sprintf "(>=>) as a value resolves; got %A" [ for d in errors ctx -> d.Message ])
+
+                let patKey = NodeKey.ofSource (src.IndexOf "x") NodeKind.PatIdent
+                Expect.equal (typeOf ctx patKey) BuiltinTypes.tyInt "x : int"
+            }
+
+            test "an `open`ed module's custom operator resolves infix" {
+                let src = "module M =\n    let (>=>) (a: int) (b: int) = a\nopen M\nlet x = 1 >=> 2"
+
+                let ctx = analyse src
+                Expect.isEmpty (errors ctx) "opened (>=>) resolves"
+                let patKey = NodeKey.ofSource (src.IndexOf "x") NodeKind.PatIdent
+                Expect.equal (typeOf ctx patKey) BuiltinTypes.tyInt "x : int"
+            }
+
+            test "a qualified `M.(>=>)` reaches a local module's operator" {
+                let src = "module M =\n    let (>=>) (a: int) (b: int) = a\nlet x = M.(>=>) 1 2"
+                let ctx = analyse src
+                Expect.isEmpty (errors ctx) "M.(>=>) resolves"
+                let patKey = NodeKey.ofSource (src.IndexOf "x") NodeKind.PatIdent
+                Expect.equal (typeOf ctx patKey) BuiltinTypes.tyInt "x : int"
+            }
+
+            test "a `let (~-)` shadows the prefix operator for a variable operand" {
+                let src = "let (~-) (b: bool) = 42\nlet t = true\nlet x = -t"
+                let ctx = analyse src
+                Expect.isEmpty (errors ctx) "shadowed unary - resolves"
+                let patKey = NodeKey.ofSource (src.IndexOf "x") NodeKind.PatIdent
+                Expect.equal (typeOf ctx patKey) BuiltinTypes.tyInt "x : int — the local (~-) won"
             }
 
             test "lambda body type propagates to function type" {

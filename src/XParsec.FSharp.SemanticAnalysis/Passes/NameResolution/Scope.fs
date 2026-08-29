@@ -9,15 +9,25 @@ open NameResolutionLongIdent
 open NameResolutionTypeRefStamp
 open UnificationTranslate
 
-// Scope tracking and ident-use resolution for NameResolution. Every name not lexically bound
-// is resolved once by `NameResolutionLongIdent` and stamped into `ctx.Resolution.Resolved`
-// keyed by the use-site `NodeKey`. Later passes read the stamps, never the spelling again; an
-// external value's symbol and a constructible external class's key are also stamped into
-// `ExternalValue` / `ExternalSymbolStamp` and `ResolvedType`.
+// Scope tracking and ident-use resolution for NameResolution. A name denoting a binding of
+// this file is bound in `ctx.Bindings.Binding` at its use-site key; any other name resolves
+// through `NameResolutionLongIdent` and stamps a `ctx.Resolution` table for what it denotes.
 
 module NameResolutionScope =
 
     type Scope = Map<string, NodeKey * bool>
+
+    /// Bind a use-site key to the binding it references, with `IsInline` false: only a
+    /// declaration writes it.
+    let private bindUseSite (ctx: PassContext) (key: NodeKey) (bindingSite: NodeKey) (isMutable: bool) : unit =
+        ctx.Bindings.Binding.Set(
+            key,
+            {
+                BindingSite = bindingSite
+                IsInline = false
+                IsMutable = isMutable
+            }
+        )
 
     /// The stamps a resolution feeds beside `Resolved`. A local module value keyed at `key`
     /// binds it as a plain local ident is bound.
@@ -28,15 +38,7 @@ module NameResolutionScope =
             // `External`, and inline bodies are spliced by key, so the body is lost.
             ctx.Resolution.ExternalValue.Set(key, SymbolKey.Binding sym.Key)
             ctx.Resolution.ExternalSymbolStamp.Set(key, sym)
-        | ResolvedItem.Value(ResolvedValue.Local m) ->
-            ctx.Bindings.Binding.Set(
-                key,
-                {
-                    BindingSite = m.BindingSite
-                    IsInline = false
-                    IsMutable = false
-                }
-            )
+        | ResolvedItem.Value(ResolvedValue.Local m) -> bindUseSite ctx key m.BindingSite false
         // A referenced class in expression position is a ctor-sugar application
         // (`InvalidOperationException "x"`, `System.Exception "x"`); a generic one is
         // stamped at its exact arity by the enclosing `TypeApp` visit instead.
@@ -127,14 +129,7 @@ module NameResolutionScope =
         | ResolvedItem.Value(ResolvedValue.Local m) when r.Rest < names.Length ->
             // A module-level value of this file anchoring a field chain (`v.X.Y`): keyed on the
             // anchor token, as a lexical anchor is, so the chain reads the anchor's type there.
-            ctx.Bindings.Binding.Set(
-                NodeKey.ofToken idents.[0] NodeKind.ExprIdent,
-                {
-                    BindingSite = m.BindingSite
-                    IsInline = false
-                    IsMutable = false
-                }
-            )
+            bindUseSite ctx (NodeKey.ofToken idents.[0] NodeKind.ExprIdent) m.BindingSite false
         | item -> stampItem ctx key item
 
         reportExpr ctx e names r
@@ -159,15 +154,7 @@ module NameResolutionScope =
         let useKey = CstKeys.ofExpr e
 
         match lookupLexical scope (ctx.NameOf tok) with
-        | ValueSome(bindingSite, isMutable) ->
-            ctx.Bindings.Binding.Set(
-                useKey,
-                {
-                    BindingSite = bindingSite
-                    IsInline = false
-                    IsMutable = isMutable
-                }
-            )
+        | ValueSome(bindingSite, isMutable) -> bindUseSite ctx useKey bindingSite isMutable
         | ValueNone -> resolveExprNames ctx e (ImmutableArray.Create tok)
 
     /// True if `name` is a ctor reference in pattern position: uppercase-leading (per
@@ -385,10 +372,42 @@ module NameResolutionScope =
             true
         | ValueNone -> false
 
-    /// An `InfixApp` / `PrefixApp` operator: stamp the symbol for its compiled name.
+    /// Bind an operator's compiled name to a binding in scope: the lexical scope (a nested
+    /// or same-module `let (>=>)`), then an OPENED module of this file. A hit shadows every
+    /// provider symbol, so a mono `let (+)` retypes every `+` below its definition.
+    let private tryStampBoundOperator (ctx: PassContext) (scope: Scope list) (key: NodeKey) (name: string) : bool =
+        match lookupLexical scope name with
+        | ValueSome(bindingSite, isMutable) ->
+            bindUseSite ctx key bindingSite isMutable
+            true
+        | ValueNone ->
+            match NameResolutionLongIdent.openedLocalValue ctx (ctx.UseSiteAt key) name with
+            | ValueSome m ->
+                stampItem ctx key (ResolvedItem.Value(ResolvedValue.Local m))
+                true
+            | ValueNone -> false
+
+    /// Bind a qualified value naming one of this file's own modules (`M.(>=>)`), as a plain
+    /// local ident is bound. False on an external or partial resolution.
+    let private tryStampLocalQualifiedValue (ctx: PassContext) (key: NodeKey) (names: string[]) : bool =
+        let r = resolveExpr ctx (ctx.UseSiteAt key) names
+
+        match r.Item with
+        | ResolvedItem.Value(ResolvedValue.Local _) when r.Rest = names.Length ->
+            stampItem ctx key r.Item
+            true
+        | _ -> false
+
+    /// Resolve an operator's compiled name as a bare value ident resolves: a binding in
+    /// scope, then the referenced surfaces.
+    let private stampOperatorName (ctx: PassContext) (scope: Scope list) (key: NodeKey) (name: string) : unit =
+        if not (tryStampBoundOperator ctx scope key name) then
+            stampExternalSymbol ctx key Qualifier.Bare name
+
+    /// An `InfixApp` / `PrefixApp` operator: stamp what its compiled name denotes.
     /// `::` has no compiled name and `op_AddressOf` has no provider symbol, so
     /// neither stamps.
-    let private stampOperator (ctx: PassContext) (e: Expr<SyntaxToken>) : unit =
+    let private stampOperator (ctx: PassContext) (scope: Scope list) (e: Expr<SyntaxToken>) : unit =
         let name =
             match e with
             | Expr.InfixApp(_, op, _) -> OperatorNames.ofSymbolic (ctx.NameOf op) op
@@ -396,7 +415,7 @@ module NameResolutionScope =
             | _ -> ValueNone
 
         match name with
-        | ValueSome name -> stampExternalSymbol ctx (CstKeys.ofExpr e) Qualifier.Bare name
+        | ValueSome name -> stampOperatorName ctx scope (CstKeys.ofExpr e) name
         | ValueNone -> ()
 
     /// The enclosing `TypeApp` visit resolved this applied name at its exact arity.
@@ -423,20 +442,17 @@ module NameResolutionScope =
             | ValueSome(bindingSite, isMutable) ->
                 // Key the anchor's binding entry under ExprIdent on the anchor token
                 // so later passes look up the anchor's type by the same key.
-                ctx.Bindings.Binding.Set(
-                    NodeKey.ofToken anchorIdent NodeKind.ExprIdent,
-                    {
-                        BindingSite = bindingSite
-                        IsInline = false
-                        IsMutable = isMutable
-                    }
-                )
+                bindUseSite ctx (NodeKey.ofToken anchorIdent NodeKind.ExprIdent) bindingSite isMutable
             | ValueNone -> resolveExprNames ctx e li.Idents
         | Expr.LongIdentOrOp(LongIdentOrOp.Op(IdentOrOp.ParenOp(opName = OpName.SymbolicOp op))) ->
-            // `(+)` used as a value is an ordinary external value ref, so it stamps
-            // through the same channel pair. A miss is not diagnosed here.
+            // `(+)` used as a value resolves as its infix form does: a binding in scope,
+            // then the providers. A miss is not diagnosed here.
             match OperatorNames.ofSymbolic (ctx.NameOf op) op with
-            | ValueSome name -> tryStampExternalValue ctx (CstKeys.ofExpr e) Qualifier.Bare name |> ignore
+            | ValueSome name ->
+                let key = CstKeys.ofExpr e
+
+                if not (tryStampBoundOperator ctx scope key name) then
+                    tryStampExternalValue ctx key Qualifier.Bare name |> ignore
             | ValueNone ->
                 // A symbolic spelling with no compiled `op_` name (`(::)` as a value):
                 // surface the gap as the non-symbolic catch-all does.
@@ -448,7 +464,12 @@ module NameResolutionScope =
             // the prelude.
             match OperatorNames.qualifiedOpParts ctx.NameOf li idOp with
             | ValueSome(struct (segments, opName)) ->
-                if not (tryStampExternalValue ctx (CstKeys.ofExpr e) (Qualifier.ofSegments segments) opName) then
+                let key = CstKeys.ofExpr e
+
+                if
+                    not (tryStampLocalQualifiedValue ctx key (Array.append segments [| opName |]))
+                    && not (tryStampExternalValue ctx key (Qualifier.ofSegments segments) opName)
+                then
                     ctx.Report(
                         CstKeys.firstTokenOfExpr e,
                         Kind.UnresolvedQualifiedName(SymbolKeyOps.qualify (String.concat "." segments) opName)
@@ -481,7 +502,7 @@ module NameResolutionScope =
                 | _ -> ()
             | ValueNone -> ()
         | Expr.InfixApp _
-        | Expr.PrefixApp _ -> stampOperator ctx e
+        | Expr.PrefixApp _ -> stampOperator ctx scope e
         // `x?name` — stamp `op_Dynamic`. The SET form (`x?name <- v`) parses as
         // `Assignment(DynamicLookup, v)`, whose inner `DynamicLookup` is visited and
         // stamped too, but the setter reads the enclosing node, so that stamp is inert.

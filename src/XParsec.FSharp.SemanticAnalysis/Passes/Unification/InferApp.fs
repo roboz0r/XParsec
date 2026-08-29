@@ -24,21 +24,68 @@ open UnificationInferIdentExpr
 
 module internal UnificationInferApp =
 
-    /// An operator no contract in the referenced set declares. Report it as the user WROTE it
-    /// (`<`), not as the compiled name (`op_LessThan`); one outside the lexer's spelling table
-    /// has no inverse and keeps its compiled name.
-    let private unresolvedOperator (ctx: PassContext) (tok: SyntaxToken) (name: string) : SemType =
+    /// Report an unresolved operator in F#'s FS0043 shape against the operand types,
+    /// spelled as the user WROTE it (`<`, `>=>`) rather than as the compiled name.
+    let private unresolvedOperator
+        (ctx: PassContext)
+        (tok: SyntaxToken)
+        (supportTys: SemType list)
+        (name: string)
+        : SemType =
         let spelling =
             match OperatorData.sourceSpelling name with
             | ValueSome symbol -> symbol
-            | ValueNone -> name
+            // A virtual token has no source text, leaving the compiled name.
+            | ValueNone when tok.Token.IsVirtual -> name
+            // A composed operator (`>=>`): the token carries its written spelling.
+            | ValueNone -> ctx.NameOf tok
 
-        errorTy
-            ctx
-            tok
-            (Kind.Message(
-                sprintf "No definition for '%s' found. Is the package that defines it referenced and opened?" spelling
-            ))
+        let shownTys =
+            supportTys
+            |> List.map (shown ctx.Store)
+            |> List.distinct
+            |> List.toArray
+            |> EqArray.ofArray
+
+        errorTy ctx tok (Kind.TraitNotSupported(shownTys, MemberNoun.Operator, spelling))
+
+    /// Unify an operator's scheme against its operand types and a fresh result type.
+    let private applyOperatorScheme
+        (ctx: PassContext)
+        (tok: SyntaxToken)
+        (scheme: SemType)
+        (argTys: SemType list)
+        : SemType =
+        let resultTy = TyVar(freshTyVar ctx)
+        unify ctx tok scheme (List.foldBack (fun argTy acc -> TyFun(argTy, acc)) argTys resultTy)
+        resultTy
+
+    /// Type an operator application once the special forms (`::`, `&`) are peeled. A `let`
+    /// binding stamped at the node shadows both measured arithmetic and the provider symbol.
+    /// A provider hit stamps `IntrinsicKey`, which splices the contract's `let inline` body.
+    let private inferOperatorApp
+        (ctx: PassContext)
+        (node: NodeSite)
+        (name: string)
+        (tryMeasured: unit -> SemType option)
+        (argTys: SemType list)
+        : SemType =
+        match ctx.Bindings.Binding.TryGetValue node.Key with
+        | ValueSome rb -> applyOperatorScheme ctx node.Tok (instantiateBinding ctx rb) argTys
+        | ValueNone ->
+            match tryMeasured () with
+            | Some resultTy -> resultTy
+            | None ->
+                match ctx.Resolution.ExternalSymbolStamp.TryGetValue node.Key with
+                | ValueSome sym ->
+                    ctx.Resolution.IntrinsicKey.Set(node.Key, SymbolKey.Binding sym.Key)
+
+                    applyOperatorScheme
+                        ctx
+                        node.Tok
+                        (ExternalSymbols.instantiateSymbol ctx.Store sym ctx.CurrentLevel)
+                        argTys
+                | ValueNone -> unresolvedOperator ctx node.Tok argTys name
 
     /// Key each SOURCE lambda argument landing on a parameter bounded `:> Fun<a,b>` to that
     /// flat arity, which is what makes codegen emit a value-struct closure for it.
@@ -494,25 +541,12 @@ module internal UnificationInferApp =
 
             match OperatorNames.ofSymbolic (ctx.NameOf node.Tok) node.Tok with
             | ValueSome name ->
-                match tryMeasuredArith ctx node.Tok name leftTy rightTy with
-                | Some resultTy -> resultTy
-                | None ->
-                    match ctx.Resolution.ExternalSymbolStamp.TryGetValue node.Key with
-                    | ValueSome sym ->
-                        // Record the resolved identity so the `TExpr.External` minted for this
-                        // operator splices the contract's `let inline` body by KEY, even for a
-                        // primitive `1 + 2`.
-                        ctx.Resolution.IntrinsicKey.Set(node.Key, SymbolKey.Binding sym.Key)
-                        let resultTy = TyVar(freshTyVar ctx)
-
-                        unify
-                            ctx
-                            node.Tok
-                            (ExternalSymbols.instantiateSymbol ctx.Store sym ctx.CurrentLevel)
-                            (TyFun(leftTy, TyFun(rightTy, resultTy)))
-
-                        resultTy
-                    | ValueNone -> unresolvedOperator ctx node.Tok name
+                inferOperatorApp
+                    ctx
+                    node
+                    name
+                    (fun () -> tryMeasuredArith ctx node.Tok name leftTy rightTy)
+                    [ leftTy; rightTy ]
             | ValueNone ->
                 // Not a compiled-named operator, so leave the result free.
                 TyVar(freshTyVar ctx)
@@ -581,20 +615,5 @@ module internal UnificationInferApp =
             // no provider symbol. Typing it `byref<operandTy>` matches a BCL byref/`out`
             // parameter (`Int32.TryParse(string, int&)`); addressability is checked at codegen.
             TyConst(RuntimeNames.byrefKey, EqArray.singleton operandTy)
-        | ValueSome name ->
-            match ctx.Resolution.ExternalSymbolStamp.TryGetValue node.Key with
-            | ValueSome sym ->
-                // Thread the resolved identity to the minted `TExpr.External`, so the prefix
-                // operator splices by KEY.
-                ctx.Resolution.IntrinsicKey.Set(node.Key, SymbolKey.Binding sym.Key)
-                let resultTy = TyVar(freshTyVar ctx)
-
-                unify
-                    ctx
-                    node.Tok
-                    (ExternalSymbols.instantiateSymbol ctx.Store sym ctx.CurrentLevel)
-                    (TyFun(operandTy, resultTy))
-
-                resultTy
-            | ValueNone -> unresolvedOperator ctx node.Tok name
+        | ValueSome name -> inferOperatorApp ctx node name (fun () -> None) [ operandTy ]
         | ValueNone -> TyVar(freshTyVar ctx)
