@@ -1113,4 +1113,58 @@ let tests =
                 | ExternalTypeShape.Class shape -> Expect.isTrue shape.FrozenBaseType.IsNone "no base type is published"
                 | other -> failtestf "expected a Class shape for C; got %A" other
             }
+
+            test "a bodied signature's `inherit` of an interface diagnoses and publishes no base" {
+                let r =
+                    resolveFsi
+                        "app.fsi"
+                        (String.concat
+                            "\n"
+                            [
+                                "namespace App"
+                                ""
+                                "module M ="
+                                "    type I ="
+                                "        abstract M: unit -> int"
+                                ""
+                                "    type C ="
+                                "        inherit I"
+                                "        member P: int"
+                                ""
+                            ])
+
+                Expect.isTrue
+                    (r.Messages
+                     |> List.exists (fun m -> m.Contains "Cannot inherit from interface 'I'"))
+                    (sprintf "the interface base is diagnosed (%A)" r.Messages)
+
+                match shapeOf r "C" with
+                | ExternalTypeShape.Class shape -> Expect.isTrue shape.FrozenBaseType.IsNone "no base type is published"
+                | other -> failtestf "expected a Class shape for C; got %A" other
+            }
+
+            test "a bodied signature's `inherit` of a non-nominal type diagnoses and publishes no base" {
+                let r =
+                    resolveFsi
+                        "app.fsi"
+                        (String.concat
+                            "\n"
+                            [
+                                "namespace App"
+                                ""
+                                "module M ="
+                                "    type C ="
+                                "        inherit (int * int)"
+                                "        member P: int"
+                                ""
+                            ])
+
+                Expect.isTrue
+                    (r.Messages |> List.exists (fun m -> m.Contains "only classes are inheritable"))
+                    (sprintf "the non-nominal base is diagnosed (%A)" r.Messages)
+
+                match shapeOf r "C" with
+                | ExternalTypeShape.Class shape -> Expect.isTrue shape.FrozenBaseType.IsNone "no base type is published"
+                | other -> failtestf "expected a Class shape for C; got %A" other
+            }
         ]

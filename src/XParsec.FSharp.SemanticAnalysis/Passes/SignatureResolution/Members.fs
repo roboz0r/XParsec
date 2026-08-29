@@ -259,12 +259,12 @@ module SignatureResolutionMembers =
 
         hasAbstract && not hasConcrete
 
-    let inheritClauseOf (elems: TypeElementsSignature<SyntaxToken>) : Type<SyntaxToken> voption =
+    let inheritClauseOf (elems: TypeElementsSignature<SyntaxToken>) : ClassInheritsDecl<SyntaxToken> voption =
         let mutable found = ValueNone
 
         for e in elems do
             match e, found with
-            | TypeSignatureElement.Inherit(ClassInheritsDecl(typ = t)), ValueNone -> found <- ValueSome t
+            | TypeSignatureElement.Inherit decl, ValueNone -> found <- ValueSome decl
             | _ -> ()
 
         found
@@ -325,16 +325,25 @@ module SignatureResolutionMembers =
 
         // An INTERFACE has no base type, so its `inherit` clause is interface inheritance
         // (`enumerator inherit disposable`); a class's (`exn inherit obj`) is its base.
-        let baseTy = if isInterface then ValueNone else inherits
+        let baseClause = if isInterface then ValueNone else inherits
 
         let interfaceTypes =
             [
                 match (if isInterface then inherits else ValueNone) with
-                | ValueSome t -> t
+                | ValueSome(ClassInheritsDecl(typ = t)) -> t
                 | ValueNone -> ()
 
                 yield! interfaceSpecsOf elems
             ]
+
+        // A shape this signature published earlier answers for its own keys; the registry
+        // and provider answer for the rest.
+        let isInterfaceKey (key: TypeKey) : bool =
+            match sctx.Surface.ShapesByKey.TryGetValue key with
+            | true, ExternalTypeShape.Class c -> c.IsInterface
+            | true, ExternalTypeShape.IntrinsicInterface _ -> true
+            | true, _ -> false
+            | false, _ -> BaseEligibility.isInterfaceKey ctx key
 
         let attrs = Attributes.attributesOfTypeName tn
         let resolvedAttrs = ctx.ResolveAttributes attrs
@@ -363,15 +372,14 @@ module SignatureResolutionMembers =
                                  EqArray.empty)
                         FrozenInterfaces = freezeInterfaces ctx typeParams interfaceTypes
                         FrozenBaseType =
-                            baseTy
-                            |> ValueOption.bind (fun t ->
-                                match
-                                    freezeOver ctx (typarEnv ctx (TyparOwner.Type typeParams)) (translateType ctx t)
-                                with
-                                // A base already diagnosed at translation (`UndefinedType` →
-                                // `TyUnknown`) publishes no base type.
-                                | FTUnknown _ -> ValueNone
-                                | frozen -> ValueSome(FrozenNominal.OfFrozen "an `inherit` clause" frozen)
+                            baseClause
+                            |> ValueOption.bind (fun (ClassInheritsDecl(inheritToken = inhTok; typ = t)) ->
+                                BaseEligibility.classify isInterfaceKey (translateType ctx t)
+                                |> BaseEligibility.admit ctx inhTok
+                                |> ValueOption.map (fun admitted ->
+                                    freezeOver ctx (typarEnv ctx (TyparOwner.Type typeParams)) admitted
+                                    |> FrozenNominal.OfFrozen "an `inherit` clause"
+                                )
                             )
                         Flags =
                             { ExternalClassFlags.Default with

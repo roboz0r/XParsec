@@ -1792,6 +1792,29 @@ let interfaceImplTests =
                     (sprintf "inheriting an external interface diagnoses (%A)" errors)
             }
 
+            test "inheriting a type with no nominal head is rejected with a diagnostic" {
+                let provider = ClrSymbolProviders.buildContract defaultPackages
+
+                let src =
+                    String.concat "\n" [ "type D() ="; "    inherit (int * int)"; "    member this.X = 1" ]
+
+                let lexed, file = parseFile src
+
+                let ctx, tast =
+                    Pipeline.analyseSemWithContextFor testCompiling provider (LexedFile.ofText lexed) file
+
+                let errors = tast.Diagnostics |> Diagnostic.errors
+
+                Expect.isTrue
+                    (errors
+                     |> List.exists (fun d -> d.Message.Contains "only classes are inheritable"))
+                    (sprintf "inheriting a tuple type diagnoses (%A)" errors)
+
+                match TypeRegistry.tryClass ctx.Types UseSite.unbounded "D" with
+                | ValueSome info -> Expect.isTrue info.BaseType.IsNone "the tuple is not recorded as D's base type"
+                | ValueNone -> failtest "class D was not registered"
+            }
+
             test "inheriting a class still resolves and sets the base type" {
                 let provider = ClrSymbolProviders.buildContract defaultPackages
 

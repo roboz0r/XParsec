@@ -111,7 +111,7 @@ module NameResolutionInheritParent =
         /// inherits the PLATFORM type the identity names.
         | HeritablePlatform of IntrinsicIdentity
         /// An external interface, which `inherit` cannot name.
-        | Interface
+        | Interface of TypeKey
 
     /// A published type at the written arity, else a heritable primitive. Any other shape
     /// declines, so the open-prefix scan continues past it.
@@ -119,7 +119,7 @@ module NameResolutionInheritParent =
         match shape with
         | ExternalTypeShape.Class info when info.TyparArity = arity ->
             if info.IsInterface then
-                ValueSome ProviderBase.Interface
+                ValueSome(ProviderBase.Interface key)
             else
                 ValueSome(ProviderBase.Class key)
         | _ ->
@@ -132,11 +132,13 @@ module NameResolutionInheritParent =
             )
 
     /// Resolve an `inherit` clause's parent type to a `TyClass` under the derived class's
-    /// typar scope. Diagnoses (and returns `ValueNone`) when the parent is a non-class type,
-    /// an unknown name, or a multi-segment name.
+    /// typar scope. Diagnoses (and returns `ValueNone`) when the parent is an interface, a
+    /// non-class type, an unknown name, a multi-segment name, or a shape with no nominal
+    /// head; `inhTok` takes the blame where the written shape retains no name token.
     let resolveInheritParent
         (ctx: PassContext)
         (typarScope: Map<string, TyVarId>)
+        (inhTok: SyntaxToken)
         (t: Type<SyntaxToken>)
         : SemType voption =
         let rec nameAndArgs (t: Type<SyntaxToken>) : (LongIdent<SyntaxToken> * SemType list) voption =
@@ -160,7 +162,11 @@ module NameResolutionInheritParent =
         let diagnose (tok: SyntaxToken) (kind: Kind) = ctx.Report(tok, kind)
 
         match nameAndArgs t with
-        | ValueNone -> ValueNone
+        | ValueNone ->
+            // A written shape with no name to resolve (`inherit (int * int)`): classify what
+            // it translates to, so the rejection names the kind it is.
+            BaseEligibility.classify (BaseEligibility.isInterfaceKey ctx) (translateInheritArg ctx typarScope t)
+            |> BaseEligibility.admit ctx inhTok
         | ValueSome(li, targs) ->
             let nameTok = li.Idents.[li.Idents.Length - 1]
             let diagKey = NodeKey.ofToken nameTok NodeKind.TypeNamed
@@ -173,26 +179,8 @@ module NameResolutionInheritParent =
             else
                 let name = ctx.NameOf nameTok
 
-                let notAClass () =
-                    diagnose
-                        nameTok
-                        (Kind.Message(
-                            sprintf "Cannot inherit from type '%s', because only classes are inheritable" name
-                        ))
-
-                    ValueNone
-
-                let notAnInheritableInterface () =
-                    diagnose
-                        nameTok
-                        (Kind.Message(
-                            sprintf
-                                "Cannot inherit from interface '%s'; implement it with 'interface %s with'"
-                                name
-                                name
-                        ))
-
-                    ValueNone
+                let reject (verdict: BaseVerdict) =
+                    BaseEligibility.admit ctx nameTok verdict
 
                 // The contract's ctor-bearing intrinsic surface for the name, as its canon.
                 let tryCtorBearingCanon () =
@@ -254,19 +242,17 @@ module NameResolutionInheritParent =
                         | IntrinsicPlatform.Unsupported target ->
                             diagnose nameTok (Kind.UnsupportedOnTarget(name, target))
                             ValueNone
-                    | ValueSome ProviderBase.Interface -> notAnInheritableInterface ()
+                    | ValueSome(ProviderBase.Interface key) -> reject (BaseVerdict.Interface key)
                     | ValueNone ->
                         // A name the name table knows at any arity is a project-local type of
                         // some other kind; one it does not know is unknown *here*, which
                         // includes a type declared below this group.
-                        if TypeRegistry.isTypeNameInScope ctx.Types (ctx.UseSiteAt diagKey) name then
-                            notAClass ()
-                        else
-                            diagnose nameTok (Kind.Message(sprintf "Cannot inherit from unknown type '%s'" name))
-                            ValueNone
+                        match TypeRegistry.tryTypeClaimAnyArity ctx.Types (ctx.UseSiteAt diagKey) name with
+                        | ValueSome claim -> reject (BaseVerdict.NotAClass claim.Key)
+                        | ValueNone -> reject (BaseVerdict.UnknownName name)
 
                 match TypeRegistry.tryClass ctx.Types (ctx.UseSiteAt diagKey) name with
-                | ValueSome info when info.IsInterface -> notAnInheritableInterface ()
+                | ValueSome info when info.IsInterface -> reject (BaseVerdict.Interface info.TypeKey)
                 | ValueSome info -> ValueSome(TyClass(info.TypeKey, EqArray.ofList targs))
                 | ValueNone ->
                     // Heritable-local arm: a `(# class … #)` intrinsic of THIS file. One read

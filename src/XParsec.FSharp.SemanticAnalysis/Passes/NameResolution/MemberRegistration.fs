@@ -602,14 +602,14 @@ module NameResolutionMemberRegistration =
         | ValueSome d ->
             match d.Body.inherits with
             | ValueNone -> ()
-            | ValueSome(ClassInheritsDecl(typ = parentTyp; expr = exprOpt)) ->
+            | ValueSome(ClassInheritsDecl(inheritToken = inhTok; typ = parentTyp; expr = exprOpt)) ->
                 match TypeRegistry.tryClassByKey ctx.Types id.Key with
                 | ValueSome info ->
                     let typarScope =
                         (Map.empty, info.TypeParams)
                         ||> EqArray.fold (fun acc (n, tv) -> Map.add n tv acc)
 
-                    match NameResolutionInheritParent.resolveInheritParent ctx typarScope parentTyp with
+                    match NameResolutionInheritParent.resolveInheritParent ctx typarScope inhTok parentTyp with
                     | ValueSome parentTy ->
                         info.BaseType <- ValueSome parentTy
                         info.BaseCtorArgs <- exprOpt
