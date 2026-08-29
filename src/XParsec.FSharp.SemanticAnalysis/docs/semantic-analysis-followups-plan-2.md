@@ -42,16 +42,19 @@ callers thread an id they otherwise do not need. Storing the pattern and value d
 parameter, and delete the sentence "`Decl` is always a `TDecl.Let` of lambdas" from the type's
 doc. The cost is at the freeze/codec seam, which currently reads and writes a whole `TDecl`.
 
-### `TastDecl.fs:55` — `TTypeDeclG.Namespace` looks write-only and duplicates `TypeKey.Container`
+### `TastDecl.fs:55` — `TTypeDeclG.Namespace` duplicates `TypeKey.Container`, with ONE load-bearing reader
 
-The field is set once in `Elaborate\TypeDecls.fs`, copied by `TastConvert`, and written and
-read back by the frozen codec, but I found no site that consults it for behaviour. It is also
-a second spelling of information `TypeKey` already carries: `TypeKey.Container` chains through
-the namespace and `TypeKey.Namespace` projects it as a `NamespaceKey`, whereas this field is
-a `string option` — the over-wide form of the same key. If it really is unread, deleting it
-also removes an option-vs-empty-string mismatch between the two spellings. Hedge: I traced
-the writers and the round-trip rather than proving no reader exists, so a consumer reached
-through a record-copy expression could have been missed.
+The hedge was warranted: `Codegen.Clr\LayoutNodes.fs:258` reads the field (spelled
+`td.Namespace` on the `TastAccessor.TypeDecl` alias) and feeds the emitted `TypeDef` row's
+namespace column for a type declared directly under a namespace. The value is provably the
+same as `SymbolKeyOps.typeNs td.TypeKey` — the writer stores the file's root namespace and
+`TypeKey.Namespace` walks to the same root — and `defaultArg … ""` already collapses the
+option-vs-empty-string mismatch in the `TypeKey` direction. Deletion is a two-step change:
+(1) switch `LayoutNodes.fs:258` to `SymbolKeyOps.typeNs td.TypeKey` and confirm the Clr suite
+green (`MetadataStructure.fs` / `PeInspection.fs` read the emitted column); (2) delete the
+field, its writer (`Elaborate/TypeDecls.fs:158`), the `TastConvert.fs:348` copy, the codec
+sites (`FrozenCodecDecls.fs:165,173,181`), and re-render `TastShape.fs:726` from `TypeKey`.
+The frozen codec carries no version stamp and no byte-level golden pins the encoding.
 
 ### `Unification/EngineCore.fs:75` — the occurs check can miss when `target` is not a union-find root **[LANDED]**
 
