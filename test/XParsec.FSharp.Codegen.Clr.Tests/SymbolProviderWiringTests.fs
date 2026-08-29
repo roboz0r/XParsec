@@ -49,18 +49,18 @@ let tests =
                 // The provider resolves the QUALIFIED name; short names come from the
                 // ambient open scope. `int` is an `extern` paired with a `.fs`
                 // `(# "System.Int32" #)`, so it surfaces `Intrinsic`, not opaque `Class`.
-                match ExternalSymbols.tryReprType provider "Vesper.int" with
+                match ExternalSymbols.tryMetaType provider "Vesper.int" with
                 | ValueSome(ExternalTypeShape.Intrinsic {
                                                             Id = {
                                                                      Canon = canon
-                                                                     Platform = IntrinsicPlatform.Repr platform
+                                                                     Platform = IntrinsicPlatform.Bound platform
                                                                  }
                                                         }) ->
                     Expect.equal canon (RuntimeNames.intKey) "int's canon identity is the `.fsi` name"
 
                     Expect.equal
                         platform
-                        "System.Int32"
+                        (PlatformTypeId "System.Int32")
                         "int's platform name is its prim-types-min `.fs` CLI representation"
                 | other -> failtestf "expected Vesper.int as an Intrinsic shape from the manifest layer, got %A" other
 

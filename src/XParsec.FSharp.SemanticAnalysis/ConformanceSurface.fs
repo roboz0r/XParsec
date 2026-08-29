@@ -20,7 +20,7 @@ module ConformanceSurface =
             | DeclShape.Type -> declared.Add (TastAccessor.declType decl).TypeKey |> ignore
             | _ -> ()
 
-        for KeyValue(canon, _) in frozen.Residue.IntrinsicReprKeys do
+        for KeyValue(canon, _) in frozen.Residue.IntrinsicBindings do
             declared.Add canon |> ignore
 
         declared
@@ -49,7 +49,10 @@ module ConformanceSurface =
 
     /// Does the signature's shape for this key oblige the implementation to declare a type of
     /// the same identity?
-    let private demandsDeclaration (declaredReprs: HashSet<TypeKey>) (entry: SurfaceEntry<TypeKey, ExternalTypeShape>) =
+    let private demandsDeclaration
+        (declaredExterns: HashSet<TypeKey>)
+        (entry: SurfaceEntry<TypeKey, ExternalTypeShape>)
+        =
         match entry.Value with
         // The `extern` family is checked by the repr pairing below instead. A capability on a
         // target binding no repr publishes as a plain `Class`, so the key is what identifies it.
@@ -62,36 +65,36 @@ module ConformanceSurface =
         | ExternalTypeShape.Record _
         | ExternalTypeShape.Union _
         | ExternalTypeShape.Enum _
-        | ExternalTypeShape.Class _ -> not (declaredReprs.Contains entry.Key)
+        | ExternalTypeShape.Class _ -> not (declaredExterns.Contains entry.Key)
 
     /// Type PRESENCE, and the `extern` ↔ `(# … #)` pairing with its heritability. Findings come
     /// in key order: presence first, then the reprs the signature declares, then the ones only
     /// the implementation binds.
     let checkTypes (published: PublishedSurface) (frozen: FrozenPools) : Conformance.ConformanceError list =
         let declared = declaredTypes frozen
-        let implReprs = frozen.Residue.IntrinsicReprKeys
+        let implBindings = frozen.Residue.IntrinsicBindings
 
-        let declaredReprKeys =
-            HashSet<TypeKey>(seq { for e in published.DeclaredReprs -> e.Key }, HashIdentity.Structural)
+        let declaredExternKeys =
+            HashSet<TypeKey>(seq { for e in published.ExternForms -> e.Key }, HashIdentity.Structural)
 
         let named (key: TypeKey) = SymbolKeyOps.typeMetaName key
 
         [
             for entry in published.ShapesByKey do
-                if demandsDeclaration declaredReprKeys entry && not (declared.Contains entry.Key) then
+                if demandsDeclaration declaredExternKeys entry && not (declared.Contains entry.Key) then
                     yield Conformance.ConformanceError.MissingInImpl(named entry.Key)
 
-            for entry in published.DeclaredReprs do
-                match EqDict.tryFind entry.Key implReprs with
+            for entry in published.ExternForms do
+                match EqDict.tryFind entry.Key implBindings with
                 | ValueNone -> yield Conformance.ConformanceError.ExternWithoutIntrinsic(named entry.Key)
-                | ValueSome repr ->
-                    if repr.Heritable <> entry.Value.IsHeritable then
+                | ValueSome binding ->
+                    if binding.Heritable <> entry.Value.IsHeritable then
                         yield Conformance.ConformanceError.HeritabilityMismatch(named entry.Key)
 
-            // A repr the contract never declares. A plain implementation type absent from the
-            // signature is hidden by F#, so only the repr case is reported.
-            for KeyValue(canon, _) in implReprs do
-                if not (declaredReprKeys.Contains canon) then
+            // A binding the contract never declares. A plain implementation type absent from the
+            // signature is hidden by F#, so only the intrinsic-binding case is reported.
+            for KeyValue(canon, _) in implBindings do
+                if not (declaredExternKeys.Contains canon) then
                     yield Conformance.ConformanceError.IntrinsicWithoutExtern(named canon)
         ]
 

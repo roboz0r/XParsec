@@ -107,13 +107,13 @@ module internal UnificationTranslate =
         RuntimeNames.numericTypeNames.Contains name
 
     /// A resolved `Class` whose metadata name a canon is declared on is an intrinsic's
-    /// platform spelling (`System.Exception` → `exn`) and resolves to the canon `TyConst`,
+    /// platform type id (`System.Exception` → `exn`) and resolves to the canon `TyConst`,
     /// so no raw BCL nominal enters the unifier. Capability interfaces declare no canon.
     let externalClassTy (ctx: PassContext) (key: TypeKey) (args: EqArray<SemType>) : SemType =
         // Built on the resolved `key` directly: re-minting an identity from the flattened
         // metadata name loses the container and gives an unequal key. The probe keys on that
         // NAME, which is sound because its entries are all bare-IL, where name and key agree.
-        match IntrinsicTypeMap.tryCanon (SymbolKeyOps.typeMetaName key) ctx.IntrinsicTypeMap.Value with
+        match IntrinsicTypeMap.tryCanon (PlatformTypeId(SymbolKeyOps.typeMetaName key)) ctx.IntrinsicTypeMap.Value with
         | ValueSome canon -> TyConst(canon, args)
         | ValueNone -> TyClass(key, args)
 
@@ -332,7 +332,7 @@ module internal UnificationTranslate =
         match claim.Kind with
         // Primitive binding (`type int = (# "System.Int32" #)`): a nominal intrinsic, NOT a
         // transparent abbreviation. Its canon key is contract-sourced, minted at claim time.
-        | TypeDeclKind.IntrinsicRepr -> ValueSome(TyConst(TypeRegistry.intrinsicKeyOf ctx.Types claim.Name, args))
+        | TypeDeclKind.IntrinsicBinding -> ValueSome(TyConst(TypeRegistry.intrinsicKeyOf ctx.Types claim.Name, args))
         | TypeDeclKind.Abbreviation ->
             match TypeRegistry.tryAbbrevByKey ctx.Types key with
             | ValueSome info ->
@@ -455,7 +455,7 @@ module internal UnificationTranslate =
             let fromLocal =
                 match TypeRegistry.tryTypeClaimAnyArity ctx.Types (ctx.UseSiteAt site.Key) name with
                 | ValueSome claim ->
-                    if claim.Kind <> TypeDeclKind.IntrinsicRepr then
+                    if claim.Kind <> TypeDeclKind.IntrinsicBinding then
                         ctx.Report(site.Tok, Kind.TypeArgArity(name, claim.TyparArity, argCount))
 
                     resolveClaimedType ctx site claim translatedArgs

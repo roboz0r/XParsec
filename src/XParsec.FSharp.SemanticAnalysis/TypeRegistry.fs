@@ -15,8 +15,8 @@ type TypeDeclKind =
     | Enum
     | Abbreviation
     /// A `type int = (# "System.Int32" #)` intrinsic binding. Its declared NAME is a
-    /// name-table citizen like any other type's; its target-representation string is not.
-    | IntrinsicRepr
+    /// name-table citizen like any other type's; its platform type id is not.
+    | IntrinsicBinding
 
 /// The nominal identity of one type declaration: everything NOT kind-specific. Every member
 /// of a `type … and …` group is claimed before any of the group's per-kind registrars run.
@@ -89,7 +89,7 @@ type PassContextTypes =
         /// from `type int = (# "System.Int32" #)`, plus the `class`-tag verdict. NOT
         /// transparent like `Abbreviation`: a use resolves to `TyConst key`, not the RHS.
         /// Key-addressed because a key projected back to a name loses its arity.
-        IntrinsicReprKeys: Dictionary<TypeKey, IntrinsicReprInfo>
+        IntrinsicBindings: Dictionary<TypeKey, IntrinsicBindingInfo>
         /// This file's own intrinsics: bare declared name → `SymbolKey` qualified by the
         /// declaring `namespace`. The VALUE carries the arity, the table key does not. THE
         /// name → key index for intrinsics: every other intrinsic table is key-addressed, so
@@ -127,7 +127,7 @@ module PassContextTypes =
             Abbreviation = KindRegistry.empty ()
             CtorIndex = Dictionary<_, _>()
             FieldIndex = Dictionary<_, _>()
-            IntrinsicReprKeys = Dictionary<_, _>()
+            IntrinsicBindings = Dictionary<_, _>()
             IntrinsicKeys = Dictionary<_, _>()
             IntrinsicAbbrevHost = Dictionary<_, _>()
             TypeClaims = Dictionary<_, _>()

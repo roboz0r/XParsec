@@ -461,8 +461,8 @@ module Unification =
                 for (_, key, shape) in resolvedImpls do
                     match shape with
                     | ValueSome(ExternalTypeShape.IntrinsicInterface cap) ->
-                        // Arity 0 is lossless: a platform repr spells its own `` `N ``.
-                        SymbolKeyOps.typeMetaName key, closeOver (SymbolKeyOps.qualifiedTypeKeyOf cap.Platform 0)
+                        // Arity 0 is lossless: a platform type id spells its own `` `N ``.
+                        SymbolKeyOps.typeMetaName key, closeOver (SymbolKeyOps.qualifiedTypeKeyOf cap.Platform.Value 0)
                     | _ -> ()
             ]
 

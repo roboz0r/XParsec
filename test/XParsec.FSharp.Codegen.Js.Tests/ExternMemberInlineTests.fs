@@ -35,8 +35,8 @@ let private widgetContractOf (members: string) : IExternalSymbolProvider * TypeK
         | Result.Error f -> failwithf "parse failed: %A" [ for d in f.Diagnostics -> d.Message ]
 
     // The repr the paired `.fs` would bind: `widget` is a JS `object`.
-    let reprs = System.Collections.Generic.Dictionary<string, string>()
-    reprs.["widget"] <- "object"
+    let bindings = System.Collections.Generic.Dictionary<string, PlatformTypeId>()
+    bindings.["widget"] <- PlatformTypeId "object"
 
     let surface, _ =
         Passes.SignatureResolution.resolveFile
@@ -45,7 +45,7 @@ let private widgetContractOf (members: string) : IExternalSymbolProvider * TypeK
             {
                 Assembly = AssemblyName "Widgets"
                 Target = Target.Js
-                Reprs = reprs
+                Bindings = bindings
             }
             parsed.Tree
 

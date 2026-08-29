@@ -96,7 +96,7 @@ let private collect () : Collected =
         for d in file.Diagnostics do
             sites.Add d.Site |> ignore
 
-        for k in file.IntrinsicReprKeys.Keys do
+        for k in file.IntrinsicBindings.Keys do
             visitTypeKey k
 
         for k in file.Accessibility.Keys do

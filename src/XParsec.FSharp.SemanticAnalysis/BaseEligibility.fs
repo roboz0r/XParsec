@@ -89,8 +89,8 @@ module BaseEligibility =
     /// Whether `key` is a heritable primitive's canon: the file's own intrinsic bindings
     /// first, then the provider.
     let isHeritableCanon (ctx: PassContext) (key: TypeKey) : bool =
-        match ctx.Types.IntrinsicReprKeys.TryGetValue key with
-        | true, repr -> repr.Heritable
+        match ctx.Types.IntrinsicBindings.TryGetValue key with
+        | true, binding -> binding.Heritable
         | _ ->
             match ctx.Provider.TryLookupType key with
             | ValueSome(ExternalTypeShape.Intrinsic { Class = ValueSome surface }) -> surface.Heritable

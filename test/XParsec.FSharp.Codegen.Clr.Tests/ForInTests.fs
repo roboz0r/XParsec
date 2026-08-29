@@ -401,7 +401,7 @@ let forInTests =
                 runsPackages [] "1\n2\n3" src
             }
 
-            // `'T[]` declares `interface seq<'T>`, whose platform repr is
+            // `'T[]` declares `interface seq<'T>`, whose platform type id is
             // `IEnumerable<T>` — an interface a CLR array implements without any Vesper code.
             // So this takes the boxing `Interface` walk: correct, though an index loop would
             // be faster. Built by the raw `newarr` intrinsic, an array LITERAL lowering

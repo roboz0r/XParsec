@@ -253,12 +253,12 @@ module internal UnificationInferApp =
                     // name keeps its by-name `TyConst`.
                     let fam =
                         fam
-                        |> PrintfSpec.resolveExternalSlots (fun name ->
-                            // The sink slot names (`System.IO.TextWriter`, …) are FIXED and fully
+                        |> PrintfSpec.resolveExternalSlots (fun id ->
+                            // The sink slot ids (`System.IO.TextWriter`, …) are FIXED and fully
                             // qualified, so the type resolves by KEY, not an opens-aware lookup.
-                            match ctx.Provider.TryLookupType(SymbolKeyOps.qualifiedTypeKeyOf name 0) with
+                            match ctx.Provider.TryLookupType(SymbolKeyOps.qualifiedTypeKeyOf id.Value 0) with
                             | ValueSome(ExternalTypeShape.Class info) when info.TyparArity = 0 ->
-                                ValueSome(TyClass(SymbolKeyOps.qualifiedTypeKeyOf name 0, EqArray.empty))
+                                ValueSome(TyClass(SymbolKeyOps.qualifiedTypeKeyOf id.Value 0, EqArray.empty))
                             | _ -> ValueNone
                         )
 

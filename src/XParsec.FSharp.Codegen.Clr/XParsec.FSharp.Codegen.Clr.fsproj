@@ -16,7 +16,7 @@
     <Compile Include="ICodegenProvider.fs" />
     <Compile Include="CodegenSymbols.fs" />
     <Compile Include="ClrEnv.fs" />
-    <Compile Include="IntrinsicRepr.fs" />
+    <Compile Include="PlatformTypeIds.fs" />
     <Compile Include="ClrEncoder.fs" />
     <Compile Include="ClrGenerics.fs" />
     <Compile Include="ClrExternalMembers.fs" />

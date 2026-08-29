@@ -144,12 +144,12 @@ module UnificationEngine =
         | ValueSome folded -> Some folded
         | ValueNone -> None
 
-    /// A foreign parameter whose type IS a platform repr shared by several primitives
+    /// A foreign parameter whose type IS a platform type id shared by several primitives
     /// (JS `number` <- int/float/float32) admits any member of that family: returns the
     /// family as a `TyOr`, else `ValueNone` for the ordinary single-canon case.
     let private numericFamilyOr (ctx: PassContext) (ty: SemType) : SemType voption =
         match resolveStep ctx.Store ty with
-        // The axis is keyed by platform repr, so only a type whose identity IS a platform
+        // The axis is keyed by platform type id, so only a type whose identity IS a platform
         // name can hit it: a Vesper-qualified `number` is refused.
         | TyConst(PlatformName platform, args) when args.Length = 0 ->
             match IntrinsicTypeMap.canonsOf platform ctx.IntrinsicTypeMap.Value with
@@ -158,7 +158,7 @@ module UnificationEngine =
             | _ -> ValueNone
         | _ -> ValueNone
 
-    /// Two intrinsic canons are REPR-SIBLINGS iff some platform repr covers BOTH: on JS
+    /// Two intrinsic canons are REPR-SIBLINGS iff some platform type id covers BOTH: on JS
     /// the numeric family (`"number"` -> int/float/float32); on CLR, never.
     let private reprSiblings (ctx: PassContext) (a: SemType) (b: SemType) : bool =
         match resolveStep ctx.Store a, resolveStep ctx.Store b with
@@ -217,7 +217,7 @@ module UnificationEngine =
         | NotAbsorbing
 
     /// The absorbing shapes, in order: the universal `obj` supertype; a union slot, which is
-    /// `obj` restricted to an enumerated member set; a platform-repr numeric family; and an
+    /// `obj` restricted to an enumerated member set; a platform type id numeric family; and an
     /// external interface met by a record's width. Each admits the actual WITHOUT unifying,
     /// since pinning a typar argument here would ground the enclosing type's parameter.
     /// The arms match disjoint resolved shapes of `expected`, so `Refuses` is final.

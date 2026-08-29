@@ -26,8 +26,9 @@ type internal ClrEncoder(env: ClrEnv) =
     let eFun2 () = env.EFun2()
     let eVesperList1 = env.EVesperList1
 
-    /// Single-sourced primitive repr, as an active pattern over an `FTConst` canon key.
-    let (|PrimitiveRepr|_|) (key: TypeKey) = env.TryPrimitiveRepr key
+    /// Single-sourced primitive platform type id, as an active pattern over an `FTConst`
+    /// canon key.
+    let (|PrimitiveTypeId|_|) (key: TypeKey) = env.TryPrimitiveTypeId key
 
     // `ValueTuple`n` handle bundles, cached by element-type list. Unlike `ctx.TypeRef` (which
     // dedups its rows), `ctx.TypeSpec` / `ctx.MemberRef` add a fresh metadata row per call, so
@@ -187,26 +188,27 @@ type internal ClrEncoder(env: ClrEnv) =
                 failwithf
                     "ClrProvider: cannot encode anonymous union %A, because only a nullable reference `T | null` is representable on CLR (erased to `T`)"
                     t
-        // Keys the IL type off the repr string (`"int"` → `"System.Int32"` → `i4`), not the
-        // Vesper name, which survives only for the failure diagnostic. `obj` and `'T[]` are
-        // `FTConst` spellings too, so this arm follows theirs.
-        | FTConst(PrimitiveRepr repr & key, args) ->
-            if args.IsEmpty && IntrinsicRepr.tryEncodeValueType te repr then
+        // Keys the IL type off the platform type id (`"int"` → `"System.Int32"` → `i4`), not
+        // the Vesper name, which survives only for the failure diagnostic. `obj` and `'T[]`
+        // are `FTConst` spellings too, so this arm follows theirs.
+        | FTConst(PrimitiveTypeId typeId & key, args) ->
+            if args.IsEmpty && PlatformTypeIds.tryEncodeValueType te typeId then
                 ()
-            elif args.IsEmpty && repr = "System.ValueTuple" then
+            elif args.IsEmpty && typeId.Value = "System.ValueTuple" then
                 // `unit` — the zero-field BCL struct; a value type with no external ref of its own.
                 te.Type(eValueTuple.Value, true)
             else
-                // An intrinsic whose repr is a BCL TYPE, not a primitive: `exn` →
-                // `System.Exception`. A generic repr spells its own `` `N ``, hence arity 0.
-                let platformKey = SymbolKeyOps.qualifiedTypeKeyOf repr 0
+                // An intrinsic whose platform type is a BCL TYPE, not a primitive: `exn` →
+                // `System.Exception`. A generic type id spells its own `` `N ``, hence arity 0.
+                let platformKey = SymbolKeyOps.qualifiedTypeKeyOf typeId.Value 0
 
                 match externalClassRef platformKey with
-                // The repr's OWN value-ness: a struct encoded as `class X` only dies at JIT time.
+                // The platform type's OWN value-ness: a struct encoded as `class X` only dies
+                // at JIT time.
                 | ValueSome tref -> encodeNominal te tref (externalIsValueType platformKey) args
                 | ValueNone ->
                     let (DisplayName name) = SymbolKeyOps.typeSimpleName key
-                    failwithf "ClrProvider: no IL encoding for intrinsic representation %s (type %s)" repr name
+                    failwithf "ClrProvider: no IL encoding for platform type id %s (type %s)" typeId.Value name
         | other -> failwithf "ClrProvider: cannot encode FrozenType: %A" other
 
     /// Encode `handle` applied to `args`: the bare type at arity 0, a `GENERICINST` otherwise.

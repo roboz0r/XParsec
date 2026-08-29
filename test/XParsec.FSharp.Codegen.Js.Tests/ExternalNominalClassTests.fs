@@ -181,7 +181,7 @@ let tests =
                     Expect.equal args.Length 1 "Wrap<int> applies one type arg"
 
                     Expect.isTrue
-                        (match ExternalSymbols.tryReprTypeAt boxProviderRaw "Wrap`1" 0 with
+                        (match ExternalSymbols.tryMetaTypeAt boxProviderRaw "Wrap`1" 0 with
                          | ValueSome _ -> true
                          | ValueNone -> false)
                         "the generic type must resolve under its arity-suffixed name"
@@ -211,7 +211,7 @@ let tests =
 
             test "NEGATIVE: a type-alias name stays a transparent Abbrev (never FTClass)" {
                 // The alias must resolve as `Abbrev` so its use sites expand to the target.
-                match ExternalSymbols.tryReprType boxProviderRaw "Count" with
+                match ExternalSymbols.tryMetaType boxProviderRaw "Count" with
                 | ValueSome(ExternalTypeShape.Abbrev(arity, target)) ->
                     Expect.equal arity 0 "Count is non-generic"
 

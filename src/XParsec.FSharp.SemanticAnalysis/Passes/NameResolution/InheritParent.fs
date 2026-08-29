@@ -203,12 +203,12 @@ module NameResolutionInheritParent =
                         ValueSome(BaseParentG.PrimitiveCanon(NominalG.ofConst id.Canon (EqArray.ofList targs)))
                     | _ -> ValueNone
 
-                // A heritable base's platform repr → its external `TyClass`. A sentinel repr
+                // A heritable base's platform type id → its external `TyClass`. A sentinel id
                 // (`"!Vesper.Attribute"`) denotes no external type, so a base with declared
                 // ctors falls back to inheriting by canon, and only a base with neither gets
                 // the "did not resolve" diagnostic.
-                let reprToExternalBase (repr: string) =
-                    match ExternalSymbols.tryReprTypeAt ctx.Provider repr targs.Length with
+                let typeIdToExternalBase (typeId: PlatformTypeId) =
+                    match ExternalSymbols.tryMetaTypeAt ctx.Provider typeId.Value targs.Length with
                     | ValueSome(struct (extKey, _)) ->
                         ValueSome(BaseParentG.Class(NominalG.ofClass extKey (EqArray.ofList targs)))
                     | ValueNone ->
@@ -221,7 +221,7 @@ module NameResolutionInheritParent =
                                     sprintf
                                         "Cannot inherit from external base '%s': its representation '%s' did not resolve to a known external type (is a package dependency missing?)"
                                         name
-                                        repr
+                                        typeId.Value
                                 ))
 
                             ValueNone
@@ -247,7 +247,7 @@ module NameResolutionInheritParent =
                         ValueSome(BaseParentG.PrimitiveCanon(NominalG.ofConst id.Canon (EqArray.ofList targs)))
                     | ValueSome(ProviderBase.HeritablePlatform id) ->
                         match id.Platform with
-                        | IntrinsicPlatform.Repr repr -> reprToExternalBase repr
+                        | IntrinsicPlatform.Bound typeId -> typeIdToExternalBase typeId
                         | IntrinsicPlatform.Unsupported target ->
                             diagnose nameTok (Kind.UnsupportedOnTarget(name, target))
                             ValueNone
@@ -265,18 +265,18 @@ module NameResolutionInheritParent =
                 | ValueSome info -> ValueSome(BaseParentG.Class(NominalG.ofClass info.TypeKey (EqArray.ofList targs)))
                 | ValueNone ->
                     // Heritable-local arm: a `(# class … #)` intrinsic of THIS file. One read
-                    // yields both the repr and the `class`-tag verdict. An `inherit` parent is
-                    // an ARBITRARY written name (a record, a typo, a provider class), so the
+                    // yields both the type id and the `class`-tag verdict. An `inherit` parent
+                    // is an ARBITRARY written name (a record, a typo, a provider class), so the
                     // name → key step must be allowed to miss here.
-                    let heritableLocalRepr =
+                    let heritableLocalTypeId =
                         match TypeRegistry.tryIntrinsicKeyOf ctx.Types name with
                         | ValueNone -> ValueNone
                         | ValueSome canon ->
-                            match ctx.Types.IntrinsicReprKeys.TryGetValue canon with
-                            | true, repr when repr.Heritable -> ValueSome repr.Platform
+                            match ctx.Types.IntrinsicBindings.TryGetValue canon with
+                            | true, binding when binding.Heritable -> ValueSome binding.TypeId
                             | _ -> ValueNone
 
-                    match heritableLocalRepr with
-                    // The EXTERNAL type the repr denotes, not the opaque value-repr `TyConst`.
-                    | ValueSome platform -> reprToExternalBase platform
+                    match heritableLocalTypeId with
+                    // The EXTERNAL type the id denotes, not the opaque value `TyConst`.
+                    | ValueSome typeId -> typeIdToExternalBase typeId
                     | ValueNone -> resolveThroughProvider ()

@@ -91,11 +91,11 @@ let tests =
                 let js = JsNativeSymbols.buildJsNativeContract [ vesperCorePackage ]
 
                 let facesOf (name: string) =
-                    match ExternalSymbols.tryReprType js name with
+                    match ExternalSymbols.tryMetaType js name with
                     | ValueSome(ExternalTypeShape.Intrinsic {
                                                                 Id = {
                                                                          Canon = canon
-                                                                         Platform = IntrinsicPlatform.Repr platform
+                                                                         Platform = IntrinsicPlatform.Bound platform
                                                                      }
                                                             }) -> canon, platform
                     | other -> failtestf "expected %s as an Intrinsic shape with a JS repr, got %A" name other
@@ -109,10 +109,13 @@ let tests =
                 Expect.equal floatCanon (RuntimeNames.floatKey) "float canon identity is the `.fsi` name"
                 Expect.notEqual intCanon floatCanon "int and float MUST keep distinct canon identities"
 
-                Expect.equal intPlat "number" "int platform name repoints to JS `number`"
-                Expect.equal floatPlat "number" "float platform name repoints to JS `number`"
+                Expect.equal intPlat (PlatformTypeId "number") "int platform name repoints to JS `number`"
+                Expect.equal floatPlat (PlatformTypeId "number") "float platform name repoints to JS `number`"
 
-                Expect.notEqual intCanon.Name intPlat "the two names genuinely diverge on JS (identity ≠ runtime repr)"
+                Expect.notEqual
+                    intCanon.Name
+                    intPlat.Value
+                    "the two names genuinely diverge on JS (identity ≠ platform type id)"
             }
 
             test "JS target: unit -> undefined, int64/uint64 -> bigint (canon = `.fsi` name)" {
@@ -120,22 +123,28 @@ let tests =
                 let js = JsNativeSymbols.buildJsNativeContract [ vesperCorePackage ]
 
                 let facesOf (name: string) =
-                    match ExternalSymbols.tryReprType js name with
+                    match ExternalSymbols.tryMetaType js name with
                     | ValueSome(ExternalTypeShape.Intrinsic {
                                                                 Id = {
                                                                          Canon = canon
-                                                                         Platform = IntrinsicPlatform.Repr platform
+                                                                         Platform = IntrinsicPlatform.Bound platform
                                                                      }
                                                             }) -> canon, platform
                     | other -> failtestf "expected %s as an Intrinsic shape with a JS repr, got %A" name other
 
-                Expect.equal (facesOf "Vesper.unit") (RuntimeNames.unitKey, "undefined") "unit -> undefined on JS"
+                Expect.equal
+                    (facesOf "Vesper.unit")
+                    (RuntimeNames.unitKey, PlatformTypeId "undefined")
+                    "unit -> undefined on JS"
 
-                Expect.equal (facesOf "Vesper.int64") (RuntimeNames.int64Key, "bigint") "int64 -> bigint on JS"
+                Expect.equal
+                    (facesOf "Vesper.int64")
+                    (RuntimeNames.int64Key, PlatformTypeId "bigint")
+                    "int64 -> bigint on JS"
 
                 Expect.equal
                     (facesOf "Vesper.uint64")
-                    (RuntimeNames.primitiveKey "uint64", "bigint")
+                    (RuntimeNames.primitiveKey "uint64", PlatformTypeId "bigint")
                     "uint64 -> bigint on JS"
             }
 

@@ -38,7 +38,7 @@ module internal CapabilityCoSlots =
             for iface in interfaces do
                 match symbols.TryLookupType iface.Key with
                 | ValueSome(ExternalTypeShape.IntrinsicInterface { Platform = platform }) ->
-                    for slot in ofPlatformInterface platform -> iface, slot
+                    for slot in ofPlatformInterface platform.Value -> iface, slot
                 | _ -> ()
         ]
 

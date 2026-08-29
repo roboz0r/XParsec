@@ -59,15 +59,15 @@ module AssemblyAnalysis =
         : IExternalSymbolProvider =
         ExternalSymbolProviders.composite (published @ [ external; prelude ])
 
-    /// Short name ⇒ intrinsic repr, read off the unit's own implementation tree, so the
-    /// `.fsi`'s `type t = extern` picks `Repr` over `Unsupported`.
-    let private implementationReprs
+    /// Short name ⇒ platform type id, read off the unit's own implementation tree, so the
+    /// `.fsi`'s `type t = extern` picks `Bound` over `Unsupported`.
+    let private implementationBindings
         (lexed: Lexed)
         (file: ImplementationFile<SyntaxToken>)
-        : Dictionary<string, string> =
-        let reprs = Dictionary<string, string>(System.StringComparer.Ordinal)
-        IntrinsicReprs.ofImplementationInto reprs (SyntaxToken.nameIn lexed) file
-        reprs
+        : Dictionary<string, PlatformTypeId> =
+        let bindings = Dictionary<string, PlatformTypeId>(System.StringComparer.Ordinal)
+        IntrinsicBindings.ofImplementationInto bindings (SyntaxToken.nameIn lexed) file
+        bindings
 
     /// One analysed unit of an assembly: the frozen file, the surface it publishes across the
     /// assembly boundary — its `.fsi`'s when it has one, else the one its implementation
@@ -176,7 +176,7 @@ module AssemblyAnalysis =
     let private resolveSignatureFile
         (assembly: CompilingAssembly)
         (composed: IExternalSymbolProvider)
-        (reprs: Dictionary<string, string>)
+        (bindings: Dictionary<string, PlatformTypeId>)
         (signature: ParsedFile<ParseChain.ParsedSignature>)
         : LexedFile * PublishedSurface * Diagnostic list =
         // Anchored to the signature's OWN token stream: its diagnostics index that text.
@@ -190,7 +190,7 @@ module AssemblyAnalysis =
                 {
                     Assembly = assembly.Name
                     Target = assembly.Target
-                    Reprs = reprs
+                    Bindings = bindings
                 }
                 signature.Parsed.Tree
 
@@ -280,9 +280,12 @@ module AssemblyAnalysis =
 
         let signatureFloor () = visibility external own
 
-        let resolveSignature (reprs: Dictionary<string, string>) (signature: ParsedFile<ParseChain.ParsedSignature>) =
+        let resolveSignature
+            (bindings: Dictionary<string, PlatformTypeId>)
+            (signature: ParsedFile<ParseChain.ParsedSignature>)
+            =
             let retained, surface, diagnostics =
-                resolveSignatureFile assembly (signatureFloor ()) reprs signature
+                resolveSignatureFile assembly (signatureFloor ()) bindings signature
 
             {
                 Signature = signature
@@ -321,7 +324,7 @@ module AssemblyAnalysis =
                             parsedUnit.Signature
                             |> ValueOption.map (
                                 resolveSignature (
-                                    implementationReprs
+                                    implementationBindings
                                         parsedUnit.Implementation.Parsed.Lexed
                                         parsedUnit.Implementation.Parsed.Tree
                                 )

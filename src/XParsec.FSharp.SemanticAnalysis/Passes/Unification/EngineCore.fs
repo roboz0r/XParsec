@@ -445,7 +445,7 @@ module UnificationEngineCore =
         | true, canon -> canon
         | _ ->
             let canon =
-                if ctx.Types.IntrinsicReprKeys.ContainsKey key then
+                if ctx.Types.IntrinsicBindings.ContainsKey key then
                     key
                 else
                     match ctx.Provider.TryLookupType key with
@@ -455,13 +455,13 @@ module UnificationEngineCore =
             ctx.IntrinsicCanonCache.[key] <- canon
             canon
 
-    /// The PLATFORM name of an intrinsic: the runtime repr its `(# "…" #)` binding records
+    /// The platform type id of an intrinsic, as its `(# "…" #)` binding records it
     /// (`"string"` ⇒ `"System.String"` on CLR). Falls back to the key's own identity name for
-    /// a non-intrinsic, or an intrinsic with no repr on the compiling target (`decimal` on JS).
-    let intrinsicPlatformName (ctx: PassContext) (key: TypeKey) : string =
-        match IntrinsicTypeMap.tryPlatformRepr key ctx.IntrinsicTypeMap.Value with
-        | ValueSome platform -> platform
-        | ValueNone -> key.Name
+    /// a non-intrinsic, or an intrinsic with no binding on the compiling target (`decimal` on JS).
+    let intrinsicPlatformTypeId (ctx: PassContext) (key: TypeKey) : PlatformTypeId =
+        match IntrinsicTypeMap.tryPlatformTypeId key ctx.IntrinsicTypeMap.Value with
+        | ValueSome id -> id
+        | ValueNone -> PlatformTypeId key.Name
 
     /// The external `(SymbolKey, typeArgs)` surfaces a provider member lookup keys on, MOST
     /// SPECIFIC FIRST: an intrinsic `TyConst` publishes its own contract surface, then the
@@ -476,7 +476,7 @@ module UnificationEngineCore =
         | TyStructuralCtor & TyConst(key, typeArgs) -> [ struct (key, typeArgs) ]
         | TyConst(key, typeArgs) ->
             let name = key.Name
-            let platformQual = intrinsicPlatformName ctx key
+            let platformQual = (intrinsicPlatformTypeId ctx key).Value
 
             [
                 struct (key, typeArgs)

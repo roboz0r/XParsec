@@ -346,7 +346,7 @@ module Elaborate =
             // Slot order: the `SpecializationId`s the decls' edges carry index THIS array.
             Specializations = EqArray.ofArray specializations
             Diagnostics = List.ofSeq ctx.Diagnostics
-            IntrinsicReprKeys = EqDict.ofSeq ctx.Types.IntrinsicReprKeys
+            IntrinsicBindings = EqDict.ofSeq ctx.Types.IntrinsicBindings
             GlobalValueKeys = EqSet.ofSeq ctx.Bindings.GlobalValueKeys
             ModuleSourcePaths = TypeRegistry.declaredModulePaths ctx.Types
             ModuleMembers = emptyIfDegraded ctx.Bindings.ModuleMembers

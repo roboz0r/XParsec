@@ -16,20 +16,20 @@ type Resolved =
     member this.Provider = PublishedSurface.toProvider this.Surface
     member this.Messages = [ for d in this.Diagnostics -> d.Message ]
 
-let private reprTable (reprs: (string * string) list) : IReadOnlyDictionary<string, string> =
-    let d = Dictionary<string, string>(System.StringComparer.Ordinal)
+let private bindingTable (bindings: (string * string) list) : IReadOnlyDictionary<string, PlatformTypeId> =
+    let d = Dictionary<string, PlatformTypeId>(System.StringComparer.Ordinal)
 
-    for (name, repr) in reprs do
-        d.[name] <- repr
+    for (name, typeId) in bindings do
+        d.[name] <- PlatformTypeId typeId
 
     d :> IReadOnlyDictionary<_, _>
 
-/// Resolve one in-memory `.fsi` against `dependencies`, with `reprs` standing in for the
+/// Resolve one in-memory `.fsi` against `dependencies`, with `bindings` standing in for the
 /// `(# … #)` bindings a paired `.fs` would supply. `relative` only identifies the snippet in a
 /// diagnostic.
 let resolveFsiWith
     (dependencies: IExternalSymbolProvider)
-    (reprs: (string * string) list)
+    (bindings: (string * string) list)
     (relative: string)
     (input: string)
     : Resolved =
@@ -48,7 +48,7 @@ let resolveFsiWith
             {
                 Assembly = AssemblyName "App"
                 Target = "none"
-                Reprs = reprTable reprs
+                Bindings = bindingTable bindings
             }
             parsed.Tree
 
@@ -631,7 +631,7 @@ let tests =
 
                     Expect.equal
                         iface.Platform
-                        "System.IDisposable"
+                        (PlatformTypeId "System.IDisposable")
                         "IntrinsicInterface platform name is the `.fs` repr"
                 | other -> failtestf "expected an IntrinsicInterface shape for disposable; got %A" other
 
@@ -643,7 +643,7 @@ let tests =
                 // A `canonsOf` reader turns a hit into an `FTConst`, so an interface entry
                 // would mis-present `System.IDisposable` as a scalar canon. Reconciliation
                 // uses the `IntrinsicInterface` identity above instead.
-                match IntrinsicTypeMap.canonsOf "System.IDisposable" r.Provider.IntrinsicTypeMap with
+                match IntrinsicTypeMap.canonsOf (PlatformTypeId "System.IDisposable") r.Provider.IntrinsicTypeMap with
                 | EqEmpty -> ()
                 | canons -> failtestf "capability interface must NOT enter the intrinsic axis; found %A" canons
             }
@@ -665,8 +665,8 @@ let tests =
                 | ExternalTypeShape.Intrinsic shape ->
                     Expect.equal
                         shape.Id.Platform
-                        (IntrinsicPlatform.Repr "System.Widget")
-                        "the intrinsic keeps its platform repr"
+                        (IntrinsicPlatform.Bound(PlatformTypeId "System.Widget"))
+                        "the intrinsic keeps its platform type id"
 
                     match shape.Class with
                     | ValueSome surface ->
@@ -742,7 +742,7 @@ let tests =
                     "the store resolves under the registered InModule identity"
 
                 Expect.isTrue
-                    (ExternalSymbols.tryReprType r.Provider "Test.A.M.T" |> ValueOption.isNone)
+                    (ExternalSymbols.tryMetaType r.Provider "Test.A.M.T" |> ValueOption.isNone)
                     "the dotted spelling read as a rendering misses; only the scope reaches it"
             }
 
@@ -1065,7 +1065,7 @@ let tests =
 
                     shapes.[intKey] <-
                         ExternalTypeShape.Intrinsic(
-                            IntrinsicShape.Scalar(canon, 0, IntrinsicPlatform.Repr "System.Int32")
+                            IntrinsicShape.Scalar(canon, 0, IntrinsicPlatform.Bound(PlatformTypeId "System.Int32"))
                         )
 
                     ExternalSymbolProviders.ofKeyIndexedChannels

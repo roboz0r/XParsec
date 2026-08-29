@@ -62,10 +62,10 @@ type internal GenericClassShape =
 module internal ClrSinkKeys =
 
     /// The printf writer sink (`fprintf`).
-    let textWriter: TypeKey = RuntimeNames.opaqueKey RuntimeNames.textWriterTypeName
+    let textWriter: TypeKey = RuntimeNames.platformKey RuntimeNames.textWriterTypeId
 
     /// The `Vesper.Printf` write-through format handler, a printf recipe's handler local.
-    let formatter: TypeKey = RuntimeNames.opaqueKey RuntimeNames.formatterTypeName
+    let formatter: TypeKey = RuntimeNames.platformKey RuntimeNames.formatterTypeId
 
     /// The `System.HashCode` accumulator local of a synthesised `GetHashCode`.
     let hashCode: TypeKey = RuntimeNames.opaqueKey "System.HashCode"
@@ -76,7 +76,7 @@ module internal ClrSinkKeys =
 type internal ClrEnv
     (
         ctx: MetadataContext,
-        reprs: IReadOnlyDictionary<TypeKey, string>,
+        bindings: IReadOnlyDictionary<TypeKey, PlatformTypeId>,
         references: Map<string, System.Reflection.AssemblyName>,
         symbols: ICodegenSymbols
     ) =
@@ -457,7 +457,7 @@ type internal ClrEnv
             // A canonically-authored capability interface (`interface disposable`) has no emitted
             // type of its own, so re-resolve through its platform interface and the `InterfaceImpl`
             // binds the real BCL one (`System.IDisposable`). That shape is a plain `Class`: one hop.
-            externalClassRef (SymbolKeyOps.qualifiedTypeKeyOf platform 0)
+            externalClassRef (SymbolKeyOps.qualifiedTypeKeyOf platform.Value 0)
         | _ ->
 
             match lookupClassShape key with
@@ -544,15 +544,15 @@ type internal ClrEnv
     member _.References = references
     member _.Symbols: ICodegenSymbols = symbols
 
-    /// A Vesper primitive's canon `SymbolKey` → its IL representation string, single-sourced
+    /// A Vesper primitive's canon `SymbolKey` → its platform type id, single-sourced
     /// from the `.fs` `(# … #)`: this file's OWN intrinsics first, then the dependency
     /// closure's. Keyed by the canon KEY, never by short name.
-    member _.TryPrimitiveRepr(key: TypeKey) : string option =
-        match reprs.TryGetValue key with
-        | true, repr -> Some repr
+    member _.TryPrimitiveTypeId(key: TypeKey) : PlatformTypeId option =
+        match bindings.TryGetValue key with
+        | true, typeId -> Some typeId
         | _ ->
-            match symbols.TryPlatformRepr key with
-            | ValueSome repr -> Some repr
+            match symbols.TryPlatformTypeId key with
+            | ValueSome typeId -> Some typeId
             | ValueNone -> None
 
     member _.CoreRef = coreRef

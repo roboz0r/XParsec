@@ -319,7 +319,7 @@ module TastUnpool =
         {
             Decls = decls
             Diagnostics = pools.Residue.Diagnostics
-            IntrinsicReprKeys = pools.Residue.IntrinsicReprKeys
+            IntrinsicBindings = pools.Residue.IntrinsicBindings
             GlobalValueKeys = pools.Residue.GlobalValueKeys
             ModuleSourcePaths = pools.Residue.ModuleSourcePaths
             ModuleMembers = boundVarKeyedMap readmittedBoundVar pools.ModuleMembers

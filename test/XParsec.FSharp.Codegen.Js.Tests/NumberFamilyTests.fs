@@ -7,7 +7,7 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 open XParsec.FSharp.Codegen.Js.Tests.SchemaDsl
 
 // TS `number` is wider than any single Vesper numeric, so a foreign parameter typed `number`
-// admits any of int / float / float32, which all carry platform repr `number`. The widening is
+// admits any of int / float / float32, which all carry platform type id `number`. The widening is
 // contravariant and confined to the foreign-call seam: a genuine `float` parameter stays strict.
 
 /// `cfglib`: a free function `configure(x: number): unit`, the scalar `number` parameter that

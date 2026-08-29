@@ -15,7 +15,11 @@ open XParsec.FSharp.Codegen.Clr.Tests.PeInspection
 /// tuple encodings below need, with no assembly emitted around them.
 let private ownIntrinsics =
     System.Collections.Generic.Dictionary(
-        dict [ RuntimeNames.intKey, "System.Int32"; RuntimeNames.stringKey, "System.String" ]
+        dict
+            [
+                RuntimeNames.intKey, PlatformTypeId "System.Int32"
+                RuntimeNames.stringKey, PlatformTypeId "System.String"
+            ]
     )
 
 let private provider () =

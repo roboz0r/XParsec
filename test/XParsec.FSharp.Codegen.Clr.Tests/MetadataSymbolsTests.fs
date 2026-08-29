@@ -18,7 +18,7 @@ let private eqComparer = "System.Collections.Generic.EqualityComparer`1"
 
 // A metadata RENDERING read through the store, by parsed key.
 let private typeShape (name: string) =
-    ExternalSymbols.tryReprType provider name
+    ExternalSymbols.tryMetaType provider name
 
 [<Tests>]
 let tests =
@@ -233,7 +233,7 @@ let tests =
             }
 
             test "a rendering's parsed key round-trips, arity included" {
-                match ExternalSymbols.tryReprTypeAt provider eqComparer 0 with
+                match ExternalSymbols.tryMetaTypeAt provider eqComparer 0 with
                 | ValueSome(struct (key, shape)) ->
                     Expect.equal (SymbolKeyOps.typeMetaName key) eqComparer "key renders back to the name asked for"
                     Expect.equal key.TyparArity 1 "the `1 suffix is the key's arity, not part of its name"
@@ -255,7 +255,7 @@ let tests =
                     ClrSymbolProviders.dotnetMetadataWith (MetadataSymbols.runtimeAssemblyPaths ()) intrinsics
                     |> List.exactlyOne
 
-                match ExternalSymbols.tryReprType reader eqComparer, typeShape eqComparer with
+                match ExternalSymbols.tryMetaType reader eqComparer, typeShape eqComparer with
                 | ValueSome(ExternalTypeShape.Class a), ValueSome(ExternalTypeShape.Class b) ->
                     Expect.equal a.TyparArity b.TyparArity "same arity"
                     Expect.equal a.IsInterface b.IsInterface "same interface-ness"
@@ -281,12 +281,12 @@ let tests =
                     ClrSymbolProviders.buildContractWithRefs None withoutLinq [ TestHelpers.vesperCorePackage ]
 
                 Expect.isTrue
-                    (ExternalSymbols.tryReprType fullProvider "System.Linq.Enumerable"
+                    (ExternalSymbols.tryMetaType fullProvider "System.Linq.Enumerable"
                      |> ValueOption.isSome)
                     "full ref set resolves System.Linq.Enumerable"
 
                 Expect.isTrue
-                    (ExternalSymbols.tryReprType limited "System.Linq.Enumerable"
+                    (ExternalSymbols.tryMetaType limited "System.Linq.Enumerable"
                      |> ValueOption.isNone)
                     "ref set without System.Linq.dll does not resolve System.Linq.Enumerable"
             }
@@ -310,7 +310,7 @@ let tests =
                     let reader =
                         ClrSymbolProviders.dotnetMetadataWith refPaths intrinsics |> List.exactlyOne
 
-                    match ExternalSymbols.tryReprType reader "System.Text.StringBuilder" with
+                    match ExternalSymbols.tryMetaType reader "System.Text.StringBuilder" with
                     | ValueSome(ExternalTypeShape.Class info) ->
                         // In the ref pack `StringBuilder` lives in System.Runtime (the
                         // facade), not System.Private.CoreLib, which also proves the load

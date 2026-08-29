@@ -204,7 +204,7 @@ module SignatureResolution =
             publishShape sctx id.Key (ExternalTypeShape.Abbrev(info.TypeParams.Length, body))
 
     /// `type t = (# "…" #)` written in a SIGNATURE: the same primitive binding it is in an
-    /// implementation, and registering its entry already filed the repr below.
+    /// implementation, and registering its entry already filed the binding below.
     let private publishIntrinsicAbbrev
         (sctx: SigCtx)
         (id: TypeIdentity)
@@ -214,53 +214,53 @@ module SignatureResolution =
         let canon = TypeRegistry.intrinsicKeyOf ctx.Types id.Name
 
         let platform =
-            match ctx.Types.IntrinsicReprKeys.TryGetValue canon with
-            | true, repr -> IntrinsicPlatform.Repr repr.Platform
+            match ctx.Types.IntrinsicBindings.TryGetValue canon with
+            | true, binding -> IntrinsicPlatform.Bound binding.TypeId
             | _ -> IntrinsicPlatform.Unsupported sctx.Inputs.Target
 
         let declared =
             match kindTag with
-            | ValueSome(ExternKind.Class _) -> DeclaredRepr.Heritable
-            | _ -> DeclaredRepr.Opaque
+            | ValueSome(ExternKind.Class _) -> ExternForm.Heritable
+            | _ -> ExternForm.Opaque
 
-        PublishedSurfaceBuilder.addDeclaredRepr sctx.Surface canon declared
+        PublishedSurfaceBuilder.addExternForm sctx.Surface canon declared
         publishShape sctx id.Key (ExternalTypeShape.Intrinsic(IntrinsicShape.Scalar(canon, id.TyparArity, platform)))
 
     // --- `extern` -------------------------------------------------------------------------
 
     /// Which of the three surfaces an `extern` declares. They publish different shapes, and
     /// its keyword tag is the only thing that says which.
-    let private externFormOfKindTag (kindTag: ExternKind<SyntaxToken> voption) : DeclaredRepr =
+    let private externFormOfKindTag (kindTag: ExternKind<SyntaxToken> voption) : ExternForm =
         match kindTag with
-        | ValueSome(ExternKind.Interface _) -> DeclaredRepr.Capability
-        | ValueSome(ExternKind.Class _) -> DeclaredRepr.Heritable
-        | _ -> DeclaredRepr.Opaque
+        | ValueSome(ExternKind.Interface _) -> ExternForm.Capability
+        | ValueSome(ExternKind.Class _) -> ExternForm.Heritable
+        | _ -> ExternForm.Opaque
 
     /// A capability IS an interface, so its `inherit` clause is interface inheritance and
     /// its members are carried on the shape. Both primitives are classes.
-    let private externDeclaresInterface (form: DeclaredRepr) : bool = form = DeclaredRepr.Capability
+    let private externDeclaresInterface (form: ExternForm) : bool = form = ExternForm.Capability
 
-    /// The repr the paired implementation binds for this `extern`. A PRIMITIVE's is FILED on
-    /// the intrinsic's own key so a use site resolves the name to it; a capability's is not,
-    /// because a capability is a nominal interface that only CARRIES a platform spelling and
-    /// has no intrinsic identity to file under. WHICH spelling is the implementation's
+    /// The type id the paired implementation binds for this `extern`. A PRIMITIVE's is FILED
+    /// on the intrinsic's own key so a use site resolves the name to it; a capability's is
+    /// not, because a capability is a nominal interface that only CARRIES a platform type id
+    /// and has no intrinsic identity to file under. WHICH id is the implementation's
     /// business, so a target that binds none still publishes the type, marked unsupported.
-    let private bindExternRepr (sctx: SigCtx) (id: TypeIdentity) (form: DeclaredRepr) : IntrinsicPlatform =
-        match sctx.Inputs.Reprs.TryGetValue id.Name with
-        | true, repr ->
+    let private bindExternTypeId (sctx: SigCtx) (id: TypeIdentity) (form: ExternForm) : IntrinsicPlatform =
+        match sctx.Inputs.Bindings.TryGetValue id.Name with
+        | true, typeId ->
             let fileOn (heritable: bool) =
-                sctx.Pass.Types.IntrinsicReprKeys.[TypeRegistry.intrinsicKeyOf sctx.Pass.Types id.Name] <-
+                sctx.Pass.Types.IntrinsicBindings.[TypeRegistry.intrinsicKeyOf sctx.Pass.Types id.Name] <-
                     {
-                        Platform = repr
+                        TypeId = typeId
                         Heritable = heritable
                     }
 
             match form with
-            | DeclaredRepr.Capability -> ()
-            | DeclaredRepr.Heritable -> fileOn true
-            | DeclaredRepr.Opaque -> fileOn false
+            | ExternForm.Capability -> ()
+            | ExternForm.Heritable -> fileOn true
+            | ExternForm.Opaque -> fileOn false
 
-            IntrinsicPlatform.Repr repr
+            IntrinsicPlatform.Bound typeId
         | _ -> IntrinsicPlatform.Unsupported sctx.Inputs.Target
 
     /// A concrete member on an `extern` type must be declared `inline`: the primitive has no
@@ -297,8 +297,8 @@ module SignatureResolution =
     /// canon.
     let private platformCtors (platform: IntrinsicPlatform) (members: ExternalMember list) : EqArray<ExternalMember> =
         match platform with
-        | IntrinsicPlatform.Repr repr ->
-            let platformDecl = SymbolKeyOps.qualifiedTypeKeyOf repr 0
+        | IntrinsicPlatform.Bound typeId ->
+            let platformDecl = SymbolKeyOps.qualifiedTypeKeyOf typeId.Value 0
 
             EqArray.ofList
                 [
@@ -325,7 +325,7 @@ module SignatureResolution =
             | ValueNone -> ExternalClassShape.basic (id.TyparArity, true, SymbolOrigin.Empty)
 
         match platform with
-        | IntrinsicPlatform.Repr repr ->
+        | IntrinsicPlatform.Bound typeId ->
             publishShapeWith
                 sctx
                 id.Key
@@ -333,7 +333,7 @@ module SignatureResolution =
                     {
                         Canon = id.Key
                         TyparArity = id.TyparArity
-                        Platform = repr
+                        Platform = typeId
                         Members = shape.Members
                         Interfaces = shape.FrozenInterfaces
                         Origin = SymbolOrigin.Empty
@@ -415,17 +415,17 @@ module SignatureResolution =
         : unit =
         let ctx = sctx.Pass
         let form = externFormOfKindTag kindTag
-        let platform = bindExternRepr sctx id form
+        let platform = bindExternTypeId sctx id form
 
         // A capability's canon IS its own identity; a primitive's is the intrinsic key its
         // repr is filed on, which is what an implementation files its binding under.
         let canon =
             match form with
-            | DeclaredRepr.Capability -> id.Key
-            | DeclaredRepr.Heritable
-            | DeclaredRepr.Opaque -> TypeRegistry.intrinsicKeyOf ctx.Types id.Name
+            | ExternForm.Capability -> id.Key
+            | ExternForm.Heritable
+            | ExternForm.Opaque -> TypeRegistry.intrinsicKeyOf ctx.Types id.Name
 
-        PublishedSurfaceBuilder.addDeclaredRepr sctx.Surface canon form
+        PublishedSurfaceBuilder.addExternForm sctx.Surface canon form
 
         let declared =
             match members with
@@ -447,9 +447,9 @@ module SignatureResolution =
             | ValueNone -> []
 
         match form with
-        | DeclaredRepr.Capability -> publishCapability sctx id platform surface
-        | DeclaredRepr.Heritable -> publishExternPrimitive sctx id platform (heritableSurface platform surface) members
-        | DeclaredRepr.Opaque -> publishExternPrimitive sctx id platform (scalarSurface surface) members
+        | ExternForm.Capability -> publishCapability sctx id platform surface
+        | ExternForm.Heritable -> publishExternPrimitive sctx id platform (heritableSurface platform surface) members
+        | ExternForm.Opaque -> publishExternPrimitive sctx id platform (scalarSurface surface) members
 
     // --- class-like ------------------------------------------------------------------------
 
@@ -574,7 +574,7 @@ module SignatureResolution =
             | SigDecl.Abbrev(typeName = tn; rhs = rhs; extensions = ext) ->
                 registerAbbreviationDecl ctx id tn rhs ext.IsSome
             | SigDecl.IntrinsicAbbrev(typeName = tn; kindTag = tag; instrParts = parts; extensions = ext) ->
-                registerIntrinsicReprDecl ctx id tn tag parts ext.IsSome
+                registerIntrinsicBindingDecl ctx id tn tag parts ext.IsSome
             | SigDecl.Record _
             | SigDecl.Union _
             | SigDecl.Enum _

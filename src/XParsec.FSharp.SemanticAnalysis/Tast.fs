@@ -41,10 +41,10 @@ type TSpecializationG<'ty, 'tok, 'id> =
         Value: TExprG<'ty, 'tok, 'id>
     }
 
-type IntrinsicReprInfo =
+type IntrinsicBindingInfo =
     {
-        /// The target representation (`Vesper.int` → `"System.Int32"`).
-        Platform: string
+        /// The target's identifier for the type (`Vesper.int` → `"System.Int32"`).
+        TypeId: PlatformTypeId
         /// `(# class "System.Attribute" #)`-tagged: a derived file may `inherit` this
         /// primitive (`obj` / `exn` / `Attribute`). A scalar primitive (`int`) is `false`.
         Heritable: bool
@@ -58,8 +58,8 @@ type TastFileG<'ty, 'tok, 'id when 'id: comparison> =
         /// A diagnostic of error severity means the TAST is best-effort, not safe to emit from.
         Diagnostics: XParsec.FSharp.SemanticAnalysis.Diagnostic list
         /// This file's OWN intrinsics: the `SymbolKey` of a `type x = (# "…" #)` abbrev →
-        /// its target representation. Keyed by identity: a name cannot say WHICH `int` it means.
-        IntrinsicReprKeys: EqDict<TypeKey, IntrinsicReprInfo>
+        /// its platform type id. Keyed by identity: a name cannot say WHICH `int` it means.
+        IntrinsicBindings: EqDict<TypeKey, IntrinsicBindingInfo>
         /// The `[<Global>]` module-level bindings: values that ARE a target global (JS
         /// `undefined`), so the declaring file emits no definition for one.
         GlobalValueKeys: EqSet<SymbolKey>

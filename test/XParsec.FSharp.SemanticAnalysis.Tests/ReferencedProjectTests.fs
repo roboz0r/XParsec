@@ -141,18 +141,18 @@ let tests =
                 // `int` is an `extern` paired with its sibling `.fs` `(# "System.Int32" #)`
                 // binding, so it surfaces as an `Intrinsic`: `canon` is the `.fsi` name `int`,
                 // `platform` the CLI repr codegen consumes. An intrinsic carries no `Origin`.
-                match ExternalSymbols.tryReprType provider "Vesper.int" with
+                match ExternalSymbols.tryMetaType provider "Vesper.int" with
                 | ValueSome(ExternalTypeShape.Intrinsic {
                                                             Id = {
                                                                      Canon = canon
-                                                                     Platform = IntrinsicPlatform.Repr platform
+                                                                     Platform = IntrinsicPlatform.Bound platform
                                                                  }
                                                         }) ->
                     Expect.equal canon (RuntimeNames.intKey) "int's canon identity is the `.fsi` name"
 
                     Expect.equal
                         platform
-                        "System.Int32"
+                        (PlatformTypeId "System.Int32")
                         "int's platform name is its prim-types-min `.fs` CLI representation"
                 | other -> failtestf "expected Vesper.int as an Intrinsic shape, got %A" other
             }
@@ -193,7 +193,7 @@ let tests =
                 let provider, _ = builtProvider.Value
 
                 let expectCapability (lookup: string) (canonKey: TypeKey) (platformExpected: string) =
-                    match ExternalSymbols.tryReprType provider lookup with
+                    match ExternalSymbols.tryMetaType provider lookup with
                     | ValueSome(ExternalTypeShape.IntrinsicInterface iface) ->
                         Expect.equal
                             iface.Canon
@@ -202,12 +202,12 @@ let tests =
 
                         Expect.equal
                             iface.Platform
-                            platformExpected
+                            (PlatformTypeId platformExpected)
                             (sprintf "%s platform name is its `.fs` CLR repr" lookup)
 
                         // A capability interface is ABSENT from the intrinsic axis:
                         // reconciliation goes through the platform name above, not the axis.
-                        match IntrinsicTypeMap.canonsOf platformExpected provider.IntrinsicTypeMap with
+                        match IntrinsicTypeMap.canonsOf (PlatformTypeId platformExpected) provider.IntrinsicTypeMap with
                         | EqEmpty -> ()
                         | canons ->
                             failtestf
@@ -234,7 +234,7 @@ let tests =
 
                 // `enumerator` inherits `disposable`, so the `use` / for-in disposability scan
                 // needs that inherited interface on the capability shape.
-                match ExternalSymbols.tryReprType provider "Vesper.Collections.enumerator`1" with
+                match ExternalSymbols.tryMetaType provider "Vesper.Collections.enumerator`1" with
                 | ValueSome(ExternalTypeShape.IntrinsicInterface iface) ->
                     let ifaceNames =
                         iface.Interfaces |> EqArray.map (fun i -> SymbolKeyOps.typeMetaName i.Key)
@@ -252,11 +252,11 @@ let tests =
                 let provider, _ = builtProviderJs.Value
 
                 let expectSentinelRepr (lookup: string) (sentinel: string) =
-                    match ExternalSymbols.tryReprType provider lookup with
+                    match ExternalSymbols.tryMetaType provider lookup with
                     | ValueSome(ExternalTypeShape.IntrinsicInterface iface) ->
                         Expect.equal
                             iface.Platform
-                            sentinel
+                            (PlatformTypeId sentinel)
                             (sprintf "%s binds the sentinel %s, which names no JS global" lookup sentinel)
                     | other -> failtestf "expected %s as an IntrinsicInterface on JS, got %A" lookup other
 
@@ -267,7 +267,7 @@ let tests =
                 // The shim abbreviates each BCL spelling to the canonical capability, so
                 // `interface System.IDisposable` records the canonical key on JS.
                 let expectShimAbbrev (bcl: string) (canonQualified: string) =
-                    match ExternalSymbols.tryReprType provider bcl with
+                    match ExternalSymbols.tryMetaType provider bcl with
                     | ValueSome(ExternalTypeShape.Abbrev(_, FTClass(key, _))) ->
                         Expect.equal
                             (SymbolKeyOps.typeMetaName key)
@@ -354,7 +354,7 @@ let tests =
                 // `type Fun<'A,'B>` parses as an anonymous (`= begin … end`) type, so the
                 // extractor records a non-interface `Class` shape. Generic compiled names are
                 // arity-suffixed (`Fun`2`), matching the emitted metadata name.
-                match ExternalSymbols.tryReprTypeAt provider "Vesper.Fun`2" 0 with
+                match ExternalSymbols.tryMetaTypeAt provider "Vesper.Fun`2" 0 with
                 | ValueSome(struct (key, ExternalTypeShape.Class info)) ->
                     Expect.equal info.TyparArity 2 "Fun has two typars"
 
@@ -375,7 +375,7 @@ let tests =
                 let provider, _ = builtProvider.Value
 
                 Expect.isTrue
-                    (ExternalSymbols.tryReprType provider "int" |> ValueOption.isNone)
+                    (ExternalSymbols.tryMetaType provider "int" |> ValueOption.isNone)
                     "bare int is a provider miss"
             }
 
@@ -401,7 +401,7 @@ let tests =
                 let provider, _ = builtProvider.Value
 
                 Expect.isTrue
-                    (ExternalSymbols.tryReprType provider "NoSuchType" |> ValueOption.isNone)
+                    (ExternalSymbols.tryMetaType provider "NoSuchType" |> ValueOption.isNone)
                     "unknown type miss"
             }
 

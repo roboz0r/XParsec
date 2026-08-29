@@ -391,7 +391,7 @@ module TypeSignature =
                     let! ext = pExtern
 
                     // Optional `class` / `interface` tag: `type Attribute = extern class`
-                    // marks a HERITABLE external reference base (repr extracted from the
+                    // marks a HERITABLE external reference base (type id extracted from the
                     // paired `.fs`'s `(# class "…" #)`); `type disposable = extern interface
                     // with …` marks a capability INTERFACE (an all-abstract surface published
                     // as an `IntrinsicInterface`). The tag introduces the type BODY, so

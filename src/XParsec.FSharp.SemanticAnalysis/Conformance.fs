@@ -7,7 +7,7 @@ open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 
 // Conformance of a signature file against its implementation file, over the parsed
-// CSTs: every `type X = extern` is met by a `type X = (# "repr" #)` and vice versa, and
+// CSTs: every `type X = extern` is met by a `type X = (# "…" #)` and vice versa, and
 // every other declared type and `val` is present on both sides. Presence, not signatures.
 //
 // The MANIFEST route's rule set. It reads two parse results and matches on written names, so
@@ -55,11 +55,11 @@ module Conformance =
     /// A type declaration as seen in the `.fs` implementation.
     [<RequireQualifiedAccess>]
     type ImplShape =
-        /// `type X = (# "repr" #)` — the intrinsic representation of a primitive.
-        | Intrinsic of repr: string
-        /// `type X = (# class "repr" #)` — a heritable external base, paired with the
+        /// `type X = (# "…" #)` — a primitive's intrinsic binding.
+        | Intrinsic of typeId: string
+        /// `type X = (# class "…" #)` — a heritable external base, paired with the
         /// sig's `extern class`.
-        | IntrinsicClass of repr: string
+        | IntrinsicClass of typeId: string
         /// `type X = | C = v | …`.
         | Enum
         /// Any other implementation type (abbrev, union, record, …).
@@ -255,14 +255,14 @@ module Conformance =
         | TypeDefn.SkipsTokens _ -> ValueNone
 
     let private implShape (lexed: Lexed) (td: TypeDefn<SyntaxToken>) : ImplShape =
-        let repr (parts: ImmutableArray<StringPart<SyntaxToken>>) =
-            IntrinsicReprs.ilString (SyntaxToken.nameIn lexed) parts
+        let typeId (parts: ImmutableArray<StringPart<SyntaxToken>>) =
+            IntrinsicBindings.ilString (SyntaxToken.nameIn lexed) parts
 
         match td with
         // An abbrev whose RHS is `(# … #)` binds a primitive; it is not a transparent alias.
         | TypeDefn.Abbrev(typ = Type.ILIntrinsic(kindTag = ValueSome _; instrParts = parts)) ->
-            ImplShape.IntrinsicClass(repr parts)
-        | TypeDefn.Abbrev(typ = Type.ILIntrinsic(instrParts = parts)) -> ImplShape.Intrinsic(repr parts)
+            ImplShape.IntrinsicClass(typeId parts)
+        | TypeDefn.Abbrev(typ = Type.ILIntrinsic(instrParts = parts)) -> ImplShape.Intrinsic(typeId parts)
         | TypeDefn.Abbrev _ -> ImplShape.Other "abbrev"
         | TypeDefn.Record _ -> ImplShape.Other "record"
         | TypeDefn.Union _ -> ImplShape.Other "union"

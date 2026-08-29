@@ -91,7 +91,7 @@ let tests =
                 let provider =
                     MetadataSymbols.create (outPath :: vesperCoreDll.Value :: MetadataSymbols.runtimeAssemblyPaths ())
 
-                match ExternalSymbols.tryReprType provider "AttrProbe.NullableClass" with
+                match ExternalSymbols.tryMetaType provider "AttrProbe.NullableClass" with
                 | ValueSome(ExternalTypeShape.Class info) ->
                     Expect.isTrue
                         info.Flags.Declared.AllowNullLiteral

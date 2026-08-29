@@ -68,7 +68,7 @@
     <Compile Include="JsNamespaceTests.fs" />
     <Compile Include="JsMapE2ETests.fs" />
     <Compile Include="IterableForInTests.fs" />
-    <Compile Include="IntrinsicReprJsTests.fs" />
+    <Compile Include="PlatformTypeIdJsTests.fs" />
     <Compile Include="NumberFamilyTests.fs" />
     <Compile Include="StructuralWidenTests.fs" />
     <Compile Include="OptionalParamTests.fs" />

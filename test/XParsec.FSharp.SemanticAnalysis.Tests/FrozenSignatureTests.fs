@@ -238,14 +238,14 @@ let tests =
                 | ValueNone -> failtest "internal 'shared' MUST be exported"
             }
 
-            test "IntrinsicTypeMap passes this file's IntrinsicReprKeys through verbatim" {
+            test "IntrinsicTypeMap passes this file's IntrinsicBindings through verbatim" {
                 let origin, frozen = freezeWithOrigin projectionSrc
                 let store = FrozenSignature.toSignatures origin frozen :> IExternalSymbolStore
                 // A plain impl file declares no intrinsics, so both sides are empty and the
                 // wiring is all that is asserted.
                 Expect.equal
                     (IntrinsicTypeMap.entries store.IntrinsicTypeMap).Length
-                    frozen.Residue.IntrinsicReprKeys.Count
+                    frozen.Residue.IntrinsicBindings.Count
                     "declaration count matches source"
             }
 
@@ -302,7 +302,7 @@ module M =
                             {
                                 Assembly = AssemblyName "P"
                                 Target = "none"
-                                Reprs = System.Collections.Generic.Dictionary()
+                                Bindings = System.Collections.Generic.Dictionary()
                             }
                             parsed.Tree
                         |> fst

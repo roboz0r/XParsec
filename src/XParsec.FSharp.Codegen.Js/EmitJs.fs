@@ -848,15 +848,15 @@ module EmitJs =
 
         let moduleMembers = TastPoolBuilder.moduleMembers inputs.Pool
 
-        // Declared to be the TARGET'S OWN: `type x = (# "repr" #)` denotes a platform
+        // Declared to be the TARGET'S OWN: `type x = (# "…" #)` denotes a platform
         // representation (`int` IS `number`) and `[<Global>]` a target global (`undefined`).
         // Neither can emit a definition, and each reference emits the front end's splice.
-        let intrinsicReprs = TastPoolBuilder.intrinsicReprKeys inputs.Pool
+        let intrinsicBindings = TastPoolBuilder.intrinsicBindings inputs.Pool
         let globals = TastPoolBuilder.globalValueKeys inputs.Pool
 
         let declaresTargetsOwn (d: TastAccessor.DeclId) : bool =
             match TastAccessor.declKind d with
-            | DeclShape.Type -> intrinsicReprs.ContainsKey (TastAccessor.declType d).TypeKey
+            | DeclShape.Type -> intrinsicBindings.ContainsKey (TastAccessor.declType d).TypeKey
             | DeclShape.Let ->
                 match (TastAccessor.declLet d).Pattern with
                 | TastAccessor.PNamed b ->
@@ -925,7 +925,7 @@ module EmitJs =
             | ValueSome k ->
                 match JsPrototypeChain.tryOfBases (climb 0 k) with
                 | ValueSome chain -> JsBaseVerdict.Extends chain
-                | ValueNone when (JsExternalMembers.inheritedReprOf inputs.Provider k).IsSome -> JsBaseVerdict.Erased
+                | ValueNone when (JsExternalMembers.inheritedTypeIdOf inputs.Provider k).IsSome -> JsBaseVerdict.Erased
                 | ValueNone -> JsBaseVerdict.Unsupported
 
         let erased (d: TastAccessor.DeclId) : bool =

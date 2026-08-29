@@ -488,9 +488,9 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     member _.IntrinsicClassBase(canon: TypeKey) : struct (TypeKey * EntityHandle) voption =
         match env.LookupTypeByKey canon |> ValueOption.bind ExternalSymbols.intrinsicClassOf with
         | ValueSome(struct ({
-                                Platform = IntrinsicPlatform.Repr repr
+                                Platform = IntrinsicPlatform.Bound typeId
                             }, _)) ->
-            let platformKey = SymbolKeyOps.qualifiedTypeKeyOf repr 0
+            let platformKey = SymbolKeyOps.qualifiedTypeKeyOf typeId.Value 0
 
             match externalClassRef platformKey with
             | ValueSome tref -> ValueSome(struct (platformKey, tref))

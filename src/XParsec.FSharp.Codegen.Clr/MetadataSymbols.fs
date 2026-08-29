@@ -16,7 +16,7 @@ open XParsec.FSharp.SemanticAnalysis
 /// A shape that doesn't map yields `None`.
 module private MetadataMapping =
 
-    /// `intrinsics` reconciles a platform repr to its canon (`"System.Int32"` → `int`), so a
+    /// `intrinsics` reconciles a platform type id to its canon (`"System.Int32"` → `int`), so a
     /// BCL member's `System.Int32` parameter presents as `int` and is callable. A name it
     /// does not reconcile is a real class.
     let rec tryBuildType (intrinsics: IntrinsicTypeMap) (t: Type) : FrozenType option =
@@ -62,7 +62,7 @@ module private MetadataMapping =
             // (`System.Int32` → `int`) and subtype roots (`System.Object` → `obj`,
             // `System.Exception` → `exn`) alike. Anything else stays a nominal `FTClass`.
             | fullName ->
-                match IntrinsicTypeMap.tryCanon fullName intrinsics with
+                match IntrinsicTypeMap.tryCanon (PlatformTypeId fullName) intrinsics with
                 | ValueSome canon -> Some(FTConst(canon, EqArray.empty))
                 | ValueNone -> Some(FTClass(SymbolKeyOps.qualifiedTypeKeyOf fullName 0, EqArray.empty))
 
@@ -467,7 +467,7 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
 
     /// Declared base type as a template over the declaring typars. `ValueNone` for interfaces,
     /// for `System.Object`, and for a base the intrinsic map sends to a non-nominal (a union
-    /// repr), dropped as an unmappable interface is. Must hold `gate`.
+    /// binding), dropped as an unmappable interface is. Must hold `gate`.
     let buildClassBaseType (t: Type) : FrozenNominal voption =
         if t.IsInterface || isNull t.BaseType then
             ValueNone
@@ -772,8 +772,8 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
 
     interface IPlatformFacts with
 
-        // `Vesper.int` is a value type here because the repr its `.clr.fs` binds,
-        // `System.Int32`, is one. A canon declared UNSUPPORTED on this target has no repr to
+        // `Vesper.int` is a value type here because the type its `.clr.fs` binds,
+        // `System.Int32`, is one. A canon declared UNSUPPORTED on this target has no type to
         // reflect; any other key is reflected under its plain metadata name.
         member _.IsValueType(key: TypeKey) =
             let reflected (name: string) =
@@ -781,8 +781,8 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
                 | ValueSome(ExternalTypeShape.Class shape) -> ValueSome shape.Flags.IsValueType
                 | _ -> ValueNone
 
-            match IntrinsicTypeMap.tryRepr key intrinsics with
-            | ValueSome(IntrinsicPlatform.Repr repr) -> reflected repr
+            match IntrinsicTypeMap.tryPlatform key intrinsics with
+            | ValueSome(IntrinsicPlatform.Bound typeId) -> reflected typeId.Value
             | ValueSome(IntrinsicPlatform.Unsupported _) -> ValueNone
             | ValueNone -> reflected (SymbolKeyOps.typeMetaName key)
 

@@ -6,17 +6,17 @@ open System.Reflection.Metadata.Ecma335
 open XParsec.FSharp.SemanticAnalysis
 
 /// `ICodegenProvider` over the BCL + the referenced assemblies — a thin shell forwarding to the
-/// collaborators constructed below. `reprs` maps an intrinsic canon key to its IL representation;
-/// `references` maps an assembly's simple name to the identity read off its own file.
+/// collaborators constructed below. `bindings` maps an intrinsic canon key to its platform type
+/// id; `references` maps an assembly's simple name to the identity read off its own file.
 type ClrProvider
     (
         ctx: MetadataContext,
-        reprs: System.Collections.Generic.IReadOnlyDictionary<TypeKey, string>,
+        bindings: System.Collections.Generic.IReadOnlyDictionary<TypeKey, PlatformTypeId>,
         references: Map<string, System.Reflection.AssemblyName>,
         symbols: ICodegenSymbols
     ) =
 
-    let env = ClrEnv(ctx, reprs, references, symbols)
+    let env = ClrEnv(ctx, bindings, references, symbols)
 
     let enc = ClrEncoder(env)
     let generics = ClrGenerics(env, enc)

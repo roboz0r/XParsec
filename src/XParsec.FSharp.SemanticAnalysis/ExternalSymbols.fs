@@ -383,7 +383,7 @@ type IExternalSymbolStore =
     /// reaches an `InlineBody` through.
     abstract TryLookupByKey: key: BindingKey -> ExternalSymbol voption
 
-    /// The `(canon, platform-repr)` declarations this provider carries, readable both ways:
+    /// The `(canon, platform type id)` declarations this provider carries, readable both ways:
     /// `int` → `"System.Int32"` and `"System.Exception"` → `exn`. Empty from providers
     /// carrying no intrinsics.
     abstract IntrinsicTypeMap: IntrinsicTypeMap
@@ -447,9 +447,9 @@ type ICodegenSymbols =
     abstract TryRebaseCapabilityMember: key: SymbolKey -> SymbolKey voption
     /// The open `FrozenType` signature of a module-level function by its value key.
     abstract TryLookupOpenSignature: key: BindingKey -> CodegenOpenSignature voption
-    /// The platform spelling emission mints a primitive reference through: `int` →
-    /// `"System.Int32"`. `ValueNone` for a canon with no repr on the compiling target.
-    abstract TryPlatformRepr: canon: TypeKey -> string voption
+    /// The platform type id emission mints a primitive reference through: `int` →
+    /// `"System.Int32"`. `ValueNone` for a canon the compiling target binds no id for.
+    abstract TryPlatformTypeId: canon: TypeKey -> PlatformTypeId voption
     /// Does the compiling target lay this type out as a VALUE? Already SETTLED: the target's
     /// layout, else what the declaration asked for. `ValueNone` when neither states one.
     abstract IsValueType: key: TypeKey -> bool voption
@@ -524,22 +524,23 @@ module ExternalSymbols =
         : struct (IntrinsicIdentity * IntrinsicClassSurface) voption =
         provider.TryLookupType canon |> ValueOption.bind intrinsicClassOf
 
-    /// The identity and shape the `(# "…" #)` REPR STRING `repr` denotes at `arity`. `repr`
-    /// is an exact metadata rendering read by key, with no opens applied; a source-written
-    /// name resolves through `IScopeContents` under the use site's opens instead.
-    let tryReprTypeAt
+    /// The identity and shape `metaName` denotes at `arity`. `metaName` is an exact metadata
+    /// rendering read by key, with no opens applied; a source-written name resolves through
+    /// `IScopeContents` under the use site's opens instead.
+    let tryMetaTypeAt
         (store: IExternalSymbolStore)
-        (repr: string)
+        (metaName: string)
         (arity: int)
         : struct (TypeKey * ExternalTypeShape) voption =
-        let key = SymbolKeyOps.qualifiedTypeKeyOf repr arity
+        let key = SymbolKeyOps.qualifiedTypeKeyOf metaName arity
 
         match store.TryLookupType key with
         | ValueSome shape when shape.TyparArity = key.TyparArity -> ValueSome(struct (key, shape))
         | _ -> ValueNone
 
-    let tryReprType (store: IExternalSymbolStore) (repr: string) : ExternalTypeShape voption =
-        tryReprTypeAt store repr 0 |> ValueOption.map (fun (struct (_, shape)) -> shape)
+    let tryMetaType (store: IExternalSymbolStore) (metaName: string) : ExternalTypeShape voption =
+        tryMetaTypeAt store metaName 0
+        |> ValueOption.map (fun (struct (_, shape)) -> shape)
 
     /// Resolve the language-capability identities from their canonical contract names
     /// (`Vesper.disposable`). Keys are minted at arity 0, because the fqn already carries the
@@ -557,13 +558,13 @@ module ExternalSymbols =
             match provider.TryLookupType canon with
             | ValueSome(ExternalTypeShape.Intrinsic {
                                                         Id = {
-                                                                 Platform = IntrinsicPlatform.Repr fqn
+                                                                 Platform = IntrinsicPlatform.Bound fqn
                                                              }
-                                                    }) -> ValueSome(ofKey (SymbolKeyOps.qualifiedTypeKeyOf fqn 0))
+                                                    }) -> ValueSome(ofKey (SymbolKeyOps.qualifiedTypeKeyOf fqn.Value 0))
             | ValueSome(ExternalTypeShape.IntrinsicInterface { Platform = platform }) ->
                 ValueSome
                     {
-                        RuntimeNames.CapabilityIdentity.Key = SymbolKeyOps.qualifiedTypeKeyOf platform 0
+                        RuntimeNames.CapabilityIdentity.Key = SymbolKeyOps.qualifiedTypeKeyOf platform.Value 0
                         RuntimeNames.CapabilityIdentity.CanonKey = ValueSome canon
                     }
             | ValueSome(ExternalTypeShape.Class _) -> ValueSome(ofKey canon)

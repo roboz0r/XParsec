@@ -141,7 +141,7 @@ Four words, four things, and the worked project's own provider layer already dre
 
 Retired as a wrong metaphor — code does not grow and is not consumed. One word covered two
 operations: **extract / extraction** reads declared facts out of a parsed artifact into a
-table (`extractIntrinsicReprsInto`, `extractCompanion`); **lift / lifting** turns a type
+table (`IntrinsicBindings.ofImplementationInto`, `extractCompanion`); **lift / lifting** turns a type
 member into a standalone this-first curried inline body (`liftMemberBody`) — it mints new
 lambda nodes, so it is not extraction (`collect` was unavailable: `collectInlineBodies` is
 its caller). Derived nouns: "harvest store" → "inline-body store", "harvest-only decl" →
@@ -205,6 +205,27 @@ reported, not blamed.
 | the token a diagnostic attaches to | `the token the diagnostic is reported at` |
 | a producer that already reported | `already diagnosed at its source` |
 | a producer that did not report | `no diagnostic reported at its source` |
+
+## `repr`
+
+Retired as an abbreviation. Its main job — the string a type-position `(# "…" #)` binding
+records (`"System.Int32"` on CLR, `"number"` on JS, `"!0[]"` for the array constructor) — is
+now the `PlatformTypeId` struct wrapper, so the axis is typed rather than a naming
+discipline. The full word "representation"/"represents" stays for prose that genuinely means
+representation; the F# attribute `CompilationRepresentation` is untouchable.
+
+| sense | term |
+| --- | --- |
+| the `(# "…" #)` type-position string | `PlatformTypeId` (`typeId`, `tryPlatformTypeId`) |
+| a canon paired with what its target binds | *binding* (`IntrinsicBinding`, `IntrinsicBindings`, `IntrinsicBindingInfo`) |
+| a canon → type-id map | `IntrinsicTypeMap` (unchanged), `ofBindings` |
+| "X reprs to Y" (verb) | *binds to* |
+| the declared extern form (opaque/heritable/capability) | `ExternForm` (was `DeclaredRepr`) |
+| a lookup by exact metadata-rendered name | `tryMetaType` / `tryMetaTypeAt`, after `typeMetaName` |
+
+Still open, deliberately: `ValRepr` / `ClosureRepr` / `RegionRepr` / `EmittedEnumRepr` and
+their prose ("value repr", "IL repr") are the *value-representation* family — a different
+concept that a rename here must not conflate. Retire them on their own terms or not at all.
 
 ## Naming a new operation
 

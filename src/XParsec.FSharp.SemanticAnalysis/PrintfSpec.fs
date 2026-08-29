@@ -19,13 +19,13 @@ module PrintfSpec =
     let private tyInt: SemType = TyConst(RuntimeNames.intKey, EqArray.empty)
 
     let private tyTextWriter: SemType =
-        TyConst(RuntimeNames.opaqueKey RuntimeNames.textWriterTypeName, EqArray.empty)
+        TyConst(RuntimeNames.platformKey RuntimeNames.textWriterTypeId, EqArray.empty)
 
     let private tyStringBuilder: SemType =
-        TyConst(RuntimeNames.opaqueKey RuntimeNames.stringBuilderTypeName, EqArray.empty)
+        TyConst(RuntimeNames.platformKey RuntimeNames.stringBuilderTypeId, EqArray.empty)
 
     let private tyStringWriter: SemType =
-        TyConst(RuntimeNames.opaqueKey RuntimeNames.stringWriterTypeName, EqArray.empty)
+        TyConst(RuntimeNames.platformKey RuntimeNames.stringWriterTypeId, EqArray.empty)
 
     /// Where a printf entry point writes, resolved from its name alone.
     [<RequireQualifiedAccess>]
@@ -244,19 +244,19 @@ module PrintfSpec =
     /// Rewrite the by-name sink slots (`State`, `ScratchSink`, the matching
     /// `LeadingArgTypes` entry) to whatever `resolve` gives: a real writer argument
     /// resolves to a `TyClass`, and `unify` has no `TyClass`/`TyConst` arm.
-    let resolveExternalSlots (resolve: string -> SemType voption) (fam: Family) : Family =
+    let resolveExternalSlots (resolve: PlatformTypeId -> SemType voption) (fam: Family) : Family =
         let sub (t: SemType) =
-            let resolveName name =
-                match resolve name with
+            let resolveId id =
+                match resolve id with
                 | ValueSome resolved -> resolved
                 | ValueNone -> t
 
             if t = tyTextWriter then
-                resolveName RuntimeNames.textWriterTypeName
+                resolveId RuntimeNames.textWriterTypeId
             elif t = tyStringBuilder then
-                resolveName RuntimeNames.stringBuilderTypeName
+                resolveId RuntimeNames.stringBuilderTypeId
             elif t = tyStringWriter then
-                resolveName RuntimeNames.stringWriterTypeName
+                resolveId RuntimeNames.stringWriterTypeId
             else
                 t
 

@@ -53,21 +53,21 @@ type internal Assembler
         |> Map.ofList
 
     // Union over every file: a `SymbolKey` identifies an intrinsic assembly-wide, so a key
-    // repeated across files is the same declaration and last-wins is safe. Platform repr
+    // repeated across files is the same declaration and last-wins is safe. Platform type id
     // only, because `extends` comes off the frozen base type.
-    let intrinsicReprKeys =
-        let d = Dictionary<TypeKey, string>()
+    let intrinsicBindings =
+        let d = Dictionary<TypeKey, PlatformTypeId>()
 
         for tast in tasts do
-            for kv in tast.Residue.IntrinsicReprKeys do
-                d.[kv.Key] <- kv.Value.Platform
+            for kv in tast.Residue.IntrinsicBindings do
+                d.[kv.Key] <- kv.Value.TypeId
 
         d
 
     let provider =
         // Own-compilation intrinsics only; every other primitive's repr is read through the
         // provider, out of the dependency closure's `.fs`.
-        ClrProvider(ctx, intrinsicReprKeys, references, symbols)
+        ClrProvider(ctx, intrinsicBindings, references, symbols)
 
     let icodegen = provider :> ICodegenProvider
     let encodeLocals (locals: FrozenType list) = icodegen.EncodeLocalSignature locals

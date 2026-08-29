@@ -4,7 +4,7 @@ open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
-// An inline intrinsic-abbrev augmentation `type X = (# "repr" #) with member _.M p =
+// An inline intrinsic-abbrev augmentation `type X = (# "…" #) with member _.M p =
 // (# … #)` elaborates to a liftable `TDecl.Type(Class)` of `this`-first member bodies,
 // while `X` keeps its `TyConst` identity at every other use site.
 

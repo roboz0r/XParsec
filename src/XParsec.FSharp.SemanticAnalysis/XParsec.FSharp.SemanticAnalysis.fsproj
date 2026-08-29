@@ -20,7 +20,7 @@
     <Compile Include="CstModuleTree.fs" />
     <!-- Ahead of every reader of a `(# … #)` binding: the conformance check, the
          registrar and both front ends stitch the same instruction string through here. -->
-    <Compile Include="IntrinsicReprs.fs" />
+    <Compile Include="IntrinsicBindings.fs" />
     <Compile Include="SymbolKeys.fs" />
     <Compile Include="SemanticScalars.fs" />
     <Compile Include="SemanticInfo.fs" />

@@ -337,16 +337,16 @@ module FrozenCodecTypes =
             }
         | k -> failwithf "FrozenCodec: a ModuleBindingInfo stored a non-Binding key: %A" k
 
-    let writeIntrinsicReprInfo (w: FrozenWriter) (i: IntrinsicReprInfo) =
-        w.Write i.Platform
+    let writeIntrinsicBindingInfo (w: FrozenWriter) (i: IntrinsicBindingInfo) =
+        w.Write i.TypeId.Value
         w.Write i.Heritable
 
-    let readIntrinsicReprInfo (r: FrozenReader) : IntrinsicReprInfo =
-        let platform = r.ReadString()
+    let readIntrinsicBindingInfo (r: FrozenReader) : IntrinsicBindingInfo =
+        let typeId = PlatformTypeId(r.ReadString())
         let heritable = r.ReadBoolean()
 
         {
-            Platform = platform
+            TypeId = typeId
             Heritable = heritable
         }
 

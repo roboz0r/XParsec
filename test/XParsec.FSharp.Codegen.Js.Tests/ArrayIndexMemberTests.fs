@@ -24,9 +24,10 @@ let tests =
                 match jsProvider.Value.TryLookupType(RuntimeNames.arrayKey 1) with
                 | ValueSome(ExternalTypeShape.Intrinsic {
                                                             Id = {
-                                                                     Platform = IntrinsicPlatform.Repr repr
+                                                                     Platform = IntrinsicPlatform.Bound repr
                                                                  }
-                                                        }) -> Expect.equal repr "!0[]" "the array's JS platform repr"
+                                                        }) ->
+                    Expect.equal repr (PlatformTypeId "!0[]") "the array's JS platform type id"
                 | other -> failtestf "expected `Vesper.[]` as an Intrinsic shape with a JS repr, got %A" other
             }
 

@@ -791,7 +791,7 @@ module NameResolutionMemberRegistration =
             | ValueNone -> Seq.empty
         | TypeDeclKind.Enum
         | TypeDeclKind.Abbreviation
-        | TypeDeclKind.IntrinsicRepr -> Seq.empty
+        | TypeDeclKind.IntrinsicBinding -> Seq.empty
 
     /// FS0954's other half: a cycle through STRUCT FIELDS. A value type stores its fields inline,
     /// so `[<Struct>] type A = { x: B } and [<Struct>] B = { y: A }` has no finite layout, while
@@ -836,7 +836,7 @@ module NameResolutionMemberRegistration =
         // The abbreviation ENTRY is filed ahead of every other kind's detail, so those two
         // kinds have nothing left to do here.
         | TypeDeclKind.Abbreviation, _
-        | TypeDeclKind.IntrinsicRepr, _
+        | TypeDeclKind.IntrinsicBinding, _
         | TypeDeclKind.Record, _
         | TypeDeclKind.Union, _
         | TypeDeclKind.Enum, _ -> ()
@@ -875,7 +875,7 @@ module NameResolutionMemberRegistration =
         for claimed in claims do
             match claimed.Defn with
             | TypeDefn.Abbrev(typeName = tn; typ = Type.ILIntrinsic(kindTag = tag; instrParts = parts); extensions = ext) ->
-                registerIntrinsicReprDecl ctx claimed.Identity tn tag parts ext.IsSome
+                registerIntrinsicBindingDecl ctx claimed.Identity tn tag parts ext.IsSome
             | TypeDefn.Abbrev(typeName = tn; typ = rhs; extensions = ext) ->
                 registerAbbreviationDecl ctx claimed.Identity tn rhs ext.IsSome
             | _ -> ()

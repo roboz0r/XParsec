@@ -18,12 +18,12 @@ module SignatureResolutionContext =
         {
             /// The assembly this signature's published keys are homed in.
             Assembly: AssemblyName
-            /// The target being compiled, named on an `extern` this target binds no repr for.
+            /// The target being compiled, named on an `extern` this target binds no type for.
             Target: string
-            /// Short type name -> the platform repr the paired implementation binds. A
+            /// Short type name -> the platform type id the paired implementation binds. A
             /// signature's `extern` declares that the platform supplies the type, not how it
-            /// spells it, so the repr is read from the `.fs`.
-            Reprs: IReadOnlyDictionary<string, string>
+            /// spells it, so the type id is read from the `.fs`.
+            Bindings: IReadOnlyDictionary<string, PlatformTypeId>
         }
 
     [<NoEquality; NoComparison>]

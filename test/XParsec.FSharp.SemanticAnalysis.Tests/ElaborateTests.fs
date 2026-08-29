@@ -1500,7 +1500,7 @@ let tastFileEqualityTests =
                 let a = analyse src
                 let b = analyse src
 
-                Expect.isFalse a.IntrinsicReprKeys.IsEmpty "the source declares an intrinsic"
+                Expect.isFalse a.IntrinsicBindings.IsEmpty "the source declares an intrinsic"
                 Expect.isFalse a.GlobalValueKeys.IsEmpty "the source declares a global"
                 Expect.isFalse a.ModuleSourcePaths.IsEmpty "the source declares a module"
                 Expect.isFalse a.Accessibility.IsEmpty "the source declares a private binding"

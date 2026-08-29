@@ -1,13 +1,14 @@
 namespace XParsec.FSharp.Codegen.Clr
 
 open System.Reflection.Metadata.Ecma335
+open XParsec.FSharp.SemanticAnalysis
 
-/// SRM IL-encoding of primitive repr strings (`"System.Int32"` → `te.Int32()`).
-/// The canon → repr mapping (`"int"` → `"System.Int32"`) lives in the `.fs`
+/// SRM IL-encoding of primitive platform type ids (`"System.Int32"` → `te.Int32()`).
+/// The canon → type id mapping (`"int"` → `"System.Int32"`) lives in the `.fs`
 /// `(# … #)` declarations, not here.
-module IntrinsicRepr =
+module PlatformTypeIds =
 
-    /// A key is the repr string the `.fs` declares verbatim, usually a BCL name, but the
+    /// A key is the type id the `.fs` declares verbatim, usually a BCL name, but the
     /// pointer-width pair is IL signature syntax (`type nativeint = (# "native int" #)`)
     /// because `native int` / `unsigned native int` ARE ECMA-335 element types.
     let private valueTypeWriters: Map<string, SignatureTypeEncoder -> unit> =
@@ -30,15 +31,16 @@ module IntrinsicRepr =
                 "unsigned native int", (fun te -> te.UIntPtr())
             ]
 
-    /// Encode a primitive value type directly onto `te`. Returns `false` for reprs that
-    /// need a `TypeRef` (`System.Decimal`, `System.ValueTuple`) and for unknown reprs.
-    let tryEncodeValueType (te: SignatureTypeEncoder) (repr: string) : bool =
-        match Map.tryFind repr valueTypeWriters with
+    /// Encode a primitive value type directly onto `te`. Returns `false` for type ids that
+    /// need a `TypeRef` (`System.Decimal`, `System.ValueTuple`) and for unknown ids.
+    let tryEncodeValueType (te: SignatureTypeEncoder) (typeId: PlatformTypeId) : bool =
+        match Map.tryFind typeId.Value valueTypeWriters with
         | Some write ->
             write te
             true
         | None -> false
 
-    /// True iff `repr` is a primitive value type the IL encoder writes DIRECTLY. The
+    /// True iff `typeId` is a primitive value type the IL encoder writes DIRECTLY. The
     /// encoder-free form, for a caller that has no `SignatureTypeEncoder` to hand.
-    let isEncodableValueType (repr: string) : bool = Map.containsKey repr valueTypeWriters
+    let isEncodableValueType (typeId: PlatformTypeId) : bool =
+        Map.containsKey typeId.Value valueTypeWriters

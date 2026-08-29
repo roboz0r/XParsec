@@ -79,7 +79,7 @@ let tests =
                 Expect.isNonEmpty errs "an `int` field cannot satisfy a `string` member"
             }
 
-            // Sharing a platform repr is NOT membership of a coercion family: `char` and
+            // Sharing a platform type id is NOT membership of a coercion family: `char` and
             // `string` are both JS strings, `int` and `float` are both JS numbers, yet only
             // the latter pair is a family the target admits either way round.
             test "a `char` field does not satisfy a `string` member" {

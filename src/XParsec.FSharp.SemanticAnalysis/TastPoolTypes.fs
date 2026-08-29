@@ -125,7 +125,7 @@ type FrozenFileResidue =
         // Qualified: `XParsec.FSharp.Parser` is opened here and declares its own
         // `Diagnostic`, which the bare name would bind to.
         Diagnostics: XParsec.FSharp.SemanticAnalysis.Diagnostic list
-        IntrinsicReprKeys: EqDict<TypeKey, IntrinsicReprInfo>
+        IntrinsicBindings: EqDict<TypeKey, IntrinsicBindingInfo>
         GlobalValueKeys: EqSet<SymbolKey>
         ModuleSourcePaths: EqDict<ModuleKey, string>
         Accessibility: EqDict<SymbolKey, Accessibility>
@@ -250,7 +250,7 @@ module FrozenPools =
             Residue =
                 {
                     Diagnostics = []
-                    IntrinsicReprKeys = EqDict.empty
+                    IntrinsicBindings = EqDict.empty
                     GlobalValueKeys = EqSet.empty
                     ModuleSourcePaths = EqDict.empty
                     Accessibility = EqDict.empty

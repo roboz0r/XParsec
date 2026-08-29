@@ -4,15 +4,26 @@ open System.Collections.Generic
 open System.Collections.Immutable
 open XParsec.FSharp.Parser
 
-// A `type t = extern` declares a primitive and says nothing about how the target spells it. The
-// REPR comes from the paired implementation's `type t = (# "System.Int32" #)`, so a signature
-// front end reads its companion's bindings before its own declarations.
+/// The target's own identifier for a type, as a type-position `(# "…" #)` binding spells it:
+/// `"System.Int32"` on CLR, `"number"` on JS, `"!0[]"` for the array constructor. Never an
+/// expression-position `(# … #)` opcode, which is a template, not a type.
+[<Struct>]
+type PlatformTypeId =
+    | PlatformTypeId of string
 
-module IntrinsicReprs =
+    member this.Value =
+        let (PlatformTypeId s) = this
+        s
+
+// A `type t = extern` declares a primitive and says nothing about how the target spells it. The
+// platform type id comes from the paired implementation's `type t = (# "System.Int32" #)`, so a
+// signature front end reads its companion's bindings before its own declarations.
+
+module IntrinsicBindings =
 
     /// Stitch the inline-IL string of a `Type.ILIntrinsic` RHS:
     /// `(# "System.Int32" #)` ⇒ `"System.Int32"`.
-    // TODO: raise diagnostics for the parts no repr can be read from (`Expr`, `InvalidText`).
+    // TODO: raise diagnostics for the parts no id can be read from (`Expr`, `InvalidText`).
     let ilString (nameOf: SyntaxToken -> string) (parts: ImmutableArray<StringPart<SyntaxToken>>) : string =
         let sb = System.Text.StringBuilder()
 
@@ -29,10 +40,10 @@ module IntrinsicReprs =
 
         sb.ToString()
 
-    /// The intrinsic-representation bindings a parsed implementation declares, short name ⇒
-    /// repr. Last binding wins.
+    /// The intrinsic bindings a parsed implementation declares, short name ⇒ platform type id.
+    /// Last binding wins.
     let ofImplementationInto
-        (dest: Dictionary<string, string>)
+        (dest: Dictionary<string, PlatformTypeId>)
         (nameOf: SyntaxToken -> string)
         (file: ImplementationFile<SyntaxToken>)
         : unit =
@@ -44,6 +55,6 @@ module IntrinsicReprs =
                     | TypeDefn.Abbrev(typeName = TypeName(ident = li); typ = Type.ILIntrinsic(instrParts = parts)) when
                         li.Idents.Length = 1
                         ->
-                        dest.[nameOf li.Idents.[0]] <- ilString nameOf parts
+                        dest.[nameOf li.Idents.[0]] <- PlatformTypeId(ilString nameOf parts)
                     | _ -> ()
             | _ -> ()

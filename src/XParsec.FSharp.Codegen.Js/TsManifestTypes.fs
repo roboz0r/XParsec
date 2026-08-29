@@ -294,11 +294,11 @@ module internal TsManifestTranslate =
         let nominal name (args: FrozenType[]) =
             // An axis-declared canon, `Unsupported` included, mints its `Vesper` key, so a
             // manifest `string`/`float` unifies with the front end's intrinsic. The lookup is
-            // by canon, not platform repr, so `number` keeps its own identity.
+            // by canon, not platform type id, so `number` keeps its own identity.
             let intrinsicOrOpaque (name: string) : FrozenType =
                 let canon = RuntimeNames.primitiveKey name
 
-                match IntrinsicTypeMap.tryRepr canon ctx.Intrinsics with
+                match IntrinsicTypeMap.tryPlatform canon ctx.Intrinsics with
                 | ValueSome _ -> FTConst(canon, EqArray.ofSeq args)
                 | ValueNone -> FTConst(RuntimeNames.opaqueKey name, EqArray.ofSeq args)
 

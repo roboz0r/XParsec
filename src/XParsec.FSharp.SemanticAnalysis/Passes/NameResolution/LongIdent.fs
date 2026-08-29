@@ -272,7 +272,7 @@ module NameResolutionLongIdent =
                 | ValueSome decl -> staticIf (declaresStatic decl.Members name)
                 | ValueNone -> ValueNone
             | TypeDeclKind.Abbreviation
-            | TypeDeclKind.IntrinsicRepr -> staticMember ()
+            | TypeDeclKind.IntrinsicBinding -> staticMember ()
         | ResolvedTypeRef.External(key, shape) ->
             match shape with
             | ExternalTypeShape.Union(cases = cases; requiresQualifiedAccess = rqa) ->

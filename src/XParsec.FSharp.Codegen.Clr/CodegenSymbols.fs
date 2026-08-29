@@ -48,11 +48,11 @@ module CodegenSymbols =
                     match provider.TryLookupType declKey with
                     | ValueSome(ExternalTypeShape.IntrinsicInterface { Platform = platform }) ->
                         let members =
-                            provider.TryLookupMembers(SymbolKeyOps.qualifiedTypeKeyOf platform 0, memberName)
+                            provider.TryLookupMembers(SymbolKeyOps.qualifiedTypeKeyOf platform.Value 0, memberName)
 
                         let declaredOn (m: ExternalMember) = SymbolKeyOps.typeMetaName m.Key.Decl
 
-                        if members |> EqArray.exists (fun m -> declaredOn m = platform) then
+                        if members |> EqArray.exists (fun m -> declaredOn m = platform.Value) then
                             ValueNone
                         else
                             members
@@ -81,8 +81,8 @@ module CodegenSymbols =
                                 Constraints = os.Constraints
                             }
 
-            member _.TryPlatformRepr canon =
-                IntrinsicTypeMap.tryPlatformRepr canon provider.IntrinsicTypeMap
+            member _.TryPlatformTypeId canon =
+                IntrinsicTypeMap.tryPlatformTypeId canon provider.IntrinsicTypeMap
 
             // The target's layout overrides the declaration's request, so it leads.
             member _.IsValueType key =

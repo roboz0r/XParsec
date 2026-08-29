@@ -197,11 +197,11 @@ module NameResolutionTypeRegistration =
         | TypeDefn.Enum(typeName = tn) -> ValueSome(struct (tn, TypeDeclKind.Enum))
         | TypeDefn.Abbrev(typeName = tn; typ = rhs) ->
             // An `(# … #)` RHS is a primitive BINDING, not a transparent alias: it lands in
-            // `IntrinsicReprKeys`, not `Abbreviation`. The claim it holds on its declared
+            // `IntrinsicBindings`, not `Abbreviation`. The claim it holds on its declared
             // name is identical either way.
             let kind =
                 match rhs with
-                | Type.ILIntrinsic _ -> TypeDeclKind.IntrinsicRepr
+                | Type.ILIntrinsic _ -> TypeDeclKind.IntrinsicBinding
                 | _ -> TypeDeclKind.Abbreviation
 
             ValueSome(struct (tn, kind))
@@ -250,7 +250,7 @@ module NameResolutionTypeRegistration =
                         | TypeDeclKind.Class -> TypeRegistry.noteNominalTypeName ctx.Types name
                         | TypeDeclKind.Enum
                         | TypeDeclKind.Abbreviation
-                        | TypeDeclKind.IntrinsicRepr -> ()
+                        | TypeDeclKind.IntrinsicBinding -> ()
                     | ValueNone -> ()
                 | ValueNone -> ()
         | _ -> ()
@@ -335,7 +335,7 @@ module NameResolutionTypeRegistration =
                 // An intrinsic binding's identity is its qualified key: `type int = (# … #)`
                 // under `namespace Vesper` keys as `Vesper.int`, `seq<'T>` as
                 // `Vesper.Collections.seq` at arity 1, each equal to the contract's canon key.
-                if kind = TypeDeclKind.IntrinsicRepr then
+                if kind = TypeDeclKind.IntrinsicBinding then
                     ctx.Types.IntrinsicKeys.[name] <- SymbolKeyOps.typeKeyOfArity c.Namespace name arity
 
                 ValueSome identity
@@ -479,13 +479,13 @@ module NameResolutionTypeRegistration =
             | SigDecl.Union _ -> ValueSome TypeDeclKind.Union
             | SigDecl.Enum _ -> ValueSome TypeDeclKind.Enum
             | SigDecl.Abbrev _ -> ValueSome TypeDeclKind.Abbreviation
-            | SigDecl.IntrinsicAbbrev _ -> ValueSome TypeDeclKind.IntrinsicRepr
+            | SigDecl.IntrinsicAbbrev _ -> ValueSome TypeDeclKind.IntrinsicBinding
             // A CAPABILITY (`extern interface`) is a nominal interface that merely carries a
             // platform spelling, and a use site resolving it through the published shape kinds
             // it that way whether the target binds one or not. The other two `extern` forms
             // are primitives.
             | SigDecl.Extern(kindTag = ValueSome(ExternKind.Interface _)) -> ValueSome TypeDeclKind.Class
-            | SigDecl.Extern _ -> ValueSome TypeDeclKind.IntrinsicRepr
+            | SigDecl.Extern _ -> ValueSome TypeDeclKind.IntrinsicBinding
             | SigDecl.ClassLike _
             | SigDecl.Opaque _ -> ValueSome TypeDeclKind.Class
             | SigDecl.Delegate _
@@ -543,7 +543,7 @@ module NameResolutionTypeRegistration =
             | ValueNone -> ()
         | ValueSome TypeDeclKind.Enum
         | ValueSome TypeDeclKind.Abbreviation
-        | ValueSome TypeDeclKind.IntrinsicRepr
+        | ValueSome TypeDeclKind.IntrinsicBinding
         | ValueNone -> ()
 
     /// Classify + stamp every type name ONE `.fsi` declaration's STRUCTURE writes: its header
@@ -949,11 +949,11 @@ module NameResolutionTypeRegistration =
         // recovers the SAME key the annotation path resolves to.
         ctx.Resolution.ResolvedType.Set(declSite.Key, info.TypeKey)
 
-    /// Register a `type X = (# … #)` primitive BINDING: it lands in `IntrinsicReprKeys` as
-    /// canon key → IL string, so the name resolves to `TyConst key`. A `with member …`
+    /// Register a `type X = (# … #)` primitive BINDING: it lands in `IntrinsicBindings` as
+    /// canon key → platform type id, so the name resolves to `TyConst key`. A `with member …`
     /// augmentation registers the type as a member host as well, without withdrawing it
-    /// from `IntrinsicReprKeys`.
-    let registerIntrinsicReprDecl
+    /// from `IntrinsicBindings`.
+    let registerIntrinsicBindingDecl
         (ctx: PassContext)
         (id: TypeIdentity)
         (tn: TypeName<SyntaxToken>)
@@ -962,13 +962,13 @@ module NameResolutionTypeRegistration =
         (hasAugmentation: bool)
         : unit =
         let name = id.Name
-        let repr = IntrinsicReprs.ilString ctx.NameOf instrParts
+        let typeId = PlatformTypeId(IntrinsicBindings.ilString ctx.NameOf instrParts)
         // Filed on the KEY axis alone, so a consumer holding a resolved intrinsic key
         // never has to project it back to a name. The `class` tag is stored on the same entry:
-        // heritability is a property of this repr.
-        ctx.Types.IntrinsicReprKeys.[TypeRegistry.intrinsicKeyOf ctx.Types name] <-
+        // heritability is a property of this binding.
+        ctx.Types.IntrinsicBindings.[TypeRegistry.intrinsicKeyOf ctx.Types name] <-
             {
-                Platform = repr
+                TypeId = typeId
                 Heritable =
                     match tag with
                     | ValueSome(ExternKind.Class _) -> true

@@ -127,7 +127,7 @@ module OperatorSurfaceParity =
             [
                 for entry in IntrinsicTypeMap.entries provider.IntrinsicTypeMap do
                     match entry.Platform with
-                    | IntrinsicPlatform.Repr _ ->
+                    | IntrinsicPlatform.Bound _ ->
                         match provider.TryLookupMember(entry.Canon, compiled) with
                         | ValueSome m when m.IsStatic -> yield entry.Canon.Name
                         | _ -> ()

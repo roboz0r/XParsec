@@ -119,7 +119,7 @@ type TypeSignature<'T> =
         equals: 'T *
         externToken: 'T *
         // Optional `class` / `interface` tag. `class` (`type Attribute = extern class`)
-        // marks a HERITABLE external reference base (repr extracted from the paired
+        // marks a HERITABLE external reference base (type id extracted from the paired
         // `.fs`'s `(# class "…" #)`); `interface` (`type disposable = extern interface
         // with …`) marks a capability INTERFACE (all-abstract surface, published as an
         // `IntrinsicInterface`). Both are distinct from the bare `extern` opaque value

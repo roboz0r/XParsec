@@ -453,21 +453,21 @@ module FrozenCodec =
     /// The un-pooled fields, verbatim, because none of them is a tree.
     let private writeResidue (w: FrozenWriter) (res: FrozenFileResidue) =
         writeListWith w writeDiagnostic res.Diagnostics
-        writeTypeKeyDict w writeIntrinsicReprInfo res.IntrinsicReprKeys
+        writeTypeKeyDict w writeIntrinsicBindingInfo res.IntrinsicBindings
         writeSymbolSet w res.GlobalValueKeys
         writeModuleDict w (fun w (path: string) -> w.Write path) res.ModuleSourcePaths
         writeSymbolDict w writeAccessibility res.Accessibility
 
     let private readResidue (r: FrozenReader) : FrozenFileResidue =
         let diagnostics = readListWith r readDiagnostic
-        let intrinsicReprKeys = readTypeKeyDict r readIntrinsicReprInfo
+        let intrinsicBindings = readTypeKeyDict r readIntrinsicBindingInfo
         let globalValueKeys = readSymbolSet r
         let moduleSourcePaths = readModuleDict r (fun r -> r.ReadString())
         let accessibility = readSymbolDict r readAccessibility
 
         {
             Diagnostics = diagnostics
-            IntrinsicReprKeys = intrinsicReprKeys
+            IntrinsicBindings = intrinsicBindings
             GlobalValueKeys = globalValueKeys
             ModuleSourcePaths = moduleSourcePaths
             Accessibility = accessibility

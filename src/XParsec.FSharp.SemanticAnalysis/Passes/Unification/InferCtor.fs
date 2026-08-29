@@ -201,7 +201,7 @@ module internal UnificationInferCtor =
             | ValueSome declTypeKey ->
                 match ctx.Provider.TryLookupType declTypeKey with
                 | ValueSome(ExternalTypeShape.Class _) ->
-                    // `externalClassTy` mints a canon `TyConst` for a platform repr, else the
+                    // `externalClassTy` mints a canon `TyConst` for a platform type id, else the
                     // external `TyClass`.
                     let ctorTy = externalClassTy ctx declTypeKey EqArray.empty
 

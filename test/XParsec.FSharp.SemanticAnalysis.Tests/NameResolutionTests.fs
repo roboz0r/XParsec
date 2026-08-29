@@ -767,7 +767,7 @@ let tests =
             }
 
             let isHeritable (ctx: PassContext) (name: string) =
-                match ctx.Types.IntrinsicReprKeys.TryGetValue(TypeRegistry.intrinsicKeyOf ctx.Types name) with
+                match ctx.Types.IntrinsicBindings.TryGetValue(TypeRegistry.intrinsicKeyOf ctx.Types name) with
                 | true, repr -> repr.Heritable
                 | _ -> false
 

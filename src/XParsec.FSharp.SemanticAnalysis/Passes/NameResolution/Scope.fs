@@ -62,7 +62,7 @@ module NameResolutionScope =
             | TypeDeclKind.Enum -> true
             | TypeDeclKind.Class
             | TypeDeclKind.Abbreviation
-            | TypeDeclKind.IntrinsicRepr -> false
+            | TypeDeclKind.IntrinsicBinding -> false
         | ResolvedTypeRef.External(_, shape) ->
             match shape with
             | ExternalTypeShape.Union _

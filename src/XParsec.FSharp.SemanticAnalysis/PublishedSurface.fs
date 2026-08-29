@@ -11,7 +11,7 @@ open System.Collections.Generic
 /// It fixes what the paired implementation's `(# … #)` binding must be, which the published
 /// shape alone does not: a capability on a target binding no repr publishes as a plain class.
 [<RequireQualifiedAccess>]
-type DeclaredRepr =
+type ExternForm =
     /// `type X = extern` / `type X = (# "…" #)` — an opaque value repr.
     | Opaque
     /// `type X = extern class` / `type X = (# class "…" #)` — a heritable external base a
@@ -31,7 +31,7 @@ type PublishedSurfaceBuilder =
     {
         ShapesByKey: Dictionary<TypeKey, ExternalTypeShape>
         /// Canonical intrinsic identity -> the representation form declared for it.
-        DeclaredReprs: Dictionary<TypeKey, DeclaredRepr>
+        ExternForms: Dictionary<TypeKey, ExternForm>
         /// A type's FULL member list, in DECLARATION order: the overload scan depends on it.
         MembersByKey: Dictionary<TypeKey, ResizeArray<ExternalMember>>
         /// Dotted source path of a declared module -> the container a type it holds sits in.
@@ -57,7 +57,7 @@ module PublishedSurfaceBuilder =
     let create () : PublishedSurfaceBuilder =
         {
             ShapesByKey = Dictionary()
-            DeclaredReprs = Dictionary()
+            ExternForms = Dictionary()
             MembersByKey = Dictionary()
             ModuleContainers = Dictionary(StringComparer.Ordinal)
             UnionCases = Dictionary(StringComparer.Ordinal)
@@ -101,11 +101,11 @@ module PublishedSurfaceBuilder =
 
         surface.ShapesByKey.[key] <- shape
 
-    /// Record that `canon`'s representation is the target's to supply, in the form `repr`
+    /// Record that `canon`'s representation is the target's to supply, in the form `form`
     /// states. `canon` is the intrinsic identity a use site resolves the name to, which is
     /// what an implementation files its `(# … #)` binding under.
-    let addDeclaredRepr (surface: PublishedSurfaceBuilder) (canon: TypeKey) (repr: DeclaredRepr) : unit =
-        surface.DeclaredReprs.[canon] <- repr
+    let addExternForm (surface: PublishedSurfaceBuilder) (canon: TypeKey) (form: ExternForm) : unit =
+        surface.ExternForms.[canon] <- form
 
     /// Append to a type's member list, which stays in DECLARATION order. An empty batch
     /// creates no entry: a type with no published member has no member table.
@@ -208,7 +208,7 @@ type PublishedSurface =
     {
         ShapesByKey: EqArray<SurfaceEntry<TypeKey, ExternalTypeShape>>
         /// Canonical intrinsic identity -> the representation form declared for it.
-        DeclaredReprs: EqArray<SurfaceEntry<TypeKey, DeclaredRepr>>
+        ExternForms: EqArray<SurfaceEntry<TypeKey, ExternForm>>
         /// A type's FULL member list, in DECLARATION order: the overload scan depends on it.
         MembersByKey: EqArray<SurfaceEntry<TypeKey, EqArray<ExternalMember>>>
         /// Dotted source path of a declared module -> the container a type it holds sits in.
@@ -261,7 +261,7 @@ module PublishedSurface =
 
         {
             ShapesByKey = shapes
-            DeclaredReprs = byTypeKey b.DeclaredReprs
+            ExternForms = byTypeKey b.ExternForms
             MembersByKey =
                 b.MembersByKey
                 |> Seq.map (fun (KeyValue(k, ms)) -> k, EqArray.ofResizeArray ms)

@@ -1,4 +1,4 @@
-﻿namespace XParsec.FSharp.Codegen.Clr
+namespace XParsec.FSharp.Codegen.Clr
 
 open System.Reflection.Metadata
 open XParsec.FSharp.SemanticAnalysis
@@ -346,7 +346,7 @@ type ICodegenProvider =
 
     /// Resolve an intrinsic-CLASS `inherit` parent to its platform external key
     /// (`System.Exception`) plus its raw `TypeRef`, the derived type's `extends` token.
-    /// Such a parent is an `FTConst` canon (`exn`) whose platform repr is a heritable
+    /// Such a parent is an `FTConst` canon (`exn`) whose platform type id is a heritable
     /// BCL reference class.
     abstract IntrinsicClassBase: canon: TypeKey -> struct (TypeKey * EntityHandle) voption
 

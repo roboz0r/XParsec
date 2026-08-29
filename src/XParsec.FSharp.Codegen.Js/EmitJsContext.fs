@@ -439,9 +439,8 @@ module EmitJsContext =
     /// The runtime entry a `%O` on a `float32` renders through.
     let float32ToStringRef: JsValueRef = printfRuntimeRef "float32ToString"
 
-    /// The JS repr `int64` / `uint64` bind to.
-    [<Literal>]
-    let private BigIntRepr = "bigint"
+    /// The JS type `int64` / `uint64` bind to.
+    let private BigIntTypeId = PlatformTypeId "bigint"
 
     /// How a plain-value (`%O`) hole's operand must be stringified. JS renders a number by its
     /// RUNTIME type; F# renders it by the operand's STATIC WIDTH, and the two disagree wherever
@@ -464,8 +463,8 @@ module EmitJsContext =
         match ty with
         | FTConst(key, _) when key = RuntimeNames.float32Key -> PlainRender.Single
         | FTConst(key, _) ->
-            match IntrinsicTypeMap.tryPlatformRepr key ctx.Provider.IntrinsicTypeMap with
-            | ValueSome BigIntRepr -> PlainRender.BigInt
+            match IntrinsicTypeMap.tryPlatformTypeId key ctx.Provider.IntrinsicTypeMap with
+            | ValueSome id when id = BigIntTypeId -> PlainRender.BigInt
             | _ -> PlainRender.Native
         | _ -> PlainRender.Native
 

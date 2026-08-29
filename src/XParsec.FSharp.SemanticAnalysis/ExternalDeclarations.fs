@@ -470,9 +470,9 @@ type ExternalClassShape =
 /// itself as the target that binds none, because a use-site diagnostic must say WHICH.
 [<RequireQualifiedAccess>]
 type IntrinsicPlatform =
-    /// The target's own name for the type, from the `<base>.<target>.fs` companion's
-    /// `type x = (# "<repr>" #)`: `"System.Int32"` on CLR, `"number"`/`"Error"` on JS.
-    | Repr of platform: string
+    /// The target's own identifier for the type, from the `<base>.<target>.fs` companion's
+    /// `type x = (# "…" #)`: `"System.Int32"` on CLR, `"number"`/`"Error"` on JS.
+    | Bound of id: PlatformTypeId
     /// The target binds no representation, so referring to the type is an error there
     /// (`nativeint` / `nativeptr` / `voidptr` on JS).
     | Unsupported of target: string
@@ -486,8 +486,8 @@ type IntrinsicIdentity =
         /// Usually `0`, but the structural type constructors are intrinsics too
         /// (`type 'T [] = (# "!0[]" #)` has arity 1; `byref`, nd-array).
         TyparArity: int
-        /// The per-target repr, or the target that binds none. Many-to-one, so it must never
-        /// drive unification.
+        /// The per-target binding, or the target that binds none. Many-to-one, so it must
+        /// never drive unification.
         Platform: IntrinsicPlatform
     }
 
@@ -510,8 +510,8 @@ type IntrinsicClassSurface =
         Members: EqArray<ExternalMember>
     }
 
-/// An `extern` type whose sibling `.fs` carries `type x = (# "<repr>" #)`. NON-transparent
-/// (unlike `Abbrev`): a use site resolves to `TyConst Id.Canon`, never the expanded repr.
+/// An `extern` type whose sibling `.fs` carries `type x = (# "…" #)`. NON-transparent
+/// (unlike `Abbrev`): a use site resolves to `TyConst Id.Canon`, never the platform type id.
 type IntrinsicShape =
     {
         Id: IntrinsicIdentity
@@ -583,10 +583,10 @@ type IntrinsicInterfaceShape =
         /// capability-matching key, NOT the value-resolution key.
         Canon: TypeKey
         TyparArity: int
-        /// The `.fs` `(# … #)` repr: `"System.IDisposable"` on the CLR, the sentinel
-        /// `"!Vesper.disposable"` on a target with no interfaces. A bare `string`, not an
-        /// `IntrinsicPlatform`: a capability is minted only where its `.fs` binds the repr.
-        Platform: string
+        /// The `.fs` `(# … #)` binding: `"System.IDisposable"` on the CLR, the sentinel
+        /// `"!Vesper.disposable"` on a target with no interfaces. A bare `PlatformTypeId`, not
+        /// an `IntrinsicPlatform`: a capability is minted only where its `.fs` binds the id.
+        Platform: PlatformTypeId
         /// The abstract member surface (`Dispose`).
         Members: EqArray<ExternalMember>
         /// The directly-inherited interfaces: `enumerator` inherits `disposable`. Empty for

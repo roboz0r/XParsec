@@ -21,7 +21,7 @@ type LiteralValue =
 type TypeRef =
     /// Named/intrinsic: `int`, `string`, or `Foo<args>`. The name is the canonical
     /// FRONT-END identity (`int`, `string`, `bool`, `unit`) — never a BCL or JS repr;
-    /// the provider maps it to the platform repr.
+    /// the provider maps it to the platform type id.
     | Named of name: string * args: TypeRef list
     /// Open type parameter, declaring-axis index (the enclosing class / interface /
     /// alias / free-function's own typars).

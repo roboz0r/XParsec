@@ -90,7 +90,7 @@ module ConcatProbe =
 
                     for platform in [ "System.String"; "System.Int32"; "System.Object"; "System.Exception" ] do
                         Expect.isNonEmpty
-                            (IntrinsicTypeMap.canonsOf platform selfAxis)
+                            (IntrinsicTypeMap.canonsOf (PlatformTypeId platform) selfAxis)
                             (sprintf "%s reconciles to a Vesper canon" platform)
                 }
             ]

@@ -385,7 +385,7 @@ module TastPools =
                 Residue =
                     {
                         Diagnostics = file.Diagnostics
-                        IntrinsicReprKeys = file.IntrinsicReprKeys
+                        IntrinsicBindings = file.IntrinsicBindings
                         GlobalValueKeys = file.GlobalValueKeys
                         ModuleSourcePaths = file.ModuleSourcePaths
                         Accessibility = file.Accessibility

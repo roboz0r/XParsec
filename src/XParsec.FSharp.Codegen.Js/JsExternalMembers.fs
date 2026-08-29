@@ -103,19 +103,19 @@ module JsExternalMembers =
                         MemberDispatch.AttachedMethod
                 | MemberLowering.TypePrefixed -> MemberDispatch.TypePrefixedImport
 
-    /// Walk a type's `inherit` chain to the first ancestor carrying an intrinsic repr, and
-    /// return that repr (`FormatException` → `exn`'s `"Error"`). `ValueNone` for a chain that
-    /// reaches none.
-    let inheritedReprOf (provider: IExternalSymbolProvider) (key: TypeKey) : string voption =
+    /// Walk a type's `inherit` chain to the first ancestor carrying an intrinsic binding, and
+    /// return that type id (`FormatException` → `exn`'s `"Error"`). `ValueNone` for a chain
+    /// that reaches none.
+    let inheritedTypeIdOf (provider: IExternalSymbolProvider) (key: TypeKey) : PlatformTypeId voption =
         // Depth cap backstops a malformed cyclic `inherit`; each hop is a strict ancestor.
-        let rec climb (depth: int) (k: TypeKey) : string voption =
+        let rec climb (depth: int) (k: TypeKey) : PlatformTypeId voption =
             if depth > 16 then
                 ValueNone
             else
                 match provider.TryLookupType k with
                 | ValueSome(ExternalTypeShape.Intrinsic {
                                                             Id = {
-                                                                     Platform = IntrinsicPlatform.Repr platform
+                                                                     Platform = IntrinsicPlatform.Bound platform
                                                                  }
                                                         }) -> ValueSome platform
                 | ValueSome(ExternalTypeShape.Class shape) ->
@@ -127,13 +127,13 @@ module JsExternalMembers =
         climb 0 key
 
     /// The native runtime class an `exn` subtype constructs through. `ValueNone` for a key
-    /// whose chain reaches no repr, or one whose repr denotes a class the runtime lacks.
-    let exnReprOf (provider: IExternalSymbolProvider) (key: TypeKey) : string voption =
-        match inheritedReprOf provider key with
-        // The PLATFORM repr, not `canon`: `canon` has no JS class analogue.
-        | ValueSome platform ->
-            match ExternalSymbols.tryReprType provider platform with
-            | ValueSome(ExternalTypeShape.Class _) -> ValueSome platform
+    /// whose chain reaches no binding, or one whose type id denotes a class the runtime lacks.
+    let exnTypeIdOf (provider: IExternalSymbolProvider) (key: TypeKey) : PlatformTypeId voption =
+        match inheritedTypeIdOf provider key with
+        // The PLATFORM type id, not `canon`: `canon` has no JS class analogue.
+        | ValueSome typeId ->
+            match ExternalSymbols.tryMetaType provider typeId.Value with
+            | ValueSome(ExternalTypeShape.Class _) -> ValueSome typeId
             | _ -> ValueNone
         | ValueNone -> ValueNone
 
@@ -155,15 +155,15 @@ module JsExternalMembers =
             match classFlagsOf provider key with
             | ValueSome flags when flags.Global -> ValueSome(JsClassRef.Global(simpleName ()))
             | _ ->
-                match exnReprOf provider key with
+                match exnTypeIdOf provider key with
                 | ValueNone -> ValueNone
-                | ValueSome repr ->
+                | ValueSome typeId ->
                     match provider.TryLookupType key with
-                    // A class DECLARED over the repr is emitted in its own package's module,
-                    // so it is named rather than collapsed to the root the repr is.
+                    // A class DECLARED over the platform type is emitted in its own package's
+                    // module, so it is named rather than collapsed to the root that type is.
                     | ValueSome(ExternalTypeShape.Class _) ->
                         ValueSome(JsClassRef.Imported(homeOf provider key "exception class", simpleName ()))
-                    | _ -> ValueSome(JsClassRef.Global repr)
+                    | _ -> ValueSome(JsClassRef.Global typeId.Value)
 
     /// `objArg.<member>` — a manifest Property read IS this bare Member node (a JS DATA
     /// property, not a zero-arg call); the call forms wrap it.

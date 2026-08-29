@@ -318,7 +318,7 @@ type PassContext(provider: IExternalSymbolProvider, file: LexedFile, assembly: C
             Prefixes = provider.AmbientOpenPrefixes
         }
 
-    // `IntrinsicReprKeys` holds ONLY this file's own intrinsic bindings
+    // `IntrinsicBindings` holds ONLY this file's own intrinsic bindings
     // (`type int = (# "System.Int32" #)`); a referenced package's are read from the provider.
     let types = PassContextTypes.empty ()
 
@@ -420,9 +420,9 @@ type PassContext(provider: IExternalSymbolProvider, file: LexedFile, assembly: C
     /// The intrinsic axis this file analyses under: its OWN `(# … #)` declarations shadowing
     /// the provider's, per canon, so a local `int` hides the provider's `int` and leaves its
     /// `float` alone. `lazy`: the first read must come AFTER name resolution filled
-    /// `IntrinsicReprKeys`.
+    /// `IntrinsicBindings`.
     member val IntrinsicTypeMap: Lazy<IntrinsicTypeMap> =
-        lazy (IntrinsicTypeMap.shadow (IntrinsicTypeMap.ofReprKeys types.IntrinsicReprKeys) provider.IntrinsicTypeMap) with get
+        lazy (IntrinsicTypeMap.shadow (IntrinsicTypeMap.ofBindings types.IntrinsicBindings) provider.IntrinsicTypeMap) with get
 
     member val Bindings = PassContextBindings.empty () with get
     member val Resolution = PassContextResolution.create ambientOpenScope with get

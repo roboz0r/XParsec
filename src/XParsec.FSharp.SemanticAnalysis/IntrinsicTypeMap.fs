@@ -3,8 +3,8 @@ namespace XParsec.FSharp.SemanticAnalysis
 open System
 open System.Collections.Generic
 
-/// One intrinsic declaration: the `.fsi` identity and the repr its target's `.fs` binds.
-type IntrinsicReprEntry =
+/// One intrinsic declaration: the `.fsi` identity and what its target's `.fs` binds.
+type IntrinsicBinding =
     {
         Canon: TypeKey
         Platform: IntrinsicPlatform
@@ -17,11 +17,11 @@ type IntrinsicReprEntry =
 type IntrinsicTypeMap =
     private
         {
-            Entries: EqArray<IntrinsicReprEntry>
+            Entries: EqArray<IntrinsicBinding>
             // Indexes over `Entries`, excluded from equality: a `Dictionary` compares by
             // reference. Read-only after construction.
             ByCanon: Dictionary<TypeKey, IntrinsicPlatform>
-            ByPlatform: Dictionary<string, EqArray<TypeKey>>
+            ByPlatform: Dictionary<PlatformTypeId, EqArray<TypeKey>>
         }
 
     override this.Equals(o: obj) : bool =
@@ -37,38 +37,37 @@ type IntrinsicTypeMap =
 [<RequireQualifiedAccess>]
 module IntrinsicTypeMap =
 
-    /// A canon whose platform spelling IS its own name (JS `string` → `"string"`) reconciles
-    /// nothing: a reader of that name already holds the canon.
-    let private isSelfRepr (canon: TypeKey) (platform: string) : bool = platform = canon.Name
+    /// A canon whose platform type id IS its own name (JS `string` → `"string"`) reconciles
+    /// nothing: a reader of that id already holds the canon.
+    let private isSelfNamed (canon: TypeKey) (id: PlatformTypeId) : bool = id.Value = canon.Name
 
     /// Entries in precedence order, a canon's FIRST declaration winning.
-    let ofSeq (entries: IntrinsicReprEntry seq) : IntrinsicTypeMap =
+    let ofSeq (entries: IntrinsicBinding seq) : IntrinsicTypeMap =
         let byCanon = Dictionary<TypeKey, IntrinsicPlatform>()
-        let kept = ResizeArray<IntrinsicReprEntry>()
+        let kept = ResizeArray<IntrinsicBinding>()
 
         for entry in entries do
             if byCanon.TryAdd(entry.Canon, entry.Platform) then
                 kept.Add entry
 
-        // An `Unsupported` canon has no platform name to key under.
-        let buckets = Dictionary<string, ResizeArray<TypeKey>>(StringComparer.Ordinal)
+        // An `Unsupported` canon has no platform type id to key under.
+        let buckets = Dictionary<PlatformTypeId, ResizeArray<TypeKey>>()
 
         for entry in kept do
             match entry.Platform with
-            | IntrinsicPlatform.Repr platform when not (isSelfRepr entry.Canon platform) ->
-                match buckets.TryGetValue platform with
+            | IntrinsicPlatform.Bound id when not (isSelfNamed entry.Canon id) ->
+                match buckets.TryGetValue id with
                 | true, canons -> canons.Add entry.Canon
                 | _ ->
                     let canons = ResizeArray<TypeKey>()
                     canons.Add entry.Canon
-                    buckets.[platform] <- canons
+                    buckets.[id] <- canons
             | _ -> ()
 
-        let byPlatform =
-            Dictionary<string, EqArray<TypeKey>>(buckets.Count, StringComparer.Ordinal)
+        let byPlatform = Dictionary<PlatformTypeId, EqArray<TypeKey>>(buckets.Count)
 
-        for KeyValue(platform, canons) in buckets do
-            byPlatform.[platform] <- EqArray.ofResizeArray canons
+        for KeyValue(id, canons) in buckets do
+            byPlatform.[id] <- EqArray.ofResizeArray canons
 
         {
             Entries = EqArray.ofResizeArray kept
@@ -80,43 +79,43 @@ module IntrinsicTypeMap =
     let empty: IntrinsicTypeMap = ofSeq []
 
     /// The declarations themselves, in precedence order.
-    let entries (map: IntrinsicTypeMap) : EqArray<IntrinsicReprEntry> = map.Entries
+    let entries (map: IntrinsicTypeMap) : EqArray<IntrinsicBinding> = map.Entries
 
     let isEmpty (map: IntrinsicTypeMap) : bool = map.Entries.IsEmpty
 
-    /// The repr `canon` is declared with, `Unsupported` included.
-    let tryRepr (canon: TypeKey) (map: IntrinsicTypeMap) : IntrinsicPlatform voption =
+    /// The binding `canon` is declared with, `Unsupported` included.
+    let tryPlatform (canon: TypeKey) (map: IntrinsicTypeMap) : IntrinsicPlatform voption =
         match map.ByCanon.TryGetValue canon with
         | true, platform -> ValueSome platform
         | _ -> ValueNone
 
-    /// The platform spelling `canon` binds on the compiling target: `int` → `"System.Int32"`.
+    /// The platform type id `canon` binds on the compiling target: `int` → `"System.Int32"`.
     /// `ValueNone` for a canon declared unsupported there, or not declared at all.
-    let tryPlatformRepr (canon: TypeKey) (map: IntrinsicTypeMap) : string voption =
+    let tryPlatformTypeId (canon: TypeKey) (map: IntrinsicTypeMap) : PlatformTypeId voption =
         match map.ByCanon.TryGetValue canon with
-        | true, IntrinsicPlatform.Repr platform -> ValueSome platform
+        | true, IntrinsicPlatform.Bound id -> ValueSome id
         | _ -> ValueNone
 
-    /// Every canon `platform` stands for, nearest declaration first: `"number"` →
+    /// Every canon `id` stands for, nearest declaration first: `"number"` →
     /// `[int; float; float32]` on JS.
-    let canonsOf (platform: string) (map: IntrinsicTypeMap) : EqArray<TypeKey> =
-        match map.ByPlatform.TryGetValue platform with
+    let canonsOf (id: PlatformTypeId) (map: IntrinsicTypeMap) : EqArray<TypeKey> =
+        match map.ByPlatform.TryGetValue id with
         | true, canons -> canons
         | _ -> EqArray.empty
 
-    /// The canon `platform` reconciles to: `"System.Exception"` → `exn`. The LEADING canon
-    /// where a repr reconciles to several.
-    let tryCanon (platform: string) (map: IntrinsicTypeMap) : TypeKey voption =
-        match map.ByPlatform.TryGetValue platform with
+    /// The canon `id` reconciles to: `"System.Exception"` → `exn`. The LEADING canon where
+    /// an id reconciles to several.
+    let tryCanon (id: PlatformTypeId) (map: IntrinsicTypeMap) : TypeKey voption =
+        match map.ByPlatform.TryGetValue id with
         | true, canons when not canons.IsEmpty -> ValueSome canons.[0]
         | _ -> ValueNone
 
-    /// The canons sharing `canon`'s repr, `canon` included: JS `int` → `[int; float; float32]`.
-    /// Empty for a canon whose repr is its own name, which stands for nothing but itself, so
-    /// JS `char` and `string` both repr'ing `"string"` are NOT a family.
+    /// The canons sharing `canon`'s platform type id, `canon` included: JS `int` →
+    /// `[int; float; float32]`. Empty for a canon whose id is its own name, which stands for
+    /// nothing but itself, so JS `char` and `string` both binding `"string"` are NOT a family.
     let familyOf (canon: TypeKey) (map: IntrinsicTypeMap) : EqArray<TypeKey> =
-        match tryPlatformRepr canon map with
-        | ValueSome platform when not (isSelfRepr canon platform) -> canonsOf platform map
+        match tryPlatformTypeId canon map with
+        | ValueSome id when not (isSelfNamed canon id) -> canonsOf id map
         | _ -> EqArray.empty
 
     /// `shadow near far`: `near`'s declarations, then `far`'s for each canon `near` leaves
@@ -128,13 +127,13 @@ module IntrinsicTypeMap =
         else ofSeq (Seq.append near.Entries far.Entries)
 
     /// The axis a file's own `(# … #)` bindings declare.
-    let ofReprKeys (reprKeys: IReadOnlyDictionary<TypeKey, IntrinsicReprInfo>) : IntrinsicTypeMap =
+    let ofBindings (bindings: IReadOnlyDictionary<TypeKey, IntrinsicBindingInfo>) : IntrinsicTypeMap =
         ofSeq (
             seq {
-                for KeyValue(canon, repr) in reprKeys ->
+                for KeyValue(canon, binding) in bindings ->
                     {
                         Canon = canon
-                        Platform = IntrinsicPlatform.Repr repr.Platform
+                        Platform = IntrinsicPlatform.Bound binding.TypeId
                     }
             }
         )

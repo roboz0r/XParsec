@@ -6,9 +6,9 @@ open XParsec.FSharp.Lexer
 /// Single source of truth for the well-known runtime types the pipeline references. Every other
 /// file refers to one through a key minted here, so a well-known type's SPELLING is written
 /// exactly once in the tree. Recognition is KEY EQUALITY: a `TypeKey` carries its arity as
-/// a field, so there is nothing for a matcher to strip. The few NAMES that remain are for
-/// the axes string-keyed by design: a compiled-name probe, a platform-repr map, a source
-/// spelling met before any identity exists for it.
+/// a field, so there is nothing for a matcher to strip. Platform type ids carry
+/// `PlatformTypeId`; the few bare NAMES that remain are for the string axes: a compiled-name
+/// probe, a source spelling met before any identity exists for it.
 [<RequireQualifiedAccess>]
 module RuntimeNames =
 
@@ -133,15 +133,15 @@ module RuntimeNames =
 
     // The printf sinks. CLR contracts with no JS analogue.
 
-    let textWriterTypeName: string = "System.IO.TextWriter"
+    let textWriterTypeId: PlatformTypeId = PlatformTypeId "System.IO.TextWriter"
 
     /// The `Vesper.Printf` write-through format handler, a Vesper RUNTIME type carried as a
     /// bare nominal name by the CLR backend's `%A` recipes.
-    let formatterTypeName: string = "Vesper.Formatter"
+    let formatterTypeId: PlatformTypeId = PlatformTypeId "Vesper.Formatter"
 
-    let stringBuilderTypeName: string = "System.Text.StringBuilder"
+    let stringBuilderTypeId: PlatformTypeId = PlatformTypeId "System.Text.StringBuilder"
 
-    let stringWriterTypeName: string = "System.IO.StringWriter"
+    let stringWriterTypeId: PlatformTypeId = PlatformTypeId "System.IO.StringWriter"
 
     // Disjuncts of an anonymous union (`T | null`), not nominal types: no payload, so they
     // resolve to a bare `TyConst name`.
@@ -258,6 +258,9 @@ module RuntimeNames =
 
     /// For a name that is NOT a registered intrinsic.
     let opaqueKey (name: string) : TypeKey = SymbolKeyOps.typeKeyOf "" name
+
+    /// The global-name key a platform type id resolves through.
+    let platformKey (id: PlatformTypeId) : TypeKey = SymbolKeyOps.typeKeyOf "" id.Value
 
     let private intrinsicContainer: TypeContainer =
         TypeContainer.InNamespace(SymbolKeyOps.namespaceKey intrinsicNamespace)
@@ -508,10 +511,10 @@ module IntrinsicTypePatterns =
         | TyConst(k, _) when RuntimeNames.isStructuralConstructorKey k -> Some()
         | _ -> None
 
-    /// A key onto the platform-repr string axis: refuses any key with a declaring namespace.
-    let (|PlatformName|_|) (k: TypeKey) : string option =
+    /// A key onto the platform type id axis: refuses any key with a declaring namespace.
+    let (|PlatformName|_|) (k: TypeKey) : PlatformTypeId option =
         if k.TyparArity = 0 && k.Container = TypeContainer.InNamespace NamespaceKey.Global then
-            Some k.Name
+            Some(PlatformTypeId k.Name)
         else
             None
 

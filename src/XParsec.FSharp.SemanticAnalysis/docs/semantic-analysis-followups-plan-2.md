@@ -389,7 +389,14 @@ parameter is still accurate against the current file.
 Already removed by commits `2cd5797a` and `bc0988c1`; a sweep of `test/**/*.fs` finds no
 milestone label remaining.
 
-### `RuntimeNames.fs:3` — the module runs two axes and the header claimed only one
+### `RuntimeNames.fs:3` — the module runs two axes and the header claimed only one **[LANDED — `PlatformTypeId`]**
+
+The platform-string axis is now the `PlatformTypeId` struct wrapper (born in
+`IntrinsicBindings.fs`), threaded through `IntrinsicPlatform.Bound`, `IntrinsicTypeMap`,
+`TryPlatformTypeId` and both backends; `RuntimeNames.platformKey` mints its key and
+`(|PlatformName|_|)` returns it. The compiled-name probe (`isVesperListName`,
+`tryMetaType`) and source-spelling (`numericTypeNames`) axes stay `string` by design. The
+"repr" abbreviation is retired in `comment-hygiene/vocabulary.md`. Original note follows.
 
 The deleted module header read: "The canonical `*Key` identity of each well-known runtime type.
 Identity is the key, never a string." Roughly a third of the module is the opposite — a
@@ -405,7 +412,11 @@ that would fix this — a single-case wrapper for the platform-repr string, so `
 and the name sets are keyed by it. Recording, not fixing; the type change would delete the pair of
 comments now sited on `primitiveKey` and `opaqueKey`.
 
-### `ExternalSymbolProviders.fs:11`, `:47` — `NamedChannels` and `KeyIndexedChannels` share six channels by copy
+### `ExternalSymbolProviders.fs:11`, `:47` — `NamedChannels` and `KeyIndexedChannels` share six channels by copy **[RESOLVED — `NamedChannels` deleted]**
+
+The name-indexed twin and `ofKeyIndexes` no longer exist; `KeyIndexedChannels` is the single
+channels record and `ofKeyIndexedChannels` builds the provider directly, so there is no copy
+to forget a field in. Original note follows.
 
 The two channel records differ only in how types are addressed, but each independently declares
 `TryLookup`, `TryLookupUnionCase`, `TryRecordsWithField`, `AmbientOpenPrefixes`,

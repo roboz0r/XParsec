@@ -357,21 +357,21 @@ module FrozenSignature =
             | _ -> ()
 
         // --- intrinsic / primitive type shapes ----------------------------------------
-        // An intrinsic-repr primitive (`type int = (# "System.Int32" #)`) is kept OUT of
-        // `Decls`, so the loop above never sees it: it is published from `IntrinsicReprKeys`.
-        for KeyValue(typeKey, repr) in frozen.Residue.IntrinsicReprKeys do
+        // An intrinsic primitive (`type int = (# "System.Int32" #)`) is kept OUT of
+        // `Decls`, so the loop above never sees it: it is published from `IntrinsicBindings`.
+        for KeyValue(typeKey, binding) in frozen.Residue.IntrinsicBindings do
             // A HERITABLE `(# class … #)` primitive (`obj` / `exn`) also carries a class
             // surface, so a later file's `inherit` resolves it. The surface is EMPTY here:
-            // the impl `.fs` binds the repr and declares no parent and no interfaces.
+            // the impl `.fs` binds the type id and declares no parent and no interfaces.
             let shape =
-                if repr.Heritable then
+                if binding.Heritable then
                     ExternalTypeShape.Intrinsic
                         {
                             Id =
                                 {
                                     Canon = typeKey
                                     TyparArity = typeKey.TyparArity
-                                    Platform = IntrinsicPlatform.Repr repr.Platform
+                                    Platform = IntrinsicPlatform.Bound binding.TypeId
                                 }
                             Class =
                                 ValueSome
@@ -384,7 +384,7 @@ module FrozenSignature =
                         }
                 else
                     ExternalTypeShape.Intrinsic(
-                        IntrinsicShape.Scalar(typeKey, typeKey.TyparArity, IntrinsicPlatform.Repr repr.Platform)
+                        IntrinsicShape.Scalar(typeKey, typeKey.TyparArity, IntrinsicPlatform.Bound binding.TypeId)
                     )
 
             PublishedSurfaceBuilder.addType surface typeKey shape
