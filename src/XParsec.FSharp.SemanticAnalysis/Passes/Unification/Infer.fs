@@ -361,9 +361,6 @@ module UnificationInfer =
                         annTy
                     | ValueNone ->
                         let bodyTy = infer ctx b.expr
-                        // `unifyAnnotation` admits value→union (`let x: int | string = 1`)
-                        // and concrete-subtype→supertype (`: exn = e`), staying symmetric
-                        // `unify` for every other nominal annotation.
                         unifyAnnotation ctx bindTok bodyTy annTy
                         annTy
                 | ValueNone -> infer ctx b.expr

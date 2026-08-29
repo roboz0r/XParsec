@@ -182,8 +182,6 @@ module internal UnificationInferPat =
         | Pat.Typed(pat = inner; typ = t) ->
             let innerTy = inferPat ctx inner
             let annTy = translateType ctx t
-            // Annotation reconciliation (`x: int | string`) admits value→union, but stays a
-            // symmetric `unify` for a nominal/`obj` annotation.
             unifyAnnotation ctx tok innerTy annTy
             // `(x : T)` writes the bound variable's type explicitly. Attribute it to the INNER
             // bound variable's key: the `Pat.Typed` wrapper is erased in the TAST, so a consumer

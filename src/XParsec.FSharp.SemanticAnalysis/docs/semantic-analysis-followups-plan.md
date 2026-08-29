@@ -127,12 +127,6 @@ round-trip through the `+`-metadata name". One short form survives at `:118-120`
 the signal that this belongs in `SymbolKeyOps` as a type-level restriction on which key shapes
 `typeMetaName` may round-trip.
 
-### `Passes/Unification/Engine.fs:874`, `:886`, `:897` — `unifyAnnotation`'s three admission policies are prose-only
-
-Union subsumption, literal outward-widening and strict nominal upcast, plus a grounding fallback,
-are distinguished only by comment and by a guard whose two halves are a `match` inside a `when`.
-A classifier returning a named admission verdict deletes all three blocks.
-
 ### `Passes/Unification/Engine.fs:62` — `DotSource.ClassChain`'s doc exists to explain a shape mismatch
 
 The block says only why the chain case cannot be the `subst` + `lookup` pair that `Resolved`

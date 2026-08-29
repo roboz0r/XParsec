@@ -884,29 +884,37 @@ module UnificationEngine =
             if not (tryCoerceUpcast ctx tok a b) then
                 unify ctx tok a b
 
-    /// Reconcile an inferred type against a *written annotation*. Admits value→union
-    /// (`let x: int | string = 1`) and a concrete subtype into a supertype annotation
-    /// without unifying; every other annotation GROUNDS via symmetric `unify`.
-    let unifyAnnotation (ctx: PassContext) (tok: SyntaxToken) (actual: SemType) (expected: SemType) : unit =
-        // The only actual admitted to the outward-widening arm below.
+    /// How a written annotation admits the inferred type beside it, or grounds it.
+    [<RequireQualifiedAccess>]
+    type private Admission =
+        /// A union annotation covering the inferred type (`let x: int | string = 1`).
+        | UnionSubsumption
+        /// A literal-bearing inferred type against a wider annotation (`let s: string = "a"`).
+        | LiteralWidening
+        /// A strict supertype annotation (`let toExn (e: InvalidOperationException) : exn = e`).
+        | NominalUpcast
+        /// Symmetric `unify`, which pins the inferred type's free variables to the annotation.
+        | Grounding
+
+    let private classifyAdmission (ctx: PassContext) (actual: SemType) (expected: SemType) : Admission =
         let rec isLiteralBearing t =
             match resolveStep ctx.Store t with
             | TyLiteral _ -> true
             | TyOr ds -> ds.Disjuncts |> EqSet.forall isLiteralBearing
             | _ -> false
 
-        // A `TyOr` annotation admits any subsuming actual (`let x: int | string = 1`); a
-        // non-union one only a literal actual, widening OUTWARD (`let s: string = m()`).
-        match resolveStep ctx.Store expected with
-        | expected' when
-            (match expected' with
-             | TyOr _ -> true
-             | _ -> isLiteralBearing actual)
-            && subsumes ctx actual expected <> SubsumeOutcome.Unrelated
-            ->
-            ()
-        // NOMINAL upcast: a concrete actual annotated to a strict SUPERTYPE
-        // (`let toExn (e: InvalidOperationException) : exn = e`). STRICTLY `Subtype`, because
-        // a same-nominal annotation grounds via `unify`.
-        | _ when subsumes ctx actual expected = SubsumeOutcome.Subtype -> ()
-        | _ -> unify ctx tok actual expected
+        match subsumes ctx actual expected, resolveStep ctx.Store expected with
+        | SubsumeOutcome.Unrelated, _ -> Admission.Grounding
+        | _, TyOr _ -> Admission.UnionSubsumption
+        | _, _ when isLiteralBearing actual -> Admission.LiteralWidening
+        | SubsumeOutcome.Subtype, _ -> Admission.NominalUpcast
+        | SubsumeOutcome.Equal, _ -> Admission.Grounding
+
+    /// Reconcile an inferred type against a *written annotation*, at both the `let x : T = e`
+    /// binding and the `(e : T)` ascription.
+    let unifyAnnotation (ctx: PassContext) (tok: SyntaxToken) (actual: SemType) (expected: SemType) : unit =
+        match classifyAdmission ctx actual expected with
+        | Admission.UnionSubsumption
+        | Admission.LiteralWidening
+        | Admission.NominalUpcast -> ()
+        | Admission.Grounding -> unify ctx tok actual expected
