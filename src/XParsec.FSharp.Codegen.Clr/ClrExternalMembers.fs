@@ -125,8 +125,8 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
             let declTyparArity = arityOfMetaName name
 
             let chosen = lookupChosen declFullName memberName mk
-            let methodTyparArity = chosen.MethodTyparArity
             let sig_ = chosen.Signature
+            let methodTyparArity = sig_.MethodTyparArity
 
             let declArgs, methodArgs =
                 recoverOpenTypars declTyparArity methodTyparArity (ExternalSignature.openTemplate sig_) memberTy
@@ -177,8 +177,8 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
             let declFullName = SymbolKeyOps.typeMetaName declKey
 
             let chosen = lookupChosen declFullName memberName mk
-            let methodTyparArity = chosen.MethodTyparArity
             let sig_ = chosen.Signature
+            let methodTyparArity = sig_.MethodTyparArity
 
             // Only the method axis is recovered here; declaring arity 0 leaves the template's
             // `FTTypar(Declaring, i)` slots to encode as `!i` when the blob is minted.

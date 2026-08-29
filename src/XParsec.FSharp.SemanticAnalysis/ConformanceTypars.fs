@@ -180,7 +180,8 @@ module ConformanceTypars =
                             let inferred = memberSigOf isProperty (tupledParams m.Params) m.ReturnTy
                             let overloads = provider.TryLookupMembers(td.TypeKey, m.Name)
                             // A different-arity overload is a different generic member.
-                            let candidates = overloads |> EqArray.filter (fun em -> em.MethodTyparArity = arity)
+                            let candidates =
+                                overloads |> EqArray.filter (fun em -> em.Signature.MethodTyparArity = arity)
 
                             // No matching-arity overload at all is member PRESENCE, not a
                             // typar-order disagreement, so it is skipped.

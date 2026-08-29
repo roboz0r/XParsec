@@ -162,11 +162,11 @@ let tests =
 
                 let atInt = pick candidates [ BuiltinTypes.tyInt ]
                 Expect.equal atInt.IsSome true "the int argument resolves"
-                Expect.equal atInt.Value.MethodTyparArity 0 "the non-generic M(int) wins for int"
+                Expect.equal atInt.Value.Signature.MethodTyparArity 0 "the non-generic M(int) wins for int"
 
                 let atString = pick candidates [ BuiltinTypes.tyString ]
                 Expect.equal atString.IsSome true "the string argument resolves"
-                Expect.equal atString.Value.MethodTyparArity 1 "only the generic overload matches string"
+                Expect.equal atString.Value.Signature.MethodTyparArity 1 "only the generic overload matches string"
             }
 
             test "a user-declared overload resolves by parameter type" {

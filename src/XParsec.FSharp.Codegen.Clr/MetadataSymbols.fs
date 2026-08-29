@@ -630,7 +630,7 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
                         let seen = System.Collections.Generic.HashSet<_>(HashIdentity.Structural)
 
                         methods
-                        |> Array.filter (fun m -> seen.Add((m.Key.ArgSig, m.Key.Kind, m.MethodTyparArity)))
+                        |> Array.filter (fun m -> seen.Add((m.Key.ArgSig, m.Key.Kind, m.Signature.MethodTyparArity)))
                         |> Array.sortByDescending (fun m -> m.Key.ArgSig.Length)
 
                     // Constructors are NOT inherited, so a `.ctor` request stays on `t`.

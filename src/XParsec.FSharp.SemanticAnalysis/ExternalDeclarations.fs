@@ -381,10 +381,6 @@ type ExternalMember =
     /// A value member (field or property): no parameters, the value in `Return`.
     member m.IsValueMember = m.Storage.IsValueMember
 
-    /// The member's OWN generic parameter count (`Take<TSource>` ⇒ 1); `0` for every
-    /// property and constructor.
-    member m.MethodTyparArity = m.Signature.MethodTyparArity
-
     /// The canonical `.ctor` shape, keyed as a `MemberKind.Method` over `declKey`.
     static member ctor
         (declKey: TypeKey)
@@ -393,7 +389,9 @@ type ExternalMember =
         (origin: SymbolOrigin)
         (optionalDefaults: OptionalDefault list)
         : ExternalMember =
-        { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey ".ctor" argSig 0 MemberKind.Method) with
+        { ExternalMember.OfKey(
+              SymbolKeyOps.memberKeyOf declKey ".ctor" argSig signature.MethodTyparArity MemberKind.Method
+          ) with
             Signature = signature
             Origin = origin
             OptionalDefaults = optionalDefaults

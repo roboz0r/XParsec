@@ -207,12 +207,6 @@ Deletes: "The `type` / `and` keyword itself is not kept, but nothing can be writ
 and this token, so file-order visibility is exact here." — the anchor becomes exact instead of
 argued.
 
-### `ExternalDeclarations.fs` — `ExternalMember.ctor` keys a generic ctor at arity 0
-
-Found landing the `MethodTypars` fold (2026-08-25). The `ctor` static hardcodes `0` for the
-key's `MethodTyparArity` while accepting an arbitrary `signature`, so a generic-ctor signature
-would key under `0`. No producer currently constructs one.
-
 ### `PassContext.fs:200` — `ExternalStaticQualifier`'s payload shape is a writer-side promise
 
 A `SideTable<SymbolKey>`; nothing in the type says the key names a static-member-bearing shape.
@@ -337,16 +331,6 @@ constraint-only typar such as `'E` in `'S :> IStructSeq<'E>` is quantified. The 
 different root collectors (`SemTypeWalk.collectLinkedRoots` here, `iterTypeVarRoots` there) and
 differ in whether a level test gates the seed, which is exactly the kind of divergence that will
 not show up until the two disagree about which typars a scheme has.
-
-### `ExternalSymbols.fs:224` — `MethodTyparArity` is stored twice per member
-
-`ExternalMember.MethodTyparArity` (`:224`) and `ExternalMember.Signature.MethodTyparArity`
-(`ExternalSignature`, `:180`) are the same count, written side by side at every construction site —
-`VesperLib.fs:313`/`:321`/`:323` set both from one `sign.MethodTyparArity`, and `FrozenTypeTable.fs:288`,
-`InferOverload.fs:338` copy them forward as a pair. Nothing keeps them equal, and the two are read
-independently: `ClrExternalMembers.fs:142` reads the member's, `instantiateSignatureBounds` reads the
-signature's `MethodTyparBounds` whose documented length is the OTHER one. One owner (the signature,
-which is where the typars are actually baked) would remove the pairing and the doc line on the field.
 
 ### `ExternalSymbols.fs:89` — the `deferredTemplate` sentinel is a two-phase type spelled as a magic value
 

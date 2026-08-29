@@ -265,7 +265,7 @@ module UnificationInferOverload =
                         Some
                             {
                                 Params = ps
-                                MethodTyparArity = m.MethodTyparArity
+                                MethodTyparArity = m.Signature.MethodTyparArity
                                 Item = m
                             }
                     else
