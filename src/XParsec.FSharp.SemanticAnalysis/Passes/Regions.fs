@@ -7,6 +7,10 @@ open XParsec.FSharp.SemanticAnalysis
 // Post: ctx.Bindings.Escape populated per binding site; TypeVar.Region set; the two axes
 //       returned. Inlining both removes and creates closures, so escape is computed on what
 //       codegen emits.
+//
+// The verdicts are optimisation metadata, target-neutral and advisory: a backend reads them to
+// pick a cheaper lowering, and one that ignores them stays correct. A GC-free native target is
+// the exception, where placement is obligatory — `SemanticScalars.fs`, `NativeRegionTier`.
 
 /// What `Regions.run` decided. `Escape` lands on the context because a later pass reads it;
 /// these have no reader but the caller, so they are returned rather than parked there.

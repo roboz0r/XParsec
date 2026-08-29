@@ -76,7 +76,7 @@ one, `tryCoerceUpcast` returned `false` — and the two agree because widening r
 `TyClass` expected, which the `TyOr` and platform-repr arms have already excluded. That
 disjointness is now stated on `absorbsWithoutPinning` as the invariant a fifth arm must keep.
 
-### `SemanticScalars.fs:74` — `SafeContext`, `NativeRegionTier` and both `EscapeState` converters have no PRODUCTION consumer
+### `SemanticScalars.fs:74` — `SafeContext`, `NativeRegionTier` and both `EscapeState` converters have no PRODUCTION consumer **[LANDED — kept, marked `UNBUILT`]**
 
 `EscapeState`, `RegionRepr` and `RegionId` are live (`Passes/Regions.fs`, `PassContext.fs`), but
 the two target-flavoured projections off `EscapeState` and the two enums they land in are called
@@ -90,6 +90,19 @@ exercises both converters against every `EscapeState` case, so the mapping is pi
 the declarations would take those tests with them. The decision is therefore whether the native
 tier is still intended, not whether the code is reachable — if it is intended, say so where a
 reader can tell it is unbuilt; if not, the tests go too.
+
+Resolution (user): the native tier is intended. Region analysis is optimisation metadata for any
+backend to read when it picks a lowering — advisory everywhere, and obligatory for a GC-free
+native target, which cannot emit at all without placement. Both projections and their tests stay.
+The marker is the word `UNBUILT`, greppable, in the shape `PrintfSpec.fs:222`'s `PROVISIONAL:`
+already set: stated once in full above `SafeContext` in `SemanticScalars.fs`, referenced from
+each converter's doc, and named in the `RegionsTests` section comment so a reader editing those
+three tests knows they are the only consumer. `Passes/Regions.fs`'s header now states the
+advisory-versus-obligatory split at the pass itself.
+
+Still open, and untouched here: `EscapeState.ReturnOnly` has no producer (plan-1's entry at
+`SemanticScalars.fs:73-127`). `solve` never mints it, so the lub cannot yield it, and both
+projections' `ReturnOnly` arms are reachable from the tests alone.
 
 ### `SymbolKeyOps.fs:17` — `isEscapedName` also returns true for an already-arity-suffixed compiled name **[LANDED]**
 

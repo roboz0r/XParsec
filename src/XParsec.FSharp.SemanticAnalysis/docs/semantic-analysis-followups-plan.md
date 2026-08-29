@@ -217,7 +217,7 @@ reports FS0366 when the members are missing, so the silent drop is its own gap.
 
 ## Dead or duplicated structure
 
-### `SemanticScalars.fs:73-127` — the ref-safety tiers have no production consumer
+### `SemanticScalars.fs:73-127` — the ref-safety tiers have no production consumer **[PARTLY LANDED — tiers kept and marked `UNBUILT`; `ReturnOnly`'s missing producer is still open]**
 
 `SafeContext`, `NativeRegionTier`, `EscapeState.toClrRefSafe` and
 `EscapeState.toNativeRegionTier` are referenced from nowhere in `src/`. They ARE exercised by

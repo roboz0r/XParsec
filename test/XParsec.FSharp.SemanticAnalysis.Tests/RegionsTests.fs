@@ -228,7 +228,9 @@ let tests =
 
             // --- Axis 1 lattice -------------------------------------------
             // `solve` does not mint `ReturnOnly`: a returned closure stays `CallerStack`,
-            // per the tests above. These pin the tier's CLR and native projections.
+            // per the tests above. These pin the tier's CLR and native projections, which are
+            // UNBUILT (`SemanticScalars.fs`) — these three tests are their only consumer, and
+            // they hold the mapping steady until a backend reads it.
 
             test "toClrRefSafe maps each tier to its Roslyn safe-context" {
                 Expect.equal

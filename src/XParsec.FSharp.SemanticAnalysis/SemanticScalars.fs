@@ -82,6 +82,17 @@ type Rational =
         else
             sprintf "%O/%O" this.Numerator this.Denominator
 
+// `EscapeState` and `RegionRepr` are optimisation metadata: `Passes/Regions.fs` computes the
+// lifetime and representation axes once, for any backend to read when it picks a lowering. The
+// two enums below are per-target readings of the lifetime axis, projected by the converters on
+// `module EscapeState`.
+//
+// UNBUILT: `RegionsTests` is the only consumer of either projection. Today's readers take the
+// axes direct — `RefCellPromotion` reads `ctx.Bindings.Escape`, and the CLR closure emitter
+// reads the `ClosureRepr` collapse — so nothing asks for a ref-safe tier. A native target must
+// place every allocation itself, so `NativeRegionTier` is what a GC-free backend will read; it
+// stays because that backend is intended, not written.
+
 /// Roslyn's *ref-safe-context* tiers (ratified C# spec), widest-escape-first.
 [<RequireQualifiedAccess>]
 type SafeContext =
@@ -116,6 +127,7 @@ type EscapeState =
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 module EscapeState =
 
+    /// The widest ref-safe context an escape state permits. UNBUILT — see `SafeContext`.
     let toClrRefSafe (s: EscapeState) : SafeContext =
         match s with
         | LocalStack -> SafeContext.CurrentMethod
@@ -123,6 +135,9 @@ module EscapeState =
         | CallerStack -> SafeContext.CallingMethod
         | HeapShared -> SafeContext.Heap
 
+    /// The region an escape state allocates into on a native target. `ReturnOnly` and
+    /// `CallerStack` share `ReturnSlot`, so the caller's frame owns both. UNBUILT — see
+    /// `NativeRegionTier`.
     let toNativeRegionTier (s: EscapeState) : NativeRegionTier =
         match s with
         | LocalStack -> NativeRegionTier.Stack
