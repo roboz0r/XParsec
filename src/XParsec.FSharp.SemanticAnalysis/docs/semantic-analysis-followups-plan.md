@@ -210,12 +210,34 @@ The three writers (`Passes/NameResolution/Scope.fs:679`, `:687`, `:816`) all gat
 that. A key type carrying the guarantee would make the re-query provably unnecessary instead of
 conventionally so.
 
-### `TypeRegistry.fs` — `tryInterfaceImplHostByKey` omits the intrinsic-abbrev leg
+### An intrinsic abbrev cannot implement an interface — four gates, not one
 
-Found landing the host-cascade collapse (2026-08-25). The Class → Union → Record cascade has
-no intrinsic-abbrev probe, so a `TyConst`-keyed intrinsic abbrev with `with member …` and
-declared interfaces does not participate in subtyping through `EngineCore.fs:569` /
-`Infer.fs:252`. Adding the leg is a behaviour change; likely a genuine gap.
+Found landing the host-cascade collapse (2026-08-25); re-verified 2026-08-28 by lifting each
+gate in turn and re-running the pipeline. The original entry named only the missing
+intrinsic-abbrev leg in `TypeRegistry.tryInterfaceImplHostByKey`. Adding that leg alone changes
+nothing: with the leg in place and the two registration gates lifted, `widget :> IPoke` still
+reports `Type mismatch: widget vs IPoke`.
+
+Four independent changes are required, so this is a design question rather than a bounded fix:
+
+1. `MemberRegistration.fs:686` rejects `interface … with` on an intrinsic host outright
+   ("the type carries no representation in the output"), pinned green by
+   `ExternMemberElabTests.fs:259`.
+2. `MemberRegistration.fs:745` (the `TypeDefn.Abbrev` arm of `registerNominalMember`) stamps
+   `info.Members` and deliberately skips `info.InterfaceImpls`, which therefore has no writer
+   and is always empty.
+3. `EngineCore.nominalKeyOf` (`:523`) returns `ValueNone` for `TyConst`, so `subtypeInterfacesOf`
+   (`:569`) and `subtypeParentOf` receive `localKey = ValueNone` for an intrinsic and never call
+   `tryInterfaceImplHostByKey` at all. Surfacing the `TyConst` key here would also make the
+   host's empty `InterfaceImpls` shadow the external provider's `ExternalTypeShape.Intrinsic`
+   interfaces, which is how `string` and `char` reach `equatable` / `comparable` today.
+4. `Infer.fs:252` (`resolveUseDispose`) matches `TyClass` / `TyUnion` / `TyRecord` only, so a
+   `TyConst` cannot reach the `use` path either.
+
+Separately surfaced: a bare `interface IPoke` spec (no `with`) is accepted on any type and
+silently dropped — `extractInterfaceImpls` (`MemberRegistration.fs:349`) collects
+`TypeDefnElement.InterfaceImpl` only. F# treats the bare spec as a real implements edge and
+reports FS0366 when the members are missing, so the silent drop is its own gap.
 
 ## Dead or duplicated structure
 
