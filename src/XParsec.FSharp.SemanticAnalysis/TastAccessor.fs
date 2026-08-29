@@ -25,6 +25,7 @@ module TastAccessor =
     type CtorLet = TastNodeViews.CtorLet
     type CtorFieldInit = TastNodeViews.CtorFieldInit
     type SecondaryCtor = TastNodeViews.SecondaryCtor
+    type Base = TastNodeViews.Base
     type BaseCtorCall = TastNodeViews.BaseCtorCall
     type StaticParam = TastNodeViews.StaticParam
     type ArgGroup = TastNodeViews.ArgGroup
@@ -87,7 +88,7 @@ module TastAccessor =
     let exprNominalTy (e: ExprId) : FrozenNominal =
         let ty = exprTy e
 
-        match FrozenNominal.TryOfFrozen ty with
+        match FrozenNominal.tryOfFrozen ty with
         | ValueSome n -> n
         | ValueNone -> failwithf "a %A expression does not denote a type constructor: %A" (exprKind e) ty
 
@@ -639,7 +640,7 @@ module TastAccessor =
     let patNominalTy (p: PatId) : FrozenNominal =
         let ty = patTy p
 
-        match FrozenNominal.TryOfFrozen ty with
+        match FrozenNominal.tryOfFrozen ty with
         | ValueSome n -> n
         | ValueNone -> failwithf "a %A pattern does not denote a type constructor: %A" (patKind p) ty
 

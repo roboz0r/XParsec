@@ -243,10 +243,9 @@ module FrozenSignature =
                                 EqArray.ofSeq
                                     [
                                         for (ity, _) in c.Interfaces ->
-                                            FrozenNominal.OfFrozen "an `interface` clause" ity
+                                            FrozenNominal.ofFrozen "an `interface` clause" ity
                                     ]
-                            FrozenBaseType =
-                                c.BaseType |> ValueOption.map (FrozenNominal.OfFrozen "an `inherit` clause")
+                            FrozenBaseType = c.Base |> ValueOption.map (fun b -> b.Parent.Nominal)
                             Flags =
                                 { ExternalClassFlags.Default with
                                     Declared = c.Declared

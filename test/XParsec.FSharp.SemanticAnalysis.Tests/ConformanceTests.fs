@@ -152,6 +152,52 @@ let tests =
                     "sig is opaque, impl is a heritable external base"
             }
 
+            test "class-published memberful signature over a record impl → TypeKindMismatch" {
+                // The signature hides the representation; this front end publishes it as a
+                // class, so a divergent impl kind reports rather than emitting under a kind
+                // consumers do not hold.
+                let errors =
+                    conform "namespace V\n\ntype foo =\n    member P: int" "namespace V\n\ntype foo = { X: int }"
+
+                Expect.equal
+                    errors
+                    [
+                        Conformance.ConformanceError.TypeKindMismatch(
+                            "foo",
+                            Conformance.TypeKindFamily.Class,
+                            Conformance.TypeKindFamily.Record
+                        )
+                    ]
+                    "sig publishes a class, impl defines a record"
+            }
+
+            test "class signature with a ctor over a class impl conforms" {
+                let errors =
+                    conform
+                        "namespace V\n\ntype foo =\n    new: unit -> foo\n    member P: int"
+                        "namespace V\n\ntype foo() =\n    member this.P = 1"
+
+                Expect.isEmpty errors "a class pair carries no kind drift"
+            }
+
+            test "all-abstract signature over a concrete class impl → TypeKindMismatch" {
+                let errors =
+                    conform
+                        "namespace V\n\ntype foo =\n    abstract M: unit -> int"
+                        "namespace V\n\ntype foo() =\n    member this.M() = 1"
+
+                Expect.equal
+                    errors
+                    [
+                        Conformance.ConformanceError.TypeKindMismatch(
+                            "foo",
+                            Conformance.TypeKindFamily.Interface,
+                            Conformance.TypeKindFamily.Class
+                        )
+                    ]
+                    "sig publishes an interface, impl defines a class"
+            }
+
             test "concrete type declared in .fsi but absent from .fs → MissingInImpl" {
                 // `bar` is a CONCRETE type (a union), so it requires an implementation and
                 // its absence is real drift.

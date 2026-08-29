@@ -14,7 +14,7 @@ module internal LayoutNodes =
         (interfaces: EqArray<FrozenType * EqArray<TastAccessor.TypeMember>>)
         : (FrozenNominal * TastAccessor.TypeMember list) list =
         [
-            for (ifaceTy, ms) in interfaces -> FrozenNominal.OfFrozen "an `interface` clause" ifaceTy, EqArray.toList ms
+            for (ifaceTy, ms) in interfaces -> FrozenNominal.ofFrozen "an `interface` clause" ifaceTy, EqArray.toList ms
         ]
 
     let partitionTypeDecls (decls: TastAccessor.DeclId list) : PartitionedTypeDecls =
@@ -98,14 +98,13 @@ module internal LayoutNodes =
                             Fields = EqArray.toList c.Fields
                             CtorParams = EqArray.toList c.CtorParams
                             Members = EqArray.toList c.Members
-                            BaseType = c.BaseType |> ValueOption.map (FrozenNominal.OfFrozen "an `inherit` clause")
+                            Base = c.Base
                             Interfaces = ifaceBlocks c.Interfaces
                             IsSealed = c.Declared.IsSealed
                             StaticPreamble = EqArray.toList c.StaticPreamble
                             InstancePreamble = EqArray.toList c.InstancePreamble
                             ThisKey = c.ThisKey
                             SecondaryCtors = EqArray.toList c.SecondaryCtors
-                            BaseCtorCall = c.BaseCtorCall
                             ValueKind = c.ValueKind
                             HasPrimaryCtor = c.HasPrimaryCtor
                         }

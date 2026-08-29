@@ -338,34 +338,31 @@ module internal NominalEmit =
         | NominalEmissionInput.Class cd ->
             let instanceFields = cd.Fields
             let ctorParams = cd.CtorParams
-            let baseType = cd.BaseType
             let staticLets = TPreambleEntryG.lets cd.StaticPreamble
             let secondaryCtors = cd.SecondaryCtors
-            let baseCtorCall = cd.BaseCtorCall
+            let baseCtorCall = cd.Base |> ValueOption.bind (fun b -> b.Ctor)
             let isStruct = cd.ValueKind <> ClassValueKind.RefType
 
             let baseShape =
-                match baseType with
+                match cd.Base with
                 | ValueNone -> BaseShape.NoBase
                 // A parent carrying type ARGUMENTS resolves through a `TypeSpec` whatever its
                 // flavour, so only an argless one is worth classifying further.
-                | ValueSome b when not b.Args.IsEmpty -> BaseShape.Generic b.Frozen
+                | ValueSome b when not b.Parent.Args.IsEmpty -> BaseShape.Generic(FrozenNominal.ty b.Parent.Nominal)
                 | ValueSome b ->
-                    match b.Frozen with
-                    | FTClass _ ->
-                        match icodegen.ClassOrigin b.Key with
-                        | ClassOrigin.Foreign tref -> BaseShape.ExternalBase(b.Key, tref)
-                        | ClassOrigin.Local handle -> BaseShape.LocalMono(b.Key, handle)
+                    match b.Parent with
+                    | BaseParentG.Class n ->
+                        match icodegen.ClassOrigin n.Key with
+                        | ClassOrigin.Foreign tref -> BaseShape.ExternalBase(n.Key, tref)
+                        | ClassOrigin.Local handle -> BaseShape.LocalMono(n.Key, handle)
                         | ClassOrigin.Unresolved ->
-                            failwithf "Emit: class '%s' inherits %A, which resolves to no class" td.Name b.Key
-                    // An intrinsic-class parent (`inherit exn`) arrives as the canon
-                    // `FTConst`, not an `FTClass`, so resolve it to its platform class
-                    // (`System.Exception`).
-                    | FTConst _ ->
-                        match icodegen.IntrinsicClassBase b.Key with
+                            failwithf "Emit: class '%s' inherits %A, which resolves to no class" td.Name n.Key
+                    // An intrinsic-class parent (`inherit exn`) is inherited by CANON, so
+                    // resolve it to its platform class (`System.Exception`).
+                    | BaseParentG.PrimitiveCanon n ->
+                        match icodegen.IntrinsicClassBase n.Key with
                         | ValueSome(platformKey, tref) -> BaseShape.ExternalBase(platformKey, tref)
-                        | ValueNone -> BaseShape.Generic b.Frozen
-                    | _ -> BaseShape.Generic b.Frozen
+                        | ValueNone -> BaseShape.Generic(FrozenNominal.ty n)
 
             // A non-generic parent is its token directly because the `extends` column
             // rejects a `TypeSpec` that merely wraps a plain class.
@@ -994,7 +991,7 @@ module internal NominalEmit =
                     if emitsStructuralFormat then
                         provider.StructuralFormattableInterface
                     for (iface, _) in userInterfaces do
-                        provider.InterfaceHandleOf iface.Frozen
+                        provider.InterfaceHandleOf(FrozenNominal.ty iface)
                 ]
             else
                 []

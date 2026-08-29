@@ -238,27 +238,6 @@ module SignatureResolutionMembers =
 
     // --- class-like bodies ------------------------------------------------------------
 
-    /// F# infers an interface from a bodied type whose members are ALL abstract
-    /// (`type IFormatSink = abstract member …`, no `interface` / `class` / `begin` keyword),
-    /// which parses as `Anon` / `Class`, so no keyword carries the answer.
-    let bodyIsInterface (elems: TypeElementsSignature<SyntaxToken>) : bool =
-        let mutable hasAbstract = false
-        let mutable hasConcrete = false
-
-        for e in elems do
-            match e with
-            | TypeSignatureElement.Abstract _ -> hasAbstract <- true
-            | TypeSignatureElement.Member _
-            | TypeSignatureElement.StaticMember _
-            | TypeSignatureElement.Constructor _
-            | TypeSignatureElement.Value _
-            | TypeSignatureElement.Inherit _
-            | TypeSignatureElement.Override _
-            | TypeSignatureElement.Default _ -> hasConcrete <- true
-            | TypeSignatureElement.Interface _ -> ()
-
-        hasAbstract && not hasConcrete
-
     let inheritClauseOf (elems: TypeElementsSignature<SyntaxToken>) : ClassInheritsDecl<SyntaxToken> voption =
         let mutable found = ValueNone
 
@@ -269,32 +248,50 @@ module SignatureResolutionMembers =
 
         found
 
-    let interfaceSpecsOf (elems: TypeElementsSignature<SyntaxToken>) : Type<SyntaxToken> list =
+    /// Whether `key` denotes an interface: the current group's claims first, then the
+    /// shapes this signature published earlier, then the registry and provider.
+    let sigIsInterfaceKey (sctx: SigCtx) (key: TypeKey) : bool =
+        EqSet.contains key sctx.GroupInterfaceKeys
+        || (
+            match sctx.Surface.ShapesByKey.TryGetValue key with
+            | true, ExternalTypeShape.Class c -> c.IsInterface
+            | true, ExternalTypeShape.IntrinsicInterface _ -> true
+            | true, _ -> false
+            | false, _ -> BaseEligibility.isInterfaceKey sctx.Pass key
+        )
+
+    /// Each `interface <ty>` spec with the `interface` keyword token a rejected type is
+    /// reported at.
+    let interfaceSpecsOf (elems: TypeElementsSignature<SyntaxToken>) : (SyntaxToken * Type<SyntaxToken>) list =
         [
             for e in elems do
                 match e with
-                | TypeSignatureElement.Interface(InterfaceSpec(typ = t)) -> t
+                | TypeSignatureElement.Interface(InterfaceSpec(interfaceToken = tok; typ = t)) -> tok, t
                 | _ -> ()
         ]
 
     let freezeInterfaces
-        (ctx: PassContext)
+        (sctx: SigCtx)
         (declTypars: EqArray<string * TyVarId>)
-        (types: Type<SyntaxToken> list)
+        (types: (SyntaxToken * Type<SyntaxToken>) list)
         : EqArray<FrozenNominal> =
+        let ctx = sctx.Pass
         let env = typarEnv ctx (TyparOwner.Type declTypars)
 
         // Translated UNDER the declaring typars, not merely frozen over them: `interface
         // seq<'T>` references `'T`, and one resolved outside their scope is a fresh variable that
         // freezes to a hole no consumer can fill.
         let translated =
-            underTypars ctx declTypars EqArray.empty (fun () -> [ for t in types -> translateType ctx t ])
+            underTypars ctx declTypars EqArray.empty (fun () -> [ for (tok, t) in types -> tok, translateType ctx t ])
 
         EqArray.ofList
             [
-                for ty in translated do
-                    match FrozenNominal.TryOfFrozen(freezeOver ctx env ty) with
-                    | ValueSome i -> i
+                for (tok, ty) in translated do
+                    match
+                        BaseEligibility.classifyImpl (sigIsInterfaceKey sctx) ty
+                        |> BaseEligibility.admitSigImpl ctx tok
+                    with
+                    | ValueSome n -> NominalG.map (freezeOver ctx env) n
                     | ValueNone -> ()
             ]
 
@@ -330,20 +327,11 @@ module SignatureResolutionMembers =
         let interfaceTypes =
             [
                 match (if isInterface then inherits else ValueNone) with
-                | ValueSome(ClassInheritsDecl(typ = t)) -> t
+                | ValueSome(ClassInheritsDecl(inheritToken = tok; typ = t)) -> tok, t
                 | ValueNone -> ()
 
                 yield! interfaceSpecsOf elems
             ]
-
-        // A shape this signature published earlier answers for its own keys; the registry
-        // and provider answer for the rest.
-        let isInterfaceKey (key: TypeKey) : bool =
-            match sctx.Surface.ShapesByKey.TryGetValue key with
-            | true, ExternalTypeShape.Class c -> c.IsInterface
-            | true, ExternalTypeShape.IntrinsicInterface _ -> true
-            | true, _ -> false
-            | false, _ -> BaseEligibility.isInterfaceKey ctx key
 
         let attrs = Attributes.attributesOfTypeName tn
         let resolvedAttrs = ctx.ResolveAttributes attrs
@@ -370,15 +358,19 @@ module SignatureResolutionMembers =
                                  EqArray.ofList members
                              else
                                  EqArray.empty)
-                        FrozenInterfaces = freezeInterfaces ctx typeParams interfaceTypes
+                        FrozenInterfaces = freezeInterfaces sctx typeParams interfaceTypes
                         FrozenBaseType =
                             baseClause
                             |> ValueOption.bind (fun (ClassInheritsDecl(inheritToken = inhTok; typ = t)) ->
-                                BaseEligibility.classify isInterfaceKey (translateType ctx t)
+                                BaseEligibility.classify
+                                    (sigIsInterfaceKey sctx)
+                                    (BaseEligibility.isHeritableCanon ctx)
+                                    (translateType ctx t)
                                 |> BaseEligibility.admit ctx inhTok
-                                |> ValueOption.map (fun admitted ->
-                                    freezeOver ctx (typarEnv ctx (TyparOwner.Type typeParams)) admitted
-                                    |> FrozenNominal.OfFrozen "an `inherit` clause"
+                                |> ValueOption.map (fun parent ->
+                                    NominalG.map
+                                        (freezeOver ctx (typarEnv ctx (TyparOwner.Type typeParams)))
+                                        parent.Nominal
                                 )
                             )
                         Flags =

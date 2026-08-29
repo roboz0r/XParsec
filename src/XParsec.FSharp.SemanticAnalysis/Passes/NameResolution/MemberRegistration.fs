@@ -593,9 +593,9 @@ module NameResolutionMemberRegistration =
                 |> ignore
         | _ -> ()
 
-    /// Fill `BaseType` / `BaseCtorArgs` on a class with an `inherit` clause. The parent is
-    /// resolved against the referent's registered DETAIL, not its identity, so it cannot be
-    /// answered where the clause is seen, and `BaseType` is instead a slot filled at group close.
+    /// Fill `Base` on a class with an `inherit` clause. The parent is resolved against the
+    /// referent's registered DETAIL, not its identity, so it cannot be resolved where the
+    /// clause is seen, and `Base` is instead a slot filled at group close.
     let private registerInheritedSlot (ctx: PassContext) (id: TypeIdentity) (td: TypeDefn<SyntaxToken>) : unit =
         match TypeDefnPatterns.tryClassLikeDecl td with
         | ValueNone -> ()
@@ -604,21 +604,24 @@ module NameResolutionMemberRegistration =
             | ValueNone -> ()
             | ValueSome(ClassInheritsDecl(inheritToken = inhTok; typ = parentTyp; expr = exprOpt)) ->
                 match TypeRegistry.tryClassByKey ctx.Types id.Key with
+                // An all-abstract body with an `inherit` is an interface, and its clause is
+                // interface inheritance; the interface node carries no interface list to
+                // publish it on, so the clause is refused.
+                | ValueSome info when info.IsInterface ->
+                    ctx.Report(inhTok, Kind.NotYetSupported "interface inheritance in an implementation file")
                 | ValueSome info ->
                     let typarScope =
                         (Map.empty, info.TypeParams)
                         ||> EqArray.fold (fun acc (n, tv) -> Map.add n tv acc)
 
                     match NameResolutionInheritParent.resolveInheritParent ctx typarScope inhTok parentTyp with
-                    | ValueSome parentTy ->
-                        info.BaseType <- ValueSome parentTy
-                        info.BaseCtorArgs <- exprOpt
+                    | ValueSome parent -> info.Base <- ValueSome { Parent = parent; CtorArgs = exprOpt }
                     | ValueNone -> ()
                 | ValueNone -> ()
 
-    /// Detect inheritance cycles among the classes of ONE group, once every `BaseType` slot
-    /// is filled: on re-entry to the starting class, diagnose and clear its `BaseType` so
-    /// later passes treat it as parent-less. A back-edge can only run inside one group.
+    /// Detect inheritance cycles among the classes of ONE group, once every `Base` slot is
+    /// filled: on re-entry to the starting class, diagnose and clear its `Base` so later
+    /// passes treat it as parent-less. A back-edge can only run inside one group.
     let private checkGroupInheritanceCycles (ctx: PassContext) (classes: ClassTypeInfo seq) : unit =
         for start in classes do
             // Compare on `TypeKey` (arity included), not the bare name, so an arity-overloaded
@@ -627,12 +630,14 @@ module NameResolutionMemberRegistration =
             visited.Add start.TypeKey |> ignore
 
             let rec walk (info: ClassTypeInfo) =
-                match info.BaseType with
-                | ValueSome(TyClass(parentKey, _)) ->
+                match info.Base with
+                | ValueSome inh ->
+                    let parentKey = inh.Parent.Key
+
                     if parentKey = start.TypeKey then
                         ctx.Report(start.DeclSite.Tok, Kind.CyclicType(start.Name, TypeCycle.Inheritance))
 
-                        start.BaseType <- ValueNone
+                        start.Base <- ValueNone
                     elif not (visited.Add parentKey) then
                         // A cycle that doesn't pass back through `start`; it is
                         // diagnosed when iteration reaches a class on that cycle.
@@ -902,7 +907,7 @@ module NameResolutionMemberRegistration =
                 | ValueSome info -> forceFill ctx info
                 | ValueNone -> ()
 
-    /// Fill each class's `BaseType` / `BaseCtorArgs` slot, and return the group's classes.
+    /// Fill each class's `Base` slot, and return the group's classes.
     /// Requires every claim in the group to have registered its detail, because a parent is
     /// resolved against the referent's detail rather than its identity.
     let private fillGroupBaseTypes (ctx: PassContext) (claims: ClaimedTypeDefn seq) : ResizeArray<ClassTypeInfo> =

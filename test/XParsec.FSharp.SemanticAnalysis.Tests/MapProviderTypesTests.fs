@@ -57,12 +57,10 @@ let private typeByName (name: string) : ExternalTypeShape voption =
                     Members = EqArray.singleton markerMember
                     FrozenInterfaces =
                         EqArray.singleton (
-                            FrozenNominal.OfClass(SymbolKeyOps.qualifiedTypeKeyOf "I" 1, EqArray.singleton marker)
+                            NominalG.ofClass (SymbolKeyOps.qualifiedTypeKeyOf "I" 1) (EqArray.singleton marker)
                         )
                     FrozenBaseType =
-                        ValueSome(
-                            FrozenNominal.OfClass(SymbolKeyOps.qualifiedTypeKeyOf "B" 1, EqArray.singleton marker)
-                        )
+                        ValueSome(NominalG.ofClass (SymbolKeyOps.qualifiedTypeKeyOf "B" 1) (EqArray.singleton marker))
                 }
         )
     | "Rec" ->
@@ -85,9 +83,7 @@ let private typeByName (name: string) : ExternalTypeShape voption =
             ExternalTypeShape.Union(
                 1,
                 EqArray.singleton markerCase,
-                EqArray.singleton (
-                    FrozenNominal.OfClass(SymbolKeyOps.qualifiedTypeKeyOf "J" 1, EqArray.singleton marker)
-                ),
+                EqArray.singleton (NominalG.ofClass (SymbolKeyOps.qualifiedTypeKeyOf "J" 1) (EqArray.singleton marker)),
                 origin,
                 false
             )

@@ -1735,6 +1735,63 @@ let interfaceImplTests =
                     "the diagnostic explains the target is not an interface"
             }
 
+            test "an all-abstract type with an inherit is an interface whose clause is refused as unsupported" {
+                // fsc kinds `type I2 = inherit I1  abstract M: …` an interface (FS0887
+                // family); interface inheritance in an implementation file is not modelled
+                // yet, so the clause reports rather than resolving as a base type.
+                let provider = ClrSymbolProviders.buildContract defaultPackages
+
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type I1 ="
+                            "    abstract A: int"
+                            "type I2 ="
+                            "    inherit I1"
+                            "    abstract M: unit -> int"
+                        ]
+
+                let lexed, file = parseFile src
+
+                let ctx, tast =
+                    Pipeline.analyseSemWithContextFor testCompiling provider (LexedFile.ofText lexed) file
+
+                let errors = tast.Diagnostics |> Diagnostic.errors
+
+                Expect.isTrue
+                    (errors
+                     |> List.exists (fun d -> d.Message.Contains "interface inheritance in an implementation file"))
+                    (sprintf "the clause reports NotYetSupported (%A)" [ for e in errors -> e.Message ])
+
+                match TypeRegistry.tryClass ctx.Types UseSite.unbounded "I2" with
+                | ValueSome info ->
+                    Expect.isTrue info.IsInterface "I2 is an interface, as fsc kinds it"
+                    Expect.isTrue info.Base.IsNone "the clause fills no base slot"
+                | ValueNone -> failtest "I2 was not registered"
+            }
+
+            test "inheriting a capability interface is rejected as an interface" {
+                let provider = ClrSymbolProviders.buildContract defaultPackages
+
+                let src =
+                    String.concat "\n" [ "type D() ="; "    inherit disposable"; "    member this.X = 1" ]
+
+                let lexed, file = parseFile src
+
+                let _, tast =
+                    Pipeline.analyseSemWithContextFor testCompiling provider (LexedFile.ofText lexed) file
+
+                let errors = tast.Diagnostics |> Diagnostic.errors
+
+                Expect.isTrue
+                    (errors
+                     |> List.exists (fun d -> d.Message.Contains "Cannot inherit from interface 'disposable'"))
+                    (sprintf
+                        "the capability base is diagnosed as an interface, not an unknown name (%A)"
+                        [ for e in errors -> e.Message ])
+            }
+
             test "inheriting a project-local interface is rejected with a diagnostic" {
                 let provider = ClrSymbolProviders.buildContract defaultPackages
 
@@ -1762,7 +1819,7 @@ let interfaceImplTests =
                     (sprintf "inheriting a local interface diagnoses (%A)" errors)
 
                 match TypeRegistry.tryClass ctx.Types UseSite.unbounded "D" with
-                | ValueSome info -> Expect.isTrue info.BaseType.IsNone "the interface is not recorded as D's base type"
+                | ValueSome info -> Expect.isTrue info.Base.IsNone "the interface is not recorded as D's base type"
                 | ValueNone -> failtest "class D was not registered"
             }
 
@@ -1811,7 +1868,7 @@ let interfaceImplTests =
                     (sprintf "inheriting a tuple type diagnoses (%A)" errors)
 
                 match TypeRegistry.tryClass ctx.Types UseSite.unbounded "D" with
-                | ValueSome info -> Expect.isTrue info.BaseType.IsNone "the tuple is not recorded as D's base type"
+                | ValueSome info -> Expect.isTrue info.Base.IsNone "the tuple is not recorded as D's base type"
                 | ValueNone -> failtest "class D was not registered"
             }
 
@@ -1838,7 +1895,7 @@ let interfaceImplTests =
                 Expect.isEmpty errors (sprintf "no front-end errors (%A)" errors)
 
                 match TypeRegistry.tryClass ctx.Types UseSite.unbounded "D" with
-                | ValueSome info -> Expect.isTrue info.BaseType.IsSome "Base is recorded as D's base type"
+                | ValueSome info -> Expect.isTrue info.Base.IsSome "Base is recorded as D's base type"
                 | ValueNone -> failtest "class D was not registered"
             }
 

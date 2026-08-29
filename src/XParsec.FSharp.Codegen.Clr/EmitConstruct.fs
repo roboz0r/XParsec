@@ -144,7 +144,7 @@ module EmitConstruct =
         match env.Records.TryGetValue key with
         | true, r ->
             let overrideMap = Map.ofSeq overrides
-            let srcSlot = b.Local nominal.Frozen
+            let srcSlot = b.Local(FrozenNominal.ty nominal)
             recur env b source
             b.Add(ILInstr.Stloc srcSlot)
 

@@ -153,7 +153,7 @@ module internal ElaborateClassMembers =
             // `base` is in scope only when the class has an `inherit` clause; an instance
             // member then carries the shared `BaseKey` so a `base.M(...)` object argument resolves.
             BaseKey =
-                if info.BaseType.IsSome then
+                if info.Base.IsSome then
                     ValueSome info.BaseKey
                 else
                     ValueNone

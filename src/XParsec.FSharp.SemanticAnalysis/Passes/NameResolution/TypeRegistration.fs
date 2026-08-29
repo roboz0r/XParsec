@@ -462,6 +462,16 @@ module NameResolutionTypeRegistration =
             | SigDecl.Delegate(typeName = tn)
             | SigDecl.TypeExtension(typeName = tn) -> tn
 
+        /// Whether the declaration will publish as an interface, read off its written
+        /// form: the `extern interface` and `interface … end` spellings, or an all-abstract
+        /// bodied form.
+        let isInterfaceForm (decl: SigDecl) : bool =
+            match decl with
+            | SigDecl.Extern(kindTag = ValueSome(ExternKind.Interface _)) -> true
+            | SigDecl.ClassLike(form = SigClassForm.Interface) -> true
+            | SigDecl.ClassLike(form = SigClassForm.Bodied; elements = elems) -> TypeDefnPatterns.bodyIsInterface elems
+            | _ -> false
+
         /// The kind this declaration claims its name for; `ValueNone` where it claims none.
         let claimedKind (decl: SigDecl) : TypeDeclKind voption =
             match decl with

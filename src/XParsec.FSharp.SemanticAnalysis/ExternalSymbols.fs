@@ -634,7 +634,7 @@ module ExternalSymbols =
     /// Realise a class's `FrozenInterfaces`, or a union's declared `interface <ty>` impls,
     /// at a use site.
     let instantiateInterfacesOf (interfaces: EqArray<FrozenNominal>) (declaringArgs: SemType[]) : SemType[] =
-        Array.init interfaces.Length (fun i -> instantiateDeclaring interfaces.[i].Frozen declaringArgs)
+        Array.init interfaces.Length (fun i -> instantiateDeclaring (FrozenNominal.ty interfaces.[i]) declaringArgs)
 
     let instantiateInterfaces (shape: ExternalClassShape) (declaringArgs: SemType[]) : SemType[] =
         instantiateInterfacesOf shape.FrozenInterfaces declaringArgs
@@ -642,7 +642,7 @@ module ExternalSymbols =
     /// Shared by a class shape and a heritable primitive's class surface.
     let instantiateBaseTypeFrozen (baseType: FrozenNominal voption) (declaringArgs: SemType[]) : SemType voption =
         baseType
-        |> ValueOption.map (fun b -> instantiateDeclaring b.Frozen declaringArgs)
+        |> ValueOption.map (fun b -> instantiateDeclaring (FrozenNominal.ty b) declaringArgs)
 
     let instantiateBaseType (shape: ExternalClassShape) (declaringArgs: SemType[]) : SemType voption =
         instantiateBaseTypeFrozen shape.FrozenBaseType declaringArgs

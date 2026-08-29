@@ -458,7 +458,7 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
         |> Array.choose (fun i ->
             match MetadataMapping.tryBuildType intrinsics i with
             | Some frozen ->
-                match FrozenNominal.TryOfFrozen frozen with
+                match FrozenNominal.tryOfFrozen frozen with
                 | ValueSome iface -> Some iface
                 | ValueNone -> None
             | None -> None
@@ -473,7 +473,7 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
             ValueNone
         else
             match MetadataMapping.tryBuildType intrinsics t.BaseType with
-            | Some frozen -> FrozenNominal.TryOfFrozen frozen
+            | Some frozen -> FrozenNominal.tryOfFrozen frozen
             | None -> ValueNone
 
     /// The Vesper spelling of `[<AllowNullLiteral>]`, as this backend's emitted

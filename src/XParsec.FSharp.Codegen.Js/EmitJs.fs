@@ -880,10 +880,7 @@ module EmitJs =
 
                 match td.Kind with
                 | TTypeKindG.Class cls ->
-                    let baseKey =
-                        cls.BaseType
-                        |> ValueOption.bind FrozenNominal.TryOfFrozen
-                        |> ValueOption.map (fun b -> b.Key)
+                    let baseKey = cls.Base |> ValueOption.map (fun b -> b.Parent.Key)
 
                     localClasses.[td.TypeKey] <- struct (td.Name, baseKey)
                 | _ -> ()
@@ -920,16 +917,15 @@ module EmitJs =
 
             let baseKey =
                 match td.Kind with
-                | TTypeKindG.Class cls -> cls.BaseType |> ValueOption.bind FrozenNominal.TryOfFrozen
+                | TTypeKindG.Class cls -> cls.Base |> ValueOption.map (fun b -> b.Parent.Key)
                 | _ -> ValueNone
 
             match baseKey with
             | ValueNone -> JsBaseVerdict.Standalone
-            | ValueSome b ->
-                match JsPrototypeChain.tryOfBases (climb 0 b.Key) with
+            | ValueSome k ->
+                match JsPrototypeChain.tryOfBases (climb 0 k) with
                 | ValueSome chain -> JsBaseVerdict.Extends chain
-                | ValueNone when (JsExternalMembers.inheritedReprOf inputs.Provider b.Key).IsSome ->
-                    JsBaseVerdict.Erased
+                | ValueNone when (JsExternalMembers.inheritedReprOf inputs.Provider k).IsSome -> JsBaseVerdict.Erased
                 | ValueNone -> JsBaseVerdict.Unsupported
 
         let erased (d: TastAccessor.DeclId) : bool =

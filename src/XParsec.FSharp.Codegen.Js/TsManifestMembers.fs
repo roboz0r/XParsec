@@ -111,7 +111,7 @@ module internal TsManifestMembers =
             // `` Foo`1 ``. `arityName` is a no-op at arity 0.
             match ctx.TryFindType(SymbolKeyOps.arityName name (List.length args)) with
             | Some id when not id.IsInterface ->
-                baseTy <- ValueSome(FrozenNominal.OfFrozen "a manifest heritage base" (toFrozen ctx h))
+                baseTy <- ValueSome(FrozenNominal.ofFrozen "a manifest heritage base" (toFrozen ctx h))
             | found ->
                 let ifaceArgs = args |> List.map (toFrozen ctx) |> Array.ofList
 
@@ -123,7 +123,7 @@ module internal TsManifestMembers =
                     | None ->
                         SymbolKeyOps.qualifiedTypeKeyOf (SymbolKeyOps.arityName name ifaceArgs.Length) ifaceArgs.Length
 
-                interfaces.Add(FrozenNominal.OfClass(key, EqArray.ofArray ifaceArgs))
+                interfaces.Add(NominalG.ofClass key (EqArray.ofArray ifaceArgs))
 
         EqArray.ofResizeArray interfaces, baseTy
 
@@ -177,7 +177,7 @@ module internal TsManifestMembers =
                     EqArray.ofSeq
                         [
                             yield! heritageInterfaces
-                            FrozenNominal.OfClass(RuntimeNames.seqKey, EqArray.singleton elem)
+                            NominalG.ofClass RuntimeNames.seqKey (EqArray.singleton elem)
                         ]
                 | ValueNone -> heritageInterfaces
 

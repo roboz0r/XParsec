@@ -342,7 +342,7 @@ module EmitJsTypes =
                                 {
                                     Chain = chain
                                     CtorArgs =
-                                        match cls.BaseCtorCall with
+                                        match cls.Base |> ValueOption.bind (fun b -> b.Ctor) with
                                         | ValueSome bc -> List.ofSeq bc.Args
                                         | ValueNone -> []
                                 }
@@ -355,7 +355,7 @@ module EmitJsTypes =
                                 "EmitJs: class '%s' inherits an erased base, so its declaration should have been dropped before collection"
                                 td.Name
 
-                    if pendingBase.IsNone && cls.BaseCtorCall.IsSome then
+                    if pendingBase.IsNone && (cls.Base |> ValueOption.exists (fun b -> b.Ctor.IsSome)) then
                         failwithf
                             "EmitJs: class '%s' calls a base constructor but declares no base type to chain to"
                             td.Name

@@ -122,6 +122,8 @@ module NameResolutionInheritParent =
                 ValueSome(ProviderBase.Interface key)
             else
                 ValueSome(ProviderBase.Class key)
+        // A capability at ANY arity: the rejection is the same whatever was written.
+        | ExternalTypeShape.IntrinsicInterface _ -> ValueSome(ProviderBase.Interface key)
         | _ ->
             ExternalSymbols.intrinsicClassOf shape
             |> ValueOption.map (fun (struct (id, surface)) ->
@@ -131,16 +133,17 @@ module NameResolutionInheritParent =
                     ProviderBase.HeritablePlatform id
             )
 
-    /// Resolve an `inherit` clause's parent type to a `TyClass` under the derived class's
+    /// Resolve an `inherit` clause's parent type to a nominal under the derived class's
     /// typar scope. Diagnoses (and returns `ValueNone`) when the parent is an interface, a
     /// non-class type, an unknown name, a multi-segment name, or a shape with no nominal
-    /// head; `inhTok` takes the blame where the written shape retains no name token.
+    /// head; the diagnostic is reported at `inhTok` where the written shape retains no
+    /// name token.
     let resolveInheritParent
         (ctx: PassContext)
         (typarScope: Map<string, TyVarId>)
         (inhTok: SyntaxToken)
         (t: Type<SyntaxToken>)
-        : SemType voption =
+        : BaseParent voption =
         let rec nameAndArgs (t: Type<SyntaxToken>) : (LongIdent<SyntaxToken> * SemType list) voption =
             match t with
             | Type.ParenType(typ = inner) -> nameAndArgs inner
@@ -165,7 +168,10 @@ module NameResolutionInheritParent =
         | ValueNone ->
             // A written shape with no name to resolve (`inherit (int * int)`): classify what
             // it translates to, so the rejection names the kind it is.
-            BaseEligibility.classify (BaseEligibility.isInterfaceKey ctx) (translateInheritArg ctx typarScope t)
+            BaseEligibility.classify
+                (BaseEligibility.isInterfaceKey ctx)
+                (BaseEligibility.isHeritableCanon ctx)
+                (translateInheritArg ctx typarScope t)
             |> BaseEligibility.admit ctx inhTok
         | ValueSome(li, targs) ->
             let nameTok = li.Idents.[li.Idents.Length - 1]
@@ -194,7 +200,7 @@ module NameResolutionInheritParent =
                             name
                     with
                     | ValueSome(struct (id, surface)) when surface.Members |> EqArray.exists (fun m -> m.Name = ".ctor") ->
-                        ValueSome(TyConst(id.Canon, EqArray.ofList targs))
+                        ValueSome(BaseParentG.PrimitiveCanon(NominalG.ofConst id.Canon (EqArray.ofList targs)))
                     | _ -> ValueNone
 
                 // A heritable base's platform repr → its external `TyClass`. A sentinel repr
@@ -203,7 +209,8 @@ module NameResolutionInheritParent =
                 // the "did not resolve" diagnostic.
                 let reprToExternalBase (repr: string) =
                     match ExternalSymbols.tryReprTypeAt ctx.Provider repr targs.Length with
-                    | ValueSome(struct (extKey, _)) -> ValueSome(TyClass(extKey, EqArray.ofList targs))
+                    | ValueSome(struct (extKey, _)) ->
+                        ValueSome(BaseParentG.Class(NominalG.ofClass extKey (EqArray.ofList targs)))
                     | ValueNone ->
                         match tryCtorBearingCanon () with
                         | ValueSome t -> ValueSome t
@@ -234,8 +241,10 @@ module NameResolutionInheritParent =
                             Qualifier.Bare
                             name
                     with
-                    | ValueSome(ProviderBase.Class key) -> ValueSome(TyClass(key, EqArray.ofList targs))
-                    | ValueSome(ProviderBase.HeritableCanon id) -> ValueSome(TyConst(id.Canon, EqArray.ofList targs))
+                    | ValueSome(ProviderBase.Class key) ->
+                        ValueSome(BaseParentG.Class(NominalG.ofClass key (EqArray.ofList targs)))
+                    | ValueSome(ProviderBase.HeritableCanon id) ->
+                        ValueSome(BaseParentG.PrimitiveCanon(NominalG.ofConst id.Canon (EqArray.ofList targs)))
                     | ValueSome(ProviderBase.HeritablePlatform id) ->
                         match id.Platform with
                         | IntrinsicPlatform.Repr repr -> reprToExternalBase repr
@@ -253,7 +262,7 @@ module NameResolutionInheritParent =
 
                 match TypeRegistry.tryClass ctx.Types (ctx.UseSiteAt diagKey) name with
                 | ValueSome info when info.IsInterface -> reject (BaseVerdict.Interface info.TypeKey)
-                | ValueSome info -> ValueSome(TyClass(info.TypeKey, EqArray.ofList targs))
+                | ValueSome info -> ValueSome(BaseParentG.Class(NominalG.ofClass info.TypeKey (EqArray.ofList targs)))
                 | ValueNone ->
                     // Heritable-local arm: a `(# class … #)` intrinsic of THIS file. One read
                     // yields both the repr and the `class`-tag verdict. An `inherit` parent is

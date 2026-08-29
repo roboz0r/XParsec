@@ -75,9 +75,35 @@ module Conformance =
             | ImplShape.Enum
             | ImplShape.Other _ -> ValueNone
 
-    /// One declared type name carrying its side's shape.
+    /// The coarse nominal family a type declaration commits to; the sig/impl pair must
+    /// agree on it. The `struct` form groups with `Class`, because `[<Struct>]` is an
+    /// attribute this syntactic summary cannot read.
+    [<RequireQualifiedAccess>]
+    type TypeKindFamily =
+        | Class
+        | Interface
+        | Record
+        | Union
+        | Enum
+
+        member this.Label: string =
+            match this with
+            | TypeKindFamily.Class -> "a class"
+            | TypeKindFamily.Interface -> "an interface"
+            | TypeKindFamily.Record -> "a record"
+            | TypeKindFamily.Union -> "a union"
+            | TypeKindFamily.Enum -> "an enum"
+
+    /// One declared type name carrying its side's shape. `Kind` is `ValueNone` where the
+    /// declaration hides or delegates its kind: an abbreviation, an `extern`, an opaque
+    /// `type T`, a delegate, a type extension.
     [<Struct; NoEquality; NoComparison>]
-    type Decl<'Shape> = { Name: string; Shape: 'Shape }
+    type Decl<'Shape> =
+        {
+            Name: string
+            Shape: 'Shape
+            Kind: TypeKindFamily voption
+        }
 
     type SigDecl = Decl<SigShape>
 
@@ -98,6 +124,9 @@ module Conformance =
         /// heritable external base (`extern class` / `(# class … #)`) and the other an
         /// opaque value repr (`extern` / `(# … #)`).
         | HeritabilityMismatch of name: string
+        /// The nominal family disagrees across the pair (a class-published signature over a
+        /// record implementation, say).
+        | TypeKindMismatch of name: string * declared: TypeKindFamily * defined: TypeKindFamily
         /// A module-level `val` declared in the `.fsi` with no corresponding `let` in the
         /// `.fs`, the value-granularity FS0240 analogue. The converse is not reported:
         /// F# hides an impl value the signature omits, so a private helper is not drift.
@@ -134,6 +163,12 @@ module Conformance =
             sprintf
                 "type '%s' disagrees on heritability across the pair: one side marks it a heritable external base ('extern class' / '(# class … #)'), the other an opaque value repr"
                 n
+        | ConformanceError.TypeKindMismatch(n, declared, defined) ->
+            sprintf
+                "type '%s' is declared as %s in the signature (.fsi) but defined as %s in the implementation (.fs)"
+                n
+                declared.Label
+                defined.Label
         | ConformanceError.ValueMissingInImpl n ->
             sprintf "value '%s' is declared in the signature (.fsi) but not defined in the implementation (.fs)" n
         | ConformanceError.ImportBodyNotJsNative n ->
@@ -242,6 +277,53 @@ module Conformance =
         | TypeDefn.Missing
         | TypeDefn.SkipsTokens _ -> ImplShape.Other "invalid"
 
+    /// The family a signature type commits to; the bodied `Anon`/`Class` forms are kinded
+    /// by `bodyIsInterface`, the same judgment signature resolution publishes under.
+    let private sigKindFamily (ts: TypeSignature<SyntaxToken>) : TypeKindFamily voption =
+        match ts with
+        | TypeSignature.Record _ -> ValueSome TypeKindFamily.Record
+        | TypeSignature.Union _ -> ValueSome TypeKindFamily.Union
+        | TypeSignature.Enum _ -> ValueSome TypeKindFamily.Enum
+        | TypeSignature.Struct _ -> ValueSome TypeKindFamily.Class
+        | TypeSignature.Interface _ -> ValueSome TypeKindFamily.Interface
+        | TypeSignature.Anon(elements = elems)
+        | TypeSignature.Class(elements = elems) ->
+            ValueSome(
+                if TypeDefnPatterns.bodyIsInterface elems then
+                    TypeKindFamily.Interface
+                else
+                    TypeKindFamily.Class
+            )
+        | TypeSignature.Abbrev _
+        | TypeSignature.Extern _
+        | TypeSignature.Delegate _
+        | TypeSignature.TypeExtension _
+        | TypeSignature.AbstractType _ -> ValueNone
+
+    /// The family an implementation type commits to; the bodied `Anon`/`Class` forms are
+    /// kinded by `isInterfaceShape`, the same judgment registration files them under.
+    let private implKindFamily (td: TypeDefn<SyntaxToken>) : TypeKindFamily voption =
+        match td with
+        | TypeDefn.Record _ -> ValueSome TypeKindFamily.Record
+        | TypeDefn.Union _ -> ValueSome TypeKindFamily.Union
+        | TypeDefn.Enum _ -> ValueSome TypeKindFamily.Enum
+        | TypeDefn.Struct _ -> ValueSome TypeKindFamily.Class
+        | TypeDefn.Interface _ -> ValueSome TypeKindFamily.Interface
+        | TypeDefn.Anon _
+        | TypeDefn.Class _ ->
+            ValueSome(
+                if TypeDefnPatterns.isInterfaceShape td then
+                    TypeKindFamily.Interface
+                else
+                    TypeKindFamily.Class
+            )
+        | TypeDefn.Abbrev _
+        | TypeDefn.Delegate _
+        | TypeDefn.TypeExtension _
+        | TypeDefn.AbstractType _
+        | TypeDefn.Missing
+        | TypeDefn.SkipsTokens _ -> ValueNone
+
     /// Summarise a parsed signature (`.fsi`) file as its declared types, in source
     /// order. Namespace groups and nested modules are flattened.
     let summariseSig (lexed: Lexed) (file: SignatureFile<SyntaxToken>) : SigDecl list =
@@ -252,7 +334,12 @@ module Conformance =
             let name = typeNameText lexed tn
 
             if name <> "" then
-                acc.Add { Name = name; Shape = sigShape ts }
+                acc.Add
+                    {
+                        Name = name
+                        Shape = sigShape ts
+                        Kind = sigKindFamily ts
+                    }
 
         for e in CstModuleTree.sigFileElems file do
             match e with
@@ -283,6 +370,7 @@ module Conformance =
                                 {
                                     Name = name
                                     Shape = implShape lexed td
+                                    Kind = implKindFamily td
                                 }
                     | ValueNone -> ()
             | _ -> ()
@@ -299,11 +387,11 @@ module Conformance =
             if not (sigMap.ContainsKey d.Name) then
                 sigMap.[d.Name] <- d.Shape
 
-        let implMap = Dictionary<string, ImplShape>()
+        let implMap = Dictionary<string, ImplDecl>()
 
         for d in implDecls do
             if not (implMap.ContainsKey d.Name) then
-                implMap.[d.Name] <- d.Shape
+                implMap.[d.Name] <- d
 
         let errors = ResizeArray<ConformanceError>()
         let seenSig = HashSet<string>()
@@ -312,14 +400,19 @@ module Conformance =
             if seenSig.Add d.Name then
                 match implMap.TryGetValue d.Name with
                 | false, _ -> errors.Add(ConformanceError.MissingInImpl d.Name)
-                | true, iShape ->
-                    match d.Shape.DemandsIntrinsic, iShape.SuppliesIntrinsic with
+                | true, impl ->
+                    match d.Shape.DemandsIntrinsic, impl.Shape.SuppliesIntrinsic with
                     | true, ValueNone -> errors.Add(ConformanceError.ExternWithoutIntrinsic d.Name)
                     // The sig understates a repr the contract should have declared
                     // `extern`: `type foo = int` in the `.fsi`, `(# … #)` in the `.fs`.
                     | false, ValueSome _ -> errors.Add(ConformanceError.IntrinsicWithoutExtern d.Name)
                     | true, ValueSome implHeritable when implHeritable <> d.Shape.IsHeritable ->
                         errors.Add(ConformanceError.HeritabilityMismatch d.Name)
+                    | _ -> ()
+
+                    match d.Kind, impl.Kind with
+                    | ValueSome declared, ValueSome defined when declared <> defined ->
+                        errors.Add(ConformanceError.TypeKindMismatch(d.Name, declared, defined))
                     | _ -> ()
 
         let seenImpl = HashSet<string>()

@@ -133,7 +133,7 @@ module EmitBindings =
                 env.Classes.ContainsKey key || env.Unions.ContainsKey key
 
             let localNominal =
-                FrozenNominal.TryOfFrozen varTy
+                FrozenNominal.tryOfFrozen varTy
                 |> ValueOption.filter (fun n -> isLocalType n.Key)
 
             let isLocalDisposeKey (key: SymbolKey) =

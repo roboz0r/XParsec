@@ -108,67 +108,6 @@ and [<Sealed>] FTDisjuncts private (disjuncts: EqSet<FrozenType>) =
 
     override _.GetHashCode() = hash disjuncts
 
-/// A frozen type known to denote a type CONSTRUCTOR, with its key and arguments destructured.
-/// Required where the construct emits the type itself: an `interface <ty>` reference, an
-/// `inherit` parent, a construction, a member access's object argument.
-type FrozenNominal =
-    private
-        {
-            /// Kept whole, because realising it keeps its nominal FLAVOUR: an `FTUnion`
-            /// realises as a `TyUnion`, not a `TyClass`.
-            Ref: FrozenType
-            RefKey: TypeKey
-            RefArgs: EqArray<FrozenType>
-        }
-
-    /// The whole freeze, to realise at a use site.
-    member this.Frozen: FrozenType = this.Ref
-
-    member this.Key: TypeKey = this.RefKey
-
-    member this.Args: EqArray<FrozenType> = this.RefArgs
-
-    static member OfClass(key: TypeKey, args: EqArray<FrozenType>) : FrozenNominal =
-        {
-            Ref = FTClass(key, args)
-            RefKey = key
-            RefArgs = args
-        }
-
-    static member TryOfFrozen(ft: FrozenType) : FrozenNominal voption =
-        match ft with
-        | FTClass(k, args)
-        | FTUnion(k, args)
-        | FTRecord(k, args)
-        // An intrinsic (`seq<'T>` on JS) freezes as `FTConst`, and its key is as nominal as
-        // the other three.
-        | FTConst(k, args) -> ValueSome { Ref = ft; RefKey = k; RefArgs = args }
-        | _ -> ValueNone
-
-    /// `what` is a bare noun phrase the failure completes: "an `inherit` clause" reads
-    /// "an `inherit` clause does not denote a type constructor: FTFun (…)".
-    static member OfFrozen (what: string) (ft: FrozenType) : FrozenNominal =
-        match FrozenNominal.TryOfFrozen ft with
-        | ValueSome n -> n
-        | ValueNone -> failwithf "%s does not denote a type constructor: %A" what ft
-
-    /// Rebuild over the type ARGUMENTS; the identity is untouched.
-    member this.MapArgs(f: FrozenType -> FrozenType) : FrozenNominal =
-        let args = EqArray.map f this.RefArgs
-
-        let rebuilt =
-            match this.Ref with
-            | FTClass(k, _) -> FTClass(k, args)
-            | FTUnion(k, _) -> FTUnion(k, args)
-            | FTRecord(k, _) -> FTRecord(k, args)
-            | _ -> FTConst(this.RefKey, args)
-
-        {
-            Ref = rebuilt
-            RefKey = this.RefKey
-            RefArgs = args
-        }
-
 /// The mutable inference type IR. Every `TyVar` is a dense `TyVarId` index into the
 /// per-file `TypeStore` union-find graph.
 type SemType =
@@ -346,6 +285,161 @@ and [<NoEquality; NoComparison>] DeferredMemberAccess =
         Use: NodeSite
         ResultTv: TyVarId
     }
+
+/// The nominal family a `NominalG` rebuilds as: a `Union`-flavoured nominal rebuilds as a
+/// `TyUnion` / `FTUnion`, not a class.
+[<RequireQualifiedAccess>]
+type NominalFlavour =
+    | Class
+    | Const
+    | Record
+    | Union
+
+/// A type known to denote an applied nominal type constructor: its flavour, key and
+/// arguments. Required where the construct emits the type itself: an `interface <ty>`
+/// reference, an `inherit` parent, a construction, a member access's object argument.
+type NominalG<'ty> =
+    private
+        {
+            Flav: NominalFlavour
+            RefKey: TypeKey
+            RefArgs: EqArray<'ty>
+        }
+
+    member this.Flavour: NominalFlavour = this.Flav
+
+    member this.Key: TypeKey = this.RefKey
+
+    member this.Args: EqArray<'ty> = this.RefArgs
+
+/// A frozen nominal: the shape the backends and the external surface consume.
+type FrozenNominal = NominalG<FrozenType>
+
+/// An inference-side nominal: a `TyClass` or `TyConst` with its head destructured.
+type SemNominal = NominalG<SemType>
+
+[<RequireQualifiedAccess>]
+module NominalG =
+
+    let ofClass (key: TypeKey) (args: EqArray<'ty>) : NominalG<'ty> =
+        {
+            Flav = NominalFlavour.Class
+            RefKey = key
+            RefArgs = args
+        }
+
+    let ofConst (key: TypeKey) (args: EqArray<'ty>) : NominalG<'ty> =
+        {
+            Flav = NominalFlavour.Const
+            RefKey = key
+            RefArgs = args
+        }
+
+    /// The flavour and key are preserved.
+    let map (f: 'a -> 'b) (n: NominalG<'a>) : NominalG<'b> =
+        {
+            Flav = n.Flav
+            RefKey = n.RefKey
+            RefArgs = EqArray.map f n.RefArgs
+        }
+
+[<RequireQualifiedAccess>]
+module FrozenNominal =
+
+    /// Rebuild the whole frozen type at a use site.
+    let ty (n: FrozenNominal) : FrozenType =
+        match n.Flavour with
+        | NominalFlavour.Class -> FTClass(n.Key, n.Args)
+        | NominalFlavour.Const -> FTConst(n.Key, n.Args)
+        | NominalFlavour.Record -> FTRecord(n.Key, n.Args)
+        | NominalFlavour.Union -> FTUnion(n.Key, n.Args)
+
+    let tryOfFrozen (ft: FrozenType) : FrozenNominal voption =
+        match ft with
+        | FTClass(k, args) ->
+            ValueSome
+                {
+                    Flav = NominalFlavour.Class
+                    RefKey = k
+                    RefArgs = args
+                }
+        | FTUnion(k, args) ->
+            ValueSome
+                {
+                    Flav = NominalFlavour.Union
+                    RefKey = k
+                    RefArgs = args
+                }
+        | FTRecord(k, args) ->
+            ValueSome
+                {
+                    Flav = NominalFlavour.Record
+                    RefKey = k
+                    RefArgs = args
+                }
+        // An intrinsic (`seq<'T>` on JS) freezes as `FTConst`, and its key is as nominal as
+        // the other three.
+        | FTConst(k, args) ->
+            ValueSome
+                {
+                    Flav = NominalFlavour.Const
+                    RefKey = k
+                    RefArgs = args
+                }
+        | _ -> ValueNone
+
+    /// `what` is a bare noun phrase the failure completes: "an `interface` clause" reads
+    /// "an `interface` clause does not denote a type constructor: FTFun (…)".
+    let ofFrozen (what: string) (ft: FrozenType) : FrozenNominal =
+        match tryOfFrozen ft with
+        | ValueSome n -> n
+        | ValueNone -> failwithf "%s does not denote a type constructor: %A" what ft
+
+[<RequireQualifiedAccess>]
+module SemNominal =
+
+    /// Rebuild the whole inference type at a use site.
+    let ty (n: SemNominal) : SemType =
+        match n.Flavour with
+        | NominalFlavour.Class -> TyClass(n.Key, n.Args)
+        | NominalFlavour.Const -> TyConst(n.Key, n.Args)
+        | NominalFlavour.Record -> TyRecord(n.Key, n.Args)
+        | NominalFlavour.Union -> TyUnion(n.Key, n.Args)
+
+/// An admitted `inherit` parent, carrying the flavour `BaseEligibility.classify` proved.
+[<RequireQualifiedAccess>]
+type BaseParentG<'ty> =
+    /// A non-interface class.
+    | Class of NominalG<'ty>
+    /// A heritable primitive's canon (`exn`): the CLR backend resolves it to its
+    /// platform base class.
+    | PrimitiveCanon of NominalG<'ty>
+
+    member this.Nominal: NominalG<'ty> =
+        match this with
+        | BaseParentG.Class n
+        | BaseParentG.PrimitiveCanon n -> n
+
+    member this.Key: TypeKey = this.Nominal.Key
+
+    member this.Args: EqArray<'ty> = this.Nominal.Args
+
+/// An inference-side `inherit` parent.
+type BaseParent = BaseParentG<SemType>
+
+[<RequireQualifiedAccess>]
+module BaseParentG =
+
+    let map (f: 'a -> 'b) (p: BaseParentG<'a>) : BaseParentG<'b> =
+        match p with
+        | BaseParentG.Class n -> BaseParentG.Class(NominalG.map f n)
+        | BaseParentG.PrimitiveCanon n -> BaseParentG.PrimitiveCanon(NominalG.map f n)
+
+[<RequireQualifiedAccess>]
+module BaseParent =
+
+    /// Rebuild the parent's whole inference type.
+    let ty (p: BaseParent) : SemType = SemNominal.ty p.Nominal
 
 module MeasureTerm =
     let empty = MeasureTerm.Empty

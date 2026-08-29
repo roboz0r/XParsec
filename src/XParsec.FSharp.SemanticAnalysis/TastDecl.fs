@@ -173,7 +173,7 @@ and TClassG<'ty, 'id, 'body> =
         /// The primary constructor's parameters, borrowing the record-field shape.
         CtorParams: EqArray<TRecordFieldG<'ty>>
         Members: EqArray<TTypeMemberG<'ty, 'id, 'body>>
-        BaseType: 'ty voption
+        Base: TBaseG<'ty, 'id, 'body> voption
         Interfaces: EqArray<'ty * EqArray<TTypeMemberG<'ty, 'id, 'body>>>
         Declared: DeclaredClassFlags
         /// `static let` / `static do`, in declaration order: the body of the synthesised `.cctor`.
@@ -186,7 +186,6 @@ and TClassG<'ty, 'id, 'body> =
         /// a `FieldGet` on a `Var` of this key.
         ThisKey: BoundVarKeyG<'id>
         SecondaryCtors: EqArray<TSecondaryCtorG<'ty, 'id, 'body>>
-        BaseCtorCall: TBaseCtorCallG<'ty, 'id, 'body> voption
         ValueKind: ClassValueKind
         /// True when the class declares a *primary* constructor (`type T(args) =`, including
         /// `type T() =`); false for the `val`-field form (`type T = val …; new(…) = { … }`),
@@ -316,6 +315,15 @@ and TSecondaryCtorG<'ty, 'id, 'body> =
         Params: EqArray<BoundVarKeyG<'id> * 'ty>
         Lets: EqArray<TCtorLetG<'ty, 'id, 'body>>
         Body: TSecondaryCtorBodyG<'body>
+    }
+
+/// A class's `inherit` clause on the typed node: the admitted parent, and the primary
+/// `.ctor`'s chain to it. `Ctor` is `ValueNone` when the clause carries no argument list
+/// (the `val`-field form's secondaries chain themselves).
+and TBaseG<'ty, 'id, 'body> =
+    {
+        Parent: BaseParentG<'ty>
+        Ctor: TBaseCtorCallG<'ty, 'id, 'body> voption
     }
 
 /// An `inherit Base(args)` invocation: the primary `.ctor` chains to the parent's
@@ -483,11 +491,11 @@ module BoundVarKey =
                     for l in EqArray.toArray sc.Lets do
                         yield l.BoundVar
 
-                match c.BaseCtorCall with
-                | ValueSome bc ->
+                match c.Base with
+                | ValueSome { Ctor = ValueSome bc } ->
                     for (k, _) in EqArray.toArray bc.CtorParams do
                         yield k
-                | ValueNone -> ()
+                | _ -> ()
             | TTypeKindG.Interface _
             | TTypeKindG.Union _
             | TTypeKindG.Record _

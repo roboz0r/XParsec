@@ -159,10 +159,14 @@ module internal UnificationClassCtors =
 
     /// Type the `inherit Base(args)` invocation against the constructor `args` selects on the
     /// parent, its parameter types substituted with the args `inherit Base<…>` supplied (read
-    /// off `info.BaseType`).
+    /// off `info.Base`).
     let fillBaseCtorCall (ctx: PassContext) (info: ClassTypeInfo) : unit =
-        match info.BaseType, info.BaseCtorArgs with
-        | ValueSome baseTy, ValueSome argExpr ->
+        match info.Base with
+        | ValueSome {
+                        Parent = parent
+                        CtorArgs = ValueSome argExpr
+                    } ->
+            let baseTy = BaseParent.ty parent
             let node = CstKeys.siteOfExpr argExpr
 
             enterLevel ctx
@@ -225,10 +229,10 @@ module internal UnificationClassCtors =
     /// Mint the `base` TyVar pre-linked to the parent's instantiated `TyClass` and seed
     /// `ctx.Bindings.TypeVar` at `info.BaseKey`.
     let mintBaseTyVar (ctx: PassContext) (info: ClassTypeInfo) : unit =
-        match info.BaseType with
-        | ValueSome parentTy ->
+        match info.Base with
+        | ValueSome inh ->
             let baseTv = ctx.NewTypeVar()
             ctx.Store.SetLevel(UnionFind.find ctx.Store baseTv, ctx.CurrentLevel)
-            ctx.Store.SetLink(UnionFind.find ctx.Store baseTv, ValueSome parentTy)
+            ctx.Store.SetLink(UnionFind.find ctx.Store baseTv, ValueSome(BaseParent.ty inh.Parent))
             ctx.Bindings.TypeVar.Set(BoundVarKey.identity info.BaseKey, baseTv)
         | ValueNone -> ()

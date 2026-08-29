@@ -858,7 +858,6 @@ let tests =
 
                 match typeDecl.Kind with
                 | TTypeKind.Class c ->
-                    Expect.equal c.BaseCtorCall ValueNone "no inherit clause ⇒ no base-ctor call"
                     Expect.equal c.Fields.Length 0 "no instance fields on this class"
                     Expect.equal c.StaticPreamble.Length 0 "no static preamble on this class"
                     Expect.equal c.InstancePreamble.Length 0 "no instance preamble on this class"
@@ -873,7 +872,7 @@ let tests =
                     Expect.isFalse (c.Members.[0].IsStatic) "instance member"
                     Expect.equal (c.Members.[0].Kind) TMemberKind.Method "method kind"
                     Expect.equal (c.Members.[0].ReturnTy) BuiltinTypes.tyInt "method returns int"
-                    Expect.equal c.BaseType ValueNone "no inherit clause ⇒ baseType ValueNone"
+                    Expect.isTrue c.Base.IsNone "no inherit clause ⇒ no base node"
                     Expect.equal c.Interfaces.Length 0 "no interface impls on this class"
                     Expect.isFalse c.Declared.IsSealed "no [<Sealed>] ⇒ not sealed"
                 | other -> failtestf "expected TTypeKind.Class, got %A" other

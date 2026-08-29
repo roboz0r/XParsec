@@ -364,7 +364,7 @@ module ExternalSymbolProviders =
         // An interface's type ARGUMENTS are invariant slots; the reference itself holds no value,
         // so `transform` has nothing to say about it. A base type maps the same way, and for a
         // second reason: it widens `number` at `Inv` to `int|float|…`, and no class inherits a union.
-        let mapNominal (n: FrozenNominal) = n.MapArgs inv
+        let mapNominal (n: FrozenNominal) = NominalG.map inv n
 
         let mapInterfaces (ifaces: EqArray<FrozenNominal>) = ifaces |> EqArray.map mapNominal
 

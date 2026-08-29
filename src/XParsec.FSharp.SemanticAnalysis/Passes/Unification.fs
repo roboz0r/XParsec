@@ -392,9 +392,9 @@ module Unification =
     /// of that name up the `inherit` chain, at the parent's type args. `ValueNone` where the
     /// chain leaves the project — an external base's slots are not read here.
     let private tryBaseSlotType (ctx: PassContext) (info: ClassTypeInfo) (memberName: string) : SemType voption =
-        match info.BaseType with
-        | ValueSome parentTy ->
-            match resolveStep ctx.Store parentTy with
+        match info.Base with
+        | ValueSome inh ->
+            match resolveStep ctx.Store (BaseParent.ty inh.Parent) with
             | TyClass(parentKey, parentArgs) -> tryClassChainMember ctx parentKey parentArgs memberName
             | _ -> ValueNone
         | ValueNone -> ValueNone
@@ -511,16 +511,12 @@ module Unification =
 
                 translateType ctx impl.InterfaceCst
 
-            match resolved with
-            | TyClass(ifaceKey, ifaceArgs) when isInterfaceKey ifaceKey ->
-                impl.Resolution <- InterfaceImplResolution.Resolved(ifaceKey, ifaceArgs)
-            | _ ->
-                impl.Resolution <- InterfaceImplResolution.Rejected
-
-                ctx.Report(
-                    impl.DeclSite.Tok,
-                    Kind.Message(sprintf "Type '%s' is not an interface" (shown ctx.Store resolved))
-                )
+            match
+                BaseEligibility.classifyImpl isInterfaceKey resolved
+                |> BaseEligibility.admitImpl ctx impl.DeclSite.Tok
+            with
+            | ValueSome n -> impl.Resolution <- InterfaceImplResolution.Resolved(n.Key, n.Args)
+            | ValueNone -> impl.Resolution <- InterfaceImplResolution.Rejected
 
         checkCapabilityInterfaceCollisions ctx info
 

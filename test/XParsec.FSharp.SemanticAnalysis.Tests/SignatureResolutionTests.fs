@@ -1167,4 +1167,227 @@ let tests =
                 | ExternalTypeShape.Class shape -> Expect.isTrue shape.FrozenBaseType.IsNone "no base type is published"
                 | other -> failtestf "expected a Class shape for C; got %A" other
             }
+
+            test "an all-abstract bodied signature with an `inherit` is an interface, its clause interface inheritance" {
+                // fsc kinds `type I2 = inherit I1  abstract M: …` an interface whatever the
+                // clause resolves to, and its `inherit` is carried on the interface list.
+                let r =
+                    resolveFsi
+                        "app.fsi"
+                        (String.concat
+                            "\n"
+                            [
+                                "namespace App"
+                                ""
+                                "module M ="
+                                "    type I1 ="
+                                "        abstract A: int"
+                                ""
+                                "    type I2 ="
+                                "        inherit I1"
+                                "        abstract M: unit -> int"
+                                ""
+                            ])
+
+                Expect.isEmpty r.Messages "interface inheritance raises nothing"
+
+                match shapeOf r "I2" with
+                | ExternalTypeShape.Class shape ->
+                    Expect.isTrue shape.IsInterface "I2 is an interface in F#"
+                    Expect.isTrue shape.FrozenBaseType.IsNone "an interface has no base type"
+
+                    Expect.isTrue
+                        (shape.FrozenInterfaces |> EqArray.exists (fun i -> i.Key.Name = "I1"))
+                        "the inherited I1 is published on the interface list"
+                | other -> failtestf "expected a Class shape for I2; got %A" other
+            }
+
+            test "an all-abstract bodied signature inheriting a class diagnoses `not an interface` (FS0887 parity)" {
+                let r =
+                    resolveFsi
+                        "app.fsi"
+                        (String.concat
+                            "\n"
+                            [
+                                "namespace App"
+                                ""
+                                "module M ="
+                                "    type B ="
+                                "        new: unit -> B"
+                                "        member Q: int"
+                                ""
+                                "    type T ="
+                                "        inherit B"
+                                "        abstract M: unit -> int"
+                                ""
+                            ])
+
+                Expect.isTrue
+                    (r.Messages |> List.exists (fun m -> m.Contains "'B' is not an interface"))
+                    (sprintf "the class-typed `inherit` on an interface is diagnosed (%A)" r.Messages)
+
+                match shapeOf r "T" with
+                | ExternalTypeShape.Class shape ->
+                    Expect.isTrue shape.IsInterface "T is still an interface: kind inference is syntactic"
+                    Expect.isTrue shape.FrozenInterfaces.IsEmpty "the rejected clause publishes nothing"
+                | other -> failtestf "expected a Class shape for T; got %A" other
+            }
+
+            test "a bodied signature's `inherit` of a non-heritable primitive diagnoses and publishes no base" {
+                let r =
+                    resolveFsi
+                        "app.fsi"
+                        (String.concat
+                            "\n"
+                            [
+                                "namespace App"
+                                ""
+                                "module M ="
+                                "    type C ="
+                                "        inherit int"
+                                "        member P: int"
+                                ""
+                            ])
+
+                Expect.isTrue
+                    (r.Messages |> List.exists (fun m -> m.Contains "only classes are inheritable"))
+                    (sprintf "the primitive base is diagnosed (%A)" r.Messages)
+
+                match shapeOf r "C" with
+                | ExternalTypeShape.Class shape -> Expect.isTrue shape.FrozenBaseType.IsNone "no base type is published"
+                | other -> failtestf "expected a Class shape for C; got %A" other
+            }
+
+            test "a bodied signature's `inherit` of a heritable primitive still publishes the base" {
+                let r =
+                    resolveFsi
+                        "app.fsi"
+                        (String.concat
+                            "\n"
+                            [
+                                "namespace App"
+                                ""
+                                "module M ="
+                                "    type C ="
+                                "        inherit exn"
+                                "        member P: int"
+                                ""
+                            ])
+
+                Expect.isEmpty r.Messages "a heritable base raises nothing"
+
+                match shapeOf r "C" with
+                | ExternalTypeShape.Class shape ->
+                    match shape.FrozenBaseType with
+                    | ValueSome b -> Expect.equal b.Key.Name "exn" "the exn canon is the published base"
+                    | ValueNone -> failtest "the heritable base is published"
+                | other -> failtestf "expected a Class shape for C; got %A" other
+            }
+
+            test "a bodied signature's `inherit` of a capability diagnoses and publishes no base" {
+                let r =
+                    resolveFsi
+                        "app.fsi"
+                        (String.concat
+                            "\n"
+                            [
+                                "namespace App"
+                                ""
+                                "module M ="
+                                "    type C ="
+                                "        inherit disposable"
+                                "        member P: int"
+                                ""
+                            ])
+
+                Expect.isTrue
+                    (r.Messages
+                     |> List.exists (fun m -> m.Contains "Cannot inherit from interface 'disposable'"))
+                    (sprintf "the capability base is diagnosed as an interface (%A)" r.Messages)
+
+                match shapeOf r "C" with
+                | ExternalTypeShape.Class shape -> Expect.isTrue shape.FrozenBaseType.IsNone "no base type is published"
+                | other -> failtestf "expected a Class shape for C; got %A" other
+            }
+
+            test "a bodied signature's `interface` naming a class diagnoses and publishes no interface" {
+                let r =
+                    resolveFsi
+                        "app.fsi"
+                        (String.concat
+                            "\n"
+                            [
+                                "namespace App"
+                                ""
+                                "module M ="
+                                "    type B ="
+                                "        member Q: int"
+                                ""
+                                "    type C ="
+                                "        interface B"
+                                "        member P: int"
+                                ""
+                            ])
+
+                Expect.isTrue
+                    (r.Messages |> List.exists (fun m -> m.Contains "is not an interface"))
+                    (sprintf "the class-typed `interface` clause is diagnosed (%A)" r.Messages)
+
+                match shapeOf r "C" with
+                | ExternalTypeShape.Class shape ->
+                    Expect.isTrue shape.FrozenInterfaces.IsEmpty "no interface is published"
+                | other -> failtestf "expected a Class shape for C; got %A" other
+            }
+
+            test "a bodied signature's `interface` naming a tuple diagnoses and publishes no interface" {
+                let r =
+                    resolveFsi
+                        "app.fsi"
+                        (String.concat
+                            "\n"
+                            [
+                                "namespace App"
+                                ""
+                                "module M ="
+                                "    type C ="
+                                "        interface (int * int)"
+                                "        member P: int"
+                                ""
+                            ])
+
+                Expect.isTrue
+                    (r.Messages |> List.exists (fun m -> m.Contains "is not an interface"))
+                    (sprintf "the non-nominal `interface` clause is diagnosed (%A)" r.Messages)
+
+                match shapeOf r "C" with
+                | ExternalTypeShape.Class shape ->
+                    Expect.isTrue shape.FrozenInterfaces.IsEmpty "no interface is published"
+                | other -> failtestf "expected a Class shape for C; got %A" other
+            }
+
+            test "a bodied signature's `interface` naming an undefined type publishes no interface" {
+                let r =
+                    resolveFsi
+                        "app.fsi"
+                        (String.concat
+                            "\n"
+                            [
+                                "namespace App"
+                                ""
+                                "module M ="
+                                "    type C ="
+                                "        interface Unknown"
+                                "        member P: int"
+                                ""
+                            ])
+
+                Expect.isTrue
+                    (r.Messages |> List.exists (fun m -> m.Contains "Unknown"))
+                    (sprintf "the undefined `interface` clause is diagnosed (%A)" r.Messages)
+
+                match shapeOf r "C" with
+                | ExternalTypeShape.Class shape ->
+                    Expect.isTrue shape.FrozenInterfaces.IsEmpty "no interface is published"
+                | other -> failtestf "expected a Class shape for C; got %A" other
+            }
         ]

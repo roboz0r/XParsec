@@ -403,7 +403,7 @@ type PassContext(provider: IExternalSymbolProvider, file: LexedFile, assembly: C
             (let acc = HashSet<NodeKey>()
 
              for kv in types.Class.ByKey do
-                 if kv.Value.BaseType.IsSome then
+                 if kv.Value.Base.IsSome then
                      acc.Add(BoundVarKey.identity kv.Value.BaseKey) |> ignore
 
              acc) with get

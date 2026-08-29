@@ -383,7 +383,7 @@ module NameResolution =
                             ThisName = info.ThisName
                             ThisKey = BoundVarKey.identity info.ThisKey
                             BaseKey =
-                                match info.BaseType with
+                                match info.Base with
                                 | ValueSome _ -> ValueSome(BoundVarKey.identity info.BaseKey)
                                 | ValueNone -> ValueNone
                             CtorParams = info.CtorParams
@@ -394,7 +394,7 @@ module NameResolution =
                             SecondaryCtors = info.SecondaryCtors
                             InheritsExpr =
                                 // Walk the base-ctor args only when the parent resolved.
-                                match info.BaseType, body.inherits with
+                                match info.Base, body.inherits with
                                 | ValueSome _, ValueSome(ClassInheritsDecl(expr = e)) -> e
                                 | _ -> ValueNone
                             EnclosingModuleScope = enclosingModuleScope ctx info.DeclSite.Key

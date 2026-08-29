@@ -124,7 +124,7 @@ module PlatformTypes =
             for p in c.CtorParams do
                 addField p
 
-            c.BaseType |> ValueOption.iter add
+            c.Base |> ValueOption.iter (fun b -> add (BaseParent.ty b.Parent))
 
             for (iface, _) in c.Interfaces do
                 add iface

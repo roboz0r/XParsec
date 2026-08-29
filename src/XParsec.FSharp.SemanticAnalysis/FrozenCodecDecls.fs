@@ -289,14 +289,13 @@ module FrozenCodecDecls =
         writeEqArrayWith w writeRecordField c.Fields
         writeEqArrayWith w writeRecordField c.CtorParams
         writeEqArrayWith w writeTypeMember c.Members
-        writeVOptionWith w writeTypeRef c.BaseType
+        writeVOptionWith w writeBase c.Base
         writeInterfaces w c.Interfaces
         writeDeclaredFlags w c.Declared
         writeEqArrayWith w writePreambleEntry c.StaticPreamble
         writeEqArrayWith w writePreambleEntry c.InstancePreamble
         writeBoundVarSlot w c.ThisKey
         writeEqArrayWith w writeSecondaryCtor c.SecondaryCtors
-        writeVOptionWith w writeBaseCtorCall c.BaseCtorCall
         writeClassValueKind w c.ValueKind
         w.Write c.HasPrimaryCtor
 
@@ -304,14 +303,13 @@ module FrozenCodecDecls =
         let fields = EqArray.ofArray (readArrayWith r readRecordField)
         let ctorParams = EqArray.ofArray (readArrayWith r readRecordField)
         let members = EqArray.ofArray (readArrayWith r readTypeMember)
-        let baseType = readVOptionWith r readTypeRef
+        let baseNode = readVOptionWith r readBase
         let interfaces = readInterfaces r
         let declared = readDeclaredFlags r
         let staticPreamble = EqArray.ofArray (readArrayWith r readPreambleEntry)
         let instancePreamble = EqArray.ofArray (readArrayWith r readPreambleEntry)
         let thisKey = readBoundVarSlot r
         let secondaryCtors = EqArray.ofArray (readArrayWith r readSecondaryCtor)
-        let baseCtorCall = readVOptionWith r readBaseCtorCall
         let valueKind = readClassValueKind r
         let hasPrimaryCtor = r.ReadBoolean()
 
@@ -319,17 +317,40 @@ module FrozenCodecDecls =
             Fields = fields
             CtorParams = ctorParams
             Members = members
-            BaseType = baseType
+            Base = baseNode
             Interfaces = interfaces
             Declared = declared
             StaticPreamble = staticPreamble
             InstancePreamble = instancePreamble
             ThisKey = thisKey
             SecondaryCtors = secondaryCtors
-            BaseCtorCall = baseCtorCall
             ValueKind = valueKind
             HasPrimaryCtor = hasPrimaryCtor
         }
+
+    and private writeBase (w: FrozenWriter) (b: TBaseG<FrozenType, BoundVarId, ExprPoolId>) =
+        (match b.Parent with
+         | BaseParentG.Class _ -> w.Write 0uy
+         | BaseParentG.PrimitiveCanon _ -> w.Write 1uy)
+
+        writeTypeKeyRef w b.Parent.Key
+        writeEqArrayWith w writeTypeRef b.Parent.Args
+        writeVOptionWith w writeBaseCtorCall b.Ctor
+
+    and private readBase (r: FrozenReader) : TBaseG<FrozenType, BoundVarId, ExprPoolId> =
+        let tag = r.ReadByte()
+        let key = readTypeKeyRef r
+        let args = EqArray.ofArray (readArrayWith r readTypeRef)
+
+        let parent =
+            match tag with
+            | 0uy -> BaseParentG.Class(NominalG.ofClass key args)
+            | 1uy -> BaseParentG.PrimitiveCanon(NominalG.ofConst key args)
+            | b -> failwithf "readBase: unknown base-parent tag %d" b
+
+        let ctor = readVOptionWith r readBaseCtorCall
+
+        { Parent = parent; Ctor = ctor }
 
     and private writeTypeMember (w: FrozenWriter) (m: TTypeMemberG<FrozenType, BoundVarId, ExprPoolId>) =
         w.Write m.Name

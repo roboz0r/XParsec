@@ -24,6 +24,7 @@ module TastNodeViews =
     type CtorLet = TCtorLetG<FrozenType, BoundVarId, ExprId>
     type CtorFieldInit = TCtorFieldInitG<ExprId>
     type SecondaryCtor = TSecondaryCtorG<FrozenType, BoundVarId, ExprId>
+    type Base = TBaseG<FrozenType, BoundVarId, ExprId>
     type BaseCtorCall = TBaseCtorCallG<FrozenType, BoundVarId, ExprId>
 
     /// One resolved-specialization table entry as a consumer of the TREE reads it. `Source`

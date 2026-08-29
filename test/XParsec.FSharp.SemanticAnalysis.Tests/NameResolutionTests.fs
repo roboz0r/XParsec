@@ -187,7 +187,7 @@ let tests =
 
                 for arity in [ 1; 2 ] do
                     match TypeRegistry.tryClassArity ctx.Types UseSite.unbounded "D" arity with
-                    | ValueSome info -> Expect.isTrue info.BaseType.IsSome $"D`{arity} has a base type"
+                    | ValueSome info -> Expect.isTrue info.Base.IsSome $"D`{arity} has a base type"
                     | ValueNone -> failtest $"class D`{arity} not registered"
             }
 
@@ -590,16 +590,20 @@ let tests =
                     analyse "type B(x: int) =\n    member this.X = x\ntype D(y: int) =\n    inherit B(y)"
 
                 let info = expectClass ctx "D"
-                Expect.equal info.BaseType (ValueSome(TyClass("B", EqArray.empty))) "D inherits B"
-                Expect.isTrue info.BaseCtorArgs.IsSome "base-ctor args captured"
+
+                Expect.equal
+                    (info.Base |> ValueOption.map (fun b -> BaseParent.ty b.Parent))
+                    (ValueSome(TyClass("B", EqArray.empty)))
+                    "D inherits B"
+
+                Expect.isTrue (info.Base |> ValueOption.exists (fun b -> b.CtorArgs.IsSome)) "base-ctor args captured"
             }
 
-            test "class without inherit clause has ValueNone BaseType" {
+            test "class without inherit clause has ValueNone Base" {
                 let ctx = analyse "type C() =\n    member this.M () = 1"
 
                 let info = expectClass ctx "C"
-                Expect.equal info.BaseType ValueNone "no base type"
-                Expect.equal info.BaseCtorArgs ValueNone "no base-ctor args"
+                Expect.isTrue info.Base.IsNone "no inherit clause"
             }
 
             test "generic inherit clause records translated type args" {
@@ -610,7 +614,7 @@ let tests =
                 let info = expectClass ctx "IntBox"
 
                 Expect.equal
-                    info.BaseType
+                    (info.Base |> ValueOption.map (fun b -> BaseParent.ty b.Parent))
                     (ValueSome(TyClass("Box", EqArray.singleton (TyConst(RuntimeNames.intKey, EqArray.empty)))))
                     "IntBox inherits Box<int>"
             }
@@ -762,7 +766,7 @@ let tests =
                 Expect.isTrue cannotInherit "cannot-inherit-from-non-class diagnostic"
 
                 let info = expectClass ctx "D"
-                Expect.equal info.BaseType ValueNone "BaseType not stamped for non-class parent"
+                Expect.isTrue info.Base.IsNone "Base not stamped for non-class parent"
             }
 
             let isHeritable (ctx: PassContext) (name: string) =

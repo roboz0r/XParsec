@@ -412,6 +412,16 @@ module ClassPreamble =
             | ClassPreambleEntry.Do _ -> None
         )
 
+/// A class's `inherit` clause as registration resolves it: the admitted parent and the
+/// written base-ctor arguments (`ValueNone` for `inherit B` with no argument list).
+type ClassInherit =
+    {
+        Parent: BaseParent
+        /// `inherit Base(arg1, arg2)`'s `(arg1, arg2)` — the CST expression for the base
+        /// constructor arguments.
+        CtorArgs: Expr<SyntaxToken> voption
+    }
+
 /// A secondary constructor (`new(args) = SelfType(primaryArgs)`). `DeclKey` is synthetic,
 /// minted from the `new` token so each overload is distinct.
 [<Sealed>]
@@ -443,14 +453,10 @@ type ClassTypeInfo
     member val ThisName = thisName
     member val ThisKey = thisKey
     /// The `base` bound variable, for `base.M()` non-virtual dispatch and `inherit Base(args)`
-    /// lowering. Always allocated, read only when `BaseType` is set.
+    /// lowering. Always allocated, read only when `Base` is set.
     member val BaseKey = baseKey
-    /// Parent type from `inherit Base(args)` once resolved; `ValueNone` for a class with
-    /// no `inherit` clause.
-    member val BaseType: SemType voption = ValueNone with get, set
-    /// `inherit Base(arg1, arg2)`'s `(arg1, arg2)` — the CST expression for the base
-    /// constructor arguments.
-    member val BaseCtorArgs: Expr<SyntaxToken> voption = ValueNone with get, set
+    /// The `inherit` clause once resolved; `ValueNone` for a class with no `inherit` clause.
+    member val Base: ClassInherit voption = ValueNone with get, set
     member val Declared: DeclaredClassFlags = DeclaredClassFlags.Default with get, set
     /// `static let` / `static do` in declaration order — the `.cctor` body.
     member val StaticPreamble: ClassPreambleEntry[] = [||] with get, set

@@ -39,7 +39,8 @@ module TypeDefnPatterns =
         | _ -> false
 
     /// `true` for the explicit `interface … end` shape, or the all-abstract object-model
-    /// form (`type IFoo = abstract member …`).
+    /// form (`type IFoo = abstract member …`). An `inherit` clause is neutral, as fsc
+    /// kinds it: `type I2 = inherit I1  abstract M: …` is an interface.
     let isInterfaceShape (td: TypeDefn<'T>) : bool =
         match td with
         | TypeDefn.Interface _ -> true
@@ -48,7 +49,6 @@ module TypeDefnPatterns =
             | ValueNone -> false
             | ValueSome d ->
                 d.PrimaryConstr.IsNone
-                && d.Body.inherits.IsNone
                 && d.Body.classPreamble.IsEmpty
                 && not d.Body.elements.IsEmpty
                 && d.Body.elements
@@ -57,6 +57,27 @@ module TypeDefnPatterns =
                        | TypeDefnElement.Member(MemberDefn.Member(defn = MethodOrPropDefn.AbstractSignature _)) -> true
                        | _ -> false
                    )
+
+    /// The signature-side twin of `isInterfaceShape`: an all-abstract bodied signature type
+    /// (`type IFormatSink = abstract member …`) parses as `Anon` / `Class`, so the kind is
+    /// read off the members. An `inherit` clause is neutral, as fsc kinds it.
+    let bodyIsInterface (elems: TypeElementsSignature<'T>) : bool =
+        let mutable hasAbstract = false
+        let mutable hasConcrete = false
+
+        for e in elems do
+            match e with
+            | TypeSignatureElement.Abstract _ -> hasAbstract <- true
+            | TypeSignatureElement.Member _
+            | TypeSignatureElement.StaticMember _
+            | TypeSignatureElement.Constructor _
+            | TypeSignatureElement.Value _
+            | TypeSignatureElement.Override _
+            | TypeSignatureElement.Default _ -> hasConcrete <- true
+            | TypeSignatureElement.Interface _
+            | TypeSignatureElement.Inherit _ -> ()
+
+        hasAbstract && not hasConcrete
 
     /// A single-ident `Union` or `Record` name with its `with`-block elements: the
     /// channel an `interface … with` / augmentation member rides.

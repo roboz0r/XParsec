@@ -133,7 +133,7 @@ module SignatureResolution =
             // A union's trailing `with interface <ty>` impls ride the shared extension list;
             // there is no union-specific parser field.
             let interfaces =
-                freezeInterfaces ctx info.TypeParams (interfaceSpecsOf extensionElems)
+                freezeInterfaces sctx info.TypeParams (interfaceSpecsOf extensionElems)
 
             let members = resolveBodyMembers sctx key info.TypeParams extensionElems
 
@@ -458,14 +458,9 @@ module SignatureResolution =
         (id: TypeIdentity)
         (tn: TypeName<SyntaxToken>)
         (form: SigClassForm)
+        (isInterface: bool)
         (elems: TypeElementsSignature<SyntaxToken>)
         : unit =
-        let isInterface =
-            match form with
-            | SigClassForm.Interface -> true
-            | SigClassForm.Struct -> false
-            | SigClassForm.Bodied -> bodyIsInterface elems
-
         let surface = bodiedClassSurface sctx id tn isInterface elems
 
         let shape =
@@ -522,7 +517,8 @@ module SignatureResolution =
         | SigDecl.IntrinsicAbbrev(kindTag = tag) -> publishIntrinsicAbbrev sctx id tag
         | SigDecl.Extern(typeName = tn; kindTag = kindTag; members = members) ->
             publishExtern sctx id tn kindTag members
-        | SigDecl.ClassLike(typeName = tn; form = form; elements = elems) -> publishClassLike sctx id tn form elems
+        | SigDecl.ClassLike(typeName = tn; form = form; elements = elems) ->
+            publishClassLike sctx id tn form (SigDecl.isInterfaceForm decl) elems
         | SigDecl.Opaque _ -> publishOpaque sctx id
         // Claimed nothing, so it is not one of the identities this runs over; it published its
         // gap at claim time.
@@ -539,11 +535,18 @@ module SignatureResolution =
         : unit =
         let ctx = sctx.Pass
         let claims = ResizeArray<struct (TypeIdentity * SigDecl)>()
+        let groupInterfaceKeys = ResizeArray<TypeKey>()
 
         for decl in decls do
             match claimSigTypeIdentity ctx containment visibleFrom decl with
             | ValueSome id ->
                 claims.Add(struct (id, decl))
+
+                // Interface-ness is read off the declaration's written form, so a group
+                // member referencing a sibling declared below it classifies correctly.
+                if SigDecl.isInterfaceForm decl then
+                    groupInterfaceKeys.Add id.Key
+
                 PublishedSurfaceBuilder.addModuleChain sctx.Surface id.Key
             | ValueNone ->
                 match SigDecl.unmodelledReason decl with
@@ -551,6 +554,13 @@ module SignatureResolution =
                 // The claim itself was refused (a dotted name, or a name already taken), so
                 // there is no gap to publish: the name belongs to whatever claimed it.
                 | ValueNone -> ()
+
+        // The group's interface claims are visible to `sigIsInterfaceKey` in the phases
+        // below, before any of the group's shapes publish.
+        let sctx =
+            { sctx with
+                GroupInterfaceKeys = EqSet.ofSeq groupInterfaceKeys
+            }
 
         // Over ALL of them, not only the claimed: a declaration that claims no type still
         // writes type names that must resolve.
@@ -707,6 +717,7 @@ module SignatureResolution =
                 Pass = ctx
                 Surface = surface
                 Inputs = inputs
+                GroupInterfaceKeys = EqSet.empty
             }
 
         let walked = CstModuleTree.walkSig ctx.NameOf ctx.Resolution.AmbientOpenScope file

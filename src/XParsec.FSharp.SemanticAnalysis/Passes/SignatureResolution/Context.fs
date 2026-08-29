@@ -32,6 +32,10 @@ module SignatureResolutionContext =
             Pass: PassContext
             Surface: PublishedSurfaceBuilder
             Inputs: SignatureInputs
+            /// Keys of the current `type … and …` group's declarations that will publish as
+            /// interfaces, so a forward reference within the group resolves before its shape
+            /// is published. `registerSigGroup` rebinds a fresh set per group.
+            GroupInterfaceKeys: EqSet<TypeKey>
         }
 
     // --- freezing -------------------------------------------------------------------

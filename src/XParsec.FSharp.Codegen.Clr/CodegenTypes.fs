@@ -91,7 +91,7 @@ type internal ClassDecl =
         Fields: Frozen.TRecordField list
         CtorParams: Frozen.TRecordField list
         Members: TastAccessor.TypeMember list
-        BaseType: FrozenNominal voption
+        Base: TastAccessor.Base voption
         Interfaces: (FrozenNominal * TastAccessor.TypeMember list) list
         IsSealed: bool
         /// `static let` / `static do` in declaration order: the body of the synthesised
@@ -105,7 +105,6 @@ type internal ClassDecl =
         /// (`FieldGet(Var ThisKey, …)`), so the primary `.ctor` maps it to `ldarg.0`.
         ThisKey: BoundVarKeyG<BoundVarId>
         SecondaryCtors: TastAccessor.SecondaryCtor list
-        BaseCtorCall: TastAccessor.BaseCtorCall voption
         ValueKind: ClassValueKind
         /// `false` for the `val`-field form (`type T = val …; new(…) = …`): the
         /// secondaries are the only ctors (no synthesised primary `.ctor`).

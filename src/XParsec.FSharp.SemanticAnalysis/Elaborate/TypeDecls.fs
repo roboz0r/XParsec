@@ -102,7 +102,9 @@ module internal ElaborateTypeDecls =
                    | _ -> false
                )
 
-        if body.inherits.IsSome || not body.classPreamble.IsEmpty || not allAbstractMethods then
+        // An `inherit` clause is neutral to the kind, as fsc infers it; the clause itself
+        // was diagnosed at registration and is not carried on the interface node.
+        if not body.classPreamble.IsEmpty || not allAbstractMethods then
             None
         else
             // The key of the type being LOWERED, minted from the module the walk is in: a
@@ -403,9 +405,10 @@ module internal ElaborateTypeDecls =
         (ctx: PassContext)
         (info: ClassTypeInfo)
         (staticRewrite: FieldRewrite)
+        (inh: ClassInherit)
         : TBaseCtorCall voption =
-        match info.BaseType, info.BaseCtorArgs with
-        | ValueSome _, ValueSome argExpr ->
+        match inh.CtorArgs with
+        | ValueSome argExpr ->
             let ctorParamKeys =
                 EqArray.ofSeq (
                     seq { for p in info.CtorParams -> (p.DeclSite.BoundVar, Unification.zonk ctx.Store p.Type) }
@@ -424,7 +427,7 @@ module internal ElaborateTypeDecls =
                     // external base (`inherit exn(msg)`); `ValueNone` for a local base.
                     ChosenCtor = ctx.Resolution.ExternalCtor.TryGetValue(CstKeys.ofExpr argExpr)
                 }
-        | _ -> ValueNone
+        | ValueNone -> ValueNone
 
     /// Surface a `TypeDefn.Class` (or class-shaped `TypeDefn.Anon`) as a `TDecl.Type` from
     /// the resolved `ClassTypeInfo`. Ctor params and member signatures are remapped through
@@ -501,8 +504,14 @@ module internal ElaborateTypeDecls =
             // The parent's resolved `TyClass` carries THIS class's declaring typars as
             // roots, so a generic parent encodes against this class's own generic
             // parameters once the cut is made.
-            let baseType = info.BaseType
-            let baseCtorCall = tryBaseCtorCall ctx info staticRewrite
+            let baseNode =
+                info.Base
+                |> ValueOption.map (fun inh ->
+                    {
+                        Parent = inh.Parent
+                        Ctor = tryBaseCtorCall ctx info staticRewrite inh
+                    }
+                )
 
             Some(
                 mkTypeDecl
@@ -516,14 +525,13 @@ module internal ElaborateTypeDecls =
                             Fields = instanceFields
                             CtorParams = ctorParams
                             Members = members
-                            BaseType = baseType
+                            Base = baseNode
                             Interfaces = interfaces
                             Declared = info.Declared
                             StaticPreamble = staticPreamble
                             InstancePreamble = instancePreamble
                             ThisKey = info.ThisKey
                             SecondaryCtors = secondaryCtors
-                            BaseCtorCall = baseCtorCall
                             // A ref struct is necessarily a value type, so the two source
                             // bools collapse with `IsByRefLike` winning.
                             ValueKind =
@@ -592,14 +600,13 @@ module internal ElaborateTypeDecls =
                     Fields = EqArray.empty
                     CtorParams = EqArray.empty
                     Members = members
-                    BaseType = ValueNone
+                    Base = ValueNone
                     Interfaces = EqArray.empty
                     Declared = DeclaredClassFlags.Default
                     StaticPreamble = EqArray.empty
                     InstancePreamble = EqArray.empty
                     ThisKey = info.ThisKey
                     SecondaryCtors = EqArray.empty
-                    BaseCtorCall = ValueNone
                     ValueKind = ClassValueKind.RefType
                     HasPrimaryCtor = false
                 }

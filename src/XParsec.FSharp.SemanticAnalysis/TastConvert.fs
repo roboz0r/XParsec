@@ -280,6 +280,12 @@ module TastConvert =
             ChosenCtor = bc.ChosenCtor
         }
 
+    let baseNode (m: DeclRebuild<'a, 'b, _, _, 'ia, 'ib, 'ba, 'bb>) (b: TBaseG<'a, 'ia, 'ba>) =
+        {
+            Parent = BaseParentG.map m.Ty b.Parent
+            Ctor = ValueOption.map (baseCtorCall m) b.Ctor
+        }
+
     let abstractMethod (f: 'a -> 'b) (am: TAbstractMethodG<'a>) : TAbstractMethodG<'b> =
         {
             Name = am.Name
@@ -329,14 +335,13 @@ module TastConvert =
                     Fields = EqArray.map (recordField fTy) c.Fields
                     CtorParams = EqArray.map (recordField fTy) c.CtorParams
                     Members = EqArray.map mem c.Members
-                    BaseType = ValueOption.map fTy c.BaseType
+                    Base = ValueOption.map (baseNode m) c.Base
                     Interfaces = ifaces c.Interfaces
                     Declared = c.Declared
                     StaticPreamble = EqArray.map (preambleEntry fTy fBody) c.StaticPreamble
                     InstancePreamble = EqArray.map (preambleEntry fTy fBody) c.InstancePreamble
                     ThisKey = BoundVarKey.refile m.Id c.ThisKey
                     SecondaryCtors = EqArray.map (secondaryCtor m) c.SecondaryCtors
-                    BaseCtorCall = ValueOption.map (baseCtorCall m) c.BaseCtorCall
                     ValueKind = c.ValueKind
                     HasPrimaryCtor = c.HasPrimaryCtor
                 }

@@ -252,9 +252,13 @@ module UnificationEngineCore =
                                 Candidates = candidates
                             }
 
-                    match info.BaseType with
-                    | ValueSome parentTy ->
-                        match resolveStep ctx.Store (instantiateMember ctx.Store (info.TypeParams, args) parentTy) with
+                    match info.Base with
+                    | ValueSome inh ->
+                        match
+                            resolveStep
+                                ctx.Store
+                                (instantiateMember ctx.Store (info.TypeParams, args) (BaseParent.ty inh.Parent))
+                        with
                         | TyClass(parentKey, parentArgs) -> walk parentKey parentArgs
                         | _ -> ()
                     | ValueNone -> ()
@@ -542,8 +546,8 @@ module UnificationEngineCore =
 
         match localInfo with
         | ValueSome info ->
-            match info.BaseType with
-            | ValueSome parentTy -> ValueSome(instantiateMember ctx.Store (info.TypeParams, args) parentTy)
+            match info.Base with
+            | ValueSome inh -> ValueSome(instantiateMember ctx.Store (info.TypeParams, args) (BaseParent.ty inh.Parent))
             | ValueNone -> ValueNone
         | ValueNone ->
             match ctx.Provider.TryLookupType key with

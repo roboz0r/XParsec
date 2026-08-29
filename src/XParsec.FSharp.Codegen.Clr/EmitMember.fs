@@ -36,8 +36,10 @@ module EmitMember =
             let parentNominal = nominalOfExpr parent
             let fldHandle = resolveRecordField env parentNominal name
 
-            if isValueType env parentNominal.Frozen then
-                loadStructThisPtr recur env b parent parentNominal.Frozen
+            let parentTy = FrozenNominal.ty parentNominal
+
+            if isValueType env parentTy then
+                loadStructThisPtr recur env b parent parentTy
             else
                 recur env b parent
 
@@ -207,8 +209,9 @@ module EmitMember =
             // member metadata is unused and there are no overload args to match.
             let (DisplayName memberName) = SymbolKeyOps.simpleName key
             let handle, _ = resolveInstanceMember env objArgNominal memberName []
+            let objArgTy = FrozenNominal.ty objArgNominal
             // A property get is never `unit`-returning.
-            emitInstanceMember recur env b via objArg objArgNominal.Frozen handle EqArray.empty CallResult.Value
+            emitInstanceMember recur env b via objArg objArgTy handle EqArray.empty CallResult.Value
 
     let buildMethodCall (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         let view = TastAccessor.exprMethodCall e
@@ -238,7 +241,8 @@ module EmitMember =
 
                     env.Provider.StaticFnMethodSpec(handle0, methodArgs)
 
-            emitInstanceMember recur env b via objArg objArgNominal.Frozen handle args (CallResult.ofReturnTy ty)
+            let objArgTy = FrozenNominal.ty objArgNominal
+            emitInstanceMember recur env b via objArg objArgTy handle args (CallResult.ofReturnTy ty)
 
     let buildStaticPropertyGet (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         let key = TastAccessor.exprStaticPropertyGetKey e
