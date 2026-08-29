@@ -204,8 +204,7 @@ module InlineExpansion =
                                 // generic `defaultof<'T>` is instantiated at.
                                 TypeArgs = EqArray.ofArray [| call.Ty |]
                             }
-                        // A value reference applies nothing, so the entry abstracts nothing.
-                        Arity = 0
+                        AppliedArity = 0
                     }
                 Shareable = SemTypeQuery.isGround x.Ctx.Store call.Ty
                 Path = template.Path
@@ -293,7 +292,7 @@ module InlineExpansion =
                                         Template = template.Key
                                         TypeArgs = EqArray.ofArray resolved.TypeArgs
                                     }
-                                Arity = List.length peeled.Params
+                                AppliedArity = List.length peeled.Params
                             }
                         Shareable =
                             Peeled.isClosed peeled

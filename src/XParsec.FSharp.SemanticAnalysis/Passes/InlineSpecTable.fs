@@ -48,10 +48,14 @@ module InlineSpecTable =
             Survivors: InlineParam list
         }
 
-    /// The identity two call sites must agree on to share ONE specialization entry. `Arity` is
-    /// the number of parameters the site actually APPLIED: a partial application at the same
-    /// types leaves the unapplied lambdas in the body, so it cannot share the saturated entry.
-    type Grounding = { Key: SpecializationKey; Arity: int }
+    /// The identity two call sites must agree on to share ONE specialization entry. A partial
+    /// application at the same types leaves the unapplied lambdas in the body, so it cannot share
+    /// the saturated entry.
+    type Grounding =
+        {
+            Key: SpecializationKey
+            AppliedArity: int
+        }
 
     /// A RESERVED table slot: the entry once its body has been built, and the call site in the
     /// file being compiled whose expansion began building it. `Site` is kept because an entry's
@@ -257,8 +261,7 @@ module InlineSpecTable =
                 ValueNone
 
         /// The TABLE form of a reduction: a new entry, its surviving parameters abstracted back
-        /// into the lambda chain an `InlineCall`'s arguments are positional against. One lambda
-        /// per SURVIVOR, below `Grounding.Arity` whenever a parameter fused.
+        /// into the lambda chain an `InlineCall`'s arguments are positional against.
         let private mintEntry (o: Outlining) (t: SpecTable) : SpecializationId * InlineParam list =
             let slot = t.Entries.Count
             let spec = SpecializationId slot
