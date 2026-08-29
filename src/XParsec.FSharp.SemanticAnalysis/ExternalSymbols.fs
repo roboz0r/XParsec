@@ -588,15 +588,9 @@ module ExternalSymbols =
         (declaringArgs: SemType[])
         (level: int)
         : SemType =
-        let cache = Dictionary<int, SemType>()
-
-        for (j, ty) in seed do
-            cache.[j] <- ty
-
-        let methodVar = methodFreshener store cache level
-        let decl i = declaringArgs.[i]
-        let noLocal = localTyparInTemplate
-        instantiateWith decl methodVar noLocal (ExternalSignature.openTemplate m.Signature)
+        instantiateWith
+            (TyparInstantiation.atCallSite store level seed declaringArgs)
+            (ExternalSignature.openTemplate m.Signature)
 
     /// Instantiate a member's `Signature` at `level`: `FTTypar(Declaring,i) →
     /// declaringArgs.[i]`, `FTTypar(Method,j) → fresh TyVar at level` (one per index, shared
@@ -608,21 +602,15 @@ module ExternalSymbols =
     /// `declaringArgs`, the member's own method typars left as `TyTypar(Method,j)` markers.
     /// The applicability-filtering form, in which a generic method's marker stays a wildcard.
     let openSignature (m: ExternalMember) (declaringArgs: SemType[]) : SemType =
-        let decl i = declaringArgs.[i]
-        let methodOpen j = TyTypar(TyparAxis.Method, j)
-        let noLocal = localTyparInTemplate
-        instantiateWith decl methodOpen noLocal (ExternalSignature.openTemplate m.Signature)
+        instantiateWith (TyparInstantiation.openMethod declaringArgs) (ExternalSignature.openTemplate m.Signature)
 
     /// A member's method-typar BOUNDS at a use site, one per method typar.
     /// `FTTypar(Declaring,i)` → `declaringArgs.[i]`; a `FTTypar(Method,j)` ref stays an
     /// inert marker.
     let instantiateSignatureBounds (m: ExternalMember) (declaringArgs: SemType[]) : EqArray<SemType voption> =
-        let decl i = declaringArgs.[i]
-        let methodOpen j = TyTypar(TyparAxis.Method, j)
-        let noLocal = localTyparInTemplate
+        let inst = TyparInstantiation.openMethod declaringArgs
 
-        m.Signature.MethodTypars
-        |> EqArray.map (ValueOption.map (fun ft -> instantiateWith decl methodOpen noLocal ft))
+        m.Signature.MethodTypars |> EqArray.map (ValueOption.map (instantiateWith inst))
 
     let instantiateFieldType (f: ExternalFieldShape) (declaringArgs: SemType[]) : SemType =
         instantiateDeclaring f.Frozen declaringArgs

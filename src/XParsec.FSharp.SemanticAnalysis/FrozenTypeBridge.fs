@@ -1,9 +1,19 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+open System.Collections.Generic
+
 /// `SemType` ↔ `FrozenType`. `TyVar` is the sole `SemType` case with no frozen
 /// counterpart, because that split is the point of `FrozenType`.
 [<AutoOpen>]
 module FrozenTypeBridge =
+
+    /// The assignment of types to a template's open typars. One value per instantiation
+    /// event: templates instantiated through one value agree at every typar index.
+    type ITyparInstantiation =
+        abstract Declaring: i: int -> SemType
+        abstract Method: j: int -> SemType
+        abstract Local: scheme: SchemeId * k: int -> SemType
+
     let rec toFrozenWith (onVar: TyVarId -> FrozenType) (ty: SemType) : FrozenType =
         let go = toFrozenWith onVar
 
@@ -37,14 +47,8 @@ module FrozenTypeBridge =
     let toFrozen (ty: SemType) : FrozenType =
         toFrozenWith (fun tv -> failwithf "FrozenType.toFrozen: cannot freeze SemType: %A" (TyVar tv)) ty
 
-    /// Two templates of ONE signature must share a `methodVar` memo to agree on `j`.
-    let rec instantiateWith
-        (declaring: int -> SemType)
-        (methodVar: int -> SemType)
-        (localTypar: SchemeId -> int -> SemType)
-        (template: FrozenType)
-        : SemType =
-        let go = instantiateWith declaring methodVar localTypar
+    let rec instantiateWith (inst: ITyparInstantiation) (template: FrozenType) : SemType =
+        let go = instantiateWith inst
 
         match template with
         | FTConst(key, args) -> TyConst(key, EqArray.map go args)
@@ -69,31 +73,35 @@ module FrozenTypeBridge =
                     WhenTrue = go c.WhenTrue
                     WhenFalse = go c.WhenFalse
                 }
-        | FTTypar(TyparAxis.Declaring, i) -> declaring i
-        | FTTypar(TyparAxis.Method, j) -> methodVar j
-        | FTLocalTypar(scheme, k) -> localTypar scheme k
+        | FTTypar(TyparAxis.Declaring, i) -> inst.Declaring i
+        | FTTypar(TyparAxis.Method, j) -> inst.Method j
+        | FTLocalTypar(scheme, k) -> inst.Local(scheme, k)
         | FTUnknown reason -> TyUnknown reason
+
+    [<Struct>]
+    type internal LocalTyparKey = { Scheme: SchemeId; Index: int }
 
     /// The identity instantiation: each DECLARED placeholder maps back to its own
     /// `TyTypar` marker. `FTLocalTypar` has no marker to map to, so it MINTS a fresh
     /// `TyVar`, memoised per `(scheme, k)` so repeated occurrences share one cell.
     let ofFrozen (store: TypeStore) (ft: FrozenType) : SemType =
-        let localCache =
-            System.Collections.Generic.Dictionary<struct (SchemeId * int), SemType>()
+        let localCache = Dictionary<LocalTyparKey, SemType>()
 
         instantiateWith
-            (fun i -> TyTypar(TyparAxis.Declaring, i))
-            (fun j -> TyTypar(TyparAxis.Method, j))
-            (fun scheme k ->
-                let key = struct (scheme, k)
+            { new ITyparInstantiation with
+                member _.Declaring i = TyTypar(TyparAxis.Declaring, i)
+                member _.Method j = TyTypar(TyparAxis.Method, j)
 
-                match localCache.TryGetValue key with
-                | true, v -> v
-                | _ ->
-                    let v = TyVar(store.NewTypeVar())
-                    localCache.[key] <- v
-                    v
-            )
+                member _.Local(scheme, k) =
+                    let key = { Scheme = scheme; Index = k }
+
+                    match localCache.TryGetValue key with
+                    | true, v -> v
+                    | _ ->
+                        let v = TyVar(store.NewTypeVar())
+                        localCache.[key] <- v
+                        v
+            }
             ft
 
     // A template is an external descriptor's body with its open typars baked as
@@ -104,21 +112,6 @@ module FrozenTypeBridge =
     /// forward-reference a type registered later in the same package.
     let deferredTemplate: FrozenType = FTUnknown UnknownReason.Deferred
 
-    let methodFreshener
-        (store: TypeStore)
-        (cache: System.Collections.Generic.Dictionary<int, SemType>)
-        (level: int)
-        (j: int)
-        : SemType =
-        match cache.TryGetValue j with
-        | true, v -> v
-        | _ ->
-            let tv = store.NewTypeVar()
-            store.SetLevel(UnionFind.find store tv, level)
-            let v = TyVar tv
-            cache.[j] <- v
-            v
-
     /// An `FTLocalTypar` arises only inside a decl's BODY (a body-local `let`'s own
     /// generalized scheme), so one in a SIGNATURE / type-shape template is a producer bug.
     let localTyparInTemplate (scheme: SchemeId) (k: int) : SemType =
@@ -127,24 +120,90 @@ module FrozenTypeBridge =
             k
             scheme
 
-    /// `FTTypar(Declaring,i)` → `declaringArgs.[i]`, for a type-shape descriptor:
-    /// record field, union-case field, interface arg, base type, abbreviation body.
-    /// An index past `declaringArgs` degrades to `TyUnknown UnknownReason.ArityMismatch`.
-    let instantiateDeclaring (template: FrozenType) (declaringArgs: SemType[]) : SemType =
-        instantiateWith
-            (fun i ->
-                if i < declaringArgs.Length then
-                    declaringArgs.[i]
-                else
-                    TyUnknown UnknownReason.ArityMismatch
-            )
-            (fun j ->
+    [<RequireQualifiedAccess>]
+    module TyparInstantiation =
+
+        /// A type-shape descriptor's instantiation, declaring axis only: record field,
+        /// union-case field, interface arg, base type, abbreviation body. An index past
+        /// `declaringArgs` degrades to `TyUnknown UnknownReason.ArityMismatch`; a method
+        /// or body-local typar in the template is a producer bug.
+        let declaringOnly (declaringArgs: SemType[]) : ITyparInstantiation =
+            { new ITyparInstantiation with
+                member _.Declaring i =
+                    if i < declaringArgs.Length then
+                        declaringArgs.[i]
+                    else
+                        TyUnknown UnknownReason.ArityMismatch
+
+                member _.Method j =
+                    failwithf "TyparInstantiation.declaringOnly: unexpected method typar %d in a type-shape template" j
+
+                member _.Local(scheme, k) = localTyparInTemplate scheme k
+            }
+
+        /// Every open typar, either axis, becomes a marker on `axis`, index preserved.
+        let toAxis (axis: TyparAxis) : ITyparInstantiation =
+            { new ITyparInstantiation with
+                member _.Declaring i = TyTypar(axis, i)
+                member _.Method j = TyTypar(axis, j)
+                member _.Local(scheme, k) = localTyparInTemplate scheme k
+            }
+
+        /// A declaring index past `declaringArgs` in a member template is a provider bug.
+        let private declaringArg (policy: string) (declaringArgs: SemType[]) (i: int) : SemType =
+            if i < declaringArgs.Length then
+                declaringArgs.[i]
+            else
                 failwithf
-                    "FrozenTypeBridge.instantiateDeclaring: unexpected method typar %d in a type-shape template"
-                    j
-            )
-            localTyparInTemplate
-            template
+                    "TyparInstantiation.%s: declaring typar %d out of range for %d declaring args"
+                    policy
+                    i
+                    declaringArgs.Length
+
+        /// The applicability-filtering form: declaring typars substituted from
+        /// `declaringArgs`, `Method j` left an inert `TyTypar(Method, j)` marker.
+        let openMethod (declaringArgs: SemType[]) : ITyparInstantiation =
+            { new ITyparInstantiation with
+                member _.Declaring i =
+                    declaringArg "openMethod" declaringArgs i
+
+                member _.Method j = TyTypar(TyparAxis.Method, j)
+                member _.Local(scheme, k) = localTyparInTemplate scheme k
+            }
+
+        /// A member call's instantiation at `level`: one fresh `TyVar` per method typar,
+        /// memoised in the value, so every template instantiated through ONE value shares
+        /// cells. `seed` pre-binds method typar indices with types instead of fresh vars.
+        let atCallSite
+            (store: TypeStore)
+            (level: int)
+            (seed: (int * SemType) list)
+            (declaringArgs: SemType[])
+            : ITyparInstantiation =
+            let cache = Dictionary<int, SemType>()
+
+            for (j, ty) in seed do
+                cache.[j] <- ty
+
+            { new ITyparInstantiation with
+                member _.Declaring i =
+                    declaringArg "atCallSite" declaringArgs i
+
+                member _.Method j =
+                    match cache.TryGetValue j with
+                    | true, v -> v
+                    | _ ->
+                        let tv = store.NewTypeVar()
+                        store.SetLevel(UnionFind.find store tv, level)
+                        let v = TyVar tv
+                        cache.[j] <- v
+                        v
+
+                member _.Local(scheme, k) = localTyparInTemplate scheme k
+            }
+
+    let instantiateDeclaring (template: FrozenType) (declaringArgs: SemType[]) : SemType =
+        instantiateWith (TyparInstantiation.declaringOnly declaringArgs) template
 
     /// Contract extraction bakes EVERY typar on the `Declaring` axis, numbering the
     /// declaring type's own first, so a typar the member INTRODUCES (`<'a>`, or an

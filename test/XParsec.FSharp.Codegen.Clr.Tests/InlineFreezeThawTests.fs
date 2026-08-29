@@ -167,11 +167,7 @@ let private kindOfUnit (ns: string) (moduleName: string) =
 /// are carried on the METHOD axis, while an `ExternalSymbol.Scheme` bakes a free function's
 /// onto the DECLARING axis. Positional, so index order is preserved.
 let private asSymbolScheme (ft: FrozenType) : FrozenType =
-    FrozenTypeBridge.instantiateWith
-        (fun i -> TyTypar(TyparAxis.Declaring, i))
-        (fun j -> TyTypar(TyparAxis.Declaring, j))
-        FrozenTypeBridge.localTyparInTemplate
-        ft
+    FrozenTypeBridge.instantiateWith (TyparInstantiation.toAxis TyparAxis.Declaring) ft
     |> toFrozen
 
 /// The symbol's `TyparArity`: one past the highest typar index the template references.
