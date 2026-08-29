@@ -5,7 +5,7 @@
 // Each row routes through a FUNCTION PARAMETER rather than `+5` directly: a literal with
 // a sign is a constant, and the point here is that the operator resolves to the width's
 // own declared member and yields the operand unchanged — including at the unsigned widths,
-// where `~-` has no answer and is rejected.
+// where `~-` is undefined and rejected.
 let plusI (x: int) = +x
 let plusB (x: byte) = +x
 let plusS (x: sbyte) = +x

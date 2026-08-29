@@ -361,7 +361,7 @@ module NameResolution =
         (m: ModuleElem<SyntaxToken>)
         : unit =
         // Resolve the decl to its registered info by the key the DECLARATION mints, not by
-        // name: a sibling module's same-named class must not answer, and an arity-overloaded
+        // name: a sibling module's same-named class must not be reached, and an arity-overloaded
         // `Box\`1`/`Box\`2` does not resolve by bare name at all.
         let bodyOf (td: TypeDefn<SyntaxToken>) =
             match TypeDefnPatterns.tryClassLikeDecl td with

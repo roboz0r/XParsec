@@ -104,7 +104,7 @@ let tests =
                     Expect.equal (binaryOpcodes ty "/") [ conv; div ] (sprintf "%s /" ty)
                     Expect.equal (binaryOpcodes ty "%") [ conv; rem ] (sprintf "%s %%" ty)
 
-                // `~-` is the SIGNED widths only: negating an unsigned value has no answer
+                // `~-` is the SIGNED widths only: negating an unsigned value has no result
                 // the width can hold, so no unsigned type declares it. The narrow signed
                 // widths still `conv`: bare `neg` gives 128 for `-(-128y)`, not -128y.
                 for ty in [ "int"; "int64"; "float"; "float32"; "nativeint" ] do
@@ -236,7 +236,7 @@ let tests =
                             [ declaring + "." + method ]
                             (sprintf "%s %s calls %s.%s" width op declaring method)
 
-                        Expect.isEmpty (opcodesOf src) (sprintf "%s %s rides no mnemonic" width op)
+                        Expect.isEmpty (opcodesOf src) (sprintf "%s %s emits no mnemonic" width op)
 
                     Expect.equal
                         (externalCallsOf (sprintf "let f (a: %s) = -a" width))

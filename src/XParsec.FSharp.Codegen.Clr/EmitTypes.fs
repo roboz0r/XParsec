@@ -455,7 +455,7 @@ module EmitTypes =
             | _ -> CallResult.Value
 
         /// The verdict for a member whose `void`-ness is read off metadata instead: `M: 'a ->
-        /// 'a` at `'a = unit` still returns `!0`, so the applied type cannot answer.
+        /// 'a` at `'a = unit` still returns `!0`, so the applied type does not determine it.
         let ofReturnsVoid (returnsVoid: bool) : CallResult =
             if returnsVoid then CallResult.Void else CallResult.Value
 

@@ -60,8 +60,8 @@ of that shows up in four places:
 `IExternalSymbolStore`'s five type-addressed channels collapse to one:
 
 ```fsharp
-/// Everything a resolved external type states, from ONE fetch. A provider answers this once
-/// per key; nothing downstream re-asks a source about a type it already holds.
+/// Everything a resolved external type states, from ONE fetch. A provider fills this once
+/// per key; nothing downstream re-reads a source about a type it already holds.
 type ResolvedType =
     {
         Key: TypeKey
@@ -162,7 +162,7 @@ Call sites to re-point: `NumberCovariance.fs:48`, `SymbolProviders.fs:282`, `Pas
    from one fetch — it is not the defect. Giving it a matching `ResolvedSymbol` is optional
    symmetry and explicitly NOT in scope.
 
-3. **No `Lazy` fields on `ResolvedType` up front.** Both sources that matter already answer
+3. **No `Lazy` fields on `ResolvedType` up front.** Both sources that matter already resolve
    eagerly. Add per-field laziness only when a specific source is shown to need it.
 
 4. **`IExternalSymbolResolver` is untouched.** Anything reaching for it during this work is a
@@ -184,7 +184,7 @@ Call sites to re-point: `NumberCovariance.fs:48`, `SymbolProviders.fs:282`, `Pas
 
 - ~~`EmitPattern`'s hand-rolled value-type key list~~ **DONE (2026-08-13)** — it classifies
   through `TypeLayout.shapeOfFrozen` and the shared ladder now. One shape still has no key for
-  the query to answer under; `tuple-platform-type-plan.md` carries it.
+  the query to resolve under; `tuple-platform-type-plan.md` carries it.
 - `IntrinsicTypeMap` as a provider-level channel. The canon↔repr edge is walked at ~6 independent
   sites; resolving a canon THROUGH its repr once is a natural consequence of this plan but not a
   precondition for it.
@@ -202,7 +202,7 @@ Call sites to re-point: `NumberCovariance.fs:48`, `SymbolProviders.fs:282`, `Pas
   `:508` (`computeMembers`), `:626-639` (the two by-name lookups).
 - The value-ness ladder: `TypeLayout.resolve`, shared by both ends, each supplying its own
   `declared` rung; and `CodegenSymbols.fs:110` (inside `ofProvider`, so `ICodegenSymbols`
-  publishes the settled provider answer and no emission site re-derives it).
+  publishes the settled provider verdict and no emission site re-derives it).
 - The key-convention patch: `CodegenSymbols.fs:12-22`.
 - Composition sites: `AssemblyFiles.fs:130`, `:139`; `ReferencedProject.fs:383`, `:519`, `:554`;
   `ClrDriver.fs:143`; `SymbolProviders.fs:262`, `:282`.

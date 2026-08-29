@@ -141,8 +141,8 @@ module internal AttributeFold =
 
     /// The folded constant of a `[<Literal>]` module value referenced at `useSite`. A bare
     /// spelling reads the enclosing module chain innermost-first, then the opened modules; a
-    /// qualified one reads the containers the prefix denotes. The nearest value claim under
-    /// the name answers, so a nearer non-literal value shadows a farther literal.
+    /// qualified one reads the containers the prefix denotes. A nearer non-literal value
+    /// shadows a farther literal.
     let private tryLiteralValue
         (ctx: PassContext)
         (useSite: UseSite)

@@ -53,7 +53,7 @@ type MapCtx =
         }
 
 /// Capital `lib.es*` wrapper interfaces that OVERLAP Vesper's own representation of the
-/// same runtime values (numerics/string/bool ride `IntrinsicRepr`, `obj` is the universal
+/// same runtime values (numerics/string/bool are carried on `IntrinsicRepr`, `obj` is the universal
 /// supertype, arrays are native). Never homed as a ref, never emitted as an export.
 let intrinsicOverlapNames: Set<string> =
     Set.ofList
@@ -148,7 +148,7 @@ let private classifyHome (ctx: MapCtx) (sym: Ts.Symbol) : string option =
 
                 walk (pathDirname sf.fileName)
             else
-                None // LOCAL: rides the own-registry path
+                None // LOCAL: resolved through the own-registry path
 
 /// The referenced type's KIND, from its `SymbolFlags`. An `Interface` that also carries
 /// a VALUE meaning is a FUSED pair (`interface Map<K,V>` + `declare var Map:

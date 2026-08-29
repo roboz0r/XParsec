@@ -20,7 +20,7 @@ open UnificationInferDispatch
 module internal UnificationInferTypeOps =
 
     /// What an explicit type application (`f<int>`) pins its arguments onto. `Name` is the
-    /// spelling a wrong-arity report blames.
+    /// spelling a wrong-arity report refers to the target by.
     [<RequireQualifiedAccess>]
     type private TypeAppTarget =
         /// A generalised binding, whose quantified roots the arguments pin in `Order`.
@@ -126,7 +126,7 @@ module internal UnificationInferTypeOps =
 
         // A bare `null` operand mints an unpinned fresh TypeVar; in the
         // `(# "ceq" value null : bool #)` shape of `isNull` it never links, and an `inline`
-        // body rides it into callers unresolved. Pin it to the first non-`null` operand.
+        // body carries it into callers unresolved. Pin it to the first non-`null` operand.
         let isNullOperand (e: Expr<SyntaxToken>) =
             match e with
             | Expr.Null _ -> true

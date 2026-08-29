@@ -24,8 +24,8 @@ module SymbolKeyOps =
     /// The TYPE, not the `&` operator that constructs one.
     let byrefName: string = "byref"
 
-    /// An array of any rank, or a by-ref: a type whose element type rides its ARGS rather
-    /// than a declared typar, so it is keyed at arity 0 however it is minted and a use site
+    /// An array of any rank, or a by-ref: a type whose element type is carried on its ARGS
+    /// rather than a declared typar, so it is keyed at arity 0 however it is minted and a use site
     /// agrees with `` type 'T ``[]`` ``.
     let isStructuralConstructorName (name: string) : bool =
         name = byrefName

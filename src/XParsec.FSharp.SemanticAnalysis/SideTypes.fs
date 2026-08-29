@@ -101,7 +101,7 @@ type ForInEnumeratorG<'ty> =
     /// `IEnumerable<'T>`.
     | Pattern of ForInPatternG<'ty>
 
-/// The `SemType` instantiations, spoken before the freeze.
+/// The `SemType` instantiations, consumed before the freeze.
 type ForInGetEnum = ForInGetEnumG<SemType>
 type ForInEnumMembers = ForInEnumMembersG<SemType>
 type ForInPattern = ForInPatternG<SemType>

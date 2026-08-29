@@ -88,7 +88,7 @@ type TastFileG<'ty, 'tok, 'id when 'id: comparison> =
         /// the backends rather than exported.
         Specializations: EqArray<TSpecializationG<'ty, 'tok, 'id>>
         /// Declared accessibility of each top-level entity (type / module value / inline
-        /// value); a key ABSENT here is `Public`. A type MEMBER's rides on the member itself.
+        /// value); a key ABSENT here is `Public`. A type MEMBER's is stored on the member itself.
         Accessibility: EqDict<SymbolKey, Accessibility>
         /// A module binding's typar count, keyed by the bound variable its pattern introduces.
         BindingTyparArities: Map<BoundVarKeyG<'id>, int>
@@ -152,7 +152,7 @@ module TSpecializationG =
             let (SpecializationId i) = spec
             failwithf "TSpecialization: specialization %d is a `TDecl.Type`, not a `TDecl.Let`" i
 
-// Parallel `FrozenType` aliases, spoken by the freeze step and the backends.
+// Parallel `FrozenType` aliases, shared by the freeze step and the backends.
 
 module Frozen =
     type TPat = TPatG<FrozenType, SyntaxToken, NodeKey>

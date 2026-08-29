@@ -43,7 +43,7 @@ module EmitJsContext =
                 Resolve = resolve
             }
 
-        /// Local first, then the provider, whose answer is cached.
+        /// Local first, then the provider, whose results are cached.
         let tryFind (table: LocalThenExternal<'Info>) (key: TypeKey) : 'Info voption =
             match table.Local.TryGetValue key with
             | true, info -> ValueSome info
@@ -57,7 +57,7 @@ module EmitJsContext =
                         ValueSome info
                     | ValueNone -> ValueNone
 
-        /// For a question only an emitted declaration answers, where an import must not.
+        /// Resolves only against declarations emitted in THIS file.
         let tryLocal (table: LocalThenExternal<'Info>) (key: TypeKey) : 'Info voption =
             match table.Local.TryGetValue key with
             | true, info -> ValueSome info
@@ -122,7 +122,7 @@ module EmitJsContext =
             /// (`E.Ci`) and an `EnumCase` pattern (`scrut === E.Ci`) both resolve it here.
             Enums: Dictionary<TypeKey, string>
             /// NOT optional: a compilation that resolves no external symbols still HAS a
-            /// provider, the null one, which answers `ValueNone` to every lookup.
+            /// provider, the null one, which yields `ValueNone` for every lookup.
             Provider: IExternalSymbolProvider
             Imports: JsImports
             /// `true` in library mode: top-level `let` emits `export const …`.
@@ -202,7 +202,7 @@ module EmitJsContext =
 
     /// Where a node lands in the source it was WRITTEN in, for the map. Takes the NODE, not its
     /// anchor: a node copied out of a specialization was MOVED onto the call site, so its own
-    /// anchor points to the compiling file; its declaring position rides beside it in `NodeOrigins`.
+    /// anchor points to the compiling file; its declaring position is stored in `NodeOrigins`.
     let locOf (ctx: WalkCtx) (e: TastAccessor.ExprId) : JsLoc voption =
         match ctx.Resolver with
         | ValueNone -> ValueNone

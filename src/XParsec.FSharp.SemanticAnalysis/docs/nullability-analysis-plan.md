@@ -66,7 +66,7 @@ candidate shapes (decide with the user — `feedback_design_discuss_not_multiple
    `inferIdentDefault` before falling through to the declared binding. Pro: purely
    functional, no mutation to unwind, matches the `computeArmNarrowing` "pure pre-pass"
    grain. Con: `infer` currently takes `(ctx, e)` only — every arm would thread the env, a
-   wide signature change (or the env rides on `ctx` as a mutable scoped field, see 2).
+   wide signature change (or the env is stored on `ctx` as a mutable scoped field, see 2).
 
 2. **A scoped mutable overlay on `PassContext`** (push on entering a narrowed branch, pop
    on exit) consulted at the same seam. Pro: no signature churn; localizes to the branch

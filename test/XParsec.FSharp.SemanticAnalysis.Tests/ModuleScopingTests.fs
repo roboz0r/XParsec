@@ -19,7 +19,7 @@ let private expectClean (tast: TastFile) =
     Expect.isEmpty (errors tast) (sprintf "expected no errors; diagnostics were %A" (errors tast))
 
 /// A bare name that reaches no declaration in scope must not resolve. Only the VERDICT is
-/// pinned, not the wording: F# blames these with FS0039 ("The type 'T' is not defined").
+/// pinned, not the wording: F# reports these as FS0039 ("The type 'T' is not defined").
 let private expectRejected (source: string) =
     let es = errors (analyse source)
     Expect.isNonEmpty es "expected a diagnostic: the name does not resolve in scope here"
@@ -553,7 +553,7 @@ let qualifiedTests =
 
             // A name a scope OF THIS UNIT does not hold is a DIAGNOSTIC: we know every type
             // our own scopes hold, and a fresh type variable would unify with anything. Under
-            // a qualifier we do NOT declare the provider answers, and its view is partial.
+            // a qualifier we do NOT declare, the provider resolves it, and its view is partial.
             test "a name a module of this file does not hold is not defined" {
                 expectRejected (
                     src
@@ -583,9 +583,10 @@ let qualifiedTests =
                 )
             }
 
-            // The name denotes A's `T` at an arity A does not hold it at, so the ARITY is
-            // blamed — a local claim is not abandoned for an external type over a bad arity.
-            test "a qualified name at the wrong arity blames the arity" {
+            // The name denotes A's `T` at an arity A does not hold it at, so the diagnostic
+            // reports the ARITY — a local claim is not abandoned for an external type over a
+            // bad arity.
+            test "a qualified name at the wrong arity reports the arity" {
                 let es =
                     errors (
                         analyse (
@@ -606,6 +607,6 @@ let qualifiedTests =
 
                 Expect.isTrue
                     (es |> List.exists (fun e -> e.Contains "A.T" && e.Contains "type argument"))
-                    (sprintf "expected the arity of A.T to be blamed; got %A" es)
+                    (sprintf "expected the arity of A.T to be reported; got %A" es)
             }
         ]

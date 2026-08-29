@@ -200,7 +200,7 @@ left untouched by the sweep is that it is diffable against upstream.
   on all 30.
 - **`Unchecked.defaultof<'T>` yielding `null` on JS and `0` on CLR.** Intended, not
   a divergence to fix: `defaultof` is the platform-defined default of an *extern*
-  type, so the target owns the answer, and JS has no per-type zero. The `.fsi` now
+  type, so the target owns the default, and JS has no per-type zero. The `.fsi` now
   says so ("the target's own default"); the old doc described only the CLR body,
   and that wording was the sole defect. All three uses in shared code
   (`seq.fs:59`, `SemiPersistentUnionFind.fs:42-43`) are definite-assignment

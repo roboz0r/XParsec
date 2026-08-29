@@ -56,7 +56,7 @@ through a record-copy expression could have been missed.
 ### `Unification/EngineCore.fs:75` — the occurs check can miss when `target` is not a union-find root
 
 `occursAndAdjust` decides occurrence with `root.Id = target`, comparing a canonicalised root
-id against the raw `target` argument, so it only answers correctly when the caller passed a
+id against the raw `target` argument, so it only decides correctly when the caller passed a
 root. `Engine.fs` does (`occursAndAdjust ctx.Store root.Id other`), but
 `InferGeneralize.fs:168` passes the raw `tv` of a defaulting candidate — and the enclosing
 loop at `:190` finds that candidate's root separately, which is the tell that `tv` is not
@@ -102,7 +102,7 @@ the declarations would take those tests with them. The decision is therefore whe
 tier is still intended, not whether the code is reachable — if it is intended, say so where a
 reader can tell it is unbuilt; if not, the tests go too.
 
-### `SymbolKeyOps.fs:17` — `isEscapedName` also answers true for an already-arity-suffixed compiled name **[LANDED]**
+### `SymbolKeyOps.fs:17` — `isEscapedName` also returns true for an already-arity-suffixed compiled name **[LANDED]**
 
 `isEscapedName` is deleted. The escape is stripped at the token → name read
 (`Lexed.GetTokenName`), so no name reaching a key carries one, and the arity-0 rule the
@@ -258,8 +258,8 @@ gate is meant to be real the driver is where it is missing.
 `instantiateWith` takes `declaring` / `methodVar` / `localTypar` as bare functions, and the
 surviving doc line records that two templates of one signature must share a `methodVar` memo to
 agree on `j`. `methodFreshener` exists to supply that memo but takes the `Dictionary` from its
-caller, so nothing stops two realisations of one signature being run against two caches and
-disagreeing on the index. A realiser value that owns its cache — built once per signature and
+caller, so nothing stops two instantiations of one signature being run against two caches and
+disagreeing on the index. An instantiator value that owns its cache — built once per signature and
 passed as a unit — would carry the invariant in the type and delete the doc line.
 
 ### `FrozenSignature.fs:36` — the backend clause was prose only; the code is backend-neutral
@@ -534,7 +534,7 @@ Belong in `.claude/skills/comment-hygiene/taxonomy.md`, recorded here so they ar
    width)` — F# `%05u`: unsigned decimal ``); converting would collide. A two-level table
    needs both separators.
 2. **Do not invent causation to satisfy the rule.** Where two facts are merely coordinate,
-   `and` is the correct answer and a manufactured `because` is a new false claim. Observed
+   `and` is the correct connective and a manufactured `because` is a new false claim. Observed
    working correctly at `EmitExpr.TryWith`, `TypeRegistration.localContainerChain` and
    `Elaborate/Printf.fs`.
 

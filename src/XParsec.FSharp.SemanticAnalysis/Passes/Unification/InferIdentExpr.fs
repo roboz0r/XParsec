@@ -38,7 +38,7 @@ module internal UnificationInferIdentExpr =
                         (Kind.Message(sprintf "Operator '%s' is not available from the symbol provider" name))
             | ValueNone -> TyVar(freshTyVar ctx)
         // A multi-segment LongIdent anchored on a local binding is a record-field access
-        // chain (`r.X.Y`): the parser rides these inside one `Expr.LongIdentOrOp`.
+        // chain (`r.X.Y`): the parser carries these inside one `Expr.LongIdentOrOp`.
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
             li.Idents.Length > 1
             && ctx.Bindings.Binding.ContainsKey(NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent)
@@ -87,7 +87,7 @@ module internal UnificationInferIdentExpr =
             let anchorName = ctx.NameOf li.Idents.[0]
             let memberName = ctx.NameOf li.Idents.[1]
             // The qualifier resolves AS SEEN FROM this node: a class / union / record declared
-            // below it does not answer for the name, so `Foo.Bar` above `type Foo` falls
+            // below it is not in scope for the name, so `Foo.Bar` above `type Foo` falls
             // through to the external cascade and lands unresolved.
             let useSite = ctx.UseSiteAt node.Key
 

@@ -304,7 +304,7 @@ let a (c: M.Color) =
 
                         Expect.isEmpty (errorsOf all.[1]) "resolves as the case"
                     }
-                    // Pattern position, SINGLE file: the local half answers the same query.
+                    // Pattern position, SINGLE file: the local half resolves the same query.
                     test "module-qualified case pattern within one file" {
                         let all =
                             analyse

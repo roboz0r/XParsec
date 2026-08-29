@@ -1,6 +1,6 @@
 // decimal — the one width whose operator bodies are BCL CALLS (`Decimal.Add`, …) rather
 // than a CIL mnemonic, so this program is what judges that a spliced call computes the
-// same answer a spliced opcode does. It runs on the CLR only: JS has no decimal repr, so
+// same value a spliced opcode does. It runs on the CLR only: JS has no decimal repr, so
 // the type is unrepresentable there and the same six declarations are unreachable.
 //
 // The last two rows are why the width exists: `0.1M + 0.2M` is EXACTLY `0.3` (the float

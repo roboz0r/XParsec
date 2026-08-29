@@ -6,8 +6,9 @@ open NameResolutionContainers
 /// Resolution of a written name in F#'s order. The first segment is classified once against
 /// the use site's environment; each later segment is looked up inside the entity already
 /// found; the order of the lookups inside an entity is fixed by the syntactic position. Both
-/// halves of the program answer every lookup, this file's own declarations first: `LocalScope`
-/// over the registry, `IExternalSymbolResolver.Scope` over the referenced surfaces.
+/// halves of the program are read for every lookup, this file's own declarations first:
+/// `LocalScope` over the registry, then `IExternalSymbolResolver.Scope` over the referenced
+/// surfaces.
 module NameResolutionLongIdent =
 
     // --- The resolver -----------------------------------------------------------------
@@ -67,7 +68,7 @@ module NameResolutionLongIdent =
             rest
 
     /// The first item any step yields, else the first miss any step yields. A step's
-    /// `Unresolved` result is a miss: remembered, while every later step still answers.
+    /// `Unresolved` result is a miss: remembered, while every later step still runs.
     let private tryFirstOf (steps: (unit -> Resolution voption) list) : Resolution voption =
         let mutable hit = ValueNone
         let mutable miss = ValueNone
@@ -224,7 +225,7 @@ module NameResolutionLongIdent =
         |> Array.exists (fun m -> m.IsStatic && (m.Name = name || m.Name = setter))
 
     /// `declaresStatic` over a referenced type's published members. An instance member does
-    /// NOT answer: F# rejects `T.InstanceMember` with FS3214.
+    /// NOT count: F# rejects `T.InstanceMember` with FS3214.
     let private declaresExternalStatic (ctx: PassContext) (key: TypeKey) (name: string) : bool =
         let anyStatic (n: string) =
             ctx.Provider.TryLookupMembers(key, n) |> EqArray.exists (fun m -> m.IsStatic)
@@ -263,7 +264,7 @@ module NameResolutionLongIdent =
                 match TypeRegistry.tryEnumByKey ctx.Types claim.Key with
                 | ValueSome e when e.HasCase name -> ValueSome(ResolvedItem.EnumCase(t, name))
                 // `MyEnum.Nope` is FS0039. A static inherited from `System.Enum` would be
-                // the only other answer, and the local type registry carries none.
+                // the only other resolution, and the local type registry carries none.
                 | _ -> ValueNone
             | TypeDeclKind.Class
             | TypeDeclKind.Record ->
@@ -303,7 +304,7 @@ module NameResolutionLongIdent =
     /// `names.[i..]` inside the module or namespace `c`. Expression position: value, case of a
     /// union without `[<RequireQualifiedAccess>]`, type, sub-module, then the case with it.
     /// Pattern position: case, value, type, sub-module. The first item wins; on a total miss
-    /// the deepest miss is the answer.
+    /// the deepest miss is returned.
     let rec private inContainer
         (ctx: PassContext)
         (useSite: UseSite)
@@ -331,7 +332,7 @@ module NameResolutionLongIdent =
         let plainCase = caseWhere not
         // The RQA case, expression position's last resort: it resolves, then reports FS0035.
         let rqaCase = caseWhere id
-        // Pattern position admits both; the flag rides the item.
+        // Pattern position admits both; the flag is carried on the item.
         let anyCase = caseWhere (fun _ -> true)
 
         let types () =
@@ -341,7 +342,7 @@ module NameResolutionLongIdent =
             | (t :: _) as claims ->
                 match claims |> tryPickV (fun t -> inType ctx position t names.[next]) with
                 | ValueSome item -> ValueSome(resolved item (next + 1))
-                // A type answered for the name but not the member: that is the miss.
+                // A type matched the name but not the member: that is the miss.
                 | ValueNone -> ValueSome(unresolvedInType t names.[next] (next + 1))
 
         let sub () =
@@ -396,7 +397,7 @@ module NameResolutionLongIdent =
             |> Array.map (ResolvedUnionCase.Local >> CaseClaim.plain)
             |> caseAmong name
 
-    /// A bare type name at any arity: this file's claim in scope, else the referenced contracts.
+    /// A bare type name at any arity: this file's claim in scope, else the external providers.
     let private typeInEnv (ctx: PassContext) (useSite: UseSite) (name: string) : ResolvedTypeRef voption =
         match TypeRegistry.tryTypeClaimAnyArity ctx.Types useSite name with
         | ValueSome claim -> ValueSome(ResolvedTypeRef.Local claim)
@@ -405,8 +406,8 @@ module NameResolutionLongIdent =
             |> ValueOption.map (fun (struct (key, shape)) -> ResolvedTypeRef.External(key, shape))
 
     /// `names.[0]` as a type in the environment and `names.[1]` inside it: every claim of this
-    /// file in scope under the name, then the referenced contracts at each arity. A type that
-    /// answers for the name but not for the member is the miss returned.
+    /// file in scope under the name, then the external providers at each arity. A type that
+    /// matches the name but not the member is the miss returned.
     let private typeFirst
         (ctx: PassContext)
         (useSite: UseSite)
@@ -538,7 +539,7 @@ module NameResolutionLongIdent =
             | n -> firstOf (qualifiedReadings ctx useSite Position.Expression names) (unresolvedInEnv first n)
 
     /// A name in pattern position. Single segment: a case visible at the use site, else a
-    /// bound variable, which is the `Unresolved` answer. Several: `qualifiedReadings`.
+    /// bound variable, which is the `Unresolved` result. Several: `qualifiedReadings`.
     let resolvePattern (ctx: PassContext) (useSite: UseSite) (names: string[]) : Resolution =
         let first = names.[0]
 

@@ -1290,7 +1290,7 @@ let genericMethodTests =
                 Expect.equal (idStr.Invoke(instance, [| box "a" |]) :?> string) "a" "C().Id<string>(\"a\") = \"a\""
             }
 
-            test "Box<int>(0).Echo<string>(\"hi\") = \"hi\": a method typar rides param + return" {
+            test "Box<int>(0).Echo<string>(\"hi\") = \"hi\": a method typar spans param and return" {
                 let artifact =
                     compileSource
                         "ClsGenMethEcho"

@@ -389,7 +389,7 @@ module JsSourceMap =
     [<Literal>]
     let private b64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
 
-    /// Base64 VLQ: the value's sign rides the least-significant bit, then 5-bit
+    /// Base64 VLQ: the value's sign is stored in the least-significant bit, then 5-bit
     /// groups little-endian with bit 6 (0x20) marking continuation.
     let private encodeVlq (value: int) : string =
         let sb = StringBuilder()

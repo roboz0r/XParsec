@@ -2,7 +2,7 @@
 
 Status: **no implementation is scheduled.** This document records the fsc semantics probed
 on 2026-08-29 and the tripwire that landed with them. Adopting the model needs a proper
-design first (see "What a design must answer"); do not implement from this document alone.
+design first (see "What a design must settle"); do not implement from this document alone.
 
 ## The construct
 
@@ -52,10 +52,10 @@ conventions, inheritability) while the emitted type has the implementation's.
 union / enum) wherever both sides commit to one, using the same `bodyIsInterface` /
 `isInterfaceShape` judgments resolution files types under. Abbrevs, `extern`s, opaque
 `type T`, delegates and type extensions commit to none and are skipped; the `struct` form
-groups with class because `[<Struct>]` rides an attribute the syntactic summary cannot
+groups with class because `[<Struct>]` is an attribute the syntactic summary cannot
 read. The silent-divergence hole is now a report; pinned in `ConformanceTests`.
 
-## What a design must answer before implementing the model
+## What a design must settle before implementing the model
 
 1. **Where the kind truth comes from.** This pipeline's later files consume the published
    `.fsi` surface, not the impl, so a hidden kind cannot simply be omitted — codegen and

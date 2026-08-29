@@ -112,7 +112,7 @@ let tests =
                 Expect.equal
                     (SymbolKeyOps.qualifiedTypeKeyOf "Vesper.[]" 1)
                     arr
-                    "the array's element type rides its args, so no arity is supplied however it is minted"
+                    "the array's element type is carried on its args, so no arity is supplied however it is minted"
 
                 Expect.equal
                     (SymbolKeyOps.typeKeyOfArity "Vesper" (SymbolKeyOps.arrayName 1) 1)
@@ -169,7 +169,7 @@ let tests =
                     "qualifiedName drops the empty container rather than emitting a leading dot"
             }
 
-            // "No home" is answered as `ValueNone`, never a placeholder name the caller would
+            // "No home" is represented as `ValueNone`, never a placeholder name the caller would
             // have to recognise.
             test "an unstamped origin has no home assembly, a stamped one has its name" {
                 Expect.equal SymbolHome.Unstamped.AssemblyOption ValueNone "SymbolHome.Unstamped has no home assembly"

@@ -70,7 +70,7 @@ module RuntimeNames =
 
     // The five language-capability ANCHORS, as the contract declares them: what the
     // capability resolution asks the provider for, and the canon each resolved identity
-    // carries when the provider answers with no platform name of its own.
+    // carries when the provider supplies no platform name of its own.
 
     let seqKey: TypeKey = SymbolKeyOps.typeKeyOfArity collectionsNamespace "seq" 1
 
@@ -202,8 +202,8 @@ module RuntimeNames =
         | ValueNone -> false
         | ValueSome c -> interfaces |> EqArray.exists (fun iface -> c.Matches iface.Key)
 
-    /// The identity + type args a REALISED interface denotes. A `TyConst` counts: that is how
-    /// an intrinsic interface (`seq<'T>` on JS) realises.
+    /// The identity + type args an INSTANTIATED interface denotes. A `TyConst` counts, being the
+    /// form an intrinsic interface (`seq<'T>` on JS) takes.
     let interfaceNominal (ty: SemType) : struct (TypeKey * EqArray<SemType>) voption =
         match ty with
         | TyClass(k, args)
@@ -212,7 +212,7 @@ module RuntimeNames =
         | TyConst(k, args) -> ValueSome(struct (k, args))
         | _ -> ValueNone
 
-    /// The type args of the first realised interface whose identity is `cap`.
+    /// The type args of the first instantiated interface whose identity is `cap`.
     let tryCapabilityArgs (cap: CapabilityIdentity) (interfaces: SemType[]) : EqArray<SemType> voption =
         interfaces
         |> Array.tryPick (fun ty ->
@@ -224,8 +224,8 @@ module RuntimeNames =
             | Some args -> ValueSome args
             | None -> ValueNone
 
-    /// Whether a realised interface set carries `cap` at all. A capability the provider does
-    /// not resolve is carried by nothing.
+    /// Whether an instantiated interface set carries `cap` at all. An unresolved capability
+    /// yields `false`.
     let carriesCapability (cap: CapabilityIdentity voption) (interfaces: SemType[]) : bool =
         cap |> ValueOption.exists (fun c -> (tryCapabilityArgs c interfaces).IsSome)
 
@@ -256,7 +256,7 @@ module RuntimeNames =
         k.TyparArity = 0 && k.Container = intrinsicContainer && nameSatisfies k.Name
 
     /// An array of any rank or a managed by-ref, compared as an IDENTITY so a user type named
-    /// `byref` in its own namespace cannot claim the dedicated backend path these ride.
+    /// `byref` in its own namespace cannot claim the dedicated backend path reserved for these.
     let isStructuralConstructorKey (k: TypeKey) : bool =
         isIntrinsicKeyWhere SymbolKeyOps.isStructuralConstructorName k
 

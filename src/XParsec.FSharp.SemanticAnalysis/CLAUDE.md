@@ -39,8 +39,8 @@ Prefer a real named intrinsic type plus operators and name-recognizers over a ne
 `SemType`/`FrozenType` DU case with special unifier behaviour. `undefined` ships as a JS-only
 intrinsic rather than a name special-case in `canonName`, and `any` ships as an opaque
 `type dynamic = (# "any" #)` with all behaviour in the `?`/`?<-` operators. A real type is
-writable in Vesper source, rides unify-by-name and `applyDefaults`, needs no new DU threading
-through the child-walk skeletons, and keeps special behaviour off the hot unify path.
+writable in Vesper source, is covered by unify-by-name and `applyDefaults`, needs no new DU
+threading through the child-walk skeletons, and keeps special behaviour off the hot unify path.
 
 Keep F# type discipline; do not import TypeScript's implicit conversions. `dynamic` has no
 assignability edges: entry is explicit, exit is explicit, and `.member` on it is an error.

@@ -27,7 +27,7 @@ type SyntaxToken =
 /// WHERE something is, in the token space of the file that produced it. Declared HERE, in
 /// the parser layer, because a position in a token stream is the parser's own notion: a
 /// `DiagnosticCode` identifies one, and every later layer (the semantic passes, the frozen
-/// format) speaks the same space rather than a translation of it.
+/// format) shares the same space rather than a translation of it.
 [<RequireQualifiedAccess>]
 type Site =
     /// No place in the file: a whole-file lex/parse failure, a conformance verdict
@@ -48,8 +48,8 @@ module Site =
 
     /// The place a token points to. A VIRTUAL token yields `Nowhere` — it carries no lexed
     /// index, so there is nothing to point at. This is deliberately NOT `Anchor.ofToken`,
-    /// which faults instead: an anchor may never be virtual, whereas a recovery-inserted
-    /// token is exactly what a diagnostic wants to blame. A producer that means "a `)` is
+    /// which faults instead: an anchor may never be virtual, whereas a diagnostic is
+    /// routinely reported at a recovery-inserted token. A producer that means "a `)` is
     /// missing here" says `Site.gapBefore` of the REAL token before the gap, which is
     /// information this conversion does not have.
     let ofToken (tok: SyntaxToken) : Site =
@@ -227,7 +227,7 @@ module Offside =
 /// layer wraps it as its own `Kind.Parse`) and freeze it alongside the rest of a
 /// diagnostic: a node would drag raw char offsets and virtual tokens across a boundary
 /// built to keep them out. The tokens a code is ABOUT are identified by `Site`, in the same
-/// token space every later layer speaks.
+/// token space every later layer shares.
 [<RequireQualifiedAccess>]
 type DiagnosticCode =
     // TODO: Use F# error codes
@@ -269,7 +269,7 @@ type DiagnosticCode =
 /// `Token`/`TokenEnd` are `SyntaxToken`, not `PositionedToken`: a consumer outside the
 /// parser needs the token INDEX to point at the place, and a `PositionedToken` carries only a
 /// char offset, which it could only turn back into a token by searching. A diagnostic
-/// raised where the input offers no token to blame carries `SyntaxToken.nowhere`.
+/// raised where the input offers no token carries `SyntaxToken.nowhere`.
 and Diagnostic =
     {
         Code: DiagnosticCode
@@ -494,7 +494,7 @@ module SyntaxToken =
             Index = TokenIndex.Virtual
         }
 
-    /// The token a diagnostic blames when the input offers none: the reader is past the
+    /// The token a diagnostic is reported at when the input offers none: the reader is past the
     /// end, or the next token is offside and so is not part of the construct being
     /// diagnosed. Virtual, so it carries NO index and points nowhere — the alternative is
     /// to invent an offset and point the diagnostic at whatever happens to sit there.

@@ -68,8 +68,9 @@ module Containment =
         member this.TypeContainerOf(c: DeclContainment<SyntaxToken>) : TypeContainer =
             SymbolKeyOps.typeContainerOf (this.ContainerChainOf c)
 
-        /// Enter a module containment: the chain a by-name read from inside speaks from, set and
-        /// returned. Every scope on the way in is noted under the SOURCE path an `open` writes it as.
+        /// Enter a module containment: sets and returns the chain a by-name read from inside
+        /// resolves against. Every enclosing scope is noted under the SOURCE path an `open`
+        /// writes it as.
         member this.EnterContainment(c: DeclContainment<SyntaxToken>) : ModuleContainer =
             let scopes = this.EnclosingContainersOf c
 
@@ -80,7 +81,7 @@ module Containment =
             this.Resolution.EnclosingContainer <- ValueSome chain
             chain
 
-        /// Enter a walked module element, advancing both ambient facts a by-name read speaks
+        /// Enter a walked module element, advancing both ambient facts a by-name read resolves
         /// against: the `open`s in scope and the module chain.
         member this.EnterElement(w: WalkedIn<SyntaxToken, 'Elem>) : unit =
             this.Resolution.OpenScope <- w.Scope

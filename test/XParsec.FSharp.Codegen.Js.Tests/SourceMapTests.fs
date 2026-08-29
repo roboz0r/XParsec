@@ -56,7 +56,7 @@ let private decodeMappings (mappings: string) : Segment list =
         | i -> i
 
     // The VLQ numbers of one segment: 5-bit groups little-endian, bit 6 continues, and the
-    // sign rides the least-significant bit of the assembled value.
+    // sign is the least-significant bit of the assembled value.
     let numbers (seg: string) : int list =
         let out = ResizeArray<int>()
         let mutable acc = 0

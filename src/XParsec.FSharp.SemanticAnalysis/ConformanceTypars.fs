@@ -80,7 +80,7 @@ module ConformanceTypars =
     let normAxis (t: FrozenType) : FrozenType = normAxisTo TyparAxis.Method t
 
     /// Land a FREE value/function's single typar axis on `Declaring`, the axis a provider
-    /// scheme speaks, because instantiating one throws on a `Method` typar.
+    /// scheme uses; instantiating one throws on a `Method` typar.
     let toDeclaringAxis (t: FrozenType) : FrozenType = normAxisTo TyparAxis.Declaring t
 
     /// True iff the `.fsi`-declared and `.fs`-inferred schemes are α-equivalent WITH typar

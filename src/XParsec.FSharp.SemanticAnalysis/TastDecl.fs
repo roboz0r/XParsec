@@ -135,8 +135,8 @@ and [<RequireQualifiedAccess>] TTypeKindG<'ty, 'tok, 'id, 'body> =
     /// string literal, never a typed term. Numeric / string / mixed is derived, not stored.
     | Enum of cases: EqArray<TEnumCaseG<'tok>>
     /// `type t = body`, a transparent alias: `body` is the right-hand side over the
-    /// declaration's own typars, and a use of the name expands to it. No runtime type
-    /// answers to the name, so a backend emits nothing for this kind.
+    /// declaration's own typars, and a use of the name expands to it. A backend emits nothing
+    /// for this kind.
     | Abbrev of body: 'ty
 
 /// The payload of `TTypeKindG.Union`.
@@ -341,7 +341,7 @@ and TBaseCtorCallG<'ty, 'id, 'body> =
 
 /// `Signature` is the curried function type. `MethodTypeParams` are the method's own generic
 /// parameters in source order (`["'C"]` for `abstract Map<'C> : 'A -> 'C`): the names as written,
-/// whereas in `Signature` they ride as `TyTypar(Method, i)`, the declaring type's as
+/// whereas in `Signature` they appear as `TyTypar(Method, i)`, the declaring type's as
 /// `TyTypar(Declaring, i)`.
 and TAbstractMethodG<'ty> =
     {
@@ -507,8 +507,8 @@ module BoundVarKey =
     /// `TExpr.Var` identifies its bound variable by that axis.
     let identity (BoundVar k) : 'id = k
 
-    /// Re-file a bound variable into ANOTHER identity space: `f` answers with the identity THIS
-    /// bound variable takes there (interning it into a pool, widening a dense id back to a key).
+    /// Re-file a bound variable into ANOTHER identity space: `f` returns the identity the bound
+    /// variable takes there (interning it into a pool, widening a dense id back to a key).
     let refile (f: BoundVarKeyG<'a> -> 'b) (k: BoundVarKeyG<'a>) : BoundVarKeyG<'b> = BoundVar(f k)
 
     /// A whole bound-variable-keyed table read in the REFERENCE domain: a lookup driven by a

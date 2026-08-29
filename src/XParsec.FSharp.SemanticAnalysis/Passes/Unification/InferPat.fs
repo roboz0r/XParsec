@@ -124,7 +124,7 @@ module internal UnificationInferPat =
             ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, ValueSome unionTy)
             unionTy
         | Pat.Named(longIdent = li; argumentPats = args) ->
-            // No arm above answered for the head: it is neither a union case nor an enum case. The
+            // No arm above matched the head: it is neither a union case nor an enum case. The
             // sub-patterns still infer, so the bound variables the arm body reads have types.
             let written = (ctx.WrittenTypeNameOf li).Written
             ctx.Report(tok, Kind.UndefinedPatternDiscriminator written)

@@ -94,7 +94,7 @@ let tests =
             }
 
             // The contrast: a name NOTHING resolves keeps the undefined-name diagnostic.
-            test "a name no shape answers is still reported as undefined" {
+            test "a name resolving to no shape is still reported as undefined" {
                 let msgs = analyse delegateShape "let f (w: Sprocket) = w" |> messages
 
                 Expect.hasLength msgs 1 (sprintf "exactly one diagnostic, got %A" msgs)

@@ -21,8 +21,8 @@ module SignatureResolutionContext =
             /// The target being compiled, named on an `extern` this target binds no repr for.
             Target: string
             /// Short type name -> the platform repr the paired implementation binds. A
-            /// signature's `extern` declares that the platform supplies the type and never
-            /// how it spells it, so the answer comes from the `.fs`.
+            /// signature's `extern` declares that the platform supplies the type, not how it
+            /// spells it, so the repr is read from the `.fs`.
             Reprs: IReadOnlyDictionary<string, string>
         }
 

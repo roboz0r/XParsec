@@ -54,11 +54,11 @@ module FrozenTypeBridge =
         | FTUnion(key, args) -> TyUnion(key, EqArray.map go args)
         | FTClass(key, args) -> TyClass(key, EqArray.map go args)
         | FTEnum key -> TyEnum key
-        // Realising can collapse the set (a typar disjunct instantiating to another
+        // Instantiation can collapse the set (a typar disjunct becoming another
         // disjunct), so rebuild through `MkUnion`, not a raw `TyOr`.
         | FTOr ds -> SemType.MkUnion(seq { for d in ds.Disjuncts -> go d })
         | FTLiteral v -> TyLiteral v
-        // The type-level computations realise their children but are NOT evaluated.
+        // The type-level computations instantiate their children but are NOT evaluated.
         | FTKeyOf t -> TyKeyOf(go t)
         | FTIndexedAccess(objTy, index) -> TyIndexedAccess(go objTy, go index)
         | FTConditional c ->
@@ -74,7 +74,7 @@ module FrozenTypeBridge =
         | FTLocalTypar(scheme, k) -> localTypar scheme k
         | FTUnknown reason -> TyUnknown reason
 
-    /// The identity realisation: each DECLARED placeholder maps back to its own
+    /// The identity instantiation: each DECLARED placeholder maps back to its own
     /// `TyTypar` marker. `FTLocalTypar` has no marker to map to, so it MINTS a fresh
     /// `TyVar`, memoised per `(scheme, k)` so repeated occurrences share one cell.
     let ofFrozen (store: TypeStore) (ft: FrozenType) : SemType =
@@ -177,8 +177,8 @@ module FrozenTypeBridge =
             failwithf "FrozenTypeBridge.substituteDeclaring: unexpected method typar %d in a type-shape template" j
         | t -> FrozenType.mapChildren (substituteDeclaring declaringArgs) t
 
-    /// The impl in `ifaces` whose identity is `target`, with its args realised at THIS object
-    /// argument: `FTTypar(Declaring,i) := declArgs.[i]`.
+    /// The impl in `ifaces` whose identity is `target`, with its args substituted at THIS
+    /// object argument: `FTTypar(Declaring,i) := declArgs.[i]`.
     let pickInterfaceWitness
         (target: TypeKey)
         (declArgs: FrozenType[])

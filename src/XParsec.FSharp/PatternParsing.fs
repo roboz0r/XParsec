@@ -697,7 +697,7 @@ module Pat =
     // The quotation body is an *expression*; the type checker reinterprets it
     // when binding the active-pattern parameter (spec patterns:60-61). The
     // parser delegates to the existing expression-side seq-block parser and
-    // wraps the result in `Pat.Expr` so it can ride inside a regular
+    // wraps the result in `Pat.Expr` so it can be carried inside a regular
     // `Pat.EnclosedBlock(ParenKind.Quoted | ParenKind.DoubleQuoted, …)`.
     let private pInnerQuotedExpr = refExprSeqBlock.Parser |>> Pat.Expr
 

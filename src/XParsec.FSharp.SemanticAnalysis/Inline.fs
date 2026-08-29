@@ -67,7 +67,7 @@ module Inline =
         | _ -> false
 
     /// `when ^T : struct` as a clause guard: the target's layout, else what the declaration
-    /// asked for. A type neither answers for selects no clause, falling to the base.
+    /// asked for. An unsettled layout selects no clause, falling to the base.
     let private isStructType (ctx: PassContext) (t: SemType) : bool =
         TypeLayout.ofSemType ctx t = TypeLayout.Value
 

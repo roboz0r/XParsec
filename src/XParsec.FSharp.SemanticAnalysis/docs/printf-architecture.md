@@ -44,7 +44,7 @@ extra `int` argument *preceding* the value: `sprintf "%*.*f" 12 1 x` applies wid
 precision, then the value. Lexing (`FormatDim`), the typing seam (`argTypes`), and native
 lowering of **both** the width-star and precision-star forms below are **implemented** (the
 width-carrying `StarWidthHole` generalised to the one dynamic-hole record `DynHole`); the
-tracked residuals (`%0*d`, `%0*.Nf`, flagged star-`%A`, `% A`) still ride the cold path.
+tracked residuals (`%0*d`, `%0*.Nf`, flagged star-`%A`, `% A`) still take the cold path.
 
 Semantics verified against F# (fsi, 2026-07-04):
 - **Arg order** is width, precision, value (`%*.*f` above).
@@ -376,7 +376,7 @@ by-name `TyConst` slot to a real `TyClass`. `ctx.Provider` **is** in scope at
 (`ClrSymbolProviders.buildContract` over the `Vesper.*` manifests) resolves
 `System.IO.TextWriter`, `System.Text.StringBuilder`, `System.IO.StringWriter` all to
 `Class(arity=0)`; the JS stack (`JsNativeSymbols.buildJsNativeContractFor`) returns
-`ValueNone` for all three. **The feasibility crux is answered YES.** What is missing is
+`ValueNone` for all three. **The feasibility crux is settled YES.** What is missing is
 not resolution — it is that `resolveExternalSlots` treats `ValueNone` as *keep the
 placeholder* ("a slot whose name `resolve` can't map keeps its by-name `TyConst` (no
 regression)", `PrintfSpec.fs:322-325`) instead of *this target has no such sink*. That
@@ -415,8 +415,8 @@ eight names it knows have no declaration to key on.**
 (`:256-265`, applied to `printf`/`printfn`/`eprintf`/`eprintfn` at `:292-296`) gives them
 **`State = TextWriter`, `Residue = unit`**. That is not a fork. In F# `printf fmt` **is**
 `fprintf Console.Out fmt`: the state IS a `TextWriter`, which is precisely why `%a`'s
-callback has somewhere to write. `PrintfSpec` has the right answer and the contract has
-the wrong one; the disagreement is invisible today only because the compiler's table
+callback has somewhere to write. `PrintfSpec` has the right types and the contract has
+the wrong ones; the disagreement is invisible today only because the compiler's table
 overrides the contract at every call site.
 
 **So the contract is corrected to `State = TextWriter`, and the family is sourced from
@@ -505,7 +505,7 @@ stamped (`Resolution.ExternalSymbolStamp`, `PassContext.fs:232-249`): the leadin
 types up to `FormatArgIndex`, and the `'State`/`'Residue` args of the format parameter's
 `PrintfFormat`. `PrintfSpec` stays a **provider-free pure SemType module** (the property
 `:320-326` deliberately protects) — the gate still owns `ctx.Provider` and hands in the
-resolution; it just hands in a *resolved* answer rather than a name to look up.
+resolution; it just hands in a *resolved* type rather than a name to look up.
 
 **3. An unresolved sink is a DIAGNOSTIC exactly when `observesSink` holds.** The
 `ValueNone -> keep the by-name TyConst` arm (`PrintfSpec.fs:322-325`, "no regression") is
@@ -554,12 +554,12 @@ flips it off — **with no compiler change**, which is the property the whole de
 buy.
 
 That settles *what* the shim is. Three questions decide whether it is **declarable**, not
-merely writable. Probed 2026-07-14; two of the three answers are blockers.
+merely writable. Probed 2026-07-14; two of the three verdicts are blockers.
 
 **1. What the lowering ACTUALLY CALLS on the sink: `Write(string)`. Nothing else. So the
 shim needs NO overloads, and the mangling dependency EVAPORATES.**
 
-This is the question that sets the scope of the whole piece of work, so it is answered from
+This is the question that sets the scope of the whole piece of work, so it is decided from
 the code, not from the BCL's shape.
 
 *CLR.* The sink is touched in exactly two places. It is passed as a **ctor argument** to the
@@ -576,7 +576,7 @@ match this.Writer with
 
 `Write(string)` and `Append(string)`. **Every hole has already been rendered to characters by
 the handler** (`AppendFormatted` / `AppendBool` / `AppendZeroPaddedFloat` / …) *before* the
-sink is ever touched, and `printfn`'s newline rides as a trailing literal segment inside the
+sink is ever touched, and `printfn`'s newline is a trailing literal segment inside the
 same buffer. `System.IO.TextWriter`'s typed `Write(int)` / `Write(double)` / `WriteLine(…)`
 overloads are **never called by the printf lowering at all**.
 

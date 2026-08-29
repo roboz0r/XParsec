@@ -407,10 +407,11 @@ let tests =
                     "the entry really did fuse call-site material, or this exercises the shareable path again"
             }
 
-            test "a recursion that closes on a MEMBER answers the call without losing its object argument" {
+            test "a recursion that closes on a MEMBER resolves the call without losing its object argument" {
                 // A member's object argument is not an applied argument: `a.[1]` expands
                 // `get_Item`, whose reduction peels `this :: [index]`, and its body reaches the
-                // same member through `bounce`, where that call is answered rather than expanded.
+                // same member through `bounce`, where that call becomes a table edge rather than
+                // an expansion.
                 let {
                         Expanded = expanded
                         Diagnostics = ds

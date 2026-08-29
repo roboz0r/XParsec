@@ -82,7 +82,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                     (fun (ret: ReturnTypeEncoder) ->
                         match retT with
                         | FTUnit -> ret.Void()
-                        // A by-ref return (`Span<T>.get_Item : T&`) rides the return
+                        // A by-ref return (`Span<T>.get_Item : T&`) is carried on the return
                         // encoder's `isByRef` flag; byref is not a standalone
                         // `SignatureTypeEncoder` shape.
                         | FTByref elem -> encodeType (ret.Type(true)) elem
@@ -91,9 +91,9 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                     (fun (pars: ParametersEncoder) ->
                         for p in paramTys do
                             match p with
-                            // A by-ref / `out` param (`Int32.TryParse(string, int&)`) rides the
-                            // parameter encoder's `isByRef` flag; the caller pushes the argument's
-                            // address (`ldloca`).
+                            // A by-ref / `out` param (`Int32.TryParse(string, int&)`) is carried on
+                            // the parameter encoder's `isByRef` flag; the caller pushes the
+                            // argument's address (`ldloca`).
                             | FTByref elem -> encodeType (pars.AddParameter().Type(true)) elem
                             | _ -> encodeType (pars.AddParameter().Type()) p
                     )

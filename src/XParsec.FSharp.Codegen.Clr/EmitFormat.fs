@@ -240,8 +240,8 @@ module EmitFormat =
                 // format string with no printf placeholder.
                 call (HoleCall.Formatted(fmt, Alignment.None))
             | HoleSpecSource.Classified(HoleForm.Callback _) ->
-                // `%a`/`%t` ride a `CallbackHole` segment whose residue string is spliced
-                // directly; a callback spec's `HoleForm` is provenance only.
+                // `%a`/`%t` arrive as a `CallbackHole` segment whose residue string is
+                // spliced directly; a callback spec's `HoleForm` is provenance only.
                 failwith "Emit: callback hole reached the field projection (unreachable)"
             | HoleSpecSource.Classified(HoleForm.PercentA(width, size)) -> percentA width size
             | HoleSpecSource.Classified(HoleForm.Field(fmt, alignment)) -> call (holeCall fmt alignment)

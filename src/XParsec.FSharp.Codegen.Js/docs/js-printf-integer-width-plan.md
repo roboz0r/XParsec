@@ -36,7 +36,7 @@ zero-extended to 64, which prints identical digits in unsigned decimal and in an
 normal form works here, but the emitter has to compose it in JS rather than in one `conv`
 opcode, and the two representations diverge:
 
-- **`bigint` source** — `BigInt.asUintN(64, v).toString(base)` is the whole answer.
+- **`bigint` source** — `BigInt.asUintN(64, v).toString(base)` is the whole conversion.
 - **`number` source** — the own-width unsigned reinterpretation is `v >>> 0` at 32 bits,
   `v & 0xFF` at 8, `v & 0xFFFF` at 16. The mask is a function of the hole's static type, which
   the emitter holds as `hole.Ty`, exactly as the CLR emitter picks its `conv` pair.

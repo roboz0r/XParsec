@@ -57,7 +57,7 @@ Derived principles:
 | `=` / `<>` typing | `op_Equality`/`op_Inequality` desugared from tokens (`Passes/Desugar.fs:36`), typed `t*t->bool` for **numeric primitives only** via `tryPrimitiveTraitCandidate` (`Passes/Unification.fs:651`) + a mono `int->int->bool` in `MockBuiltins` (`ExternalSymbols.fs:190`). | No path types `=` on a user record/DU. Must become polymorphic (§3.1). |
 | `hash` | **Does not exist** as an intrinsic. | New `'T -> int` intrinsic (§3.1). |
 | DU emission | Fully emitted — single class + `_tag` + per-case fields + factories (mono and generic `List\`1`), `Codegen.fs` union path. **No equality logic.** | Add the `IEquatable`/`Equals`/`GetHashCode` triple (§5). DUs are the first implementable slice. |
-| Record emission | Front-end complete (`TyRecord`, `RecordCons`, …) but `TDecl.Type` records are **dropped in codegen** (handoff R6/P3e). | Record equality rides on R6 (record backend emission) landing first. |
+| Record emission | Front-end complete (`TyRecord`, `RecordCons`, …) but `TDecl.Type` records are **dropped in codegen** (handoff R6/P3e). | Record equality is gated on R6 (record backend emission) landing first. |
 | Runtime helpers | None. | None needed (§4). |
 | `EqArray<'T>` | Compiler-internal structural array (`EqArray.fs`) — the proven prototype for `Block<'T>`. | `Block<'T>` is its language-level twin (§4). |
 
@@ -287,8 +287,8 @@ All BCL-only; no slice needs a runtime intrinsic.
 4. **S4 — Generic DUs/records.** Equality member sigs in the declaring typar
    (`!0`), via R2 generic-member machinery. **Generic DUs: DONE (2026-05-25)** —
    the full triple + `IEquatable<List<!0>>`, an ambient `!0` resolver on `encodeType`
-   reusing the existing generic-member machinery. Generic records ride S2 (R6
-   record backend) + the same ambient machinery.
+   reusing the existing generic-member machinery. Generic records are gated on
+   S2 (R6 record backend) + the same ambient machinery.
 5. **S5 — ValueTuple compile-time unroll.** Once tuple emission settles.
 
 `[|…|]` array-literal surface (does a literal mean `T[]` or `Block`?) is a

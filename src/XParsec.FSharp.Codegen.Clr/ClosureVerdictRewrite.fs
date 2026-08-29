@@ -126,7 +126,7 @@ module internal ClosureVerdictRewrite =
                 let replaced = ResizeArray<FrozenType * FrozenType>()
 
                 // A recorded earlier-binding nominal is replaced WHOLESALE and not descended
-                // into, because its own buried `FTFun` already rode in via the recorded NEW nominal.
+                // into; the recorded NEW nominal already carries the replacement for its `FTFun`.
                 let rec deep (t: FrozenType) : FrozenType =
                     match TastLower.tryNominal t with
                     | ValueSome n ->

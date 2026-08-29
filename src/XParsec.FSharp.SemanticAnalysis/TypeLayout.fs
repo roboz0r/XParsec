@@ -7,16 +7,15 @@ type TypeLayout =
     | Value
     /// Through a reference to a cell the target allocates.
     | Reference
-    /// Neither the target nor a declaration said, which is never a refusal: a compile
+    /// Settled by neither the target nor a declaration, which is never a refusal: a compile
     /// composing no platform reaches it at every primitive.
-    | Unanswered
+    | Unsettled
 
-/// What a type's layout turns on, and all it turns on. `SemType` and `FrozenType` are one
-/// type either side of freezing, so each projects onto this and `resolve` reads nothing
-/// else — the two images cannot answer differently.
+/// What a type's layout turns on, and all it turns on. `SemType` and `FrozenType` each
+/// project onto this, so the two images resolve to the same layout.
 [<RequireQualifiedAccess>]
 type LayoutShape =
-    /// An intrinsic: only the target answers, because no declaration stands behind `int`.
+    /// An intrinsic: settled by the target alone, no declaration standing behind `int`.
     | Primitive of key: TypeKey
     /// A record or class, whose `[<Struct>]` the target may erase.
     | Nominal of key: TypeKey
@@ -24,25 +23,23 @@ type LayoutShape =
     | Enum of key: TypeKey
     /// A closure, a union, or an anonymous union erasing to a boxed reference.
     | Reference
-    /// A tuple. Structural, so it carries no key of its own; the target answers what a
-    /// tuple of this many elements BECOMES, and that nominal's layout is the answer.
+    /// A tuple. Structural, so it carries no key of its own; the target supplies the nominal
+    /// a tuple of this arity BECOMES, and that nominal's layout applies.
     | Tuple of arity: int
     /// An unevaluated type-level computation, settled at neither layout until it evaluates.
     | Unevaluated
     /// Not ground, or not key-addressed.
     | Opaque
 
-/// The answers a layout question is resolved against; the front end and a backend fill
+/// The sources a layout question is resolved against; the front end and a backend supply
 /// them differently.
-type LayoutOracle =
-    {
-        /// What the compile has already SETTLED for a key, however that end settles it.
-        Settled: TypeKey -> TypeLayout
-        /// What the type's own declaration ASKED for, reached only when nothing settled it.
-        Declared: TypeKey -> TypeLayout
-        /// The target's facts, for a shape carrying no key of its own.
-        Platform: IPlatformFacts voption
-    }
+type ILayoutOracle =
+    /// What the compile has already SETTLED for a key, however that end settles it.
+    abstract Settled: key: TypeKey -> TypeLayout
+    /// What the type's own declaration ASKED for, reached only when nothing settled it.
+    abstract Declared: key: TypeKey -> TypeLayout
+    /// The target's facts, for a shape carrying no key of its own.
+    abstract Platform: IPlatformFacts voption
 
 [<RequireQualifiedAccess>]
 module TypeLayout =
@@ -53,14 +50,14 @@ module TypeLayout =
         else
             TypeLayout.Reference
 
-    let ofAnswer (answer: bool voption) : TypeLayout =
-        match answer with
-        | ValueSome isValueType -> ofValueness isValueType
-        | ValueNone -> TypeLayout.Unanswered
+    let ofSettled (isValueType: bool voption) : TypeLayout =
+        match isValueType with
+        | ValueSome v -> ofValueness v
+        | ValueNone -> TypeLayout.Unsettled
 
     let private orElse (fallback: unit -> TypeLayout) (first: TypeLayout) : TypeLayout =
         match first with
-        | TypeLayout.Unanswered -> fallback ()
+        | TypeLayout.Unsettled -> fallback ()
         | settled -> settled
 
     /// A literal is laid out as the base primitive it erases to.
@@ -108,7 +105,7 @@ module TypeLayout =
     /// What is settled leads what was asked for: `[<Struct>]` is the request, the target is
     /// what it gets. A tuple resolves through the nominal it becomes, asked for like any
     /// other key.
-    let resolve (oracle: LayoutOracle) (shape: LayoutShape) : TypeLayout =
+    let resolve (oracle: ILayoutOracle) (shape: LayoutShape) : TypeLayout =
         match shape with
         | LayoutShape.Primitive key -> oracle.Settled key
         | LayoutShape.Nominal key -> oracle.Settled key |> orElse (fun () -> oracle.Declared key)
@@ -117,11 +114,12 @@ module TypeLayout =
         | LayoutShape.Tuple arity ->
             match oracle.Platform |> ValueOption.bind (fun p -> p.TupleType arity) with
             | ValueSome key -> oracle.Settled key
-            | ValueNone -> TypeLayout.Unanswered
+            | ValueNone -> TypeLayout.Unsettled
         | LayoutShape.Unevaluated
-        | LayoutShape.Opaque -> TypeLayout.Unanswered
+        | LayoutShape.Opaque -> TypeLayout.Unsettled
 
-    let private platformOf (ctx: PassContext) (key: TypeKey) : TypeLayout = ofAnswer (ctx.Provider.IsValueType key)
+    let private platformOf (ctx: PassContext) (key: TypeKey) : TypeLayout =
+        ofSettled (ctx.Provider.IsValueType key)
 
     /// What a nominal's declaration asked for, from this compilation or from the unit that
     /// published it.
@@ -136,15 +134,15 @@ module TypeLayout =
             ctx.Provider.TryLookupType key
             |> ValueOption.bind ExternalSymbols.declaredValueType
         )
-        |> ofAnswer
+        |> ofSettled
 
     /// Nothing is emitted yet, so the target alone settles a key: every declaration, this
     /// compilation's or a referenced unit's, is still only the request.
-    let private oracleOf (ctx: PassContext) : LayoutOracle =
-        {
-            Settled = platformOf ctx
-            Declared = declaredOf ctx
-            Platform = ctx.Provider.Platform
+    let private oracleOf (ctx: PassContext) : ILayoutOracle =
+        { new ILayoutOracle with
+            member _.Settled key = platformOf ctx key
+            member _.Declared key = declaredOf ctx key
+            member _.Platform = ctx.Provider.Platform
         }
 
     /// The compiling target's layout for an already-projected shape, for a caller that

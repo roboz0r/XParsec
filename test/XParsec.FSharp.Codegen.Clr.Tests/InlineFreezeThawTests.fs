@@ -96,8 +96,8 @@ let private sourceOf (src: string) : LexedFile =
     let lexed, _ = parseFile src
     LexedFile.ofText lexed
 
-/// Realise a wire body against the file it was frozen from: a `Wire.TDecl`'s anchors index
-/// the declaring file's tokens, so without that file the indices mean nothing.
+/// Thaw a wire body against the file it was frozen from: a `Wire.TDecl`'s anchors index
+/// the declaring file's tokens.
 let private thawFrom (store: TypeStore) (src: string) (decl: Wire.TDecl) : TDecl =
     let source = sourceOf src
     InlineThaw.bodyAtPath store (LexedFiles.ofSeq [ source ]) source.Path decl
@@ -164,8 +164,8 @@ let private kindOfUnit (ns: string) (moduleName: string) =
         ]
 
 /// Re-express a published body's decl type as a symbol `Scheme`: a `let inline`'s own typars
-/// ride the METHOD axis, while an `ExternalSymbol.Scheme` bakes a free function's on the
-/// DECLARING axis. Positional, so index order is preserved.
+/// are carried on the METHOD axis, while an `ExternalSymbol.Scheme` bakes a free function's
+/// onto the DECLARING axis. Positional, so index order is preserved.
 let private asSymbolScheme (ft: FrozenType) : FrozenType =
     FrozenTypeBridge.instantiateWith
         (fun i -> TyTypar(TyparAxis.Declaring, i))
@@ -192,7 +192,7 @@ let private publishing (unitASource: string) : IExternalSymbolProvider =
     let unitA = Freeze.run ctx tastA
     let pool = TastPoolBuilder.openOver unitA
 
-    // `declTree` re-mints the body's bound variables into the node space B's expansion speaks;
+    // `declTree` re-mints the body's bound variables into the node space B's expansion consumes;
     // anchoring in A's own file is what makes the indices those bodies carry readable at B.
     let source = sourceOf unitASource
 
@@ -511,7 +511,7 @@ let tests =
                 // File A is a real compilation, sharing B's `NodeKey` space (no file id).
                 let provider = publishing (kindOfUnit "Lib" "Kinds")
 
-                // Only a real expansion can answer these: the clause conditions are resolved
+                // Only a real expansion produces these values: the clause conditions are resolved
                 // against the CALL-SITE operand type, in B, over cells B minted at thaw.
                 Expect.equal
                     (resolvedConst provider "open Lib\nlet r : int = Kinds.kindOf 5\n")
@@ -536,9 +536,9 @@ let tests =
                 // B also keys by, would surface here as a wrong clause or a type error.
                 let provider = publishing (kindOfUnit "AAA" "Kind1")
 
-                // The SAME program with the inline declared IN-file, the reference answer the
+                // The SAME program with the inline declared IN-file: the reference value the
                 // cross-file expansion must reproduce, read the same way, through the edge.
-                let inUnitAnswer =
+                let inUnitResult =
                     resolvedConst
                         (ClrSymbolProviders.buildContract defaultPackages)
                         (String.concat
@@ -554,7 +554,7 @@ let tests =
 
                 Expect.equal
                     (resolvedConst provider "open AAA\nlet r : int = Kind1.kindOf 5.0\n")
-                    inUnitAnswer
+                    inUnitResult
                     "freeze-in-A / expand-in-B ≡ in-file expansion"
             }
         ]

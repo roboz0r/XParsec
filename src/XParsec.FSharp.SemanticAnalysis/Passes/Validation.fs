@@ -60,7 +60,7 @@ module Validation =
 
         let core = unwrap l
         // The assignment TARGET as a whole, where the "not mutable" arms below point,
-        // except the dotted arm, which blames the FIELD segment it is talking about.
+        // except the dotted arm, which reports at the FIELD segment instead.
         let coreTok = CstKeys.diagTokenOfExpr core
 
         let isMultiSegLocalChain =

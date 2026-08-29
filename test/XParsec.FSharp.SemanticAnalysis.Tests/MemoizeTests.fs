@@ -103,7 +103,7 @@ let tests =
                             (SymbolKeyOps.typeSimpleName key)
                             (DisplayName "tag")
                             "the inner symbol's payload survives"
-                    | other -> failtestf "unexpected realised type %A" other
+                    | other -> failtestf "unexpected instantiated type %A" other
                 | ValueNone -> failtest "known should resolve through the cache"
             }
 

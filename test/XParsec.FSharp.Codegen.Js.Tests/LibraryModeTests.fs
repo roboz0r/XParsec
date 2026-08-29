@@ -25,8 +25,8 @@ let tests =
         [
             test "library mode exports a top-level value binding" {
                 Expect.equal
-                    (emitJsLibrary "let answer = 42")
-                    "export const answer = 42;\n"
+                    (emitJsLibrary "let total = 42")
+                    "export const total = 42;\n"
                     "top-level `let` → `export const` (vs script mode's `const`)"
             }
 
@@ -39,8 +39,8 @@ let tests =
 
             test "script mode keeps top-level bindings as plain const" {
                 Expect.equal
-                    (emitJs "let answer = 42")
-                    "const answer = 42;\n"
+                    (emitJs "let total = 42")
+                    "const total = 42;\n"
                     "Kind defaults to Script — no `export` (the runnable-program behaviour)"
             }
 

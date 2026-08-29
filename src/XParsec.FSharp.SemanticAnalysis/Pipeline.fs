@@ -26,7 +26,7 @@ module Pipeline =
         // already expanded, so escape analysis below sees the closures codegen emits.
         let tast0 = Elaborate.run ctx impl
         let regions = Regions.run ctx tast0.Decls tast0.Specializations
-        // Codegen has no `PassContext`, so the closure verdicts ride the TastFile.
+        // Codegen has no `PassContext`, so the closure verdicts are carried on the TastFile.
         let tast0 =
             { tast0 with
                 ClosureReprs = regions.ClosureReprs

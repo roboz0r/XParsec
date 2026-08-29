@@ -103,9 +103,9 @@ module InlineSpecTable =
     // Queries over a FINISHED `TSpecialization[]`: the graph invariants the finish step
     // discharges.
 
-    /// Does the tree hold material FUSED from a call site? The question a SHAREABLE entry must
-    /// answer `false`: fused material is one site's, so a second site reaching the entry that
-    /// holds it would run its own call against the first site's operand.
+    /// Does the tree hold material FUSED from a call site? A SHAREABLE entry requires `false`:
+    /// fused material belongs to one site, so a second site reaching the entry that holds it
+    /// would run its own call against the first site's operand.
     let containsCallerExpr (e: TExpr) : bool =
         let mutable found = false
 
@@ -117,14 +117,14 @@ module InlineSpecTable =
                         | TExpr.CallerExpr _ -> found <- true
                         | _ -> ()
 
-                        // Existence, not enumeration: the descent stops once the answer settles.
+                        // Existence, not enumeration: the descent stops at the first hit.
                         not found
             }
             e
 
         found
 
-    /// Every specialization `e` NAMES, in walk order and with repeats: the graph's EDGE
+    /// Every specialization `e` REFERENCES, in walk order and with repeats: the graph's EDGE
     /// relation, read off a tree rather than stored.
     let edges (e: TExpr) : SpecializationId list =
         e

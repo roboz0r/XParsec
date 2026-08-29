@@ -90,7 +90,7 @@ is the confirmation that the 3-typar signature was worth carrying.)
 ## Future: chained constrained `inline` (F#+ style) and inline-to-erasure CEs
 
 Not yet implemented; a wanted capability. Two related features, and both stress the
-decisions above rather than riding free on them.
+decisions above rather than following from them for free.
 
 **(a) Chained constrained `inline` dispatch — the F#+ witness pattern.** A witness type with
 overloaded static members plus an `inline Invoke` that dispatches via SRTP

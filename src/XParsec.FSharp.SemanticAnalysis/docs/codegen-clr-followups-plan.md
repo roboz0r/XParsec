@@ -86,7 +86,7 @@ Its `try … with _ -> declaringTypars` was meant to catch one unrecoverable-slo
 wrong-but-plausible instantiation rather than failing.
 
 Landed with B2, by deleting the handler rather than narrowing it: the one caller with a
-fallback now takes the `try`-shaped recovery, which answers `ValueNone` for an unrecovered
+fallback now takes the `try`-shaped recovery, which returns `ValueNone` for an unrecovered
 slot, so an exception from anywhere else propagates.
 
 ## A7. An arity over-count wants a regression test, not a comment
@@ -184,12 +184,12 @@ Either delete `AddProgramType` and call `AddClass`, or make the container member
 one that takes no `firstField` and derives it from the row count is the shape its doc
 describes.
 
-## A15. `isValueType` answers `false` for tuples and for enums — **DONE (2026-08-13)**
+## A15. `isValueType` yields `false` for tuples and for enums — **DONE (2026-08-13)**
 
 `EmitPattern.isValueType` classifies through `TypeLayout.shapeOfFrozen`, which is TOTAL over
 `FrozenType`, so `unit` (a `System.ValueTuple` that the scalar-name set omitted), `FTTuple`,
-`FTEnum` and `FTLiteral` each answer for themselves and a new case is a compile error rather
-than a silent `false`. Three sites acted on the wrong answer — `EmitIntrinsic.buildUpcast` (`box` vs
+`FTEnum` and `FTLiteral` each get their own arm and a new case is a compile error rather than a
+silent `false`. Three sites acted on the wrong verdict — `EmitIntrinsic.buildUpcast` (`box` vs
 nothing), `buildDowncast` (`unbox.any` vs `castclass`) and `EmitPattern`'s `:? T as x` — so
 `(t :> obj)` on any of the three pushed an unboxed value where a reference was required:
 invalid IL, caught by nothing at emit. `data/ValueUpcast.fs` + the `Struct` suite pin the
@@ -308,7 +308,7 @@ the one application step the tuple arrived at, and nothing reads either field of
 
 The substitution keys whole nominals, so `s3`'s own `'TFunc` argument and the same `int -> int`
 nested one and two levels down its `'S` source cannot collide. `TastLower.Nominal` is
-`{ Ctor: TyCtor; Args }`, minted only by `tryNominal`, which answers `ValueNone` for any type
+`{ Ctor: TyCtor; Args }`, minted only by `tryNominal`, which returns `ValueNone` for any type
 with no argument vector, `FTFun` included. `nestedSubst` is keyed by one, so a repeated
 `int -> int` is not a key at all and the deleted collision-freedom paragraph is unstatable
 rather than merely unwritten. `ofNominal` is the inverse, `mapFrozenArgs` is the two composed,
@@ -489,18 +489,18 @@ not prepare: neither keys a cache, and folding a digest reads the whole dependen
 the unspellable mismatch; the multi-file driver that would amortise one `prepare` across files
 is not written yet, so no throughput claim is being collected on.
 
-## B20. A CLR-repr classifier, not a `bool` over three answers
+## B20. A CLR-repr classifier, not a `bool` over three outcomes
 
 *Half landed with A15 (2026-08-13): `TypeLayout.shapeOfFrozen` enumerates every `FrozenType`
 case, so the open `_` arm that made A15 silent is gone and a new case is a compile error. What
-remains is the THIRD answer, below.*
+remains is the THIRD outcome, below.*
 
-The predicate still returns `bool`, so "boxable typar" is not one of its answers: `buildUpcast`
-tests `FTTypar` itself, ahead of the call, and `isValueType` answers `false` for a typar it
+The predicate still returns `bool`, so "boxable typar" is not one of its outcomes: `buildUpcast`
+tests `FTTypar` itself, ahead of the call, and `isValueType` yields `false` for a typar it
 must nonetheless box. Two shapes, two readers, one of which has to remember the other.
 
 `clrRepr : FrozenType -> ClrRepr` over `Value | Reference | Boxable of typar` gives
-`buildUpcast` one match, and puts the typar answer where the other two live rather than in the
+`buildUpcast` one match, and puts the typar outcome where the other two live rather than in the
 one caller that happens to need it.
 
 ## B21. A resolved reference set — `ProjectInfo.References` is a `string list` of paths
@@ -519,7 +519,7 @@ was cut to three lines by the sweep; the enumeration now lives only here and at 
 A `ReferenceSet` resolved once at construction — each entry an identity read off its file, plus
 whether the package is required-on-demand or host-fallback — deletes the surviving three-line
 `References` doc, the `ClrEnv` header restating the resolution rule, and the `refRequired` /
-`refOrHost` pair, whose only difference is which of the two answers they give.
+`refOrHost` pair, whose only difference is which of the two verdicts they give.
 
 ## B22. Two CLI-fact glossaries that must agree, with nothing making them
 

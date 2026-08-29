@@ -211,7 +211,7 @@ let tests =
 
             test "plain type defined in .fs but absent from .fsi → no error (HiddenTycon)" {
                 // F# hides an impl type the signature omits (a private impl detail like
-                // Set's AVL-tree nodes); it is not drift, so the check stays silent.
+                // Set's AVL-tree nodes); it is not drift, so the check accepts it.
                 let errors =
                     conform
                         "namespace V\n\ntype foo = extern"
@@ -458,14 +458,14 @@ let analysedConformanceTests =
                     conformAnalysed "namespace V\n\ntype alias = int" "namespace V\n\ntype other = int"
                     |> theOne "finding"
 
-                Expect.stringContains m "V.alias" "names the abbreviation owing a definition"
+                Expect.stringContains m "V.alias" "refers to the abbreviation owing a definition"
                 Expect.stringContains m "not defined in the implementation" "the FS0240 analogue"
             }
 
             test "a matching abbreviation pair conforms" {
                 Expect.isEmpty
                     (conformAnalysed "namespace V\n\ntype alias = int" "namespace V\n\ntype alias = int")
-                    "the implementation's abbreviation answers the one the signature publishes"
+                    "the implementation's abbreviation matches the one the signature publishes"
             }
 
             test "a val with no matching let is missing" {
@@ -473,7 +473,7 @@ let analysedConformanceTests =
                     conformAnalysed "namespace V\n\nval foo: int -> int" "namespace V\n\nlet bar (x: int) = x"
                     |> theOne "finding"
 
-                Expect.stringContains m "V.foo" "names the value owing a definition"
+                Expect.stringContains m "V.foo" "refers to the value owing a definition"
                 Expect.stringContains m "not defined in the implementation" "the value-granularity analogue"
             }
 
@@ -485,7 +485,7 @@ let analysedConformanceTests =
                     "a val paired with its let — plain and operator — conforms"
             }
 
-            test "a [<CompiledName>]'d let answers the val it publishes as" {
+            test "a [<CompiledName>]'d let satisfies the val it publishes as" {
                 // The identity the implementation PUBLISHES is `V.foo`, which is the identity
                 // the signature declares. Comparing the written names would call this drift.
                 Expect.isEmpty
@@ -519,9 +519,9 @@ let analysedConformanceTests =
             }
 
             test "a SHADOWING Import declaration is not the compiler's [<Import>]" {
-                // The CST reader matches the long ident's last segment and calls this an
-                // unanswered import; resolving the attribute reaches the local declaration,
-                // whose identity is not `Vesper.ImportAttribute`, so it says nothing.
+                // The CST reader matches the long ident's last segment and records an
+                // unresolved import; resolving the attribute reaches the local declaration,
+                // whose identity is not `Vesper.ImportAttribute`, so the check accepts it.
                 Expect.isEmpty
                     (analysedErrors
                         "namespace V\n\ntype ImportAttribute(selector: string, path: string) =\n    inherit Attribute()\n\nmodule M =\n\n    [<Import(\"served\", \"./Asset.mjs\")>]\n    let served (x: int) : int = x")
@@ -657,8 +657,8 @@ let jsPackageConformanceTests =
 
             test "js: a contract whose declarations need a real body stays a hard error, not `unsupported`" {
                 // A record needs a real `.fs`: absence is missing work, not a statement that
-                // JS cannot represent it. The asset exports the type's NAME, and an asset
-                // export still answers no companion-less signature.
+                // JS cannot represent it. The asset exports the type's NAME, and the signature
+                // file still owes a companion `.fs`.
                 let refusal =
                     syntheticRefusal
                         [
@@ -819,7 +819,7 @@ let jsPackageConformanceTests =
                 | _ -> failtest "prim-types-array.fsi must pair with prim-types-array.fs"
             }
 
-            test "js: a body that answers no contract raises nothing" {
+            test "js: a body that owes no signature file raises nothing" {
                 // `structural-printer.js.fs` is a standalone `%A` engine whose published
                 // surface IS its contract. It pairs with nothing, and owes nothing: only a
                 // `.fsi` demands a companion.
@@ -833,7 +833,10 @@ let jsPackageConformanceTests =
                             | _ -> ()
                     ]
 
-                Expect.isFalse (List.contains "structural-printer.js.fs" paired) "the engine answers no contract"
+                Expect.isFalse
+                    (List.contains "structural-printer.js.fs" paired)
+                    "the engine pairs with no signature file"
+
                 Expect.isEmpty (ConformancePass.enforce outcome) "Vesper.Printf conforms on js"
             }
 
@@ -1133,7 +1136,7 @@ let manifestUnitsTests =
         [
             for target in [ "clr"; "js" ] do
                 for package, manifestPath in packageManifests target do
-                    test $"{package} ({target}): every body compiles under the contract it answers" {
+                    test $"{package} ({target}): every body compiles under the signature file it pairs with" {
                         let manifest =
                             ReferencedProject.loadManifest manifestPath |> PackageFaults.okOrFail package
 
@@ -1159,7 +1162,7 @@ let manifestUnitsTests =
                     }
 
             // The loop above passes vacuously on a package whose bodies pair with nothing, so
-            // one real corpus pair is named here: `.fsi` first, at the `.fs`'s own position.
+            // one real corpus pair is pinned below: `.fsi` first, at the `.fs`'s own position.
             test "Vesper.Core (clr): prim-types-min is compiled as one two-halved unit" {
                 let paths = unitPaths (unitsOf (manifestOf "clr" "Vesper.Core"))
 
@@ -1168,6 +1171,8 @@ let manifestUnitsTests =
                     ("prim-types-min.fsi", "prim-types-min.clr.fs")
                     "the first body of the package carries its contract"
 
-                Expect.isEmpty (paths |> List.filter (fun (s, _) -> s = "")) "every Vesper.Core body answers a contract"
+                Expect.isEmpty
+                    (paths |> List.filter (fun (s, _) -> s = ""))
+                    "every Vesper.Core body pairs with a signature file"
             }
         ]

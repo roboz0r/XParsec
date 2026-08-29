@@ -90,7 +90,7 @@ Also unexamined: `Subsume.fs:208` lets a CURRIED chain satisfy a flat `Fun`3+` b
 domains. `Curried` and `Flattened` (`Vesper.Core/fun-adapters.fsi:13`, `:21`) exist to convert
 between the two forms at run time, which suggests they are not interchangeable — so whether
 that peel is correct is part of the same question, and an identity rule for `Fun`2` alone may
-be the whole of the safe answer.
+be the whole of the safe fix.
 
 ## Types that would delete a comment
 
@@ -128,8 +128,8 @@ for the other three is unimplemented or handled per-member elsewhere.
 `tryResolveExternalType` resolves `float` / `int` by name for a `float<m>` carrier, because
 The classifying walk recorded that name at its SYNTACTIC arity of 1 and the carrier is wanted at
 arity 0. `TypeRegistration.fs:365-367` already recognises the shape (`isMeasuredCarrier` skips
-the carrier so `float<kg>` does not blame `kg`), so the classifying walk knows it is looking at a
-carrier and could record the arity-0 verdict there instead of skipping the node.
+the carrier so `float<kg>` reports no diagnostic at `kg`), so the classifying walk knows it is
+looking at a carrier and could record the arity-0 verdict there instead of skipping the node.
 
 That is what would leave `ctx.Resolver` read only by NameResolution — the enforcement the
 deleted `ResolverAllowlistTests` was standing in for, since the handle could then be a parameter
@@ -247,7 +247,7 @@ producer the lub cannot yield it either; only the tests construct one directly. 
 ### `Passes/InlineExpansion.fs:398-412` — a re-entry branch that may be unreachable
 
 `outlineNullaryIntrinsic` is reached only through `expandingTemplate` with `Args = []`, and an
-operand-less intrinsic names nothing, so the `Descent.reentered` answer for this path looks
+operand-less intrinsic names nothing, so the `Descent.reentered` result for this path looks
 unreachable. If that holds, the `expandingTemplate` wrapper at `:409` is pure overhead and its
 `ValueSome reentered` branch is dead. Confirm before anyone relies on it.
 

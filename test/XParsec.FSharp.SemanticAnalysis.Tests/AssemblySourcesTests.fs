@@ -7,8 +7,8 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 open XParsec.FSharp.Codegen.Common.Tests
 
 // What the front end is handed: the assembly a run emits into, paired with the units it
-// compiles. The pairing is the point — a manifest's name and target ride with the files that
-// manifest lists, and a synthetic run states both.
+// compiles. The pairing is the point — a manifest's name and target arrive with the files it
+// lists, and a synthetic run states both.
 
 let private impl (id: string) (text: string) : SourceUnit =
     SourceUnit.ofImplementation (SourceFile.ofText id text)

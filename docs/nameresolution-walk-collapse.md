@@ -8,7 +8,7 @@ use-site position, so
 
 > a claim is visible at use `U`  ⟺  `claim.VisibleFrom ≤ U.Offset`.
 
-Because the answer no longer depends on *when* a node is visited, only *where it is*,
+Because visibility no longer depends on *when* a node is visited, only *where it is*,
 `NameResolution.walkElems`' four kind-batched loops (registration → all class bodies → all
 nominal bodies → all module elems) no longer encode any ordering fact. Collapse them to one
 ordered pass. Justify the change as perf; it must not alter any resolution outcome.

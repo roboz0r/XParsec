@@ -47,7 +47,7 @@ Acceptance evidence: `Codegen.Clr.Tests` compiles every `Vesper.*` package throu
 in-assembly route and `PackageConformance` runs the CST rule set over the same corpus, both
 green, so the two rule sets agree on the real contracts. `AnalysedConformance` in
 `SemanticAnalysis.Tests/ConformanceTests.fs` drives each finding through the analysed route,
-including the two cases the CST rules get wrong: a `[<CompiledName>]`'d `let` answering the
+including the two cases the CST rules get wrong: a `[<CompiledName>]`'d `let` matching the
 `val` it publishes as, and a shadowing local `ImportAttribute` that is not the compiler's.
 
 **Stage 1a — the TAST carries type ABBREVIATIONS. LANDED.** `TTypeKindG.Abbrev of body: 'ty`
@@ -85,7 +85,7 @@ declaration is dropped rather than where a reader notices.
 ### Gap 1 — a type abbreviation reaches no frozen declaration. CLOSED by Stage 1a.
 
 `TTypeKindG` had cases for `Record`, `Union`, `Class`, `Interface` and `Enum` and none for an
-abbreviation, and `Elaborate.TypeDecls` answered `None` for a `TypeDefn.Abbrev` whose RHS is not
+abbreviation, and `Elaborate.TypeDecls` returned `None` for a `TypeDefn.Abbrev` whose RHS is not
 `(# … #)`, so `type myalias = int` in a `.fs` produced no `TDecl` at all. Because
 `FrozenSignature.toSurface` publishes what `Decls` holds, an abbreviation declared in an
 unsigned `.fs` was invisible to the next file of the same assembly. Two files,
@@ -108,7 +108,7 @@ because every use site expanded to the body.
 
 ### Gap 2 — a `delegate` declaration claims no identity. Decide before Stage 3.
 
-`SigDecl.claimedKind` answers `ValueNone` for a delegate, so a `.fsi` publishes
+`SigDecl.claimedKind` yields `ValueNone` for a delegate, so a `.fsi` publishes
 `ExternalTypeShape.Unmodelled(Delegate, arity)` in place of a type and the implementation is
 never asked for one. The CST rule set reports `MissingInImpl` for it, off the written name.
 
@@ -144,7 +144,7 @@ pair at all, or whether F# takes the signature's alone. Do not design the check 
 - **`exception` declarations.** `Validation` already reports `NotYetSupported` at the
   declaration, so neither route needs a conformance verdict for one.
 - **Accessibility.** `ConformanceSurface` compares presence without an accessibility threshold,
-  where `FrozenSignature.toSurface` keeps internal-or-better. A `let private` answering a `val`
+  where `FrozenSignature.toSurface` keeps internal-or-better. A `let private` matching a `val`
   is therefore counted as present; F# rejects it, and rejecting it is the accessibility check's
   job, not conformance's.
 
@@ -192,7 +192,7 @@ Stage 1a touched `TastDecl.fs`, `TastConvert.fs`, `FrozenCodecDecls.fs` (kind ta
 `Elaborate/TypeDecls.fs`, `FrozenSignature.fs`, `ConformanceSurface.fs`, `PlatformTypes.fs`,
 `Codegen.Clr/LayoutNodes.fs`, and the `TastShape` renderer. No existing test went red, and the
 `Vesper.*` corpus compiles unchanged through both backends: every abbreviation there is
-`.fsi`-declared, so the new implementation-side declaration answers a shape already published.
+`.fsi`-declared, so the new implementation-side declaration matches a shape already published.
 
 Stage 2 changes what a package check costs and is the stage to land alone. Stage 3 is deletion.
 

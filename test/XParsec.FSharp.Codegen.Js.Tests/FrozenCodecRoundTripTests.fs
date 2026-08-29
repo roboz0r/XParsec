@@ -422,8 +422,8 @@ let tests =
             }
 
             // ONE value per `Kind` case: the reader is a byte match, so only a value that makes
-            // the whole round trip proves it agrees with the writer. Severity and code ride the
-            // kind, so the whole value is compared, not just the tag.
+            // the whole round trip proves it agrees with the writer. Severity and code are
+            // carried on the kind, so the whole value is compared, not just the tag.
             test "every Kind case round-trips" {
                 let verdicts =
                     [

@@ -96,8 +96,8 @@ module PrintfHoleForm =
         | Star of leftJustify: bool
 
     /// A classified format hole. `Field` carries the field alignment (the `%5d` / `%-5d`
-    /// width) alongside the formatting, but the zero-pad forms set it `None`, their width
-    /// riding inside the `FieldFormat`.
+    /// width) alongside the formatting, but the zero-pad forms set it `None` and carry their
+    /// width on the `FieldFormat`.
     [<RequireQualifiedAccess>]
     type HoleForm =
         | PercentA of width: PrintWidth * size: PrintSize
@@ -324,7 +324,7 @@ module PrintfHoleForm =
             match p.Type with
             | FormatType.DecimalInt ->
                 // Integer forced sign has no precision slot, so a star precision (`%+.*d`)
-                // is deferred. `%+05d` zero-pads through the sign, so the width rides inside
+                // is deferred. `%+05d` zero-pads through the sign, so the width is carried on
                 // the `FieldFormat`, leaving `Alignment.None`.
                 if precIsStar then
                     ValueNone

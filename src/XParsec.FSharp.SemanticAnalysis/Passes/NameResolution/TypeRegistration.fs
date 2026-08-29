@@ -166,7 +166,7 @@ module NameResolutionTypeRegistration =
         | ExternalTypeShape.Unmodelled _ -> ValueNone
 
     /// The CS0433 analogue: a `SymbolKey` carries no home assembly, so a declaration whose key a
-    /// REFERENCED assembly already answers for is refused because equal keys would let the unifier
+    /// REFERENCED assembly already publishes is refused because equal keys would let the unifier
     /// unify two different types. A shape homed under `AssemblyName` is this file's own, waived.
     let private diagnoseExternalClaim (ctx: PassContext) (declTok: SyntaxToken) (key: TypeKey) : unit =
         match ctx.Provider.TryLookupType key with
@@ -492,8 +492,8 @@ module NameResolutionTypeRegistration =
             | SigDecl.TypeExtension _ -> ValueNone
 
         /// The gap a claimless declaration publishes in place of a type, so a use site says
-        /// which form is missing rather than "no such type". Answers exactly where
-        /// `claimedKind` does not.
+        /// which form is missing rather than "no such type". `ValueSome` exactly where
+        /// `claimedKind` is `ValueNone`.
         let unmodelledReason (decl: SigDecl) : UnmodelledReason voption =
             match decl with
             | SigDecl.Delegate _ -> ValueSome UnmodelledReason.Delegate
@@ -964,7 +964,7 @@ module NameResolutionTypeRegistration =
         let name = id.Name
         let repr = IntrinsicReprs.ilString ctx.NameOf instrParts
         // Filed on the KEY axis alone, so a consumer holding a resolved intrinsic key
-        // never has to project it back to a name. The `class` tag rides the same entry:
+        // never has to project it back to a name. The `class` tag is stored on the same entry:
         // heritability is a property of this repr.
         ctx.Types.IntrinsicReprKeys.[TypeRegistry.intrinsicKeyOf ctx.Types name] <-
             {

@@ -602,7 +602,7 @@ module internal NominalEmit =
             let paramTys = [ for (_, t) in mem.Params -> t ]
 
             // A generic method needs the `GENERIC` calling-convention header count; its
-            // own typars ride `FTTypar(Method, i)` nodes, encoded `!!i`.
+            // own typars appear as `FTTypar(Method, i)` nodes, encoded `!!i`.
             let signature =
                 try
                     if returnsVoid && isGenericMethod then

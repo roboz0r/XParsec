@@ -7,7 +7,7 @@ open XParsec.FSharp.Codegen.Common
 /// One EMITTING source file of a package build, compiled to its own `.mjs`.
 type JsPackageModule =
     {
-        /// The file this was compiled from (`a/one.fs`), and the file a diagnostic is blamed on.
+        /// The file this was compiled from (`a/one.fs`), and the file a diagnostic is reported at.
         Source: AssemblyFileId
         Path: JsModulePath
         Artifact: JsArtifact
@@ -48,7 +48,7 @@ module JsDriver =
     let contractForSelf (selfPackage: string) (references: string list) : PackageProviders.AnalysedManifest =
         JsNativeSymbols.jsNativeContract (SymbolProviders.selfStack (Some selfPackage) references)
 
-    /// The sources that claim one `.mjs`, blamed individually. A module path is a base name,
+    /// The sources that claim one `.mjs`, reported individually. A module path is a base name,
     /// so `a/one.fs` and `b/one.fs` both claim `one.mjs`; the second write would win silently.
     let private modulePathCollisions
         (packageName: string)
@@ -147,7 +147,7 @@ module JsDriver =
     /// each committed runtime file into its own package's directory.
     ///
     /// KNOWN DEFECT: when a module imports a runtime asset of its OWN package, the contract's
-    /// asset barrel rides along in `RuntimeAssets` and `materialiseAssets` writes it over the
+    /// asset barrel arrives in `RuntimeAssets` and `materialiseAssets` writes it over the
     /// generated barrel written here.
     let materialise (root: string) (package: JsPackage) : unit =
         // Creating the package directory creates the root it sits in.

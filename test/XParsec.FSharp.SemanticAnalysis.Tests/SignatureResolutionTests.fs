@@ -337,7 +337,7 @@ let tests =
             }
 
             test "An enum case with no constant value downgrades the whole enum" {
-                // A partial case table would answer `E.Red` and then deny `E.Green`, so one
+                // A partial case table would resolve `E.Red` and then deny `E.Green`, so one
                 // unreadable case makes the whole body Unmodelled. The reason cites the case,
                 // not the literal form: the declaring package's own compilation reported that.
                 let r =
@@ -417,7 +417,7 @@ let tests =
             test "`extern with` publishes its declared interfaces onto the shape, and its members" {
                 // An untagged `extern … with interface …` resolves as a bodied class would,
                 // then publishes as an `Intrinsic` carrying that class surface: the declared
-                // interface rides the SHAPE, the members ride the member table.
+                // interface is carried on the SHAPE, the members on the member table.
                 let r =
                     resolveFsiWith
                         realProvider.Value
@@ -468,7 +468,7 @@ let tests =
                 | other -> failtestf "expected a Union shape for the GADT-cased union; got %A" other
             }
 
-            test "[<RequireQualifiedAccess>] rides the published case index" {
+            test "[<RequireQualifiedAccess>] is carried on the published case index" {
                 // The flag is what lets a consumer's bare `Red` be rejected while a bare `Blue`
                 // resolves; it reaches them through the declaring module's scope.
                 let r =
@@ -647,7 +647,7 @@ let tests =
 
                 // A `canonsOf` reader turns a hit into an `FTConst`, so an interface entry
                 // would mis-present `System.IDisposable` as a scalar canon. Reconciliation
-                // rides the `IntrinsicInterface` identity above instead.
+                // uses the `IntrinsicInterface` identity above instead.
                 match IntrinsicTypeMap.canonsOf "System.IDisposable" r.Provider.IntrinsicTypeMap with
                 | EqEmpty -> ()
                 | canons -> failtestf "capability interface must NOT enter the intrinsic axis; found %A" canons
@@ -656,7 +656,8 @@ let tests =
             test "CONCRETE member surface on an intrinsic primitive keeps the Intrinsic shape" {
                 // The shape stays `Intrinsic`: a primitive declaring an operator surface (`int`
                 // with `static member (+)`) must keep the `TyConst` identity that intrinsic
-                // recognisers, repr lookup and literal inference key on. Members ride a table.
+                // recognisers, repr lookup and literal inference key on. Members are published
+                // from a separate table.
                 let r =
                     resolveFsiWith
                         realProvider.Value
@@ -675,7 +676,7 @@ let tests =
                     match shape.Class with
                     | ValueSome surface ->
                         Expect.isFalse surface.Heritable "an untagged member surface is not a heritable class"
-                        Expect.isTrue surface.Members.IsEmpty "its members ride the member table, not the shape"
+                        Expect.isTrue surface.Members.IsEmpty "its members are held in the member table, not the shape"
                     | ValueNone -> failtest "an untagged `extern with` carries the interfaces it declared"
                 | other -> failtestf "expected the Intrinsic shape to survive for widget; got %A" other
 
@@ -687,9 +688,9 @@ let tests =
             }
 
             // `T` is declared inside `module M` in `namespace Test.A`, so a consumer's local
-            // containment mints an `InModule` key — and the contract's store must answer THAT
+            // containment mints an `InModule` key — and the contract's store must resolve THAT
             // key, not a separately-spelled string.
-            test "a module-held contract type answers the KEY a module containment mints" {
+            test "a module-held contract type is addressable by the KEY a module containment mints" {
                 let r =
                     resolveFsi "a.fsi" "namespace Test.A\n\nmodule M =\n    type T = { X: int }\n"
 
@@ -708,7 +709,7 @@ let tests =
 
                 match r.Provider.TryLookupType key with
                 | ValueSome(ExternalTypeShape.Record _) -> ()
-                | ValueSome other -> failtestf "the key answered, but with the wrong shape: %A" other
+                | ValueSome other -> failtestf "the key resolved, but to the wrong shape: %A" other
                 | ValueNone -> failtest "the contract store must be addressable by the module-held type's key"
             }
 
@@ -743,7 +744,7 @@ let tests =
 
                 Expect.isTrue
                     (r.Provider.TryLookupType expected |> ValueOption.isSome)
-                    "the store answers under the registered InModule identity"
+                    "the store resolves under the registered InModule identity"
 
                 Expect.isTrue
                     (ExternalSymbols.tryReprType r.Provider "Test.A.M.T" |> ValueOption.isNone)
@@ -788,7 +789,7 @@ let tests =
             test "SRTP member-trait clause is captured as a MemberTrait over the val's typars" {
                 // `when ^T : (static member (+) : ^T * ^T -> ^T)` captures as a `MemberTrait`:
                 // the COMPILED name (`op_Addition`) plus `FTTypar(Declaring, 0)` templates, not
-                // the source spelling. Instantiation realises them and stamps `SrtpBounds`.
+                // the source spelling. Instantiation substitutes them and stamps `SrtpBounds`.
                 let r =
                     resolveFsi
                         "app.fsi"
@@ -817,7 +818,7 @@ let tests =
 
                     Expect.equal ret (FTTypar(TyparAxis.Declaring, 0)) "the trait returns the declaring typar"
 
-                // The realised signature lands in the store's `Srtp` table under the fresh
+                // The instantiated trait lands in the store's `Srtp` table under the fresh
                 // TyVar's representative id.
                 let store = TypeStore()
 
@@ -931,7 +932,7 @@ let tests =
             // A curried declaration compiles to the SAME one two-parameter slot a tupled one
             // does, so the key cannot tell them apart — the published groups are what makes
             // F# demand `x.Add 1 2` where the tupled declaration demands `x.Add(1, 2)`.
-            test "a CURRIED member signature publishes its argument groups and realises curried" {
+            test "a CURRIED member signature publishes its argument groups and instantiates curried" {
                 let curried =
                     resolveFsi
                         "curried.fsi"

@@ -189,7 +189,7 @@ module UnificationEngineCore =
         substituteWith ctx.Store subst ty
 
     /// A project-local class / union / record's OWN instance member, instantiated at the
-    /// object argument's `args`. An inherited member does not answer here.
+    /// object argument's `args`.
     let tryLocalInstanceMember (ctx: PassContext) (objArgTy: SemType) (memberName: string) : SemType voption =
         match resolveStep ctx.Store objArgTy with
         | TyNominal(typeKey, args) ->
@@ -464,7 +464,7 @@ module UnificationEngineCore =
         k1 = k2 || capabilityCanonKey ctx k1 = capabilityCanonKey ctx k2
 
     // Canonical nominal IDENTITY for subtype comparison: the platform-INVARIANT front-end
-    // `SymbolKey` (`Vesper.int`, `Vesper.exn`), answered BY KEY, never by projected name.
+    // `SymbolKey` (`Vesper.int`, `Vesper.exn`), looked up BY KEY, never by projected name.
     let private canonKey (ctx: PassContext) (key: TypeKey) : TypeKey =
         match ctx.IntrinsicCanonCache.TryGetValue key with
         | true, canon -> canon

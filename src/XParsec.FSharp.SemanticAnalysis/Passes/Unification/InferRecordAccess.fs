@@ -435,8 +435,8 @@ module internal UnificationInferRecordAccess =
         | ValueNone -> errorTy ctx node.Tok (noIndexerKind ctx objArgTy AccessorNames.itemGetter)
 
     /// The element type `x.[i]` reads, from ALREADY-INFERRED operands, because an assignment
-    /// LHS infers its own. SILENT on a miss: only a READ reports one, an assignment falls
-    /// through to its setter and blames the accessor a write needs.
+    /// LHS infers its own. SILENT on a miss: only a READ reports one; an assignment falls
+    /// through to its setter, which reports against `set_Item`.
     and tryResolveIndexedGet
         (ctx: PassContext)
         (node: NodeSite)
@@ -477,9 +477,9 @@ module internal UnificationInferRecordAccess =
             match ctx.Provider.TryLookupIndexSignature declKey with
             | [] -> ValueNone
             | entries ->
-                // Realise each entry's key/value template against the object argument's args
+                // Instantiate each entry's key/value template against the object argument's args
                 // (`Dict<number>`'s value `'V` → `number`).
-                let realised =
+                let instantiated =
                     entries
                     |> List.map (fun (kF, vF) ->
                         FrozenTypeBridge.instantiateDeclaring kF clsArgs,
@@ -489,13 +489,13 @@ module internal UnificationInferRecordAccess =
                 // Select the entry whose key type matches the index expression's type. A
                 // single entry is used as-is; an unresolved / non-matching index takes the first.
                 let keyTy, valTy =
-                    match realised with
+                    match instantiated with
                     | [ single ] -> single
                     | _ ->
                         let matched =
                             match resolveStep ctx.Store idxTy with
                             | TyConst(idxKey, _) ->
-                                realised
+                                instantiated
                                 |> List.tryFind (fun (k, _) ->
                                     match resolveStep ctx.Store k with
                                     | TyConst(kKey, _) -> kKey = idxKey
@@ -505,7 +505,7 @@ module internal UnificationInferRecordAccess =
 
                         match matched with
                         | Some e -> e
-                        | None -> List.head realised
+                        | None -> List.head instantiated
 
                 match ctx.CoreAccess.Value.GetIndex with
                 | ValueSome sym ->
@@ -538,10 +538,10 @@ module internal UnificationInferRecordAccess =
             stampInstanceMember ctx node.Key accessor
             ValueSome resultTy
         // A `get_Item` that EXISTS but did not apply is not a missing indexer, so the surfaces
-        // below cannot answer for it and its own verdict is reported instead.
+        // below are skipped and its own verdict is reported instead.
         | InstanceMemberPick.Unresolved kind -> ValueSome(errorTy ctx node.Tok kind)
         // An index signature is not a member, so no `get_Item` lookup can find it and it needs
-        // its own probe. Otherwise each surface answers with its declared `get_Item`: an
+        // its own probe. Otherwise each surface resolves through its declared `get_Item`: an
         // external class's, or an intrinsic's own contract (`arr.[i]`, `s.[i]`).
         | InstanceMemberPick.NotFound ->
             match pickSurface ctx objArgTy tryIndexSignature with
@@ -550,7 +550,7 @@ module internal UnificationInferRecordAccess =
 
     /// `x.[i] <- v`: the write accessor, and the constraint that pins the element type when no
     /// getter typed the LHS. Unlike the read it REPORTS its own miss, citing `set_Item`, so a
-    /// write with neither accessor is not blamed on the getter.
+    /// write with neither accessor is not reported against the getter.
     and resolveIndexedSet
         (ctx: PassContext)
         (node: NodeSite)

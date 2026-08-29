@@ -267,7 +267,7 @@ and private mapTypeInner (ctx: MapCtx) (t: Ts.Type) : Schema.TypeRef =
             // so it goes by printed form. `unknown` is deliberately not remapped.
             | "any" -> Schema.TypeRef.Dynamic
             | _ when t.isUnion () ->
-                // `null`/`undefined` ride in as their own disjuncts, never folded to `unit`.
+                // `null`/`undefined` arrive as their own disjuncts, never folded to `unit`.
                 // Literal disjuncts stay distinct (`"GET" | "POST"` → two `Literal`s), so the
                 // dedup only collapses genuine duplicates.
                 let disjuncts =
@@ -354,7 +354,7 @@ let mapParam (ctx: MapCtx) (p: Ts.Symbol) : Schema.Param =
 /// whether their bounds are extracted.
 [<RequireQualifiedAccess>]
 type SigAxis =
-    /// Own typars ride the METHOD axis, and their authored constraints
+    /// Own typars sit on the METHOD axis, and their authored constraints
     /// (`<Key extends keyof Events>`) are carried onto `TypeParamBounds` unevaluated.
     | MemberMethod
     /// No declaring type, so own typars take the DECLARING index space; no bounds.

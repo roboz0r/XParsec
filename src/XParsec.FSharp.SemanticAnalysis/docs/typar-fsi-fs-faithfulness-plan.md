@@ -20,7 +20,7 @@ Two goals, one mechanism (per-binding `.fsi`↔`.fs` pairing):
   type-parameter order DRIVES the emitted/extracted order, enforced by a conformance
   check, not coincidence.
 
-Realized by (all DONE; anchors for the curious):
+Implemented by (all DONE; anchors for the curious):
 - `Conformance.fs` / `ConformancePass.fs` — CST-level pairing, presence, extern/intrinsic
   pairing, the `extern class` heritable-base species, the module-decl guard. Manifest-
   driven (`checkManifest`), hard-gated via `ConformancePass.enforce` (codes `V240`–`V243`)

@@ -1,8 +1,8 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
 /// The contents of one of THIS file's own modules or namespaces, as seen from a use site:
-/// the local half of the query `IScopeContents` answers for a published surface. Every answer
-/// honours file order, so a declaration below the use site is absent.
+/// the local half of the queries `IScopeContents` provides over a published surface. Every
+/// result honours file order, so a declaration below the use site is absent.
 [<RequireQualifiedAccess>]
 module LocalScope =
 

@@ -83,8 +83,8 @@ module InlineExpansion =
 
         locals
 
-    /// A re-entered frame is answered with an edge into the entry it reserved rather than a
-    /// second expansion, which is how an inline binding that reaches itself leaves a finite table.
+    /// A re-entered frame yields an edge into the entry it reserved rather than a second
+    /// expansion, keeping the table finite for an inline binding that reaches itself.
     let private expandingTemplate (x: Expander) (at: Descent) (call: PendingCall) (fresh: unit -> TExpr) : TExpr =
         match Descent.reentered call.Template at with
         | ValueSome reentered ->
@@ -108,7 +108,7 @@ module InlineExpansion =
 
     /// A METHOD call's applied arguments opened to the parameters the lifted body curried: the
     /// lift wraps one lambda per PARAMETER, so `M(a, b)`'s one tuple and the curried `M a b`'s
-    /// two arguments both arrive as `[a; b]`, with residual arguments riding through unopened.
+    /// two arguments both arrive as `[a; b]`, with residual arguments passed through unopened.
     let private untupleMemberArgs
         (storage: MemberStorage)
         (widths: EqArray<int>)
@@ -269,7 +269,7 @@ module InlineExpansion =
             Survivors = List.ofSeq survivors
         }
 
-    /// Answer ONE call site against ONE template, of this file or served by another; the two
+    /// Expand ONE call site against ONE template, of this file or served by another; the two
     /// differ only in the lookup that found them. Resolution and classification run BEFORE the
     /// frame is pushed.
     and private expandAt (x: Expander) (at: Descent) (template: TemplateBody) (call: PendingCall) : TExpr =
@@ -471,8 +471,8 @@ module InlineExpansion =
     and private walkAt (x: Expander) (at: Descent) (e: TExpr) : TExpr = TastWalk.mapExpr (mapperAt x at) e
 
     /// Expand the module-level inlines in one decl-list (elaborated, `TyVar`-carrying decls paired
-    /// with their freeze envs). A cross-file body rides the resolved provider entry, reached by
-    /// the key the use-site node carries; a provider serving none makes this an identity rebuild.
+    /// with their freeze envs). A cross-file body is carried on the provider entry the use-site
+    /// key resolves to; a provider serving none makes this an identity rebuild.
     let run (ctx: PassContext) (decls: (TDecl * (TyVarId * SemType) list) list) : Expanded =
         // Only the degenerate empty-file case short-circuits: a file with no local inlines still
         // reaches bodies served by the contract stack.

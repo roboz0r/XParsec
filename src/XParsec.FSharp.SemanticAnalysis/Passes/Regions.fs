@@ -115,18 +115,18 @@ module Regions =
         s.Graph.Fresh(s.LetLevel, functionStackTop s, false, false)
 
     /// Does this type represent an allocation we should track? What the target lays out as a
-    /// VALUE does not; a closure, a named composite and anything unanswered do.
+    /// VALUE does not; a closure, a named composite and anything `Unsettled` do.
     let private isAllocation (ctx: PassContext) (t: SemType) : bool =
         match TypeLayout.shapeOf ctx.Store t with
         // Not ground: the pass sees this type again once it grounds, so err toward not stamping.
         | LayoutShape.Opaque -> false
         | shape ->
             // Decided BY KEY, so a user type merely SPELLED `int` reaches no primitive layout.
-            // A target that says nothing never will, so no answer is tracked, not assumed flat.
+            // An `Unsettled` layout is tracked as an allocation rather than assumed flat.
             match TypeLayout.ofShape ctx shape with
             | TypeLayout.Value -> false
             | TypeLayout.Reference
-            | TypeLayout.Unanswered -> true
+            | TypeLayout.Unsettled -> true
 
     let private exprIsAllocation (ctx: PassContext) (e: TExpr) : bool = isAllocation ctx (TastWalk.exprTy e)
 
@@ -207,7 +207,7 @@ module Regions =
             holds s [ yield inferRegion s ctx src; for (_, v) in ov -> inferRegion s ctx v ]
         | TExpr.New(_, _, args, _, _)
         | TExpr.UnionCons(_, args, _, _) -> holds s [ for a in args -> inferRegion s ctx a ]
-        // A field / property read allocates nothing, so it rides the object argument's region.
+        // A field / property read allocates nothing, so it reuses the object argument's region.
         // Walk the object argument so its capture edges still register.
         | TExpr.FieldGet(r, _, _, _) -> inferRegion s ctx r
         | TExpr.PropertyGet(r, _, _, _, _) -> inferRegion s ctx r
@@ -236,7 +236,7 @@ module Regions =
             inferRegion s ctx v |> ignore
             RegionId.Unknown
         // `:>` / `:?>` adjust the static type of the same runtime value, so the result
-        // rides the source's region. `:?` yields a bool, but walking the source
+        // reuses the source's region. `:?` yields a bool, but walking the source
         // registers any inner captures.
         | TExpr.Upcast(src, ty, _) ->
             let r = inferRegion s ctx src
@@ -346,7 +346,7 @@ module Regions =
         // the opaque call it is, coarse in the same direction `App` is.
         | TExpr.InlineCall(args = args) -> joinArms ctx s e [ for a in args -> inferRegion s ctx a ] RegionId.Unknown
         // Purely an anchor-domain marker: it allocates nothing and evaluates to its body,
-        // so it rides the body's region exactly as a `Downcast` rides its source's.
+        // so it reuses the body's region exactly as a `Downcast` reuses its source's.
         | TExpr.CallerExpr(body = body) -> inferRegion s ctx body
 
     /// Process a `TExpr.Lambda` whose closure region is `r` (fresh for an anonymous

@@ -6,12 +6,12 @@ open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis.FrozenCodecPrimitives
 open XParsec.FSharp.SemanticAnalysis.FrozenCodecTypes
 
-/// The declaration shell and the scalar clusters a pool payload rides, the shapes whose
-/// sub-trees are named by pool id instead of being inlined: a `type` declaration's member
+/// The declaration shell and the scalar clusters carried on a pool payload, the shapes whose
+/// sub-trees are identified by pool id instead of being inlined: a `type` declaration's member
 /// bodies, an inline template's decl, a `ValRepr`'s tuple group.
 module FrozenCodecDecls =
 
-    // ── the declaration shell + the scalar clusters riding a pool payload ───
+    // ── the declaration shell + the scalar clusters carried on a pool payload ───
     //
     // Each writer is followed IMMEDIATELY by its reader; nothing else keeps them in step.
 

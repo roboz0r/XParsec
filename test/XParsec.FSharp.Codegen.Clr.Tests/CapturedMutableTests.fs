@@ -339,8 +339,8 @@ let tests =
             }
 
             test "a generic closure also carries the Repr field" {
-                // Capturing a generic typar value rides the `Vesper.Fun<_,_>` channel, so
-                // Axis 2 is `RequiresHeapRepr` and the conjunction is `Heap`, in contrast to
+                // A captured generic typar value is carried on the `Vesper.Fun<_,_>` channel,
+                // so Axis 2 is `RequiresHeapRepr` and the conjunction is `Heap`, unlike
                 // the monomorphic `f` above, which is `Stack`.
                 let src =
                     String.concat "\n" [ "let mkConst x ="; "    let f = fun () -> x"; "    f" ]

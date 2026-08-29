@@ -1121,7 +1121,7 @@ type internal Assembler
                 addNesting node typeHandle
 
             // A string/mixed enum: a `[<Struct>]` value type with a `.ctor` + `.cctor`.
-            // Its `System.ValueType` base rides in `TypeRowExtras`; never byref-like.
+            // Its `System.ValueType` base is stored in `TypeRowExtras`; never byref-like.
             | TypeSlotKind.StructEnum _ -> addNominalRow node structEnumAttrs false
 
             // Each closure implements its `Vesper.Fun\`2<param, result>` interface. Its

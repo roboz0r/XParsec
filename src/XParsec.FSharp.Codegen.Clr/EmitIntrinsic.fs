@@ -21,7 +21,7 @@ module EmitIntrinsic =
         match TastAccessor.exprILIntrinsicOpCode e with
         | "newarr" ->
             // `Array.zeroCreate count` — push the count, then `newarr <elem>` (the
-            // element type rides `typeOperand`).
+            // element type is carried on `typeOperand`).
             for a in args do
                 recur env b a
 
@@ -70,8 +70,8 @@ module EmitIntrinsic =
                 | _ -> failwithf "Emit: address-of (&) requires an addressable mutable local, got %A" var
             | _ -> failwith "Emit: 'ldloca' intrinsic expects exactly one operand"
         | "box" ->
-            // `box value` — push the value, then `box <T>` (the boxed type rides
-            // `typeOperand`).
+            // `box value` — push the value, then `box <T>` (the boxed type is carried
+            // on `typeOperand`).
             for a in args do
                 recur env b a
 

@@ -12,7 +12,7 @@ module PackageProviders =
     /// One analysed manifest set: a single built package, or a `depends-on` closure composed
     /// into one. A backend takes the WHOLE value: a provider from one manifest set beside an
     /// anchor domain from another resolves a served body's position against a file that was
-    /// never retained, and the wrong answer is in range.
+    /// never retained, and the wrong position is still in range.
     [<NoEquality; NoComparison>]
     type AnalysedManifest =
         {
@@ -29,7 +29,7 @@ module PackageProviders =
             /// wins a clash, anchored in the declaring files `Retained` holds.
             InlineBodies: InlineBodies.FileInlineBodies
             /// The declaring files the collected bodies were unpooled from, retained so their
-            /// anchors stay readable. Re-parsing to recover them would give a second answer.
+            /// anchors stay readable. A second parse could disagree with the first.
             Retained: LexedFiles
             /// What resolving found: a manifest listing a file it has not got, a declaration
             /// a contract could not publish.
@@ -60,7 +60,7 @@ module PackageProviders =
 
         /// The manifest, refused if resolving it failed. Ungated, a set that publishes LESS
         /// than its `.fsi` files say surfaces as an unresolved name in the COMPILING file,
-        /// which blames the wrong file for it.
+        /// reported at the wrong file.
         let gate (m: AnalysedManifest) : Result<AnalysedManifest, AssemblyFiles.AnchoredDiagnostic list> =
             match AssemblyFiles.AnchoredDiagnostic.errors m.Diagnostics with
             | [] -> Ok m

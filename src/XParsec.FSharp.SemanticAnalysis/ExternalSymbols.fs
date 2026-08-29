@@ -55,18 +55,18 @@ type ExternalTypeShape =
         | Abbrev(arity = a)
         | Unmodelled(arity = a) -> a
 
-/// The contents of a module or namespace, one segment at a time: what a dotted name's
-/// resolution asks after its first segment has been classified. Every answer is scoped to the
-/// entity asked about, so no bare-name reverse index takes part.
+/// The contents of a module or namespace, one segment at a time: the queries dotted-name
+/// resolution makes after its first segment has been classified. Every query is scoped to a
+/// container.
 type IScopeContents =
     /// The module or namespace the dotted SOURCE path denotes.
     abstract TryContainer: sourcePath: string -> ModuleContainer voption
-    /// The value `name` declared directly in `container`. A value answers under its compiled
-    /// short name and under the short name its source writes, which a `[<CompiledName>]`
-    /// makes differ.
+    /// The value `name` declared directly in `container`, matched under its compiled short
+    /// name and under the short name its source writes, which a `[<CompiledName>]` makes
+    /// differ.
     abstract TryValue: container: ModuleContainer * name: string -> ExternalSymbol voption
     /// Every case named `name` of a union declared directly in `container`, one entry per
-    /// declaring union, each carrying its `[<RequireQualifiedAccess>]` flag. Two answers are
+    /// declaring union, each carrying its `[<RequireQualifiedAccess>]` flag. Two entries are
     /// an ambiguity for the caller to report.
     abstract UnionCasesNamed: container: ModuleContainer * name: string -> EqArray<ExternalUnionCase>
     /// Every type named `name` declared directly in `container`, one per generic arity,
@@ -161,7 +161,7 @@ module ScopeContents =
     /// declares it, and a type name is the first source's non-empty arity set. Union cases
     /// are the UNION across sources: a case name recurs across packages, and the caller
     /// decides between the claims. A package's `.fsi` and `.fs` halves both publish its
-    /// union, and the shared case answers once.
+    /// union, and the shared case appears once.
     let composite (sources: IScopeContents list) : IScopeContents =
         match sources with
         | [] -> empty
@@ -270,7 +270,7 @@ module ScopeContents =
 
         go containers
 
-    /// `inner` with each value answer rewritten. Every other channel passes through.
+    /// `inner` with each value symbol rewritten. Every other channel passes through.
     let mapValues (value: ExternalSymbol -> ExternalSymbol) (inner: IScopeContents) : IScopeContents =
         { new IScopeContents with
             member _.TryContainer path = inner.TryContainer path
@@ -282,9 +282,8 @@ module ScopeContents =
             member _.TypesNamed(c, name) = inner.TypesNamed(c, name)
         }
 
-    /// `inner` with each answer rewritten: `value` over a value, `case` over a union case,
-    /// `shape` over a type shape at the identity it answered under. `TryContainer` passes
-    /// through.
+    /// `inner` with each result rewritten: `value` over a value symbol, `case` over a union
+    /// case, `shape` over a type shape at its resolved key. `TryContainer` passes through.
     let decorate
         (value: ExternalSymbol -> ExternalSymbol)
         (case: ExternalUnionCase -> ExternalUnionCase)
@@ -334,7 +333,7 @@ module ScopeContents =
         }
 
 /// The RESOLVER view of the external-symbol contract: spelling → identity, opens-aware.
-/// Downstream of name resolution, passes speak the key-addressed store view instead.
+/// Downstream of name resolution, passes consume the key-addressed store view instead.
 type IExternalSymbolResolver =
     /// The module structure this source declares, for segment-by-segment resolution. A
     /// published value or type is reached through its declaring container.
@@ -349,8 +348,8 @@ type IExternalSymbolResolver =
     abstract AmbientOpenPrefixes: string list
 
 /// What the COMPILING TARGET lays out and encodes, which no `.fsi` can state: `int` is a
-/// value type on the CLR and nothing is on JS. Answered only by a source that IS the platform
-/// metadata, so the whole interface is what a contract source declines.
+/// value type on the CLR and nothing is on JS. Implemented only by a source that IS the
+/// platform metadata.
 type IPlatformFacts =
     /// Does the target lay this type out as a VALUE? `ValueNone` for a key it does not know.
     abstract IsValueType: key: TypeKey -> bool voption
@@ -455,7 +454,7 @@ type ICodegenSymbols =
     /// layout, else what the declaration asked for. `ValueNone` when neither states one.
     abstract IsValueType: key: TypeKey -> bool voption
     /// The RAW target facts, unmerged with any declaration, so emission classifies a shape
-    /// through the same answers the front end typed it against.
+    /// through the same facts the front end typed it against.
     abstract Platform: IPlatformFacts voption
 
 module ExternalSymbols =
@@ -578,7 +577,7 @@ module ExternalSymbols =
             Comparable = resolveAnchorKey RuntimeNames.comparableKey
         }
 
-    /// Realise a member's `Signature` with SOME method typars PRE-BOUND (`seed`, index →
+    /// Instantiate a member's `Signature` with SOME method typars PRE-BOUND (`seed`, index →
     /// type) instead of fresh; the rest freshen normally. A typar in no bare parameter
     /// position is unsolvable by unification alone.
     let instantiateSignatureWith
@@ -598,13 +597,13 @@ module ExternalSymbols =
         let noLocal = localTyparInTemplate
         instantiateWith decl methodVar noLocal (ExternalSignature.openTemplate m.Signature)
 
-    /// Realise a member's `Signature` at `level`: `FTTypar(Declaring,i) →
+    /// Instantiate a member's `Signature` at `level`: `FTTypar(Declaring,i) →
     /// declaringArgs.[i]`, `FTTypar(Method,j) → fresh TyVar at level` (one per index, shared
     /// across the argument groups and `Return`).
     let instantiateSignature (store: TypeStore) (m: ExternalMember) (declaringArgs: SemType[]) (level: int) : SemType =
         instantiateSignatureWith store [] m declaringArgs level
 
-    /// The OPEN realisation of a member's `Signature`: declaring typars substituted from
+    /// The OPEN instantiation of a member's `Signature`: declaring typars substituted from
     /// `declaringArgs`, the member's own method typars left as `TyTypar(Method,j)` markers.
     /// The applicability-filtering form, in which a generic method's marker stays a wildcard.
     let openSignature (m: ExternalMember) (declaringArgs: SemType[]) : SemType =
@@ -631,7 +630,7 @@ module ExternalSymbols =
         let fts = c.FrozenFieldTypes
         Array.init fts.Length (fun i -> instantiateDeclaring fts.[i] declaringArgs)
 
-    /// Realise a class's `FrozenInterfaces`, or a union's declared `interface <ty>` impls,
+    /// Instantiate a class's `FrozenInterfaces`, or a union's declared `interface <ty>` impls,
     /// at a use site.
     let instantiateInterfacesOf (interfaces: EqArray<FrozenNominal>) (declaringArgs: SemType[]) : SemType[] =
         Array.init interfaces.Length (fun i -> instantiateDeclaring (FrozenNominal.ty interfaces.[i]) declaringArgs)
@@ -647,8 +646,8 @@ module ExternalSymbols =
     let instantiateBaseType (shape: ExternalClassShape) (declaringArgs: SemType[]) : SemType voption =
         instantiateBaseTypeFrozen shape.FrozenBaseType declaringArgs
 
-    /// Realise a value/free-function symbol's `Scheme` at `level`: a fresh `TyVar` per
-    /// declaring typar, the `Constraints` stamped onto them, then the scheme realised
+    /// Instantiate a value/free-function symbol's `Scheme` at `level`: a fresh `TyVar` per
+    /// declaring typar, the `Constraints` stamped onto them, then the scheme instantiated
     /// against that array.
     let instantiateSymbol (store: TypeStore) (sym: ExternalSymbol) (level: int) : SemType =
         let inst ft fresh =

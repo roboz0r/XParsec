@@ -277,7 +277,7 @@ let lambdaParamTests =
             }
 
             test "the member a tuple is CLASSIFIED as is the member it is EMITTED as" {
-                // The layout answer keys off `typeKey`, the `TypeRef` off `memberName`. Drift
+                // The layout verdict keys off `typeKey`, the `TypeRef` off `memberName`. Drift
                 // between them would classify a tuple as something else than it emits.
                 for arity in 2..12 do
                     Expect.equal
@@ -287,8 +287,8 @@ let lambdaParamTests =
             }
 
             test "every classified ValueTuple member resolves, as a value type" {
-                // The layout answer is a metadata lookup, so a member that did not resolve would
-                // hand back `Unanswered` and silently classify a tuple as a reference.
+                // The layout verdict is a metadata lookup, so a member that did not resolve would
+                // yield `Unsettled` and silently classify a tuple as a reference.
                 let facts =
                     match MetadataSymbols.provider.Platform with
                     | ValueSome f -> f

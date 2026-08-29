@@ -231,8 +231,8 @@ module EmitMember =
             let handle0, m = resolveInstanceMember env objArgNominal memberName argTys
 
             // A generic instance method's member-ref already carries the `GENERIC` header (its
-            // `'U` rides `!!i`), so the call must wrap it in a `MethodSpec`. The node carries no
-            // method type args, so recover them from the declared signature.
+            // `'U` is encoded as `!!i`), so the call must wrap it in a `MethodSpec`. The node
+            // carries no method type args, so recover them from the declared signature.
             let handle =
                 if m.MethodTyparCount = 0 then
                     handle0
@@ -307,7 +307,7 @@ module EmitMember =
             recur env b a
 
         // An external member-ref encodes a `unit` return as `void` too, so the declared type
-        // answers for the local and the external handle alike.
+        // determines the call result for the local and the external handle alike.
         let result = CallResult.ofReturnTy ty
         b.Add(ILInstr.Call(handle, args.Length, result.Pushes))
         CallResult.reify env b result

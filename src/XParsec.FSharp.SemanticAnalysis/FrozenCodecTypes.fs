@@ -304,7 +304,7 @@ module FrozenCodecTypes =
             ResultTyparPos = resultTyparPos
         }
 
-    /// A frozen typar bound. Its `target` is a `FrozenType`, so this rides `writeTypeRef`.
+    /// A frozen typar bound. The `target` is written through `writeTypeRef`.
     let writeFrozenConstraint (w: FrozenWriter) (c: FrozenConstraint) =
         match c with
         | FrozenConstraint.Coercion(typarIndex, target) ->

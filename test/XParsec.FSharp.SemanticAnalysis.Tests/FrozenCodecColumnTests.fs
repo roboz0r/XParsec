@@ -9,7 +9,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 // end.
 
 let private source =
-    "let add x y = x + y\nlet twice f x = f (f x)\nlet answer = twice (add 1) 40\n"
+    "let add x y = x + y\nlet twice f x = f (f x)\nlet total = twice (add 1) 40\n"
 
 /// The named column of `source`'s frozen pools, dropped by its last slot and re-flattened.
 type private TruncatedColumn =

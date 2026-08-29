@@ -385,8 +385,8 @@ module C =
                     | Error _ -> ()
             }
 
-            // Whether two spellings are two files is the FILESYSTEM's answer, not the
-            // platform's: Windows can mount a case-sensitive directory.
+            // Whether two spellings are two files is decided by the FILESYSTEM, not the
+            // platform: Windows can mount a case-sensitive directory.
             test "a file is named as the DISK has it, not as the caller spelled it" {
                 let dir =
                     System.IO.Path.Combine(
@@ -960,7 +960,7 @@ module N =
             test "cross-file INTRINSIC: a prior file's primitive resolves in a later file's annotation" {
                 // An intrinsic-repr primitive (`type myint = (# "System.Int32" #)`) is an
                 // abbrev kept OUT of `Decls`, so it resolves cross-file only because freeze
-                // publishes its repr entry as a lookup-answering intrinsic type shape.
+                // publishes its repr entry as a lookup-visible intrinsic type shape.
                 let file1 =
                     "\
 namespace Test.A
@@ -994,7 +994,7 @@ module N =
             test "cross-file INTERFACE MEMBER: a prior file's abstract method resolves for dispatch + conformance" {
                 // file 2 both DISPATCHES on the abstract method and IMPLEMENTS it. Both need
                 // freeze to decurry each abstract method into the interface's projected member
-                // set — one answers the dispatch, the other the conformance check's slot.
+                // set — one resolves the dispatch, the other fills the conformance check's slot.
                 let file1 =
                     "\
 namespace Test.A
@@ -1408,7 +1408,7 @@ module M =
                 | ValueNone -> failtest "twice did not publish"
             }
 
-            test "a `val` the implementation does not answer is a conformance error on the `.fsi`" {
+            test "a `val` the implementation does not satisfy is a conformance error on the `.fsi`" {
                 let file1 =
                     "\
 namespace Test.A
@@ -1449,7 +1449,7 @@ module M =
                 match conformance with
                 | [ a ] ->
                     Expect.equal a.Path.Name "file1.fsi" "anchored to the file that made the claim"
-                    Expect.stringContains a.Diagnostic.Message "absent" "names the unanswered val"
+                    Expect.stringContains a.Diagnostic.Message "absent" "refers to the unsatisfied val"
                 | other -> failtestf "expected one conformance error, got %A" other
             }
 
@@ -1501,7 +1501,7 @@ module M =
 
             test "a `.fsi` the parser had to RECOVER reports against the signature's own text" {
                 // The signature half is as lenient as the implementation half: recovery patches
-                // the tree and its findings ride along, anchored to the `.fsi`, where the gate
+                // the tree and carries its findings, anchored to the `.fsi`, where the gate
                 // then refuses them. Only a signature that yields no tree at all fails the unit.
                 let file1 = "namespace Test.A\n\nmodule M =\n    let f (x: int) : int = x\n"
 

@@ -19,7 +19,7 @@ open UnificationInferDispatch
 module internal UnificationInferCtor =
 
     /// Overload-pick + unify a heritable primitive's CONTRACT `.ctor` set (the
-    /// `IntrinsicClassSurface.Members` riding the provider shape) against `argExpr`. The chosen
+    /// `.ctor`s stored on `IntrinsicClassSurface.Members`) against `argExpr`. The chosen
     /// signature grounds the arguments; the result side stays a free var. Returns that `.ctor`.
     let inferIntrinsicClassCtorCall
         (infer: Infer)

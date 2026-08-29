@@ -119,9 +119,9 @@ let tests =
                 | other -> failtestf "expected `let f a b = a = b` to lower to a two-lambda let, got %A" other
             }
 
-            test "`let eq a b = a = b` over a DU answers STRUCTURALLY (the comparer base over a free method typar)" {
+            test "`let eq a b = a = b` over a DU routes STRUCTURALLY (the comparer base over a free method typar)" {
                 // `eq` is generic, so the base encodes as `EqualityComparer<!!0>` over a
-                // free METHOD typar, which must emit, verify, and answer structurally.
+                // free METHOD typar, which must emit, verify, and compare structurally.
                 // Two distinct-but-equal `Tag`s give 1; a reference `ceq` would give 0.
                 let src =
                     String.concat

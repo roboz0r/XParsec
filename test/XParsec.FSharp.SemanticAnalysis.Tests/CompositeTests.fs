@@ -6,7 +6,7 @@ open XParsec.FSharp.SemanticAnalysis
 // `composite` is first-hit-wins. These pin the priority semantics with trivial
 // in-line providers, independent of any real `.fsi` extraction.
 
-/// A provider that answers exactly `name` on the value, type and member channels,
+/// A provider that publishes exactly `name` on the value, type and member channels,
 /// tagging each payload with `tag` — a `TyConst` on the value channel, the
 /// `Origin.Namespace` on the other two — so the winning source is identifiable.
 let private tagged (name: string) (tag: string) : IExternalSymbolProvider =
@@ -77,7 +77,7 @@ let tests =
                 Expect.equal (valueTag composed "shared") (ValueSome "a") "a (first) wins over b and c"
             }
 
-            test "three-deep: a later source answers when earlier ones miss" {
+            test "three-deep: a later source resolves when earlier ones miss" {
                 // Only `c` knows `late`; the composite must fall through a and b.
                 let a = tagged "early" "a"
                 let b = tagged "early" "b"
@@ -85,7 +85,7 @@ let tests =
 
                 let composed = ExternalSymbolProviders.composite [ a; b; c ]
 
-                Expect.equal (valueTag composed "late") (ValueSome "c") "c answers after a/b miss"
+                Expect.equal (valueTag composed "late") (ValueSome "c") "c resolves after a/b miss"
                 Expect.equal (valueTag composed "early") (ValueSome "a") "a still wins its own name"
             }
 
@@ -140,7 +140,7 @@ let tests =
             test "singleton list delegates to its one source" {
                 let composed = ExternalSymbolProviders.composite [ tagged "only" "a" ]
 
-                Expect.equal (valueTag composed "only") (ValueSome "a") "the one source answers"
+                Expect.equal (valueTag composed "only") (ValueSome "a") "the one source resolves"
                 Expect.equal (valueTag composed "other") ValueNone "and nothing else does"
             }
         ]

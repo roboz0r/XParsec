@@ -478,12 +478,12 @@ let tests =
             // `fprintf`'s leading argument is a `System.IO.TextWriter` and this provider
             // carries no BCL, so a sink annotation is an undefined name. It must NOT become
             // a free TyVar that unifies with the sink as readily as a real writer would.
-            test "an fprintf writer annotated with an undefined type is blamed at the annotation" {
+            test "an fprintf writer annotated with an undefined type is reported at the annotation" {
                 let tast = analyse "let go (w: Foo.Bar.Baz) = fprintf w \"%d\" 42"
 
                 let errors = tast.Diagnostics |> Diagnostic.errors |> List.map (fun d -> d.Message)
 
-                Expect.equal errors [ "The type 'Foo.Bar.Baz' is not defined" ] "one diagnostic, naming the type"
+                Expect.equal errors [ "The type 'Foo.Bar.Baz' is not defined" ] "one diagnostic, citing the type"
             }
 
             test "%a demands a callback printer — a bare value is a type error" {

@@ -1,4 +1,4 @@
-// Instance `let`s on a GENERIC class: the preamble storage rides the type parameter, and
+// Instance `let`s on a GENERIC class: the preamble storage is typed by the type parameter, and
 // a `let` closing over a `'T`-typed ctor param has to keep it at each instantiation. Two
 // instantiations, so a backend that erased the preamble to one shared slot is caught.
 type Cell<'T>(x: 'T, n: int) =

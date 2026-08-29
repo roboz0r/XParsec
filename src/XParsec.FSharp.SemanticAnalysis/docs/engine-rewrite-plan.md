@@ -176,8 +176,8 @@ and Predicate =
   (nominalism, preserve-1). So interface-impl / class-inheritance / union-membership are *arms of
   `CSub`*, not distinct kinds, and the existing `SemanticConstraintKind.Coercion` (`:1139`) is
   `CSub` mis-filed under "constraints" today. **Two lifetimes:** checked read-only at a use site,
-  but a typar *bound* (`when 'T :> exn`) **suspends and generalizes** — it rides the scheme
-  context like a predicate. One relation, decided-at-use *or* quantified-at-binding.
+  but a typar *bound* (`when 'T :> exn`) **suspends and generalizes** — it is carried on the
+  scheme context like a predicate. One relation, decided-at-use *or* quantified-at-binding.
 - **`CPred` is one mechanism (qualified types) with per-constructor entailment.** Capabilities,
   structural traits (SRTP), and nominal traits (SAIM/IWSAM) differ only in how a witness is found:
   derivation rule / structural member-shape match / nominal interface-set lookup. SRTP and SAIM
@@ -191,9 +191,9 @@ and Predicate =
   may be quantified.
 
 A predicate is **solved** (witness on the ground type), **stuck** (the object argument not ground → re-woken
-when it grounds), or **quantified** (var generalizes → predicate rides `TypeScheme.constraints`
-(`:1931`) as `P => τ`). That field is already the qualified-type context — the machinery is
-half-there, smeared across four node slots today.
+when it grounds), or **quantified** (var generalizes → predicate stored on
+`TypeScheme.constraints` (`:1931`) as `P => τ`). That field is already the qualified-type
+context — the machinery is half-there, smeared across four node slots today.
 
 ### Payload family → A side-table → B constraint
 

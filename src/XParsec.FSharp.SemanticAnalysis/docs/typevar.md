@@ -94,8 +94,9 @@ modelled:
   declared defaults; applied at generalisation if nothing else pinned the
   variable.
 
-**IWSAM** (`when 'a :> ISomething<…>`) rides the `Coercion` constraint. It maps
-cleanly to .NET 7+ static-abstract interfaces, and to Rust traits.
+**IWSAM** (`when 'a :> ISomething<…>`) is represented by the `Coercion`
+constraint. It maps cleanly to .NET 7+ static-abstract interfaces, and
+to Rust traits.
 
 ### SRTP resolution and target capabilities
 
@@ -171,7 +172,7 @@ storage layout differs.
   generic loses its constraint. Under-exercised while `MemberTrait` is still
   deferred — revisit when SRTP member resolution lands.
 
-Answered since this doc was written, kept as a record of the reasoning:
+Resolved since this doc was written, kept as a record of the reasoning:
 
 - ~~**MeasureTerm representation.**~~ The flat sorted list won, as predicted:
   `MeasureTerm` is a sealed class over a normalised, name-sorted

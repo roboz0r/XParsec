@@ -198,7 +198,7 @@ let tests =
 
             test "override of a base-declared virtual conforms to the base slot" {
                 // `Equals : B -> bool` is B's own slot; conforming it to `obj -> bool`
-                // instead would blame a correct override.
+                // instead would report a diagnostic against a correct override.
                 let ctx =
                     analyse
                         "type B() =\n    abstract member Equals : B -> bool\ntype D() =\n    inherit B()\n    override this.Equals (that: B) = true"

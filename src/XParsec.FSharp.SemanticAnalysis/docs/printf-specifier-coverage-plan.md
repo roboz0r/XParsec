@@ -20,7 +20,7 @@ native `TExpr.Format` a syntactic literal does).
 surface (`EncodeFSharpFunc`/`FSharpFunc`2`, `encodeFormatParam`, `EPrintfModule`, `FSharp.Core.Unit`,
 the `isCanonicalPrintfn` cluster). One gap the plan hadn't scoped surfaced and was closed: an **E1
 format-literal alias binding** (`let fmt : Format<…> = "%d"`) froze to a `New PrintfFormat` that was
-silently riding `emitPrintfFormatCtor` (an FSharp.Core `PrintfFormat`4` — the Vesper spelling is
+silently routed to `emitPrintfFormatCtor` (an FSharp.Core `PrintfFormat`4` — the Vesper spelling is
 contract-only, no `.fs`). Since every *use* of such an alias const-propagates the literal
 (`PrintfFormatLiterals`) and the self-host contract has *no cold runtime for a format value*
 (`Infer.fs`), the binding is dead: it is now **elided** at freeze (module-level in `Elaborate`,
@@ -58,7 +58,7 @@ gate (a *diagnosed* form pins nothing — `tryInferPrintfApp` names the offendin
   sign, so `%+.Nf` / `% .Nf` no longer round half-away (they route through
   `AppendDynamicPrecisionSignedFloat`, not the section format), and the zero-pad forms
   `%+08.2f` / `% 08.2f` lower through the new `AppendForcedSignZeroPaddedFloat`
-  (format → force sign → `ZeroPadAfterSign`). Only integer `'d'` forced-sign forms still ride a .NET
+  (format → force sign → `ZeroPadAfterSign`). Only integer `'d'` forced-sign forms still use a .NET
   section format (integers carry no rounding).
 
 (`%*%` / `%5%` are *rejected* — an accepted deviation; F# consumes the width and prints a bare `%`.
@@ -104,13 +104,13 @@ Printf.StringFormat(runtimeStr)`). So the *apply signature* is always compile-ti
 **When the runtime runner is built (its own sub-sprint):** model each format as one typed `Apply`
 (parameters = the holes, from the `PrintfFormat` type — never variadic), with the interpreter body a
 `static readonly` parsed-spec + handler loop (`printf-architecture.md`). Feasibility spike FIRST — can
-a synthesised inline template ride `Passes.InlineExpansion` down to straight-line code as tight as
-today's literal path? If not, E1's const-prop generalises and the interpreter is reserved for the
-genuinely-dynamic case.
+a synthesised inline template lower through `Passes.InlineExpansion` down to straight-line code as
+tight as today's literal path? If not, E1's const-prop generalises and the interpreter is reserved
+for the genuinely-dynamic case.
 
 ### 4. Optional cleanups & future increments (not blockers)
 
-- **Forced-sign-float rounding fix — LANDED.** The fixed forced-sign floats no longer ride a
+- **Forced-sign-float rounding fix — LANDED.** The fixed forced-sign floats no longer use a
   half-away .NET *section format*: the static `%+.Nf` / `% .Nf` route through
   `AppendDynamicPrecisionSignedFloat` (a const precision) and `%+08.2f` / `% 08.2f` through the new
   `AppendForcedSignZeroPaddedFloat` — both format a half-to-even `"F<prec>"` body then compose the

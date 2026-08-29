@@ -141,8 +141,8 @@ module JsHome =
             Where = JsHomeWhere.RuntimeAsset
         }
 
-/// WHICH JS class a nominal type is, and how the module being emitted reaches it. Every
-/// answer is an identifier in that module's scope, but they are bought differently, and only
+/// WHICH JS class a nominal type is, and how the module being emitted reaches it. Every case
+/// is an identifier in that module's scope, but they are bought differently, and only
 /// `Imported` costs an import.
 [<RequireQualifiedAccess>]
 type JsClassRef =
@@ -177,7 +177,7 @@ module JsPrototypeChain =
     /// The class an emitted declaration writes in its `extends` clause.
     let extends (chain: JsPrototypeChain) : JsClassRef = List.head chain.Bases
 
-/// What walking a class's `inherit` clause found — the ONE answer both the emit filter and
+/// What walking a class's `inherit` clause found — the ONE verdict both the emit filter and
 /// the `extends` clause read, so they cannot disagree about a base.
 [<RequireQualifiedAccess>]
 type JsBaseVerdict =

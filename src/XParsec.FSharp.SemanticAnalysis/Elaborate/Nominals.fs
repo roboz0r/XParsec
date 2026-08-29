@@ -16,8 +16,8 @@ module internal ElaborateNominals =
         | ValueNone -> TyVar(ctx.NewTypeVar())
 
     /// The enum `TypeKey` a node's type carries, if it is an enum. Both a project-local and
-    /// an external (TS-manifest) `E.C1` type their node `TyEnum key`, so one signal answers
-    /// for both.
+    /// an external (TS-manifest) `E.C1` type their node `TyEnum key`, so a single check covers
+    /// both.
     let enumKeyOfTy (store: TypeStore) (ty: SemType) : TypeKey voption =
         match Unification.zonk store ty with
         | TyEnum key -> ValueSome key

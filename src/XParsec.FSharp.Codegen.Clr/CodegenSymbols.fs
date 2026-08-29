@@ -26,11 +26,11 @@ module CodegenSymbols =
         reconciledLookup symbols.TryLookupType key
 
     /// The settled layout of a REFERENCED type, over either registration convention:
-    /// `Unanswered` for a non-type key, and for a name this compilation emits itself.
+    /// `Unsettled` for a non-type key, and for a name this compilation emits itself.
     let externalLayout (symbols: ICodegenSymbols) (key: TypeKey) : TypeLayout =
-        reconciledLookup symbols.IsValueType key |> TypeLayout.ofAnswer
+        reconciledLookup symbols.IsValueType key |> TypeLayout.ofSettled
 
-    /// `false` is the floor: a `VALUETYPE`/`CLASS` tag is emitted for an unanswered type.
+    /// `false` is the floor: an `Unsettled` layout is tagged `CLASS`.
     let isValueType (symbols: ICodegenSymbols) (key: TypeKey) : bool =
         externalLayout symbols key = TypeLayout.Value
 

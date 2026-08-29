@@ -145,7 +145,7 @@ type NodeKey =
         sprintf "%s@%d:%A" tag this.Offset this.Kind
 
 /// WHERE in the file a name is being looked up FROM. F# declaration scoping is file-ordered, so
-/// a by-NAME registry read is answerable only against a position: a declaration is visible at a
+/// a by-NAME registry read resolves only against a position: a declaration is visible at a
 /// use iff its `VisibleFrom` offset is at or before the use.
 [<Struct>]
 type SourcePos =

@@ -34,7 +34,7 @@ let tests =
                     Expect.equal out "7\ndone" "the operand's effect happens, its value does not survive"
             }
 
-            test "isNull answers `null`, and answers it with `===`" {
+            test "isNull tests against `null`, and tests it with `===`" {
                 let src =
                     lines
                         [
@@ -44,7 +44,7 @@ let tests =
                             "printfn \"%b\" (isNull present)"
                         ]
 
-                // `== null` would answer true for `undefined` as well, which is a separate
+                // `== null` would also be true for `undefined`, which is a separate
                 // type here. The operator is where that choice is visible, so it is read.
                 let js = emitJs src
                 Expect.stringContains js "=== null" (sprintf "strict, not the nullish `==`, got:\n%s" js)

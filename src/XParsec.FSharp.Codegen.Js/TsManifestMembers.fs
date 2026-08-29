@@ -325,7 +325,7 @@ module internal TsManifestMembers =
         }
 
     /// F# has no free-function overloading, so `export function format(x: string); export
-    /// function format(x: number);` cannot ride the name-keyed `funcs` map. Such exports
+    /// function format(x: number);` cannot share the name-keyed `funcs` map. Such exports
     /// become statics of one synthetic type per namespace; `Util.format(x)` erases to `format(x)`.
     let buildOverloadGroupingTypes
         (ctx: TranslateCtx)

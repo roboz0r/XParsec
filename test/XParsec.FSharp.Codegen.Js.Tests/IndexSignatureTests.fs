@@ -9,7 +9,7 @@ open XParsec.FSharp.Codegen.Js.Tests.SchemaDsl
 
 // A TS index signature `{ [k: K]: V }` gives `x.[k]` reads and `x.[k] <- v` writes,
 // lowering to the JS bracket `obj[k]` / `obj[k] = v`; there is no `get_Item` method,
-// bracket IS the accessor. The declared value type rides the read, never `dynamic`.
+// bracket IS the accessor. A read yields the declared value type, never `dynamic`.
 
 /// `ixlib`: index-signature carriers, named (`Dict`, `EnvDict`) and anonymous structural
 /// (`bag`, `cfg`, `lookup`, `lookupOpt`), plus `wantNumber`/`wantString`/`wantStringOpt`

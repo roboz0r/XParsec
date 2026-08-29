@@ -26,7 +26,7 @@ let private programs =
     [
         {
             Name = "curried fns"
-            Source = "let add x y = x + y\nlet twice f x = f (f x)\nlet answer = twice (add 1) 40\n"
+            Source = "let add x y = x + y\nlet twice f x = f (f x)\nlet total = twice (add 1) 40\n"
             Ceiling = 780
         }
         {

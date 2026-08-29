@@ -313,9 +313,9 @@ module PublishedSurface =
         for e in surface.Symbols do
             valuesIn.[struct (e.Key.Decl, e.Key.Name)] <- e.Value
 
-        // A source spelling answers in the container of the binding it names: `Vesper.Set.empty`
-        // reaches the binding compiled as `SetModule.Empty`. A compiled short name already
-        // filed wins.
+        // A source spelling is filed in the container of the binding it resolves to:
+        // `Vesper.Set.empty` reaches the binding compiled as `SetModule.Empty`. A compiled
+        // short name already filed wins.
         for e in surface.SourceSpellings do
             match symbols.TryGetValue e.Value with
             | true, sym -> valuesIn.TryAdd(struct (e.Value.Decl, e.Key.Name), sym) |> ignore
@@ -356,7 +356,7 @@ module PublishedSurface =
             | ValueNone -> ()
 
         // `ShapesByKey` is ordered by ORDINAL metadata name, under which `` P`10 `` precedes
-        // `` P`2 ``; `TypesNamed` answers narrowest arity first.
+        // `` P`2 ``; `TypesNamed` yields narrowest arity first.
         let byArity =
             System.Comparison<struct (TypeKey * ExternalTypeShape)>(fun (struct (a, _)) (struct (b, _)) ->
                 compare a.TyparArity b.TyparArity

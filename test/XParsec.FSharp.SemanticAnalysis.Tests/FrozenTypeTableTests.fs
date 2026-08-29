@@ -194,7 +194,7 @@ let tests =
                 let rowsAfterFirst = builder.Rows.Types.Length
                 let second = samples |> List.map builder.Intern
 
-                Expect.equal second first "re-interning answers with the same ids"
+                Expect.equal second first "re-interning yields the same ids"
                 Expect.equal builder.Rows.Types.Length rowsAfterFirst "re-interning appends no rows"
             }
 

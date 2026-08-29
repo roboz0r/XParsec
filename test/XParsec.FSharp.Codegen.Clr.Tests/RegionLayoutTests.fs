@@ -37,8 +37,8 @@ let tests =
             }
 
             test "a tuple-typed call result does not mint a region" {
-                // The CLR answers `System.ValueTuple`2` for a 2-tuple, and that is a value type,
-                // so `pair 3` is flat. The literal that BUILT it still allocates, inside `pair`.
+                // A 2-tuple lowers to `System.ValueTuple`2`, a value type, so `pair 3` is
+                // flat. The literal that BUILT it still allocates, inside `pair`.
                 let p = probe "let pair x = (x, x)\nlet pt = pair 3"
 
                 Expect.equal (RegionProbe.escapeOf p "pt") None "pt has no escape entry — a CLR tuple is a value"

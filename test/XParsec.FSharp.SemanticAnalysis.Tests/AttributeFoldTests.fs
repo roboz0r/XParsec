@@ -428,7 +428,7 @@ let verdictViewTests =
                 Expect.equal
                     refEq.EqualitySupport
                     EqualityVerdict.Reference
-                    "[<ReferenceEquality>] rides the frozen attribute list into the view"
+                    "[<ReferenceEquality>] reaches the view through the frozen attribute list"
 
                 let mutRecord = pick "type Point = { mutable X: int }" "Point"
 
@@ -452,7 +452,10 @@ let verdictViewTests =
 
                 let rqa = pick "[<RequireQualifiedAccess>]\ntype Shape = Circle of int" "Shape"
 
-                Expect.isTrue rqa.IsRequireQualifiedAccess "[<RequireQualifiedAccess>] rides the frozen attribute list"
+                Expect.isTrue
+                    rqa.IsRequireQualifiedAccess
+                    "[<RequireQualifiedAccess>] is carried on the frozen attribute list"
+
                 Expect.equal rqa.EqualitySupport EqualityVerdict.Structural "a union is structural by default"
 
                 let cmp = pick "[<StructuralComparison>]\ntype Point = { X: int }" "Point"
@@ -460,7 +463,7 @@ let verdictViewTests =
                 Expect.equal
                     cmp.ComparisonSupport
                     ComparisonVerdict.Structural
-                    "[<StructuralComparison>] rides the frozen attribute list into the view"
+                    "[<StructuralComparison>] reaches the view through the frozen attribute list"
             }
         ]
 

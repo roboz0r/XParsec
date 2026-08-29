@@ -124,8 +124,8 @@ type PassContextBindings =
         ModuleMembers: Dictionary<BoundVarKey, ModuleBindingInfo>
         /// Keyed by the binding's pattern `NodeKey`, in SOURCE order, which is the method-typar order.
         DeclaredTypars: SideTable<(string * TyVarId) list>
-        /// Top-level EXPORTED entities only, because a type MEMBER's accessibility rides on the
-        /// member. Un-thresholded: each export filter applies its own.
+        /// Top-level EXPORTED entities only, because a type MEMBER's accessibility is carried on
+        /// the member. Un-thresholded: each export filter applies its own.
         Accessibility: Dictionary<SymbolKey, Accessibility>
         /// The `[<Global>]` bindings: the value IS a target global, so no definition is emitted.
         GlobalValueKeys: HashSet<SymbolKey>
@@ -319,7 +319,7 @@ type PassContext(provider: IExternalSymbolProvider, file: LexedFile, assembly: C
         }
 
     // `IntrinsicReprKeys` holds ONLY this file's own intrinsic bindings
-    // (`type int = (# "System.Int32" #)`); a referenced package's ride the provider.
+    // (`type int = (# "System.Int32" #)`); a referenced package's are read from the provider.
     let types = PassContextTypes.empty ()
 
     let mutable synthBoundVars = 0
@@ -328,7 +328,7 @@ type PassContext(provider: IExternalSymbolProvider, file: LexedFile, assembly: C
     // `Collecting` can divert a scope's output.
     let mutable diagnostics = ResizeArray<XParsec.FSharp.SemanticAnalysis.Diagnostic>()
 
-    /// The STORE view (`SymbolKey → payload`), what a pass speaks once identity is resolved.
+    /// The STORE view (`SymbolKey → payload`), consumed by a pass once identity is resolved.
     /// Narrowed on purpose: a pass holding only this cannot reach a spelling lookup.
     member _.Provider: IExternalSymbolStore = provider
 
@@ -569,11 +569,13 @@ type PassContext(provider: IExternalSymbolProvider, file: LexedFile, assembly: C
     member this.SuppressDynamicEscape(key: NodeKey) =
         this.DynamicEscapes.RemoveAll(fun site -> site.Node.Key = key) |> ignore
 
-    /// Type names this file's SOURCE wrote and nothing defined. The unifier's `TyUnknown` arm
-    /// stays silent for these, because its message blames a missing package, not a spelling mistake.
+    /// Type names this file's SOURCE wrote and nothing defined, already diagnosed at the written
+    /// site. The unifier's `TyUnknown` arm skips them: its message refers to a missing package
+    /// dependency, not a spelling mistake.
     member val UndefinedTypeNames = HashSet<string>() with get
 
-    /// Written type names already blamed, so one two passes both reach is blamed once.
+    /// Sites an undefined type name was already reported at, so a site two passes both reach
+    /// reports once.
     member val private undefinedTypeSites = HashSet<Site>() with get
 
     /// Messages already reported by `ReportOnce`.
@@ -587,8 +589,8 @@ type PassContext(provider: IExternalSymbolProvider, file: LexedFile, assembly: C
     /// its trait calls against the CALL SITE, so expanding here bakes in the generic fallback.
     member val InlineTemplates = Dictionary<NodeKey, TDecl>() with get
 
-    /// Where a by-NAME registry read from `key` speaks from: the node's place in the file, the
-    /// module chain, the `open`s. `UseSite.unbounded` is the whole-file view instead.
+    /// The scope a by-NAME registry read from `key` resolves in: the node's place in the file,
+    /// the module chain, the `open`s. `UseSite.unbounded` is the whole-file view instead.
     member this.UseSiteAt(key: NodeKey) : UseSite =
         {
             Pos = SourcePos.ofNodeKey key
@@ -662,8 +664,8 @@ type PassContext(provider: IExternalSymbolProvider, file: LexedFile, assembly: C
         if this.reportedOnce.Add(Kind.message kind) then
             this.Report(tok, kind)
 
-    /// Blame the written type name at `site`: `name` does not resolve to a type, here or
-    /// outside. `site` is what once-per-name counts over, so a parser-inserted name widens
+    /// Report the written type name at `site`: `name` does not resolve to a type, in this file
+    /// or outside it. `site` is what once-per-name counts over, so a parser-inserted name widens
     /// it to the decl's span.
     member this.UndefinedType(site: Site, name: string) =
         this.UndefinedTypeNames.Add name |> ignore

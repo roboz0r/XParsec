@@ -57,8 +57,8 @@ and ValueTupleRest =
     }
 
 /// Which member of an emitted *generic* union a `MemberRef` identifies. The ref's signature is
-/// written in the union's own generic parameters (`!0`), the instantiation riding the parent
-/// `TypeSpec`: `List<int>` externally, `List<!0>` from inside the type's own factory bodies.
+/// written in the union's own generic parameters (`!0`), the instantiation carried on the
+/// parent `TypeSpec`: `List<int>` externally, `List<!0>` from inside the type's own factory bodies.
 [<RequireQualifiedAccess>]
 type UnionMember =
     | Ctor
@@ -108,7 +108,7 @@ type UserMemberKind =
     | ClassMember of ClassMember
     /// An augmentation member of any emitted generic type: union, record, class and
     /// interface alike. `metaName` is the emitted name, so a property is `get_X`;
-    /// `paramTys` / `retTy` ride the declaring typars (`!0`), a generic method's own `!!i`.
+    /// `paramTys` / `retTy` are written in the declaring typars (`!0`), a generic method's own `!!i`.
     | Member of
         metaName: string *
         isStatic: bool *
@@ -307,7 +307,7 @@ type ICodegenProvider =
     abstract EqualityComparerEquals: elem: FrozenType -> EntityHandle
 
     /// `true` when the member's DECLARED codomain is `unit`, so its call must declare 0
-    /// results. The use-site result type cannot answer this: `M: 'a -> 'a` at `'a = unit`
+    /// results. Read from the declaration, not the use site: `M: 'a -> 'a` at `'a = unit`
     /// still returns `!0`.
     abstract ExternalMemberReturnsVoid: key: SymbolKey -> bool
 
@@ -361,9 +361,9 @@ type ICodegenProvider =
 
     /// How a *referenced-assembly / referenced-package* nominal type is laid out: the metadata
     /// layer's `Type.IsValueType` first, then the `[<Struct>]` the shape's declaration carries.
-    /// `Unanswered` where the referenced set is silent, so a caller holding its own declarations
-    /// can take over. It reads the store the front end typed against, which is what keeps the
-    /// two ends from classifying a type differently.
+    /// `Unsettled` where the referenced set has no fact, so a caller holding its own
+    /// declarations can take over. It reads the store the front end typed against, so both
+    /// ends classify a type identically.
     abstract ExternalLayout: key: TypeKey -> TypeLayout
 
     /// The RAW target facts, unmerged with any declaration.

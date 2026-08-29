@@ -216,7 +216,7 @@ module CstKeys =
         | _ -> firstTokenOfExpr e
 
     /// The lone ident token of a one-segment expression. The parser produces `Ident x` and
-    /// `LongIdent[x]` for the same source, so both answer here; anything longer misses.
+    /// `LongIdent[x]` for the same source, so both forms are accepted; anything longer misses.
     let trySingleIdent (e: Expr<SyntaxToken>) : SyntaxToken voption =
         match e with
         | Expr.Ident t -> ValueSome t

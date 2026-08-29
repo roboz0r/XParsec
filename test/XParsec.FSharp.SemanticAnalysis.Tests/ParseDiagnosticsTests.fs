@@ -121,7 +121,7 @@ let tests =
 
             // The two delimiter codes say different things about the same shape of mistake,
             // and the only observable difference is the primary site.
-            test "an INSERTED close blames the hole it went into" {
+            test "an INSERTED close is reported at the hole it went into" {
                 let d = parsed unclosedParen |> unclosedDelimiter
 
                 match d.Site with
@@ -133,7 +133,7 @@ let tests =
                 | other -> failtestf "expected the '(' token, got %A" other
             }
 
-            test "a WRONG close blames the token itself" {
+            test "a WRONG close is reported at the token itself" {
                 let d = parsed mismatchedClose |> mismatchedDelimiter
 
                 // Nothing was inserted — the offending token was consumed as the close — so

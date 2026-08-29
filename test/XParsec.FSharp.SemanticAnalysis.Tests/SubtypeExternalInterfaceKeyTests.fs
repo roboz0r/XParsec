@@ -78,7 +78,7 @@ let tests =
 
             // The mechanism the test above guards: both keys render to the same metadata
             // name, so a walk that re-cuts the name gets an identity the provider cannot
-            // answer for and the recursion stops one level in.
+            // resolve, and the recursion stops one level in.
             test "re-cutting a module-held interface's compiled name yields an unequal key" {
                 let compiled = SymbolKeyOps.typeMetaName moduleHeldIfaceKey
                 Expect.equal compiled "Tests.Shapes+IShape" "the module segment renders with `+`"

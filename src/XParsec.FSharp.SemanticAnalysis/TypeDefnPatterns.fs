@@ -80,7 +80,7 @@ module TypeDefnPatterns =
         hasAbstract && not hasConcrete
 
     /// A single-ident `Union` or `Record` name with its `with`-block elements: the
-    /// channel an `interface … with` / augmentation member rides.
+    /// channel that carries an `interface … with` / augmentation member.
     let tryNonClassMemberHostDecl (td: TypeDefn<'T>) : struct (TypeName<'T> * TypeDefnElements<'T> voption) voption =
         let extElems (ext: TypeExtensionElements<'T> voption) =
             match ext with

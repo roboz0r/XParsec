@@ -868,7 +868,7 @@ let tests =
                 | ValueNone -> failtest "Choice`2 not registered"
             }
 
-            // fsc answers FS0871 "Constructors cannot be defined for this type" for both, and a
+            // fsc reports FS0871 "Constructors cannot be defined for this type" for both, and a
             // union/record augmentation has no secondary-ctor collection to reach.
             test "a secondary constructor in a union augmentation is rejected" {
                 let lexed, file =

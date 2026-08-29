@@ -67,7 +67,7 @@ module internal UnificationInferControlFlow =
             | _ -> ValueNone
         | _ -> ValueNone
 
-    /// From a realised interface set, the element type of the enumerable capability: the
+    /// From an instantiated interface set, the element type of the enumerable capability: the
     /// single type-arg of the first `seq<'T>` / `IEnumerable<'T>`.
     let private pickEnumerableElem (ctx: PassContext) (interfaces: SemType[]) : SemType option =
         ctx.CapabilityIds.Enumerable

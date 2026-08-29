@@ -71,7 +71,7 @@ let tests =
                 undefinedOn "let f (x: ilsigptr<int>) = x" "ilsigptr"
             }
 
-            // ---- ...and stays silent otherwise ----
+            // ---- ...and a representable program compiles clean ----
 
             test "a JS program mentioning none of these compiles clean" {
                 let errors =

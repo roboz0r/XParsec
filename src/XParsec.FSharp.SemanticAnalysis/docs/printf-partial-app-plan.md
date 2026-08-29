@@ -1,7 +1,7 @@
 # Partial application — a `Fun` value struct over a statically-emitted spec
 
 **Status: substrate LANDED; the printf gate (step 4) and the `n > K` residual
-codegen (step 5) remain.** The `Fun` value-struct substrate that partial-app rides on
+codegen (step 5) remain.** The `Fun` value-struct substrate that partial-app builds on
 (flat interfaces + arity-≤`K` inference + arity-≤`K` closure codegen) is built, tested,
 and committed — proven end-to-end for *any* saturated multi-arg lambda, not yet wired to
 printf. For the landed printf architecture see
@@ -81,7 +81,7 @@ object + closures the rest of `Vesper.Printf` is built to avoid.
 - **Stateless ⇒ `default(S)`, zero heap allocation.** The format is a compile-time
   constant, **baked into the statically-emitted `Invoke` body** — exactly as the happy path
   bakes it into the call site. So `S` carries no per-instance state, and
-  `constrained.callvirt Fun::Invoke` devirtualises (rides the landed `Fun` value-struct work —
+  `constrained.callvirt Fun::Invoke` devirtualises (relies on the landed `Fun` value-struct work —
   see [function-representation-plan](function-representation-plan.md)).
 - **No `PrintfFormat` on this path.** For a literal format there is no `PrintfFormat` value
   and no runtime spec — same as the happy path. `PrintfFormat` survives *only* on the cold

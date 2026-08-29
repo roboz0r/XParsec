@@ -283,7 +283,7 @@ let tests =
                 Expect.equal exitCode 0 "Main returns 0"
                 Expect.equal (output.Replace("\r", "").Trim()) "5" "GetHashCode of int 5 is 5"
 
-                // The BCL comparer rides `System.Private.CoreLib`, not FSharp.Core.
+                // The BCL comparer is declared in `System.Private.CoreLib`, not FSharp.Core.
                 expectNoFSharpCore artifact "BCL member call"
             }
 

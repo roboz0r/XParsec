@@ -5,8 +5,8 @@ open System.Reflection.Metadata.Ecma335
 open XParsec.FSharp.SemanticAnalysis
 
 /// `TypeSpec` + `MemberRef` minting for generic user types emitted into this assembly: unions,
-/// records, classes and closures, whose declaring typars ride `FTTypar(Declaring, i)` nodes and
-/// encode as `!i` against the instantiated parent spec.
+/// records, classes and closures, whose declaring typars arrive as `FTTypar(Declaring, i)` nodes
+/// and encode as `!i` against the instantiated parent spec.
 type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
     let ctx = env.Ctx
     let userTypes = env.UserTypes
@@ -248,7 +248,7 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
         let parent = genericClosureTypeSpec name args
 
         // `parent` was minted under the caller's ambient closure scope; the signature
-        // below speaks THIS closure's typars, so force its scope on: under it
+        // below is encoded against THIS closure's typars, so force its scope on: under it
         // `FTTypar(Declaring, i)` encodes `!i`, `FTTypar(Method, j)` encodes `!(d + j)`.
         let savedMode = env.ClosureTyparScope
         env.ClosureTyparScope <- ValueSome shape.DeclaringTypars

@@ -56,13 +56,13 @@ module AssemblyFiles =
             }
 
     /// The `.fsi` half of an analysed unit. What it PUBLISHES has already been folded into the
-    /// file's `View`; what is left here is everything anchored to the signature's own text.
+    /// file's `View`; the remainder is everything anchored to the signature's own text.
     type FrozenSignatureFile =
         {
             Retained: LexedFile
             /// What RECOVERY reported parsing the signature.
             ParseDiagnostics: Diagnostic list
-            /// Where the implementation failed to answer the signature, and where the
+            /// Where the implementation failed to satisfy the signature, and where the
             /// signature declared something extraction could not publish.
             Diagnostics: Diagnostic list
         }
@@ -72,8 +72,8 @@ module AssemblyFiles =
     type FrozenFile =
         {
             Retained: LexedFile
-            /// What RECOVERY reported while parsing. Analysis runs regardless, so these
-            /// ride alongside the analysis residue rather than short-circuiting the file.
+            /// What RECOVERY reported while parsing. Analysis runs regardless, and these are
+            /// carried alongside the analysis residue.
             ParseDiagnostics: Diagnostic list
             Frozen: FrozenPools
             /// The provider this file WAS analysed against: prior files' views nearest-first

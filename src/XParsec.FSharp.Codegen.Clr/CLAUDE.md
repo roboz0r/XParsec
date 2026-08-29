@@ -2,7 +2,7 @@
 
 ## Assert on the emitted IL
 
-Reflection over a loaded assembly answers what the runtime tolerates, not what was written. The
+Reflection over a loaded assembly reports what the runtime tolerates, not what was written. The
 emitter's real invariants are structural: row order is the table row, and field and method
 handles are prefix-summed predictions. `verifyTypeHandle` checks handles against predictions but
 cannot say the metadata is well-formed.

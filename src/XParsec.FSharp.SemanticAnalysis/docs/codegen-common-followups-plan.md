@@ -104,7 +104,7 @@ total" comment has nothing left to explain.
 
 `Contract.Provider` and `Contract.Origins` are independently readable fields, so a caller can
 still resolve a served body's position against an anchor domain from a different manifest set —
-a wrong answer that is in range. The record only makes the right pairing the easy one, which is
+a wrong position that is in range. The record only makes the right pairing the easy one, which is
 why the 3-line type doc has to warn about it.
 
 Candidate: make the anchor domain reachable only through the served provider, so the

@@ -384,8 +384,8 @@ let interfaceTests =
             }
 
             // An abstract method may carry its OWN generic parameters (`abstract Map<'B> : 'A ->
-            // 'B`). `'B` is not a free typar: it surfaces in `MethodTypeParams` and rides the
-            // signature on the `Method` axis, distinct from the declaring type's `'A`.
+            // 'B`). `'B` is not a free typar: it surfaces in `MethodTypeParams` and appears in
+            // the signature on the `Method` axis, distinct from the declaring type's `'A`.
             test "generic abstract method surfaces its own typars distinct from the declaring type's" {
                 let tast =
                     analyse "namespace Vesper\n\ntype Mapper<'A> =\n    abstract member Map<'B> : arg: 'A -> 'B"
@@ -1018,9 +1018,9 @@ let globalAttributeTests =
             }
 
             test "[<Global>] on a body that is not a bare intrinsic is an error citing the binding" {
-                match errorsOf "module M\n\n[<Global>]\nlet answer = 42\n" with
+                match errorsOf "module M\n\n[<Global>]\nlet total = 42\n" with
                 | [ msg ] ->
-                    Expect.stringContains msg "'answer'" "the diagnostic names the binding"
+                    Expect.stringContains msg "'total'" "the diagnostic refers to the binding"
                     Expect.stringContains msg "[<Global>]" "and the attribute it is about"
                 | other -> failtestf "expected exactly one error, got %A" other
             }
@@ -1028,7 +1028,7 @@ let globalAttributeTests =
             test "a binding restating its own target global without [<Global>] is an error" {
                 match errorsOf "module M\n\nlet undefined = (# \"undefined\" #)\n" with
                 | [ msg ] ->
-                    Expect.stringContains msg "'undefined'" "the diagnostic names the binding"
+                    Expect.stringContains msg "'undefined'" "the diagnostic refers to the binding"
                     Expect.stringContains msg "[<Global>]" "and says how to declare it"
                 | other -> failtestf "expected exactly one error, got %A" other
             }
@@ -1048,13 +1048,18 @@ let globalAttributeTests =
                 Expect.isTrue tast.GlobalValueKeys.IsEmpty "nothing was recorded"
 
                 match tast.Diagnostics |> Diagnostic.errors |> List.map (fun d -> d.Message) with
-                | [ msg ] -> Expect.stringContains msg "this binding has no single name" "the pattern is blamed"
+                | [ msg ] ->
+                    Expect.stringContains
+                        msg
+                        "this binding has no single name"
+                        "the diagnostic is reported at the pattern"
                 | other -> failtestf "expected exactly one error, got %A" other
             }
 
             test "a same-named user type does NOT take [<Global>]'s meaning" {
                 // `Global` here reaches the user's own class — a local claim beats the contract
-                // — so the binding is blamed for restating a global rather than declaring one.
+                // — so the error is reported at the binding, for restating a global rather than
+                // declaring one.
                 let src =
                     String.concat
                         "\n"
@@ -1323,7 +1328,7 @@ let stringEscapeTests =
             }
 
             // An explicitly written unit argument is a VALUE, so it reaches a constructor as one
-            // argument: fsc answers FS0501 ("takes 0 argument(s) but is here given 1") for
+            // argument: fsc reports FS0501 ("takes 0 argument(s) but is here given 1") for
             // `P2 (())` and `P2((()))` against `new()`. `Expr.App` and `HighPrecedenceApp` peel
             // through the same function, so the two call shapes give the same arity.
             test "an explicit unit argument reaches a constructor as one argument, on both call shapes" {

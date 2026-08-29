@@ -4,7 +4,7 @@ open Expecto
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
 // Each specifier lowers to an inline per-hole JS expression, pinned against F#'s `printf`.
-// `%e`/`%E`/`%g`/`%G` ride `toExponential`/`toPrecision`, so those pin JS output, not F# parity.
+// `%e`/`%E`/`%g`/`%G` lower to `toExponential`/`toPrecision`, which pins JS output, not F# parity.
 // Holes sit inside `[...]` because `runJs` trims, which would eat a right-justified field's spaces.
 
 /// `printfn`-per-line program; the expected lines joined by `\n` (output is trimmed).
@@ -46,7 +46,7 @@ let tests =
                     [ "n=7" ]
             }
 
-            // The residue rides a hole in the `+`-concatenation of the surrounding segments.
+            // The residue splices into a hole in the `+`-concatenation of the surrounding segments.
             test "`sprintf \"%a\"` splices inside a multi-segment format" {
                 runsLines
                     "callback-multi"
@@ -212,12 +212,12 @@ let tests =
                 Expect.stringContains
                     (emitJs "printfn \"%+e\" 1234.5")
                     "toExponential(6)"
-                    "forced-sign exponential rides toExponential"
+                    "forced-sign exponential lowers to toExponential"
             }
 
             test "`%014e` zero-pads the `toExponential` result after any sign" {
                 let js = emitJs "printfn \"%014e\" 1234.5"
-                Expect.stringContains js "toExponential(6)" "zero-pad exponential rides toExponential"
+                Expect.stringContains js "toExponential(6)" "zero-pad exponential lowers to toExponential"
                 Expect.stringContains js "padStart(14" "and zero-pads to the field width"
             }
 

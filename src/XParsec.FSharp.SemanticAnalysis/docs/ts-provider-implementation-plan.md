@@ -39,7 +39,7 @@ The code + named tests are the canonical record; do not re-narrate here.
 | W3 per-param optional-fill (trailing optionals → `OptionalDefaults`, omitted slot = `undefined`) + `overloadArgSigs` degrade-and-dedup (ErasedDistinction throw excised) | `TsManifestMembers.trailingOptionalCount`; `TsManifestTranslate.overloadArgSigs`; `OptionalParamTests` |
 | W4 index signatures (`x.[k]` read/write → `GetIndex`/`SetIndex` bracket) + optional graduation (`SymbolFlags.Optional` → `Member.Optional` / `T \| undefined`) + value-level `undefined` (retires the `optionalDefaultNode` unit hack) | `Codegen.Js.GetIndex`/`SetIndex`; `Schema … index` facet; `TypeMap.mapIndexInfo`; `TryLookupIndexSignature`; `inferIndexedLookup` recognizer; `Vesper.undefined`/`Inline.nullaryIntrinsicValueBody`/`BuiltinTypes.tyUndefined`; `IndexSignatureTests`, `indexsig` golden |
 
-**Generic machinery node RIDES (already built, reused verbatim):** the `--package` module-entry
+**Generic machinery node BUILDS ON (already built, reused verbatim):** the `--package` module-entry
 extraction (`extractPackage`); the refs table (identity-only homed `FTClass`, the ECMA-335
 `TypeRef`/`AssemblyRef` analog — never the foreign shape); member-overload expansion (per-`argSig`
 keys, `expandMethod`/`expandCtor`); the burndown-contract pattern + the closed `DiagCode` taxonomy +
@@ -119,7 +119,7 @@ homes by DECLARING module specifier (`MapCtx.ModuleHome` → `classifyHome` cons
 per-symbol resilience wrapper now guards the module path (`ExportMap.mapExportResilient`,
 `SymbolWalkFailed` on throw — `extractModuleExports` was a bare `List.choose (mapExport …)`; now
 resilient for `extractFile`/`extractPackage` too). Node's true globals (`Buffer`, `process`,
-`NodeJS`) still ride the existing globals path (sibling run). Golden: the two-quoted-module
+`NodeJS`) still go through the existing globals path (sibling run). Golden: the two-quoted-module
 `specs/ambient-modules/` fixture asserts both modules enumerate into their own manifest with the
 cross-module ref homed to `node/a`.
 
@@ -195,7 +195,7 @@ end to end and live in the code + `IndexSignatureTests`. Anchors: `Codegen.Js.Ge
 (`ops-platform.js.fs`, the `$0[$1]` bracket template); `Schema.TypeRef.Structural`/`Export.Interface`/
 `Class`'s `index: (TypeRef * TypeRef) list` facet (codec omit-when-empty); `TypeMap.mapIndexInfo` +
 ungated `carriesFaithfullyAsFields`; `IExternalSymbolProvider.TryLookupIndexSignature` (FrozenType
-templates, realised per use site); `inferIndexedLookup`'s index-sig recognizer + Freeze's
+templates, instantiated per use site); `inferIndexedLookup`'s index-sig recognizer + Freeze's
 `GetIndex`/`SetIndex` routing; a fieldless index-only shape (bare `Record<K,V>`) freezes to a nominal so
 its index is reachable (only a truly-empty shape stays `FTUnknown`). Optionality reads from
 `SymbolFlags.Optional` — a named member fills `Member.Optional`, an anonymous structural field carries
@@ -240,7 +240,7 @@ landings show up as the counts fall.
 
 Split out of W4 (2026-07-05): a TS callable object `{ (x: number): string; prop: boolean }` → an
 erasing nominal carrying `Fun<number,string>` in its heritage/interface set (the call signature) plus
-the data props as Property members. The **typing** side rides mostly-existing machinery: `Fun<a,b>` /
+the data props as Property members. The **typing** side uses mostly-existing machinery: `Fun<a,b>` /
 `Fun<a,b,c>` is already the interface function values satisfy, with a value-struct `Invoke` sized by
 arity (`InferApp.fs` `recordFunArityVerdicts` + the `:> Fun<a,b>` bound), and external heritage +
 Fun-coercion landed with G5. The intent: called from Vesper via `.Invoke`, but passable into any
@@ -255,7 +255,7 @@ It is NOT just data-carrying — it has a lowering wrinkle, its OWN mechanism (d
   intrinsic member. The two only resemble each other in emitting a non-dotted shape; the mechanisms
   differ (interface-call lowering vs `(# … #)` body splice) and neither depends on the other.
 - **Fun-coercion for an external nominal** must be verified: lambdas coerce into a `Fun`-bounded slot;
-  an external Fun-implementing nominal passed to an arrow slot needs confirming (it should ride the
+  an external Fun-implementing nominal passed to an arrow slot needs confirming (it should use the
   G5 upcast + the arg-position structural width, but is unexercised).
 - **Overloaded call signatures** compound it — `isFunctionType` already bails on >1 call sig, so a
   callable object with overloaded call sigs needs the multi-signature story first.
@@ -487,7 +487,7 @@ regression guard and the `set_Item` write half as new capability. The Resolution
 is RESOLVED (spike 2026-07-05: routable by keying lookups on `arrayName 1`, no `EngineCore.fs:500`
 relaxation); the one open precondition is capture/lookup key AGREEMENT on `"[]"` vs `"[]``1"` (see W9 §3).
 
-Node-specific shapes need NO special code: `Buffer`/`EventEmitter`/typed arrays ride the generic
+Node-specific shapes need NO special code: `Buffer`/`EventEmitter`/typed arrays use the generic
 refs path (typed arrays are NOT on the intrinsic-overlap skip-list, so they home normally);
 node-style `(err, data) => void` callbacks map to a faithful `Fun`. Their only friction is the
 enclosing overload storm (W2/W3), not the shapes themselves.

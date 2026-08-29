@@ -100,7 +100,7 @@ module ClrHoleFormat =
 
         | FieldFormat.ForcedSign(space, Prec.Star, typeChar, _) ->
             HoleCall.DynamicPrecisionSignedFloat(typeChar, Prec.Star, align, space)
-        // Only the INTEGER `'d'` forms (`%+d` / `% d` / `%+05d`) ride a .NET section format.
+        // Only the INTEGER `'d'` forms (`%+d` / `% d` / `%+05d`) use a .NET section format.
         // Integers carry no rounding, so the section format's half-away midpoint behaviour
         // is moot, where a float form would round differently.
         | FieldFormat.ForcedSign(space, Prec.Const _, 'd', zeroPad) ->

@@ -748,12 +748,12 @@ module Parsing =
         | Ok _ -> fail (Message $"Expected '{expected1}' or '{expected2}' keyword") reader
         | Error e -> Error e
 
-    /// The token to blame for a refusal at the reader's current position. `peeked` is what
+    /// The token a refusal at the reader's current position is reported at. `peeked` is what
     /// `peekNextSyntaxToken` returned, passed in rather than re-peeked so the failure is
     /// not traced twice: on `Ok`, that token; on a failure, the RAW token the reader sits
     /// on, which still points to a real place even though the parser would not accept it
-    /// there; and `nowhere` past the end of input, where there is nothing to blame.
-    let blameToken
+    /// there; and `nowhere` past the end of input, where the input offers no token.
+    let diagnosticToken
         (peeked: Result<SyntaxToken, ParseError<PositionedToken, ParseState>>)
         (reader: Reader<PositionedToken, ParseState, _>)
         : SyntaxToken =
@@ -780,13 +780,13 @@ module Parsing =
         | result ->
             // Real token doesn't match (Ok with different token) or offside failure (Error):
             // optionally emit a diagnostic and produce a virtual substitute without consuming.
-            let diagToken = blameToken result reader
+            let diagToken = diagnosticToken result reader
 
             match mkDiag diagToken with
             | ValueSome code -> reader.State <- ParseState.addDiagnosticAt code diagToken reader.State
             | ValueNone -> ()
 
-            // The substitute stands where the blamed token does; past end of input that is
+            // The substitute stands where `diagToken` does; past end of input that is
             // offset 0, which is what `nowhere` carries.
             let pt = mkVirtualPT t diagToken.StartIndex
 

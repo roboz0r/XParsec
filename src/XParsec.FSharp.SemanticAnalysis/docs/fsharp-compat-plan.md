@@ -1,7 +1,7 @@
 # FSharp.Core compatibility plan — `--fsharp-compat`
 
 How a Vesper-compiled assembly interops with assemblies compiled by `fsc`
-(which speak `Microsoft.FSharp.Core.FSharpFunc\`2`, `FSharpList\`1`, etc.) without
+(which exchange `Microsoft.FSharp.Core.FSharpFunc\`2`, `FSharpList\`1`, etc.) without
 giving up the lightweight, FSharp.Core-free default the self-host ladder is built
 around. This is the deferred `--fsharp-compat` flag, sharpened after R1 landed the
 `Vesper.Fun` representation.

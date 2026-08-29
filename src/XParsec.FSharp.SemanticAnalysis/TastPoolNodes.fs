@@ -158,8 +158,8 @@ module ArgGroups =
         | ValueNone -> [], e
 
 /// The residual, EXPRESSION-FREE shape of a `Format` node's sink. Its own sub-expression
-/// (`ToWriter`'s writer, `ToBuilder`'s builder) rides the child column ahead of the segment
-/// children.
+/// (`ToWriter`'s writer, `ToBuilder`'s builder) is stored in the child column ahead of the
+/// segment children.
 [<RequireQualifiedAccess>]
 type FormatSinkShape =
     | ToStdOut of newline: bool
@@ -168,8 +168,8 @@ type FormatSinkShape =
     | ToBuilder
     | ToString
 
-/// The residual, EXPRESSION-FREE shape of one `Format` segment. Every sub-expression a
-/// segment holds rides the child column in walk order; the presence flags re-nest it.
+/// The residual, EXPRESSION-FREE shape of one `Format` segment. A segment's sub-expressions
+/// are stored in the child column in walk order; the presence flags re-nest them.
 [<RequireQualifiedAccess>]
 type FormatSegShape =
     | Lit of string
@@ -553,7 +553,7 @@ module BoundVarNaming =
         | _ -> BoundVarNaming.Source name
 
 /// The residual payload of a frozen declaration node, one case per `DeclShape`. A decl
-/// has no node-level `ty`/`tok` column, so each case rides whatever type/scalars it needs;
+/// has no node-level `ty`/`tok` column, so each case carries whatever type/scalars it needs;
 /// its child expr/pat roots live in the decl child columns.
 [<RequireQualifiedAccess>]
 type DeclPayload =
@@ -595,7 +595,7 @@ type ExprRow =
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 module ExprRow =
 
-    /// Same answer as `a = b`, but reference-checks `Ty`/`Payload` first: F# record
+    /// Equivalent to `a = b`, but reference-checks `Ty`/`Payload` first: F# record
     /// equality has no physical-identity shortcut, so it walks a whole `FrozenType` an edit
     /// carried across unmoved. Children stay by value, because a substitution mints a fresh array.
     let same (a: ExprRow) (b: ExprRow) : bool =
@@ -616,7 +616,7 @@ type PatRow =
     }
 
 /// One declaration node's slice across the `Decl*` columns, in column order (a decl has no
-/// node-level `ty`/`tok`, so its type rides the payload).
+/// node-level `ty`/`tok`, so its type is carried on the payload).
 type DeclRow =
     {
         ExprChildren: ExprPoolId[]

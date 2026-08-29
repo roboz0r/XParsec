@@ -31,8 +31,8 @@ let tests =
             }
 
             // Over the REAL loaded JS-native contract stack, the array's `get_Item`
-            // resolves under the bare key `[]` and its lifted inline body rides that very
-            // entry, so the store key and the lookup key agree.
+            // resolves under the bare key `[]` and its lifted inline body is stored on the
+            // same entry, so the store key and the lookup key agree.
             test "the array `get_Item` member resolves and carries its inline body under the bare array key" {
                 let provider = jsProvider.Value
 

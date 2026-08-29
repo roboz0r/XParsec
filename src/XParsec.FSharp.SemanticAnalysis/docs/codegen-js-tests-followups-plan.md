@@ -51,7 +51,7 @@ Both claims are gone. Recorded because the fabricated 3-argument form is evidenc
 was written from memory rather than from the code.
 
 **Type candidate:** the prose kept merging "the identity" with "where the type lives". If
-`TypeKey` structurally cannot carry a home and the home only ever rides
+`TypeKey` structurally cannot carry a home and the home is stored only on
 `ExternalTypeShape`, that is already correct-by-construction and no action is needed beyond
 the deletion — worth confirming.
 

@@ -218,7 +218,7 @@ type IShape =
                     Expect.equal
                         (diags |> List.map (fun d -> d.Path.Name))
                         [ "a/one.fs"; "b/one.fs" ]
-                        "each claimant is blamed, so neither is silently the loser"
+                        "the diagnostic is reported at each claimant, so neither is silently the loser"
 
                     for d in diags do
                         Expect.stringContains d.Diagnostic.Message "one.mjs" "quoting the claimed module path"

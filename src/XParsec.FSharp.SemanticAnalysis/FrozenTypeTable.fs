@@ -177,8 +177,8 @@ module FrozenTypeRows =
             FilePaths = ImmutableArray.Empty
         }
 
-/// Rows in mint order, plus the index that answers a repeat with the id its first occurrence
-/// took. `seed` re-admits stored rows with their ids intact, and is CHECKED: a repeated
+/// Rows in mint order, plus the index mapping a repeated row to the id of its first
+/// occurrence. `seed` re-admits stored rows with their ids intact, and is CHECKED: a repeated
 /// stored row would compact, shifting every id after it onto a different, valid type.
 type private RowTable<'row, 'id when 'row: equality and 'id: equality>(ofIndex: int -> 'id, seed: ImmutableArray<'row>)
     =
@@ -352,8 +352,8 @@ type FrozenTypeTableBuilder private (rows: FrozenTypeRows) =
             | FTUnknown reason -> TypeRow.Unknown(unknownReason reason)
         )
 
-    /// Mints rows for whatever of `t` is new. Idempotent: the same type always answers with
-    /// the same id.
+    /// Mints rows for whatever of `t` is new. Idempotent: the same type always yields the
+    /// same id.
     member _.Intern(t: FrozenType) : TypeId = frozenType t
 
     member _.InternSymbol(k: SymbolKey) : SymbolId = symbolKey k

@@ -6,15 +6,16 @@ open XParsec.FSharp.SemanticAnalysis.Passes
 open XParsec.FSharp.SemanticAnalysis.ElaborateNominals
 open XParsec.FSharp.SemanticAnalysis.ElaborateCalls
 
-// Name resolution for the Elaborate pass: the `try*` resolvers that answer what a written
+// Name resolution for the Elaborate pass: the `try*` resolvers that determine what a written
 // name / dotted chain denotes, wrapped as the active patterns each `translateExpr` arm
 // guards on. None depend on the recursive `translateExpr`.
 
 module internal ElaborateResolve =
 
     /// A class name only where there is no local `Binding` entry, so a shadowing local wins.
-    /// Answers for a project-local class, or an external type whose `TypeKey` the `ResolvedType`
-    /// stamp carries. No backend lowers from the returned string; it survives for diagnostics only.
+    /// Resolves a project-local class, or an external type whose `TypeKey` is carried on the
+    /// `ResolvedType` stamp. No backend lowers from the returned string; it survives for
+    /// diagnostics only.
     let rec private tryClassRef (ctx: PassContext) (e: Expr<SyntaxToken>) : string voption =
         let key = CstKeys.ofExpr e
 

@@ -392,7 +392,7 @@ type internal ClrEnv
 
     /// Module-level VALUES homed in this compilation's own assembly, by `ValueKey` → the local
     /// static `FieldDef`. A cross-file read freezes to `External` exactly as a call does, and
-    /// is answered with a `ldsfld` rather than a method ref.
+    /// is emitted as a `ldsfld` rather than a method ref.
     let localModuleValues = Dictionary<SymbolKey, EntityHandle>()
 
     /// Project-local `[<Struct>]` value-type keys, so a user struct emits as

@@ -113,7 +113,7 @@ and TypeKey =
 [<Struct>]
 type BindingRank = { Depth: int; Offset: int }
 
-/// WHERE a by-NAME lookup speaks FROM: the position in the file, the module scope the use
+/// WHERE a by-NAME lookup is resolved FROM: the position in the file, the module scope the use
 /// sits in, and the `open`s that let a sibling's types in.
 [<NoComparison>]
 type UseSite =
@@ -127,7 +127,7 @@ type UseSite =
 
 module UseSite =
 
-    /// A read with no position and no enclosing module to speak from: every declaration is
+    /// A use site with an unbounded position and no enclosing module: every declaration is
     /// in scope.
     let unbounded: UseSite =
         {

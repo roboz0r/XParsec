@@ -118,7 +118,7 @@ let tests =
 
                 Expect.isFalse
                     (src.Contains "import { Option")
-                    "the option type itself rides inline; nothing of the module's own is imported"
+                    "the option type itself is emitted inline; nothing of the module's own is imported"
             }
 
             test "the committed Vesper.Option.mjs matches the generated source (regenerable)" {

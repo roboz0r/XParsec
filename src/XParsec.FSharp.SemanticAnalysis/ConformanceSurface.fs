@@ -10,7 +10,7 @@ open System.Collections.Generic
 module ConformanceSurface =
 
     /// The type identities an implementation DECLARES: its frozen type declarations, plus the
-    /// canonical identities its `(# … #)` bindings claim, which ride the residue instead.
+    /// canonical identities claimed by its `(# … #)` bindings, which are stored on the residue.
     let private declaredTypes (frozen: FrozenPools) : HashSet<TypeKey> =
         let declared = HashSet<TypeKey>(HashIdentity.Structural)
         let pool = TastPoolBuilder.openOver frozen
@@ -51,12 +51,12 @@ module ConformanceSurface =
     /// the same identity?
     let private demandsDeclaration (declaredReprs: HashSet<TypeKey>) (entry: SurfaceEntry<TypeKey, ExternalTypeShape>) =
         match entry.Value with
-        // The `extern` family answers to the repr pairing below instead. A capability on a
+        // The `extern` family is checked by the repr pairing below instead. A capability on a
         // target binding no repr publishes as a plain `Class`, so the key is what identifies it.
         | ExternalTypeShape.Intrinsic _
         | ExternalTypeShape.IntrinsicInterface _ -> false
         // A GAP the signature published in place of a type (a delegate, a type extension): it
-        // claims no identity for an implementation to answer. The first USE of one reports.
+        // claims no identity for an implementation to match. The first USE of one reports.
         | ExternalTypeShape.Unmodelled _ -> false
         | ExternalTypeShape.Abbrev _
         | ExternalTypeShape.Record _

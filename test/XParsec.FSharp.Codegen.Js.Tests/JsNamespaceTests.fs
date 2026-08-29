@@ -10,7 +10,7 @@ open XParsec.FSharp.Codegen.Js.Tests.SchemaDsl
 
 // A GLOBAL ref-pack manifest (`Package = "es2015"`) mounts under its Vesper-facing `Js`
 // namespace and emits with NO `import`, because the JS runtime provides its types
-// intrinsically. A non-global control (`somepkg`) pins that both ride the HOME.
+// intrinsically. A non-global control (`somepkg`) pins that both depend on the HOME.
 
 let private unitT = named "unit"
 let private intT = named "int"
@@ -131,17 +131,17 @@ let tests =
 
             test "(b'') the mount namespace is a scope holding both its values and its types" {
                 // Name resolution reads `Js.spin` and `Js.Widget` segment by segment, so the
-                // manifest's scope answers for the mount namespace on both axes. A values-only
+                // manifest's scope must serve the mount namespace on both axes. A values-only
                 // scope reports the container `Js` and then misses `Widget` inside it.
                 let raw = tsProviderOf es2015Manifest
                 let js = SymbolKeyOps.inNamespace "Js"
 
                 Expect.isTrue (raw.Scope.TryContainer "Js").IsSome "the mount prefix is a container"
-                Expect.isTrue (raw.Scope.TryValue(js, "spin")).IsSome "the free function answers inside it"
+                Expect.isTrue (raw.Scope.TryValue(js, "spin")).IsSome "the free function resolves inside it"
 
                 Expect.isNonEmpty
                     (EqArray.toList (raw.Scope.TypesNamed(js, "Widget")))
-                    "the exported class answers inside it"
+                    "the exported class resolves inside it"
             }
 
             test "(c) CONTROL: a non-global package's free function still emits its normal import" {
@@ -168,8 +168,8 @@ let tests =
 
             test "(d) a refs entry homed to es2015 mints an FTClass under the Js namespace (Js.Widget)" {
                 // A ref whose `home = es2015` mints under the `Js` namespace, so its
-                // qualified name is `Js.Widget`, not the bare `Widget`. The home rides the
-                // SHAPE, not the key, so B's key must resolve to an es2015-homed shape.
+                // qualified name is `Js.Widget`, not the bare `Widget`. The home is carried on
+                // the SHAPE, not the key, so B's key must resolve to an es2015-homed shape.
                 match ScopeContents.tryValueAt bProviderRaw.Scope "theWidget" with
                 | ValueSome sym ->
                     match sym.Scheme with

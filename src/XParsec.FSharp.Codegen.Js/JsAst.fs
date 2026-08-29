@@ -103,7 +103,7 @@ and [<RequireQualifiedAccess>] JsStatement =
     /// `import  from "…";`, so one must be non-empty.
     | Import of defaultBinding: string option * named: JsNamedImport list * source: string
     /// `import * as <binding> from "<source>";` — its own statement, since a namespace clause
-    /// cannot ride the braces of a `{ named }` import for the same source.
+    /// cannot combine with a `{ named }` clause for the same source.
     | ImportNamespace of binding: string * source: string
     /// `if (test) { … } else { … }`. An empty alternate prints without the `else`.
     | If of test: JsExpr * consequent: JsStatement list * alternate: JsStatement list

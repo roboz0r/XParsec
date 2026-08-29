@@ -6,7 +6,7 @@ open XParsec.FSharp.SemanticAnalysis
 // `PublishedSurface` claims to be a VALUE: key-ordered under an ordinal rendering, and equal
 // to another exactly when it publishes the same thing. Both halves are load-bearing for the
 // content-addressed key the surface is headed for, and neither is visible from a call site —
-// `toProvider` re-indexes into dictionaries and answers the same either way. So they are
+// `toProvider` re-indexes into dictionaries and yields the same lookups either way. So they are
 // asserted here rather than left to a downstream consumer to discover.
 
 let private key (ns: string) (name: string) (arity: int) : TypeKey =

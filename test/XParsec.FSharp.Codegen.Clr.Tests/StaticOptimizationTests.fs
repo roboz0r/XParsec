@@ -72,8 +72,8 @@ let tests =
                                      _) ] ->
                     match clause.Constraints with
                     | EqList [ TStaticOptConstraint.TyconEquals(TyTypar(axisA, iA), TyTypar(axisB, iB)) ] ->
-                        Expect.equal (axisA, iA) (axisB, iB) "both sides name the same typar"
-                        Expect.equal axisA TyparAxis.Method "an inline binding's own typars ride the method axis"
+                        Expect.equal (axisA, iA) (axisB, iB) "both sides denote the same typar"
+                        Expect.equal axisA TyparAxis.Method "an inline binding's own typars sit on the method axis"
                     | other -> failtestf "expected one self-referential TyconEquals, got %A" other
                 | _ -> failtestf "expected a single-clause static-opt, got %A" tast.Decls
             }
@@ -100,7 +100,7 @@ let tests =
                 Expect.equal (output.Replace("\r", "").Trim()) "1\n2\n0" "each call resolves to its type's clause"
             }
 
-            test "the selected clause's inline-IL body emits: int `=` rides `ceq`, bool falls to the catch-all" {
+            test "the selected clause's inline-IL body emits: int `=` selects `ceq`, bool falls to the catch-all" {
                 // `eq3 true true` printing 0 is the decisive observable: the `ceq` clause
                 // would have said true, so the `false` catch-all sentinel is what ran.
                 let src =

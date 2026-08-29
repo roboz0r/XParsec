@@ -43,7 +43,7 @@ are detailed under *Manifest schema* below.
 
 ## Seam grounding (the decisions that are now load-bearing)
 
-The current seam these decisions ride on:
+The current seam these decisions depend on:
 
 - **The provider interface.** `IExternalSymbolProvider`
   ([`ExternalSymbols.fs:399`](../ExternalSymbols.fs)) — 8 members. Lookups return
@@ -117,7 +117,7 @@ builder closures. Not a per-lookup RPC into a live Node checker, because:
 (constant) arm composing with the EXISTING `FTOr` — `("ping" | "pong")` becomes
 `FTOr [FTLiteral "ping"; FTLiteral "pong"]`, structurally, with **no anonymous nominal
 name and no registry entry**. `TypeRef.Union → FTOr` already set the precedent that the
-external vocabulary tolerates structural unions; literals ride the same seam.
+external vocabulary tolerates structural unions; literals reuse the same seam.
 
 **Union member identity: order-preserving storage, order-INSENSITIVE equality.** Union
 members live in a new `EqSet<'T>` (sibling of `EqArray`): insertion-ordered storage so
@@ -139,7 +139,7 @@ needs ordered keying. Do NOT key any cache on `%A` of these (the EqArray
 literal type: `"ping"` types as `string`, always; no Vesper binding generalises over a
 literal; `TyLiteral` arises **only** by instantiating an external signature. The literal
 matters solely *directionally, at the external-arg seam* — the same layer where `TyOr`
-already rides obj's directional `subsumes` — so the unifier learns no subtyping:
+already builds on obj's directional `subsumes` — so the unifier learns no subtyping:
 
 - a syntactic string/number CONSTANT argument checks against a literal union by set
   membership (`"ping"` admits into `TyOr [TyLiteral "ping"; TyLiteral "pong"]`);
@@ -164,7 +164,7 @@ the one seam where it pays. TS's type system is undecidable in general — fidel
 consuming what real packages export (via the real `tsc` in the extractor), not
 re-implementing TS.
 
-**`keyof` / indexed access / conditional ride on top** (the mitt R4a constructs, each a
+**`keyof` / indexed access / conditional build on top** (the mitt R4a constructs, each a
 faithful schema arm + `FrozenType` node, ground-EVALUATED rather than degraded):
 
 - `keyof T`, `T` ground to a record/interface → `FTOr` of `FTLiteral` member names;
@@ -211,7 +211,7 @@ with `string | unit` and erase the nullability the checker must reason about.
 the type-level model.)
 
 Nullability then needs **no separate machinery**: it is union membership, and
-soundness rides the directional `subsumes` layer where `TyOr` already lives —
+soundness is handled by the directional `subsumes` layer where `TyOr` already lives —
 `T <: T|null` holds, `T|null <: T` does not, and narrowing (`!= null`,
 `!== undefined`) is union-member removal, the same operation general TS-union
 narrowing needs (deferred to that milestone). Collapsing to one `nullish`, or
@@ -277,7 +277,7 @@ union-member removal.
 ### intersection `A & B` → erase in v1, flatten later (resolved)
 
 Erase to `obj` in v1 (consistent with `unknown → obj`; `TyDynamic` is also
-deferred). This is the same answer as "flatten into one record" at two
+deferred). This is the same decision as "flatten into one record" at two
 milestones, not a different one: flatten-via-`getPropertiesOfType` (the checker
 pre-merges the members for you) only has somewhere to land **once the content-
 hash structural-record machinery exists** — which is deferred below. So once
@@ -471,7 +471,7 @@ golden only proves the output is *stable* (it memorialises whatever the extracto
 emits — a wrong-but-self-consistent manifest sails through); the real-package e2e is
 the *semantic* oracle the golden cannot be, because a typed Vesper program built from
 the manifest must actually emit JS that **runs against the real vendored runtime** and
-returns the right answer. The consumer validates the producer's contract behaviourally.
+returns the right result. The consumer validates the producer's contract behaviourally.
 
 Hard rules:
 - **Codegen.Js tests read committed files only** (`.manifest.json` + the vendored
@@ -569,7 +569,7 @@ never the primary type channel.
 
 ## The inverse problem
 
-F#'s inference asks constraint questions TS metadata never answered — `when 'T :
+F#'s inference asks constraint questions TS metadata cannot settle — `when 'T :
 equality`, comparison, SRTP `(+)`. The provider needs a default policy (assume
 structural/`===` equality; or refuse generic-constrained use), since it won't
 fall out of the manifest. For `TyOr` members this composes with the all-members-or-defer constraint rule.

@@ -188,8 +188,8 @@ let tests =
                     Expect.stringContains out "kaboom" "the caught Error carries the message"
             }
 
-            // The point of the whole nominal lowering: the prototype chain answers the
-            // subtype question the CLR answers with a type test.
+            // The point of the whole nominal lowering: the prototype chain decides subtyping,
+            // where the CLR uses a type test.
             test "a caught ArgumentNullException IS an ArgumentException, and IS an Error" {
                 let probe =
                     "(() => { try { return $0; } catch (e) { "

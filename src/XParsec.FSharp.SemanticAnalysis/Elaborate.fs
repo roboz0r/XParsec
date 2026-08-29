@@ -276,8 +276,8 @@ module Elaborate =
     /// CST → a `TExpr` tree whose `.ty` fields are zonk'd `SemType`, still `TyVar`-carrying.
     /// Each decl is paired with the typar env it quantifies.
     let elaborate (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : (TDecl * (TyVarId * SemType) list) list =
-        // The flattened walk NameResolution and Unification take: the by-name reads lowering
-        // makes must speak from the module and `open`s they are written under.
+        // The flattened walk NameResolution and Unification take: a by-name read during
+        // lowering resolves from the module and `open`s it is written under.
         CstModuleTree.walkImpl ctx.NameOf ctx.Resolution.AmbientOpenScope file
         |> List.collect (fun w ->
             ctx.EnterElement w

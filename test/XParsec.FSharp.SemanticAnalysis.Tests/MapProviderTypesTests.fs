@@ -290,7 +290,7 @@ let tests =
             }
 
             // Value-ness is a LAYOUT, not a type, and a record candidate carries identity +
-            // field names only: both ride the wrapper's forward, so both are pinned here.
+            // field names only: the wrapper forwards both unchanged, so both are pinned here.
             test "non-type channels delegate unchanged" {
                 Expect.equal wrapped.AmbientOpenPrefixes [ "Amb" ] "ambient delegated"
                 Expect.equal (wrapped.IsValueType clsKey) (ValueSome true) "value-ness delegated"

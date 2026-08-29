@@ -46,7 +46,7 @@ let tests =
             test "the Vesper.Core manifest layer adds type + operator resolution from the contract" {
                 let provider = ClrSymbolProviders.buildContract [ vesperCorePackage ]
 
-                // The provider answers the QUALIFIED name; short names come from the
+                // The provider resolves the QUALIFIED name; short names come from the
                 // ambient open scope. `int` is an `extern` paired with a `.fs`
                 // `(# "System.Int32" #)`, so it surfaces `Intrinsic`, not opaque `Class`.
                 match ExternalSymbols.tryReprType provider "Vesper.int" with

@@ -83,7 +83,7 @@ type ExternalSymbol =
         /// The symbol's type SCHEME over its own typars, baked as `FTTypar(Declaring,i)`.
         Scheme: FrozenType
         TyparArity: int
-        /// Stamped onto the fresh TyVars when the scheme is realised; callers don't apply
+        /// Stamped onto the fresh TyVars when the scheme is instantiated; callers don't apply
         /// them separately.
         Constraints: ExternalConstraint list
         /// Where the symbol lives. `SymbolOrigin.Empty` until a resolving source fills it.
@@ -419,7 +419,8 @@ type ExternalClassFlags =
         IsValueType: bool
         MemberLowering: MemberLowering
         /// A GLOBAL (ambient) type the JS runtime provides (`Map`, `Set`, `Promise`), so
-        /// reachable by its BARE name with NO `import`. Rides the type's HOME, not the type.
+        /// reachable by its BARE name with NO `import`. An attribute of the type's HOME, not
+        /// the type.
         Global: bool
         /// The import-STATEMENT shape for this type's home-module exports.
         ImportForm: ImportForm
@@ -554,9 +555,8 @@ type IntrinsicShape =
 
 module IntrinsicClassSurface =
 
-    /// Fold a farther source's surface onto a nearer one: an implementation file's view binds a
-    /// representation without publishing a surface, so the nearest source alone would answer
-    /// "declares nothing" ahead of the contract that prescribes it.
+    /// Fold a farther source's surface onto a nearer one. An implementation file's view binds a
+    /// representation without publishing a surface; its surface comes from the signature file.
     let merge
         (nearer: IntrinsicClassSurface voption)
         (farther: IntrinsicClassSurface voption)

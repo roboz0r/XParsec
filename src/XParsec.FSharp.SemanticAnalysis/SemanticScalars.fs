@@ -201,11 +201,11 @@ type SpecializationId = | SpecializationId of int
 
 /// Why a type position carries no type shape, which is what makes `freeze` total. A reason
 /// minted while EXTRACTING a contract carries the text its diagnostic needs, because a later
-/// compilation reads that contract back with no source in hand; an in-process one carries none.
+/// compilation reads that contract back without the source; an in-process one carries none.
 [<RequireQualifiedAccess>]
 type UnknownReason =
-    /// A type name a source annotation or a contract wrote and nothing defined. The only case
-    /// the unifier's `UndefinedTypeNames` suppression applies to.
+    /// A type name written in a source annotation or an extracted contract, with no definition.
+    /// The only case the unifier's `UndefinedTypeNames` suppression applies to.
     | UndefinedName of name: string
     /// An external declaration whose body did not translate; `what` is the extractor's own
     /// phrase for the construct it could not model.
@@ -218,7 +218,7 @@ type UnknownReason =
     /// A type argument index past the instantiation it was applied to.
     | ArityMismatch
     /// A construct with no first-class value: `1..10`, or a literal whose suffix F# reserves.
-    /// The range is blamed at elaboration, so unification stays silent.
+    /// Already diagnosed at elaboration.
     | NoValueType
 
     /// Display text only. Never an identity: `<deferred>` and `<arity-mismatch>` are not names

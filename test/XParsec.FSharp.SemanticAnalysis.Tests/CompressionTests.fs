@@ -9,7 +9,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 /// A real flattened blob — the payload the wire format carries.
 let private realFrozenBlob () : byte[] =
-    FrozenCodec.flatten (freezeFor "let add x y = x + y\nlet twice f x = f (f x)\nlet answer = twice (add 1) 40\n")
+    FrozenCodec.flatten (freezeFor "let add x y = x + y\nlet twice f x = f (f x)\nlet total = twice (add 1) 40\n")
 
 [<Tests>]
 let tests =

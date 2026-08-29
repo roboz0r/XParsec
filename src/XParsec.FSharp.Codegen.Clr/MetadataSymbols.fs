@@ -745,9 +745,9 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
                     }
             )
 
-        // The cache is keyed by (declaring name, member NAME), so a key is answered by
-        // exact-identity selection out of that name's overload set; a best-by-arity
-        // collapse would answer it with a SIBLING overload's entry.
+        // The cache is keyed by (declaring name, member NAME), so a key is resolved by
+        // exact-identity selection out of the name's overload set; a best-by-arity
+        // collapse would return a SIBLING overload's entry.
         member this.TryLookupMemberByKey(key: MemberKey) =
             this.LookupMembersByName(
                 ExternalMemberName.ofKeyed
@@ -767,14 +767,14 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
         // The metadata layer CONSUMES the axis to canonicalize BCL names; it declares none.
         member _.IntrinsicTypeMap = IntrinsicTypeMap.empty
 
-        // .NET metadata IS the platform, so this source is the one that answers.
+        // .NET metadata IS the platform, so this source supplies the platform facts.
         member this.Platform = ValueSome(this :> IPlatformFacts)
 
     interface IPlatformFacts with
 
         // `Vesper.int` is a value type here because the repr its `.clr.fs` binds,
         // `System.Int32`, is one. A canon declared UNSUPPORTED on this target has no repr to
-        // reflect; any other key answers under its plain metadata name.
+        // reflect; any other key is reflected under its plain metadata name.
         member _.IsValueType(key: TypeKey) =
             let reflected (name: string) =
                 match lookupTypeByName name with

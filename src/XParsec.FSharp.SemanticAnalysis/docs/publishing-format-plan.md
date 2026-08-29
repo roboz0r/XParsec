@@ -88,7 +88,7 @@ belongs to the second, never the first.
 - **A package manager already gives a neutral, multi-file container.** A `.nupkg`
   or tarball is an archive with arbitrary entries; it can hold the target
   artifact, the `.fsi` contract, the manifest, and (if ever needed) a serialised
-  metadata sidecar as *separate entries*. The metadata rides the package, the
+  metadata sidecar as *separate entries*. The metadata is carried in the package, the
   target artifact stays lean. This is exactly OCaml's `.cmi`/`.cmx` (sidecar files next to the
   `.cmo`/`.cmxa`) and Scala's `.tasty` (a **separate entry in the jar**, not bytes
   inside the `.class`).
@@ -116,7 +116,7 @@ carriers — which is the whole point of the section above.
 | **F#** `FSharpSignatureData` | **artifact** · private pickle | version-brittle (FCS-locked magic number); .NET-only; deadweight in every deployed PE |
 | **OCaml** `.cmi` / `.cmx` | package sidecar · binary | `.cmi`=interface, `.cmx`=cross-module inline info — *exactly* the `.fsi`/inline-`.fs` split; magic-number breaks per compiler version |
 | **Scala 3** TASTy | package sidecar (separate `.tasty` in jar) · **public spec** | typed tree as a documented, versioned interchange — "pickle done right"; large, but enables non-compiler tooling |
-| **Kotlin** `@Metadata` | **artifact** (annotation in `.class`) · protobuf | rides the platform annotation reader, but JVM-bound and in-artifact deadweight |
+| **Kotlin** `@Metadata` | **artifact** (annotation in `.class`) · protobuf | reuses the platform annotation reader, but JVM-bound and in-artifact deadweight |
 | **Rust** `.rmeta` | package sidecar · private | `-C metadata` hash; not stable cross-version |
 | **TypeScript** `.d.ts` | package source · surface syntax | the runaway success: human-readable, toolable, *is* the language — cost is "re-parse to know anything" |
 
@@ -136,7 +136,7 @@ reason as the F# pickle.
   `.fsi` set and resolves the `depends-on` closure itself
   (`ReferencedProject.fs:246-345`); ratify it. TypeScript's `.d.ts` is the
   precedent.
-- **PF2 — Metadata never rides the target artifact.** No pickled resource or PE
+- **PF2 — Metadata is never carried in the target artifact.** No pickled resource or PE
   section in any `Vesper.*.dll`, no contract-bearing module in an emitted `.mjs`
   tree; no metadata-bearing custom attribute beyond what the runtime itself
   needs. The runtime loader cannot use the contract, so any such bytes are
@@ -321,6 +321,6 @@ reason as the F# pickle.
   representation behind the arrow-sugar abbreviation that IL can't carry.
 - The (completed) `SemType → FrozenType` split — its `TExpr<FrozenType>` is the
   in-memory artifact a PF6 sidecar would serialise, and its source-reship path
-  (re-typecheck → `SemType` → local inline pass) realises PF1/PF4.
+  (re-typecheck → `SemType` → local inline pass) implements PF1/PF4.
 - [`../../Vesper.Core/manifest.toml`](../../Vesper.Core/manifest.toml) — the
   current contract (`files`) + inline-body (`impl`) manifest this plan publishes.

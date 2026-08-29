@@ -11,7 +11,7 @@ callable representation instead of the current bare-`defaultof` +
 - **DONE — the idiomatic surface.** Half 1 (qualified / type-applied
   references splice during semantic analysis) shipped, then `[<AutoOpen>]`
   was dropped from `module Unchecked` and `seq.clr.fs` rewritten to
-  `Unchecked.defaultof<'T>`. This fully answers the original goal: the
+  `Unchecked.defaultof<'T>`. This fully meets the original goal: the
   idiomatic spelling compiles and splices to `ilzero`, no phantom call.
 - **DEFERRED — materialisation** (a real callable `DefaultOf<T>()` for
   C#/reflection). A prototype existed but was **discarded**: it special-cased

@@ -37,23 +37,23 @@ module InlineReduction =
 
     /// WHICH inline binding a reduction is expanding: the identity a RECURSION is detected on,
     /// and NOT the `SymbolKey` its table entry is keyed by. A local binding's key and a
-    /// package's can collide, and the collision must not answer "is this call recursive?".
+    /// package's can collide, and a collision must not read as a recursion.
     [<RequireQualifiedAccess>]
     type internal TemplateId =
         | Local of boundVar: NodeKey
         | Foreign of key: SymbolKey
 
     /// One inline reduction IN FLIGHT. The CHAIN of these is what makes a recursive inline
-    /// TERMINATE: a call reaching a binding already on the chain is answered with an edge into
-    /// the entry that expansion reserved, leaving a finite graph for the acyclicity check.
+    /// TERMINATE: a call reaching a binding already on the chain yields an edge into the entry
+    /// that expansion reserved, leaving a finite graph for the acyclicity check.
     [<NoEquality; NoComparison>]
     type internal ExpansionFrame =
         {
             Template: TemplateId
-            /// The anchor domain of the body this frame expands. It rides the chain so a walk
-            /// cannot be handed material under a domain the chain disagrees with.
+            /// The anchor domain of the body this frame expands. Carried on the chain, so
+            /// material is walked under the domain it was written in.
             Path: AssemblyFilePath
-            /// The table slot this expansion reserved: what a re-entering call is answered with.
+            /// The table slot this expansion reserved: where a re-entering call's edge points.
             Spec: SpecializationId
         }
 
@@ -66,7 +66,7 @@ module InlineReduction =
             {
                 Frames: ExpansionFrame list
                 /// `ValueNone` only while walking the compiling file's own declarations: the call
-                /// about to be answered is written there, so its own token is the position.
+                /// about to be expanded is written there, so its own token is the position.
                 Site: SyntaxToken voption
                 /// The lambda arguments in scope for inline-first elimination here, by the
                 /// parameter bound variable each is bound to.
@@ -90,9 +90,9 @@ module InlineReduction =
             Caller: Descent
         }
 
-    /// The call an expansion is being entered FOR: which binding it calls, where it stands, and
-    /// the arguments an ANSWER needs it in. For an `ExternalMember` that includes the object
-    /// argument, at curried position 0, which the application it was reached through never held.
+    /// The call an expansion is being entered FOR: which binding it calls, where it stands, and the
+    /// arguments in the form an expansion needs them. For an `ExternalMember` that includes the
+    /// object argument at curried position 0, absent from the application it was reached through.
     [<NoEquality; NoComparison>]
     type internal PendingCall =
         {
@@ -103,10 +103,10 @@ module InlineReduction =
             /// The node's own result type: the type of every edge minted for this call.
             Ty: SemType
             /// The arguments AS APPLIED: what the entry's parameters were peeled against, so an
-            /// edge's arguments align to them positionally. Unwalked: only the edge answer walks
-            /// them, and only the ones it carries.
+            /// edge's arguments align to them positionally. Unwalked: minting an edge walks them,
+            /// and only the ones it carries.
             Args: TastWalk.AppArg list
-            /// Walks one of `Args`, the CALLER's own material, expanded however the call is answered.
+            /// Walks one of `Args`, the CALLER's own material, however the call itself reduces.
             Walk: TExpr -> TExpr
         }
 
@@ -143,8 +143,8 @@ module InlineReduction =
             | f :: _ -> f.Path
 
         /// The frame already expanding `template`, if the walk is inside one: this call has
-        /// reached a binding that reaches itself, and is answered from that frame instead of
-        /// expanding the same body a second time.
+        /// reached a binding that reaches itself, and takes an edge into that frame's entry
+        /// instead of expanding the same body a second time.
         let reentered (template: TemplateId) (d: Descent) : ExpansionFrame voption =
             match d.Frames |> List.tryFind (fun f -> f.Template = template) with
             | Some f -> ValueSome f
@@ -189,7 +189,7 @@ module InlineReduction =
             /// A member's arguments are the call's ONE tupled argument OPENED to the declared
             /// parameters; `ValueNone` is one that does not open.
             Args: TastWalk.AppArg list voption
-            /// A thunk: the walk a member needs is wasted on any answer but the rebuild.
+            /// A thunk: the walk a member needs is wasted unless the rebuild is taken.
             RebuiltFn: unit -> TExpr
         }
 

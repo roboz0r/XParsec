@@ -199,7 +199,7 @@ reference, so the case → value table is read straight off the CST, through
 [`EnumCaseValues.tryResolve`](../EnumCaseValues.fs) — the same projection the
 Elaborate pass runs, so a referenced package's `E.C1` and a locally-compiled `E.C1`
 cannot disagree about the constant. One case that projects to no literal downgrades
-the WHOLE enum to `ExtractionFailed`: a partial case table would answer for the
+the WHOLE enum to `ExtractionFailed`: a partial case table would resolve the
 cases that survived and deny the rest.
 
 ### What a signature could not publish
@@ -244,7 +244,7 @@ wider consumer scope can't improve it.
   divergence shows up as `TyConst` against `TyClass` for one written name.
 - **The intrinsic axis is DERIVED, never filled.** `PublishedSurface.ofBuilder`
   reads it off the published `Intrinsic` shapes, which is what keeps a capability
-  interface — whose platform name rides its own identity — off it by construction.
+  interface — whose platform name is carried on its own identity — off it by construction.
 - **Visibility = declared dependency closure + layer 2 + the prelude.** Widening it
   to all topological predecessors would re-admit undeclared cross-package
   references; narrowing it would mis-bake raw BCL nominals or leave a contract

@@ -3,7 +3,7 @@
 Captures a design discussion behind the `Vesper.Option` package
 ([`../../Vesper.Option/`](../../Vesper.Option/)). The headline decision —
 `Option<'T>` is a **struct** whose `None` is the **zero-initialized value** — is
-already realised in `option.fsi` / `option.fs`; this doc records *why*, and the
+already implemented in `option.fsi` / `option.fs`; this doc records *why*, and the
 optimisation strategy for the one real cost (by-value copies of a large
 payload). It generalises to `Result` and every immutable struct DU, so read it
 alongside [brainstorm-du-layout](brainstorm-du-layout.md) (the physical layout)
@@ -55,7 +55,7 @@ by value on assignment, argument passing, return, and match-binding.
 
 The goal is **not** to push users toward `Option<Box<BigStruct>>`. The moment a
 user must box to make options viable, the representation has leaked. `Box` is for
-when you genuinely want a *shared heap payload*; it must never be the answer to
+when you genuinely want a *shared heap payload*; it must never be the remedy for
 "options of big things are slow." Target: make `Option<BigStruct>` compile to
 roughly what a hand-tuner would write.
 
@@ -109,7 +109,7 @@ This is the boundary between "must be predictable" and "optimise freely."
 **Tier 4 — user-visible escape hatches:**
 
 - A representation attribute (`[<Value>]` / `[<Reference>]`) on a hot type, and
-  `Box` for genuine payload sharing — explicitly *not* the default answer to OR3.
+  `Box` for genuine payload sharing — explicitly *not* the default remedy for OR3.
 
 ## OR6 — Honest ledger
 
@@ -143,7 +143,7 @@ Two non-exclusive fixes, both already on the roadmap:
    the closure-devirtualisation endgame of
    [function-representation-plan](function-representation-plan.md).
 
-So the `Option<BigStruct>` story is not independent work; it rides the
+So the `Option<BigStruct>` story is not independent work; it builds on the
 devirtualisation + purity reasoning rather than needing bespoke option support.
 
 ## OR8 — Generalisation
@@ -169,7 +169,7 @@ and smallest instance.
 
 ## Cross-references
 
-- [`../../Vesper.Option/option.fsi`](../../Vesper.Option/option.fsi) — the realised contract; OR1/OR2 decisions in situ.
+- [`../../Vesper.Option/option.fsi`](../../Vesper.Option/option.fsi) — the implemented contract; OR1/OR2 decisions in situ.
 - [core-lib-architecture](core-lib-architecture.md) — one impl DLL per package; why the data types are structs, and why the public-ABI seam (OR4) and cross-assembly effect summaries matter.
 - [brainstorm-du-layout](brainstorm-du-layout.md) — the split-payload physical layout this representation sits on top of.
 - [brainstorm-structural-equality](brainstorm-structural-equality.md) — the equality/hashing half of OR2's observable-semantics invariant.

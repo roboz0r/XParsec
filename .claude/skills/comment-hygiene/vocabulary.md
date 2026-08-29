@@ -111,7 +111,7 @@ Names one thing: the set of types and function signatures a signature file publi
 analysis**. A file at any stage is a *[parsed|analysed] (signature|implementation) file*,
 never "a contract", "a contract file" or "a `.fsi` contract". Legitimate and untouched: the
 provider-layer `Contract` types and builders, "the contract stack/provider/surface", "a
-contract extracted from a real `.fsi`", "the implementation does not answer the contract".
+contract extracted from a real `.fsi`", "the implementation does not satisfy the contract".
 
 Retired: "contract `.fsi` files in compile order" → *signature files in compile order*; "a
 contract with no companion implementation" → *a signature file with none*; "a `.fs` owes no
@@ -165,6 +165,46 @@ comments; this is the H18 side of the same rule.
 | a diagnostic refers to a thing by a phrase | `refers to it as` / `calls` |
 
 The negated form (`names no type`) is H17, and the H17 entry sends its positive form here.
+
+## `answer` (the verb)
+
+Retired outright — a lookup, key or claim answers nothing. Repo-wide residue exists; cut it
+wherever a sweep touches the file.
+
+| sense | term |
+| --- | --- |
+| a fact obtained from sources consulted in order | `X first, then Y`, or `read from X, then Y` |
+| a lookup miss maps to a default | `an unresolved key yields false` |
+| a forward reference is satisfied | `resolves` |
+| a predicate parameter is backed by a source | `is read from` |
+
+## `ride`
+
+Retired outright — a value does not ride anything. `is carried on`, `is stored on`, `arrives
+as`; where the point is that the information is an attribute or a list entry, say that
+directly (`` `[<Struct>]` is an attribute``, `impls are carried on the shared extension
+list`).
+
+## `speak`
+
+Retired outright — a layer, scheme or table speaks nothing. `consumes` / `shares` /
+`exchanges` for a data shape; `uses forward slashes` for a format convention.
+
+## `realise`
+
+Retired for constructing a type from its parts: `rebuild` (a destructured nominal back to
+its applied type), `instantiate` (a scheme at a use site). The noun senses never occurred.
+
+## `blame` and its idioms
+
+`takes the blame`, `blamed the source`, `stayed silent` — retired outright; diagnostics are
+reported, not blamed.
+
+| sense | term |
+| --- | --- |
+| the token a diagnostic attaches to | `the token the diagnostic is reported at` |
+| a producer that already reported | `already diagnosed at its source` |
+| a producer that did not report | `no diagnostic reported at its source` |
 
 ## Naming a new operation
 

@@ -249,7 +249,7 @@ type internal ClrEncoder(env: ClrEnv) =
                 if i >= 0 && i < slot.Length && slot.[i].IsNone then
                     slot.[i] <- ValueSome a
             // Pairwise descent under a shared type constructor: a mismatch declines silently,
-            // leaving that subtree's slots empty for the caller to answer for.
+            // leaving the subtree's slots empty for the caller to detect.
             | d -> FrozenType.iterChildren2 go d a
 
         go openT instT
@@ -383,7 +383,7 @@ type internal ClrEncoder(env: ClrEnv) =
 
                 // `public !i Item{i+1}` — `ValueTuple` exposes public FIELDS, not properties, so
                 // element access is `ldfld`, not `call get_ItemN`. Only the directly-stored
-                // slots get `Item` fields; the rest ride the `Rest` field below.
+                // slots get `Item` fields; the rest are reached through the `Rest` field below.
                 let directCount = if ClrTuples.fitsOneMember n then n else ClrTuples.MaxDirect
 
                 let itemFields =
@@ -442,7 +442,7 @@ type internal ClrEncoder(env: ClrEnv) =
         s
 
     /// A *generic method* (`member this.Map<'C> …`) whose body may also be inside a generic type:
-    /// the declaring type's typars ride `FTTypar(Declaring, i)` (`!i`), the method's own ride
+    /// the declaring type's typars are spelled `FTTypar(Declaring, i)` (`!i`), the method's own
     /// `FTTypar(Method, i)` (`!!i`). `methodTyparCount` sets the `GENERIC` header count.
     member _.GenericMethodOnTypeSignature
         (methodTyparCount: int, paramTys: FrozenType list, retTy: FrozenType, isInstanceMethod: bool)

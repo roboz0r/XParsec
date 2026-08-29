@@ -17,12 +17,12 @@ comments at each seam still match.*
   landed — see below.)
 - **OVER-PERMISSIVE** — an *invalid* program wrongly resolves; **never a miscompile**. Item 6's
   member-level accessibility was this class; it has since landed (see below).
-- **SEPARATE TRACK** — item 7 (cross-package records) rides `publishing-format-plan.md`.
+- **SEPARATE TRACK** — item 7 (cross-package records) is tracked in `publishing-format-plan.md`.
 
 Every deferred item already carries a WHY comment at its seam in the code; this plan is the
 design record behind those comments.
 
-## 4. `obj`-field boxing (records DONE; union cross-unit rides the union-construction gap)
+## 4. `obj`-field boxing (records DONE; union cross-unit blocked by the union-construction gap)
 
 A value assigned to an `obj` field (`{ X = 5 }` into `X: obj`, `C 5` into `C of obj`) is boxed
 by `wrapObjArg`. F# accepts both via an implicit box; the original framing ("external records skip
@@ -58,7 +58,7 @@ dropped, matching the TS-manifest arm and `TEnumCases.classify`. Tested in
 `FrozenSignatureTests` (numeric + string projection); the consuming stamp path is covered by
 `ExternalEnumCaseStampTests` against the identical shape. The `.fsi` contract extractor still
 produces no `Enum` shape (a TS-manifest-only shape today — see `TypeTranslate` line ~470);
-cross-package enums ride the separate publishing-format track alongside item 7.
+cross-package enums are tracked on the separate publishing-format track alongside item 7.
 
 ## 6. Interface members: uncurrying DONE; member-level accessibility DONE
 
@@ -84,7 +84,7 @@ before `externalClassRef`), matching the authority `encodeType`'s nominal arms a
 Proven end to end in `CrossFileUnitsTests` (a grounded `objArg.GetVal()` and a `'T :> IGetVal`
 bound, both RUN and both carrying the full `peAssemblyRefs` self-ref guard the record tests use).
 
-**Member-level accessibility — DONE.** A member's declared accessibility now rides
+**Member-level accessibility — DONE.** A member's declared accessibility is now carried on
 `TTypeMemberG.Accessibility` (captured in `Elaborate` from `MemberDefn.Member.access` — the
 member-level `private`/`internal` token, NOT the inner `Binding.access`, which is always absent
 for a member; an auto-property's own `member val private X` token wins via `autoPropertyAccess`),
@@ -104,7 +104,7 @@ never a miscompile). Closing it is **one coherent unit** — the front-end provi
 codegen's external-record `newobj`/field emission — that lands **cheaply on
 `publishing-format-plan.md`**, not on IL introspection: recordness is a `.fsi` *contract* fact
 (PF1/PF8), and per PF3 the signature TAST overrides the raw `.dll` IL for that package, so the
-`.fsi`-sourced provider answers `TryRecordsWithField` + `TryLookupType → Record` exactly as the
+`.fsi`-sourced provider fills `TryRecordsWithField` + `TryLookupType → Record` exactly as the
 cross-file composite already does. Tracked there; pointer only.
 
 When it lands, note that a bare record literal's open-scope gate

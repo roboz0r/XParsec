@@ -4,7 +4,7 @@ open Expecto
 open XParsec.FSharp.SemanticAnalysis
 
 // Each case is a HAND-WRITTEN `FrozenType` template paired with the `SemType` it must
-// realise to on `groundArgs`. `instantiateDeclaring` maps `FTTypar(Declaring,i)` to
+// instantiate to on `groundArgs`. `instantiateDeclaring` maps `FTTypar(Declaring,i)` to
 // `declaringArgs.[i]`; `instantiateSignature` also freshens the method axis to `TyVar`s.
 
 /// Ground (`TyVar`-free, `TyTypar`-free) types for the declaring args, so `instantiate*`
@@ -19,7 +19,7 @@ let private groundArgs: SemType[] =
 let private kRec = SymbolKeyOps.qualifiedTypeKeyOf "Test.Box" 1
 let private kUnion = SymbolKeyOps.qualifiedTypeKeyOf "Test.Option" 1
 
-/// The declaring-typar template `FTTypar(Declaring, i)`, which must realise to
+/// The declaring-typar template `FTTypar(Declaring, i)`, which must instantiate to
 /// `groundArgs.[i]`.
 let private d (i: int) : FrozenType = FTTypar(TyparAxis.Declaring, i)
 
@@ -80,7 +80,7 @@ let private opened (flat: Arg list) (residual: Arg list) : SymbolKeyOps.OpenedAr
 [<Tests>]
 let tests =
     testList
-        "ExternalSignature realiser oracle"
+        "ExternalSignature instantiation oracle"
         [
             test "instantiateDeclaring template args ≡ hand-written expected (no method axis)" {
                 for name, arity, template, expected in declaringTemplates do
@@ -151,7 +151,7 @@ let tests =
 
             // --- Member path: hand-written ExternalSignature + instantiateSignature ---
 
-            /// Assert `instantiateSignature` realises `signature` to `expected` on ground
+            /// Assert `instantiateSignature` instantiates `signature` to `expected` on ground
             /// args. `expected` is `None` for a generic member: the method axis freshens to
             /// `TyVar`s, so only the arities and the `TyFun` shape are asserted.
             let memberOracle
@@ -191,7 +191,7 @@ let tests =
                 }
 
             testList
-                "member signatures realise via instantiateSignature"
+                "member signatures instantiate via instantiateSignature"
                 [
                     // 0-param method: `unit -> ret`.
                     memberOracle

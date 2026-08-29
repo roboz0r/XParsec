@@ -277,7 +277,7 @@ module EmitJsTypes =
 
                     if recInterfaces.IsEmpty then
                         // No interface impls → no method bodies to defer; emit the class now
-                        // and let the augmentation members ride out as free functions.
+                        // and the augmentation members as free functions.
                         ordered.Add(
                             JsStatement.Class(info.Name, None, JsCtor.positional info.Fields [], [], exportTypes)
                         )

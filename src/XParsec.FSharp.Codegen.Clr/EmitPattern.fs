@@ -85,7 +85,7 @@ module EmitPattern =
                 recur fldSlot subPat
         )
 
-    /// The `[<Struct>]` a type EMITTED HERE asked for. Unanswered for a referenced name, which
+    /// The `[<Struct>]` a type EMITTED HERE asked for. `Unsettled` for a referenced name, which
     /// the provider holds instead; the two sets are disjoint.
     let private declaredHere (env: EmitEnv) (key: TypeKey) : TypeLayout =
         match env.Classes.TryGetValue key with
@@ -93,15 +93,15 @@ module EmitPattern =
         | false, _ ->
             match env.Records.TryGetValue key with
             | true, r -> TypeLayout.ofValueness r.IsValueType
-            | false, _ -> TypeLayout.Unanswered
+            | false, _ -> TypeLayout.Unsettled
 
     /// A referenced name arrives already settled, target-then-declaration; only a type EMITTED
     /// HERE still has its `[<Struct>]` as an open request.
-    let private oracle (env: EmitEnv) : LayoutOracle =
-        {
-            Settled = fun key -> env.Provider.ExternalLayout(key)
-            Declared = declaredHere env
-            Platform = env.Provider.Platform
+    let private oracle (env: EmitEnv) : ILayoutOracle =
+        { new ILayoutOracle with
+            member _.Settled key = env.Provider.ExternalLayout key
+            member _.Declared key = declaredHere env key
+            member _.Platform = env.Provider.Platform
         }
 
     /// Is a value of this type laid out as a CLR value type? The same projection the front end

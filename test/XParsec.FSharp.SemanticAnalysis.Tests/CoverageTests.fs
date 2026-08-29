@@ -1376,7 +1376,7 @@ let tests =
                     Signature = TestHelpers.mkSignature 0 0 (FTTuple ps) unitFt
                 }
 
-            // The stub channels layered OVER `realProvider`: `Vec2` is answered by the stub,
+            // The stub channels layered OVER `realProvider`: `Vec2` resolves through the stub,
             // everything else falls through. `Vec2` is NOT a local type, so `totalMemberKey`
             // takes the external arm. The trivial file initialises what the picker reads.
             let extCtx (stub: IExternalSymbolProvider) : PassContext =

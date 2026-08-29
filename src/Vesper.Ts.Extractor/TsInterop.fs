@@ -39,7 +39,7 @@ let jsonVersionField (parsed: obj) : string option = jsNative
 [<Emit("(typeof $0.name === 'string') ? $0.name : undefined")>]
 let jsonNameField (parsed: obj) : string option = jsNative
 
-/// The manifest and TS's program tables both speak forward slashes, on Windows too.
+/// The manifest and TS's program tables both use forward slashes, on Windows too.
 let normalizeSlashes (p: string) : string = p.Replace("\\", "/")
 
 let inline hasFlag (flags: Ts.SymbolFlags) (test: Ts.SymbolFlags) = int flags &&& int test <> 0

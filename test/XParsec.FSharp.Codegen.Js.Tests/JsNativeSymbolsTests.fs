@@ -11,7 +11,7 @@ let tests =
         [
             // `Error` is a GLOBAL: its container is the root namespace, which has no dotted
             // path, so the test builds it directly rather than through `TryContainer`.
-            test "the stub table's scope answers the Error stub in the root namespace" {
+            test "the stub table's scope resolves the Error stub in the root namespace" {
                 let scope = JsNativeSymbols.provider.Scope
                 let root = ModuleContainer.InNamespace(SymbolKeyOps.namespaceKey "")
 

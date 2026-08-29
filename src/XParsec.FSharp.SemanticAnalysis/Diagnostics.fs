@@ -144,7 +144,7 @@ type ConformanceVerdict =
 module ConformanceVerdict =
 
     /// The `V24x` family code. Findings share one where the verdict is the same: `V240` is
-    /// "the implementation does not answer the contract", however that came about.
+    /// "the implementation does not satisfy the contract", however that came about.
     let code (v: ConformanceVerdict) : DiagCode =
         match v with
         | ConformanceVerdict.Unimplemented _
@@ -392,13 +392,13 @@ type Kind =
     /// The type resolves; the name on it does not. `noun` is what was looked for.
     | NoMember of typeName: string * noun: MemberNoun * memberName: string
     | NoCase of owner: CaseOwner * typeName: string * caseName: string
-    /// A nominal shape resolved to a key no registry and no provider answers for.
+    /// A nominal shape resolved to a key unknown to every registry and provider.
     | UnknownNominalType of kind: NominalKind * name: string
     | TypeArgArity of name: string * expected: int * got: int
     | UnresolvedQualifiedName of name: string
     | OperatorFormQualifiedName of firstSegment: string
     | ConstraintNotSupported of ty: string * constraintName: string
-    /// An inline body's trait call the support type cannot answer.
+    /// A trait call in an inline body that the support type does not satisfy.
     | TraitNotSupported of supportTy: string * noun: MemberNoun * name: string
 
     // ── Casts and type tests ───────────────────────────────────────────────────

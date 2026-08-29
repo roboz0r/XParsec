@@ -133,8 +133,8 @@ module ConformancePass =
             | Error fault -> PairOutcome.ParseFailed(fsiRel, faultDetail fault)
             | Ok signature ->
                 match implementationFile.Outcome with
-                // Fails the PAIR: calling it a signature without an implementation would
-                // blame the `.fsi` for the `.fs`'s defect.
+                // Fails the PAIR: an unpaired-signature verdict would report the `.fs`'s
+                // parse failure as an `.fsi` defect.
                 | Error fault -> PairOutcome.ParseFailed(fsiRel, faultDetail fault)
                 | Ok implementation ->
                     let verdict =

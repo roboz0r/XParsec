@@ -468,23 +468,23 @@ let tests =
                 Expect.contains
                     (ctx.Diagnostics |> Seq.map (fun d -> d.Message) |> List.ofSeq)
                     "Type 'C' has no instance member 'get_Item'"
-                    "the diagnostic names `C`, not the array intrinsic"
+                    "the diagnostic cites `C`, not the array intrinsic"
             }
 
-            // A WRITE blames the accessor a write needs. The LHS walk types the element off the
-            // getter, so it must stay silent when there is none, or the miss reads `get_Item`.
-            test "a write to a type declaring no indexer blames `set_Item`, once" {
+            // A WRITE reports the accessor a write needs. The LHS walk types the element off the
+            // getter, so a missing getter must go unreported, or the miss reads `get_Item`.
+            test "a write to a type declaring no indexer reports `set_Item`, once" {
                 let ctx =
                     analyse "type C() =\n    member this.M () = 1\nlet c = C()\nlet u = (c.[0] <- 1)"
 
                 let messages = ctx.Diagnostics |> Seq.map (fun d -> d.Message) |> List.ofSeq
 
-                Expect.equal messages [ "Type 'C' has no instance member 'set_Item'" ] "one miss, naming the setter"
+                Expect.equal messages [ "Type 'C' has no instance member 'set_Item'" ] "one miss, citing the setter"
             }
 
             // `string` declares `Item` with a GETTER only, so the read half resolves and only
             // the write is missing.
-            test "a write to a read-only external indexer blames `set_Item`" {
+            test "a write to a read-only external indexer reports `set_Item`" {
                 let ctx = analyse "let f (s: string) : unit = s.[0] <- 'x'"
 
                 let messages = ctx.Diagnostics |> Seq.map (fun d -> d.Message) |> List.ofSeq

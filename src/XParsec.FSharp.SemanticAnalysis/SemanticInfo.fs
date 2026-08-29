@@ -57,8 +57,8 @@ and FrozenType =
     /// Typar #`index` of a body-local `let`'s OWN generalized scheme (`let g = fun x -> x`
     /// inside a decl), not the enclosing method's. Equate only by the whole `(scheme, index)`.
     | FTLocalTypar of scheme: SchemeId * index: int
-    /// A position that resolved to no type shape, carried so `freeze` is total. `reason` says
-    /// which producer minted it, because only some of them blame the source.
+    /// A position that resolved to no type shape, carried so `freeze` is total. `reason`
+    /// identifies the producer; only some of them report a diagnostic at the source.
     | FTUnknown of reason: UnknownReason
 
     /// A one-disjunct set collapses to the bare disjunct; `MkUnion []` is `never` (bottom).

@@ -278,7 +278,7 @@ module internal UnificationInferGeneralize =
                                 | TyVar _ ->
                                     // Out of scope, there is nothing to link to: leave the
                                     // container free and let it reach the whole-file sweep,
-                                    // which blames each literal once, by its own token.
+                                    // which reports each literal once, at its own token.
                                     if ctx.ConsListInScope then
                                         ctx.Store.SetLink(root, ValueSome(RuntimeNames.consListTy elemTy))
                                 | _ -> ctx.Store.SetLevel(root, outerLevel)

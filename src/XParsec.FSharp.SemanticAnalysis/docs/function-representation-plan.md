@@ -147,7 +147,7 @@ chosen by where the closure lands:
   generic closures `newobj` per construction.
 
 The `Vesper.Seq` `map`/`fold` flip proves the value-struct pipeline end-to-end: `map`
-rides `'TFunc :> Fun<'T,'U>`, `fold` rides `'TFunc :> Fun<'State,'T,'State>`, and the
+takes `'TFunc :> Fun<'T,'U>`, `fold` takes `'TFunc :> Fun<'State,'T,'State>`, and the
 hot loop dispatches `constrained.` with no box.
 
 ### Not yet landed
@@ -286,7 +286,7 @@ Two ordering facts constrain the implementation:
    disagree with it. Keeping the spine-only discipline instead is possible but re-imports
    the constraint that made the current file fragile.
 
-The deeper answer to (2) is a closure key that does not move under retyping, which would
+The deeper fix for (2) is a closure key that does not move under retyping, which would
 also let the pass run without ordering ceremony. Out of scope here; noted because every
 future rewriting pass in the backend pays this same tax.
 
@@ -380,7 +380,7 @@ Three escape hatches, in priority order:
 1. **Inline the factory.** If `let inline mkAdder x = fun y -> x + y`,
    the caller never sees a returned function — the lambda body splices
    in directly. This subsumes most "immediately consumed" cases for
-   free and rides on the `inline` work (the `Inline` marker on
+   free and builds on the `inline` work (the `Inline` marker on
    `TDecl.Let` plus `Inline.inlineExpand`), which has landed.
 2. **Specialise the return type via escape analysis.** Caller-side
    pass proves the returned closure doesn't escape its frame and
@@ -483,7 +483,7 @@ The synthesis is implemented end-to-end against the C1 / C2 / C3 plan:
   closureTyparResolver`. Public surface: `RegisterClosure`,
   `GenericClosureTypeSpec`, `GenericClosureMemberRef`, and
   `EnterClosureTyparScope` / `ExitClosureTyparScope` (capture-field
-  signatures ride `GenericClosureMemberRef` + `ClosureMember.CaptureField`,
+  signatures go through `GenericClosureMemberRef` + `ClosureMember.CaptureField`,
   not a separate `GenericCaptureFieldSignature`).
 - **C3 (codegen).** The closure loop predicts each
   generic closure's `TypeDefinition` handle (row `2 + interfaceCount

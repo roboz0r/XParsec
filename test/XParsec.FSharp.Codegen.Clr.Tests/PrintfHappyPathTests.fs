@@ -473,7 +473,7 @@ let tests =
                 | other -> failtestf "expected a Format node, got: %A" other
             }
 
-            test "`%10g` (width, no flag) rides width as a positive alignment" {
+            test "`%10g` (width, no flag) lowers width to a positive alignment" {
                 match soleDecl "printfn \"%10g\" 1.5" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match segs with
@@ -484,7 +484,7 @@ let tests =
                 | other -> failtestf "expected a Format node, got: %A" other
             }
 
-            test "`%-10g` (left-align) rides width as a negative alignment" {
+            test "`%-10g` (left-align) lowers width to a negative alignment" {
                 match soleDecl "printfn \"%-10g\" 1.5" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match segs with
@@ -508,7 +508,7 @@ let tests =
                 | other -> failtestf "expected a Format node, got: %A" other
             }
 
-            // Scientific / compact notation can't ride a .NET section format, so `%+g` /
+            // Scientific / compact notation is not expressible as a .NET section format, so `%+g` /
             // `% g` lower to a Field hole carrying a `ForcedSign` form with the `g` letter.
             // The assertion reads the classified source, not the `triple` projection.
             test "`%+g` (forced sign on compact) lowers to a ForcedSign field" {
@@ -553,7 +553,7 @@ let tests =
                             (Some "+0000;-0000")
                             "%+05d → AppendFormatted; zero-pad through the sign → digit count w-1"
 
-                        Expect.equal (alignmentOf hole) None "the width rides inside the section format"
+                        Expect.equal (alignmentOf hole) None "the width is carried inside the section format"
                     | other -> failtestf "unexpected segments: %A" other
                 | other -> failtestf "expected a Format node, got: %A" other
             }
@@ -588,7 +588,7 @@ let tests =
             }
 
             // ---- `%A` structural format ----
-            // The print-width budget rides in the `Alignment` slot.
+            // The print-width budget is stored in the `Alignment` slot.
 
             test "`%A` of an int lowers to a Structured hole (default width budget)" {
                 match soleDecl "printfn \"%A\" 42" with

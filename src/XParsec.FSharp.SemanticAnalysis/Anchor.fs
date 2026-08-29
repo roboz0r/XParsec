@@ -123,8 +123,9 @@ module AssemblyFileId =
     /// is case-insensitive, `foo.fs` and `Foo.fs` open ONE file and must not mint two
     /// identities for it. A segment it does not have is kept as asked, for the read to report.
     let ofPathUnder (root: string) (relative: string) : AssemblyFileId =
-        // The one entry answers for `segment` only if it IS that name: a segment holding `?`
-        // or `*` is a search pattern to `GetFileSystemEntries` and could match anything.
+        // A single match is `segment`'s on-disk spelling only if it IS that name: a segment
+        // holding `?` or `*` is a search pattern to `GetFileSystemEntries` and could match
+        // anything.
         let asOnDisk (dir: string) (segment: string) =
             if not (System.IO.Directory.Exists dir) then
                 segment

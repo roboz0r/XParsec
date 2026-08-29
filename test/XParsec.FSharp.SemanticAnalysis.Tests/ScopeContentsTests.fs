@@ -6,10 +6,10 @@ open XParsec.FSharp.SemanticAnalysis.AssemblyFiles
 open XParsec.FSharp.SemanticAnalysis.AssemblyAnalysis
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
-// The entity-scoped query both halves of name resolution answer: a published surface through
-// `IExternalSymbolProvider.Scope`, the file's own declarations through `LocalScope`. Each
-// answer is filed under the container that declares it, so a same-named case in two modules
-// is two answers rather than one bare-name winner.
+// The entity-scoped query implemented by both halves of name resolution: a published surface
+// through `IExternalSymbolProvider.Scope`, the file's own declarations through `LocalScope`.
+// Each entry is filed under the container that declares it, so a same-named case in two
+// modules yields two entries rather than one bare-name winner.
 
 let private asm: CompilingAssembly =
     {
@@ -136,21 +136,21 @@ let private expectBagSpellings (view: IExternalSymbolProvider) : unit =
     let bySource = containerOrFail view.Scope "Test.A.Bag"
     let byCompiled = containerOrFail view.Scope "Test.A.BagModule"
     Expect.equal bySource byCompiled "one module, two spellings"
-    Expect.isTrue (view.Scope.TryValue(bySource, "size")).IsSome "its value answers under either"
+    Expect.isTrue (view.Scope.TryValue(bySource, "size")).IsSome "its value resolves under either"
 
     match view.Scope.TryValue(bySource, "count"), view.Scope.TryValue(bySource, "Count") with
     | ValueSome bySourceName, ValueSome byCompiledName ->
         Expect.equal bySourceName.Key.Name "Count" "the source short name reaches the compiled binding"
         Expect.equal byCompiledName.Key bySourceName.Key "one binding under both short names"
-    | other -> failtestf "a [<CompiledName>] value answers under either short name: %A" other
+    | other -> failtestf "a [<CompiledName>] value resolves under either short name: %A" other
 
     // A short name is read off the binding key, never split back out of a rendered one:
     // `` `a.size` `` renders `Test.A.BagModule.a.size`, whose last dotted segment is `size`.
     match view.Scope.TryValue(bySource, "size"), view.Scope.TryValue(bySource, "a.size") with
     | ValueSome plain, ValueSome quoted ->
         Expect.equal plain.Key.Name "size" "a quoted name holding a dot claims no sibling's slot"
-        Expect.equal quoted.Key.Name "a.size" "and answers under the whole name it binds"
-    | other -> failtestf "both bindings answer under their own short names: %A" other
+        Expect.equal quoted.Key.Name "a.size" "and resolves under the whole name it binds"
+    | other -> failtestf "both bindings resolve under their own short names: %A" other
 
 // --- Composition ------------------------------------------------------------------------
 
@@ -161,7 +161,7 @@ let private caseOf (unionKey: TypeKey) (name: string) : ExternalUnionCase =
         IsRequireQualifiedAccess = false
     }
 
-/// A scope declaring `cases` in every container, and answering `TryContainer` for `paths`.
+/// A scope declaring `cases` in every container, whose `TryContainer` resolves `paths`.
 let private scopeOfCases (paths: string list) (cases: ExternalUnionCase list) : IScopeContents =
     { new IScopeContents with
         member _.TryContainer path =
@@ -208,7 +208,7 @@ let tests =
                         Expect.isTrue (scope.TryContainer "Other").IsNone "no such namespace"
                     }
 
-                    test "a value answers in its declaring module only" {
+                    test "a value resolves in its declaring module only" {
                         let scope = (publishedViews [ "lib.fs", lib ]).[0].Scope
                         let m = containerOrFail scope "Test.A.M"
                         let ns = containerOrFail scope "Test.A"
@@ -221,7 +221,7 @@ let tests =
                         Expect.isTrue (scope.TryValue(ns, "v")).IsNone "v is not declared directly in the namespace"
                     }
 
-                    test "a same-named case in two modules is two answers, each carrying its union" {
+                    test "a same-named case in two modules resolves twice, each carrying its union" {
                         let scope = (publishedViews [ "lib.fs", lib ]).[0].Scope
                         let m = containerOrFail scope "Test.A.M"
                         let n = containerOrFail scope "Test.A.N"
@@ -236,16 +236,17 @@ let tests =
                         Expect.isEmpty (scope.UnionCasesNamed(m, "Off")) "Off is N's, not M's"
                     }
 
-                    test "an RQA union's case answers with the flag set" {
+                    test "an RQA union's case resolves with the flag set" {
                         let scope = (publishedViews [ "lib.fs", rqaLib ]).[0].Scope
                         let m = containerOrFail scope "Test.A.M"
 
                         match scope.UnionCasesNamed(m, "Red") with
-                        | EqOne uc -> Expect.isTrue uc.IsRequireQualifiedAccess "the flag rides the answer"
+                        | EqOne uc ->
+                            Expect.isTrue uc.IsRequireQualifiedAccess "the flag is carried on the resolved case"
                         | other -> failtestf "Red resolves through its module; the report is the caller's: %A" other
                     }
 
-                    test "types answer by name within a module, carrying their arity" {
+                    test "types resolve by name within a module, carrying their arity" {
                         let scope = (publishedViews [ "lib.fs", lib ]).[0].Scope
                         let m = containerOrFail scope "Test.A.M"
 
@@ -258,7 +259,7 @@ let tests =
                         Expect.equal (scope.TypesNamed(m, "Light")).Length 0 "Light is N's"
                     }
 
-                    test "a name declared at several arities answers narrowest first" {
+                    test "a name declared at several arities resolves narrowest first" {
                         let scope = (publishedViews [ "lib.fs", arityLib ]).[0].Scope
                         let m = containerOrFail scope "Test.Ar.M"
 
@@ -296,7 +297,7 @@ let tests =
                         | other -> failtestf "a type the module holds resolves under the module's source path: %A" other
                     }
 
-                    test "a composed stack answers from every file, nearest first" {
+                    test "a composed stack resolves from every file, nearest first" {
                         let views =
                             publishedViews
                                 [
@@ -323,7 +324,7 @@ module P =
             testList
                 "the file's own declarations"
                 [
-                    test "the local half answers the same questions over the registry" {
+                    test "the local half resolves the same lookups over the registry" {
                         let lexed, file = parseFile lib
 
                         let ctx, _ =
@@ -367,7 +368,7 @@ module P =
             testList
                 "composition"
                 [
-                    test "two sources publishing the SAME case answer once; two unions answer twice" {
+                    test "two sources publishing the SAME case resolve to one; two unions resolve to two" {
                         let color = SymbolKeyOps.typeKeyOfArity "Test" "Color" 0
                         let light = SymbolKeyOps.typeKeyOfArity "Test" "Light" 0
 

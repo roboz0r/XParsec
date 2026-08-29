@@ -173,7 +173,7 @@ module internal ElaborateMembers =
             access = memberAccess
             defn = d)) ->
             let isStatic = s.IsSome
-            // Member-level accessibility rides `MemberDefn.Member.access` (`member private
+            // Member-level accessibility is carried on `MemberDefn.Member.access` (`member private
             // this.M`), NOT the inner `Binding.access`, always `ValueNone` for a member.
             let memberAccessibility = accessibilityOfToken memberAccess
             let decls = memberDecls ctx d

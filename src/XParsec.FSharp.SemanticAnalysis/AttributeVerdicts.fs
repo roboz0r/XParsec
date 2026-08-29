@@ -29,8 +29,8 @@ type TAttributes = EqArray<TAttribute>
 
 /// The axis the attribute-legality matrices key on: one case per shape a declaration can
 /// take, because a record may carry `[<ReferenceEquality>]` where a struct record cannot.
-/// `[<Struct>]` is its own axis on a record, union or class: the value-type form answers
-/// differently on both the legality matrices and `[<AttributeUsage>]` target enforcement.
+/// `[<Struct>]` is its own axis on a record, union or class: the value-type form differs on
+/// both the legality matrices and `[<AttributeUsage>]` target enforcement.
 [<RequireQualifiedAccess>]
 type TypeDefnKind =
     | Record

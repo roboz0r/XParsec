@@ -63,8 +63,8 @@ module internal UnificationTranslate =
                 ))
         | ValueSome r -> errorTy ctx site.Tok (Kind.NotYetSupported(sprintf "'%s' is %s" name r.Description))
         | ValueNone ->
-            // Blamed at the name's first token alone, because the long-ident span is not in
-            // hand here.
+            // Reported at the name's first token alone; the long-ident span is not
+            // available here.
             ctx.UndefinedType(Site.ofToken site.Tok, name)
             TyUnknown(UnknownReason.UndefinedName name)
 
@@ -99,7 +99,7 @@ module internal UnificationTranslate =
 
     /// Built-in numeric names that can carry a measure (`float<m>`, `int<kg>`). A
     /// `carrier<arg>` ARGUMENT is a measure atom, never a type reference, so a walk that
-    /// diagnoses unknown names must stop at the same carriers, else `float<kg>` blames `kg`.
+    /// diagnoses unknown names must stop at the same carriers, else `kg` is reported undefined.
     ///
     /// A NAME test, necessarily: the carrier is recognised before it resolves to anything, so
     /// an alias spelling (`single`, `double`) reaches here as itself.
@@ -117,7 +117,7 @@ module internal UnificationTranslate =
         | ValueSome canon -> TyConst(canon, args)
         | ValueNone -> TyClass(key, args)
 
-    /// DEBUG-only, for a DOTTED name neither the store view nor a local claim answered: every
+    /// DEBUG-only, for a DOTTED name that neither the store view nor a local claim resolved: every
     /// written reference carries a verdict, so NO verdict is a stamping walk that missed this
     /// syntax position, and an EXTERNAL verdict's key must be servable by the store view.
     let private assertNoDottedStampGap (ctx: PassContext) (nodeKey: NodeKey) (li: LongIdent<SyntaxToken>) : unit =
@@ -294,7 +294,7 @@ module internal UnificationTranslate =
         | Type.SuffixedType(longIdent = li) ->
             // Postfix application through a QUALIFIED name (`int A.T`). F# accepts it; this
             // compiler has no model for the shape, which the diagnostic says rather than
-            // blaming the spelling.
+            // reporting the name as unresolved.
             let site = CstKeys.typeRefSite t
             let written = (ctx.WrittenTypeNameOf li).Written
 
@@ -375,9 +375,9 @@ module internal UnificationTranslate =
 
         match claimed with
         | ValueSome ty -> ty
-        // Nothing claims the name at arity 0, so a GENERIC local type of that name answers at
-        // any arity, its args back-filled with fresh TyVars at the current level (unpinned
-        // here, fixed by surrounding unification). An enum always claims arity 0.
+        // With no claim at arity 0, a GENERIC local type of that name resolves at any
+        // arity, its args back-filled with fresh TyVars at the current level, left unpinned
+        // for the surrounding unification to fix. An enum always claims arity 0.
         | ValueNone ->
             let fromLocal =
                 match TypeRegistry.tryTypeClaimAnyArity ctx.Types (ctx.UseSiteAt site.Key) name with
@@ -402,7 +402,7 @@ module internal UnificationTranslate =
 
     /// Resolve a QUALIFIED reference (`A.T`, `N.A.T<int>`) whose external verdict read already
     /// missed: it resolves to a project-local type THROUGH the scope holding it, or does not
-    /// resolve at all. The claim on `(path, name, arity)` answers, as it does for a bare name.
+    /// resolve at all. The claim on `(path, name, arity)` resolves it, as it does for a bare name.
     and private resolveQualifiedTypeName
         (ctx: PassContext)
         (site: NodeSite)
@@ -421,7 +421,7 @@ module internal UnificationTranslate =
         | ValueSome ty -> ty
         | ValueNone ->
             // The name reaches a local type at some OTHER arity (`A.T<int>` where `A` holds a
-            // non-generic `T`): blame the arity, never fall through to an external spelling.
+            // non-generic `T`): report the arity mismatch, never fall through to an external spelling.
             match TypeRegistry.tryWrittenTypeClaimAnyArity ctx.Types useSite written with
             | ValueSome other ->
                 errorTy ctx site.Tok (Kind.TypeArgArity(written.Written, other.TyparArity, args.Length))
@@ -456,8 +456,8 @@ module internal UnificationTranslate =
         match claimed with
         | ValueSome ty -> ty
         | ValueNone ->
-            // The exact-arity claim missed: the any-arity lookup answers, forwarding the
-            // WRITTEN args and blaming the arity. An IntrinsicRepr is left undiagnosed, because
+            // The exact-arity claim missed: the any-arity lookup resolves it, forwarding the
+            // WRITTEN args and reporting the arity. An IntrinsicRepr is left undiagnosed, because
             // a niladic primitive tolerates stray args and a generic one (`array`) forwards them.
             let fromLocal =
                 match TypeRegistry.tryTypeClaimAnyArity ctx.Types (ctx.UseSiteAt site.Key) name with
@@ -646,7 +646,7 @@ module internal UnificationTranslate =
     /// an abbreviation has no fresh-instance step, and a Defer propagates to free arg TyVars.
     and expandAbbreviation
         (ctx: PassContext)
-        (blameTok: SyntaxToken)
+        (tok: SyntaxToken)
         (info: AbbreviationInfo)
         (args: EqArray<SemType>)
         : SemType =
@@ -660,7 +660,7 @@ module internal UnificationTranslate =
             for c in ctx.Store.Constraints.Items protoRoot do
                 match checkConstraint ctx c arg with
                 | Satisfied -> ()
-                | Violated -> reportConstraintViolation ctx blameTok c arg
+                | Violated -> reportConstraintViolation ctx tok c arg
                 | Defer -> propagateToFreeArgs ctx c arg
 
         match info.State with

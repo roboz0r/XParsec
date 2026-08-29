@@ -249,7 +249,7 @@ module UnionFind =
 
     /// Follow union-find roots + `.Link` until the OUTERMOST type constructor is concrete;
     /// nested type arguments are left untouched. A root carrying a `Units` measure stops
-    /// the follow, so the measure rides on the returned `TyVar`.
+    /// the follow, so the measure stays on the returned `TyVar`.
     let rec zonkShallow (store: TypeStore) (t: SemType) : SemType =
         match t with
         | TyVar tv ->

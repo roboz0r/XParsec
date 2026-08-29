@@ -51,7 +51,7 @@ module JsExternalMembers =
         elif isProperty then typeName + "__get_" + memberName
         else typeName + "__" + memberName
 
-    /// THE `key -> home` oracle: a `SymbolKey` carries no home, so the only answer is what the
+    /// THE `key -> home` oracle: a `SymbolKey` carries no home, so the home is what the
     /// provider stamped on the RESOLVED SHAPE. Consulted PAST the local/external verdict, so
     /// an unstamped home fails loudly rather than emitting a dangling reference.
     let homeOf (provider: IExternalSymbolProvider) (key: TypeKey) (what: string) : JsHome =
@@ -104,7 +104,7 @@ module JsExternalMembers =
                 | MemberLowering.TypePrefixed -> MemberDispatch.TypePrefixedImport
 
     /// Walk a type's `inherit` chain to the first ancestor carrying an intrinsic repr, and
-    /// answer that repr (`FormatException` → `exn`'s `"Error"`). `ValueNone` for a chain that
+    /// return that repr (`FormatException` → `exn`'s `"Error"`). `ValueNone` for a chain that
     /// reaches none.
     let inheritedReprOf (provider: IExternalSymbolProvider) (key: TypeKey) : string voption =
         // Depth cap backstops a malformed cyclic `inherit`; each hop is a strict ancestor.
@@ -127,7 +127,7 @@ module JsExternalMembers =
         climb 0 key
 
     /// The native runtime class an `exn` subtype constructs through. `ValueNone` for a key
-    /// whose chain reaches no repr, or one whose repr names nothing the runtime provides.
+    /// whose chain reaches no repr, or one whose repr denotes a class the runtime lacks.
     let exnReprOf (provider: IExternalSymbolProvider) (key: TypeKey) : string voption =
         match inheritedReprOf provider key with
         // The PLATFORM repr, not `canon`: `canon` has no JS class analogue.
@@ -137,9 +137,9 @@ module JsExternalMembers =
             | _ -> ValueNone
         | ValueNone -> ValueNone
 
-    /// WHICH JS class `key` names, given `localClass`, the classes the module being emitted
+    /// WHICH JS class `key` denotes, given `localClass`, the classes the module being emitted
     /// declares itself. Read by both the construction site and the `extends` clause, so the
-    /// two cannot answer it differently. `ValueNone` for a key with no JS class behind it.
+    /// two cannot disagree. `ValueNone` for a key with no JS class behind it.
     let tryClassRef
         (provider: IExternalSymbolProvider)
         (localClass: TypeKey -> string voption)

@@ -266,8 +266,8 @@ module FrozenPools =
         let (BoundVarId i) = id
         BoundVarNaming.ofColumn pools.BoundVarNames.[i] id
 
-    /// The typar-axis width recorded for `boundVar`. An empty slot reads 0 as the ANSWER, not
-    /// as a fallback: a bound variable with no recorded width quantifies nothing.
+    /// The typar-axis width recorded for `boundVar`. An empty slot is genuinely 0 rather than
+    /// a fallback: a bound variable with no recorded width quantifies nothing.
     let typarArity (pools: FrozenPools) (boundVar: BoundVarId) : int =
         BoundVarColumn.tryItem pools.BindingTyparArities boundVar
         |> ValueOption.defaultValue 0

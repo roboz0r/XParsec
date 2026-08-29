@@ -13,7 +13,7 @@ open NameResolutionTypeRefStamp
 
 module NameResolutionInheritParent =
 
-    /// The use site the type named at `li` speaks from: its own place in the file, under
+    /// The use site of the type name at `li`: its own position in the file, under
     /// the module and `open`s the registration scan currently stands in.
     let private useSiteOfTypeName (ctx: PassContext) (li: LongIdent<SyntaxToken>) : UseSite =
         ctx.UseSiteAt(NodeKey.ofToken li.Idents.[li.Idents.Length - 1] NodeKind.TypeNamed)
@@ -97,9 +97,9 @@ module NameResolutionInheritParent =
                         | ValueSome c -> TyConst(c, args)
                         | ValueNone -> TyConst(RuntimeNames.opaqueKey name, EqArray.empty)
 
-    /// An `inherit` parent that a provider answers for, rather than the project-local type
-    /// registry. Already discriminated: the arm a caller takes is fixed here, so no caller
-    /// re-inspects a surface to choose one.
+    /// An `inherit` parent resolved through a provider, rather than the project-local type
+    /// registry. The arm is fixed at construction, so a caller matches on it rather than
+    /// re-inspecting a surface.
     [<RequireQualifiedAccess>]
     type private ProviderBase =
         /// A class published by a prior file of this assembly, or by a reference.

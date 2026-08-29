@@ -92,7 +92,7 @@ one mechanism, as in equality.
 ## 4. No new runtime library
 
 Nothing to add. The equality doc deleted `Runtime.*` and made structural arrays
-a *type* (`Block<'T>`); comparison rides on the same decision. `Comparer<T>.Default`,
+a *type* (`Block<'T>`); comparison follows the same decision. `Comparer<T>.Default`,
 `IComparable<T>`, `IComparable` are all BCL. The only hand-authored ordering
 code is `Block<'T>`'s `CompareTo` (§6), and only if `Block` is made comparable.
 
@@ -262,7 +262,7 @@ ordered-collections packages (`Vesper.Set` today; `Map` when it lands). It is **
 runtime: the `compare` / `min` / `max` intrinsic signatures and the
 `[<StructuralComparison>]` / `[<CustomComparison>]` / `[<NoComparison>]`
 attribute hooks (cf. `prim-types-attr.fsi`). Comparison needs no runtime *type*
-— it rides on BCL `IComparable<T>` / `Comparer<T>.Default`. **Provisional:**
+— it relies on BCL `IComparable<T>` / `Comparer<T>.Default`. **Provisional:**
 building `Set` / `Map` against it will likely revise the contract (§9), so this
 package lands first but is expected to churn with its consumer.
 

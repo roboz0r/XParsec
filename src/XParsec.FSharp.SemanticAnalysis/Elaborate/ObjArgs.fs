@@ -86,8 +86,8 @@ module internal ElaborateObjArgs =
         | ps, _ -> ps
 
     /// The declared parameter types of the project-local member `key` identifies, selected by the
-    /// key's OWN argSig so one of two same-name overloads cannot answer for the other. Empty
-    /// for an external or unresolved member, whose call still emits, just unwrapped.
+    /// key's OWN argSig so one of two same-name overloads cannot be picked in place of the
+    /// other. Empty for an external or unresolved member, whose call still emits, just unwrapped.
     let memberParamTys (ctx: PassContext) (key: SymbolKey) : SemType list =
         match key with
         | SymbolKey.Member mk ->

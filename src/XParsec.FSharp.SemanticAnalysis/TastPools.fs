@@ -57,7 +57,7 @@ module TastPools =
     /// included.
     let rec poolExpr (sink: PoolSink<'tok, 'id>) (e: TExprG<FrozenType, 'tok, 'id>) : ExprPoolId =
         // A `ForTo` binds its loop variable with no pattern node behind it, so the intern
-        // cannot ride `poolPat`.
+        // happens here rather than in `poolPat`.
         let boundVar = BoundVarKey.ofExpr e |> ValueOption.map sink.InternBoundVar
         let exprKids = exprChildren e |> Array.map (poolExpr sink)
         let patKids = exprPatChildren e |> Array.map (poolPat sink)

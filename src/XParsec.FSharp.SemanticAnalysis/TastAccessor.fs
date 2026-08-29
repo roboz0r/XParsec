@@ -755,8 +755,8 @@ module TastAccessor =
     [<return: Struct>]
     let private (|DType|_|) (d: DeclId) : TypeDecl voption =
         match declPayload d with
-        // Only the BODIES move: the type, token and key slots already hold what a pooled
-        // reference speaks.
+        // Only the BODIES move: the type, token and key slots already hold the shape a pooled
+        // reference consumes.
         | DeclPayload.Type td ->
             ValueSome(
                 TastConvert.typeDecl

@@ -170,7 +170,7 @@ let structTests =
                 let program = (loadAssembly bytes).GetType "Program"
 
                 // Each `describe` runs its boxed value through `ToString`, so a missing box is
-                // invalid IL the JIT refuses here rather than a wrong answer. Whether a `unit`
+                // invalid IL the JIT refuses here rather than a wrong result. Whether a `unit`
                 // parameter survives into the ABI is not this test's claim, so the call is
                 // built from the signature it finds.
                 let describes (name: string) : string =

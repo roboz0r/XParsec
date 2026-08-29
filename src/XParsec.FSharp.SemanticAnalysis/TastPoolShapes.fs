@@ -162,7 +162,7 @@ module TastPoolShapes =
 
     /// The immediate child *patterns* an expression owns directly, in source order: the
     /// bound variables (`Lambda`/`Let`/`Use`/`ForIn`) and the per-arm scrutinee patterns
-    /// (`Match`/`TryWith`). `ForTo`'s loop variable is a bare bound variable, so it rides the payload.
+    /// (`Match`/`TryWith`). `ForTo`'s loop variable is a field of the node, not a pattern.
     let exprPatChildren (e: TExprG<FrozenType, 'tok, 'id>) : TPatG<FrozenType, 'tok, 'id>[] =
         let acc = ResizeArray<TPatG<FrozenType, 'tok, 'id>>()
 
@@ -259,7 +259,7 @@ module TastPoolShapes =
         (e: TExprG<FrozenType, 'tok, 'id>)
         : ExprPayload =
         // Per-arm guard-presence flags, the only residual structure a `Match`/`TryWith`
-        // records; the arm pats, guards and bodies themselves ride the child columns.
+        // records; the arm pats, guards and bodies themselves are stored in the child columns.
         let armGuards (arms: EqArray<TMatchArmG<_, _>>) =
             arms |> EqArray.toArray |> Array.map (fun arm -> arm.Guard.IsSome)
 

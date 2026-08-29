@@ -136,7 +136,7 @@ declared `interface <ty>` impls.
 Establish which is true. If unions do carry them, the class drivers in that data file are
 unnecessary indirection and the fixture simplifies.
 
-**Answered by batch 4: unions do carry them.** `src/Vesper.List/list.fs` declares
+**Settled by batch 4: unions do carry them.** `src/Vesper.List/list.fs` declares
 `List<'T>` as a union and implements `interface seq<'T> with` on it directly, and the Set and
 List module suites drive that impl and pass. A `SetModuleTests.fs` comment asserting the
 opposite (and crediting a `ListSeq` wrapper class that exists nowhere in the tree) has been
@@ -576,7 +576,7 @@ against a class `Foo<'A,'B>` and a union `Foo<'A>` and expects it to type-check.
 
 Either bare application does resolve by written arity, and the `new` spelling is unnecessary,
 or the last test passes for some other reason. The surviving comment is phrased neutrally
-pending an answer.
+pending a verdict.
 
 ## A56. 45 em-dashes remain in assertion messages and test names — DONE
 

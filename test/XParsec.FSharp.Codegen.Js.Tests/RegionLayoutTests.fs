@@ -45,7 +45,7 @@ let tests =
             }
 
             test "a tuple-typed call result is tracked" {
-                // JS answers an array for a tuple of any arity, and no array is laid out flat,
+                // JS represents a tuple of any arity as an array, and no array is laid out flat,
                 // so `pair 3` is tracked where the CLR suite's copy of this program is not.
                 let p = probe "let pair x = (x, x)\nlet pt = pair 3"
 

@@ -127,7 +127,7 @@ let private ctorMemberOf (ctx: MapCtx) (ctorSigs: ResizeArray<Ts.Signature>) : S
             }
 
 /// The wire field that selects the import intrinsic at lowering. TS stores
-/// `export default` / `export =` under reserved escaped names, so the brand rides
+/// `export default` / `export =` under reserved escaped names, so the brand is carried on
 /// `escaped` (the export-table entry) while `resolved` supplies only the module case.
 let private importShapeOf (resolved: Ts.Symbol) (escaped: string) : Schema.ImportShape =
     if escaped = unbox<string> Ts.InternalSymbolName.Default then

@@ -38,7 +38,7 @@ module Conformance =
         /// does require an implementation. The label is for diagnostics.
         | Other of label: string
 
-        /// The `extern` family: the `.fs` must answer with a `(# … #)` repr, and the two
+        /// The `extern` family: the `.fs` must supply a `(# … #)` repr, and the two
         /// sides' heritability must agree.
         member this.DemandsIntrinsic =
             match this with
@@ -707,7 +707,7 @@ module Conformance =
     type UnitConformance =
         {
             ModuleMismatch: ModuleDeclMismatch voption
-            /// Empty = the implementation answers the signature.
+            /// Empty = the implementation conforms to the signature.
             Errors: ConformanceError list
             /// The implementation's `[<Import>]` bindings, awaiting the manifest-held half
             /// of the check: path against the `runtime` list, selector against the asset's

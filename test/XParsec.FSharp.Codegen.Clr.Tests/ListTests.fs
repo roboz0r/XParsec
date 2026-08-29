@@ -14,7 +14,7 @@ let tests =
         "Lists"
         [
             test "`printfn \"%A\" [1; 2; 3]` analyses clean as a Cons/Empty chain over List<int>" {
-                // `%A` of a list lowers to a `Format` node, and the cons chain rides
+                // `%A` of a list lowers to a `Format` node, and the cons chain arrives
                 // as the hole's argument rather than a call argument.
                 let tast = analyse "printfn \"%A\" [1; 2; 3]"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"

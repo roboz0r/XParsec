@@ -200,9 +200,9 @@ let tests =
                 let msgs = [ for d in ctx.Diagnostics -> d.Message ]
 
                 Expect.hasLength msgs 1 (sprintf "one diagnostic for the one broken contract, got %A" msgs)
-                Expect.stringContains msgs.[0] "'Widget' is a delegate type" "the phrase names the construct"
+                Expect.stringContains msgs.[0] "'Widget' is a delegate type" "the phrase calls out the construct"
                 Expect.stringContains msgs.[0] "not yet supported" "a feature gap, not a missing package"
-                Expect.isFalse (msgs.[0].Contains "dependency missing") "not blamed on a missing dependency"
+                Expect.isFalse (msgs.[0].Contains "dependency missing") "not attributed to a missing dependency"
             }
 
             test "ident `true` types as bool via provider" {

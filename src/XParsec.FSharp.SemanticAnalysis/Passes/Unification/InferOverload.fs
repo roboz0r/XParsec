@@ -110,7 +110,7 @@ module UnificationInferOverload =
                 binds.CallerVars.[root.Id] <- other
                 true
 
-    /// One entry per DECLARED parameter: the realised signature peeled one `->` per argument
+    /// One entry per DECLARED parameter: the instantiated signature peeled one `->` per argument
     /// group, each domain untupled to its width. The width comes from the FROZEN group, which
     /// is what tells a flattened 2-param group from a genuine single tuple param.
     let memberParamTypes (store: TypeStore) (typeArgs: SemType[]) (m: ExternalMember) : SemType list =
@@ -614,7 +614,7 @@ module UnificationInferOverload =
         }
 
     /// A resolved instance member, or the diagnostic its verdict earns. `NotFound` earns none:
-    /// nothing declares the name, which every caller answers with its own fall-through.
+    /// nothing declares the name, and every caller handles it with its own fall-through.
     [<RequireQualifiedAccess>]
     type InstanceMemberPick =
         | Resolved of InstanceMember

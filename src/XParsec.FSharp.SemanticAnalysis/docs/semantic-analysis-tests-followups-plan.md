@@ -95,7 +95,7 @@ test to a submission. Rename to state the rule.
 ## A6. `moduleBindings` can list an `inline` binding twice, inflating a vacuous-pass guard
 
 `FrozenSignatureTests.moduleBindings` returns `fromDecls @ fromInline`, and a `let inline`
-rides both `Decls` and `InlineBodies`. One caller dedupes incidentally (`List.find`); the
+appears in both `Decls` and `InlineBodies`. One caller dedupes incidentally (`List.find`); the
 other is the parity oracle, which increments `checked'` per iteration and closes with
 `Expect.isGreaterThanOrEqual checked' 7 "all parity bindings compared"` — a guard whose whole
 job is to catch a vacuous pass. A duplicate satisfies it without a distinct comparison.
@@ -129,7 +129,7 @@ NodeKind.ExprInfixApp` entries resolve to `OpName "op_Addition"` and `OpName "op
 ## A9. Test helpers are re-declared per file, twice with the SAME NAME and DIFFERENT types
 
 `analyse` is declared privately in **32** files of this project; `errors` and `expectClean`
-are re-declared verbatim across the scoping five. Worse, a grep on one name gives two answers:
+are re-declared verbatim across the scoping five. Worse, a grep on one name gives two matches:
 
 - `nominalKey : SemType -> TypeKey` (`FileOrderScopingTests.fs:56`) vs
   `nominalKey : SemType -> SymbolKey` (`ModuleScopingTests.fs:94`)
@@ -327,7 +327,7 @@ analyses through `realProvider`, whose `(=)` is polymorphic
 So `TyEnum E = TyEnum E` checks cleanly and the assertion is vacuous. Use
 `Expect.isEmpty tast.Diagnostics`, which is what the test title claims.
 
-The deleted comment made the same mistake in prose, blaming a monomorphic `op_Equality` from
+The deleted comment made the same mistake in prose, citing a monomorphic `op_Equality` from
 `MockBuiltins` — which does not exist in this project at all; it lives in the Codegen test
 projects. **The stale assertion MESSAGE still says "the mock's monomorphic-int `=` shape
 clash"**; it is a string literal, so the sweep left it.

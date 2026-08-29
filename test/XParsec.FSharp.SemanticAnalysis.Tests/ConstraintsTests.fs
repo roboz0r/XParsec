@@ -135,7 +135,7 @@ let tests =
             }
 
             // A function is a reference shape on every target. Value-ness of a PRIMITIVE is
-            // the target's answer and this suite composes no platform, so the codegen
+            // the target's decision and this suite composes no platform, so the codegen
             // conformance corpus pins those. `"struct"` also matches the `not struct` message.
             test "struct constraint violated by a function type" {
                 let ctx =
@@ -152,7 +152,7 @@ let tests =
             }
 
             // A NOMINAL's declaration decides where no platform overrides it, so both
-            // polarities are answered here even though a primitive's are not.
+            // polarities are covered here even though a primitive's are not.
             test "struct constraint satisfied by a [<Struct>] record" {
                 let ctx =
                     analyseUnif

@@ -140,9 +140,9 @@ let tests =
             }
 
             // The corpus above declares ZERO generic members, so it never populates a member's
-            // `MethodTypeParams`. This case forces a non-empty carrier: it must ride as
+            // `MethodTypeParams`. This case forces a non-empty carrier: it must be stored as
             // `(name, FTTypar(Method, i))` and round-trip as plain data.
-            test "a generic member's MethodTypeParams rides the frozen tree as FTTypar and round-trips" {
+            test "a generic member's MethodTypeParams is stored on the frozen tree as FTTypar and round-trips" {
                 let f = frozenOfJs "type C() =\n    member this.Id<'T> (x: 'T) : 'T = x\n"
 
                 let methodTypars =
@@ -164,7 +164,7 @@ let tests =
                 Expect.equal
                     (EqArray.toList methodTypars)
                     [ "'T", FTTypar(TyparAxis.Method, 0) ]
-                    "member's own typar rides as (name, FTTypar(Method, 0))"
+                    "member's own typar is stored as (name, FTTypar(Method, 0))"
 
                 Expect.isTrue (survivesRoundTrip f) "generic-member file survived flatten/thaw structurally"
             }
@@ -213,7 +213,7 @@ let tests =
             // The corpus writes no attributes, so the five `Attributes` slots (type decl,
             // member, union case, record field, enum case) would round-trip vacuously empty.
             // This source populates every one and asserts on the DECODED tree.
-            test "attributes at every declaration position ride the frozen tree and round-trip" {
+            test "attributes at every declaration position are stored on the frozen tree and round-trip" {
                 let f =
                     frozenOfJs (
                         String.concat

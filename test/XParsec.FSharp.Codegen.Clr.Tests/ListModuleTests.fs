@@ -10,7 +10,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.PackageHarness
 // `Empty` factory, `(::)` → a static `Cons` factory plus `Cons_0`/`Cons_1` payload
 // fields. The surface under test is `IsEmpty`/`Head`/`Tail` and the module functions.
 
-// Reflection covers the pure-data surface; `fold` rides driver programs, since its
+// Reflection covers the pure-data surface; `fold` is exercised by driver programs, since its
 // `folder` is a `Vesper.Fun` reflection cannot mint. `Vesper.List` is in
 // `defaultPackages` + `withCore`, so the plain `runs` helper already has it in scope.
 

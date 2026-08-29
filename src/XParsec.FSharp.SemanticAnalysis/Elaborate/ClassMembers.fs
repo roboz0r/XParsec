@@ -87,7 +87,7 @@ module internal ElaborateClassMembers =
     /// member sees only `static let`.
     let classDeclaringType (ctx: PassContext) (info: ClassTypeInfo) : DeclaringType =
         // The instantiated self-type the synthesised `this` Var carries. Declaring typars
-        // ride as `TyVar` roots here; the cut to `TyTypar` is made over the whole decl.
+        // are still `TyVar` roots; the cut to `TyTypar` is made over the whole decl.
         let classTy = TyClass(info.TypeKey, declTyparArgs ctx.Store info.TypeParams)
 
         let staticRewrite = staticFieldRewrite info

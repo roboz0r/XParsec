@@ -78,7 +78,7 @@ module internal ElaborateStrings =
                 segments.Add(FormatSeg.Lit(litRun.ToString()))
                 litRun.Clear() |> ignore
 
-        // `%%` collapses to `%`, because an interpolated string rides the same `PrintfFormat`
+        // `%%` collapses to `%`, because an interpolated string uses the same `PrintfFormat`
         // machinery as printf. An escape denoting no character keeps the whole string on the
         // literal-stitch fallback, which reports it.
         let appendLiteralToken (t: SyntaxToken) =

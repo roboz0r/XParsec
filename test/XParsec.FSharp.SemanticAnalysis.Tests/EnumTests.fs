@@ -65,7 +65,7 @@ let tests =
             }
 
             test "numeric enum preserves the authored integral kind (suffix)" {
-                // `1uy` → `IntKind.Byte`: the authored kind rides through on the
+                // `1uy` → `IntKind.Byte`: the authored kind is carried on the
                 // constant's `IntKind` and is never defaulted, so the renderer
                 // re-prints the `uy` suffix.
                 let tast = analyse "type Widths = | A = 1uy | B = 2uy"

@@ -8,7 +8,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 // The frozen-implementation-file → `IExternalSymbolProvider` projection: file N's
 // inferred signature as a provider view, so file N+1 resolves N's exports with no DLL
-// emitted. Identities are read out of the frozen file and the provider asked to answer.
+// emitted. Identities are read out of the frozen file and resolved through the provider.
 
 /// The pools re-authored as the `Pooled.TastFile` DU, so the assertions can read whole
 /// decl trees and the bound-variable-keyed side tables.
@@ -32,7 +32,7 @@ let private membersOfType (frozen: FrozenPools) (name: string) : Pooled.TTypeMem
         | _ -> None
     )
 
-/// Every module-level binding's `(source name, BindingKey)`. An `inline` binding rides
+/// Every module-level binding's `(source name, BindingKey)`. An `inline` binding appears in
 /// BOTH `Decls` and the inline vocabulary, so the concatenation can list it twice.
 let private moduleBindings (frozen: FrozenPools) : (string * BindingKey) list =
     let file = duOf frozen
@@ -99,7 +99,7 @@ module M =
     [<Struct>]
     type Point = { x: int; y: int }
 
-    let answer = 42
+    let total = 42
     let ident (x: 'a) : 'a = x
     let inline twice (x: int) = x + x
     let private secret = 99
@@ -179,16 +179,16 @@ let tests =
                 let store = provider :> IExternalSymbolStore
                 let resolver = provider :> IExternalSymbolResolver
 
-                let answerKey = bindingKey frozen "answer"
+                let totalKey = bindingKey frozen "total"
 
-                match store.TryLookupByKey answerKey with
+                match store.TryLookupByKey totalKey with
                 | ValueSome s ->
-                    Expect.equal s.TyparArity 0 "answer is monomorphic"
-                    // The scope answers the SAME entry through the container that declares it.
+                    Expect.equal s.TyparArity 0 "total is monomorphic"
+                    // The scope resolves the SAME entry through the container that declares it.
                     Expect.isTrue
-                        (resolver.Scope.TryValue(answerKey.Decl, answerKey.Name)).IsSome
-                        "answer resolves through its container"
-                | ValueNone -> failtest "answer did not project"
+                        (resolver.Scope.TryValue(totalKey.Decl, totalKey.Name)).IsSome
+                        "total resolves through its container"
+                | ValueNone -> failtest "total did not project"
 
                 match store.TryLookupByKey(bindingKey frozen "ident") with
                 | ValueSome s -> Expect.equal s.TyparArity 1 "ident has one typar"

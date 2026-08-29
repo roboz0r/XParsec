@@ -228,8 +228,8 @@ module TastUnpool =
     /// `ofPools (toPools f) = f` is what makes the columns' tree-sufficiency checkable.
     let ofPools (pools: FrozenPools) : Pooled.TastFile =
         // The bound variable ids back in the BOUND-VARIABLE key space by PROJECTION: as the trees below are
-        // rebuilt, each node is asked what it binds, and only what they answer can key a
-        // rebuilt side table, so no bound variable identity the tree does not bear can be minted.
+        // rebuilt, each node readmits what it binds, and only a readmitted key can key a
+        // rebuilt side table, so every minted identity is one the tree bears.
         let readmitted =
             System.Collections.Generic.Dictionary<BoundVarId, BoundVarKeyG<BoundVarId>>()
 

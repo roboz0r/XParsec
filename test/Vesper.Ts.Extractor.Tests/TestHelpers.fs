@@ -298,7 +298,7 @@ let testProviderResolves (path: string) =
                 // THE LOOKUP CONTRACT (`SymbolKeyOps.arityName`): the provider keys types
                 // under their ARITY-SUFFIXED qualified name (`Box\`1`), and CALLERS suffix
                 // by arity before lookup — the same law `TsManifestTypes.mint` and the
-                // front-end `TypeTranslate` speak. A generic type (`Box<T>`) resolves ONLY
+                // front-end `TypeTranslate` share. A generic type (`Box<T>`) resolves ONLY
                 // under `Box\`1`, never the bare `Box`, so suffix here deliberately.
                 let name = SymbolKeyOps.arityName (q name) typeParams
                 Expect.isTrue (ExternalSymbols.tryReprType prov name).IsSome $"type '{name}' should resolve"

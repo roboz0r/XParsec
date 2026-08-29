@@ -78,7 +78,7 @@ module ConcatProbe =
                         failtestf "seeded compile should succeed, got:\n%s" text
                 }
 
-                // `string` motivated the seed; `int`/`obj`/`exn` ride the same axis and are
+                // `string` motivated the seed; `int`/`obj`/`exn` resolve through the same axis and are
                 // asserted here so a partial seed cannot pass.
                 test "the self axis is the axis a consumer of the package sees" {
                     let selfAxis = ClrSymbolProviders.selfIntrinsics (Some vesperCorePackage)

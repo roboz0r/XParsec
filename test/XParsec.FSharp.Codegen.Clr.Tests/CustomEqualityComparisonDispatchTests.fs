@@ -99,7 +99,7 @@ let tests =
                 let ty = asm.GetType "Tagged"
                 Expect.isTrue (implementsIEquatable ty) "Tagged declares IEquatable<Tagged>"
 
-                // Execution: the printed answers are the CUSTOM (id-only) answers.
+                // Execution: the printed booleans come from the CUSTOM (id-only) equality.
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
 

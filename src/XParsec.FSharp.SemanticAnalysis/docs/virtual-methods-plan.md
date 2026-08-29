@@ -1,6 +1,6 @@
 # Virtual methods: resolving an `override` to the slot it actually targets
 
-Scope: everything the compiler needs to answer "which virtual slot does this `override`
+Scope: everything the compiler needs to decide "which virtual slot does this `override`
 conform to?" — the inheritance walk, the data saying which members ARE slots, selection
 among same-named slots, and generic slots.
 
@@ -67,7 +67,7 @@ without tranche 5.
 **Cross-unit.** A project-local base published to another project travels
 `TastDecl.IsOverride` (`TastDecl.fs:180`) → `FrozenCodecDecls.fs:305`/`:354` →
 `FrozenSignature.memberOf` (`:110-120`) → `ExternalMember`. Any virtuality flag that must
-survive a project boundary has to ride all four.
+survive a project boundary has to travel all four.
 
 ## Tranche 1 — the walk crosses into external bases
 
@@ -82,7 +82,7 @@ own base.
 
 **Acceptance:** `type D() = inherit exn(); override this.ToString() = "x"` conforms against the
 provider's slot rather than the hardcoded triple; a BCL base's non-Object `Equals` overload
-stops being blamed against `obj -> bool`.
+stops being reported as a mismatch against `obj -> bool`.
 
 **Deletes:** the "an external base's slots are not read here" clause on `tryBaseSlotType`, and
 the matching paragraph in `semantic-analysis-followups-plan.md`.
@@ -107,7 +107,7 @@ the four other producers and all eight test helpers compile untouched. Fill it a
 TAST member), `TsManifestMembers.fs:47` (an interface member is a slot), `VesperLib.fs:895`
 (the contract `abstract member` form).
 
-**Cross-unit.** If a base in ANOTHER project must be slot-accurate, the flag rides
+**Cross-unit.** If a base in ANOTHER project must be slot-accurate, the flag must be carried on
 `TastDecl` + `FrozenCodecDecls` and needs a `Cache.CodeVersion` bump (`Cache.fs:61`). Scoping
 that out is defensible for now — a cross-project base then falls back to name-only, i.e.
 today's behaviour — but it should be a stated decision, not an omission.
@@ -203,7 +203,7 @@ emission defect as well as an inference one. Check before assuming either way.
 **O2. Is a cross-project base in scope?** Decides whether tranche 2 takes the codec change and
 the `CodeVersion` bump, or stops at the compilation unit.
 
-**O3. Which name does the diagnostic blame?** F# blames the override's identifier
+**O3. Which name is the diagnostic reported at?** F# reports at the override's identifier
 (`vm_b.fsx(7,19)`, the member name). `mInfo.DeclSite.Tok` is that token, so the analogue is
 free — but the FS3213 analogue also has to RENDER the candidate list, and there is no existing
 member-signature renderer for that shape.

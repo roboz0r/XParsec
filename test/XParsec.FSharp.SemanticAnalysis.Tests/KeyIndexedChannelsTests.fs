@@ -36,7 +36,7 @@ let tests =
     testList
         "KeyIndexedChannels"
         [
-            test "a module-held type's index signature is answered by its registered key" {
+            test "a module-held type's index signature is read by its registered key" {
                 Expect.equal (provider.TryLookupIndexSignature bagKey) [ stringTy, intTy ] "{ [k: string]: int }"
             }
 

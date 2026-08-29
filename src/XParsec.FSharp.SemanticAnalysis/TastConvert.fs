@@ -2,7 +2,7 @@ namespace XParsec.FSharp.SemanticAnalysis
 
 // Cross-type structural rebuild of the TAST cluster: every embedded `'ty` through `f`,
 // every POSITION through `fTok`, no hooks. Other payload is copied verbatim, but NOT
-// `MethodTypeParams`, whose entries ride `'ty` and would carry a live `UnionFind` cell.
+// `MethodTypeParams`, whose entries embed `'ty` and would carry a live `UnionFind` cell.
 
 [<RequireQualifiedAccess>]
 module TastConvert =

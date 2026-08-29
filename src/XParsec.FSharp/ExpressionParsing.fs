@@ -1191,7 +1191,7 @@ module Expr =
                                 reader.State <-
                                     ParseState.addDiagnosticWithError
                                         DiagnosticCode.MissingExpression
-                                        (blameToken (peekNextSyntaxToken reader) reader)
+                                        (diagnosticToken (peekNextSyntaxToken reader) reader)
                                         err
                                         reader.State
 
@@ -2317,7 +2317,7 @@ module Expr =
             | Ok tok when tok.Token = expectedClose -> consumePeeked tok reader
             | Ok tok when tok.Token = mismatchedClose ->
                 // The wrong close is CONSUMED as the close, so nothing is inserted and the
-                // diagnostic blames the token itself.
+                // diagnostic is reported at the token itself.
                 reader.State <-
                     ParseState.addDiagnosticAt
                         (DiagnosticCode.MismatchedDelimiter(openTok.Token, Site.ofToken openTok, expectedClose))

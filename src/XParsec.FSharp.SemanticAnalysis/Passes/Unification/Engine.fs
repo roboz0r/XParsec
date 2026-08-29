@@ -96,7 +96,7 @@ module UnificationEngine =
                 )
             | ValueNone -> DotSource.UnknownType(name, NominalKind.Union)
 
-    /// `Defer` is the "I don't know yet" answer: the target is still free (or
+    /// `Defer` is the not-yet verdict: the target is still free (or
     /// compound-with-free-args). It stays on the TyVar and re-fires on the next `Link`.
     type ConstraintOutcome =
         | Satisfied
@@ -253,7 +253,7 @@ module UnificationEngine =
         | TyUnknown reason, _
         | _, TyUnknown reason ->
             match reason with
-            // A name this unit's source wrote was already blamed where it was written
+            // A name written in this unit's source is already diagnosed at its own site
             // (`UndefinedTypeNames`); what reports here is a name a baked contract could not
             // resolve.
             | UnknownReason.UndefinedName name ->
@@ -451,7 +451,7 @@ module UnificationEngine =
                         )
 
     /// `ValueSome true` = constraint holds; `ValueSome false` = violation;
-    /// `ValueNone` = no answer, fall through to structural / deferred handling.
+    /// `ValueNone` = undecided, fall through to structural / deferred handling.
     and private primitiveSupports (ctx: PassContext) (kind: SemanticConstraintKind) (key: TypeKey) : bool voption =
         // By KEY, not by name: a user type merely spelled `int` in its own namespace reaches
         // no contract shape, so it declares no capability.
@@ -468,7 +468,7 @@ module UnificationEngine =
                 ValueSome true
             else
                 ValueNone
-        // Nullness is answered structurally and value-ness by the target, for primitives as
+        // Nullness is decided structurally and value-ness by the target, for primitives as
         // much as for anything else, so neither reaches this table.
         | SemanticConstraintKind.Struct
         | SemanticConstraintKind.ReferenceType
@@ -517,7 +517,7 @@ module UnificationEngine =
 
     /// Does `null` inhabit this type? `null` is a union MEMBER, not a property of a type:
     /// `objnull` is `obj | null` and admits it where bare `obj` does not. The CLR's
-    /// reference-null is erased at the ABI seam, so the answer is the same on every target.
+    /// reference-null is erased at the ABI seam, so the verdict is the same on every target.
     and private admitsNull (ctx: PassContext) (t: SemType) : ConstraintOutcome =
         match resolveStep ctx.Store t with
         // Not ground yet, so it states nothing either way: the next `Link` re-fires the check.
@@ -551,13 +551,13 @@ module UnificationEngine =
         // carries no `null` member.
         | _ -> Violated
 
-    /// The layout query as a constraint verdict. No answer is a `Defer`, never a refusal: a
-    /// compile composing no platform states nothing about either polarity.
+    /// The layout query as a constraint verdict. An unsettled layout is a `Defer`, never a
+    /// refusal: a compile composing no platform states nothing about either polarity.
     and private valueLayoutOutcome (ctx: PassContext) (t: SemType) : ConstraintOutcome =
         match TypeLayout.ofSemType ctx t with
         | TypeLayout.Value -> Satisfied
         | TypeLayout.Reference -> Violated
-        | TypeLayout.Unanswered -> Defer
+        | TypeLayout.Unsettled -> Defer
 
     /// Free TyVars return `Defer` so the next `Link` assignment re-fires the check; nested
     /// compounds recurse compositionally.

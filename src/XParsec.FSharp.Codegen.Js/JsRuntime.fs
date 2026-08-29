@@ -80,8 +80,8 @@ module JsPackageOutput =
         | JsPackageOutput.RootModule rt -> [ rt ]
 
 /// The accumulating import for one MODULE: its named bindings plus at most one default and
-/// one namespace binding. A TS default export cannot be imported by name, so it rides its own
-/// slot; the two print as `import D, { a as $x } from "<spec>"`.
+/// one namespace binding. A TS default export cannot be imported by name, so it is stored in
+/// its own slot; the two print as `import D, { a as $x } from "<spec>"`.
 type private ImportEntry =
     {
         Path: JsModulePath
@@ -91,7 +91,7 @@ type private ImportEntry =
         Named: System.Collections.Generic.HashSet<JsNamedImport>
         mutable Default: string option
         /// The `import * as <binding>` local. Its own statement: a namespace clause cannot
-        /// ride the `{ named }` braces, so it is emitted beside the module's other import.
+        /// combine with the `{ named }` clause, so it is emitted beside the module's other import.
         mutable Namespace: string option
     }
 

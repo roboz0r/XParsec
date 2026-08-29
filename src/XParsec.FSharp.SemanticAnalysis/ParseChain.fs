@@ -72,7 +72,7 @@ module ParseChain =
     /// The parse chain shared by both entry points, lex → reader → AST: `run` is the parser
     /// and `accept` projects the AST case the caller wants, any other case failing as a
     /// parse failure. Parse failures surface as `Diagnostic`s (never exceptions), and
-    /// the parser's recovery diagnostics ride out on BOTH arms.
+    /// the parser's recovery diagnostics are returned on BOTH arms.
     let private parseAs
         run
         (accept: FSharpAst<SyntaxToken> -> 'Tree voption)

@@ -243,13 +243,14 @@ let tests =
                 expectSoleUndefinedType "Gadget" "let f (x: Gadget) = x"
             }
 
-            // The dots make no difference: `Foo.Bar.Baz` is blamed whole, by the name written.
+            // The dots make no difference: the diagnostic is reported at the whole
+            // `Foo.Bar.Baz`, by the name written.
             test "a dotted name nothing resolves is not a type — it is diagnosed" {
                 expectSoleUndefinedType "Foo.Bar.Baz" "let f (x: Foo.Bar.Baz) = x"
             }
 
             // Type arguments do not change the verdict on the name they are applied to.
-            // `Widget` is provider-known, so `Gadget` alone is blamed.
+            // `Widget` is provider-known, so only `Gadget` is reported.
             test "an applied name nothing resolves is not a type — it is diagnosed" {
                 expectSoleUndefinedType "Gadget" "let f (x: Gadget<Widget>) = x"
             }

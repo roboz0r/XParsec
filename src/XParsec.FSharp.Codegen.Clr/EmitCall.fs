@@ -250,7 +250,7 @@ module EmitCall =
             // `memberTy` with one `->` peeled per group consumed.
             let resultTy = TastLower.peelFunDomains widths.Length memberTy |> snd
 
-            // The DECLARED `void`-ness, which `resultTy` cannot answer.
+            // The DECLARED `void`-ness, read from the provider rather than derived from `resultTy`.
             let result = CallResult.ofReturnsVoid (env.Provider.ExternalMemberReturnsVoid key)
 
             if isStatic || objArgIsStruct then

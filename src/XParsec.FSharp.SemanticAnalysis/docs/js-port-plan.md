@@ -5,7 +5,7 @@ Working document. Ephemeral: delete it when the work lands.
 T1–T6 are done and their reasoning is **not** repeated here — it lives where it is
 enforceable: the per-package `manifest.toml` comments, `EngineCore.capabilityPlatformKey`'s
 doc comment, and the test suites named below. This file now holds only what is outstanding
-and the questions a future session has to answer.
+and the questions a future session has to resolve.
 
 Line numbers are deliberately absent: the previous revision's had already rotted
 (`EmitJsTypes.fs:409` → `:419` within one tranche). Constructs and file names only.
@@ -249,7 +249,7 @@ and `JsImports` keys both its runtime map and its entries by assembly name (fail
 `AssemblyFiles` mints a per-file `LexedFile` and hands it to the view projection — it just
 never reaches the symbol. So the spine of the tranche is: carry the declaring file onto the
 symbol origin (additive, with the usual central alias), then key imports on (assembly, file)
-and render `./<Package>/<name>.mjs`. Cross-file TYPE references ride the same path, so
+and render `./<Package>/<name>.mjs`. Cross-file TYPE references follow the same path, so
 records and unions come along with it. Nothing changes for CLR — one PE per assembly stays,
 and the new field is simply unread there.
 

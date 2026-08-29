@@ -96,8 +96,8 @@ module JsNativeSymbols =
             member _.IsValueType _ = ValueSome false
 
             // A tuple of any arity is one rank-1 array; `unit` and a 1-tuple are not tuple
-            // values. WHICH array key is unforced, because every key gets the same layout
-            // answer above.
+            // values. WHICH array key is unforced, because the layout above is the same for
+            // every key.
             member _.TupleType arity =
                 if arity < 2 then
                     ValueNone

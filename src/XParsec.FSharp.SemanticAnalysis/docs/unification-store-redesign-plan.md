@@ -36,7 +36,7 @@ per-step landed/remaining status.
   `propagateToFreeArgs` needs value independence; `Defaults` discharges a chain wholesale with
   shared singleton targets. Making those two grow-only belongs to Phase B's solver.
 - **Remaining:** step 4 (interning — lands the two-level home, step 4 note) then step 5
-  (caching). **Do 4 + 5 together behind a benchmark**; interning's payoff is realized through
+  (caching). **Do 4 + 5 together behind a benchmark**; interning's payoff comes through
   caching, and step 5 is benchmark-gated. The arena alone may suffice — re-decide after
   profiling (engine-rewrite-plan ⟨OPEN B-vs-A boundary⟩).
 

@@ -6,7 +6,7 @@
 // Each width is negated twice: once at an ordinary value, and once at its MINIMUM, where
 // the negation overflows and must wrap back onto itself. The minimum is the row that
 // needs the width mask — a bare CIL `neg` (or a bare JS `-`) computes on a wider stack
-// and answers +128 where -128y belongs.
+// and yields +128 where -128y belongs.
 let negI (x: int) = -x
 let negL (x: int64) = -x
 let negF (x: float) = -x

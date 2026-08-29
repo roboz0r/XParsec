@@ -37,7 +37,7 @@ let private thawedTemplate (letInline: string) : TypeStore * TDecl =
     let input = "namespace Ns\n\nmodule M =\n    " + letInline + "\n"
     let lexed, file = parseFile input
     let source = LexedFile.ofText lexed
-    // The vocabulary is a pool root array; unpooling it gives the DU form the wire speaks.
+    // The vocabulary is a pool root array; unpooling it gives the DU form used on the wire.
     let pools = Pipeline.analyseFor testCompiling realProvider.Value source file
 
     let pool = TastPoolBuilder.openOver pools
@@ -295,8 +295,8 @@ let tests =
                 match edge with
                 | TExpr.InlineCall(
                     spec = spec; args = EqList [ TExpr.Const(TConstValue.Integral(IntKind.Int32, 41L), _, _) ]) ->
-                    // The argument rides the EDGE and is bound by the emit-time expansion, so
-                    // the entry is `succ`'s body under the parameter it abstracts.
+                    // The argument is carried on the EDGE and is bound by the emit-time
+                    // expansion, so the entry is `succ`'s body under the parameter it abstracts.
                     match entryValue tast spec with
                     | TExpr.Lambda(TPat.NamedSimple _,
                                    TExpr.InlineCall(

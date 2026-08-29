@@ -28,12 +28,12 @@ type TypeRef =
     | Typar of index: int
     /// Open type parameter, METHOD-axis index — a generic MEMBER's OWN type parameter
     /// (`map<U>(x: U)` → `U` is `MethodTypar 0`). Only a member-of-a-type carries this;
-    /// a free function's own typars ride `Typar`.
+    /// a free function's own typars are carried on `Typar`.
     | MethodTypar of index: int
     /// Curried function type.
     | Fun of args: TypeRef list * ret: TypeRef
     | Tuple of items: TypeRef list
-    /// Anonymous structural union → `FTOr`. `null`/`undefined` ride in as their
+    /// Anonymous structural union → `FTOr`. `null`/`undefined` arrive as their
     /// own disjuncts (NOT folded): `T | null | undefined → FTOr [T; null; undefined]`.
     | Union of disjuncts: TypeRef list
     /// A TS string/number literal TYPE (`"GET"`, `42`) → `FTLiteral`. Composes with
@@ -55,7 +55,7 @@ type TypeRef =
     | Dynamic
     /// Structural object type, content-hashed. `index` carries the TS index signatures
     /// `{ [k: string]: T }` the object bears, as `(key, value)` pairs — a type may declare
-    /// BOTH a string- and a number-index signature, so all of them ride. Empty list = none.
+    /// BOTH a string- and a number-index signature, so all of them are carried. Empty list = none.
     | Structural of hash: string * fields: (string * TypeRef) list * index: (TypeRef * TypeRef) list
 
 [<RequireQualifiedAccess>]

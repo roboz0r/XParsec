@@ -114,7 +114,7 @@ let parseRecoveredFile (input: string) : Lexed * ImplementationFile<SyntaxToken>
         | [] -> failwith "expected a parse that needed recovery; nothing was reported"
         | _ -> parsed.Lexed, parsed.Tree
 
-/// Realise a WIRE inline body against the file it was published from: the body carries the
+/// Thaw a WIRE inline body against the file it was published from: the body carries the
 /// declaring file's own token indices, and only that file can resolve them.
 let thawPublished (store: TypeStore) (source: LexedFile) (decl: Wire.TDecl) : TDecl =
     InlineThaw.bodyAtPath store (LexedFiles.ofSeq [ source ]) source.Path decl
@@ -164,7 +164,7 @@ let poolsFor (src: string) : FrozenPools * Pooled.TastFile =
 let rePoolFor (src: string) : Pooled.TastFile -> FrozenPools = TastPools.rePool (freezeFor src)
 
 /// A stand-in dependency over the surface `fill` accumulates. Every table a real reference
-/// answers from is filled, scope contents included.
+/// publishes is filled, scope contents included.
 let providerOfSurface (fill: PublishedSurfaceBuilder -> unit) : IExternalSymbolProvider =
     PublishedSurface.build fill |> PublishedSurface.toProvider
 

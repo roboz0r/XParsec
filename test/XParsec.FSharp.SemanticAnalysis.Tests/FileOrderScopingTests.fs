@@ -20,7 +20,7 @@ let private expectClean (source: string) =
     Expect.isEmpty es (sprintf "expected no errors; diagnostics were %A" es)
 
 /// A use ABOVE the declaration it names must not resolve. Only the VERDICT is pinned, not
-/// the wording: F# blames these with FS0039 ("not defined"), we word them our own way.
+/// the wording: F# reports these as FS0039 ("not defined"), we word them our own way.
 let private expectRejected (source: string) =
     let es = errors (analyse source)
     Expect.isNonEmpty es "expected a diagnostic: the name is used above its declaration"
@@ -122,8 +122,8 @@ let tests =
             }
 
             // The NEGATIVES: the same surfaces written ABOVE the declaration. The name simply
-            // misses at the use site, and the "unresolved" report IS that miss. F# blames the
-            // ctor, the QUALIFIER (not the member) and the record LABEL, all with FS0039.
+            // misses at the use site, and the "unresolved" report IS that miss. F# reports
+            // FS0039 at the ctor, at the QUALIFIER (not the member) and at the record LABEL.
             test "a ctor call above the class's declaration does not resolve" {
                 expectRejected "let mk () = Foo(1)\ntype Foo(n: int) =\n    member this.N = n"
             }

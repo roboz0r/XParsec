@@ -4,7 +4,7 @@ open XParsec.FSharp
 open XParsec.FSharp.Parser
 
 /// What an assignment's left-hand side is written on. `x.P <- v` and `x.[i] <- v` carry the
-/// object argument as a whole expression; `a.b.P <- v` rides in ONE `Expr.LongIdentOrOp`, so
+/// object argument as a whole expression; `a.b.P <- v` arrives as ONE `Expr.LongIdentOrOp`, so
 /// there the object argument is the chain minus its last segment.
 [<RequireQualifiedAccess>]
 type AssignObjArg =
@@ -53,8 +53,7 @@ module AssignTarget =
         | _ -> e
 
     /// `C.P <- v` where the qualifier resolves to a type declaring a static `set_P`. The written
-    /// qualifier's own token IS the use site, so a type declared below the write does not
-    /// answer for its name.
+    /// qualifier's own token IS the use site, so only a type visible at that offset resolves.
     let private tryStaticSlot
         (ctx: PassContext)
         (qualifier: SyntaxToken)

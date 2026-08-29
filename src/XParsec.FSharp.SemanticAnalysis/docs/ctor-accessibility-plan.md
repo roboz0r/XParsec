@@ -104,9 +104,9 @@ constructor"* for that case. Re-word it to F#'s FS0801 text.
 
 **This step interacts with an existing guard.** `UnificationClassCtors.baseCtorSurfaceOf` treats
 an empty catalogue on a class declared in THIS assembly as a real "declares none" and diagnoses
-it, and an empty catalogue on a metadata class as "not modelled" and stays silent. Once a private
-constructor makes the published catalogue legitimately empty, `inherit Shape(7)` across files
-starts diagnosing — which is correct, and is what F# does.
+it, and an empty catalogue on a metadata class as "not modelled" and reports no diagnostic. Once
+a private constructor makes the published catalogue legitimately empty, `inherit Shape(7)` across
+files starts diagnosing — which is correct, and is what F# does.
 
 ### 4. Diagnose the same-assembly, out-of-scope use
 

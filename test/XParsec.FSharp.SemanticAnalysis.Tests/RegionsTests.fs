@@ -7,7 +7,7 @@ open XParsec.FSharp.Codegen.Common.Tests
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 // A compile composing no platform, so nothing is laid out flat and every type is tracked.
-// What holds here is what holds whatever a target answers; the rows that turn on the answer
+// What holds here holds for any target's layout verdict; the rows that turn on that verdict
 // are pinned per backend, in each codegen suite's `RegionLayoutTests`.
 
 let private probe (input: string) =
@@ -308,6 +308,6 @@ let tests =
             test "non-aggregated module-level closure is StackOnlyEligible" {
                 // A top-level function binding with no containment or box channel.
                 let repr = reprOf "let add x = x + 1" "add"
-                Expect.equal repr (Some RegionRepr.StackOnlyEligible) "add rides no heap-repr channel"
+                Expect.equal repr (Some RegionRepr.StackOnlyEligible) "add sits on no heap-repr channel"
             }
         ]

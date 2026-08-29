@@ -159,7 +159,7 @@ let tests =
 
             // Discharging an `op_Addition` bound on `int` asks the provider under the key the
             // `TyConst` payload carries, and nothing else. Published under any other key the
-            // lookup misses silently: operator-name synthesis answers identically for `int`.
+            // lookup misses silently: operator-name synthesis yields the same name for `int`.
             test "the key a `TyConst int` carries resolves its declared op_Addition through the contract" {
                 let provider, _ = builtProvider.Value
 
@@ -206,7 +206,7 @@ let tests =
                             (sprintf "%s platform name is its `.fs` CLR repr" lookup)
 
                         // A capability interface is ABSENT from the intrinsic axis:
-                        // reconciliation rides the platform name above, not the axis.
+                        // reconciliation goes through the platform name above, not the axis.
                         match IntrinsicTypeMap.canonsOf platformExpected provider.IntrinsicTypeMap with
                         | EqEmpty -> ()
                         | canons ->
@@ -358,8 +358,8 @@ let tests =
                 | ValueSome(struct (key, ExternalTypeShape.Class info)) ->
                     Expect.equal info.TyparArity 2 "Fun has two typars"
 
-                    // The HOME is what the package wrapper stamps; the NAMESPACE rides the
-                    // registered key, from the `.fsi`'s own header — no manifest declares one.
+                    // The HOME is what the package wrapper stamps; the NAMESPACE is carried on
+                    // the registered key, from the `.fsi`'s own header — no manifest declares one.
                     Expect.equal
                         info.Origin.Home.AssemblyOption
                         (ValueSome(AssemblyName "Vesper.Core"))
@@ -482,7 +482,7 @@ let tests =
 
             // `IsByRefLikeAttribute` is a BCL declaration with no Vesper counterpart, and this
             // provider carries no platform metadata, so the attribute is an unresolved-attribute
-            // error — the same answer the JS target gives. The accepted direction (`use` calling
+            // error, as on the JS target. The accepted direction (`use` calling
             // the pattern `Dispose` on a byref-like) runs against real BCL metadata in
             // `Codegen.Clr.Tests/StructTests.fs`.
             test "`[<IsByRefLike>]` with no platform metadata is an unresolved-attribute error" {
@@ -1031,9 +1031,9 @@ let tests =
                             Expect.stringContains e "core" "and the table it was found in"
                     }
 
-                    // The `.fs` entries ride `files` now, so a manifest still declaring the
-                    // retired second list must error: read as silence it resolves to a package
-                    // missing every body and splice source that list held.
+                    // The `.fs` entries are listed in `files` now, so a manifest still declaring
+                    // the retired second list must error: read as silence it resolves to a
+                    // package missing every body and splice source that list held.
                     test "the retired `impl` key is rejected, not ignored" {
                         match
                             ReferencedProject.loadManifest (

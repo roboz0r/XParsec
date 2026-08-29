@@ -52,7 +52,7 @@ let tests =
                     "BigInt.asIntN(64, $0 + $1)"
                     "int64 `+` wraps through BigInt"
 
-                // `Math.imul` is the JS answer at 32 bits; the CLR width uses a `mul` mnemonic.
+                // `Math.imul` is the 32-bit multiply on JS; the CLR width uses a `mul` mnemonic.
                 Expect.contains (opsOf "int" "op_Multiply") "Math.imul($0, $1)" "int32 `*` is the Math.imul template"
 
                 Expect.contains (opsOf "float" "op_UnaryNegation") "-$0" "float `~-` is the bare JS operator"

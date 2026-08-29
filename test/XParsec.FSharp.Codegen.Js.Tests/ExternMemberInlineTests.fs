@@ -442,7 +442,7 @@ let tests =
                     [ "Poke3" ]
             }
 
-            // The published groups make `Poke3` realise `int -> int -> int` at the use site,
+            // The published groups give `Poke3` the type `int -> int -> int` at the use site,
             // even though it keys and compiles as `Poke2`'s ONE two-parameter slot.
             test "`w.Poke3 3 4` splices its body: a curried contract is applied a group at a time" {
                 let js = emitWidget "open Widgets\nlet useP3 (w: widget) : int = w.Poke3 3 4\n"

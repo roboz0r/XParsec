@@ -85,7 +85,7 @@ let private programs =
     [
         "let-bound reference", "let x = 1\nlet y = x\n"
         "tuple literal and tuple pattern", "let p = (1, 2)\nlet swap q =\n    match q with\n    | (a, b) -> (b, a)\n"
-        "curried fn + call", "let add x y = x + y\nlet answer = add 1 40\n"
+        "curried fn + call", "let add x y = x + y\nlet total = add 1 40\n"
         "for-to loop", "let sumTo n =\n    let mutable t = 0\n    for i = 1 to n do\n        t <- t + i\n    t\n"
     ]
 
@@ -286,7 +286,7 @@ let rowCopyTests =
                         )
 
                 // The oracle: the ORIGINAL root's own unpool with the tuple's items reversed, so
-                // both sides speak the identity an unpool hands out.
+                // both sides share the identity an unpool produces.
                 let original = TastPoolBuilder.declTree b root
 
                 let expected =

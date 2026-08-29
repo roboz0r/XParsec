@@ -27,7 +27,7 @@ type TypeIdentity =
         /// Part of the CLAIM: `Foo` and `` Foo`1 `` are distinct, and may be different kinds.
         TyparArity: int
         /// Part of the CLAIM: `N.A.T` and `N.B.T` are two types, not one name contested twice.
-        /// Also where it answers from: a bare name reaches it from inside, or via an `open`.
+        /// Also its reach: a bare name resolves to it from inside, or via an `open`.
         Container: ModuleContainer
         Kind: TypeDeclKind
         /// The key stamped onto the kind-specific `*TypeInfo`, and the name token spelling it.
@@ -138,7 +138,7 @@ module PassContextTypes =
         }
 
 /// The project-local type registries, keyed by `TypeKey`, so a NAME addresses a candidate set.
-/// A by-name lookup takes a `UseSite` and answers from the claims visible there; `…ByKey` none.
+/// A by-name lookup takes a `UseSite` and reads the claims visible there; `…ByKey` takes none.
 module TypeRegistry =
 
     /// The identity key for a locally-declared intrinsic (`int`, `[]`, a user intrinsic-abbrev),
@@ -232,7 +232,7 @@ module TypeRegistry =
     [<Struct; NoComparison>]
     type private ContainerReach =
         {
-            /// The container reached: where the claim must be held for this reach to answer.
+            /// The container reached: this reach resolves only a claim held here.
             Container: ModuleContainer
             /// How many `module`s enclose whatever ADDED the name (the enclosing scope, or
             /// the `open`). An inner scope is entered later, making resolution innermost-out.
@@ -297,7 +297,7 @@ module TypeRegistry =
             ValueNone
         else
             match useSite.Container with
-            // Nowhere to speak from: the whole-file view (`UseSite.unbounded`). Every claim is
+            // No enclosing container: the whole-file view (`UseSite.unbounded`). Every claim is
             // in scope and none outranks another, so a caller that must choose takes the first.
             | ValueNone -> ValueSome { Depth = 0; Offset = 0 }
             | ValueSome _ ->
@@ -402,7 +402,7 @@ module TypeRegistry =
             match tryWinner types useSite written (fun c -> c.TyparArity = 0 && inThisKind c) with
             | ValueSome c -> ValueSome c.Key
             | ValueNone ->
-                // The generic claimants answer only if they agree on an arity.
+                // The generic claimants resolve only if they agree on an arity.
                 let arities =
                     match types.TypeClaims.TryGetValue written.Name with
                     | true, claims ->
@@ -678,8 +678,8 @@ module TypeRegistry =
                 | ValueSome info -> nominalDecl info.TypeKey info.TypeParams info.Members
                 | ValueNone -> ValueNone
 
-    /// The same by NAME, resolved AS SEEN FROM `useSite`: a type declared below the reference
-    /// does not answer for its name.
+    /// The same by NAME, resolved AS SEEN FROM `useSite`: only a type visible at that offset
+    /// resolves.
     let tryNominal (types: PassContextTypes) (useSite: UseSite) (name: string) : NominalDecl voption =
         match tryClass types useSite name with
         | ValueSome info -> nominalDecl info.TypeKey info.TypeParams info.Members
@@ -759,7 +759,7 @@ module TypeRegistry =
             (tryUnionBare types useSite name)
             (fun () -> hostOr (tryRecord types useSite name) (fun () -> tryIntrinsicAbbrevHostByName types name))
 
-    /// The addresses a type DECLARATION answers under: the container-homed nominal claim
+    /// The addresses a type DECLARATION is reachable under: the container-homed nominal claim
     /// `Key`, and the declared bare `Name`, which reaches an intrinsic binding's
     /// namespace-homed canon key through `IntrinsicKeys`. Built by `PassContext` from a single
     /// declared `(name, arity)`.

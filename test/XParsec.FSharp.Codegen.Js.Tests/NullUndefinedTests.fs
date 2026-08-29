@@ -7,8 +7,8 @@ open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 open XParsec.FSharp.Codegen.Js.Tests.SchemaDsl
 
-// `null` / `undefined` as first-class intrinsic types. A TS `T | null` / `T | undefined` rides
-// in as a union member; this pins that such a type resolves through the provider, survives JS
+// `null` / `undefined` as first-class intrinsic types. A TS `T | null` / `T | undefined`
+// arrives as a union member; this pins that such a type resolves through the provider, survives JS
 // emit, and round-trips present / absent values under Node.
 
 let private boolT = named "bool"

@@ -24,12 +24,12 @@ it.** Delete when `TryWith` lands and the corpus row is green (`feedback_plan_do
 
 - **`try … with` is unemittable on BOTH backends.** `TExprG.TryWith` parses, infers and freezes,
   but neither `Codegen.Clr/EmitExpr.fs` nor `Codegen.Js/EmitJs.fs` has an emit arm. So no F#
-  program can yet ask the question the prototype chain now answers, and the only catching test
-  in the JS suite reaches for a raw JS `try/catch` template to get at it. That is the next piece
-  of work, and it is not small.
+  program can yet observe the identity the prototype chain now establishes, and the only
+  catching test in the JS suite reaches for a raw JS `try/catch` template to get at it. That is
+  the next piece of work, and it is not small.
 - **`instanceof` is realm-fragile** (iframes, workers, `vm` contexts). The prototype chain is
   what `extends` buys; how a catch INTERROGATES it is the catch lowering's choice, and this
-  codebase already has the better answer — `Vesper.Core.mjs` brands union prototypes with a
+  codebase already has the better approach — `Vesper.Core.mjs` brands union prototypes with a
   non-enumerable `$type` and keys the equality registry by `Symbol.for("vesper.equality")`.
 - **A host-originated `TypeError` has no Vesper identity**, so `:? NullReferenceException` stays
   a CLR-only proposition unless the catch lowering also translates host errors — which is

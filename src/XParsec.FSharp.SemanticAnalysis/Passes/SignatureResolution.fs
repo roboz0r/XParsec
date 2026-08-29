@@ -130,8 +130,8 @@ module SignatureResolution =
                 | ValueSome(TypeExtensionElementsSignature(elements = elems)) -> elems
                 | ValueNone -> System.Collections.Immutable.ImmutableArray.Empty
 
-            // A union's trailing `with interface <ty>` impls ride the shared extension list;
-            // there is no union-specific parser field.
+            // A union's trailing `with interface <ty>` impls are carried on the shared
+            // extension list; there is no union-specific parser field.
             let interfaces =
                 freezeInterfaces sctx info.TypeParams (interfaceSpecsOf extensionElems)
 
@@ -144,8 +144,8 @@ module SignatureResolution =
                 members
 
     /// Publish the registered enum's case table. One rejected case (reported at registration)
-    /// downgrades the whole enum: a partial table would answer `E.C1` for the survivors and
-    /// "no such case" for the rest.
+    /// downgrades the whole enum: a partial table would resolve `E.C1` for the survivors and
+    /// reject the rest as "no such case".
     let private publishEnum (sctx: SigCtx) (id: TypeIdentity) : unit =
         let ctx = sctx.Pass
 
@@ -237,7 +237,7 @@ module SignatureResolution =
         | _ -> DeclaredRepr.Opaque
 
     /// A capability IS an interface, so its `inherit` clause is interface inheritance and
-    /// its members ride the shape. Both primitives are classes.
+    /// its members are carried on the shape. Both primitives are classes.
     let private externDeclaresInterface (form: DeclaredRepr) : bool = form = DeclaredRepr.Capability
 
     /// The repr the paired implementation binds for this `extern`. A PRIMITIVE's is FILED on

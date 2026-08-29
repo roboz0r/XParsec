@@ -12,7 +12,7 @@ open XParsec.FSharp.SemanticAnalysis
 // member that exists. The valid set is reflected off `T`, so there is no allowlist to update.
 
 /// A bare `module M` as the `System.Type` it compiles to — a module has no `typeof<_>`.
-/// A miss fails loudly: answering `null` would drop the module's members from the valid set
+/// A miss fails loudly: returning `null` would drop the module's members from the valid set
 /// and report every citation of one as dangling.
 let private moduleType (name: string) : Type =
     let fullName = "XParsec.FSharp.SemanticAnalysis." + name
@@ -63,8 +63,8 @@ let private moduleSourceName (t: Type) =
         t.Name
 
 /// The companion module of `t`, or `ValueNone` when `t` declares none (`ExprRow`, `PatRow`,
-/// `DeclRow`). A companion compiled under an unexpected name fails loudly: answering "no
-/// members" would report every citation of one as dangling, blaming the prose for this bug.
+/// `DeclRow`). A companion compiled under an unexpected name fails loudly: returning "no
+/// members" would report every citation of one as dangling.
 let private companionModule (t: Type) : Type voption =
     let asm = t.Assembly
 

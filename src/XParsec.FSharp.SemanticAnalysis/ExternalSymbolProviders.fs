@@ -95,7 +95,7 @@ module ExternalSymbolProviders =
 
               // These channels index members by (declaring type, member NAME), so a key is
               // the exact-identity selection out of that name's overload set. A
-              // first-in-declaration-order pick would answer with a SIBLING overload.
+              // first-in-declaration-order pick would return a SIBLING overload.
               member _.TryLookupMemberByKey(key: MemberKey) =
                   membersNamed
                       {
@@ -256,7 +256,7 @@ module ExternalSymbolProviders =
         let stampHit (key: TypeKey) (shape: ExternalTypeShape) : ExternalTypeShape =
             stampType (foldIntrinsicSurface key shape)
 
-        // The scope answers for the same values and types the key channels do, so it carries
+        // The scope exposes the same values and types as the key channels, so it carries
         // the same home stamp and the same intrinsic fold. A union case takes its origin from
         // its declaring union's shape.
         let scope =
@@ -423,7 +423,7 @@ module ExternalSymbolProviders =
 
         let mapSymbol (s: ExternalSymbol) = { s with Scheme = co s.Scheme }
 
-        // The scope answers for the same values, cases and types the key channels do, so it
+        // The scope exposes the same values, cases and types as the key channels, so it
         // carries the same transform.
         let mappedScope =
             inner.Scope
@@ -505,7 +505,7 @@ module ExternalSymbolProviders =
         let valueTypes = ConcurrentDictionary<TypeKey, bool voption>()
 
         // Only `IsValueType` is cached: it reaches a metadata name lookup, where `TupleType`
-        // answers from the target's own fixed family and is cheaper than the dictionary probe.
+        // is read from the target's own fixed family and is cheaper than the dictionary probe.
         let platform =
             lazy
                 (inner.Platform
@@ -545,8 +545,8 @@ module ExternalSymbolProviders =
         }
         :> IExternalSymbolProvider
 
-    /// The two body-bearing key kinds route to different ENTRY types: a `Binding` rides
-    /// `ExternalSymbol`, a `(# … #)`-bodied `Member` rides `ExternalMember`.
+    /// The two body-bearing key kinds route to different ENTRY types: a `Binding` to
+    /// `ExternalSymbol`, a `(# … #)`-bodied `Member` to `ExternalMember`.
     let tryInlineBody (p: IExternalSymbolStore) (key: SymbolKey) : InlineBody voption =
         match key with
         | SymbolKey.Member m -> p.TryLookupMemberByKey m |> ValueOption.bind (fun em -> em.InlineBody)

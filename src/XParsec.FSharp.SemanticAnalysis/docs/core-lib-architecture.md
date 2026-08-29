@@ -111,8 +111,8 @@ The BCL exception roots are **not a package**: they are `Vesper.Core`'s
 CLR manifest at all. A CLR build resolves those names through
 `System.Private.CoreLib`, so the contract never shadows the BCL type in a `newobj`
 (which would mint a TypeRef into the wrong assembly); being reachable from no CLR
-manifest is what makes that unreachable rather than merely unexercised. They ride
-in with Core rather than through a `depends-on` edge a consumer must remember. The
+manifest is what makes that unreachable rather than merely unexercised. They arrive
+with Core rather than through a `depends-on` edge a consumer must remember. The
 shared seam stays the `.fsi`; the per-target binding is `prim-types-exn`'s
 `(# … #)` repr —
 `System.Exception` on CLR (`Vesper.Core/prim-types-exn.clr.fs`), `Error` on JS

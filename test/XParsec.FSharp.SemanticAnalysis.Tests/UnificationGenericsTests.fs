@@ -136,17 +136,17 @@ let tests =
                     ctx.Diagnostics
                     |> Seq.exists (fun d -> d.Message.Contains "expects 0 type argument")
 
-                Expect.isTrue hasArity "arity-0-with-args diagnostic emitted and blames the local type"
+                Expect.isTrue hasArity "arity-0-with-args diagnostic emitted, reported at the local type"
             }
 
-            test "arity-0 enum given a type argument is blamed, not left an unresolved type" {
+            test "arity-0 enum given a type argument is diagnosed, not left an unresolved type" {
                 let ctx = analyse "type Dir = | Up = 0 | Down = 1\nlet f (d : Dir<int>) = d"
 
                 let hasArity =
                     ctx.Diagnostics
                     |> Seq.exists (fun d -> d.Message.Contains "expects 0 type argument")
 
-                Expect.isTrue hasArity "an enum at the wrong arity is blamed like every other kind"
+                Expect.isTrue hasArity "an enum at the wrong arity is diagnosed like every other kind"
             }
 
             test "field access on generic record substitutes typar" {

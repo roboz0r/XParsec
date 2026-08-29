@@ -340,7 +340,7 @@ module FrozenSignature =
 
             PublishedSurfaceBuilder.addValue surface (ValueSome source) sym
 
-        // EVERY module binding rides `Decls`, `inline` ones included, and its identity is in
+        // EVERY module binding is a `Decls` entry, `inline` ones included, and its identity is in
         // `ModuleMembers`, a TOP-LEVEL binding's too, keyed in the file's namespace so it
         // exports bare. An `inline` one publishes this declaration and nothing more: its
         // template is a separate object, keyed by this same binding key.

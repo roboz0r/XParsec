@@ -103,7 +103,7 @@ so consumers see one uniform field type and don't branch on provenance, and
 there's no separate `materialise` step or fileId map: a view already holds
 its own reference to the source string, a wrapper holds its own fresh
 string, and the GC keeps whichever alive for as long as the node is. That
-answers the ownership question Phase 2 otherwise raises — at a price:
+settles the ownership question Phase 2 otherwise raises — at a price:
 
 - **Source pinning.** A 3-char view keeps its *entire* backing source
   string alive for the node's lifetime. For a long-lived TAST over a large
@@ -122,7 +122,7 @@ answers the ownership question Phase 2 otherwise raises — at a price:
   [[feedback_struct_value_size_cost]] (a bigger inline struct field cost
   ~3-4% Medium/Large wall-time purely through copying). That's the trade to
   profile: fewer/zero substring allocations vs. wider, costlier-to-copy
-  nodes — and the answer may differ for hot identifier fields vs.
+  nodes — and the verdict may differ for hot identifier fields vs.
   rarely-touched ones.
 - **Equality changes — affects the test DSL and any dedup.** A struct gets
   default *structural* equality over its fields: two `ReadableString`s are

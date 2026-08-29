@@ -28,7 +28,7 @@ survive onto the tables first. The exposure is theoretical for now: no contract 
 
 The conformance side is settled separately:
 [conformance-tast-level-plan](conformance-tast-level-plan.md) §"Non-gaps" records that a
-`let private` answering a `val` is the accessibility check's job, not conformance's.
+`let private` matching a `val` is the accessibility check's job, not conformance's.
 
 ## 2. `module A.B.C` as a whole FILE loses its module
 

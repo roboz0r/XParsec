@@ -122,8 +122,8 @@ let tests =
                 | ValueSome m ->
                     Expect.isTrue m.IsStatic "Default is static"
                     Expect.equal m.Storage MemberStorage.Property "Default is a property"
-                    // The declaring type rides the key's containment chain, typed, rather
-                    // than a string beside it.
+                    // The declaring type is carried on the key's containment chain, typed,
+                    // rather than as a string beside it.
                     Expect.equal
                         (SymbolKeyOps.typeMetaName m.Key.Decl)
                         eqComparer
@@ -188,7 +188,7 @@ let tests =
             }
 
             test "metadata templates instantiate to the expected use-site types" {
-                // The reader freezes its templates at construction; check they realise
+                // The reader freezes its templates at construction; check they instantiate
                 // through the `instantiate*` helpers: declaring typars substituted, and
                 // every member's signature instantiating without throwing.
                 match typeShape "System.Collections.Generic.List`1" with
@@ -333,7 +333,7 @@ let tests =
                 Expect.isTrue (scope.TryContainer "No.Such.Namespace").IsNone "an undeclared path misses"
             }
 
-            test "a name declared at several arities answers ascending, narrowest first" {
+            test "a name declared at several arities resolves ascending, narrowest first" {
                 let scope = provider.Scope
 
                 match scope.TryContainer "System" with

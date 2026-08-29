@@ -135,7 +135,7 @@ let private checkIdResolution (pools: FrozenPools) (frozen: Pooled.TastFile) =
         for k in filled do
             Expect.isTrue (Set.contains k sourceKeys) (name + " filled slot is a source key's bound variable")
 
-    // The source keys in the address space the resolvers answer in: a bound-variable-keyed table
+    // The source keys in the address space the resolvers use: a bound-variable-keyed table
     // is widened, `FunVerdicts` is already lambda-key-shaped.
     let keysOf (m: Map<'k, 'w>) =
         m |> Map.toSeq |> Seq.map fst |> Set.ofSeq
@@ -214,7 +214,7 @@ let private checkProgram (src: string) =
     checkValReprPatsAreLambdaParams pools
 
     // The interconversion gate: `ofPools ∘ rePool` reconstructs a structurally-equal file. Both
-    // sides speak the pool's own dense identity, so the comparison needs no widening — the ids the
+    // sides share the pool's own dense identity, so the comparison needs no widening — the ids the
     // re-pool assigns must be the ids the tree already bore, the two walks being the same walk.
     Expect.equal (TastUnpool.ofPools pools) frozen "ofPools (rePool f) round-trips to a structurally-equal frozen file"
 
@@ -222,7 +222,7 @@ let private checkProgram (src: string) =
 // (if / match) and the type + value forms (record decl, record literal, field access).
 let private programs =
     [
-        "curried fn + saturated call", "let add x y = x + y\nlet answer = add 1 40\n"
+        "curried fn + saturated call", "let add x y = x + y\nlet total = add 1 40\n"
         "if/then/else + unary op", "let f x = if x > 0 then x else -x\n"
         "match with const and wildcard arms", "let classify x =\n    match x with\n    | 0 -> 1\n    | _ -> 2\n"
         "nested let-in", "let h () =\n    let a = 1 in\n    let b = 2 in\n    a + b\n"
