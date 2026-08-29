@@ -59,6 +59,16 @@ let private withSpecialization () : FrozenPools =
     let consumer =
         AssemblyFilePath.InFile(ValueSome(AssemblyName "App"), AssemblyFileId.ofRelative "m.fs")
 
+    // The template's own `let` halves, which is the one pair of roots in these pools known to
+    // be a binding of a lambda.
+    let templatePat, templateValue =
+        let (DeclPoolId d) = template.Decl
+
+        match ChildColumn.slice pools.DeclPatChildren d, ChildColumn.slice pools.DeclExprChildren d with
+        | [| p |], [| v |] -> p, v
+        | ps, vs ->
+            failtestf "expected the template's `let` to own one pattern and one value, got %d/%d" ps.Length vs.Length
+
     let payloads = Array.copy pools.ExprPayloads
 
     payloads.[leaf] <-
@@ -83,7 +93,8 @@ let private withSpecialization () : FrozenPools =
                     // A file OTHER than the one the blob is keyed by, so nothing about the
                     // source is recoverable from the key. Synthetic: no anchor is resolved here.
                     Path = AssemblyFilePath.InFile(ValueSome(AssemblyName "Lib"), AssemblyFileId.ofRelative "n.fs")
-                    Decl = template.Decl
+                    Pat = templatePat
+                    Value = templateValue
                 }
             |]
     }

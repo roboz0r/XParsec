@@ -87,7 +87,7 @@ let private tokenIndices (toks: SyntaxToken list) : int list =
 /// expands TO is read off the specialization table, not out of the decl the call sits in.
 let private entryValue (tast: TastFile) (spec: SpecializationId) : TExpr =
     let (SpecializationId i) = spec
-    snd (TSpecializationG.binding spec tast.Specializations.[i])
+    tast.Specializations.[i].Value
 
 /// What a `do` declaration's inline call expanded to, with the entry's leading lambdas peeled:
 /// the edge's arguments are positional against them, not a closure anything allocates.

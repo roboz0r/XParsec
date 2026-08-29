@@ -350,7 +350,6 @@ module TastConvert =
         {
             Name = td.Name
             TypeKey = td.TypeKey
-            Namespace = td.Namespace
             TypeParams = td.TypeParams
             Kind = kind m td.Kind
             Attributes = td.Attributes
@@ -428,7 +427,8 @@ module TastConvert =
             // NOT mapped by `fTok`: the stamp identifies which file the anchors index, and a change
             // of the position REPRESENTATION does not move the body to another file.
             Path = s.Path
-            Decl = decl f fTok s.Decl
+            Pat = pat f fTok s.Pat
+            Value = expr f fTok s.Value
         }
 
     /// The whole-file rebuild: `Decls`, `InlineBodies` and `Specializations` mapped through

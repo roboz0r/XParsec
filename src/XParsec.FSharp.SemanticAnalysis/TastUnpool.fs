@@ -308,7 +308,8 @@ module TastUnpool =
                 {
                     TSpecializationG.Key = s.Key
                     Path = s.Path
-                    Decl = fromDecl s.Decl
+                    Pat = fromPat s.Pat
+                    Value = fromExpr s.Value
                 }
             )
             |> EqArray.ofArray

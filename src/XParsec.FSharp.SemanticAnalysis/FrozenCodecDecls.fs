@@ -162,7 +162,6 @@ module FrozenCodecDecls =
     and writeTypeDecl (w: FrozenWriter) (td: PooledTypeDecl) =
         w.Write td.Name
         writeTypeKeyRef w td.TypeKey
-        writeOptionWith w (fun w (s: string) -> w.Write s) td.Namespace
         writeStringArray w td.TypeParams
         writeTypeKind w td.Kind
         writeTAttributes w td.Attributes
@@ -170,7 +169,6 @@ module FrozenCodecDecls =
     and readTypeDecl (r: FrozenReader) : PooledTypeDecl =
         let name = r.ReadString()
         let typeKey = readTypeKeyRef r
-        let ns = readOptionWith r (fun r -> r.ReadString())
         let typeParams = readStringArray r
         let kind = readTypeKind r
         let attributes = readTAttributes r
@@ -178,7 +176,6 @@ module FrozenCodecDecls =
         {
             Name = name
             TypeKey = typeKey
-            Namespace = ns
             TypeParams = typeParams
             Kind = kind
             Attributes = attributes
@@ -576,19 +573,21 @@ module FrozenCodecDecls =
         }
 
     /// A resolved-specialization entry: the grounding it is keyed by, the file its anchors
-    /// index, then its declaration by pool id. The key's type arguments are INTERNED here,
-    /// because the `ty` columns never carried them, and so is the origin.
+    /// index, then its bound pattern and abstraction by pool id. The key's type arguments are
+    /// INTERNED here, because the `ty` columns never carried them, and so is the origin.
     and writeSpecialization (w: FrozenWriter) (s: PooledSpecialization) =
         writeSymbolRef w s.Key.Template
         writeEqArrayWith w writeTypeRef s.Key.TypeArgs
         writeFilePathRef w s.Path
-        writeDeclPoolId w s.Decl
+        writePatPoolId w s.Pat
+        writeExprPoolId w s.Value
 
     and readSpecialization (r: FrozenReader) : PooledSpecialization =
         let template = readSymbolRef r
         let typeArgs = EqArray.ofArray (readArrayWith r readTypeRef)
         let origin = readFilePathRef r
-        let decl = readDeclPoolId r
+        let pat = readPatPoolId r
+        let value = readExprPoolId r
 
         {
             Key =
@@ -597,7 +596,8 @@ module FrozenCodecDecls =
                     TypeArgs = typeArgs
                 }
             Path = origin
-            Decl = decl
+            Pat = pat
+            Value = value
         }
 
     and private writeArgGroup (w: FrozenWriter) (g: ArgGroupG<FrozenType, PatPoolId, BoundVarId>) =

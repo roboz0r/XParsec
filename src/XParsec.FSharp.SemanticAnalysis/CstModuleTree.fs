@@ -43,10 +43,6 @@ module DeclContainment =
     let enter (md: DeclaredModule<'T>) (c: DeclContainment<'T>) : DeclContainment<'T> =
         { c with Modules = c.Modules @ [ md ] }
 
-    /// `None` for the global namespace / file module.
-    let namespaceOpt (c: DeclContainment<'T>) : string option =
-        if c.Namespace = "" then None else Some c.Namespace
-
     /// The dotted SOURCE path of this containment (`"N.A.B"`; `""` at the top of an
     /// anonymous module): the namespace plus each enclosing module's name AS WRITTEN,
     /// never its compiled module name (`ListModule`).

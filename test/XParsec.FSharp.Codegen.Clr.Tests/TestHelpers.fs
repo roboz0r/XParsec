@@ -61,10 +61,7 @@ let pooledDecls (frozen: FrozenPools) : TastAccessor.DeclId list =
 /// The lambda a specialization entry binds, read out of the file's own table.
 let specializationValue (tast: TastFile) (spec: SpecializationId) : TExpr =
     let (SpecializationId i) = spec
-
-    match tast.Specializations.[i].Decl with
-    | TDecl.Let(_, value, _, _) -> value
-    | other -> failwithf "a specialization entry is a `TDecl.Let` of lambdas; got %A" other
+    tast.Specializations.[i].Value
 
 /// Read THROUGH an `InlineCall` edge to the body it points to; the identity on anything else.
 /// A resolved inline body sits in the specialization table, not spliced into the consumer.
@@ -102,7 +99,7 @@ let iterFileExprs (it: TastWalk.Iter) (tast: TastFile) : unit =
         ofDecl d
 
     for entry in tast.Specializations do
-        ofDecl entry.Decl
+        TastWalk.iterExpr it entry.Value
 
 /// Lex + parse a source string; a script fragment wraps as `AnonymousModule`. A source that
 /// parses only because recovery patched it raises here, as it does in the driver, rather

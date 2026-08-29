@@ -723,11 +723,11 @@ type private Renderer() =
 
             push "type "
 
-            match td.Namespace with
-            | Some ns ->
+            match SymbolKeyOps.typeNs td.TypeKey with
+            | "" -> ()
+            | ns ->
                 push ns
                 push "."
-            | None -> ()
 
             push td.Name
 

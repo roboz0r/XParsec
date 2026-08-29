@@ -254,7 +254,7 @@ module internal LayoutNodes =
         let ns, enclosing =
             match declaringModule td with
             | ValueSome m -> "", ValueSome(TypeSlotKey.ModuleClass m)
-            | ValueNone -> defaultArg td.Namespace "", ValueNone
+            | ValueNone -> SymbolKeyOps.typeNs td.TypeKey, ValueNone
 
         {
             Slot =

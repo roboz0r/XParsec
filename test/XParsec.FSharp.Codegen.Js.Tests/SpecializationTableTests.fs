@@ -233,19 +233,17 @@ let private witnessEntriesFor (name: string) (table: TSpecialization[]) : TSpeci
         | _ -> false
     )
 
-/// Every position a specialization entry's declaration carries, in the converter's own
-/// traversal order: a total walk, so no position escapes the anchoring assertions below.
+/// Every position a specialization entry carries, in the converter's own traversal order: a
+/// total walk, so no position escapes the anchoring assertions below.
 let private positions (e: TSpecialization) : SyntaxToken list =
     let acc = ResizeArray<SyntaxToken>()
 
-    TastConvert.decl
-        id
-        (fun t ->
-            acc.Add t
-            t
-        )
-        e.Decl
-    |> ignore
+    let record (t: SyntaxToken) =
+        acc.Add t
+        t
+
+    TastConvert.pat id record e.Pat |> ignore
+    TastConvert.expr id record e.Value |> ignore
 
     List.ofSeq acc
 
@@ -265,12 +263,7 @@ let private exprPositions (e: TExpr) : SyntaxToken list =
 
     List.ofSeq acc
 
-/// An entry's abstraction. An entry is ALWAYS a `TDecl.Let` of lambdas, so every assertion
-/// about its body reads it through here.
-let private entryValue (e: TSpecialization) : TExpr =
-    match e.Decl with
-    | TDecl.Let(_, value, _, _) -> value
-    | other -> failtestf "an entry is a `TDecl.Let` of lambdas; got %A" other
+let private entryValue (e: TSpecialization) : TExpr = e.Value
 
 /// The entry's own arity: the leading lambdas an `InlineCall`'s arguments are positional
 /// against. Nothing stores it, and a parameter the reduction fused is simply not one of these.
@@ -576,8 +569,8 @@ let tests =
 
                 match entriesFor "undefined" expanded.Specializations with
                 | [ e ] ->
-                    match e.Decl with
-                    | TDecl.Let(_, TExpr.ILIntrinsic _, _, _) -> ()
+                    match e.Value with
+                    | TExpr.ILIntrinsic _ -> ()
                     | other -> failtestf "a nullary intrinsic entry's body is the intrinsic itself; got %A" other
                 | other -> failtestf "two `undefined` references must name ONE entry; got %d" (List.length other)
             }

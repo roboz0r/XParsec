@@ -283,8 +283,8 @@ module TastPools =
                 }
             )
 
-        // Pooled as its own roots and in SLOT ORDER: a `SpecializationId` identifies a position in
-        // this array, not in the pool the decls land in.
+        // Pooled as its own pattern and expression roots, in SLOT ORDER: a `SpecializationId`
+        // identifies a position in this array, not in the pools the nodes land in.
         let specializations =
             file.Specializations
             |> EqArray.toArray
@@ -292,7 +292,8 @@ module TastPools =
                 {
                     Key = s.Key
                     Path = s.Path
-                    Decl = poolDecl sink s.Decl
+                    Pat = poolPat sink s.Pat
+                    Value = poolExpr sink s.Value
                 }
             )
 

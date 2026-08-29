@@ -37,29 +37,19 @@ whether any producer needs the interface type — `Elaborate` hands over a `Dict
 just finished filling, so a conversion there looks cheap, but the freeze/pool round-trip has
 more sites and was not audited.
 
-### `Tast.fs:136` — `TSpecializationG.Decl` is typed wider than the invariant it must satisfy
+### `Tast.fs:136` — `TSpecializationG.Decl` is typed wider than the invariant it must satisfy **[LANDED]**
 
-`Decl: TDeclG<…>` can be any declaration, but every entry is in fact a `TDecl.Let` of
-lambdas, so `TSpecializationG.binding` pattern-matches it and `failwithf`s on anything else.
-The `spec: SpecializationId` parameter exists only to name the offender in that message —
-callers thread an id they otherwise do not need. Storing the pattern and value directly
-(`Pat: TPatG<…>` / `Value: TExprG<…>`) would make the failure unrepresentable, drop the
-parameter, and delete the sentence "`Decl` is always a `TDecl.Let` of lambdas" from the type's
-doc. The cost is at the freeze/codec seam, which currently reads and writes a whole `TDecl`.
+The entry stores `Pat`/`Value` directly; `TSpecializationG.binding`, its two `failwithf`s and
+the threaded `SpecializationId` are deleted, and the pooled/codec seam encodes the two ids in
+place of a decl row. `isInline`/`ty` from the old `TDecl.Let` had no reader and were dropped.
 
-### `TastDecl.fs:55` — `TTypeDeclG.Namespace` duplicates `TypeKey.Container`, with ONE load-bearing reader
+### `TastDecl.fs:55` — `TTypeDeclG.Namespace` duplicates `TypeKey.Container`, with ONE load-bearing reader **[LANDED]**
 
-The hedge was warranted: `Codegen.Clr\LayoutNodes.fs:258` reads the field (spelled
-`td.Namespace` on the `TastAccessor.TypeDecl` alias) and feeds the emitted `TypeDef` row's
-namespace column for a type declared directly under a namespace. The value is provably the
-same as `SymbolKeyOps.typeNs td.TypeKey` — the writer stores the file's root namespace and
-`TypeKey.Namespace` walks to the same root — and `defaultArg … ""` already collapses the
-option-vs-empty-string mismatch in the `TypeKey` direction. Deletion is a two-step change:
-(1) switch `LayoutNodes.fs:258` to `SymbolKeyOps.typeNs td.TypeKey` and confirm the Clr suite
-green (`MetadataStructure.fs` / `PeInspection.fs` read the emitted column); (2) delete the
-field, its writer (`Elaborate/TypeDecls.fs:158`), the `TastConvert.fs:348` copy, the codec
-sites (`FrozenCodecDecls.fs:165,173,181`), and re-render `TastShape.fs:726` from `TypeKey`.
-The frozen codec carries no version stamp and no byte-level golden pins the encoding.
+The hedge was warranted — `Codegen.Clr\LayoutNodes.fs:258` fed the field to the emitted
+`TypeDef` namespace column — but the value equals `SymbolKeyOps.typeNs td.TypeKey`, so the
+reader switched spellings (gated on a green Clr suite) and the field, its writer chain
+(including `DeclContainment.namespaceOpt`, whose only caller it was), the `TastConvert` copy
+and the codec sites are deleted. Shape-golden output is byte-identical.
 
 ### `Unification/EngineCore.fs:75` — the occurs check can miss when `target` is not a union-find root **[LANDED]**
 

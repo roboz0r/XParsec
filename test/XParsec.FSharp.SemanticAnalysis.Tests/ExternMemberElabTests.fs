@@ -176,15 +176,12 @@ let tests =
                 let callKeys =
                     [
                         for s in tast.Specializations do
-                            match s.Decl with
-                            | TDecl.Let(_, value, _, _) ->
-                                yield!
-                                    TastWalk.chooseExpr
-                                        (function
-                                        | TExpr.StaticMethodCall(k, _, _, _, _) -> ValueSome k
-                                        | _ -> ValueNone)
-                                        value
-                            | _ -> ()
+                            yield!
+                                TastWalk.chooseExpr
+                                    (function
+                                    | TExpr.StaticMethodCall(k, _, _, _, _) -> ValueSome k
+                                    | _ -> ValueNone)
+                                    s.Value
                     ]
 
                 Expect.isNonEmpty callKeys "the trait call dispatched to a StaticMethodCall"

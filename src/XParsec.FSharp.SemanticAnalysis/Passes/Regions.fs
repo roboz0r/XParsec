@@ -692,8 +692,10 @@ module Regions =
         // bindings the module's group and depth. `BindingRegions` outlives that group,
         // so an entry capturing a module binding still resolves it.
         for i = 0 to specializations.Length - 1 do
-            let binding = TSpecializationG.binding (SpecializationId i) specializations.[i]
-            withBindingGroup s ctx [ binding ] (fun () -> RegionId.Unknown) |> ignore
+            let entry = specializations.[i]
+
+            withBindingGroup s ctx [ entry.Pat, entry.Value ] (fun () -> RegionId.Unknown)
+            |> ignore
 
         let state = solve s.Graph
         let repr = solveRepr s.Graph state

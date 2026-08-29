@@ -249,10 +249,7 @@ let private resolvedConst (provider: IExternalSymbolProvider) (src: string) : in
 
     let rec result (e: Pooled.TExpr) : int64 =
         match e with
-        | TExprG.InlineCall(spec = SpecializationId i) ->
-            match tast.Specializations.[i].Decl with
-            | TDeclG.Let(_, value, _, _) -> result value
-            | other -> failtestf "an entry is a `TDecl.Let` of lambdas; got %A" other
+        | TExprG.InlineCall(spec = SpecializationId i) -> result tast.Specializations.[i].Value
         | TExprG.Lambda(_, body, _, _)
         | TExprG.Let(_, _, body, _, _) -> result body
         | TExprG.Const(TConstValue.Integral(_, v), _, _) -> v

@@ -28,15 +28,17 @@ type SpecializationKeyG<'ty> =
     }
 
 /// One entry of a file's specialization table, addressed by the `SpecializationId` an
-/// `InlineCall` carries. `Decl` is always a `TDecl.Let` of lambdas, and may itself contain
-/// an `InlineCall`, so the table is a DAG.
+/// `InlineCall` carries. `Value` may itself contain an `InlineCall`, so the table is a DAG.
 type TSpecializationG<'ty, 'tok, 'id> =
     {
         Key: SpecializationKeyG<'ty>
-        /// The file every anchor inside `Decl` is an index into, except under a nested
-        /// `CallerExpr` / `InlineCall`, which carries its own.
+        /// The file every anchor inside `Pat` and `Value` is an index into, except under a
+        /// nested `CallerExpr` / `InlineCall`, which carries its own.
         Path: AssemblyFilePath
-        Decl: TDeclG<'ty, 'tok, 'id>
+        /// The entry's own bound variable, minted at the reduction.
+        Pat: TPatG<'ty, 'tok, 'id>
+        /// The lambda chain an edge's arguments are positional against.
+        Value: TExprG<'ty, 'tok, 'id>
     }
 
 type IntrinsicReprInfo =
@@ -135,22 +137,6 @@ module TPreambleEntryG =
                 | TPreambleEntryG.Let l -> yield l
                 | TPreambleEntryG.Do _ -> ()
         ]
-
-[<RequireQualifiedAccess>]
-module TSpecializationG =
-    /// The bound pattern and lambda value of an entry's `TDecl.Let`.
-    let binding
-        (spec: SpecializationId)
-        (entry: TSpecializationG<'ty, 'tok, 'id>)
-        : TPatG<'ty, 'tok, 'id> * TExprG<'ty, 'tok, 'id> =
-        match entry.Decl with
-        | TDeclG.Let(pat, value, _, _) -> pat, value
-        | TDeclG.Expression _ ->
-            let (SpecializationId i) = spec
-            failwithf "TSpecialization: specialization %d is a `TDecl.Expression`, not a `TDecl.Let`" i
-        | TDeclG.Type _ ->
-            let (SpecializationId i) = spec
-            failwithf "TSpecialization: specialization %d is a `TDecl.Type`, not a `TDecl.Let`" i
 
 // Parallel `FrozenType` aliases, shared by the freeze step and the backends.
 

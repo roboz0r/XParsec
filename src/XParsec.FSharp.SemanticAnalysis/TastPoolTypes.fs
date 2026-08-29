@@ -114,7 +114,8 @@ type PooledSpecialization =
     {
         Key: Frozen.SpecializationKey
         Path: AssemblyFilePath
-        Decl: DeclPoolId
+        Pat: PatPoolId
+        Value: ExprPoolId
     }
 
 /// Everything of a frozen file that has NO pooled form: the file MINUS its trees and

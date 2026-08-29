@@ -147,7 +147,7 @@ module InlineSpecTable =
         i
 
     let private entryValue (entries: TSpecialization[]) (spec: SpecializationId) : TExpr =
-        snd (TSpecializationG.binding spec entries.[checkedSlot entries spec])
+        entries.[checkedSlot entries spec].Value
 
     /// An entry's state in `findCycle`'s depth-first search. An edge into an `OnPath` entry
     /// closes a cycle; an edge into a `Finished` entry is sharing, so a diamond is legal.
@@ -291,10 +291,10 @@ module InlineSpecTable =
                     {
                         Key = o.Grounding.Key
                         Path = o.Path
-                        // Every consumer matches on the VALUE alone, so this bound variable is
+                        // Every consumer reads the VALUE alone, so this bound variable is
                         // minted rather than taken from anything.
-                        Decl =
-                            TDecl.Let(TPat.NamedSimple(t.Mint(), declTy, TastWalk.exprTok value), value, true, declTy)
+                        Pat = TPat.NamedSimple(t.Mint(), declTy, TastWalk.exprTok value)
+                        Value = value
                     }
 
             // INTERNED only once BUILT: reuse is a decision about a finished entry, where the

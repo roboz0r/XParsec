@@ -242,7 +242,6 @@ module Elaborate =
 
     let private translateModuleElem
         (ctx: PassContext)
-        (c: DeclContainment<SyntaxToken>)
         (m: ModuleElem<SyntaxToken>)
         : (TDecl * (TyVarId * SemType) list) list =
         let container = ctx.CurrentContainer
@@ -261,7 +260,7 @@ module Elaborate =
         | ModuleElem.Type defs ->
             [
                 for td in defs do
-                    match tryTypeDecl ctx c td with
+                    match tryTypeDecl ctx td with
                     | Some((TDecl.Type tdecl, _) as result) ->
                         // So the file→file projection can drop a `type private T`.
                         ctx.Bindings.Accessibility.[SymbolKey.Type tdecl.TypeKey] <-
@@ -281,7 +280,7 @@ module Elaborate =
         CstModuleTree.walkImpl ctx.NameOf ctx.Resolution.AmbientOpenScope file
         |> List.collect (fun w ->
             ctx.EnterElement w
-            translateModuleElem ctx w.Containment w.Elem
+            translateModuleElem ctx w.Elem
         )
 
     let run (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : TastFile =
@@ -306,7 +305,8 @@ module Elaborate =
                 expanded.Specializations
                 |> Array.map (fun (e: TSpecialization) ->
                     { e with
-                        Decl = freezeTypars ctx.Store env e.Decl
+                        Pat = freezeTyparsPat ctx.Store env e.Pat
+                        Value = freezeTyparsExpr ctx.Store env e.Value
                     }
                 )
 

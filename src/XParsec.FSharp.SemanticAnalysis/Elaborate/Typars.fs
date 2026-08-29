@@ -152,6 +152,18 @@ module internal ElaborateTypars =
                 env.AddRange methodMarkers
                 m
 
+    /// Walk every `SemType` in `p` through `remapDeclTypars env` (see `freezeTypars`).
+    let freezeTyparsPat (store: TypeStore) (env: (TyVarId * SemType) list) (p: TPat) : TPat =
+        TastWalk.mapPat
+            { TastWalk.identityMapper with
+                MapType = remapDeclTypars store env
+            }
+            p
+
+    /// Walk every `SemType` in `e` through `remapDeclTypars env` (see `freezeTypars`).
+    let freezeTyparsExpr (store: TypeStore) (env: (TyVarId * SemType) list) (e: TExpr) : TExpr =
+        mapExprTypes (remapDeclTypars store env) e
+
     /// The deferred typar cut: walk every `SemType` in `d` through `remapDeclTypars env`,
     /// whose `env` holds the decl's own quantified typar roots. An empty `env` is then a
     /// pure zonk-rebuild. A type declaration's own slots are enumerated by `mapTypeDecl`.
@@ -160,13 +172,6 @@ module internal ElaborateTypars =
 
         match d with
         | TDecl.Let(binding, value, isInline, ty) ->
-            let binding =
-                TastWalk.mapPat
-                    { TastWalk.identityMapper with
-                        MapType = f
-                    }
-                    binding
-
-            TDecl.Let(binding, mapExprTypes f value, isInline, f ty)
+            TDecl.Let(freezeTyparsPat store env binding, mapExprTypes f value, isInline, f ty)
         | TDecl.Expression(e, ty) -> TDecl.Expression(mapExprTypes f e, f ty)
         | TDecl.Type td -> TDecl.Type(TastWalk.mapTypeDecl f (mapExprTypes f) td)

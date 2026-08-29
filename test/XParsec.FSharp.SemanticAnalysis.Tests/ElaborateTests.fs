@@ -367,7 +367,7 @@ let interfaceTests =
                 match tast.Decls with
                 | EqList [ TDecl.Type td ] ->
                     Expect.equal td.Name "Fun" "type name"
-                    Expect.equal td.Namespace (Some "Vesper") "namespace"
+                    Expect.equal td.TypeKey.Namespace.Dotted "Vesper" "namespace"
                     Expect.equal (EqArray.toList td.TypeParams) [ "'A"; "'B" ] "declared typars"
 
                     match td.Kind with

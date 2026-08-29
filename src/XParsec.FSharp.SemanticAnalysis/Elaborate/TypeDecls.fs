@@ -148,7 +148,6 @@ module internal ElaborateTypeDecls =
     let private mkTypeDecl
         (name: string)
         (key: TypeKey)
-        (ns: string option)
         (typars: EqArray<string>)
         (attrs: TAttributes)
         (kind: TTypeKind)
@@ -157,7 +156,6 @@ module internal ElaborateTypeDecls =
             {
                 Name = name
                 TypeKey = key
-                Namespace = ns
                 TypeParams = typars
                 Kind = kind
                 Attributes = attrs
@@ -167,7 +165,6 @@ module internal ElaborateTypeDecls =
     /// declaring-type typar is remapped to a `TyTypar(Declaring, i)` marker.
     let private tryUnionType
         (ctx: PassContext)
-        (ns: string option)
         (name: string)
         (declKey: NodeKey voption)
         (ext: TypeExtensionElements<SyntaxToken> voption)
@@ -225,7 +222,6 @@ module internal ElaborateTypeDecls =
                 mkTypeDecl
                     name
                     info.TypeKey
-                    ns
                     (EqArray.ofList declTypars)
                     info.Attributes
                     (TTypeKind.Union
@@ -243,7 +239,6 @@ module internal ElaborateTypeDecls =
     /// accepted with a warning.
     let private tryEnumType
         (ctx: PassContext)
-        (ns: string option)
         (name: string)
         (declKey: NodeKey voption)
         : (TDecl * (TyVarId * SemType) list) option =
@@ -279,13 +274,12 @@ module internal ElaborateTypeDecls =
                 )
             | ValueNone -> ()
 
-            Some(mkTypeDecl name info.TypeKey ns (EqArray.ofList []) info.Attributes (TTypeKind.Enum tcases), [])
+            Some(mkTypeDecl name info.TypeKey (EqArray.ofList []) info.Attributes (TTypeKind.Enum tcases), [])
 
     /// Surface a `TypeDefn.Record` as a `TDecl.Type` from the resolved `RecordTypeInfo`.
     /// Field types are remapped through the declaring-type typars, as for a union.
     let private tryRecordType
         (ctx: PassContext)
-        (ns: string option)
         (name: string)
         (declKey: NodeKey voption)
         (ext: TypeExtensionElements<SyntaxToken> voption)
@@ -334,7 +328,6 @@ module internal ElaborateTypeDecls =
                 mkTypeDecl
                     name
                     info.TypeKey
-                    ns
                     (EqArray.ofList declTypars)
                     info.Attributes
                     (TTypeKind.Record
@@ -439,7 +432,6 @@ module internal ElaborateTypeDecls =
     /// the declaring-type typars, as for a record or union.
     let private tryClassType
         (ctx: PassContext)
-        (ns: string option)
         (name: string)
         (arity: int)
         (elements: TypeDefnElements<SyntaxToken>)
@@ -522,7 +514,6 @@ module internal ElaborateTypeDecls =
                 mkTypeDecl
                     name
                     info.TypeKey
-                    ns
                     (EqArray.ofList declTypars)
                     info.Attributes
                     (TTypeKind.Class
@@ -553,7 +544,6 @@ module internal ElaborateTypeDecls =
     /// resolved body. `None` for a cyclic abbreviation, whose fill already reported.
     let private tryAbbrevType
         (ctx: PassContext)
-        (ns: string option)
         (name: string)
         (arity: int)
         : (TDecl * (TyVarId * SemType) list) option =
@@ -569,7 +559,6 @@ module internal ElaborateTypeDecls =
                     mkTypeDecl
                         name
                         info.TypeKey
-                        ns
                         (EqArray.ofSeq (seq { for (n, _) in info.TypeParams -> n }))
                         // A transparent alias carries no attributes of its own: every
                         // verdict is the body's.
@@ -583,7 +572,6 @@ module internal ElaborateTypeDecls =
     /// intrinsic `TyConst`, not a `TyClass`; `Class` is only the inertest container kind.
     let private tryIntrinsicAbbrevType
         (ctx: PassContext)
-        (ns: string option)
         (name: string)
         (ext: TypeExtensionElements<SyntaxToken> voption)
         : (TDecl * (TyVarId * SemType) list) option =
@@ -617,18 +605,12 @@ module internal ElaborateTypeDecls =
                 }
 
             Some(
-                mkTypeDecl name info.TypeKey ns (EqArray.ofList declTypars) EqArray.empty (TTypeKind.Class clsG),
+                mkTypeDecl name info.TypeKey (EqArray.ofList declTypars) EqArray.empty (TTypeKind.Class clsG),
                 List.ofSeq env
             )
 
     /// Surface an interface-shaped, union, record, or class `TypeDefn` as a `TDecl.Type`.
-    let tryTypeDecl
-        (ctx: PassContext)
-        (c: DeclContainment<SyntaxToken>)
-        (td: TypeDefn<SyntaxToken>)
-        : (TDecl * (TyVarId * SemType) list) option =
-        let ns = DeclContainment.namespaceOpt c
-
+    let tryTypeDecl (ctx: PassContext) (td: TypeDefn<SyntaxToken>) : (TDecl * (TyVarId * SemType) list) option =
         let classify tn (body: ObjectModelBody<SyntaxToken>) =
             let name = typeNameSimple ctx tn
 
@@ -648,9 +630,9 @@ module internal ElaborateTypeDecls =
                     // miss is a producer bug, not an attribute-less interface.
                     | ValueNone -> failwithf "tryTypeDecl: interface '%s' has no registered ClassTypeInfo" name
 
-                Some(mkTypeDecl name key ns typars attrs (TTypeKind.Interface methods), env)
+                Some(mkTypeDecl name key typars attrs (TTypeKind.Interface methods), env)
             // Not all-abstract ⇒ class shape (`type C(x) = member …`).
-            | None -> tryClassType ctx ns name arity body.elements
+            | None -> tryClassType ctx name arity body.elements
 
         match td with
         | TypeDefn.Anon(typeName = tn; body = body) -> classify tn body
@@ -658,23 +640,22 @@ module internal ElaborateTypeDecls =
         | TypeDefn.Class(typeName = tn; body = body) ->
             tryClassType
                 ctx
-                ns
                 (typeNameSimple ctx tn)
                 (NameResolutionTypeRegistration.arityOfTypeName ctx tn)
                 body.elements
         | TypeDefn.Union(typeName = tn; extensions = ext) ->
-            tryUnionType ctx ns (typeNameSimple ctx tn) (typeNameDeclKey ctx tn) ext
+            tryUnionType ctx (typeNameSimple ctx tn) (typeNameDeclKey ctx tn) ext
         | TypeDefn.Record(typeName = tn; extensions = ext) ->
-            tryRecordType ctx ns (typeNameSimple ctx tn) (typeNameDeclKey ctx tn) ext
-        | TypeDefn.Enum(typeName = tn) -> tryEnumType ctx ns (typeNameSimple ctx tn) (typeNameDeclKey ctx tn)
+            tryRecordType ctx (typeNameSimple ctx tn) (typeNameDeclKey ctx tn) ext
+        | TypeDefn.Enum(typeName = tn) -> tryEnumType ctx (typeNameSimple ctx tn) (typeNameDeclKey ctx tn)
         // A transparent alias surfaces its resolved RHS; an inline intrinsic-abbrev has a
         // host in `IntrinsicAbbrevHost` and surfaces its members instead (lift-only).
         | TypeDefn.Abbrev(typeName = tn; extensions = ext) ->
             let name = typeNameSimple ctx tn
 
-            match tryIntrinsicAbbrevType ctx ns name ext with
+            match tryIntrinsicAbbrevType ctx name ext with
             | Some result -> Some result
-            | None -> tryAbbrevType ctx ns name (NameResolutionTypeRegistration.arityOfTypeName ctx tn)
+            | None -> tryAbbrevType ctx name (NameResolutionTypeRegistration.arityOfTypeName ctx tn)
         // `type S = struct … end` and `type D = delegate of …` are dropped silently: neither
         // declaration form is elaborated yet. An extension augments a type declared elsewhere,
         // and the remaining forms come from recovery.

@@ -80,8 +80,6 @@ and TTypeDeclG<'ty, 'tok, 'id, 'body> =
         /// The type's stable nominal identity, carried into the backend so the emitted-type
         /// tables key off it instead of re-deriving a string.
         TypeKey: TypeKey
-        /// `None` for a module-level type.
-        Namespace: string option
         /// Declared type parameters in source order (e.g. `["'A"; "'B"]`).
         TypeParams: EqArray<string>
         Kind: TTypeKindG<'ty, 'tok, 'id, 'body>

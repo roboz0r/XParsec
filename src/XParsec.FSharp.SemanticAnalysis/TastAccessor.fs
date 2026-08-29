@@ -810,21 +810,11 @@ module TastAccessor =
     /// share one entry.
     let specialization (pool: PoolBuilder) (spec: SpecializationId) : Specialization =
         let entry = TastPoolBuilder.specialization pool spec
-        let decl: DeclId = { Pool = pool; Id = entry.Decl }
 
         {
             Key = entry.Key
             Path = entry.Path
-            Value =
-                match declKind decl with
-                | DeclShape.Let -> (declLet decl).Value
-                | other ->
-                    let (SpecializationId i) = spec
-
-                    failwithf
-                        "TastAccessor.specialization: specialization %d is not a `Let` declaration, but %A"
-                        i
-                        other
+            Value = { Pool = pool; Id = entry.Value }
         }
 
     // ── generic traversal ───────────────────────────────────────────────────
