@@ -158,37 +158,6 @@ module UnificationEngine =
             | _ -> ValueNone
         | _ -> ValueNone
 
-    /// How an expected type's no-pin absorption seams rule on one argument position.
-    [<RequireQualifiedAccess>]
-    type private Absorption =
-        /// The expected type accepts the actual as-is, with no unification.
-        | Accepts
-        /// The expected type is an absorbing shape the actual does not satisfy.
-        | Refuses
-        /// The expected type is not an absorbing shape.
-        | NotAbsorbing
-
-    /// The absorbing shapes, in order: the universal `obj` supertype; a union slot, which is
-    /// `obj` restricted to an enumerated member set; and a platform-repr numeric family. Each
-    /// admits a subsuming actual WITHOUT unifying, since pinning a typar argument here would
-    /// ground the enclosing type's parameter.
-    let private absorption (ctx: PassContext) (actual: SemType) (expected: SemType) : Absorption =
-        let accepts (target: SemType) =
-            if subsumes ctx actual target <> SubsumeOutcome.Unrelated then
-                Absorption.Accepts
-            else
-                Absorption.Refuses
-
-        if absorbsAsObj ctx.Store expected then
-            Absorption.Accepts
-        else
-            match resolveStep ctx.Store expected with
-            | TyOr _ -> accepts expected
-            | _ ->
-                match numericFamilyOr ctx expected with
-                | ValueSome fam -> accepts fam
-                | ValueNone -> Absorption.NotAbsorbing
-
     /// Two intrinsic canons are REPR-SIBLINGS iff some platform repr covers BOTH: on JS
     /// the numeric family (`"number"` -> int/float/float32); on CLR, never.
     let private reprSiblings (ctx: PassContext) (a: SemType) (b: SemType) : bool =
@@ -236,6 +205,42 @@ module UnificationEngine =
                 | _ -> false
             | _ -> false
         | _ -> false
+
+    /// How an expected type admits one actual type at an argument position.
+    [<RequireQualifiedAccess>]
+    type private Absorption =
+        /// The expected type accepts the actual as-is, with no unification.
+        | Accepts
+        /// The expected type is an absorbing shape the actual does not satisfy.
+        | Refuses
+        /// The expected type is not an absorbing shape.
+        | NotAbsorbing
+
+    /// The absorbing shapes, in order: the universal `obj` supertype; a union slot, which is
+    /// `obj` restricted to an enumerated member set; a platform-repr numeric family; and an
+    /// external interface met by a record's width. Each admits the actual WITHOUT unifying,
+    /// since pinning a typar argument here would ground the enclosing type's parameter.
+    /// The arms match disjoint resolved shapes of `expected`, so `Refuses` is final.
+    let private absorbsWithoutPinning (ctx: PassContext) (actual: SemType) (expected: SemType) : Absorption =
+        let accepts (target: SemType) =
+            if subsumes ctx actual target <> SubsumeOutcome.Unrelated then
+                Absorption.Accepts
+            else
+                Absorption.Refuses
+
+        if absorbsAsObj ctx.Store expected then
+            Absorption.Accepts
+        else
+            match resolveStep ctx.Store expected with
+            | TyOr _ -> accepts expected
+            | _ ->
+                match numericFamilyOr ctx expected with
+                | ValueSome fam -> accepts fam
+                | ValueNone ->
+                    if tryStructuralWiden ctx actual expected then
+                        Absorption.Accepts
+                    else
+                        Absorption.NotAbsorbing
 
     let rec unify (ctx: PassContext) (tok: SyntaxToken) (a: SemType) (b: SemType) =
         let a = resolveStep ctx.Store a
@@ -363,17 +368,17 @@ module UnificationEngine =
             unify ctx tok xs.[i] ys.[i]
 
     /// Coerce one argument position against its expected parameter type, deferring to the
-    /// absorbing shapes before structural widening and, failing both, unifying.
+    /// absorbing shapes and, failing those, unifying.
     and private unifyArgCoerce (ctx: PassContext) (tok: SyntaxToken) (actual: SemType) (expected: SemType) : unit =
         match resolveStep ctx.Store actual, resolveStep ctx.Store expected with
         | TyTuple aa, TyTuple bb when aa.Length = bb.Length ->
             for i in 0 .. aa.Length - 1 do
                 unifyArgCoerce ctx tok aa.[i] bb.[i]
         | a, b ->
-            match absorption ctx a b with
+            match absorbsWithoutPinning ctx a b with
             | Absorption.Accepts -> ()
             | Absorption.Refuses
-            | Absorption.NotAbsorbing -> if tryStructuralWiden ctx a b then () else unify ctx tok a b
+            | Absorption.NotAbsorbing -> unify ctx tok a b
 
     /// Unify an *applied callable* shape against a resolved member signature, coercing
     /// each argument position rather than unifying it: `comparer.GetHashCode(x)` builds
@@ -852,24 +857,20 @@ module UnificationEngine =
     /// (or a base / interface) instantiates `tgt`'s nominal, `unify` the witness's type
     /// args against `tgt`'s, pinning the `_` in `this :> seq<_>`. Unlike `subsumes`, MUTATES.
     let tryCoerceUpcast (ctx: PassContext) (tok: SyntaxToken) (src: SemType) (tgt: SemType) : bool =
-        match absorption ctx src tgt with
+        match absorbsWithoutPinning ctx src tgt with
         | Absorption.Accepts -> true
         | Absorption.Refuses -> false
         | Absorption.NotAbsorbing ->
-            if tryStructuralWiden ctx src tgt then
-                true
-            else
+            match subtypeNominalOf ctx tgt with
+            | ValueNone -> false
+            | ValueSome(struct (tname, targs)) ->
+                match tryUpcastWitness ctx src tname with
+                | ValueSome sargs when sargs.Length = targs.Length ->
+                    for i in 0 .. targs.Length - 1 do
+                        unify ctx tok sargs.[i] targs.[i]
 
-                match subtypeNominalOf ctx tgt with
-                | ValueNone -> false
-                | ValueSome(struct (tname, targs)) ->
-                    match tryUpcastWitness ctx src tname with
-                    | ValueSome sargs when sargs.Length = targs.Length ->
-                        for i in 0 .. targs.Length - 1 do
-                            unify ctx tok sargs.[i] targs.[i]
-
-                        true
-                    | _ -> false
+                    true
+                | _ -> false
 
     /// Unify an *argument* against its expected parameter type, admitting the implicit
     /// class→interface / class→base upcast F# inserts at a coercion point: a

@@ -66,16 +66,17 @@ copies to one; the remaining hand-written five-field chain moved to
 `CapabilityIds.TryMatch`, beside the field declarations, so a sixth capability field puts
 the probe next to the declaration it must cover.
 
-### `Unification/Engine.fs:320` — `unifyArgCoerce` and `tryCoerceUpcast` maintain the same no-pin prefix in parallel
+### `Unification/Engine.fs:320` — `unifyArgCoerce` and `tryCoerceUpcast` maintain the same no-pin prefix in parallel **[LANDED]**
 
-Both walk the identical four steps before diverging: `absorbsAsObj`, then a `TyOr` target via
-`subsumes <> Unrelated`, then `numericFamilyOr` + `subsumes`, then `tryStructuralWiden`.
-`unifyArgCoerce` falls through to `unify`; `tryCoerceUpcast` continues to `subtypeNominalOf` +
-`tryUpcastWitness` and reports a bool. Only the tuple recursion (present in both, at different
-entry points) and that tail differ, so the "which targets absorb without pinning" policy is
-stated twice and can drift — a new absorbing shape added to one walker silently grounds typars
-in the other. Extracting the prefix as a single `absorbsWithoutPinning` predicate would delete
-the duplicated arm comments this sweep already had to cut from both sites.
+An earlier extraction (`absorption`, commit `51e08e32`) had already collapsed the first three
+steps; the fourth, `tryStructuralWiden`, was still called from both walkers. All four now live
+in `absorbsWithoutPinning : PassContext -> SemType -> SemType -> Absorption`, whose fourth arm
+answers `Accepts` on a widened record, so a new absorbing shape is a one-site edit.
+
+The pre-extraction `Refuses` arms differed — `unifyArgCoerce` tried `tryStructuralWiden` after
+one, `tryCoerceUpcast` returned `false` — and the two agree because widening requires a
+`TyClass` expected, which the `TyOr` and platform-repr arms have already excluded. That
+disjointness is now stated on `absorbsWithoutPinning` as the invariant a fifth arm must keep.
 
 ### `SemanticScalars.fs:74` — `SafeContext`, `NativeRegionTier` and both `EscapeState` converters have no PRODUCTION consumer
 
