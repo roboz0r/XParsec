@@ -10,7 +10,6 @@ let private analyseNR (input: string) =
 
     let ctx = PassContext(realProvider.Value, LexedFile.ofText lexed, testCompiling)
 
-    Desugar.run ctx file
     NameResolution.run ctx file
     ctx
 
@@ -19,7 +18,6 @@ let private analyseUnif (input: string) =
 
     let ctx = PassContext(realProvider.Value, LexedFile.ofText lexed, testCompiling)
 
-    Desugar.run ctx file
     NameResolution.run ctx file
     Unification.run ctx file
     ctx

@@ -32,7 +32,6 @@ let private expandedWith (provider: IExternalSymbolProvider) (input: string) : A
 
     let ctx = PassContext(provider, LexedFile.ofText lexed, testCompiling)
 
-    Desugar.run ctx file
     NameResolution.run ctx file
     Unification.run ctx file
     Validation.run ctx file

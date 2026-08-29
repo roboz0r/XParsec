@@ -89,6 +89,31 @@ or names a given backend never emits). The two aren't exclusive — interning
 is the obvious first step; token references are the heavier follow-up if
 profiling still shows identifier materialisation dominating.
 
+## Related: `OperatorData.nameOfSymbol` (operator compiled names)
+
+Since the Desugar pass was deleted, an operator node's compiled name
+(`+` → `op_Addition`) is derived on demand — at least three times per node
+(the NameResolution stamp, Unification, Elaborate), each call paying a
+fresh `ctx.NameOf` substring plus `nameOfSymbol`'s linear `Array.tryFind`
+over ~50 spelling tuples with a closure, and a `StringBuilder` for a custom
+operator (`>=>` → `op_GreaterEqualsGreater`).
+
+Target shape:
+
+- **`ReadOnlySpan<char>` input**, so callers pass a source span
+  (`ctx.SpanOf` / `GetTokenReadable`) instead of materialising the spelling
+  first — the same Phase-0 move as the printf path.
+- **Backed by a static `ConcurrentDictionary`** mapping spelling → compiled
+  name, seeded from `symbolNames` and growing as custom spellings are
+  composed. Static, not per-`PassContext`: the mapping is defined by the
+  language, so it is constant across compilations, and every compilation
+  shares one cache.
+
+Span-keyed lookup against a `ConcurrentDictionary` needs
+`GetAlternateLookup<ReadOnlySpan<char>>` (.NET 9+); the `src` projects
+target net8.0 today, so either the TFM moves first or the lookup takes a
+copy on the miss path only.
+
 ## Variation: store `ReadableString` instead of `string`
 
 A cleaner carrier than a bespoke `(fileId, start, length)` token reference:

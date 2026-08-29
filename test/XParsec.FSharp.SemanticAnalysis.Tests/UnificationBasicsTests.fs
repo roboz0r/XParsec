@@ -31,6 +31,47 @@ let tests =
                 Expect.equal (typeOf ctx patKey) BuiltinTypes.tyInt "x : int"
             }
 
+            test "custom infix operator resolves through its composed compiled name" {
+                // `++` has no dedicated token: the `op_PlusPlus` spelling is composed
+                // from source text and resolved like a well-known operator.
+                let intFt = FTConst(RuntimeNames.intKey, EqArray.empty)
+
+                let opProvider =
+                    providerOfValues
+                        [
+                            ExternalSymbols.monoFrozen
+                                (SymbolKeyOps.inNamespace "")
+                                "op_PlusPlus"
+                                (FTFun(intFt, FTFun(intFt, intFt)))
+                        ]
+
+                let provider = ExternalSymbolProviders.composite [ opProvider; realProvider.Value ]
+
+                let lexed, file = parseFile "let x = 1 ++ 2"
+                let ctx = PassContext(provider, LexedFile.ofText lexed, testCompiling)
+
+                NameResolution.run ctx file
+                Unification.run ctx file
+
+                Expect.isEmpty (errors ctx) "1 ++ 2 resolves and types"
+                let patKey = NodeKey.ofSource 4 NodeKind.PatIdent
+                Expect.equal (typeOf ctx patKey) BuiltinTypes.tyInt "x : int"
+            }
+
+            test "unknown custom infix operator diagnoses its composed compiled name" {
+                let ctx = analyse "let x = 1 >=> 2"
+
+                let hasComposedName =
+                    ctx.Diagnostics
+                    |> Seq.exists (fun d -> d.Message.Contains "op_GreaterEqualsGreater")
+
+                Expect.isTrue
+                    hasComposedName
+                    (sprintf
+                        "diagnostic should carry the composed name; got %A"
+                        (ctx.Diagnostics |> Seq.map (fun d -> d.Message) |> Seq.toList))
+            }
+
             test "lambda body type propagates to function type" {
                 let ctx = analyse "let f = fun x -> x + 1"
                 let patKey = NodeKey.ofSource 4 NodeKind.PatIdent
@@ -156,7 +197,6 @@ let tests =
 
                 let ctx = PassContext(provider, LexedFile.ofText lexed, testCompiling)
 
-                Desugar.run ctx file
                 NameResolution.run ctx file
                 Unification.run ctx file
 
@@ -193,7 +233,6 @@ let tests =
 
                 let ctx = PassContext(provider, LexedFile.ofText lexed, testCompiling)
 
-                Desugar.run ctx file
                 NameResolution.run ctx file
                 Unification.run ctx file
 

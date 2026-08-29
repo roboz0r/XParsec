@@ -1386,7 +1386,6 @@ let tests =
 
                 let ctx = PassContext(provider, LexedFile.ofText lexed, testCompiling)
 
-                Passes.Desugar.run ctx file
                 Passes.NameResolution.run ctx file
                 Passes.Unification.run ctx file
                 ctx

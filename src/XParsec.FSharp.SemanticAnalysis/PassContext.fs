@@ -442,7 +442,6 @@ type PassContext(provider: IExternalSymbolProvider, file: LexedFile, assembly: C
                 res.TyparScopeStrict <- savedStrict
         }
 
-    member val Desugared = SideTable<DesugaredForm>() with get
     /// Keyed by an `Expr.App`, present only where the call lowers inline: literal format and
     /// every specifier classifiable.
     member val PrintfLowering = SideTable<PrintfSpec.PrintfLowering>() with get

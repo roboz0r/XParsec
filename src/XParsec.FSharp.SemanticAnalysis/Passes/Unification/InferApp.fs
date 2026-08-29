@@ -3,6 +3,7 @@ namespace XParsec.FSharp.SemanticAnalysis.Passes
 open System.Collections.Generic
 open System.Collections.Immutable
 open XParsec.FSharp
+open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open UnificationEngineCore
@@ -481,37 +482,40 @@ module internal UnificationInferApp =
         let leftTy = infer ctx left
         let rightTy = infer ctx right
 
-        match ctx.Desugared.TryGetValue node.Key with
-        | ValueSome(DesugaredForm.OpName name) ->
-            match tryMeasuredArith ctx node.Tok name leftTy rightTy with
-            | Some resultTy -> resultTy
-            | None ->
-                match ctx.Resolution.ExternalSymbolStamp.TryGetValue node.Key with
-                | ValueSome sym ->
-                    // Record the resolved identity so the `TExpr.External` minted for this
-                    // operator splices the contract's `let inline` body by KEY, even for a
-                    // primitive `1 + 2`.
-                    ctx.Resolution.IntrinsicKey.Set(node.Key, SymbolKey.Binding sym.Key)
-                    let resultTy = TyVar(freshTyVar ctx)
-
-                    unify
-                        ctx
-                        node.Tok
-                        (ExternalSymbols.instantiateSymbol ctx.Store sym ctx.CurrentLevel)
-                        (TyFun(leftTy, TyFun(rightTy, resultTy)))
-
-                    resultTy
-                | ValueNone -> unresolvedOperator ctx node.Tok name
-        | ValueSome DesugaredForm.ConsExpr ->
+        // `node.Tok` is the operator token: `CstKeys` keys an `InfixApp` on it.
+        match node.Tok.Token with
+        | Token.KWColonColon ->
             // `h :: t` builds the list union directly (not a provider operator): `h` is the
             // element type, `t` unifies to the same list type, which is the result.
             let listTy = listLiteralTy ctx node.Tok leftTy
             unify ctx node.Tok rightTy listTy
             listTy
-        | ValueSome _
-        | ValueNone ->
-            // Desugar didn't recognise the operator, so leave the result free.
-            TyVar(freshTyVar ctx)
+        | _ ->
+
+            match OperatorNames.ofSymbolic (ctx.NameOf node.Tok) node.Tok with
+            | ValueSome name ->
+                match tryMeasuredArith ctx node.Tok name leftTy rightTy with
+                | Some resultTy -> resultTy
+                | None ->
+                    match ctx.Resolution.ExternalSymbolStamp.TryGetValue node.Key with
+                    | ValueSome sym ->
+                        // Record the resolved identity so the `TExpr.External` minted for this
+                        // operator splices the contract's `let inline` body by KEY, even for a
+                        // primitive `1 + 2`.
+                        ctx.Resolution.IntrinsicKey.Set(node.Key, SymbolKey.Binding sym.Key)
+                        let resultTy = TyVar(freshTyVar ctx)
+
+                        unify
+                            ctx
+                            node.Tok
+                            (ExternalSymbols.instantiateSymbol ctx.Store sym ctx.CurrentLevel)
+                            (TyFun(leftTy, TyFun(rightTy, resultTy)))
+
+                        resultTy
+                    | ValueNone -> unresolvedOperator ctx node.Tok name
+            | ValueNone ->
+                // Not a compiled-named operator, so leave the result free.
+                TyVar(freshTyVar ctx)
 
     /// `x?name` — the dynamic-access operator (F# spec 6.4.5: `x ? ident` desugars to `(?)
     /// x "ident"`), unified against `x -> string -> ^TResult`. Its `target: dynamic`
@@ -570,13 +574,14 @@ module internal UnificationInferApp =
     and inferPrefix (infer: Infer) (ctx: PassContext) (node: NodeSite) (operand: Expr<SyntaxToken>) : SemType =
         let operandTy = infer ctx operand
 
-        match ctx.Desugared.TryGetValue node.Key with
-        | ValueSome(DesugaredForm.OpName OperatorData.OpAddressOf) ->
+        // `node.Tok` is the operator token: `CstKeys` keys a `PrefixApp` on it.
+        match OperatorNames.ofPrefix (ctx.NameOf node.Tok) node.Tok with
+        | ValueSome OperatorData.OpAddressOf ->
             // `&local` (managed address-of) is the byref intrinsic, because `op_AddressOf` has
             // no provider symbol. Typing it `byref<operandTy>` matches a BCL byref/`out`
             // parameter (`Int32.TryParse(string, int&)`); addressability is checked at codegen.
             TyConst(RuntimeNames.byrefKey, EqArray.singleton operandTy)
-        | ValueSome(DesugaredForm.OpName name) ->
+        | ValueSome name ->
             match ctx.Resolution.ExternalSymbolStamp.TryGetValue node.Key with
             | ValueSome sym ->
                 // Thread the resolved identity to the minted `TExpr.External`, so the prefix
@@ -592,5 +597,4 @@ module internal UnificationInferApp =
 
                 resultTy
             | ValueNone -> unresolvedOperator ctx node.Tok name
-        | ValueSome _
         | ValueNone -> TyVar(freshTyVar ctx)

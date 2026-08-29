@@ -2270,6 +2270,23 @@ module internal TokenInfo =
         else
             false
 
+    /// Keyword-encoded tokens that reference an operator function with a compiled
+    /// `op_*` name (`&&`, `*`, `:=`). Structural punctuation (`;`, `->`, `|`) is not one.
+    let isNamedOperatorKeyword (token: Token) =
+        match token with
+        | Token.OpColonEquals
+        | Token.OpAmp
+        | Token.OpAmpAmp
+        | Token.OpBarBar
+        | Token.OpMultiply
+        | Token.OpDivision
+        | Token.OpConcatenate
+        | Token.OpEquality
+        | Token.OpDereference
+        | Token.OpDynamic
+        | Token.OpDynamicAssignment -> true
+        | _ -> false
+
     let operatorPrecedence (token: Token) : PrecedenceLevel =
         if isKeyword token then
             match token with
@@ -2557,9 +2574,21 @@ type OperatorInfo =
     member this.Associativity = OperatorInfo.associativity this.Precedence
     member this.Precedence = this._precedence
 
+    /// The compiled `op_*` name of the operator `token` as written `literal`
+    /// (`&&&` → `op_BitwiseAnd`). `literal` must be an operator spelling of `token`.
+    /// `ValueNone` for a non-operator token and for keyword-encoded punctuation with
+    /// no operator function (`;`, `->`, `::`).
+    static member TryGetOpName(token: Token, literal: string) : string voption =
+        if TokenInfo.isOperator token || TokenInfo.isNamedOperatorKeyword token then
+            ValueSome(OperatorData.nameOfSymbol literal)
+        else
+            ValueNone
+
+    /// Display name for a token dump. A keyword-encoded token shows its token name
+    /// (`OpEquality`), because most of its occurrences (`let x = 1`) are not operator
+    /// uses; the syntactic position needed to say `op_Equality` is not known here.
     member this.GetName(literal: string) =
         if TokenInfo.isKeyword this.Token then
-            // For operator keywords, the name is just the token name (e.g., "OpColonEquals" for ":=")
             this.Token.ToString()
         else
             OperatorData.nameOfSymbol literal

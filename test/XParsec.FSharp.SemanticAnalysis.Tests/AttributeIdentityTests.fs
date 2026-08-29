@@ -14,7 +14,6 @@ let private analyse (input: string) =
 
     let ctx = PassContext(realProvider.Value, LexedFile.ofText lexed, testCompiling)
 
-    Desugar.run ctx file
     NameResolution.run ctx file
     ctx
 

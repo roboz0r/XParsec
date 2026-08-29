@@ -31,7 +31,7 @@ module internal ElaborateIdents =
                 | Expr.LongIdentOrOp(LongIdentOrOp.Op(IdentOrOp.ParenOp(opName = OpName.SymbolicOp op))) ->
                     // `(+)`-as-a-value: carry the operator's compiled name so the
                     // External matches what the provider (and codegen) key on.
-                    match Desugar.symbolicOpCompiledName op.Token with
+                    match OperatorNames.ofSymbolic (ctx.NameOf op) op with
                     | ValueSome n -> n
                     | ValueNone -> ctx.NameOf(CstKeys.firstTokenOfExpr e)
                 // `A.B.(+)` — the joined `A.B.op_Addition` spelling, matching the qualifier

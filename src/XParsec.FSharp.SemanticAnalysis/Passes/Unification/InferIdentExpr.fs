@@ -25,7 +25,7 @@ module internal UnificationInferIdentExpr =
         // and instantiate its scheme like any other external symbol. Nothing type-directed
         // is needed here, because the SRTP trait call in the operator's contract body makes that choice.
         | Expr.LongIdentOrOp(LongIdentOrOp.Op(IdentOrOp.ParenOp(opName = OpName.SymbolicOp op))) ->
-            match Desugar.symbolicOpCompiledName op.Token with
+            match OperatorNames.ofSymbolic (ctx.NameOf op) op with
             | ValueSome name ->
                 // NameResolution stamped the resolved `ExternalSymbol` here; instantiate
                 // the scheme by key rather than re-resolving the spelling.

@@ -8,7 +8,7 @@ open NameResolutionScope
 open NameResolutionTypeRegistration
 open NameResolutionMemberRegistration
 
-// Pre:  ctx.Desugared populated.
+// Pre:  none.
 // Post: ctx.Bindings.Binding populated for every ident-use site resolving to a local
 //       binding; a name no provider knows becomes an Error diagnostic.
 

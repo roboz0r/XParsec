@@ -238,14 +238,13 @@ let publishClass (b: PublishedSurfaceBuilder) (key: TypeKey) (members: ExternalM
             })
         members
 
-/// Parse `input` and run Desugar + NameResolution against `provider`. Run
+/// Parse `input` and run NameResolution against `provider`. Run
 /// `Passes.Unification.run` on the returned pair to continue into inference.
 let analyseNameRes (provider: IExternalSymbolProvider) (input: string) : PassContext * ImplementationFile<SyntaxToken> =
     let lexed, file = parseFile input
 
     let ctx = PassContext(provider, LexedFile.ofText lexed, testCompiling)
 
-    Passes.Desugar.run ctx file
     Passes.NameResolution.run ctx file
     ctx, file
 

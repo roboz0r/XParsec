@@ -415,22 +415,3 @@ type ResolvedBinding =
         IsInline: bool
         IsMutable: bool
     }
-
-/// A thin view, not a rewritten tree: attached to a CST node without mutating its shape.
-[<RequireQualifiedAccess>]
-type DesugaredForm =
-    /// On an `InfixApp` / `PrefixApp` node, the operator's compiled name
-    /// (`op_Addition`, `op_PipeRight`, …). The application is then typed as an ordinary
-    /// call to it; a polymorphic `|>` / `>>` is a fresh instantiation per lookup.
-    | OpName of compiledName: string
-    /// `[1; 2; 3]` or `[]` — an `EnclosedBlock` / `EmptyBlock` node of list `ParenKind`.
-    /// Lowered to a nested `UnionCons` chain over the resolved list union, taking that
-    /// union's own case names.
-    | ListLiteral
-    /// `[|1; 2; 3|]` or `[||]` — the array `ParenKind` counterpart. Lowered to an array
-    /// node holding the elements, with no list in between.
-    | ArrayLiteral
-    /// `h :: t` — an `Expr.InfixApp(_, ::, _)` node. Unlike `+` / `|>`, `::` is not
-    /// provider-resolved: it builds the list union directly, lowering to the same
-    /// `UnionCons` chain `ListLiteral` does.
-    | ConsExpr

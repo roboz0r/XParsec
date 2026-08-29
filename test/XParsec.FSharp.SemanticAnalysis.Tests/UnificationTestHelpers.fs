@@ -8,7 +8,6 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 let private analyseParsed (input: string) (lexed, file) =
     let ctx = PassContext(realProvider.Value, LexedFile.ofText lexed, testCompiling)
 
-    Desugar.run ctx file
     NameResolution.run ctx file
     Unification.run ctx file
     ctx

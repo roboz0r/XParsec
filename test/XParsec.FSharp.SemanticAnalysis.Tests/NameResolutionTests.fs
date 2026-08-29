@@ -10,7 +10,6 @@ let private analyse (input: string) =
 
     let ctx = PassContext(realProvider.Value, LexedFile.ofText lexed, testCompiling)
 
-    Desugar.run ctx file
     NameResolution.run ctx file
     ctx
 
@@ -321,7 +320,6 @@ let tests =
 
                 let ctx = PassContext(realProvider.Value, LexedFile.ofText lexed, testCompiling)
 
-                Desugar.run ctx file
                 NameResolution.run ctx file
                 Unification.run ctx file
 
@@ -361,7 +359,6 @@ let tests =
 
                 let ctx = PassContext(realProvider.Value, LexedFile.ofText lexed, testCompiling)
 
-                Desugar.run ctx file
                 NameResolution.run ctx file
                 Unification.run ctx file
 
@@ -835,7 +832,6 @@ let tests =
 
                 let ctx = PassContext(realProvider.Value, LexedFile.ofText lexed, testCompiling)
 
-                Desugar.run ctx file
                 NameResolution.run ctx file
                 Unification.run ctx file
 

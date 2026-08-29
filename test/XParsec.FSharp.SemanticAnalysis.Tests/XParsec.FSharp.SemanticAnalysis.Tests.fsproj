@@ -20,7 +20,6 @@
     <Compile Include="SymbolKeyTests.fs" />
     <Compile Include="UnionFindTests.fs" />
     <Compile Include="CstKeysTests.fs" />
-    <Compile Include="DesugarTests.fs" />
     <Compile Include="NameResolutionTests.fs" />
     <Compile Include="AttributeIdentityTests.fs" />
     <Compile Include="AttributeFoldTests.fs" />

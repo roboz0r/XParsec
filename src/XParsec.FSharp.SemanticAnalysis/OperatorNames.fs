@@ -8,49 +8,26 @@ open XParsec.FSharp.Parser
 /// compiled member name: `+` → `op_Addition`, `<<<` → `op_LeftShift`.
 module OperatorNames =
 
-    /// Only operators the lexer emits as a *distinct* `Token`. A parenthesised
-    /// name (`(<<<)`, `(~-)`) collapses to `OpGeneric`, so `ofParenSymbolic`
-    /// recovers it from source text. `::` → `ValueNone`: cons builds the list union.
-    let ofToken (t: Token) : string voption =
-        match t with
-        | Token.OpAddition -> ValueSome OperatorData.OpAddition
-        | Token.OpSubtraction -> ValueSome OperatorData.OpSubtraction
-        | Token.OpMultiply -> ValueSome OperatorData.OpMultiply
-        | Token.OpDivision -> ValueSome OperatorData.OpDivision
-        | Token.OpModulus -> ValueSome OperatorData.OpModulus
-        | Token.OpLessThan -> ValueSome OperatorData.OpLessThan
-        | Token.OpGreaterThan -> ValueSome OperatorData.OpGreaterThan
-        | Token.OpLessThanOrEqual -> ValueSome OperatorData.OpLessThanOrEqual
-        | Token.OpGreaterThanOrEqual -> ValueSome OperatorData.OpGreaterThanOrEqual
-        | Token.OpEquality -> ValueSome OperatorData.OpEquality
-        | Token.OpInequality -> ValueSome OperatorData.OpInequality
-        | Token.OpBitwiseAnd -> ValueSome OperatorData.OpBitwiseAnd
-        | Token.OpBitwiseOr -> ValueSome OperatorData.OpBitwiseOr
-        | Token.OpExclusiveOr -> ValueSome OperatorData.OpExclusiveOr
-        | Token.OpLeftShift -> ValueSome OperatorData.OpLeftShift
-        | Token.OpRightShift -> ValueSome OperatorData.OpRightShift
-        | Token.OpAmpAmp -> ValueSome OperatorData.OpBooleanAnd
-        | Token.OpBarBar -> ValueSome OperatorData.OpBooleanOr
-        | Token.OpPipeRight -> ValueSome OperatorData.OpPipeRight
-        | Token.OpPipeLeft -> ValueSome OperatorData.OpPipeLeft
-        | Token.OpComposeRight -> ValueSome OperatorData.OpComposeRight
-        | Token.OpComposeLeft -> ValueSome OperatorData.OpComposeLeft
-        // `?` / `?<-` lex as KEYWORD-kind tokens, whose generic name is the bare
-        // token name ("OpDynamic"), so the `op_Dynamic` / `op_DynamicAssignment`
-        // spellings the front end resolves exist only here.
-        | Token.OpDynamic -> ValueSome OperatorData.OpDynamic
-        | Token.OpDynamicAssignment -> ValueSome OperatorData.OpDynamicAssignment
-        | _ -> ValueNone
+    /// Compiled name of an operator USE spelled `text`, whether a well-known operator
+    /// (`+` → `op_Addition`) or a custom one (`>=>` → `op_GreaterEqualsGreater`).
+    /// `ValueNone` for `::` (cons builds the list union), structural punctuation
+    /// (`;`, `->`), non-operator tokens, and a virtual token's empty spelling.
+    let ofSymbolic (text: string) (tok: SyntaxToken) : string voption =
+        if System.String.IsNullOrEmpty text then
+            ValueNone
+        else
+            OperatorInfo.TryGetOpName(tok.Token, text)
 
-    /// `(<<<)` → `op_LeftShift`. `text` is the operator's source spelling (`&&&`,
-    /// `~-`), the only thing an `OpGeneric` token can be named from.
-    let ofParenSymbolic (text: string) (tok: SyntaxToken) : string voption =
-        match ofToken tok.Token with
-        | ValueSome _ as found -> found
-        | ValueNone ->
-            match OperatorInfo.TryCreate tok.PositionedToken with
-            | ValueSome op -> ValueSome(op.GetName text)
-            | ValueNone -> ValueNone
+    /// Compiled name of a PREFIX operator use. A dual-use spelling resolves as its
+    /// `~`-prefixed form (`-` → `op_UnaryNegation`, `&` → `op_AddressOf`); a spelling
+    /// already beginning `!` or `~` resolves as written (`!` → `op_Dereference`).
+    let ofPrefix (text: string) (tok: SyntaxToken) : string voption =
+        if System.String.IsNullOrEmpty text then
+            ValueNone
+        elif text.[0] = '!' || text.[0] = '~' then
+            ofSymbolic text tok
+        else
+            ofSymbolic ("~" + text) tok
 
     /// Union-case ctor name: `([])` → `Empty`, `(::)` → `Cons`. These are the source ctor
     /// spellings, NOT the `op_Nil` / `op_ColonColon` compiled-op form. `ValueNone`
@@ -67,7 +44,7 @@ module OperatorNames =
 
     let ofIdentOp (nameOf: SyntaxToken -> string) (idOp: IdentOrOp<SyntaxToken>) : string voption =
         match idOp with
-        | IdentOrOp.ParenOp(opName = OpName.SymbolicOp op) -> ofParenSymbolic (nameOf op) op
+        | IdentOrOp.ParenOp(opName = OpName.SymbolicOp op) -> ofSymbolic (nameOf op) op
         | _ -> ValueNone
 
     /// The compiled name an operator-named DEFINITION binds, the name its use sites reference:

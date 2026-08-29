@@ -18,7 +18,6 @@ module Pipeline =
         (impl: ImplementationFile<SyntaxToken>)
         : PassContext * RegionVerdicts * TastFile =
         let ctx = PassContext(provider, file, assembly)
-        Desugar.run ctx impl
         NameResolution.run ctx impl
         Unification.run ctx impl
         Validation.run ctx impl

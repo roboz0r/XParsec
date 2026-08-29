@@ -415,7 +415,6 @@ let tests =
 
                 let ctx = PassContext(provider, LexedFile.ofText lexed, testCompiling)
 
-                Desugar.run ctx file
                 NameResolution.run ctx file
                 Unification.run ctx file
 
@@ -447,7 +446,6 @@ let tests =
 
                 let ctx = PassContext(provider, LexedFile.ofText lexed, testCompiling)
 
-                Desugar.run ctx file
                 NameResolution.run ctx file
                 Unification.run ctx file
 

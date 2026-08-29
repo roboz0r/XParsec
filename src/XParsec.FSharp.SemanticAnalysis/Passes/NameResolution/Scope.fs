@@ -385,13 +385,19 @@ module NameResolutionScope =
             true
         | ValueNone -> false
 
-    /// A desugared `InfixApp` / `PrefixApp` operator: stamp the symbol for the compiled
-    /// operator name the desugaring recorded. `::` is not an `OpName` and `op_AddressOf`
-    /// has no provider symbol, so both take the no-stamp arm.
-    let private stampDesugaredOperator (ctx: PassContext) (e: Expr<SyntaxToken>) : unit =
-        match ctx.Desugared.TryGetValue(CstKeys.ofExpr e) with
-        | ValueSome(DesugaredForm.OpName name) -> stampExternalSymbol ctx (CstKeys.ofExpr e) Qualifier.Bare name
-        | _ -> ()
+    /// An `InfixApp` / `PrefixApp` operator: stamp the symbol for its compiled name.
+    /// `::` has no compiled name and `op_AddressOf` has no provider symbol, so
+    /// neither stamps.
+    let private stampOperator (ctx: PassContext) (e: Expr<SyntaxToken>) : unit =
+        let name =
+            match e with
+            | Expr.InfixApp(_, op, _) -> OperatorNames.ofSymbolic (ctx.NameOf op) op
+            | Expr.PrefixApp(op, _) -> OperatorNames.ofPrefix (ctx.NameOf op) op
+            | _ -> ValueNone
+
+        match name with
+        | ValueSome name -> stampExternalSymbol ctx (CstKeys.ofExpr e) Qualifier.Bare name
+        | ValueNone -> ()
 
     /// The enclosing `TypeApp` visit resolved this applied name at its exact arity.
     let private resolvedByTypeApp (ctx: PassContext) (e: Expr<SyntaxToken>) : bool =
@@ -426,14 +432,15 @@ module NameResolutionScope =
                     }
                 )
             | ValueNone -> resolveExprNames ctx e li.Idents
-        | Expr.LongIdentOrOp(LongIdentOrOp.Op(IdentOrOp.ParenOp(opName = OpName.SymbolicOp op))) when
-            (Desugar.symbolicOpCompiledName op.Token |> ValueOption.isSome)
-            ->
+        | Expr.LongIdentOrOp(LongIdentOrOp.Op(IdentOrOp.ParenOp(opName = OpName.SymbolicOp op))) ->
             // `(+)` used as a value is an ordinary external value ref, so it stamps
             // through the same channel pair. A miss is not diagnosed here.
-            match Desugar.symbolicOpCompiledName op.Token with
+            match OperatorNames.ofSymbolic (ctx.NameOf op) op with
             | ValueSome name -> tryStampExternalValue ctx (CstKeys.ofExpr e) Qualifier.Bare name |> ignore
-            | ValueNone -> ()
+            | ValueNone ->
+                // A symbolic spelling with no compiled `op_` name (`(::)` as a value):
+                // surface the gap as the non-symbolic catch-all does.
+                ctx.Report(CstKeys.firstTokenOfExpr e, Kind.OperatorFormQualifiedName(ctx.NameOf op))
         | Expr.LongIdentOrOp(LongIdentOrOp.QualifiedOp(longIdent = li; op = idOp)) ->
             // `A.B.(+)` — translate the operator segment to its compiled name
             // (`op_Addition`) and route it through the value long-ident machinery under the
@@ -474,7 +481,7 @@ module NameResolutionScope =
                 | _ -> ()
             | ValueNone -> ()
         | Expr.InfixApp _
-        | Expr.PrefixApp _ -> stampDesugaredOperator ctx e
+        | Expr.PrefixApp _ -> stampOperator ctx e
         // `x?name` — stamp `op_Dynamic`. The SET form (`x?name <- v`) parses as
         // `Assignment(DynamicLookup, v)`, whose inner `DynamicLookup` is visited and
         // stamped too, but the setter reads the enclosing node, so that stamp is inert.
