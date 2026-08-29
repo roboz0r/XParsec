@@ -51,6 +51,28 @@ module internal ElaboratePrintf =
         // `TyConditional`, `TyEnum`) have no type argument the encoder can author.
         | _ -> false
 
+    /// Append one literal part of a format string to the running literal run. An escape
+    /// denoting no character keeps its raw text and answers `ValueSome` with its diagnostic.
+    /// There is no runtime format pass on this path, so `%%` collapses
+    /// to `%` here; every other token decodes as `StringLiterals.decodeLiteralToken` gives it.
+    let private appendFormatLiteral
+        (ctx: PassContext)
+        (litRun: System.Text.StringBuilder)
+        (t: SyntaxToken)
+        : Kind voption =
+        match t.Token with
+        | Token.EscapePercent ->
+            litRun.Append '%' |> ignore
+            ValueNone
+        | _ ->
+            match StringLiterals.decodeLiteralToken ctx.NameOf t with
+            | DecodedLiteralToken.Text text ->
+                litRun.Append text |> ignore
+                ValueNone
+            | DecodedLiteralToken.Invalid(kind, raw) ->
+                litRun.Append raw |> ignore
+                ValueSome kind
+
     /// Lower a `PrintfLowering.Full` call into a `TExpr.Format`, pairing each
     /// specifier with the next argument in spec order. `ValueNone` *declines* the lowering:
     /// one unfaithful `%A` hole sends the whole format down the FSharp.Core cold path.
@@ -242,15 +264,12 @@ module internal ElaboratePrintf =
             match part with
             | StringPart.Text t
             | StringPart.EscapeSequence t
+            | StringPart.EscapePercent t
             | StringPart.VerbatimEscapeQuote t ->
-                // Verbatim source text; escapes are left unescaped, a gap shared with plain
-                // string lowering. The lexer folds `%%` into a raw `Text` part and there is
-                // no runtime format pass, so collapse it to `%` here.
-                litRun.Append((ctx.NameOf t).Replace("%%", "%")) |> ignore
-            | StringPart.EscapePercent _ ->
-                // `%%` denotes a literal `%`; the cold path collapses it at runtime,
-                // this path has to do it now.
-                litRun.Append('%') |> ignore
+                // An escape denoting no character sends the whole call down the cold path,
+                // where `stitchLiteralString` reports it once.
+                if (appendFormatLiteral ctx litRun t).IsSome then
+                    cold <- true
             | StringPart.FormatSpecifier t ->
                 flushLit ()
 
@@ -329,8 +348,12 @@ module internal ElaboratePrintf =
             match part with
             | StringPart.Text t
             | StringPart.EscapeSequence t
-            | StringPart.VerbatimEscapeQuote t -> litRun.Append((ctx.NameOf t).Replace("%%", "%")) |> ignore
-            | StringPart.EscapePercent _ -> litRun.Append('%') |> ignore
+            | StringPart.EscapePercent t
+            | StringPart.VerbatimEscapeQuote t ->
+                // No cold path exists for a lowered partial, so the escape is reported here.
+                match appendFormatLiteral ctx litRun t with
+                | ValueSome kind -> ctx.Report(t, kind)
+                | ValueNone -> ()
             | StringPart.FormatSpecifier t ->
                 flushLit ()
 

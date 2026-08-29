@@ -12,17 +12,6 @@ subagent report.
 
 ## Defects
 
-### `Elaborate/Printf.fs` — plain printf format literals are appended raw on the hot path
-
-Found landing the interpolated-escape fix (2026-08-25). `translatePrintfFormat` (~:249) and
-`translatePrintfPartial` (~:332) append escape tokens undecoded, and the two paths disagree:
-`sprintf "a\nb%d" 1` decodes on the cold `stitchLiteralString` path and emits a literal
-backslash-n on the hot `TExpr.Format` path. fsi decodes (`[97; 10; 98; 49]`).
-
-Related, same class: `StringPart.VerbatimEscapeQuote` (`""` inside a verbatim string) is
-appended raw in both `foldStringParts` and the interpolation lowering, so `$@"a""b"` keeps
-the doubled quote.
-
 ### `CstKeys.fs` — `kindOfExpr` and `siteOfPat` collapse most shapes to `NodeKind.Unknown`
 
 Found landing the `firstTokenOfExpr`/`firstTokenOfPat` completion (2026-08-25). Both kind

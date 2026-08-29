@@ -1317,6 +1317,57 @@ let stringEscapeTests =
                 | other -> failtestf "expected a string const let, got %A" other
             }
 
+            // fsi: `@"a""b"` is `a"b`, `$@"a""b"` is `a"b`, `$@"a""b{x}c"` is `a"b1c`.
+            test "a verbatim string collapses its doubled quote" {
+                let tast = analyse "let s = @\"a\"\"b\""
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+
+                match tast.Decls.[0] with
+                | TDecl.Let(_, TExpr.Const(TConstValue.String s, _, _), _, _) ->
+                    Expect.equal s "a\"b" "the doubled quote is one quote"
+                | other -> failtestf "expected a string const let, got %A" other
+            }
+
+            // `%%` is a printf escape, not a string escape: fsi renders `"100%%"` as
+            // `100%%`, and the runtime format engine is what collapses it in a format body.
+            test "a plain string keeps both characters of `%%`" {
+                let tast = analyse "let s = @\"a\"\"b%%c\""
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+
+                match tast.Decls.[0] with
+                | TDecl.Let(_, TExpr.Const(TConstValue.String s, _, _), _, _) ->
+                    Expect.equal s "a\"b%%c" "the doubled quote collapses, `%%` does not"
+                | other -> failtestf "expected a string const let, got %A" other
+            }
+
+            test "a verbatim interpolated string with no hole collapses its doubled quote" {
+                let tast = analyse "let s = $@\"a\"\"b\""
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+
+                match tast.Decls.[0] with
+                | TDecl.Let(_, TExpr.Const(TConstValue.String s, _, _), _, _) ->
+                    Expect.equal s "a\"b" "the doubled quote is one quote"
+                | other -> failtestf "expected a string const let, got %A" other
+            }
+
+            test "a verbatim interpolated string collapses the doubled quote in its literal runs" {
+                let tast = analyse "let x = 1\nlet s = $@\"a\"\"b{x}c\"\"d\""
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+
+                match tast.Decls |> EqArray.last with
+                | TDecl.Let(_, TExpr.Format(_, segs, _, _), _, _) ->
+                    let lits =
+                        EqArray.toList segs
+                        |> List.choose (
+                            function
+                            | FormatSeg.Lit text -> Some text
+                            | _ -> None
+                        )
+
+                    Expect.equal lits [ "a\"b"; "c\"d" ] "each literal run collapses its doubled quote"
+                | other -> failtestf "expected a Format let, got %A" other
+            }
+
             test "an unknown and a truncated escape stay verbatim, no diagnostics" {
                 let tast = analyse "let s = \"\\q \\u12\""
                 Expect.isEmpty tast.Diagnostics "fsc keeps both verbatim without a warning"

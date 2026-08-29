@@ -799,6 +799,75 @@ let tests =
                     "arity-mismatched format annotation → an error diagnostic (not a throw)"
             }
 
+            // ---- literal runs of a lowered format decode exactly as fsi renders them ----
+            // fsi: `sprintf "a\tb%d" 1` and `(sprintf "a\tb%d") 1` are both "a<TAB>b1";
+            // `sprintf @"a""b%d" 3` and its partial are both `a"b3`; `sprintf "a%%b%d" 1` is
+            // "a%b1".
+
+            /// The literal runs of the `TExpr.Format` `src`'s trailing binding lowers to,
+            /// peeling the lambdas a lowered partial wraps it in.
+            let formatLits (src: string) : string list =
+                let rec peel (e: TExpr) =
+                    match e with
+                    | TExpr.Lambda(body = body) -> peel body
+                    | TExpr.Format(segments = segs) ->
+                        EqArray.toList segs
+                        |> List.choose (
+                            function
+                            | FormatSeg.Lit text -> Some text
+                            | _ -> None
+                        )
+                    | other -> failtestf "expected a Format (under any lambdas), got %A" other
+
+                let tast = analyse src
+                Expect.isEmpty tast.Diagnostics (sprintf "%s : no diagnostics" src)
+                peel (lastDeclValue tast)
+
+            test "the hot Format path decodes the escapes in its literal runs" {
+                Expect.equal (formatLits "let r = sprintf \"a\\tb%d\" 1") [ "a\tb" ] "\\t decodes to a tab"
+            }
+
+            test "a lowered printf partial decodes the escapes in its literal runs" {
+                Expect.equal
+                    (formatLits "let f = sprintf \"a\\tb%d\"")
+                    [ "a\tb" ]
+                    "the partial decodes as the hot path does"
+            }
+
+            test "the hot Format path collapses a verbatim doubled quote" {
+                Expect.equal (formatLits "let r = sprintf @\"a\"\"b%d\" 3") [ "a\"b" ] "the doubled quote is one quote"
+            }
+
+            test "a lowered printf partial collapses a verbatim doubled quote" {
+                Expect.equal (formatLits "let f = sprintf @\"a\"\"b%d\"") [ "a\"b" ] "the doubled quote is one quote"
+            }
+
+            test "`%%` still collapses to one `%` on both lowered paths" {
+                Expect.equal (formatLits "let r = sprintf \"a%%b%d\" 1") [ "a%b" ] "hot path"
+                Expect.equal (formatLits "let f = sprintf \"a%%b%d\"") [ "a%b" ] "partial path"
+            }
+
+            // An unfaithful `%A` declines the lowering, so the call keeps its cold
+            // `New PrintfFormat(text)` shape. That body is read by the runtime format engine,
+            // which collapses `%%` itself — fsi:
+            // `(@"a""b%%c%d" : Printf.StringFormat<int -> string>).Value` is `a"b%%c%d`.
+            test "a declined format's ctor text collapses the doubled quote and keeps `%%`" {
+                let tast = analyse "type E =\n    | A = 1\nlet r = sprintf @\"a\"\"b%%c%A\" E.A"
+
+                let ctorTexts =
+                    lastDeclValue tast
+                    |> TastWalk.chooseExpr (
+                        function
+                        | TExpr.New(args = args) ->
+                            match EqArray.toList args with
+                            | [ TExpr.Const(TConstValue.String text, _, _) ] -> ValueSome text
+                            | _ -> ValueNone
+                        | _ -> ValueNone
+                    )
+
+                Expect.equal ctorTexts [ "a\"b%%c%A" ] "one quote, `%%` left for the engine"
+            }
+
             test "E1: an unannotated `let fmt = \"%d\"` stays a plain string (not const-propagated)" {
                 // Unannotated, `fmt : string`, so the literal must NOT be recovered:
                 // no format-literal entry is recorded and the printf gate never fires.

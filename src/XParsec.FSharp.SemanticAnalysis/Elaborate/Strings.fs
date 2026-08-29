@@ -83,20 +83,19 @@ module internal ElaborateStrings =
         // literal-stitch fallback, which reports it.
         let appendLiteralToken (t: SyntaxToken) =
             match t.Token with
-            | Token.EscapeSequence ->
-                match Lexing.decodeStringEscape (ctx.NameOf t) with
-                | Lexing.DecodedEscape.Text text -> litRun.Append text |> ignore
-                | Lexing.DecodedEscape.TrigraphOutOfRange
-                | Lexing.DecodedEscape.NotUnicodeScalar -> lowerable <- false
-            | _ -> litRun.Append((ctx.NameOf t).Replace("%%", "%")) |> ignore
+            | Token.EscapePercent -> litRun.Append '%' |> ignore
+            | _ ->
+                match StringLiterals.decodeLiteralToken ctx.NameOf t with
+                | DecodedLiteralToken.Text text -> litRun.Append text |> ignore
+                | DecodedLiteralToken.Invalid _ -> lowerable <- false
 
         for part in parts do
             if lowerable then
                 match part with
                 | StringPart.Text t
                 | StringPart.EscapeSequence t
+                | StringPart.EscapePercent t
                 | StringPart.VerbatimEscapeQuote t -> appendLiteralToken t
-                | StringPart.EscapePercent _ -> litRun.Append('%') |> ignore
                 | StringPart.Expr(formatSpecifier = fs; lBrace = lBrace; expr = holeExpr; formatClause = fc) ->
                     hasHole <- true
                     let holeTy = typeOfKey ctx (CstKeys.ofExpr holeExpr)
