@@ -2559,7 +2559,7 @@ type OperatorInfo =
 
     member this.GetName(literal: string) =
         if TokenInfo.isKeyword this.Token then
-            // For operator keywords, the name is just the token name (e.g., "op_ColonEquals" for ":=")
+            // For operator keywords, the name is just the token name (e.g., "OpColonEquals" for ":=")
             this.Token.ToString()
         else
             OperatorData.nameOfSymbol literal

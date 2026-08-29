@@ -107,25 +107,13 @@ as well as outside it, so field-wise `Equals` and cross-multiplying `CompareTo` 
 value. `create` is a call to that constructor, and `ofInt` / `Zero` / `One` / `(~-)` reduce
 along with everything else.
 
-### `TastAccessor.fs:763` — `declExpressionTy` has no consumer anywhere in the repo
+### `TastAccessor.fs:763` — `declExpressionTy` has no consumer anywhere in the repo **[LANDED]**
 
-A bare `grep -rn declExpressionTy .` over the whole tree (excluding `bin/`, `obj/`, `.git/`)
-returns only its own definition and the `failwith` string inside it: no production caller, and
-no test either. Its sibling `declExpression` reads the other half of the same `(|DExpression|_|)`
-tuple and is used, so the accessor was written as a symmetric pair and only one half landed a
-caller. Either something that rebuilds an `Expression` decl is supposed to preserve the declared
-slot type and does not, or the accessor is dead — worth deciding which before it acquires a
-caller by accident. The doc claiming it is "what a value-producing consumer must preserve when
-it rebuilds the decl" was trimmed of that forward claim here, since nothing does.
+Deleted. `declExpression` and the `(|DExpression|_|)` pattern stay.
 
-### `TastAccessor.fs:651` — `patBoundVarNaming` is public but reached only through its own active pattern
+### `TastAccessor.fs:651` — `patBoundVarNaming` is public but reached only through its own active pattern **[LANDED]**
 
-Its sole caller anywhere is `(|PNamedNaming|_|)` three lines below it, which does have three
-production consumers in the JS backend. The function form is therefore public surface nobody
-uses directly, and the two declarations differ only in the calling convention — a candidate for
-making the function `private`, or dropping it and inlining the two-line body into the pattern.
-Not a defect; noted because this sweep deleted the doc that made them look like two distinct
-entry points.
+The body moved into `(|PNamedNaming|_|)` and the function is deleted.
 
 ### `TastPoolBuilder.fs:234` — `exprCount` and `boundVarCount` have no production consumer
 
@@ -307,14 +295,10 @@ filter, `TastUnpool.ofPools` is called from `test/` only —
 note is that the sibling entry in part 1 (`:840`) proposing to collapse `rebuildFile`'s `'id`
 parameter is still accurate against the current file.
 
-### `Codegen.Clr.Tests/SelfHostTests.fs:241`, `:309` — plan-doc milestone labels in test section headers
+### `Codegen.Clr.Tests/SelfHostTests.fs:241`, `:309` — plan-doc milestone labels in test section headers **[LANDED]**
 
-Two section separators carry `(R1)` and `(R3)` tranche labels from a retired plan. The repo
-convention is that milestone labels do not appear in code or test comments — they name a
-document the reader cannot open and outlive the plan that gave them meaning. The four
-equivalents in `SemanticAnalysis.Tests/ConformanceTests.fs` (`T8 Step 3/4.2/5/6`) were removed
-during this sweep; these two were left because they sit in a different project's test suite,
-outside the swept scope. One-line edits, no behaviour.
+Already removed by commits `2cd5797a` and `bc0988c1`; a sweep of `test/**/*.fs` finds no
+milestone label remaining.
 
 ### `RuntimeNames.fs:3` — the module runs two axes and the header claimed only one
 
@@ -357,7 +341,7 @@ I did not chase: what actually selects an implementation file for the extractor 
 own file list, or the absence of a same-stem `.fsi`? If it is the former, the branch has nothing
 to do with `.fsi` presence at all.
 
-### `XParsec.FSharp/Token.fs:2558` — `GetName`'s example contradicts the line under it
+### `XParsec.FSharp/Token.fs:2558` — `GetName`'s example contradicts the line under it **[LANDED — example corrected to "OpColonEquals"]**
 
 Outside the swept file set, found while verifying `OperatorNames.fs:38`. The comment reads
 "For operator keywords, the name is just the token name (e.g., "op_ColonEquals" for `:=`)", and

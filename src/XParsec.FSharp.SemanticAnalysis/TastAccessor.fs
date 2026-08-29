@@ -666,15 +666,13 @@ module TastAccessor =
     [<return: Struct>]
     let (|PNamed|_|) (p: PatId) : BoundVarId voption = patBoundVar p
 
-    let patBoundVarNaming (p: PatId) : BoundVarNaming voption =
-        match patPayload p with
-        | PatPayload.NamedSimple boundVar -> ValueSome(TastPoolBuilder.boundVarNaming p.Pool boundVar)
-        | _ -> ValueNone
-
     /// The `PNamed` to reach for when the bound variable is about to be spelled as an emitted
     /// identifier rather than looked up.
     [<return: Struct>]
-    let (|PNamedNaming|_|) (p: PatId) : BoundVarNaming voption = patBoundVarNaming p
+    let (|PNamedNaming|_|) (p: PatId) : BoundVarNaming voption =
+        match patPayload p with
+        | PatPayload.NamedSimple boundVar -> ValueSome(TastPoolBuilder.boundVarNaming p.Pool boundVar)
+        | _ -> ValueNone
 
     [<return: Struct>]
     let private (|PConst|_|) (p: PatId) : TConstValue voption =
@@ -785,14 +783,6 @@ module TastAccessor =
             expect "TastAccessor.declExpression: not an Expression decl" (|DExpression|_|) d
 
         e
-
-    /// The declared slot type an `Expression` decl carries alongside its body expression,
-    /// which a consumer must preserve when it rebuilds the decl.
-    let declExpressionTy (d: DeclId) : FrozenType =
-        let struct (_, ty) =
-            expect "TastAccessor.declExpressionTy: not an Expression decl" (|DExpression|_|) d
-
-        ty
 
     [<return: Struct>]
     let (|DLet|_|) (d: DeclId) : DeclLetView voption =
