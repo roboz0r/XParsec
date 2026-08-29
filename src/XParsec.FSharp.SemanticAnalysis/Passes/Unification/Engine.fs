@@ -336,7 +336,7 @@ module UnificationEngine =
         | other, TyVar tv ->
             let root = UnionFind.find ctx.Store tv
 
-            if occursAndAdjust ctx.Store root.Id other then
+            if occursAndAdjust ctx.Store root other then
                 ctx.Report(
                     tok,
                     Kind.Message(

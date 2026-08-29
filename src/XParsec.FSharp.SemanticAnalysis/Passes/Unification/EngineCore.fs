@@ -69,21 +69,19 @@ module UnificationEngineCore =
         | [ t ] -> t
         | many -> TyTuple(EqArray.ofList many)
 
-    /// One walk, two jobs. Occurs check: does `target` (a union-find root) appear inside
-    /// `t`, which would cycle Link pointers and make zonk loop (`let rec f x = f`)? And,
-    /// since linking `target` to `t` co-scopes them, lower every level above `target`'s.
-    let rec occursAndAdjust (store: TypeStore) (target: TyVarId) (t: SemType) : bool =
+    /// One walk, two jobs. Occurs check: does `target` appear inside `t`, which would cycle
+    /// Link pointers and make zonk loop (`let rec f x = f`)? And, since linking `target` to
+    /// `t` co-scopes them, lower every level above `target`'s.
+    let rec occursAndAdjust (store: TypeStore) (target: Rep) (t: SemType) : bool =
         match resolveStep store t with
         | TyVar tv ->
             let root = UnionFind.find store tv
 
-            if root.Id = target then
+            if root = target then
                 true
             else
-                let targetRoot = UnionFind.find store target
-
-                if store.Level root > store.Level targetRoot then
-                    store.SetLevel(root, store.Level targetRoot)
+                if store.Level root > store.Level target then
+                    store.SetLevel(root, store.Level target)
 
                 false
         | t -> SemType.existsChild (occursAndAdjust store target) t
@@ -418,32 +416,9 @@ module UnificationEngineCore =
         ([<InlineIfLambda>] keyOf: RuntimeNames.CapabilityIdentity -> TypeKey)
         (key: TypeKey)
         : TypeKey =
-        let caps = ctx.CapabilityIds
-
-        let inline pick (cap: RuntimeNames.CapabilityIdentity voption) : TypeKey voption =
-            match cap with
-            | ValueSome c when c.Matches key -> ValueSome(keyOf c)
-            | _ -> ValueNone
-
-        match pick caps.Enumerable with
-        | ValueSome k -> k
-        | ValueNone ->
-
-            match pick caps.Enumerator with
-            | ValueSome k -> k
-            | ValueNone ->
-
-                match pick caps.Disposable with
-                | ValueSome k -> k
-                | ValueNone ->
-
-                    match pick caps.Equatable with
-                    | ValueSome k -> k
-                    | ValueNone ->
-
-                        match pick caps.Comparable with
-                        | ValueSome k -> k
-                        | ValueNone -> key
+        match ctx.CapabilityIds.TryMatch key with
+        | ValueSome c -> keyOf c
+        | ValueNone -> key
 
     /// Fold a capability interface's two nominal keys to the canonical one: its BCL platform
     /// key (`System.Collections.Generic.IEnumerable\`1`) and its canonical key

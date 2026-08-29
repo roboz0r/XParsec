@@ -192,6 +192,21 @@ module RuntimeNames =
                 Comparable = ValueNone
             }
 
+        /// The capability `key` spells under either of its two nominal names. The one probe
+        /// over every field, shared by every key-folding caller. Allocation-free.
+        member this.TryMatch(key: TypeKey) : CapabilityIdentity voption =
+            let inline hit (cap: CapabilityIdentity voption) =
+                match cap with
+                | ValueSome c -> c.Matches key
+                | ValueNone -> false
+
+            if hit this.Enumerable then this.Enumerable
+            elif hit this.Enumerator then this.Enumerator
+            elif hit this.Disposable then this.Disposable
+            elif hit this.Equatable then this.Equatable
+            elif hit this.Comparable then this.Comparable
+            else ValueNone
+
     let matchesKey (cap: CapabilityIdentity voption) (k: TypeKey) : bool =
         cap |> ValueOption.exists (fun c -> c.Matches k)
 

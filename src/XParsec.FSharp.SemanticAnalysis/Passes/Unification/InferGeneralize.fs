@@ -188,7 +188,7 @@ module internal UnificationInferGeneralize =
             for target in defaults do
                 if not fired then
                     match resolveTarget target with
-                    | ValueSome concrete when not (occursAndAdjust store tv concrete) ->
+                    | ValueSome concrete when not (occursAndAdjust store root concrete) ->
                         // Occurs guard: a structural target (`^T1 list`) can resolve to a
                         // `concrete` transitively containing `tv`, and linking through it
                         // would build an infinite type.

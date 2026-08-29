@@ -53,28 +53,18 @@ also removes an option-vs-empty-string mismatch between the two spellings. Hedge
 the writers and the round-trip rather than proving no reader exists, so a consumer reached
 through a record-copy expression could have been missed.
 
-### `Unification/EngineCore.fs:75` — the occurs check can miss when `target` is not a union-find root
+### `Unification/EngineCore.fs:75` — the occurs check can miss when `target` is not a union-find root **[LANDED]**
 
-`occursAndAdjust` decides occurrence with `root.Id = target`, comparing a canonicalised root
-id against the raw `target` argument, so it only decides correctly when the caller passed a
-root. `Engine.fs` does (`occursAndAdjust ctx.Store root.Id other`), but
-`InferGeneralize.fs:168` passes the raw `tv` of a defaulting candidate — and the enclosing
-loop at `:190` finds that candidate's root separately, which is the tell that `tv` is not
-assumed to be one. If a candidate has been unioned into another class since it was collected,
-the guard silently returns `false` and `store.SetLink` can build the infinite type the check
-exists to prevent. Level adjustment is unaffected: it re-`find`s `target` first. The fix is
-either to normalise inside `occursAndAdjust` or to take a `Rep`, which would make the
-misuse unrepresentable. This entry deleted the comment "`target` is already a root at every
-call site", which asserted the opposite.
+`occursAndAdjust` now takes a `Rep`, whose private case makes `UnionFind.find` the only
+producer, so a non-root argument is a compile error. `InferGeneralize.fs` passes the root it
+already binds, and the defensive re-`find` inside the walk is deleted.
 
-### `Unification/EngineCore.fs:281` — `capabilityCanonKey` and `capabilityPlatformKey` are the same five-probe chain twice
+### `Unification/EngineCore.fs:281` — `capabilityCanonKey` and `capabilityPlatformKey` are the same five-probe chain twice **[LANDED]**
 
-Both functions are a hand-written, de-dented chain over `Enumerable`, `Enumerator`,
-`Disposable`, `Equatable`, `Comparable`, identical line for line apart from the `pick` body:
-the canon variant yields `ValueOption.defaultValue c.Key c.CanonKey`, the platform one `c.Key`.
-Adding a sixth capability means editing both, and a probe omitted from one is invisible.
-`ctx.CapabilityIds` already groups the five identities, so one probe function parameterised by
-the key selector — or one iteration over the group — would collapse ~40 lines to ~10.
+An earlier extraction (`capabilityKeyBy`, commit `7a6da811`) had already collapsed the two
+copies to one; the remaining hand-written five-field chain moved to
+`CapabilityIds.TryMatch`, beside the field declarations, so a sixth capability field puts
+the probe next to the declaration it must cover.
 
 ### `Unification/Engine.fs:320` — `unifyArgCoerce` and `tryCoerceUpcast` maintain the same no-pin prefix in parallel
 
