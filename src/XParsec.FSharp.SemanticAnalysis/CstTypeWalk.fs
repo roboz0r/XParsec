@@ -133,6 +133,41 @@ module CstTypeWalk =
         | ValueSome cs -> iterTypeConstraints it cs
         | ValueNone -> ()
 
+    let iterBindingReturnType (onType: Type<SyntaxToken> -> unit) (b: Binding<SyntaxToken>) : unit =
+        match b.returnType with
+        | ValueSome(ReturnType(typ = t)) -> onType t
+        | ValueNone -> ()
+
+    /// The type positions ONE member definition's SIGNATURE writes: a member's return
+    /// annotation, an auto-property's type, an abstract slot's signature and a `val` field's
+    /// type. Argument annotations, and a secondary constructor's parameters, are
+    /// pattern-embedded and go to `onPat`.
+    let iterMemberDefnSigTypes
+        (onType: Type<SyntaxToken> -> unit)
+        (onMemberSig: MemberSig<SyntaxToken> -> unit)
+        (onPat: Pat<SyntaxToken> -> unit)
+        (md: MemberDefn<SyntaxToken>)
+        : unit =
+        let bindingSig (b: Binding<SyntaxToken>) =
+            for ap in b.argumentPats do
+                onPat ap
+
+            iterBindingReturnType onType b
+
+        match md with
+        | MemberDefn.Member(defn = d) ->
+            match d with
+            | MethodOrPropDefn.Method(defn = b)
+            | MethodOrPropDefn.Property(defn = b) -> bindingSig b
+            | MethodOrPropDefn.PropertyWithGetSet(defns = bs) ->
+                for b in bs do
+                    bindingSig b
+            | MethodOrPropDefn.AutoProperty(returnType = ValueSome(ReturnType(typ = t))) -> onType t
+            | MethodOrPropDefn.AutoProperty _ -> ()
+            | MethodOrPropDefn.AbstractSignature sign -> onMemberSig sign
+        | MemberDefn.Value(typ = t) -> onType t
+        | MemberDefn.AdditionalConstructor(pat = p) -> onPat p
+
     /// The type positions a `type` definition's DECLARED STRUCTURE writes; member bodies
     /// are not part of it.
     let iterTypeDefnTypes
@@ -143,35 +178,8 @@ module CstTypeWalk =
         : unit =
         let ty (t: Type<SyntaxToken>) = iterType it t
 
-        let returnTypeOf (b: Binding<SyntaxToken>) =
-            match b.returnType with
-            | ValueSome(ReturnType(typ = t)) -> ty t
-            | ValueNone -> ()
-
-        // A member's declared signature is its argument annotations plus its return type;
-        // the annotations are pattern-embedded, so they go through `onPat`.
-        let memberSig (b: Binding<SyntaxToken>) =
-            for ap in b.argumentPats do
-                onPat ap
-
-            returnTypeOf b
-
-        let methodOrProp (d: MethodOrPropDefn<SyntaxToken>) =
-            match d with
-            | MethodOrPropDefn.Method(defn = b)
-            | MethodOrPropDefn.Property(defn = b) -> memberSig b
-            | MethodOrPropDefn.PropertyWithGetSet(defns = bs) ->
-                for b in bs do
-                    memberSig b
-            | MethodOrPropDefn.AutoProperty(returnType = ValueSome(ReturnType(typ = t))) -> ty t
-            | MethodOrPropDefn.AutoProperty _ -> ()
-            | MethodOrPropDefn.AbstractSignature sign -> iterTypeMemberSig it sign
-
         let memberDefn (md: MemberDefn<SyntaxToken>) =
-            match md with
-            | MemberDefn.Member(defn = d) -> methodOrProp d
-            | MemberDefn.Value(typ = t) -> ty t
-            | MemberDefn.AdditionalConstructor(pat = p) -> onPat p
+            iterMemberDefnSigTypes ty (iterTypeMemberSig it) onPat md
 
         let element (el: TypeDefnElement<SyntaxToken>) =
             match el with
@@ -193,7 +201,7 @@ module CstTypeWalk =
             match d with
             | ClassFunctionOrValueDefn.LetBindings(bindings = bs) ->
                 for b in bs do
-                    returnTypeOf b
+                    iterBindingReturnType ty b
             | ClassFunctionOrValueDefn.Do _ -> ()
 
         let body (b: ObjectModelBody<SyntaxToken>) =

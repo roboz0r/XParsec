@@ -182,15 +182,12 @@ order of the `let`s is load-bearing in a way the `||` chain does not show. A nam
 short-circuit and the stamping/verdict split explicit; several of the comments trimmed here were
 labels standing in for that type.
 
-### `CstWalk.fs:497` and `CstWalk.fs:746` — object-expression member signatures are walked by two near-identical helpers
+### `CstWalk.fs:497` and `CstWalk.fs:746` — object-expression member signatures are walked by two near-identical helpers **[LANDED]**
 
-`iterExprEmbeddedTypes`'s local `memberDefnSigs`/`bindingSig` and `iterTypeDefnTypes`'s local
-`methodOrProp`/`memberSig`/`returnTypeOf` both decompose `MemberDefn` → `MethodOrPropDefn` →
-`Binding.returnType`, with the same five arms in the same order; they differ only in that the
-type-definition version also routes argument patterns through `onPat` and handles
-`AdditionalConstructor`. One shared helper parameterised by the pattern callback would delete one
-of the two, and would make it impossible to add a `MethodOrPropDefn` case to one walk and forget
-the other.
+`CstTypeWalk.iterMemberDefnSigTypes` (plus `iterBindingReturnType`) is the one walker, with an
+exhaustive match and no catch-all; both former local sets are deleted. The entry's file
+reference was wrong — `iterTypeDefnTypes` lives in `CstTypeWalk.fs` — and the expression walk
+now visits a `val` member's type (unreachable on legal F#; its consumers only stamp).
 
 ### `Passes/InlineExpansion.fs:472` — the root expressions are collected by re-running the decl mapper for its side effect **[LANDED]**
 

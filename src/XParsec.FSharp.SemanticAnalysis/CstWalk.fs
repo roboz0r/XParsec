@@ -292,28 +292,9 @@ module CstWalk =
         (onMemberSig: MemberSig<SyntaxToken> -> unit)
         (e: Expr<SyntaxToken>)
         : unit =
-        let bindingSig (b: Binding<SyntaxToken>) : unit =
-            match b.returnType with
-            | ValueSome(ReturnType(typ = t)) -> onType t
-            | ValueNone -> ()
-
         let memberDefnSigs (defns: ImmutableArray<MemberDefn<SyntaxToken>>) : unit =
             for d in defns do
-                match d with
-                | MemberDefn.Member(defn = mdef) ->
-                    match mdef with
-                    | MethodOrPropDefn.Method(defn = b)
-                    | MethodOrPropDefn.Property(defn = b) -> bindingSig b
-                    | MethodOrPropDefn.PropertyWithGetSet(defns = bs) ->
-                        for b in bs do
-                            bindingSig b
-                    | MethodOrPropDefn.AutoProperty(returnType = rt) ->
-                        match rt with
-                        | ValueSome(ReturnType(typ = t)) -> onType t
-                        | ValueNone -> ()
-                    | MethodOrPropDefn.AbstractSignature(sign = ms) -> onMemberSig ms
-                | MemberDefn.Value _
-                | MemberDefn.AdditionalConstructor _ -> ()
+                CstTypeWalk.iterMemberDefnSigTypes onType onMemberSig ignore d
 
         match e with
         // No directly-embedded `Type`.
@@ -379,7 +360,7 @@ module CstWalk =
 
         | Expr.LetOrUse(bindings = bindings) ->
             for b in bindings do
-                bindingSig b
+                CstTypeWalk.iterBindingReturnType onType b
 
         // An SRTP member-trait invocation (`((^T): (static member …) args`).
         | Expr.StaticMemberInvocation(membersign = ms) -> onMemberSig ms
