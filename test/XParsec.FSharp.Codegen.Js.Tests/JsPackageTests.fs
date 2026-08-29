@@ -216,7 +216,7 @@ type IShape =
                 | Ok _ -> failtest "the collision must be refused"
                 | Error diags ->
                     Expect.equal
-                        (diags |> List.map (fun d -> d.Path.Name))
+                        (diags |> List.map (fun d -> AssemblyFileId.toStored d.Path))
                         [ "a/one.fs"; "b/one.fs" ]
                         "the diagnostic is reported at each claimant, so neither is silently the loser"
 
@@ -461,7 +461,7 @@ let private writePickPackage (name: string) (order: string list) : string =
 /// The file that produced the body `jsNativeInlineBodies` serves for `pick` from `dir`'s package.
 let private pickWinner (dir: string) : string =
     match JsNativeSymbols.jsNativeInlineBodies [ dir ] |> Map.tryFind "pick" with
-    | Some body -> body.File.Path.Relative.Name
+    | Some body -> AssemblyFileId.toStored body.File.Path.Relative
     | None -> failtest "no inline body collected for 'pick'"
 
 [<Tests>]

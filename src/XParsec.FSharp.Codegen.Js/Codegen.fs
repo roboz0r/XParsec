@@ -174,7 +174,13 @@ module Codegen =
 
         [
             for file in assembly.Files do
-                let fileId = file.Retained.Path.Relative
+                // The module is written to the file's name within its assembly.
+                let fileId =
+                    match file.Retained.Path.Relative with
+                    | ValueSome id -> id
+                    | ValueNone ->
+                        failwithf "internal error: package '%s' holds a file with no name within it" packageName
+
                 let relative = fileId.Name
 
                 let project =

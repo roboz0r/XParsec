@@ -77,7 +77,10 @@ module JsMapSources =
                     Slot = m.Ordered.Count + 1
                     Published =
                         {
-                            Path = AssemblyName.toStored file.Path.Assembly + "/" + file.Path.Relative.Name
+                            Path =
+                                AssemblyName.toStored file.Path.Assembly
+                                + "/"
+                                + AssemblyFileId.toStored file.Path.Relative
                             Content = file.Input
                         }
                     Lines = LineIndex.build file.Input

@@ -42,11 +42,7 @@ module ClrCompilation =
         (compilationDefines: Set<string>)
         : Result<ClrCompilation, AssemblyFiles.AnchoredDiagnostic list> =
         let refuse (message: string) =
-            Error(
-                AssemblyFiles.unpositionedDiagnostics
-                    AssemblyFileId.nowhere
-                    [ Diagnostic.nowhere (Kind.Driver message) ]
-            )
+            Error(AssemblyFiles.unfiledDiagnostics [ Diagnostic.nowhere (Kind.Driver message) ])
 
         match project.TargetFramework with
         | None -> refuse (sprintf "'%s' sets no ProjectInfo.TargetFramework" project.AssemblyName)

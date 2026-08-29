@@ -226,7 +226,7 @@ module FrozenPools =
     /// The zero column set, a pool that is nobody's file.
     let empty: FrozenPools =
         {
-            Path = AssemblyFilePath.nowhere
+            Path = AssemblyFilePath.Nowhere
             Types = FrozenTypeTable.Empty
             ExprTys = [||]
             ExprToks = [||]

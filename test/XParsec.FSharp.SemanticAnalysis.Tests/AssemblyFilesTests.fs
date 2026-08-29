@@ -461,13 +461,13 @@ module B =
                 match hit with
                 | None -> failtestf "no diagnostic mentioned undefinedThing; got %A" anchored
                 | Some a ->
-                    Expect.equal a.Path.Name "two.fs" "anchored to file 2's path"
+                    Expect.equal (AssemblyFileId.toStored a.Path) "two.fs" "anchored to file 2's path"
                     // `    let b = undefinedThing`: 4-space indent + "let b = " ⇒ col 13, 1-based.
                     Expect.equal a.Line 4 "line resolved against file 2's own text"
                     Expect.equal a.Col 13 "column resolved against file 2's own text"
 
                 Expect.isEmpty
-                    (anchored |> List.filter (fun a -> a.Path.Name = "one.fs"))
+                    (anchored |> List.filter (fun a -> AssemblyFileId.toStored a.Path = "one.fs"))
                     "file 1 contributes no diagnostics"
             }
 
@@ -1127,12 +1127,16 @@ module B =
 
                 match anchored |> List.filter isUnclosed with
                 | [ a ] ->
-                    Expect.equal a.Path.Name "broken.fs" "anchored to the file that needed recovery"
+                    Expect.equal
+                        (AssemblyFileId.toStored a.Path)
+                        "broken.fs"
+                        "anchored to the file that needed recovery"
+
                     Expect.isNonEmpty a.Diagnostic.Related "the opening delimiter is labelled"
                 | other -> failtestf "expected one unclosed-delimiter diagnostic, got %A" other
 
                 Expect.isEmpty
-                    (anchored |> List.filter (fun a -> a.Path.Name = "clean.fs"))
+                    (anchored |> List.filter (fun a -> AssemblyFileId.toStored a.Path = "clean.fs"))
                     "the clean file contributed none"
             }
 
@@ -1252,7 +1256,11 @@ module M =
                 match dropped with
                 | [ a ] ->
                     Expect.equal a.Diagnostic.Severity Severity.Warning "a gap in what the compiler models WARNS"
-                    Expect.equal a.Path.Name "file1.fsi" "anchored to the signature that made the claim"
+
+                    Expect.equal
+                        (AssemblyFileId.toStored a.Path)
+                        "file1.fsi"
+                        "anchored to the signature that made the claim"
 
                     Expect.stringContains a.Diagnostic.Message "Unreachable" "the report names the member it dropped"
                 | other -> failtestf "expected exactly one V245 for the dropped member, got %A" other
@@ -1448,7 +1456,7 @@ module M =
 
                 match conformance with
                 | [ a ] ->
-                    Expect.equal a.Path.Name "file1.fsi" "anchored to the file that made the claim"
+                    Expect.equal (AssemblyFileId.toStored a.Path) "file1.fsi" "anchored to the file that made the claim"
                     Expect.stringContains a.Diagnostic.Message "absent" "refers to the unsatisfied val"
                 | other -> failtestf "expected one conformance error, got %A" other
             }
@@ -1529,7 +1537,7 @@ module M =
                 | findings ->
                     Expect.all
                         findings
-                        (fun a -> a.Path.Name = "file1.fsi")
+                        (fun a -> AssemblyFileId.toStored a.Path = "file1.fsi")
                         "every parse finding anchors to the signature, not its companion"
             }
 
@@ -1551,7 +1559,8 @@ module M =
                 match ScopeContents.tryValueAt all.[0].View.Scope "Test.A.M.shown" with
                 | ValueSome s ->
                     match s.Origin.Home.DeclaringFile with
-                    | ValueSome f -> Expect.equal f.Relative.Name "file1.fs" "homed at the compiled file"
+                    | ValueSome f ->
+                        Expect.equal (AssemblyFileId.toStored f.Relative) "file1.fs" "homed at the compiled file"
                     | ValueNone -> failtest "the published symbol carries no declaring file"
                 | ValueNone -> failtest "shown did not publish"
             }

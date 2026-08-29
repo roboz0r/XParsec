@@ -39,12 +39,7 @@ let resolveFsiWith
         | Result.Ok p -> p
 
     let source =
-        LexedFile.inFile
-            {
-                Assembly = ValueSome(AssemblyName "App")
-                Relative = AssemblyFileId.ofRelative relative
-            }
-            parsed.Lexed
+        LexedFile.inAssembly (AssemblyName "App") (AssemblyFileId.ofRelative relative) parsed.Lexed
 
     let surface, diagnostics =
         SignatureResolution.resolveFile

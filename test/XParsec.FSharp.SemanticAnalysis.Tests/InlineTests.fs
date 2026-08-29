@@ -57,12 +57,7 @@ let private declaringSrc =
 let private retainedSource (input: string) : LexedFile =
     let lexed, _ = parseFile input
 
-    LexedFile.inFile
-        {
-            Assembly = ValueSome(AssemblyName "Declaring")
-            Relative = AssemblyFileId.ofRelative "sq.fs"
-        }
-        lexed
+    LexedFile.inAssembly (AssemblyName "Declaring") (AssemblyFileId.ofRelative "sq.fs") lexed
 
 /// Every position a decl carries, in one fixed traversal order, so a body and its thaw
 /// compare node for node.

@@ -92,10 +92,11 @@ module AssemblyFiles =
         { Id: AssemblyFileId; Fault: FileFault }
 
     /// A diagnostic anchored to the file it came from: its source path plus a (line, col)
-    /// resolved against THAT file's own text.
+    /// resolved against THAT file's own text. `Path` is `ValueNone` for a finding about the
+    /// package set or the driver's own inputs.
     type AnchoredDiagnostic =
         {
-            Path: AssemblyFileId
+            Path: AssemblyFileId voption
             Diagnostic: Diagnostic
             Line: int
             Col: int
@@ -109,7 +110,7 @@ module AssemblyFiles =
 
         /// One finding as `file(line,col): message`.
         let render (a: AnchoredDiagnostic) : string =
-            sprintf "%s(%d,%d): %s" a.Path.Name a.Line a.Col a.Diagnostic.Message
+            sprintf "%s(%d,%d): %s" (AssemblyFileId.toStored a.Path) a.Line a.Col a.Diagnostic.Message
 
         /// Findings as `render` per line, in the order given.
         let renderAll (ds: AnchoredDiagnostic seq) : string =
@@ -196,10 +197,7 @@ module AssemblyFiles =
 
             ofHalves (ValueOption.map half unit.Signature) (half unit.Implementation)
 
-    /// Diagnostics from a path that yielded no text: nothing resolves a token index against
-    /// it, so they render at line 1, col 1. A POSITIONED diagnostic here is unverifiable, so
-    /// it faults rather than printing a plausible line.
-    let unpositionedDiagnostics (path: AssemblyFileId) (diagnostics: Diagnostic list) : AnchoredDiagnostic list =
+    let private unpositioned (path: AssemblyFileId voption) (diagnostics: Diagnostic list) : AnchoredDiagnostic list =
         [
             for d in diagnostics do
                 match d.Site with
@@ -213,15 +211,24 @@ module AssemblyFiles =
                 | positioned ->
                     failwithf
                         "internal error: %s yielded no text, so a diagnostic cannot carry a position, but got %A (%s)"
-                        path.Name
+                        (AssemblyFileId.toStored path)
                         positioned
                         d.Message
         ]
 
-    /// A whole-set fault as one unpositioned diagnostic: it is about the package set a
-    /// compilation was handed, so there is no file to anchor it to.
+    /// Diagnostics from a path that yielded no text: nothing resolves a token index against
+    /// it, so they render at line 1, col 1. A POSITIONED diagnostic here is unverifiable, so
+    /// it faults rather than printing a plausible line.
+    let unpositionedDiagnostics (path: AssemblyFileId) (diagnostics: Diagnostic list) : AnchoredDiagnostic list =
+        unpositioned (ValueSome path) diagnostics
+
+    /// Diagnostics about no file: the package set a compilation was handed, or the inputs a
+    /// driver refused. They render at line 1, col 1 under a blank path.
+    let unfiledDiagnostics (diagnostics: Diagnostic list) : AnchoredDiagnostic list = unpositioned ValueNone diagnostics
+
+    /// A whole-set fault as one unfiled diagnostic.
     let setFaultDiagnostics (fault: PackageSetFault) : AnchoredDiagnostic list =
-        unpositionedDiagnostics AssemblyFileId.nowhere [ Diagnostic.nowhere (Kind.PackageSet fault) ]
+        unfiledDiagnostics [ Diagnostic.nowhere (Kind.PackageSet fault) ]
 
     /// Anchor a file's bare diagnostics to its path and text: a `Site` points to tokens of THIS
     /// file's `Lexed`, whose `StartIndex` is a char offset into `file.Input`, turned into a

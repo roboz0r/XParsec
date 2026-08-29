@@ -241,7 +241,7 @@ type FrozenTypeTableBuilder private (rows: FrozenTypeRows) =
         filePaths.Intern
             {
                 Assembly = str (AssemblyName.toStored f.Assembly)
-                Relative = str f.Relative.Name
+                Relative = str (AssemblyFileId.toStored f.Relative)
             }
 
     let namespaceKey (ns: NamespaceKey) =
@@ -409,11 +409,7 @@ type FrozenTypeTable private (rows: FrozenTypeRows) =
             i
             (fun () ->
                 let row = rows.FilePaths.[i]
-
-                {
-                    Assembly = AssemblyName.ofStored (str row.Assembly)
-                    Relative = AssemblyFileId.ofStored (str row.Relative)
-                }
+                AssemblyFilePath.ofStored (str row.Assembly) (str row.Relative)
             )
 
     let namespaceKey (NamespaceId i) =

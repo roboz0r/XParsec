@@ -101,7 +101,7 @@ module PackageProviders =
                 failwithf
                     "internal error: freezing package '%O' impl file '%s' failed: %s\nits analysis errors, which the freeze pruned:%s"
                     assembly.Name
-                    retained.Path.Relative.Name
+                    (AssemblyFileId.toStored retained.Path.Relative)
                     e.Message
                     pruned
 

@@ -57,10 +57,7 @@ let private withSpecialization () : FrozenPools =
     // deliberately NOT the entry's declaring file: a codec that dropped a node's own path and
     // recovered it from the entry would still round-trip if the two agreed.
     let consumer =
-        {
-            Assembly = ValueSome(AssemblyName "App")
-            Relative = AssemblyFileId.ofRelative "m.fs"
-        }
+        AssemblyFilePath.InFile(ValueSome(AssemblyName "App"), AssemblyFileId.ofRelative "m.fs")
 
     let payloads = Array.copy pools.ExprPayloads
 
@@ -85,11 +82,7 @@ let private withSpecialization () : FrozenPools =
                         }
                     // A file OTHER than the one the blob is keyed by, so nothing about the
                     // source is recoverable from the key. Synthetic: no anchor is resolved here.
-                    Path =
-                        {
-                            Assembly = ValueSome(AssemblyName "Lib")
-                            Relative = AssemblyFileId.ofRelative "n.fs"
-                        }
+                    Path = AssemblyFilePath.InFile(ValueSome(AssemblyName "Lib"), AssemblyFileId.ofRelative "n.fs")
                     Decl = template.Decl
                 }
             |]
@@ -357,7 +350,7 @@ let tests =
 
                 Expect.notEqual
                     frozen.Path
-                    AssemblyFilePath.nowhere
+                    AssemblyFilePath.Nowhere
                     "the freeze recorded a real file, or what follows is vacuous"
 
                 Expect.equal

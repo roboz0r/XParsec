@@ -150,23 +150,24 @@ let tests =
                 Expect.isNonEmpty sources "the JS `impl` files are retained, not dropped after the parse"
 
                 Expect.isTrue
-                    (sources |> List.exists (fun s -> s.Path.Relative.Name.Contains "ops-platform"))
+                    (sources
+                     |> List.exists (fun s -> (AssemblyFileId.toStored s.Path.Relative).Contains "ops-platform"))
                     "…including the one the arithmetic bodies above come from"
 
                 for s in sources do
-                    let f = s.Path
+                    let relative = AssemblyFileId.toStored s.Path.Relative
 
                     // Resolved the way the collection did, as the package directory plus the
                     // manifest-relative path, because a retained file's IDENTITY says which
                     // file it is, never where this build mounted it.
-                    let path = System.IO.Path.Combine(vesperCorePackage, f.Relative.Name)
+                    let path = System.IO.Path.Combine(vesperCorePackage, relative)
 
-                    Expect.isTrue (System.IO.File.Exists path) (sprintf "%s exists on disk" f.Relative.Name)
+                    Expect.isTrue (System.IO.File.Exists path) (sprintf "%s exists on disk" relative)
 
                     // Verbatim on both sides: the retained text is the file's bytes as read,
                     // which is what the token offsets index and what a source map publishes.
                     let onDisk = System.IO.File.ReadAllText path
 
-                    Expect.equal s.Input onDisk (sprintf "%s's retained text is the file's text" f.Relative.Name)
+                    Expect.equal s.Input onDisk (sprintf "%s's retained text is the file's text" relative)
             }
         ]

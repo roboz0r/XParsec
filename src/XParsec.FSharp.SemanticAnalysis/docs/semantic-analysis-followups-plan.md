@@ -149,13 +149,6 @@ Nothing in the type separates the three. Splitting them deletes the 19 lines of 
 existed to warn the consumer, and would also remove the need for the (false, now deleted)
 a `ResolvedType`-partitioning doc claiming the two tables partition by `NodeKind` — they do not.
 
-### `Anchor.fs:155` — `AssemblyFilePath.nowhere` is a sentinel, not a case
-
-The `Assembly` half landed 2026-08-19 with the manifest-default front-end migration: it is
-`AssemblyName voption`, and `CompilingAssembly.none` is gone. What remains is `Relative`,
-distinguished by `AssemblyFileId.nowhere` = `""`. The "no file is spelled `""`" invariant is
-unchecked; `AssemblyFilePath` could be a DU, or `Relative` a non-empty-string type.
-
 ### `SymbolKeys.fs:110` — `TypeKey`'s capability duality is enforced by prose
 
 A BCL platform key and a canonical key are both `TypeKey`s, and which one a comparison must

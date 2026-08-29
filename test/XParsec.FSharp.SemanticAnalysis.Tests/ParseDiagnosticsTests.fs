@@ -173,7 +173,11 @@ let tests =
                         }
 
                 Expect.isNonEmpty anchored "the failed file's diagnostics came out"
-                Expect.all anchored (fun a -> a.Path.Name = "broken.fs") "each anchored to the failed file"
+
+                Expect.all
+                    anchored
+                    (fun a -> AssemblyFileId.toStored a.Path = "broken.fs")
+                    "each anchored to the failed file"
 
                 // The `)` belonged past the last token written: line 1, one column past `2`
                 // — resolved against the text, not the (1, 1) of a placeless diagnostic.
@@ -195,7 +199,7 @@ let tests =
 
                 match anchored with
                 | [ a ] ->
-                    Expect.equal a.Path.Name "absent.fs" "anchored to the file"
+                    Expect.equal (AssemblyFileId.toStored a.Path) "absent.fs" "anchored to the file"
                     Expect.equal (a.Line, a.Col) (1, 1) "the file head"
                 | other -> failtestf "expected one anchored diagnostic, got %A" other
             }

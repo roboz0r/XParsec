@@ -60,9 +60,6 @@ type AssemblyFileId =
 [<RequireQualifiedAccess>]
 module AssemblyFileId =
 
-    /// The name of NO file: blank, which is refused of every real one.
-    let nowhere: AssemblyFileId = FileId ""
-
     /// Rooted on ANY OS, not just the host one: `/z.fs`, `\z.fs`, `C:/z.fs`.
     let private isRooted (s: string) =
         s.[0] = '/'
@@ -109,6 +106,12 @@ module AssemblyFileId =
     /// Trust `name` as already canonical: it is being read back from the frozen tree it was
     /// canonicalised into.
     let ofStored (name: string) : AssemblyFileId = FileId name
+
+    /// The wire and message form; `ValueNone` travels as the empty string, which no file id is.
+    let toStored (file: AssemblyFileId voption) : string =
+        match file with
+        | ValueSome f -> f.Name
+        | ValueNone -> ""
 
     /// UTF-8 so the digest is culture- and platform-independent.
     let private contentHex (input: string) : string =
@@ -175,33 +178,40 @@ module AssemblyName =
         else
             ValueSome(AssemblyName raw)
 
-/// WHICH FILE a set of `Anchor`s index: the assembly, and the name within it. `Assembly` is
-/// `ValueNone` where no assembly claims the file — text handed over with no file behind it,
-/// or a file that failed to parse.
+/// WHICH FILE a set of `Anchor`s index.
+[<RequireQualifiedAccess>]
 type AssemblyFilePath =
-    {
-        Assembly: AssemblyName voption
-        Relative: AssemblyFileId
-    }
+    /// A pool that is NOBODY's file, bearing only nodes that anchor `Anchor.nowhere`.
+    | Nowhere
+    /// The assembly a file is bucketed under, and the name it is known by within it.
+    /// `assembly` is `ValueNone` where no assembly claims the file — text handed over with no
+    /// file behind it, or a file that failed to parse.
+    | InFile of assembly: AssemblyName voption * relative: AssemblyFileId
+
+    member this.Assembly: AssemblyName voption =
+        match this with
+        | AssemblyFilePath.Nowhere -> ValueNone
+        | AssemblyFilePath.InFile(assembly = a) -> a
+
+    member this.Relative: AssemblyFileId voption =
+        match this with
+        | AssemblyFilePath.Nowhere -> ValueNone
+        | AssemblyFilePath.InFile(relative = r) -> ValueSome r
 
 [<RequireQualifiedAccess>]
 module AssemblyFilePath =
 
-    /// The identity of a pool that is NOBODY's file, bearing only nodes that anchor
-    /// `Anchor.nowhere`.
-    let nowhere: AssemblyFilePath =
-        {
-            Assembly = ValueNone
-            Relative = AssemblyFileId.nowhere
-        }
-
     /// `AssemblyFileId.ofText` under no assembly. Where the assembly IS known, build the path
     /// over that id instead.
     let ofText (input: string) : AssemblyFilePath =
-        {
-            Assembly = ValueNone
-            Relative = AssemblyFileId.ofText input
-        }
+        AssemblyFilePath.InFile(ValueNone, AssemblyFileId.ofText input)
+
+    /// The wire form read back: a blank file half is `Nowhere`, and a blank assembly half a
+    /// file no assembly claims.
+    let ofStored (assembly: string) (relative: string) : AssemblyFilePath =
+        match relative with
+        | "" -> AssemblyFilePath.Nowhere
+        | name -> AssemblyFilePath.InFile(AssemblyName.ofStored assembly, AssemblyFileId.ofStored name)
 
 /// A declaring file RETAINED past the parse that produced it, so that anchors of a tree
 /// unpooled from it stay readable.
@@ -221,16 +231,11 @@ module LexedFile =
     /// The identity every anchor and diagnostic of one file resolves against: the assembly it
     /// is bucketed under, and the name it is known by within it.
     let inAssembly (assembly: AssemblyName) (id: AssemblyFileId) (lexed: Lexed) : LexedFile =
-        inFile
-            {
-                Assembly = ValueSome assembly
-                Relative = id
-            }
-            lexed
+        inFile (AssemblyFilePath.InFile(ValueSome assembly, id)) lexed
 
     /// A file no assembly claims, named by `id` rather than by its text.
     let unclaimed (id: AssemblyFileId) (lexed: Lexed) : LexedFile =
-        inFile { Assembly = ValueNone; Relative = id } lexed
+        inFile (AssemblyFilePath.InFile(ValueNone, id)) lexed
 
     let ofText (lexed: Lexed) : LexedFile =
         inFile (AssemblyFilePath.ofText lexed.Input) lexed
@@ -273,12 +278,12 @@ module LexedFiles =
             | None ->
                 failwithf
                     "LexedFiles: no retained file for %s (assembly %s), so a tree anchored in it has no readable positions"
-                    path.Relative.Name
+                    (AssemblyFileId.toStored path.Relative)
                     (AssemblyName.toStored path.Assembly)
             | Some file when int i >= file.Lexed.Tokens.Length ->
                 failwithf
                     "LexedFiles: anchor %d is past the end of %s (%d tokens)"
                     (int i)
-                    path.Relative.Name
+                    (AssemblyFileId.toStored path.Relative)
                     file.Lexed.Tokens.Length
             | Some file -> SyntaxToken.syntaxToken file.Lexed.Tokens.[i] (int i)
