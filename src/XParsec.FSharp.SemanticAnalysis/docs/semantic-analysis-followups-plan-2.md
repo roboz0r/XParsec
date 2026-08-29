@@ -376,7 +376,16 @@ A later pass read every em-dash in the project and named the connective each one
 That is a verification pass rather than a rewording one, so it turned up claims that were
 false, and two of them are code issues rather than comment issues.
 
-### `Elaborate/TypeDecls.fs`, `typeDefnAccessToken` — three cases silently lose their access token
+### `Elaborate/TypeDecls.fs`, `typeDefnAccessToken` — three cases silently lose their access token **[LANDED]**
+
+Resolution: no widening occurs today because `tryTypeDecl`'s own catch-all drops `Delegate`,
+`Struct`, `TypeExtension` and `AbstractType` entirely — silently, with no diagnostic. Both
+catch-alls are now explicit thirteen-case matches; `Delegate`/`AbstractType` read their token,
+`TypeExtension` reports absence (fsc ignores an access modifier on an extension). Two `ptest`s
+in `ElaborateTests.fs` pin the delegate/struct elaboration gap. Follow-up worth an entry of its
+own: the dropped forms deserve an "unsupported declaration form" diagnostic.
+
+Original entry:
 
 The function matches eight `TypeDefn` cases for `typeName = tn` and falls through
 `| _ -> ValueNone`. `TypeDefn` has thirteen cases. Of the five that fall through, only

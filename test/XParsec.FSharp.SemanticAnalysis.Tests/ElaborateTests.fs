@@ -1432,3 +1432,56 @@ let stringEscapeTests =
                 Expect.isTrue hasTrigraph "the enum-case value projection surfaces the verdict"
             }
         ]
+
+// Every surfaced `TDecl.Type` records its declaration's `access` token in `Accessibility`,
+// where an absent key reads as `Public`.
+[<Tests>]
+let typeAccessibilityTests =
+    /// The `Accessibility` entry recorded for the surfaced type named `name`.
+    let accessOf (src: string) (name: string) : Accessibility voption =
+        let tast = analyse src
+
+        let typeKey =
+            tast.Decls
+            |> EqArray.toList
+            |> List.tryPick (
+                function
+                | TDecl.Type td when td.Name = name -> Some td.TypeKey
+                | _ -> None
+            )
+
+        match typeKey with
+        | None -> failtestf "no TDecl.Type named '%s'; decls: %A" name tast.Decls
+        | Some key -> EqDict.tryFind (SymbolKey.Type key) tast.Accessibility
+
+    testList
+        "TypeAccessibility"
+        [
+            test "`type private R = { … }` records Private" {
+                Expect.equal
+                    (accessOf "type private R = { x: int }" "R")
+                    (ValueSome Accessibility.Private)
+                    "the record's access token reaches the table"
+            }
+
+            test "`type private E = | A = 1` records Private" {
+                Expect.equal
+                    (accessOf "type private E = | A = 1" "E")
+                    (ValueSome Accessibility.Private)
+                    "the enum's access token reaches the table"
+            }
+
+            ptest "GAP: `type D = delegate of int -> int` surfaces no decl, so `private` on it records Private" {
+                Expect.equal
+                    (accessOf "type private D = delegate of int -> int" "D")
+                    (ValueSome Accessibility.Private)
+                    "the delegate's access token reaches the table"
+            }
+
+            ptest "GAP: `type S = struct … end` surfaces no decl, so `private` on it records Private" {
+                Expect.equal
+                    (accessOf "type private S =\n    struct\n        val mutable x: int\n    end" "S")
+                    (ValueSome Accessibility.Private)
+                    "the struct's access token reaches the table"
+            }
+        ]

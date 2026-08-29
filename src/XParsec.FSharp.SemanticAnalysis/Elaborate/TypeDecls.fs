@@ -16,8 +16,9 @@ open XParsec.FSharp.SemanticAnalysis.ElaborateClassMembers
 
 module internal ElaborateTypeDecls =
 
-    /// The `access` keyword token off a `type` definition's `TypeName`. Every other form
-    /// (delegate, type extension, abstract type, parse failure) reports absence, i.e. `Public`.
+    /// The `access` keyword token off a `type` definition's `TypeName`; `ValueNone` reads as
+    /// `Public`. A type extension and the recovery forms report absence — fsc ignores an
+    /// access modifier written on an extension.
     let typeDefnAccessToken (td: TypeDefn<SyntaxToken>) : SyntaxToken voption =
         let ofTn (TypeName(_, access, _, _, _, _)) = access
 
@@ -29,8 +30,12 @@ module internal ElaborateTypeDecls =
         | TypeDefn.Union(typeName = tn)
         | TypeDefn.Record(typeName = tn)
         | TypeDefn.Enum(typeName = tn)
+        | TypeDefn.Delegate(typeName = tn)
+        | TypeDefn.AbstractType(typeName = tn)
         | TypeDefn.Abbrev(typeName = tn) -> ofTn tn
-        | _ -> ValueNone
+        | TypeDefn.TypeExtension _
+        | TypeDefn.Missing
+        | TypeDefn.SkipsTokens _ -> ValueNone
 
     let private typeNameSimple (ctx: PassContext) (tn: TypeName<SyntaxToken>) : string =
         let (TypeName(ident = li)) = tn
@@ -670,4 +675,12 @@ module internal ElaborateTypeDecls =
             match tryIntrinsicAbbrevType ctx ns name ext with
             | Some result -> Some result
             | None -> tryAbbrevType ctx ns name (NameResolutionTypeRegistration.arityOfTypeName ctx tn)
-        | _ -> None
+        // `type S = struct … end` and `type D = delegate of …` are dropped silently: neither
+        // declaration form is elaborated yet. An extension augments a type declared elsewhere,
+        // and the remaining forms come from recovery.
+        | TypeDefn.Struct _
+        | TypeDefn.Delegate _
+        | TypeDefn.TypeExtension _
+        | TypeDefn.AbstractType _
+        | TypeDefn.Missing
+        | TypeDefn.SkipsTokens _ -> None
