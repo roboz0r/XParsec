@@ -113,12 +113,17 @@ type CaseOwner =
     | Enum
     | Union
 
-/// How a type's definition reaches itself. `Immediate` is fsc's FS0954: a struct field or
-/// inheritance relation that makes the type contain itself with no indirection.
+/// Which relation carries a type's definition back to itself with no indirection. fsc splits
+/// the three across two numbers: `Abbreviation` is FS0953, the other two share FS0954.
 [<RequireQualifiedAccess>]
 type TypeCycle =
+    /// A self- or mutual-`inherit` chain.
     | Inheritance
-    | Immediate
+    /// A struct storing a field of a type that stores one of it. The same pair declared as
+    /// reference types has a finite layout and compiles.
+    | StructField
+    /// An abbreviation whose right-hand side expands back to it.
+    | Abbreviation
 
 /// One conformance verdict about one `.fsi` (and its companion `.fs`), whether the two were
 /// paired by a package manifest or sit beside each other in one assembly.
@@ -549,7 +554,10 @@ module Kind =
         | Kind.AttributeTargetInvalid _ -> DiagCode.FSharp 842 // tcAttributeIsNotValidForLanguageElement
         | Kind.MemberAndLocalBindingClash _ -> DiagCode.FSharp 905
         | Kind.DuplicateMember _ -> DiagCode.FSharp 438
-        | Kind.CyclicType(via = TypeCycle.Immediate) -> DiagCode.FSharp 954 // tcTypeDefinitionIsCyclicThroughInheritance
+        | Kind.CyclicType(via = TypeCycle.Abbreviation) -> DiagCode.FSharp 953 // tcTypeDefinitionIsCyclic
+        // tcTypeDefinitionIsCyclicThroughInheritance, which fsc files BOTH remaining relations
+        // under: a self- or mutual-`inherit` cycle and a struct-field cycle all report 954.
+        | Kind.CyclicType _ -> DiagCode.FSharp 954
         // ── This compiler's own published families.
         | Kind.Conformance(verdict = v) -> ConformanceVerdict.code v
         | Kind.PackageSet fault -> PackageSetFault.code fault
@@ -558,7 +566,6 @@ module Kind =
         | Kind.Parse c -> DiagCode.Parse(DiagnosticCode.code c)
         // ── No published number: fsc has no analogue at all, or its counterpart is a
         // catch-all rather than a classification.
-        | Kind.CyclicType(via = TypeCycle.Inheritance)
         // fsc has no analogue: it declines to inline a recursive binding and emits the
         // ordinary function instead, where a cross-file `val inline` here has no such
         // function to fall back to.
@@ -667,10 +674,10 @@ module Kind =
         | Kind.DuplicateMember name ->
             sprintf "Duplicate definition of member '%s': the same name and signature as an earlier member" name
         | Kind.CyclicType(name, TypeCycle.Inheritance) -> sprintf "Type '%s' has a cyclic inheritance hierarchy" name
-        | Kind.CyclicType(name, TypeCycle.Immediate) ->
-            sprintf
-                "Type '%s' involves an immediate cyclic reference through a struct field or inheritance relation"
-                name
+        | Kind.CyclicType(name, TypeCycle.StructField) ->
+            sprintf "Type '%s' involves an immediate cyclic reference through a struct field" name
+        | Kind.CyclicType(name, TypeCycle.Abbreviation) ->
+            sprintf "Type abbreviation '%s' involves an immediate cyclic reference" name
         | Kind.CyclicInline(binding, via) ->
             sprintf
                 "The inline binding '%s' expands into itself (%s). An inline body is spliced at its call site, so a binding that reaches itself has no expansion"

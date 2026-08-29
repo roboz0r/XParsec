@@ -365,7 +365,8 @@ module FrozenCodecDiagnostics =
             w.Write(
                 match via with
                 | TypeCycle.Inheritance -> 0uy
-                | TypeCycle.Immediate -> 1uy
+                | TypeCycle.StructField -> 1uy
+                | TypeCycle.Abbreviation -> 2uy
             )
         | Kind.NotYetSupported feature ->
             w.Write 34uy
@@ -518,7 +519,8 @@ module FrozenCodecDiagnostics =
             let via =
                 match r.ReadByte() with
                 | 0uy -> TypeCycle.Inheritance
-                | 1uy -> TypeCycle.Immediate
+                | 1uy -> TypeCycle.StructField
+                | 2uy -> TypeCycle.Abbreviation
                 | b -> failwithf "FrozenCodec: unknown TypeCycle tag %d" b
 
             Kind.CyclicType(name, via)

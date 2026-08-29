@@ -64,11 +64,15 @@ let tests =
                         Kind.UnrelatedTypeTest("int", "string"), DiagCode.FSharp 67
                         // `MatchIncomplete`
                         Kind.IncompleteAnonUnionMatch [ "a" ], DiagCode.FSharp 25
-                        // `tcTypeDefinitionIsCyclicThroughInheritance` — fsc's 954 covers the
-                        // immediate struct-field/inheritance cycle; the inheritance walk's
-                        // own finding has no fsc counterpart.
-                        Kind.CyclicType("A", TypeCycle.Immediate), DiagCode.FSharp 954
-                        Kind.CyclicType("A", TypeCycle.Inheritance), DiagCode.Unpublished
+                        // `tcTypeDefinitionIsCyclicThroughInheritance` — one number for both
+                        // relations, as in fsc: `type A() = inherit A()`, the mutual `and`
+                        // form, `[<Struct>] type A = { x: A }` and the mutual struct pair all
+                        // report 954 under `dotnet fsi`.
+                        Kind.CyclicType("A", TypeCycle.StructField), DiagCode.FSharp 954
+                        Kind.CyclicType("A", TypeCycle.Inheritance), DiagCode.FSharp 954
+                        // `tcTypeDefinitionIsCyclic` — the abbreviation route is fsc's other
+                        // number (`type A = B and B = A` reports 953).
+                        Kind.CyclicType("A", TypeCycle.Abbreviation), DiagCode.FSharp 953
                     ]
 
                 for kind, code in expected do

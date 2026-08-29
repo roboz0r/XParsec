@@ -158,7 +158,7 @@ record (or computing them behind a single constructor that cannot be bypassed) w
 The strict-scope `ctx.Report` is a guarded prefix and the shared tail runs once, through
 `freshTyVar` plus the `TyparScope` memoise. The two rationale comments merged into one.
 
-### `Diagnostics.fs:347` — `CyclicType(Inheritance)` is unpublished while `CyclicType(Immediate)` maps to FS0954
+### `Diagnostics.fs:347` — `CyclicType(Inheritance)` is unpublished while `CyclicType(Immediate)` maps to FS0954 **[LANDED — both carry FS0954, `Immediate` renamed `StructField`, and `Abbreviation` added carrying FS0953]**
 
 `Kind.code` files only the `Immediate` case under `DiagCode.FSharp 954`, whose fsc resource name
 is `tcTypeDefinitionIsCyclicThroughInheritance`, and drops `TypeCycle.Inheritance` into the
@@ -168,6 +168,33 @@ verdicts come from different checks: fsc's 954 is about a struct field or immedi
 while the inheritance WALK is this compiler's own), and a comment saying so was removed here as a
 duplicate of the `TypeCycle` type doc. Worth confirming against fsc which of the two numbers each
 verdict should carry, since a consumer suppressing FS0954 today gets only half the family.
+
+Resolution: the split was NOT deliberate — `dotnet fsi` files every shape under one number.
+Probed four programs, each reporting `error FS0954: This type definition involves an immediate
+cyclic reference through a struct field or inheritance relation` on the type-name token:
+`type A() = inherit A()`; the mutual `and` form; `[<Struct>] type A = { x: A }`; and the mutual
+struct pair. The resource name is misleading — 954 covers the union of both relations, and
+"immediate" qualifies both, so it never distinguished them.
+
+`Kind.code` now answers `DiagCode.FSharp 954` for `Kind.CyclicType _`, and both rows in
+`DiagnosticCodeTests` pin it. With the code no longer differing, the only axis the DU carries is
+WHICH relation, and `Immediate` did not name one — renamed `TypeCycle.StructField`, matching its
+producer `checkGroupStructFieldCycles`. The codec tags are positional, so the wire format is
+unchanged. `Kind.message` keeps the two distinct sentences: naming the relation beats fsc's
+either/or wording, and the end-to-end tests in `TypeScopeOrderTests` assert on those substrings.
+
+Found while probing, and folded in on the user's call: a cycle through an ABBREVIATION is fsc's
+FS0953 (`tcTypeDefinitionIsCyclic`, "…through an abbreviation" — verified on
+`type A = B and B = A`). `Passes/Unification/Translate.fs`'s `forceFill` detected it but reported
+free text through `Kind.Message`, so it published no code. It now reports
+`TypeCycle.Abbreviation`, the third case, carrying 953; the codec takes tag `2uy`.
+`TypeScopeOrderTests`'s abbreviation test asserts the classified sentence in place of the old
+`"is cyclic"` needle.
+
+The three cases now span fsc's two numbers, so `Kind.code` reads the DU again — 953 for
+`Abbreviation`, 954 for the other two. `Kind.message` keeps one sentence per relation, and the
+`StructField` text dropped fsc's "or inheritance relation" disjunction, which the case had
+already decided.
 
 ### `Passes/NameResolution/Scope.fs:374` — `resolveQualifiedExternal` computes eight suppression predicates eagerly, then ORs them
 

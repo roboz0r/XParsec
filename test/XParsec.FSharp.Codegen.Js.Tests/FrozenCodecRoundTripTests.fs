@@ -482,7 +482,8 @@ let tests =
                         Kind.MemberAndLocalBindingClash "x"
                         Kind.DuplicateMember "M"
                         Kind.CyclicType("A", TypeCycle.Inheritance)
-                        Kind.CyclicType("A", TypeCycle.Immediate)
+                        Kind.CyclicType("A", TypeCycle.StructField)
+                        Kind.CyclicType("A", TypeCycle.Abbreviation)
                         Kind.CyclicInline("f", [])
                         Kind.CyclicInline("f", [ "g"; "h" ])
                         Kind.NotYetSupported "inheritance"

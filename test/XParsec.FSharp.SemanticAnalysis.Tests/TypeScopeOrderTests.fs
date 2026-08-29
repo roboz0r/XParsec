@@ -160,15 +160,16 @@ let tests =
                 }
 
             // A cycle needs a back-edge, and file-order scoping means only a group can hold
-            // one. So both cycle classes are group-local, and both are diagnosed.
+            // one. So all three cycle classes are group-local, and each is diagnosed.
             yield
                 test "inheritance cycle within a group is diagnosed" {
                     expectError "cyclic inheritance" "type A() =\n    inherit B()\nand B() =\n    inherit A()"
                 }
 
+            // FS0953, fsc's other cycle number: the abbreviation route alone.
             yield
                 test "abbreviation cycle within a group is diagnosed" {
-                    expectError "is cyclic" "type A = B\nand B = A"
+                    expectError "Type abbreviation 'A' involves an immediate cyclic reference" "type A = B\nand B = A"
                 }
 
             // A STRUCT stores its fields inline, so a cycle through one has no finite layout.

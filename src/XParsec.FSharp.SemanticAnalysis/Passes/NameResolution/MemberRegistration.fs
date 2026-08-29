@@ -822,7 +822,7 @@ module NameResolutionMemberRegistration =
                 )
 
             if reachesStart startId then
-                ctx.Report(startId.DeclSite.Tok, Kind.CyclicType(startId.Name, TypeCycle.Immediate))
+                ctx.Report(startId.DeclSite.Tok, Kind.CyclicType(startId.Name, TypeCycle.StructField))
 
     /// Register one accepted declaration's kind-specific DETAIL (fields, cases, enum case
     /// names, class members / ctor params, abbreviation RHS), plus any `with member …`

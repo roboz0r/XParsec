@@ -605,7 +605,7 @@ module internal UnificationTranslate =
         | AbbreviationState.Filled _
         | AbbreviationState.Broken -> ()
         | AbbreviationState.InProgress ->
-            ctx.Report(info.DeclSite.Tok, Kind.Message(sprintf "Type abbreviation '%s' is cyclic" info.Name))
+            ctx.Report(info.DeclSite.Tok, Kind.CyclicType(info.Name, TypeCycle.Abbreviation))
 
             info.State <- AbbreviationState.Broken
         | AbbreviationState.NotFilled ->
