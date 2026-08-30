@@ -336,26 +336,14 @@ type TTypeDeclG<'ty, 'tok, 'id, 'body> =
 
     member this.Key: SymbolKey = SymbolKey.Type this.TypeKey
 
-    /// The `TypeDefnKind` attribute validation judged this declaration under at registration,
-    /// re-derived from `Kind`.
     member this.DefnKind: TypeDefnKind =
         match this.Kind with
-        | TTypeKindG.Record r ->
-            match r.ValueKind with
-            | RecordValueKind.RefType -> TypeDefnKind.Record
-            | RecordValueKind.Struct -> TypeDefnKind.StructRecord
-        | TTypeKindG.Union u ->
-            match u.ValueKind with
-            | UnionValueKind.RefType -> TypeDefnKind.Union
-            | UnionValueKind.Struct -> TypeDefnKind.StructUnion
+        | TTypeKindG.Record r -> TypeDefnKind.ofRecord r.ValueKind.IsValueType
+        | TTypeKindG.Union u -> TypeDefnKind.ofUnion u.ValueKind.IsValueType
+        | TTypeKindG.Class c -> TypeDefnKind.ofClass c.ValueKind.IsValueType
         | TTypeKindG.Enum _ -> TypeDefnKind.Enum
         | TTypeKindG.Abbrev _ -> TypeDefnKind.Abbrev
         | TTypeKindG.Interface _ -> TypeDefnKind.Interface
-        | TTypeKindG.Class c ->
-            match c.ValueKind with
-            | ClassValueKind.RefType -> TypeDefnKind.RefClass
-            | ClassValueKind.Struct
-            | ClassValueKind.RefStruct -> TypeDefnKind.StructClass
 
     /// `[<RequireQualifiedAccess>]`, type-level so it covers records AND unions: a bare
     /// `{ X = … }` or a bare case name does not resolve to this type.

@@ -195,11 +195,7 @@ type RecordTypeInfo
     /// The declaration's attributes, resolved and folded at registration.
     member val Attributes: TAttributes = EqArray.empty with get, set
 
-    member this.DefnKind: TypeDefnKind =
-        if this.IsValueType then
-            TypeDefnKind.StructRecord
-        else
-            TypeDefnKind.Record
+    member this.DefnKind: TypeDefnKind = TypeDefnKind.ofRecord this.IsValueType
 
     /// The attribute-decided verdict, else `Structural`.
     member this.EqualitySupport: EqualityVerdict =
@@ -253,11 +249,7 @@ type UnionTypeInfo
     /// The declaration's attributes, resolved and folded at registration.
     member val Attributes: TAttributes = EqArray.empty with get, set
 
-    member this.DefnKind: TypeDefnKind =
-        if this.IsValueType then
-            TypeDefnKind.StructUnion
-        else
-            TypeDefnKind.Union
+    member this.DefnKind: TypeDefnKind = TypeDefnKind.ofUnion this.IsValueType
 
     /// The attribute-decided verdict, else `Structural`.
     member this.EqualitySupport: EqualityVerdict =
@@ -497,9 +489,7 @@ type ClassTypeInfo
     member val Attributes: TAttributes = EqArray.empty with get, set
 
     member this.DefnKind: TypeDefnKind =
-        if this.IsInterface then TypeDefnKind.Interface
-        elif this.IsValueType then TypeDefnKind.StructClass
-        else TypeDefnKind.RefClass
+        TypeDefnKind.ofClassOrInterface this.IsInterface this.IsValueType
 
     /// The attribute-decided verdict, else `Reference` for a reference class / interface and
     /// `Structural` for a value type.

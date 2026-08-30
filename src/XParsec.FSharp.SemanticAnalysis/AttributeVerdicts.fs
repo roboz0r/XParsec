@@ -50,6 +50,33 @@ type TypeDefnKind =
 [<RequireQualifiedAccess>]
 module TypeDefnKind =
 
+    let ofRecord (isValueType: bool) : TypeDefnKind =
+        if isValueType then
+            TypeDefnKind.StructRecord
+        else
+            TypeDefnKind.Record
+
+    let ofUnion (isValueType: bool) : TypeDefnKind =
+        if isValueType then
+            TypeDefnKind.StructUnion
+        else
+            TypeDefnKind.Union
+
+    /// A byref-like class is a `StructClass`; `[<IsByRefLike>]` is judged on its own row.
+    let ofClass (isValueType: bool) : TypeDefnKind =
+        if isValueType then
+            TypeDefnKind.StructClass
+        else
+            TypeDefnKind.RefClass
+
+    /// For a layer that registers an interface as a class shape. `isInterface` wins: an
+    /// interface takes `Interface` whatever its `[<Struct>]` says.
+    let ofClassOrInterface (isInterface: bool) (isValueType: bool) : TypeDefnKind =
+        if isInterface then
+            TypeDefnKind.Interface
+        else
+            ofClass isValueType
+
     /// The kinds emitted as a value type.
     let isStruct (k: TypeDefnKind) : bool =
         match k with

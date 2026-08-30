@@ -337,10 +337,7 @@ module SignatureResolutionMembers =
         let resolvedAttrs = ctx.ResolveAttributes attrs
         let decoded = AttributeDecode.decodeClassAttributes resolvedAttrs
 
-        let kind =
-            if isInterface then TypeDefnKind.Interface
-            elif decoded.IsValueType then TypeDefnKind.StructClass
-            else TypeDefnKind.RefClass
+        let kind = TypeDefnKind.ofClassOrInterface isInterface decoded.IsValueType
 
         let foldedAttrs = Attributes.foldTypeDefn ctx kind resolvedAttrs
 
