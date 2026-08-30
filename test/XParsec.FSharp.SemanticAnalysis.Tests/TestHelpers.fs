@@ -233,7 +233,7 @@ let publishClass (b: PublishedSurfaceBuilder) (key: TypeKey) (members: ExternalM
         b
         key
         (ExternalTypeShape.Class
-            { ExternalClassShape.basic (key.TyparArity, false, SymbolOrigin.Empty) with
+            { ExternalClassShape.basic (key.TyparArity, ClassCommitment.Class, SymbolOrigin.Empty) with
                 Members = EqArray.ofList members
             })
         members

@@ -1,8 +1,14 @@
 # Conformance at the TAST level
 
+**Status: every stage has landed, and Gaps 1, 2 and 4 are closed. Gap 3 is closed for values
+and open for type declarations, behind the `ExternalTypeShape` reshape it names.** Conformance
+now runs down one route, `AssemblyAnalysis.conformSignature`, over the two analysed halves. The
+sections below are the plan as written, each stage carrying what it landed; the two routes and
+the CST rule set they describe are history.
+
 ## Root cause
 
-`.fsi`↔`.fs` conformance runs down two routes, because only one of them has analysed halves to
+`.fsi`↔`.fs` conformance ran down two routes, because only one of them had analysed halves to
 compare.
 
 | Route | Entry | What it holds | Rules applied |
@@ -26,7 +32,7 @@ The costs that remain, on the manifest route only:
 
 | Check | On the CST (manifest route) | On the analysed halves (in-assembly route) |
 |---|---|---|
-| Type presence (`MissingInImpl`) | `summariseSig`/`summariseImpl`, name strings | `ConformanceSurface.checkTypes`, by `TypeKey`. Delegates excepted — Gap 2 |
+| Type presence (`MissingInImpl`) | `summariseSig`/`summariseImpl`, name strings | `ConformanceSurface.checkTypes`, by `TypeKey`. Delegates are refused at their declaration — Gap 2 |
 | `extern`/repr pairing, heritability | CST species off `TypeSignature`/`TypeDefn` | `PublishedSurface.DeclaredReprs` against `Residue.IntrinsicReprKeys` |
 | Value presence (`checkValuePresence`) | identifier text | `ConformanceSurface.checkValues`, by `BindingKey` |
 | Typar count/order | not checked — nothing frozen to compare | `ConformanceTypars.checkFile`/`checkMembers` |
@@ -65,7 +71,11 @@ onto the same verdicts. The in-assembly route already takes every pairing and pr
 by resolved identity for a compiled assembly, so a second entry buys nothing; the package route
 goes instead. Stage 2a below is what it costs to get there.
 
-**Stage 2a — lift `[<Import>]` to a Vesper-level concept. Blocks the deletion.**
+**Stage 2a — lift `[<Import>]` to a Vesper-level concept. LANDED**, in the order below.
+`ImportResolution` and `IRuntimeModules` live in `ReferencedProject.fs`, with `EsmModules.create`
+as the JS implementation and `RuntimeModules.unsupported` as the CLR's; 2a.4's `AssetMissing`
+landed as `ResolvedRuntimeAssets.Missing`, a `PackageSetFault` reported once against the
+manifest rather than once per importing binding.
 
 `ConformancePass.checkImport` is the one part of the package route that is not a second
 derivation. It reads the manifest, not the CST: the path must be `./` plus a `[core] runtime`
@@ -175,27 +185,28 @@ selector. `AssetMissing` is a manifest fault rather than an import fault — a `
 absent on disk is broken whether or not a binding imports it — so it reports once against the
 manifest instead of once per importing binding.
 
-**Stage 3 — delete the CST rule set and the package route.** `ConformancePass.fs` goes
-entirely. `Conformance.fs` loses `summariseSig`/`summariseImpl`/`check`/`summariseSigVals`/
+**Stage 3 — delete the CST rule set and the package route. LANDED.** `ConformancePass.fs` went
+entirely. `Conformance.fs` lost `summariseSig`/`summariseImpl`/`check`/`summariseSigVals`/
 `summariseImplVals`/`boundName`/`checkValuePresence`/`summariseImports`/`checkUnit`, the shape
 DUs, and the provisional attribute reader; `ConformanceError`, `describe` and the
 `sigDeclPath`/`implDeclPath` pairing check survive. `isJsNativeBody` goes with `jsNative` in
 Stage 2a.1, so identifier-text matching leaves the import rule and `attributeShortName`-style
 matching then exists nowhere.
 
-Stage 3 follows Stage 2a and Gap 2's decision. Two further costs to settle as it lands:
+Both costs it carried are now settled:
 
-- **The JS corpus loses its only whole-package check.** `Codegen.Clr.Tests` compiles every
-  `Vesper.*` package through the in-assembly route, so the CLR side is covered by construction.
-  `Codegen.Js.Tests` compiles only `Vesper.Core` (`JsPackageTests.fs:274`), so
-  `jsPackageConformanceTests` in `ConformanceTests.fs` is what currently holds the js manifests
-  to their contracts — including which surface is still un-ported. Either the js suite gains a
-  whole-corpus in-assembly compile, or that coverage goes with the route.
-- **`ConformanceVerdict.PairParseFailure` loses its producer.** `enforce` is its only one. It is
-  serialised at tag `3uy` (`FrozenCodecDiagnostics.fs:79`) and round-tripped by
-  `Codegen.Js.Tests/FrozenCodecRoundTripTests.fs:433`, so retiring the case renumbers the codec.
-  `SigWithoutImpl` is already producerless on the same DU, so the two retire together or not at
-  all — a separate change from this one.
+- **The JS corpus keeps a whole-package check.** `JsCorpusConformanceTests` in
+  `Codegen.Js.Tests/JsPackageTests.fs` runs every `Vesper.*` js manifest through
+  `Frontend.analyse` and `AnalysedAssembly.gate`, so each package takes the same
+  `conformSignature` and `[<Import>]` verdicts a compile takes, imports discharged against the
+  committed assets.
+- **`PairParseFailure` and `SigWithoutImpl` are retired.** Both were producerless once
+  `enforce` went, and both name a state the pipeline no longer reaches: the manifest read
+  refuses an unpaired `.fsi`, and a half that fails to parse leaves its unit `Failed` and
+  reports `Kind.ParseFailure` in its own text. The codec is renumbered accordingly (0
+  `Unimplemented`, 1 `ModulePairingMismatch`, 2 `SignatureNotPublished`, 3 `SignatureRejected`,
+  4 `AttributeArgumentsDiffer`), and the round-trip fixture now carries one value per surviving
+  case, which it did not before.
 
 ## Gaps between the TAST and a full conformance check
 
@@ -229,49 +240,120 @@ the group close forces and declines a cyclic abbreviation, whose fill already re
 `ConformanceSurface.demandsDeclaration` no longer excepts it. Both backends ignore the kind,
 because every use site expanded to the body.
 
-### Gap 2 — a `delegate` declaration claims no identity. Decide before Stage 3.
+### Gap 2 — a `delegate` declaration claims no identity. CLOSED: refused at its declaration.
 
 `SigDecl.claimedKind` yields `ValueNone` for a delegate, so a `.fsi` publishes
-`ExternalTypeShape.Unmodelled(Delegate, arity)` in place of a type and the implementation is
-never asked for one. The CST rule set reports `MissingInImpl` for it, off the written name.
+`ExternalTypeShape.Unmodelled(Delegate, arity)` in place of a type. The decision was between
+refusing a delegate where it is written and giving it a `TTypeKindG` case with an
+`ExternalTypeShape` to match; the refusal is what landed, matching how every other unmodelled
+construct is treated.
 
-This compiler models no delegate on either target, so the two routes disagree about a construct
-neither can compile. Two defensible positions, and the choice is not the checker's to make on
-its own:
+Both halves report `NotYetSupported "\`delegate\` type declarations"` at the declaration:
+`Validation.fs:234` for an implementation, `SignatureResolution.reportRefusedDeclaration` for a
+signature. `ConformanceSurface.demandsDeclaration` excepts the `Unmodelled` shape, so a pair of
+delegates and a `.fsi`-only delegate both take a refusal per written declaration and no pairing
+verdict.
 
-- **A declared delegate is refused at its declaration**, the way `exception` already is
-  (`Validation` reports `NotYetSupported`). Conformance then has nothing to say, the `Unmodelled`
-  shape reports at the first use site, and Stage 3 deletes the CST rule with no loss.
-- **A delegate claims a type**, gaining a `TTypeKindG` case and an `ExternalTypeShape`, and
-  conformance checks its presence like any other nominal.
+Acceptance evidence: two `AnalysedConformance` tests, one per shape, in
+`SemanticAnalysis.Tests/ConformanceTests.fs`.
 
-The first is the cheaper one and matches how the compiler treats every other unmodelled
-construct; take it unless delegates are on the roadmap.
+### Gap 3 — attribute arguments are compared nowhere. CLOSED for VALUES; open for types.
 
-### Gap 3 — attribute arguments are compared nowhere
+(Relocated from the deleted fsi-front-end-plan, 2026-08-28.)
 
-No conformance rule reads a pair's attribute arguments on either route. (Relocated from the
-deleted fsi-front-end-plan, 2026-08-28.) The trade to settle when a rule arrives: structural
-expression equality needs no folding but rejects `A ||| B` against `B ||| A`, and `1` against
-`0x1`, as mismatches; comparing folded values is now possible, since `AttributeFold` folds
-each side's arguments to `TConstValue`s (landed 2026-08-28).
+**The rule, probed against fsc.** The premise this gap was blocked on is settled: an attribute
+is expected on *neither* half in particular. Compiling `.fsi` / `.fs` pairs through
+`FSharp.Compiler.Service` gives, per position:
 
-**Premise to verify first, against fsc:** whether an attribute is expected on both halves of a
-pair at all, or whether F# takes the signature's alone. Do not design the check before probing
-`dotnet fsi` / fsc for that.
+| Both halves write it | Verdict |
+|---|---|
+| arguments fold to the same values | silent; `1` against `0x1` and `A ||| B` against `B ||| A` both pass |
+| arguments fold to different values | **warning FS1200**, and the signature's copy is compiled |
+| one half alone writes it | silent, and that half's copy is compiled |
 
-### Gap 4 — the published shape cannot state opacity, so `DeclaredKinds` exists
+The same warning lands on a value, a type declaration, a record field and a `[<Literal>]`.
+`[<Sealed>]` is separate — it changes the compiled shape, so a disagreement is FS0296/FS0297 at
+error severity, not FS1200. That settles the trade recorded here: FOLDED values, so
+`AttributeFold`'s `TConstValue` output is what the comparison runs on.
 
-`PublishedSurface.DeclaredKinds` is a second table keyed by the same `TypeKey` as
+**What landed, for module-level values.** Both halves now carry their folded attributes:
+`ModuleBindingInfo.Attributes` on the implementation (folded once in
+`Elaborate.translateModuleLet`, which already classified the binding's `AttrTarget`, and
+serialised beside the binding's identity), and `ExternalSymbol.Attributes` on the surface
+(filled by `SignatureResolution.registerValSig` for a `.fsi`, and by `FrozenSignature.toSurface`
+from the frozen record for an unsigned `.fs`). `ConformanceSurface.checkValues` answers both
+value questions off one walk of the implementation — presence, and the arguments of an
+attribute both halves wrote — as a `ValueConformance`, whose two lists carry the two
+severities; `conformSignature` reports the second as
+`ConformanceVerdict.AttributeArgumentsDiffer`, a `V247` at WARNING severity, because fsc
+compiles the pair.
+
+Attributes are matched by resolved identity and compared by folded ARGUMENT VALUE: positional
+arguments in written order, named arguments by name, so `[<Foo(1, Y = 2, X = 3)>]` and
+`[<Foo(1, X = 3, Y = 2)>]` conform. Occurrences of one attribute type compare as an ordered
+run, which is what an `AllowMultiple` attribute needs; no attribute in `Vesper.Core` is both
+`AllowMultiple = true` and writable on a module value, so that path carries no test.
+
+Both halves classify a module-level value's `AttrTarget` through `AttrTarget.ofModuleValue`,
+which is the only place the fsc rule is written. The facts it takes are each half's own — a
+`.fsi`'s written argument groups, a `.fs`'s inferred type — so `val f: (int -> int)` classifies
+as a value while its `let f x = …` companion classifies as a function. The split reaches
+`[<AttributeUsage>]` enforcement and nothing else, and is sited on `ofModuleValue`.
+
+`ModuleBindingInfo` moved out of the `SideTypes.fs` grab-bag into its own file after
+`AttributeVerdicts.fs`, which is what makes `TAttributes` available to it.
+
+**What remains: type declarations.** A `TTypeDeclG` carries its attributes, so the
+implementation half is ready. The signature half is not: only `ExternalClassShape` carries
+`Attributes`, and `ExternalTypeShape`'s `Record` / `Union` / `Enum` / `Abbrev` cases carry
+none. The shape is the required home — `AttributeFold` reads an external attribute type's own
+`[<AttributeUsage>]` off `ExternalTypeShape.Class`, through the provider, which serves shapes
+rather than surfaces — and `Record` and `Union` already hold five positional fields each, so a
+sixth moves further from "a tuple of three or more becomes a record". Reshaping those four
+cases into records is the change this is waiting on; extending the check afterwards is one loop
+over `ShapesByKey` beside the one over `Symbols`, reusing `divergentAttributes`. Covering only
+class-like types in the meantime would report a divergence on a class and stay silent on the
+identical divergence on a record, so the check stays off types entirely until all four kinds can
+answer.
+
+`ExternalSymbol.Attributes` is authoritative only on a symbol reached through a
+`PublishedSurface`. A metadata or TS-manifest provider leaves it empty whatever the declaration
+wrote, so empty carries two readings on `IExternalSymbolProvider` and one on the surface. Sited
+on the field; splitting the record by producer is the fix, and it belongs with the reshape
+above rather than ahead of it.
+
+Acceptance evidence: seven `AnalysedConformance` tests — a divergence reported and named, that
+finding carrying warning rather than error severity, `0x1` against `1` conforming, `1 ||| 2`
+against `2 ||| 1` conforming, named arguments conforming in either order, a named argument's
+value diverging, and an attribute on one half alone taking no verdict.
+
+### Gap 4 — the published shape cannot state opacity, so `DeclaredKinds` exists. CLOSED.
+
+`PublishedSurface.DeclaredKinds` was a second table keyed by the same `TypeKey` as
 `ShapesByKey`, carried because an opaque `type T` publishes the same `Class` shape a bodied
-class does: the shape alone loses whether the signature committed its name to a nominal
-family. The durable fix is a commitment marker on `ExternalTypeShape` (an `Opaque` case, or a
-flag on `ExternalClassShape`), after which the family is derivable from the shape, the
-`declaredKindFamily` / `declaredTypes` classifiers read one source, and the side table with
-its builder and freeze plumbing deletes. The shape is serialised (`FrozenCodec`) and read by
-every consumer of a published surface, so the marker lands additively behind the existing
-constructors, with the side table deleted in a separate change. (Filed off the 2026-08-30
-review of the Stage 2–3 landing.)
+class does: the shape alone lost whether the signature committed its name to a nominal family.
+(Filed off the 2026-08-30 review of the Stage 2–3 landing.)
+
+`ExternalClassShape.IsInterface: bool` is now `Commitment: ClassCommitment`, three-valued over
+`Class` / `Interface` / `Opaque`, with `IsInterface` kept as a derived member so every read
+site is untouched. A producer carrying only the interface bit states its commitment through
+`ClassCommitment.ofIsInterface`. `ExternalTypeShape.DeclaredFamily` reads it, and answers
+`ValueNone` for the opaque, abbreviation, `extern` and unmodelled shapes alike.
+`ConformanceSurface.checkTypes` takes the family off `ShapesByKey`;
+`SignatureResolution.declaredKindFamily`, `PublishedSurfaceBuilder.addDeclaredKind` and both
+`DeclaredKinds` fields are deleted.
+
+`DeclaredFamily` is the one reader of `Opaque`. Every other read site goes through
+`IsInterface`, which answers `false` for it, so subtyping and base eligibility still treat an
+opaque `type T` as a class — the behaviour that held before the marker existed.
+
+The marker touches no codec: `ExternalClassShape` is derived from `FrozenPools` by
+`FrozenSignature.toSurface` on the `.fs` side and from resolved signatures on the `.fsi` side,
+and is serialised nowhere. (The premise recorded here that it was is wrong.)
+
+Acceptance evidence: `SignatureResolutionTests`' "The published shape states which family the
+declaration commits to" pins each family and the opaque non-commitment together; the existing
+`AnalysedConformance` kind-drift and opaque-type pairs stayed green.
 
 ### Non-gaps, verified
 
@@ -346,13 +428,33 @@ sites in `Vesper.Comparison` and `Vesper.Core`, `Conformance.fs`, `Passes/Attrib
 `AssemblyAnalysis.fs` for the per-unit record, and the JS backend's package build. Both backends
 gain the sentinel refusal.
 
-Stage 3 is deletion, and takes `ConformanceTests.fs`'s CST-route lists with it.
+Stage 3 was deletion, and took `ConformanceTests.fs`'s CST-route lists with it.
+
+The gap closures after it touched, in landing order:
+
+- Gap 2 added two `AnalysedConformance` tests and changed no source.
+- Gap 4 touched `ExternalDeclarations.fs`, `ExternalSymbols.fs`, `PublishedSurface.fs`,
+  `ConformanceSurface.fs`, `FrozenSignature.fs`, `Passes/SignatureResolution.fs` and its
+  `Members.fs`, `Codegen.Clr/MetadataSymbols.fs`, `Codegen.Js/JsNativeSymbols.fs` and
+  `TsManifestMembers.fs`, plus nine `ExternalClassShape.basic` call sites in the tests. Every
+  break was a compile error, and no test went red.
+- Gap 3's value half added `ModuleBindingInfo.fs`, and touched `SideTypes.fs`, `Elaborate.fs`,
+  `FrozenCodecTypes.fs`, `ExternalDeclarations.fs`, `ExternalSymbols.fs`, `FrozenSignature.fs`,
+  `Passes/SignatureResolution.fs`, `Conformance.fs`, `Diagnostics.fs`,
+  `FrozenCodecDiagnostics.fs`, `ConformanceSurface.fs` and `AssemblyAnalysis.fs`. The frozen
+  format gained a field on each module-binding row; the whole `Vesper.*` corpus recompiles on
+  both backends, and no test went red.
+
+One behaviour tightened along the way: a module binding's attributes now go through
+`AttributeFold.build` rather than `enforceTargets` alone, so an attribute argument outside the
+constant domain is diagnosed at a `let` where it previously passed. The corpus writes only
+constant arguments there, so nothing went red.
 
 ## Correction owed to another doc
 
 `semantic-analysis-followups-plan-2.md:243` states that nothing under `src/` calls the
 conformance gate, and that `ConformanceTypars.checkFile`/`checkMembers` are "tests only". That
 is stale: `AssemblyAnalysis.conformSignature` calls both on the live in-assembly path, and their
-diagnostics reach the compilation. `ConformancePass.checkManifest`/`enforce` do remain tests-only,
-and stay that way: the driver gate is the in-assembly route, and Stages 2a–3 below retire the CST
-one rather than wiring it up beside it. That section now carries the resolution.
+diagnostics reach the compilation. `ConformancePass.checkManifest`/`enforce` were tests-only and
+are now deleted with the rest of the CST route, so the in-assembly route is the driver gate and
+the only one. That section now carries the resolution.

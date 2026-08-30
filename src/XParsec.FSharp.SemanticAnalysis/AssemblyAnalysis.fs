@@ -255,8 +255,13 @@ module AssemblyAnalysis =
                     for e in ConformanceSurface.checkTypes r.Surface impl.Frozen do
                         yield unimplemented (Conformance.describe e)
 
-                    for e in ConformanceSurface.checkValues r.Surface impl.Frozen do
+                    let values = ConformanceSurface.checkValues r.Surface impl.Frozen
+
+                    for e in values.Missing do
                         yield unimplemented (Conformance.describe e)
+
+                    for d in values.Divergent do
+                        yield verdict (ConformanceVerdict.AttributeArgumentsDiffer(r.Signature.Id.Name, d))
 
                     for m in ConformanceTypars.checkFile published impl.Frozen do
                         yield unimplemented (ConformanceTypars.describe m)

@@ -53,7 +53,7 @@ let private typeByName (name: string) : ExternalTypeShape voption =
     | "Cls" ->
         ValueSome(
             ExternalTypeShape.Class
-                { ExternalClassShape.basic (0, false, origin) with
+                { ExternalClassShape.basic (0, ClassCommitment.Class, origin) with
                     Members = EqArray.singleton markerMember
                     FrozenInterfaces =
                         EqArray.singleton (

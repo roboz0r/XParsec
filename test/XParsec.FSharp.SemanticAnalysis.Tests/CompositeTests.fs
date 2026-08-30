@@ -44,7 +44,7 @@ let private tagged (name: string) (tag: string) : IExternalSymbolProvider =
             b
             typeKey
             (ExternalTypeShape.Class
-                { ExternalClassShape.basic (0, false, origin) with
+                { ExternalClassShape.basic (0, ClassCommitment.Class, origin) with
                     Members = EqArray.singleton taggedMember
                 })
             [ taggedMember ]

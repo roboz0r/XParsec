@@ -186,7 +186,7 @@ module internal TsManifestMembers =
                 ExternalTypeShape.Class
                     {
                         TyparArity = tp
-                        IsInterface = isInterface
+                        Commitment = ClassCommitment.ofIsInterface isInterface
                         Members = mems
                         FrozenInterfaces = frozenInterfaces
                         FrozenBaseType = frozenBaseType
@@ -286,7 +286,7 @@ module internal TsManifestMembers =
             ExternalTypeShape.Class
                 {
                     TyparArity = 0
-                    IsInterface = true
+                    Commitment = ClassCommitment.Interface
                     Members = members
                     FrozenInterfaces = EqArray.empty
                     FrozenBaseType = ValueNone
@@ -393,7 +393,7 @@ module internal TsManifestMembers =
             ExternalTypeShape.Class
                 {
                     TyparArity = 0
-                    IsInterface = false
+                    Commitment = ClassCommitment.Class
                     Members = members
                     FrozenInterfaces = EqArray.empty
                     FrozenBaseType = ValueNone

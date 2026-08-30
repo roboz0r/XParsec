@@ -7,6 +7,15 @@ open System.Collections.Generic
 // `[<CompiledName>]`, a `ModuleSuffix` module and a shadowed attribute are therefore all
 // already settled before a comparison here.
 
+/// The findings about a signature's VALUES. `Missing` is at error severity, `Divergent` at
+/// warning severity.
+[<NoComparison>]
+type ValueConformance =
+    {
+        Missing: Conformance.ConformanceError list
+        Divergent: Conformance.AttributeDivergence list
+    }
+
 module ConformanceSurface =
 
     /// The type identities an implementation DECLARES: its frozen type declarations, plus the
@@ -40,9 +49,10 @@ module ConformanceSurface =
         declared
 
     /// The binding identities an implementation DEFINES, under the compiled name each
-    /// publishes. A pattern binding no single variable defines no identity.
-    let private definedValues (frozen: FrozenPools) : HashSet<BindingKey> =
-        let defined = HashSet<BindingKey>(HashIdentity.Structural)
+    /// publishes, each with the attributes its declaration folded to. A pattern binding no
+    /// single variable defines no identity.
+    let private definedValues (frozen: FrozenPools) : Dictionary<BindingKey, TAttributes> =
+        let defined = Dictionary<BindingKey, TAttributes>(HashIdentity.Structural)
         let pool = TastPoolBuilder.openOver frozen
         let moduleMembers = DenseTable.index frozen.ModuleMembers
 
@@ -54,7 +64,7 @@ module ConformanceSurface =
                 match moduleMembers.TryGetValue boundVar with
                 | true, info ->
                     match info.Key with
-                    | SymbolKey.Binding bindingKey -> defined.Add bindingKey |> ignore
+                    | SymbolKey.Binding bindingKey -> defined.[bindingKey] <- info.Attributes
                     | _ -> ()
                 | _ -> ()
             | _ -> ()
@@ -101,13 +111,16 @@ module ConformanceSurface =
                 then
                     yield Conformance.ConformanceError.MissingInImpl(named entry.Key)
 
-            // Only a key the implementation defines a family for takes a verdict: an absent
-            // one is reported above, and an abbreviation is transparent.
-            for entry in published.DeclaredKinds do
-                match declared.TryGetValue entry.Key with
-                | true, ValueSome defined when defined <> entry.Value ->
-                    yield Conformance.ConformanceError.TypeKindMismatch(named entry.Key, entry.Value, defined)
-                | _ -> ()
+            // Only a key BOTH halves commit a family for takes a verdict: an absent
+            // declaration is reported above, and an abbreviation is transparent.
+            for entry in published.ShapesByKey do
+                match entry.Value.DeclaredFamily with
+                | ValueNone -> ()
+                | ValueSome family ->
+                    match declared.TryGetValue entry.Key with
+                    | true, ValueSome defined when defined <> family ->
+                        yield Conformance.ConformanceError.TypeKindMismatch(named entry.Key, family, defined)
+                    | _ -> ()
 
             for entry in published.ExternForms do
                 match EqDict.tryFind entry.Key implBindings with
@@ -123,17 +136,74 @@ module ConformanceSurface =
                     yield Conformance.ConformanceError.IntrinsicWithoutExtern(named canon)
         ]
 
-    /// Value PRESENCE: every symbol the signature publishes is met by an implementation
-    /// binding of the same identity. The converse is not reported, because F# hides an
-    /// implementation value the signature omits.
-    let checkValues (published: PublishedSurface) (frozen: FrozenPools) : Conformance.ConformanceError list =
-        let defined = definedValues frozen
+    /// One occurrence's arguments in comparison form: the positional arguments in written
+    /// order, then the named arguments by name. `[<Foo(1, Y = 2, X = 3)>]` and
+    /// `[<Foo(1, X = 3, Y = 2)>]` carry one attribute value, so they compare equal.
+    let private comparableArgs (args: EqArray<TAttributeArg>) : TAttributeArg list * TAttributeArg list =
+        let positional =
+            [
+                for a in args do
+                    if a.Name.IsNone then
+                        yield a
+            ]
+
+        let named =
+            [
+                for a in args do
+                    if a.Name.IsSome then
+                        yield a
+            ]
+            |> List.sortBy (fun a -> a.Name)
+
+        positional, named
+
+    /// Each occurrence of attribute `key`, argument-comparable, in written order. An
+    /// `AllowMultiple` attribute contributes one entry per occurrence.
+    let private occurrencesOf (key: TypeKey) (attrs: TAttributes) =
+        [
+            for a in attrs do
+                if a.Key = key then
+                    yield comparableArgs a.Args
+        ]
+
+    /// The attribute types BOTH halves write whose arguments differ, in the order `declared`
+    /// writes them. Matched by resolved attribute identity and compared as folded values, so
+    /// `0x1` and `1` are one argument. An attribute written on one half alone is absent.
+    let private divergentAttributes (declared: TAttributes) (defined: TAttributes) : TypeKey list =
+        let judged = HashSet<TypeKey>(HashIdentity.Structural)
 
         [
-            for entry in published.Symbols do
-                if not (defined.Contains entry.Key) then
-                    yield
-                        Conformance.ConformanceError.ValueMissingInImpl(
-                            SymbolKeyOps.qualifiedName (SymbolKey.Binding entry.Key)
-                        )
+            for a in declared do
+                if judged.Add a.Key then
+                    let onImpl = occurrencesOf a.Key defined
+
+                    if not (List.isEmpty onImpl) && onImpl <> occurrencesOf a.Key declared then
+                        yield a.Key
         ]
+
+    /// Value PRESENCE (every symbol the signature publishes is met by an implementation binding
+    /// of the same identity) and, for a symbol met that way, the attribute ARGUMENTS both halves
+    /// wrote (fsc's FS1200). Findings come in key order, attributes in the signature's order.
+    let checkValues (published: PublishedSurface) (frozen: FrozenPools) : ValueConformance =
+        let defined = definedValues frozen
+        let missing = ResizeArray<Conformance.ConformanceError>()
+        let divergent = ResizeArray<Conformance.AttributeDivergence>()
+
+        for entry in published.Symbols do
+            let declaration () =
+                SymbolKeyOps.qualifiedName (SymbolKey.Binding entry.Key)
+
+            match defined.TryGetValue entry.Key with
+            | false, _ -> missing.Add(Conformance.ConformanceError.ValueMissingInImpl(declaration ()))
+            | true, implAttrs ->
+                for key in divergentAttributes entry.Value.Attributes implAttrs do
+                    divergent.Add
+                        {
+                            Declaration = declaration ()
+                            Attribute = SymbolKeyOps.typeMetaName key
+                        }
+
+        {
+            Missing = List.ofSeq missing
+            Divergent = List.ofSeq divergent
+        }

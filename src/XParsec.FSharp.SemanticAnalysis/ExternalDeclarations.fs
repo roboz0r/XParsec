@@ -97,6 +97,10 @@ type ExternalSymbol =
         ImportForm: ImportForm
         /// The symbol's splice TEMPLATE: a `val inline` whose home file published its body.
         InlineBody: InlineBody voption
+        /// The declaration's attributes, resolved and constant-folded. Populated only by a
+        /// Vesper `.fsi` or a frozen `.fs`, so read it through `PublishedSurface`; a metadata
+        /// or TS-manifest provider leaves it empty whatever the declaration wrote.
+        Attributes: TAttributes
     }
 
 /// Per-field shape inside an `ExternalTypeShape.Record`.
@@ -434,12 +438,31 @@ type ExternalClassFlags =
             ImportForm = ImportForm.Named
         }
 
+/// The nominal family a class-like declaration commits its name to. An opaque signature
+/// `type T` commits to none: it resolves as a non-interface class so a consumer can mint a
+/// ref off its origin, and any concrete implementation family satisfies it.
+[<RequireQualifiedAccess>]
+type ClassCommitment =
+    | Class
+    | Interface
+    | Opaque
+
+[<RequireQualifiedAccess>]
+module ClassCommitment =
+
+    /// `Opaque` comes from a `.fsi` declaration alone, so the interface bit never yields it.
+    let ofIsInterface (isInterface: bool) : ClassCommitment =
+        if isInterface then
+            ClassCommitment.Interface
+        else
+            ClassCommitment.Class
+
 /// The shape of an external class or interface; every `Frozen…` template and each member's
 /// `Signature` is written over the DECLARING type's typars.
 type ExternalClassShape =
     {
         TyparArity: int
-        IsInterface: bool
+        Commitment: ClassCommitment
         /// All public declared methods + properties whose signature maps; one whose
         /// parameter or return type does not (a pointer) is dropped, not faked.
         Members: EqArray<ExternalMember>
@@ -448,16 +471,19 @@ type ExternalClassShape =
         FrozenBaseType: FrozenNominal voption
         Flags: ExternalClassFlags
         /// The declaration's attributes, resolved and constant-folded. Empty from a producer
-        /// reading compiled metadata, which carries no Vesper attribute rows.
+        /// reading compiled metadata, which carries no Vesper attribute rows. An attribute
+        /// type's own `[<AttributeUsage>]` mask is read off this.
         Attributes: TAttributes
         Origin: SymbolOrigin
     }
 
-    /// A minimally-populated shape: name + arity + interface-ness only.
-    static member basic(arity: int, isInterface: bool, origin: SymbolOrigin) : ExternalClassShape =
+    member this.IsInterface: bool = this.Commitment = ClassCommitment.Interface
+
+    /// A minimally-populated shape: name + arity + commitment only.
+    static member basic(arity: int, commitment: ClassCommitment, origin: SymbolOrigin) : ExternalClassShape =
         {
             TyparArity = arity
-            IsInterface = isInterface
+            Commitment = commitment
             Members = EqArray.empty
             FrozenInterfaces = EqArray.empty
             FrozenBaseType = ValueNone

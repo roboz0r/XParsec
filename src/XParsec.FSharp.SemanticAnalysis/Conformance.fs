@@ -122,6 +122,21 @@ module Conformance =
         | ConformanceError.ImportMissingExport(n, selector, asset) ->
             sprintf "binding '%s' imports '%s', which '%s' does not export" n selector asset
 
+    /// One attribute written on both halves of a `.fsi` / `.fs` pair with differing arguments.
+    /// `Attribute` is the attribute's metadata name.
+    [<NoComparison>]
+    type AttributeDivergence =
+        {
+            Declaration: string
+            Attribute: string
+        }
+
+    let describeDivergence (d: AttributeDivergence) : string =
+        sprintf
+            "'%s' carries attribute '%s' on both halves of the pair with differing arguments; the signature's (.fsi) arguments are the ones compiled"
+            d.Declaration
+            d.Attribute
+
     /// The leading `module` / `namespace` declarations of a `.fsi` and its `.fs` disagree, so
     /// the two files are not a pair at all and every finding below them is about the wrong
     /// companion.

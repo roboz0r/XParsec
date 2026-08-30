@@ -67,42 +67,47 @@ module FrozenCodecDiagnostics =
             w.Write 0uy
             w.Write sigFile
             w.Write detail
-        | ConformanceVerdict.SigWithoutImpl sigFile ->
-            w.Write 1uy
-            w.Write sigFile
         | ConformanceVerdict.ModulePairingMismatch(sigFile, implFile, sigDecl, implDecl) ->
-            w.Write 2uy
+            w.Write 1uy
             w.Write sigFile
             w.Write implFile
             w.Write sigDecl
             w.Write implDecl
-        | ConformanceVerdict.PairParseFailure(sigFile, detail) ->
-            w.Write 3uy
-            w.Write sigFile
-            w.Write detail
         | ConformanceVerdict.SignatureNotPublished detail ->
-            w.Write 4uy
+            w.Write 2uy
             w.Write detail
         | ConformanceVerdict.SignatureRejected detail ->
-            w.Write 5uy
+            w.Write 3uy
             w.Write detail
+        | ConformanceVerdict.AttributeArgumentsDiffer(sigFile, divergence) ->
+            w.Write 4uy
+            w.Write sigFile
+            w.Write divergence.Declaration
+            w.Write divergence.Attribute
 
     let private readConformanceVerdict (r: FrozenReader) : ConformanceVerdict =
         match r.ReadByte() with
         | 0uy ->
             let sigFile = r.ReadString()
             ConformanceVerdict.Unimplemented(sigFile, r.ReadString())
-        | 1uy -> ConformanceVerdict.SigWithoutImpl(r.ReadString())
-        | 2uy ->
+        | 1uy ->
             let sigFile = r.ReadString()
             let implFile = r.ReadString()
             let sigDecl = r.ReadString()
             ConformanceVerdict.ModulePairingMismatch(sigFile, implFile, sigDecl, r.ReadString())
-        | 3uy ->
+        | 2uy -> ConformanceVerdict.SignatureNotPublished(r.ReadString())
+        | 3uy -> ConformanceVerdict.SignatureRejected(r.ReadString())
+        | 4uy ->
             let sigFile = r.ReadString()
-            ConformanceVerdict.PairParseFailure(sigFile, r.ReadString())
-        | 4uy -> ConformanceVerdict.SignatureNotPublished(r.ReadString())
-        | 5uy -> ConformanceVerdict.SignatureRejected(r.ReadString())
+            let declaration = r.ReadString()
+
+            ConformanceVerdict.AttributeArgumentsDiffer(
+                sigFile,
+                {
+                    Declaration = declaration
+                    Attribute = r.ReadString()
+                }
+            )
         | b -> failwithf "FrozenCodec: unknown ConformanceVerdict tag %d" b
 
     let private writeTypeKindFamily (w: FrozenWriter) (f: Conformance.TypeKindFamily) =

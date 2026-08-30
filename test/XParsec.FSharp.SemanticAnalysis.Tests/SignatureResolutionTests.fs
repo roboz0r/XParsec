@@ -362,6 +362,36 @@ let tests =
                 | other -> failtestf "expected Unmodelled(Delegate) for the delegate; got %A" other
             }
 
+            test "The published shape states which family the declaration commits to" {
+                let r =
+                    resolveFsi
+                        "app.fsi"
+                        "namespace App\n\nmodule M =\n    type Opaque\n\n    type Bodied =\n        member P: int\n\n    type Iface =\n        abstract M: int\n\n    type Rec = { X: int }\n\n    type Uni =\n        | A\n\n    type Alias = int\n"
+
+                let familyOf (name: string) = (shapeOf r name).DeclaredFamily
+
+                Expect.equal (familyOf "Opaque") ValueNone "an opaque `type T` commits to no family"
+
+                match shapeOf r "Opaque" with
+                | ExternalTypeShape.Class shape ->
+                    Expect.isFalse shape.IsInterface "and still resolves as a non-interface class"
+                | other -> failtestf "expected a Class shape for the opaque type; got %A" other
+
+                Expect.equal
+                    (familyOf "Bodied")
+                    (ValueSome Conformance.TypeKindFamily.Class)
+                    "a bodied class commits to Class"
+
+                Expect.equal
+                    (familyOf "Iface")
+                    (ValueSome Conformance.TypeKindFamily.Interface)
+                    "an all-abstract body commits to Interface"
+
+                Expect.equal (familyOf "Rec") (ValueSome Conformance.TypeKindFamily.Record) "a record commits to Record"
+                Expect.equal (familyOf "Uni") (ValueSome Conformance.TypeKindFamily.Union) "a union commits to Union"
+                Expect.equal (familyOf "Alias") ValueNone "an abbreviation is transparent"
+            }
+
             test "A val referencing an enum bakes FTEnum, not an opaque nominal" {
                 // The kind-correct bake for an `Enum` shape: `mkNominal`'s `Enum` arm must be
                 // reachable from a `.fsi`-declared enum, not only from a dependency's shapes.

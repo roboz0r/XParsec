@@ -323,10 +323,12 @@ module FrozenCodecTypes =
     let writeModuleBindingInfo (w: FrozenWriter) (m: ModuleBindingInfo) =
         writeSymbolRef w m.Key
         w.Write m.SourceName
+        writeTAttributes w m.Attributes
 
     let readModuleBindingInfo (r: FrozenReader) : ModuleBindingInfo =
         let key = readSymbolRef r
         let sourceName = r.ReadString()
+        let attributes = readTAttributes r
 
         match key with
         | SymbolKey.Binding bk ->
@@ -334,6 +336,7 @@ module FrozenCodecTypes =
                 Container = bk.Decl
                 Name = bk.Name
                 SourceName = sourceName
+                Attributes = attributes
             }
         | k -> failwithf "FrozenCodec: a ModuleBindingInfo stored a non-Binding key: %A" k
 

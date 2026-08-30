@@ -234,7 +234,7 @@ module FrozenSignature =
                     let shape: ExternalClassShape =
                         {
                             TyparArity = arity
-                            IsInterface = false
+                            Commitment = ClassCommitment.Class
                             Members = EqArray.ofResizeArray members
                             // Neither clause is DROPPED: inference stamps one only once it
                             // resolves, reporting every other spelling. A drop would lose an
@@ -268,7 +268,7 @@ module FrozenSignature =
                     let shape: ExternalClassShape =
                         {
                             TyparArity = arity
-                            IsInterface = true
+                            Commitment = ClassCommitment.Interface
                             Members = EqArray.ofResizeArray members
                             FrozenInterfaces = EqArray.empty
                             FrozenBaseType = ValueNone
@@ -330,6 +330,7 @@ module FrozenSignature =
                 { ExternalSymbols.scheme info.Container info.Name scheme (FrozenPools.typarArity frozen boundVar) [] with
                     Origin = originIn info.Container.Namespace
                     ValRepr = bindingValRepr boundVar
+                    Attributes = info.Attributes
                 }
 
             let source: SourceSpelling =

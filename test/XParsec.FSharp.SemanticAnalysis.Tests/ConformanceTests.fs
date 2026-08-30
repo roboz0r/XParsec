@@ -48,6 +48,18 @@ let private conformAnalysed (sigSrc: string) (implSrc: string) : string list =
         | _ -> None
     )
 
+/// The error-severity findings of one analysed `.fsi` / `.fs` pair, whatever pass reported
+/// them, paired with the file each was anchored in.
+let private pairErrors (sigSrc: string) (implSrc: string) : (string * string) list =
+    [
+        AssemblyFiles.SourceUnit.paired
+            (AssemblyFiles.SourceFile.ofText "pair.fsi" sigSrc)
+            (AssemblyFiles.SourceFile.ofText "pair.fs" implSrc)
+    ]
+    |> analysedDiagnostics "the pair"
+    |> List.filter (fun a -> a.Diagnostic.Severity = Severity.Error)
+    |> List.map (fun a -> AssemblyFileId.toStored a.Path, a.Diagnostic.Message)
+
 /// The error-severity findings of ONE analysed implementation, so a fixture that fails for an
 /// unrelated reason says so rather than passing a conformance assertion vacuously.
 let private analysedErrors (implSrc: string) : string list =
@@ -211,6 +223,26 @@ let analysedConformanceTests =
                     "an opaque `type T` hides the representation, so any concrete family satisfies it"
             }
 
+            test "a delegate is refused on both halves and takes no pairing verdict" {
+                let src = "namespace V\n\ntype Handler = delegate of int -> int"
+
+                Expect.equal
+                    (pairErrors src src)
+                    [
+                        "pair.fsi", "not yet supported: `delegate` type declarations"
+                        "pair.fs", "not yet supported: `delegate` type declarations"
+                    ]
+                    "each half is refused where it is written"
+
+                Expect.isEmpty (conformAnalysed src src) "a construct neither half models owes no pairing verdict"
+            }
+
+            test "a delegate the .fs omits is refused, not reported as missing" {
+                Expect.isEmpty
+                    (conformAnalysed "namespace V\n\ntype Handler = delegate of int -> int" "namespace V\n\ntype T")
+                    "the signature published a gap, not an identity the implementation owes"
+            }
+
             test "a val with no matching let is missing" {
                 let m =
                     conformAnalysed "namespace V\n\nval foo: int -> int" "namespace V\n\nlet bar (x: int) = x"
@@ -236,6 +268,71 @@ let analysedConformanceTests =
                         "namespace V\n\nval foo: int -> int"
                         "namespace V\n\n[<CompiledName(\"foo\")>]\nlet bar (x: int) = x")
                     "the compiled name is the value identity"
+            }
+
+            // ---- Attribute ARGUMENTS across the pair (fsc's FS1200) ----
+
+            test "one attribute written on both halves with differing arguments is reported" {
+                let m =
+                    conformAnalysed
+                        "namespace V\n\n[<Experimental(\"one\")>]\nval foo: int -> int"
+                        "namespace V\n\n[<Experimental(\"other\")>]\nlet foo (x: int) = x"
+                    |> theOne "finding"
+
+                Expect.stringContains m "V.foo" "names the declaration"
+                Expect.stringContains m "ExperimentalAttribute" "names the attribute"
+                Expect.stringContains m "the signature's (.fsi) arguments are the ones compiled" "which copy ships"
+            }
+
+            test "the divergence is a warning, not an error" {
+                Expect.isEmpty
+                    (pairErrors
+                        "namespace V\n\n[<Experimental(\"one\")>]\nval foo: int -> int"
+                        "namespace V\n\n[<Experimental(\"other\")>]\nlet foo (x: int) = x")
+                    "fsc compiles the pair, so this compiler must too"
+            }
+
+            test "matching arguments conform, whatever their spelling" {
+                Expect.isEmpty
+                    (conformAnalysed
+                        "namespace V\n\n[<CompilerMessage(\"m\", 0x1)>]\nval foo: int -> int"
+                        "namespace V\n\n[<CompilerMessage(\"m\", 1)>]\nlet foo (x: int) = x")
+                    "the two halves write one attribute with one folded argument list"
+            }
+
+            test "a folded argument conforms however it was computed" {
+                // fsc accepts `A ||| B` against `B ||| A`.
+                Expect.isEmpty
+                    (conformAnalysed
+                        "namespace V\n\n[<CompilerMessage(\"m\", 1 ||| 2)>]\nval foo: int -> int"
+                        "namespace V\n\n[<CompilerMessage(\"m\", 2 ||| 1)>]\nlet foo (x: int) = x")
+                    "both halves fold to one argument list"
+            }
+
+            test "named arguments conform in either order" {
+                Expect.isEmpty
+                    (conformAnalysed
+                        "namespace V\n\n[<CompilerMessage(\"m\", 1, IsError = true, IsHidden = false)>]\nval foo: int -> int"
+                        "namespace V\n\n[<CompilerMessage(\"m\", 1, IsHidden = false, IsError = true)>]\nlet foo (x: int) = x")
+                    "ordering a named argument differently is not a divergence"
+            }
+
+            test "a named argument with a differing value is reported" {
+                let m =
+                    conformAnalysed
+                        "namespace V\n\n[<CompilerMessage(\"m\", 1, IsError = true)>]\nval foo: int -> int"
+                        "namespace V\n\n[<CompilerMessage(\"m\", 1, IsError = false)>]\nlet foo (x: int) = x"
+                    |> theOne "finding"
+
+                Expect.stringContains m "CompilerMessageAttribute" "names the attribute"
+            }
+
+            test "an attribute on one half alone takes no verdict" {
+                Expect.isEmpty
+                    (conformAnalysed
+                        "namespace V\n\nval foo: int -> int"
+                        "namespace V\n\n[<Experimental(\"only here\")>]\nlet foo (x: int) = x")
+                    "F# takes the attribute from whichever half writes it"
             }
 
             // ---- `[<Import>]`, read by resolved identity ----

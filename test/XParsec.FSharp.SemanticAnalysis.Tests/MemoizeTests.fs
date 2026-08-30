@@ -57,7 +57,7 @@ type private CountingProvider(name: string) =
             typeHits <- typeHits + 1
 
             if key.Name = name then
-                ValueSome(ExternalTypeShape.Class(ExternalClassShape.basic (0, false, origin)))
+                ValueSome(ExternalTypeShape.Class(ExternalClassShape.basic (0, ClassCommitment.Class, origin)))
             else
                 ValueNone
 

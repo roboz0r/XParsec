@@ -352,7 +352,7 @@ module SignatureResolutionMembers =
                 (fun () ->
                     {
                         TyparArity = typeParams.Length
-                        IsInterface = isInterface
+                        Commitment = ClassCommitment.ofIsInterface isInterface
                         Members =
                             (if isInterface then
                                  EqArray.ofList members

@@ -322,7 +322,7 @@ module SignatureResolution =
         let shape =
             match surface with
             | ValueSome s -> s.Shape
-            | ValueNone -> ExternalClassShape.basic (id.TyparArity, true, SymbolOrigin.Empty)
+            | ValueNone -> ExternalClassShape.basic (id.TyparArity, ClassCommitment.Interface, SymbolOrigin.Empty)
 
         match platform with
         | IntrinsicPlatform.Bound typeId ->
@@ -478,12 +478,14 @@ module SignatureResolution =
         publishShapeWith sctx id.Key (ExternalTypeShape.Class shape) surface.Members
 
     /// An opaque abstract type (`type T`) has no body shape. It resolves as a non-interface
-    /// class, so codegen can mint a ref off the origin.
+    /// class, so codegen can mint a ref off the origin, and commits its name to no family.
     let private publishOpaque (sctx: SigCtx) (id: TypeIdentity) : unit =
         publishShape
             sctx
             id.Key
-            (ExternalTypeShape.Class(ExternalClassShape.basic (id.TyparArity, false, SymbolOrigin.Empty)))
+            (ExternalTypeShape.Class(
+                ExternalClassShape.basic (id.TyparArity, ClassCommitment.Opaque, SymbolOrigin.Empty)
+            ))
 
     /// The unmodelled forms refused at their own declaration, matching the implementation
     /// side's Validation verdict; the rest report at first use.
@@ -520,35 +522,9 @@ module SignatureResolution =
             PublishedSurfaceBuilder.addModuleChain sctx.Surface key
             publishShape sctx key (ExternalTypeShape.Unmodelled(reason, arity))
 
-    /// The nominal family the declaration commits its name to. `ValueNone` where it commits
-    /// to none: an opaque `type T`, an abbreviation and the `extern` family conform on other
-    /// axes. The `struct` form groups with `Class`.
-    let private declaredKindFamily (decl: SigDecl) : Conformance.TypeKindFamily voption =
-        match decl with
-        | SigDecl.Record _ -> ValueSome Conformance.TypeKindFamily.Record
-        | SigDecl.Union _ -> ValueSome Conformance.TypeKindFamily.Union
-        | SigDecl.Enum _ -> ValueSome Conformance.TypeKindFamily.Enum
-        | SigDecl.ClassLike _ ->
-            ValueSome(
-                if SigDecl.isInterfaceForm decl then
-                    Conformance.TypeKindFamily.Interface
-                else
-                    Conformance.TypeKindFamily.Class
-            )
-        | SigDecl.Abbrev _
-        | SigDecl.IntrinsicAbbrev _
-        | SigDecl.Extern _
-        | SigDecl.Opaque _
-        | SigDecl.Delegate _
-        | SigDecl.TypeExtension _ -> ValueNone
-
     /// The shape ONE claimed declaration publishes, once every declaration in its group has
     /// registered its detail: a field or case type may reference a sibling.
     let private publishType (sctx: SigCtx) (id: TypeIdentity) (decl: SigDecl) : unit =
-        match declaredKindFamily decl with
-        | ValueSome family -> PublishedSurfaceBuilder.addDeclaredKind sctx.Surface id.Key family
-        | ValueNone -> ()
-
         match decl with
         | SigDecl.Record(extensions = ext) -> publishRecord sctx id ext
         | SigDecl.Union(extensions = ext) -> publishUnion sctx id ext
@@ -666,9 +642,10 @@ module SignatureResolution =
 
         if isPublished access then
             let sourceName = OperatorNames.ofDeclaredName ctx.NameOf ident
+            let resolvedAttrs = ctx.ResolveAttributes attrs
 
             let compiledName =
-                match AttributeDecode.tryCompiledName ctx.NameOf (ctx.ResolveAttributes attrs) with
+                match AttributeDecode.tryCompiledName ctx.NameOf resolvedAttrs with
                 | ValueSome n -> ValueSome n
                 | ValueNone -> sourceName
 
@@ -714,9 +691,13 @@ module SignatureResolution =
                     else
                         ValueSome(TastLower.externalValRepr typeParams.Length (List.zip arities paramTys) resultTy)
 
+                let attrElement =
+                    AttrTarget.ofModuleValue (not (List.isEmpty domains)) (typeParams.Length <> 0)
+
                 let sym =
                     { ExternalSymbols.scheme decl name template typeParams.Length constraints with
                         ValRepr = valRepr
+                        Attributes = AttributeFold.build ctx attrElement resolvedAttrs
                     }
 
                 let source =

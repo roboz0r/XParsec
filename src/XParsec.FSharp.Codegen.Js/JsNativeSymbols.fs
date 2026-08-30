@@ -51,7 +51,7 @@ module JsNativeSymbols =
         ExternalTypeShape.Class
             {
                 TyparArity = 0
-                IsInterface = false
+                Commitment = ClassCommitment.Class
                 Members = EqArray.ofSeq [ errorCtor; errorMessage ]
                 FrozenInterfaces = EqArray.empty
                 FrozenBaseType = ValueNone

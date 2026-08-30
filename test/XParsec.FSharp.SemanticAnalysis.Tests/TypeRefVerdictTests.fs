@@ -13,10 +13,10 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 /// The store view serves the same table the resolver's scope reads.
 let private provider: IExternalSymbolProvider =
     let widget =
-        ExternalTypeShape.Class(ExternalClassShape.basic (0, false, SymbolOrigin.Empty))
+        ExternalTypeShape.Class(ExternalClassShape.basic (0, ClassCommitment.Class, SymbolOrigin.Empty))
 
     let box =
-        ExternalTypeShape.Class(ExternalClassShape.basic (1, false, SymbolOrigin.Empty))
+        ExternalTypeShape.Class(ExternalClassShape.basic (1, ClassCommitment.Class, SymbolOrigin.Empty))
 
     providerOfSurface (fun b ->
         PublishedSurfaceBuilder.addType b (SymbolKeyOps.qualifiedTypeKeyOf "Tests.Widget" 0) widget

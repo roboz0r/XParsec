@@ -133,16 +133,19 @@ module Elaborate =
         (ctx: PassContext)
         (container: ModuleContainer)
         (b: Binding<SyntaxToken>)
+        (resolved: ResolvedAttributes)
+        (attributes: TAttributes)
         : ModuleBindingInfo voption =
         MemberNames.ofBinding ctx b
         |> ValueOption.map (fun m ->
             {
                 Container = container
                 Name =
-                    match AttributeDecode.tryCompiledName ctx.NameOf (ctx.ResolveAttributes b.attributes) with
+                    match AttributeDecode.tryCompiledName ctx.NameOf resolved with
                     | ValueSome cn -> cn
                     | ValueNone -> m.Name
                 SourceName = m.Name
+                Attributes = attributes
             }
         )
 
@@ -201,12 +204,27 @@ module Elaborate =
         // addresses a pattern node that `translatePat` erases for `let (x: int) = …`.
         let boundVar = if elided then ValueNone else BoundVarKey.ofPat tpat
 
-        let info = exportedBindingInfo ctx container b
+        let declTy = typeOfKey ctx (CstKeys.ofBinding b)
+        let quantEnv = moduleLetQuantEnv ctx b declTy
+
+        let attrElement =
+            let isFunctionShaped =
+                match Unification.zonk ctx.Store declTy with
+                | TyFun _ -> true
+                | _ -> false
+
+            AttrTarget.ofModuleValue isFunctionShaped (not (List.isEmpty quantEnv))
+
+        // The fold enforces `[<AttributeUsage>]` and yields the attributes a `.fsi` comparison
+        // reads.
+        let resolvedAttrs = ctx.ResolveAttributes b.attributes
+        let attributes = AttributeFold.build ctx attrElement resolvedAttrs
+
+        let info = exportedBindingInfo ctx container b resolvedAttrs attributes
         let emittedName = info |> ValueOption.map (fun i -> i.Name)
         let exportedKey = recordExportedBinding ctx b info boundVar
 
         let valT = translateBinding ctx b
-        let declTy = typeOfKey ctx (CstKeys.ofBinding b)
 
         Attributes.declareGlobalBinding ctx b emittedName exportedKey valT
         Attributes.declareImportBinding ctx b emittedName exportedKey valT
@@ -214,19 +232,6 @@ module Elaborate =
         match tpat with
         | TPat.NamedSimple(boundVarKey, _, _) -> recordInlineParamAttrs ctx b boundVarKey valT
         | _ -> ()
-
-        let quantEnv = moduleLetQuantEnv ctx b declTy
-
-        // fsc classifies a module binding by its inferred shape: a function type and a
-        // generalised (explicitly generic) value are both methods; any other value is a
-        // property / field.
-        let attrElement =
-            match Unification.zonk ctx.Store declTy with
-            | TyFun _ -> AttrTarget.ModuleFunction
-            | _ when not (List.isEmpty quantEnv) -> AttrTarget.ModuleFunction
-            | _ -> AttrTarget.ModuleValue
-
-        AttributeFold.enforceTargets ctx attrElement (ctx.ResolveAttributes b.attributes)
 
         // A bound-variable-less pattern has nowhere to file the typar-axis width.
         match boundVar with

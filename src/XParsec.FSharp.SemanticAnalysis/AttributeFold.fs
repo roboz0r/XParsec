@@ -23,10 +23,10 @@ type AttrTarget =
     | RecordField
     | UnionCase
     | EnumCase
-    /// A module-level `let` bound to a non-function value.
+    /// A module-level `let` or `val` whose compiled shape is a non-function value.
     | ModuleValue
-    /// A module-level `let` function, or a generalised (explicitly generic) value — fsc
-    /// classifies both as methods.
+    /// A module-level `let` or `val` function, or a generalised (explicitly generic) value —
+    /// fsc classifies both as methods.
     | ModuleFunction
     /// A position with no element classification (an abstract member signature, a
     /// splice with no CST site); enforcement passes.
@@ -68,6 +68,14 @@ module AttrTarget =
             )
         | AttrTarget.ModuleFunction -> ValueSome(AttributeTargetFlags.Method ||| AttributeTargetFlags.ReturnValue)
         | AttrTarget.Unchecked -> ValueNone
+
+    /// fsc's classification of a module-level value: a function shape and a generalised
+    /// (explicitly generic) value compile as methods, any other value as a property / field.
+    let ofModuleValue (isFunctionShaped: bool) (isGeneric: bool) : AttrTarget =
+        if isFunctionShaped || isGeneric then
+            AttrTarget.ModuleFunction
+        else
+            AttrTarget.ModuleValue
 
 /// `ResolvedAttributes` → the frozen `TAttributes`: each argument constant-folded through
 /// `ConstFold`, each attribute's declared `[<AttributeUsage>]` mask enforced against the
@@ -252,12 +260,6 @@ module internal AttributeFold =
 
             if validOn &&& element = 0 then
                 ctx.Report(entry.TypeRef.Site.Tok, Kind.AttributeTargetInvalid(element, validOn))
-
-    /// Enforce each attribute's declared `AttributeUsage` mask against `usedOn`, without
-    /// folding: the call for a position whose arguments are not stored (a module `let`).
-    let enforceTargets (ctx: PassContext) (usedOn: AttrTarget) (attrs: ResolvedAttributes) : unit =
-        for entry in attrs.Entries do
-            enforceTarget ctx usedOn entry
 
     /// `ValueNone` when any argument is outside the constant domain: every rejected argument
     /// is diagnosed and the attribute is omitted whole, so `Args` never carries a

@@ -27,12 +27,12 @@ let private widgetKey =
     SymbolKeyOps.typeKeyOfContainer (TypeContainer.InNamespace testsNs) "Widget" 0
 
 let private ifaceShape =
-    ExternalTypeShape.Class(ExternalClassShape.basic (0, true, SymbolOrigin.Empty))
+    ExternalTypeShape.Class(ExternalClassShape.basic (0, ClassCommitment.Interface, SymbolOrigin.Empty))
 
 /// A class implementing exactly the one interface.
 let private widgetShape (ifaceKey: TypeKey) =
     ExternalTypeShape.Class(
-        { ExternalClassShape.basic (0, false, SymbolOrigin.Empty) with
+        { ExternalClassShape.basic (0, ClassCommitment.Class, SymbolOrigin.Empty) with
             FrozenInterfaces = EqArray.singleton (NominalG.ofClass ifaceKey EqArray.empty)
         }
     )

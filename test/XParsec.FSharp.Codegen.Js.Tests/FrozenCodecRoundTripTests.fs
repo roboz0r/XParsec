@@ -428,9 +428,16 @@ let tests =
                 let verdicts =
                     [
                         ConformanceVerdict.Unimplemented("a.fsi", "M is missing")
-                        ConformanceVerdict.SigWithoutImpl "a.fsi"
                         ConformanceVerdict.ModulePairingMismatch("a.fsi", "a.fs", "M", "N")
-                        ConformanceVerdict.PairParseFailure("a.fsi", "unexpected token")
+                        ConformanceVerdict.SignatureNotPublished "a delegate"
+                        ConformanceVerdict.SignatureRejected "a non-inline member on an extern type"
+                        ConformanceVerdict.AttributeArgumentsDiffer(
+                            "a.fsi",
+                            {
+                                Declaration = "V.foo"
+                                Attribute = "V.ExperimentalAttribute"
+                            }
+                        )
                     ]
 
                 // One value per `ConformanceError` case, because the inner reader is its own

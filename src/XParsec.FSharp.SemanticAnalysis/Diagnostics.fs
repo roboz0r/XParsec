@@ -125,18 +125,15 @@ type TypeCycle =
     /// An abbreviation whose right-hand side expands back to it.
     | Abbreviation
 
-/// One conformance verdict about one `.fsi` (and its companion `.fs`), whether the two were
-/// paired by a package manifest or sit beside each other in one assembly.
+/// One conformance verdict about one `.fsi` and its companion `.fs`, the two of which sit
+/// beside each other in one assembly. A verdict requires both halves paired and parsed: the
+/// manifest read refuses an unpaired `.fsi`, and a parse failure reports `Kind.ParseFailure`.
 [<RequireQualifiedAccess>]
 type ConformanceVerdict =
     /// A binding the contract declares that the implementation does not satisfy.
     | Unimplemented of sigFile: string * detail: string
-    /// A signature file with no companion implementation.
-    | SigWithoutImpl of sigFile: string
     /// The paired files' leading module / namespace declarations disagree.
     | ModulePairingMismatch of sigFile: string * implFile: string * sigDecl: string * implDecl: string
-    /// The signature file or its companion failed to parse, so that pair could not be conformed.
-    | PairParseFailure of sigFile: string * detail: string
     /// A declaration the signature makes that the front end could not MODEL, so the signature
     /// publishes LESS than it says: the declaration is absent for everything that reads it.
     /// Anchored at the signature that made the claim.
@@ -144,26 +141,26 @@ type ConformanceVerdict =
     /// A declaration the signature is not ALLOWED to make (a non-`inline` member on an
     /// `extern` type). A rule violation rather than a gap in what this compiler models.
     | SignatureRejected of detail: string
+    /// Both halves write one attribute with differing arguments. The signature's copy is what
+    /// ships, so the implementation's arguments are discarded.
+    | AttributeArgumentsDiffer of sigFile: string * divergence: Conformance.AttributeDivergence
 
 [<RequireQualifiedAccess>]
 module ConformanceVerdict =
 
-    /// The `V24x` family code. Findings share one where the verdict is the same: `V240` is
-    /// "the implementation does not satisfy the contract", however that came about.
+    /// The `V24x` family code. `V240` is "the implementation does not satisfy the contract",
+    /// however that came about.
     let code (v: ConformanceVerdict) : DiagCode =
         match v with
-        | ConformanceVerdict.Unimplemented _
-        | ConformanceVerdict.SigWithoutImpl _ -> DiagCode.Vesper "V240"
+        | ConformanceVerdict.Unimplemented _ -> DiagCode.Vesper "V240"
         | ConformanceVerdict.ModulePairingMismatch _ -> DiagCode.Vesper "V241"
-        | ConformanceVerdict.PairParseFailure _ -> DiagCode.Vesper "V244"
         | ConformanceVerdict.SignatureNotPublished _ -> DiagCode.Vesper "V245"
         | ConformanceVerdict.SignatureRejected _ -> DiagCode.Vesper "V246"
+        | ConformanceVerdict.AttributeArgumentsDiffer _ -> DiagCode.Vesper "V247"
 
     let describe (v: ConformanceVerdict) : string =
         match v with
         | ConformanceVerdict.Unimplemented(sigFile, detail) -> sprintf "%s: %s" sigFile detail
-        | ConformanceVerdict.SigWithoutImpl sigFile ->
-            sprintf "the signature file '%s' has no corresponding implementation file" sigFile
         | ConformanceVerdict.ModulePairingMismatch(sigFile, implFile, sigDecl, implDecl) ->
             sprintf
                 "%s ↔ %s: the paired files' leading module/namespace declarations disagree ('%s' vs '%s')"
@@ -171,11 +168,11 @@ module ConformanceVerdict =
                 implFile
                 sigDecl
                 implDecl
-        | ConformanceVerdict.PairParseFailure(sigFile, detail) ->
-            sprintf "the contract '%s' or its implementation failed to parse: %s" sigFile detail
         | ConformanceVerdict.SignatureNotPublished detail ->
             sprintf "the signature declares something this compiler cannot publish, so it is hidden: %s" detail
         | ConformanceVerdict.SignatureRejected detail -> sprintf "the signature declares %s" detail
+        | ConformanceVerdict.AttributeArgumentsDiffer(sigFile, divergence) ->
+            sprintf "%s: %s" sigFile (Conformance.describeDivergence divergence)
 
 /// A fault in the PACKAGE SET a compilation was handed, rather than in any one file's text:
 /// a manifest listing a path it has not got, a `depends-on` that does not resolve, a type two
@@ -734,9 +731,11 @@ module Kind =
 
     let severity (k: Kind) : Severity =
         match k with
-        // A gap in what this compiler MODELS is a warning; every other verdict is a fault in
-        // the program being compiled.
-        | Kind.Conformance(verdict = ConformanceVerdict.SignatureNotPublished _) -> Severity.Warning
+        // A gap in what this compiler MODELS is a warning, as is an attribute divergence,
+        // which fsc also compiles (FS1200); every other verdict is a fault in the program
+        // being compiled.
+        | Kind.Conformance(verdict = ConformanceVerdict.SignatureNotPublished _)
+        | Kind.Conformance(verdict = ConformanceVerdict.AttributeArgumentsDiffer _) -> Severity.Warning
         | Kind.DynamicEscape _
         | Kind.HeterogeneousEnum _
         | Kind.IncompleteAnonUnionMatch _

@@ -44,6 +44,24 @@ type ExternalTypeShape =
     /// use site can report it rather than degrade silently.
     | Unmodelled of reason: UnmodelledReason * arity: int
 
+    /// The nominal family the DECLARATION commits its name to, which a paired implementation
+    /// must agree with. `ValueNone` where the declaration commits to none: an opaque
+    /// `type T`, an abbreviation, the `extern` family and an unmodelled form.
+    member this.DeclaredFamily: Conformance.TypeKindFamily voption =
+        match this with
+        | Record _ -> ValueSome Conformance.TypeKindFamily.Record
+        | Union _ -> ValueSome Conformance.TypeKindFamily.Union
+        | Enum _ -> ValueSome Conformance.TypeKindFamily.Enum
+        | Class info ->
+            match info.Commitment with
+            | ClassCommitment.Class -> ValueSome Conformance.TypeKindFamily.Class
+            | ClassCommitment.Interface -> ValueSome Conformance.TypeKindFamily.Interface
+            | ClassCommitment.Opaque -> ValueNone
+        | Abbrev _
+        | Intrinsic _
+        | IntrinsicInterface _
+        | Unmodelled _ -> ValueNone
+
     member this.TyparArity: int =
         match this with
         | Class info -> info.TyparArity
@@ -478,7 +496,7 @@ module ExternalSymbols =
     let (|ExternalInterfaceMembers|_|) (shape: ExternalTypeShape) : EqArray<ExternalMember> voption =
         match shape with
         | ExternalTypeShape.Class {
-                                      IsInterface = true
+                                      Commitment = ClassCommitment.Interface
                                       Members = members
                                   } -> ValueSome members
         | ExternalTypeShape.IntrinsicInterface shape -> ValueSome shape.Members
@@ -722,6 +740,7 @@ module ExternalSymbols =
             ValRepr = ValueNone
             ImportForm = ImportForm.Named
             InlineBody = ValueNone
+            Attributes = EqArray.empty
         }
 
     /// A monomorphic symbol from a closed `FrozenType` scheme. `decl` is a module chain, or
