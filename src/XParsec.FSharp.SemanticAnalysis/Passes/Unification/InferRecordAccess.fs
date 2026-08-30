@@ -69,7 +69,7 @@ module internal UnificationInferRecordAccess =
         | TyVar _ -> Kind.Message "Indexed access on an object of indeterminate type; add a type annotation"
         | ty -> Kind.NoMember(shown ctx.Store ty, MemberNoun.InstanceMember, accessorName)
 
-    let rec inferRecord
+    let inferRecord
         (infer: Infer)
         (ctx: PassContext)
         (node: NodeSite)
@@ -117,7 +117,7 @@ module internal UnificationInferRecordAccess =
 
             TyRecord(recKey, args)
 
-    and inferRecordClone
+    let inferRecordClone
         (infer: Infer)
         (ctx: PassContext)
         (node: NodeSite)
@@ -164,7 +164,7 @@ module internal UnificationInferRecordAccess =
     /// An instance member on a project-local class/union/record, instantiated at the
     /// object argument's `args`. A name that exists but is STATIC gets an "access it via
     /// 'Type.Member'" hint rather than a bare no-such-member diagnostic.
-    and resolveLocalInstanceMember
+    let resolveLocalInstanceMember
         (ctx: PassContext)
         (diagTok: SyntaxToken)
         (typeName: string)
@@ -194,7 +194,7 @@ module internal UnificationInferRecordAccess =
     /// `memberName` on a typar object argument, through an interface the typar is coerced to
     /// (`'T :> IFace`). On a hit, stamps the interface key in `TyparInterfaceCall` under
     /// `diagKey` so Elaborate dispatches `CallVia.Interface`; `ValueNone` leaves it parked.
-    and tryTyparInterfaceMember
+    let tryTyparInterfaceMember
         (ctx: PassContext)
         (diagKey: NodeKey)
         (root: Rep)
@@ -232,7 +232,7 @@ module internal UnificationInferRecordAccess =
     /// `access` is the whole access EXPRESSION, whose key files the resolved member for
     /// Elaborate. `memberTok` is the SEGMENT: a folded `r.X.Y` is one expression with one
     /// key whose intermediate segments have no node of their own, so diagnostics use the token.
-    and resolveFieldStep (ctx: PassContext) (access: NodeSite) (memberTok: SyntaxToken) (rTy: SemType) : SemType =
+    let resolveFieldStep (ctx: PassContext) (access: NodeSite) (memberTok: SyntaxToken) (rTy: SemType) : SemType =
         let memberName = ctx.NameOf memberTok
         // Commit a single-candidate external instance member; `memberArgs` instantiate ITS
         // declaring type's typars (the object argument's own, or a supertype's as-reached for an
@@ -408,7 +408,7 @@ module internal UnificationInferRecordAccess =
                 memberTok
                 (Kind.Message(sprintf "Cannot read member '%s' from non-record non-class type" memberName))
 
-    and inferFieldAccess
+    let inferFieldAccess
         (infer: Infer)
         (ctx: PassContext)
         (node: NodeSite)
@@ -418,26 +418,10 @@ module internal UnificationInferRecordAccess =
         let rTy = infer ctx objArg
         resolveFieldStep ctx node fieldTok rTy
 
-    /// `x.[i]` — the element type, off a `get_Item` of any provenance; a miss is reported
-    /// against the object argument's own type. The element stays a fresh var unified against
-    /// the accessor's return, so a bare `[]` is pinned from context as an array literal is.
-    and inferIndexedLookup
-        (infer: Infer)
-        (ctx: PassContext)
-        (node: NodeSite)
-        (objArg: Expr<SyntaxToken>)
-        (index: Expr<SyntaxToken>)
-        : SemType =
-        let objArgTy = infer ctx objArg
-
-        match tryResolveIndexedGet ctx node objArgTy (infer ctx index) with
-        | ValueSome resultTy -> resultTy
-        | ValueNone -> errorTy ctx node.Tok (noIndexerKind ctx objArgTy AccessorNames.itemGetter)
-
     /// The element type `x.[i]` reads, from ALREADY-INFERRED operands, because an assignment
     /// LHS infers its own. SILENT on a miss: only a READ reports one; an assignment falls
     /// through to its setter, which reports against `set_Item`.
-    and tryResolveIndexedGet
+    let tryResolveIndexedGet
         (ctx: PassContext)
         (node: NodeSite)
         (objArgTy: SemType)
@@ -548,10 +532,26 @@ module internal UnificationInferRecordAccess =
             | ValueSome resultTy -> ValueSome resultTy
             | ValueNone -> pickSurface ctx objArgTy resolveExternalIndexer
 
+    /// `x.[i]` — the element type, off a `get_Item` of any provenance; a miss is reported
+    /// against the object argument's own type. The element stays a fresh var unified against
+    /// the accessor's return, so a bare `[]` is pinned from context as an array literal is.
+    let inferIndexedLookup
+        (infer: Infer)
+        (ctx: PassContext)
+        (node: NodeSite)
+        (objArg: Expr<SyntaxToken>)
+        (index: Expr<SyntaxToken>)
+        : SemType =
+        let objArgTy = infer ctx objArg
+
+        match tryResolveIndexedGet ctx node objArgTy (infer ctx index) with
+        | ValueSome resultTy -> resultTy
+        | ValueNone -> errorTy ctx node.Tok (noIndexerKind ctx objArgTy AccessorNames.itemGetter)
+
     /// `x.[i] <- v`: the write accessor, and the constraint that pins the element type when no
     /// getter typed the LHS. Unlike the read it REPORTS its own miss, citing `set_Item`, so a
     /// write with neither accessor is not reported against the getter.
-    and resolveIndexedSet
+    let resolveIndexedSet
         (ctx: PassContext)
         (node: NodeSite)
         (objArgTy: SemType)
@@ -600,20 +600,8 @@ module internal UnificationInferRecordAccess =
                 | ValueSome() -> ()
                 | ValueNone -> ctx.Report(node.Tok, noIndexerKind ctx objArgTy AccessorNames.itemSetter)
 
-    /// `r.X.Y…` parsed as a single multi-segment `Expr.LongIdentOrOp`, whose
-    /// anchor segment NameResolution resolved as a local binding; the remaining
-    /// segments are a field-access chain.
-    and inferLongIdentFieldChain (ctx: PassContext) (node: NodeSite) (li: LongIdent<SyntaxToken>) : SemType =
-        inferLongIdentChainTo ctx node li 0
-
-    /// The type of a folded field chain MINUS its last segment, namely the object argument of a
-    /// folded-LongIdent instance method call (`w.Write(arg)` parses with
-    /// `fn = LongIdent [w; Write]`), so the last segment can be resolved arg-aware.
-    and inferLongIdentPrefix (ctx: PassContext) (node: NodeSite) (li: LongIdent<SyntaxToken>) : SemType =
-        inferLongIdentChainTo ctx node li 1
-
     /// The chain's type with the last `trailing` segments left unresolved.
-    and private inferLongIdentChainTo
+    let private inferLongIdentChainTo
         (ctx: PassContext)
         (node: NodeSite)
         (li: LongIdent<SyntaxToken>)
@@ -632,3 +620,15 @@ module internal UnificationInferRecordAccess =
             currTy <- resolveFieldStep ctx node li.Idents.[i] currTy
 
         currTy
+
+    /// `r.X.Y…` parsed as a single multi-segment `Expr.LongIdentOrOp`, whose
+    /// anchor segment NameResolution resolved as a local binding; the remaining
+    /// segments are a field-access chain.
+    let inferLongIdentFieldChain (ctx: PassContext) (node: NodeSite) (li: LongIdent<SyntaxToken>) : SemType =
+        inferLongIdentChainTo ctx node li 0
+
+    /// The type of a folded field chain MINUS its last segment, namely the object argument of a
+    /// folded-LongIdent instance method call (`w.Write(arg)` parses with
+    /// `fn = LongIdent [w; Write]`), so the last segment can be resolved arg-aware.
+    let inferLongIdentPrefix (ctx: PassContext) (node: NodeSite) (li: LongIdent<SyntaxToken>) : SemType =
+        inferLongIdentChainTo ctx node li 1

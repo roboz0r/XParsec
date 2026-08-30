@@ -33,7 +33,7 @@ module internal UnificationInferTypeOps =
 
     /// Explicit type application on a value or ctor: the arguments pin the applied thing's
     /// type parameters, and a wrong count is reported against it.
-    let rec inferTypeApp
+    let inferTypeApp
         (infer: Infer)
         (ctx: PassContext)
         (tok: SyntaxToken)
@@ -116,7 +116,7 @@ module internal UnificationInferTypeOps =
     /// Value-level inline IL `(# "op" args : retTy #)`. The instruction string is opaque
     /// to the type-checker; each operand is typed only so its own subtree is solved, and
     /// the node's type comes from the declared result annotation (absent → `unit`).
-    and inferILIntrinsic
+    let inferILIntrinsic
         (infer: Infer)
         (ctx: PassContext)
         (args: ImmutableArray<Expr<SyntaxToken>>)
@@ -146,7 +146,7 @@ module internal UnificationInferTypeOps =
     /// `defaultExpr when ^T : Type = optimizedExpr` — a library-only static optimization.
     /// The default's type is the node's; each clause body is typed only to solve its own
     /// subtrees, never cross-unified (clause results differ: `byte`/`int16` for `(+)`).
-    and inferLibraryOnlyStaticOptimization
+    let inferLibraryOnlyStaticOptimization
         (infer: Infer)
         (ctx: PassContext)
         (key: NodeKey)
@@ -177,7 +177,7 @@ module internal UnificationInferTypeOps =
     /// `((^T1 or ^T2): (static member (+) : ^T1 * ^T2 -> ^T3) (x, y))` — an SRTP
     /// member-trait call, resolved at inline expansion. So type only the argument tuple
     /// and yield the declared return `^T3`: for `Vec2 * float -> Vec2`, neither operand.
-    and inferStaticMemberInvocation
+    let inferStaticMemberInvocation
         (infer: Infer)
         (ctx: PassContext)
         (msig: MemberSig<SyntaxToken>)
@@ -191,7 +191,7 @@ module internal UnificationInferTypeOps =
         | MemberSig.MethodOrPropSig(sign = CurriedSig(returnType = ret))
         | MemberSig.PropSig(sign = CurriedSig(returnType = ret)) -> translateType ctx ret
 
-    and inferTypeAnnotation
+    let inferTypeAnnotation
         (infer: Infer)
         (ctx: PassContext)
         (node: NodeSite)
@@ -225,7 +225,7 @@ module internal UnificationInferTypeOps =
     /// `obj` is the top of every reference hierarchy but `subsumes` does not model it
     /// (`System.Object` is not a registered class), so the coercion arms special-case it:
     /// a downcast or type-test from `obj` is statically admissible, resolved at runtime.
-    and isObjTy (store: TypeStore) (t: SemType) : bool =
+    let isObjTy (store: TypeStore) (t: SemType) : bool =
         match resolveStep store t with
         | TyObj -> true
         | _ -> false
@@ -233,7 +233,7 @@ module internal UnificationInferTypeOps =
     /// `e :> T` — explicit upcast. `src` must instantiate `T`'s nominal: itself (a
     /// redundant but legal upcast), a base, or a declared interface. The witness's type
     /// args are unified against `T`'s, so a free var in the target (`this :> seq<_>`) pins.
-    and inferStaticUpcast
+    let inferStaticUpcast
         (infer: Infer)
         (ctx: PassContext)
         (node: NodeSite)
@@ -251,7 +251,7 @@ module internal UnificationInferTypeOps =
 
     /// `e :? T` — type test. The static types must be related in either direction; an
     /// unrelated test is statically always-false.
-    and inferDynamicTypeTest
+    let inferDynamicTypeTest
         (infer: Infer)
         (ctx: PassContext)
         (node: NodeSite)
@@ -281,7 +281,7 @@ module internal UnificationInferTypeOps =
     /// `e :?> T` — explicit downcast. The target must be a strict descendant of the
     /// source; an equal static type warns as redundant, an unrelated one errors. A
     /// downcast from `obj` is always admissible, checked at runtime.
-    and inferDynamicDowncast
+    let inferDynamicDowncast
         (infer: Infer)
         (ctx: PassContext)
         (node: NodeSite)

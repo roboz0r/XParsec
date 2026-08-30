@@ -42,8 +42,61 @@ module internal UnificationInferCtor =
             ctx.Report(CstKeys.firstTokenOfExpr argExpr, noOverload)
             ValueNone
 
+    /// Resolve a constructor application on an external (BCL / referenced) class, shared by
+    /// `new T(args)` and the *sugar* form `T args`. Overload-resolves on the argument types,
+    /// then unifies the chosen ctor signature so each parameter constrains the arguments.
+    let inferExternalCtorOn
+        (infer: Infer)
+        (ctx: PassContext)
+        (node: NodeSite)
+        (declTypeKey: TypeKey)
+        (args: EqArray<SemType>)
+        (ctorTy: SemType)
+        (argExpr: Expr<SyntaxToken>)
+        : SemType =
+        let ctors = ctx.Provider.TryLookupMembers(declTypeKey, ".ctor")
+        let name = SymbolKeyOps.typeMetaName declTypeKey
+
+        let argTy = infer ctx argExpr
+        let typeArgs = EqArray.toArray args
+        let argElems = argElemsOf ctx.Store argTy
+
+        // A 0-argument construction of an external *value type* is `default(T)`, not a real
+        // ctor call (`Span<char>()`). A .NET struct's implicit parameterless ctor is not in
+        // `GetConstructors`, so the overload pick finds no candidate; admit it directly here.
+        let isExternalValueType () =
+            match ctx.Provider.TryLookupType declTypeKey with
+            | ValueSome(ExternalTypeShape.Class shape) -> shape.Flags.IsValueType
+            | _ -> false
+
+        if List.isEmpty argElems && isExternalValueType () then
+            ctorTy
+        elif ctors.Length = 0 then
+            ctx.Report(node.Tok, Kind.Message(sprintf "External type '%s' has no accessible constructor" name))
+            ctorTy
+        else
+            match pickBestOverload ctx typeArgs ctors argElems with
+            | ValueSome chosen ->
+                // Record the chosen ctor's identity so codegen's `TExpr.New` emission
+                // selects this exact same-arity overload by key rather than re-picking.
+                ctx.Resolution.ExternalCtor.Set(node.Key, SymbolKey.Member chosen.Key)
+                let ctorSig = ExternalSymbols.openSignature chosen typeArgs
+                let resultTy = TyVar(freshTyVar ctx)
+                // Unify the ctor SIGNATURE (grounding each parameter) but leave `resultTy`
+                // free: the ctor `TyClass` from the `new T<args>` annotation is the
+                // AUTHORITY, and a no-arg overload may hardcode `any` type args that clash.
+                unify ctx node.Tok ctorSig (TyFun(argTy, resultTy))
+                ctorTy
+            | ValueNone ->
+                ctx.Report(
+                    node.Tok,
+                    Kind.Message(sprintf "No applicable constructor on '%s' for the given arguments" name)
+                )
+
+                ctorTy
+
     /// `new T(args)` — unified as a single application against the ctor's signature.
-    let rec inferNew
+    let inferNew
         (infer: Infer)
         (ctx: PassContext)
         (node: NodeSite)
@@ -128,63 +181,10 @@ module internal UnificationInferCtor =
             infer ctx argExpr |> ignore
             TyVar(freshTyVar ctx)
 
-    /// Resolve a constructor application on an external (BCL / referenced) class, shared by
-    /// `new T(args)` and the *sugar* form `T args`. Overload-resolves on the argument types,
-    /// then unifies the chosen ctor signature so each parameter constrains the arguments.
-    and inferExternalCtorOn
-        (infer: Infer)
-        (ctx: PassContext)
-        (node: NodeSite)
-        (declTypeKey: TypeKey)
-        (args: EqArray<SemType>)
-        (ctorTy: SemType)
-        (argExpr: Expr<SyntaxToken>)
-        : SemType =
-        let ctors = ctx.Provider.TryLookupMembers(declTypeKey, ".ctor")
-        let name = SymbolKeyOps.typeMetaName declTypeKey
-
-        let argTy = infer ctx argExpr
-        let typeArgs = EqArray.toArray args
-        let argElems = argElemsOf ctx.Store argTy
-
-        // A 0-argument construction of an external *value type* is `default(T)`, not a real
-        // ctor call (`Span<char>()`). A .NET struct's implicit parameterless ctor is not in
-        // `GetConstructors`, so the overload pick finds no candidate; admit it directly here.
-        let isExternalValueType () =
-            match ctx.Provider.TryLookupType declTypeKey with
-            | ValueSome(ExternalTypeShape.Class shape) -> shape.Flags.IsValueType
-            | _ -> false
-
-        if List.isEmpty argElems && isExternalValueType () then
-            ctorTy
-        elif ctors.Length = 0 then
-            ctx.Report(node.Tok, Kind.Message(sprintf "External type '%s' has no accessible constructor" name))
-            ctorTy
-        else
-            match pickBestOverload ctx typeArgs ctors argElems with
-            | ValueSome chosen ->
-                // Record the chosen ctor's identity so codegen's `TExpr.New` emission
-                // selects this exact same-arity overload by key rather than re-picking.
-                ctx.Resolution.ExternalCtor.Set(node.Key, SymbolKey.Member chosen.Key)
-                let ctorSig = ExternalSymbols.openSignature chosen typeArgs
-                let resultTy = TyVar(freshTyVar ctx)
-                // Unify the ctor SIGNATURE (grounding each parameter) but leave `resultTy`
-                // free: the ctor `TyClass` from the `new T<args>` annotation is the
-                // AUTHORITY, and a no-arg overload may hardcode `any` type args that clash.
-                unify ctx node.Tok ctorSig (TyFun(argTy, resultTy))
-                ctorTy
-            | ValueNone ->
-                ctx.Report(
-                    node.Tok,
-                    Kind.Message(sprintf "No applicable constructor on '%s' for the given arguments" name)
-                )
-
-                ctorTy
-
     /// The `new`-less constructor-as-function sugar: `InvalidOperationException "x"`,
     /// `ArgumentException(message, name)`. The applied function must resolve to an external class (via
     /// through the active `open`s) and not be a local binding. Ctor args arrive as one tuple.
-    and tryInferExternalCtorApp
+    let tryInferExternalCtorApp
         (infer: Infer)
         (ctx: PassContext)
         (node: NodeSite)
@@ -212,7 +212,7 @@ module internal UnificationInferCtor =
     /// Construction of an external *generic* class through an explicit type application:
     /// `ResizeArray<int>()`, `List<string>(cap)`. The type args pin the element type up
     /// front, which a parameterless ctor's value args cannot. A *local* generic name declines.
-    and tryInferExternalGenericCtorApp
+    let tryInferExternalGenericCtorApp
         (infer: Infer)
         (ctx: PassContext)
         (node: NodeSite)
@@ -253,7 +253,7 @@ module internal UnificationInferCtor =
     /// ctor-as-function path builds from the PRIMARY ctor's params only, so it can neither
     /// ground a generic class's type args nor reach a secondary that shares the primary's
     /// arity; this unifies the selected secondary's params, which carry both.
-    and tryInferLocalCtorApp
+    let tryInferLocalCtorApp
         (infer: Infer)
         (ctx: PassContext)
         (node: NodeSite)

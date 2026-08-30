@@ -386,11 +386,48 @@ module Parsing =
             | c when isParenLike c -> true
             | _ -> false
 
+    /// Walk the context stack skipping SeqBlock+Paren pairs to find the enclosing
+    /// expression's offside line for collection/CE undentation (F# spec 15.1.10.4).
+    let rec private checkCollectionUndent (tokenCol: int) (stack: Offside list) : bool =
+        match stack with
+        | [] -> true // Walked past all paren-like/SeqBlock contexts; no enclosing offside line to violate
+        | ctx :: deeper ->
+            match (ctx: Offside).Context with
+            | OffsideContext.SeqBlock
+            | OffsideContext.Fun
+            | OffsideContext.Function -> checkCollectionUndent tokenCol deeper
+            | c when isParenLike c -> checkCollectionUndent tokenCol deeper
+            | _ ->
+                // Found the enclosing non-paren context; check if token is within its indent
+                tokenCol >= ctx.Indent
+
+    /// F# spec §15.1.10.4 (collection/CE undentation) and its SeqBlockParen extension:
+    /// a token may undent from the current context when it still lies within the enclosing
+    /// expression's offside line. Returns the trace-rule name on success.
+    /// Expects `stack` to be the full context list; inspects the innermost frame:
+    ///   * `SeqBlock :: paren-like :: deeper` — SeqBlock pushed on top of a paren-like
+    ///     context by `withContext` after `pEnclosed`. Rule: "15.1.10.4 SeqBlockParen".
+    ///   * `paren-like :: rest` — the innermost frame is itself the paren-like container. Rule:
+    ///     "15.1.10.4 Collection".
+    let private tryCollectionUndent (tokenCol: int) (stack: Offside list) : string voption =
+        match stack with
+        | { Context = OffsideContext.SeqBlock } :: { Context = ctx } :: deeper when isParenLike ctx ->
+            if checkCollectionUndent tokenCol deeper then
+                ValueSome "15.1.10.4 SeqBlockParen"
+            else
+                ValueNone
+        | { Context = ctx } :: rest when isParenLike ctx ->
+            if checkCollectionUndent tokenCol rest then
+                ValueSome "15.1.10.4 Collection"
+            else
+                ValueNone
+        | _ -> ValueNone
+
     /// Determines whether a token at column `tokenCol` is permitted despite being
     /// strictly left of the innermost context's offside line.
     /// Implements F# spec sections 15.1.8 (Balancing), 15.1.9 (Exceptions to Offside Rules)
     /// and 15.1.10 (Permitted Undentations).
-    let rec private isPermittedUndentation
+    let private isPermittedUndentation
         (token: Token)
         (tokenCol: int)
         (context: Offside list)
@@ -507,43 +544,6 @@ module Parsing =
 
             else
                 ValueNone
-
-    /// Walk the context stack skipping SeqBlock+Paren pairs to find the enclosing
-    /// expression's offside line for collection/CE undentation (F# spec 15.1.10.4).
-    and private checkCollectionUndent (tokenCol: int) (stack: Offside list) : bool =
-        match stack with
-        | [] -> true // Walked past all paren-like/SeqBlock contexts; no enclosing offside line to violate
-        | ctx :: deeper ->
-            match (ctx: Offside).Context with
-            | OffsideContext.SeqBlock
-            | OffsideContext.Fun
-            | OffsideContext.Function -> checkCollectionUndent tokenCol deeper
-            | c when isParenLike c -> checkCollectionUndent tokenCol deeper
-            | _ ->
-                // Found the enclosing non-paren context; check if token is within its indent
-                tokenCol >= ctx.Indent
-
-    /// F# spec §15.1.10.4 (collection/CE undentation) and its SeqBlockParen extension:
-    /// a token may undent from the current context when it still lies within the enclosing
-    /// expression's offside line. Returns the trace-rule name on success.
-    /// Expects `stack` to be the full context list; inspects the innermost frame:
-    ///   * `SeqBlock :: paren-like :: deeper` — SeqBlock pushed on top of a paren-like
-    ///     context by `withContext` after `pEnclosed`. Rule: "15.1.10.4 SeqBlockParen".
-    ///   * `paren-like :: rest` — the innermost frame is itself the paren-like container. Rule:
-    ///     "15.1.10.4 Collection".
-    and private tryCollectionUndent (tokenCol: int) (stack: Offside list) : string voption =
-        match stack with
-        | { Context = OffsideContext.SeqBlock } :: { Context = ctx } :: deeper when isParenLike ctx ->
-            if checkCollectionUndent tokenCol deeper then
-                ValueSome "15.1.10.4 SeqBlockParen"
-            else
-                ValueNone
-        | { Context = ctx } :: rest when isParenLike ctx ->
-            if checkCollectionUndent tokenCol rest then
-                ValueSome "15.1.10.4 Collection"
-            else
-                ValueNone
-        | _ -> ValueNone
 
     let private errOffside: ErrorType<PositionedToken, ParseState> = Message "Offside"
 

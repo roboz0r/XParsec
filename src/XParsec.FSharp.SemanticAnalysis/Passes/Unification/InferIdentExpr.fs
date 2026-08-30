@@ -19,7 +19,69 @@ open UnificationInferRecordAccess
 
 module internal UnificationInferIdentExpr =
 
-    let rec inferIdent (ctx: PassContext) (e: Expr<SyntaxToken>) (node: NodeSite) : SemType =
+    let inferIdentDefault (ctx: PassContext) (e: Expr<SyntaxToken>) (node: NodeSite) : SemType =
+
+        match ctx.Bindings.Binding.TryGetValue node.Key with
+        | ValueSome rb -> instantiateBinding ctx rb
+        | ValueNone ->
+            // Provider hits beat ctor-name resolution when both exist; a bare ident
+            // absent from the provider falls to the ctor registry below.
+            match ctx.Resolution.ExternalSymbolStamp.TryGetValue node.Key with
+            | ValueSome sym -> ExternalSymbols.instantiateSymbol ctx.Store sym ctx.CurrentLevel
+            | ValueNone ->
+
+                match tryExternalStaticLongIdent ctx node.Key e with
+                | ValueSome ty -> ty
+                | ValueNone ->
+                    let singleSegName =
+                        match e with
+                        | Expr.Ident t -> ValueSome(ctx.NameOf t)
+                        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
+                            ValueSome(ctx.NameOf li.Idents.[0])
+                        | _ -> ValueNone
+
+                    match singleSegName with
+                    | ValueSome n ->
+                        match ResolvedStamps.tryLocalUnionCase ctx.Resolution.Resolved node.Key with
+                        | ValueSome i -> ctorType ctx i
+                        // NameResolution reported the ambiguity; the use types as a fresh variable.
+                        | ValueNone when ResolvedStamps.isAmbiguousCase ctx.Resolution.Resolved node.Key ->
+                            TyVar(freshTyVar ctx)
+                        | ValueNone ->
+                            // External union case ctor (`Some` / `None` from a referenced
+                            // package): typed as `field… -> TyUnion(union, …)`, so the
+                            // bare nullary form (`None`) lands as the union value.
+                            match tryExternalCtorType ctx node.Key with
+                            | ValueSome t -> t
+                            | ValueNone ->
+                                // Class-name-as-function: `Point(3, 4)` parses as
+                                // `Expr.App(Expr.Ident "Point", …)`, so return the ctor
+                                // as a function value and let the function arm type it.
+                                classCtorAsFunction ctx (ctx.UseSiteAt node.Key) n
+                    | ValueNone ->
+                        // A qualified name: `A.Point(3, 4)` denotes a TYPE through its module,
+                        // so it resolves through the type registry as a ctor reference.
+                        let localCtor =
+                            match e with
+                            | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) ->
+                                tryWrittenClassCtorAsFunction ctx (ctx.UseSiteAt node.Key) (ctx.WrittenTypeNameOf li)
+                            | _ -> ValueNone
+
+                        match localCtor with
+                        | ValueSome ty -> ty
+                        | ValueNone ->
+                            // A multi-segment qualified name that resolved to nothing. If its
+                            // qualifier resolves to a known external union/record, the last segment is a
+                            // missing member (`Option.Nope`), so diagnose rather than mint a TyVar.
+                            match tryQualifiedExternalMemberMiss ctx e with
+                            | ValueSome miss ->
+                                errorTy
+                                    ctx
+                                    node.Tok
+                                    (Kind.NoMember(miss.Qualifier, MemberNoun.ValueOrMember, miss.MemberName))
+                            | ValueNone -> TyVar(freshTyVar ctx)
+
+    let inferIdent (ctx: PassContext) (e: Expr<SyntaxToken>) (node: NodeSite) : SemType =
         match e with
         // `(+)` used as a value: resolve the operator's compiled name through the provider
         // and instantiate its scheme like any other external symbol. Nothing type-directed
@@ -126,69 +188,7 @@ module internal UnificationInferIdentExpr =
                     | ValueNone -> orWriteOnly (fun () -> inferIdentDefault ctx e node)
         | _ -> inferIdentDefault ctx e node
 
-    and inferIdentDefault (ctx: PassContext) (e: Expr<SyntaxToken>) (node: NodeSite) : SemType =
-
-        match ctx.Bindings.Binding.TryGetValue node.Key with
-        | ValueSome rb -> instantiateBinding ctx rb
-        | ValueNone ->
-            // Provider hits beat ctor-name resolution when both exist; a bare ident
-            // absent from the provider falls to the ctor registry below.
-            match ctx.Resolution.ExternalSymbolStamp.TryGetValue node.Key with
-            | ValueSome sym -> ExternalSymbols.instantiateSymbol ctx.Store sym ctx.CurrentLevel
-            | ValueNone ->
-
-                match tryExternalStaticLongIdent ctx node.Key e with
-                | ValueSome ty -> ty
-                | ValueNone ->
-                    let singleSegName =
-                        match e with
-                        | Expr.Ident t -> ValueSome(ctx.NameOf t)
-                        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
-                            ValueSome(ctx.NameOf li.Idents.[0])
-                        | _ -> ValueNone
-
-                    match singleSegName with
-                    | ValueSome n ->
-                        match ResolvedStamps.tryLocalUnionCase ctx.Resolution.Resolved node.Key with
-                        | ValueSome i -> ctorType ctx i
-                        // NameResolution reported the ambiguity; the use types as a fresh variable.
-                        | ValueNone when ResolvedStamps.isAmbiguousCase ctx.Resolution.Resolved node.Key ->
-                            TyVar(freshTyVar ctx)
-                        | ValueNone ->
-                            // External union case ctor (`Some` / `None` from a referenced
-                            // package): typed as `field… -> TyUnion(union, …)`, so the
-                            // bare nullary form (`None`) lands as the union value.
-                            match tryExternalCtorType ctx node.Key with
-                            | ValueSome t -> t
-                            | ValueNone ->
-                                // Class-name-as-function: `Point(3, 4)` parses as
-                                // `Expr.App(Expr.Ident "Point", …)`, so return the ctor
-                                // as a function value and let the function arm type it.
-                                classCtorAsFunction ctx (ctx.UseSiteAt node.Key) n
-                    | ValueNone ->
-                        // A qualified name: `A.Point(3, 4)` denotes a TYPE through its module,
-                        // so it resolves through the type registry as a ctor reference.
-                        let localCtor =
-                            match e with
-                            | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) ->
-                                tryWrittenClassCtorAsFunction ctx (ctx.UseSiteAt node.Key) (ctx.WrittenTypeNameOf li)
-                            | _ -> ValueNone
-
-                        match localCtor with
-                        | ValueSome ty -> ty
-                        | ValueNone ->
-                            // A multi-segment qualified name that resolved to nothing. If its
-                            // qualifier resolves to a known external union/record, the last segment is a
-                            // missing member (`Option.Nope`), so diagnose rather than mint a TyVar.
-                            match tryQualifiedExternalMemberMiss ctx e with
-                            | ValueSome miss ->
-                                errorTy
-                                    ctx
-                                    node.Tok
-                                    (Kind.NoMember(miss.Qualifier, MemberNoun.ValueOrMember, miss.MemberName))
-                            | ValueNone -> TyVar(freshTyVar ctx)
-
-    and qualifiedNameOf (ctx: PassContext) (e: Expr<SyntaxToken>) : string =
+    let qualifiedNameOf (ctx: PassContext) (e: Expr<SyntaxToken>) : string =
         match e with
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) -> li.Idents |> Seq.map ctx.NameOf |> String.concat "."
         // `A.B.(+)` — the joined `A.B.op_Addition` spelling, matching the qualifier and short
@@ -201,7 +201,7 @@ module internal UnificationInferIdentExpr =
 
     /// `Set<'T>.Empty` parses as `DotLookup(TypeApp(ClassName, <'args>), .Member)`. The
     /// written `<'args>` are unified into the declaring instantiation, stamped at `node`.
-    and tryLocalTypeAppStaticMember
+    let tryLocalTypeAppStaticMember
         (ctx: PassContext)
         (node: NodeSite)
         (qualifier: Expr<SyntaxToken>)

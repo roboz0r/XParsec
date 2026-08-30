@@ -171,7 +171,7 @@ module internal UnificationInferExternalCall =
     /// Commit a call-site-resolved external overload (static or instance): record the chosen
     /// `SymbolKey` in `ExternalAccess` keyed on the member node, freshen the member's
     /// method-owned typars (`Take<TSource>`), then unify the signature against `argTy -> result`.
-    let rec commitExternalOverload
+    let commitExternalOverload
         (ctx: PassContext)
         (tok: SyntaxToken)
         (fn: Expr<SyntaxToken>)
@@ -203,7 +203,7 @@ module internal UnificationInferExternalCall =
 
     /// Application-site overload resolution for a static external method call
     /// (`String.Concat("a", "b")`). Declines unless the name has >1 mapped overload.
-    and tryInferExternalStaticMethodCall
+    let tryInferExternalStaticMethodCall
         (infer: Infer)
         (ctx: PassContext)
         (tok: SyntaxToken)
@@ -247,7 +247,7 @@ module internal UnificationInferExternalCall =
     /// Call-site overload resolution for an external *instance* method call (`sb.Append("x")`),
     /// keyed off a call whose object argument infers to a ground external `TyClass`. Needed because
     /// the single-pick path takes an arbitrary overload: `Append(char[], int, int)` for one `string`.
-    and tryInferExternalInstanceMethodCall
+    let tryInferExternalInstanceMethodCall
         (infer: Infer)
         (ctx: PassContext)
         (tok: SyntaxToken)
@@ -293,7 +293,7 @@ module internal UnificationInferExternalCall =
     /// Call-site overload resolution for a project-LOCAL instance method call (`p.Show(1)`),
     /// when the object argument is a local class / union / record whose member name has >1 candidate.
     /// A winner's frozen `SymbolKey` is recorded so Elaborate resolves it by identity.
-    and tryInferLocalInstanceMethodCall
+    let tryInferLocalInstanceMethodCall
         (infer: Infer)
         (ctx: PassContext)
         (node: NodeSite)
@@ -377,7 +377,7 @@ module internal UnificationInferExternalCall =
     /// Permit an external method call that omits a suffix of the member's *trailing optional*
     /// parameters (`ArrayPool<'T>.Return(arr)` for `Return(arr, [<Optional>] clearArray = false)`):
     /// without it the application loop unifies one argument against the full tupled domain.
-    and tryFillOptionalCall
+    let tryFillOptionalCall
         (ctx: PassContext)
         (tok: SyntaxToken)
         (fn: Expr<SyntaxToken>)

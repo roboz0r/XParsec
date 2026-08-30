@@ -166,69 +166,10 @@ module internal UnificationInferApp =
 
                     true
 
-    let rec inferApp
-        (infer: Infer)
-        (ctx: PassContext)
-        (node: NodeSite)
-        (fn: Expr<SyntaxToken>)
-        (args: ImmutableArray<Expr<SyntaxToken>>)
-        : SemType =
-        // The .NET-style probes below are TUPLED: they apply to one argument only.
-        let single probe =
-            if args.Length = 1 then probe args.[0] else ValueNone
-
-        // The generic curried-application fallback. The function's type is threaded in rather than
-        // inferred here, so the optional-argument fill and this loop share one inference of it.
-        let inferGenericAppFrom (fnTy: SemType) (argTys: SemType[]) =
-            let mutable currTy = fnTy
-
-            for i in 0 .. argTys.Length - 1 do
-                let argTy = argTys.[i]
-
-                match resolveStep ctx.Store currTy with
-                | TyFun(dom, cod) ->
-                    // A literal-union parameter consults the argument EXPRESSION for a syntactic
-                    // constant; skip `unifyArg` when that handles the slot, as it rejects a
-                    // `string`. It otherwise accepts a ground subtype upcast.
-                    if not (tryAdmitLiteralConstArg ctx node.Tok args.[i] dom) then
-                        unifyArg ctx node.Tok argTy dom
-
-                    currTy <- cod
-                | _ ->
-                    let resultTy = TyVar(freshTyVar ctx)
-                    unify ctx node.Tok currTy (TyFun(argTy, resultTy))
-                    currTy <- resultTy
-
-            currTy
-
-        // Specialised resolution probes; the first `ValueSome` wins. An external ctor must be
-        // recognised before the generic fallback types its class name as a function and leaks
-        // an unpinned, dangling result TyVar.
-        tryInferPrintfApp infer ctx node fn args
-        |> ValueOption.orElseWith (fun () -> single (tryInferExternalStaticMethodCall infer ctx node.Tok fn))
-        |> ValueOption.orElseWith (fun () -> tryInferExternalCtorApp infer ctx node fn args)
-        |> ValueOption.orElseWith (fun () -> single (tryInferExternalGenericCtorApp infer ctx node fn))
-        |> ValueOption.orElseWith (fun () -> single (tryInferLocalCtorApp infer ctx node fn))
-        |> ValueOption.orElseWith (fun () -> single (tryInferExternalInstanceMethodCall infer ctx node.Tok fn))
-        |> ValueOption.orElseWith (fun () -> single (tryInferLocalInstanceMethodCall infer ctx node fn))
-        |> ValueOption.defaultWith (fun () ->
-            // The optional-argument fill may inspect the arguments and then decline, and the
-            // curried loop needs them too, so infer each exactly once, here.
-            let fnTy = infer ctx fn
-            let argTys = [| for a in args -> infer ctx a |]
-
-            // BEFORE the curried loop below links each domain to its function type, which
-            // erases the `:> Fun` bound the verdict is read from.
-            recordFunArityVerdicts ctx args fnTy
-
-            tryFillOptionalCall ctx node.Tok fn args argTys
-            |> ValueOption.defaultWith (fun () -> inferGenericAppFrom fnTy argTys)
-        )
-
     /// For a printf entry point with a plain-literal format argument, the format spec drives
     /// the call's curried result type, not the literal's apparent `string` type. The
     /// format argument itself types as `PrintfFormat<printer, …>`.
-    and tryInferPrintfApp
+    let tryInferPrintfApp
         (infer: Infer)
         (ctx: PassContext)
         (node: NodeSite)
@@ -437,7 +378,66 @@ module internal UnificationInferApp =
                             ValueSome currTy
             | _ -> ValueNone
 
-    and inferHighPrecApp
+    let inferApp
+        (infer: Infer)
+        (ctx: PassContext)
+        (node: NodeSite)
+        (fn: Expr<SyntaxToken>)
+        (args: ImmutableArray<Expr<SyntaxToken>>)
+        : SemType =
+        // The .NET-style probes below are TUPLED: they apply to one argument only.
+        let single probe =
+            if args.Length = 1 then probe args.[0] else ValueNone
+
+        // The generic curried-application fallback. The function's type is threaded in rather than
+        // inferred here, so the optional-argument fill and this loop share one inference of it.
+        let inferGenericAppFrom (fnTy: SemType) (argTys: SemType[]) =
+            let mutable currTy = fnTy
+
+            for i in 0 .. argTys.Length - 1 do
+                let argTy = argTys.[i]
+
+                match resolveStep ctx.Store currTy with
+                | TyFun(dom, cod) ->
+                    // A literal-union parameter consults the argument EXPRESSION for a syntactic
+                    // constant; skip `unifyArg` when that handles the slot, as it rejects a
+                    // `string`. It otherwise accepts a ground subtype upcast.
+                    if not (tryAdmitLiteralConstArg ctx node.Tok args.[i] dom) then
+                        unifyArg ctx node.Tok argTy dom
+
+                    currTy <- cod
+                | _ ->
+                    let resultTy = TyVar(freshTyVar ctx)
+                    unify ctx node.Tok currTy (TyFun(argTy, resultTy))
+                    currTy <- resultTy
+
+            currTy
+
+        // Specialised resolution probes; the first `ValueSome` wins. An external ctor must be
+        // recognised before the generic fallback types its class name as a function and leaks
+        // an unpinned, dangling result TyVar.
+        tryInferPrintfApp infer ctx node fn args
+        |> ValueOption.orElseWith (fun () -> single (tryInferExternalStaticMethodCall infer ctx node.Tok fn))
+        |> ValueOption.orElseWith (fun () -> tryInferExternalCtorApp infer ctx node fn args)
+        |> ValueOption.orElseWith (fun () -> single (tryInferExternalGenericCtorApp infer ctx node fn))
+        |> ValueOption.orElseWith (fun () -> single (tryInferLocalCtorApp infer ctx node fn))
+        |> ValueOption.orElseWith (fun () -> single (tryInferExternalInstanceMethodCall infer ctx node.Tok fn))
+        |> ValueOption.orElseWith (fun () -> single (tryInferLocalInstanceMethodCall infer ctx node fn))
+        |> ValueOption.defaultWith (fun () ->
+            // The optional-argument fill may inspect the arguments and then decline, and the
+            // curried loop needs them too, so infer each exactly once, here.
+            let fnTy = infer ctx fn
+            let argTys = [| for a in args -> infer ctx a |]
+
+            // BEFORE the curried loop below links each domain to its function type, which
+            // erases the `:> Fun` bound the verdict is read from.
+            recordFunArityVerdicts ctx args fnTy
+
+            tryFillOptionalCall ctx node.Tok fn args argTys
+            |> ValueOption.defaultWith (fun () -> inferGenericAppFrom fnTy argTys)
+        )
+
+    let inferHighPrecApp
         (infer: Infer)
         (ctx: PassContext)
         (node: NodeSite)
@@ -448,7 +448,7 @@ module internal UnificationInferApp =
         // splits on the space before `(`), so it must get the SAME probe chain.
         inferApp infer ctx node fn (ImmutableArray.Create arg)
 
-    and inferRange
+    let inferRange
         (infer: Infer)
         (ctx: PassContext)
         (tok: SyntaxToken)
@@ -472,7 +472,7 @@ module internal UnificationInferApp =
         unify ctx tok toTy ctx.Intrinsics.Int
         TyUnknown UnknownReason.NoValueType
 
-    and inferInfix
+    let inferInfix
         (infer: Infer)
         (ctx: PassContext)
         (node: NodeSite)
@@ -520,7 +520,7 @@ module internal UnificationInferApp =
     /// `x?name` — the dynamic-access operator (F# spec 6.4.5: `x ? ident` desugars to `(?)
     /// x "ident"`), unified against `x -> string -> ^TResult`. Its `target: dynamic`
     /// parameter rejects a static object argument; `default ^TResult : dynamic` keeps a chain dynamic.
-    and inferDynamicLookup (infer: Infer) (ctx: PassContext) (node: NodeSite) (objArg: Expr<SyntaxToken>) : SemType =
+    let inferDynamicLookup (infer: Infer) (ctx: PassContext) (node: NodeSite) (objArg: Expr<SyntaxToken>) : SemType =
         let objArgTy = infer ctx objArg
 
         match ctx.Resolution.ExternalSymbolStamp.TryGetValue node.Key with
@@ -546,7 +546,7 @@ module internal UnificationInferApp =
 
     /// `x?name <- value` — the dynamic-set operator (`(?<-) x "name" value`), unified
     /// against `x -> string -> value -> unit`.
-    and inferDynamicSet
+    let inferDynamicSet
         (infer: Infer)
         (ctx: PassContext)
         (node: NodeSite)
@@ -571,7 +571,7 @@ module internal UnificationInferApp =
             ctx.Intrinsics.Unit
         | ValueNone -> errorTy ctx node.Tok (Kind.IntrinsicNotInScope Intrinsic.DynamicSet)
 
-    and inferPrefix (infer: Infer) (ctx: PassContext) (node: NodeSite) (operand: Expr<SyntaxToken>) : SemType =
+    let inferPrefix (infer: Infer) (ctx: PassContext) (node: NodeSite) (operand: Expr<SyntaxToken>) : SemType =
         let operandTy = infer ctx operand
 
         // `node.Tok` is the operator token: `CstKeys` keys a `PrefixApp` on it.

@@ -21,7 +21,7 @@ module internal UnificationInferLiteralExpr =
     /// A `TokenIndex.Virtual` close token is one the parser inserted to recover from a
     /// missing or mismatched delimiter; without a report here the malformed literal
     /// types cleanly and the breakage never reaches a semantic-analysis consumer.
-    let rec checkLiteralClose
+    let checkLiteralClose
         (ctx: PassContext)
         (tok: SyntaxToken)
         (rTok: SyntaxToken)
@@ -35,7 +35,7 @@ module internal UnificationInferLiteralExpr =
             ctx.Report(tok, Kind.Message(sprintf "Mismatched closing delimiter: expected '%s'" display))
         | TokenIndex.Regular _ -> ()
 
-    and inferListLikeLiteral
+    let inferListLikeLiteral
         (infer: Infer)
         (ctx: PassContext)
         (tok: SyntaxToken)
@@ -59,7 +59,7 @@ module internal UnificationInferLiteralExpr =
             listLiteralTy ctx tok elemTy
 
     /// Element type stays free so context can pin it (`let xs : int list = []`).
-    and emptyListLikeLiteral (ctx: PassContext) (tok: SyntaxToken) (isArray: bool) : SemType =
+    let emptyListLikeLiteral (ctx: PassContext) (tok: SyntaxToken) (isArray: bool) : SemType =
         let elemTy = TyVar(freshTyVar ctx)
 
         if isArray then
@@ -67,7 +67,7 @@ module internal UnificationInferLiteralExpr =
         else
             listLiteralTy ctx tok elemTy
 
-    and inferString (infer: Infer) (ctx: PassContext) (parts: ImmutableArray<StringPart<SyntaxToken>>) : SemType =
+    let inferString (infer: Infer) (ctx: PassContext) (parts: ImmutableArray<StringPart<SyntaxToken>>) : SemType =
         // Each hole's computed type is read back when the interpolation is lowered, so
         // type every hole here; a `%d{x}` specifier additionally constrains it.
         for part in parts do

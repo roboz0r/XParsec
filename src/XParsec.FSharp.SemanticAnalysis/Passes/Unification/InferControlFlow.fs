@@ -251,7 +251,7 @@ module internal UnificationInferControlFlow =
             List.ofSeq armScruts, residual
         | _ -> [ for _ in rules -> scrutineeTy ], []
 
-    let rec inferIfThenElse
+    let inferIfThenElse
         (infer: Infer)
         (ctx: PassContext)
         (tok: SyntaxToken)
@@ -288,7 +288,7 @@ module internal UnificationInferControlFlow =
             unify ctx tok thenTy ctx.Intrinsics.Unit
             ctx.Intrinsics.Unit
 
-    and inferFun
+    let inferFun
         (infer: Infer)
         (ctx: PassContext)
         (argPats: ImmutableArray<Pat<SyntaxToken>>)
@@ -298,10 +298,10 @@ module internal UnificationInferControlFlow =
         let bodyTy = infer ctx body
         List.foldBack (fun a r -> TyFun(a, r)) argTypes bodyTy
 
-    and inferTuple (infer: Infer) (ctx: PassContext) (items: ImmutableArray<Expr<SyntaxToken>>) : SemType =
+    let inferTuple (infer: Infer) (ctx: PassContext) (items: ImmutableArray<Expr<SyntaxToken>>) : SemType =
         TyTuple(EqArray.ofSeq (seq { for e in items -> infer ctx e }))
 
-    and inferSequential
+    let inferSequential
         (infer: Infer)
         (ctx: PassContext)
         (tok: SyntaxToken)
@@ -316,7 +316,7 @@ module internal UnificationInferControlFlow =
 
             infer ctx items.[items.Length - 1]
 
-    and inferWhile
+    let inferWhile
         (infer: Infer)
         (ctx: PassContext)
         (tok: SyntaxToken)
@@ -329,7 +329,7 @@ module internal UnificationInferControlFlow =
         unify ctx tok bodyTy ctx.Intrinsics.Unit
         ctx.Intrinsics.Unit
 
-    and inferForTo
+    let inferForTo
         (infer: Infer)
         (ctx: PassContext)
         (tok: SyntaxToken)
@@ -352,7 +352,7 @@ module internal UnificationInferControlFlow =
     /// The duck-typed enumerator probe: C#'s pattern-based `foreach` accepts a source with a
     /// public parameterless `GetEnumerator()` whose return `E` exposes `MoveNext(): bool` and
     /// `Current`, with no `IEnumerable<'T>`. `srcArgs` substitutes the source class's typars.
-    and tryDuckTypedEnumerator
+    let tryDuckTypedEnumerator
         (ctx: PassContext)
         (shape: ExternalClassShape)
         (srcArgs: SemType[])
@@ -390,7 +390,7 @@ module internal UnificationInferControlFlow =
     /// A *user* class exposing a parameterless `GetEnumerator()` is a valid `for … in`
     /// source without implementing `IEnumerable<'T>`. Its enumerator `E` may be another
     /// user class, or external (a BCL `List<'T>.Enumerator`), making the pair a hybrid of both axes.
-    and tryLocalDuckTypedEnumerator
+    let tryLocalDuckTypedEnumerator
         (ctx: PassContext)
         (nameKey: TypeKey)
         (args: EqArray<SemType>)
@@ -449,7 +449,7 @@ module internal UnificationInferControlFlow =
     /// The enumerable surface a *project-local* nominal source publishes through its
     /// `interface` impls, over `IInterfaceImplHost` so that a class, a union and a record
     /// source share one resolver.
-    and tryLocalInterfaceEnumeratorOn
+    let tryLocalInterfaceEnumeratorOn
         (ctx: PassContext)
         (host: IInterfaceImplHost)
         (args: EqArray<SemType>)
@@ -473,7 +473,7 @@ module internal UnificationInferControlFlow =
         | Some r -> ValueSome r
         | None -> ValueNone
 
-    and tryLocalInterfaceEnumerator
+    let tryLocalInterfaceEnumerator
         (ctx: PassContext)
         (nameKey: TypeKey)
         (args: EqArray<SemType>)
@@ -482,22 +482,10 @@ module internal UnificationInferControlFlow =
         | ValueSome info -> tryLocalInterfaceEnumeratorOn ctx info args
         | ValueNone -> ValueNone
 
-    /// Resolve the enumerator `E` returned by a constrained `GetEnumerator`. `E` is either a
-    /// concrete project-local enumerator with public `MoveNext`/`Current`, or itself a
-    /// constrained typar.
-    and tryConstrainedEnumeratorMembers (ctx: PassContext) (enumTy: SemType) : EnumProbe voption =
-        match zonk ctx.Store enumTy with
-        | TyClass(enumKey, enumArgs) ->
-            match TypeRegistry.tryClassByKey ctx.Types enumKey with
-            | ValueSome enumInfo -> probeLocalEnumerator ctx enumInfo enumArgs
-            | ValueNone -> ValueNone
-        | TyVar etv -> tryConstrainedTyparEnumerator ctx etv
-        | _ -> ValueNone
-
     /// `E` is itself a generic typar constrained to an enumerator interface
     /// (`'E :> IStructEnumerator<'T>`). Scan its `Coercion` constraints for an interface with
     /// `MoveNext(): bool` and `Current`; those members dispatch via `constrained. callvirt`.
-    and tryConstrainedTyparEnumerator (ctx: PassContext) (tv: TyVarId) : EnumProbe voption =
+    let tryConstrainedTyparEnumerator (ctx: PassContext) (tv: TyVarId) : EnumProbe voption =
         tryPickCoercedInterface
             ctx
             tv
@@ -523,10 +511,22 @@ module internal UnificationInferControlFlow =
                 | _ -> ValueNone
             )
 
+    /// Resolve the enumerator `E` returned by a constrained `GetEnumerator`. `E` is either a
+    /// concrete project-local enumerator with public `MoveNext`/`Current`, or itself a
+    /// constrained typar.
+    let tryConstrainedEnumeratorMembers (ctx: PassContext) (enumTy: SemType) : EnumProbe voption =
+        match zonk ctx.Store enumTy with
+        | TyClass(enumKey, enumArgs) ->
+            match TypeRegistry.tryClassByKey ctx.Types enumKey with
+            | ValueSome enumInfo -> probeLocalEnumerator ctx enumInfo enumArgs
+            | ValueNone -> ValueNone
+        | TyVar etv -> tryConstrainedTyparEnumerator ctx etv
+        | _ -> ValueNone
+
     /// `for x in s` where the source `s` is a *generic typar* constrained to a project-local
     /// seq interface (`'S :> IStructSeq<'T, 'E>`) declaring `GetEnumerator(): E`. Resolves
     /// `E`'s walk members; the calls then dispatch via `constrained. callvirt`.
-    and tryTyparSeqSource (ctx: PassContext) (tv: TyVarId) : (SemType * ForInEnumerator) voption =
+    let tryTyparSeqSource (ctx: PassContext) (tv: TyVarId) : (SemType * ForInEnumerator) voption =
         tryPickCoercedInterface
             ctx
             tv
@@ -556,7 +556,7 @@ module internal UnificationInferControlFlow =
     /// `srcTy` is `IEnumerable<'T>` itself, a type implementing it, or a source exposing a
     /// pattern-based `GetEnumerator()`. Returns the `'T` the loop pattern is pinned to,
     /// plus the `ForInEnumerator` codegen reads off the frozen node.
-    and tryForInEnumerator (ctx: PassContext) (srcTy: SemType) : (SemType * ForInEnumerator) voption =
+    let tryForInEnumerator (ctx: PassContext) (srcTy: SemType) : (SemType * ForInEnumerator) voption =
         match zonk ctx.Store srcTy with
         | TyClass(nameKey, args) when RuntimeNames.matchesKey ctx.CapabilityIds.Enumerable nameKey && args.Length = 1 ->
             ValueSome(args.[0], ForInEnumeratorG.Interface)
@@ -614,7 +614,7 @@ module internal UnificationInferControlFlow =
         | TyVar tv -> tryTyparSeqSource ctx tv
         | _ -> ValueNone
 
-    and inferForIn
+    let inferForIn
         (infer: Infer)
         (ctx: PassContext)
         (node: NodeSite)
@@ -656,7 +656,7 @@ module internal UnificationInferControlFlow =
         unify ctx node.Tok bodyTy ctx.Intrinsics.Unit
         ctx.Intrinsics.Unit
 
-    and inferRules
+    let inferRules
         (infer: Infer)
         (ctx: PassContext)
         (tok: SyntaxToken)
@@ -686,7 +686,7 @@ module internal UnificationInferControlFlow =
         | _ :: _ -> ctx.Report(tok, Kind.IncompleteAnonUnionMatch(residual |> List.map (describeDisjunct ctx.Store)))
         | [] -> ()
 
-    and inferMatch
+    let inferMatch
         (infer: Infer)
         (ctx: PassContext)
         (tok: SyntaxToken)
@@ -698,7 +698,7 @@ module internal UnificationInferControlFlow =
         inferRules infer ctx tok scrutineeTy resultTy rules
         resultTy
 
-    and inferFunction
+    let inferFunction
         (infer: Infer)
         (ctx: PassContext)
         (tok: SyntaxToken)
@@ -711,7 +711,7 @@ module internal UnificationInferControlFlow =
         inferRules infer ctx tok paramTy resultTy rules
         TyFun(paramTy, resultTy)
 
-    and inferTryWith
+    let inferTryWith
         (infer: Infer)
         (ctx: PassContext)
         (tok: SyntaxToken)
@@ -725,7 +725,7 @@ module internal UnificationInferControlFlow =
         inferRules infer ctx tok exnTy resultTy rules
         resultTy
 
-    and inferTryFinally
+    let inferTryFinally
         (infer: Infer)
         (ctx: PassContext)
         (tok: SyntaxToken)
