@@ -9,6 +9,17 @@ open EmitTypes
 open EmitLower
 open EmitResolve
 
+/// How the CLR holds a value of a given type.
+[<RequireQualifiedAccess>]
+type ClrRepr =
+    /// A value type, flat in place.
+    | Value
+    /// A reference to a heap cell.
+    | Reference
+    /// An open type parameter, whose representation its instantiation supplies. `box` reaches
+    /// `obj` or an interface at either instantiation.
+    | Boxable of typar: FrozenType
+
 /// Variable loads, tuple destructuring, the match-test compiler and the irrefutable
 /// bound variable. Nothing here takes a `Recur`, so nothing calls back into `buildExpr`.
 module EmitPattern =
@@ -104,11 +115,22 @@ module EmitPattern =
             member _.Platform = env.Provider.Platform
         }
 
-    /// Is a value of this type laid out as a CLR value type? The same projection the front end
-    /// typed against, so the two ends cannot classify a type differently: a divergence is a
-    /// missing `box` at every `:>` / `:?` / addressed call.
+    /// The CLR representation of a value of `ty`, over the same projection the front end typed
+    /// against. Forking the two ends drops a `box` at every `:>` / `:?` / addressed call.
+    let clrRepr (env: EmitEnv) (ty: FrozenType) : ClrRepr =
+        match ty, TypeLayout.resolve (oracle env) (TypeLayout.shapeOfFrozen ty) with
+        | _, TypeLayout.Value -> ClrRepr.Value
+        // `FTLocalTypar` stays `Reference`: it has no CLR token to `box` against.
+        | FTTypar _, _ -> ClrRepr.Boxable ty
+        | _, _ -> ClrRepr.Reference
+
+    /// Is a value of this type laid out flat? A typar answers `false`; `clrRepr` separates it
+    /// from a reference.
     let isValueType (env: EmitEnv) (ty: FrozenType) : bool =
-        TypeLayout.resolve (oracle env) (TypeLayout.shapeOfFrozen ty) = TypeLayout.Value
+        match clrRepr env ty with
+        | ClrRepr.Value -> true
+        | ClrRepr.Reference
+        | ClrRepr.Boxable _ -> false
 
     /// Test a pattern against the value in local `scrutSlot`: branch to `nextLabel` on
     /// a mismatch, and bind any pattern variables. `NamedSimple` aliases its bound variable to

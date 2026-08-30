@@ -14,6 +14,27 @@ open EmitDispatch
 /// expression leaving one reified `unit`.
 module EmitLoops =
 
+    /// How the `GetEnumerator` object argument is loaded and its call dispatched.
+    type private SourceDispatch =
+        /// The evaluated source is the object argument to a `callvirt`.
+        | SourceByValue
+        /// The source is spilled to a local, whose address is the object argument to a `call`.
+        | SourceByAddress
+        /// The source is spilled to a local, whose address is the object argument to a
+        /// `constrained. <Source> callvirt`.
+        | SourceByAddressConstrained
+
+    /// How `MoveNext` / `Current` / `Dispose` reach the enumerator `E`.
+    type private EnumeratorDispatch =
+        /// A reference `E`: `ldloc` then `callvirt`, with disposal guarded by a null check.
+        | EnumRefByValue
+        /// A concrete struct `E`: `ldloca` then `call`, with unconditional disposal through
+        /// `constrained. <E> callvirt` on the carried token.
+        | EnumStructByAddress of disposeConstrainedTok: EntityHandle
+        /// A typar `E`: `ldloca` then `constrained. <E> callvirt` for every member, with
+        /// unconditional disposal.
+        | EnumTyparConstrained
+
     /// The resolved shape of a `for x in src` enumerator walk. No `Dispose` handle:
     /// disposal always goes through the `System.IDisposable::Dispose` interface slot,
     /// minted once by the shared emitter.
@@ -24,16 +45,9 @@ module EmitLoops =
             GetEnumerator: EntityHandle
             MoveNext: EntityHandle
             Current: EntityHandle
-            IsValueType: bool
+            SourceDispatch: SourceDispatch
+            EnumeratorDispatch: EnumeratorDispatch
             Disposable: bool
-            // Select `constrained. <Source> callvirt` over a by-address `call` for
-            // `GetEnumerator`. Read only when the source is addressed.
-            GetEnumeratorViaInterface: bool
-            // The source is a generic typar reached through a custom seq interface.
-            GetEnumViaConstrained: bool
-            // The enumerator `E` is itself a generic typar, so its `MoveNext` / `Current`
-            // go `constrained. <E> callvirt`, addressing the slot for struct and class.
-            MembersViaConstrained: bool
         }
 
     /// Mint the interface method-slot handle for a `constrained. callvirt` for-in
@@ -114,52 +128,40 @@ module EmitLoops =
         (source: TastAccessor.ExprId)
         (body: TastAccessor.ExprId)
         : unit =
-        // Only the interface `Dispose` call needs a `constrained.` token; a struct's
-        // `MoveNext` / `Current` are its own members, reached by a plain `call`.
-        let constrainedTok =
-            if loop.IsValueType then
-                ValueSome(env.Provider.TypeToken loop.EnumeratorTy)
-            else
-                ValueNone
-
         let enumSlot = b.Local loop.EnumeratorTy
 
-        // Object argument for a member call on `E`: a struct or constrained typar by address
-        // (`ldloca`), a reference enumerator by value (`ldloc`).
         let loadEnumObjArg () =
-            if loop.IsValueType || loop.MembersViaConstrained then
-                b.Add(ILInstr.Ldloca enumSlot)
-            else
-                b.Add(ILInstr.Ldloc enumSlot)
+            match loop.EnumeratorDispatch with
+            | EnumRefByValue -> b.Add(ILInstr.Ldloc enumSlot)
+            | EnumStructByAddress _
+            | EnumTyparConstrained -> b.Add(ILInstr.Ldloca enumSlot)
 
-        // A concrete struct `E`'s `MoveNext` / `Current` are non-virtual, so a `call`.
         let callEnumMember (handle: EntityHandle) =
-            if loop.MembersViaConstrained then
+            match loop.EnumeratorDispatch with
+            | EnumRefByValue -> b.Add(ILInstr.Callvirt(handle, 1, 1))
+            | EnumStructByAddress _ -> b.Add(ILInstr.Call(handle, 1, 1))
+            | EnumTyparConstrained ->
                 b.Add(ILInstr.Constrained(env.Provider.TypeToken loop.EnumeratorTy))
-                b.Add(ILInstr.Callvirt(handle, 1, 1))
-            elif loop.IsValueType then
-                b.Add(ILInstr.Call(handle, 1, 1))
-            else
                 b.Add(ILInstr.Callvirt(handle, 1, 1))
 
         let sourceTy = typeOfExpr source
 
-        // The `GetEnumerator` object arg is spilled and addressed for a value-type source
-        // (a method call on a value) and for a constrained-typar source, because an `FTTypar`
-        // is not statically a value type but `constrained. callvirt` needs its address.
-        if EmitPattern.isValueType env sourceTy || loop.GetEnumViaConstrained then
+        let spillSourceAddress () =
             recur env b source
             let srcSlot = b.Local sourceTy
             b.Add(ILInstr.Stloc srcSlot)
             b.Add(ILInstr.Ldloca srcSlot)
 
-            if loop.GetEnumeratorViaInterface then
-                b.Add(ILInstr.Constrained(env.Provider.TypeToken sourceTy))
-                b.Add(ILInstr.Callvirt(loop.GetEnumerator, 1, 1))
-            else
-                b.Add(ILInstr.Call(loop.GetEnumerator, 1, 1))
-        else
+        match loop.SourceDispatch with
+        | SourceByValue ->
             recur env b source
+            b.Add(ILInstr.Callvirt(loop.GetEnumerator, 1, 1))
+        | SourceByAddress ->
+            spillSourceAddress ()
+            b.Add(ILInstr.Call(loop.GetEnumerator, 1, 1))
+        | SourceByAddressConstrained ->
+            spillSourceAddress ()
+            b.Add(ILInstr.Constrained(env.Provider.TypeToken sourceTy))
             b.Add(ILInstr.Callvirt(loop.GetEnumerator, 1, 1))
 
         b.Add(ILInstr.Stloc enumSlot)
@@ -192,25 +194,23 @@ module EmitLoops =
             b.Add ILInstr.BeginFinally
             b.SetDepth 0
 
-            if loop.IsValueType then
-                // A struct value is never null, and `brfalse` on a value is invalid IL,
-                // so dispose unconditionally. `IDisposable.Dispose` returns a real
-                // `void`, so the callvirt consumes only the object arg, leaving nothing to pop.
+            // `IDisposable.Dispose` returns a real `void`, so the `callvirt` consumes only the
+            // object arg, leaving nothing to pop.
+            let disposeAddressed (tok: EntityHandle) =
                 b.Add(ILInstr.Ldloca enumSlot)
-
-                match constrainedTok with
-                | ValueSome t -> b.Add(ILInstr.Constrained t)
-                | ValueNone -> ()
-
+                b.Add(ILInstr.Constrained tok)
                 b.Add(ILInstr.Callvirt(dispHandle, 1, 0))
-            else
-                // Reference enumerator: null-checked `callvirt` disposal.
+
+            match loop.EnumeratorDispatch with
+            | EnumRefByValue ->
                 let skipLabel = b.Label()
                 b.Add(ILInstr.Ldloc enumSlot)
                 b.Add(ILInstr.Brfalse skipLabel)
                 b.Add(ILInstr.Ldloc enumSlot)
                 b.Add(ILInstr.Callvirt(dispHandle, 1, 0))
                 b.Add(ILInstr.Mark skipLabel)
+            | EnumStructByAddress tok -> disposeAddressed tok
+            | EnumTyparConstrained -> disposeAddressed (env.Provider.TypeToken loop.EnumeratorTy)
 
             b.Add ILInstr.EndFinally
             b.SetDepth 0
@@ -266,15 +266,17 @@ module EmitLoops =
                 | ForInEnumMembersG.ConstrainedInterface(ifaceKey, ifaceArgs) ->
                     constrainedSlot env ifaceKey ifaceArgs "MoveNext", constrainedSlot env ifaceKey ifaceArgs "Current"
 
-            let getEnumViaConstrained =
+            let sourceDispatch =
                 match getEnum with
-                | ForInGetEnumG.ConstrainedInterface _ -> true
-                | _ -> false
+                | ForInGetEnumG.ConstrainedInterface _ -> SourceByAddressConstrained
+                | _ when EmitPattern.isValueType env (typeOfExpr source) -> SourceByAddress
+                | _ -> SourceByValue
 
-            let membersViaConstrained =
+            let enumeratorDispatch =
                 match members with
-                | ForInEnumMembersG.ConstrainedInterface _ -> true
-                | _ -> false
+                | ForInEnumMembersG.ConstrainedInterface _ -> EnumTyparConstrained
+                | _ when isValueType -> EnumStructByAddress(env.Provider.TypeToken enumeratorTy)
+                | _ -> EnumRefByValue
 
             emitEnumeratorLoop
                 recur
@@ -286,11 +288,9 @@ module EmitLoops =
                     GetEnumerator = geHandle
                     MoveNext = mnHandle
                     Current = curHandle
-                    IsValueType = isValueType
+                    SourceDispatch = sourceDispatch
+                    EnumeratorDispatch = enumeratorDispatch
                     Disposable = dispose
-                    GetEnumeratorViaInterface = getEnumViaConstrained
-                    GetEnumViaConstrained = getEnumViaConstrained
-                    MembersViaConstrained = membersViaConstrained
                 }
                 pat
                 source
@@ -344,6 +344,14 @@ module EmitLoops =
 
             let curHandle = env.Provider.ExternalMemberRef(curKey, true, false, elemTy)
 
+            // A struct source reaches `IEnumerable`1::GetEnumerator` through its own
+            // implementation, so the interface slot is addressed and `constrained.`.
+            let sourceDispatch =
+                if EmitPattern.isValueType env (typeOfExpr source) then
+                    SourceByAddressConstrained
+                else
+                    SourceByValue
+
             // An `IEnumerator<'T>` is always a reference and always `IDisposable`.
             emitEnumeratorLoop
                 recur
@@ -355,11 +363,9 @@ module EmitLoops =
                     GetEnumerator = geHandle
                     MoveNext = mnHandle
                     Current = curHandle
-                    IsValueType = false
+                    SourceDispatch = sourceDispatch
+                    EnumeratorDispatch = EnumRefByValue
                     Disposable = true
-                    GetEnumeratorViaInterface = true
-                    GetEnumViaConstrained = false
-                    MembersViaConstrained = false
                 }
                 pat
                 source

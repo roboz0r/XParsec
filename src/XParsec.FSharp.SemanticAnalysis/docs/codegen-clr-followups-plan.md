@@ -227,6 +227,39 @@ reads, so an external struct enumerator IS distinguished, and it too is rejected
 (`TyClass` for `FTClass` is the C2 family again; here the block did not survive on its own
 merits, so nothing was renamed.)
 
+## A17. `x :?> 'T` emits `castclass !!T` and silently yields garbage at a value-type instantiation
+
+`EmitIntrinsic.buildDowncast` picks `unbox.any` for a value-type target and `castclass`
+otherwise. A typar target classifies as `ClrRepr.Boxable`, so it takes the `castclass` arm, and
+`castclass !!T` leaves the boxed REFERENCE on the stack where the caller reads a `T`.
+
+Measured (2026-08-29), on `let cast (x: obj) : 'T = x :?> 'T`:
+
+```
+ldarg.1
+castclass  !!0        // 02 74 01 00 00 1B 2A
+ret
+```
+
+`cast<string> (box "s")` returns `"s"`; `cast<int> (box 5)` returns `1592763656`, the boxed
+object's address read as an `int`. It throws nothing, at emit or at JIT.
+
+`unbox.any !!T` is the whole-family instruction and what fsc emits: per ECMA-335 III.4.32 it
+unboxes at a value-type instantiation and is `castclass` at a reference one, so it replaces both
+arms rather than adding a third. `LanguagePrimitives.IntrinsicFunctions.UnboxGeneric` is
+`(# "unbox.any !0" … #)` for the same reason.
+
+`EmitPattern`'s `PatShape.TypeTestAs` shares the root: `:? 'T as x` takes the `else` branch,
+storing the `isinst` result into a `!!T` local, which is the same type confusion.
+
+## A18. `use` and an external instance call are unguarded on a typar
+
+Both read `isValueType`, which answers `false` for a typar, and both then emit a
+reference-shaped sequence. `EmitBindings.buildUse` `brfalse`s the loaded bound variable, and
+`EmitCall`'s `objArgIsStruct` pushes the object argument by value for a `callvirt`. Each needs
+`constrained.` plus an address, or a diagnostic. `clrRepr` distinguishes the case; neither site
+acts on it yet. A13 and A16 are the same family.
+
 ---
 
 # Part B — prose that should be a type
@@ -493,7 +526,7 @@ not prepare: neither keys a cache, and folding a digest reads the whole dependen
 the unspellable mismatch; the multi-file driver that would amortise one `prepare` across files
 is not written yet, so no throughput claim is being collected on.
 
-## B20. A CLR-repr classifier, not a `bool` over three outcomes
+## B20. A CLR-repr classifier, not a `bool` over three outcomes — **DONE (2026-08-29)**
 
 *Half landed with A15 (2026-08-13): `TypeLayout.shapeOfFrozen` enumerates every `FrozenType`
 case, so the open `_` arm that made A15 silent is gone and a new case is a compile error. What
@@ -506,6 +539,18 @@ must nonetheless box. Two shapes, two readers, one of which has to remember the 
 `clrRepr : FrozenType -> ClrRepr` over `Value | Reference | Boxable of typar` gives
 `buildUpcast` one match, and puts the typar outcome where the other two live rather than in the
 one caller that happens to need it.
+
+`ClrRepr` and `clrRepr` sit at namespace level in `EmitPattern.fs`, beside the layout oracle
+they resolve through. `isValueType` survives as a `bool` over `clrRepr`'s three cases, so the
+ten sites asking "is this laid out flat, so it must be addressed / `initobj`ed / `unbox.any`ed"
+keep the question they actually ask and there is still ONE classification. `buildUpcast` is the
+only caller migrated, because it is the only one that acts on the typar outcome today.
+
+`FTLocalTypar` stays `Reference`: it occupies no generic parameter slot, so `ClrEncoder` has no
+token to `box` against, and `Boxable` would turn a silent miss into an emit-time throw.
+
+`buildDowncast` was left on `isValueType`. Its typar behaviour is wrong, but the fix changes
+emitted IL, so it is A17 rather than part of this shape change.
 
 ## B21. A resolved reference set — `ProjectInfo.References` is a `string list` of paths
 
