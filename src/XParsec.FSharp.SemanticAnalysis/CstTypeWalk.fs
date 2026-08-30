@@ -192,7 +192,7 @@ module CstTypeWalk =
                     for md in mds do
                         memberDefn md
                 | ValueNone -> ()
-            | TypeDefnElement.InterfaceSpec(InterfaceSpec(typ = t)) -> ty t
+            | TypeDefnElement.InterfaceSpec(InterfaceSpec.InterfaceSpec(typ = t)) -> ty t
             | TypeDefnElement.Inherit(ClassInheritsDecl(typ = t)) -> onInherit t
 
         // A `[static] let` in a class preamble is a BODY, not declared structure, so only its
@@ -278,7 +278,7 @@ module CstTypeWalk =
     let iterTypeElementsSignatureStructure (it: TypeIter) (els: TypeElementsSignature<SyntaxToken>) : unit =
         for el in els do
             match el with
-            | TypeSignatureElement.Interface(InterfaceSpec(typ = t))
+            | TypeSignatureElement.Interface(InterfaceSpec.InterfaceSpec(typ = t))
             | TypeSignatureElement.Value(typ = t)
             | TypeSignatureElement.Inherit(ClassInheritsDecl(typ = t)) -> iterType it t
             | TypeSignatureElement.Constructor _

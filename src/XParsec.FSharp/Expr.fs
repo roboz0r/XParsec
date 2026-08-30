@@ -532,29 +532,21 @@ type TypeName<'T> =
         typarDefns: TyparDefns<'T> voption *
         postfixConstraints: TyparConstraints<'T> voption
 
-// Represents: type-defn-element and related constructs
-type TypeDefnElement<'T> =
-    | Member of MemberDefn<'T>
-    | InterfaceImpl of InterfaceImpl<'T>
-    | InterfaceSpec of InterfaceSpec<'T>
-    | Inherit of ClassInheritsDecl<'T>
-
-and InterfaceSpec<'T> = | InterfaceSpec of interfaceToken: 'T * typ: Type<'T>
-
-and TypeDefnElements<'T> = ImArr<TypeDefnElement<'T>>
+type InterfaceSpec<'T> = | InterfaceSpec of interfaceToken: 'T * typ: Type<'T>
 
 // Represents: member-sig and related signature constructs
-and ArgNameSpec<'T> = | ArgNameSpec of optional: 'T voption * ident: 'T * colon: 'T
+type ArgNameSpec<'T> = | ArgNameSpec of optional: 'T voption * ident: 'T * colon: 'T
 
-and ArgSpec<'T> = | ArgSpec of attributes: Attributes<'T> voption * name: ArgNameSpec<'T> voption * typ: Type<'T>
+type ArgSpec<'T> = | ArgSpec of attributes: Attributes<'T> voption * name: ArgNameSpec<'T> voption * typ: Type<'T>
 
-and ArgsSpec<'T> = | ArgsSpec of args: ImArr<ArgSpec<'T>> * asterisks: ImArr<'T>
+type ArgsSpec<'T> = | ArgsSpec of args: ImArr<ArgSpec<'T>> * asterisks: ImArr<'T>
 
-and CurriedSig<'T> = | CurriedSig of args: ImArr<struct (ArgsSpec<'T> * 'T)> * returnType: Type<'T>
+type CurriedSig<'T> = | CurriedSig of args: ImArr<struct (ArgsSpec<'T> * 'T)> * returnType: Type<'T>
 
-and UncurriedSig<'T> = | UncurriedSig of args: ArgsSpec<'T> * arrow: 'T * returnType: Type<'T>
+type UncurriedSig<'T> = | UncurriedSig of args: ArgsSpec<'T> * arrow: 'T * returnType: Type<'T>
 
-and [<RequireQualifiedAccess>] MemberSig<'T> =
+[<RequireQualifiedAccess>]
+type MemberSig<'T> =
     // `ident` is IdentOrOp so member/abstract sigs can use operator names: `static member (+): T * T -> T`.
     | MethodOrPropSig of ident: IdentOrOp<'T> * typarDefns: TyparDefns<'T> voption * colon: 'T * sign: CurriedSig<'T>
     | PropSig of
@@ -566,7 +558,8 @@ and [<RequireQualifiedAccess>] MemberSig<'T> =
         getSet: ('T * 'T voption) // (get, option<set>) or (set, option<get>)
 
 // Represents: method-or-prop-defn
-and [<RequireQualifiedAccess>] MethodOrPropDefn<'T> =
+[<RequireQualifiedAccess>]
+type MethodOrPropDefn<'T> =
     | Method of ident: struct ('T * 'T) voption * defn: Binding<'T>
     | Property of ident: struct ('T * 'T) voption * defn: Binding<'T>
     | PropertyWithGetSet of
@@ -585,14 +578,28 @@ and [<RequireQualifiedAccess>] MethodOrPropDefn<'T> =
         withClause: struct ('T * 'T * 'T voption) voption // with, get/set, optional comma and other get/set
     | AbstractSignature of sign: MemberSig<'T>
 
-and [<RequireQualifiedAccess>] MemberKeyword<'T> =
+[<RequireQualifiedAccess>]
+type MemberKeyword<'T> =
     | Member of 'T
     | Override of 'T
     | Default of 'T
     | Abstract of abstractToken: 'T * memberToken: 'T voption
 
+// Represents: class, struct, and interface bodies
+type ClassInheritsDecl<'T> = | ClassInheritsDecl of inheritToken: 'T * typ: Type<'T> * expr: Expr<'T> voption
+
+type AdditionalConstrInitExpr<'T> =
+    | Explicit of
+        lBrace: 'T *
+        inherits: ClassInheritsDecl<'T> voption *
+        initializers: ImArr<FieldInitializer<'T>> *
+        rBrace: 'T
+    | Delegated of newToken: 'T * typ: Type<'T> * expr: Expr<'T>
+    | Expression of expr: Expr<'T>
+
 // Represents: additional-constr-defn and its expression body
-and [<RequireQualifiedAccess>] AdditionalConstrExpr<'T> =
+[<RequireQualifiedAccess>]
+type AdditionalConstrExpr<'T> =
     | SequenceAfter of stmt: Expr<'T> * semicolon: 'T * rest: AdditionalConstrExpr<'T>
     | SequenceBefore of before: AdditionalConstrExpr<'T> * thenToken: 'T * expr: Expr<'T>
     | Conditional of
@@ -605,19 +612,11 @@ and [<RequireQualifiedAccess>] AdditionalConstrExpr<'T> =
     | LetIn of letToken: 'T * binding: Binding<'T> * inToken: 'T * body: AdditionalConstrExpr<'T>
     | Init of initExpr: AdditionalConstrInitExpr<'T>
 
-and AdditionalConstrInitExpr<'T> =
-    | Explicit of
-        lBrace: 'T *
-        inherits: ClassInheritsDecl<'T> voption *
-        initializers: ImArr<FieldInitializer<'T>> *
-        rBrace: 'T
-    | Delegated of newToken: 'T * typ: Type<'T> * expr: Expr<'T>
-    | Expression of expr: Expr<'T>
-
-and AsDefn<'T> = | AsDefn of asToken: 'T * ident: 'T
+type AsDefn<'T> = | AsDefn of asToken: 'T * ident: 'T
 
 // Represents: member-defn
-and [<RequireQualifiedAccess>] MemberDefn<'T> =
+[<RequireQualifiedAccess>]
+type MemberDefn<'T> =
     | Member of
         attributes: Attributes<'T> voption *
         staticToken: 'T voption *
@@ -643,10 +642,16 @@ and [<RequireQualifiedAccess>] MemberDefn<'T> =
         equals: 'T *
         body: AdditionalConstrExpr<'T>
 
-// Represents: class, struct, and interface bodies
-and ClassInheritsDecl<'T> = | ClassInheritsDecl of inheritToken: 'T * typ: Type<'T> * expr: Expr<'T> voption
+// Represents: type-defn-element and related constructs
+type TypeDefnElement<'T> =
+    | Member of MemberDefn<'T>
+    | InterfaceImpl of InterfaceImpl<'T>
+    | InterfaceSpec of InterfaceSpec<'T>
+    | Inherit of ClassInheritsDecl<'T>
 
-and ClassFunctionOrValueDefn<'T> =
+type TypeDefnElements<'T> = ImArr<TypeDefnElement<'T>>
+
+type ClassFunctionOrValueDefn<'T> =
     | LetBindings of
         attributes: Attributes<'T> voption *
         staticToken: 'T voption *
@@ -658,7 +663,7 @@ and ClassFunctionOrValueDefn<'T> =
 
 // Unified body type for class, struct, and interface definitions.
 // For structs and interfaces: inherits=ValueNone, classPreamble=[]
-and ObjectModelBody<'T> =
+type ObjectModelBody<'T> =
     {
         inherits: ClassInheritsDecl<'T> voption
         classPreamble: ImArr<ClassFunctionOrValueDefn<'T>>
@@ -666,11 +671,13 @@ and ObjectModelBody<'T> =
     }
 
 // Represents: union-type-defn and its cases
-and [<RequireQualifiedAccess>] UnionTypeField<'T> =
+[<RequireQualifiedAccess>]
+type UnionTypeField<'T> =
     | Unnamed of typ: Type<'T>
     | Named of ident: 'T * colon: 'T * typ: Type<'T>
 
-and [<RequireQualifiedAccess>] UnionTypeCaseData<'T> =
+[<RequireQualifiedAccess>]
+type UnionTypeCaseData<'T> =
     // `name` is IdentOrOp so it can be a plain identifier, a parenthesized
     // operator, or an empty-bracket `([])` op (FSharp.Core List cases).
     | Nullary of name: IdentOrOp<'T>
@@ -680,12 +687,12 @@ and [<RequireQualifiedAccess>] UnionTypeCaseData<'T> =
     // GADT-style nullary: | Name : retType  (no arrow)
     | GadtNullary of name: IdentOrOp<'T> * colon: 'T * typ: Type<'T>
 
-and UnionTypeCase<'T> = | UnionTypeCase of attributes: Attributes<'T> voption * data: UnionTypeCaseData<'T>
+type UnionTypeCase<'T> = | UnionTypeCase of attributes: Attributes<'T> voption * data: UnionTypeCaseData<'T>
 
-and UnionTypeCases<'T> = ImArr<UnionTypeCase<'T>>
+type UnionTypeCases<'T> = ImArr<UnionTypeCase<'T>>
 
 // Represents: record-type-defn and its fields
-and RecordField<'T> =
+type RecordField<'T> =
     | RecordField of
         attributes: Attributes<'T> voption *
         mutableToken: 'T voption *
@@ -694,19 +701,21 @@ and RecordField<'T> =
         colon: 'T *
         typ: Type<'T>
 
-and RecordFields<'T> = ImArr<RecordField<'T>>
+type RecordFields<'T> = ImArr<RecordField<'T>>
 
 // Represents: enum-type-defn and its cases
-and EnumTypeCase<'T> =
+type EnumTypeCase<'T> =
     | EnumTypeCase of attributes: Attributes<'T> voption * ident: 'T * equals: 'T * constValue: Expr<'T>
 
-and EnumTypeCases<'T> = ImArr<EnumTypeCase<'T>>
+type EnumTypeCases<'T> = ImArr<EnumTypeCase<'T>>
 
 // Represents: type-extension
-and TypeExtensionElements<'T> = | TypeExtensionElements of withToken: 'T * elements: TypeDefnElements<'T> * endToken: 'T
+type TypeExtensionElements<'T> =
+    | TypeExtensionElements of withToken: 'T * elements: TypeDefnElements<'T> * endToken: 'T
 
 // Represents: exception-defn
-and [<RequireQualifiedAccess>] ExceptionDefn<'T> =
+[<RequireQualifiedAccess>]
+type ExceptionDefn<'T> =
     | Full of
         attributes: Attributes<'T> voption *
         exceptionToken: 'T *
@@ -720,10 +729,11 @@ and [<RequireQualifiedAccess>] ExceptionDefn<'T> =
         longIdent: LongIdent<'T>
 
 // Represents: delegate-type-defn
-and DelegateSig<'T> = | DelegateSig of delegateToken: 'T * ofToken: 'T * sign: UncurriedSig<'T>
+type DelegateSig<'T> = | DelegateSig of delegateToken: 'T * ofToken: 'T * sign: UncurriedSig<'T>
 
 // Represents: type-defn, the top-level definition
-and [<RequireQualifiedAccess>] TypeDefn<'T> =
+[<RequireQualifiedAccess>]
+type TypeDefn<'T> =
     | Abbrev of typeName: TypeName<'T> * equals: 'T * typ: Type<'T> * extensions: TypeExtensionElements<'T> voption
     | Record of
         typeName: TypeName<'T> *

@@ -64,15 +64,243 @@ type DeclaredClassFlags =
             AllowNullLiteral = false
         }
 
+/// `Fields` are the case's payload in declaration order; a field's name is
+/// `ValueNone` when the source is positional (`Cons of 'T * list`). Empty
+/// `Fields` ⇒ a nullary case (`Empty`).
+type TUnionCaseG<'ty> =
+    {
+        Name: string
+        Fields: EqArray<string voption * 'ty>
+        Attributes: TAttributes
+    }
+
+/// A resolved enum-case literal. Only `Int` / `String` are representable; the elaborator
+/// records `ValueNone` for any other constant it rejects.
 [<RequireQualifiedAccess>]
-type TDeclG<'ty, 'tok, 'id> =
-    | Let of pattern: TPatG<'ty, 'tok, 'id> * value: TExprG<'ty, 'tok, 'id> * isInline: bool * ty: 'ty
-    | Expression of expr: TExprG<'ty, 'tok, 'id> * ty: 'ty
-    | Type of TTypeDeclG<'ty, 'tok, 'id, TExprG<'ty, 'tok, 'id>>
+type TEnumLiteral =
+    /// Always a `TConstValue.Integral` whose kind satisfies `IntKind.isEnumBase` (never
+    /// pointer-width), carrying the AUTHORED kind, so an unsuffixed `int` becomes `I32` at
+    /// freeze, not here.
+    | Int of value: TConstValue
+    /// A string enum-case value: the stitched literal text, escapes decoded.
+    | String of value: string
+
+type TEnumCaseG<'tok> =
+    {
+        /// Case identifier (`C` in `| C = v`).
+        Name: string
+        /// `ValueNone` when the source value is not a legal literal (a non-literal
+        /// expression, an interpolated string, a non-int-non-string constant), for which a
+        /// hard error was reported; the case is kept so its siblings live.
+        Value: TEnumLiteral voption
+        Tok: 'tok
+        Attributes: TAttributes
+    }
+
+/// One field of a `TTypeKind.Record`. `Type` carries the field's declared type, which for a generic
+/// record uses the declaring type's typar markers (`TyTypar(Declaring, i)`). `IsMutable` is the
+/// source-level `mutable` annotation.
+type TRecordFieldG<'ty> =
+    {
+        Name: string
+        Type: 'ty
+        IsMutable: bool
+        Attributes: TAttributes
+    }
+
+[<RequireQualifiedAccess>]
+type TMemberKind =
+    | Method
+    /// A parameterless getter, emitted as a `get_<Name>` method.
+    | Property
+
+type TTypeMemberG<'ty, 'id, 'body> =
+    {
+        Name: string
+        IsStatic: bool
+        Accessibility: Accessibility
+        IsInline: bool
+        Kind: TMemberKind
+        /// `true` when declared with the `override` OR the `default` keyword.
+        IsOverride: bool
+        /// Instance members only; `ValueNone` for a static member.
+        ThisKey: BoundVarKeyG<'id> voption
+        /// The synthetic `base` bound variable of the declaring class; `ValueNone` for a static or
+        /// union member, or a class with no `inherit`. A `base.M(…)` object argument loads as the
+        /// same `ldarg.0` as `this`; `CallVia.Base` is what makes the dispatch non-virtual.
+        BaseKey: BoundVarKeyG<'id> voption
+        ThisTy: 'ty
+        /// Parameter bound variables in declaration order; empty for a property or a nullary method.
+        Params: EqArray<BoundVarKeyG<'id> * 'ty>
+        Body: 'body
+        ReturnTy: 'ty
+        /// The member's *own* generic parameters (`member this.Map<'C> …`), distinct from
+        /// the declaring type's `TypeParams`. Each entry pairs the source name with the
+        /// typar's own type.
+        MethodTypeParams: EqArray<string * 'ty>
+        /// The member's attributes, resolved and constant-folded.
+        Attributes: TAttributes
+    }
+
+/// The payload of `TTypeKindG.Union`.
+type TUnionG<'ty, 'id, 'body> =
+    {
+        /// In declaration order, so a case's index is its runtime tag.
+        Cases: EqArray<TUnionCaseG<'ty>>
+        /// The augmentation members (`with member …` / `static member …`).
+        Members: EqArray<TTypeMemberG<'ty, 'id, 'body>>
+        /// Each entry pairs a resolved interface type with the bodies of its
+        /// `interface … with` block.
+        Interfaces: EqArray<'ty * EqArray<TTypeMemberG<'ty, 'id, 'body>>>
+    }
+
+/// The payload of `TTypeKindG.Record`.
+type TRecordG<'ty, 'id, 'body> =
+    {
+        /// The record's payload in declaration order.
+        Fields: EqArray<TRecordFieldG<'ty>>
+        /// The augmentation members (`with member …` / `static member …`).
+        Members: EqArray<TTypeMemberG<'ty, 'id, 'body>>
+        /// Each entry pairs a resolved interface type with the bodies of its
+        /// `interface … with` block.
+        Interfaces: EqArray<'ty * EqArray<TTypeMemberG<'ty, 'id, 'body>>>
+        ValueKind: RecordValueKind
+    }
+
+/// One `[static] let [mutable] x = <init>` of a class preamble: a private static field the
+/// `.cctor` initialises, or a private instance field the primary ctor does. One `let`, one
+/// field, so references to it are `FieldGet`/`FieldSet` on `this`, never a `TExpr.Let`.
+type TClassLetG<'ty, 'body> =
+    {
+        Name: string
+        Type: 'ty
+        IsMutable: bool
+        Init: 'body
+    }
+
+/// One entry of a class preamble, in DECLARATION order, because interleaving is order-sensitive
+/// (`static let a = f()` / `static do g a` / `static let b = h()`).
+[<RequireQualifiedAccess>]
+type TPreambleEntryG<'ty, 'body> =
+    | Let of TClassLetG<'ty, 'body>
+    | Do of 'body
+
+/// One `let`-preamble binding inside a secondary constructor body
+/// (`new(args) = let x = e in SelfType(...)`). `BoundVar` is the local's identity: codegen
+/// allocates a local slot, and a reference to the name in the body loads it.
+type TCtorLetG<'ty, 'id, 'body> =
+    {
+        BoundVar: BoundVarKeyG<'id>
+        Type: 'ty
+        Init: 'body
+    }
+
+/// One `field = expr` initialiser of a secondary constructor's explicit field-init block
+/// (`new(s) = { stack = s; started = false }`). `Field` identifies a declared instance field (an
+/// explicit `val` or a primary-ctor backing field); `Init` is stored into it via `stfld`.
+type TCtorFieldInitG<'body> = { Field: string; Init: 'body }
+
+/// What a secondary constructor's body does after its `let` preamble.
+[<RequireQualifiedAccess>]
+type TSecondaryCtorBodyG<'body> =
+    /// `new(args) = SelfType(...)`: the arguments chained to the primary `.ctor`. `this` is
+    /// not yet constructed at this point.
+    | Chain of primaryArgs: EqArray<'body>
+    /// `new(args) = { f = e; … }`: stores into declared instance fields, with no chain.
+    | ExplicitFieldInit of fieldInits: EqArray<TCtorFieldInitG<'body>>
+
+/// A secondary constructor, emitted as a `.ctor` overload.
+type TSecondaryCtorG<'ty, 'id, 'body> =
+    {
+        Params: EqArray<BoundVarKeyG<'id> * 'ty>
+        Lets: EqArray<TCtorLetG<'ty, 'id, 'body>>
+        Body: TSecondaryCtorBodyG<'body>
+    }
+
+/// An `inherit Base(args)` invocation: the primary `.ctor` chains to the parent's
+/// (`ldarg.0; <Args>; call instance void Base::.ctor(…)`) before storing its own fields.
+/// `CtorParams` are the *derived* class's primary-ctor params, because `this` isn't constructed yet.
+type TBaseCtorCallG<'ty, 'id, 'body> =
+    {
+        CtorParams: EqArray<BoundVarKeyG<'id> * 'ty>
+        Args: EqArray<'body>
+        /// The chosen base `.ctor`'s identity for an EXTERNAL base (`inherit exn(msg)`).
+        /// `ValueNone` for a project-local base, and for an external base whose overload
+        /// identity was never recorded.
+        ChosenCtor: SymbolKey voption
+    }
+
+/// A class's `inherit` clause on the typed node: the admitted parent, and the primary
+/// `.ctor`'s chain to it. `Ctor` is `ValueNone` when the clause carries no argument list
+/// (the `val`-field form's secondaries chain themselves).
+type TBaseG<'ty, 'id, 'body> =
+    {
+        Parent: BaseParentG<'ty>
+        Ctor: TBaseCtorCallG<'ty, 'id, 'body> voption
+    }
+
+/// `Signature` is the curried function type. `MethodTypeParams` are the method's own generic
+/// parameters in source order (`["'C"]` for `abstract Map<'C> : 'A -> 'C`): the names as written,
+/// whereas in `Signature` they appear as `TyTypar(Method, i)`, the declaring type's as
+/// `TyTypar(Declaring, i)`.
+type TAbstractMethodG<'ty> =
+    {
+        Name: string
+        MethodTypeParams: EqArray<string>
+        Signature: 'ty
+        /// `true` for an abstract *property*: an arg-less member sig, `abstract member
+        /// Current : int`, which emits as a `get_Current` slot. A method slot keeps its
+        /// bare name.
+        IsProperty: bool
+    }
+
+/// The payload of `TTypeKindG.Class`. No `'tok`: a class bears no token of its own, `Enum`'s
+/// case identifiers being the only tokens under a type declaration.
+type TClassG<'ty, 'id, 'body> =
+    {
+        /// The explicit `val [mutable] x: T` instance fields.
+        Fields: EqArray<TRecordFieldG<'ty>>
+        /// The primary constructor's parameters, borrowing the record-field shape.
+        CtorParams: EqArray<TRecordFieldG<'ty>>
+        Members: EqArray<TTypeMemberG<'ty, 'id, 'body>>
+        Base: TBaseG<'ty, 'id, 'body> voption
+        Interfaces: EqArray<'ty * EqArray<TTypeMemberG<'ty, 'id, 'body>>>
+        Declared: DeclaredClassFlags
+        /// `static let` / `static do`, in declaration order: the body of the synthesised `.cctor`.
+        StaticPreamble: EqArray<TPreambleEntryG<'ty, 'body>>
+        /// Instance `let` / `do`, in declaration order: the END of the primary ctor,
+        /// running after the base-ctor call and the ctor-param field stores.
+        InstancePreamble: EqArray<TPreambleEntryG<'ty, 'body>>
+        /// The `this` bound variable, on the class and not only on each member because the INSTANCE
+        /// preamble reads fields through it too: a ctor-param reference in an initialiser is
+        /// a `FieldGet` on a `Var` of this key.
+        ThisKey: BoundVarKeyG<'id>
+        SecondaryCtors: EqArray<TSecondaryCtorG<'ty, 'id, 'body>>
+        ValueKind: ClassValueKind
+        /// True when the class declares a *primary* constructor (`type T(args) =`, including
+        /// `type T() =`); false for the `val`-field form (`type T = val …; new(…) = { … }`),
+        /// whose secondaries ARE the ctors, because a synthesised primary would collide with `new()`.
+        HasPrimaryCtor: bool
+    }
+
+[<RequireQualifiedAccess>]
+type TTypeKindG<'ty, 'tok, 'id, 'body> =
+    | Interface of methods: EqArray<TAbstractMethodG<'ty>>
+    | Union of TUnionG<'ty, 'id, 'body>
+    | Record of TRecordG<'ty, 'id, 'body>
+    | Class of TClassG<'ty, 'id, 'body>
+    /// `cases` in declaration order, each pairing a case identifier with its **resolved**
+    /// compile-time literal (`| C = v`). An enum is `'ty`-free: a case value is an integer or
+    /// string literal, never a typed term. Numeric / string / mixed is derived, not stored.
+    | Enum of cases: EqArray<TEnumCaseG<'tok>>
+    /// `type t = body`, a transparent alias: `body` is the right-hand side over the
+    /// declaration's own typars, and a use of the name expands to it. A backend emits nothing
+    /// for this kind.
+    | Abbrev of body: 'ty
 
 /// `'body` abstracts how a member/preamble/ctor BODY is carried: either the expression tree
 /// itself (`TExprG<'ty,'tok,'id>`) or a dense id identifying that expression in a pool.
-and TTypeDeclG<'ty, 'tok, 'id, 'body> =
+type TTypeDeclG<'ty, 'tok, 'id, 'body> =
     {
         /// Simple (unqualified) type name, e.g. `"Fun"`, never `` `arity ``-mangled: the
         /// suffix belongs to the metadata name (`` Fun`2 ``) instead.
@@ -123,234 +351,11 @@ and TTypeDeclG<'ty, 'tok, 'id, 'body> =
     member this.ComparisonSupport: ComparisonVerdict =
         AttributeVerdicts.comparisonSupport this.DefnKind this.Attributes
 
-and [<RequireQualifiedAccess>] TTypeKindG<'ty, 'tok, 'id, 'body> =
-    | Interface of methods: EqArray<TAbstractMethodG<'ty>>
-    | Union of TUnionG<'ty, 'id, 'body>
-    | Record of TRecordG<'ty, 'id, 'body>
-    | Class of TClassG<'ty, 'id, 'body>
-    /// `cases` in declaration order, each pairing a case identifier with its **resolved**
-    /// compile-time literal (`| C = v`). An enum is `'ty`-free: a case value is an integer or
-    /// string literal, never a typed term. Numeric / string / mixed is derived, not stored.
-    | Enum of cases: EqArray<TEnumCaseG<'tok>>
-    /// `type t = body`, a transparent alias: `body` is the right-hand side over the
-    /// declaration's own typars, and a use of the name expands to it. A backend emits nothing
-    /// for this kind.
-    | Abbrev of body: 'ty
-
-/// The payload of `TTypeKindG.Union`.
-and TUnionG<'ty, 'id, 'body> =
-    {
-        /// In declaration order, so a case's index is its runtime tag.
-        Cases: EqArray<TUnionCaseG<'ty>>
-        /// The augmentation members (`with member …` / `static member …`).
-        Members: EqArray<TTypeMemberG<'ty, 'id, 'body>>
-        /// Each entry pairs a resolved interface type with the bodies of its
-        /// `interface … with` block.
-        Interfaces: EqArray<'ty * EqArray<TTypeMemberG<'ty, 'id, 'body>>>
-    }
-
-/// The payload of `TTypeKindG.Record`.
-and TRecordG<'ty, 'id, 'body> =
-    {
-        /// The record's payload in declaration order.
-        Fields: EqArray<TRecordFieldG<'ty>>
-        /// The augmentation members (`with member …` / `static member …`).
-        Members: EqArray<TTypeMemberG<'ty, 'id, 'body>>
-        /// Each entry pairs a resolved interface type with the bodies of its
-        /// `interface … with` block.
-        Interfaces: EqArray<'ty * EqArray<TTypeMemberG<'ty, 'id, 'body>>>
-        ValueKind: RecordValueKind
-    }
-
-/// The payload of `TTypeKindG.Class`. No `'tok`: a class bears no token of its own, `Enum`'s
-/// case identifiers being the only tokens under a type declaration.
-and TClassG<'ty, 'id, 'body> =
-    {
-        /// The explicit `val [mutable] x: T` instance fields.
-        Fields: EqArray<TRecordFieldG<'ty>>
-        /// The primary constructor's parameters, borrowing the record-field shape.
-        CtorParams: EqArray<TRecordFieldG<'ty>>
-        Members: EqArray<TTypeMemberG<'ty, 'id, 'body>>
-        Base: TBaseG<'ty, 'id, 'body> voption
-        Interfaces: EqArray<'ty * EqArray<TTypeMemberG<'ty, 'id, 'body>>>
-        Declared: DeclaredClassFlags
-        /// `static let` / `static do`, in declaration order: the body of the synthesised `.cctor`.
-        StaticPreamble: EqArray<TPreambleEntryG<'ty, 'body>>
-        /// Instance `let` / `do`, in declaration order: the END of the primary ctor,
-        /// running after the base-ctor call and the ctor-param field stores.
-        InstancePreamble: EqArray<TPreambleEntryG<'ty, 'body>>
-        /// The `this` bound variable, on the class and not only on each member because the INSTANCE
-        /// preamble reads fields through it too: a ctor-param reference in an initialiser is
-        /// a `FieldGet` on a `Var` of this key.
-        ThisKey: BoundVarKeyG<'id>
-        SecondaryCtors: EqArray<TSecondaryCtorG<'ty, 'id, 'body>>
-        ValueKind: ClassValueKind
-        /// True when the class declares a *primary* constructor (`type T(args) =`, including
-        /// `type T() =`); false for the `val`-field form (`type T = val …; new(…) = { … }`),
-        /// whose secondaries ARE the ctors, because a synthesised primary would collide with `new()`.
-        HasPrimaryCtor: bool
-    }
-
-/// `Fields` are the case's payload in declaration order; a field's name is
-/// `ValueNone` when the source is positional (`Cons of 'T * list`). Empty
-/// `Fields` ⇒ a nullary case (`Empty`).
-and TUnionCaseG<'ty> =
-    {
-        Name: string
-        Fields: EqArray<string voption * 'ty>
-        Attributes: TAttributes
-    }
-
-/// A resolved enum-case literal. Only `Int` / `String` are representable; the elaborator
-/// records `ValueNone` for any other constant it rejects.
-and [<RequireQualifiedAccess>] TEnumLiteral =
-    /// Always a `TConstValue.Integral` whose kind satisfies `IntKind.isEnumBase` (never
-    /// pointer-width), carrying the AUTHORED kind, so an unsuffixed `int` becomes `I32` at
-    /// freeze, not here.
-    | Int of value: TConstValue
-    /// A string enum-case value: the stitched literal text, escapes decoded.
-    | String of value: string
-
-and TEnumCaseG<'tok> =
-    {
-        /// Case identifier (`C` in `| C = v`).
-        Name: string
-        /// `ValueNone` when the source value is not a legal literal (a non-literal
-        /// expression, an interpolated string, a non-int-non-string constant), for which a
-        /// hard error was reported; the case is kept so its siblings live.
-        Value: TEnumLiteral voption
-        Tok: 'tok
-        Attributes: TAttributes
-    }
-
-/// One field of a `TTypeKind.Record`. `Type` carries the field's declared type, which for a generic
-/// record uses the declaring type's typar markers (`TyTypar(Declaring, i)`). `IsMutable` is the
-/// source-level `mutable` annotation.
-and TRecordFieldG<'ty> =
-    {
-        Name: string
-        Type: 'ty
-        IsMutable: bool
-        Attributes: TAttributes
-    }
-
-and [<RequireQualifiedAccess>] TMemberKind =
-    | Method
-    /// A parameterless getter, emitted as a `get_<Name>` method.
-    | Property
-
-and TTypeMemberG<'ty, 'id, 'body> =
-    {
-        Name: string
-        IsStatic: bool
-        Accessibility: Accessibility
-        IsInline: bool
-        Kind: TMemberKind
-        /// `true` when declared with the `override` OR the `default` keyword.
-        IsOverride: bool
-        /// Instance members only; `ValueNone` for a static member.
-        ThisKey: BoundVarKeyG<'id> voption
-        /// The synthetic `base` bound variable of the declaring class; `ValueNone` for a static or
-        /// union member, or a class with no `inherit`. A `base.M(…)` object argument loads as the
-        /// same `ldarg.0` as `this`; `CallVia.Base` is what makes the dispatch non-virtual.
-        BaseKey: BoundVarKeyG<'id> voption
-        ThisTy: 'ty
-        /// Parameter bound variables in declaration order; empty for a property or a nullary method.
-        Params: EqArray<BoundVarKeyG<'id> * 'ty>
-        Body: 'body
-        ReturnTy: 'ty
-        /// The member's *own* generic parameters (`member this.Map<'C> …`), distinct from
-        /// the declaring type's `TypeParams`. Each entry pairs the source name with the
-        /// typar's own type.
-        MethodTypeParams: EqArray<string * 'ty>
-        /// The member's attributes, resolved and constant-folded.
-        Attributes: TAttributes
-    }
-
-/// One `[static] let [mutable] x = <init>` of a class preamble: a private static field the
-/// `.cctor` initialises, or a private instance field the primary ctor does. One `let`, one
-/// field, so references to it are `FieldGet`/`FieldSet` on `this`, never a `TExpr.Let`.
-and TClassLetG<'ty, 'body> =
-    {
-        Name: string
-        Type: 'ty
-        IsMutable: bool
-        Init: 'body
-    }
-
-/// One entry of a class preamble, in DECLARATION order, because interleaving is order-sensitive
-/// (`static let a = f()` / `static do g a` / `static let b = h()`).
-and [<RequireQualifiedAccess>] TPreambleEntryG<'ty, 'body> =
-    | Let of TClassLetG<'ty, 'body>
-    | Do of 'body
-
-/// One `let`-preamble binding inside a secondary constructor body
-/// (`new(args) = let x = e in SelfType(...)`). `BoundVar` is the local's identity: codegen
-/// allocates a local slot, and a reference to the name in the body loads it.
-and TCtorLetG<'ty, 'id, 'body> =
-    {
-        BoundVar: BoundVarKeyG<'id>
-        Type: 'ty
-        Init: 'body
-    }
-
-/// One `field = expr` initialiser of a secondary constructor's explicit field-init block
-/// (`new(s) = { stack = s; started = false }`). `Field` identifies a declared instance field (an
-/// explicit `val` or a primary-ctor backing field); `Init` is stored into it via `stfld`.
-and TCtorFieldInitG<'body> = { Field: string; Init: 'body }
-
-/// What a secondary constructor's body does after its `let` preamble.
-and [<RequireQualifiedAccess>] TSecondaryCtorBodyG<'body> =
-    /// `new(args) = SelfType(...)`: the arguments chained to the primary `.ctor`. `this` is
-    /// not yet constructed at this point.
-    | Chain of primaryArgs: EqArray<'body>
-    /// `new(args) = { f = e; … }`: stores into declared instance fields, with no chain.
-    | ExplicitFieldInit of fieldInits: EqArray<TCtorFieldInitG<'body>>
-
-/// A secondary constructor, emitted as a `.ctor` overload.
-and TSecondaryCtorG<'ty, 'id, 'body> =
-    {
-        Params: EqArray<BoundVarKeyG<'id> * 'ty>
-        Lets: EqArray<TCtorLetG<'ty, 'id, 'body>>
-        Body: TSecondaryCtorBodyG<'body>
-    }
-
-/// A class's `inherit` clause on the typed node: the admitted parent, and the primary
-/// `.ctor`'s chain to it. `Ctor` is `ValueNone` when the clause carries no argument list
-/// (the `val`-field form's secondaries chain themselves).
-and TBaseG<'ty, 'id, 'body> =
-    {
-        Parent: BaseParentG<'ty>
-        Ctor: TBaseCtorCallG<'ty, 'id, 'body> voption
-    }
-
-/// An `inherit Base(args)` invocation: the primary `.ctor` chains to the parent's
-/// (`ldarg.0; <Args>; call instance void Base::.ctor(…)`) before storing its own fields.
-/// `CtorParams` are the *derived* class's primary-ctor params, because `this` isn't constructed yet.
-and TBaseCtorCallG<'ty, 'id, 'body> =
-    {
-        CtorParams: EqArray<BoundVarKeyG<'id> * 'ty>
-        Args: EqArray<'body>
-        /// The chosen base `.ctor`'s identity for an EXTERNAL base (`inherit exn(msg)`).
-        /// `ValueNone` for a project-local base, and for an external base whose overload
-        /// identity was never recorded.
-        ChosenCtor: SymbolKey voption
-    }
-
-/// `Signature` is the curried function type. `MethodTypeParams` are the method's own generic
-/// parameters in source order (`["'C"]` for `abstract Map<'C> : 'A -> 'C`): the names as written,
-/// whereas in `Signature` they appear as `TyTypar(Method, i)`, the declaring type's as
-/// `TyTypar(Declaring, i)`.
-and TAbstractMethodG<'ty> =
-    {
-        Name: string
-        MethodTypeParams: EqArray<string>
-        Signature: 'ty
-        /// `true` for an abstract *property*: an arg-less member sig, `abstract member
-        /// Current : int`, which emits as a `get_Current` slot. A method slot keeps its
-        /// bare name.
-        IsProperty: bool
-    }
+[<RequireQualifiedAccess>]
+type TDeclG<'ty, 'tok, 'id> =
+    | Let of pattern: TPatG<'ty, 'tok, 'id> * value: TExprG<'ty, 'tok, 'id> * isInline: bool * ty: 'ty
+    | Expression of expr: TExprG<'ty, 'tok, 'id> * ty: 'ty
+    | Type of TTypeDeclG<'ty, 'tok, 'id, TExprG<'ty, 'tok, 'id>>
 
 [<RequireQualifiedAccess>]
 module TTypeKindG =

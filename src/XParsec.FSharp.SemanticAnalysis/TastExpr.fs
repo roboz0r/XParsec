@@ -116,6 +116,90 @@ type Disposal =
     /// backends `failwith` on it.
     | Unresolved
 
+/// One arm of a `Match` / `TryWith`. `'pat`/`'e` abstract over how the pattern and the
+/// guard/body expressions are carried: either the trees themselves, or handles identifying them
+/// in a pool.
+type TMatchArmG<'pat, 'e> =
+    {
+        Pat: 'pat
+        Guard: 'e voption
+        Body: 'e
+    }
+
+/// Where a format expression writes. `ToWriter`/`ToBuilder` carry the explicit sink
+/// (`fprintf` / `bprintf`); `newline` records the trailing `\n` an `…fn` spelling adds,
+/// though `ToBuilder` has none, F# having no `bprintfn`.
+[<RequireQualifiedAccess>]
+type FormatSinkG<'e> =
+    | ToStdOut of newline: bool
+    | ToStdErr of newline: bool
+    | ToWriter of writer: 'e * newline: bool
+    | ToBuilder of 'e
+    | ToString
+
+/// `Width` is present iff the width is a star (`%*…`), `Precision` iff the precision is a
+/// star (`%.*…`); at least one is, since a plain hole stays a `Hole` segment.
+type DynFormatHoleG<'ty, 'tok, 'e> =
+    {
+        Width: 'e voption
+        Precision: 'e voption
+        Spec: HoleSpecG<'ty, 'tok>
+        Value: 'e
+    }
+
+[<RequireQualifiedAccess>]
+type FormatSegG<'ty, 'tok, 'e> =
+    | Lit of string
+    | Hole of HoleSpecG<'ty, 'tok> * 'e
+    /// A hole with one or both dimensions supplied at runtime: star width (`%*d`, `%-*d`)
+    /// and/or star precision (`%.*f`, `%*.*f`). The curried application evaluates the
+    /// dimension args BEFORE the value, in source order: width, then precision.
+    | DynHole of DynFormatHoleG<'ty, 'tok, 'e>
+    /// A `%a` / `%t` printer-callback hole, lowered capture-first to `residue`: an ordinary
+    /// `string`-typed expression (`sprintf` splices the callback's result, the writer/builder
+    /// families a scratch builder) that both backends emit exactly as a `%s` hole.
+    | CallbackHole of spec: HoleSpecG<'ty, 'tok> * residue: 'e
+
+/// One flattened compiled parameter. A simple bound variable's `Slot` is referenced by the body
+/// directly; a destructuring parameter carries `Pat = Some …` and a synthetic `Slot` the
+/// backend spills and then binds the pattern against.
+type StaticParamG<'ty, 'pat, 'id> =
+    { Slot: 'id; Ty: 'ty; Pat: 'pat option }
+
+/// One curried argument group of a function's SOURCE signature: the distinction the flat
+/// compiled signature loses. `GUnit` (`fun () -> …`) erases to zero params when it is the
+/// sole group; `GTuple` (`fun (a, b, …) -> …`) flattens to one param per element.
+[<RequireQualifiedAccess>]
+type ArgGroupG<'ty, 'pat, 'id> =
+    | GUnit of ty: 'ty
+    | GSimple of slot: 'id * ty: 'ty
+    /// `'pat` is a pool entry for a FILE's own arity, pooled alongside the lambda chain it
+    /// was peeled from, and the pattern tree itself for an `.fsi`-minted EXTERNAL one.
+    | GTuple of pat: 'pat
+
+/// The SOURCE signature. `Groups.Length` is the number of applications a saturated call
+/// consumes; `ResultTy` is the source (NOT unit-erased) result type.
+type ValReprG<'ty, 'pat, 'id> =
+    {
+        Typars: int
+        Groups: ArgGroupG<'ty, 'pat, 'id> list
+        ResultTy: 'ty
+    }
+
+/// The compiled return: `RVoid` is a unit result (CLR `void` / JS no-value).
+[<RequireQualifiedAccess>]
+type CompiledReturnG<'ty> =
+    | RVoid
+    | RValue of 'ty
+
+/// The flat compiled signature derived from a `ValReprG`: tuple-flattened,
+/// lone-unit-erased parameters and the `void`-normalised return.
+type CompiledFormG<'ty, 'pat, 'id> =
+    {
+        Params: StaticParamG<'ty, 'pat, 'id> list
+        Return: CompiledReturnG<'ty>
+    }
+
 [<RequireQualifiedAccess>]
 type TExprG<'ty, 'tok, 'id> =
     | Const of value: TConstValue * ty: 'ty * tok: 'tok
@@ -328,92 +412,12 @@ type TExprG<'ty, 'tok, 'id> =
     /// as `if a then ⟨CallerExpr b⟩ else false`. `ty`/`tok` are its body's; expansion unwraps it.
     | CallerExpr of body: TExprG<'ty, 'tok, 'id> * path: AssemblyFilePath * ty: 'ty * tok: 'tok
 
-/// One arm of a `Match` / `TryWith`. `'pat`/`'e` abstract over how the pattern and the
-/// guard/body expressions are carried: either the trees themselves, or handles identifying them
-/// in a pool.
-and TMatchArmG<'pat, 'e> =
-    {
-        Pat: 'pat
-        Guard: 'e voption
-        Body: 'e
-    }
-
-/// Where a format expression writes. `ToWriter`/`ToBuilder` carry the explicit sink
-/// (`fprintf` / `bprintf`); `newline` records the trailing `\n` an `…fn` spelling adds,
-/// though `ToBuilder` has none, F# having no `bprintfn`.
-and [<RequireQualifiedAccess>] FormatSinkG<'e> =
-    | ToStdOut of newline: bool
-    | ToStdErr of newline: bool
-    | ToWriter of writer: 'e * newline: bool
-    | ToBuilder of 'e
-    | ToString
-
-and [<RequireQualifiedAccess>] FormatSegG<'ty, 'tok, 'e> =
-    | Lit of string
-    | Hole of HoleSpecG<'ty, 'tok> * 'e
-    /// A hole with one or both dimensions supplied at runtime: star width (`%*d`, `%-*d`)
-    /// and/or star precision (`%.*f`, `%*.*f`). The curried application evaluates the
-    /// dimension args BEFORE the value, in source order: width, then precision.
-    | DynHole of DynFormatHoleG<'ty, 'tok, 'e>
-    /// A `%a` / `%t` printer-callback hole, lowered capture-first to `residue`: an ordinary
-    /// `string`-typed expression (`sprintf` splices the callback's result, the writer/builder
-    /// families a scratch builder) that both backends emit exactly as a `%s` hole.
-    | CallbackHole of spec: HoleSpecG<'ty, 'tok> * residue: 'e
-
-/// `Width` is present iff the width is a star (`%*…`), `Precision` iff the precision is a
-/// star (`%.*…`); at least one is, since a plain hole stays a `Hole` segment.
-and DynFormatHoleG<'ty, 'tok, 'e> =
-    {
-        Width: 'e voption
-        Precision: 'e voption
-        Spec: HoleSpecG<'ty, 'tok>
-        Value: 'e
-    }
-
 /// One clause of a static optimization: `Constraints` is the `and`-joined list, all of
 /// which must hold for `Body` to be selected.
 and TStaticOptClauseG<'ty, 'tok, 'id> =
     {
         Constraints: EqArray<TStaticOptConstraintG<'ty>>
         Body: TExprG<'ty, 'tok, 'id>
-    }
-
-/// One flattened compiled parameter. A simple bound variable's `Slot` is referenced by the body
-/// directly; a destructuring parameter carries `Pat = Some …` and a synthetic `Slot` the
-/// backend spills and then binds the pattern against.
-and StaticParamG<'ty, 'pat, 'id> =
-    { Slot: 'id; Ty: 'ty; Pat: 'pat option }
-
-/// One curried argument group of a function's SOURCE signature: the distinction the flat
-/// compiled signature loses. `GUnit` (`fun () -> …`) erases to zero params when it is the
-/// sole group; `GTuple` (`fun (a, b, …) -> …`) flattens to one param per element.
-and [<RequireQualifiedAccess>] ArgGroupG<'ty, 'pat, 'id> =
-    | GUnit of ty: 'ty
-    | GSimple of slot: 'id * ty: 'ty
-    /// `'pat` is a pool entry for a FILE's own arity, pooled alongside the lambda chain it
-    /// was peeled from, and the pattern tree itself for an `.fsi`-minted EXTERNAL one.
-    | GTuple of pat: 'pat
-
-/// The SOURCE signature. `Groups.Length` is the number of applications a saturated call
-/// consumes; `ResultTy` is the source (NOT unit-erased) result type.
-and ValReprG<'ty, 'pat, 'id> =
-    {
-        Typars: int
-        Groups: ArgGroupG<'ty, 'pat, 'id> list
-        ResultTy: 'ty
-    }
-
-/// The compiled return: `RVoid` is a unit result (CLR `void` / JS no-value).
-and [<RequireQualifiedAccess>] CompiledReturnG<'ty> =
-    | RVoid
-    | RValue of 'ty
-
-/// The flat compiled signature derived from a `ValReprG`: tuple-flattened,
-/// lone-unit-erased parameters and the `void`-normalised return.
-and CompiledFormG<'ty, 'pat, 'id> =
-    {
-        Params: StaticParamG<'ty, 'pat, 'id> list
-        Return: CompiledReturnG<'ty>
     }
 
 [<RequireQualifiedAccess>]

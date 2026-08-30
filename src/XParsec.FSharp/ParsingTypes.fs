@@ -263,22 +263,8 @@ type DiagnosticCode =
     /// is no hole to point at — which is why this is not `UnclosedDelimiter`.
     | MismatchedDelimiter of opened: Token * openedAt: Site * expected: Token
 
-/// A parse diagnostic. Every one is an error — recovery only ever reports something the
-/// grammar could not accept — so there is no severity to carry.
-///
-/// `Token`/`TokenEnd` are `SyntaxToken`, not `PositionedToken`: a consumer outside the
-/// parser needs the token INDEX to point at the place, and a `PositionedToken` carries only a
-/// char offset, which it could only turn back into a token by searching. A diagnostic
-/// raised where the input offers no token carries `SyntaxToken.nowhere`.
-and Diagnostic =
-    {
-        Code: DiagnosticCode
-        Token: SyntaxToken
-        TokenEnd: SyntaxToken option
-        Error: ParseError<PositionedToken, ParseState> option
-    }
-
-and [<RequireQualifiedAccess>] Syntax =
+[<RequireQualifiedAccess>]
+type Syntax =
     | Light
     | Verbose
 
@@ -288,7 +274,8 @@ and [<RequireQualifiedAccess>] Syntax =
 /// entirely when unset, so every hot-path trace site pays at most a test + branch
 /// and zero virtual-call overhead in the common case. A reference type so it
 /// doesn't affect ParseState equality and is shared across immutable record copies.
-and [<AllowNullLiteral>] TraceCallback() =
+[<AllowNullLiteral>]
+type TraceCallback() =
     abstract ContextPush: context: OffsideContext * indent: int * token: PositionedToken * stackDepth: int -> unit
 
     default _.ContextPush(_, _, _, _) = ()
@@ -336,11 +323,27 @@ and [<AllowNullLiteral>] TraceCallback() =
     abstract Message: message: string -> unit
     default _.Message(_) = ()
 
-and [<Struct>] WarnDirective =
+[<Struct>]
+type WarnDirective =
     {
         Line: int<line>
         WarningNumber: int
         Suppress: bool
+    }
+
+/// A parse diagnostic. Every one is an error — recovery only ever reports something the
+/// grammar could not accept — so there is no severity to carry.
+///
+/// `Token`/`TokenEnd` are `SyntaxToken`, not `PositionedToken`: a consumer outside the
+/// parser needs the token INDEX to point at the place, and a `PositionedToken` carries only a
+/// char offset, which it could only turn back into a token by searching. A diagnostic
+/// raised where the input offers no token carries `SyntaxToken.nowhere`.
+type Diagnostic =
+    {
+        Code: DiagnosticCode
+        Token: SyntaxToken
+        TokenEnd: SyntaxToken option
+        Error: ParseError<PositionedToken, ParseState> option
     }
 
 and [<ReferenceEquality; NoComparison>] ParseState =

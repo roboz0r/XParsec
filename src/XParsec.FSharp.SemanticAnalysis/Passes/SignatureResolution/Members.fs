@@ -266,7 +266,7 @@ module SignatureResolutionMembers =
         [
             for e in elems do
                 match e with
-                | TypeSignatureElement.Interface(InterfaceSpec(interfaceToken = tok; typ = t)) -> tok, t
+                | TypeSignatureElement.Interface(InterfaceSpec.InterfaceSpec(interfaceToken = tok; typ = t)) -> tok, t
                 | _ -> ()
         ]
 

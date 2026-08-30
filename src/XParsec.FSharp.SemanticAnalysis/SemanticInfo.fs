@@ -108,6 +108,57 @@ and [<Sealed>] FTDisjuncts private (disjuncts: EqSet<FrozenType>) =
 
     override _.GetHashCode() = hash disjuncts
 
+/// Abelian-group expression over named measure atoms. Always stored normalised: duplicates
+/// merged, zero exponents dropped, entries sorted, so equality is structural list equality.
+[<Sealed>]
+type MeasureTerm private (exponents: (string * Rational) list) =
+    member _.Exponents = exponents
+    member _.IsDimensionless = List.isEmpty exponents
+
+    static member Empty = MeasureTerm([])
+
+    static member OfList(raw: (string * Rational) list) : MeasureTerm =
+        raw
+        |> List.groupBy fst
+        |> List.map (fun (n, xs) -> n, xs |> List.fold (fun acc (_, r) -> acc + r) Rational.Zero)
+        |> List.filter (fun (_, e) -> not e.IsZero)
+        |> List.sortBy fst
+        |> fun normalised -> MeasureTerm(normalised)
+
+    override this.Equals(other) =
+        match other with
+        | :? MeasureTerm as other -> this.Exponents = other.Exponents
+        | _ -> false
+
+    override this.GetHashCode() = hash exponents
+
+    override this.ToString() =
+        if List.isEmpty exponents then
+            "1"
+        else
+            // `<m s^-1>` renders as `m/s`, `<m s>` as `m s`.
+            let positives = exponents |> List.filter (fun (_, e) -> e > Rational.Zero)
+
+            let negatives =
+                exponents
+                |> List.filter (fun (_, e) -> e < Rational.Zero)
+                |> List.map (fun (n, e) -> n, -e)
+
+            let renderEntry (n, e: Rational) =
+                if e.IsOne then n else sprintf "%s^%O" n e
+
+            let sb = System.Text.StringBuilder()
+
+            let renderList xs =
+                xs |> List.map renderEntry |> String.concat " "
+
+            match positives, negatives with
+            | [], ns -> sb.Append("1/").Append(renderList ns) |> ignore
+            | ps, [] -> sb.Append(renderList ps) |> ignore
+            | ps, ns -> sb.Append(renderList ps).Append("/").Append(renderList ns) |> ignore
+
+            sb.ToString()
+
 /// The mutable inference type IR. Every `TyVar` is a dense `TyVarId` index into the
 /// per-file `TypeStore` union-find graph.
 type SemType =
@@ -194,60 +245,10 @@ and [<Sealed>] TyDisjuncts private (disjuncts: EqSet<SemType>) =
 
     override _.GetHashCode() = hash disjuncts
 
-/// Abelian-group expression over named measure atoms. Always stored normalised: duplicates
-/// merged, zero exponents dropped, entries sorted, so equality is structural list equality.
-and [<Sealed>] MeasureTerm private (exponents: (string * Rational) list) =
-    member _.Exponents = exponents
-    member _.IsDimensionless = List.isEmpty exponents
-
-    static member Empty = MeasureTerm([])
-
-    static member OfList(raw: (string * Rational) list) : MeasureTerm =
-        raw
-        |> List.groupBy fst
-        |> List.map (fun (n, xs) -> n, xs |> List.fold (fun acc (_, r) -> acc + r) Rational.Zero)
-        |> List.filter (fun (_, e) -> not e.IsZero)
-        |> List.sortBy fst
-        |> fun normalised -> MeasureTerm(normalised)
-
-    override this.Equals(other) =
-        match other with
-        | :? MeasureTerm as other -> this.Exponents = other.Exponents
-        | _ -> false
-
-    override this.GetHashCode() = hash exponents
-
-    override this.ToString() =
-        if List.isEmpty exponents then
-            "1"
-        else
-            // `<m s^-1>` renders as `m/s`, `<m s>` as `m s`.
-            let positives = exponents |> List.filter (fun (_, e) -> e > Rational.Zero)
-
-            let negatives =
-                exponents
-                |> List.filter (fun (_, e) -> e < Rational.Zero)
-                |> List.map (fun (n, e) -> n, -e)
-
-            let renderEntry (n, e: Rational) =
-                if e.IsOne then n else sprintf "%s^%O" n e
-
-            let sb = System.Text.StringBuilder()
-
-            let renderList xs =
-                xs |> List.map renderEntry |> String.concat " "
-
-            match positives, negatives with
-            | [], ns -> sb.Append("1/").Append(renderList ns) |> ignore
-            | ps, [] -> sb.Append(renderList ps) |> ignore
-            | ps, ns -> sb.Append(renderList ps).Append("/").Append(renderList ns) |> ignore
-
-            sb.ToString()
-
 /// Captured SRTP member-trait clause; `MemberName` is the compiled name (`"op_Addition"`,
 /// `"Zero"`). `SupportTys` is the declared `(^T1 or ^T2)` support set, instantiated for
 /// the use site; the bound stays undischarged until every element is pinned.
-and MemberSignature =
+type MemberSignature =
     {
         MemberName: string
         SupportTys: EqArray<SemType>
@@ -257,7 +258,8 @@ and MemberSignature =
 
 /// Type-parameter constraint on a metavar, built from `Constraint<'T>` CST nodes and
 /// discharged when the metavar links to a concrete shape.
-and [<RequireQualifiedAccess>] SemanticConstraintKind =
+[<RequireQualifiedAccess>]
+type SemanticConstraintKind =
     | Equality
     | Comparison
     | Struct
@@ -271,7 +273,8 @@ and [<RequireQualifiedAccess>] SemanticConstraintKind =
     /// accepts any integer type, `%f` any float type.
     | OneOf of choices: EqArray<TypeKey>
 
-and [<Struct>] SemanticConstraint =
+[<Struct>]
+type SemanticConstraint =
     {
         Kind: SemanticConstraintKind
         /// Source location of the `when 'a : …` clause, so a violation reports at the
@@ -281,7 +284,8 @@ and [<Struct>] SemanticConstraint =
 
 /// An `objArg.X` access parked on a still-free object argument: `ResultTv` is the access's
 /// own metavar, unified with `X`'s type once `objArg` resolves.
-and [<NoEquality; NoComparison>] DeferredMemberAccess =
+[<NoEquality; NoComparison>]
+type DeferredMemberAccess =
     {
         MemberName: string
         Use: NodeSite
