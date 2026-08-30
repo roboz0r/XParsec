@@ -380,24 +380,24 @@ module TastPoolBuilder =
 
     /// The overlay's pooling sink: the same walk that built the base pool, differing only in
     /// where a row lands and how a bound variable id is assigned.
-    let private sinkOf (b: PoolBuilder) : TastPools.PoolSink<Anchor, BoundVarId> =
-        {
+    let private sinkOf (b: PoolBuilder) : TastPools.IPoolSink<Anchor, BoundVarId> =
+        { new TastPools.IPoolSink<Anchor, BoundVarId> with
             // The tree being poured in is already in this pool's identity space, so a
             // definition site IS its id and needs no lookup.
-            InternBoundVar = BoundVarKey.identity
+            member _.InternBoundVar boundVar = BoundVarKey.identity boundVar
             // Likewise already in the stored form: the tree identifies positions by the very index
             // the columns hold.
-            Anchor = id
-            AddExpr = appendExpr b
-            AddPat = appendPat b
-            AddDecl = appendDecl b
-            OnExprPooled =
-                fun ev ->
-                    match ev with
-                    | TastPools.PooledEvent.VarRef(boundVar, id) -> setVarBoundVar b id boundVar
-                    // `FunVerdicts` is the frozen file's own table and a minted lambda has no
-                    // verdict in it.
-                    | TastPools.PooledEvent.LambdaPooled _ -> ()
+            member _.Anchor anchor = anchor
+            member _.AddExpr row = appendExpr b row
+            member _.AddPat row = appendPat b row
+            member _.AddDecl row = appendDecl b row
+
+            member _.OnExprPooled ev =
+                match ev with
+                | TastPools.PooledEvent.VarRef(boundVar, id) -> setVarBoundVar b id boundVar
+                // `FunVerdicts` is the frozen file's own table and a minted lambda has no
+                // verdict in it.
+                | TastPools.PooledEvent.LambdaPooled _ -> ()
         }
 
     /// Pool a freshly minted DU subtree into the overlay: the bridge for a mint site that

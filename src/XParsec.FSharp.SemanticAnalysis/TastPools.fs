@@ -21,28 +21,28 @@ module TastPools =
     /// Where a pooling walk PUTS its rows. Generic in how the walked tree identifies a bound variable
     /// (`'id`: `NodeKey` from source, `BoundVarId` from an already-pooled tree) and in how it
     /// spells a position (`'tok`).
-    type PoolSink<'tok, 'id> =
-        {
-            /// Called for every bound variable a walked node INTRODUCES (a `NamedSimple` pattern's
-            /// binding, a `ForTo` loop variable), before that node's row is added.
-            /// Idempotent in the bound variable.
-            InternBoundVar: BoundVarKeyG<'id> -> BoundVarId
-            /// How the walked tree's spelling of a position becomes the stored anchor. A
-            /// property of the DESTINATION: a node of a frozen FILE must anchor on a real
-            /// lexed token, while an overlay's rows belong to no file.
-            Anchor: 'tok -> Anchor
-            AddExpr: ExprRow -> ExprPoolId
-            AddPat: PatRow -> PatPoolId
-            AddDecl: DeclRow -> DeclPoolId
-            /// Called after a node's row is added, only for the nodes that carry one.
-            OnExprPooled: PooledEvent<'id> -> unit
-        }
+    type IPoolSink<'tok, 'id> =
+        /// Called for every bound variable a walked node INTRODUCES (a `NamedSimple` pattern's
+        /// binding, a `ForTo` loop variable), before that node's row is added.
+        /// Idempotent in the bound variable.
+        abstract InternBoundVar: BoundVarKeyG<'id> -> BoundVarId
+        /// How the walked tree's spelling of a position becomes the stored anchor. A
+        /// property of the DESTINATION: a node of a frozen FILE must anchor on a real
+        /// lexed token, while an overlay's rows belong to no file.
+        abstract Anchor: 'tok -> Anchor
+        abstract AddExpr: ExprRow -> ExprPoolId
+        abstract AddPat: PatRow -> PatPoolId
+        abstract AddDecl: DeclRow -> DeclPoolId
+        /// Called after a node's row is added, only for the nodes that carry one.
+        abstract OnExprPooled: PooledEvent<'id> -> unit
 
     /// Pool a pattern subtree post-order: a node's children are pooled before the node
     /// itself, so every child id its row carries already resolves.
-    let rec poolPat (sink: PoolSink<'tok, 'id>) (p: TPatG<FrozenType, 'tok, 'id>) : PatPoolId =
+    let rec poolPat (sink: IPoolSink<'tok, 'id>) (p: TPatG<FrozenType, 'tok, 'id>) : PatPoolId =
         // Interned first: the payload identifies this bound variable by the id the intern hands back.
-        let boundVar = BoundVarKey.ofPat p |> ValueOption.map sink.InternBoundVar
+        let boundVar =
+            BoundVarKey.ofPat p |> ValueOption.map (fun k -> sink.InternBoundVar k)
+
         let kids = patChildren p |> Array.map (poolPat sink)
 
         sink.AddPat
@@ -55,10 +55,12 @@ module TastPools =
 
     /// Pool an expression subtree post-order (see `poolPat`), its owned sub-patterns
     /// included.
-    let rec poolExpr (sink: PoolSink<'tok, 'id>) (e: TExprG<FrozenType, 'tok, 'id>) : ExprPoolId =
+    let rec poolExpr (sink: IPoolSink<'tok, 'id>) (e: TExprG<FrozenType, 'tok, 'id>) : ExprPoolId =
         // A `ForTo` binds its loop variable with no pattern node behind it, so the intern
         // happens here rather than in `poolPat`.
-        let boundVar = BoundVarKey.ofExpr e |> ValueOption.map sink.InternBoundVar
+        let boundVar =
+            BoundVarKey.ofExpr e |> ValueOption.map (fun k -> sink.InternBoundVar k)
+
         let exprKids = exprChildren e |> Array.map (poolExpr sink)
         let patKids = exprPatChildren e |> Array.map (poolPat sink)
 
@@ -69,7 +71,7 @@ module TastPools =
                 Children = exprKids
                 PatChildren = patKids
                 VarBoundVar = ValueNone
-                Payload = exprPayload sink.Anchor boundVar e
+                Payload = exprPayload (fun t -> sink.Anchor t) boundVar e
             }
 
         let id = sink.AddExpr row
@@ -84,7 +86,7 @@ module TastPools =
     /// A frozen declaration's fields MINUS its child expr/pat roots. A `Type` decl's
     /// member/preamble/ctor bodies are pooled through the sink and their IDS kept in the
     /// slots that held the trees.
-    let private declPayload (sink: PoolSink<'tok, 'id>) (d: TDeclG<FrozenType, 'tok, 'id>) : DeclPayload =
+    let private declPayload (sink: IPoolSink<'tok, 'id>) (d: TDeclG<FrozenType, 'tok, 'id>) : DeclPayload =
         match d with
         | TDeclG.Let(isInline = isInline; ty = ty) -> DeclPayload.Let {| IsInline = isInline; Ty = ty |}
         | TDeclG.Expression(ty = ty) -> DeclPayload.Expression ty
@@ -93,8 +95,8 @@ module TastPools =
                 TastConvert.typeDecl
                     {
                         Ty = id
-                        Tok = sink.Anchor
-                        Id = sink.InternBoundVar
+                        Tok = fun t -> sink.Anchor t
+                        Id = fun k -> sink.InternBoundVar k
                         Body = poolExpr sink
                     }
                     td
@@ -102,7 +104,7 @@ module TastPools =
 
     /// Pool a declaration, its expr/pat roots (see `poolPat`) and, for a `Type` decl,
     /// its member bodies, which the payload references by id rather than surfacing as children.
-    let poolDecl (sink: PoolSink<'tok, 'id>) (d: TDeclG<FrozenType, 'tok, 'id>) : DeclPoolId =
+    let poolDecl (sink: IPoolSink<'tok, 'id>) (d: TDeclG<FrozenType, 'tok, 'id>) : DeclPoolId =
         let struct (exprKids, patKids) =
             match d with
             | TDeclG.Let(pattern = pattern; value = value) ->
@@ -232,39 +234,39 @@ module TastPools =
         // Rows land at the end of the column builders, so a node's id is the count at the
         // moment it is added. `ExprRow.VarBoundVar` is dropped here and filled by the second
         // pass below.
-        let sink: PoolSink<'tok, 'id> =
-            {
-                InternBoundVar = internBoundVar
-                Anchor = anchor
-                AddExpr =
-                    fun row ->
-                        let id = exprPayloads.Count
-                        exprTys.Add(typeTable.Intern row.Ty)
-                        exprToks.Add row.Tok
-                        exprChildrenCol.Add row.Children
-                        exprPatChildrenCol.Add row.PatChildren
-                        exprPayloads.Add row.Payload
-                        ExprPoolId id
-                AddPat =
-                    fun row ->
-                        let id = patPayloads.Count
-                        patTys.Add(typeTable.Intern row.Ty)
-                        patToks.Add row.Tok
-                        patChildrenCol.Add row.Children
-                        patPayloads.Add row.Payload
-                        PatPoolId id
-                AddDecl =
-                    fun row ->
-                        let id = declPayloads.Count
-                        declExprChildrenCol.Add row.ExprChildren
-                        declPatChildrenCol.Add row.PatChildren
-                        declPayloads.Add row.Payload
-                        DeclPoolId id
-                OnExprPooled =
-                    fun ev ->
-                        match ev with
-                        | PooledEvent.VarRef(boundVar, ExprPoolId id) -> varBindings.Add(struct (id, boundVar))
-                        | PooledEvent.LambdaPooled(anchor, id) -> lambdaSlots.Add(struct (id, LambdaKey anchor))
+        let sink =
+            { new IPoolSink<'tok, 'id> with
+                member _.InternBoundVar boundVar = internBoundVar boundVar
+                member _.Anchor tok = anchor tok
+
+                member _.AddExpr row =
+                    let id = exprPayloads.Count
+                    exprTys.Add(typeTable.Intern row.Ty)
+                    exprToks.Add row.Tok
+                    exprChildrenCol.Add row.Children
+                    exprPatChildrenCol.Add row.PatChildren
+                    exprPayloads.Add row.Payload
+                    ExprPoolId id
+
+                member _.AddPat row =
+                    let id = patPayloads.Count
+                    patTys.Add(typeTable.Intern row.Ty)
+                    patToks.Add row.Tok
+                    patChildrenCol.Add row.Children
+                    patPayloads.Add row.Payload
+                    PatPoolId id
+
+                member _.AddDecl row =
+                    let id = declPayloads.Count
+                    declExprChildrenCol.Add row.ExprChildren
+                    declPatChildrenCol.Add row.PatChildren
+                    declPayloads.Add row.Payload
+                    DeclPoolId id
+
+                member _.OnExprPooled ev =
+                    match ev with
+                    | PooledEvent.VarRef(boundVar, ExprPoolId id) -> varBindings.Add(struct (id, boundVar))
+                    | PooledEvent.LambdaPooled(anchor, id) -> lambdaSlots.Add(struct (id, LambdaKey anchor))
             }
 
         let roots = file.Decls |> EqArray.map (poolDecl sink)
