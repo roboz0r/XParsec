@@ -17,14 +17,10 @@ module Codegen =
         // order. `EmitContext` is file-local; the nominal registries are shared.
         for f in asm.Files do
             for ud in f.Layout.Partitioned.Unions do
-                NominalEmit.register asm (NominalEmissionInput.Union(ud.Cases, ud.Interfaces)) ud.Decl ud.Members
+                NominalEmit.register asm (NominalEmissionInput.OfUnion ud) ud.Decl ud.Members
 
             for rd in f.Layout.Partitioned.Records do
-                NominalEmit.register
-                    asm
-                    (NominalEmissionInput.Record(rd.Fields, rd.Interfaces, rd.ValueKind <> RecordValueKind.RefType))
-                    rd.Decl
-                    rd.Members
+                NominalEmit.register asm (NominalEmissionInput.OfRecord rd) rd.Decl rd.Members
 
             for cd in f.Layout.Partitioned.Classes do
                 NominalEmit.register asm (NominalEmissionInput.Class cd) cd.Decl cd.Members
@@ -37,20 +33,10 @@ module Codegen =
             asm.PrepareInterfaces f
 
             for ud in f.Layout.Partitioned.Unions do
-                NominalEmit.prepare
-                    asm
-                    f.EmitCtx
-                    (NominalEmissionInput.Union(ud.Cases, ud.Interfaces))
-                    ud.Decl
-                    ud.Members
+                NominalEmit.prepare asm f.EmitCtx (NominalEmissionInput.OfUnion ud) ud.Decl ud.Members
 
             for rd in f.Layout.Partitioned.Records do
-                NominalEmit.prepare
-                    asm
-                    f.EmitCtx
-                    (NominalEmissionInput.Record(rd.Fields, rd.Interfaces, rd.ValueKind <> RecordValueKind.RefType))
-                    rd.Decl
-                    rd.Members
+                NominalEmit.prepare asm f.EmitCtx (NominalEmissionInput.OfRecord rd) rd.Decl rd.Members
 
             for cd in f.Layout.Partitioned.Classes do
                 NominalEmit.prepare asm f.EmitCtx (NominalEmissionInput.Class cd) cd.Decl cd.Members

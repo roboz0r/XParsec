@@ -303,6 +303,9 @@ module EmitJsTypes =
                                        Interfaces = unionInterfaces
                                    } ->
                     // Local union: `Home = ValueNone` because its case classes are emitted here.
+                    // `ValueKind` is not read: JS has no value types, so a `[<Struct>]` union
+                    // emits as the same reference object a plain union does, and
+                    // `Unchecked.defaultof` of one is `null` rather than the tag-0 case.
                     let info, caseDecls =
                         buildUnionInfo
                             ValueNone

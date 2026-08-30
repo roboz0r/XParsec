@@ -173,7 +173,6 @@ type internal ClrEnv
     let eIsByRefLikeAttr =
         lazy (toEntity (ctx.TypeRef(coreRef.Value, "System.Runtime.CompilerServices", "IsByRefLikeAttribute")))
 
-    // Its parameterless `.ctor`, the constructor a `CustomAttribute` row points to.
     let eIsByRefLikeAttrCtor =
         lazy
             (let s = BlobBuilder()
@@ -183,6 +182,21 @@ type internal ClrEnv
                  .Parameters(0, (fun (ret: ReturnTypeEncoder) -> ret.Void()), (fun (_: ParametersEncoder) -> ()))
 
              toEntity (ctx.MemberRef(eIsByRefLikeAttr.Value, ".ctor", s)))
+
+    // `System.Runtime.CompilerServices.IsReadOnlyAttribute` — a consumer reads it as C#'s
+    // `readonly struct` and skips defensive copies.
+    let eIsReadOnlyAttr =
+        lazy (toEntity (ctx.TypeRef(coreRef.Value, "System.Runtime.CompilerServices", "IsReadOnlyAttribute")))
+
+    let eIsReadOnlyAttrCtor =
+        lazy
+            (let s = BlobBuilder()
+
+             BlobEncoder(s)
+                 .MethodSignature(isInstanceMethod = true)
+                 .Parameters(0, (fun (ret: ReturnTypeEncoder) -> ret.Void()), (fun (_: ParametersEncoder) -> ()))
+
+             toEntity (ctx.MemberRef(eIsReadOnlyAttr.Value, ".ctor", s)))
 
     // `System.AttributeUsageAttribute::.ctor(System.AttributeTargets)` — the CLR spelling of a
     // `[<AttributeUsage>]` row (`ClrAttributeNames` carries the key mapping).
@@ -499,10 +513,8 @@ type internal ClrEnv
     /// Referenced-assembly record shape by key + arity.
     let externalRecordShape (key: TypeKey) (arity: int) : (EqArray<ExternalFieldShape> * SymbolOrigin) voption =
         match symbols.TryLookupType key with
-        | ValueSome(ExternalTypeShape.Record(a, fields, origin, _, _)) when
-            a = arity && origin.Home <> SymbolHome.Unstamped
-            ->
-            ValueSome(fields, origin)
+        | ValueSome(ExternalTypeShape.Record r) when r.Arity = arity && r.Origin.Home <> SymbolHome.Unstamped ->
+            ValueSome(r.Fields, r.Origin)
         | _ -> ValueNone
 
     let externalRecordRef (key: TypeKey) (arity: int) : (EntityHandle * EqArray<ExternalFieldShape>) voption =
@@ -519,10 +531,8 @@ type internal ClrEnv
     /// construction (`Some` / `None`).
     let externalUnionShape (key: TypeKey) (arity: int) : (EqArray<ExternalCaseShape> * SymbolOrigin) voption =
         match symbols.TryLookupType key with
-        | ValueSome(ExternalTypeShape.Union(a, cases, _, origin, _)) when
-            a = arity && origin.Home <> SymbolHome.Unstamped
-            ->
-            ValueSome(cases, origin)
+        | ValueSome(ExternalTypeShape.Union u) when u.Arity = arity && u.Origin.Home <> SymbolHome.Unstamped ->
+            ValueSome(u.Cases, u.Origin)
         | _ -> ValueNone
 
     let externalUnionRef (key: TypeKey) (arity: int) : (EntityHandle * EqArray<ExternalCaseShape>) voption =
@@ -573,6 +583,7 @@ type internal ClrEnv
     member _.EValueType = eValueType
     member _.EEnum = eEnum
     member _.EIsByRefLikeAttrCtor = eIsByRefLikeAttrCtor
+    member _.EIsReadOnlyAttrCtor = eIsReadOnlyAttrCtor
     member _.EAttributeUsageAttrCtor = eAttributeUsageAttrCtor
     member _.ETextWriter = eTextWriter
     member _.EStringBuilder = eStringBuilder

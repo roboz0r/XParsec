@@ -86,13 +86,14 @@ module SignatureResolution =
             publishShape
                 sctx
                 key
-                (ExternalTypeShape.Record(
-                    arity,
-                    fields,
-                    SymbolOrigin.Empty,
-                    info.IsValueType,
-                    info.IsRequireQualifiedAccess
-                ))
+                (ExternalTypeShape.Record
+                    {
+                        Arity = arity
+                        Fields = fields
+                        Origin = SymbolOrigin.Empty
+                        IsValueType = info.IsValueType
+                        RequiresQualifiedAccess = info.IsRequireQualifiedAccess
+                    })
 
             match extensions with
             | ValueSome(TypeExtensionElementsSignature(elements = elems)) ->
@@ -140,7 +141,15 @@ module SignatureResolution =
             publishShapeWith
                 sctx
                 key
-                (ExternalTypeShape.Union(arity, cases, interfaces, SymbolOrigin.Empty, info.IsRequireQualifiedAccess))
+                (ExternalTypeShape.Union
+                    {
+                        Arity = arity
+                        Cases = cases
+                        Interfaces = interfaces
+                        Origin = SymbolOrigin.Empty
+                        IsValueType = info.IsValueType
+                        RequiresQualifiedAccess = info.IsRequireQualifiedAccess
+                    })
                 members
 
     /// Publish the registered enum's case table. One rejected case (reported at registration)

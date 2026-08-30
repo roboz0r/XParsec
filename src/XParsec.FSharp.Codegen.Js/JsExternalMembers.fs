@@ -56,8 +56,8 @@ module JsExternalMembers =
     /// an unstamped home fails loudly rather than emitting a dangling reference.
     let homeOf (provider: IExternalSymbolProvider) (key: TypeKey) (what: string) : JsHome =
         match provider.TryLookupType key with
-        | ValueSome(ExternalTypeShape.Union(_, _, _, o, _))
-        | ValueSome(ExternalTypeShape.Record(origin = o))
+        | ValueSome(ExternalTypeShape.Union { Origin = o })
+        | ValueSome(ExternalTypeShape.Record { Origin = o })
         | ValueSome(ExternalTypeShape.Enum(_, o)) -> o.Home
         | ValueSome(ExternalTypeShape.Class shape) -> shape.Origin.Home
         | _ -> SymbolHome.Unstamped

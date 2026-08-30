@@ -182,6 +182,23 @@ let tests =
                         "[<Struct>]\ntype A = { x: B }\nand [<Struct>] B = { y: A }"
                 }
 
+            // The same relation through a struct UNION's case field: a self-recursive
+            // `[<Struct>]` union is an infinite value type (F#'s FS0954).
+            yield
+                test "struct-union case-field self-cycle is diagnosed" {
+                    expectError "immediate cyclic reference through a struct field" "[<Struct>]\ntype T = C of T"
+                }
+
+            // …while the reference form of the same union compiles, and a `[<Struct>]`
+            // union with no recursive field is clean — including the all-nullary one,
+            // which F# accepts too.
+            yield test "a reference union self-recursion is accepted" { expectClean "type T = N | C of T" }
+
+            yield
+                test "a nullary-only `[<Struct>]` union is accepted" {
+                    expectClean "[<Struct>]\ntype U =\n    | A\n    | B"
+                }
+
             // A type declared below shadows nothing above it: above its declaration the
             // external `exn` is the only `exn` there is, so the reference resolves.
             yield

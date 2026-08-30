@@ -145,6 +145,33 @@ type ExternalCaseShape =
             FrozenFieldTypes = fieldNames |> EqArray.map (fun _ -> deferredTemplate)
         }
 
+/// The payload of `ExternalTypeShape.Record`. `IsValueType` is the `[<Struct>]` the
+/// declaration asked for, carried so a consuming unit reads the same layout the declaring
+/// one did. `RequiresQualifiedAccess` forces a consumer to write `{ R.X = … }`.
+type ExternalRecordShape =
+    {
+        Arity: int
+        /// Field order matches source.
+        Fields: EqArray<ExternalFieldShape>
+        Origin: SymbolOrigin
+        IsValueType: bool
+        RequiresQualifiedAccess: bool
+    }
+
+/// The payload of `ExternalTypeShape.Union`. `Interfaces` are the union's directly-declared
+/// `interface <ty>` impls. `IsValueType` and `RequiresQualifiedAccess` carry the same
+/// declaration-side facts `ExternalRecordShape` does.
+type ExternalUnionShape =
+    {
+        Arity: int
+        /// Case order matches source.
+        Cases: EqArray<ExternalCaseShape>
+        Interfaces: EqArray<FrozenNominal>
+        Origin: SymbolOrigin
+        IsValueType: bool
+        RequiresQualifiedAccess: bool
+    }
+
 /// An external enum case's compile-time value. No numeric WIDTH: a TS import has no width
 /// notion, so `IntVal` is always `int64`.
 [<RequireQualifiedAccess>]

@@ -207,24 +207,36 @@ let mkStaticProperty (decl: TypeKey) (name: string) (ret: FrozenType) : External
         Signature = ExternalSignature.value (decl.TyparArity, 0, ret)
     }
 
+let private unionShape (key: TypeKey) (cases: ExternalCaseShape list) (rqa: bool) : ExternalTypeShape =
+    ExternalTypeShape.Union
+        {
+            Arity = key.TyparArity
+            Cases = EqArray.ofList cases
+            Interfaces = EqArray.empty
+            Origin = SymbolOrigin.Empty
+            IsValueType = false
+            RequiresQualifiedAccess = rqa
+        }
+
 let publishUnion (b: PublishedSurfaceBuilder) (key: TypeKey) (cases: ExternalCaseShape list) : unit =
-    PublishedSurfaceBuilder.addType
-        b
-        key
-        (ExternalTypeShape.Union(key.TyparArity, EqArray.ofList cases, EqArray.empty, SymbolOrigin.Empty, false))
+    PublishedSurfaceBuilder.addType b key (unionShape key cases false)
 
 /// `publishUnion` for a `[<RequireQualifiedAccess>]` union: a consumer must write `Color.Red`.
 let publishRqaUnion (b: PublishedSurfaceBuilder) (key: TypeKey) (cases: ExternalCaseShape list) : unit =
-    PublishedSurfaceBuilder.addType
-        b
-        key
-        (ExternalTypeShape.Union(key.TyparArity, EqArray.ofList cases, EqArray.empty, SymbolOrigin.Empty, true))
+    PublishedSurfaceBuilder.addType b key (unionShape key cases true)
 
 let publishRecord (b: PublishedSurfaceBuilder) (key: TypeKey) (fields: ExternalFieldShape list) : unit =
     PublishedSurfaceBuilder.addType
         b
         key
-        (ExternalTypeShape.Record(key.TyparArity, EqArray.ofList fields, SymbolOrigin.Empty, false, false))
+        (ExternalTypeShape.Record
+            {
+                Arity = key.TyparArity
+                Fields = EqArray.ofList fields
+                Origin = SymbolOrigin.Empty
+                IsValueType = false
+                RequiresQualifiedAccess = false
+            })
 
 /// Publish the class `key` with `members`. Build each member over this same `key`, which its
 /// `MemberKey` names as the declaring type.

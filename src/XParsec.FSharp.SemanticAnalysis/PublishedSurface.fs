@@ -129,7 +129,10 @@ module PublishedSurfaceBuilder =
 
         match shape with
         | ExternalTypeShape.Union _ when RuntimeNames.isVesperListName (SymbolKeyOps.typeMetaName key) -> ()
-        | ExternalTypeShape.Union(cases = cases; requiresQualifiedAccess = rqa) ->
+        | ExternalTypeShape.Union {
+                                      Cases = cases
+                                      RequiresQualifiedAccess = rqa
+                                  } ->
             for case in cases do
                 addUnionCase
                     surface
@@ -138,7 +141,11 @@ module PublishedSurfaceBuilder =
                         Case = case
                         IsRequireQualifiedAccess = rqa
                     }
-        | ExternalTypeShape.Record(arity = arity; fields = fields; requiresQualifiedAccess = rqa) ->
+        | ExternalTypeShape.Record {
+                                       Arity = arity
+                                       Fields = fields
+                                       RequiresQualifiedAccess = rqa
+                                   } ->
             addRecordCandidate
                 surface
                 {

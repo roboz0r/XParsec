@@ -317,6 +317,7 @@ module TastConvert =
                     Cases = EqArray.map (unionCase fTy) u.Cases
                     Members = EqArray.map mem u.Members
                     Interfaces = ifaces u.Interfaces
+                    ValueKind = u.ValueKind
                 }
         | TTypeKindG.Record r ->
             TTypeKindG.Record

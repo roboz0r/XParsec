@@ -22,7 +22,8 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
         let tsB = BlobBuilder()
         let te = BlobEncoder(tsB).TypeSpecificationSignature()
 
-        let g = te.GenericInstantiation(userTypes.[key], shape.Typars.Length, false)
+        let g =
+            te.GenericInstantiation(userTypes.[key], shape.Typars.Length, userValueTypes.Contains key)
 
         for a in args do
             encodeType (g.AddArgument()) a
@@ -42,9 +43,28 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
         | UnionMember.Ctor ->
             let s = BlobBuilder()
 
+            // A struct union's `.ctor` is the flat `(tag, every case field)` form its
+            // factories `newobj`; a reference union's is nullary.
+            let paramTys =
+                if userValueTypes.Contains key then
+                    FTConst(RuntimeNames.intKey, EqArray.empty)
+                    :: [
+                        for c in shape.Cases do
+                            for (_, t) in c.Fields -> t
+                    ]
+                else
+                    []
+
             BlobEncoder(s)
                 .MethodSignature(isInstanceMethod = true)
-                .Parameters(0, (fun (ret: ReturnTypeEncoder) -> ret.Void()), (fun (_: ParametersEncoder) -> ()))
+                .Parameters(
+                    List.length paramTys,
+                    (fun (ret: ReturnTypeEncoder) -> ret.Void()),
+                    (fun (pars: ParametersEncoder) ->
+                        for p in paramTys do
+                            encodeType (pars.AddParameter().Type()) p
+                    )
+                )
 
             toEntity (ctx.MemberRef(parent, ".ctor", s))
         | UnionMember.Tag ->
@@ -82,7 +102,8 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
         let tsB = BlobBuilder()
         let te = BlobEncoder(tsB).TypeSpecificationSignature()
 
-        let g = te.GenericInstantiation(userTypes.[key], shape.Typars.Length, false)
+        let g =
+            te.GenericInstantiation(userTypes.[key], shape.Typars.Length, userValueTypes.Contains key)
 
         for a in args do
             encodeType (g.AddArgument()) a

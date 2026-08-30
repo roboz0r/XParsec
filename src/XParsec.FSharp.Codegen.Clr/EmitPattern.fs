@@ -29,7 +29,15 @@ module EmitPattern =
     /// (`ldarg.0; ldfld`), or a local slot (`ldloc`).
     let buildVarLoad (env: EmitEnv) (b: IlBuilder) (key: BoundVarId) : unit =
         match env.Args.TryGetValue key with
-        | true, i -> b.Add(ILInstr.Ldarg i)
+        | true, i ->
+            b.Add(ILInstr.Ldarg i)
+
+            // `this` of a value-type member is `ldarg.0` the managed pointer; a VALUE use of
+            // it (match scrutinee, equality operand, return) deref-copies. A consumer needing
+            // the pointer (`loadStructThisPtr`, the primary-ctor stores) loads `ldarg.0` itself.
+            match env.SelfValueType with
+            | ValueSome ty when env.SelfKey = ValueSome key -> b.Add(ILInstr.Ldobj(env.Provider.TypeToken ty))
+            | _ -> ()
         | false, _ ->
 
             match env.SelfKey with
@@ -104,7 +112,10 @@ module EmitPattern =
         | false, _ ->
             match env.Records.TryGetValue key with
             | true, r -> TypeLayout.ofValueness r.IsValueType
-            | false, _ -> TypeLayout.Unsettled
+            | false, _ ->
+                match env.Unions.TryGetValue key with
+                | true, u -> TypeLayout.ofValueness u.IsValueType
+                | false, _ -> TypeLayout.Unsettled
 
     /// A referenced name arrives already settled, target-then-declaration; only a type EMITTED
     /// HERE still has its `[<Struct>]` as an open request.

@@ -39,6 +39,7 @@ module internal LayoutNodes =
                             Cases = EqArray.toList u.Cases
                             Members = EqArray.toList u.Members
                             Interfaces = ifaceBlocks u.Interfaces
+                            ValueKind = u.ValueKind
                         }
                 | TTypeKindG.Record r ->
                     records.Add
@@ -293,12 +294,22 @@ module internal LayoutNodes =
                 nominalNode TypeSlotKind.Interface td [] methodRows
         ]
 
-    /// Per union: `_tag` + every case's payload fields; nullary `.ctor`,
-    /// case factories, members, [equality triple], [comparison pair].
+    /// Per union: `_tag` + every case's payload fields; `.ctor` (nullary for a reference
+    /// union, the flat `(tag, every case field)` form for a struct union), case
+    /// factories, members, [equality triple], [comparison pair].
     let buildUnionNodes (symbols: ICodegenSymbols) (unions: UnionDecl list) : TypeNode list =
         [
             for ud in unions ->
                 let td = ud.Decl
+                let isStruct = ud.ValueKind.IsValueType
+
+                // A struct union's fields are written only by its flat `.ctor`, which is
+                // what `initonly` permits; the type itself carries `IsReadOnly`.
+                let fieldAttrs =
+                    if isStruct then
+                        FieldAttributes.Public ||| FieldAttributes.InitOnly
+                    else
+                        FieldAttributes.Public
 
                 let fields =
                     [
@@ -306,7 +317,7 @@ module internal LayoutNodes =
                             {
                                 Key = FieldKey.UnionTag td.Key
                                 Name = "_tag"
-                                Attrs = FieldAttributes.Public
+                                Attrs = fieldAttrs
                                 Ty = FTConst(RuntimeNames.intKey, EqArray.empty)
                                 ClosureScope = ValueNone
                             }
@@ -315,7 +326,7 @@ module internal LayoutNodes =
                                 {
                                     Key = FieldKey.UnionCaseField(td.Key, c.Name, fi)
                                     Name = sprintf "%s_%d" c.Name fi
-                                    Attrs = FieldAttributes.Public
+                                    Attrs = fieldAttrs
                                     Ty = snd c.Fields.[fi]
                                     ClosureScope = ValueNone
                                 }
@@ -346,7 +357,7 @@ module internal LayoutNodes =
                         yield! coSlotRows symbols td ud.Interfaces
                     ]
 
-                nominalNode TypeSlotKind.Union td fields methodRows
+                nominalNode (TypeSlotKind.Union ud.ValueKind) td fields methodRows
         ]
 
     let buildRecordNodes (symbols: ICodegenSymbols) (records: RecordDecl list) : TypeNode list =
@@ -445,9 +456,7 @@ module internal LayoutNodes =
                 // primary ctor, because a synthesised parameterless one would collide with a
                 // `new()`. A struct keeps its primary: F# forbids `new()` there.
                 let emitPrimaryCtor =
-                    cd.ValueKind <> ClassValueKind.RefType
-                    || cd.HasPrimaryCtor
-                    || List.isEmpty cd.SecondaryCtors
+                    cd.ValueKind.IsValueType || cd.HasPrimaryCtor || List.isEmpty cd.SecondaryCtors
 
                 let methodRows =
                     [

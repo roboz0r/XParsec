@@ -161,9 +161,11 @@ module Emit =
 
     /// Build a nominal member's body: an instance member's `this` is `ldarg.0` and its
     /// parameters `ldarg.1…`, a static member's parameters start at `ldarg.0`. Member
-    /// bodies synthesise no closures, so an empty capture map is passed.
+    /// bodies synthesise no closures, so an empty capture map is passed. `selfValueTy`
+    /// is the declaring type when it is a VALUE type, `ValueNone` otherwise.
     let buildMember
         (ctx: EmitContext)
+        (selfValueTy: FrozenType voption)
         (thisKey: BoundVarKeyG<BoundVarId> voption)
         (baseKey: BoundVarKeyG<BoundVarId> voption)
         (prms: EqArray<BoundVarKeyG<BoundVarId> * FrozenType>)
@@ -194,7 +196,9 @@ module Emit =
         // `ldarg.0` is already the byref `this` and must be loaded directly, because spilling
         // it to a value temp copies the struct and a mutating self-call would not persist.
         let env =
-            EmitEnv.create ctx (ValueOption.map BoundVarKey.identity thisKey) (Dictionary()) args
+            { EmitEnv.create ctx (ValueOption.map BoundVarKey.identity thisKey) (Dictionary()) args with
+                SelfValueType = selfValueTy
+            }
 
         buildExpr env b body
 
@@ -427,6 +431,184 @@ module Emit =
         b.Add ILInstr.Ret
         b.Body
 
+    /// One argument slot of a struct union's flat `.ctor`, as a case factory pushes it:
+    /// the factory's own parameter for the constructed case's fields, a zeroed default
+    /// (`ldloca; initobj; ldloc`) for every other case's.
+    [<RequireQualifiedAccess>]
+    type StructUnionCtorArg =
+        | Param of index: int
+        | Default of ty: FrozenType * token: EntityHandle
+
+    /// Build a `[<Struct>]` union case's static factory: push the discriminant `tag` and
+    /// each flat `.ctor` argument (`args` are in field declaration order), `newobj` the
+    /// union's flat `.ctor`, return the value.
+    let buildStructUnionFactory (ctorRef: EntityHandle) (tag: int) (args: StructUnionCtorArg list) : ILBody =
+        let b = IlBuilder()
+        b.Add(ILInstr.LdcI4 tag)
+
+        for a in args do
+            match a with
+            | StructUnionCtorArg.Param i -> b.Add(ILInstr.Ldarg i)
+            | StructUnionCtorArg.Default(ty, token) ->
+                let slot = b.Local ty
+                b.Add(ILInstr.Ldloca slot)
+                b.Add(ILInstr.Initobj token)
+                b.Add(ILInstr.Ldloc slot)
+
+        b.Add(ILInstr.Newobj(ctorRef, args.Length + 1))
+        b.Add ILInstr.Ret
+        b.Body
+
+    // The synthesised equality / comparison bodies, shared between unions and records.
+    // Each entry point takes the field walk (tag-then-fields for a union, fields for a
+    // record) and `isVt`, the declaring type's `[<Struct>]`.
+
+    /// Cast the `object` arg (`ldarg.1`) to `Self` and return its load, branching to
+    /// `failLabel` on a non-`Self` arg (`null` included). On a value type (`isVt`)
+    /// `isinst` yields a BOXED reference, `unbox.any`-ed into a value-typed local.
+    let private castObjArgOrBranch
+        (isVt: bool)
+        (selfType: EntityHandle)
+        (selfTy: FrozenType)
+        (b: IlBuilder)
+        (failLabel: int)
+        : IlBuilder -> unit =
+        let other = b.Local selfTy
+
+        if isVt then
+            let boxed = b.Local(FTConst(RuntimeNames.objKey, EqArray.empty))
+            b.Add(ILInstr.Ldarg 1)
+            b.Add(ILInstr.Isinst selfType)
+            b.Add(ILInstr.Stloc boxed)
+            b.Add(ILInstr.Ldloc boxed)
+            b.Add(ILInstr.Brfalse failLabel)
+            b.Add(ILInstr.Ldloc boxed)
+            b.Add(ILInstr.UnboxAny selfType)
+            b.Add(ILInstr.Stloc other)
+        else
+            b.Add(ILInstr.Ldarg 1)
+            b.Add(ILInstr.Isinst selfType)
+            b.Add(ILInstr.Stloc other)
+            b.Add(ILInstr.Ldloc other)
+            b.Add(ILInstr.Brfalse failLabel)
+
+        fun b -> b.Add(ILInstr.Ldloc other)
+
+    /// `override bool Equals(object obj)`: cast-or-false, then the walk; any mismatch
+    /// returns `false`.
+    let private buildStructuralEqualsObj
+        (isVt: bool)
+        (selfType: EntityHandle)
+        (selfTy: FrozenType)
+        (walk: IlBuilder -> (IlBuilder -> unit) -> int -> unit)
+        : ILBody =
+        let b = IlBuilder()
+        let falseLabel = b.Label()
+        let loadOther = castObjArgOrBranch isVt selfType selfTy b falseLabel
+
+        walk b loadOther falseLabel
+
+        b.Add(ILInstr.LdcI4 1)
+        b.Add ILInstr.Ret
+        b.Add(ILInstr.Mark falseLabel)
+        b.Add(ILInstr.LdcI4 0)
+        b.Add ILInstr.Ret
+        b.Body
+
+    /// `bool Equals(Self other)` — the typed `IEquatable<Self>::Equals`, the boxing-free
+    /// path `EqualityComparer<Self>.Default` takes, so a nested DU / record field recurses
+    /// here. A reference type null-guards `other`; a value type takes it by value.
+    let private buildStructuralEqualsTyped
+        (isVt: bool)
+        (walk: IlBuilder -> (IlBuilder -> unit) -> int -> unit)
+        : ILBody =
+        let b = IlBuilder()
+        let falseLabel = b.Label()
+
+        if not isVt then
+            b.Add(ILInstr.Ldarg 1)
+            b.Add(ILInstr.Brfalse falseLabel)
+
+        walk b (fun b -> b.Add(ILInstr.Ldarg 1)) falseLabel
+
+        b.Add(ILInstr.LdcI4 1)
+        b.Add ILInstr.Ret
+        b.Add(ILInstr.Mark falseLabel)
+        b.Add(ILInstr.LdcI4 0)
+        b.Add ILInstr.Ret
+        b.Body
+
+    /// `int CompareTo(Self other)` — the typed `IComparable<Self>::CompareTo`. A
+    /// `null` `other` sorts before any non-null value (BCL convention), returning `1`;
+    /// otherwise the walk's first non-zero result, else `0`.
+    let private buildStructuralCompareTo
+        (isVt: bool)
+        (walk: IlBuilder -> (IlBuilder -> unit) -> int -> int -> unit)
+        : ILBody =
+        let b = IlBuilder()
+        let c = b.Local(FTConst(RuntimeNames.intKey, EqArray.empty))
+        let returnLabel = b.Label()
+
+        let nullLabel =
+            if isVt then
+                ValueNone
+            else
+                let l = b.Label()
+                b.Add(ILInstr.Ldarg 1)
+                b.Add(ILInstr.Brfalse l)
+                ValueSome l
+
+        walk b (fun b -> b.Add(ILInstr.Ldarg 1)) c returnLabel
+
+        b.Add(ILInstr.LdcI4 0)
+        b.Add ILInstr.Ret
+        b.Add(ILInstr.Mark returnLabel)
+        b.Add(ILInstr.Ldloc c)
+        b.Add ILInstr.Ret
+
+        match nullLabel with
+        | ValueSome l ->
+            b.Add(ILInstr.Mark l)
+            b.Add(ILInstr.LdcI4 1)
+            b.Add ILInstr.Ret
+        | ValueNone -> ()
+
+        b.Body
+
+    /// `int CompareTo(object obj)` — the non-generic `IComparable::CompareTo`. `null`
+    /// sorts first (returns `1`), a non-`Self` arg throws `ArgumentException`,
+    /// otherwise delegate to the typed `CompareTo(Self)`.
+    let private buildStructuralCompareToObj
+        (isVt: bool)
+        (selfType: EntityHandle)
+        (selfTy: FrozenType)
+        (mismatchMessage: UserStringHandle)
+        (argumentExceptionCtor: EntityHandle)
+        (typedCompareTo: EntityHandle)
+        : ILBody =
+        let b = IlBuilder()
+        let nullLabel = b.Label()
+        let throwLabel = b.Label()
+
+        b.Add(ILInstr.Ldarg 1)
+        b.Add(ILInstr.Brfalse nullLabel)
+
+        let loadOther = castObjArgOrBranch isVt selfType selfTy b throwLabel
+
+        b.Add(ILInstr.Ldarg 0)
+        loadOther b
+        b.Add(ILInstr.Call(typedCompareTo, 2, 1))
+        b.Add ILInstr.Ret
+
+        b.Add(ILInstr.Mark throwLabel)
+        b.Add(ILInstr.Ldstr mismatchMessage)
+        b.Add(ILInstr.Newobj(argumentExceptionCtor, 1))
+        b.Add ILInstr.Throw
+        b.Add(ILInstr.Mark nullLabel)
+        b.Add(ILInstr.LdcI4 1)
+        b.Add ILInstr.Ret
+        b.Body
+
     /// The resolved handles a union's synthesised `Equals` / `GetHashCode` bodies need.
     /// A case factory sets only its own case's payload fields and a DU is immutable, so
     /// once the tags match, walking EVERY field equals a per-case walk and no tag switch
@@ -478,46 +660,15 @@ module Emit =
             b.Add(ILInstr.Callvirt(s.ComparerEquals fieldTy, 3, 1))
             b.Add(ILInstr.Brfalse falseLabel)
 
-    /// `override bool Equals(object obj)` for a union: `obj is Self` (which also
-    /// rejects `null`), then the shared tag/field walk.
-    let buildUnionEquals (s: UnionEqualitySupport) : ILBody =
-        let b = IlBuilder()
-        let other = b.Local s.SelfTy
-        let falseLabel = b.Label()
+    /// `override bool Equals(object obj)` for a union: cast-or-false, then the shared
+    /// tag/field walk.
+    let buildUnionEquals (isVt: bool) (s: UnionEqualitySupport) : ILBody =
+        buildStructuralEqualsObj isVt s.SelfType s.SelfTy (buildTagAndFieldEquality s)
 
-        b.Add(ILInstr.Ldarg 1)
-        b.Add(ILInstr.Isinst s.SelfType)
-        b.Add(ILInstr.Stloc other)
-        b.Add(ILInstr.Ldloc other)
-        b.Add(ILInstr.Brfalse falseLabel)
-
-        buildTagAndFieldEquality s b (fun b -> b.Add(ILInstr.Ldloc other)) falseLabel
-
-        b.Add(ILInstr.LdcI4 1)
-        b.Add ILInstr.Ret
-        b.Add(ILInstr.Mark falseLabel)
-        b.Add(ILInstr.LdcI4 0)
-        b.Add ILInstr.Ret
-        b.Body
-
-    /// `bool Equals(Self other)` — the typed `IEquatable<Self>::Equals`. `other` is
-    /// already `Self`, so a `null` guard replaces the `isinst`. This is the boxing-free
-    /// path `EqualityComparer<Self>.Default` takes, so a nested DU field recurses here.
-    let buildUnionEqualsTyped (s: UnionEqualitySupport) : ILBody =
-        let b = IlBuilder()
-        let falseLabel = b.Label()
-
-        b.Add(ILInstr.Ldarg 1)
-        b.Add(ILInstr.Brfalse falseLabel)
-
-        buildTagAndFieldEquality s b (fun b -> b.Add(ILInstr.Ldarg 1)) falseLabel
-
-        b.Add(ILInstr.LdcI4 1)
-        b.Add ILInstr.Ret
-        b.Add(ILInstr.Mark falseLabel)
-        b.Add(ILInstr.LdcI4 0)
-        b.Add ILInstr.Ret
-        b.Body
+    /// `bool Equals(Self other)` — the typed `IEquatable<Self>::Equals` over the
+    /// shared tag/field walk.
+    let buildUnionEqualsTyped (isVt: bool) (s: UnionEqualitySupport) : ILBody =
+        buildStructuralEqualsTyped isVt (buildTagAndFieldEquality s)
 
     /// `override int GetHashCode()` for a union: a `System.HashCode` seeded with the
     /// `_tag`, every field added through it, then `ToHashCode()`. Equal values hash
@@ -581,59 +732,15 @@ module Emit =
             b.Add(ILInstr.Callvirt(s.ComparerEquals fieldTy, 3, 1))
             b.Add(ILInstr.Brfalse falseLabel)
 
-    /// `override bool Equals(object obj)` for a record. `isVt` ⇒ a `[<Struct>]` record:
-    /// `isinst` on a value type yields a BOXED reference, which is null-tested and then
-    /// `unbox.any`-ed into the value-typed `other` local.
+    /// `override bool Equals(object obj)` for a record: cast-or-false, then the shared
+    /// field walk.
     let buildRecordEquals (isVt: bool) (s: RecordEqualitySupport) : ILBody =
-        let b = IlBuilder()
-        let other = b.Local s.SelfTy
-        let falseLabel = b.Label()
+        buildStructuralEqualsObj isVt s.SelfType s.SelfTy (buildRecordFieldEquality s)
 
-        if isVt then
-            let boxed = b.Local(FTConst(RuntimeNames.objKey, EqArray.empty))
-            b.Add(ILInstr.Ldarg 1)
-            b.Add(ILInstr.Isinst s.SelfType)
-            b.Add(ILInstr.Stloc boxed)
-            b.Add(ILInstr.Ldloc boxed)
-            b.Add(ILInstr.Brfalse falseLabel)
-            b.Add(ILInstr.Ldloc boxed)
-            b.Add(ILInstr.UnboxAny s.SelfType)
-            b.Add(ILInstr.Stloc other)
-        else
-            b.Add(ILInstr.Ldarg 1)
-            b.Add(ILInstr.Isinst s.SelfType)
-            b.Add(ILInstr.Stloc other)
-            b.Add(ILInstr.Ldloc other)
-            b.Add(ILInstr.Brfalse falseLabel)
-
-        buildRecordFieldEquality s b (fun b -> b.Add(ILInstr.Ldloc other)) falseLabel
-
-        b.Add(ILInstr.LdcI4 1)
-        b.Add ILInstr.Ret
-        b.Add(ILInstr.Mark falseLabel)
-        b.Add(ILInstr.LdcI4 0)
-        b.Add ILInstr.Ret
-        b.Body
-
-    /// `bool Equals(Self other)` — the typed `IEquatable<Self>::Equals`. A `[<Struct>]`
-    /// record (`isVt`) passes `other` BY VALUE: it can never be null and `brfalse` on a
-    /// value type is invalid IL, so the null guard is dropped.
+    /// `bool Equals(Self other)` — the typed `IEquatable<Self>::Equals` over the
+    /// shared field walk.
     let buildRecordEqualsTyped (isVt: bool) (s: RecordEqualitySupport) : ILBody =
-        let b = IlBuilder()
-        let falseLabel = b.Label()
-
-        if not isVt then
-            b.Add(ILInstr.Ldarg 1)
-            b.Add(ILInstr.Brfalse falseLabel)
-
-        buildRecordFieldEquality s b (fun b -> b.Add(ILInstr.Ldarg 1)) falseLabel
-
-        b.Add(ILInstr.LdcI4 1)
-        b.Add ILInstr.Ret
-        b.Add(ILInstr.Mark falseLabel)
-        b.Add(ILInstr.LdcI4 0)
-        b.Add ILInstr.Ret
-        b.Body
+        buildStructuralEqualsTyped isVt (buildRecordFieldEquality s)
 
     /// `override int GetHashCode()` for a record: every field added through
     /// `HashCode.Add<T>`, then `ToHashCode()`. No tag seed, because a record has one shape.
@@ -708,58 +815,15 @@ module Emit =
             b.Add(ILInstr.Ldloc cLocal)
             b.Add(ILInstr.Brtrue returnLabel)
 
-    /// `int CompareTo(Self other)` — the typed `IComparable<Self>::CompareTo` the union
-    /// implements. A `null` `other` sorts before any non-null value (BCL convention),
-    /// so this returns `1`; otherwise the shared tag/field lex walk.
-    let buildUnionCompareTo (s: UnionComparisonSupport) : ILBody =
-        let b = IlBuilder()
-        let c = b.Local(FTConst(RuntimeNames.intKey, EqArray.empty))
-        let nullLabel = b.Label()
-        let returnLabel = b.Label()
+    /// `int CompareTo(Self other)` — the typed `IComparable<Self>::CompareTo` over the
+    /// shared tag/field lex walk.
+    let buildUnionCompareTo (isVt: bool) (s: UnionComparisonSupport) : ILBody =
+        buildStructuralCompareTo isVt (buildTagAndFieldComparison s)
 
-        b.Add(ILInstr.Ldarg 1)
-        b.Add(ILInstr.Brfalse nullLabel)
-
-        buildTagAndFieldComparison s b (fun b -> b.Add(ILInstr.Ldarg 1)) c returnLabel
-
-        b.Add(ILInstr.LdcI4 0)
-        b.Add ILInstr.Ret
-        b.Add(ILInstr.Mark returnLabel)
-        b.Add(ILInstr.Ldloc c)
-        b.Add ILInstr.Ret
-        b.Add(ILInstr.Mark nullLabel)
-        b.Add(ILInstr.LdcI4 1)
-        b.Add ILInstr.Ret
-        b.Body
-
-    /// `int CompareTo(object obj)` — the non-generic `IComparable::CompareTo` the union
-    /// implements. `null` sorts first (returns `1`), a non-`Self` argument throws
-    /// `ArgumentException`, otherwise delegate to the typed `CompareTo(Self)`.
-    let buildUnionCompareToObj (s: UnionComparisonSupport) (typedCompareTo: EntityHandle) : ILBody =
-        let b = IlBuilder()
-        let other = b.Local s.SelfTy
-        let nullLabel = b.Label()
-        let throwLabel = b.Label()
-
-        b.Add(ILInstr.Ldarg 1)
-        b.Add(ILInstr.Brfalse nullLabel)
-        b.Add(ILInstr.Ldarg 1)
-        b.Add(ILInstr.Isinst s.SelfType)
-        b.Add(ILInstr.Stloc other)
-        b.Add(ILInstr.Ldloc other)
-        b.Add(ILInstr.Brfalse throwLabel)
-        b.Add(ILInstr.Ldarg 0)
-        b.Add(ILInstr.Ldloc other)
-        b.Add(ILInstr.Call(typedCompareTo, 2, 1))
-        b.Add ILInstr.Ret
-        b.Add(ILInstr.Mark throwLabel)
-        b.Add(ILInstr.Ldstr s.MismatchMessage)
-        b.Add(ILInstr.Newobj(s.ArgumentExceptionCtor, 1))
-        b.Add ILInstr.Throw
-        b.Add(ILInstr.Mark nullLabel)
-        b.Add(ILInstr.LdcI4 1)
-        b.Add ILInstr.Ret
-        b.Body
+    /// `int CompareTo(object obj)` — the non-generic `IComparable::CompareTo`,
+    /// delegating to the typed `CompareTo(Self)`.
+    let buildUnionCompareToObj (isVt: bool) (s: UnionComparisonSupport) (typedCompareTo: EntityHandle) : ILBody =
+        buildStructuralCompareToObj isVt s.SelfType s.SelfTy s.MismatchMessage s.ArgumentExceptionCtor typedCompareTo
 
     /// Mirror of `UnionComparisonSupport` for a record: the same shape minus the tag.
     type RecordComparisonSupport =
@@ -794,83 +858,15 @@ module Emit =
             b.Add(ILInstr.Ldloc cLocal)
             b.Add(ILInstr.Brtrue returnLabel)
 
-    /// `int CompareTo(Self other)` — the typed `IComparable<Self>::CompareTo` the record
-    /// implements. A `[<Struct>]` record (`isVt`) passes `other` BY VALUE: never null,
-    /// and `brfalse` on a value type is invalid IL, so the null guard is dropped.
+    /// `int CompareTo(Self other)` — the typed `IComparable<Self>::CompareTo` over the
+    /// shared field lex walk.
     let buildRecordCompareTo (isVt: bool) (s: RecordComparisonSupport) : ILBody =
-        let b = IlBuilder()
-        let c = b.Local(FTConst(RuntimeNames.intKey, EqArray.empty))
-        let returnLabel = b.Label()
+        buildStructuralCompareTo isVt (buildRecordFieldComparison s)
 
-        if not isVt then
-            let nullLabel = b.Label()
-            b.Add(ILInstr.Ldarg 1)
-            b.Add(ILInstr.Brfalse nullLabel)
-
-            buildRecordFieldComparison s b (fun b -> b.Add(ILInstr.Ldarg 1)) c returnLabel
-
-            b.Add(ILInstr.LdcI4 0)
-            b.Add ILInstr.Ret
-            b.Add(ILInstr.Mark returnLabel)
-            b.Add(ILInstr.Ldloc c)
-            b.Add ILInstr.Ret
-            b.Add(ILInstr.Mark nullLabel)
-            b.Add(ILInstr.LdcI4 1)
-            b.Add ILInstr.Ret
-        else
-            buildRecordFieldComparison s b (fun b -> b.Add(ILInstr.Ldarg 1)) c returnLabel
-
-            b.Add(ILInstr.LdcI4 0)
-            b.Add ILInstr.Ret
-            b.Add(ILInstr.Mark returnLabel)
-            b.Add(ILInstr.Ldloc c)
-            b.Add ILInstr.Ret
-
-        b.Body
-
-    /// `int CompareTo(object obj)` — the non-generic `IComparable::CompareTo` the record
-    /// implements. `isVt` ⇒ `isinst` yields a boxed reference, `unbox.any`-ed to the
-    /// by-value `Self` the typed `CompareTo(Self)` takes; `ldarg.0` is the byref `this`.
+    /// `int CompareTo(object obj)` — the non-generic `IComparable::CompareTo`,
+    /// delegating to the typed `CompareTo(Self)`.
     let buildRecordCompareToObj (isVt: bool) (s: RecordComparisonSupport) (typedCompareTo: EntityHandle) : ILBody =
-        let b = IlBuilder()
-        let nullLabel = b.Label()
-        let throwLabel = b.Label()
-
-        b.Add(ILInstr.Ldarg 1)
-        b.Add(ILInstr.Brfalse nullLabel)
-
-        if isVt then
-            let boxed = b.Local(FTConst(RuntimeNames.objKey, EqArray.empty))
-            b.Add(ILInstr.Ldarg 1)
-            b.Add(ILInstr.Isinst s.SelfType)
-            b.Add(ILInstr.Stloc boxed)
-            b.Add(ILInstr.Ldloc boxed)
-            b.Add(ILInstr.Brfalse throwLabel)
-            b.Add(ILInstr.Ldarg 0)
-            b.Add(ILInstr.Ldloc boxed)
-            b.Add(ILInstr.UnboxAny s.SelfType)
-            b.Add(ILInstr.Call(typedCompareTo, 2, 1))
-            b.Add ILInstr.Ret
-        else
-            let other = b.Local s.SelfTy
-            b.Add(ILInstr.Ldarg 1)
-            b.Add(ILInstr.Isinst s.SelfType)
-            b.Add(ILInstr.Stloc other)
-            b.Add(ILInstr.Ldloc other)
-            b.Add(ILInstr.Brfalse throwLabel)
-            b.Add(ILInstr.Ldarg 0)
-            b.Add(ILInstr.Ldloc other)
-            b.Add(ILInstr.Call(typedCompareTo, 2, 1))
-            b.Add ILInstr.Ret
-
-        b.Add(ILInstr.Mark throwLabel)
-        b.Add(ILInstr.Ldstr s.MismatchMessage)
-        b.Add(ILInstr.Newobj(s.ArgumentExceptionCtor, 1))
-        b.Add ILInstr.Throw
-        b.Add(ILInstr.Mark nullLabel)
-        b.Add(ILInstr.LdcI4 1)
-        b.Add ILInstr.Ret
-        b.Body
+        buildStructuralCompareToObj isVt s.SelfType s.SelfTy s.MismatchMessage s.ArgumentExceptionCtor typedCompareTo
 
     // Each co-slot shim forwards through a `call`, not a `callvirt`, so the exact method
     // binds. The object arg is `ldarg.0`: an object reference for a class, a managed

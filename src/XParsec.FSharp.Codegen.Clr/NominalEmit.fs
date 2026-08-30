@@ -36,7 +36,7 @@ module internal NominalEmit =
     let private userInterfacesOf (input: NominalEmissionInput) : (FrozenNominal * TastAccessor.TypeMember list) list =
         match input with
         | NominalEmissionInput.Class cd -> cd.Interfaces
-        | NominalEmissionInput.Union(_, interfaces) -> interfaces
+        | NominalEmissionInput.Union(interfaces = interfaces) -> interfaces
         | NominalEmissionInput.Record(_, interfaces, _) -> interfaces
 
     let register
@@ -79,7 +79,7 @@ module internal NominalEmit =
         )
 
         match input with
-        | NominalEmissionInput.Union(cases, _) ->
+        | NominalEmissionInput.Union(cases, _, isStruct) ->
             let emittedCases = Dictionary<string, Emit.EmittedCase>()
 
             cases
@@ -101,6 +101,7 @@ module internal NominalEmit =
                     Name = td.Name
                     Typars = EqArray.toList td.TypeParams
                     TagField = toEntity (asm.FieldDef(FieldKey.UnionTag td.Key))
+                    IsValueType = isStruct
                     Cases = emittedCases
                     Members = emittedMembers
                 }
@@ -126,7 +127,7 @@ module internal NominalEmit =
             let staticLets = TPreambleEntryG.lets cd.StaticPreamble
             let instanceLets = TPreambleEntryG.lets cd.InstancePreamble
             let secondaryCtors = cd.SecondaryCtors
-            let isStruct = cd.ValueKind <> ClassValueKind.RefType
+            let isStruct = cd.ValueKind.IsValueType
 
             // The handle every `ldsfld`/`stsfld` references: a generic class reaches
             // its own `static let` field through a `MemberRef` on the open
@@ -215,54 +216,96 @@ module internal NominalEmit =
         Cil.buildBody asm.EncodeLocals asm.BodyStream (IlIr.lower ir)
 
     /// The union `.ctor` and one static factory per case.
-    let private prepareUnion (asm: Assembler) (td: TastAccessor.TypeDecl) (cases: Frozen.TUnionCase list) : unit =
+    let private prepareUnion
+        (asm: Assembler)
+        (td: TastAccessor.TypeDecl)
+        (isStruct: bool)
+        (cases: Frozen.TUnionCase list)
+        : unit =
         let provider = asm.Provider
         let typarMarkers = typarMarkersOf td
+        let selfTy = FTUnion(td.TypeKey, EqArray.ofList typarMarkers)
         let tagField = toEntity (asm.FieldDef(FieldKey.UnionTag td.Key))
-        let unionCtor = toEntity (asm.MethodDef(MethodKey.NominalCtor td.Key))
 
-        let ctorBodyOffset = bodyOf asm (Emit.buildClosureCtor provider.ObjectCtorRef [])
+        let tagRef =
+            selfMemberRef asm td (UserMemberKind.UnionMember UnionMember.Tag) tagField
 
-        asm.AddPrepared(
-            MethodKey.NominalCtor td.Key,
-            {
-                Signature = provider.NullaryCtorSignature()
-                BodyOffset = ctorBodyOffset
-                ParamNames = []
-                MethodTypars = []
-            }
-        )
+        let fieldRefsOf (c: Frozen.TUnionCase) =
+            [
+                for fi in 0 .. c.Fields.Length - 1 ->
+                    selfMemberRef
+                        asm
+                        td
+                        (UserMemberKind.UnionMember(UnionMember.Field(c.Name, fi)))
+                        (toEntity (asm.FieldDef(FieldKey.UnionCaseField(td.Key, c.Name, fi))))
+            ]
+
+        // A struct union's `.ctor` takes the tag and EVERY case's fields in flat
+        // declaration order, and each factory `newobj`s it. A reference union's `.ctor`
+        // chains `Object::.ctor` and its factories `stfld` after the `newobj`.
+        let ctorPrepared =
+            if isStruct then
+                let intTy = FTConst(RuntimeNames.intKey, EqArray.empty)
+
+                {
+                    Signature =
+                        provider.RecordCtorSignature(
+                            intTy
+                            :: [
+                                for c in cases do
+                                    for (_, t) in c.Fields -> t
+                            ]
+                        )
+                    BodyOffset = bodyOf asm (Emit.buildStructCtor (tagRef :: List.collect fieldRefsOf cases))
+                    ParamNames =
+                        "_tag"
+                        :: [
+                            for c in cases do
+                                for fi in 0 .. c.Fields.Length - 1 -> sprintf "%s_%d" c.Name fi
+                        ]
+                    MethodTypars = []
+                }
+            else
+                {
+                    Signature = provider.NullaryCtorSignature()
+                    BodyOffset = bodyOf asm (Emit.buildClosureCtor provider.ObjectCtorRef [])
+                    ParamNames = []
+                    MethodTypars = []
+                }
+
+        asm.AddPrepared(MethodKey.NominalCtor td.Key, ctorPrepared)
+
+        let ctorRef =
+            selfMemberRef
+                asm
+                td
+                (UserMemberKind.UnionMember UnionMember.Ctor)
+                (toEntity (asm.MethodDef(MethodKey.NominalCtor td.Key)))
 
         cases
         |> List.iteri (fun tag c ->
-            let fieldHandles =
-                [
-                    for fi in 0 .. c.Fields.Length - 1 ->
-                        toEntity (asm.FieldDef(FieldKey.UnionCaseField(td.Key, c.Name, fi)))
-                ]
+            let factoryIr =
+                if isStruct then
+                    let args =
+                        [
+                            for c' in cases do
+                                if c'.Name = c.Name then
+                                    for fi in 0 .. c'.Fields.Length - 1 do
+                                        yield Emit.StructUnionCtorArg.Param fi
+                                else
+                                    for (_, t) in c'.Fields do
+                                        yield Emit.StructUnionCtorArg.Default(t, asm.Icodegen.TypeToken t)
+                        ]
 
-            let ctorRef =
-                selfMemberRef asm td (UserMemberKind.UnionMember UnionMember.Ctor) unionCtor
+                    Emit.buildStructUnionFactory ctorRef tag args
+                else
+                    Emit.buildUnionFactory ctorRef tag tagRef (fieldRefsOf c)
 
-            let tagRef =
-                selfMemberRef asm td (UserMemberKind.UnionMember UnionMember.Tag) tagField
-
-            let fieldRefs =
-                [
-                    for fi in 0 .. List.length fieldHandles - 1 ->
-                        selfMemberRef
-                            asm
-                            td
-                            (UserMemberKind.UnionMember(UnionMember.Field(c.Name, fi)))
-                            fieldHandles.[fi]
-                ]
-
-            let factoryBody = bodyOf asm (Emit.buildUnionFactory ctorRef tag tagRef fieldRefs)
+            let factoryBody = bodyOf asm factoryIr
 
             let paramTys = [ for (_, t) in c.Fields -> t ]
 
-            let factorySig =
-                provider.StaticMethodSignature(paramTys, FTUnion(td.TypeKey, EqArray.ofList typarMarkers))
+            let factorySig = provider.StaticMethodSignature(paramTys, selfTy)
 
             asm.AddPrepared(
                 MethodKey.UnionFactory(td.Key, c.Name),
@@ -513,7 +556,7 @@ module internal NominalEmit =
         let ctorParams = cd.CtorParams
         let secondaryCtors = cd.SecondaryCtors
         let baseCtorCall = cd.Base |> ValueOption.bind (fun b -> b.Ctor)
-        let isStruct = cd.ValueKind <> ClassValueKind.RefType
+        let isStruct = cd.ValueKind.IsValueType
 
         let baseShape = classBaseShapeOf asm td cd
 
@@ -599,11 +642,13 @@ module internal NominalEmit =
 
         baseTypeHandle
 
-    /// One authored member's body and signature row.
+    /// One authored member's body and signature row. `selfValueTy` is the declaring type,
+    /// instantiated at its own typars, when it is a VALUE type.
     let private prepareTypeMember
         (asm: Assembler)
         (emitCtx: Emit.EmitContext)
         (td: TastAccessor.TypeDecl)
+        (selfValueTy: FrozenType voption)
         (index: int)
         (mem: TastAccessor.TypeMember)
         : unit =
@@ -622,9 +667,14 @@ module internal NominalEmit =
             | FTUnit -> true
             | _ -> false
 
+        // A static member has no `this` to deref-copy.
+        let selfValueTy = if mem.IsStatic then ValueNone else selfValueTy
+
         let bodyOffset =
             try
-                bodyOf asm (Emit.buildMember emitCtx mem.ThisKey mem.BaseKey mem.Params returnsVoid mem.Body)
+                bodyOf
+                    asm
+                    (Emit.buildMember emitCtx selfValueTy mem.ThisKey mem.BaseKey mem.Params returnsVoid mem.Body)
             with ex ->
                 raise (
                     System.Exception(sprintf "While lowering body of member '%A.%s'\n%s" td.Key mem.Name ex.Message, ex)
@@ -800,6 +850,7 @@ module internal NominalEmit =
         (asm: Assembler)
         (td: TastAccessor.TypeDecl)
         (self: StructuralSelf)
+        (unionIsStruct: bool)
         (cases: Frozen.TUnionCase list)
         : unit =
         let provider = asm.Provider
@@ -824,8 +875,8 @@ module internal NominalEmit =
                 td
                 self.SelfTy
                 (Emit.buildUnionGetHashCode support)
-                (Emit.buildUnionEquals support)
-                (Emit.buildUnionEqualsTyped support)
+                (Emit.buildUnionEquals unionIsStruct support)
+                (Emit.buildUnionEqualsTyped unionIsStruct support)
 
         if self.EmitsComparisonPair then
             let cmpSupport: Emit.UnionComparisonSupport =
@@ -844,8 +895,11 @@ module internal NominalEmit =
                 asm
                 td
                 self.SelfTy
-                (Emit.buildUnionCompareTo cmpSupport)
-                (Emit.buildUnionCompareToObj cmpSupport (toEntity (asm.MethodDef(MethodKey.CmpCompareToTyped td.Key))))
+                (Emit.buildUnionCompareTo unionIsStruct cmpSupport)
+                (Emit.buildUnionCompareToObj
+                    unionIsStruct
+                    cmpSupport
+                    (toEntity (asm.MethodDef(MethodKey.CmpCompareToTyped td.Key))))
 
     let private prepareRecordStructural
         (asm: Assembler)
@@ -911,7 +965,7 @@ module internal NominalEmit =
 
         let formatIr =
             match input with
-            | NominalEmissionInput.Union(cases, _) ->
+            | NominalEmissionInput.Union(cases = cases) ->
                 let emitted = asm.Unions.[td.TypeKey]
 
                 let formatCases =
@@ -1053,45 +1107,42 @@ module internal NominalEmit =
         let provider = asm.Provider
         let typarMarkers = typarMarkersOf td
 
-        // A `[<Struct>]` record: `this` (`ldarg.0`) is a managed pointer, so the
-        // synthesised equality/comparison bodies unbox the `object` arg and drop the
-        // null guard on the by-value typed arg. A struct class emits no such triple.
-        let recordIsStruct =
+        // A `[<Struct>]` nominal: `this` (`ldarg.0`) is a managed pointer, so a member body
+        // deref-copies a value use of it, and a union's or record's synthesised
+        // equality/comparison bodies take value-type shape. A struct class emits no triple.
+        let isStruct =
             match input with
-            | NominalEmissionInput.Record(_, _, isStruct) -> isStruct
-            | _ -> false
+            | NominalEmissionInput.Union(isStruct = isStruct)
+            | NominalEmissionInput.Record(isStruct = isStruct) -> isStruct
+            | NominalEmissionInput.Class cd -> cd.ValueKind.IsValueType
 
-        // The `extends` column for this `TypeDefinition`: `Object` unless the
-        // struct-record or class arm selects another base.
+        // The `extends` column for this `TypeDefinition`. A `[<Struct>]` union or record
+        // extends `System.ValueType`; the reference forms keep the `Object` default, and
+        // the class arm picks its own base.
         let defaultBase = provider.ObjectType
+        let structuralBase = if isStruct then provider.ValueTypeBase else defaultBase
 
         let baseTypeHandle =
             match input with
-            | NominalEmissionInput.Union(cases, _) ->
-                prepareUnion asm td cases
-                defaultBase
+            | NominalEmissionInput.Union(cases = cases) ->
+                prepareUnion asm td isStruct cases
+                structuralBase
             | NominalEmissionInput.Record(fields, _, _) ->
-                // A `[<Struct>]` record extends `System.ValueType`; a reference record
-                // keeps the `Object` default.
-                let baseHandle =
-                    if recordIsStruct then
-                        provider.ValueTypeBase
-                    else
-                        defaultBase
-
-                prepareRecord asm td recordIsStruct fields
-                baseHandle
+                prepareRecord asm td isStruct fields
+                structuralBase
             | NominalEmissionInput.Class cd -> prepareClass asm emitCtx td defaultBase cd
 
         // Interface-impl member bodies emit as virtual methods the runtime binds to the
         // `InterfaceImpl` row by name + signature. The synthesised eq/comparison/format
         // impls use disjoint `MethodKey`s, so the two never collide on a method row.
         let userInterfaces = userInterfacesOf input
+        let selfTyMarkers = selfTyOf input td typarMarkers
+
+        let selfValueTy = if isStruct then ValueSome selfTyMarkers else ValueNone
 
         for (index, _, mem) in NominalMembers.indexed members userInterfaces do
-            prepareTypeMember asm emitCtx td index mem
+            prepareTypeMember asm emitCtx td selfValueTy index mem
 
-        let selfTyMarkers = selfTyOf input td typarMarkers
         let selfTypeHandle = selfTypeHandleOf asm input td
 
         // The equality triple / comparison pair follow the verdicts for a record / union
@@ -1120,8 +1171,8 @@ module internal NominalEmit =
 
         match input with
         | NominalEmissionInput.Class _ -> ()
-        | NominalEmissionInput.Union(cases, _) -> prepareUnionStructural asm td structuralSelf cases
-        | NominalEmissionInput.Record _ -> prepareRecordStructural asm td structuralSelf recordIsStruct
+        | NominalEmissionInput.Union(cases = cases) -> prepareUnionStructural asm td structuralSelf isStruct cases
+        | NominalEmissionInput.Record _ -> prepareRecordStructural asm td structuralSelf isStruct
 
         let emitsStructuralFormat =
             match input with

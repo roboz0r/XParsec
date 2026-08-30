@@ -65,8 +65,8 @@ module EmitMember =
         (result: CallResult)
         : unit =
         let isStructSelf =
-            match via, objArgTy with
-            | CallVia.Self, FTClass _ -> isValueType env objArgTy
+            match via with
+            | CallVia.Self -> isValueType env objArgTy
             | _ -> false
 
         if isStructSelf then
@@ -187,7 +187,15 @@ module EmitMember =
         // a `FieldSet` is UNIT-TYPED and a `Sequential` middle item or a unit-returning body
         // expects a value present, so reify `unit` to keep the IL verifier happy.
         let handle = resolveRecordField env (nominalOfExpr objArg) name
-        recur env b objArg
+        let objArgTy = typeOfExpr objArg
+
+        // A value-type object argument is addressed in place (`this` is already the byref),
+        // so the store lands on the original rather than a value copy.
+        if isValueType env objArgTy then
+            loadStructThisPtr recur env b objArg objArgTy
+        else
+            recur env b objArg
+
         recur env b value
         b.Add(ILInstr.Stfld handle)
         EmitTypes.buildUnitValue env b

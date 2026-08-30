@@ -277,7 +277,10 @@ module NameResolutionLongIdent =
             | TypeDeclKind.IntrinsicBinding -> staticMember ()
         | ResolvedTypeRef.External(key, shape) ->
             match shape with
-            | ExternalTypeShape.Union(cases = cases; requiresQualifiedAccess = rqa) ->
+            | ExternalTypeShape.Union {
+                                          Cases = cases
+                                          RequiresQualifiedAccess = rqa
+                                      } ->
                 match EqArray.tryFind (fun (c: ExternalCaseShape) -> c.Name = name) cases with
                 | ValueSome case ->
                     let uc: ExternalUnionCase =

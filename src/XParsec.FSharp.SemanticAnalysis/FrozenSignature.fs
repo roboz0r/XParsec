@@ -211,20 +211,33 @@ module FrozenSignature =
                             ]
 
                     register
-                        (ExternalTypeShape.Record(
-                            arity,
-                            fieldShapes,
-                            origin,
-                            valueKind <> RecordValueKind.RefType,
-                            td.IsRequireQualifiedAccess
-                        ))
+                        (ExternalTypeShape.Record
+                            {
+                                Arity = arity
+                                Fields = fieldShapes
+                                Origin = origin
+                                IsValueType = valueKind.IsValueType
+                                RequiresQualifiedAccess = td.IsRequireQualifiedAccess
+                            })
                         (ValueSome(membersOf typeKey arity members))
 
-                | TTypeKindG.Union { Cases = cases; Members = members } ->
+                | TTypeKindG.Union {
+                                       Cases = cases
+                                       Members = members
+                                       ValueKind = valueKind
+                                   } ->
                     let caseShapes = EqArray.ofSeq [ for c in cases -> caseShapeOf c ]
 
                     register
-                        (ExternalTypeShape.Union(arity, caseShapes, EqArray.empty, origin, td.IsRequireQualifiedAccess))
+                        (ExternalTypeShape.Union
+                            {
+                                Arity = arity
+                                Cases = caseShapes
+                                Interfaces = EqArray.empty
+                                Origin = origin
+                                IsValueType = valueKind.IsValueType
+                                RequiresQualifiedAccess = td.IsRequireQualifiedAccess
+                            })
                         (ValueSome(membersOf typeKey arity members))
 
                 | TTypeKindG.Class c ->
@@ -249,7 +262,7 @@ module FrozenSignature =
                             Flags =
                                 { ExternalClassFlags.Default with
                                     Declared = c.Declared
-                                    IsValueType = (c.ValueKind <> ClassValueKind.RefType)
+                                    IsValueType = c.ValueKind.IsValueType
                                 }
                             Attributes = td.Attributes
                             Origin = origin

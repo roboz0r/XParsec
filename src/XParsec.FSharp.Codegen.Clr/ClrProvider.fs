@@ -35,6 +35,10 @@ type ClrProvider
     /// `CustomAttribute` constructor stamped on a `[<IsByRefLike>]` value type.
     member _.IsByRefLikeAttrCtor: EntityHandle = env.EIsByRefLikeAttrCtor.Value
 
+    /// `System.Runtime.CompilerServices.IsReadOnlyAttribute::.ctor()` — the
+    /// `CustomAttribute` constructor stamped on a `[<Struct>]` union.
+    member _.IsReadOnlyAttrCtor: EntityHandle = env.EIsReadOnlyAttrCtor.Value
+
     /// `System.AttributeUsageAttribute::.ctor(System.AttributeTargets)` — the CLR spelling
     /// a `[<AttributeUsage>]` row is written against.
     member _.AttributeUsageAttrCtor: EntityHandle = env.EAttributeUsageAttrCtor.Value

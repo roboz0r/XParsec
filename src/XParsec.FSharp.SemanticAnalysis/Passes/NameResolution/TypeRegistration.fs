@@ -157,8 +157,8 @@ module NameResolutionTypeRegistration =
 
         match shape with
         | ExternalTypeShape.Class info -> homeName info.Origin
-        | ExternalTypeShape.Record(origin = o)
-        | ExternalTypeShape.Union(origin = o)
+        | ExternalTypeShape.Record { Origin = o }
+        | ExternalTypeShape.Union { Origin = o }
         | ExternalTypeShape.Enum(origin = o) -> homeName o
         | ExternalTypeShape.Intrinsic _
         | ExternalTypeShape.IntrinsicInterface _
@@ -906,13 +906,14 @@ module NameResolutionTypeRegistration =
         let info =
             UnionTypeInfo(name, typeParams, caseInfos, id.DeclSite, typarConstraints, id.Key)
 
+        // `[<Struct>]` union ⇒ value type. Unions have no `struct … end` form, so the
+        // attribute is the whole verdict.
+        info.IsValueType <- isStructAttributed ctx tn
+
         info.Attributes <-
             Attributes.foldAndValidateTypeDefn
                 ctx
-                (if isStructAttributed ctx tn then
-                     TypeDefnKind.StructUnion
-                 else
-                     TypeDefnKind.Union)
+                info.DefnKind
                 declSite.Tok
                 (ctx.ResolveAttributes(Attributes.attributesOfTypeName tn))
 

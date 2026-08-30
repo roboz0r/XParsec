@@ -39,12 +39,29 @@ type ClassValueKind =
     | Struct
     | RefStruct
 
+    member this.IsValueType: bool =
+        match this with
+        | RefType -> false
+        | Struct
+        | RefStruct -> true
+
 /// Reference-type versus value-type emission for a declaration that cannot be byref-like.
 /// `[<Struct>]` ⇒ `Struct`.
 [<RequireQualifiedAccess>]
-type RecordValueKind =
+type NominalValueKind =
     | RefType
     | Struct
+
+    member this.IsValueType: bool =
+        match this with
+        | RefType -> false
+        | Struct -> true
+
+type RecordValueKind = NominalValueKind
+
+/// For a union, `Struct` is the flat tag-plus-all-case-fields value type and `RefType` is
+/// the reference emission of that same flat shape as a sealed class.
+type UnionValueKind = NominalValueKind
 
 /// What a class declaration STATES about itself with an attribute, as against what its
 /// contents decide. Carried whole through the TAST, the freeze and the external shape.
@@ -152,6 +169,7 @@ type TUnionG<'ty, 'id, 'body> =
         /// Each entry pairs a resolved interface type with the bodies of its
         /// `interface … with` block.
         Interfaces: EqArray<'ty * EqArray<TTypeMemberG<'ty, 'id, 'body>>>
+        ValueKind: UnionValueKind
     }
 
 /// The payload of `TTypeKindG.Record`.
@@ -318,16 +336,18 @@ type TTypeDeclG<'ty, 'tok, 'id, 'body> =
 
     member this.Key: SymbolKey = SymbolKey.Type this.TypeKey
 
-    /// The legality-axis kind of `Kind`: the same axis the attribute-validation pass judged
-    /// the declaration under.
+    /// The `TypeDefnKind` attribute validation judged this declaration under at registration,
+    /// re-derived from `Kind`.
     member this.DefnKind: TypeDefnKind =
         match this.Kind with
         | TTypeKindG.Record r ->
             match r.ValueKind with
             | RecordValueKind.RefType -> TypeDefnKind.Record
             | RecordValueKind.Struct -> TypeDefnKind.StructRecord
-        // The frozen tree carries no union value kind: a `[<Struct>]` union is not lowered.
-        | TTypeKindG.Union _ -> TypeDefnKind.Union
+        | TTypeKindG.Union u ->
+            match u.ValueKind with
+            | UnionValueKind.RefType -> TypeDefnKind.Union
+            | UnionValueKind.Struct -> TypeDefnKind.StructUnion
         | TTypeKindG.Enum _ -> TypeDefnKind.Enum
         | TTypeKindG.Abbrev _ -> TypeDefnKind.Abbrev
         | TTypeKindG.Interface _ -> TypeDefnKind.Interface

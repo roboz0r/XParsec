@@ -51,7 +51,7 @@ module internal ElaborateNominals =
         match Unification.zonk ctx.Store ty with
         | TyUnion(key, args) ->
             match ctx.Provider.TryLookupType key with
-            | ValueSome(ExternalTypeShape.Union(cases = cases)) -> ValueSome(struct (cases, args))
+            | ValueSome(ExternalTypeShape.Union { Cases = cases }) -> ValueSome(struct (cases, args))
             | _ -> ValueNone
         | _ -> ValueNone
 

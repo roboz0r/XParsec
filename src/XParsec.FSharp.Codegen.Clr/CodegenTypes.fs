@@ -67,6 +67,10 @@ type internal UnionDecl =
         /// User `interface … with member …` impls: each pair is an implemented interface
         /// type + its already-typed member bodies.
         Interfaces: (FrozenNominal * TastAccessor.TypeMember list) list
+        /// `Struct` for a `[<Struct>]` union (`System.ValueType` base, sealed,
+        /// `IsReadOnly` with `initonly` fields; the factories `newobj` the flat
+        /// `(tag, every case field)` `.ctor` and return by value).
+        ValueKind: UnionValueKind
     }
 
 /// A partitioned record declaration: its `TTypeDecl`, fields, and members.
@@ -148,7 +152,13 @@ type internal PartitionedTypeDecls =
 /// virtual `MethodDefinition` per member.
 [<RequireQualifiedAccess>]
 type internal NominalEmissionInput =
-    | Union of cases: Frozen.TUnionCase list * interfaces: (FrozenNominal * TastAccessor.TypeMember list) list
+    /// `isStruct` ⇒ a `[<Struct>]` value-type union: `System.ValueType` base,
+    /// `IsReadOnly` with `initonly` fields, a flat `(tag, every case field)` `.ctor` the
+    /// factories construct through, and value-type-shaped equality/comparison bodies.
+    | Union of
+        cases: Frozen.TUnionCase list *
+        interfaces: (FrozenNominal * TastAccessor.TypeMember list) list *
+        isStruct: bool
     /// `isStruct` ⇒ a `[<Struct>]` value-type record: `System.ValueType` base, a
     /// base-chain-free `.ctor`, and value-type-shaped equality/comparison bodies.
     | Record of
@@ -156,6 +166,12 @@ type internal NominalEmissionInput =
         interfaces: (FrozenNominal * TastAccessor.TypeMember list) list *
         isStruct: bool
     | Class of ClassDecl
+
+    static member OfUnion(ud: UnionDecl) : NominalEmissionInput =
+        NominalEmissionInput.Union(ud.Cases, ud.Interfaces, ud.ValueKind.IsValueType)
+
+    static member OfRecord(rd: RecordDecl) : NominalEmissionInput =
+        NominalEmissionInput.Record(rd.Fields, rd.Interfaces, rd.ValueKind.IsValueType)
 
 /// Shared contract over a nominal type's own method members and its `interface … with` impls.
 [<RequireQualifiedAccess>]

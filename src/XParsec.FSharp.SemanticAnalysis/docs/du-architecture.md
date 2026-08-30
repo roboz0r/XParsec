@@ -272,8 +272,24 @@ TAST shape.
   accepted even though `Rectangle` / `Point` are uncovered. Belongs to
   the broader pattern-completeness work in Validation; the current
   contract is "no spurious diagnostics" on incomplete matches.
-- **Struct DUs** (`[<Struct>] type …`). Same ctor-resolution story but a
-  different region/codegen treatment; not modelled.
+- **Reference unions emit flat, not as F#'s class hierarchy.** Both
+  value kinds currently share one nominal shape: `_tag` plus one field
+  per (case, field-index). `[<Struct>]` selects
+  `UnionValueKind.Struct` (carried on `TUnionG`, through the freeze
+  codec and the external shape), and flat is the PERMANENT
+  representation for a struct union — a value type cannot inherit. For
+  a reference union the flat shape is an interim stand-in for F#'s
+  base-class + sealed-per-case-subclass hierarchy; adopting that
+  changes case construction (`newobj` the case subclass), match-time
+  field extraction (downcast, then `ldfld` on the case type), and the
+  synthesised equality/comparison walks, which today rely on every
+  case's fields being co-resident on one type. The JS backend already
+  emits the hierarchy. The deferred struct-layout optimisation is the
+  overlapping split-payload design in `brainstorm-du-layout.md`;
+  F#'s same-name-same-type slot sharing (the FS3585 layout) was
+  considered and skipped in its favour, so same-name different-type
+  fields across cases stay representable (pinned in
+  `StructUnionSameNameFields`).
 - **True GADTs.** The GADT *syntax* forms are accepted and treated as
   ordinary cases (their return type names the declaring union — what
   FSharp.Core's `list` needs); genuine generalized-ADT typing is out of

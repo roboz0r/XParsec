@@ -132,6 +132,9 @@ type internal Assembler
             let td = ud.Decl
             provider.RegisterUserType(td.TypeKey, toEntity (layoutHandles.TypeDefOf(TypeSlotKey.Nominal td.Key)))
 
+            if ud.ValueKind.IsValueType then
+                provider.RegisterUserValueType td.TypeKey
+
             if not td.TypeParams.IsEmpty then
                 let shape =
                     [
@@ -148,9 +151,7 @@ type internal Assembler
             let td = rd.Decl
             provider.RegisterUserType(td.TypeKey, toEntity (layoutHandles.TypeDefOf(TypeSlotKey.Nominal td.Key)))
 
-            // A `[<Struct>]` record is a project-local value type → `VALUETYPE` (not
-            // `CLASS`) in every signature, exactly as a struct class.
-            if rd.ValueKind <> RecordValueKind.RefType then
+            if rd.ValueKind.IsValueType then
                 provider.RegisterUserValueType td.TypeKey
 
             if not td.TypeParams.IsEmpty then
@@ -161,7 +162,7 @@ type internal Assembler
             let td = cd.Decl
             provider.RegisterUserType(td.TypeKey, toEntity (layoutHandles.TypeDefOf(TypeSlotKey.Nominal td.Key)))
 
-            if cd.ValueKind <> ClassValueKind.RefType then
+            if cd.ValueKind.IsValueType then
                 provider.RegisterUserValueType td.TypeKey
 
             if not td.TypeParams.IsEmpty then
@@ -1035,7 +1036,7 @@ type internal Assembler
         // Union, record, class and closure `TypeDefinition` rows share one recipe.
         // Walking the layout in order keeps the `InterfaceImpl` / `GenericParam` rows
         // ascending (sorted by `Class` / `TypeOrMethodDef`).
-        let addNominalRow (node: TypeNode) (attrs: TypeAttributes) (isByRefLike: bool) =
+        let addNominalRow (node: TypeNode) (attrs: TypeAttributes) (markerAttrCtors: EntityHandle list) =
             let slot = node.Slot
 
             let extras =
@@ -1056,16 +1057,14 @@ type internal Assembler
             verifyTypeHandle slot typeHandle
             addNesting node typeHandle
 
-            // A `[<IsByRefLike>]` value type carries the marker attribute, a parameterless
-            // custom attribute whose blob is prolog `0x0001` + zero named args =
-            // `01 00 00 00`. There is no `TypeAttributes` bit for it.
-            if isByRefLike then
+            // A marker attribute is parameterless: blob = prolog `0x0001` + zero named
+            // args = `01 00 00 00`. There is no `TypeAttributes` bit for one.
+            for attrCtor in markerAttrCtors do
                 let blob = BlobBuilder()
                 blob.WriteUInt16(1us)
                 blob.WriteUInt16(0us)
 
-                ctx.AddCustomAttribute(toEntity typeHandle, provider.IsByRefLikeAttrCtor, blob)
-                |> ignore
+                ctx.AddCustomAttribute(toEntity typeHandle, attrCtor, blob) |> ignore
 
             for iface in extras.Interfaces do
                 ctx.AddInterfaceImplementation(typeHandle, iface)
@@ -1101,15 +1100,27 @@ type internal Assembler
                 |> List.iteri (fun i n -> genericParams.Add(toEntity typeHandle, i, n))
 
             // Unions and records are always sealed; a class opts in via `[<Sealed>]` /
-            // `[<Struct>]`. A record opts into value-type emission via `[<Struct>]`.
-            | TypeSlotKind.Union -> addNominalRow node (classAttrsOf true false) false
-            | TypeSlotKind.Record valueKind ->
-                addNominalRow node (classAttrsOf true (valueKind <> RecordValueKind.RefType)) false
+            // `[<Struct>]`. A union or record opts into value-type emission via `[<Struct>]`.
+            // A struct union also carries `IsReadOnly`; a record may have `mutable` fields.
+            | TypeSlotKind.Union valueKind ->
+                let markers =
+                    if valueKind.IsValueType then
+                        [ provider.IsReadOnlyAttrCtor ]
+                    else
+                        []
+
+                addNominalRow node (classAttrsOf true valueKind.IsValueType) markers
+
+            | TypeSlotKind.Record valueKind -> addNominalRow node (classAttrsOf true valueKind.IsValueType) []
 
             | TypeSlotKind.Class(isSealed, valueKind) ->
-                let isValueType = valueKind <> ClassValueKind.RefType
-                let isByRefLike = valueKind = ClassValueKind.RefStruct
-                addNominalRow node (classAttrsOf isSealed isValueType) isByRefLike
+                let markers =
+                    if valueKind = ClassValueKind.RefStruct then
+                        [ provider.IsByRefLikeAttrCtor ]
+                    else
+                        []
+
+                addNominalRow node (classAttrsOf isSealed valueKind.IsValueType) markers
 
             // A numeric enum: base `System.Enum`, no interfaces, no methods, so it has
             // no `TypeRowExtras` (`System.Enum` supplies eq/comp/format) and is written
@@ -1130,7 +1141,7 @@ type internal Assembler
 
             // A string/mixed enum: a `[<Struct>]` value type with a `.ctor` + `.cctor`.
             // Its `System.ValueType` base is stored in `TypeRowExtras`; never byref-like.
-            | TypeSlotKind.StructEnum -> addNominalRow node structEnumAttrs false
+            | TypeSlotKind.StructEnum -> addNominalRow node structEnumAttrs []
 
             // Each closure implements its `Vesper.Fun\`2<param, result>` interface. Its
             // `GenericParam` rows were collected under the closure-typar ambient, so

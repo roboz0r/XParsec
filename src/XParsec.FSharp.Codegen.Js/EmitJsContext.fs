@@ -73,7 +73,7 @@ module EmitJsContext =
     /// home module at each construction site.
     let private externalRecord (provider: IExternalSymbolProvider) (key: TypeKey) : JsRecordInfo voption =
         match provider.TryLookupType key with
-        | ValueSome(ExternalTypeShape.Record(_, fields, origin, _, _)) ->
+        | ValueSome(ExternalTypeShape.Record { Fields = fields; Origin = origin }) ->
             let struct (name, home) = importedAs "record" key origin
 
             ValueSome
@@ -88,7 +88,7 @@ module EmitJsContext =
     /// module at each `UnionCons` site.
     let private externalUnion (provider: IExternalSymbolProvider) (key: TypeKey) : JsUnionInfo voption =
         match provider.TryLookupType key with
-        | ValueSome(ExternalTypeShape.Union(_, cases, _, origin, _)) ->
+        | ValueSome(ExternalTypeShape.Union { Cases = cases; Origin = origin }) ->
             let struct (baseName, home) = importedAs "union" key origin
 
             let info, _ =

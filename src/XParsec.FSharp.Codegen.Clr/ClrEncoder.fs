@@ -39,17 +39,18 @@ type internal ClrEncoder(env: ClrEnv) =
     // Nominal token recognisers, one per flavour: the token that encodes `key`, and whether it
     // tags `VALUETYPE`.
 
-    /// A union encodes `CLASS` in either domain.
     let (|UnionToken|_|) (t: FrozenType) =
         match t with
         | FTUnion(key, args) ->
             match userTypes.TryGetValue key with
-            | true, handle -> Some(handle, args)
+            // A `[<Struct>]` union encodes `ELEMENT_TYPE_VALUETYPE` so a signature matches its
+            // value-type `TypeDefinition`; a reference union is `ELEMENT_TYPE_CLASS`.
+            | true, handle -> Some(handle, userValueTypes.Contains key, args)
             // The Vesper cons-list encodes as `Vesper.Collections.List`1<elem>`.
-            | _ when RuntimeNames.isVesperListKey key && args.Length = 1 -> Some(eVesperList1.Value, args)
+            | _ when RuntimeNames.isVesperListKey key && args.Length = 1 -> Some(eVesperList1.Value, false, args)
             | _ ->
                 match externalUnionRef (key, args.Length) with
-                | ValueSome(tref, _) -> Some(tref, args)
+                | ValueSome(tref, _) -> Some(tref, externalIsValueType key, args)
                 | ValueNone -> None
         | _ -> None
 
@@ -96,7 +97,7 @@ type internal ClrEncoder(env: ClrEnv) =
             let g = te.GenericInstantiation(eFun2 (), 2, false)
             encodeType (g.AddArgument()) a
             encodeType (g.AddArgument()) b
-        | UnionToken(handle, args) -> encodeNominal te handle false args
+        | UnionToken(handle, isVt, args)
         | RecordToken(handle, isVt, args)
         | ClassToken(handle, isVt, args) -> encodeNominal te handle isVt args
         | FTUnknown reason ->

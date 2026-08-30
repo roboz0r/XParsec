@@ -11,25 +11,8 @@ open System.Collections.Generic
 type ExternalTypeShape =
     /// `frozen` is the abbreviation body as a template, which a use site expands.
     | Abbrev of arity: int * frozen: FrozenType
-    /// Field order matches source. `isValueType` is the `[<Struct>]` the declaration asked
-    /// for, carried so a consuming unit reads the same layout the declaring one did.
-    /// `requiresQualifiedAccess` is the record's `[<RequireQualifiedAccess>]`, which forces a
-    /// consumer to write `{ R.X = … }`.
-    | Record of
-        arity: int *
-        fields: EqArray<ExternalFieldShape> *
-        origin: SymbolOrigin *
-        isValueType: bool *
-        requiresQualifiedAccess: bool
-    /// Case order matches source. `interfaces` are the union's directly-declared
-    /// `interface <ty>` impls. `requiresQualifiedAccess` is the union's
-    /// `[<RequireQualifiedAccess>]`, so a case reached through the type carries the flag.
-    | Union of
-        arity: int *
-        cases: EqArray<ExternalCaseShape> *
-        interfaces: EqArray<FrozenNominal> *
-        origin: SymbolOrigin *
-        requiresQualifiedAccess: bool
+    | Record of shape: ExternalRecordShape
+    | Union of shape: ExternalUnionShape
     /// An external enum: named constant cases in source order. No `arity`, because enums are
     /// never generic; the numeric / string / mixed variant is DERIVED from `cases`, never baked.
     | Enum of cases: EqArray<ExternalEnumCaseShape> * origin: SymbolOrigin
@@ -68,8 +51,8 @@ type ExternalTypeShape =
         | Intrinsic s -> s.Id.TyparArity
         | IntrinsicInterface s -> s.TyparArity
         | Enum _ -> 0 // enums are never generic
-        | Record(arity = a)
-        | Union(arity = a)
+        | Record r -> r.Arity
+        | Union u -> u.Arity
         | Abbrev(arity = a)
         | Unmodelled(arity = a) -> a
 
@@ -507,13 +490,14 @@ module ExternalSymbols =
         | ExternalTypeShape.IntrinsicInterface shape -> ValueSome shape.Members
         | _ -> ValueNone
 
-    /// The `[<Struct>]` a CLASS or RECORD declaration asked for. Every other shape is
+    /// The `[<Struct>]` a CLASS, RECORD or UNION declaration asked for. Every other shape is
     /// `ValueNone`: an intrinsic's layout is the target's alone, and no other shape carries the
     /// request. A caller asks the platform first, because the target may erase the request.
     let declaredValueType (shape: ExternalTypeShape) : bool voption =
         match shape with
         | ExternalTypeShape.Class s -> ValueSome s.Flags.IsValueType
-        | ExternalTypeShape.Record(isValueType = isValueType) -> ValueSome isValueType
+        | ExternalTypeShape.Record r -> ValueSome r.IsValueType
+        | ExternalTypeShape.Union u -> ValueSome u.IsValueType
         | _ -> ValueNone
 
     /// A capability is an interface on BOTH targets, and only the carried shape differs.

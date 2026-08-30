@@ -317,6 +317,21 @@ path = "records/record-members.fs"
 run = ["clr", "js"]
 
 # ---------------------------------------------------------------------------------------
+# UNIONS — a [<Struct>] union. The CLR emits it as a System.ValueType-based flat value
+# type (tag + every case's fields, by-value factories); JS has no value types and emits
+# the same reference object a plain union takes. Construction, matching and structural
+# equality must agree across the two. The CLR-only `default` semantics (the zero value
+# is the tag-0 case) is pinned in the CLR suite, because on JS the default of a
+# reference object is null.
+[[program]]
+path = "unions/struct-union.fs"
+run = ["clr", "js"]
+
+[[program]]
+path = "unions/struct-union-generic.fs"
+run = ["clr", "js"]
+
+# ---------------------------------------------------------------------------------------
 # INLINE — `let inline` is an ordinary module function that is ALSO a splice template.
 # Both backends emit the function and both splice the body, and the two have to agree on
 # the answer. These programs are here rather than in a per-backend suite because the

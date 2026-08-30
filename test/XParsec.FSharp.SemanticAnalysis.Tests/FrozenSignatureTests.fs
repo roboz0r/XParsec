@@ -117,27 +117,31 @@ let tests =
                 let store = provider :> IExternalSymbolStore
 
                 match store.TryLookupType(typeKeyOf frozen "Box") with
-                | ValueSome(ExternalTypeShape.Record(1, fields, origin, isValueType, _)) ->
-                    Expect.equal (fields |> EqArray.map (fun f -> f.Name)) (EqArray.ofSeq [ "value" ]) "Box field names"
-                    Expect.equal origin.Home.AssemblyOption (ValueSome testAsm) "Box carries home-assembly origin"
-                    Expect.isFalse isValueType "a plain record projects as a reference layout"
+                | ValueSome(ExternalTypeShape.Record r) when r.Arity = 1 ->
+                    Expect.equal
+                        (r.Fields |> EqArray.map (fun f -> f.Name))
+                        (EqArray.ofSeq [ "value" ])
+                        "Box field names"
+
+                    Expect.equal r.Origin.Home.AssemblyOption (ValueSome testAsm) "Box carries home-assembly origin"
+                    Expect.isFalse r.IsValueType "a plain record projects as a reference layout"
                 | other -> failtestf "Box did not project as a generic Record: %A" other
 
                 // Value-ness decides `when 'a : struct` in a CONSUMING unit, which reads only
                 // this shape, so the `[<Struct>]` has to survive the freeze.
                 match store.TryLookupType(typeKeyOf frozen "Point") with
-                | ValueSome(ExternalTypeShape.Record(isValueType = isValueType)) ->
+                | ValueSome(ExternalTypeShape.Record { IsValueType = isValueType }) ->
                     Expect.isTrue isValueType "a [<Struct>] record projects as a value layout"
                 | other -> failtestf "Point did not project as a Record: %A" other
 
                 match store.TryLookupType(typeKeyOf frozen "Opt") with
-                | ValueSome(ExternalTypeShape.Union(1, cases, _, origin, _)) ->
+                | ValueSome(ExternalTypeShape.Union u) when u.Arity = 1 ->
                     Expect.equal
-                        (cases |> EqArray.map (fun c -> c.Name))
+                        (u.Cases |> EqArray.map (fun c -> c.Name))
                         (EqArray.ofSeq [ "Nope"; "Just" ])
                         "Opt case names"
 
-                    Expect.equal origin.Home.AssemblyOption (ValueSome testAsm) "Opt carries home-assembly origin"
+                    Expect.equal u.Origin.Home.AssemblyOption (ValueSome testAsm) "Opt carries home-assembly origin"
                 | other -> failtestf "Opt did not project as a generic Union: %A" other
             }
 

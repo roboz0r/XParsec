@@ -111,17 +111,20 @@ let tests =
             // union arriving from `SignatureResolution` and from `FrozenSignature` alike.
             test "the cons-list's cases are published on the shape but not indexed by name" {
                 let union =
-                    ExternalTypeShape.Union(
-                        1,
-                        EqArray.ofList
-                            [
-                                ExternalCaseShape.create (RuntimeNames.consCaseName, EqArray.empty)
-                                ExternalCaseShape.create (RuntimeNames.emptyCaseName, EqArray.empty)
-                            ],
-                        EqArray.empty,
-                        SymbolOrigin.Empty,
-                        false
-                    )
+                    ExternalTypeShape.Union
+                        {
+                            Arity = 1
+                            Cases =
+                                EqArray.ofList
+                                    [
+                                        ExternalCaseShape.create (RuntimeNames.consCaseName, EqArray.empty)
+                                        ExternalCaseShape.create (RuntimeNames.emptyCaseName, EqArray.empty)
+                                    ]
+                            Interfaces = EqArray.empty
+                            Origin = SymbolOrigin.Empty
+                            IsValueType = false
+                            RequiresQualifiedAccess = false
+                        }
 
                 let listSurface =
                     PublishedSurface.build (fun b -> PublishedSurfaceBuilder.addType b RuntimeNames.vesperListKey union)

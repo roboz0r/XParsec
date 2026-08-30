@@ -86,9 +86,10 @@ type internal TypeSlotKey =
 type internal TypeSlotKind =
     | ModulePseudo
     | Interface
-    | Union
     /// `valueKind` selects reference vs `[<Struct>]` value type (flips the
-    /// `System.ValueType` base). A record is always sealed, so it takes no `isSealed`.
+    /// `System.ValueType` base). Always sealed, so it takes no `isSealed`.
+    | Union of valueKind: UnionValueKind
+    /// Same as `Union`.
     | Record of valueKind: RecordValueKind
     /// `isSealed` reflects `[<Sealed>]`; `valueKind` selects reference vs `[<Struct>]`
     /// value type (flips sequential layout + `Sealed` + the `ValueType` base) vs

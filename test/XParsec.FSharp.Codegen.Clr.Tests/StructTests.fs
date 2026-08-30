@@ -759,4 +759,75 @@ let structTests =
             test "a val-field class with only a parameterless new() initialises its fields" {
                 runsDataLines [ "42"; "7" ] "valfield-parameterless-ctor"
             }
+
+            test "a `[<Struct>]` union emits as a readonly System.ValueType-based value type" {
+                let artifact = compileSourceData "StructUnionShape"
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let ty = asm.GetType "Shape"
+                Expect.isNotNull ty "the assembly contains the struct union Shape"
+                Expect.isTrue ty.IsValueType "Shape emits as a value type"
+                Expect.isTrue ty.IsSealed "a value type is sealed"
+                Expect.equal ty.BaseType typeof<System.ValueType> "Shape extends System.ValueType"
+
+                let isReadOnly =
+                    ty.GetCustomAttributesData()
+                    |> Seq.exists (fun a ->
+                        a.AttributeType.FullName = "System.Runtime.CompilerServices.IsReadOnlyAttribute"
+                    )
+
+                Expect.isTrue isReadOnly "Shape carries IsReadOnlyAttribute"
+
+                let ctors =
+                    ty.GetConstructors(BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Instance)
+
+                Expect.equal ctors.Length 1 "a struct union declares one flat .ctor"
+                Expect.equal (ctors.[0].GetParameters().Length) 4 "tag + Point_0 + Pair_0 + Pair_1"
+
+                let fields =
+                    ty.GetFields(BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly)
+
+                for f in fields do
+                    Expect.isTrue f.IsInitOnly (f.Name + " is initonly")
+
+                let names = fields |> Array.map (fun f -> f.Name) |> Set.ofArray
+
+                Expect.equal
+                    names
+                    (Set.ofList [ "_tag"; "Point_0"; "Pair_0"; "Pair_1" ])
+                    "the flat per-(case, index) field set plus the tag"
+            }
+
+            // The last two lines are the `default` semantics: the zero value is the
+            // tag-0 case (`Empty`), reachable by pattern matching and equal to it.
+            test "a `[<Struct>]` union constructs, matches, equates; its zero value is the tag-0 case" {
+                runsDataLines [ "0"; "3"; "9"; "true"; "false"; "0"; "true" ] "StructUnionShape"
+            }
+
+            test "a generic `[<Struct>]` union emits as a generic value type" {
+                let artifact = compileSourceData "StructUnionGenericShape"
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let ty = asm.GetType "GBox`1"
+                Expect.isNotNull ty "the assembly contains the generic struct union GBox`1"
+                Expect.isTrue ty.IsValueType "GBox`1 emits as a value type"
+                Expect.isTrue ty.IsSealed "a value type is sealed"
+                Expect.isTrue ty.IsGenericTypeDefinition "GBox`1 is a generic type definition"
+
+                let isReadOnly =
+                    ty.GetCustomAttributesData()
+                    |> Seq.exists (fun a ->
+                        a.AttributeType.FullName = "System.Runtime.CompilerServices.IsReadOnlyAttribute"
+                    )
+
+                Expect.isTrue isReadOnly "GBox`1 carries IsReadOnlyAttribute"
+            }
+
+            test "a generic `[<Struct>]` union constructs, matches and equates at int" {
+                runsDataLines [ "3"; "40"; "true"; "false" ] "StructUnionGenericShape"
+            }
+
+            test "same-name different-type case fields are representable (FS3585 relaxed)" {
+                runsDataLines [ "5"; "hello"; "true"; "false" ] "StructUnionSameNameFields"
+            }
         ]

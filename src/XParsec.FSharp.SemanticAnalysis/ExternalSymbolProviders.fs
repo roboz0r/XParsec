@@ -241,10 +241,8 @@ module ExternalSymbolProviders =
                         { info with
                             Origin = home info.Origin h
                         }
-                | ExternalTypeShape.Record(arity, fields, o, isValueType, rqa) ->
-                    ExternalTypeShape.Record(arity, fields, home o h, isValueType, rqa)
-                | ExternalTypeShape.Union(arity, cases, ifaces, o, rqa) ->
-                    ExternalTypeShape.Union(arity, cases, ifaces, home o h, rqa)
+                | ExternalTypeShape.Record r -> ExternalTypeShape.Record { r with Origin = home r.Origin h }
+                | ExternalTypeShape.Union u -> ExternalTypeShape.Union { u with Origin = home u.Origin h }
                 | ExternalTypeShape.Enum(cases, o) -> ExternalTypeShape.Enum(cases, home o h)
                 | ExternalTypeShape.IntrinsicInterface s ->
                     ExternalTypeShape.IntrinsicInterface { s with Origin = home s.Origin h }
@@ -383,17 +381,18 @@ module ExternalSymbolProviders =
                         FrozenInterfaces = mapInterfaces info.FrozenInterfaces
                         FrozenBaseType = info.FrozenBaseType |> ValueOption.map mapNominal
                     }
-            | ExternalTypeShape.Record(arity, fields, origin, isValueType, rqa) ->
+            | ExternalTypeShape.Record r ->
                 // A record field is a covariant value read.
-                ExternalTypeShape.Record(
-                    arity,
-                    fields |> EqArray.map (fun f -> { f with Frozen = co f.Frozen }),
-                    origin,
-                    isValueType,
-                    rqa
-                )
-            | ExternalTypeShape.Union(arity, cases, ifaces, origin, rqa) ->
-                ExternalTypeShape.Union(arity, cases |> EqArray.map mapCase, mapInterfaces ifaces, origin, rqa)
+                ExternalTypeShape.Record
+                    { r with
+                        Fields = r.Fields |> EqArray.map (fun f -> { f with Frozen = co f.Frozen })
+                    }
+            | ExternalTypeShape.Union u ->
+                ExternalTypeShape.Union
+                    { u with
+                        Cases = u.Cases |> EqArray.map mapCase
+                        Interfaces = mapInterfaces u.Interfaces
+                    }
             // A primitive's class surface maps identically to `Class`, interfaces included.
             | ExternalTypeShape.Intrinsic({ Class = ValueSome surface } as s) ->
                 ExternalTypeShape.Intrinsic

@@ -17,11 +17,11 @@ type TypeLayout =
 type LayoutShape =
     /// An intrinsic: settled by the target alone, no declaration standing behind `int`.
     | Primitive of key: TypeKey
-    /// A record or class, whose `[<Struct>]` the target may erase.
+    /// A record, union or class, whose `[<Struct>]` the target may erase.
     | Nominal of key: TypeKey
     /// An enum, whose declaration asks for a value type wherever the target lays one out.
     | Enum of key: TypeKey
-    /// A closure, a union, or an anonymous union erasing to a boxed reference.
+    /// A closure, or an anonymous union erasing to a boxed reference.
     | Reference
     /// A tuple. Structural, so it carries no key of its own; the target supplies the nominal
     /// a tuple of this arity BECOMES, and that nominal's layout applies.
@@ -69,11 +69,11 @@ module TypeLayout =
         match UnionFind.zonkShallow store t with
         | TyConst(key, _) -> LayoutShape.Primitive key
         | TyRecord(key, _)
+        | TyUnion(key, _)
         | TyClass(key, _) -> LayoutShape.Nominal key
         | TyEnum key -> LayoutShape.Enum key
         | TyLiteral v -> literalShape v
         | TyFun _
-        | TyUnion _
         | TyOr _ -> LayoutShape.Reference
         | TyTuple items -> LayoutShape.Tuple items.Length
         | TyKeyOf _
@@ -88,11 +88,11 @@ module TypeLayout =
         match t with
         | FTConst(key, _) -> LayoutShape.Primitive key
         | FTRecord(key, _)
+        | FTUnion(key, _)
         | FTClass(key, _) -> LayoutShape.Nominal key
         | FTEnum key -> LayoutShape.Enum key
         | FTLiteral v -> literalShape v
         | FTFun _
-        | FTUnion _
         | FTOr _ -> LayoutShape.Reference
         | FTTuple items -> LayoutShape.Tuple items.Length
         | FTKeyOf _
@@ -126,6 +126,10 @@ module TypeLayout =
     let private declaredOf (ctx: PassContext) (key: TypeKey) : TypeLayout =
         TypeRegistry.tryRecordByKey ctx.Types key
         |> ValueOption.map (fun info -> info.IsValueType)
+        |> ValueOption.orElseWith (fun () ->
+            TypeRegistry.tryUnionByKey ctx.Types key
+            |> ValueOption.map (fun info -> info.IsValueType)
+        )
         |> ValueOption.orElseWith (fun () ->
             TypeRegistry.tryClassByKey ctx.Types key
             |> ValueOption.map (fun info -> info.IsValueType)

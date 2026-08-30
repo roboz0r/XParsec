@@ -65,28 +65,35 @@ let private typeByName (name: string) : ExternalTypeShape voption =
         )
     | "Rec" ->
         ValueSome(
-            ExternalTypeShape.Record(
-                1,
-                EqArray.singleton
-                    {
-                        Name = "f"
-                        IsMutable = false
-                        Frozen = marker
-                    },
-                origin,
-                false,
-                false
-            )
+            ExternalTypeShape.Record
+                {
+                    Arity = 1
+                    Fields =
+                        EqArray.singleton
+                            {
+                                Name = "f"
+                                IsMutable = false
+                                Frozen = marker
+                            }
+                    Origin = origin
+                    IsValueType = false
+                    RequiresQualifiedAccess = false
+                }
         )
     | "Uni" ->
         ValueSome(
-            ExternalTypeShape.Union(
-                1,
-                EqArray.singleton markerCase,
-                EqArray.singleton (NominalG.ofClass (SymbolKeyOps.qualifiedTypeKeyOf "J" 1) (EqArray.singleton marker)),
-                origin,
-                false
-            )
+            ExternalTypeShape.Union
+                {
+                    Arity = 1
+                    Cases = EqArray.singleton markerCase
+                    Interfaces =
+                        EqArray.singleton (
+                            NominalG.ofClass (SymbolKeyOps.qualifiedTypeKeyOf "J" 1) (EqArray.singleton marker)
+                        )
+                    Origin = origin
+                    IsValueType = false
+                    RequiresQualifiedAccess = false
+                }
         )
     | "Abb" -> ValueSome(ExternalTypeShape.Abbrev(1, marker))
     | _ -> ValueNone
@@ -216,14 +223,14 @@ let tests =
 
             test "a record field is covariant" {
                 match shapeNamed "Rec" with
-                | ValueSome(ExternalTypeShape.Record(fields = fields)) ->
+                | ValueSome(ExternalTypeShape.Record { Fields = fields }) ->
                     Expect.equal fields.[0].Frozen (witness Variance.Co) "record field root is co"
                 | other -> failtestf "expected a Record shape, got %A" other
             }
 
             test "a union-case field is covariant and the union's interface args invariant" {
                 match shapeNamed "Uni" with
-                | ValueSome(ExternalTypeShape.Union(_, cases, ifaces, _, _)) ->
+                | ValueSome(ExternalTypeShape.Union { Cases = cases; Interfaces = ifaces }) ->
                     Expect.equal
                         cases.[0].FrozenFieldTypes
                         (EqArray.singleton (witness Variance.Co))
@@ -279,7 +286,7 @@ let tests =
                 | ValueNone -> failtest "sym is declared in the root namespace"
 
                 match wrapped.Scope.TypesNamed(rootContainer, "Rec") with
-                | EqOne(struct (_, ExternalTypeShape.Record(fields = fields))) ->
+                | EqOne(struct (_, ExternalTypeShape.Record { Fields = fields })) ->
                     Expect.equal fields.[0].Frozen (witness Variance.Co) "scoped record field root is co"
                 | other -> failtestf "expected a Record shape for 'Rec', got %A" other
             }

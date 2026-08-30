@@ -116,6 +116,8 @@ module EmitTypes =
             Name: string
             Typars: string list
             TagField: EntityHandle
+            /// Drives `isValueType` at use sites: box on `:>`, `unbox.any` on `:?>`.
+            IsValueType: bool
             Cases: Dictionary<string, EmittedCase>
             /// Augmentation members by source name, each mapping to the LIST of its
             /// overloads: own members first, interface impls last. `Append(v:'T)` and
@@ -336,6 +338,10 @@ module EmitTypes =
             ClosureTypeDefByNode: Dictionary<TastAccessor.ExprId, EntityHandle>
             Args: Dictionary<BoundVarId, int>
             SelfKey: BoundVarId voption
+            /// The declaring VALUE TYPE of the member being emitted: `this` (`ldarg.0`)
+            /// is then a managed pointer, and a value use of it deref-copies (`ldobj`)
+            /// through this type's token. `ValueNone` for a reference type.
+            SelfValueType: FrozenType voption
             CaptureFields: Dictionary<BoundVarId, EntityHandle>
             Unions: Dictionary<TypeKey, EmittedUnion>
             Records: Dictionary<TypeKey, EmittedRecord>
@@ -383,6 +389,7 @@ module EmitTypes =
                 ClosureTypeDefByNode = ctx.ClosureTypeDefByNode
                 Args = args
                 SelfKey = selfKey
+                SelfValueType = ValueNone
                 CaptureFields = captureFields
                 Unions = ctx.Unions
                 Records = ctx.Records

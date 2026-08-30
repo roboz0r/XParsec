@@ -195,7 +195,6 @@ type RecordTypeInfo
     /// The declaration's attributes, resolved and folded at registration.
     member val Attributes: TAttributes = EqArray.empty with get, set
 
-    /// The legality-axis kind: `[<Struct>]` selects the value-type form.
     member this.DefnKind: TypeDefnKind =
         if this.IsValueType then
             TypeDefnKind.StructRecord
@@ -249,16 +248,24 @@ type UnionTypeInfo
     member _.ThisName = ThisBinding.DefaultName
     member val ThisKey = BoundVarKey.ofDeclaredThis declSite.Key
     member val InterfaceImpls: ClassInterfaceImplInfo[] = [||] with get, set
+    /// `[<Struct>]` union — a flat tag-discriminated value type.
+    member val IsValueType: bool = false with get, set
     /// The declaration's attributes, resolved and folded at registration.
     member val Attributes: TAttributes = EqArray.empty with get, set
 
+    member this.DefnKind: TypeDefnKind =
+        if this.IsValueType then
+            TypeDefnKind.StructUnion
+        else
+            TypeDefnKind.Union
+
     /// The attribute-decided verdict, else `Structural`.
     member this.EqualitySupport: EqualityVerdict =
-        AttributeVerdicts.equalitySupport TypeDefnKind.Union this.Attributes
+        AttributeVerdicts.equalitySupport this.DefnKind this.Attributes
 
     /// The attribute-decided verdict, else `NoComparison`.
     member this.ComparisonSupport: ComparisonVerdict =
-        AttributeVerdicts.comparisonSupport TypeDefnKind.Union this.Attributes
+        AttributeVerdicts.comparisonSupport this.DefnKind this.Attributes
 
     /// `[<RequireQualifiedAccess>]`: `Color.Red` is then required, not a bare `Red`.
     member this.IsRequireQualifiedAccess: bool =
@@ -489,8 +496,6 @@ type ClassTypeInfo
     /// The declaration's attributes, resolved and folded at registration.
     member val Attributes: TAttributes = EqArray.empty with get, set
 
-    /// The legality-axis kind: the all-abstract interface shape, the `[<Struct>]` /
-    /// byref-like value type, or a reference class.
     member this.DefnKind: TypeDefnKind =
         if this.IsInterface then TypeDefnKind.Interface
         elif this.IsValueType then TypeDefnKind.StructClass

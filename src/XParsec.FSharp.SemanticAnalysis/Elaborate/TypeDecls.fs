@@ -218,6 +218,12 @@ module internal ElaborateTypeDecls =
             let members, interfaces =
                 elaborateHostMembers ctx (info :> IInterfaceImplHost) ext elaborateOne
 
+            let valueKind =
+                if info.IsValueType then
+                    UnionValueKind.Struct
+                else
+                    UnionValueKind.RefType
+
             Some(
                 mkTypeDecl
                     name
@@ -229,6 +235,7 @@ module internal ElaborateTypeDecls =
                             Cases = cases
                             Members = members
                             Interfaces = interfaces
+                            ValueKind = valueKind
                         }),
                 List.ofSeq env
             )

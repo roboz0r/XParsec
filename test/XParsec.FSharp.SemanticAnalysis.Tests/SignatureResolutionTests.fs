@@ -201,7 +201,15 @@ let tests =
                     providerOfTypes
                         [
                             SymbolKeyOps.typeKeyOfArity "Dep" "Widget" 1,
-                            ExternalTypeShape.Union(1, EqArray.empty, EqArray.empty, SymbolOrigin.Empty, false)
+                            ExternalTypeShape.Union
+                                {
+                                    Arity = 1
+                                    Cases = EqArray.empty
+                                    Interfaces = EqArray.empty
+                                    Origin = SymbolOrigin.Empty
+                                    IsValueType = false
+                                    RequiresQualifiedAccess = false
+                                }
                         ]
 
                 let r =
@@ -252,7 +260,7 @@ let tests =
             let fieldTypeOf (r: Resolved) (typeName: string) : FrozenType =
                 // A module-nested type's compiled key joins with `+`, not `.`.
                 match shapeOf r ("+" + typeName) with
-                | ExternalTypeShape.Record(fields = fields) when fields.Length = 1 -> fields.[0].Frozen
+                | ExternalTypeShape.Record { Fields = fields } when fields.Length = 1 -> fields.[0].Frozen
                 | other -> failtestf "expected a one-field Record for '%s'; got %A" typeName other
 
             test "a type referencing one declared LATER in the file does not resolve" {
@@ -562,7 +570,7 @@ let tests =
                         "namespace App\n\nmodule M =\n    type Thing<'T> =\n        | ([]): Thing<'T>\n        | (::): Head: 'T * Tail: Thing<'T> -> Thing<'T>\n"
 
                 match shapeOf r "Thing`1" with
-                | ExternalTypeShape.Union(arity, cases, _, _, _) ->
+                | ExternalTypeShape.Union { Arity = arity; Cases = cases } ->
                     Expect.equal arity 1 "Union carries the declared arity"
                     Expect.equal cases.Length 2 "two cases published"
                     Expect.equal cases.[0].Name "Empty" "`([])` names the nullary case by its canonical ctor form"

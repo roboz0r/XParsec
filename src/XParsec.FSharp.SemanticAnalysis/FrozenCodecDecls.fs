@@ -416,12 +416,13 @@ module FrozenCodecDecls =
             writeEqArrayWith w writeUnionCase u.Cases
             writeEqArrayWith w writeTypeMember u.Members
             writeInterfaces w u.Interfaces
+            writeNominalValueKind w u.ValueKind
         | TTypeKindG.Record rec' ->
             w.Write 2uy
             writeEqArrayWith w writeRecordField rec'.Fields
             writeEqArrayWith w writeTypeMember rec'.Members
             writeInterfaces w rec'.Interfaces
-            writeRecordValueKind w rec'.ValueKind
+            writeNominalValueKind w rec'.ValueKind
         | TTypeKindG.Class c ->
             w.Write 3uy
             writeClass w c
@@ -511,18 +512,20 @@ module FrozenCodecDecls =
             let cases = EqArray.ofArray (readArrayWith r readUnionCase)
             let members = EqArray.ofArray (readArrayWith r readTypeMember)
             let interfaces = readInterfaces r
+            let valueKind = readNominalValueKind r
 
             TTypeKindG.Union
                 {
                     Cases = cases
                     Members = members
                     Interfaces = interfaces
+                    ValueKind = valueKind
                 }
         | 2uy ->
             let fields = EqArray.ofArray (readArrayWith r readRecordField)
             let members = EqArray.ofArray (readArrayWith r readTypeMember)
             let interfaces = readInterfaces r
-            let valueKind = readRecordValueKind r
+            let valueKind = readNominalValueKind r
 
             TTypeKindG.Record
                 {
