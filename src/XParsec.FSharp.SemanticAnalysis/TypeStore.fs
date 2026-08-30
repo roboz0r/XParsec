@@ -21,31 +21,47 @@ module internal PayloadJoin =
 
         acc
 
-/// The storage core every deferred-constraint payload family shares: a grow-only list
-/// keyed by the metavar's representative id. Insertion order is preserved.
+/// The storage core every deferred-constraint payload family shares: a grow-only sequence
+/// keyed by the metavar's representative id. Insertion order is preserved. Stored as an
+/// in-order `front` plus a reversed tail of appends, folded into `front` on first read, so
+/// `Prepend` and `Append` are both O(1) and an appended item is copied at most once.
 [<Sealed>]
 type PayloadList<'T>(combine: 'T list -> 'T list -> 'T list) =
-    let table = System.Collections.Generic.Dictionary<int, 'T list>()
+    // `struct ([], [])` is never stored: an entry's presence means it has items.
+    let table = System.Collections.Generic.Dictionary<int, struct ('T list * 'T list)>()
+
+    let current (root: Rep) : struct ('T list * 'T list) =
+        match table.TryGetValue(int root.Id) with
+        | true, pair -> pair
+        | _ -> struct ([], [])
 
     let at (root: Rep) : 'T list =
         match table.TryGetValue(int root.Id) with
-        | true, xs -> xs
+        | true, struct (front, []) -> front
+        | true, struct (front, backRev) ->
+            let items = front @ List.rev backRev
+            table.[int root.Id] <- struct (items, [])
+            items
         | _ -> []
 
     member _.Items(root: Rep) : 'T list = at root
 
-    member _.IsEmpty(root: Rep) : bool = List.isEmpty (at root)
+    member _.IsEmpty(root: Rep) : bool = not (table.ContainsKey(int root.Id))
 
     /// Replace `root`'s items; an empty list drops the entry.
     member _.Set(root: Rep, items: 'T list) : unit =
         if List.isEmpty items then
             table.Remove(int root.Id) |> ignore
         else
-            table.[int root.Id] <- items
+            table.[int root.Id] <- struct (items, [])
 
-    member this.Prepend(root: Rep, item: 'T) : unit = this.Set(root, item :: at root)
+    member _.Prepend(root: Rep, item: 'T) : unit =
+        let struct (front, backRev) = current root
+        table.[int root.Id] <- struct (item :: front, backRev)
 
-    member this.Append(root: Rep, item: 'T) : unit = this.Set(root, at root @ [ item ])
+    member _.Append(root: Rep, item: 'T) : unit =
+        let struct (front, backRev) = current root
+        table.[int root.Id] <- struct (front, item :: backRev)
 
     member this.Join(winner: Rep, loser: Rep) : unit =
         let l = at loser
@@ -54,7 +70,14 @@ type PayloadList<'T>(combine: 'T list -> 'T list -> 'T list) =
             this.Set(winner, combine (at winner) l)
             table.Remove(int loser.Id) |> ignore
 
-    member _.Entries() : (int * 'T list) list = [ for kv in table -> kv.Key, kv.Value ]
+    member _.Entries() : (int * 'T list) list =
+        [
+            for kv in table ->
+                kv.Key,
+                (match kv.Value with
+                 | struct (front, []) -> front
+                 | struct (front, backRev) -> front @ List.rev backRev)
+        ]
 
     member _.Drop(rootId: int) : unit = table.Remove rootId |> ignore
 

@@ -482,7 +482,7 @@ module EmitJs =
             // of the `$N`-template expander, which rejects an operand-bearing template.
             | "" when args.Length = 1 -> buildExpr ctx args.[0]
 
-            | opCode -> JsExpr.Raw(EmitJsFormat.expandTemplate buildExpr ctx opCode (List.ofArray args), loc)
+            | opCode -> JsExpr.Raw(EmitJsFormat.expandTemplate buildExpr ctx opCode args, loc)
 
         | ExprShape.Format ->
             let fv = TastAccessor.exprFormat e

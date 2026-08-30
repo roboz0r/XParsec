@@ -52,7 +52,7 @@ module internal NominalEmit =
         // Every member's handle is its layout row, resolvable before any body
         // is built, so a member body can reference a sibling (`this.Length`) or
         // a case factory (`static member Empty = []`).
-        let emittedMembers = Dictionary<string, Emit.EmittedMember list>()
+        let emittedMembers = Dictionary<string, EqArray<Emit.EmittedMember>>()
 
         // Name → its overloads in declaration order. Own members lead and interface-impl
         // members trail, so a same-signature pair (`Set.Add : Set<'T>` vs
@@ -73,9 +73,9 @@ module internal NominalEmit =
             let prior =
                 match emittedMembers.TryGetValue mem.Name with
                 | true, ms -> ms
-                | false, _ -> []
+                | false, _ -> EqArray.empty
 
-            emittedMembers.[mem.Name] <- prior @ [ em ]
+            emittedMembers.[mem.Name] <- EqArray.append prior (EqArray.singleton em)
         )
 
         match input with

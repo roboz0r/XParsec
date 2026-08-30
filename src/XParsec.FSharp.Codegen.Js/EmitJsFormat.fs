@@ -407,7 +407,7 @@ module EmitJsFormat =
         (buildExpr: WalkCtx -> TastAccessor.ExprId -> JsExpr)
         (ctx: WalkCtx)
         (template: string)
-        (args: TastAccessor.ExprId list)
+        (args: TastAccessor.ExprId[])
         : JsRawSeg list =
         let segs = ResizeArray<JsRawSeg>()
         let buf = System.Text.StringBuilder()
@@ -439,14 +439,14 @@ module EmitJsFormat =
                         System.Globalization.CultureInfo.InvariantCulture
                     )
 
-                if idx < 0 || idx >= List.length args then
+                if idx < 0 || idx >= args.Length then
                     failwithf
                         "EmitJs: template '%s' references operand $%d but only %d supplied"
                         template
                         idx
-                        (List.length args)
+                        args.Length
 
-                segs.Add(JsRawSeg.Hole(buildExpr ctx (List.item idx args)))
+                segs.Add(JsRawSeg.Hole(buildExpr ctx args.[idx]))
                 sawHole <- true
                 i <- j
             else
@@ -456,7 +456,7 @@ module EmitJsFormat =
         flush ()
 
         // Operands present but no hole → bare CIL mnemonic escaped the CLR-only finish pass.
-        if not (List.isEmpty args) && not sawHole then
+        if args.Length > 0 && not sawHole then
             failwithf "EmitJs: non-template ILIntrinsic opcode '%s' reached the JS backend" template
 
         List.ofSeq segs

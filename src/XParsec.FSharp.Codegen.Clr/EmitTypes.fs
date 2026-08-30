@@ -1,4 +1,4 @@
-﻿namespace XParsec.FSharp.Codegen.Clr
+namespace XParsec.FSharp.Codegen.Clr
 
 open System.Collections.Generic
 open System.Reflection.Metadata
@@ -120,7 +120,7 @@ module EmitTypes =
             /// Augmentation members by source name, each mapping to the LIST of its
             /// overloads: own members first, interface impls last. `Append(v:'T)` and
             /// `Append(v:'T, width:int)` share a key; the call site picks by argument type.
-            Members: Dictionary<string, EmittedMember list>
+            Members: Dictionary<string, EqArray<EmittedMember>>
         }
 
     /// A record emitted into this assembly: a sealed class, one public field per record
@@ -136,7 +136,7 @@ module EmitTypes =
             IsValueType: bool
             Ctor: EntityHandle
             /// Augmentation members, on the same terms as `EmittedUnion.Members`.
-            Members: Dictionary<string, EmittedMember list>
+            Members: Dictionary<string, EqArray<EmittedMember>>
         }
 
     /// A class emitted into this assembly. `Typars` empty ⇒ monomorphic; non-empty ⇒
@@ -162,7 +162,7 @@ module EmitTypes =
             /// val …; new(…) = …`: `Ctor` aliases the first secondary, unusable as one.
             HasPrimaryCtor: bool
             /// Augmentation members, on the same terms as `EmittedUnion.Members`.
-            Members: Dictionary<string, EmittedMember list>
+            Members: Dictionary<string, EqArray<EmittedMember>>
             /// `static let` backing fields keyed by source name; a `TExpr.StaticFieldGet`
             /// resolves its `ldsfld` handle here. A mono class stores the field `Def`
             /// token, a generic class a `MemberRef` on the open self-`TypeSpec`.
@@ -203,7 +203,7 @@ module EmitTypes =
         {
             Name: string
             Typars: string list
-            Members: Dictionary<string, EmittedMember list>
+            Members: Dictionary<string, EqArray<EmittedMember>>
         }
 
     /// One static module class per `module Foo = …`, identified by the whole `ModuleKey`

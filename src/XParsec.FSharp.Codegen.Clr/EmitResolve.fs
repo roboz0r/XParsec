@@ -137,21 +137,26 @@ module EmitResolve =
     /// Pick the overload of `name` matching the call's argument types (ECMA-335 §I.10.2:
     /// overloading is by number + types of parameters). Candidates arrive own-members-first, so
     /// the FIRST equally-good match wins: `Set.Add` beats its same-signature interface impl.
-    let pickOverload (name: string) (candidates: EmittedMember list) (argTys: FrozenType list) : EmittedMember =
-        match candidates with
-        | [] -> failwithf "Emit: no emitted member '%s'" name
-        | [ single ] -> single
-        | many ->
+    let pickOverload (name: string) (candidates: EqArray<EmittedMember>) (argTys: FrozenType list) : EmittedMember =
+        match candidates.Length with
+        | 0 -> failwithf "Emit: no emitted member '%s'" name
+        | 1 -> candidates.[0]
+        | _ ->
             let arity = List.length argTys
-            let sameArity = many |> List.filter (fun m -> List.length m.ParamTys = arity)
 
-            match sameArity with
-            | [] -> List.head many // no candidate has this arity, so take the first and fail later
-            | [ single ] -> single
-            | multi ->
-                match multi |> List.tryFind (fun m -> List.forall2 paramAccepts m.ParamTys argTys) with
-                | Some m -> m
-                | None -> List.head multi
+            let sameArity =
+                candidates |> EqArray.filter (fun m -> List.length m.ParamTys = arity)
+
+            match sameArity.Length with
+            | 0 -> candidates.[0] // no candidate has this arity, so take the first and fail later
+            | 1 -> sameArity.[0]
+            | _ ->
+                match
+                    sameArity
+                    |> EqArray.tryFind (fun m -> List.forall2 paramAccepts m.ParamTys argTys)
+                with
+                | ValueSome m -> m
+                | ValueNone -> sameArity.[0]
 
     /// Resolve the member-call handle for an instance access on `objArgTy`
     /// (`List<int>::get_Head`), plus the `EmittedMember` whose `MethodTyparCount` + signature a
@@ -171,7 +176,7 @@ module EmitResolve =
         let fromMembers
             (kindLabel: string)
             (typars: string list)
-            (members: System.Collections.Generic.Dictionary<string, EmittedMember list>)
+            (members: System.Collections.Generic.Dictionary<string, EqArray<EmittedMember>>)
             =
             match members.TryGetValue name with
             | true, candidates ->

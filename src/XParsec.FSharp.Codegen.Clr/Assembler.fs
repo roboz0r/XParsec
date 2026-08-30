@@ -615,7 +615,7 @@ type internal Assembler
             // The use-site table for a call on an interface-typed object arg: each method's
             // slot handle keyed by source name, to `callvirt`. Overloads share a name,
             // hence the list.
-            let memberTable = Dictionary<string, Emit.EmittedMember list>()
+            let memberTable = Dictionary<string, EqArray<Emit.EmittedMember>>()
 
             methods
             |> List.iteri (fun i m ->
@@ -639,8 +639,8 @@ type internal Assembler
 
                 memberTable.[m.Name] <-
                     match memberTable.TryGetValue m.Name with
-                    | true, existing -> existing @ [ em ]
-                    | false, _ -> [ em ]
+                    | true, existing -> EqArray.append existing (EqArray.singleton em)
+                    | false, _ -> EqArray.singleton em
 
                 this.AddPrepared(
                     MethodKey.InterfaceMethod(td.Key, i),
