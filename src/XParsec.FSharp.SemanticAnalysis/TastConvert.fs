@@ -59,6 +59,17 @@ module TastConvert =
                     Dispose = p.Dispose
                 }
 
+    let viaOf (f: 'a -> 'b) (v: CallVia<'a>) : CallVia<'b> =
+        match v with
+        | CallVia.Self -> CallVia.Self
+        | CallVia.Base -> CallVia.Base
+        | CallVia.Interface ifaceArgs -> CallVia.Interface(EqArray.map f ifaceArgs)
+
+    let constraintOf (f: 'a -> 'b) (c: TStaticOptConstraintG<'a>) : TStaticOptConstraintG<'b> =
+        match c with
+        | TStaticOptConstraintG.TyconEquals(tp, req) -> TStaticOptConstraintG.TyconEquals(f tp, f req)
+        | TStaticOptConstraintG.IsStruct tp -> TStaticOptConstraintG.IsStruct(f tp)
+
     let rec expr (f: 'a -> 'b) (fTok: 'ta -> 'tb) (e: TExprG<'a, 'ta, 'id>) : TExprG<'b, 'tb, 'id> =
         let pe = expr f fTok
         let pp = pat f fTok
@@ -133,12 +144,6 @@ module TastConvert =
             Body = expr f fTok a.Body
         }
 
-    and viaOf (f: 'a -> 'b) (v: CallVia<'a>) : CallVia<'b> =
-        match v with
-        | CallVia.Self -> CallVia.Self
-        | CallVia.Base -> CallVia.Base
-        | CallVia.Interface ifaceArgs -> CallVia.Interface(EqArray.map f ifaceArgs)
-
     and sinkOf
         (f: 'a -> 'b)
         (fTok: 'ta -> 'tb)
@@ -171,11 +176,6 @@ module TastConvert =
                     Value = pe d.Value
                 }
         | FormatSegG.CallbackHole(h, residue) -> FormatSegG.CallbackHole(spec h, pe residue)
-
-    and constraintOf (f: 'a -> 'b) (c: TStaticOptConstraintG<'a>) : TStaticOptConstraintG<'b> =
-        match c with
-        | TStaticOptConstraintG.TyconEquals(tp, req) -> TStaticOptConstraintG.TyconEquals(f tp, f req)
-        | TStaticOptConstraintG.IsStruct tp -> TStaticOptConstraintG.IsStruct(f tp)
 
     and clause (f: 'a -> 'b) (fTok: 'ta -> 'tb) (c: TStaticOptClauseG<'a, 'ta, 'id>) : TStaticOptClauseG<'b, 'tb, 'id> =
         {

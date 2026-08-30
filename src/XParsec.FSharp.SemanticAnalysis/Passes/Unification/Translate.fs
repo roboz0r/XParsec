@@ -148,6 +148,104 @@ module internal UnificationTranslate =
         ignore li
 #endif
 
+    /// Build the annotation `SemType` from a resolved external shape addressed by the RESOLVED
+    /// identity `symKey`, shared by the stamped and by-name paths. `ValueNone` for an
+    /// unmodelled body, which has no kind a type annotation can take.
+    let private buildExternalTy
+        (ctx: PassContext)
+        (symKey: TypeKey)
+        (shape: ExternalTypeShape)
+        (translatedArgs: EqArray<SemType>)
+        : SemType voption =
+        match shape with
+        // A referenced intrinsic (`exn = (# "System.Exception" #)`) is NON-transparent: its
+        // identity is the shape's canon `TyConst` (`Vesper.exn`) whatever base/ctor surface it
+        // carries, which is what keeps `exn.Message` routing to the platform type's members.
+        | ExternalTypeShape.Intrinsic s -> ValueSome(TyConst(s.Id.Canon, translatedArgs))
+        | ExternalTypeShape.Class _ -> ValueSome(externalClassTy ctx symKey translatedArgs)
+        // A capability interface (`disposable`) is a `TyClass` CONSTRAINT; the axis holds no
+        // interface canons, so its identity is the resolved key directly.
+        | ExternalTypeShape.IntrinsicInterface _ -> ValueSome(TyClass(symKey, translatedArgs))
+        | ExternalTypeShape.Record _ -> ValueSome(TyRecord(symKey, translatedArgs))
+        | ExternalTypeShape.Union _ -> ValueSome(TyUnion(symKey, translatedArgs))
+        // An external enum annotation `(x: E)` → `TyEnum key` (never generic), keyed off the
+        // SAME identity an `E.Ci` use site mints, so the two unify. The enum is a DISTINCT
+        // nominal, not its underlying int/string.
+        | ExternalTypeShape.Enum _ -> ValueSome(TyEnum(symKey))
+        // A transparent abbreviation dealiases to its body: `int32 = int` resolves to the
+        // `int` key the IL encoder encodes, never a nominal `int32`. The frozen RHS is
+        // already kind-correct; the type args substitute into it.
+        | ExternalTypeShape.Abbrev(_, frozen) ->
+            ValueSome(FrozenTypeBridge.instantiateDeclaring frozen (translatedArgs.AsSpan().ToArray()))
+        // No modelled body, so no kind a *type annotation* can resolve to. Declining routes
+        // the reference to `unresolvedRefTy`, which records the gap.
+        | ExternalTypeShape.Unmodelled _ -> ValueNone
+
+    /// Fetch + build from an already-resolved external type identity. An arity mismatch is
+    /// rejected: it is not this type.
+    let tryExternalTypeOfKey (ctx: PassContext) (symKey: TypeKey) (translatedArgs: EqArray<SemType>) : SemType voption =
+        let arity = translatedArgs.Length
+
+        match ctx.Provider.TryLookupType symKey with
+        | ValueSome shape when shape.TyparArity = arity -> buildExternalTy ctx symKey shape translatedArgs
+        | _ -> ValueNone
+
+    /// The store-view read of a written external type reference: NameResolution resolved the
+    /// spelling opens-aware at its syntactic arity and recorded the `TypeKey`. No by-name
+    /// fallback, because any other verdict means local, typar or unresolvable.
+    let private tryResolveExternalTypeStamped
+        (ctx: PassContext)
+        (nodeKey: NodeKey)
+        (translatedArgs: EqArray<SemType>)
+        : SemType voption =
+        match ctx.Resolution.TypeRefVerdicts.TryGetValue nodeKey with
+        | ValueSome(TypeRefVerdict.ExternalType symKey) -> tryExternalTypeOfKey ctx symKey translatedArgs
+        | _ -> ValueNone
+
+    /// A type *spelling* resolved by name: its sole caller is the `float<m>` measure carrier,
+    /// wanted at arity 0 where any verdict for that name was recorded at its written arity 1.
+    let private tryResolveExternalType
+        (ctx: PassContext)
+        (useSite: UseSite)
+        (name: string)
+        (translatedArgs: EqArray<SemType>)
+        : SemType voption =
+        NameResolutionContainers.tryPickExternalWritten
+            ctx
+            useSite
+            (NameResolutionContainers.WrittenArity.Exact translatedArgs.Length)
+            (fun key shape -> buildExternalTy ctx key shape translatedArgs)
+            NameResolutionContainers.Qualifier.Bare
+            name
+
+    /// A `Broken` or not-yet-filled abbreviation yields a fresh TyVar rather than
+    /// cascading. Prototype-typar constraints are checked against the supplied args HERE:
+    /// an abbreviation has no fresh-instance step, and a Defer propagates to free arg TyVars.
+    let expandAbbreviation
+        (ctx: PassContext)
+        (tok: SyntaxToken)
+        (info: AbbreviationInfo)
+        (args: EqArray<SemType>)
+        : SemType =
+        let n = min (info.TypeParams.Length) args.Length
+
+        for i = 0 to n - 1 do
+            let (_, protoTv) = info.TypeParams.[i]
+            let arg = args.[i]
+            let protoRoot = UnionFind.find ctx.Store protoTv
+
+            for c in ctx.Store.Constraints.Items protoRoot do
+                match checkConstraint ctx c arg with
+                | Satisfied -> ()
+                | Violated -> reportConstraintViolation ctx tok c arg
+                | Defer -> propagateToFreeArgs ctx c arg
+
+        match info.State with
+        | AbbreviationState.Filled body -> instantiateMember ctx.Store (info.TypeParams, args) body
+        | AbbreviationState.NotFilled
+        | AbbreviationState.InProgress
+        | AbbreviationState.Broken -> TyVar(freshTyVar ctx)
+
     /// Resolves `'a` through `ctx.Resolution.TyparScope`; callers open a fresh scope per
     /// signature (binding or type defn) before walking. A generic named type written
     /// without its args back-fills the arg list with fresh TyVars for unification to pin.
@@ -465,76 +563,6 @@ module internal UnificationTranslate =
             | ValueSome ty -> ty
             | ValueNone -> unresolvedRefTy ctx site name
 
-    /// Build the annotation `SemType` from a resolved external shape addressed by the RESOLVED
-    /// identity `symKey`, shared by the stamped and by-name paths. `ValueNone` for an
-    /// unmodelled body, which has no kind a type annotation can take.
-    and private buildExternalTy
-        (ctx: PassContext)
-        (symKey: TypeKey)
-        (shape: ExternalTypeShape)
-        (translatedArgs: EqArray<SemType>)
-        : SemType voption =
-        match shape with
-        // A referenced intrinsic (`exn = (# "System.Exception" #)`) is NON-transparent: its
-        // identity is the shape's canon `TyConst` (`Vesper.exn`) whatever base/ctor surface it
-        // carries, which is what keeps `exn.Message` routing to the platform type's members.
-        | ExternalTypeShape.Intrinsic s -> ValueSome(TyConst(s.Id.Canon, translatedArgs))
-        | ExternalTypeShape.Class _ -> ValueSome(externalClassTy ctx symKey translatedArgs)
-        // A capability interface (`disposable`) is a `TyClass` CONSTRAINT; the axis holds no
-        // interface canons, so its identity is the resolved key directly.
-        | ExternalTypeShape.IntrinsicInterface _ -> ValueSome(TyClass(symKey, translatedArgs))
-        | ExternalTypeShape.Record _ -> ValueSome(TyRecord(symKey, translatedArgs))
-        | ExternalTypeShape.Union _ -> ValueSome(TyUnion(symKey, translatedArgs))
-        // An external enum annotation `(x: E)` → `TyEnum key` (never generic), keyed off the
-        // SAME identity an `E.Ci` use site mints, so the two unify. The enum is a DISTINCT
-        // nominal, not its underlying int/string.
-        | ExternalTypeShape.Enum _ -> ValueSome(TyEnum(symKey))
-        // A transparent abbreviation dealiases to its body: `int32 = int` resolves to the
-        // `int` key the IL encoder encodes, never a nominal `int32`. The frozen RHS is
-        // already kind-correct; the type args substitute into it.
-        | ExternalTypeShape.Abbrev(_, frozen) ->
-            ValueSome(FrozenTypeBridge.instantiateDeclaring frozen (translatedArgs.AsSpan().ToArray()))
-        // No modelled body, so no kind a *type annotation* can resolve to. Declining routes
-        // the reference to `unresolvedRefTy`, which records the gap.
-        | ExternalTypeShape.Unmodelled _ -> ValueNone
-
-    /// Fetch + build from an already-resolved external type identity. An arity mismatch is
-    /// rejected: it is not this type.
-    and tryExternalTypeOfKey (ctx: PassContext) (symKey: TypeKey) (translatedArgs: EqArray<SemType>) : SemType voption =
-        let arity = translatedArgs.Length
-
-        match ctx.Provider.TryLookupType symKey with
-        | ValueSome shape when shape.TyparArity = arity -> buildExternalTy ctx symKey shape translatedArgs
-        | _ -> ValueNone
-
-    /// The store-view read of a written external type reference: NameResolution resolved the
-    /// spelling opens-aware at its syntactic arity and recorded the `TypeKey`. No by-name
-    /// fallback, because any other verdict means local, typar or unresolvable.
-    and private tryResolveExternalTypeStamped
-        (ctx: PassContext)
-        (nodeKey: NodeKey)
-        (translatedArgs: EqArray<SemType>)
-        : SemType voption =
-        match ctx.Resolution.TypeRefVerdicts.TryGetValue nodeKey with
-        | ValueSome(TypeRefVerdict.ExternalType symKey) -> tryExternalTypeOfKey ctx symKey translatedArgs
-        | _ -> ValueNone
-
-    /// A type *spelling* resolved by name: its sole caller is the `float<m>` measure carrier,
-    /// wanted at arity 0 where any verdict for that name was recorded at its written arity 1.
-    and private tryResolveExternalType
-        (ctx: PassContext)
-        (useSite: UseSite)
-        (name: string)
-        (translatedArgs: EqArray<SemType>)
-        : SemType voption =
-        NameResolutionContainers.tryPickExternalWritten
-            ctx
-            useSite
-            (NameResolutionContainers.WrittenArity.Exact translatedArgs.Length)
-            (fun key shape -> buildExternalTy ctx key shape translatedArgs)
-            NameResolutionContainers.Qualifier.Bare
-            name
-
     /// Attach to the constrained typar's TyVar through the current
     /// `ctx.Resolution.TyparScope`.
     and private translateConstraint (ctx: PassContext) (c: Constraint<SyntaxToken>) : unit =
@@ -633,31 +661,3 @@ module internal UnificationTranslate =
                 match info.State with
                 | AbbreviationState.InProgress -> info.State <- AbbreviationState.Broken
                 | _ -> ()
-
-    /// A `Broken` or not-yet-filled abbreviation yields a fresh TyVar rather than
-    /// cascading. Prototype-typar constraints are checked against the supplied args HERE:
-    /// an abbreviation has no fresh-instance step, and a Defer propagates to free arg TyVars.
-    and expandAbbreviation
-        (ctx: PassContext)
-        (tok: SyntaxToken)
-        (info: AbbreviationInfo)
-        (args: EqArray<SemType>)
-        : SemType =
-        let n = min (info.TypeParams.Length) args.Length
-
-        for i = 0 to n - 1 do
-            let (_, protoTv) = info.TypeParams.[i]
-            let arg = args.[i]
-            let protoRoot = UnionFind.find ctx.Store protoTv
-
-            for c in ctx.Store.Constraints.Items protoRoot do
-                match checkConstraint ctx c arg with
-                | Satisfied -> ()
-                | Violated -> reportConstraintViolation ctx tok c arg
-                | Defer -> propagateToFreeArgs ctx c arg
-
-        match info.State with
-        | AbbreviationState.Filled body -> instantiateMember ctx.Store (info.TypeParams, args) body
-        | AbbreviationState.NotFilled
-        | AbbreviationState.InProgress
-        | AbbreviationState.Broken -> TyVar(freshTyVar ctx)

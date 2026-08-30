@@ -100,7 +100,7 @@ module CstTypeWalk =
 
     /// An uncurried signature: a `DelegateSig`, or a GADT-syntax union case's
     /// `Name : arg * arg -> ret`.
-    and iterTypeUncurriedSig (it: TypeIter) (sign: UncurriedSig<SyntaxToken>) : unit =
+    let iterTypeUncurriedSig (it: TypeIter) (sign: UncurriedSig<SyntaxToken>) : unit =
         let (UncurriedSig(args = ArgsSpec.ArgsSpec(args = args); returnType = ret)) = sign
 
         for (ArgSpec(typ = t)) in args do
@@ -110,7 +110,7 @@ module CstTypeWalk =
 
     /// The type positions ONE union case writes, in either grammar: its field types, or the
     /// signature a GADT-syntax case spells them with.
-    and iterTypeUnionCase (it: TypeIter) (UnionTypeCase(data = data)) : unit =
+    let iterTypeUnionCase (it: TypeIter) (UnionTypeCase(data = data)) : unit =
         match data with
         | UnionTypeCaseData.Nullary _ -> ()
         | UnionTypeCaseData.Nary(fields = fs) ->

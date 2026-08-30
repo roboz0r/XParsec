@@ -14,6 +14,45 @@ module EmitJs =
 
     // ---- The walker ----------------------------------------------------------
 
+    /// The JS name for a single-name loop/scope pattern (`use x = …`, `for x in …`).
+    /// A wildcard gets a fresh temporary: still bound, though the body cannot refer to it.
+    let private patBoundVarName (ctx: WalkCtx) (prefix: string) (pattern: TastAccessor.PatId) : string =
+        match pattern with
+        | TastAccessor.PNamedNaming naming -> boundVarName naming
+        | _ ->
+            match TastAccessor.patKind pattern with
+            | PatShape.Wildcard -> freshTemp ctx.Pool prefix
+            | _ -> failwithf "EmitJs: unsupported single-name pattern %A" pattern
+
+    let private useBoundVarName (ctx: WalkCtx) (pattern: TastAccessor.PatId) : string =
+        patBoundVarName ctx "_use" pattern
+
+    /// The `finally` body that disposes a `use` bound variable: a null-guarded disposal call, since
+    /// F# `use` is null-safe and JS loose `!= null` catches both `null` and `undefined`. The
+    /// capability's JS slot is the same `boundVar[Symbol.dispose]()` a disposable impl emits.
+    let private disposeStmts (ctx: WalkCtx) (dispose: Disposal) (name: string) : JsStatement list =
+        let boundVar = JsExpr.Identifier(name, ValueNone)
+
+        let guard =
+            JsExpr.Binary("!=", boundVar, JsExpr.Identifier("null", ValueNone), ValueNone)
+
+        let disposeCall =
+            match dispose with
+            // The CLR-only interface `slot` key the node carries is irrelevant here, because
+            // JS has its own slot, `Symbol.dispose`.
+            | Disposal.ViaCapability _ -> disposeSlotCall boundVar ValueNone
+            // Ref-struct carve-out / an external type's own pattern `Dispose()`: call the
+            // keyed member's free type-prefixed function.
+            | Disposal.ViaOwnMember key ->
+                let disposeFn = Members.localFn ctx key false false ValueNone
+                JsExpr.Call(disposeFn, [ boundVar ], ValueNone)
+            | Disposal.Unresolved ->
+                failwithf
+                    "EmitJs: `use` over a bound variable with no resolved disposal ('%s'). Disposal is unresolved only where Unification reported an error, so this file should never have reached codegen"
+                    name
+
+        [ JsStatement.If(guard, [ JsStatement.Expression disposeCall ], []) ]
+
     let rec buildExpr (ctx: WalkCtx) (e: TastAccessor.ExprId) : JsExpr =
         let loc = locOf ctx e
 
@@ -593,20 +632,6 @@ module EmitJs =
         args
         |> EqArray.fold (fun acc a -> JsExpr.Call(acc, [ buildExpr ctx a ], ValueNone)) baseExpr
 
-    /// Emit a local module FUNCTION as one FLAT arrow over its compiled parameters
-    /// (`let f x y` → `(x, y) => …`; tuple groups flattened, a lone unit erased to
-    /// `() => …`). A trampoline mutates those flat parameters in place.
-    and private emitFlatModuleFn
-        (ctx: WalkCtx)
-        (k: BoundVarId)
-        (cf: CompiledFns.CompiledFn)
-        (loc: JsLoc voption)
-        : JsExpr =
-        let ps =
-            TrampolineParams.Flat(CompiledFns.FlatParams.map (JsFlatFns.paramNameOf ctx.Pool) cf.Params)
-
-        JsExpr.Arrow(ps.Names, trampolineOrExpr ctx (ValueSome k) ps cf.Body, loc)
-
     /// `objArg.<member>` for a call dispatched through a local interface slot. The member
     /// resolves to the attached method emitted on the object argument's class, under its JS name.
     and attachedAccess (ctx: WalkCtx) (loc: JsLoc voption) (objArg: TastAccessor.ExprId) (key: SymbolKey) : JsExpr =
@@ -725,44 +750,19 @@ module EmitJs =
                 ]
             | _ -> [ JsStatement.Expression(buildExpr ctx e) ]
 
-    /// The JS name for a single-name loop/scope pattern (`use x = …`, `for x in …`).
-    /// A wildcard gets a fresh temporary: still bound, though the body cannot refer to it.
-    and private patBoundVarName (ctx: WalkCtx) (prefix: string) (pattern: TastAccessor.PatId) : string =
-        match pattern with
-        | TastAccessor.PNamedNaming naming -> boundVarName naming
-        | _ ->
-            match TastAccessor.patKind pattern with
-            | PatShape.Wildcard -> freshTemp ctx.Pool prefix
-            | _ -> failwithf "EmitJs: unsupported single-name pattern %A" pattern
+    /// Emit a local module FUNCTION as one FLAT arrow over its compiled parameters
+    /// (`let f x y` → `(x, y) => …`; tuple groups flattened, a lone unit erased to
+    /// `() => …`). A trampoline mutates those flat parameters in place.
+    let private emitFlatModuleFn
+        (ctx: WalkCtx)
+        (k: BoundVarId)
+        (cf: CompiledFns.CompiledFn)
+        (loc: JsLoc voption)
+        : JsExpr =
+        let ps =
+            TrampolineParams.Flat(CompiledFns.FlatParams.map (JsFlatFns.paramNameOf ctx.Pool) cf.Params)
 
-    and private useBoundVarName (ctx: WalkCtx) (pattern: TastAccessor.PatId) : string =
-        patBoundVarName ctx "_use" pattern
-
-    /// The `finally` body that disposes a `use` bound variable: a null-guarded disposal call, since
-    /// F# `use` is null-safe and JS loose `!= null` catches both `null` and `undefined`. The
-    /// capability's JS slot is the same `boundVar[Symbol.dispose]()` a disposable impl emits.
-    and private disposeStmts (ctx: WalkCtx) (dispose: Disposal) (name: string) : JsStatement list =
-        let boundVar = JsExpr.Identifier(name, ValueNone)
-
-        let guard =
-            JsExpr.Binary("!=", boundVar, JsExpr.Identifier("null", ValueNone), ValueNone)
-
-        let disposeCall =
-            match dispose with
-            // The CLR-only interface `slot` key the node carries is irrelevant here, because
-            // JS has its own slot, `Symbol.dispose`.
-            | Disposal.ViaCapability _ -> disposeSlotCall boundVar ValueNone
-            // Ref-struct carve-out / an external type's own pattern `Dispose()`: call the
-            // keyed member's free type-prefixed function.
-            | Disposal.ViaOwnMember key ->
-                let disposeFn = Members.localFn ctx key false false ValueNone
-                JsExpr.Call(disposeFn, [ boundVar ], ValueNone)
-            | Disposal.Unresolved ->
-                failwithf
-                    "EmitJs: `use` over a bound variable with no resolved disposal ('%s'). Disposal is unresolved only where Unification reported an error, so this file should never have reached codegen"
-                    name
-
-        [ JsStatement.If(guard, [ JsStatement.Expression disposeCall ], []) ]
+        JsExpr.Arrow(ps.Names, trampolineOrExpr ctx (ValueSome k) ps cf.Body, loc)
 
     /// A class's instance preamble is the END of its primary constructor: declaration order
     /// is load-bearing, hence ctor statements rather than class-field initialisers. Every `let`

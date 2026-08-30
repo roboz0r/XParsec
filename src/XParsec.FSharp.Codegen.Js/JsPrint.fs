@@ -90,6 +90,29 @@ module JsPrint =
 
     // ---- AST → Doc -----------------------------------------------------------
 
+    /// A class member `<header> { <body statements> }`.
+    let private memberDecl (header: Doc) (body: Doc list) : Doc =
+        header
+        ++ text " {"
+        ++ indent (cat [ for s in body -> Line ++ s ])
+        ++ Line
+        ++ text "}"
+
+    /// `[export ]class Name [extends Base] { member… }`.
+    let private classDecl (export: bool) (name: string) (extends: string option) (members: Doc list) : Doc =
+        let ext =
+            match extends with
+            | Some b -> text " extends " ++ text b
+            | None -> Nil
+
+        (if export then text "export class " else text "class ")
+        ++ text name
+        ++ ext
+        ++ text " {"
+        ++ indent (cat [ for m in members -> Line ++ m ])
+        ++ Line
+        ++ text "}"
+
     let rec private expr (e: JsExpr) : Doc =
         match e with
         | JsExpr.Identifier(name, loc) -> marked loc (text name)
@@ -169,14 +192,6 @@ module JsPrint =
         ++ Line
         ++ text "}"
 
-    /// A class member `<header> { <body statements> }`.
-    and private memberDecl (header: Doc) (body: Doc list) : Doc =
-        header
-        ++ text " {"
-        ++ indent (cat [ for s in body -> Line ++ s ])
-        ++ Line
-        ++ text "}"
-
     /// `constructor(<params>) { [super(…);] … }` — the `super` call leads, as JS requires of a
     /// derived constructor.
     and private ctorDecl (ctor: JsCtor) : Doc =
@@ -188,21 +203,6 @@ module JsPrint =
         memberDecl
             (text "constructor(" ++ commaList (List.map text ctor.Params) ++ text ")")
             (super @ [ for s in ctor.Body -> statement s ])
-
-    /// `[export ]class Name [extends Base] { member… }`.
-    and private classDecl (export: bool) (name: string) (extends: string option) (members: Doc list) : Doc =
-        let ext =
-            match extends with
-            | Some b -> text " extends " ++ text b
-            | None -> Nil
-
-        (if export then text "export class " else text "class ")
-        ++ text name
-        ++ ext
-        ++ text " {"
-        ++ indent (cat [ for m in members -> Line ++ m ])
-        ++ Line
-        ++ text "}"
 
     /// `*[Symbol.iterator](p0) { … }` — `Generator` prints the `*`, a `Computed` key the `[…]`.
     and private methodDecl (m: JsClassMethod) : Doc =

@@ -192,6 +192,38 @@ module Regions =
             | ValueSome tv -> ctx.Store.SetRegion((UnionFind.find ctx.Store tv).Id, r)
             | ValueNone -> ()
 
+    let rec private recordBindingRegion (s: State) (ctx: PassContext) (p: TPat) (r: RegionId) : unit =
+        // Map every bound variable this pattern introduces to `r`; tuple / record / union
+        // sub-patterns recurse so each name shares it. An approximation, because
+        // destructuring really projects each element separately.
+        match p with
+        | TPat.NamedSimple(k, _, _) ->
+            s.BindingRegions.[k] <- r
+            stampTyVar ctx k r
+        | TPat.Tuple(items, _, _) ->
+            for sub in items do
+                recordBindingRegion s ctx sub r
+        | TPat.Record(fields, _, _) ->
+            for (_, sub) in fields do
+                recordBindingRegion s ctx sub r
+        | TPat.Union(_, fields, _, _) ->
+            for sub in fields do
+                recordBindingRegion s ctx sub r
+        | TPat.TypeTestAs(_, inner, _, _) -> recordBindingRegion s ctx inner r
+        // An or-pattern that binds names is rejected before lowering.
+        | TPat.Or _
+        | TPat.Wildcard _
+        | TPat.Null _
+        | TPat.EnumCase _
+        | TPat.Const _ -> ()
+
+    let private registerParam (s: State) (ctx: PassContext) (p: TPat) : unit =
+        // ONE region per parameter pattern, shared by every bound variable in it: for
+        // `(a, b)` that over-approximates safely because if any escapes, so do its siblings.
+        match TastWalk.boundVarsOfTPat p with
+        | [] -> ()
+        | _ -> recordBindingRegion s ctx p (freshParam s)
+
     let rec private inferRegion (s: State) (ctx: PassContext) (e: TExpr) : RegionId =
         match e with
         | TExpr.Const _
@@ -365,13 +397,6 @@ module Regions =
         s.Graph.AddEdge(r, bodyRegion)
         r
 
-    and private registerParam (s: State) (ctx: PassContext) (p: TPat) : unit =
-        // ONE region per parameter pattern, shared by every bound variable in it: for
-        // `(a, b)` that over-approximates safely because if any escapes, so do its siblings.
-        match TastWalk.boundVarsOfTPat p with
-        | [] -> ()
-        | _ -> recordBindingRegion s ctx p (freshParam s)
-
     /// A `match` / `try-with` arm: register its pattern bound variables, walk the guard
     /// for capture edges, and return the body's region. Shared by both joiners.
     and private inferRegionArm (s: State) (ctx: PassContext) (arm: TMatchArm) : RegionId =
@@ -466,31 +491,6 @@ module Regions =
                 recordBindingRegion s ctx p cell
             else
                 recordBindingRegion s ctx p rhsR
-
-    and private recordBindingRegion (s: State) (ctx: PassContext) (p: TPat) (r: RegionId) : unit =
-        // Map every bound variable this pattern introduces to `r`; tuple / record / union
-        // sub-patterns recurse so each name shares it. An approximation, because
-        // destructuring really projects each element separately.
-        match p with
-        | TPat.NamedSimple(k, _, _) ->
-            s.BindingRegions.[k] <- r
-            stampTyVar ctx k r
-        | TPat.Tuple(items, _, _) ->
-            for sub in items do
-                recordBindingRegion s ctx sub r
-        | TPat.Record(fields, _, _) ->
-            for (_, sub) in fields do
-                recordBindingRegion s ctx sub r
-        | TPat.Union(_, fields, _, _) ->
-            for sub in fields do
-                recordBindingRegion s ctx sub r
-        | TPat.TypeTestAs(_, inner, _, _) -> recordBindingRegion s ctx inner r
-        // An or-pattern that binds names is rejected before lowering.
-        | TPat.Or _
-        | TPat.Wildcard _
-        | TPat.Null _
-        | TPat.EnumCase _
-        | TPat.Const _ -> ()
 
     /// Distinct lambda regions reachable from `start` via outlives edges, the input to
     /// the `HeapShared` seed rule. `visited` / `stack` are caller-owned scratch, cleared

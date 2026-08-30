@@ -275,46 +275,26 @@ type FrozenTypeTableBuilder private (rows: FrozenTypeRows) =
                 TyparArity = k.TyparArity
             }
 
-    and bindingKey (b: BindingKey) : BindingKeyId =
+    let bindingKey (b: BindingKey) : BindingKeyId =
         bindings.Intern
             {
                 Decl = moduleContainer b.Decl
                 Name = str b.Name
             }
 
-    and memberKind (k: MemberKind) : MemberKindRow =
+    let memberKind (k: MemberKind) : MemberKindRow =
         match k with
         | MemberKind.Method -> MemberKindRow.Method
         | MemberKind.Property -> MemberKindRow.Property
         | MemberKind.InterfaceMethod iface -> MemberKindRow.InterfaceMethod(typeKey iface)
         | MemberKind.ExplicitInterfaceImpl iface -> MemberKindRow.ExplicitInterfaceImpl(typeKey iface)
 
-    and memberKey (m: MemberKey) : MemberKeyId =
-        members.Intern
-            {
-                Decl = typeKey m.Decl
-                Name = str m.Name
-                ArgSig = args m.ArgSig
-                MethodTyparArity = m.MethodTyparArity
-                Kind = memberKind m.Kind
-            }
-
-    and symbolKey (k: SymbolKey) : SymbolId =
-        symbols.Intern(
-            match k with
-            | SymbolKey.Type tk -> SymbolRow.Type(typeKey tk)
-            | SymbolKey.Binding bk -> SymbolRow.Binding(bindingKey bk)
-            | SymbolKey.Member mk -> SymbolRow.Member(memberKey mk)
-        )
-
-    and args (xs: EqArray<FrozenType>) : EqArray<TypeId> = EqArray.map frozenType xs
-
-    and literal (v: LiteralConst) : LiteralRow =
+    let literal (v: LiteralConst) : LiteralRow =
         match v with
         | LiteralConst.String s -> LiteralRow.String(str s)
         | LiteralConst.Int n -> LiteralRow.Int n
 
-    and unknownReason (r: UnknownReason) : UnknownReasonRow =
+    let unknownReason (r: UnknownReason) : UnknownReasonRow =
         match r with
         | UnknownReason.UndefinedName name -> UnknownReasonRow.UndefinedName(str name)
         | UnknownReason.UnfreezableExternal what -> UnknownReasonRow.UnfreezableExternal(str what)
@@ -322,6 +302,8 @@ type FrozenTypeTableBuilder private (rows: FrozenTypeRows) =
         | UnknownReason.Deferred -> UnknownReasonRow.Deferred
         | UnknownReason.ArityMismatch -> UnknownReasonRow.ArityMismatch
         | UnknownReason.NoValueType -> UnknownReasonRow.NoValueType
+
+    let rec args (xs: EqArray<FrozenType>) : EqArray<TypeId> = EqArray.map frozenType xs
 
     and frozenType (t: FrozenType) : TypeId =
         types.Intern(
@@ -350,6 +332,24 @@ type FrozenTypeTableBuilder private (rows: FrozenTypeRows) =
             | FTTypar(axis, index) -> TypeRow.Typar(axis, index)
             | FTLocalTypar(scheme, index) -> TypeRow.LocalTypar(scheme, index)
             | FTUnknown reason -> TypeRow.Unknown(unknownReason reason)
+        )
+
+    let memberKey (m: MemberKey) : MemberKeyId =
+        members.Intern
+            {
+                Decl = typeKey m.Decl
+                Name = str m.Name
+                ArgSig = args m.ArgSig
+                MethodTyparArity = m.MethodTyparArity
+                Kind = memberKind m.Kind
+            }
+
+    let symbolKey (k: SymbolKey) : SymbolId =
+        symbols.Intern(
+            match k with
+            | SymbolKey.Type tk -> SymbolRow.Type(typeKey tk)
+            | SymbolKey.Binding bk -> SymbolRow.Binding(bindingKey bk)
+            | SymbolKey.Member mk -> SymbolRow.Member(memberKey mk)
         )
 
     /// Mints rows for whatever of `t` is new. Idempotent: the same type always yields the
@@ -460,7 +460,7 @@ type FrozenTypeTable private (rows: FrozenTypeRows) =
                 }
             )
 
-    and bindingKey (BindingKeyId i) : BindingKey =
+    let bindingKey (BindingKeyId i) : BindingKey =
         Materialise.get
             bindingCache
             i
@@ -473,48 +473,19 @@ type FrozenTypeTable private (rows: FrozenTypeRows) =
                 }
             )
 
-    and memberKind (k: MemberKindRow) : MemberKind =
+    let memberKind (k: MemberKindRow) : MemberKind =
         match k with
         | MemberKindRow.Method -> MemberKind.Method
         | MemberKindRow.Property -> MemberKind.Property
         | MemberKindRow.InterfaceMethod iface -> MemberKind.InterfaceMethod(typeKey iface)
         | MemberKindRow.ExplicitInterfaceImpl iface -> MemberKind.ExplicitInterfaceImpl(typeKey iface)
 
-    and memberKey (MemberKeyId i) : MemberKey =
-        Materialise.get
-            memberCache
-            i
-            (fun () ->
-                let row = rows.Members.[i]
-
-                {
-                    Decl = typeKey row.Decl
-                    Name = str row.Name
-                    ArgSig = args row.ArgSig
-                    MethodTyparArity = row.MethodTyparArity
-                    Kind = memberKind row.Kind
-                }
-            )
-
-    and symbolKey (SymbolId i) : SymbolKey =
-        Materialise.get
-            symbolCache
-            i
-            (fun () ->
-                match rows.Symbols.[i] with
-                | SymbolRow.Type tk -> SymbolKey.Type(typeKey tk)
-                | SymbolRow.Binding bk -> SymbolKey.Binding(bindingKey bk)
-                | SymbolRow.Member mk -> SymbolKey.Member(memberKey mk)
-            )
-
-    and args (xs: EqArray<TypeId>) : EqArray<FrozenType> = EqArray.map frozenType xs
-
-    and literal (v: LiteralRow) : LiteralConst =
+    let literal (v: LiteralRow) : LiteralConst =
         match v with
         | LiteralRow.String s -> LiteralConst.String(str s)
         | LiteralRow.Int n -> LiteralConst.Int n
 
-    and unknownReason (r: UnknownReasonRow) : UnknownReason =
+    let unknownReason (r: UnknownReasonRow) : UnknownReason =
         match r with
         | UnknownReasonRow.UndefinedName name -> UnknownReason.UndefinedName(str name)
         | UnknownReasonRow.UnfreezableExternal what -> UnknownReason.UnfreezableExternal(str what)
@@ -522,6 +493,8 @@ type FrozenTypeTable private (rows: FrozenTypeRows) =
         | UnknownReasonRow.Deferred -> UnknownReason.Deferred
         | UnknownReasonRow.ArityMismatch -> UnknownReason.ArityMismatch
         | UnknownReasonRow.NoValueType -> UnknownReason.NoValueType
+
+    let rec args (xs: EqArray<TypeId>) : EqArray<FrozenType> = EqArray.map frozenType xs
 
     // Rebuilt DIRECTLY, never through a normalising constructor (one that flattens / dedupes
     // / collapses): the interned row is already canonical, and normalising here would make
@@ -554,6 +527,33 @@ type FrozenTypeTable private (rows: FrozenTypeRows) =
                 | TypeRow.Typar(axis, index) -> FTTypar(axis, index)
                 | TypeRow.LocalTypar(scheme, index) -> FTLocalTypar(scheme, index)
                 | TypeRow.Unknown reason -> FTUnknown(unknownReason reason)
+            )
+
+    let memberKey (MemberKeyId i) : MemberKey =
+        Materialise.get
+            memberCache
+            i
+            (fun () ->
+                let row = rows.Members.[i]
+
+                {
+                    Decl = typeKey row.Decl
+                    Name = str row.Name
+                    ArgSig = args row.ArgSig
+                    MethodTyparArity = row.MethodTyparArity
+                    Kind = memberKind row.Kind
+                }
+            )
+
+    let symbolKey (SymbolId i) : SymbolKey =
+        Materialise.get
+            symbolCache
+            i
+            (fun () ->
+                match rows.Symbols.[i] with
+                | SymbolRow.Type tk -> SymbolKey.Type(typeKey tk)
+                | SymbolRow.Binding bk -> SymbolKey.Binding(bindingKey bk)
+                | SymbolRow.Member mk -> SymbolKey.Member(memberKey mk)
             )
 
     /// The stored rows, which the codec writes; the materialised side is never serialized.
