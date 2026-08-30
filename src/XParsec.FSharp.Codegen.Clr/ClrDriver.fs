@@ -17,8 +17,8 @@ type ClrCompilation =
 
 module ClrCompilation =
 
-    /// References packages, defines no primitives of its own. The shape to reach for unless
-    /// compiling a package that declares `extern` types.
+    /// A compilation that consumes packages only. The shape to reach for unless compiling a
+    /// package that declares `extern` types.
     let consumer
         (project: ProjectInfo)
         (packages: string list)

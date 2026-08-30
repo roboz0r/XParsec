@@ -167,7 +167,7 @@ module EmitResolve =
         (name: string)
         (argTys: FrozenType list)
         : EntityHandle * EmittedMember =
-        // Project-local types only. An external one goes to `externalInstanceMemberRef`.
+        // Project-local types only.
         let key, tyArgs = keyAndTyArgs objArgTy
 
         // The member-key registry read, identical across every emitted-nominal kind: pick

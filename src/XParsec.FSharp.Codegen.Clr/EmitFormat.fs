@@ -256,7 +256,6 @@ module EmitFormat =
             | FormatSegG.CallbackHole(_, residue) ->
                 // `%a`/`%t`: the callback (and any scratch sink) was already lowered to an
                 // ordinary residue-*string* expr, so splice it exactly like a literal.
-                // Codegen has no sink knowledge.
                 b.Add(ILInstr.Ldloca slot)
                 buildExpr env b residue
                 b.Add(ILInstr.Call(fh.AppendLiteral, 2, 0))

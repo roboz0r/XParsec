@@ -323,7 +323,7 @@ module EmitClosures =
                     }
             )
 
-    /// The TOP-LEVEL ground values — those declaring no enclosing module. Each becomes a
+    /// The TOP-LEVEL ground values — those declared at file scope. Each becomes a
     /// `public static` field on the anonymous "Program" class; whether it initialises in
     /// the `.cctor` or in `Main` is decided later.
     let collectProgramValues

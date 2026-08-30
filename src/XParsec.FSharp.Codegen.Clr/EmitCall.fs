@@ -175,8 +175,8 @@ module EmitCall =
                         leading
                         sm.Params.ByGroup
 
-                    // A phantom typar, one in no parameter and no result like `fold`'s
-                    // enumerator `'E` in `'S :> IStructSeq<'T,'E>`, survives matching as
+                    // A phantom typar — one appearing only in a constraint, like `fold`'s
+                    // enumerator `'E` in `'S :> IStructSeq<'T,'E>` — survives matching as
                     // `ValueNone`; solve it from the constraint's interface witness.
                     TastLower.solvePhantomTypars sm.Constraints (tryInterfaceWitness env) instArr
 

@@ -40,21 +40,14 @@ Either the parameter goes or the reorder has to actually happen. `EmitConstruct`
 matching hedge admitting the current behaviour only works for the one-field `Ref<'T>` shape,
 so the two want resolving together.
 
-## A2b. `zonkedArgs` in `ClrProvider` — a rebinding that names a step it does not take
+## A2b. `zonkedArgs` in `ClrProvider` — a rebinding that names a step it does not take — **DONE (2026-08-29)**
 
-`UserGenericMemberRef` opens `let zonkedArgs = args` and `TryEmitRecordCons` opens
-`let zonkedArgs = tyArgs`, then use only the new name. Nothing zonks. Either the zonk was
-removed and the alias survived it, or it was never written; either way the name asserts a
-normalisation the reader will look for and not find. Inline both.
+Both aliases were inlined; nothing zonked at either site.
 
-## A3. `TypeSlotKind.StructEnum of isMixed: bool` — dead payload
+## A3. `TypeSlotKind.StructEnum of isMixed: bool` — dead payload — **DONE (2026-08-29)**
 
-Its only consumer matches `TypeSlotKind.StructEnum _`; the writer reads `IsMixed` off
-`StructEnumDecl` instead. The deleted comment admitted it, saying the field was "carried only
-for documentation symmetry with the writer".
-
-Dropping the payload is the acceptance test for its own entry: if it lands and that sentence
-would still need writing, the change was wrong.
+Payload dropped. One producer (`LayoutNodes`, passing `sed.IsMixed`) and one consumer
+(`Assembler`, matching `StructEnum _`); no reader bound it.
 
 ## A4. Cross-package `MethodSpec` arity agreement is unguarded
 
@@ -106,12 +99,12 @@ guaranteed to EXTERNAL consumers. It is deferred because the metadata writer has
 The comment is deleted. Either emit the properties or accept public fields as the design —
 a deferral has no reader once it stops being news.
 
-## A9. The enum `ValueNone -> "int"` fallback is unreachable
+## A9. The enum `ValueNone -> "int"` fallback is unreachable — **DONE (2026-08-29)**
 
-`LayoutNodes.partitionTypeDecls` calls `TEnumCases.underlyingTypeName` only inside the arm
-where `classify` already returned `Numeric`, and `underlyingTypeName`'s own `Numeric` branch
-returns `ValueSome` unconditionally (`"int"` when no explicit width). The `ValueNone` arm
-cannot fire. Defensive dead code that also spells the default width a second time.
+The function is `TEnumCases.underlyingTypeKey`, not `underlyingTypeName`. Its numeric scan is
+now `TEnumCases.numericUnderlyingTypeKey`, returning a `TypeKey`, which `underlyingTypeKey`'s
+`Numeric` branch wraps and `LayoutNodes.partitionTypeDecls` calls directly. There is no arm to
+write, and the default width is spelled once.
 
 ## A10. Module initialisation order diverges from fsc — decide, don't drift
 
@@ -126,16 +119,12 @@ better design. What is wrong is that the divergence was recorded in a prose hedg
 decided. Either write the test that pins the chosen order, or state the choice in the type —
 not in a paragraph that no reader will act on.
 
-## A11b. `NominalEmit.prepareMember`'s `isIfaceImpl` parameter is dead
+## A11b. `NominalEmit.prepareMember`'s `isIfaceImpl` parameter is dead — **DONE (2026-08-29)**
 
-`prepare` threads `isIfaceImpl` out of `NominalMembers.indexed` into `prepareMember`, which
-never reads it — `returnsVoid` is derived from `mem.ReturnTy` alone and the row's attrs were
-fixed by the layout. The deleted comment claimed it "selects the `void`-return conformance
-below", which is false; the parameter has no effect.
-
-Either drop the parameter (and the destructuring at the call site), or, if an interface-impl
-member is genuinely meant to conform to a `void` BCL slot regardless of its declared return
-type, that behaviour is missing and wants a test.
+Parameter dropped. `NominalMembers.indexed` keeps the component: `LayoutNodes.memberRow` reads
+it to select `ifaceEqualsAttrs`. Nothing in `prepareMember` or its callers consults
+interface-impl-ness for a signature or for attrs, so the `void`-conformance reading the deleted
+comment implied has no support in the code; it stays unimplemented rather than assumed.
 
 ## A11. Nested visibility is uniformly `NestedPublic`
 
@@ -157,7 +146,15 @@ why it survived. The fix is two-sided: surface the modifier in `tryBuildType` an
 `CustomModifiers(...).Type(true)`. Both sites keep one line saying so — the encoder's carries a
 `TODO(inref)` tag; the sixteen lines of detail that were in the encoder now live here.
 
-## A13. A disposable constrained-typar enumerator would emit invalid IL
+## A13. A disposable constrained-typar enumerator would emit invalid IL — **DONE (2026-08-29)**
+
+Landed with B14. The object-argument load, the member call and the disposal branch all read
+`EnumeratorDispatch`, so `EnumTyparConstrained` selects `ldloca; constrained. <E>; callvirt` in
+every one of them and the miscombination is unrepresentable. Unreachable today, so no test
+pins it: `InferControlFlow.tryConstrainedTyparEnumerator` sets `Disposable = false`.
+
+The original analysis follows.
+
 
 `EmitLoops.emitEnumeratorLoop` mints its `constrained.` token only when `loop.IsValueType`, and
 the non-value-type disposal branch does `ldloc; brfalse` on the enumerator local. When the
@@ -173,16 +170,18 @@ named field states it, no more — and the first constrained-typar enumerator th
 key on "is the object argument addressed", which is `IsValueType || MembersViaConstrained` — the same
 predicate `loadEnumObjArg` already uses — not on `IsValueType` alone. Pairs with B14.
 
-## A14. `MetadataContext.AddProgramType` is a byte-identical copy of `AddClass`
+## A14. `MetadataContext.AddProgramType` is a byte-identical copy of `AddClass` — **DONE (2026-08-29)**
 
-Same parameter list, same body: both call `mb.AddTypeDefinition` with the identical
-nil-if-empty namespace expression and pass every other argument straight through. Only the
-docs differ, and what they claim differs (the static container owns no fields, so `firstField`
-points past any preceding rows) is the CALLER's to satisfy — neither member enforces it.
+Deleted; its three call sites take `AddClass`.
 
-Either delete `AddProgramType` and call `AddClass`, or make the container member actually differ:
-one that takes no `firstField` and derives it from the row count is the shape its doc
-describes.
+The alternative — a container member deriving `firstField` from the row count — is
+unachievable, and the doc clause that suggested it was false twice over. A module class DOES
+own fields (`FieldKey.ModuleValue`), and `Assembler` writes the whole field table before the
+type loop, so at every `AddTypeDefinition` the field row count is already the grand total. A
+derived `firstField` would be correct only for a trailing field-less type.
+
+`AddInterfaceType` carries the same clause. For an interface the premise holds, but the row
+count still cannot supply the handle, so it is prose rather than something enforceable.
 
 ## A15. `isValueType` yields `false` for tuples and for enums — **DONE (2026-08-13)**
 
@@ -364,12 +363,13 @@ and the `failwithf` is deleted rather than turned into a diagnostic. That pass r
 goes; the substitution the new pass needs is method-axis (`FTTypar(Method, i)` under a
 recovered instantiation), not argument-vector rewriting.
 
-## B7. `ClrHoleFormat.toDotNetFormat`'s overloaded third slot
+## B7. `ClrHoleFormat.toDotNetFormat`'s overloaded third slot — **DONE (2026-08-23, in `b1f1c807`)**
 
-Returns `HoleKind * string option * Alignment`, where the `Alignment` is sometimes the field's
-own alignment and sometimes a zero-pad TOTAL WIDTH (`%08o` → `Const 8`), depending on which
-`HoleKind` came back. A record with `Width` distinct from `Alignment` deletes the surviving
-doc line, which exists only to say which meaning applies when.
+Landed as a DU rather than the record this entry proposed, and the DU is the better fit: no
+hole kind carries both meanings at once, so `HoleCall`'s cases each take either an
+`align: Alignment` or a `width: int`. A record with both fields would have left every consumer
+a dead field plus a rule for when to ignore it — which is what the deleted doc line was.
+`PrintfSpec.HoleKind` went with it as a codegen-facing type.
 
 ## B8. A closure needs a `FrozenType`, so `ClrProvider` fakes one
 
@@ -396,7 +396,18 @@ A `CtorPlan` computed once off the class decl, carrying the primary-ctor decisio
 `Ctor`-aliases-first-secondary consequence, deletes both surviving `NominalEmit` blocks and
 makes the layout/emit agreement structural rather than a coincidence of three copied lines.
 
-## B9. `ClosureTyparScope` is ambient state with an unbalanced Exit
+## B9. `ClosureTyparScope` is ambient state with an unbalanced Exit — **DONE (2026-08-29)**
+
+`ClrEnv.WithClosureTyparScope` saves and restores under `try/finally`, and
+`ClosureTyparScope` lost its setter, so no call site can assign the field. `Enter`, `Exit` and
+the invariant doc are gone, and `ClrGenerics` no longer hand-rolls save/restore.
+
+`finally` is load-bearing rather than defensive: `Assembler`'s field loop raises a wrapped
+encoder failure from inside the scope, which the old `Exit` leaked past. The same conversion
+also removed an `Exit` that `PrepareClosures` ran without a matching `Enter`.
+
+The original analysis follows.
+
 
 `ExitClosureTyparScope` resets to `ValueNone` rather than restoring, so it is correct only
 from an unscoped caller. `Assembler`'s two flat loops satisfy that; `ClrGenerics` does not and
@@ -406,7 +417,22 @@ to tell the next caller which of the two shapes it is allowed to use.
 A `withClosureTyparScope d f` combinator that saves and restores makes the wrong shape
 unwritable and deletes the doc, `Enter`, and `Exit`.
 
-## B11. `OpenMemberSignature` — `ClrExternalMembers.mintMemberRef`'s eight positional parameters
+## B11. `OpenMemberSignature` — `ClrExternalMembers.mintMemberRef`'s eight positional parameters — **DONE (2026-08-29)**
+
+`OpenMemberSignature` with `OfMember` as its one derivation off `ExternalMember`; `mintMemberRef`
+now takes `parent`, it, and the name. The count fields are `TupledParameters` / `ParameterCount`,
+so the tupled-to-opened relationship is in the names.
+
+The caller-supplied `isProperty` / `isStatic` are now read off the member's own metadata. They
+were never derived from `chosen` before, and a temporary probe comparing the two verdicts at
+both call sites agreed on every member the CLR suite emits.
+
+`openParams`' doc stays: it is a contract plus a failure mode, not a slot legend. Both
+parameters survive on `externalMemberRef` / `externalMemberRefOn` as `ExternalMemberCacheKey`
+components; dropping them there reaches ~8 emit call sites and is its own change.
+
+The original analysis follows.
+
 
 `mintMemberRef` takes `parent`, `methodTyparArity`, `paramsT`, `retT`, `isProperty`, `isStatic`,
 `argSigLen`, `memberName` — two adjacent same-typed `bool`s and two `int`-ish counts, all
@@ -434,17 +460,46 @@ is the only probe and the trap is gone. `CodegenSymbols.externalLayout` survives
 key's, which is the normalisation this entry asked for, sited at the single registration funnel.
 It fires nowhere across the CLR, JS, SemanticAnalysis, Vesper and FSharp suites.
 
-## B13. `MetadataTailKey` — `ClrSymbolProviders`' two memos differ only in what they may key on
+## B13. `ClrSymbolProviders`' two metadata-reader factories — **DONE (2026-08-29)**
 
-`bclMetaTail` memoises tails process-wide on the reverse map alone, which is sound only because
-the host TPA is constant; `bclMetaTailWith` therefore cannot reuse it and mints a fresh
-per-instance memo per compilation. Both functions are otherwise identical, and the deleted prose
-was a warning not to route the path-taking one through the global memo.
+The live pair is `dotnetMetadata` / `dotnetMetadataWith`; there is no `bclMetaTail`. Two of this
+entry's premises were false: `dotnetMetadataWith` minted NO memo, and the two were not otherwise
+identical (`dotnetMetadata` had an `IntrinsicTypeMap.isEmpty` branch returning the
+`MetadataSymbols.provider` singleton).
 
-One memo keyed on `{ ReverseCanon; Paths }` makes the unsound reuse unspellable and collapses the
-two factories into one taking the paths.
+Because of that, the proposed `{ ReverseCanon; Paths }` memo would have INTRODUCED process-wide
+caching where none existed. `ClrCompilation.ReferenceAssemblies` is caller-supplied, so its paths'
+content can change within a process, and a `MetadataLoadContext` maps what it resolves for its
+lifetime and is never disposed — a cache under such a path roots the old mapping and the next
+build of that assembly cannot write the file.
 
-## B14. `EmitLoops.EnumeratorLoop`'s three dispatch bools are one choice each
+Landed instead as: `dotnetMetadataWith` takes the reference set and mints a reader per call;
+`dotnetMetadata` is that factory applied to the host TPA behind `memoPerAxis`. One factory, and
+the unsound reuse stays unspellable because the path-taking one holds no memo. The host TPA is
+now written at the call site rather than implied by the function name.
+
+Measured while deciding: the suite mints 81 readers, 51 of them distinct, and 3.1s total across
+the run goes into loading assemblies. A perfect identity cache would save ~1.2s of ~105s.
+
+## B14. `EmitLoops.EnumeratorLoop`'s three dispatch bools are one choice each — **DONE (2026-08-29)**
+
+`SourceDispatch` (`SourceByValue | SourceByAddress | SourceByAddressConstrained`) and
+`EnumeratorDispatch` (`EnumRefByValue | EnumStructByAddress of tok | EnumTyparConstrained`)
+replace all four bools. Five read sites became one match each, and the `constrained.` token for a
+struct enumerator's disposal moved onto its case, so the `ValueSome`/`ValueNone` re-test is gone.
+
+**This entry's central claim was wrong.** It held that `GetEnumeratorViaInterface = true` is never
+read in the `Interface` arm because that arm sets `IsValueType = false`. The addressing branch
+gated on `EmitPattern.isValueType env sourceTy` — the SOURCE's value-type-ness — while
+`IsValueType` was the ENUMERATOR's. A struct source implementing `IEnumerable<'T>` entered the
+branch, and there the field selected the `constrained.` the call requires. It was not redundant
+with `GetEnumViaConstrained`, and the DUs above preserve the distinction.
+
+IL byte-identity across the four reachable configurations was checked by digesting 11 for-in
+programs before and after.
+
+The original analysis follows.
+
 
 `GetEnumeratorViaInterface`, `GetEnumViaConstrained` and `MembersViaConstrained` encode the
 object-argument/dispatch decision as three independent bools, and two of them are not independent. The
@@ -471,19 +526,26 @@ so and nothing enforces it; the two entry points that do take the lock (`compute
 Moving the reflection helpers onto a private inner type that only a `lock`-taking factory can
 hand out — or threading a `Locked` token they each require — deletes all four clauses.
 
-## B16. A canon lookup, not `Map<string, SymbolKey list>` threaded through six functions
+## B16. A canon lookup, not `Map<string, SymbolKey list>` threaded through six functions — **LANDED EARLIER; the premise no longer holds**
 
-`reverseCanon` is passed explicitly to `tryBuildType`, `tryMethodSignature`,
-`tryPropertySignature` and `tryCtorSignature`, re-explained at the module doc and at the
-provider's own doc, and read as `Map.tryFind` + `List.isEmpty` + `List.head` — because on the
-CLR the list is always a singleton. The surviving three-line doc exists to say exactly that.
+`reverseCanon`, `Map<string, SymbolKey list>` and `IExternalSymbolProvider.IntrinsicReverseCanon`
+do not exist in `src/`. `MetadataMapping` threads an `IntrinsicTypeMap` and reads it only through
+`IntrinsicTypeMap.tryCanon : PlatformTypeId -> IntrinsicTypeMap -> TypeKey voption`, which is the
+narrowing this entry asked for; the multi-canon list stays inside `IntrinsicTypeMap` and never
+reaches the CLR seam. There is no first-element read and no emptiness guard to remove.
 
-A `PlatformCanon` value with `tryCanon : string -> SymbolKey voption`, built once in the
-provider's constructor, removes the first-element read, the emptiness guard, and the doc. The `list`
-in `IExternalSymbolProvider.IntrinsicReverseCanon` is real for JS (`number` → several canons),
-so this is a CLR-side narrowing at the seam, not a change to the interface.
+The surviving three-line doc at the top of `MetadataMapping` says what `intrinsics` reconciles,
+which is not the claim this entry targeted, so it stays.
 
-## B17. A per-level hit DU for CLR by-name hiding — `MetadataSymbols.computeMembers`
+## B17. A per-level hit DU for CLR by-name hiding — `MetadataSymbols.computeMembers` — **DONE (2026-08-29)**
+
+`probeLevel : Type -> LevelHit` over `Owns | Overloads | Absent`; `resolve` is a total three-case
+match and the sixteen-line prologue is gone. `propertyOn` / `fieldOn` return `option` rather than a
+one-or-zero array, which deleted the `Some m -> [| m |] | None -> [||]` wrapper at both sites.
+Probe order carries the within-level precedence, so it is not restated.
+
+The original analysis follows.
+
 
 `resolve` walks `candidates` most-derived-first and re-derives, at every level, whether the
 name is owned outright (property/field, hides everything below), collected (methods, which
@@ -589,26 +651,22 @@ side owns an opcode's meaning is a structural call. The DU case is the better ca
 `emit*` function is a constructor for it and can say what it constructs — but that wants
 deciding once for all twelve, not per instruction.
 
-## B23. Comment-only residue left by the H19 pass — `Codegen.Clr`
+## B23. Comment-only residue left by the H19 pass — `Codegen.Clr` — **DONE (2026-08-29)**
 
-Filed rather than fixed; the H19 sweep was punctuation-scoped and these are other modes.
-Each is a comment edit, no code change.
+All five rewritten:
 
-- **Object-negation (retired `names no X` family).** `EmitClosures.collectProgramValues`
-  ("those declaring no enclosing module"), `ClrDriver.ClrCompilation.consumer` ("defines no
-  primitives of its own"), `EmitFormat`'s `CallbackHole` branch ("Codegen has no sink
-  knowledge" → "does not know about sinks"), `EmitCall`'s phantom-typar block ("a typar in no
-  parameter and no result"). Note the discriminator found while triaging: `has no <concrete
-  absent artifact>` (`no Dispose row`, `no tag`, `no parameterless ctor`) reads as fact and is
-  NOT this defect — only the negated abstract object is.
-- **`EmitResolve.resolveInstanceMember`** — "An external one goes to
-  `externalInstanceMemberRef`" is a `Module.func` cross-reference that rots on rename.
-- **`MetadataSymbols.tryMethodSignature`** — the H19 pass turned `UNCOLLAPSED — one entry per
-  value parameter` into a colon, since the left side is a bare term rather than a code
-  literal. Recorded in case the dash is preferred.
+- `EmitClosures.collectProgramValues` → "those declared at file scope".
+- `ClrDriver.ClrCompilation.consumer` → "A compilation that consumes packages only."
+- `EmitFormat`'s `CallbackHole` branch — the sentence was deleted rather than reworded. Both
+  candidate rewrites fail a rule ("no sink knowledge" is a negated abstract object, "does not
+  know about sinks" is anthropomorphism), and the preceding sentence already carries the
+  contract: the callback is an ordinary residue-string expr, spliced like a literal.
+- `EmitCall`'s phantom-typar block → "one appearing only in a constraint", which says where the
+  typar DOES appear.
+- `EmitResolve.resolveInstanceMember` — the `Module.func` cross-reference deleted; the
+  precondition ("Project-local types only.") stays.
 
-Already fixed during the sweep, listed so they are not re-reported: `EmitClosures.typeKeyNsName`
-named `TypeSlotKey` for a `TypeKey` parameter (a rename that missed the prose).
+`MetadataSymbols.tryMethodSignature`'s colon was left as the H19 pass set it.
 
 ---
 
@@ -654,3 +712,20 @@ the parameter is `typarCount: int`. Both were forward claims about a caller.
 - Part A: each defect has a fix, and A4/A7 have the tests their comments claimed existed.
 - Part B: each entry's named comment is gone because it has become unstatable.
 - The remaining 33 files are swept and this file is deleted.
+
+## Open
+
+Awaiting a decision rather than an implementation:
+
+- **A2** — `TryEmitRecordCons`'s `fieldNames`. Not merely a dead parameter: `EmitConstruct`
+  pushes an external record's fields in SOURCE order, so a referenced-assembly record with two
+  or more fields takes its ctor arguments transposed whenever the two orders differ. Either the
+  recipe carries declaration order and the caller permutes, or the parameter goes and the
+  one-field restriction is enforced.
+- **A17** — `x :?> 'T` is a silent miscompile. The fix is known and small; it changes emitted IL
+  for every downcast.
+- **A4, A7** — the two tests. A4 needs a consumer that reads `fold`'s `MethodSpec` across a
+  package boundary; A7 needs a program whose front-end `scheme.Quantified.Length` over-counts,
+  with reverting `Emit.staticFnTypars` as the negative control.
+- **A8, A10, A11, A12, A16, A18, B8, B18, B21, B22** — each names a choice, not a defect with one
+  right answer.
