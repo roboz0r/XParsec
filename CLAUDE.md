@@ -24,8 +24,9 @@ Where comments and code disagree confirm with the user, the expected semantics.
   F# semantics: probe it for what F# accepts and match its exact FS code instead of inventing rules.
 - Scratch files belong in repo-root `./tmp/`, because writes outside the repo prompt for
   permission.
-- Create and edit files with Write/Edit, not shell heredocs. Do not process text with Python;
-  write a small F# file and iterate with the test loop.
+- Create and edit files with Write/Edit. Processing text with Python, PowerShell or other scripts is
+  unreliable due to multiple levels of character escaping. If you use these techniques,
+  you must verify every edited line in context.
 
 ## Working agreement
 
