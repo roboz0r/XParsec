@@ -197,723 +197,793 @@ module internal NominalEmit =
                     Interfaces = [ for (iface, _) in cd.Interfaces -> iface ]
                 }
 
-    let prepare
+    // A reference to one of this type's own members (field / tag / ctor): a generic
+    // type reaches it through a `MemberRef` on the open self-`TypeSpec`
+    // (`Box\`1<!0>::n`), a monomorphic type through the resolved `Def` token.
+    let private selfMemberRef
+        (asm: Assembler)
+        (td: TastAccessor.TypeDecl)
+        (kind: UserMemberKind)
+        (monoHandle: EntityHandle)
+        : EntityHandle =
+        if not td.TypeParams.IsEmpty then
+            asm.Icodegen.UserGenericMemberRef(td.TypeKey, typarMarkersOf td, kind)
+        else
+            monoHandle
+
+    let private bodyOf (asm: Assembler) ir =
+        Cil.buildBody asm.EncodeLocals asm.BodyStream (IlIr.lower ir)
+
+    /// The union `.ctor` and one static factory per case.
+    let private prepareUnion (asm: Assembler) (td: TastAccessor.TypeDecl) (cases: Frozen.TUnionCase list) : unit =
+        let provider = asm.Provider
+        let typarMarkers = typarMarkersOf td
+        let tagField = toEntity (asm.FieldDef(FieldKey.UnionTag td.Key))
+        let unionCtor = toEntity (asm.MethodDef(MethodKey.NominalCtor td.Key))
+
+        let ctorBodyOffset = bodyOf asm (Emit.buildClosureCtor provider.ObjectCtorRef [])
+
+        asm.AddPrepared(
+            MethodKey.NominalCtor td.Key,
+            {
+                Signature = provider.NullaryCtorSignature()
+                BodyOffset = ctorBodyOffset
+                ParamNames = []
+                MethodTypars = []
+            }
+        )
+
+        cases
+        |> List.iteri (fun tag c ->
+            let fieldHandles =
+                [
+                    for fi in 0 .. c.Fields.Length - 1 ->
+                        toEntity (asm.FieldDef(FieldKey.UnionCaseField(td.Key, c.Name, fi)))
+                ]
+
+            let ctorRef =
+                selfMemberRef asm td (UserMemberKind.UnionMember UnionMember.Ctor) unionCtor
+
+            let tagRef =
+                selfMemberRef asm td (UserMemberKind.UnionMember UnionMember.Tag) tagField
+
+            let fieldRefs =
+                [
+                    for fi in 0 .. List.length fieldHandles - 1 ->
+                        selfMemberRef
+                            asm
+                            td
+                            (UserMemberKind.UnionMember(UnionMember.Field(c.Name, fi)))
+                            fieldHandles.[fi]
+                ]
+
+            let factoryBody = bodyOf asm (Emit.buildUnionFactory ctorRef tag tagRef fieldRefs)
+
+            let paramTys = [ for (_, t) in c.Fields -> t ]
+
+            let factorySig =
+                provider.StaticMethodSignature(paramTys, FTUnion(td.TypeKey, EqArray.ofList typarMarkers))
+
+            asm.AddPrepared(
+                MethodKey.UnionFactory(td.Key, c.Name),
+                {
+                    Signature = factorySig
+                    BodyOffset = factoryBody
+                    ParamNames = argNames (List.length paramTys)
+                    MethodTypars = []
+                }
+            )
+        )
+
+    /// The record `.ctor`: one parameter per field, stored in declaration order.
+    let private prepareRecord
+        (asm: Assembler)
+        (td: TastAccessor.TypeDecl)
+        (recordIsStruct: bool)
+        (fields: Frozen.TRecordField list)
+        : unit =
+        let provider = asm.Provider
+
+        let fieldHandles =
+            [
+                for f in fields -> toEntity (asm.FieldDef(FieldKey.RecordField(td.Key, f.Name)))
+            ]
+
+        // A raw `FieldDefinition` token in `stfld` resolves to the wrong slot for a
+        // field at index >= 1 of a generic type, so each generic store routes
+        // through the field's `MemberRef` on the open self-`TypeSpec` (`R\`1<!0>::Y`).
+        let ctorFieldRefs =
+            [
+                for i, f in List.indexed fields ->
+                    selfMemberRef asm td (UserMemberKind.RecordMember(RecordMember.Field f.Name)) fieldHandles.[i]
+            ]
+
+        // `System.ValueType` has no accessible ctor and value types do not chain,
+        // so a struct record's `.ctor` only stores fields; a reference record
+        // chains `Object::.ctor`.
+        let ctorBody =
+            if recordIsStruct then
+                Emit.buildStructCtor ctorFieldRefs
+            else
+                Emit.buildRecordCtor provider.ObjectCtorRef ctorFieldRefs
+
+        let ctorBodyOffset = bodyOf asm ctorBody
+
+        asm.AddPrepared(
+            MethodKey.NominalCtor td.Key,
+            {
+                Signature = provider.RecordCtorSignature [ for f in fields -> f.Type ]
+                BodyOffset = ctorBodyOffset
+                ParamNames = [ for f in fields -> f.Name ]
+                MethodTypars = []
+            }
+        )
+
+    let private classBaseShapeOf (asm: Assembler) (td: TastAccessor.TypeDecl) (cd: ClassDecl) : BaseShape =
+        let icodegen = asm.Icodegen
+
+        match cd.Base with
+        | ValueNone -> BaseShape.NoBase
+        // A parent carrying type ARGUMENTS resolves through a `TypeSpec` whatever its
+        // flavour, so only an argless one is worth classifying further.
+        | ValueSome b when not b.Parent.Args.IsEmpty -> BaseShape.Generic(FrozenNominal.ty b.Parent.Nominal)
+        | ValueSome b ->
+            match b.Parent with
+            | BaseParentG.Class n ->
+                match icodegen.ClassOrigin n.Key with
+                | ClassOrigin.Foreign tref -> BaseShape.ExternalBase(n.Key, tref)
+                | ClassOrigin.Local handle -> BaseShape.LocalMono(n.Key, handle)
+                | ClassOrigin.Unresolved ->
+                    failwithf "Emit: class '%s' inherits %A, which resolves to no class" td.Name n.Key
+            // An intrinsic-class parent (`inherit exn`) is inherited by CANON, so
+            // resolve it to its platform class (`System.Exception`).
+            | BaseParentG.PrimitiveCanon n ->
+                match icodegen.IntrinsicClassBase n.Key with
+                | ValueSome(platformKey, tref) -> BaseShape.ExternalBase(platformKey, tref)
+                | ValueNone -> BaseShape.Generic(FrozenNominal.ty n)
+
+    /// The primary `.ctor`'s chain target and its argument expressions.
+    let private classCtorChain
+        (asm: Assembler)
+        (td: TastAccessor.TypeDecl)
+        (isStruct: bool)
+        (baseShape: BaseShape)
+        (baseCtorCall: TastAccessor.BaseCtorCall voption)
+        : Emit.CtorChain =
+        let provider = asm.Provider
+        let icodegen = asm.Icodegen
+        let classes = asm.Classes
+
+        // An external base's `.ctor` is minted BY KEY from the `ChosenCtor` identity
+        // the front end recorded, falling back to arity; the parameterless one is
+        // minted off the `TypeRef`, since a protected ctor is not in the member set.
+        match baseShape, baseCtorCall with
+        | BaseShape.ExternalBase(baseKey, _), ValueSome bcc when not bcc.Args.IsEmpty ->
+            let argTypes = [ for a in bcc.Args -> TastAccessor.exprTy a ]
+
+            match icodegen.TryEmitCtor(baseKey, bcc.ChosenCtor, [], argTypes) with
+            | ValueSome recipe -> Emit.CtorChain.Base(recipe.Handle, EqArray.toList bcc.Args)
+            | ValueNone ->
+                failwithf
+                    "Emit: class '%s' inherits external base %A but no '.ctor' overload matches its %d base-ctor argument(s)"
+                    td.Name
+                    baseKey
+                    bcc.Args.Length
+        | BaseShape.ExternalBase(baseKey, _), _ ->
+            match icodegen.ExternalParameterlessBaseCtor baseKey with
+            | ValueSome extCtor -> Emit.CtorChain.Base(extCtor, [])
+            | ValueNone ->
+                failwithf
+                    "Emit: class '%s' inherits external base %A but its parameterless '.ctor()' could not be minted"
+                    td.Name
+                    baseKey
+        | _, ValueSome bcc ->
+            let baseKey, baseArgs =
+                match baseShape with
+                | BaseShape.LocalMono(k, _) -> k, []
+                | BaseShape.Generic(FTClass(n, xs)) -> n, EqArray.toList xs
+                | _ -> failwithf "Emit: class '%s' has a base-ctor call but no class base type" td.Name
+
+            // `inherit Base(args)` reaches any of the base's ctors, so the chain target
+            // is picked on the same two axes a `TExpr.New` is.
+            let baseCtorHandle =
+                match classes.TryGetValue baseKey with
+                | true, bc ->
+                    let argTypes = [ for a in bcc.Args -> TastAccessor.exprTy a ]
+                    let kind, handle = EmitResolve.pickLocalCtor td.Name bc baseArgs argTypes
+
+                    if List.isEmpty bc.Typars then
+                        handle
+                    else
+                        icodegen.UserGenericMemberRef(baseKey, baseArgs, kind)
+                | false, _ ->
+                    failwithf "Emit: base class '%A' of '%s' is not an emitted project-local class" baseKey td.Name
+
+            Emit.CtorChain.Base(baseCtorHandle, EqArray.toList bcc.Args)
+        | _, ValueNone when isStruct -> Emit.CtorChain.None
+        | _, ValueNone -> Emit.CtorChain.Base(provider.ObjectCtorRef, [])
+
+    // The `.cctor` runs stores and effects interleaved, in declaration order,
+    // which is load-bearing:
+    // `static let a = f()` / `static do g a` / `static let b = h()`.
+    let private prepareCctor
         (asm: Assembler)
         (emitCtx: Emit.EmitContext)
+        (td: TastAccessor.TypeDecl)
+        (staticPreamble: TastAccessor.PreambleEntry list)
+        : unit =
+        if not (List.isEmpty staticPreamble) then
+            let staticFields = asm.Classes.[td.TypeKey].StaticFields
+
+            let cctorSteps =
+                [
+                    for entry in staticPreamble ->
+                        match entry with
+                        | TPreambleEntryG.Let sl -> Emit.PreambleStep.Store(staticFields.[sl.Name], sl.Init)
+                        | TPreambleEntryG.Do e -> Emit.PreambleStep.Run e
+                ]
+
+            let cctorBody = bodyOf asm (Emit.buildStaticCctor emitCtx cctorSteps)
+
+            asm.AddPrepared(
+                MethodKey.NominalCctor td.Key,
+                {
+                    Signature = asm.Provider.CctorSignature()
+                    BodyOffset = cctorBody
+                    ParamNames = []
+                    MethodTypars = []
+                }
+            )
+
+    // Each secondary is a `.ctor` overload whose body runs its `let`-preamble,
+    // then either chains the primary `.ctor` or stores explicit field inits.
+    let private prepareSecondaryCtors
+        (asm: Assembler)
+        (emitCtx: Emit.EmitContext)
+        (td: TastAccessor.TypeDecl)
+        (cd: ClassDecl)
+        (classCtor: EntityHandle)
+        : unit =
+        let icodegen = asm.Icodegen
+        let isGeneric = not td.TypeParams.IsEmpty
+        let typarMarkers = typarMarkersOf td
+        let instanceFields = cd.Fields
+        let ctorParams = cd.CtorParams
+        let secondaryCtors = cd.SecondaryCtors
+
+        if not (List.isEmpty secondaryCtors) then
+            let primaryCtorRef =
+                selfMemberRef asm td (UserMemberKind.ClassMember ClassMember.Ctor) classCtor
+
+            secondaryCtors
+            |> List.iteri (fun i sc ->
+                let paramTys = [ for (_, t) in sc.Params -> t ]
+
+                let lets = EqArray.toList sc.Lets
+
+                let ctorIr =
+                    match sc.Body with
+                    | TSecondaryCtorBodyG.ExplicitFieldInit inits ->
+                        // Both ctor-param backing fields and explicit `val` fields
+                        // are eligible.
+                        let fieldHandleOf name =
+                            if isGeneric then
+                                icodegen.UserGenericMemberRef(
+                                    td.TypeKey,
+                                    typarMarkers,
+                                    UserMemberKind.ClassMember(ClassMember.Field name)
+                                )
+                            elif ctorParams |> List.exists (fun (p: Frozen.TRecordField) -> p.Name = name) then
+                                toEntity (asm.FieldDef(FieldKey.ClassCtorParamField(td.Key, name)))
+                            elif instanceFields |> List.exists (fun (f: Frozen.TRecordField) -> f.Name = name) then
+                                toEntity (asm.FieldDef(FieldKey.ClassInstanceField(td.Key, name)))
+                            else
+                                failwithf "Emit: class '%s' secondary ctor inits unknown field '%s'" td.Name name
+
+                        let fieldInits = [ for fi in inits -> fieldHandleOf fi.Field, fi.Init ]
+
+                        Emit.buildSecondaryCtorFieldInit emitCtx sc.Params lets fieldInits
+                    | TSecondaryCtorBodyG.Chain primaryArgs ->
+                        Emit.buildSecondaryCtor emitCtx sc.Params lets primaryCtorRef (EqArray.toList primaryArgs)
+
+                let scBody = bodyOf asm ctorIr
+
+                asm.AddPrepared(
+                    MethodKey.SecondaryCtor(td.Key, i),
+                    {
+                        Signature = asm.Provider.RecordCtorSignature paramTys
+                        BodyOffset = scBody
+                        ParamNames = argNames sc.Params.Length
+                        MethodTypars = []
+                    }
+                )
+            )
+
+    /// The class's ctors and `.cctor`; returns the `extends` handle for its
+    /// `TypeDefinition` row.
+    let private prepareClass
+        (asm: Assembler)
+        (emitCtx: Emit.EmitContext)
+        (td: TastAccessor.TypeDecl)
+        (defaultBase: EntityHandle)
+        (cd: ClassDecl)
+        : EntityHandle =
+        let provider = asm.Provider
+        let icodegen = asm.Icodegen
+        let ctorParams = cd.CtorParams
+        let secondaryCtors = cd.SecondaryCtors
+        let baseCtorCall = cd.Base |> ValueOption.bind (fun b -> b.Ctor)
+        let isStruct = cd.ValueKind <> ClassValueKind.RefType
+
+        let baseShape = classBaseShapeOf asm td cd
+
+        // A non-generic parent is its token directly because the `extends` column
+        // rejects a `TypeSpec` that merely wraps a plain class.
+        let baseTypeHandle =
+            match baseShape with
+            | BaseShape.NoBase -> if isStruct then provider.ValueTypeBase else defaultBase
+            | BaseShape.ExternalBase(_, handle)
+            | BaseShape.LocalMono(_, handle) -> handle
+            | BaseShape.Generic bt -> icodegen.TypeToken bt
+
+        let emitPrimaryCtor = isStruct || cd.HasPrimaryCtor || List.isEmpty secondaryCtors
+
+        // The chain target for a secondary that chains to the primary. In the
+        // suppressed val-field form it aliases the first secondary, so
+        // `primaryCtorRef` resolves to a real token, not an absent `NominalCtor`.
+        let classCtor =
+            if emitPrimaryCtor then
+                toEntity (asm.MethodDef(MethodKey.NominalCtor td.Key))
+            else
+                toEntity (asm.MethodDef(MethodKey.SecondaryCtor(td.Key, 0)))
+
+        // A generic class's ctor `stfld` sequence reaches each field through a
+        // `MemberRef` on the open self-`TypeSpec` (`Box\`1<!0>::n`): the raw
+        // `FieldDefinition` token resolves to the wrong slot at index >= 1.
+        let ctorFieldRefs =
+            [
+                for p in ctorParams ->
+                    selfMemberRef
+                        asm
+                        td
+                        (UserMemberKind.ClassMember(ClassMember.Field p.Name))
+                        (toEntity (asm.FieldDef(FieldKey.ClassCtorParamField(td.Key, p.Name))))
+            ]
+
+        let ctorChain = classCtorChain asm td isStruct baseShape baseCtorCall
+
+        // Base args are the only ctor expressions that reference a primary-ctor param
+        // directly (`this` does not exist yet; a preamble entry reaches one through its
+        // backing field), so this is empty for every other chain shape.
+        let ctorParamArgs =
+            match baseCtorCall with
+            | ValueSome bcc -> EqArray.toList bcc.CtorParams
+            | ValueNone -> []
+
+        // The instance preamble, resolved through the same self-`MemberRef` shape as
+        // the ctor-param stores.
+        let instanceSteps =
+            [
+                for entry in cd.InstancePreamble ->
+                    match entry with
+                    | TPreambleEntryG.Let l ->
+                        Emit.PreambleStep.Store(
+                            selfMemberRef
+                                asm
+                                td
+                                (UserMemberKind.ClassMember(ClassMember.Field l.Name))
+                                (toEntity (asm.FieldDef(FieldKey.ClassLetField(td.Key, l.Name)))),
+                            l.Init
+                        )
+                    | TPreambleEntryG.Do e -> Emit.PreambleStep.Run e
+            ]
+
+        let ctorBody =
+            Emit.buildClassPrimaryCtor emitCtx ctorChain cd.ThisKey ctorParamArgs ctorFieldRefs instanceSteps
+
+        if emitPrimaryCtor then
+            let ctorBodyOffset = bodyOf asm ctorBody
+
+            asm.AddPrepared(
+                MethodKey.NominalCtor td.Key,
+                {
+                    Signature = provider.RecordCtorSignature [ for p in ctorParams -> p.Type ]
+                    BodyOffset = ctorBodyOffset
+                    ParamNames = [ for p in ctorParams -> p.Name ]
+                    MethodTypars = []
+                }
+            )
+
+        prepareCctor asm emitCtx td cd.StaticPreamble
+        prepareSecondaryCtors asm emitCtx td cd classCtor
+
+        baseTypeHandle
+
+    /// One authored member's body and signature row.
+    let private prepareTypeMember
+        (asm: Assembler)
+        (emitCtx: Emit.EmitContext)
+        (td: TastAccessor.TypeDecl)
+        (index: int)
+        (mem: TastAccessor.TypeMember)
+        : unit =
+        let provider = asm.Provider
+
+        // `(name, ty)[]` in ABI order — position IS the typar index. Feeds the
+        // `GENERIC` header arity and the `GenericParam` rows.
+        let methodTypars = mem.MethodTypeParams
+        let isGenericMethod = methodTypars.Length > 0
+
+        // A `unit`-returning member, static or instance, encodes as genuine CLR
+        // `void`. Emitting the `unit`-as-`ValueTuple` return instead breaks
+        // cross-assembly binding: a consumer's void member-ref misses it.
+        let returnsVoid =
+            match mem.ReturnTy with
+            | FTUnit -> true
+            | _ -> false
+
+        let bodyOffset =
+            try
+                bodyOf asm (Emit.buildMember emitCtx mem.ThisKey mem.BaseKey mem.Params returnsVoid mem.Body)
+            with ex ->
+                raise (
+                    System.Exception(sprintf "While lowering body of member '%A.%s'\n%s" td.Key mem.Name ex.Message, ex)
+                )
+
+        let paramTys = [ for (_, t) in mem.Params -> t ]
+
+        // A generic method needs the `GENERIC` calling-convention header count; its
+        // own typars appear as `FTTypar(Method, i)` nodes, encoded `!!i`.
+        let signature =
+            try
+                if returnsVoid && isGenericMethod then
+                    provider.GenericMethodOnTypeSignatureVoid(methodTypars.Length, paramTys, not mem.IsStatic)
+                elif returnsVoid && mem.IsStatic then
+                    provider.StaticMethodSignatureVoid paramTys
+                elif returnsVoid then
+                    provider.InstanceMethodSignatureVoid paramTys
+                elif isGenericMethod then
+                    provider.GenericMethodOnTypeSignature(methodTypars.Length, paramTys, mem.ReturnTy, not mem.IsStatic)
+                elif mem.IsStatic then
+                    provider.StaticMethodSignature(paramTys, mem.ReturnTy)
+                else
+                    provider.InstanceMethodSignature(paramTys, mem.ReturnTy)
+            with ex ->
+                // A leaked metavar / unresolved type constructor surfaces here as an anonymous
+                // encoder failure; identify the member and keep the original as
+                // `InnerException`, whose stack pinpoints the encode site.
+                raise (System.Exception(sprintf "While encoding signature of member '%A.%s'" td.Key mem.Name, ex))
+
+        asm.AddPrepared(
+            MethodKey.Member(td.Key, index),
+            {
+                Signature = signature
+                BodyOffset = bodyOffset
+                ParamNames = argNames mem.Params.Length
+                // The metadata name drops the F# leading quote: `'T` → `T`.
+                MethodTypars = [ for (n, _) in methodTypars -> n.TrimStart('\'') ]
+            }
+        )
+
+    let private selfTyOf (input: NominalEmissionInput) (td: TastAccessor.TypeDecl) (ts: FrozenType list) : FrozenType =
+        match input with
+        | NominalEmissionInput.Union _ -> FTUnion(td.TypeKey, EqArray.ofList ts)
+        | NominalEmissionInput.Record _ -> FTRecord(td.TypeKey, EqArray.ofList ts)
+        | NominalEmissionInput.Class _ -> FTClass(td.TypeKey, EqArray.ofList ts)
+
+    // The handle the equality/comparison bodies `isinst`/`unbox.any` against: a
+    // generic type's open self-`TypeSpec`, a mono type's `TypeDef`.
+    let private selfTypeHandleOf
+        (asm: Assembler)
         (input: NominalEmissionInput)
         (td: TastAccessor.TypeDecl)
-        (members: TastAccessor.TypeMember list)
+        : EntityHandle =
+        let provider = asm.Provider
+
+        if td.TypeParams.IsEmpty then
+            provider.UserTypeHandle td.TypeKey
+        else
+            match input with
+            | NominalEmissionInput.Union _ -> provider.GenericUnionSelfSpec td.TypeKey
+            | NominalEmissionInput.Record _ -> provider.GenericRecordSelfSpec td.TypeKey
+            | NominalEmissionInput.Class _ -> provider.UserTypeHandle td.TypeKey
+
+    // `(handle, type)` flat across a union's cases in declaration order. Sound
+    // because inactive-case fields are always default. Equality and comparison
+    // consume the identical set.
+    let private unionStructuralFields
+        (asm: Assembler)
+        (td: TastAccessor.TypeDecl)
+        (cases: Frozen.TUnionCase list)
+        : (EntityHandle * FrozenType) list =
+        let emitted = asm.Unions.[td.TypeKey]
+
+        [
+            for c in cases do
+                let caseFields = emitted.Cases.[c.Name].Fields
+
+                for fi in 0 .. c.Fields.Length - 1 ->
+                    selfMemberRef asm td (UserMemberKind.UnionMember(UnionMember.Field(c.Name, fi))) caseFields.[fi],
+                    snd c.Fields.[fi]
+        ]
+
+    let private recordStructuralFields (asm: Assembler) (td: TastAccessor.TypeDecl) : (EntityHandle * FrozenType) list =
+        [
+            for (name, h, fty) in asm.Records.[td.TypeKey].Fields ->
+                selfMemberRef asm td (UserMemberKind.RecordMember(RecordMember.Field name)) h, fty
+        ]
+
+    let private tagFieldRefOf (asm: Assembler) (td: TastAccessor.TypeDecl) : EntityHandle =
+        selfMemberRef asm td (UserMemberKind.UnionMember UnionMember.Tag) asm.Unions.[td.TypeKey].TagField
+
+    // `GetHashCode` + `Equals(object)` override + typed `Equals(Self)`. Union and
+    // record differ only in the body builders; the row signatures are identical.
+    let private prepareEqualityTriple
+        (asm: Assembler)
+        (td: TastAccessor.TypeDecl)
+        (selfTyMarkers: FrozenType)
+        getHashCodeIr
+        equalsObjIr
+        equalsTypedIr
+        =
+        asm.AddPrepared(
+            MethodKey.EqGetHashCode td.Key,
+            {
+                Signature = asm.Provider.GetHashCodeOverrideSignature()
+                BodyOffset = bodyOf asm getHashCodeIr
+                ParamNames = []
+                MethodTypars = []
+            }
+        )
+
+        asm.AddPrepared(
+            MethodKey.EqEqualsObj td.Key,
+            {
+                Signature = asm.Provider.EqualsOverrideSignature()
+                BodyOffset = bodyOf asm equalsObjIr
+                ParamNames = [ "obj" ]
+                MethodTypars = []
+            }
+        )
+
+        asm.AddPrepared(
+            MethodKey.EqEqualsTyped td.Key,
+            {
+                Signature = asm.Provider.EqualsTypedSignature selfTyMarkers
+                BodyOffset = bodyOf asm equalsTypedIr
+                ParamNames = [ "other" ]
+                MethodTypars = []
+            }
+        )
+
+    // The comparison pair: typed `CompareTo(Self)` first (its handle feeds
+    // `CompareTo(object)`'s body), then the `CompareTo(object)` override.
+    let private prepareComparisonPair
+        (asm: Assembler)
+        (td: TastAccessor.TypeDecl)
+        (selfTyMarkers: FrozenType)
+        compareToTypedIr
+        compareToObjIr
+        =
+        asm.AddPrepared(
+            MethodKey.CmpCompareToTyped td.Key,
+            {
+                Signature = asm.Provider.CompareToTypedSignature selfTyMarkers
+                BodyOffset = bodyOf asm compareToTypedIr
+                ParamNames = [ "other" ]
+                MethodTypars = []
+            }
+        )
+
+        asm.AddPrepared(
+            MethodKey.CmpCompareToObj td.Key,
+            {
+                Signature = asm.Provider.CompareToOverrideSignature()
+                BodyOffset = bodyOf asm compareToObjIr
+                ParamNames = [ "obj" ]
+                MethodTypars = []
+            }
+        )
+
+    /// The self-shape inputs the synthesised equality / comparison bodies share.
+    type private StructuralSelf =
+        {
+            SelfType: EntityHandle
+            SelfTy: FrozenType
+            EmitsEqualityTriple: bool
+            EmitsComparisonPair: bool
+        }
+
+    // The support records mint field / member refs, so each is built only under its
+    // verdict.
+    let private prepareUnionStructural
+        (asm: Assembler)
+        (td: TastAccessor.TypeDecl)
+        (self: StructuralSelf)
+        (cases: Frozen.TUnionCase list)
+        : unit =
+        let provider = asm.Provider
+
+        if self.EmitsEqualityTriple then
+            let support: Emit.UnionEqualitySupport =
+                {
+                    SelfType = self.SelfType
+                    SelfTy = self.SelfTy
+                    TagField = tagFieldRefOf asm td
+                    Fields = unionStructuralFields asm td cases
+                    IntType = FTConst(RuntimeNames.intKey, EqArray.empty)
+                    ComparerDefault = fun t -> provider.EqualityComparerDefault t
+                    ComparerEquals = fun t -> provider.EqualityComparerEquals t
+                    HashCodeLocal = provider.HashCodeType
+                    HashCodeAdd = fun t -> provider.HashCodeAdd t
+                    HashCodeToHashCode = provider.HashCodeToHashCode
+                }
+
+            prepareEqualityTriple
+                asm
+                td
+                self.SelfTy
+                (Emit.buildUnionGetHashCode support)
+                (Emit.buildUnionEquals support)
+                (Emit.buildUnionEqualsTyped support)
+
+        if self.EmitsComparisonPair then
+            let cmpSupport: Emit.UnionComparisonSupport =
+                {
+                    SelfType = self.SelfType
+                    SelfTy = self.SelfTy
+                    TagField = tagFieldRefOf asm td
+                    Fields = unionStructuralFields asm td cases
+                    ComparerDefault = fun t -> provider.ComparerDefault t
+                    ComparerCompare = fun t -> provider.ComparerCompare t
+                    ArgumentExceptionCtor = provider.ArgumentExceptionCtor
+                    MismatchMessage = asm.Ctx.UserString "Object type mismatch"
+                }
+
+            prepareComparisonPair
+                asm
+                td
+                self.SelfTy
+                (Emit.buildUnionCompareTo cmpSupport)
+                (Emit.buildUnionCompareToObj cmpSupport (toEntity (asm.MethodDef(MethodKey.CmpCompareToTyped td.Key))))
+
+    let private prepareRecordStructural
+        (asm: Assembler)
+        (td: TastAccessor.TypeDecl)
+        (self: StructuralSelf)
+        (recordIsStruct: bool)
+        : unit =
+        let provider = asm.Provider
+
+        if self.EmitsEqualityTriple then
+            let support: Emit.RecordEqualitySupport =
+                {
+                    SelfType = self.SelfType
+                    SelfTy = self.SelfTy
+                    Fields = recordStructuralFields asm td
+                    ComparerDefault = fun t -> provider.EqualityComparerDefault t
+                    ComparerEquals = fun t -> provider.EqualityComparerEquals t
+                    HashCodeLocal = provider.HashCodeType
+                    HashCodeAdd = fun t -> provider.HashCodeAdd t
+                    HashCodeToHashCode = provider.HashCodeToHashCode
+                }
+
+            prepareEqualityTriple
+                asm
+                td
+                self.SelfTy
+                (Emit.buildRecordGetHashCode support)
+                (Emit.buildRecordEquals recordIsStruct support)
+                (Emit.buildRecordEqualsTyped recordIsStruct support)
+
+        if self.EmitsComparisonPair then
+            let cmpSupport: Emit.RecordComparisonSupport =
+                {
+                    SelfType = self.SelfType
+                    SelfTy = self.SelfTy
+                    Fields = recordStructuralFields asm td
+                    ComparerDefault = fun t -> provider.ComparerDefault t
+                    ComparerCompare = fun t -> provider.ComparerCompare t
+                    ArgumentExceptionCtor = provider.ArgumentExceptionCtor
+                    MismatchMessage = asm.Ctx.UserString "Object type mismatch"
+                }
+
+            prepareComparisonPair
+                asm
+                td
+                self.SelfTy
+                (Emit.buildRecordCompareTo recordIsStruct cmpSupport)
+                (Emit.buildRecordCompareToObj
+                    recordIsStruct
+                    cmpSupport
+                    (toEntity (asm.MethodDef(MethodKey.CmpCompareToTyped td.Key))))
+
+    // The synthesised `IStructuralFormattable.Format(IFormatSink)` (`%A`), emitted for
+    // every record and union independently of the equality / comparison verdicts.
+    let private prepareStructuralFormat
+        (asm: Assembler)
+        (td: TastAccessor.TypeDecl)
+        (input: NominalEmissionInput)
         : unit =
         let provider = asm.Provider
         let icodegen = asm.Icodegen
         let ctx = asm.Ctx
-        let bodyStream = asm.BodyStream
-        let encodeLocals = asm.EncodeLocals
-        let unions = asm.Unions
-        let records = asm.Records
-        let classes = asm.Classes
 
-        let isGeneric = not td.TypeParams.IsEmpty
-        let typarMarkers = typarMarkersOf td
-
-        // A `[<Struct>]` record: `this` (`ldarg.0`) is a managed pointer, so the
-        // synthesised equality/comparison bodies unbox the `object` arg and drop the
-        // null guard on the by-value typed arg. A struct class emits no such triple.
-        let recordIsStruct =
-            match input with
-            | NominalEmissionInput.Record(_, _, isStruct) -> isStruct
-            | _ -> false
-
-        // A reference to one of this type's own members (field / tag / ctor): a generic
-        // type reaches it through a `MemberRef` on the open self-`TypeSpec`
-        // (`Box\`1<!0>::n`), a monomorphic type through the resolved `Def` token.
-        let selfMemberRef (kind: UserMemberKind) (monoHandle: EntityHandle) : EntityHandle =
-            if isGeneric then
-                icodegen.UserGenericMemberRef(td.TypeKey, typarMarkers, kind)
-            else
-                monoHandle
-
-        // The `extends` column for this `TypeDefinition`. Defaults to `Object`; the
-        // struct-record and class arms overwrite it.
-        let mutable baseTypeHandle = provider.ObjectType
-
-        match input with
-        | NominalEmissionInput.Union(cases, _) ->
-            let tagField = toEntity (asm.FieldDef(FieldKey.UnionTag td.Key))
-            let unionCtor = toEntity (asm.MethodDef(MethodKey.NominalCtor td.Key))
-
-            let ctorBodyOffset =
-                Cil.buildBody encodeLocals bodyStream (IlIr.lower (Emit.buildClosureCtor provider.ObjectCtorRef []))
-
-            asm.AddPrepared(
-                MethodKey.NominalCtor td.Key,
-                {
-                    Signature = provider.NullaryCtorSignature()
-                    BodyOffset = ctorBodyOffset
-                    ParamNames = []
-                    MethodTypars = []
-                }
-            )
-
-            cases
-            |> List.iteri (fun tag c ->
-                let fieldHandles =
-                    [
-                        for fi in 0 .. c.Fields.Length - 1 ->
-                            toEntity (asm.FieldDef(FieldKey.UnionCaseField(td.Key, c.Name, fi)))
-                    ]
-
-                let ctorRef = selfMemberRef (UserMemberKind.UnionMember UnionMember.Ctor) unionCtor
-                let tagRef = selfMemberRef (UserMemberKind.UnionMember UnionMember.Tag) tagField
-
-                let fieldRefs =
-                    [
-                        for fi in 0 .. List.length fieldHandles - 1 ->
-                            selfMemberRef (UserMemberKind.UnionMember(UnionMember.Field(c.Name, fi))) fieldHandles.[fi]
-                    ]
-
-                let factoryBody =
-                    Cil.buildBody
-                        encodeLocals
-                        bodyStream
-                        (IlIr.lower (Emit.buildUnionFactory ctorRef tag tagRef fieldRefs))
-
-                let paramTys = [ for (_, t) in c.Fields -> t ]
-
-                let factorySig =
-                    provider.StaticMethodSignature(paramTys, FTUnion(td.TypeKey, EqArray.ofList typarMarkers))
-
-                asm.AddPrepared(
-                    MethodKey.UnionFactory(td.Key, c.Name),
-                    {
-                        Signature = factorySig
-                        BodyOffset = factoryBody
-                        ParamNames = argNames (List.length paramTys)
-                        MethodTypars = []
-                    }
-                )
-            )
-
-        | NominalEmissionInput.Record(fields, _, _) ->
-            // A `[<Struct>]` record extends `System.ValueType`; a reference record
-            // keeps the `Object` default.
-            if recordIsStruct then
-                baseTypeHandle <- provider.ValueTypeBase
-
-            let fieldHandles =
-                [
-                    for f in fields -> toEntity (asm.FieldDef(FieldKey.RecordField(td.Key, f.Name)))
-                ]
-
-            // A raw `FieldDefinition` token in `stfld` resolves to the wrong slot for a
-            // field at index >= 1 of a generic type, so each generic store routes
-            // through the field's `MemberRef` on the open self-`TypeSpec` (`R\`1<!0>::Y`).
-            let ctorFieldRefs =
-                [
-                    for i, f in List.indexed fields ->
-                        selfMemberRef (UserMemberKind.RecordMember(RecordMember.Field f.Name)) fieldHandles.[i]
-                ]
-
-            // `System.ValueType` has no accessible ctor and value types do not chain,
-            // so a struct record's `.ctor` only stores fields; a reference record
-            // chains `Object::.ctor`.
-            let ctorBody =
-                if recordIsStruct then
-                    Emit.buildStructCtor ctorFieldRefs
-                else
-                    Emit.buildRecordCtor provider.ObjectCtorRef ctorFieldRefs
-
-            let ctorBodyOffset = Cil.buildBody encodeLocals bodyStream (IlIr.lower ctorBody)
-
-            asm.AddPrepared(
-                MethodKey.NominalCtor td.Key,
-                {
-                    Signature = provider.RecordCtorSignature [ for f in fields -> f.Type ]
-                    BodyOffset = ctorBodyOffset
-                    ParamNames = [ for f in fields -> f.Name ]
-                    MethodTypars = []
-                }
-            )
-
-        | NominalEmissionInput.Class cd ->
-            let instanceFields = cd.Fields
-            let ctorParams = cd.CtorParams
-            let staticLets = TPreambleEntryG.lets cd.StaticPreamble
-            let secondaryCtors = cd.SecondaryCtors
-            let baseCtorCall = cd.Base |> ValueOption.bind (fun b -> b.Ctor)
-            let isStruct = cd.ValueKind <> ClassValueKind.RefType
-
-            let baseShape =
-                match cd.Base with
-                | ValueNone -> BaseShape.NoBase
-                // A parent carrying type ARGUMENTS resolves through a `TypeSpec` whatever its
-                // flavour, so only an argless one is worth classifying further.
-                | ValueSome b when not b.Parent.Args.IsEmpty -> BaseShape.Generic(FrozenNominal.ty b.Parent.Nominal)
-                | ValueSome b ->
-                    match b.Parent with
-                    | BaseParentG.Class n ->
-                        match icodegen.ClassOrigin n.Key with
-                        | ClassOrigin.Foreign tref -> BaseShape.ExternalBase(n.Key, tref)
-                        | ClassOrigin.Local handle -> BaseShape.LocalMono(n.Key, handle)
-                        | ClassOrigin.Unresolved ->
-                            failwithf "Emit: class '%s' inherits %A, which resolves to no class" td.Name n.Key
-                    // An intrinsic-class parent (`inherit exn`) is inherited by CANON, so
-                    // resolve it to its platform class (`System.Exception`).
-                    | BaseParentG.PrimitiveCanon n ->
-                        match icodegen.IntrinsicClassBase n.Key with
-                        | ValueSome(platformKey, tref) -> BaseShape.ExternalBase(platformKey, tref)
-                        | ValueNone -> BaseShape.Generic(FrozenNominal.ty n)
-
-            // A non-generic parent is its token directly because the `extends` column
-            // rejects a `TypeSpec` that merely wraps a plain class.
-            match baseShape with
-            | BaseShape.NoBase ->
-                if isStruct then
-                    baseTypeHandle <- provider.ValueTypeBase
-            | BaseShape.ExternalBase(_, handle)
-            | BaseShape.LocalMono(_, handle) -> baseTypeHandle <- handle
-            | BaseShape.Generic bt -> baseTypeHandle <- icodegen.TypeToken bt
-
-            let emitPrimaryCtor = isStruct || cd.HasPrimaryCtor || List.isEmpty secondaryCtors
-
-            // The chain target for a secondary that chains to the primary. In the
-            // suppressed val-field form it aliases the first secondary, so
-            // `primaryCtorRef` resolves to a real token, not an absent `NominalCtor`.
-            let classCtor =
-                if emitPrimaryCtor then
-                    toEntity (asm.MethodDef(MethodKey.NominalCtor td.Key))
-                else
-                    toEntity (asm.MethodDef(MethodKey.SecondaryCtor(td.Key, 0)))
-
-            // A generic class's ctor `stfld` sequence reaches each field through a
-            // `MemberRef` on the open self-`TypeSpec` (`Box\`1<!0>::n`): the raw
-            // `FieldDefinition` token resolves to the wrong slot at index >= 1.
-            let ctorFieldRefs =
-                [
-                    for p in ctorParams ->
-                        selfMemberRef
-                            (UserMemberKind.ClassMember(ClassMember.Field p.Name))
-                            (toEntity (asm.FieldDef(FieldKey.ClassCtorParamField(td.Key, p.Name))))
-                ]
-
-            // An external base's `.ctor` is minted BY KEY from the `ChosenCtor` identity
-            // the front end recorded, falling back to arity; the parameterless one is
-            // minted off the `TypeRef`, since a protected ctor is not in the member set.
-            let ctorChain =
-                match baseShape, baseCtorCall with
-                | BaseShape.ExternalBase(baseKey, _), ValueSome bcc when not bcc.Args.IsEmpty ->
-                    let argTypes = [ for a in bcc.Args -> TastAccessor.exprTy a ]
-
-                    match icodegen.TryEmitCtor(baseKey, bcc.ChosenCtor, [], argTypes) with
-                    | ValueSome recipe -> Emit.CtorChain.Base(recipe.Handle, EqArray.toList bcc.Args)
-                    | ValueNone ->
-                        failwithf
-                            "Emit: class '%s' inherits external base %A but no '.ctor' overload matches its %d base-ctor argument(s)"
-                            td.Name
-                            baseKey
-                            bcc.Args.Length
-                | BaseShape.ExternalBase(baseKey, _), _ ->
-                    match icodegen.ExternalParameterlessBaseCtor baseKey with
-                    | ValueSome extCtor -> Emit.CtorChain.Base(extCtor, [])
-                    | ValueNone ->
-                        failwithf
-                            "Emit: class '%s' inherits external base %A but its parameterless '.ctor()' could not be minted"
-                            td.Name
-                            baseKey
-                | _, ValueSome bcc ->
-                    let baseKey, baseArgs =
-                        match baseShape with
-                        | BaseShape.LocalMono(k, _) -> k, []
-                        | BaseShape.Generic(FTClass(n, xs)) -> n, EqArray.toList xs
-                        | _ -> failwithf "Emit: class '%s' has a base-ctor call but no class base type" td.Name
-
-                    // `inherit Base(args)` reaches any of the base's ctors, so the chain target
-                    // is picked on the same two axes a `TExpr.New` is.
-                    let baseCtorHandle =
-                        match classes.TryGetValue baseKey with
-                        | true, bc ->
-                            let argTypes = [ for a in bcc.Args -> TastAccessor.exprTy a ]
-                            let kind, handle = EmitResolve.pickLocalCtor td.Name bc baseArgs argTypes
-
-                            if List.isEmpty bc.Typars then
-                                handle
-                            else
-                                icodegen.UserGenericMemberRef(baseKey, baseArgs, kind)
-                        | false, _ ->
-                            failwithf
-                                "Emit: base class '%A' of '%s' is not an emitted project-local class"
-                                baseKey
-                                td.Name
-
-                    Emit.CtorChain.Base(baseCtorHandle, EqArray.toList bcc.Args)
-                | _, ValueNone when isStruct -> Emit.CtorChain.None
-                | _, ValueNone -> Emit.CtorChain.Base(provider.ObjectCtorRef, [])
-
-            // Base args are the only ctor expressions that reference a primary-ctor param
-            // directly (`this` does not exist yet; a preamble entry reaches one through its
-            // backing field), so this is empty for every other chain shape.
-            let ctorParamArgs =
-                match baseCtorCall with
-                | ValueSome bcc -> EqArray.toList bcc.CtorParams
-                | ValueNone -> []
-
-            // The instance preamble, resolved through the same self-`MemberRef` shape as
-            // the ctor-param stores.
-            let instanceSteps =
-                [
-                    for entry in cd.InstancePreamble ->
-                        match entry with
-                        | TPreambleEntryG.Let l ->
-                            Emit.PreambleStep.Store(
-                                selfMemberRef
-                                    (UserMemberKind.ClassMember(ClassMember.Field l.Name))
-                                    (toEntity (asm.FieldDef(FieldKey.ClassLetField(td.Key, l.Name)))),
-                                l.Init
-                            )
-                        | TPreambleEntryG.Do e -> Emit.PreambleStep.Run e
-                ]
-
-            let ctorBody =
-                Emit.buildClassPrimaryCtor emitCtx ctorChain cd.ThisKey ctorParamArgs ctorFieldRefs instanceSteps
-
-            if emitPrimaryCtor then
-                let ctorBodyOffset = Cil.buildBody encodeLocals bodyStream (IlIr.lower ctorBody)
-
-                asm.AddPrepared(
-                    MethodKey.NominalCtor td.Key,
-                    {
-                        Signature = provider.RecordCtorSignature [ for p in ctorParams -> p.Type ]
-                        BodyOffset = ctorBodyOffset
-                        ParamNames = [ for p in ctorParams -> p.Name ]
-                        MethodTypars = []
-                    }
-                )
-
-            // The `.cctor` runs stores and effects interleaved, in declaration order,
-            // which is load-bearing:
-            // `static let a = f()` / `static do g a` / `static let b = h()`.
-            if not (List.isEmpty cd.StaticPreamble) then
-                let staticFields = classes.[td.TypeKey].StaticFields
-
-                let cctorSteps =
-                    [
-                        for entry in cd.StaticPreamble ->
-                            match entry with
-                            | TPreambleEntryG.Let sl -> Emit.PreambleStep.Store(staticFields.[sl.Name], sl.Init)
-                            | TPreambleEntryG.Do e -> Emit.PreambleStep.Run e
-                    ]
-
-                let cctorBody =
-                    Cil.buildBody encodeLocals bodyStream (IlIr.lower (Emit.buildStaticCctor emitCtx cctorSteps))
-
-                asm.AddPrepared(
-                    MethodKey.NominalCctor td.Key,
-                    {
-                        Signature = provider.CctorSignature()
-                        BodyOffset = cctorBody
-                        ParamNames = []
-                        MethodTypars = []
-                    }
-                )
-
-            // Each secondary is a `.ctor` overload whose body runs its `let`-preamble,
-            // then either chains the primary `.ctor` or stores explicit field inits.
-            if not (List.isEmpty secondaryCtors) then
-                let primaryCtorRef =
-                    selfMemberRef (UserMemberKind.ClassMember ClassMember.Ctor) classCtor
-
-                secondaryCtors
-                |> List.iteri (fun i sc ->
-                    let paramTys = [ for (_, t) in sc.Params -> t ]
-
-                    let lets = EqArray.toList sc.Lets
-
-                    let ctorIr =
-                        match sc.Body with
-                        | TSecondaryCtorBodyG.ExplicitFieldInit inits ->
-                            // Both ctor-param backing fields and explicit `val` fields
-                            // are eligible.
-                            let fieldHandleOf name =
-                                if isGeneric then
-                                    icodegen.UserGenericMemberRef(
-                                        td.TypeKey,
-                                        typarMarkers,
-                                        UserMemberKind.ClassMember(ClassMember.Field name)
-                                    )
-                                elif ctorParams |> List.exists (fun (p: Frozen.TRecordField) -> p.Name = name) then
-                                    toEntity (asm.FieldDef(FieldKey.ClassCtorParamField(td.Key, name)))
-                                elif instanceFields |> List.exists (fun (f: Frozen.TRecordField) -> f.Name = name) then
-                                    toEntity (asm.FieldDef(FieldKey.ClassInstanceField(td.Key, name)))
-                                else
-                                    failwithf "Emit: class '%s' secondary ctor inits unknown field '%s'" td.Name name
-
-                            let fieldInits = [ for fi in inits -> fieldHandleOf fi.Field, fi.Init ]
-
-                            Emit.buildSecondaryCtorFieldInit emitCtx sc.Params lets fieldInits
-                        | TSecondaryCtorBodyG.Chain primaryArgs ->
-                            Emit.buildSecondaryCtor emitCtx sc.Params lets primaryCtorRef (EqArray.toList primaryArgs)
-
-                    let scBody = Cil.buildBody encodeLocals bodyStream (IlIr.lower ctorIr)
-
-                    asm.AddPrepared(
-                        MethodKey.SecondaryCtor(td.Key, i),
-                        {
-                            Signature = provider.RecordCtorSignature paramTys
-                            BodyOffset = scBody
-                            ParamNames = argNames sc.Params.Length
-                            MethodTypars = []
-                        }
-                    )
-                )
-
-        // Interface-impl member bodies emit as virtual methods the runtime binds to the
-        // `InterfaceImpl` row by name + signature. The synthesised eq/comparison/format
-        // impls use disjoint `MethodKey`s, so the two never collide on a method row.
-        let userInterfaces = userInterfacesOf input
-
-        let prepareMember (index: int) (isIfaceImpl: bool) (mem: TastAccessor.TypeMember) =
-            // `(name, ty)[]` in ABI order — position IS the typar index. Feeds the
-            // `GENERIC` header arity and the `GenericParam` rows.
-            let methodTypars = mem.MethodTypeParams
-            let isGenericMethod = methodTypars.Length > 0
-
-            // A `unit`-returning member, static or instance, encodes as genuine CLR
-            // `void`. Emitting the `unit`-as-`ValueTuple` return instead breaks
-            // cross-assembly binding: a consumer's void member-ref misses it.
-            let returnsVoid =
-                match mem.ReturnTy with
-                | FTUnit -> true
-                | _ -> false
-
-            let bodyOffset =
-                try
-                    Cil.buildBody
-                        encodeLocals
-                        bodyStream
-                        (IlIr.lower (Emit.buildMember emitCtx mem.ThisKey mem.BaseKey mem.Params returnsVoid mem.Body))
-                with ex ->
-                    raise (
-                        System.Exception(
-                            sprintf "While lowering body of member '%A.%s'\n%s" td.Key mem.Name ex.Message,
-                            ex
-                        )
-                    )
-
-            let paramTys = [ for (_, t) in mem.Params -> t ]
-
-            // A generic method needs the `GENERIC` calling-convention header count; its
-            // own typars appear as `FTTypar(Method, i)` nodes, encoded `!!i`.
-            let signature =
-                try
-                    if returnsVoid && isGenericMethod then
-                        provider.GenericMethodOnTypeSignatureVoid(methodTypars.Length, paramTys, not mem.IsStatic)
-                    elif returnsVoid && mem.IsStatic then
-                        provider.StaticMethodSignatureVoid paramTys
-                    elif returnsVoid then
-                        provider.InstanceMethodSignatureVoid paramTys
-                    elif isGenericMethod then
-                        provider.GenericMethodOnTypeSignature(
-                            methodTypars.Length,
-                            paramTys,
-                            mem.ReturnTy,
-                            not mem.IsStatic
-                        )
-                    elif mem.IsStatic then
-                        provider.StaticMethodSignature(paramTys, mem.ReturnTy)
-                    else
-                        provider.InstanceMethodSignature(paramTys, mem.ReturnTy)
-                with ex ->
-                    // A leaked metavar / unresolved type constructor surfaces here as an anonymous
-                    // encoder failure; identify the member and keep the original as
-                    // `InnerException`, whose stack pinpoints the encode site.
-                    raise (System.Exception(sprintf "While encoding signature of member '%A.%s'" td.Key mem.Name, ex))
-
-            asm.AddPrepared(
-                MethodKey.Member(td.Key, index),
-                {
-                    Signature = signature
-                    BodyOffset = bodyOffset
-                    ParamNames = argNames mem.Params.Length
-                    // The metadata name drops the F# leading quote: `'T` → `T`.
-                    MethodTypars = [ for (n, _) in methodTypars -> n.TrimStart('\'') ]
-                }
-            )
-
-        for (index, isIfaceImpl, mem) in NominalMembers.indexed members userInterfaces do
-            prepareMember index isIfaceImpl mem
-
-        let selfTy (ts: FrozenType list) : FrozenType =
-            match input with
-            | NominalEmissionInput.Union _ -> FTUnion(td.TypeKey, EqArray.ofList ts)
-            | NominalEmissionInput.Record _ -> FTRecord(td.TypeKey, EqArray.ofList ts)
-            | NominalEmissionInput.Class _ -> FTClass(td.TypeKey, EqArray.ofList ts)
-
-        let selfTyMarkers = selfTy typarMarkers
-
-        // The handle the equality/comparison bodies `isinst`/`unbox.any` against: a
-        // generic type's open self-`TypeSpec`, a mono type's `TypeDef`.
-        let selfTypeHandle =
-            if not isGeneric then
-                provider.UserTypeHandle td.TypeKey
-            else
-                match input with
-                | NominalEmissionInput.Union _ -> provider.GenericUnionSelfSpec td.TypeKey
-                | NominalEmissionInput.Record _ -> provider.GenericRecordSelfSpec td.TypeKey
-                | NominalEmissionInput.Class _ -> provider.UserTypeHandle td.TypeKey
-
-        // `(handle, type)` flat across a union's cases in declaration order. Sound
-        // because inactive-case fields are always default. Equality and comparison
-        // consume the identical set.
-        let structuralFields () : (EntityHandle * FrozenType) list =
+        let formatIr =
             match input with
             | NominalEmissionInput.Union(cases, _) ->
-                let emitted = unions.[td.TypeKey]
+                let emitted = asm.Unions.[td.TypeKey]
 
-                [
-                    for c in cases do
-                        let caseFields = emitted.Cases.[c.Name].Fields
+                let formatCases =
+                    [
+                        for c in cases ->
+                            let caseFields = emitted.Cases.[c.Name].Fields
 
-                        for fi in 0 .. c.Fields.Length - 1 ->
-                            selfMemberRef (UserMemberKind.UnionMember(UnionMember.Field(c.Name, fi))) caseFields.[fi],
-                            snd c.Fields.[fi]
-                ]
+                            {
+                                EmitStructuralFormat.UnionFormatCase.Name = c.Name
+                                EmitStructuralFormat.UnionFormatCase.Fields =
+                                    [
+                                        for fi in 0 .. c.Fields.Length - 1 ->
+                                            selfMemberRef
+                                                asm
+                                                td
+                                                (UserMemberKind.UnionMember(UnionMember.Field(c.Name, fi)))
+                                                caseFields.[fi],
+                                            snd c.Fields.[fi]
+                                    ]
+                            }
+                    ]
+
+                let support: EmitStructuralFormat.UnionFormatSupport =
+                    {
+                        Sink = provider.FormatSinkHandles
+                        MkString = ctx.UserString
+                        BoxToken = icodegen.TypeToken
+                        TagField = tagFieldRefOf asm td
+                        Cases = formatCases
+                    }
+
+                EmitStructuralFormat.buildUnionFormat support
             | NominalEmissionInput.Record _ ->
-                [
-                    for (name, h, fty) in records.[td.TypeKey].Fields ->
-                        selfMemberRef (UserMemberKind.RecordMember(RecordMember.Field name)) h, fty
-                ]
-            | NominalEmissionInput.Class _ -> []
-
-        let tagFieldRef () =
-            selfMemberRef (UserMemberKind.UnionMember UnionMember.Tag) unions.[td.TypeKey].TagField
-
-        let bodyOf ir =
-            Cil.buildBody encodeLocals bodyStream (IlIr.lower ir)
-
-        // `GetHashCode` + `Equals(object)` override + typed `Equals(Self)`. Union and
-        // record differ only in the body builders; the row signatures are identical.
-        let prepareEqualityTriple getHashCodeIr equalsObjIr equalsTypedIr =
-            asm.AddPrepared(
-                MethodKey.EqGetHashCode td.Key,
-                {
-                    Signature = provider.GetHashCodeOverrideSignature()
-                    BodyOffset = bodyOf getHashCodeIr
-                    ParamNames = []
-                    MethodTypars = []
-                }
-            )
-
-            asm.AddPrepared(
-                MethodKey.EqEqualsObj td.Key,
-                {
-                    Signature = provider.EqualsOverrideSignature()
-                    BodyOffset = bodyOf equalsObjIr
-                    ParamNames = [ "obj" ]
-                    MethodTypars = []
-                }
-            )
-
-            asm.AddPrepared(
-                MethodKey.EqEqualsTyped td.Key,
-                {
-                    Signature = provider.EqualsTypedSignature selfTyMarkers
-                    BodyOffset = bodyOf equalsTypedIr
-                    ParamNames = [ "other" ]
-                    MethodTypars = []
-                }
-            )
-
-        // The comparison pair: typed `CompareTo(Self)` first (its handle feeds
-        // `CompareTo(object)`'s body), then the `CompareTo(object)` override.
-        let prepareComparisonPair compareToTypedIr compareToObjIr =
-            asm.AddPrepared(
-                MethodKey.CmpCompareToTyped td.Key,
-                {
-                    Signature = provider.CompareToTypedSignature selfTyMarkers
-                    BodyOffset = bodyOf compareToTypedIr
-                    ParamNames = [ "other" ]
-                    MethodTypars = []
-                }
-            )
-
-            asm.AddPrepared(
-                MethodKey.CmpCompareToObj td.Key,
-                {
-                    Signature = provider.CompareToOverrideSignature()
-                    BodyOffset = bodyOf compareToObjIr
-                    ParamNames = [ "obj" ]
-                    MethodTypars = []
-                }
-            )
-
-        // The equality triple / comparison pair follow the verdicts for a record / union
-        // alone, matching the rows `LayoutNodes` lays out: a class layout has no equality /
-        // comparison rows, and an `IEquatable` / `IComparable` impl row without the bodies
-        // would make the type unloadable.
-        let isDataShape =
-            match input with
-            | NominalEmissionInput.Union _
-            | NominalEmissionInput.Record _ -> true
-            | NominalEmissionInput.Class _ -> false
-
-        let emitsEqualityTriple =
-            isDataShape && td.EqualitySupport = EqualityVerdict.Structural
-
-        let emitsComparisonPair =
-            isDataShape && td.ComparisonSupport = ComparisonVerdict.Structural
-
-        // The support records mint field / member refs, so each is built only under its
-        // verdict.
-        let typedCompareTo () =
-            toEntity (asm.MethodDef(MethodKey.CmpCompareToTyped td.Key))
-
-        match input with
-        | NominalEmissionInput.Class _ -> ()
-        | NominalEmissionInput.Union _ ->
-            if emitsEqualityTriple then
-                let support: Emit.UnionEqualitySupport =
+                let support: EmitStructuralFormat.RecordFormatSupport =
                     {
-                        SelfType = selfTypeHandle
-                        SelfTy = selfTyMarkers
-                        TagField = tagFieldRef ()
-                        Fields = structuralFields ()
-                        IntType = FTConst(RuntimeNames.intKey, EqArray.empty)
-                        ComparerDefault = fun t -> provider.EqualityComparerDefault t
-                        ComparerEquals = fun t -> provider.EqualityComparerEquals t
-                        HashCodeLocal = provider.HashCodeType
-                        HashCodeAdd = fun t -> provider.HashCodeAdd t
-                        HashCodeToHashCode = provider.HashCodeToHashCode
+                        Sink = provider.FormatSinkHandles
+                        MkString = ctx.UserString
+                        BoxToken = icodegen.TypeToken
+                        Fields =
+                            [
+                                for (name, h, fty) in asm.Records.[td.TypeKey].Fields ->
+                                    name,
+                                    selfMemberRef asm td (UserMemberKind.RecordMember(RecordMember.Field name)) h,
+                                    fty
+                            ]
                     }
 
-                prepareEqualityTriple
-                    (Emit.buildUnionGetHashCode support)
-                    (Emit.buildUnionEquals support)
-                    (Emit.buildUnionEqualsTyped support)
+                EmitStructuralFormat.buildRecordFormat support
+            | NominalEmissionInput.Class _ -> failwith "unreachable: class has no structural Format"
 
-            if emitsComparisonPair then
-                let cmpSupport: Emit.UnionComparisonSupport =
-                    {
-                        SelfType = selfTypeHandle
-                        SelfTy = selfTyMarkers
-                        TagField = tagFieldRef ()
-                        Fields = structuralFields ()
-                        ComparerDefault = fun t -> provider.ComparerDefault t
-                        ComparerCompare = fun t -> provider.ComparerCompare t
-                        ArgumentExceptionCtor = provider.ArgumentExceptionCtor
-                        MismatchMessage = ctx.UserString "Object type mismatch"
-                    }
+        asm.AddPrepared(
+            MethodKey.FmtFormat td.Key,
+            {
+                Signature = provider.StructuralFormatSignature()
+                BodyOffset = bodyOf asm formatIr
+                ParamNames = [ "sink" ]
+                MethodTypars = []
+            }
+        )
 
-                prepareComparisonPair
-                    (Emit.buildUnionCompareTo cmpSupport)
-                    (Emit.buildUnionCompareToObj cmpSupport (typedCompareTo ()))
-        | NominalEmissionInput.Record _ ->
-            if emitsEqualityTriple then
-                let support: Emit.RecordEqualitySupport =
-                    {
-                        SelfType = selfTypeHandle
-                        SelfTy = selfTyMarkers
-                        Fields = structuralFields ()
-                        ComparerDefault = fun t -> provider.EqualityComparerDefault t
-                        ComparerEquals = fun t -> provider.EqualityComparerEquals t
-                        HashCodeLocal = provider.HashCodeType
-                        HashCodeAdd = fun t -> provider.HashCodeAdd t
-                        HashCodeToHashCode = provider.HashCodeToHashCode
-                    }
+    // The BCL members a capability's platform interface INHERITS but never declared:
+    // unsynthesised, the CLR refuses to load the type. Only the non-generic slots
+    // need it, because a generic slot binds implicitly by the authored member's signature.
+    let private prepareCoSlots
+        (asm: Assembler)
+        (td: TastAccessor.TypeDecl)
+        (members: TastAccessor.TypeMember list)
+        (userInterfaces: (FrozenNominal * TastAccessor.TypeMember list) list)
+        : unit =
+        let provider = asm.Provider
+        let icodegen = asm.Icodegen
 
-                prepareEqualityTriple
-                    (Emit.buildRecordGetHashCode support)
-                    (Emit.buildRecordEquals recordIsStruct support)
-                    (Emit.buildRecordEqualsTyped recordIsStruct support)
-
-            if emitsComparisonPair then
-                let cmpSupport: Emit.RecordComparisonSupport =
-                    {
-                        SelfType = selfTypeHandle
-                        SelfTy = selfTyMarkers
-                        Fields = structuralFields ()
-                        ComparerDefault = fun t -> provider.ComparerDefault t
-                        ComparerCompare = fun t -> provider.ComparerCompare t
-                        ArgumentExceptionCtor = provider.ArgumentExceptionCtor
-                        MismatchMessage = ctx.UserString "Object type mismatch"
-                    }
-
-                prepareComparisonPair
-                    (Emit.buildRecordCompareTo recordIsStruct cmpSupport)
-                    (Emit.buildRecordCompareToObj recordIsStruct cmpSupport (typedCompareTo ()))
-
-        // The synthesised `IStructuralFormattable.Format(IFormatSink)` (`%A`), emitted for
-        // every record and union independently of the equality / comparison verdicts.
-        let emitsStructuralFormat =
-            match input with
-            | NominalEmissionInput.Union _
-            | NominalEmissionInput.Record _ -> not (NominalMembers.declaresStructuralFormat userInterfaces)
-            | NominalEmissionInput.Class _ -> false
-
-        if emitsStructuralFormat then
-            let formatIr =
-                match input with
-                | NominalEmissionInput.Union(cases, _) ->
-                    let emitted = unions.[td.TypeKey]
-
-                    let formatCases =
-                        [
-                            for c in cases ->
-                                let caseFields = emitted.Cases.[c.Name].Fields
-
-                                {
-                                    EmitStructuralFormat.UnionFormatCase.Name = c.Name
-                                    EmitStructuralFormat.UnionFormatCase.Fields =
-                                        [
-                                            for fi in 0 .. c.Fields.Length - 1 ->
-                                                selfMemberRef
-                                                    (UserMemberKind.UnionMember(UnionMember.Field(c.Name, fi)))
-                                                    caseFields.[fi],
-                                                snd c.Fields.[fi]
-                                        ]
-                                }
-                        ]
-
-                    let support: EmitStructuralFormat.UnionFormatSupport =
-                        {
-                            Sink = provider.FormatSinkHandles
-                            MkString = ctx.UserString
-                            BoxToken = icodegen.TypeToken
-                            TagField = tagFieldRef ()
-                            Cases = formatCases
-                        }
-
-                    EmitStructuralFormat.buildUnionFormat support
-                | NominalEmissionInput.Record _ ->
-                    let support: EmitStructuralFormat.RecordFormatSupport =
-                        {
-                            Sink = provider.FormatSinkHandles
-                            MkString = ctx.UserString
-                            BoxToken = icodegen.TypeToken
-                            Fields =
-                                [
-                                    for (name, h, fty) in records.[td.TypeKey].Fields ->
-                                        name,
-                                        selfMemberRef (UserMemberKind.RecordMember(RecordMember.Field name)) h,
-                                        fty
-                                ]
-                        }
-
-                    EmitStructuralFormat.buildRecordFormat support
-                | NominalEmissionInput.Class _ -> failwith "unreachable: class has no structural Format"
-
-            asm.AddPrepared(
-                MethodKey.FmtFormat td.Key,
-                {
-                    Signature = provider.StructuralFormatSignature()
-                    BodyOffset = bodyOf formatIr
-                    ParamNames = [ "sink" ]
-                    MethodTypars = []
-                }
-            )
-
-        // The BCL members a capability's platform interface INHERITS but never declared:
-        // unsynthesised, the CLR refuses to load the type. Only the non-generic slots
-        // need it, because a generic slot binds implicitly by the authored member's signature.
         let coSlots =
             CapabilityCoSlots.required asm.Symbols [ for (iface, _) in userInterfaces -> iface ]
 
@@ -941,7 +1011,7 @@ module internal NominalEmit =
                 let kind =
                     UserMemberKind.Member(memberMetaName mem, false, 0, [ for (_, t) in mem.Params -> t ], mem.ReturnTy)
 
-                selfMemberRef kind (toEntity (asm.MethodDef(MethodKey.Member(td.Key, i)))), mem.ReturnTy
+                selfMemberRef asm td kind (toEntity (asm.MethodDef(MethodKey.Member(td.Key, i)))), mem.ReturnTy
 
         for (ifaceTy, slot) in coSlots do
             let signature, body =
@@ -967,11 +1037,102 @@ module internal NominalEmit =
                 MethodKey.CapCoSlot(td.Key, slot),
                 {
                     Signature = signature
-                    BodyOffset = bodyOf body
+                    BodyOffset = bodyOf asm body
                     ParamNames = []
                     MethodTypars = []
                 }
             )
+
+    let prepare
+        (asm: Assembler)
+        (emitCtx: Emit.EmitContext)
+        (input: NominalEmissionInput)
+        (td: TastAccessor.TypeDecl)
+        (members: TastAccessor.TypeMember list)
+        : unit =
+        let provider = asm.Provider
+        let typarMarkers = typarMarkersOf td
+
+        // A `[<Struct>]` record: `this` (`ldarg.0`) is a managed pointer, so the
+        // synthesised equality/comparison bodies unbox the `object` arg and drop the
+        // null guard on the by-value typed arg. A struct class emits no such triple.
+        let recordIsStruct =
+            match input with
+            | NominalEmissionInput.Record(_, _, isStruct) -> isStruct
+            | _ -> false
+
+        // The `extends` column for this `TypeDefinition`: `Object` unless the
+        // struct-record or class arm selects another base.
+        let defaultBase = provider.ObjectType
+
+        let baseTypeHandle =
+            match input with
+            | NominalEmissionInput.Union(cases, _) ->
+                prepareUnion asm td cases
+                defaultBase
+            | NominalEmissionInput.Record(fields, _, _) ->
+                // A `[<Struct>]` record extends `System.ValueType`; a reference record
+                // keeps the `Object` default.
+                let baseHandle =
+                    if recordIsStruct then
+                        provider.ValueTypeBase
+                    else
+                        defaultBase
+
+                prepareRecord asm td recordIsStruct fields
+                baseHandle
+            | NominalEmissionInput.Class cd -> prepareClass asm emitCtx td defaultBase cd
+
+        // Interface-impl member bodies emit as virtual methods the runtime binds to the
+        // `InterfaceImpl` row by name + signature. The synthesised eq/comparison/format
+        // impls use disjoint `MethodKey`s, so the two never collide on a method row.
+        let userInterfaces = userInterfacesOf input
+
+        for (index, _, mem) in NominalMembers.indexed members userInterfaces do
+            prepareTypeMember asm emitCtx td index mem
+
+        let selfTyMarkers = selfTyOf input td typarMarkers
+        let selfTypeHandle = selfTypeHandleOf asm input td
+
+        // The equality triple / comparison pair follow the verdicts for a record / union
+        // alone, matching the rows `LayoutNodes` lays out: a class layout has no equality /
+        // comparison rows, and an `IEquatable` / `IComparable` impl row without the bodies
+        // would make the type unloadable.
+        let isDataShape =
+            match input with
+            | NominalEmissionInput.Union _
+            | NominalEmissionInput.Record _ -> true
+            | NominalEmissionInput.Class _ -> false
+
+        let emitsEqualityTriple =
+            isDataShape && td.EqualitySupport = EqualityVerdict.Structural
+
+        let emitsComparisonPair =
+            isDataShape && td.ComparisonSupport = ComparisonVerdict.Structural
+
+        let structuralSelf =
+            {
+                SelfType = selfTypeHandle
+                SelfTy = selfTyMarkers
+                EmitsEqualityTriple = emitsEqualityTriple
+                EmitsComparisonPair = emitsComparisonPair
+            }
+
+        match input with
+        | NominalEmissionInput.Class _ -> ()
+        | NominalEmissionInput.Union(cases, _) -> prepareUnionStructural asm td structuralSelf cases
+        | NominalEmissionInput.Record _ -> prepareRecordStructural asm td structuralSelf recordIsStruct
+
+        let emitsStructuralFormat =
+            match input with
+            | NominalEmissionInput.Union _
+            | NominalEmissionInput.Record _ -> not (NominalMembers.declaresStructuralFormat userInterfaces)
+            | NominalEmissionInput.Class _ -> false
+
+        if emitsStructuralFormat then
+            prepareStructuralFormat asm td input
+
+        prepareCoSlots asm td members userInterfaces
 
         // One `InterfaceImpl` handle per implemented interface. A generic interface arg
         // (`IEnumerable<'T>`) carries its `'T` as `FTTypar(Declaring, i)`, encoded `!i`.
