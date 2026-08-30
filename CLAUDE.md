@@ -143,5 +143,8 @@ FSharp.Core docs never say splice, intrinsic, repr, backend, target, front end o
 - `.claude/skills/planning-workflow` — design docs, plan docs, and orchestrating subagents.
 - `.claude/skills/perf-tuning` — benchmarking, and the optimisations already tried and reverted.
 - `.claude/skills/xparsec-dev` — build, test, format, benchmark, Fable.
+- `.claude/skills/cst-smells` — CST-based structural smell detection (vestigial/splittable
+  `let rec` and `type ... and` groups, record-of-closures, tuple arity, oversized
+  declarations, list idioms, shape nits) and mechanical rec-group restructuring; pluggable rules.
 
 A rule that applies to one subsystem belongs in that subsystem's `CLAUDE.md`, and a procedure belongs in a skill.
