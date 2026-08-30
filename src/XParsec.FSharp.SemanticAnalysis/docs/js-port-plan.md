@@ -357,10 +357,11 @@ Adjacent facts that shape any remaining work:
 
 ## 6. Reproducing the numbers
 
-`ConformanceTests.fs`, test *"js: the hard-error set is exactly the un-ported library
-surface"* — it walks `Directory.GetDirectories(src, "Vesper.*")`, runs
-`ConformancePass.checkManifest "js"` + `enforce` on each, and asserts the messages equal a
-declared list. Run `XParsec.FSharp.SemanticAnalysis.Tests`; a failure prints both sides.
+`Codegen.Js.Tests/JsPackageTests.fs`, the `JsCorpusConformance` list — it drives every
+`manifest.js.toml` package through in-assembly analysis plus the `[<Import>]` discharge and
+asserts an empty finding set per package. (The CST-route `ConformancePass` test this section
+previously named is deleted; the analysed route holds the same contracts.) Run
+`XParsec.FSharp.Codegen.Js.Tests`; a failure prints the findings.
 
 That list is the count, and it is pinned rather than counted for a reason: an entry that
 vanishes *without* the corresponding source appearing means the pass stopped asking.

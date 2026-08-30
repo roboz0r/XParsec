@@ -14,6 +14,48 @@ type ResolvedRuntimeAssets =
         Missing: PackageSetFault list
     }
 
+/// What a written import path denotes in a target's module system.
+[<RequireQualifiedAccess>]
+type ImportResolution =
+    /// The target has no runtime module system.
+    | Unsupported
+    /// The path is not spelled as a module reference this target reads.
+    | Malformed
+    /// Well-formed, and does not resolve to an asset in the manifest's `[core] runtime` list.
+    | NotListed
+    | Resolved of RuntimeAsset
+
+/// A target's module system, as an `[<Import>]` binding is checked against it. Each backend
+/// supplies its own: an ESM specifier is relative and carries an extension.
+type IRuntimeModules =
+    /// The manifest-listed asset a written import path denotes.
+    abstract Resolve: path: string -> ImportResolution
+    /// The names an asset publishes to an importer.
+    abstract Provided: asset: RuntimeAsset -> Set<string>
+
+[<RequireQualifiedAccess>]
+module RuntimeModules =
+
+    /// Every path resolves to `Unsupported`, so the gate refuses every `[<Import>]` binding.
+    let unsupported: IRuntimeModules =
+        { new IRuntimeModules with
+            member _.Resolve _ = ImportResolution.Unsupported
+            member _.Provided _ = Set.empty
+        }
+
+    /// One obligation's discharge through `modules`: `ValueNone` when the path resolves to a
+    /// listed asset that provides the selector, else the finding to report at the binding.
+    let discharge (modules: IRuntimeModules) (o: ImportObligation) : Conformance.ConformanceError voption =
+        match modules.Resolve o.Path with
+        | ImportResolution.Unsupported -> ValueSome(Conformance.ConformanceError.ImportUnsupportedTarget o.Binding)
+        | ImportResolution.Malformed -> ValueSome(Conformance.ConformanceError.ImportPathMalformed(o.Binding, o.Path))
+        | ImportResolution.NotListed -> ValueSome(Conformance.ConformanceError.ImportAssetNotListed(o.Binding, o.Path))
+        | ImportResolution.Resolved asset ->
+            if modules.Provided asset |> Set.contains o.Selector then
+                ValueNone
+            else
+                ValueSome(Conformance.ConformanceError.ImportMissingExport(o.Binding, o.Selector, asset.FileName))
+
 /// A *referenced project*: a package DIRECTORY resolved against a target to
 /// `manifest.<target>.toml`, parsed, and closed over `depends-on` into a build order. What
 /// the file lists NAME is read here; what they DECLARE is resolved by `PackageProviders`.

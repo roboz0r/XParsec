@@ -270,23 +270,15 @@ conformance verdicts are enforced by the test suite, not by the compiler driver.
 intentional for a prototype, but the build-failure wording was not describing any code, and if the
 gate is meant to be real the driver is where it is missing.
 
-Resolution: the driver gate exists and is a DIFFERENT rule set; `ConformancePass` gains no wiring.
-The finding above conflated two routes (see `conformance-tast-level-plan.md`, and the correction
-it already files against this section). `AssemblyAnalysis` conforms every pair over its two
-ANALYSED halves as `analyseUnits` walks the manifest, `AnalysedAssembly.gate` refuses emission on
-any error-severity diagnostic, and `ConformanceVerdict` carries error severity, so a conformance
-finding already fails a build. What is tests-only is `ConformancePass.checkManifest`/`enforce`,
-the cheap pre-analysis CST route over parse results; `TestHelpers.buildPackage` runs it to
-fail fast before an analysis the in-assembly route would fail anyway. Stages 2–3 of
-`conformance-tast-level-plan.md` retire it, and wiring a second rule set into the driver in the
-meantime would install exactly the two-derivations shape those stages exist to remove.
-
-Deleting it is the agreed direction, and it is not a straight cut: the route's `[<Import>]` asset
-check (`ImportUnknownAsset`, `ImportMissingExport`) reads the manifest rather than the CST and has
-no second implementation, and it is what keeps the CST rule set standing, because `checkUnit`
-supplies its bindings. `conformance-tast-level-plan.md` Stage 2a lifts `[<Import>]` to a
-target-neutral concept first, splitting the two dialect obligations onto an `IRuntimeModules` the
-backend implements.
+Resolution: the driver gate exists and was a DIFFERENT rule set; the finding above conflated two
+routes. `AssemblyAnalysis` conforms every pair over its two ANALYSED halves as `analyseUnits`
+walks the manifest, `AnalysedAssembly.gate` refuses emission on any error-severity diagnostic,
+and `ConformanceVerdict` carries error severity, so a conformance finding already fails a build.
+The tests-only route — `ConformancePass.checkManifest`/`enforce`, the cheap pre-analysis CST rule
+set over parse results — has since been DELETED outright: its `[<Import>]` manifest checks moved
+to the backend's discharge of analysis-recorded obligations against its `IRuntimeModules`
+implementation, and every other verdict was already taken by resolved identity on the in-assembly
+route.
 
 The timing the gate owes — a pair is checked before it is projected for the next file — was
 positional, held by the order of statements in `analyseUnits` and by nothing else. It is now

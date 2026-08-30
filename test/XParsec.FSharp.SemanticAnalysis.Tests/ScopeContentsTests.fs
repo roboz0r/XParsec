@@ -21,7 +21,7 @@ let private asm: CompilingAssembly =
 let private publishedViewsOfUnits (units: SourceUnit list) : IExternalSymbolProvider list =
     let analysed =
         AnalysedAssembly.analyse
-            Pipeline.analyseFor
+            Pipeline.analyseFileFor
             realProvider.Value
             {
                 Assembly = asm

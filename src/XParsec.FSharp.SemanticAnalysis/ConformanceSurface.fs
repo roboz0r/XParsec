@@ -10,18 +10,32 @@ open System.Collections.Generic
 module ConformanceSurface =
 
     /// The type identities an implementation DECLARES: its frozen type declarations, plus the
-    /// canonical identities claimed by its `(# … #)` bindings, which are stored on the residue.
-    let private declaredTypes (frozen: FrozenPools) : HashSet<TypeKey> =
-        let declared = HashSet<TypeKey>(HashIdentity.Structural)
+    /// canonical identities its `(# … #)` bindings claim. The value is the nominal family a
+    /// concrete declaration defines; an abbreviation and an intrinsic claim define none.
+    let private declaredTypes (frozen: FrozenPools) : Dictionary<TypeKey, Conformance.TypeKindFamily voption> =
+        let declared =
+            Dictionary<TypeKey, Conformance.TypeKindFamily voption>(HashIdentity.Structural)
+
         let pool = TastPoolBuilder.openOver frozen
 
         for decl in TastAccessor.roots pool do
             match TastAccessor.declKind decl with
-            | DeclShape.Type -> declared.Add (TastAccessor.declType decl).TypeKey |> ignore
+            | DeclShape.Type ->
+                let td = TastAccessor.declType decl
+
+                declared.[td.TypeKey] <-
+                    match td.Kind with
+                    | TTypeKindG.Record _ -> ValueSome Conformance.TypeKindFamily.Record
+                    | TTypeKindG.Union _ -> ValueSome Conformance.TypeKindFamily.Union
+                    | TTypeKindG.Enum _ -> ValueSome Conformance.TypeKindFamily.Enum
+                    | TTypeKindG.Interface _ -> ValueSome Conformance.TypeKindFamily.Interface
+                    | TTypeKindG.Class _ -> ValueSome Conformance.TypeKindFamily.Class
+                    | TTypeKindG.Abbrev _ -> ValueNone
             | _ -> ()
 
         for KeyValue(canon, _) in frozen.Residue.IntrinsicBindings do
-            declared.Add canon |> ignore
+            if not (declared.ContainsKey canon) then
+                declared.[canon] <- ValueNone
 
         declared
 
@@ -58,8 +72,9 @@ module ConformanceSurface =
         // target binding no repr publishes as a plain `Class`, so the key is what identifies it.
         | ExternalTypeShape.Intrinsic _
         | ExternalTypeShape.IntrinsicInterface _ -> false
-        // A GAP the signature published in place of a type (a delegate, a type extension): it
-        // claims no identity for an implementation to match. The first USE of one reports.
+        // A GAP the signature published in place of a type (a delegate, a type extension). It
+        // claims no identity to match, so the verdict comes from elsewhere: a delegate is
+        // refused at its declaration (`NotYetSupported`), and either form reports at first USE.
         | ExternalTypeShape.Unmodelled _ -> false
         | ExternalTypeShape.Abbrev _
         | ExternalTypeShape.Record _
@@ -67,9 +82,8 @@ module ConformanceSurface =
         | ExternalTypeShape.Enum _
         | ExternalTypeShape.Class _ -> not (declaredExterns.Contains entry.Key)
 
-    /// Type PRESENCE, and the `extern` ↔ `(# … #)` pairing with its heritability. Findings come
-    /// in key order: presence first, then the reprs the signature declares, then the ones only
-    /// the implementation binds.
+    /// Type PRESENCE, the nominal-family agreement, and the `extern` ↔ `(# … #)` pairing with
+    /// its heritability. Findings come in that order, each group in key order.
     let checkTypes (published: PublishedSurface) (frozen: FrozenPools) : Conformance.ConformanceError list =
         let declared = declaredTypes frozen
         let implBindings = frozen.Residue.IntrinsicBindings
@@ -81,8 +95,19 @@ module ConformanceSurface =
 
         [
             for entry in published.ShapesByKey do
-                if demandsDeclaration declaredExternKeys entry && not (declared.Contains entry.Key) then
+                if
+                    demandsDeclaration declaredExternKeys entry
+                    && not (declared.ContainsKey entry.Key)
+                then
                     yield Conformance.ConformanceError.MissingInImpl(named entry.Key)
+
+            // Only a key the implementation defines a family for takes a verdict: an absent
+            // one is reported above, and an abbreviation is transparent.
+            for entry in published.DeclaredKinds do
+                match declared.TryGetValue entry.Key with
+                | true, ValueSome defined when defined <> entry.Value ->
+                    yield Conformance.ConformanceError.TypeKindMismatch(named entry.Key, entry.Value, defined)
+                | _ -> ()
 
             for entry in published.ExternForms do
                 match EqDict.tryFind entry.Key implBindings with

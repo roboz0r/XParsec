@@ -86,13 +86,22 @@ module Pipeline =
         let _, tast = analyseSemWithContextFor assembly provider file impl
         tast
 
-    /// The production entry. `assembly` carries the home assembly for local keys and the
-    /// compiling target.
+    /// The `AnalyseFile` production entry. `assembly` carries the home assembly for local
+    /// keys and the compiling target.
+    let analyseFileFor
+        (assembly: CompilingAssembly)
+        (provider: IExternalSymbolProvider)
+        (file: LexedFile)
+        (impl: ImplementationFile<SyntaxToken>)
+        : FrozenPools * ImportObligation list =
+        let ctx, pools = analyseWithContextFor assembly provider file impl
+        pools, List.ofSeq ctx.Bindings.Imports
+
+    /// `analyseFileFor`, keeping the pools alone.
     let analyseFor
         (assembly: CompilingAssembly)
         (provider: IExternalSymbolProvider)
         (file: LexedFile)
         (impl: ImplementationFile<SyntaxToken>)
         : FrozenPools =
-        let _, tast = analyseWithContextFor assembly provider file impl
-        tast
+        fst (analyseFileFor assembly provider file impl)

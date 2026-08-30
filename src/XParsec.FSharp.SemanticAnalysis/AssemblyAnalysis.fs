@@ -136,6 +136,7 @@ module AssemblyAnalysis =
         {
             Retained: LexedFile
             Frozen: FrozenPools
+            Imports: ImportObligation list
             Scoped: IExternalSymbolProvider
             Bodies: InlineBodies.FileInlineBodies
         }
@@ -162,11 +163,12 @@ module AssemblyAnalysis =
 
         let retained = LexedFile.inAssembly assembly.Name implementation.Id parsed.Lexed
 
-        let frozen = analyse assembly scoped retained parsed.Tree
+        let frozen, imports = analyse assembly scoped retained parsed.Tree
 
         {
             Retained = retained
             Frozen = frozen
+            Imports = imports
             Scoped = scoped
             // The templates key off `SymbolKey` alone, so a `.fsi` replacing the file's
             // signatures leaves every one of them reachable.
@@ -381,6 +383,7 @@ module AssemblyAnalysis =
                                 Retained = impl.Retained
                                 ParseDiagnostics = parsedUnit.Implementation.Parsed.Diagnostics
                                 Frozen = impl.Frozen
+                                Imports = impl.Imports
                                 Scoped = impl.Scoped
                                 View = view
                                 Signature = signatureFile

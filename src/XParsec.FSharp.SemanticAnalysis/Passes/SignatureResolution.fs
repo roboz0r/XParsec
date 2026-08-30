@@ -485,6 +485,20 @@ module SignatureResolution =
             id.Key
             (ExternalTypeShape.Class(ExternalClassShape.basic (id.TyparArity, false, SymbolOrigin.Empty)))
 
+    /// The unmodelled forms refused at their own declaration, matching the implementation
+    /// side's Validation verdict; the rest report at first use.
+    let private reportRefusedDeclaration
+        (ctx: PassContext)
+        (tn: TypeName<SyntaxToken>)
+        (reason: UnmodelledReason)
+        : unit =
+        match reason with
+        | UnmodelledReason.Delegate ->
+            match CstKeys.tryFirstTokenOfTypeName tn with
+            | ValueSome tok -> ctx.Report(tok, Kind.NotYetSupported "`delegate` type declarations")
+            | ValueNone -> ()
+        | _ -> ()
+
     /// A declaration that CLAIMS no type still registers its name and the gap, so a use site
     /// can say which form is missing rather than "no such type".
     let private publishUnmodelled
@@ -506,9 +520,35 @@ module SignatureResolution =
             PublishedSurfaceBuilder.addModuleChain sctx.Surface key
             publishShape sctx key (ExternalTypeShape.Unmodelled(reason, arity))
 
+    /// The nominal family the declaration commits its name to. `ValueNone` where it commits
+    /// to none: an opaque `type T`, an abbreviation and the `extern` family conform on other
+    /// axes. The `struct` form groups with `Class`.
+    let private declaredKindFamily (decl: SigDecl) : Conformance.TypeKindFamily voption =
+        match decl with
+        | SigDecl.Record _ -> ValueSome Conformance.TypeKindFamily.Record
+        | SigDecl.Union _ -> ValueSome Conformance.TypeKindFamily.Union
+        | SigDecl.Enum _ -> ValueSome Conformance.TypeKindFamily.Enum
+        | SigDecl.ClassLike _ ->
+            ValueSome(
+                if SigDecl.isInterfaceForm decl then
+                    Conformance.TypeKindFamily.Interface
+                else
+                    Conformance.TypeKindFamily.Class
+            )
+        | SigDecl.Abbrev _
+        | SigDecl.IntrinsicAbbrev _
+        | SigDecl.Extern _
+        | SigDecl.Opaque _
+        | SigDecl.Delegate _
+        | SigDecl.TypeExtension _ -> ValueNone
+
     /// The shape ONE claimed declaration publishes, once every declaration in its group has
     /// registered its detail: a field or case type may reference a sibling.
     let private publishType (sctx: SigCtx) (id: TypeIdentity) (decl: SigDecl) : unit =
+        match declaredKindFamily decl with
+        | ValueSome family -> PublishedSurfaceBuilder.addDeclaredKind sctx.Surface id.Key family
+        | ValueNone -> ()
+
         match decl with
         | SigDecl.Record(extensions = ext) -> publishRecord sctx id ext
         | SigDecl.Union(extensions = ext) -> publishUnion sctx id ext
@@ -550,7 +590,9 @@ module SignatureResolution =
                 PublishedSurfaceBuilder.addModuleChain sctx.Surface id.Key
             | ValueNone ->
                 match SigDecl.unmodelledReason decl with
-                | ValueSome reason -> publishUnmodelled sctx containment (SigDecl.typeName decl) reason
+                | ValueSome reason ->
+                    reportRefusedDeclaration ctx (SigDecl.typeName decl) reason
+                    publishUnmodelled sctx containment (SigDecl.typeName decl) reason
                 // The claim itself was refused (a dotted name, or a name already taken), so
                 // there is no gap to publish: the name belongs to whatever claimed it.
                 | ValueNone -> ()

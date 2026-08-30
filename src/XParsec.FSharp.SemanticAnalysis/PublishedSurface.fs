@@ -32,6 +32,10 @@ type PublishedSurfaceBuilder =
         ShapesByKey: Dictionary<TypeKey, ExternalTypeShape>
         /// Canonical intrinsic identity -> the representation form declared for it.
         ExternForms: Dictionary<TypeKey, ExternForm>
+        /// The nominal family a `.fsi` declaration commits its name to. Carried because the
+        /// published shape alone cannot state it: an opaque `type T`, which commits to none,
+        /// publishes the same `Class` shape a bodied class does.
+        DeclaredKinds: Dictionary<TypeKey, Conformance.TypeKindFamily>
         /// A type's FULL member list, in DECLARATION order: the overload scan depends on it.
         MembersByKey: Dictionary<TypeKey, ResizeArray<ExternalMember>>
         /// Dotted source path of a declared module -> the container a type it holds sits in.
@@ -58,6 +62,7 @@ module PublishedSurfaceBuilder =
         {
             ShapesByKey = Dictionary()
             ExternForms = Dictionary()
+            DeclaredKinds = Dictionary()
             MembersByKey = Dictionary()
             ModuleContainers = Dictionary(StringComparer.Ordinal)
             UnionCases = Dictionary(StringComparer.Ordinal)
@@ -106,6 +111,10 @@ module PublishedSurfaceBuilder =
     /// what an implementation files its `(# … #)` binding under.
     let addExternForm (surface: PublishedSurfaceBuilder) (canon: TypeKey) (form: ExternForm) : unit =
         surface.ExternForms.[canon] <- form
+
+    /// Record the nominal family `key`'s declaration commits to.
+    let addDeclaredKind (surface: PublishedSurfaceBuilder) (key: TypeKey) (family: Conformance.TypeKindFamily) : unit =
+        surface.DeclaredKinds.[key] <- family
 
     /// Append to a type's member list, which stays in DECLARATION order. An empty batch
     /// creates no entry: a type with no published member has no member table.
@@ -209,6 +218,9 @@ type PublishedSurface =
         ShapesByKey: EqArray<SurfaceEntry<TypeKey, ExternalTypeShape>>
         /// Canonical intrinsic identity -> the representation form declared for it.
         ExternForms: EqArray<SurfaceEntry<TypeKey, ExternForm>>
+        /// The nominal family each `.fsi` declaration commits its name to; empty from every
+        /// other producer. An opaque `type T` and the `extern` family commit to none.
+        DeclaredKinds: EqArray<SurfaceEntry<TypeKey, Conformance.TypeKindFamily>>
         /// A type's FULL member list, in DECLARATION order: the overload scan depends on it.
         MembersByKey: EqArray<SurfaceEntry<TypeKey, EqArray<ExternalMember>>>
         /// Dotted source path of a declared module -> the container a type it holds sits in.
@@ -262,6 +274,7 @@ module PublishedSurface =
         {
             ShapesByKey = shapes
             ExternForms = byTypeKey b.ExternForms
+            DeclaredKinds = byTypeKey b.DeclaredKinds
             MembersByKey =
                 b.MembersByKey
                 |> Seq.map (fun (KeyValue(k, ms)) -> k, EqArray.ofResizeArray ms)

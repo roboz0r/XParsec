@@ -178,7 +178,7 @@ type GlobalAttribute =
 /// <summary>Declares that a module-level value's implementation is the export
 /// <c>selector</c> of the committed runtime asset <c>path</c> of the declaring package.
 /// <c>path</c> is <c>"./"</c> plus a manifest <c>[core] runtime</c> entry; <c>selector</c>
-/// must equal the binding's emitted name; the body must be <c>jsNative</c>.</summary>
+/// must equal the binding's emitted name; the body must be <c>nativeOnly</c>.</summary>
 [<AttributeUsage(AttributeTargets.Method ||| AttributeTargets.Property ||| AttributeTargets.Field,
                  AllowMultiple = false)>]
 [<Sealed>]

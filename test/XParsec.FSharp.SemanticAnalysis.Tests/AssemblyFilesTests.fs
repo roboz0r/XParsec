@@ -33,7 +33,7 @@ let private analyseAssembly
     : UnitOutcome list =
     let analysed =
         AnalysedAssembly.analyse
-            Pipeline.analyseFor
+            Pipeline.analyseFileFor
             external
             {
                 Assembly = assembly

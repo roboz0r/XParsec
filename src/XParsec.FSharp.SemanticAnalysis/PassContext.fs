@@ -130,6 +130,8 @@ type PassContextBindings =
         /// The `[<Global>]` bindings: the value IS a target global, so no definition is emitted.
         GlobalValueKeys: HashSet<SymbolKey>
         BindingTyparArities: Dictionary<BoundVarKey, int>
+        /// In declaration order; a malformed `[<Import>]` is reported rather than recorded.
+        Imports: ResizeArray<ImportObligation>
     }
 
 module PassContextBindings =
@@ -144,6 +146,7 @@ module PassContextBindings =
             Accessibility = Dictionary<_, _>()
             GlobalValueKeys = HashSet<_>()
             BindingTyparArities = Dictionary<_, _>()
+            Imports = ResizeArray<_>()
         }
 
 /// What a written type name resolves to, as NameResolution's classifying walk found it. Recorded

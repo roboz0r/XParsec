@@ -91,7 +91,7 @@ module PackageProviders =
             let ctx, sem = Pipeline.analyseSemWithContextFor assembly provider retained impl
 
             try
-                Freeze.run ctx sem
+                Freeze.run ctx sem, List.ofSeq ctx.Bindings.Imports
             with e ->
                 let pruned =
                     match sem.Diagnostics |> Diagnostic.errors with
@@ -287,11 +287,10 @@ module PackageProviders =
         let inlineBodies =
             InlineBodies.concat [ for bp in builtPackages -> bp.InlineBodies ]
 
+        // The merged asset map alone: every package's `Missing` faults were reported by its
+        // own `buildProviderSeeded` above, so they are not re-reported off this read.
         let runtimeAssets =
             ReferencedProject.runtimeModules [ for parsed in orderedManifests -> parsed.Manifest ]
-
-        for fault in runtimeAssets.Missing do
-            diagnostics.AddRange(AssemblyFiles.setFaultDiagnostics fault)
 
         {
             RuntimeAssets = runtimeAssets.ByPackage

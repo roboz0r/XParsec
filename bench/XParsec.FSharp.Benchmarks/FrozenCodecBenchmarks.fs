@@ -72,7 +72,7 @@ type FrozenCodecBenchmarks() =
         frozen <-
             [
                 for s in stagesFor this.Depth do
-                    for outcome in analyseStage Pipeline.analyseFor s do
+                    for outcome in analyseStage Pipeline.analyseFileFor s do
                         match outcome with
                         | AssemblyAnalysis.UnitOutcome.Analysed u -> u.File.Frozen
                         // A file that did not parse has no frozen tree to encode. The

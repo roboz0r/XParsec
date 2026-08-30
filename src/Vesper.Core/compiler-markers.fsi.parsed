@@ -1,0 +1,25 @@
+namespace       'namespace'       KWNamespace         tok=   0  pos=   0
+                'Vesper'          Identifier          tok=   2  pos=  10
+  Module:
+    [<          '[<'              KWLAttrBracket      tok=   5  pos=  18
+    NamedType:
+      Ident     'AutoOpen'        Identifier          tok=   6  pos=  20
+    >]          '>]'              KWRAttrBracket      tok=   7  pos=  28
+    module      'module'          KWModule            tok=   9  pos=  31
+    ident       'CompilerMa...'   Identifier          tok=  11  pos=  38
+    =           '='               OpEquality          tok=  13  pos=  54
+    begin       <virt>            KWBegin             tok=virt  pos= 214
+      Val:
+        val     'val'             KWVal               tok=  23  pos= 214
+        inline  'inline'          KWInline            tok=  25  pos= 218
+        Ident   'nativeOnly'      Identifier          tok=  27  pos= 225
+        TyparDefns:
+          <     '<'               op_LessThan         tok=  28  pos= 235
+          Typar.Named:
+                ''T'              TypeParameter       tok=  29  pos= 236
+          >     '>'               op_GreaterThan      tok=  30  pos= 238
+        :       ':'               OpColon             tok=  32  pos= 240
+        VarType:
+          Typar.Named:
+                ''T'              TypeParameter       tok=  34  pos= 242
+    end         <virt>            KWEnd               tok=virt  pos= 245

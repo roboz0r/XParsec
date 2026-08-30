@@ -260,6 +260,19 @@ each side's arguments to `TConstValue`s (landed 2026-08-28).
 pair at all, or whether F# takes the signature's alone. Do not design the check before probing
 `dotnet fsi` / fsc for that.
 
+### Gap 4 — the published shape cannot state opacity, so `DeclaredKinds` exists
+
+`PublishedSurface.DeclaredKinds` is a second table keyed by the same `TypeKey` as
+`ShapesByKey`, carried because an opaque `type T` publishes the same `Class` shape a bodied
+class does: the shape alone loses whether the signature committed its name to a nominal
+family. The durable fix is a commitment marker on `ExternalTypeShape` (an `Opaque` case, or a
+flag on `ExternalClassShape`), after which the family is derivable from the shape, the
+`declaredKindFamily` / `declaredTypes` classifiers read one source, and the side table with
+its builder and freeze plumbing deletes. The shape is serialised (`FrozenCodec`) and read by
+every consumer of a published surface, so the marker lands additively behind the existing
+constructors, with the side table deleted in a separate change. (Filed off the 2026-08-30
+review of the Stage 2–3 landing.)
+
 ### Non-gaps, verified
 
 - **`[<Literal>]` signature values.** `registerValSig` publishes them, so

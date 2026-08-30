@@ -21,10 +21,11 @@ Two goals, one mechanism (per-binding `.fsi`↔`.fs` pairing):
   check, not coincidence.
 
 Implemented by (all DONE; anchors for the curious):
-- `Conformance.fs` / `ConformancePass.fs` — CST-level pairing, presence, extern/intrinsic
-  pairing, the `extern class` heritable-base species, the module-decl guard. Manifest-
-  driven (`checkManifest`), hard-gated via `ConformancePass.enforce` (codes `V240`–`V243`)
-  into the package build (`Codegen.Clr.Tests/TestHelpers.buildPackage`).
+- Pairing, presence, the extern/intrinsic pairing and the `extern class` heritable-base
+  species — originally the CST-level `Conformance.fs`/`ConformancePass.fs` rule set, since
+  replaced by `ConformanceSurface` over the ANALYSED halves on the in-assembly route
+  (`AssemblyAnalysis.conformSignature`); the CST route is deleted. The module-decl guard
+  (`sigDeclPath`/`implDeclPath`) survives in `Conformance.fs`.
 - `ConformanceTypars.fs` — SEMANTIC typar-order conformance. `checkFile` (module
   functions, single typar axis, `schemesAgree`/`normAxis`) + `checkMembers` (generic type
   MEMBERS, two axes, direct structural equality over `TryLookupMembers`). Generic members

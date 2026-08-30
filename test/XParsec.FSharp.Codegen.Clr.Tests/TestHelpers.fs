@@ -347,21 +347,10 @@ let rec buildPackage (package: string) : Lazy<Assembly * ClrArtifact> =
                      ReferencedProject.loadManifest manifestPath
                      |> PackageFaults.okOrFail (sprintf "buildPackage %s" pkg)
 
-                 // Read ONCE: the conformance gate and the unit list below both work off these
-                 // trees, and off the pairing taken with them, so no file of the package is
-                 // parsed or paired twice.
+                 // The trees and the pairing both the contract fold and the unit list below
+                 // work off. `.fsi`↔`.fs` conformance runs inside analysis, so the compile
+                 // seam below returns `Error` on a mismatch.
                  let parsedManifest = ParsedManifest.ofManifest manifest
-
-                 // `.fsi`↔`.fs` conformance gates the build: a signature binding with no
-                 // implementation is an error.
-                 match ConformancePass.enforce (ConformancePass.check parsedManifest) with
-                 | [] -> ()
-                 | ds ->
-                     failwithf
-                         "buildPackage %s: %d conformance error(s):\n%s"
-                         pkg
-                         (List.length ds)
-                         (ds |> List.map (fun d -> d.Message) |> String.concat "\n")
 
                  // Force each dependency's build first: that registers it in `packageAlc`,
                  // so this package resolves against it at load time. Its DLL goes to
@@ -558,7 +547,7 @@ let compileConformanceDirectAndRoundTripped (assemblyName: string) (input: strin
     let project = ProjectInfo.defaults assemblyName
 
     let emittable =
-        match AnalysedAssembly.gate (analyseContract defaultPackages assemblyName input) with
+        match AnalysedAssembly.gate RuntimeModules.unsupported (analyseContract defaultPackages assemblyName input) with
         | Ok emittable -> emittable
         | Error ds ->
             failwithf

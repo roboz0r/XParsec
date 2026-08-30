@@ -23,7 +23,7 @@ let private impl (id: string) (text: string) : SourceUnit =
 let private analyse (units: SourceUnit list) : FrozenFile list =
     let analysed =
         AnalysedAssembly.analyse
-            Pipeline.analyseFor
+            Pipeline.analyseFileFor
             realProvider.Value
             {
                 Assembly = asm

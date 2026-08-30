@@ -491,6 +491,9 @@ type Kind =
     /// `assembly` is what the checked pair belongs to, which a package build spells with
     /// its manifest name and an assembly build with the name it compiles into.
     | Conformance of assembly: string * verdict: ConformanceVerdict
+    /// A `.fsi`↔`.fs` conformance finding positioned at the declaring binding, unlike the
+    /// whole-pair `Conformance` verdict above.
+    | ConformanceFinding of finding: Conformance.ConformanceError
     /// A fault in the package SET, which has no place in any file being compiled to point at.
     | PackageSet of fault: PackageSetFault
     | ParseFailure of detail: string
@@ -562,6 +565,7 @@ module Kind =
         | Kind.CyclicType _ -> DiagCode.FSharp 954
         // ── This compiler's own published families.
         | Kind.Conformance(verdict = v) -> ConformanceVerdict.code v
+        | Kind.ConformanceFinding _ -> DiagCode.Vesper "V240"
         | Kind.PackageSet fault -> PackageSetFault.code fault
         | Kind.ParseFailure _ -> DiagCode.Vesper "PARSE"
         | Kind.Driver _ -> DiagCode.Vesper "DRV"
@@ -725,6 +729,7 @@ module Kind =
         | Kind.ParseFailure detail -> sprintf "parse error: %s" detail
         | Kind.Driver message -> message
         | Kind.Parse c -> DiagnosticCode.message c
+        | Kind.ConformanceFinding e -> Conformance.describe e
         | Kind.Message text -> text
 
     let severity (k: Kind) : Severity =
@@ -783,6 +788,7 @@ module Kind =
         | Kind.NotYetSupported _
         | Kind.IntrinsicNotInScope _
         | Kind.Conformance _
+        | Kind.ConformanceFinding _
         | Kind.PackageSet _
         | Kind.ParseFailure _
         | Kind.Driver _

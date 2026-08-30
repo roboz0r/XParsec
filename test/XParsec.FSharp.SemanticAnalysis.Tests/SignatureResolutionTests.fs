@@ -347,6 +347,21 @@ let tests =
                 | other -> failtestf "expected an Unmodelled shape for the enum; got %A" other
             }
 
+            test "A `delegate` signature declaration is refused, and still publishes its gap" {
+                let r =
+                    resolveFsi "app.fsi" "namespace App\n\nmodule M =\n    type Handler = delegate of int -> int\n"
+
+                Expect.exists
+                    r.Messages
+                    (fun m -> m.Contains "not yet supported: `delegate` type declarations")
+                    "the declaration itself reports NotYetSupported"
+
+                // The gap still publishes, so a use site can report which form is missing.
+                match shapeOf r "Handler" with
+                | ExternalTypeShape.Unmodelled(UnmodelledReason.Delegate, _) -> ()
+                | other -> failtestf "expected Unmodelled(Delegate) for the delegate; got %A" other
+            }
+
             test "A val referencing an enum bakes FTEnum, not an opaque nominal" {
                 // The kind-correct bake for an `Enum` shape: `mkNominal`'s `Enum` arm must be
                 // reachable from a `.fsi`-declared enum, not only from a dependency's shapes.

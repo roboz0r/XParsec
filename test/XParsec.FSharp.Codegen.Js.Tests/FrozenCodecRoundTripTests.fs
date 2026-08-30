@@ -433,6 +433,40 @@ let tests =
                         ConformanceVerdict.PairParseFailure("a.fsi", "unexpected token")
                     ]
 
+                // One value per `ConformanceError` case, because the inner reader is its own
+                // byte match.
+                let findings =
+                    [
+                        Conformance.ConformanceError.MissingInImpl "V.T"
+                        Conformance.ConformanceError.ExternWithoutIntrinsic "V.T"
+                        Conformance.ConformanceError.IntrinsicWithoutExtern "V.T"
+                        Conformance.ConformanceError.HeritabilityMismatch "V.T"
+                        Conformance.ConformanceError.TypeKindMismatch(
+                            "V.T",
+                            Conformance.TypeKindFamily.Class,
+                            Conformance.TypeKindFamily.Record
+                        )
+                        Conformance.ConformanceError.TypeKindMismatch(
+                            "V.T",
+                            Conformance.TypeKindFamily.Interface,
+                            Conformance.TypeKindFamily.Union
+                        )
+                        Conformance.ConformanceError.TypeKindMismatch(
+                            "V.T",
+                            Conformance.TypeKindFamily.Enum,
+                            Conformance.TypeKindFamily.Class
+                        )
+                        Conformance.ConformanceError.ValueMissingInImpl "v"
+                        Conformance.ConformanceError.ImportBodyNotNativeOnly "served"
+                        Conformance.ConformanceError.NativeOnlyWithoutImport "served"
+                        Conformance.ConformanceError.ImportSelectorMismatch("served", "other")
+                        Conformance.ConformanceError.ImportMalformed "served"
+                        Conformance.ConformanceError.ImportPathMalformed("served", "Asset.mjs")
+                        Conformance.ConformanceError.ImportAssetNotListed("served", "./Other.mjs")
+                        Conformance.ConformanceError.ImportUnsupportedTarget "served"
+                        Conformance.ConformanceError.ImportMissingExport("served", "served", "Asset.mjs")
+                    ]
+
                 let kinds =
                     [
                         Kind.UndefinedType "Nope"
@@ -504,6 +538,7 @@ let tests =
                         Kind.Message "an un-migrated sentence"
                     ]
                     @ (verdicts |> List.map (fun v -> Kind.Conformance("Vesper.Core", v)))
+                    @ (findings |> List.map Kind.ConformanceFinding)
 
                 for k in kinds do
                     let d = Diagnostic.create k Site.Nowhere []

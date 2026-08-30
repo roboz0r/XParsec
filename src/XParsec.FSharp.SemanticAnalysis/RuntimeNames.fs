@@ -129,6 +129,15 @@ module RuntimeNames =
     let isByRefLikeAttributeKey: TypeKey =
         SymbolKeyOps.typeKeyOf "System.Runtime.CompilerServices" "IsByRefLikeAttribute"
 
+    /// The template text of `nativeOnly`'s body: an intrinsic no backend lowers to a real
+    /// body, marking a binding whose implementation is its `[<Import>]` declaration.
+    [<Literal>]
+    let importSentinelText = "$use-import-attribute"
+
+    /// `Vesper.CompilerMarkers.nativeOnly`, the one binding whose body is the sentinel.
+    let nativeOnlyKey: SymbolKey =
+        SymbolKeyOps.moduleValueKey intrinsicNamespace "CompilerMarkers" "nativeOnly"
+
     let objAbbrevName: string = "obj"
 
     // The printf sinks. CLR contracts with no JS analogue.

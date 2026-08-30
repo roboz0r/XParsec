@@ -24,6 +24,7 @@
     <Compile Include="EmitJsMembers.fs" />
     <Compile Include="EmitJs.fs" />
     <Compile Include="Codegen.fs" />
+    <Compile Include="EsmModules.fs" />
     <Compile Include="JsDriver.fs" />
   </ItemGroup>
   <ItemGroup>

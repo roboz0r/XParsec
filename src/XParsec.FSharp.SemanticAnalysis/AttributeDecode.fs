@@ -44,6 +44,19 @@ type ImportDecl =
     | Malformed
     | NoImport
 
+/// A well-formed `[<Import>]` binding, awaiting the assembly gate's discharge: `Path` must
+/// resolve through the target's module system and the asset it lists must provide
+/// `Selector`. `Site` positions the resulting finding in the declaring `.fs`.
+[<NoEquality; NoComparison>]
+type ImportObligation =
+    {
+        /// The binding's source name, as a finding spells it.
+        Binding: string
+        Selector: string
+        Path: string
+        Site: SyntaxToken
+    }
+
 // The readers over `ResolvedAttributes`: presence by key, arguments off the construction.
 
 module AttributeDecode =

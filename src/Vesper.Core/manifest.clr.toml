@@ -34,6 +34,8 @@ files = [
     "prim-types-attr.clr.fs",
     "compiler-attributes.fsi",
     "compiler-attributes.fs",
+    "compiler-markers.fsi",
+    "compiler-markers.fs",
     "core-types.fsi",
     "core-types.fs",
     # `fun-adapters` is CLR-only: a CLR function value is a nominal `Fun` interface, so

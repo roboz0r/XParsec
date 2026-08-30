@@ -99,6 +99,11 @@ module EmitIntrinsic =
 
             b.Add ILInstr.Ldlen
             b.Add(ILInstr.Un ILOpCode.Conv_i4)
+        | opCode when opCode = RuntimeNames.importSentinelText ->
+            // The sentinel body of an `[<Import>]`-served binding. The CLR gate refuses every
+            // `[<Import>]` obligation, so reaching emission is a compiler fault.
+            failwith
+                "internal compiler error: an [<Import>]-served 'nativeOnly' body reached CLR emission; the import was not discharged"
         | opCode ->
             for a in args do
                 recur env b a

@@ -1,0 +1,38 @@
+namespace                    'namespace'       KWNamespace         tok=   0  pos=   0
+                             'Vesper'          Identifier          tok=   2  pos=  10
+  Module:
+    [<                       '[<'              KWLAttrBracket      tok=  10  pos= 199
+    NamedType:
+      Ident                  'AutoOpen'        Identifier          tok=  11  pos= 201
+    >]                       '>]'              KWRAttrBracket      tok=  12  pos= 209
+    module                   'module'          KWModule            tok=  14  pos= 212
+    ident                    'CompilerMa...'   Identifier          tok=  16  pos= 219
+    =                        '='               OpEquality          tok=  18  pos= 235
+    begin                    <virt>            KWBegin             tok=virt  pos= 242
+      FunctionOrValue:
+        let                  'let'             KWLet               tok=  22  pos= 242
+          inline             'inline'          KWInline            tok=  24  pos= 246
+          Pat.NamedSimple    'nativeOnly'      Identifier          tok=  26  pos= 253
+          TyparDefns:
+            <                '<'               op_LessThan         tok=  27  pos= 263
+            Typar.Named:
+                             ''T'              TypeParameter       tok=  28  pos= 264
+            >                '>'               op_GreaterThan      tok=  29  pos= 266
+          ReturnColon        ':'               OpColon             tok=  31  pos= 268
+          VarType:
+            Typar.Named:
+                             ''T'              TypeParameter       tok=  33  pos= 270
+          =                  '='               OpEquality          tok=  35  pos= 273
+            ILIntrinsic:
+              (#             '(#'              KWLHashParen        tok=  37  pos= 275
+              StringLiteral  '"'               StringOpen          tok=  39  pos= 278
+              Parts:
+                Text         '$use-impor...'   StringFragment      tok=  40  pos= 279
+                             '"'               StringClose         tok=  41  pos= 300
+              ILReturnType:
+                :            ':'               OpColon             tok=  43  pos= 302
+                VarType:
+                  Typar.Named:
+                             ''T'              TypeParameter       tok=  45  pos= 304
+              #)             '#)'              KWRHashParen        tok=  47  pos= 307
+    end                      <virt>            KWEnd               tok=virt  pos= 310

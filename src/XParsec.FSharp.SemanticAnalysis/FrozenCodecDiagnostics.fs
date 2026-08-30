@@ -105,6 +105,105 @@ module FrozenCodecDiagnostics =
         | 5uy -> ConformanceVerdict.SignatureRejected(r.ReadString())
         | b -> failwithf "FrozenCodec: unknown ConformanceVerdict tag %d" b
 
+    let private writeTypeKindFamily (w: FrozenWriter) (f: Conformance.TypeKindFamily) =
+        match f with
+        | Conformance.TypeKindFamily.Class -> w.Write 0uy
+        | Conformance.TypeKindFamily.Interface -> w.Write 1uy
+        | Conformance.TypeKindFamily.Record -> w.Write 2uy
+        | Conformance.TypeKindFamily.Union -> w.Write 3uy
+        | Conformance.TypeKindFamily.Enum -> w.Write 4uy
+
+    let private readTypeKindFamily (r: FrozenReader) : Conformance.TypeKindFamily =
+        match r.ReadByte() with
+        | 0uy -> Conformance.TypeKindFamily.Class
+        | 1uy -> Conformance.TypeKindFamily.Interface
+        | 2uy -> Conformance.TypeKindFamily.Record
+        | 3uy -> Conformance.TypeKindFamily.Union
+        | 4uy -> Conformance.TypeKindFamily.Enum
+        | b -> failwithf "FrozenCodec: unknown TypeKindFamily tag %d" b
+
+    let private writeConformanceError (w: FrozenWriter) (e: Conformance.ConformanceError) =
+        match e with
+        | Conformance.ConformanceError.MissingInImpl name ->
+            w.Write 0uy
+            w.Write name
+        | Conformance.ConformanceError.ExternWithoutIntrinsic name ->
+            w.Write 1uy
+            w.Write name
+        | Conformance.ConformanceError.IntrinsicWithoutExtern name ->
+            w.Write 2uy
+            w.Write name
+        | Conformance.ConformanceError.HeritabilityMismatch name ->
+            w.Write 3uy
+            w.Write name
+        | Conformance.ConformanceError.TypeKindMismatch(name, declared, defined) ->
+            w.Write 4uy
+            w.Write name
+            writeTypeKindFamily w declared
+            writeTypeKindFamily w defined
+        | Conformance.ConformanceError.ValueMissingInImpl name ->
+            w.Write 5uy
+            w.Write name
+        | Conformance.ConformanceError.ImportBodyNotNativeOnly name ->
+            w.Write 6uy
+            w.Write name
+        | Conformance.ConformanceError.NativeOnlyWithoutImport name ->
+            w.Write 7uy
+            w.Write name
+        | Conformance.ConformanceError.ImportSelectorMismatch(name, selector) ->
+            w.Write 8uy
+            w.Write name
+            w.Write selector
+        | Conformance.ConformanceError.ImportMalformed name ->
+            w.Write 9uy
+            w.Write name
+        | Conformance.ConformanceError.ImportPathMalformed(name, path) ->
+            w.Write 10uy
+            w.Write name
+            w.Write path
+        | Conformance.ConformanceError.ImportAssetNotListed(name, path) ->
+            w.Write 11uy
+            w.Write name
+            w.Write path
+        | Conformance.ConformanceError.ImportUnsupportedTarget name ->
+            w.Write 12uy
+            w.Write name
+        | Conformance.ConformanceError.ImportMissingExport(name, selector, asset) ->
+            w.Write 13uy
+            w.Write name
+            w.Write selector
+            w.Write asset
+
+    let private readConformanceError (r: FrozenReader) : Conformance.ConformanceError =
+        match r.ReadByte() with
+        | 0uy -> Conformance.ConformanceError.MissingInImpl(r.ReadString())
+        | 1uy -> Conformance.ConformanceError.ExternWithoutIntrinsic(r.ReadString())
+        | 2uy -> Conformance.ConformanceError.IntrinsicWithoutExtern(r.ReadString())
+        | 3uy -> Conformance.ConformanceError.HeritabilityMismatch(r.ReadString())
+        | 4uy ->
+            let name = r.ReadString()
+            let declared = readTypeKindFamily r
+            Conformance.ConformanceError.TypeKindMismatch(name, declared, readTypeKindFamily r)
+        | 5uy -> Conformance.ConformanceError.ValueMissingInImpl(r.ReadString())
+        | 6uy -> Conformance.ConformanceError.ImportBodyNotNativeOnly(r.ReadString())
+        | 7uy -> Conformance.ConformanceError.NativeOnlyWithoutImport(r.ReadString())
+        | 8uy ->
+            let name = r.ReadString()
+            Conformance.ConformanceError.ImportSelectorMismatch(name, r.ReadString())
+        | 9uy -> Conformance.ConformanceError.ImportMalformed(r.ReadString())
+        | 10uy ->
+            let name = r.ReadString()
+            Conformance.ConformanceError.ImportPathMalformed(name, r.ReadString())
+        | 11uy ->
+            let name = r.ReadString()
+            Conformance.ConformanceError.ImportAssetNotListed(name, r.ReadString())
+        | 12uy -> Conformance.ConformanceError.ImportUnsupportedTarget(r.ReadString())
+        | 13uy ->
+            let name = r.ReadString()
+            let selector = r.ReadString()
+            Conformance.ConformanceError.ImportMissingExport(name, selector, r.ReadString())
+        | b -> failwithf "FrozenCodec: unknown ConformanceError tag %d" b
+
     /// A `uint16`-backed enum, written as its own representation INCLUDING the flag bits; a
     /// diagnostic's spelling helper masks those off on read rather than at rest.
     let private writeToken (w: FrozenWriter) (t: Token) = w.Write(uint16 t)
@@ -406,6 +505,9 @@ module FrozenCodecDiagnostics =
             w.Write 41uy
             w.Write package
             writeConformanceVerdict w verdict
+        | Kind.ConformanceFinding finding ->
+            w.Write 57uy
+            writeConformanceError w finding
         | Kind.ParseFailure detail ->
             w.Write 43uy
             w.Write detail
@@ -572,6 +674,7 @@ module FrozenCodecDiagnostics =
             let supportTys = readStringArray r
             let noun = readMemberNoun r
             Kind.TraitAmbiguous(supportTys, noun, r.ReadString())
+        | 57uy -> Kind.ConformanceFinding(readConformanceError r)
         | b -> failwithf "FrozenCodec: unknown Kind tag %d" b
 
     let writeDiagnostic (w: FrozenWriter) (d: XParsec.FSharp.SemanticAnalysis.Diagnostic) =

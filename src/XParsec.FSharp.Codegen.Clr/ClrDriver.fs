@@ -71,13 +71,14 @@ module ClrDriver =
         AssemblySources.synthetic project.AssemblyName Target.Clr compilationDefines units
 
     /// An analysed assembly gated and emitted as ONE PE. `referenceAssemblies` and
-    /// `project.References` together supply the emitted `AssemblyRef` identities.
+    /// `project.References` together supply the emitted `AssemblyRef` identities. The CLR
+    /// target has no runtime module system, so the gate refuses any `[<Import>]` binding.
     let emitAnalysed
         (referenceAssemblies: string list)
         (project: ProjectInfo)
         (analysed: AnalysedAssembly)
         : Result<ClrArtifact, AssemblyFiles.AnchoredDiagnostic list> =
-        Frontend.emitAnalysed (Codegen.emitAssembly referenceAssemblies project) analysed
+        Frontend.emitAnalysed RuntimeModules.unsupported (Codegen.emitAssembly referenceAssemblies project) analysed
 
     /// An assembly's sources analysed and emitted as ONE PE. Diagnostics come back anchored to
     /// their own file rather than thrown. Resolution comes from `external` alone.
@@ -87,7 +88,7 @@ module ClrDriver =
         (project: ProjectInfo)
         (sources: AssemblySources)
         : Result<ClrArtifact, AssemblyFiles.AnchoredDiagnostic list> =
-        Frontend.compile (Codegen.emitAssembly referenceAssemblies project) external sources
+        Frontend.compile RuntimeModules.unsupported (Codegen.emitAssembly referenceAssemblies project) external sources
 
     /// `compileWith` over source text, MSBuild-shaped: the reference set resolves the contract
     /// the units are analysed against and supplies the emitted `AssemblyRef` identities.

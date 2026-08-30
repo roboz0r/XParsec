@@ -228,6 +228,15 @@ module Validation =
             // Records / DUs / abbreviations have no expression bodies that
             // affect Validation; only class-like member bodies are walked.
             for td in defs do
+                // A delegate declaration is refused here, like `exception` below: no pass
+                // models one, so it registers no type for conformance to compare.
+                match td with
+                | TypeDefn.Delegate _ ->
+                    match CstKeys.tryFirstTokenOfTypeDefn td with
+                    | ValueSome tok -> ctx.Report(tok, Kind.NotYetSupported "`delegate` type declarations")
+                    | ValueNone -> ()
+                | _ -> ()
+
                 match TypeDefnPatterns.tryObjectModelBody td with
                 | ValueSome body ->
                     for el in body.elements do

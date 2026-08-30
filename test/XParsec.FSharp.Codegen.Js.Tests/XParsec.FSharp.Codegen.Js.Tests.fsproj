@@ -84,6 +84,7 @@
     <Compile Include="FrozenCodecRoundTripTests.fs" />
     <Compile Include="FrozenCodecTreeRoundTripTests.fs" />
     <Compile Include="JsPackageTests.fs" />
+    <Compile Include="EsmModulesTests.fs" />
     <Compile Include="RuntimeAssetTests.fs" />
     <Compile Include="JsNativeSymbolsTests.fs" />
     <Compile Include="ManifestPrimitiveIdentityTests.fs" />

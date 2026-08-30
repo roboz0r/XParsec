@@ -111,7 +111,6 @@
     <Compile Include="SourceUnit.fs" />
     <Compile Include="ReferencedProject.fs" />
     <Compile Include="ParsedManifest.fs" />
-    <Compile Include="ConformancePass.fs" />
     <Compile Include="ConformanceTypars.fs" />
     <!-- Beside the typar half it runs with: both compare a resolved signature surface
          against the implementation's frozen declarations. -->

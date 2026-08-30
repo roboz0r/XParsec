@@ -189,4 +189,23 @@ let tests =
                     (hasMessage ctx "Skipped tokens")
                     "no parse-recovery skip on a fieldless interface-only class"
             }
+
+            test "a `delegate` type declaration is refused" {
+                let ctx = analyse "type D = delegate of int -> int"
+
+                Expect.isTrue
+                    (hasMessage ctx "not yet supported: `delegate` type declarations")
+                    "delegate declaration reports NotYetSupported"
+            }
+
+            test "a `delegate` inside a `type … and` group is refused; the siblings survive" {
+                let ctx =
+                    analyse "type R = { X: int }\nand D = delegate of int -> int\nlet r = { X = 1 }"
+
+                Expect.isTrue
+                    (hasMessage ctx "not yet supported: `delegate` type declarations")
+                    "delegate declaration reports NotYetSupported"
+
+                Expect.isFalse (hasMessage ctx "not defined") "the record sibling still registers"
+            }
         ]

@@ -62,7 +62,7 @@ let tests =
 
                 let analysed =
                     AnalysedAssembly.analyse
-                        Pipeline.analyseFor
+                        Pipeline.analyseFileFor
                         (ClrSymbolProviders.buildContractForSelf (Some vesperCorePackage) [])
                         (AssemblySources.synthetic "Vesper.Core" Target.Clr Set.empty units)
 

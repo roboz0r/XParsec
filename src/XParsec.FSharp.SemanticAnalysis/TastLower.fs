@@ -437,7 +437,7 @@ module TastLower =
             | ExprShape.TraitCall -> true
             | _ -> TastAccessor.existsChild hasTraitCall e
 
-        // An inline VALUE whose whole body is one zero-operand template (`jsNative`) is
+        // An inline VALUE whose whole body is one zero-operand template (`nativeOnly`) is
         // splice source: every use splices the template, and a definition would evaluate
         // it at module load.
         let isBareTemplateValue (e: TastAccessor.ExprId) : bool =

@@ -76,6 +76,8 @@ module AssemblyFiles =
             /// carried alongside the analysis residue.
             ParseDiagnostics: Diagnostic list
             Frozen: FrozenPools
+            /// In declaration order.
+            Imports: ImportObligation list
             /// The provider this file WAS analysed against: prior files' views nearest-first
             /// over the external surface, under the file's own declared namespaces. Carried
             /// rather than re-derived, so a backend resolves an `External` node the same way.
@@ -119,7 +121,11 @@ module AssemblyFiles =
     /// The per-file front-end seam: analyse+freeze one parsed file against a composed
     /// provider, wrappable by a probe that times each file.
     type AnalyseFile =
-        CompilingAssembly -> IExternalSymbolProvider -> LexedFile -> ImplementationFile<SyntaxToken> -> FrozenPools
+        CompilingAssembly
+            -> IExternalSymbolProvider
+            -> LexedFile
+            -> ImplementationFile<SyntaxToken>
+            -> FrozenPools * ImportObligation list
 
     /// One parsed half of a unit: its tree, and the name within the assembly its own
     /// diagnostics anchor to, which the tree itself omits.

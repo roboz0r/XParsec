@@ -482,6 +482,18 @@ module EmitJs =
             // of the `$N`-template expander, which rejects an operand-bearing template.
             | "" when args.Length = 1 -> buildExpr ctx args.[0]
 
+            // The body of an `[<Import>]`-served binding: the runtime asset's export is the
+            // implementation, so the emitted definition throws if it is ever called. The
+            // committed asset barrel overwrites this module (JsPackageTests, KNOWN DEFECT).
+            | opCode when opCode = RuntimeNames.importSentinelText ->
+                JsExpr.Raw(
+                    [
+                        JsRawSeg.Verbatim
+                            "(() => { throw new Error('nativeOnly: this binding is served by its [<Import>] declaration') })()"
+                    ],
+                    loc
+                )
+
             | opCode -> JsExpr.Raw(EmitJsFormat.expandTemplate buildExpr ctx opCode args, loc)
 
         | ExprShape.Format ->

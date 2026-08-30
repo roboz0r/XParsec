@@ -11,8 +11,8 @@ description = "Minimal language fundamentals: the primitive types, Fun, Ref, cap
 # program writing one is rejected as unsupported on the target. And `fun-adapters` is CLR-only:
 # JS applies function values directly.
 files = [
-    # `jsNative` and `checkedDivisor` lead: the primitive `.fs` bodies below splice
-    # `checkedDivisor` into their `/` and `%` templates, and it references no type at all.
+    # `checkedDivisor` leads: the primitive `.fs` bodies below splice it into their `/` and
+    # `%` templates, and it references no type at all.
     "js-interop.js.fsi",
     "js-interop.js.fs",
     "prim-types-min.fsi",
@@ -41,6 +41,8 @@ files = [
     "prim-types-attr.js.fs",
     "compiler-attributes.fsi",
     "compiler-attributes.fs",
+    "compiler-markers.fsi",
+    "compiler-markers.fs",
     "core-types.fsi",
     "core-types.fs",
     "structural-format.fsi",

@@ -268,9 +268,9 @@ module Shim =
             // which could be "the package's module".
             //
             // KNOWN DEFECT this test tolerates: an `[<Import>]` binding's DECLARING module
-            // still emits it as a jsNative-throwing function (consumers are unaffected —
-            // they import from the runtime asset), and the load check passes only because
-            // the asset barrel overwrites the generated one (see `JsDriver.materialise`).
+            // still emits it as a throwing `nativeOnly` function, and the load check passes
+            // only because the asset barrel overwrites the generated one (see
+            // `JsDriver.materialise`).
             test "Vesper.Core compiles as one package and its modules load under Node" {
                 let manifestPath =
                     ReferencedProject.resolveManifest Target.Js vesperCorePackage
@@ -483,4 +483,54 @@ let inlineBodyOrderTests =
                     "first.fs"
                     "reversed, the other file is the later entry and wins"
             }
+        ]
+
+// ---- Whole-corpus conformance (js) ------------------------------------------
+// Every package publishing a `manifest.js.toml`, driven through the production analyse-and-
+// gate seam: the same `conformSignature` and `[<Import>]` verdicts a compile takes, including
+// the gate's discharge of the import obligations against the committed assets.
+
+let private jsManifestPackages: (string * string) list =
+    IO.Directory.GetDirectories(IO.Path.Combine(__SOURCE_DIRECTORY__, "..", "..", "src"), "Vesper.*")
+    |> Array.filter (fun d -> IO.File.Exists(IO.Path.Combine(d, "manifest.js.toml")))
+    |> Array.map (fun d -> IO.Path.GetFileName d, d)
+    |> Array.sortBy fst
+    |> List.ofArray
+
+[<Tests>]
+let jsCorpusConformanceTests =
+    testList
+        "JsCorpusConformance"
+        [
+            for package, dir in jsManifestPackages do
+                test $"{package}: the js manifest's units analyse and conform, imports discharged" {
+                    // `resolveAll` closes the contract over `depends-on`, so the self stack
+                    // needs no explicit reference list.
+                    let contract = JsDriver.contractForSelf dir []
+
+                    let gated =
+                        match PackageProviders.AnalysedManifest.gate contract with
+                        | Ok g -> g
+                        | Error diags ->
+                            failtestf
+                                "%s: contract refused:\n%s"
+                                package
+                                (AssemblyFiles.AnchoredDiagnostic.renderAll diags)
+
+                    let sources =
+                        ReferencedProject.resolveManifest Target.Js dir
+                        |> PackageFaults.okOrFail (sprintf "%s manifest" package)
+                        |> AssemblySources.ofManifest
+                        |> PackageFaults.okOrFail (sprintf "%s units" package)
+
+                    let analysed = Frontend.analyse gated.Provider sources
+
+                    match AnalysedAssembly.gate (JsDriver.selfModules contract package) analysed with
+                    | Ok _ -> ()
+                    | Error diags ->
+                        failtestf
+                            "%s: the analysed units must conform to their signature contracts; got:\n%s"
+                            package
+                            (AssemblyFiles.AnchoredDiagnostic.renderAll diags)
+                }
         ]

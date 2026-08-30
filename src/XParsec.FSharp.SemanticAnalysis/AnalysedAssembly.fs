@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis.AssemblyFiles
 open XParsec.FSharp.SemanticAnalysis.AssemblyAnalysis
 
@@ -53,10 +54,37 @@ module AnalysedAssembly =
             Visibility = visibility external analysed.Published
         }
 
-    /// Admit an assembly to emission: every unit must have parsed, and no unit may surface an
-    /// error-severity diagnostic. A refusal carries every such finding in manifest order.
-    let gate (analysed: AnalysedAssembly) : Result<EmittableAssembly, AnchoredDiagnostic list> =
-        match AnchoredDiagnostic.errors analysed.Diagnostics with
+    /// Every `[<Import>]` obligation the analysed units record, discharged against the
+    /// target's module system; each finding is positioned at its binding in the declaring
+    /// `.fs`.
+    let private dischargeImports (modules: IRuntimeModules) (analysed: AnalysedAssembly) : AnchoredDiagnostic list =
+        [
+            for unit in analysed.Units do
+                match unit with
+                | UnitOutcome.Failed _ -> ()
+                | UnitOutcome.Analysed u ->
+                    for o in u.File.Imports do
+                        match RuntimeModules.discharge modules o with
+                        | ValueNone -> ()
+                        | ValueSome e ->
+                            yield!
+                                anchorDiagnostics
+                                    u.File.Retained
+                                    [ Diagnostic.create (Kind.ConformanceFinding e) (Site.ofToken o.Site) [] ]
+        ]
+
+    /// Admit an assembly to emission: every unit must have parsed, no unit may surface an
+    /// error-severity diagnostic, and every recorded `[<Import>]` obligation must discharge
+    /// against `modules`, the target's module system. A refusal carries every such finding,
+    /// unit findings first, each in manifest order.
+    let gate
+        (modules: IRuntimeModules)
+        (analysed: AnalysedAssembly)
+        : Result<EmittableAssembly, AnchoredDiagnostic list> =
+        match
+            AnchoredDiagnostic.errors analysed.Diagnostics
+            @ dischargeImports modules analysed
+        with
         | _ :: _ as errors -> Error errors
         | [] ->
             let files =

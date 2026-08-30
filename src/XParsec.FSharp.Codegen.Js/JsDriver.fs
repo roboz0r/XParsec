@@ -101,6 +101,14 @@ module JsDriver =
             for target in a.Imports do
                 check a.Path target
 
+    /// The compiling package's own module system: the `[core] runtime` assets `contract`
+    /// resolved for `packageName`.
+    let selfModules (contract: PackageProviders.AnalysedManifest) (packageName: string) : IRuntimeModules =
+        contract.RuntimeAssets
+        |> Map.tryFind packageName
+        |> Option.defaultValue []
+        |> EsmModules.create
+
     /// An assembly's sources analysed and lowered to one `.mjs` per emitting file.
     let compileWith
         (contract: PackageProviders.AnalysedManifest)
@@ -109,7 +117,9 @@ module JsDriver =
         let packageName = sources.Assembly.Name.Name
 
         PackageProviders.AnalysedManifest.gate contract
-        |> Result.bind (fun gated -> Frontend.compile (Codegen.emitAssembly contract) gated.Provider sources)
+        |> Result.bind (fun gated ->
+            Frontend.compile (selfModules contract packageName) (Codegen.emitAssembly contract) gated.Provider sources
+        )
         |> Result.bind (fun emittedFiles ->
             // Each module keeps its file's source identity, which is the path it writes to. A
             // file that lowers to no statements writes no module, so it joins neither the

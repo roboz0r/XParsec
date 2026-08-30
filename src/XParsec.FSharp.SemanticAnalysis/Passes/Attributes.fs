@@ -149,14 +149,25 @@ module Attributes =
                     "[<Global>] declares the VALUE a binding introduces to be a target global, but this binding has no single name, so give it one, or drop the attribute"
         | _ -> ()
 
+    /// The body is `nativeOnly`, read off the TRANSLATED tree by resolved identity: the
+    /// binding's own key, or the sentinel template a reference to it splices to. A shadowing
+    /// declaration of the same spelling does not satisfy the check.
+    let rec private isNativeOnlyBody (e: TExpr) : bool =
+        match e with
+        | TExpr.Lambda(_, body, _, _) -> isNativeOnlyBody body
+        | TExpr.External(_, ValueSome key, _, _) -> key = RuntimeNames.nativeOnlyKey
+        | _ -> TExprG.nullaryIntrinsicText e = ValueSome RuntimeNames.importSentinelText
+
     /// `[<Import>]`: the binding's implementation IS the named export of a committed runtime
-    /// asset. Checked BOTH ways because a real body beside the attribute would be silently
-    /// discarded, and a `jsNative` body with no attribute emits the throwing template as the
-    /// definition. The selector must equal the emitted name, because a reference imports that.
-    ///
-    /// The BODY is read off the CST, ahead of the inline expansion that turns `jsNative` into
-    /// the template it stands for.
-    let declareImportBinding (ctx: PassContext) (b: Binding<SyntaxToken>) (emittedName: string voption) : unit =
+    /// asset. Checked BOTH ways, because a real body beside the attribute is silently
+    /// discarded and a bare `nativeOnly` body reaches a backend that refuses it.
+    let declareImportBinding
+        (ctx: PassContext)
+        (b: Binding<SyntaxToken>)
+        (emittedName: string voption)
+        (exportedKey: SymbolKey voption)
+        (valT: TExpr)
+        : unit =
         let name =
             match MemberNames.ofBinding ctx b with
             | ValueSome m -> m.Name
@@ -168,18 +179,31 @@ module Attributes =
             | ValueNone -> name
 
         let report (e: Conformance.ConformanceError) =
-            ctx.Report((CstKeys.siteOfBinding b).Tok, Kind.Message(Conformance.describe e))
+            ctx.Report((CstKeys.siteOfBinding b).Tok, Kind.ConformanceFinding e)
 
-        let isJsNative = Conformance.isJsNativeBody ctx.NameOf b.expr
+        let isNativeOnly = isNativeOnlyBody valT
+
+        // `nativeOnly`'s own declaration is the sentinel's source, not a binding it serves.
+        let isSentinelDeclaration = exportedKey = ValueSome RuntimeNames.nativeOnlyKey
 
         match AttributeDecode.tryImport ctx.NameOf (ctx.ResolveAttributes b.attributes) with
         | ImportDecl.NoImport ->
-            if isJsNative then
-                report (Conformance.ConformanceError.JsNativeWithoutImport name)
+            if isNativeOnly && not isSentinelDeclaration then
+                report (Conformance.ConformanceError.NativeOnlyWithoutImport name)
         | ImportDecl.Malformed -> report (Conformance.ConformanceError.ImportMalformed name)
         | ImportDecl.Import r ->
-            if not isJsNative then
-                report (Conformance.ConformanceError.ImportBodyNotJsNative name)
+            if not isNativeOnly then
+                report (Conformance.ConformanceError.ImportBodyNotNativeOnly name)
 
             if r.Selector <> emitted then
                 report (Conformance.ConformanceError.ImportSelectorMismatch(name, r.Selector))
+
+            // The manifest half of the check is the assembly gate's: it resolves `Path`
+            // through the target's module system and reports through `Site`.
+            ctx.Bindings.Imports.Add
+                {
+                    Binding = name
+                    Selector = r.Selector
+                    Path = r.Path
+                    Site = (CstKeys.siteOfBinding b).Tok
+                }

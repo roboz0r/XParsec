@@ -116,14 +116,14 @@ let runChain (depth: ChainDepth) =
 
     // Warm-up so JIT / tiered compilation settles before the measured pass. Not counted.
     for s in stages do
-        analyseStage Pipeline.analyseFor s |> ignore
+        analyseStage Pipeline.analyseFileFor s |> ignore
 
     reset ()
     let sw = Stopwatch.StartNew()
     let errorsByStage = ResizeArray<string * int>()
 
     for s in stages do
-        let results = analyseStage (timed s.Name Pipeline.analyseFor) s
+        let results = analyseStage (timed s.Name Pipeline.analyseFileFor) s
         errorsByStage.Add(s.Name, stageErrorCount results)
 
     sw.Stop()

@@ -116,7 +116,7 @@ let private runSaTraceChild (depth: SemanticAnalysisFixtures.ChainDepth) (iterat
 
     let runOnce () =
         for s in stages do
-            SemanticAnalysisFixtures.analyseStage XParsec.FSharp.SemanticAnalysis.Pipeline.analyseFor s
+            SemanticAnalysisFixtures.analyseStage XParsec.FSharp.SemanticAnalysis.Pipeline.analyseFileFor s
             |> ignore
 
     // Warm-up so JIT / tiered compilation settles before the trace window.
