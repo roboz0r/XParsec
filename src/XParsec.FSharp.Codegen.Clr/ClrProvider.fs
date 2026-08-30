@@ -365,26 +365,22 @@ type ClrProvider
                 | ValueNone -> ValueNone
 
         member _.UserGenericMemberRef(key, args, kind) =
-            let zonkedArgs = args
-
             match kind with
-            | UserMemberKind.UnionMember which -> generics.GenericUnionMemberRef(key, zonkedArgs, which)
-            | UserMemberKind.RecordMember which -> generics.GenericRecordMemberRef(key, zonkedArgs, which)
-            | UserMemberKind.ClassMember which -> generics.GenericClassMemberRef(key, zonkedArgs, which)
+            | UserMemberKind.UnionMember which -> generics.GenericUnionMemberRef(key, args, which)
+            | UserMemberKind.RecordMember which -> generics.GenericRecordMemberRef(key, args, which)
+            | UserMemberKind.ClassMember which -> generics.GenericClassMemberRef(key, args, which)
             | UserMemberKind.Member(metaName, isStatic, methodTyparCount, paramTys, retTy) ->
-                generics.GenericMemberRef(key, zonkedArgs, metaName, isStatic, methodTyparCount, paramTys, retTy)
+                generics.GenericMemberRef(key, args, metaName, isStatic, methodTyparCount, paramTys, retTy)
 
         member _.UserClosureMemberRef(name, args, which) =
             generics.GenericClosureMemberRef(name, args, which)
 
         member _.TryEmitRecordCons(key, tyArgs, _fieldNames) =
-            let zonkedArgs = tyArgs
-
-            match ext.ExternalRecordCtor(key, zonkedArgs) with
+            match ext.ExternalRecordCtor(key, tyArgs) with
             | ValueNone -> ValueNone
             | ValueSome handle ->
                 let argCount =
-                    match env.ExternalRecordShape(key, List.length zonkedArgs) with
+                    match env.ExternalRecordShape(key, List.length tyArgs) with
                     | ValueSome(fields, _) -> fields.Length
                     | ValueNone -> 0
 

@@ -53,10 +53,7 @@ module internal LayoutNodes =
                 | TTypeKindG.Enum cases ->
                     match TEnumCases.classify cases with
                     | ValueSome TEnumVariant.Numeric ->
-                        let underlying =
-                            match TEnumCases.underlyingTypeKey cases with
-                            | ValueSome w -> w
-                            | ValueNone -> RuntimeNames.intKey
+                        let underlying = TEnumCases.numericUnderlyingTypeKey cases
 
                         let numericCases =
                             [
@@ -585,7 +582,7 @@ module internal LayoutNodes =
                         }
                     ]
 
-                nominalNode (TypeSlotKind.StructEnum sed.IsMixed) td fields methodRows
+                nominalNode TypeSlotKind.StructEnum td fields methodRows
         ]
 
     /// Per closure: capture fields; `.ctor` + `Invoke`. Closures synthesise their typar

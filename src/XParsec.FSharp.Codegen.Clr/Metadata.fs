@@ -220,30 +220,6 @@ type MetadataContext() =
             firstMethod
         )
 
-    /// The `abstract sealed` (static) class for top-level members: it owns no fields, so
-    /// `firstField` points past any preceding rows and its field range stays empty. `ns`
-    /// is empty for the anonymous "Program" class and for a NESTED module's class.
-    member _.AddProgramType
-        (
-            attrs: TypeAttributes,
-            ns: string,
-            name: string,
-            baseType: EntityHandle,
-            firstField: FieldDefinitionHandle,
-            firstMethod: MethodDefinitionHandle
-        ) : TypeDefinitionHandle =
-        mb.AddTypeDefinition(
-            attrs,
-            (if String.IsNullOrEmpty ns then
-                 Unchecked.defaultof<StringHandle>
-             else
-                 mb.GetOrAddString(ns)),
-            mb.GetOrAddString(name),
-            baseType,
-            firstField,
-            firstMethod
-        )
-
     /// An interface `TypeDefinition` with a **nil base** (interfaces have none); `ns` empty ⇒
     /// global. An interface has no fields, so `firstField` points past any preceding rows.
     member _.AddInterfaceType

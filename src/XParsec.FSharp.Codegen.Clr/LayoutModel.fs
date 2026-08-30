@@ -99,9 +99,9 @@ type internal TypeSlotKind =
     /// special-name `value__` instance field, and one `static literal` field per case.
     | Enum
     /// A string / mixed enum: a sealed `[<Struct>]` value type over a single field
-    /// (`string`, or `obj` when `isMixed`), with a `.ctor` setting it, per-case
+    /// (`string`, or `obj` for a mixed enum), with a `.ctor` setting it, per-case
     /// `static initonly` fields, and a `.cctor` constructing them.
-    | StructEnum of isMixed: bool
+    | StructEnum
     /// A named module's class; `hasCctor` ⇔ it owns module values (drops
     /// `BeforeFieldInit`).
     | ModuleClass of hasCctor: bool

@@ -112,7 +112,7 @@ module internal AssemblerScaffold =
         ctx.AddModuleType(mainDef)
 
         // The scaffold's Program class owns no values, so it keeps `BeforeFieldInit`.
-        ctx.AddProgramType(
+        ctx.AddClass(
             TypeAttributes.Class
             ||| TypeAttributes.Public
             ||| TypeAttributes.Abstract

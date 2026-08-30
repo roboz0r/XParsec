@@ -42,6 +42,22 @@ module TEnumCases =
         | TConstValue.Integral(IntKind.Int32, _) -> false
         | _ -> true
 
+    /// The underlying primitive TYPE of a numeric enum: the first explicit kind if any,
+    /// else `int`.
+    let numericUnderlyingTypeKey (cases: EqArray<TEnumCaseG<'tok>>) : TypeKey =
+        let mutable explicit = ValueNone
+
+        for c in cases do
+            match c.Value with
+            | ValueSome(TEnumLiteral.Int v) when isExplicitKind v ->
+                if explicit.IsNone then
+                    explicit <- ValueSome(RuntimeNames.intKindKey (integralKind v))
+            | _ -> ()
+
+        match explicit with
+        | ValueSome key -> key
+        | ValueNone -> RuntimeNames.intKey
+
     /// The underlying primitive TYPE: all-numeric → the first explicit kind if any,
     /// else `int`; all-string → `string`; mixed → `obj`; no resolved case → `ValueNone`.
     let underlyingTypeKey (cases: EqArray<TEnumCaseG<'tok>>) : TypeKey voption =
@@ -49,19 +65,7 @@ module TEnumCases =
         | ValueNone -> ValueNone
         | ValueSome TEnumVariant.String -> ValueSome RuntimeNames.stringKey
         | ValueSome TEnumVariant.Mixed -> ValueSome RuntimeNames.objKey
-        | ValueSome TEnumVariant.Numeric ->
-            let mutable explicit = ValueNone
-
-            for c in cases do
-                match c.Value with
-                | ValueSome(TEnumLiteral.Int v) when isExplicitKind v ->
-                    if explicit.IsNone then
-                        explicit <- ValueSome(RuntimeNames.intKindKey (integralKind v))
-                | _ -> ()
-
-            match explicit with
-            | ValueSome key -> ValueSome key
-            | ValueNone -> ValueSome RuntimeNames.intKey
+        | ValueSome TEnumVariant.Numeric -> ValueSome(numericUnderlyingTypeKey cases)
 
     /// How a kind is SPELLED to the user, off the same identity the enum is typed by, so
     /// the message cannot cite a type the enum was not given.

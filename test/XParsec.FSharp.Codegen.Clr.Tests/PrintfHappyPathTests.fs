@@ -32,8 +32,7 @@ let private formatOf (hole: HoleSpecG<'ty, 'tok>) : string option =
     | ClrHoleFormat.HoleCall.Formatted(fmt, _) -> fmt
     | other -> failtestf "formatOf: %A composes its own text" other
 
-/// The field alignment an `AppendFormatted` hole carries. A zero-pad member takes a total
-/// WIDTH instead, which its `HoleCall` payload holds.
+/// The field alignment an `AppendFormatted` hole carries.
 let private alignmentOf (hole: HoleSpecG<'ty, 'tok>) : int option =
     match callOf hole with
     | ClrHoleFormat.HoleCall.Formatted(_, align) -> alignToOpt align

@@ -1122,7 +1122,7 @@ type internal Assembler
 
             // A string/mixed enum: a `[<Struct>]` value type with a `.ctor` + `.cctor`.
             // Its `System.ValueType` base is stored in `TypeRowExtras`; never byref-like.
-            | TypeSlotKind.StructEnum _ -> addNominalRow node structEnumAttrs false
+            | TypeSlotKind.StructEnum -> addNominalRow node structEnumAttrs false
 
             // Each closure implements its `Vesper.Fun\`2<param, result>` interface. Its
             // `GenericParam` rows were collected under the closure-typar ambient, so
@@ -1160,7 +1160,7 @@ type internal Assembler
             // own `FieldList`; a value-less one's empty range points past the previous.
             | TypeSlotKind.ModuleClass hasCctor ->
                 let typeHandle =
-                    ctx.AddProgramType(
+                    ctx.AddClass(
                         nestedAttrsOf node.Enclosing (moduleClassAttrsOf hasCctor),
                         slot.Namespace,
                         slot.MetaName,
@@ -1177,7 +1177,7 @@ type internal Assembler
             // owns leading-prefix values, so its `.cctor` must run before `Main`.
             | TypeSlotKind.Program hasCctor ->
                 let typeHandle =
-                    ctx.AddProgramType(
+                    ctx.AddClass(
                         moduleClassAttrsOf hasCctor,
                         slot.Namespace,
                         slot.MetaName,
