@@ -85,9 +85,13 @@ the encoder at each call/field boundary is the mechanism to design.
 
 A compat closure *is* an `FSharpFunc`, so the eta-reified `(+)` folder could be
 passed straight to FSharp.Core's `ListModule.Fold` — which would un-break the
-canonical `List.fold` run-tests (`Slice5Tests.fs`, currently `ptest`-pending) under
-`--fsharp-compat` **without** waiting for R2's `Vesper.Fun`-folder fold. This is a
-genuine interim, but it ships FSharp.Core; the lightweight default still needs R2.
+canonical `List.fold` run-tests under `--fsharp-compat` **without** waiting for R2's
+`Vesper.Fun`-folder fold. This is a genuine interim, but it ships FSharp.Core; the
+lightweight default still needs R2.
+
+**The benefit has since evaporated.** Those tests were `Slice5Tests.fs`, `ptest`-pending; they
+are now live tests in `ListModuleTests.fs` (`:114`, `:118`) running on the Vesper fold, so
+nothing here is waiting on a compat closure.
 
 ## Why deferred (not built with R1)
 

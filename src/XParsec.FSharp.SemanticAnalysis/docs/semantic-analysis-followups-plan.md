@@ -293,15 +293,20 @@ different root collectors (`SemTypeWalk.collectLinkedRoots` here, `iterTypeVarRo
 differ in whether a level test gates the seed, which is exactly the kind of divergence that will
 not show up until the two disagree about which typars a scheme has.
 
-### `ExternalSymbols.fs:89` — the `deferredTemplate` sentinel is a two-phase type spelled as a magic value
+### `ExternalDeclarations.fs:112` — the `deferredTemplate` sentinel is a two-phase type spelled as a magic value
 
-Five separate fields hold `FrozenTypeBridge.deferredTemplate` (`FTUnknown "<deferred>"`) between
-contract extraction and `VesperLib.finalizeDeferred`: `ExternalFieldShape.Frozen` (`:89`),
-`ExternalCaseShape.FrozenFieldTypes` (`:107`), `ExternalSignature.Parameters` / `.Return` (`:195`)
-and `ExternalSymbol.Scheme` (`:888`). Each needed a doc line saying the value may be a sentinel, and
-nothing in the type stops a consumer reading one before the finalize pass overwrites it — a distinct
-pre-finalize shape (or a `Deferred<FrozenType>` wrapper the finalize pass consumes) would delete all
-five comments and make the ordering a compile error instead of a convention.
+Five separate fields hold `FrozenTypeBridge.deferredTemplate` (`FTUnknown UnknownReason.Deferred`)
+until a later pass fills them: `ExternalFieldShape.Frozen` (`:112`),
+`ExternalCaseShape.FrozenFieldTypes` (`:130`), `ExternalSignature.ArgGroups` / `.Return` (`:197-198`)
+and `ExternalSymbol.Scheme` (`:84`). Each needed a doc line saying the value may be a sentinel, and
+nothing in the type stops a consumer reading one before it is overwritten — a distinct pre-fill shape
+(or a `Deferred<FrozenType>` wrapper the filling pass consumes) would delete all five comments and
+make the ordering a compile error instead of a convention.
+
+Re-scope before acting: the `VesperLib.finalizeDeferred` pass this was written against is deleted,
+and `SignatureResolution` resolves a signature in one step. The sentinel now survives mainly as the
+zero each `OfKey` / `ofBindingKey` record literal copies from, so measure how far a sentinel actually
+travels today.
 
 ### `Passes/NameResolution.fs:23` — `TypeBodiesWalk` is two record shapes in one
 
@@ -319,20 +324,23 @@ a `PassContext` table and the snapshot cannot be taken before the pass — it IS
 
 Which side tables `run` requires (`Bindings.Binding`, `Bindings.TypeVar`) and which it still fills
 (`Bindings.Escape`, `Store.Region`) is stated only in the file header, and the same shape recurs in
-`Validation.fs`, `Desugar.fs` and `RefCellPromotion.fs`. An explicit input record (the tables read),
-threaded by `Pipeline`, would delete four prose headers and turn the ordering into a compile error.
+`Validation.fs` and `RefCellPromotion.fs`. An explicit input record (the tables read),
+threaded by `Pipeline`, would delete three prose headers and turn the ordering into a compile error.
 
-### `Passes/Desugar.fs:95` — the type-body traversal is a third hand-rolled copy
+### The type-body traversal is a hand-rolled copy **[re-scoped — three copies became two]**
 
-`walkCtorBody` (`:95`), `walkMemberElems` (`:122`) and `walkClassBody` (`:145`) enumerate every
-expression reachable from a `TypeDefn`: member and property bodies, auto-property initialisers,
-secondary-constructor bodies in all five `AdditionalConstrExpr` shapes, interface-impl members, the
-class preamble's `let`/`do`, and the primary `inherit` argument. `NameResolution.fs:244` walks the
-same grammar with its own `walkCtorBody`, and `Validation.fs:238` walks a deliberately narrower subset
-of it. The three drift independently, one arm at a time: Desugar's copy carries interface-impl,
-class-preamble, `inherit`-argument and union/record/abbrev-extension arms that Validation's does not,
-and the deleted comments recorded each of those as a bug found after the fact (a missing arm left
-`inferInfix` on a free TyVar). Whether Validation's narrower reach is intentional or the same gap
+The third copy this entry was written against lived in `Passes/Desugar.fs` (`walkCtorBody` `:95`,
+`walkMemberElems` `:122`, `walkClassBody` `:145`) and went with that pass (`b3ed35d6`). Two remain,
+and the drift risk is unchanged in kind.
+
+Each enumerates every expression reachable from a `TypeDefn`: member and property bodies,
+auto-property initialisers, secondary-constructor bodies in all five `AdditionalConstrExpr` shapes,
+interface-impl members, the class preamble's `let`/`do`, and the primary `inherit` argument.
+`NameResolution.fs:244` walks the grammar with its own `walkCtorBody`, and `Validation.fs:238` walks
+a deliberately narrower subset of it. They drift independently, one arm at a time: the deleted copy
+carried interface-impl, class-preamble, `inherit`-argument and union/record/abbrev-extension arms
+that Validation's does not, and the deleted comments recorded each of those as a bug found after the
+fact (a missing arm left `inferInfix` on a free TyVar). Whether Validation's narrower reach is intentional or the same gap
 not yet hit is not stated anywhere. One `CstWalk` entry point yielding every `Expr` under a
 `TypeDefn`, with each pass supplying only its visitor, would remove the divergence.
 

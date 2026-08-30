@@ -119,12 +119,12 @@ keys as `valueKey (ModuleContainer.InNamespace NamespaceKey.Global) "k"`.
 So either the wrapper is dead ceremony, or a top-level `let inline` genuinely fails to publish
 and nothing covers it. Add the unwrapped case; whichever way it lands is a fact worth a test.
 
-## A8. `DesugarTests` "nested InfixApp" asserts a count where it means two keys
+## A8. `DesugarTests` "nested InfixApp" asserts a count where it means two keys **[MOOT — the file is deleted]**
 
-`Expect.isGreaterThanOrEqual ctx.Desugared.Count 2` cannot catch a wrong key — which is
+`Expect.isGreaterThanOrEqual ctx.Desugared.Count 2` could not catch a wrong key — which is
 exactly why the comment above it carried wrong offsets (8/12; the operators in
-`let x = 1 + 2 * 3` are at 10 and 14) undetected. Assert the two `NodeKey.ofSource 10/14
-NodeKind.ExprInfixApp` entries resolve to `OpName "op_Addition"` and `OpName "op_Multiply"`.
+`let x = 1 + 2 * 3` are at 10 and 14) undetected. `b3ed35d6` deleted `DesugarTests.fs` along with
+the `Desugar` pass and `ctx.Desugared`, so there is no assertion left to tighten.
 
 ## A9. Test helpers are re-declared per file, twice with the SAME NAME and DIFFERENT types
 
@@ -328,9 +328,10 @@ So `TyEnum E = TyEnum E` checks cleanly and the assertion is vacuous. Use
 `Expect.isEmpty tast.Diagnostics`, which is what the test title claims.
 
 The deleted comment made the same mistake in prose, citing a monomorphic `op_Equality` from
-`MockBuiltins` — which does not exist in this project at all; it lives in the Codegen test
-projects. **The stale assertion MESSAGE still says "the mock's monomorphic-int `=` shape
-clash"**; it is a string literal, so the sweep left it.
+`MockBuiltins`, which by then existed in no project here and has since been removed from the tree
+outright — every test resolves through the real `Vesper.*` contracts. **The stale assertion MESSAGE
+still says "the mock's monomorphic-int `=` shape clash"**; it is a string literal, so the sweep left
+it.
 
 ## A28. `ConstraintsTests` — assertion weaker than the test name
 
@@ -438,8 +439,8 @@ Deletes: the two coverage-rationale comments.
 
 ## B5. A `PassContext` should not be constructible un-run
 
-`PassContext(provider, origin)` is a usable value before Desugar / NameResolution /
-Unification have run, and `totalMemberKey` silently depends on registries those passes fill.
+`PassContext(provider, origin)` is a usable value before NameResolution / Unification have run,
+and `totalMemberKey` silently depends on registries those passes fill.
 A type that only exists post-pass removes the construction protocol from prose.
 
 Deletes: the last sentence of the `extCtx` block in `CoverageTests.fs` — *"The trivial file

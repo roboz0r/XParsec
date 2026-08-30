@@ -254,8 +254,8 @@ TAST shape.
   duplicate diagnostics, `CtorIndex` reverse-mapping, nullary-ctor
   pattern binding, generic union `TypeParams`, decl-site / use-site
   `ResolvedType` stamping.
-- `UnificationTests.fs` — ctor reference / application inference, pattern
-  inference, ambiguity, arity/type mismatch.
+- `UnificationUnionsTests.fs` (`UnificationTests.fs` before the split) — ctor
+  reference / application inference, pattern inference, ambiguity, arity/type mismatch.
 - `RegionsTests.fs` — ctor allocation classification.
 - `CoverageTests.fs` — golden TAST shapes end-to-end.
 - Codegen `UnionTests.fs` / `ChoiceTests.fs` — monomorphic and generic

@@ -176,11 +176,9 @@ untagged intrinsic with members AND an `interface` republishes through `PendingI
 
 ### `Vesper.Seq.truncate` is CLR-only
 
-Unrelated to enumeration lowering, but the remaining thing keeping `Vesper.Seq` off
-JS: `truncate` delegates to `System.Linq.Enumerable.Take`. Now that `seq`/`enumerator`
-are authorable capabilities, the fix is plain Vesper code — a `TakeSeq<'T>` /
-`TakeEnumerator<'T>` pair, the shape `List`/`ListEnumerator` already take. See the
-sited comment in `src/Vesper.Seq/seq.clr.fs`.
+**DONE.** `truncate` delegated to `System.Linq.Enumerable.Take`, which was the remaining thing
+keeping `Vesper.Seq` off JS. The fix was plain Vesper code, the shape `List`/`ListEnumerator`
+already take: `TruncateSeq<'T>` in `src/Vesper.Seq/seq.fs` (`:6-71`), on a target-neutral `.fs`.
 
 ---
 

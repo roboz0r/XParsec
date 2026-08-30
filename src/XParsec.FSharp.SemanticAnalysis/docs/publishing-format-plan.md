@@ -45,7 +45,7 @@ This is the same partition F# pickles: `FSharpSignatureData` (the contract) +
 `FSharpOptimizationData` (inlinable bodies). Vesper's `.fsi` ≙ signature data;
 the manifest's `impl` inline `.fs` (e.g. `ops-platform.clr.fs`) ≙ optimization data
 (read across the package boundary by
-`SymbolProviders.inlineBodies` and spliced by `Emit.lowerWith`, milestone M).
+`InlineBodies.collect` and spliced by `Emit.lowerWith`, milestone M).
 
 ## Three positions, not two
 

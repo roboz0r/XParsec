@@ -3,9 +3,13 @@
 ## Objective
 
 Lower `seq { … }` and the list/array comprehensions (`[ for x in xs -> f x ]`, `[| … |]`) to a lazy
-pull object on both targets. This is what `Vesper.Seq`'s lazy surface is blocked on today: `truncate`
-delegates to CLR-Linq `Enumerable.Take` (`seq.clr.fs:64-65`) because the backend cannot lower a `seq { }`
-body, which makes it the one member of `Vesper.Seq` with no JS lowering.
+pull object on both targets.
+
+*(The motivating example is spent: `truncate` delegated to CLR-Linq `Enumerable.Take` in
+`seq.clr.fs` because the backend could not lower a `seq { }` body, making it the one member of
+`Vesper.Seq` with no JS lowering. §"`Seq.truncate` does NOT need sequence expressions" below was
+acted on — `Vesper.Seq/seq.fs:6-71` now hand-writes `TruncateSeq<'T>`, the file is target-neutral,
+and the `System.Linq` dependency is gone.)*
 
 Distinct from **general computation expressions** (`async { }`, `option { }`, a user `Builder()`),
 which desugar to *builder method calls* (`Bind`/`Return`/`Combine`/`Delay`/`Zero`/`Run`/…). F# treats
@@ -47,10 +51,10 @@ it directly). That matters here twice over:
    only a new *body* shape.
 2. **A lazy combinator no longer needs a state machine at all** (see below).
 
-## `Seq.truncate` does NOT need sequence expressions
+## `Seq.truncate` does NOT need sequence expressions — **DONE**
 
-Worth stating plainly, because the sited comment in `seq.clr.fs` currently claims otherwise (it predates
-the capability work). `truncate` needs exactly **one lazy combinator**, and a lazy combinator is now
+Landed as `TruncateSeq<'T>` in `Vesper.Seq/seq.fs` (`:6-71`), which is the `TakeSeq` shape sketched
+below. `truncate` needs exactly **one lazy combinator**, and a lazy combinator is
 plain Vesper code:
 
 ```fsharp

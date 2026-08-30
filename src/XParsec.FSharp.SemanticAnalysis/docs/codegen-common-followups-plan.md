@@ -16,8 +16,9 @@ Delete this file when the work lands.
 
 ### A1 — no FS1113-equivalent accessibility check on a published `inline` body
 
-`SymbolProviders.liftMemberBody` publishes any `member inline`, and the value half publishes
-any `let inline` (`Elaborate.fs:288-290`, guarded only on the `isInline` flag). Neither checks
+`InlineBodies.liftMemberBody` (`SemanticAnalysis/InlineBodies.fs:14`) publishes any `member inline`,
+and the value half (`collect`'s `values`, `:92`) publishes every `let inline` the freeze put in
+`InlineTemplates`, guarded only on the `isInline` flag. Neither checks
 that the body names only symbols a *consumer* assembly can read. F# raises FS1113 for this
 ("marked inline but its implementation makes use of an internal or private function which is
 not sufficiently accessible"); `grep -rn 1113 src test` finds nothing in the tree.
@@ -28,24 +29,27 @@ preamble `let`s, `static let`s) is emitted `FieldAttributes.Assembly`
 unlike a module-level `let inline` — is in scope to name one. A `FieldGet` on it is spliced
 into a consumer that cannot read it.
 
-### A2 — a broken `impl` file publishes zero inline bodies, silently
+### A2 — a broken `impl` file publishes zero inline bodies, silently **[RESOLVED by the package-provider rewrite]**
 
-`SymbolProviders.inlineBodies` swallows two error arms as `| Result.Error _ -> ()`. The
-manifest arm is defensible — `orderedManifestsWithDeps` already `failwithf`s on a malformed
-manifest before this runs (verified: `closeAndOrder`'s `load` sets `error` on a `loadManifest`
-failure, `ReferencedProject.fs:374-385`). The `VesperLib.parseFileFull` arm has no such
-upstream gate: an `impl` file that fails to parse contributes no templates and the compile
-proceeds, so a cross-package `inline` degrades to an unresolved symbol instead of a diagnostic
-naming the file that failed.
+`SymbolProviders.inlineBodies` swallowed two error arms as `| Result.Error _ -> ()`, and the
+`VesperLib.parseFileFull` arm had no upstream gate: an `impl` file that failed to parse contributed
+no templates and the compile proceeded, so a cross-package `inline` degraded to an unresolved symbol
+instead of a diagnostic naming the file.
 
-### A3 — `buildWith` has one caller and its doc named a consumer that does not exist
+Both are gone with `SymbolProviders` and `VesperLib`. A file the read cannot deliver now becomes an
+`UnparsedFile` carrying a `FileFault` (`ParsedManifest.fs:7-12`) whose diagnostics are anchored
+against its own token stream by `AssemblyFiles.failureDiagnostics` (`:275`), and
+`PackageProviders.buildProviderSeeded` collects them per package. A freeze fault on a package impl is
+a rethrown internal error naming the package and file (`PackageProviders.fs:88-106`).
 
-`SymbolProviders.buildWith` (uncached, layer-1 only) is called once, by
-`ClrSymbolProviders.build`, which has no caller outside its own module. Its doc claimed the JS
-backend injects a tail through it; it does not — the JS backend reaches Common only via
-`buildContractWith "jsnative"` (`Codegen.Js/JsNativeSymbols.fs`) and the axis-seeded
-`buildContract` factory in `Codegen.Js/TsManifestProvider.fs`. Decide
-whether the uncached path should exist at all.
+### A3 — `buildWith` has one caller and its doc named a consumer that does not exist **[RESOLVED — both are deleted]**
+
+`SymbolProviders.buildWith` (uncached, layer-1 only) was called once, by
+`ClrSymbolProviders.build`, which had no caller outside its own module. Its doc claimed the JS
+backend injects a tail through it; it did not. The question the entry left open — whether the
+uncached path should exist at all — is answered: neither name survives. `Codegen.Common` now
+exposes `buildContractWith` / `buildContract` only (`SymbolProviders.fs:32`, `:43`), and both
+backends reach it through those.
 
 ### A4 — `StructuralFormatRecipe` is a `src/` module with no `src/` consumer
 
@@ -74,16 +78,16 @@ differentially tested against it too.
 
 ### B1 — a named type for the `{ platform-repr → [canon] }` reverse map
 
-The map is a bare `Map<string, SymbolKey list>` threaded through `MetaTailFactory`,
+The map is a bare `Map<string, SymbolKey list>` threaded through `PlatformMetadataFactory`,
 `IExternalSymbolProvider.IntrinsicReverseCanon`, `ClrSymbolProviders.seeded` / `seedTag`,
 `MetadataMapping.tryBuildType` and `PassContext.IntrinsicReverseCanon` — a string key with no
 type saying which direction it runs in, which is why every site re-explains it.
 
-Deletes: the surviving 3-line `MetaTailFactory` doc in `SymbolProviders.fs` — the map "folded
-from the layer-1 providers' `IntrinsicReverseCanon`, the reverse direction of
-`type int = (# "System.Int32" #)`". **This is now the only site in the tree stating where the
-map comes from**; the CLR sweep cut `MetadataSymbols.fs` back to the `System.Int32 → [int]`
-pairing alone. If the type lands, the derivation must be in its name/definition, not lost.
+Deletes: the surviving 3-line `PlatformMetadataFactory` doc in `SymbolProviders.fs` (`:10-13`) — the
+axis "composed from the layer-1 providers, which is what `type int = (# "System.Int32" #)` declares,
+both directions". **This is now the only site in the tree stating where the map comes from**; the CLR
+sweep cut `MetadataSymbols.fs` back to the `System.Int32 → [int]` pairing alone. If the type lands,
+the derivation must be in its name/definition, not lost.
 
 ### B2 — a member does not know its own function type
 

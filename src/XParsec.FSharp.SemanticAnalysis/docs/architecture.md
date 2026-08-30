@@ -99,29 +99,32 @@ end. Discarded because:
 The cost is a hash lookup per semantic query. With the 64-bit `NodeKey` packed
 into a value the JIT can hold in a register, that's noise.
 
-## Annotation-only desugaring
+## The CST is never rewritten
 
-Desugaring (`Passes/Desugar.fs`) **does not rewrite the CST shape**. When it
-sees `x |> f`, it does *not* replace the `Pipeline` CST node with an
-`Application` node. Instead it writes a `DesugaredForm` entry into a side
-table, keyed by the `Pipeline` node's `NodeKey`. The constraint generator and
-later passes read through that side table.
+No pass replaces a CST node with another. A `Pipeline` node stays a `Pipeline`
+node; the passes that care read what it means without editing what it is.
 
 Consequences:
 
 - The CST view stays queryable at every point during analysis (hover semantics
-  on a real-source span work whether or not desugaring has happened yet).
+  on a real-source span work at any stage).
 - Pass contracts are clean: "this pass reads slot X, writes slot Y". No pass
   destroys information.
 - Synthetic nodes (CE method calls, comprehension expansions, the body of an
   expanded `for-in-do`) have no source position, so they get **synthetic
   NodeKeys** — see [nodekey.md](nodekey.md).
 
+A `Desugar` pass once carried this rule by writing a `DesugaredForm` side table
+keyed by `NodeKey`. That pass, the DU and the table were deleted (`b3ed35d6`):
+an operator's compiled name is derived where it is needed, from
+`OperatorNames.ofSymbolic`, and the no-rewrite rule now rests on every pass
+observing it rather than on one pass owning it.
+
 ## Pass order is strictly forward
 
 `Pipeline.fs` is the authoritative order and [`passes.md`](passes.md#pipeline)
 tabulates it — deliberately not duplicated here, because a second copy is a
-second thing to rot. In shape: annotate (`Desugar`) → resolve
+second thing to rot. In shape: resolve
 (`NameResolution`) → infer (`Unification`) → check (`Validation`) → build the
 tree (`Elaborate`) → analyse and rewrite the tree (`Regions`,
 `RefCellPromotion`) → guard (`ResolvedTypes`, `PlatformTypes`, `DynamicEscape`)

@@ -22,7 +22,9 @@ distinct concerns. The long-term aim is full F# feature coverage with real stati
 
 - **Parser**: `&`/`&&` prefix → `Token.OpAmp`/`OpAmpAmp`; `~&`/`~&&` → compiled names
   `op_AddressOf`/`op_IntegerAddressOf` (`ExpressionParsing.fs` `pOpAddressOfPrefix`, `Token.fs`).
-- **Desugar**: `Token.OpAmp` → `DesugaredForm.OpName "op_AddressOf"` (`Passes/Desugar.fs`).
+- **Operator naming**: the prefix `&` maps to `op_AddressOf` through
+  `OperatorNames.ofSymbolic` (`OperatorNames.fs:15`, `:22`); the `Desugar` pass that used to
+  file this as a `DesugaredForm.OpName` is deleted.
 - **Inference**: `InferApp.inferPrefix` **special-cases** `op_AddressOf`, bypassing operator
   resolution ("no Vesper.Core / BCL symbol"), and types `&x` as `TyConst(byrefKey,[operandTy])`.
   This matches a BCL method's byref/`out` param (`Int32.TryParse(string, int&)`).

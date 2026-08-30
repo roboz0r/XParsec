@@ -251,9 +251,9 @@ It returns the elements of `ys` that **are** in `xs`. Both uses are
 `Expect.isEmpty (disjointFrom …)`, so the assertions are correct while reading as the opposite
 of what they check. Rename to `overlapWith`, or invert the body.
 
-## A18. `printProgram`'s parameter never varies
+## A18. `printProgram`'s parameter never varies **[MOOT — the file went with the cache]**
 
-`FrozenCacheIncrementalTests.fs` — every call passes `"hello"`. Its deleted doc claimed the
+`FrozenCacheIncrementalTests.fs` — every call passed `"hello"`. Its deleted doc claimed the
 literal varies to model a source edit; the edit test uses inline `"let x = 1"` / `"let x = 2"`
 instead, deliberately, because a string edit does not perturb the structural digest. Either
 drop the parameter or make it `let private helloProgram`.
@@ -283,11 +283,11 @@ delete the code.
 Would delete: *"a wrong resolution would emit a self-`AssemblyRef` and fault the loader"*,
 stated once at the helper instead of five times.
 
-## A21. `CountingStore` is upcast at the binding and downcast at every read
+## A21. `CountingStore` is upcast at the binding and downcast at every read **[MOOT — the file went with the cache]**
 
-`FrozenCacheIncrementalTests.fs` binds `let store = CountingStore() :> ICacheStore`, then reads
-`(store :?> CountingStore).Stores` — five downcasts across four tests. Keep the concrete type
-in the binding and upcast at the `compileCached` call.
+`FrozenCacheIncrementalTests.fs` bound `let store = CountingStore() :> ICacheStore`, then read
+`(store :?> CountingStore).Stores` — five downcasts across four tests. `8430062c` removed the
+caching mechanism and the file with it.
 
 ## A22. `CapturedMutableTests.discover` hand-rolls the production discovery pipeline
 
@@ -433,15 +433,20 @@ for that package.
 ## A39. The on-disk run sequence is open-coded four times
 
 compile → `materialiseApp` → `runOnDisk` → assert stdout, in `RunnableAppTests.fs` (×2),
-`FSharpCoreDepsTests.fs` and `ClrDriverTests.fs`, differing only in source and expected output.
+`NoFSharpCoreTests.fs` (successor to the `FSharpCoreDepsTests.fs` this entry named) and
+`ClrDriverTests.fs`, differing only in source and expected output.
 `TestHelpers` has the in-process equivalent (`runsLines`) but no on-disk one.
 
-## A40. Does an unconstrained list literal default to `FSharpList`?
+## A40. Does an unconstrained list literal default to `FSharpList`? **[ANSWERED — no; the fallback is gone]**
 
-`FSharpCoreDepsTests.fs` pins both halves: `let nums = [1; 2; 3]` with `printfn "%A"` pins
+`FSharpCoreDepsTests.fs` pinned both halves: `let nums = [1; 2; 3]` with `printfn "%A"` pinned
 `FSharpList`1` and its `Cons` / `get_Empty`, while the same literal consumed by an `inline sum`
-using `List.fold` pins nothing, because the constraint builds a Vesper `List` instead. The two
-tests agree, and together they say the *default* list representation is FSharp.Core's.
+using `List.fold` pinned nothing, because the constraint built a Vesper `List` instead. The two
+tests agreed, and together they said the *default* list representation was FSharp.Core's.
+
+`27a8e103` removed that fallback and the file: `Vesper.Collections.List` is the only cons-list,
+an unpinned literal resolves to it where it is reachable, and reports `IntrinsicNotInScope` naming
+`Vesper.List` where it is not. The surviving pins are `ListTests.fs` and `NoFSharpCoreTests.fs`.
 
 That cuts against the BCL-only goal the rest of the file pins. Establish whether it is
 intended; if it is, the pair wants a comment saying so at the type, not two tests a reader must
@@ -772,8 +777,8 @@ makes the contract explicit instead of positional.
   (Core + List). It also has a `Vesper.Seq` test.
 - `OperatorRoutingTests.fs`'s header credited `ClrSymbolProviders.inlineBodies` with collecting
   the `(=)` body. No such member: `ClrSymbolProviders` exposes `contractInlineBodies` and its
-  two variants, which is what the tests in that file actually call, and the only `inlineBodies`
-  in the tree is an unrelated internal in `Codegen.Common/SymbolProviders.fs`.
+  two variants (`ClrSymbolProviders.contractInlineBodies`, `:112`), which is what the tests in that
+  file actually call.
 - Two dangling citations, both deleted: a `ListModuleTests.fs` header pointing at
   `list-min.fs` (`src/Vesper.List/` holds `list.fs` and `list.fsi`, and no `list-min.fs`
   exists anywhere in the tree), and `OptionTests.fs` + `ResultTests.fs` both citing

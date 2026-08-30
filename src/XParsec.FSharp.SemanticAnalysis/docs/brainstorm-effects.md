@@ -244,9 +244,9 @@ exists — but `Effect` is exactly what EF-Q3 would serialise, so nothing is was
   headroom. Start with pure-vs-impure + a `total` bit; widen only if a consumer
   needs it.
 - **EF-Q3 — Effect-summary format in the contract.** What does an inferred effect
-  look like serialised in the `.fsi` / metadata (EF6), and does the front-end's
-  symbol extractor (`ExtractCtx`) round-trip it? Needs the same care as the type
-  shapes it already carries.
+  look like serialised in the `.fsi` / metadata (EF6), and does signature resolution
+  (`Passes/SignatureResolution.fs` → `PublishedSurface`) round-trip it? Needs the same care as the
+  type shapes it already carries.
 - **EF-Q4 — Conformance of trusted intrinsic purity** (EF7.1) — extend the P4
   sig/impl check so an intrinsic asserted pure is verified against its `(# … #)`,
   not merely trusted.

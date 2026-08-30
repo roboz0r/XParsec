@@ -33,7 +33,7 @@ semantics of `..`.
 The Vesper-Core arithmetic operators (`src/Vesper.Core/ops-platform.fsi` / `.fs`) are
 already exactly this shape: a `.fsi` SRTP signature + a `.fs` multi-branch
 `when ^T : int32 = (# "add" … #)` inline body, shipped across the package boundary by
-`SymbolProviders.inlineBodies`, spliced at each call site by `InlineExpansion`, and
+`InlineBodies.collect`, spliced at each call site by `InlineExpansion`, and
 lowered by codegen. So `(..)` can follow the identical road — the multi-branch inline
 SRTP operator is a **supported, working construct** (parser coverage:
 `test/XParsec.FSharp.Tests/data/321_static_optimization_multi_constraint.fs`).
@@ -57,7 +57,9 @@ is the seq-range library, not the operator.
    `range-operators` contract): SRTP signature `^T -> ^T -> seq<^T>`, multi-branch impl
    dispatching to the per-type range builders. The operator names are `op_Range` /
    `op_RangeStep` (confirm against `OperatorNames`).
-3. **Desugar `Expr.Range` → operator application.** In `Passes/Desugar.fs`, rewrite
+3. **Route `Expr.Range` to an operator application.** The `Passes/Desugar.fs` this step named is
+   deleted, so the rewrite belongs where the range is elaborated (`Elaborate/Apply.fs`), taking the
+   operator name from `OperatorNames`:
    `Expr.Range(a,b)` → `App(App((..), a), b)` and `Expr.SteppedRange(a,s,b)` →
    `App(App(App((.. ..), a), s), b)`. Then `1..10` types as `seq<int>` through ordinary
    operator resolution — no `inferRange`, no `TExpr.Range`, no placeholder.

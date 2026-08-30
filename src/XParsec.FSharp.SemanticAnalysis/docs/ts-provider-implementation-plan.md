@@ -275,15 +275,16 @@ an intrinsic/`extern` type is now a real, reusable capability, end-to-end (parse
 → harvest → splice → emit). Commits on branch `codegen-js`:
 - `52bfac38` **1a** — parse `type X = (# … #) with member …` (`TypeDefn.Abbrev` gained an `extensions` slot).
 - `e8e099cb` **1b** — impl-side type-augmentation ELABORATION (the four drop-site arms + the shared
-  `tryNonClassMemberHost`/`…Decl` seams + `IntrinsicAbbrevInfo` host, `SideTables.fs`) reusing the
-  union/record `this`-first host-member path; CONSUMER capture (VesperLib invariant lifted → Class +
-  `CapabilityFace`); member-keyed harvest/store (`SymbolProviders.harvestMemberBody` + `buildContractCached`).
+  `tryNonClassMemberHost`/`…Decl` seams + `IntrinsicAbbrevInfo` host) reusing the
+  union/record `this`-first host-member path; CONSUMER capture (the intrinsic-primitive member ban
+  lifted → an intrinsic shape carrying a class surface); member-keyed harvest/store.
 - `1f7222bb` **1c** — the `TExpr.ExternalMember` splice arm (`InlineExpansion.fs`; object argument prepended to
   the arguments, splice-vs-call fork on `TryLookupInlineBody`) + end-to-end emit fixture (`fixtures/widget/`).
 - `d2d890bf` **1d** — key the harvest store by `SymbolKeyOps.qualifiedName tdecl.Key` (namespaced types work).
 - `0fbec4d0` **2a** — array `arr.[i]` READ via a `get_Item` member on `'T[]` (JS), byte-identical, with a
-  white-box anti-masking assertion (`ArrayIndexMemberTests`). New files `src/Vesper.Core/array-index.js.fsi`
-  + `array-index-body.js.fs`, wired into `manifest.toml`.
+  white-box anti-masking assertion (`ArrayIndexMemberTests`). It added `src/Vesper.Core/array-index.js.fsi`
+  + `array-index-body.js.fs`; stage 2 below folded both into the target-neutral
+  `prim-types-array.fsi` / `.fs`, which now carry `member inline Item` (`:16`) and `Length` (`:19`).
 
 **Decisions locked this milestone (do NOT re-litigate):**
 - `.fsi` member sigs use STANDARD-F# spelling (already parse); only the `.fs` abbrev host was new (1a).
@@ -342,22 +343,26 @@ than it adds — the object-argument-classification ladder, the parallel index-s
 member-resolution + one member-inline-splice path. Keeps [[feedback_dynamic_intrinsics_over_du_cases]]
 (no SemType case) and [[feedback_codegen_js_owns_assignability]] (splice-vs-call is backend lowering).
 
-**The invariant at `VesperLib.fs:1354-1374` is LIFTED — it was "not yet", not "never".** Its comment
-fences "a concrete member surface on an intrinsic primitive" as a DURABLE rejection ("the `(# … #)`
-repr is for structurally inert leaves"); the decision overrules that — a concrete member surface is a
-wanted general capability. The admitted-exception arm right above it (`:1334-1353`) already shows the
-mechanism: a `type X = extern with …` registers as a `Class` (which HAS member slots) via
-`extractBodiedClassLike` AND attaches the `(# … #)` repr as a `CapabilityFace`, so the canonical
-primitive identity survives for codegen / `subsumes`. The concrete-member case takes the SAME path
-(register Class + repr) instead of `registerIntrinsic ()` + diagnostic. (`ExternalTypeShape.Intrinsic`
-carries no member slots — the Class-plus-repr shape is precisely how the capability arm already solved that.)
+**The invariant that fenced "a concrete member surface on an intrinsic primitive" as a DURABLE
+rejection is LIFTED — it was "not yet", not "never" — and the publish path that carried it has since
+been rewritten.** It lived in `VesperLib.fs`, which is deleted; `Passes/SignatureResolution.fs`
+`publishExtern` replaces it and no longer forks to a diagnostic. `ExternalTypeShape.Intrinsic` now
+carries a `Class: IntrinsicClassSurface voption` beside its canon identity
+(`ExternalDeclarations.fs:523-547`), so an untagged `extern with member …` publishes its declared
+members onto the member table through `publishExternPrimitive` (`:387`) while keeping the `(# … #)`
+identity for codegen / `subsumes`. `requireInlineExternMembers` (`:266`) is the surviving rule and is
+the one W9 wants: a concrete member on a primitive must be `inline`, the primitive having no output
+representation to carry a method. The capability arm the plan pointed at as the model is
+`publishCapability` (`:315`), a sibling arm of the same `match`. Re-read that path before scoping the
+stage work below.
 
 **Member inlining REUSES function inlining (user steer; the load-bearing mechanism).** A concrete
 accessor `member _.Item with get (i) = (# "ldelem" … #)` IS the inline function
 `get_Item (this) (i) = (# "ldelem" this i #)` — `this` prepended as the first inline param. So:
 - Capture mints an `InlineBody` from each concrete accessor body, keyed by the MEMBER (`arrayName 1` +
-  `get_Item`/`set_Item`/`get_Length`), `this`-first — the member-sourced twin of `collectInlineBodies`'
-  `let inline` case (`SymbolProviders.fs:46-104`).
+  `get_Item`/`set_Item`/`get_Length`), `this`-first — the member-sourced twin of `InlineBodies.collect`'s
+  `let inline` case (`InlineBodies.fs:83`). Both halves now exist there: `liftMemberBody` (`:14`) is the
+  member arm, and `collect` splits a file's templates into `Values` and `Members`.
 - `InlineExpansion` gains ONE new applied-function arm: a `TExpr.ExternalMember` whose member carries a
   registered inline body splices via the SAME `reduceApplication` / `ParamAttrs` / `expandExternalAt`
   path the `TExpr.External` arm uses (`InlineExpansion.fs:589`). A member with NO inline body (a real
@@ -376,14 +381,14 @@ accessor `member _.Item with get (i) = (# "ldelem" … #)` IS the inline functio
    paths were WRONG — the parser is `src/XParsec.FSharp/`.
 2. **Capture** — two sub-stages, because the impl-side member BODIES are not reachable without a
    front-end elaboration step the plan originally missed:
-   - **2a — impl-side type-augmentation elaboration** (`Passes/Desugar.fs`, `Passes/NameResolution/`
+   - **2a — impl-side type-augmentation elaboration** (`Passes/NameResolution/`
      `TypeRegistration.fs`+`MemberRegistration.fs`, `Elaborate.fs`). A `TypeDefn.Abbrev` carrying
      `extensions` elaborates its members through the SAME `this`-first host-member path records/unions
      already use for their inline `with member` blocks (`Elaborate.elaborateHostMembers` →
-     `translateClassMember` → `tryClassType`; body typing via `Unification.fillTypeMembers`). Today it is
-     DROPPED at four sites — `Desugar.fs:182`, `MemberRegistration.fs:925`, `Elaborate.fs:1612`
-     (no `Abbrev` classify arm), `TypeRegistration.fs:518` (binds only `typeName`/`typ`, ignores
-     `extensions`). GUARDRAIL: only an **ILIntrinsic-RHS** abbrev may carry members (a transparent alias
+     `translateClassMember` → `tryClassType`; body typing via `Unification.fillTypeMembers`). It was
+     DROPPED at four sites, which `e8e099cb` closed; a fifth, `Passes/Desugar.fs`, was named here and
+     that pass has since been deleted whole (`b3ed35d6`), operator naming having moved to
+     `OperatorNames.ofSymbolic`. GUARDRAIL: only an **ILIntrinsic-RHS** abbrev may carry members (a transparent alias
      `type T = int with member` is rejected — F# rejects it too: `tcTypeAbbreviationsMayNotHaveMembers`).
      IDENTITY: `X` keeps its `TyConst` identity (stays in `IntrinsicReprTypes`, resolves to `TyConst name`
      at use sites); members elaborate `this`-first with `ThisTy` = `X`'s intrinsic type; the produced
@@ -393,14 +398,17 @@ accessor `member _.Item with get (i) = (# "ldelem" … #)` IS the inline functio
      are DEFERRED (build the core so they slot in later; not needed for W9). F# scout confirmed our
      `this`-first `TTypeMember` model already matches F#'s member-`Val` + `tcaug_adhoc` attachment — no
      new representation to copy.
-   - **2b — consumer capture + member-keyed harvest/store.** Consumer side: lift the
-     `VesperLib.fs:1354-1374` invariant, routing a concrete-member intrinsic through the
-     Class + `CapabilityFace` arm (so `TryLookupMember` resolves + mints the finalized member `Key`).
-     Impl side: `collectInlineBodies` (`SymbolProviders.fs`) gains a `TDecl.Type` → Class-member arm
-     (`harvestMemberBody`) minting the `this`-first inline `TDecl.Let`; `buildContractCached` stores it
+   - **2b — consumer capture + member-keyed harvest/store.** Consumer side: the signature-resolution
+     rewrite already routes a concrete-member intrinsic through `publishExtern`'s `ExternForm.Opaque`
+     arm, publishing its members so `TryLookupMember` resolves and mints the finalized member `Key`;
+     confirm that on a real loaded package before building on it.
+     Impl side: `InlineBodies.collect` (`InlineBodies.fs:83`) gains a `TDecl.Type` → Class-member arm
+     (`liftMemberBody`, `:14`) minting the `this`-first inline `TDecl.Let`;
+     `PackageProviders.buildProviderSeeded` stores it
      under the FINALIZED `TryLookupMember(...).Key` (never a hand-rolled `MemberKey` — a method's argSig
-     is rewritten from frozen params at `VesperLib.fs:438-446`, so keying off the resolved member is the
-     only agreement-safe choice). Isolation: `TryLookupInlineBody(mem.Key).IsSome` from a real loaded
+     is minted from the frozen signature at `Passes/SignatureResolution/Members.fs:172`, so keying off
+     the resolved member is the only agreement-safe choice). Isolation:
+     `TryLookupInlineBody(mem.Key).IsSome` from a real loaded
      `widget` package.
 3. **Resolution** (`InferRecordAccess.fs`) — `inferIndexedLookup` resolves `get_Item`/`set_Item` via
    `TryLookupMember` on the object argument INCLUDING the array/string intrinsic; add the write mirror
@@ -422,7 +430,7 @@ accessor `member _.Item with get (i) = (# "ldelem" … #)` IS the inline functio
    `"[]"`. W9 must make both sides agree on `"[]"` (either key the array's members under `"[]"`, deviating
    from the default `compiled` keying, or translate `TyConst("[]")` → `"[]``1"` at the lookup). Ordinal,
    no normalization, so once aligned `TryLookupMember("[]", "get_Item")` hits.
-4. **Inline splice** (`SymbolProviders.fs`, `InlineExpansion.fs`) — the general member-inline mechanism
+4. **Inline splice** (`InlineBodies.fs`, `Passes/InlineExpansion.fs`) — the general member-inline mechanism
    above (member-keyed `InlineBody` + the `TExpr.ExternalMember` splice arm).
 5. **Emit** — nothing new: a spliced `(# … #)` emits as today; a bodiless member stays a real call
    (`ClrExternalMembers.fs`, `EmitJs.fs:621-663`).
@@ -480,7 +488,7 @@ hand-built fixture BEFORE the real-package regen.
 
 **W9** is OFF the node critical path (it supersedes landed W4 and establishes a general platform-binding
 primitive, not a node capability) and is INDEPENDENT of W8 (different mechanism — see W8). It is the
-largest single item here — a four-stage change lifting the `VesperLib.fs:1354-1374` invariant — so it
+largest single item here — a four-stage change over an intrinsic's member surface — so it
 lands as its own tranche, isolation-first per its own §Sequencing (general primitive → array/string
 migration → external/TS), with array/string + `IndexSignatureTests` emit byte-identical as the
 regression guard and the `set_Item` write half as new capability. The Resolution load-bearing question

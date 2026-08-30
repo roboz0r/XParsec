@@ -83,7 +83,7 @@ stable id**, with ten mutable slots:
 
 Six of ten are **deferred-constraint payload**, hand-migrated in `EngineCore.migrateBounds`
 (`EngineCore.fs:121`) and hand-discharged on link in `dischargeAll` (`Engine.fs:489`). `find`
-(`UnionFind.fs:10`) does **full path compression** — a mutating read — and `resolveStep`/
+(`TypeStore.fs:242`) does **full path compression** — a mutating read — and `resolveStep`/
 `zonk` call it transitively, so essentially every dereference mutates. That is the "mutable
 soup": a node that is simultaneously graph structure, solution, measure, four families of
 pending constraint, and a generalization level, with bespoke migration for each.

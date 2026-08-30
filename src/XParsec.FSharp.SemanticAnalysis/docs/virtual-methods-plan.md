@@ -59,8 +59,8 @@ local `info.BaseType`, external `shape.FrozenBaseType` and intrinsic `surface.Ba
 "external member → expected type" step this needs.
 
 **`obj`'s slots are in no provider.** `IntrinsicClassSurface.Members` is the contract `.ctor`s
-BY CONSTRUCTION: the doc says so (`ExternalSymbols.fs:394-396`) and the republish filters
-`m.Name = ".ctor"` (`VesperLib.fs:383`). `prim-types-object.fsi` declares only
+BY CONSTRUCTION: the doc says so (`ExternalDeclarations.fs:534-536`) and the republish filters
+`m.Name = ".ctor"` (`SignatureResolution.platformCtors`, `:298`). `prim-types-object.fsi` declares only
 `new: unit -> obj`. So the hardcoded triple in the pass cannot be replaced by a provider lookup
 without tranche 5.
 
@@ -104,13 +104,14 @@ update: `Unification.fs:241` (skip generalisation for an override), the pin, `:9
 **External.** Add the flag to `ExternalMember` with a `false` default in `OfKey` — additive, so
 the four other producers and all eight test helpers compile untouched. Fill it at:
 `MetadataSymbols.fs:339` (`m.IsVirtual && not m.IsFinal`), `FrozenSignature.fs:110` (from the
-TAST member), `TsManifestMembers.fs:47` (an interface member is a slot), `VesperLib.fs:895`
-(the contract `abstract member` form).
+TAST member), `TsManifestMembers.fs:47` (an interface member is a slot),
+`Passes/SignatureResolution/Members.fs:93` (the contract `abstract member` form).
 
 **Cross-unit.** If a base in ANOTHER project must be slot-accurate, the flag must be carried on
-`TastDecl` + `FrozenCodecDecls` and needs a `Cache.CodeVersion` bump (`Cache.fs:61`). Scoping
-that out is defensible for now — a cross-project base then falls back to name-only, i.e.
-today's behaviour — but it should be a stated decision, not an omission.
+`TastDecl` + `FrozenCodecDecls`. The `Cache.CodeVersion` bump this entry also called for no longer
+applies: `Cache.fs` and every code-version constant are gone, so a codec change costs nothing but
+the codec. Scoping the cross-unit half out is defensible for now — a cross-project base then falls
+back to name-only, i.e. today's behaviour — but it should be a stated decision, not an omission.
 
 **Unlocks:** the FS0855 analogue (cases B and D), which the compiler cannot express today.
 
@@ -160,8 +161,9 @@ last place the front end spells a slot signature rather than reading one.
    parser already accepts `abstract member` in an `extern` body — that is how `disposable` /
    `equatable` publish their surfaces (`capabilities.fsi:7-8`, `:14-15`;
    `SignatureParsing.fs:382-415` shares the path with `extern class`).
-2. Widen the `.ctor`-only republish filter at `VesperLib.fs:383` and the ctors-only contract on
-   `IntrinsicClassSurface.Members` (`ExternalSymbols.fs:394-396`). `MemberRegistration.fs:764`
+2. Widen the `.ctor`-only republish filter `SignatureResolution.platformCtors` (`:298`) and the
+   ctors-only contract on `IntrinsicClassSurface.Members` (`ExternalDeclarations.fs:534-536`).
+   `MemberRegistration.fs:764`
    probes only for the EXISTENCE of a `.ctor`, so it is unaffected.
 3. `objnull` in the contract is consistent with the existing reference-null erasure at this
    seam (`stripReferenceNull` on both sides).

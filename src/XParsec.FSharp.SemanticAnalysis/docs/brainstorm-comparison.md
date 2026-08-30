@@ -47,13 +47,14 @@ comparison; everything else is not comparable.**
 
 ## 2. Current state
 
-`op_LessThan` / `op_GreaterThan` / `op_LessThanOrEqual` / `op_GreaterThanOrEqual`
-already exist: desugared from tokens (`Passes/Desugar.fs:32`), typed
-`t*t->bool` for numeric primitives via `tryPrimitiveTraitCandidate` and the
-`comparisonBinaryOps` set (`Passes/Unification.fs:651`), plus mono `int`
-forms in `MockBuiltins` (`ExternalSymbols.fs:186`). Gaps: they're primitive-only
-(no path orders a user record/DU); **`compare` / `min` / `max` don't exist** as
-intrinsics; nothing emits `IComparable<T>`.
+**This section is SUPERSEDED — re-survey before using it.** It described a tree in which the
+comparison operators were primitive-only, typed through `tryPrimitiveTraitCandidate`, and backed by
+mono `int` forms in `MockBuiltins`. None of those names survive: the Desugar pass, the trait-candidate
+helper and `MockBuiltins` are all deleted. `Vesper.Comparison` now ships `< > <= >=` as polymorphic
+`when 'T: comparison` contracts (`comparison.fsi:21-72`) with `comparison.clr.fs` / `.js.fs` bodies,
+and `Codegen.Clr.Tests/StructuralComparisonTests.fs` pins the emission.
+
+What the doc listed as gaps and is still absent: **`compare` / `min` / `max`** as intrinsics.
 
 `EqArray.fs` is deliberately `[<NoComparison>]` (its doc comment: "nothing
 orders SemType/TAST nodes") — so the compiler-internal array twin is *not* a

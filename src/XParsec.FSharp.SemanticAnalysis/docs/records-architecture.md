@@ -354,9 +354,10 @@ A record is the DU back end minus the tag, so most of this is reuse
 
 - `NameResolutionTests.fs` — registration, `FieldIndex`, duplicate
   diagnostics.
-- `UnificationTests.fs` — literal field-set inference, ambiguity +
-  qualifier, field-set mismatch, field access on annotated parameter /
-  on a later-pinned TyVar, clone-types-as-source, clone field validation.
+- `UnificationBasicsTests.fs` (`UnificationTests.fs` before the split) — literal
+  field-set inference, ambiguity + qualifier, field-set mismatch, field access on
+  annotated parameter / on a later-pinned TyVar, clone-types-as-source, clone field
+  validation.
 - `ValidationTests.fs` — immutable-field assignment, mutable-field clean,
   unresolved-vs-resolved field access.
 - `RegionsTests.fs` — record-literal allocation classification.
@@ -366,8 +367,8 @@ A record is the DU back end minus the tag, so most of this is reuse
   no-FSharp.Core-dependency; plus the interface-impl runtime tests
   (`(r :> IRank).Rank()` dispatch, coexistence with synthesised
   `IEquatable<R>`).
-- `FreezeTests.fs` — a record carries its interface impl on
-  `TTypeKind.Record.interfaces`. JS `ClassEmitTests.fs` — the record's
+- `ElaborateTests.fs` (renamed from `FreezeTests.fs`) — a record carries its
+  interface impl on `TTypeKind.Record.interfaces`. JS `ClassEmitTests.fs` — the record's
   attached interface method emits + dispatches under Node.
 - `EqualityAttributeTests.fs` — `EqualitySupport` verdict gating.
 - `StructuralComparisonTests.fs` — the comparison pair, field order,

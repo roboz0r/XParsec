@@ -61,7 +61,7 @@ The current seam these decisions depend on:
   optional origin re-stamping. Hand-written overrides are *just a higher-priority
   layer* in front of the TS-derived provider — same as referenced-project beats
   referenced-assembly today
-  ([`SymbolProviders.fs:57`](../../XParsec.FSharp.Codegen.Clr/SymbolProviders.fs)).
+  ([`ClrSymbolProviders.fs`](../../XParsec.FSharp.Codegen.Clr/ClrSymbolProviders.fs)).
   No new machinery for overrides.
 - **The rehydration shape to copy is real.** `ReferencedProject.fs` reads
   `manifest.toml` + `.fsi` contracts, kinds cross-package nominals at bake time,

@@ -132,7 +132,7 @@ though they add no dependency beyond Core.
 references (`Vesper.Set.dll` → `Vesper.Comparison.dll` → `Vesper.Core.dll`). The
 provider's refs are `lazy`, so an `AssemblyRef` row is added only when a ref is
 actually forced — an emitted PE references *exactly* the package DLLs its IL
-touches, with no dead rows (`Codegen.Clr.Tests/FSharpCoreDepsTests.fs:48-61`
+touches, with no dead rows (`Codegen.Clr.Tests/NoFSharpCoreTests.fs`
 holds the property for FSharp.Core; the same machinery drops unused `Vesper.*`
 refs). "Pay for what you use" reaches the shipped bundle.
 

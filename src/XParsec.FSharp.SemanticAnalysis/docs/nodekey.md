@@ -73,8 +73,8 @@ is having to enumerate every CST node kind in one big enum — see
 
 ## Synthetic NodeKeys
 
-When `Desugar` produces a synthetic node (e.g. the `Bind` method call that
-replaces `let!` inside a CE), that node has no source position. Its key is:
+When a pass produces a synthetic node (e.g. the `Bind` method call standing for
+`let!` inside a CE), that node has no source position. Its key is:
 
 ```
 syn = 1

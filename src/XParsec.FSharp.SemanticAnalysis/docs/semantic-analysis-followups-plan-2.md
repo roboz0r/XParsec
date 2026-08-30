@@ -257,7 +257,7 @@ arrives with the diagnostic, and the doc's own example freezes without one. The 
 `freeze` is total by design (`UnknownReason`'s doc says so), so a `Result` here would be a
 different decision, not this one.
 
-### `ConformancePass.fs:316` — the conformance gate has no production consumer
+### `ConformancePass.fs:316` (since deleted) — the conformance gate has no production consumer
 
 `enforce`'s doc claimed "a non-empty result must fail the build". Grepping the whole tree with no
 path or include filter, `checkManifest` and `enforce` are called only from
@@ -307,7 +307,13 @@ is documented at its declaration (`SymbolKeys.fs:24`) as `InAssembly` refined to
 assembly read off the path. No code change is owed here — recording it only so a later reader does
 not go looking for the backend coupling the deleted sentence implied.
 
-### `SemTypeWalks.fs:405` — `DesugaredForm.ListLiteral` / `ArrayLiteral` are write-only tags
+### `SemTypeWalks.fs:405` — `DesugaredForm.ListLiteral` / `ArrayLiteral` are write-only tags **[RESOLVED — the DU is deleted]**
+
+`b3ed35d6` took the whole `DesugaredForm` DU, the `Desugar` pass, the `ctx.Desugared` table and
+`DesugarTests.fs` with it, which settles the either/or below in favour of the second branch. The
+literal lowering keeps matching the CST directly. The rest of this entry is the reasoning as it
+stood.
+
 
 Both cases carry docs describing a lowering ("a nested `UnionCons` cons/nil chain", "wrapped in
 an `Array.ofList` external call"). The lowering is real — `ElaborateExpr.translateListLikeLiteral`
@@ -420,7 +426,7 @@ type-addressing DU on a single channel record). The prose this would delete is t
 docs on the two types plus the two `empty` docs — one of which was a byte-near clone of the
 other and was removed in this sweep.
 
-### `VesperLib/Manifest.fs:38` — the deleted `.fs`-branch rationale did not match the tree **[RESOLVED — the manifest list selects; no code change]**
+### `VesperLib/Manifest.fs:38` (since deleted) — the removed `.fs`-branch rationale did not match the tree **[RESOLVED — the manifest list selects; no code change]**
 
 `parseFileFull` carried: "The `.fs` branch is not a fallback: a package's per-target primitive
 companions (`prim-types-int.clr.fs`) and operator bodies (`ops-platform.clr.fs`) ship no `.fsi`."
@@ -537,8 +543,10 @@ shape (`names no type`, `claims nothing`, `carries no key`, `sees none`, `binds 
 roughly **forty sites** across `TypeRegistration`, `MemberRegistration`, `TypeRefStamp`,
 `NameResolution`, `Scope`, `TastLower`, `FrozenTypeBridge`, `FrozenCodecPrimitives`,
 `FrozenCodec`, `Freeze`, `TastPoolTypes`, `CstKeys`, `Diagnostics`, `RuntimeNames`,
-`VesperLib`, `VesperLib/TypeTranslate`, `VesperLib/TyparCapture`, `Translate`, `Subsume`,
-`InferApp`, `InferControlFlow`, `InferResolve`, `InferGeneralize`.
+`Translate`, `Subsume`, `InferApp`, `InferControlFlow`, `InferResolve`, `InferGeneralize`.
+(The three `VesperLib*` files this also named have since been deleted; whatever survived the
+rewrite now sits in `PackageProviders`, `PublishedSurface` and `Passes/SignatureResolution`, which
+the pass should sweep in their place.)
 
 That density in files an earlier vocabulary pass already touched means it either missed this
 project or the shape regrew. Fixing forty sites ad hoc at the tail of a punctuation sweep is

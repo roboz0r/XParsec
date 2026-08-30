@@ -10,7 +10,7 @@ callable representation instead of the current bare-`defaultof` +
 
 - **DONE — the idiomatic surface.** Half 1 (qualified / type-applied
   references splice during semantic analysis) shipped, then `[<AutoOpen>]`
-  was dropped from `module Unchecked` and `seq.clr.fs` rewritten to
+  was dropped from `module Unchecked` and `Vesper.Seq/seq.fs` rewritten to
   `Unchecked.defaultof<'T>`. This fully meets the original goal: the
   idiomatic spelling compiles and splices to `ilzero`, no phantom call.
 - **DEFERRED — materialisation** (a real callable `DefaultOf<T>()` for
@@ -40,7 +40,7 @@ let inline defaultof<'T> : 'T = (# "ilzero" type ('T) : 'T #)
 ```
 
 Its only legal use is the **bare, un-type-applied** form under a type
-annotation (`seq.clr.fs:52`: `let mutable acc: 'T = defaultof`). That is a
+annotation (`Vesper.Seq/seq.fs:59`: `let mutable acc: 'T = defaultof`). That is a
 workaround for two front-end gaps, both of which the idiomatic spelling
 `Unchecked.defaultof<'T>` hits:
 
@@ -120,10 +120,10 @@ the dynamic-invocation fallback — the FSharp.Core shape (`inline` *and*
 a compiled `DefaultOf`).
 
 - **Name:** `[<CompiledName("DefaultOf")>]` is **already threaded**
-  (`Elaborate.fs:1710` → `VesperLibTypeTranslate.tryCompiledName`), so
+  (`Elaborate.fs:144` → `AttributeDecode.tryCompiledName`), so
   the materialised method takes its IL name for free.
 - Once materialised, `[<AutoOpen>]` on `module Unchecked` can be
-  removed and `seq.clr.fs:52` rewritten to the idiomatic spelling.
+  removed and `Vesper.Seq/seq.fs:59` rewritten to the idiomatic spelling.
 
 ### Discriminator — `[<NoDynamicInvocation>]` (opt-out)
 
@@ -152,14 +152,14 @@ not leak into Freeze; FSharp.Core encodes the verdict at the source with
 
 | # | File | Change |
 |---|------|--------|
-| 1 | `SymbolProviders.fs` (`buildContractCached`) | A qualified read of an *external* module value already froze to `TExpr.External` carrying the resolved (container-scoped) `SymbolKey` — the SAME `ValueKey(asm, ns, name)` the provider mints for that value. The defect was in the inline-body **by-key store**: it resolved each value body via its *simple* name (`provider.TryLookup info.Name`), which the qualified-name-keyed index does not contain (and never did — `[<AutoOpen>]` only ever fed front-end resolution, not `TryLookup`), so `byKey` got no entry and `InlineExpansion.fs:674` missed the key channel → phantom `call`. Fix: key `byKey` by resolving the value's **fully-qualified** compiled name (`ValueInlineBody.Qualified`, reconstructed from its `ModuleMemberInfo`), exactly as the member channel already keys by `TryLookupMember(qualifiedTypeName, …)`. The use-site key then hits the identity-robust key channel directly — no Freeze-side name rewrite, and same-simple-name value inlines across modules no longer alias in the by-name map. |
+| 1 | the inline-body store (then `SymbolProviders.buildContractCached`; now `InlineBodies.fs` + `PackageProviders.fs:287-301`) | A qualified read of an *external* module value already froze to `TExpr.External` carrying the resolved (container-scoped) `SymbolKey` — the SAME `ValueKey(asm, ns, name)` the provider mints for that value. The defect was in the inline-body **by-key store**: it resolved each value body via its *simple* name (`provider.TryLookup info.Name`), which the qualified-name-keyed index does not contain (and never did — `[<AutoOpen>]` only ever fed front-end resolution, not `TryLookup`), so `byKey` got no entry and `InlineExpansion.fs:674` missed the key channel → phantom `call`. Fix: key `byKey` by resolving the value's **fully-qualified** compiled name (`ValueInlineBody.Qualified`, reconstructed from its `ModuleMemberInfo`), exactly as the member channel already keys by `TryLookupMember(qualifiedTypeName, …)`. The use-site key then hits the identity-robust key channel directly — no Freeze-side name rewrite, and same-simple-name value inlines across modules no longer alias in the by-name map. |
 | 2 | `ElaborateExpr.fs` | New arm: value `Expr.TypeApp(inner, types)` forwards to `inner`'s frozen `External` node. |
 | 3 | `InferTypeOps.fs:36` (optional) | `inferTypeApp` binds a generic value's scheme typar to the explicit arg. |
 | 4 | `EmitClosures.fs:164` | `classifyModuleValues`: admit `isInline` values that lack `[<NoDynamicInvocation>]`. |
-| 5a | `Vesper.Core/compiler-attributes.fsi` | Declare `NoDynamicInvocationAttribute`; and add `CompiledNameAttribute`, which is recognised by short name (`Elaborate.fs:1710` → `tryCompiledName`) but currently has **no source representation** — a latent gap to close while we are here. |
-| 5b | attribute plumbing (near `Elaborate.fs:1710`, sibling of `tryCompiledName`) | Derive a `NoDynamicInvocation` flag off `b.attributes` and thread it to site #4. |
-| 6 | `ops-platform.clr.fs:247` / `.fsi:464` | Drop `[<AutoOpen>]`; keep `inline`; the `.fsi` remarks documenting the old workaround are deleted. |
-| 7 | `seq.clr.fs:52` | Rewrite bare `defaultof` → `Unchecked.defaultof<'T>`. |
+| 5a | `Vesper.Core/compiler-attributes.fsi` | Declare `NoDynamicInvocationAttribute`; and add `CompiledNameAttribute`, which is recognised by short name (`Elaborate.fs:144` → `AttributeDecode.tryCompiledName`) but currently has **no source representation** — a latent gap to close while we are here. |
+| 5b | attribute plumbing (`AttributeDecode.fs:118`, sibling of `tryCompiledName`) | Derive a `NoDynamicInvocation` flag off `b.attributes` and thread it to site #4. |
+| 6 | `ops-platform.clr.fs:121` / `.fsi:411` | **DONE** — `[<AutoOpen>]` is off `module Unchecked` on both halves; `inline` kept. |
+| 7 | `Vesper.Seq/seq.fs:59` | **DONE** — reads `Unchecked.defaultof<'T>`. |
 
 Sites 1–3 are **Half 1** (correctness, independently shippable); 4–7 are
 **Half 2** (materialisation, lets `[<AutoOpen>]` go away).
@@ -175,7 +175,7 @@ Sites 1–3 are **Half 1** (correctness, independently shippable); 4–7 are
 
 ## Test plan
 
-- **Regression:** `seq.clr.fs` `reduce` still compiles and its emitted IL
+- **Regression:** `Vesper.Seq/seq.fs` `reduce` still compiles and its emitted IL
   for the seed is unchanged (`ilzero` splice, no call).
 - **Qualified in-language:** a fixture using `Unchecked.defaultof<'T>`
   (bare and type-applied) splices identically — assert on frozen TAST

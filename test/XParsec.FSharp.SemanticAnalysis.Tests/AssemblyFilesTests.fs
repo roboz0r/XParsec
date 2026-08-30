@@ -847,6 +847,42 @@ module N =
                         f2.Frozen.Residue.Diagnostics)
             }
 
+            test "a referenced package's record in a prelude namespace is bare-constructible (ambient scope admits)" {
+                // `Vesper` resolves unqualified in every compilation, so `Vesper.Core`'s
+                // `Ref<'T>` reaches the bare field-set index through the ambient tail of the
+                // open scope, which is the channel a written `open` feeds for a cross-file
+                // record. `dotnet fsi` types `{ contents = 1 }` as `int ref` the same way.
+                let source =
+                    "\
+namespace Test.B
+
+module N =
+    let cell = { contents = 1 }
+"
+
+                let all = analyseAssembly asm realProvider.Value [ impl "file1.fs" source ] |> files
+                let f1 = all.[0]
+
+                Expect.isEmpty
+                    (f1.Frozen.Residue.Diagnostics |> Diagnostic.errors)
+                    (sprintf
+                        "bare construction of a package record must resolve clean (diagnostics: %A)"
+                        f1.Frozen.Residue.Diagnostics)
+
+                // Typing as the package's key, not a fresh TyVar, is what proves the
+                // candidate came from the provider.
+                match ScopeContents.tryValueAt f1.View.Scope "Test.B.N.cell" with
+                | ValueSome sym ->
+                    Expect.equal
+                        sym.Scheme
+                        (FTRecord(
+                            RuntimeNames.vesperRefKey,
+                            EqArray.singleton (FTConst(RuntimeNames.intKey, EqArray.empty))
+                        ))
+                        "the bare literal types as Vesper.Ref<int>"
+                | ValueNone -> failtest "the file did not export cell"
+            }
+
             test "a cross-file `member private` does NOT resolve for dispatch (member-level accessibility honoured)" {
                 // A `private` member is not visible to another file, so the private dispatch
                 // must error while the public one stays clean: freeze drops `Private` members

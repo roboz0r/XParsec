@@ -5,36 +5,39 @@ reading the slots its predecessors wrote and writing exactly one new slot.
 
 ## Pipeline
 
-`Pipeline.fs` is authoritative; this table annotates it. Steps 1–10 run in the
-`SemType` domain (`TypeVar` metavars, union-find, mutable); step 11 is the single
+`Pipeline.fs` is authoritative; this table annotates it. Steps 1–9 run in the
+`SemType` domain (`TypeVar` metavars, union-find, mutable); step 10 is the single
 `SemType → FrozenType` cut. Note that **`Elaborate` builds the TAST and `Freeze`
 changes the type domain** — `Elaborate` was itself once called `Freeze`, and
 several files still carry the old name.
 
 | #  | Pass               | Writes             | Reads                | Notes |
 |----|--------------------|--------------------|----------------------|-------|
-| 1  | `Desugar`          | `Desugared` table  | CST                  | Mints synthetic `NodeKey`s. Annotation-only — never mutates CST shape. |
-| 2  | `NameResolution`   | `Binding` table    | CST, `Desugared`     | Open-decls, shadowing, qualified lookups; registers types + members. |
-| 3  | `Unification`      | `TypeVar` table    | CST, `Desugared`, `Binding` | Algorithm J + Rémy's levels. Deferred SRTP / IWSAM resolution iterates *inside* this pass. |
-| 4  | `Validation`       | (diagnostics only) | all prior            | Read-only. Exhaustiveness, value restriction, mutability. |
-| 5  | `Elaborate`        | `TastFileG<SemType>` | CST + all tables   | The tree projection; quantifies open typars. Runs `Passes.InlineExpansion` internally (`Elaborate.fs`), which resolves `inline` call sites and builds the specialization table. Side tables are discardable after this. Still `SemType`. |
-| 6  | `Regions`          | `Escape` table     | the elaborated tree  | Inequality-only escape analysis. Runs **post-inline** — inlining both removes and exposes closures, so the graph must be built over the closures codegen actually emits. |
-| 7  | `RefCellPromotion` | (rewrites the tree) | `Escape`, `Binding` | Promotes a `let mutable` captured by an escaping closure to a heap `Vesper.Ref<'T>` cell. |
-| 8  | `ResolvedTypes`    | (diagnostics only) | the tree             | Guard: a leaked `TyVar` surfaces as a per-decl diagnostic here rather than a hard error in `Freeze`. |
-| 9  | `PlatformTypes`    | (diagnostics only) | the tree             | Guard: a primitive with no representation on the compiling target. |
-| 10 | `DynamicEscape`    | (diagnostics only) | recorded `?` sites   | Warns where a `d?foo` result was pinned to a concrete type by context. |
-| 11 | `Freeze`           | `TastFileG<FrozenType>` | the settled tree | The `SemType → FrozenType` cut. After this a metavar is unrepresentable by construction. |
+| 1  | `NameResolution`   | `Binding` table    | CST                  | Open-decls, shadowing, qualified lookups; registers types + members. |
+| 2  | `Unification`      | `TypeVar` table    | CST, `Binding`       | Algorithm J + Rémy's levels. Deferred SRTP / IWSAM resolution iterates *inside* this pass. |
+| 3  | `Validation`       | (diagnostics only) | all prior            | Read-only. Exhaustiveness, value restriction, mutability. |
+| 4  | `Elaborate`        | `TastFileG<SemType>` | CST + all tables   | The tree projection; quantifies open typars. Runs `Passes.InlineExpansion` internally (`Elaborate.fs`), which resolves `inline` call sites and builds the specialization table. Side tables are discardable after this. Still `SemType`. |
+| 5  | `Regions`          | `Escape` table     | the elaborated tree  | Inequality-only escape analysis. Runs **post-inline** — inlining both removes and exposes closures, so the graph must be built over the closures codegen actually emits. |
+| 6  | `RefCellPromotion` | (rewrites the tree) | `Escape`, `Binding` | Promotes a `let mutable` captured by an escaping closure to a heap `Vesper.Ref<'T>` cell. |
+| 7  | `ResolvedTypes`    | (diagnostics only) | the tree             | Guard: a leaked `TyVar` surfaces as a per-decl diagnostic here rather than a hard error in `Freeze`. |
+| 8  | `PlatformTypes`    | (diagnostics only) | the tree             | Guard: a primitive with no representation on the compiling target. |
+| 9  | `DynamicEscape`    | (diagnostics only) | recorded `?` sites   | Warns where a `d?foo` result was pinned to a concrete type by context. |
+| 10 | `Freeze`           | `TastFileG<FrozenType>` | the settled tree | The `SemType → FrozenType` cut. After this a metavar is unrepresentable by construction. |
+
+A `Desugar` pass writing a `Desugared` side table used to run ahead of `NameResolution`. It, the
+`DesugaredForm` DU and `ctx.Desugared` were deleted (`b3ed35d6`); an operator's compiled name now
+comes from `OperatorNames.ofSymbolic` at the site that needs it.
 
 ## Pass contracts
 
 Each pass is a module with an explicit `run` function:
 
 ```fsharp
-module Desugar =
+module NameResolution =
     val run : ctx: PassContext -> file: ImplementationFile<SyntaxToken> -> unit
-    // Postcondition: ctx.Desugared is populated for every CST node that has a
-    // desugared form. Nodes without a desugared form are simply absent from
-    // the table — the constraint generator falls through to the CST view.
+    // Pre:  none.
+    // Post: ctx.Bindings.Binding populated for every ident-use site resolving to a
+    //       local binding; a name no provider knows becomes an Error diagnostic.
 ```
 
 The postcondition is what the next pass relies on. Keep it explicit at the

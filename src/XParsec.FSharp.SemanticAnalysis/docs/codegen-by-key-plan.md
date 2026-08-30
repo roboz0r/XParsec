@@ -210,8 +210,10 @@ Not blocked by the above, and each stands on its own.
   `RuntimeNames.fs:77` — *not* `structuralFormatKey`, which does not exist).
 - **`ClrProvider.fs:323-324`'s `compiledName = "List.fold"`** string test; drop
   `compiledName` from `ICodegenProvider.TryEmitCall` (`ICodegenProvider.fs:296`).
-- **`Codegen.Common/SymbolProviders.fs:161/208/232` stays a resolver reach**: contract
-  *extraction*, a producer resolving its own qualified names, not a consumer lookup. Narrowing
+- **Contract extraction stays a resolver reach**: a producer resolving its own qualified names,
+  not a consumer lookup. The three sites cited here were in `Codegen.Common/SymbolProviders.fs`,
+  which is now a 47-line composition shim; the extraction they named lives in
+  `Passes/SignatureResolution.fs` and `PackageProviders.fs`. Narrowing
   `WalkCtx.Provider` above is what enforces the rest; there is no allowlist test to add it to —
   `ResolverAllowlistTests` has been deleted (it matched raw source text, so a doc comment
   counted as a reader).

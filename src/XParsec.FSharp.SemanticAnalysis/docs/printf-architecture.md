@@ -724,15 +724,17 @@ Deferred seams: a BCL-shaped `TextWriter` that user code can call as `w.Write 42
   `stringBuilderTypeName` do go; the CLR backend's own `ClrEnv.textWriter`, `ClrEnv.fs:38`,
   stays and *should* — it is a backend fact.)
 - **A BCL type lands in a contract a BCL-free target loads.** Declaring `fprintf` puts
-  `System.IO.TextWriter` in `printf.fsi`, which the JS stack parses. `formatter.fsi`
-  already does this and extracts cleanly to `FTUnknown` — but the manifest has **no way
-  to exclude a base `.fsi` from a target**: `files-<t>` only *appends*
-  (`ReferencedProject.fs:62-66`, `:147-149`), and the CLR compose passes `None`
-  (`SymbolProviders.fs:34`), so there is no `clr` suffix to declare into. JS therefore
-  carries a declaration whose sink is `FTUnknown`. That is the honest model — *the
-  function exists, its sink does not* — and it is what produces the diagnostic. But this
-  design does not add a per-target-contract mechanism, and should not be read as
-  assuming one.
+  `System.IO.TextWriter` in `printf.fsi`, which the JS stack parses, and `formatter.fsi`
+  already does this and extracts cleanly to `FTUnknown`.
+
+  **Re-cost this bullet before relying on it.** It was written when one manifest served every
+  target and `files-<t>` could only append, so a base `.fsi` could not be withheld from a
+  target. Packages now carry a manifest PER target (`manifest.clr.toml` / `manifest.js.toml`,
+  each with its own `files` list), and `Vesper.Printf`'s JS manifest already exercises that by
+  omitting `formatter.fsi` outright. Excluding a `.fsi` from a target is therefore mechanism
+  that exists, not mechanism this design would have to add. The `FTUnknown` fallback remains
+  the honest model where a declaration IS carried — *the function exists, its sink does not* —
+  and it is what produces the diagnostic.
 - **Two capability axes — and the second one becomes IN SCOPE for whoever builds this.**
   The provider says *this type exists on this target*; the backend says *I can write to this
   sink*. This design supplies the first, which is what `fprintf`/`bprintf` need. The
@@ -772,7 +774,8 @@ diagnoses on JS — **survives unchanged**, and that is the rule's best evidence
 consequence of `observesSink` (a callback receives the state ⇒ the sink must resolve ⇒ the
 JS provider has no `TextWriter`) rather than of a `%a`-specific gate. Its CLR counterparts
 already exist (`Codegen.Clr.Tests/PrintfHappyPathTests.fs:726-760`,
-`FSharpCoreDepsTests.fs:24-40`), which is itself the evidence that the four movers were
+and `NoFSharpCoreTests.fs`, successor to the `FSharpCoreDepsTests.fs` cited
+here), which is itself the evidence that the four movers were
 target tests all along.
 
 **No fake BCL is required anywhere in this design.** That is not incidental: a design that
