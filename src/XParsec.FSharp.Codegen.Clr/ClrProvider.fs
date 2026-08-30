@@ -208,16 +208,11 @@ type ClrProvider
     member _.GenericClosureMemberRef(name: string, args: FrozenType list, which: ClosureMember) : EntityHandle =
         generics.GenericClosureMemberRef(name, args, which)
 
-    /// Wrap a generic closure's own ctor / `Invoke` / field / locals / member-ref emission: the
-    /// enclosing method's `FTTypar(Method, i)`, which the closure body embeds, re-projects onto
-    /// the closure *class*'s `!(declaringTypars + i)` rather than `!!i`.
-    member _.EnterClosureTyparScope(declaringTypars: int) : unit =
-        env.ClosureTyparScope <- ValueSome declaringTypars
-
-    /// INVARIANT: Exit resets to `ValueNone` rather than restoring a saved value, so Enter/Exit
-    /// is only safe from an unscoped context. Code flipping the scope *mid-encoding of another
-    /// signature* must save and restore `env.ClosureTyparScope` instead of calling Exit.
-    member _.ExitClosureTyparScope() : unit = env.ClosureTyparScope <- ValueNone
+    /// Run `f` — a generic closure's own ctor / `Invoke` / field / locals / member-ref emission
+    /// — with the enclosing method's `FTTypar(Method, i)`, which the closure body embeds,
+    /// re-projected onto the closure *class*'s `!(declaringTypars + i)` rather than `!!i`.
+    member _.WithClosureTyparScope(declaringTypars: int, f: unit -> 'T) : 'T =
+        env.WithClosureTyparScope(declaringTypars, f)
 
     member _.EncodeAbstractType(te: SignatureTypeEncoder, t: FrozenType) : unit = enc.EncodeAbstractType(te, t)
 

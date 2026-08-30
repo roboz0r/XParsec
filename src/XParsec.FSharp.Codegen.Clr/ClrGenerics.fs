@@ -247,13 +247,7 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
         let shape = genericClosures.[name]
         let parent = genericClosureTypeSpec name args
 
-        // `parent` was minted under the caller's ambient closure scope; the signature
-        // below is encoded against THIS closure's typars, so force its scope on: under it
-        // `FTTypar(Declaring, i)` encodes `!i`, `FTTypar(Method, j)` encodes `!(d + j)`.
-        let savedMode = env.ClosureTyparScope
-        env.ClosureTyparScope <- ValueSome shape.DeclaringTypars
-
-        let handle =
+        let mint () =
             match which with
             | ClosureMember.Ctor ->
                 let s = BlobBuilder()
@@ -295,8 +289,10 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
 
                 toEntity (ctx.MemberRef(parent, "Invoke", s))
 
-        env.ClosureTyparScope <- savedMode
-        handle
+        // `parent` is minted under the caller's ambient closure scope; `mint` encodes against
+        // THIS closure's typars, so force its scope on: under it `FTTypar(Declaring, i)`
+        // encodes `!i` and `FTTypar(Method, j)` encodes `!(d + j)`.
+        env.WithClosureTyparScope(shape.DeclaringTypars, mint)
 
     member _.GenericUnionMemberRef(key, args, which) = genericUnionMemberRef key args which
     member _.GenericRecordMemberRef(key, args, which) = genericRecordMemberRef key args which

@@ -600,9 +600,18 @@ type internal ClrEnv
     member _.GenericClasses = genericClasses
     member _.GenericClosures = genericClosures
 
-    member _.ClosureTyparScope
-        with get () = closureTyparScope
-        and set v = closureTyparScope <- v
+    member _.ClosureTyparScope = closureTyparScope
+
+    /// Run `f` with the closure-typar scope set to `declaringTypars`, restoring the enclosing
+    /// scope on the way out, including on an exception.
+    member _.WithClosureTyparScope(declaringTypars: int, f: unit -> 'T) : 'T =
+        let saved = closureTyparScope
+        closureTyparScope <- ValueSome declaringTypars
+
+        try
+            f ()
+        finally
+            closureTyparScope <- saved
 
     member _.ArityOfMetaName name = arityOfMetaName name
     member _.UncurryTy t = uncurryTy t

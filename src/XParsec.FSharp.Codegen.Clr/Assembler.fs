@@ -319,35 +319,36 @@ type internal Assembler
     // signature encodes inside the ambient closure-typar scope, bracketed per slot.
     do
         for fs in layout.Fields do
-            match fs.ClosureScope with
-            | ValueSome d -> provider.EnterClosureTyparScope d
-            | ValueNone -> ()
+            let addField () =
+                // An ungrounded type constructor in a field type (a closure capture whose element typar
+                // never resolved, say) surfaces here as an opaque encoder failure; identify the
+                // field + type so the front-end grounding gap is pinpointable.
+                let fieldSig =
+                    try
+                        match fs.Key with
+                        | FieldKey.ClosureCached name ->
+                            provider.ClosureSelfFieldSignature(
+                                toEntity (layoutHandles.TypeDefOf(TypeSlotKey.Closure name))
+                            )
+                        // The owning file's verdict may have rewritten this slot to a
+                        // `<closure>$` value-struct; absent ⇒ the declared type unchanged.
+                        | FieldKey.ModuleValue mvKey ->
+                            let slotTy =
+                                match moduleValueSlotType.TryGetValue mvKey with
+                                | true, t -> t
+                                | false, _ -> fs.Ty
 
-            // An ungrounded type constructor in a field type (a closure capture whose element typar
-            // never resolved, say) surfaces here as an opaque encoder failure; identify the
-            // field + type so the front-end grounding gap is pinpointable.
-            let fieldSig =
-                try
-                    match fs.Key with
-                    | FieldKey.ClosureCached name ->
-                        provider.ClosureSelfFieldSignature(toEntity (layoutHandles.TypeDefOf(TypeSlotKey.Closure name)))
-                    // The owning file's verdict may have rewritten this slot to a
-                    // `<closure>$` value-struct; absent ⇒ the declared type unchanged.
-                    | FieldKey.ModuleValue mvKey ->
-                        let slotTy =
-                            match moduleValueSlotType.TryGetValue mvKey with
-                            | true, t -> t
-                            | false, _ -> fs.Ty
+                            provider.FieldSignature slotTy
+                        | _ -> provider.FieldSignature fs.Ty
+                    with ex ->
+                        raise (System.Exception(sprintf "While encoding field '%s' : %A" fs.Name fs.Ty, ex))
 
-                        provider.FieldSignature slotTy
-                    | _ -> provider.FieldSignature fs.Ty
-                with ex ->
-                    raise (System.Exception(sprintf "While encoding field '%s' : %A" fs.Name fs.Ty, ex))
+                ctx.AddField(fs.Attrs, fs.Name, fieldSig)
 
-            let h = ctx.AddField(fs.Attrs, fs.Name, fieldSig)
-
-            if fs.ClosureScope.IsSome then
-                provider.ExitClosureTyparScope()
+            let h =
+                match fs.ClosureScope with
+                | ValueSome d -> provider.WithClosureTyparScope(d, addField)
+                | ValueNone -> addField ()
 
             fieldDefHandles.Add(fs.Key, h)
 
@@ -739,112 +740,119 @@ type internal Assembler
             // its own declaring typar, so this encodes `!i` at any closure-scope offset.
             let selfArgs = [ for i in 0 .. c.Typars - 1 -> FTTypar(TyparAxis.Declaring, i) ]
 
-            if isGenericClosure then
-                provider.EnterClosureTyparScope c.DeclaringTypars
-
-            let fieldHandles =
-                c.Captures
-                |> List.mapi (fun i (k, _) ->
-                    let h = fieldDefHandles.[FieldKey.ClosureCapture(c.Name, i)]
-
-                    // Generic closure: `stfld` (ctor) and `ldfld` (`Invoke`) reference a
-                    // `MemberRef` on the self-`TypeSpec`; monomorphic keeps `Def`.
-                    let handleForUse =
-                        if isGenericClosure then
-                            icodegen.UserClosureMemberRef(c.Name, selfArgs, ClosureMember.CaptureField i)
-                        else
-                            toEntity h
-
-                    captureFields.[k] <- handleForUse
-                    handleForUse
-                )
-
             // A `Stack` closure's ctor does NOT chain `System.Object::.ctor`, because
             // value types have none. A captureless one's ctor is a bare `ret`: construction is
             // by-value (`initobj`), so it is never called, but the row stays for layout.
             let isStack = c.IsValueStruct
 
-            let ctorBodyOffset =
-                if isStack then
-                    Cil.buildBody encodeLocals bodyStream (IlIr.lower (Emit.buildStructCtor fieldHandles))
-                else
+            let prepare () =
+                let fieldHandles =
+                    c.Captures
+                    |> List.mapi (fun i (k, _) ->
+                        let h = fieldDefHandles.[FieldKey.ClosureCapture(c.Name, i)]
+
+                        // Generic closure: `stfld` (ctor) and `ldfld` (`Invoke`) reference a
+                        // `MemberRef` on the self-`TypeSpec`; monomorphic keeps `Def`.
+                        let handleForUse =
+                            if isGenericClosure then
+                                icodegen.UserClosureMemberRef(c.Name, selfArgs, ClosureMember.CaptureField i)
+                            else
+                                toEntity h
+
+                        captureFields.[k] <- handleForUse
+                        handleForUse
+                    )
+
+                let ctorBodyOffset =
+                    if isStack then
+                        Cil.buildBody encodeLocals bodyStream (IlIr.lower (Emit.buildStructCtor fieldHandles))
+                    else
+                        Cil.buildBody
+                            encodeLocals
+                            bodyStream
+                            (IlIr.lower (Emit.buildClosureCtor provider.ObjectCtorRef fieldHandles))
+
+                let invokeBodyOffset =
                     Cil.buildBody
                         encodeLocals
                         bodyStream
-                        (IlIr.lower (Emit.buildClosureCtor provider.ObjectCtorRef fieldHandles))
-
-            let invokeBodyOffset =
-                Cil.buildBody encodeLocals bodyStream (IlIr.lower (Emit.buildClosureInvoke f.EmitCtx c captureFields))
-
-            this.AddPrepared(
-                MethodKey.ClosureCtor c.Name,
-                {
-                    Signature = provider.ClosureCtorSignature(List.map snd c.Captures)
-                    BodyOffset = ctorBodyOffset
-                    ParamNames = argNames (List.length c.Captures)
-                    MethodTypars = []
-                }
-            )
-
-            // A flat closure's `Invoke` takes all `FunArity` params
-            // (`Invoke(arg0, …, arg{N-1}) : result`); arity 1 reduces to `Invoke(arg0)`.
-            let invokeSignature, invokeParamNames =
-                let paramTys = c.ParamTy :: (c.ExtraParams |> List.map (fun (_, ty, _) -> ty))
-                let names = [ for i in 0 .. c.FunArity - 1 -> sprintf "arg%d" i ]
-                provider.InvokeSignatureN(paramTys, c.ResultTy), names
-
-            this.AddPrepared(
-                MethodKey.ClosureInvoke c.Name,
-                {
-                    Signature = invokeSignature
-                    BodyOffset = invokeBodyOffset
-                    ParamNames = invokeParamNames
-                    MethodTypars = []
-                }
-            )
-
-            // A cached closure's `.cctor` `newobj`s the ctor once and `stsfld`s the
-            // singleton field that construction sites `ldsfld`.
-            if Emit.closureIsCached c then
-                let ctorHandle = toEntity (layoutHandles.MethodDefOf(MethodKey.ClosureCtor c.Name))
-                let cachedField = toEntity (fieldDefHandles.[FieldKey.ClosureCached c.Name])
-
-                let cctorBodyOffset =
-                    Cil.buildBody
-                        encodeLocals
-                        bodyStream
-                        (IlIr.lower (Emit.buildCachedClosureCctor ctorHandle cachedField))
+                        (IlIr.lower (Emit.buildClosureInvoke f.EmitCtx c captureFields))
 
                 this.AddPrepared(
-                    MethodKey.ClosureCctor c.Name,
+                    MethodKey.ClosureCtor c.Name,
                     {
-                        Signature = provider.CctorSignature()
-                        BodyOffset = cctorBodyOffset
-                        ParamNames = []
+                        Signature = provider.ClosureCtorSignature(List.map snd c.Captures)
+                        BodyOffset = ctorBodyOffset
+                        ParamNames = argNames (List.length c.Captures)
                         MethodTypars = []
                     }
                 )
 
-            // `Fun\`2<param, result>` interface `TypeSpec`. The closure ambient is still
-            // installed, so free typars encode to `!i`. A flat (arity ≥2) closure
-            // implements the wider `Fun\`(N+1)<a, …, result>` instead.
+                // A flat closure's `Invoke` takes all `FunArity` params
+                // (`Invoke(arg0, …, arg{N-1}) : result`); arity 1 reduces to `Invoke(arg0)`.
+                let invokeSignature, invokeParamNames =
+                    let paramTys = c.ParamTy :: (c.ExtraParams |> List.map (fun (_, ty, _) -> ty))
+                    let names = [ for i in 0 .. c.FunArity - 1 -> sprintf "arg%d" i ]
+                    provider.InvokeSignatureN(paramTys, c.ResultTy), names
+
+                this.AddPrepared(
+                    MethodKey.ClosureInvoke c.Name,
+                    {
+                        Signature = invokeSignature
+                        BodyOffset = invokeBodyOffset
+                        ParamNames = invokeParamNames
+                        MethodTypars = []
+                    }
+                )
+
+                // A cached closure's `.cctor` `newobj`s the ctor once and `stsfld`s the
+                // singleton field that construction sites `ldsfld`.
+                if Emit.closureIsCached c then
+                    let ctorHandle = toEntity (layoutHandles.MethodDefOf(MethodKey.ClosureCtor c.Name))
+                    let cachedField = toEntity (fieldDefHandles.[FieldKey.ClosureCached c.Name])
+
+                    let cctorBodyOffset =
+                        Cil.buildBody
+                            encodeLocals
+                            bodyStream
+                            (IlIr.lower (Emit.buildCachedClosureCctor ctorHandle cachedField))
+
+                    this.AddPrepared(
+                        MethodKey.ClosureCctor c.Name,
+                        {
+                            Signature = provider.CctorSignature()
+                            BodyOffset = cctorBodyOffset
+                            ParamNames = []
+                            MethodTypars = []
+                        }
+                    )
+
+                // `Fun\`2<param, result>` interface `TypeSpec`. The closure ambient is still
+                // installed, so free typars encode to `!i`. A flat (arity ≥2) closure
+                // implements the wider `Fun\`(N+1)<a, …, result>` instead.
+                let ifaceSpec =
+                    match c.FunArity with
+                    | 1 -> provider.FunInterfaceSpec(c.ParamTy, c.ResultTy)
+                    | _ ->
+                        let tys =
+                            (c.ParamTy :: (c.ExtraParams |> List.map (fun (_, ty, _) -> ty)))
+                            @ [ c.ResultTy ]
+
+                        provider.FlatFunInterfaceSpecN(tys)
+
+                if isGenericClosure then
+                    let closureHandle = toEntity (layoutHandles.TypeDefOf(TypeSlotKey.Closure c.Name))
+
+                    for i in 0 .. c.Typars - 1 do
+                        genericParams.Add(closureHandle, i, sprintf "T%d" i)
+
+                ifaceSpec
+
             let ifaceSpec =
-                match c.FunArity with
-                | 1 -> provider.FunInterfaceSpec(c.ParamTy, c.ResultTy)
-                | _ ->
-                    let tys =
-                        (c.ParamTy :: (c.ExtraParams |> List.map (fun (_, ty, _) -> ty)))
-                        @ [ c.ResultTy ]
-
-                    provider.FlatFunInterfaceSpecN(tys)
-
-            if isGenericClosure then
-                let closureHandle = toEntity (layoutHandles.TypeDefOf(TypeSlotKey.Closure c.Name))
-
-                for i in 0 .. c.Typars - 1 do
-                    genericParams.Add(closureHandle, i, sprintf "T%d" i)
-
-                provider.ExitClosureTyparScope()
+                if isGenericClosure then
+                    provider.WithClosureTyparScope(c.DeclaringTypars, prepare)
+                else
+                    prepare ()
 
             typeRowExtras.Add(
                 TypeSlotKey.Closure c.Name,

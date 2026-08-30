@@ -13,6 +13,29 @@ type internal ExternalMemberCacheKey =
     | On of key: SymbolKey * declTy: FrozenType * isProperty: bool * isStatic: bool * memberTy: FrozenType
     | Field of key: SymbolKey * declTy: FrozenType voption * memberTy: FrozenType
 
+/// One external member's CLR calling shape, over `FTTypar(Declaring, i)` /
+/// `FTTypar(Method, j)` markers.
+type internal OpenMemberSignature =
+    {
+        TupledParameters: FrozenType
+        ParameterCount: int
+        Return: FrozenType
+        /// A property is minted as its `get_<name>` accessor, which takes no parameters.
+        IsProperty: bool
+        IsStatic: bool
+        MethodTyparArity: int
+    }
+
+    static member OfMember(m: ExternalMember) : OpenMemberSignature =
+        {
+            TupledParameters = ExternalSignature.tupledParameters m.Signature
+            ParameterCount = m.Key.ArgSig.Length
+            Return = m.Signature.Return
+            IsProperty = (m.Storage = MemberStorage.Property)
+            IsStatic = m.IsStatic
+            MethodTyparArity = m.Signature.MethodTyparArity
+        }
+
 /// A resolved external symbol's `SymbolKey` (+ instantiation) → an
 /// `AssemblyRef`/`TypeRef`/`TypeSpec`/`MemberRef` against a referenced-assembly type.
 type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
@@ -44,23 +67,16 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
         | n, FTTuple elems when elems.Length = n -> EqArray.toList elems
         | _ -> failwithf "ClrProvider: %s declares %d parameters but its signature slot is %A" what argSigLen paramsT
 
-    /// The member-ref signature blob from the member's open template: `paramsT` the .NET-tupled
-    /// argument slot, `retT` the return, both over `FTTypar(Declaring, i)` / `FTTypar(Method, j)`
-    /// markers. `methodTyparArity > 0` sets the `GENERIC` calling-convention header count.
-    let mintMemberRef
-        (parent: EntityHandle)
-        (methodTyparArity: int)
-        (paramsT: FrozenType)
-        (retT: FrozenType)
-        (isProperty: bool)
-        (isStatic: bool)
-        (argSigLen: int)
-        (memberName: string)
-        : EntityHandle =
-        let metaName = if isProperty then "get_" + memberName else memberName
+    /// Mint the `MemberRef` for `sig_` on `parent`, taking the getter shape for a property.
+    let mintMemberRef (parent: EntityHandle) (sig_: OpenMemberSignature) (memberName: string) : EntityHandle =
+        let retT = sig_.Return
+        let isStatic = sig_.IsStatic
+
+        let metaName = if sig_.IsProperty then "get_" + memberName else memberName
+
         let s = BlobBuilder()
 
-        if isProperty then
+        if sig_.IsProperty then
             BlobEncoder(s)
                 .MethodSignature(isInstanceMethod = not isStatic)
                 .Parameters(
@@ -70,10 +86,10 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                 )
         else
             let paramTys =
-                openParams (sprintf "external member '%s'" memberName) argSigLen paramsT
+                openParams (sprintf "external member '%s'" memberName) sig_.ParameterCount sig_.TupledParameters
 
             BlobEncoder(s)
-                .MethodSignature(genericParameterCount = methodTyparArity, isInstanceMethod = not isStatic)
+                .MethodSignature(genericParameterCount = sig_.MethodTyparArity, isInstanceMethod = not isStatic)
                 .Parameters(
                     List.length paramTys,
                     // A `System.Void` return surfaces as `FTUnit`, but encoding it as
@@ -111,7 +127,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     /// declaring args parameterise the parent `TypeSpec`, the method args the `MethodSpec`.
     let externalMemberRef (key: SymbolKey) (isProperty: bool) (isStatic: bool) (memberTy: FrozenType) : EntityHandle =
         let mk = SymbolKeyOps.asMemberKey "ClrProvider: external member ref" key
-        let declKey, memberName, argSig = mk.Decl, mk.Name, mk.ArgSig
+        let declKey, memberName = mk.Decl, mk.Name
 
         let name = SymbolKeyOps.typeNestedName declKey
 
@@ -125,11 +141,14 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
             let declTyparArity = arityOfMetaName name
 
             let chosen = lookupChosen declFullName memberName mk
-            let sig_ = chosen.Signature
-            let methodTyparArity = sig_.MethodTyparArity
+            let sig_ = OpenMemberSignature.OfMember chosen
 
             let declArgs, methodArgs =
-                recoverOpenTypars declTyparArity methodTyparArity (ExternalSignature.openTemplate sig_) memberTy
+                recoverOpenTypars
+                    declTyparArity
+                    sig_.MethodTyparArity
+                    (ExternalSignature.openTemplate chosen.Signature)
+                    memberTy
 
             let tref =
                 match env.ClassOrigin declKey with
@@ -140,18 +159,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
 
             let parent = externalTypeSpec declKey tref (declArgs)
 
-            let handle =
-                methodSpec
-                    (mintMemberRef
-                        parent
-                        methodTyparArity
-                        (ExternalSignature.tupledParameters sig_)
-                        sig_.Return
-                        isProperty
-                        isStatic
-                        argSig.Length
-                        memberName)
-                    methodArgs
+            let handle = methodSpec (mintMemberRef parent sig_ memberName) methodArgs
 
             externalMemberCache.[memoKey] <- handle
             handle
@@ -167,7 +175,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
         (memberTy: FrozenType)
         : EntityHandle =
         let mk = SymbolKeyOps.asMemberKey "ClrProvider: external member ref" key
-        let declKey, memberName, argSig = mk.Decl, mk.Name, mk.ArgSig
+        let declKey, memberName = mk.Decl, mk.Name
 
         let memoKey = ExternalMemberCacheKey.On(key, declTy, isProperty, isStatic, memberTy)
 
@@ -177,28 +185,16 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
             let declFullName = SymbolKeyOps.typeMetaName declKey
 
             let chosen = lookupChosen declFullName memberName mk
-            let sig_ = chosen.Signature
-            let methodTyparArity = sig_.MethodTyparArity
+            let sig_ = OpenMemberSignature.OfMember chosen
 
             // Only the method axis is recovered here; declaring arity 0 leaves the template's
             // `FTTypar(Declaring, i)` slots to encode as `!i` when the blob is minted.
             let _, methodArgs =
-                recoverOpenTypars 0 methodTyparArity (ExternalSignature.openTemplate sig_) memberTy
+                recoverOpenTypars 0 sig_.MethodTyparArity (ExternalSignature.openTemplate chosen.Signature) memberTy
 
             let parent = typeSpecOf declTy
 
-            let handle =
-                methodSpec
-                    (mintMemberRef
-                        parent
-                        methodTyparArity
-                        (ExternalSignature.tupledParameters sig_)
-                        sig_.Return
-                        isProperty
-                        isStatic
-                        argSig.Length
-                        memberName)
-                    methodArgs
+            let handle = methodSpec (mintMemberRef parent sig_ memberName) methodArgs
 
             externalMemberCache.[memoKey] <- handle
             handle
