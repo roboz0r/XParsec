@@ -116,14 +116,23 @@ module EmitTypes =
             Name: string
             Typars: string list
             TagField: EntityHandle
-            /// Drives `isValueType` at use sites: box on `:>`, `unbox.any` on `:?>`.
-            IsValueType: bool
+            ValueKind: UnionValueKind
             Cases: Dictionary<string, EmittedCase>
             /// Augmentation members by source name, each mapping to the LIST of its
             /// overloads: own members first, interface impls last. `Append(v:'T)` and
             /// `Append(v:'T, width:int)` share a key; the call site picks by argument type.
             Members: Dictionary<string, EqArray<EmittedMember>>
         }
+
+        /// Drives `isValueType` at use sites: box on `:>`, `unbox.any` on `:?>`.
+        member this.IsValueType: bool = this.ValueKind.IsValueType
+
+        /// The metadata shape this union is emitted in.
+        member this.Regime: UnionRegime =
+            UnionRegime.classify
+                this.ValueKind
+                this.Cases.Count
+                (this.Cases.Values |> Seq.exists (fun c -> not c.Fields.IsEmpty))
 
     /// A record emitted into this assembly: a sealed class, one public field per record
     /// field, one ctor taking `Fields` in declaration order. `Typars` empty ⇒ monomorphic

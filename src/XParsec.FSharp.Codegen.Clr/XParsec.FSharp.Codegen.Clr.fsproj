@@ -10,6 +10,7 @@
     <Compile Include="MetadataSymbols.fs" />
     <Compile Include="ClrSymbolProviders.fs" />
     <Compile Include="ProjectInfo.fs" />
+    <Compile Include="UnionRegime.fs" />
     <Compile Include="Types.fs" />
     <Compile Include="Cil.fs" />
     <Compile Include="Metadata.fs" />

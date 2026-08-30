@@ -36,7 +36,15 @@ type internal GenericUnionShape =
     {
         Typars: EqArray<string>
         Cases: EqArray<GenericUnionCase>
+        ValueKind: UnionValueKind
     }
+
+    /// The metadata shape this union is emitted in.
+    member this.Regime: UnionRegime =
+        UnionRegime.classify
+            this.ValueKind
+            this.Cases.Length
+            (this.Cases |> EqArray.exists (fun c -> not c.Fields.IsEmpty))
 
 /// A *generic* user record: typar names + `(field name, declared type)` pairs.
 type internal GenericRecordShape =

@@ -71,8 +71,12 @@ type ClrProvider
     /// Register a *generic* union's shape (typar names + cases) so member refs can be minted on its
     /// `TypeSpec`. A monomorphic union uses its `Def` tokens instead.
     member _.RegisterGenericUnion
-        (key: TypeKey, typars: EqArray<string>, cases: (string * (string * FrozenType) list) list)
-        : unit =
+        (
+            key: TypeKey,
+            typars: EqArray<string>,
+            cases: (string * (string * FrozenType) list) list,
+            valueKind: UnionValueKind
+        ) : unit =
         env.GenericUnions.[key] <-
             {
                 Typars = typars
@@ -85,6 +89,7 @@ type ClrProvider
                             Fields = EqArray.ofList fields
                         }
                     )
+                ValueKind = valueKind
             }
 
     member _.RegisterGenericRecord(key: TypeKey, typars: EqArray<string>, fields: (string * FrozenType) list) : unit =

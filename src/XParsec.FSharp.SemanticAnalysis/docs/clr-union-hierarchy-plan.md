@@ -3,7 +3,7 @@
 Supersedes the "Reference unions emit flat, not as F#'s class hierarchy" gap in
 [`du-architecture.md`](du-architecture.md) (`:275`). Struct unions keep the flat
 `(tag, every case field)` shape permanently — a value type cannot inherit — so everything
-below is scoped to `UnionValueKind.Reference`.
+below is scoped to `UnionValueKind.RefType`.
 
 ## FSC selects one of four representations
 
@@ -101,13 +101,44 @@ Keeping a static factory per case — including nullary ones, where the body bec
 `_tag` survives both hierarchy regimes through step 2, so the discriminant changes exactly once,
 after the layout work is green and every reader has moved.
 
-**Step 0 — the classifier.** A `UnionRepr` DU with the four cases above, behind one pure
-`classify` over the case shapes — the count, and which cases carry no fields. Both inputs are
-available locally and on a referenced package's union shape, so the local and external paths call
-the same function and the threshold rule has a single definition. The result is carried on
-`TypeSlotKind.Union`, on `EmittedUnion` and into the generic-union shape rather than re-derived at
-use sites. `SingleCase` and `EnumLike` route to today's flat emission and stay there; the other
-two route to it until step 1 lands, which is what keeps each step green.
+**Step 0 — the classifier. DONE.** `UnionRegime` and `UnionRegime.classify`
+(`Codegen.Clr/UnionRegime.fs`) hold the four regimes and the threshold rule. `classify` takes the
+union's value kind, its case count, and whether any case carries fields — the three facts the
+threshold rule reads, which the local `Frozen.TUnionCase`, `GenericUnionShape.Cases` and a
+referenced package's `ExternalCaseShape` all supply, so step 3's external path calls the same
+function. A `[<Struct>]` union classifies as `SingleCase`, `EnumLike` or `Tagged`: a value type
+has no subclass to test, so `TypeTested` is unreachable for one, and `Tagged` on a value type is
+today's flat `(tag, every case field)` shape.
+
+Every carrier **derives** its regime from its own cases rather than being handed one, so a
+carrier cannot disagree with the cases beside it: `UnionDecl.Regime` (`CodegenTypes.fs:77`),
+`GenericUnionShape.Regime` (`ClrEnv.fs:43`) and `EmittedUnion.Regime` (`EmitTypes.fs:131`) are
+each a member over that record's own `Cases` and `ValueKind`. `TypeSlotKind.Union of valueKind *
+regime` (`LayoutModel.fs:92`) is the one carrier holding a stored copy, because a `TypeSlot` has
+no cases to derive from; it is built once from `ud.Regime` at `LayoutNodes.fs:360`. Every regime
+still routes to the flat emission, since no consumer branches on `Regime` yet.
+`UnionRegimeTests.fs` pins the type-test boundary against `TypeTestCaseLimit`, the
+all-nullary-beats-count rule, and the struct rows.
+
+`RegisterGenericUnion` takes the union's `UnionValueKind`, not a regime: the regime is a function
+of the `cases` argument already passed, and a second parameter for it could contradict the first.
+`EmittedUnion` carries `ValueKind: UnionValueKind` for the same reason, exposing `IsValueType` as
+a member so its use sites are unchanged.
+
+The four cases flatten two independent axes — whether a discriminant field exists, and whether
+each case gets its own nested type — which is why the type is not named for the discriminant
+alone. `SingleCase` and `TypeTested` carry no `_tag`; `EnumLike` and `Tagged` share one.
+
+Each case's doc on `UnionRegime` describes the shape that regime is emitted in **once steps 1–5
+land**, not today's flat emission. Steps 1, 2 and 5 make them true in that order.
+
+**Step 0.5 — `NominalEmissionInput` carries the decls. DONE.** `NominalEmissionInput.Union of
+UnionDecl | Record of RecordDecl | Class of ClassDecl` (`CodegenTypes.fs:158`), matching the
+`Class` arm that already took its decl whole. Steps 1–4 add fields to `UnionDecl` and read them
+in `NominalEmit`, rather than widening a tuple and rethreading every match site. `OfUnion` /
+`OfRecord`, the `NominalEmit.userInterfacesOf` helper and the three-arm `isStruct` match are
+replaced by `NominalEmissionInput.Interfaces` and `.IsValueType`, the latter now covering the
+class arm on the same terms as the other two.
 
 **Step 1 — slot keys, nodes and row prediction, both hierarchy regimes.** New
 `TypeSlotKey.UnionCase of SymbolKey * case`, `TypeSlotKind.UnionCase`,
@@ -124,9 +155,26 @@ through `TypeRowExtras`. Handle derivation (`Layout.fs:539`), the field pass and
 `verifyTypeHandle` are generic over the key types and need no change — which is the check that
 this step is right.
 
+`TypeSlotKind.Union` already carries the regime, so the abstract/sealed decision at
+`Assembler.fs:1105` reads the regime alone: `TypeTested` and `Tagged` are the hierarchy regimes
+whatever the value kind, since `classify` never pairs `Struct` with `TypeTested`. The `valueKind`
+component stays for the `IsReadOnly` marker and the `ValueType` base, which the regime does not
+determine.
+
 **Step 2 — bodies, both hierarchy regimes.** The step that cannot be subdivided, because moving
 the fields breaks every `ldfld` off the base at once. `_tag` stays the discriminant for both
 regimes here, so a match arm is unchanged apart from the cast.
+
+**Split `NominalEmit.fs` as part of this step.** It is 1205 lines before step 1 and this step
+rewrites the union half of it. The union-specific functions are `prepareUnion`,
+`unionStructuralFields`, `tagFieldRefOf`, `prepareUnionStructural` and `register`'s union arm —
+roughly 210 lines, interleaved with helpers the record arm shares (`selfMemberRef`, `bodyOf`,
+`prepareEqualityTriple`, `prepareComparisonPair`, `prepareStructuralFormat`). Scoping is
+top-down, so a `UnionEmit.fs` cannot both call those helpers and be called by `register` while
+they sit in one file; the shared helpers move down into a `NominalShared.fs` first, then
+`UnionEmit.fs`, leaving `NominalEmit.fs` as `register` / `prepare` orchestration. Splitting while
+rewriting these bodies costs little; splitting after steps 3 and 4 have grown them again costs a
+merge.
 
 1. `EmittedCase` gains the case's `TypeDef` handle and its `.ctor`; `ClrGenerics` gains a case
    `TypeSpec` and reparents `UnionMember.Field` onto it, plus a `UnionMember.CaseCtor`.
@@ -153,11 +201,24 @@ regimes here, so a match arm is unchanged apart from the cast.
 
 ```fsharp
 type UnionDiscriminant =
+    /// `SingleCase`: the union's sole case, which every value of it inhabits.
+    | NoDiscriminant
     /// `Tagged` / `EnumLike`: the `_tag` field handle every test and structural body loads.
     | TagField of EntityHandle
     /// `TypeTested`: a case's runtime type discriminates it.
     | TypeTest
 ```
+
+`UnionRegime.discriminant` maps the four regimes onto these three, so the mapping is total and
+lives in one place. **Step 5's first half is a prerequisite for this step**, not merely wanted
+early: `SingleCase` yields `NoDiscriminant`, and a single-case union carries a `_tag` its match
+arm and structural bodies still load until that field is dropped.
+
+`EmittedUnion.Discriminant` is a member over `this.Regime` and `this.TagField`, on the same terms
+as `Regime` itself: a union that stored a discriminant beside the regime that selects it could
+hold a `TagField` for a `TypeTested` union, which is the state step 4 relies on being
+unrepresentable. `TagField` therefore stops being a field on `EmittedUnion` in step 4 and becomes
+whatever `TagField of EntityHandle` closes over.
 
 A `TypeTested` union then carries no tag handle, so no consumer can emit a load of one: the match
 arm collapses to a single `isinst` into the case-typed local, replacing both the tag compare and
@@ -180,8 +241,11 @@ carries no field rows pins the outcome.
 
 **Step 5 — `SingleCase` and `EnumLike` polish.** Drop the redundant `_tag` from a single-case
 union; give an enum-like union `_unique_<Case>` singletons so nullary construction stops
-allocating. No hierarchy involved, and independent of steps 1–4, but the first half should land
-early for the reason below.
+allocating. No hierarchy involved, and the second half is independent of steps 1–4. The first
+half gates step 3, which needs `SingleCase` to mean `NoDiscriminant`, and it also settles the
+collision below.
+
+**Step 6 — fix a name resolution gap.** A bare union case declared in a module-held union does not resolve across a file boundary; the namespace-level form does. `test/XParsec.FSharp.Codegen.Clr.Tests/CrossFileTests.fs:216` routes around it — the cross-file `obj`-box test declares `type Holder = Wrap of obj` at namespace level with a comment saying why. Contrast `CrossFileTests.fs:320`, where a module-held union is reached cross-file, and `LongIdentResolutionTests.fs:157` ("module-held case, bare after open, construct + match"), which passes within the same file. So the missing piece is the module-held case's bare spelling specifically on the cross-file provider channel, not module-held unions in general.
 
 ### A latent name collision
 

@@ -87,9 +87,10 @@ type internal TypeSlotKind =
     | ModulePseudo
     | Interface
     /// `valueKind` selects reference vs `[<Struct>]` value type (flips the
-    /// `System.ValueType` base). Always sealed, so it takes no `isSealed`.
-    | Union of valueKind: UnionValueKind
-    /// Same as `Union`.
+    /// `System.ValueType` base). Always sealed, so it takes no `isSealed`. A `Struct`
+    /// `valueKind` pairs only with `SingleCase`, `EnumLike` or `Tagged`.
+    | Union of valueKind: UnionValueKind * regime: UnionRegime
+    /// `valueKind` selects reference vs `[<Struct>]` value type. Always sealed.
     | Record of valueKind: RecordValueKind
     /// `isSealed` reflects `[<Sealed>]`; `valueKind` selects reference vs `[<Struct>]`
     /// value type (flips sequential layout + `Sealed` + the `ValueType` base) vs

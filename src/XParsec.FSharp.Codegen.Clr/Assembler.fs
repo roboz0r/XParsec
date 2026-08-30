@@ -145,7 +145,7 @@ type internal Assembler
                             ]
                     ]
 
-                provider.RegisterGenericUnion(td.TypeKey, td.TypeParams, shape)
+                provider.RegisterGenericUnion(td.TypeKey, td.TypeParams, shape, ud.ValueKind)
 
         for rd in partitioned.Records do
             let td = rd.Decl
@@ -1102,7 +1102,7 @@ type internal Assembler
             // Unions and records are always sealed; a class opts in via `[<Sealed>]` /
             // `[<Struct>]`. A union or record opts into value-type emission via `[<Struct>]`.
             // A struct union also carries `IsReadOnly`; a record may have `mutable` fields.
-            | TypeSlotKind.Union valueKind ->
+            | TypeSlotKind.Union(valueKind, _) ->
                 let markers =
                     if valueKind.IsValueType then
                         [ provider.IsReadOnlyAttrCtor ]

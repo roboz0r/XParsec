@@ -31,14 +31,6 @@ module internal NominalEmit =
         /// `GENERICINST` `TypeSpec` encoded against this class's typars.
         | Generic of ft: FrozenType
 
-    /// The user `interface … with` impls (interface type + member bodies) a nominal
-    /// carries.
-    let private userInterfacesOf (input: NominalEmissionInput) : (FrozenNominal * TastAccessor.TypeMember list) list =
-        match input with
-        | NominalEmissionInput.Class cd -> cd.Interfaces
-        | NominalEmissionInput.Union(interfaces = interfaces) -> interfaces
-        | NominalEmissionInput.Record(_, interfaces, _) -> interfaces
-
     let register
         (asm: Assembler)
         (input: NominalEmissionInput)
@@ -57,7 +49,7 @@ module internal NominalEmit =
         // Name → its overloads in declaration order. Own members lead and interface-impl
         // members trail, so a same-signature pair (`Set.Add : Set<'T>` vs
         // `ICollection<'T>.Add : unit`) resolves to the class's own member on a tie.
-        (members @ NominalMembers.flattenIfaceMembers (userInterfacesOf input))
+        (members @ NominalMembers.flattenIfaceMembers input.Interfaces)
         |> List.iteri (fun i (mem: TastAccessor.TypeMember) ->
             let em: Emit.EmittedMember =
                 {
@@ -79,10 +71,10 @@ module internal NominalEmit =
         )
 
         match input with
-        | NominalEmissionInput.Union(cases, _, isStruct) ->
+        | NominalEmissionInput.Union ud ->
             let emittedCases = Dictionary<string, Emit.EmittedCase>()
 
-            cases
+            ud.Cases
             |> List.iteri (fun tag c ->
                 emittedCases.[c.Name] <-
                     {
@@ -101,22 +93,22 @@ module internal NominalEmit =
                     Name = td.Name
                     Typars = EqArray.toList td.TypeParams
                     TagField = toEntity (asm.FieldDef(FieldKey.UnionTag td.Key))
-                    IsValueType = isStruct
+                    ValueKind = ud.ValueKind
                     Cases = emittedCases
                     Members = emittedMembers
                 }
 
-        | NominalEmissionInput.Record(fields, _, isStruct) ->
+        | NominalEmissionInput.Record rd ->
             asm.Records.[td.TypeKey] <-
                 {
                     Name = td.Name
                     Typars = EqArray.toList td.TypeParams
                     Fields =
                         [
-                            for f in fields ->
+                            for f in rd.Fields ->
                                 f.Name, toEntity (asm.FieldDef(FieldKey.RecordField(td.Key, f.Name))), f.Type
                         ]
-                    IsValueType = isStruct
+                    IsValueType = rd.ValueKind.IsValueType
                     Ctor = toEntity (asm.MethodDef(MethodKey.NominalCtor td.Key))
                     Members = emittedMembers
                 }
@@ -965,12 +957,12 @@ module internal NominalEmit =
 
         let formatIr =
             match input with
-            | NominalEmissionInput.Union(cases = cases) ->
+            | NominalEmissionInput.Union ud ->
                 let emitted = asm.Unions.[td.TypeKey]
 
                 let formatCases =
                     [
-                        for c in cases ->
+                        for c in ud.Cases ->
                             let caseFields = emitted.Cases.[c.Name].Fields
 
                             {
@@ -1110,11 +1102,7 @@ module internal NominalEmit =
         // A `[<Struct>]` nominal: `this` (`ldarg.0`) is a managed pointer, so a member body
         // deref-copies a value use of it, and a union's or record's synthesised
         // equality/comparison bodies take value-type shape. A struct class emits no triple.
-        let isStruct =
-            match input with
-            | NominalEmissionInput.Union(isStruct = isStruct)
-            | NominalEmissionInput.Record(isStruct = isStruct) -> isStruct
-            | NominalEmissionInput.Class cd -> cd.ValueKind.IsValueType
+        let isStruct = input.IsValueType
 
         // The `extends` column for this `TypeDefinition`. A `[<Struct>]` union or record
         // extends `System.ValueType`; the reference forms keep the `Object` default, and
@@ -1124,18 +1112,18 @@ module internal NominalEmit =
 
         let baseTypeHandle =
             match input with
-            | NominalEmissionInput.Union(cases = cases) ->
-                prepareUnion asm td isStruct cases
+            | NominalEmissionInput.Union ud ->
+                prepareUnion asm td isStruct ud.Cases
                 structuralBase
-            | NominalEmissionInput.Record(fields, _, _) ->
-                prepareRecord asm td isStruct fields
+            | NominalEmissionInput.Record rd ->
+                prepareRecord asm td isStruct rd.Fields
                 structuralBase
             | NominalEmissionInput.Class cd -> prepareClass asm emitCtx td defaultBase cd
 
         // Interface-impl member bodies emit as virtual methods the runtime binds to the
         // `InterfaceImpl` row by name + signature. The synthesised eq/comparison/format
         // impls use disjoint `MethodKey`s, so the two never collide on a method row.
-        let userInterfaces = userInterfacesOf input
+        let userInterfaces = input.Interfaces
         let selfTyMarkers = selfTyOf input td typarMarkers
 
         let selfValueTy = if isStruct then ValueSome selfTyMarkers else ValueNone
@@ -1171,7 +1159,7 @@ module internal NominalEmit =
 
         match input with
         | NominalEmissionInput.Class _ -> ()
-        | NominalEmissionInput.Union(cases = cases) -> prepareUnionStructural asm td structuralSelf isStruct cases
+        | NominalEmissionInput.Union ud -> prepareUnionStructural asm td structuralSelf isStruct ud.Cases
         | NominalEmissionInput.Record _ -> prepareRecordStructural asm td structuralSelf isStruct
 
         let emitsStructuralFormat =

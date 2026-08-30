@@ -54,6 +54,7 @@
     <Compile Include="HashTests.fs" />
     <Compile Include="IlIrTests.fs" />
     <Compile Include="MetadataSymbolsTests.fs" />
+    <Compile Include="UnionRegimeTests.fs" />
     <Compile Include="PlatformTypeIdConformanceTests.fs" />
     <Compile Include="SymbolProviderWiringTests.fs" />
     <Compile Include="ExternalMemberTests.fs" />

@@ -357,7 +357,7 @@ module internal LayoutNodes =
                         yield! coSlotRows symbols td ud.Interfaces
                     ]
 
-                nominalNode (TypeSlotKind.Union ud.ValueKind) td fields methodRows
+                nominalNode (TypeSlotKind.Union(ud.ValueKind, ud.Regime)) td fields methodRows
         ]
 
     let buildRecordNodes (symbols: ICodegenSymbols) (records: RecordDecl list) : TypeNode list =

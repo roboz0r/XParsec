@@ -73,6 +73,10 @@ type internal UnionDecl =
         ValueKind: UnionValueKind
     }
 
+    /// The metadata shape this union is emitted in.
+    member this.Regime: UnionRegime =
+        UnionRegime.classify this.ValueKind this.Cases.Length (this.Cases |> List.exists (fun c -> not c.Fields.IsEmpty))
+
 /// A partitioned record declaration: its `TTypeDecl`, fields, and members.
 type internal RecordDecl =
     {
@@ -152,26 +156,27 @@ type internal PartitionedTypeDecls =
 /// virtual `MethodDefinition` per member.
 [<RequireQualifiedAccess>]
 type internal NominalEmissionInput =
-    /// `isStruct` ⇒ a `[<Struct>]` value-type union: `System.ValueType` base,
-    /// `IsReadOnly` with `initonly` fields, a flat `(tag, every case field)` `.ctor` the
-    /// factories construct through, and value-type-shaped equality/comparison bodies.
-    | Union of
-        cases: Frozen.TUnionCase list *
-        interfaces: (FrozenNominal * TastAccessor.TypeMember list) list *
-        isStruct: bool
-    /// `isStruct` ⇒ a `[<Struct>]` value-type record: `System.ValueType` base, a
-    /// base-chain-free `.ctor`, and value-type-shaped equality/comparison bodies.
-    | Record of
-        fields: Frozen.TRecordField list *
-        interfaces: (FrozenNominal * TastAccessor.TypeMember list) list *
-        isStruct: bool
+    | Union of UnionDecl
+    | Record of RecordDecl
     | Class of ClassDecl
 
-    static member OfUnion(ud: UnionDecl) : NominalEmissionInput =
-        NominalEmissionInput.Union(ud.Cases, ud.Interfaces, ud.ValueKind.IsValueType)
+    /// User `interface … with member …` impls: each pair is an implemented interface
+    /// type + its already-typed member bodies.
+    member this.Interfaces: (FrozenNominal * TastAccessor.TypeMember list) list =
+        match this with
+        | NominalEmissionInput.Union ud -> ud.Interfaces
+        | NominalEmissionInput.Record rd -> rd.Interfaces
+        | NominalEmissionInput.Class cd -> cd.Interfaces
 
-    static member OfRecord(rd: RecordDecl) : NominalEmissionInput =
-        NominalEmissionInput.Record(rd.Fields, rd.Interfaces, rd.ValueKind.IsValueType)
+    /// A `[<Struct>]` value type: `System.ValueType` base and value-type-shaped
+    /// equality/comparison bodies. A union additionally takes `IsReadOnly` with `initonly`
+    /// fields and a flat `(tag, every case field)` `.ctor` the factories construct through;
+    /// a record takes a base-chain-free `.ctor`.
+    member this.IsValueType: bool =
+        match this with
+        | NominalEmissionInput.Union ud -> ud.ValueKind.IsValueType
+        | NominalEmissionInput.Record rd -> rd.ValueKind.IsValueType
+        | NominalEmissionInput.Class cd -> cd.ValueKind.IsValueType
 
 /// Shared contract over a nominal type's own method members and its `interface … with` impls.
 [<RequireQualifiedAccess>]
