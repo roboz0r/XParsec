@@ -7,22 +7,18 @@ open XParsec.FSharp.Codegen.Common
 /// layer-2 seam.
 module ClrSymbolProviders =
 
-    /// Reflection over the host runtime's assemblies. The module-level memo shares one
-    /// `MetadataLoadContext` per distinct axis across contract builds.
-    let dotnetMetadata: SymbolProviders.PlatformMetadataFactory =
-        PackageProviders.memoPerAxis (fun intrinsics ->
-            if IntrinsicTypeMap.isEmpty intrinsics then
-                [ MetadataSymbols.provider ]
-            else
-                [
-                    MetadataSymbols.createWith intrinsics (MetadataSymbols.runtimeAssemblyPaths ())
-                ]
-        )
-
-    /// `dotnetMetadata` over an EXPLICIT reference set (a TFM ref pack + `<Reference>`s)
-    /// instead of the host TPA.
+    /// Reflection over a reference set (a TFM ref pack + `<Reference>`s, or the host TPA).
+    /// Each call mints a reader over its own `MetadataLoadContext`, which maps the assemblies
+    /// it resolves for the reader's lifetime.
     let dotnetMetadataWith (dllPaths: string list) : SymbolProviders.PlatformMetadataFactory =
         fun intrinsics -> [ MetadataSymbols.createWith intrinsics dllPaths ]
+
+    /// `dotnetMetadataWith` over the host runtime's TPA, one reader per distinct axis shared
+    /// across contract builds. The TPA is fixed for the process lifetime.
+    let dotnetMetadata: SymbolProviders.PlatformMetadataFactory =
+        PackageProviders.memoPerAxis (fun intrinsics ->
+            dotnetMetadataWith (MetadataSymbols.runtimeAssemblyPaths ()) intrinsics
+        )
 
     /// One package read at most once per contract build: the seed compose and the stack
     /// compose share one set of trees, and a `preloaded` package's trees are served over a

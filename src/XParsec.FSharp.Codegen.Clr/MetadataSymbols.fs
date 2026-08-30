@@ -232,6 +232,14 @@ module private MetadataMapping =
 
         SymbolKeyOps.typeKeyOfSegment container t.Name
 
+/// What one inheritance level has for a member name. A property or field `Owns` the name and
+/// hides every base member of it; methods are `Overloads` and combine with the levels below.
+[<RequireQualifiedAccess>]
+type private LevelHit =
+    | Owns of ExternalMember
+    | Overloads of ExternalMember[]
+    | Absent
+
 /// `IExternalSymbolProvider` over reference-assembly paths, sharing one
 /// `MetadataLoadContext`. `intrinsics` is empty when no Vesper.Core is in scope, so
 /// BCL primitives stay nominal classes.
@@ -584,27 +592,30 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
                         |> Array.sortByDescending (fun m -> m.GetParameters().Length)
                         |> Array.choose (methodMemberOf declKey origin arity)
 
-                    let propertyOn (st: Type) : ExternalMember[] =
+                    let propertyOn (st: Type) : ExternalMember option =
                         let origin, declKey, arity = commonOf st
 
                         match st.GetProperty(memberName, declaredFlags) with
-                        | (null: PropertyInfo) -> [||]
-                        | p ->
-                            match propertyMemberOf declKey origin arity p with
-                            | Some m -> [| m |]
-                            | None -> [||]
+                        | (null: PropertyInfo) -> None
+                        | p -> propertyMemberOf declKey origin arity p
 
-                    // No property / method by this name, so a hit here is a genuine field
-                    // (`String.Empty`, `ValueTuple.Item1`).
-                    let fieldOn (st: Type) : ExternalMember[] =
+                    let fieldOn (st: Type) : ExternalMember option =
                         let origin, declKey, arity = commonOf st
 
                         match st.GetField(memberName, declaredFlags) with
-                        | (null: FieldInfo) -> [||]
-                        | f ->
-                            match fieldMemberOf declKey origin arity f with
-                            | Some m -> [| m |]
-                            | None -> [||]
+                        | (null: FieldInfo) -> None
+                        | f -> fieldMemberOf declKey origin arity f
+
+                    let probeLevel (st: Type) : LevelHit =
+                        match propertyOn st with
+                        | Some p -> LevelHit.Owns p
+                        | None ->
+                            match methodsOn st with
+                            | [||] ->
+                                match fieldOn st with
+                                | Some f -> LevelHit.Owns f
+                                | None -> LevelHit.Absent
+                            | ms -> LevelHit.Overloads ms
 
                     // The object arg's type plus what it inherits members from, most-derived
                     // first: a class or struct walks its base chain to `System.Object`; an
@@ -637,24 +648,17 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
                     if memberName = ".ctor" then
                         ctorsOn t
                     else
-                        // CLR by-name hiding: a property or field owns `memberName` outright
-                        // and hides every base member of it; methods collect down the chain
-                        // until such a level. Within one level, property > method > field.
                         let rec resolve (methods: ExternalMember[]) (i: int) : ExternalMember[] =
                             if i >= candidates.Length then
                                 dedupMethods methods
                             else
-                                let st = candidates.[i]
-
-                                match propertyOn st with
-                                | [| _ |] as p -> if Array.isEmpty methods then p else dedupMethods methods
-                                | _ ->
-                                    match methodsOn st with
-                                    | [||] ->
-                                        match fieldOn st with
-                                        | [||] -> resolve methods (i + 1)
-                                        | f -> if Array.isEmpty methods then f else dedupMethods methods
-                                    | ms -> resolve (Array.append methods ms) (i + 1)
+                                match probeLevel candidates.[i] with
+                                | LevelHit.Owns m ->
+                                    match methods with
+                                    | [||] -> [| m |]
+                                    | ms -> dedupMethods ms
+                                | LevelHit.Overloads ms -> resolve (Array.append methods ms) (i + 1)
+                                | LevelHit.Absent -> resolve methods (i + 1)
 
                         resolve [||] 0
             )
