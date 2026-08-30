@@ -309,14 +309,23 @@ module EmitPattern =
         | PatShape.TypeTestAs ->
             let testTy = TastAccessor.patTypeTestTestTy pat
             let inner = TastAccessor.patChild pat 0
-            // `:? T as x` → `isinst T` then a null check (`brfalse` skips the arm). For a
-            // value-type target `isinst` leaves a boxed `T`, so `unbox.any` it into the
-            // `T`-typed local the inner pattern binds against.
+            // `:? T as x` → `isinst T` then a null check (`brfalse` skips the arm). `isinst`
+            // leaves a BOXED `T`, so a value-type or open-typar target is null-checked as the
+            // `obj` it is and then `unbox.any`ed into the `T`-typed local the inner pattern
+            // binds against. Only a reference `T` can be stored and branched on directly.
             let token = env.Provider.TypeToken testTy
             b.Add(ILInstr.Ldloc scrutSlot)
             b.Add(ILInstr.Isinst token)
 
-            if isValueType env testTy then
+            match clrRepr env testTy with
+            | ClrRepr.Reference ->
+                let castSlot = b.Local testTy
+                b.Add(ILInstr.Stloc castSlot)
+                b.Add(ILInstr.Ldloc castSlot)
+                b.Add(ILInstr.Brfalse nextLabel)
+                buildMatchTest env b castSlot nextLabel inner
+            | ClrRepr.Value
+            | ClrRepr.Boxable _ ->
                 let boxedSlot = b.Local(FTConst(RuntimeNames.objKey, EqArray.empty))
                 b.Add(ILInstr.Stloc boxedSlot)
                 b.Add(ILInstr.Ldloc boxedSlot)
@@ -326,12 +335,6 @@ module EmitPattern =
                 b.Add(ILInstr.UnboxAny token)
                 b.Add(ILInstr.Stloc valSlot)
                 buildMatchTest env b valSlot nextLabel inner
-            else
-                let castSlot = b.Local testTy
-                b.Add(ILInstr.Stloc castSlot)
-                b.Add(ILInstr.Ldloc castSlot)
-                b.Add(ILInstr.Brfalse nextLabel)
-                buildMatchTest env b castSlot nextLabel inner
         | PatShape.Or ->
             let alts = TastAccessor.patChildren pat
             // Every alternative tests the same scrutinee and binds nothing: an or-pattern

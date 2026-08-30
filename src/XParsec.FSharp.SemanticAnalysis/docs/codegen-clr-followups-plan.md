@@ -226,7 +226,23 @@ reads, so an external struct enumerator IS distinguished, and it too is rejected
 (`TyClass` for `FTClass` is the C2 family again; here the block did not survive on its own
 merits, so nothing was renamed.)
 
-## A17. `x :?> 'T` emits `castclass !!T` and silently yields garbage at a value-type instantiation
+## A17. `x :?> 'T` emits `castclass !!T` and silently yields garbage at a value-type instantiation — **DONE (2026-08-29)**
+
+`buildDowncast` emits `unbox.any` unconditionally: the branch is gone, because `unbox.any` IS
+`castclass` at a reference instantiation. `EmitPattern`'s `TypeTestAs` routes `ClrRepr.Value` and
+`ClrRepr.Boxable` alike through the boxed slot, so `isinst`'s result is null-checked as the `obj`
+it is and then unboxed into the `T`-typed local.
+
+`data/TyparDowncast.fs` + the `Struct` suite pin both, and each reverted individually turns the
+test red: the expression site on the `unbox.any` IL assertion, the pattern site on `castTo`
+returning the wrong value.
+
+Null behaviour after the change matches fsc, checked against `dotnet fsi`: a null reaching a
+reference instantiation passes through, and one reaching a value-type instantiation is a
+`NullReferenceException` rather than a silent zero.
+
+The original analysis follows.
+
 
 `EmitIntrinsic.buildDowncast` picks `unbox.any` for a value-type target and `castclass`
 otherwise. A typar target classifies as `ClrRepr.Boxable`, so it takes the `castclass` arm, and
@@ -722,8 +738,6 @@ Awaiting a decision rather than an implementation:
   or more fields takes its ctor arguments transposed whenever the two orders differ. Either the
   recipe carries declaration order and the caller permutes, or the parameter goes and the
   one-field restriction is enforced.
-- **A17** — `x :?> 'T` is a silent miscompile. The fix is known and small; it changes emitted IL
-  for every downcast.
 - **A4, A7** — the two tests. A4 needs a consumer that reads `fold`'s `MethodSpec` across a
   package boundary; A7 needs a program whose front-end `scheme.Quantified.Length` over-counts,
   with reverting `Emit.staticFnTypars` as the negative control.

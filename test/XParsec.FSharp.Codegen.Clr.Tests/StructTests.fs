@@ -193,6 +193,43 @@ let structTests =
                 Expect.equal (describes "describeEnum") "Red" "boxed enum keeps its case name"
             }
 
+            test "`:?>` and `:? _ as _` on an open typar unbox at a value-type instantiation" {
+                let artifact = compileSourceData "TyparDowncast"
+                let bytes = Codegen.toBytes artifact
+
+                // 0xA5 `unbox.any`, 0x74 `castclass`. A typar target takes `unbox.any`, which
+                // IS `castclass` at a reference instantiation, so `castTo` needs no second arm.
+                let il = peMethodIl bytes "Program" "castTo"
+                Expect.isTrue (Array.contains 0xA5uy il) "castTo IL contains `unbox.any`"
+                Expect.isFalse (Array.contains 0x74uy il) "castTo IL contains no `castclass`"
+
+                let program = (loadAssembly bytes).GetType "Program"
+
+                let invoke (name: string) (tyArg: Type) (args: obj[]) : obj =
+                    let m = program.GetMethod(name, BindingFlags.Public ||| BindingFlags.Static)
+                    Expect.isNotNull m (sprintf "%s emitted as a static method" name)
+                    m.MakeGenericMethod([| tyArg |]).Invoke(null, args)
+
+                // Under `castclass !!T` these return the boxed object's address read as an
+                // `int`: no exception at emit, at JIT or at run time, just a wrong value.
+                Expect.equal (invoke "castTo" typeof<int> [| box 5 |]) (box 5) "castTo<int> unboxes to 5"
+
+                Expect.equal
+                    (invoke "castTo" typeof<string> [| box "s" |])
+                    (box "s")
+                    "castTo<string> is a reference cast"
+
+                Expect.equal
+                    (invoke "orDefault" typeof<int> [| box 7; box 0 |])
+                    (box 7)
+                    "`:? 'T as v` binds the unboxed 7"
+
+                Expect.equal
+                    (invoke "orDefault" typeof<int> [| box "s"; box 0 |])
+                    (box 0)
+                    "a failed `:? 'T` test takes the fallback"
+            }
+
             test "a two-parameter static member on a struct binds both args (SumOf(3,4) returns 7)" {
                 let artifact = compileSourceData "StructStaticAdd2"
 

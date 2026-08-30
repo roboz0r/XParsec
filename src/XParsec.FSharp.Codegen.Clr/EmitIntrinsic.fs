@@ -145,17 +145,14 @@ module EmitIntrinsic =
         | ClrRepr.Reference -> ()
 
     let buildDowncast (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
-        // `e :?> T`: `unbox.any` for a value-type target, `castclass` for a
-        // reference-type one. Both throw `InvalidCastException` on a real mismatch.
+        // `e :?> T` → `unbox.any`, which extracts the value at a value-type `T` and is
+        // `castclass` at a reference one, so one instruction serves an open typar `T` at
+        // either instantiation. `InvalidCastException` on a mismatch; a null reaching a
+        // value-type `T` is a `NullReferenceException`.
         let source = TastAccessor.exprChild e 0
         let ty = TastAccessor.exprTy e
         recur env b source
-        let token = env.Provider.TypeToken ty
-
-        if isValueType env ty then
-            b.Add(ILInstr.UnboxAny token)
-        else
-            b.Add(ILInstr.Castclass token)
+        b.Add(ILInstr.UnboxAny(env.Provider.TypeToken ty))
 
     let buildTypeTest (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         // `e :? T` → `isinst T; ldnull; cgt.un` — a non-null `isinst` result
