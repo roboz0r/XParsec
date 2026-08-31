@@ -48,11 +48,6 @@ module NameResolutionContainers =
             | 0 -> Qualifier.Bare
             | _ -> Qualifier.Path segments
 
-    let private enclosingOf (useSite: UseSite) : ModuleContainer =
-        match useSite.Container with
-        | ValueSome h -> h
-        | ValueNone -> ModuleContainer.InNamespace NamespaceKey.Global
-
     let private childPath (c: ModuleContainer) (name: string) : string =
         match SymbolKeyOps.containerFullName c with
         | "" -> name
@@ -81,32 +76,19 @@ module NameResolutionContainers =
         match Map.tryFind segment ctx.Resolution.OpenScope.Abbrevs with
         | Some target -> atPath target
         | None ->
-            for h in (enclosingOf useSite).SelfAndAncestors do
-                add (TypeRegistry.tryContainerUnder ctx.Types h segment)
-                add (ctx.Resolver.Scope.TryContainer(childPath h segment))
-
-            for o in useSite.Opens do
-                match o.Container with
-                | ValueSome opened -> add (TypeRegistry.tryContainerUnder ctx.Types opened segment)
-                | ValueNone -> ()
-
-            for p in ctx.Resolution.OpenScope.Prefixes do
-                atPath (p + "." + segment)
-
-            for o in ctx.ImplicitOpens do
-                add (subContainer ctx o.Container segment)
+            for e in useSite.Scopes do
+                add (subContainer ctx e.Container segment)
 
             atPath segment
 
         List.ofSeq found
 
     /// Every container to read a short name against at `useSite`, nearest first: for a bare
-    /// spelling the opened containers, for a dotted `qualifier` the modules and namespaces
+    /// spelling the scopes in force there, for a dotted `qualifier` the modules and namespaces
     /// its segments denote.
     let containersOf (ctx: PassContext) (useSite: UseSite) (qualifier: Qualifier) : ModuleContainer list =
         match qualifier with
-        | Qualifier.Bare ->
-            ScopeContents.openedContainers ctx.Resolver.Scope ctx.Resolution.OpenScope.Prefixes ctx.ImplicitOpens
+        | Qualifier.Bare -> [ for e in useSite.Scopes -> e.Container ]
         | Qualifier.Path segments ->
             let rec descend (cs: ModuleContainer list) (i: int) =
                 if i = segments.Length then

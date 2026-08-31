@@ -68,6 +68,9 @@ type TastFileG<'ty, 'tok, 'id when 'id: comparison> =
         /// `Vesper.Collections.ListModule`). A namespace needs no entry: its source path is
         /// its own dotted name.
         ModuleSourcePaths: EqDict<ModuleKey, string>
+        /// The `[<AutoOpen>]` modules this file declares, outermost first: what a consumer
+        /// resolves through with no `open` of its own. A module holding no element is absent.
+        AutoOpenModules: ModuleKey list
         /// A module-level binding's bound variable → its named-module placement (`module Foo`'s
         /// functions emit on a real `Foo`/`FooModule` static class, not the anonymous
         /// "Program" class).

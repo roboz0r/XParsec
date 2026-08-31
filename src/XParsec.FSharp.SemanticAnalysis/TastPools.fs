@@ -390,6 +390,7 @@ module TastPools =
                         IntrinsicBindings = file.IntrinsicBindings
                         GlobalValueKeys = file.GlobalValueKeys
                         ModuleSourcePaths = file.ModuleSourcePaths
+                        AutoOpenModules = file.AutoOpenModules
                         Accessibility = file.Accessibility
                     }
                 ModuleMembers = remapSideTable tryBoundVarIdOf file.ModuleMembers

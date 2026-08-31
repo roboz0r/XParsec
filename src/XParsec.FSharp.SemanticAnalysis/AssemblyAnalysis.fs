@@ -67,27 +67,14 @@ module AssemblyAnalysis =
     let assemblyAutoOpens (lexed: Lexed) (file: ImplementationFile<SyntaxToken>) : ImplicitOpen list =
         let nameOf = SyntaxToken.nameIn lexed
 
-        let namesAutoOpen (li: LongIdent<SyntaxToken>) =
-            match li.Idents.Length with
-            | 0 -> false
-            | n ->
-                match nameOf li.Idents.[n - 1] with
-                | "AutoOpen" -> true
-                | written -> written = "AutoOpen" + RuntimeNames.AttributeSuffix
-
         [
             for sets in topLevelAttributes file do
                 for AttributeSet(attributes = entries) in sets do
                     for (Attribute(target = target; construction = construction), _) in entries do
                         match target with
                         | ValueSome(AttributeTarget.Assembly _, _) ->
-                            let attrTy =
-                                match construction with
-                                | ObjectConstruction(typ = t) -> t
-                                | InterfaceConstruction(typ = t) -> t
-
-                            match CstKeys.ofTypeRef attrTy with
-                            | ValueSome typeRef when namesAutoOpen typeRef.LongIdent ->
+                            match AttributeDecode.writtenTypeRef construction with
+                            | ValueSome typeRef when AttributeDecode.namesAutoOpen nameOf typeRef.LongIdent ->
                                 match AttributeDecode.tryStringArgument nameOf construction with
                                 | ValueSome path when path.Length > 0 -> SymbolKeyOps.assemblyAutoOpen path
                                 | _ -> ()

@@ -356,14 +356,15 @@ let tests =
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
 
-            test "ambiguous field set requires qualifier" {
+            // Two records declare the same field set, so the later declaration shadows the
+            // earlier, as it does in `dotnet fsi`: `{ X = 1; Y = 2 }` there is an `S`.
+            test "a field set two records declare resolves to the later declaration" {
                 let ctx =
                     analyse "type R = { X: int; Y: int }\ntype S = { X: int; Y: int }\nlet r = { X = 1; Y = 2 }"
 
-                let hasAmbig =
-                    ctx.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "ambiguous")
-
-                Expect.isTrue hasAmbig "ambiguous-field-set diagnostic emitted"
+                // Pat r starts at offset 60: 27 + 1 + 27 + 1 + 4 ("let ").
+                let patKey = NodeKey.ofSource 60 NodeKind.PatIdent
+                Expect.equal (typeOf ctx patKey) (TyRecord("S", EqArray.empty)) "r : S"
             }
 
             test "unknown field set diagnoses" {
@@ -485,15 +486,14 @@ let tests =
                 Expect.equal (typeOf ctx areaKey) expected "area : S -> float"
             }
 
-            test "ambiguous ctor name requires qualifier" {
-                // Two unions share an `Ok` case.
-                let ctx = analyse "type R1 = | Ok of int\ntype R2 = | Ok of float\nlet x = Ok 1"
+            // Two unions share an `Ok` case, so the later declaration shadows the earlier, as
+            // it does in `dotnet fsi`: `let x = Ok 1.0` there types as `R2`.
+            test "a case name two unions declare resolves to the later declaration" {
+                let ctx = analyse "type R1 = | Ok of int\ntype R2 = | Ok of float\nlet x = Ok 1.0"
 
-                let hasAmbig =
-                    ctx.Diagnostics
-                    |> Seq.exists (fun d -> d.Message.Contains "Ambiguous constructor")
-
-                Expect.isTrue hasAmbig "ambiguous-ctor diagnostic emitted"
+                // Pat x starts at offset 50: 21 (type R1...) + 1 (\n) + 23 (type R2...) + 1 (\n) + 4 ("let ").
+                let patKey = NodeKey.ofSource 50 NodeKind.PatIdent
+                Expect.equal (typeOf ctx patKey) (TyUnion("R2", EqArray.empty)) "x : R2"
             }
 
             test "qualified ctor resolves an ambiguous case name" {

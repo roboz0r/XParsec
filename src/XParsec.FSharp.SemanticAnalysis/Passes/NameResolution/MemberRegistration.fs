@@ -853,10 +853,10 @@ module NameResolutionMemberRegistration =
         (defs: ImmutableArray<TypeDefn<SyntaxToken>>)
         : ResizeArray<ClaimedTypeDefn> =
         let claims = ResizeArray<ClaimedTypeDefn>(defs.Length)
-        let visibleFrom = typeGroupVisibleFrom recScopeOffset defs
+        let placement = typeGroupPlacement recScopeOffset defs
 
         for td in defs do
-            match claimTypeIdentity ctx c visibleFrom td with
+            match claimTypeIdentity ctx c placement td with
             | ValueSome claimed -> claims.Add claimed
             | ValueNone -> ()
 

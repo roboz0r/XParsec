@@ -15,7 +15,15 @@ open UnificationTranslate
 
 module NameResolutionScope =
 
-    type Scope = Map<string, NodeKey * bool>
+    /// A name the walk has bound: an expression or type-body binding, which `open` is
+    /// declaration-level and cannot reach over. A module-level `let` is never here: it
+    /// resolves through the ranked environment (`LocalModulePaths`).
+    [<Struct; NoComparison>]
+    type ScopeBinding = { Site: NodeKey; IsMutable: bool }
+
+    type Scope = Map<string, ScopeBinding>
+
+    let scopeBinding (site: NodeKey) (isMutable: bool) : ScopeBinding = { Site = site; IsMutable = isMutable }
 
     /// Bind a use-site key to the binding it references, with `IsInline` false: only a
     /// declaration writes it.
@@ -38,7 +46,7 @@ module NameResolutionScope =
             // `External`, and inline bodies are spliced by key, so the body is lost.
             ctx.Resolution.ExternalValue.Set(key, SymbolKey.Binding sym.Key)
             ctx.Resolution.ExternalSymbolStamp.Set(key, sym)
-        | ResolvedItem.Value(ResolvedValue.Local m) -> bindUseSite ctx key m.BindingSite false
+        | ResolvedItem.Value(ResolvedValue.Local m) -> bindUseSite ctx key m.BindingSite m.IsMutable
         // A referenced class in expression position is a ctor-sugar application
         // (`InvalidOperationException "x"`, `System.Exception "x"`); a generic one is
         // stamped at its exact arity by the enclosing `TypeApp` visit instead.
@@ -129,7 +137,7 @@ module NameResolutionScope =
         | ResolvedItem.Value(ResolvedValue.Local m) when r.Rest < names.Length ->
             // A module-level value of this file anchoring a field chain (`v.X.Y`): keyed on the
             // anchor token, as a lexical anchor is, so the chain reads the anchor's type there.
-            bindUseSite ctx (NodeKey.ofToken idents.[0] NodeKind.ExprIdent) m.BindingSite false
+            bindUseSite ctx (NodeKey.ofToken idents.[0] NodeKind.ExprIdent) m.BindingSite m.IsMutable
         | item -> stampItem ctx key item
 
         reportExpr ctx e names r
@@ -142,7 +150,7 @@ module NameResolutionScope =
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) -> ValueSome(ctx.WrittenTypeNameOf li)
         | _ -> ValueNone
 
-    let rec private lookupLexical (scope: Scope list) (name: string) : (NodeKey * bool) voption =
+    let rec private lookupLexical (scope: Scope list) (name: string) : ScopeBinding voption =
         match scope with
         | [] -> ValueNone
         | innermost :: enclosing ->
@@ -151,10 +159,8 @@ module NameResolutionScope =
             | None -> lookupLexical enclosing name
 
     let private resolveIdent (ctx: PassContext) (scope: Scope list) (e: Expr<SyntaxToken>) (tok: SyntaxToken) =
-        let useKey = CstKeys.ofExpr e
-
         match lookupLexical scope (ctx.NameOf tok) with
-        | ValueSome(bindingSite, isMutable) -> bindUseSite ctx useKey bindingSite isMutable
+        | ValueSome b -> bindUseSite ctx (CstKeys.ofExpr e) b.Site b.IsMutable
         | ValueNone -> resolveExprNames ctx e (ImmutableArray.Create tok)
 
     /// True if `name` is a ctor reference in pattern position: uppercase-leading (per
@@ -330,7 +336,7 @@ module NameResolutionScope =
             stampPatCases ctx p
 
             for n, k in bindingsOfPat ctx p do
-                s <- Map.add n (k, false) s
+                s <- Map.add n (scopeBinding k false) s
 
         s
 
@@ -344,7 +350,7 @@ module NameResolutionScope =
             stampPatCases ctx b.pattern
 
             for n, k in bindingsOfPat ctx b.pattern do
-                s <- Map.add n (k, isMut) s
+                s <- Map.add n (scopeBinding k isMut) s
 
                 ctx.Bindings.Binding.Set(
                     k,
@@ -372,19 +378,22 @@ module NameResolutionScope =
             true
         | ValueNone -> false
 
-    /// Bind an operator's compiled name to a binding in scope: the lexical scope (a nested
-    /// or same-module `let (>=>)`), then an OPENED module of this file. A hit shadows every
-    /// provider symbol, so a mono `let (+)` retypes every `+` below its definition.
+    /// Bind an operator's compiled name to a binding of this file: one the walk bound (a
+    /// nested `let (>=>)`), else a module-level one the ranked environment yields. A hit
+    /// shadows every provider symbol, so a mono `let (+)` retypes every `+` below its
+    /// definition.
     let private tryStampBoundOperator (ctx: PassContext) (scope: Scope list) (key: NodeKey) (name: string) : bool =
         match lookupLexical scope name with
-        | ValueSome(bindingSite, isMutable) ->
-            bindUseSite ctx key bindingSite isMutable
+        | ValueSome b ->
+            bindUseSite ctx key b.Site b.IsMutable
             true
         | ValueNone ->
-            match NameResolutionLongIdent.openedLocalValue ctx (ctx.UseSiteAt key) name with
-            | ValueSome m ->
+            match NameResolutionLongIdent.valueInEnv ctx (ctx.UseSiteAt key) name with
+            | ValueSome(ResolvedValue.Local m) ->
                 stampItem ctx key (ResolvedItem.Value(ResolvedValue.Local m))
                 true
+            // An external winner stamps through the external-symbol path the caller falls to.
+            | ValueSome(ResolvedValue.External _)
             | ValueNone -> false
 
     /// Bind a qualified value naming one of this file's own modules (`M.(>=>)`), as a plain
@@ -439,10 +448,10 @@ module NameResolutionScope =
             let anchorIdent = li.Idents.[0]
 
             match lookupLexical scope (ctx.NameOf anchorIdent) with
-            | ValueSome(bindingSite, isMutable) ->
+            | ValueSome b ->
                 // Key the anchor's binding entry under ExprIdent on the anchor token
                 // so later passes look up the anchor's type by the same key.
-                bindUseSite ctx (NodeKey.ofToken anchorIdent NodeKind.ExprIdent) bindingSite isMutable
+                bindUseSite ctx (NodeKey.ofToken anchorIdent NodeKind.ExprIdent) b.Site b.IsMutable
             | ValueNone -> resolveExprNames ctx e li.Idents
         | Expr.LongIdentOrOp(LongIdentOrOp.Op(IdentOrOp.ParenOp(opName = OpName.SymbolicOp op))) ->
             // `(+)` used as a value resolves as its infix form does: a binding in scope,
@@ -534,14 +543,15 @@ module NameResolutionScope =
             EnterForTo =
                 fun scope ident ->
                     let name = ctx.NameOf ident
-                    let key = CstKeys.ofForToVar ident
-                    Map.ofList [ name, (key, false) ] :: scope
+                    Map.ofList [ name, scopeBinding (CstKeys.ofForToVar ident) false ] :: scope
             EnterForIn =
                 fun scope pat ->
                     stampPatCases ctx pat
 
                     let scopeMap =
-                        bindingsOfPat ctx pat |> List.map (fun (n, k) -> n, (k, false)) |> Map.ofList
+                        bindingsOfPat ctx pat
+                        |> List.map (fun (n, k) -> n, scopeBinding k false)
+                        |> Map.ofList
 
                     scopeMap :: scope
             EnterMatchArm =
@@ -549,7 +559,9 @@ module NameResolutionScope =
                     stampPatCases ctx pat
 
                     let scopeMap =
-                        bindingsOfPat ctx pat |> List.map (fun (n, k) -> n, (k, false)) |> Map.ofList
+                        bindingsOfPat ctx pat
+                        |> List.map (fun (n, k) -> n, scopeBinding k false)
+                        |> Map.ofList
 
                     scopeMap :: scope
         }

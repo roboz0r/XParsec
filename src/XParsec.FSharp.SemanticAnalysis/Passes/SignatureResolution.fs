@@ -546,7 +546,7 @@ module SignatureResolution =
     let private registerSigGroup
         (sctx: SigCtx)
         (containment: DeclContainment<SyntaxToken>)
-        (visibleFrom: int)
+        (placement: ClaimPlacement)
         (decls: SigDecl list)
         : unit =
         let ctx = sctx.Pass
@@ -554,7 +554,7 @@ module SignatureResolution =
         let groupInterfaceKeys = ResizeArray<TypeKey>()
 
         for decl in decls do
-            match claimSigTypeIdentity ctx containment visibleFrom decl with
+            match claimSigTypeIdentity ctx containment placement decl with
             | ValueSome id ->
                 claims.Add(struct (id, decl))
 
@@ -764,8 +764,8 @@ module SignatureResolution =
             | ModuleSignatureElement.Type(typeToken = kw; typeSigs = typeSigs) ->
                 let decls = declsOf typeSigs
 
-                let visibleFrom = sigGroupVisibleFrom w.RecScopeOffset kw decls
-                registerSigGroup sctx w.Containment visibleFrom decls
+                let placement = sigGroupPlacement w.RecScopeOffset kw decls
+                registerSigGroup sctx w.Containment placement decls
             | ModuleSignatureElement.Val valSig -> registerValSig sctx w.Containment valSig
             | ModuleSignatureElement.ValLiteral _
             | ModuleSignatureElement.Exception _

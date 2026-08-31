@@ -751,10 +751,10 @@ let x : string = f ()
                     // own `BindingRank`, so within a scope the later of the two wins, for values,
                     // union cases and types alike.
                     testList
-                        "STEP 3 — one ranked stack"
+                        "one ranked stack"
                         [
-                            presolves
-                                "STEP 3: a later `open` shadows an earlier `open`"
+                            resolves
+                                "a later `open` shadows an earlier `open`"
                                 openOrderLib
                                 "\
 open Test.Lib
@@ -764,8 +764,8 @@ let x : int = f ()
 open B
 let y : string = f ()
 "
-                            preports
-                                "STEP 3: the later `open` supplies `f`"
+                            reports
+                                "the later `open` supplies `f`"
                                 typeMismatch
                                 openOrderLib
                                 "\
@@ -774,8 +774,8 @@ open A
 open B
 let y : int = f ()
 "
-                            presolves
-                                "STEP 3: a later `open` shadows an earlier local declaration"
+                            resolves
+                                "a later `open` shadows an earlier local declaration"
                                 openOrderLib
                                 "\
 open Test.Lib
@@ -784,8 +784,8 @@ let g () : int = 10
 open C
 let z : string = g ()
 "
-                            preports
-                                "STEP 3: the later `open` supplies `g`"
+                            reports
+                                "the later `open` supplies `g`"
                                 typeMismatch
                                 openOrderLib
                                 "\
@@ -797,8 +797,8 @@ let z : int = g ()
                             // No annotation, and the two `Zip`s carry different payloads: F#'s
                             // type-directed disambiguation can reach a SHADOWED case through an
                             // expected type, so an annotated case test proves nothing.
-                            presolves
-                                "STEP 3: a later `open` shadows an earlier `open` for a union case"
+                            resolves
+                                "a later `open` shadows an earlier `open` for a union case"
                                 openOrderLib
                                 "\
 open Test.Lib.U1
@@ -806,8 +806,8 @@ let c1 = Zip 1
 open Test.Lib.U2
 let c2 = Zip \"s\"
 "
-                            preports
-                                "STEP 3: the later `open` supplies `Zip`"
+                            reports
+                                "the later `open` supplies `Zip`"
                                 typeMismatch
                                 openOrderLib
                                 "\
@@ -815,16 +815,16 @@ open Test.Lib.U1
 open Test.Lib.U2
 let c = Zip 1
 "
-                            presolves
-                                "STEP 3: a later `open` shadows an earlier local type's case"
+                            resolves
+                                "a later `open` shadows an earlier local type's case"
                                 openOrderLib
                                 "\
 type E = Zip of bool
 open Test.Lib.U2
 let c = Zip \"s\"
 "
-                            preports
-                                "STEP 3: the later `open` supplies `Zip` over the local type"
+                            reports
+                                "the later `open` supplies `Zip` over the local type"
                                 typeMismatch
                                 openOrderLib
                                 "\
@@ -832,8 +832,8 @@ type E = Zip of bool
 open Test.Lib.U2
 let c = Zip true
 "
-                            presolves
-                                "STEP 3: a later `open` shadows an earlier `open` for a record type"
+                            resolves
+                                "a later `open` shadows an earlier `open` for a record type"
                                 openOrderLib
                                 "\
 open Test.Lib.U1
@@ -841,8 +841,8 @@ let t1 = { Q = 1 }
 open Test.Lib.U2
 let t2 = { Q = \"s\" }
 "
-                            preports
-                                "STEP 3: the later `open` supplies the record type"
+                            reports
+                                "the later `open` supplies the record type"
                                 typeMismatch
                                 openOrderLib
                                 "\
@@ -856,10 +856,10 @@ let t = { Q = 1 }
                     // declaration is visible from the top of its scope: here the outer `g` reaches
                     // `Inner`, and the deeper `open C` still wins.
                     testList
-                        "STEP 3 — depth outranks offset"
+                        "depth outranks offset"
                         [
-                            presolves
-                                "STEP 3: a deeper `open` beats a `rec`-hoisted outer declaration"
+                            resolves
+                                "a deeper `open` beats a `rec`-hoisted outer declaration"
                                 openOrderLib
                                 "\
 module rec Outer =
@@ -869,8 +869,8 @@ module rec Outer =
 
     let g () : int = 10
 "
-                            preports
-                                "STEP 3: the deeper `open` supplies `g`"
+                            reports
+                                "the deeper `open` supplies `g`"
                                 typeMismatch
                                 openOrderLib
                                 "\
@@ -883,19 +883,110 @@ module rec Outer =
 "
                         ]
 
+                    // Under `rec`, a scope's own declarations beat the scope's own `open`s
+                    // whatever the offsets: FS3200 pins the `open`s ahead of every
+                    // declaration, so the declarations enter after the scope's whole prelude
+                    // (`BindingRank.afterPrelude`). A deeper `open` still wins on depth.
+                    testList
+                        "a `rec` scope's own declarations beat its own `open`s"
+                        [
+                            resolves
+                                "a `rec`-hoisted `let` beats the same scope's `open`"
+                                openOrderLib
+                                "\
+module rec R =
+    open Test.Lib.C
+    let g () : int = 10
+    let z : int = g ()
+"
+                            reports
+                                "the `rec`-hoisted `let` supplies `g`"
+                                typeMismatch
+                                openOrderLib
+                                "\
+module rec R =
+    open Test.Lib.C
+    let g () : int = 10
+    let z : string = g ()
+"
+                            resolves
+                                "a non-`rec` module of a `rec` scope keeps its own `let` too"
+                                openOrderLib
+                                "\
+module rec Outer =
+    module Inner =
+        open Test.Lib.C
+        let g () : int = 10
+        let z : int = g ()
+"
+                            resolves
+                                "a `rec` scope's own type beats the same scope's `open`"
+                                openOrderLib
+                                "\
+module C2 =
+    type T = { Q: string }
+
+module rec R =
+    open C2
+    type T = { Q: int }
+    let z : T = { Q = 3 }
+"
+                            reports
+                                "the `rec` scope's own type supplies the fields"
+                                typeMismatch
+                                openOrderLib
+                                "\
+module C2 =
+    type T = { Q: string }
+
+module rec R =
+    open C2
+    type T = { Q: int }
+    let z : T = { Q = \"s\" }
+"
+                        ]
+
+                    // A non-`rec` group's bindings scope below the group: inside its own RHS
+                    // the name still means whatever was in scope above, probed in `dotnet
+                    // fsi` (`let f (x: int) : string = f (x + 1)` under an `open` supplying
+                    // `f` typechecks and calls the opened `f`).
+                    testList
+                        "a group's bindings scope below the group"
+                        [
+                            resolves
+                                "a non-`rec` `let`'s RHS reads the opened value of its own name"
+                                openOrderLib
+                                "\
+open Test.Lib.A
+let f (n: string) : int = f ()
+let ok : int = f \"x\"
+"
+                            reports
+                                "the opened value supplies the RHS `f`"
+                                typeMismatch
+                                openOrderLib
+                                "\
+open Test.Lib.A
+let f (n: string) : string = f ()
+"
+                            reports
+                                "a non-`rec` `let` with no outer claim does not see itself"
+                                unresolvedIdentifier
+                                openOrderLib
+                                "\
+let selfless x = selfless x
+"
+                        ]
+
                     // An `[<AutoOpen>]` module is NOT a floor: it takes the rank of the `open`
                     // that brought its enclosing scope into view, so it shadows anything written
                     // above that `open`. Only a module in scope with no `open` written for it —
                     // an assembly auto-open, or the file's own `namespace` header — is a floor.
-                    //
-                    // Every case here fails the same way first: `Unresolved identifier: h`. A
-                    // same-assembly `[<AutoOpen>]` module inside a namespace contributes nothing,
-                    // so ranking it is the second half of the work, not the first.
                     testList
-                        "STEP 3 — implicit opens rank at their activating `open`"
+                        "implicit opens rank at their activating `open`"
                         [
-                            presolves
-                                "STEP 3: an explicit `open` after the activating one wins"
+                            resolves
+                                "an explicit `open` after the activating one wins"
                                 autoOpenLib
                                 "\
 open Test.Auto
@@ -903,8 +994,8 @@ let a : string = h ()
 open Test.Auto.D
 let b : int = h ()
 "
-                            presolves
-                                "STEP 3: an `[<AutoOpen>]` activated later shadows an earlier explicit `open`"
+                            resolves
+                                "an `[<AutoOpen>]` activated later shadows an earlier explicit `open`"
                                 autoOpenLib
                                 "\
 open Test.Auto.D
@@ -912,8 +1003,8 @@ let a : int = h ()
 open Test.Auto
 let b : string = h ()
 "
-                            preports
-                                "STEP 3: the later-activated `[<AutoOpen>]` supplies `h`"
+                            reports
+                                "the later-activated `[<AutoOpen>]` supplies `h`"
                                 typeMismatch
                                 autoOpenLib
                                 "\
@@ -921,16 +1012,16 @@ open Test.Auto.D
 open Test.Auto
 let b : int = h ()
 "
-                            presolves
-                                "STEP 3: an `[<AutoOpen>]` activated later shadows an earlier local declaration"
+                            resolves
+                                "an `[<AutoOpen>]` activated later shadows an earlier local declaration"
                                 autoOpenLib
                                 "\
 let h () : int = 5
 open Test.Auto
 let b : string = h ()
 "
-                            presolves
-                                "STEP 3: an `[<AutoOpen>]` reached through the file's own namespace is a floor"
+                            resolves
+                                "an `[<AutoOpen>]` reached through the file's own namespace is a floor"
                                 autoOpenLib
                                 "\
 namespace Test.Auto

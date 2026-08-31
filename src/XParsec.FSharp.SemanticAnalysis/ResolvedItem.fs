@@ -1,12 +1,18 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
-/// A module-level `let` of this file, visible to a use site at or below `VisibleFrom`: its
-/// own offset, or the enclosing `rec` scope's keyword when there is one.
+/// A module-level `let` of this file, visible to a use site at or after `VisibleFrom`: its
+/// own offset, or the enclosing `rec` scope's keyword when there is one. A read inside the
+/// group's own RHS is excluded separately (`PassContextResolution.PendingBindings`).
 [<Struct>]
 type LocalModuleMember =
     {
         BindingSite: NodeKey
+        IsMutable: bool
         VisibleFrom: int
+        /// WHERE the binding enters the name environment within its depth: its own pattern
+        /// offset, except under `rec`, where it enters after the scope's whole prelude
+        /// (`BindingRank.afterPrelude`) and so outranks each same-scope `open`.
+        EntersAt: int
     }
 
 [<RequireQualifiedAccess; NoEquality; NoComparison>]

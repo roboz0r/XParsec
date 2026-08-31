@@ -18,8 +18,10 @@ let tests =
                     "let x = 5\nprintfn \"%d\" x", "5"
                     // `let … in` as an expression
                     "printfn \"%d\" (let y = 41 in y + 1)", "42"
-                    // shadowing: the second `x` sees the first on its RHS
-                    "let x = 1\nlet x = x + 10\nprintfn \"%d\" x", "11"
+                    // a binding read on a later binding's RHS. A same-name second `let`
+                    // (shadowing) is FS0037 at module level, `dotnet fsi`-probed, so the
+                    // sequence uses distinct names.
+                    "let x = 1\nlet y = x + 10\nprintfn \"%d\" y", "11"
                     // two independent top-level bindings
                     "let a = 2\nlet b = 3\nprintfn \"%d\" (a * b)", "6"
                     // an inner binding inside a function body
@@ -28,8 +30,9 @@ let tests =
                     "let rec sumTo n = if n = 0 then 0 else n + sumTo (n - 1)\nprintfn \"%d\" (sumTo 5)", "15"
                     // `let inline`
                     "let inline sq x = x * x\nprintfn \"%d\" (sq 7)", "49"
-                    // a function inside a nested module, called unqualified
-                    "module M =\n    let twice x = x + x\nprintfn \"%d\" (twice 21)", "42"
+                    // a function inside a nested module, called qualified: the bare spelling
+                    // is FS0039 outside `M`, `dotnet fsi`-probed
+                    "module M =\n    let twice x = x + x\nprintfn \"%d\" (M.twice 21)", "42"
                 ] -> test src { runs expected src }
 
             yield

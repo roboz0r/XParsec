@@ -255,12 +255,20 @@ module NameResolutionTypeRegistration =
                 | ValueNone -> ()
         | _ -> ()
 
-    /// The offset every claim of one `type … and …` group is visible from: inside a
-    /// `module rec` / `namespace rec` that scope's keyword, else the group's own first token,
-    /// so a use above the group cannot see it and everything the group writes can.
-    let typeGroupVisibleFrom (recScopeOffset: int voption) (defs: ImmutableArray<TypeDefn<SyntaxToken>>) : int =
+    /// The placement every claim of one `type … and …` group shares: visible from the
+    /// enclosing `rec` scope's keyword — else the group's own first token, so a use above the
+    /// group cannot see it and everything the group writes can — and entering after the
+    /// scope's prelude under `rec`, else at that same token.
+    let typeGroupPlacement
+        (recScopeOffset: int voption)
+        (defs: ImmutableArray<TypeDefn<SyntaxToken>>)
+        : ClaimPlacement =
         match recScopeOffset with
-        | ValueSome offset -> offset
+        | ValueSome offset ->
+            {
+                VisibleFrom = offset
+                EntersAt = BindingRank.afterPrelude
+            }
         | ValueNone ->
             let mutable found = ValueNone
             let mutable i = 0
@@ -269,9 +277,12 @@ module NameResolutionTypeRegistration =
                 found <- CstKeys.tryFirstTokenOfTypeDefn defs.[i]
                 i <- i + 1
 
-            match found with
-            | ValueSome t -> t.StartIndex
-            | ValueNone -> 0
+            let own =
+                match found with
+                | ValueSome t -> t.StartIndex
+                | ValueNone -> 0
+
+            { VisibleFrom = own; EntersAt = own }
 
     /// The nominal identity ONE declaration claims, from the name it writes and the kind it
     /// writes it for. Every type in a `type … and …` group is claimed before any detail
@@ -279,7 +290,7 @@ module NameResolutionTypeRegistration =
     let claimTypeName
         (ctx: PassContext)
         (c: DeclContainment<SyntaxToken>)
-        (visibleFrom: int)
+        (placement: ClaimPlacement)
         (tn: TypeName<SyntaxToken>)
         (kind: TypeDeclKind)
         : TypeIdentity voption =
@@ -327,7 +338,8 @@ module NameResolutionTypeRegistration =
                         Kind = kind
                         DeclSite = declSite
                         Key = key
-                        VisibleFrom = visibleFrom
+                        VisibleFrom = placement.VisibleFrom
+                        EntersAt = placement.EntersAt
                     }
 
                 TypeRegistry.claimType ctx.Types identity
@@ -343,13 +355,13 @@ module NameResolutionTypeRegistration =
     let claimTypeIdentity
         (ctx: PassContext)
         (c: DeclContainment<SyntaxToken>)
-        (visibleFrom: int)
+        (placement: ClaimPlacement)
         (td: TypeDefn<SyntaxToken>)
         : ClaimedTypeDefn voption =
         match tryDeclaredTypeName td with
         | ValueNone -> ValueNone
         | ValueSome(tn, kind) ->
-            match claimTypeName ctx c visibleFrom tn kind with
+            match claimTypeName ctx c placement tn kind with
             | ValueSome identity -> ValueSome { Identity = identity; Defn = td }
             | ValueNone -> ValueNone
 
@@ -510,26 +522,33 @@ module NameResolutionTypeRegistration =
     let claimSigTypeIdentity
         (ctx: PassContext)
         (c: DeclContainment<SyntaxToken>)
-        (visibleFrom: int)
+        (placement: ClaimPlacement)
         (decl: SigDecl)
         : TypeIdentity voption =
         match SigDecl.claimedKind decl with
         | ValueNone -> ValueNone
-        | ValueSome kind -> claimTypeName ctx c visibleFrom (SigDecl.typeName decl) kind
+        | ValueSome kind -> claimTypeName ctx c placement (SigDecl.typeName decl) kind
 
-    /// `typeGroupVisibleFrom` for a signature group: the first declaration's attributes
+    /// `typeGroupPlacement` for a signature group: the first declaration's attributes
     /// precede the `type` keyword, and an attribute of the group may reference a member of
     /// the group, so the earlier of the two tokens wins.
-    let sigGroupVisibleFrom (recScopeOffset: int voption) (kw: SyntaxToken) (decls: SigDecl list) : int =
+    let sigGroupPlacement (recScopeOffset: int voption) (kw: SyntaxToken) (decls: SigDecl list) : ClaimPlacement =
         match recScopeOffset with
-        | ValueSome offset -> offset
+        | ValueSome offset ->
+            {
+                VisibleFrom = offset
+                EntersAt = BindingRank.afterPrelude
+            }
         | ValueNone ->
-            match decls with
-            | d :: _ ->
-                match CstKeys.tryFirstTokenOfTypeName (SigDecl.typeName d) with
-                | ValueSome t -> min kw.StartIndex t.StartIndex
-                | ValueNone -> kw.StartIndex
-            | [] -> kw.StartIndex
+            let own =
+                match decls with
+                | d :: _ ->
+                    match CstKeys.tryFirstTokenOfTypeName (SigDecl.typeName d) with
+                    | ValueSome t -> min kw.StartIndex t.StartIndex
+                    | ValueNone -> kw.StartIndex
+                | [] -> kw.StartIndex
+
+            { VisibleFrom = own; EntersAt = own }
 
     /// The RECORD / UNION / CLASS-like short name one signature declaration writes, which is
     /// what a `module` of the same name is renamed by.

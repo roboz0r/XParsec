@@ -456,6 +456,7 @@ module FrozenCodec =
         writeTypeKeyDict w writeIntrinsicBindingInfo res.IntrinsicBindings
         writeSymbolSet w res.GlobalValueKeys
         writeModuleDict w (fun w (path: string) -> w.Write path) res.ModuleSourcePaths
+        writeListWith w writeModuleRef res.AutoOpenModules
         writeSymbolDict w writeAccessibility res.Accessibility
 
     let private readResidue (r: FrozenReader) : FrozenFileResidue =
@@ -463,6 +464,7 @@ module FrozenCodec =
         let intrinsicBindings = readTypeKeyDict r readIntrinsicBindingInfo
         let globalValueKeys = readSymbolSet r
         let moduleSourcePaths = readModuleDict r (fun r -> r.ReadString())
+        let autoOpenModules = readListWith r readModuleRef
         let accessibility = readSymbolDict r readAccessibility
 
         {
@@ -470,6 +472,7 @@ module FrozenCodec =
             IntrinsicBindings = intrinsicBindings
             GlobalValueKeys = globalValueKeys
             ModuleSourcePaths = moduleSourcePaths
+            AutoOpenModules = autoOpenModules
             Accessibility = accessibility
         }
 

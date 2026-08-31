@@ -390,8 +390,7 @@ module FrozenSignature =
 
             PublishedSurfaceBuilder.addType surface typeKey shape
 
-        // A frozen impl file publishes no `[<AutoOpen>]` surface: a later file in the SAME
-        // namespace reaches these types through its own header, not here.
+        surface.ImplicitOpens <- [ for k in frozen.Residue.AutoOpenModules -> ImplicitOpen.AutoOpen k ]
         PublishedSurface.ofBuilder surface
 
     /// `toSurface` as a provider view.

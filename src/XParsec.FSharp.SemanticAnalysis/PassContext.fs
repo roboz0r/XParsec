@@ -177,9 +177,10 @@ type PassContextResolution =
         mutable OpenScope: OpenScope
         /// The chain enclosing the element being analysed, set in lockstep with `OpenScope`.
         mutable EnclosingContainer: ModuleContainer voption
-        /// `OpenScope.Locals` resolved against the scopes this file declares, set in lockstep
-        /// with `OpenScope`: what a use site under this element carries.
-        mutable ResolvedOpens: ResolvedOpen list
+        /// Every scope in force at the element being analysed — the enclosing module chain,
+        /// the `open`s resolved to the scopes they denote, and what is in scope with no `open`
+        /// written for it — best rank first. Set in lockstep with `OpenScope`.
+        mutable Scopes: ScopeEntry list
         /// The type parameters in scope, by source name. Anonymous typars (`_`) never
         /// enter it, because they are fresh per occurrence. Replaced only through
         /// `PassContext.PushTyparScope`.
@@ -244,6 +245,11 @@ type PassContextResolution =
         /// declarations; `""` under no namespace) → its directly-declared `let` bindings.
         /// Whole-file, so a reader MUST honour `VisibleFrom`.
         LocalModulePaths: Dictionary<string, Dictionary<string, LocalModuleMember>>
+        /// The binding sites of the `let` group whose RHS the walk stands in, when the group
+        /// is not self-visible: a non-`rec` group's bindings scope below the group, so a
+        /// value read inside its own RHS skips them (`LocalScope.tryValue`). Empty
+        /// everywhere else.
+        mutable PendingBindings: Set<NodeKey>
         /// Keyed by a module-level `[<Literal>]` binding's pattern `NodeKey` (the
         /// `LocalModuleMember.BindingSite` a value resolution yields): the RHS's folded
         /// constant. Written at the binding's position in the registration scan, so a
@@ -252,11 +258,14 @@ type PassContextResolution =
     }
 
 module PassContextResolution =
-    let create () : PassContextResolution =
+    /// `ambient` is the floor of `Scopes` until the walk enters an element, and stays its
+    /// tail after: a read outside any walked element still sees what needs no `open`.
+    let create (ambient: ScopeEntry list) : PassContextResolution =
         {
             OpenScope = OpenScope.empty
             EnclosingContainer = ValueNone
-            ResolvedOpens = []
+            Scopes = ambient
+            PendingBindings = Set.empty
             TyparScope = Dictionary<string, TyVarId>(System.StringComparer.Ordinal)
             BindingTyparSeed = ValueNone
             EnclosingTypars = ValueNone
@@ -427,7 +436,7 @@ type PassContext(provider: IExternalSymbolProvider, file: LexedFile, assembly: C
         lazy (IntrinsicTypeMap.shadow (IntrinsicTypeMap.ofBindings types.IntrinsicBindings) provider.IntrinsicTypeMap) with get
 
     member val Bindings = PassContextBindings.empty () with get
-    member val Resolution = PassContextResolution.create () with get
+    member val Resolution = PassContextResolution.create (ScopeEntry.withAmbient provider.ImplicitOpens []) with get
 
     /// Make `scope` the typar scope until the handle is disposed, which restores both the
     /// scope and the strictness of the enclosing one. Bind it with `use`.
@@ -596,7 +605,7 @@ type PassContext(provider: IExternalSymbolProvider, file: LexedFile, assembly: C
         {
             Pos = SourcePos.ofNodeKey key
             Container = this.Resolution.EnclosingContainer
-            Opens = this.Resolution.ResolvedOpens
+            Scopes = this.Resolution.Scopes
         }
 
     /// The module chain the walk stands in, which is what HOLDS a declaration written here.

@@ -360,42 +360,65 @@ module NameResolutionLongIdent =
 
     // --- The environment: what a bare first segment denotes -----------------------------
 
-    /// A `let` binding of one of this file's OPENED modules, visible at the use site.
-    let openedLocalValue (ctx: PassContext) (useSite: UseSite) (name: string) : LocalModuleMember voption =
-        useSite.Opens
-        |> tryPickV (fun o ->
-            match o.Container with
-            | ValueSome opened -> LocalScope.tryValue ctx useSite opened name
-            | ValueNone -> ValueNone
-        )
+    /// A module-level value visible at `useSite`, and WHERE it enters the name environment:
+    /// the highest-ranked scope in force there that declares `name`, this file's own
+    /// declarations ahead of the referenced surfaces within one scope.
+    let private rankedValueInEnv
+        (ctx: PassContext)
+        (useSite: UseSite)
+        (name: string)
+        : struct (BindingRank * ResolvedValue) voption =
+        BindingRank.bestRanked
+            [
+                for e in useSite.Scopes do
+                    match LocalScope.tryValue ctx useSite e.Container name with
+                    | ValueSome m -> struct (ScopeEntry.rankOf e m.EntersAt, ResolvedValue.Local m)
+                    | ValueNone ->
+                        match ctx.Resolver.Scope.TryValue(e.Container, name) with
+                        | ValueSome sym -> struct (ScopeEntry.rank e, ResolvedValue.External sym)
+                        | ValueNone -> ()
+            ]
 
-    /// A module-level value: one of this file's OPENED scopes, then the referenced surfaces
-    /// through the `open`s and the prelude. The enclosing scopes' values are bound by the
-    /// walk itself, in declaration order, so a `let` is in scope below its own body only.
-    let private valueInEnv (ctx: PassContext) (useSite: UseSite) (name: string) : ResolvedValue voption =
-        match openedLocalValue ctx useSite name with
-        | ValueSome m -> ValueSome(ResolvedValue.Local m)
-        | ValueNone ->
-            externalValueInScope ctx useSite Qualifier.Bare name
-            |> ValueOption.map ResolvedValue.External
+    /// The winning module-level value for the bare `name` at `useSite`: the first rung of
+    /// the single-ident ladder, and the environment a walk-bound name is absent from.
+    let valueInEnv (ctx: PassContext) (useSite: UseSite) (name: string) : ResolvedValue voption =
+        match rankedValueInEnv ctx useSite name with
+        | ValueSome(struct (_, v)) -> ValueSome v
+        | ValueNone -> ValueNone
 
-    /// A bare union case: a case of a union without `[<RequireQualifiedAccess>]` visible at
-    /// the use site. This file's own unions shadow every referenced one.
+    /// Every claim on the bare case `name` at `useSite`, each with the rank the union
+    /// declaring it enters at. `[<RequireQualifiedAccess>]` cases are absent: a bare spelling
+    /// never reaches one.
+    let private rankedCasesInEnv
+        (ctx: PassContext)
+        (useSite: UseSite)
+        (name: string)
+        : struct (BindingRank * ResolvedUnionCase) list =
+        [
+            for struct (r, c) in TypeRegistry.rankedCasesNamed ctx.Types useSite name do
+                if not (TypeRegistry.unionOfCase ctx.Types c).IsRequireQualifiedAccess then
+                    struct (r, ResolvedUnionCase.Local c)
+
+            for e in useSite.Scopes do
+                for uc in (ctx.Resolver.Scope.UnionCasesNamed(e.Container, name)).Underlying do
+                    if not uc.IsRequireQualifiedAccess then
+                        struct (ScopeEntry.rank e, ResolvedUnionCase.External uc)
+        ]
+
+    /// A bare union case: the highest-ranked case of a union without
+    /// `[<RequireQualifiedAccess>]` visible at the use site. Several sharing the winning rank
+    /// are ambiguous.
     let private caseInEnv (ctx: PassContext) (useSite: UseSite) (name: string) : ResolvedItem voption =
-        let locals =
-            TypeRegistry.casesNamed ctx.Types useSite name
-            |> Array.filter (fun c -> not (TypeRegistry.unionOfCase ctx.Types c).IsRequireQualifiedAccess)
+        let claims = rankedCasesInEnv ctx useSite name
 
-        // Both halves are filtered to unions without `[<RequireQualifiedAccess>]`.
-        match locals with
-        | [||] ->
-            externalCasesInScope ctx useSite name
-            |> EqArray.toArray
-            |> Array.map (ResolvedUnionCase.External >> CaseClaim.plain)
-            |> caseAmong name
-        | _ ->
-            locals
-            |> Array.map (ResolvedUnionCase.Local >> CaseClaim.plain)
+        match BindingRank.bestRanked claims with
+        | ValueNone -> ValueNone
+        | ValueSome(struct (best, _)) ->
+            [|
+                for struct (r, c) in claims do
+                    if r = best then
+                        CaseClaim.plain c
+            |]
             |> caseAmong name
 
     /// A bare type name at any arity: this file's claim in scope, else the external providers.

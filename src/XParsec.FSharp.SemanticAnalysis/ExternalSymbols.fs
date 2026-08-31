@@ -401,8 +401,9 @@ type IExternalSymbolResolver =
     /// record-literal / record-pattern resolution intersects these sets to pin the type.
     abstract TryRecordsWithField: fieldName: string -> EqArray<ExternalRecordCandidate>
 
-    /// What this provider opens with no `open` written for it. In search order, earliest
-    /// wins, probed strictly BEHIND every explicit `open`.
+    /// What this provider opens with no `open` written for it, OUTERMOST first: an
+    /// `[<AutoOpen>]` module follows the scope that holds it. `ScopeEntry.withAmbient` ranks
+    /// them, which for an `[<AutoOpen>]` is the rank of the `open` that activated it.
     abstract ImplicitOpens: ImplicitOpen list
 
 /// What the COMPILING TARGET lays out and encodes, which no `.fsi` can state: `int` is a

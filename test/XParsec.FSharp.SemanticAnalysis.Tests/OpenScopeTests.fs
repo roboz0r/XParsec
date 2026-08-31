@@ -49,8 +49,9 @@ let tests =
             }
 
             test "recursive module: constant prelude, every open applies to the whole body" {
-                // `open Q`, declared *after* `let a`, is still visible to `let a`:
-                // FS3200 whole-scope-prelude semantics, §3.2.
+                // The tree walk shares one prefix set across a `rec` body, so `open Q` below
+                // `let a` reaches it. Name resolution never meets the shape: FS3200 refuses an
+                // `open` that is not first in a `rec` module, and this compiler emits it.
                 let src = "module rec R\n\nopen P\nlet a = 1\nopen Q\nlet b = 2\n"
 
                 let got = walk src

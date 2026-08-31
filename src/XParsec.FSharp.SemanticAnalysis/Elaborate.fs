@@ -354,6 +354,7 @@ module Elaborate =
             IntrinsicBindings = EqDict.ofSeq ctx.Types.IntrinsicBindings
             GlobalValueKeys = EqSet.ofSeq ctx.Bindings.GlobalValueKeys
             ModuleSourcePaths = TypeRegistry.declaredModulePaths ctx.Types
+            AutoOpenModules = TypeRegistry.declaredAutoOpenModules ctx.Types
             ModuleMembers = emptyIfDegraded ctx.Bindings.ModuleMembers
             // Filled by the Pipeline once escape analysis has run.
             ClosureReprs = Map.empty

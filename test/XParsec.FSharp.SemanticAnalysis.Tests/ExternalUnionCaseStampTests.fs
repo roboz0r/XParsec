@@ -129,6 +129,16 @@ let private hasAmbiguousCtor (input: string) : bool =
     ctx.Diagnostics
     |> Seq.exists (fun d -> d.Message.Contains "Ambiguous constructor 'Green'")
 
+/// The name of the union the lone `caseName` ctor pattern of `input` resolved to.
+let private patCaseUnion (input: string) (caseName: string) : string =
+    let ctx, file = analyse input
+    let ctors = caseCtors ctx file caseName
+    Expect.equal ctors.Length 1 (sprintf "one '%s' ctor in: %s" caseName input)
+
+    match ResolvedStamps.tryExternalUnionCase ctx.Resolution.Resolved (CstKeys.ofPat ctors.[0]) with
+    | ValueSome uc -> uc.UnionKey.Name
+    | ValueNone -> failtestf "external case '%s' is not stamped in: %s" caseName input
+
 [<Tests>]
 let tests =
     testList
@@ -185,19 +195,30 @@ let tests =
                 Expect.isFalse (hasUnresolved "open Other\nlet x = Green") "bare Green resolves under open Other"
             }
 
-            // Two referenced unions claim the bare name, so the reference is reported rather
-            // than settled by index order. F# itself shadows instead, resolving to the last
-            // `open`.
-            test "a bare case both opened unions declare is ambiguous (expression)" {
-                Expect.isTrue
+            // Two referenced unions claim the bare name. The later `open` wins, as it does in
+            // `dotnet fsi`: `open Other` then `open Rival` with `Green 1` reports FS0001
+            // against `Rival.Tint`'s `string` payload, never an ambiguity.
+            test "a bare case both opened unions declare resolves to the later `open` (expression)" {
+                Expect.isFalse
                     (hasAmbiguousCtor "open Other\nopen Rival\nlet x = Green")
-                    "Green is claimed by Other.Shade and Rival.Tint"
+                    "the later `open` shadows the earlier"
+
+                Expect.isFalse (hasUnresolved "open Other\nopen Rival\nlet x = Green") "bare Green resolves"
             }
 
-            test "a bare case both opened unions declare is ambiguous (pattern)" {
-                Expect.isTrue
-                    (hasAmbiguousCtor "open Other\nopen Rival\nlet f (o: obj) = match o with | Green -> 1 | _ -> 0")
-                    "Green is claimed by Other.Shade and Rival.Tint"
+            test "a bare case both opened unions declare resolves to the later `open` (pattern)" {
+                let input =
+                    "open Other\nopen Rival\nlet f (o: obj) = match o with | Green -> 1 | _ -> 0"
+
+                Expect.isFalse (hasAmbiguousCtor input) "the later `open` shadows the earlier"
+                Expect.equal (patCaseUnion input "Green") "Tint" "`open Rival` is the later one"
+            }
+
+            test "reversing the two `open`s reverses which union claims the case" {
+                let input =
+                    "open Rival\nopen Other\nlet f (o: obj) = match o with | Green -> 1 | _ -> 0"
+
+                Expect.equal (patCaseUnion input "Green") "Shade" "`open Other` is the later one"
             }
 
             // The qualifier picks a union directly, so the second claim is irrelevant.

@@ -45,22 +45,26 @@ module Containment =
 
             List.ofSeq scopes
 
-        /// Each `[<AutoOpen>]` module enclosing `c`, outermost first: what something declared
-        /// here is reachable through with no `open` written for it.
-        member this.ImplicitOpensOf(c: DeclContainment<SyntaxToken>) : ImplicitOpen list =
+        /// Each `[<AutoOpen>]` module enclosing `c`, outermost first.
+        member private this.AutoOpenModuleKeysOf(c: DeclContainment<SyntaxToken>) : ModuleKey list =
             let mutable container =
                 ModuleContainer.InNamespace(SymbolKeyOps.namespaceKey c.Namespace)
 
-            let opened = ResizeArray<ImplicitOpen>()
+            let opened = ResizeArray<ModuleKey>()
 
             for md in c.Modules do
                 let key = SymbolKeyOps.moduleKeyOf container (this.CompiledModuleName md)
                 container <- ModuleContainer.InModule key
 
                 if AttributeDecode.isAutoOpen (this.ResolveAttributes md.Attributes) then
-                    opened.Add(ImplicitOpen.AutoOpen key)
+                    opened.Add key
 
             List.ofSeq opened
+
+        /// Each `[<AutoOpen>]` module enclosing `c`, outermost first: what something declared
+        /// here is reachable through with no `open` written for it.
+        member this.ImplicitOpensOf(c: DeclContainment<SyntaxToken>) : ImplicitOpen list =
+            this.AutoOpenModuleKeysOf c |> List.map ImplicitOpen.AutoOpen
 
         /// `namespace N` + `module A = module B =` yields `B ∈ A ∈ N`.
         member this.ContainerChainOf(c: DeclContainment<SyntaxToken>) : ModuleContainer =
@@ -78,14 +82,35 @@ module Containment =
             for (path, container) in scopes do
                 TypeRegistry.noteLocalContainer this.Types path container
 
+            // Feeds `TastFile.AutoOpenModules`, which is what a consumer of the frozen file
+            // resolves through with no `open` of its own.
+            for key in this.AutoOpenModuleKeysOf c do
+                TypeRegistry.noteAutoOpenModule this.Types key
+
             let chain = scopes |> List.last |> snd
             this.Resolution.EnclosingContainer <- ValueSome chain
             chain
+
+        /// The scopes in force at an element whose enclosing chain is `chain`: the `open`s
+        /// written above it, the chain and each scope enclosing it, then what is in scope with
+        /// no `open` written for it, ranked onto one axis and best rank first. A scope reached
+        /// twice keeps its best rank.
+        member private this.ScopeStackOf(chain: ModuleContainer, opens: LocalOpen list) : ScopeEntry list =
+            [
+                yield! TypeRegistry.resolveOpens this.Types this.Resolver.Scope opens
+
+                for h in chain.SelfAndAncestors do
+                    {
+                        Container = h
+                        Route = ScopeRoute.Lexical h.Depth
+                    }
+            ]
+            |> ScopeEntry.withAmbient this.ImplicitOpens
 
         /// Enter a walked module element, advancing both ambient facts a by-name read resolves
         /// against: the `open`s in scope and the module chain. Each `open` resolves here, once
         /// per element, after the element's own chain is registered.
         member this.EnterElement(w: WalkedIn<SyntaxToken, 'Elem>) : unit =
             this.Resolution.OpenScope <- w.Scope
-            this.EnterContainment w.Containment |> ignore
-            this.Resolution.ResolvedOpens <- w.Scope.Locals |> List.map (TypeRegistry.resolveOpen this.Types)
+            let chain = this.EnterContainment w.Containment
+            this.Resolution.Scopes <- this.ScopeStackOf(chain, w.Scope.Locals)

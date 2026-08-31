@@ -148,9 +148,8 @@ module internal AttributeFold =
                     written.Name
 
     /// The folded constant of a `[<Literal>]` module value referenced at `useSite`. A bare
-    /// spelling reads the enclosing module chain innermost-first, then the opened modules; a
-    /// qualified one reads the containers the prefix denotes. A nearer non-literal value
-    /// shadows a farther literal.
+    /// spelling reads the scopes in force there, best rank first; a qualified one reads the
+    /// containers the prefix denotes. A nearer non-literal value shadows a farther literal.
     let private tryLiteralValue
         (ctx: PassContext)
         (useSite: UseSite)
@@ -161,19 +160,7 @@ module internal AttributeFold =
 
         let containers =
             match n with
-            | 1 ->
-                let enclosing =
-                    match useSite.Container with
-                    | ValueSome c -> c
-                    | ValueNone -> ModuleContainer.InNamespace NamespaceKey.Global
-
-                [
-                    yield! enclosing.SelfAndAncestors
-                    for o in useSite.Opens do
-                        match o.Container with
-                        | ValueSome c -> yield c
-                        | ValueNone -> ()
-                ]
+            | 1 -> containersOf ctx useSite Qualifier.Bare
             | _ -> containersOf ctx useSite (Qualifier.ofSegments [| for i in 0 .. n - 2 -> ctx.NameOf idents.[i] |])
 
         let rec pick (cs: ModuleContainer list) =

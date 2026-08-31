@@ -128,6 +128,9 @@ type FrozenFileResidue =
         IntrinsicBindings: EqDict<TypeKey, IntrinsicBindingInfo>
         GlobalValueKeys: EqSet<SymbolKey>
         ModuleSourcePaths: EqDict<ModuleKey, string>
+        /// The `[<AutoOpen>]` modules the file declares, outermost first: what a consumer
+        /// resolves through with no `open` of its own.
+        AutoOpenModules: ModuleKey list
         Accessibility: EqDict<SymbolKey, Accessibility>
     }
 
@@ -253,6 +256,7 @@ module FrozenPools =
                     IntrinsicBindings = EqDict.empty
                     GlobalValueKeys = EqSet.empty
                     ModuleSourcePaths = EqDict.empty
+                    AutoOpenModules = []
                     Accessibility = EqDict.empty
                 }
             ModuleMembers = [||]

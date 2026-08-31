@@ -30,7 +30,8 @@ module LocalScope =
         | true, c -> ValueSome c
         | false, _ -> ValueNone
 
-    /// The `let` binding `name` declared directly in `container`, above `useSite`.
+    /// The `let` binding `name` declared directly in `container`, above `useSite` and not a
+    /// binding of the `let` group whose own RHS the walk stands in (`PendingBindings`).
     let tryValue
         (ctx: PassContext)
         (useSite: UseSite)
@@ -42,7 +43,11 @@ module LocalScope =
             match ctx.Resolution.LocalModulePaths.TryGetValue path with
             | true, members ->
                 match members.TryGetValue name with
-                | true, m when m.VisibleFrom <= useSite.Offset -> ValueSome m
+                | true, m when
+                    m.VisibleFrom <= useSite.Offset
+                    && not (ctx.Resolution.PendingBindings.Contains m.BindingSite)
+                    ->
+                    ValueSome m
                 | _ -> ValueNone
             | false, _ -> ValueNone
         | false, _ -> ValueNone

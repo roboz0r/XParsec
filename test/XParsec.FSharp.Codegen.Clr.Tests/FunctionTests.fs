@@ -144,7 +144,7 @@ let tests =
             yield
                 test "a function inside a nested module runs as a static method on its module class (prints 42)" {
                     let src =
-                        "let start = 0\nmodule M =\n    let twice x = x + x\nprintfn \"%d\" (twice 21)"
+                        "let start = 0\nmodule M =\n    let twice x = x + x\nprintfn \"%d\" (M.twice 21)"
 
                     let artifact = compileSource "FnNestedMod" src
                     let bytes = Codegen.toBytes artifact
@@ -160,7 +160,7 @@ let tests =
             yield
                 test "a recursive function inside a nested module recurses (prints 15)" {
                     let src =
-                        "module M =\n    let rec sumTo n =\n        match n with\n        | 0 -> 0\n        | _ -> n + sumTo (n - 1)\nprintfn \"%d\" (sumTo 5)"
+                        "module M =\n    let rec sumTo n =\n        match n with\n        | 0 -> 0\n        | _ -> n + sumTo (n - 1)\nprintfn \"%d\" (M.sumTo 5)"
 
                     let artifact = compileSource "FnNestedRec" src
                     let bytes = Codegen.toBytes artifact
@@ -189,7 +189,7 @@ let tests =
                                 "module M ="
                                 "    let addOne x = x + 1"
                                 "let apply g x = g x"
-                                "printfn \"%d\" (apply addOne 41)"
+                                "printfn \"%d\" (apply M.addOne 41)"
                             ]
 
                     let artifact = compileSource "FnEscapeExport" src

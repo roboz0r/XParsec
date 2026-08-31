@@ -322,6 +322,7 @@ module TastUnpool =
             IntrinsicBindings = pools.Residue.IntrinsicBindings
             GlobalValueKeys = pools.Residue.GlobalValueKeys
             ModuleSourcePaths = pools.Residue.ModuleSourcePaths
+            AutoOpenModules = pools.Residue.AutoOpenModules
             ModuleMembers = boundVarKeyedMap readmittedBoundVar pools.ModuleMembers
             ClosureReprs = boundVarKeyedMap readmittedBoundVar pools.ClosureReprs
             FunVerdicts = pools.FunVerdicts |> Array.map (fun (id, v) -> lambdaKeyOf id, v) |> Map.ofArray

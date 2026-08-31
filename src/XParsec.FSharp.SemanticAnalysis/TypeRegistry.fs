@@ -18,6 +18,13 @@ type TypeDeclKind =
     /// name-table citizen like any other type's; its platform type id is not.
     | IntrinsicBinding
 
+/// The positional facts of one declaration group: where its claims become visible, and where
+/// they enter the name environment within their depth. The two differ only under `rec`,
+/// which hoists visibility to the scope's keyword while the declarations enter after the
+/// scope's whole prelude.
+[<Struct>]
+type ClaimPlacement = { VisibleFrom: int; EntersAt: int }
+
 /// The nominal identity of one type declaration: everything NOT kind-specific. Every member
 /// of a `type … and …` group is claimed before any of the group's per-kind registrars run.
 type TypeIdentity =
@@ -36,6 +43,10 @@ type TypeIdentity =
         /// A use at offset `u` sees this claim iff `VisibleFrom <= u`. It is the first token of
         /// the claim's `type … and …` GROUP, or a `module rec` / `namespace rec` keyword.
         VisibleFrom: int
+        /// WHERE the claim enters the name environment within its depth: `VisibleFrom`,
+        /// except under `rec`, where it enters after the scope's whole prelude
+        /// (`BindingRank.afterPrelude`) and so outranks each same-scope `open`.
+        EntersAt: int
     }
 
 /// An ACCEPTED type declaration, paired with the CST it was claimed from. Every per-kind
@@ -115,6 +126,9 @@ type PassContextTypes =
         /// Each minted type `TypeKey` → the decl-site `NodeKey` that first minted it. A second
         /// DISTINCT declaration minting the same key means the mint dropped a containment.
         SymbolKeyOrigins: Dictionary<SymbolKey, NodeKey>
+        /// The `[<AutoOpen>]` modules this file declares, outermost first, recorded as the
+        /// walk enters their elements. A module holding no element is absent.
+        AutoOpenModules: ResizeArray<ModuleKey>
     }
 
 module PassContextTypes =
@@ -135,6 +149,7 @@ module PassContextTypes =
             LocalContainerPaths = Dictionary<_, _>()
             NominalTypeNames = HashSet<_>()
             SymbolKeyOrigins = Dictionary<_, _>()
+            AutoOpenModules = ResizeArray<_>()
         }
 
 /// The project-local type registries, keyed by `TypeKey`, so a NAME addresses a candidate set.
@@ -177,36 +192,6 @@ module TypeRegistry =
     // F# adds each declaration and each `open` to the name environment in source order, last
     // wins. `claimRank` is that ordering; MAX over a candidate set is the rule.
 
-    /// The scope this file declares under the dotted SOURCE `path`, as written INSIDE the scope
-    /// whose own source path is `scope`: `scope.path` first, then ever-shorter prefixes.
-    let private tryContainerOfPath (types: PassContextTypes) (scope: string) (path: string) : ModuleContainer voption =
-        let rec go (scope: string) =
-            let qualified = if scope.Length = 0 then path else scope + "." + path
-
-            match types.LocalContainers.TryGetValue qualified with
-            | true, h -> ValueSome h
-            | false, _ ->
-                if scope.Length = 0 then
-                    ValueNone
-                else
-                    let cut = scope.LastIndexOf '.'
-                    go (if cut < 0 then "" else scope.Substring(0, cut))
-
-        go scope
-
-    /// Resolves a written `open` against the scopes THIS file declares, from the scope it is
-    /// written in. THE single site this resolution happens at: every consumer reads
-    /// `ResolvedOpen.Container`.
-    let resolveOpen (types: PassContextTypes) (o: LocalOpen) : ResolvedOpen =
-        {
-            Container = tryContainerOfPath types o.Scope o.Path
-            Rank =
-                {
-                    Depth = o.ScopeDepth
-                    Offset = o.Offset
-                }
-        }
-
     /// The scope the dotted SOURCE `path` reaches when written INSIDE `enclosing`, and `enclosing`
     /// itself for an empty path. An EXACT descent, no walking outward.
     let tryContainerUnder
@@ -226,81 +211,104 @@ module TypeRegistry =
                 | false, _ -> ValueNone
             | false, _ -> ValueNone
 
-    /// The route by which a written name arrives at a container.
-    [<Struct; RequireQualifiedAccess; NoComparison>]
-    type private ReachRoute =
-        /// The use site's own scope or one enclosing it, descended through the written path.
-        | Ancestor
-        /// An `open`, which fixes the offset the name enters at.
-        | Opened of offset: int
-        /// The file's root, reached by a fully-qualified path.
-        | Root
+    /// The scope the dotted SOURCE `path` denotes directly under `c`, this file's own
+    /// declarations first, then the referenced surfaces.
+    let private tryDescend
+        (types: PassContextTypes)
+        (scope: IScopeContents)
+        (c: ModuleContainer)
+        (path: string)
+        : ModuleContainer voption =
+        match tryContainerUnder types c path with
+        | ValueSome sub -> ValueSome sub
+        | ValueNone -> scope.TryContainer(SymbolKeyOps.qualify (SymbolKeyOps.containerFullName c) path)
 
-    /// ONE way a written name REACHES a container from a use site, and where it enters there.
-    [<Struct; NoComparison>]
-    type private ContainerReach =
-        {
-            /// The container reached: this reach resolves only a claim held here.
-            Container: ModuleContainer
-            /// How many `module`s enclose whatever ADDED the name (the enclosing scope, or
-            /// the `open`). An inner scope is entered later, making resolution innermost-out.
-            Depth: int
-            Route: ReachRoute
-        }
+    /// The scope the dotted SOURCE `path` denotes as written inside the scope whose own source
+    /// path is `under`: `under.path` first, then ever-shorter prefixes, then the root. Each
+    /// candidate reads this file's own declarations first, then the referenced surfaces.
+    let private tryContainerOfPath
+        (types: PassContextTypes)
+        (scope: IScopeContents)
+        (under: string)
+        (path: string)
+        : ModuleContainer voption =
+        let rec go (under: string) =
+            let qualified = SymbolKeyOps.qualify under path
+
+            match types.LocalContainers.TryGetValue qualified with
+            | true, h -> ValueSome h
+            | false, _ ->
+                match scope.TryContainer qualified with
+                | ValueSome h -> ValueSome h
+                | ValueNone ->
+                    if under.Length = 0 then
+                        ValueNone
+                    else
+                        let cut = under.LastIndexOf '.'
+                        go (if cut < 0 then "" else under.Substring(0, cut))
+
+        go under
+
+    /// The `open`s written above one module element, innermost-first, each resolved to the scope
+    /// it denotes and stamped with the rank it enters at. THE single site an `open` is resolved
+    /// at; an `open` denoting no scope contributes no entry. A relative `open` reads under the
+    /// `open`s enclosing it, nearest first, before the scope it is written in.
+    let resolveOpens (types: PassContextTypes) (scope: IScopeContents) (opens: LocalOpen list) : ScopeEntry list =
+        let rec go (opens: LocalOpen list) : ScopeEntry list =
+            match opens with
+            | [] -> []
+            | o :: rest ->
+                let outer = go rest
+
+                let rec underOuter (entries: ScopeEntry list) =
+                    match entries with
+                    | [] -> tryContainerOfPath types scope o.Scope o.Path
+                    | e :: more ->
+                        match tryDescend types scope e.Container o.Path with
+                        | ValueSome sub -> ValueSome sub
+                        | ValueNone -> underOuter more
+
+                match underOuter outer with
+                | ValueSome c ->
+                    {
+                        Container = c
+                        Route =
+                            ScopeRoute.Opened
+                                {
+                                    Depth = o.ScopeDepth
+                                    Offset = o.Offset
+                                }
+                    }
+                    :: outer
+                | ValueNone -> outer
+
+        go opens
 
     /// EVERY way the written module `path` (EMPTY for a bare name) reaches a scope of this file
     /// from `useSite`. Empty for a path that does not reach a scope of this file (`System.Uri`).
-    let private pathReaches (types: PassContextTypes) (useSite: UseSite) (path: string) : ContainerReach list =
-        match useSite.Container with
-        | ValueNone -> []
-        | ValueSome here ->
-            let reaches = ResizeArray()
+    let private pathReaches (types: PassContextTypes) (useSite: UseSite) (path: string) : ScopeEntry list =
+        let reaches = ResizeArray()
 
-            for h in here.SelfAndAncestors do
-                match tryContainerUnder types h path with
-                | ValueSome reached ->
-                    reaches.Add
-                        {
-                            Container = reached
-                            Depth = h.Depth
-                            Route = ReachRoute.Ancestor
-                        }
-                | ValueNone -> ()
+        for e in useSite.Scopes do
+            match tryContainerUnder types e.Container path with
+            | ValueSome reached -> reaches.Add { Container = reached; Route = e.Route }
+            | ValueNone -> ()
 
-            for o in useSite.Opens do
-                match o.Container with
-                | ValueSome opened ->
-                    match tryContainerUnder types opened path with
-                    | ValueSome reached ->
-                        reaches.Add
-                            {
-                                Container = reached
-                                Depth = o.Rank.Depth
-                                Route = ReachRoute.Opened o.Rank.Offset
-                            }
-                    | ValueNone -> ()
-                | ValueNone -> ()
+        if path.Length > 0 then
+            match types.LocalContainers.TryGetValue path with
+            | true, reached ->
+                reaches.Add
+                    {
+                        Container = reached
+                        Route = ScopeRoute.Lexical 0
+                    }
+            | false, _ -> ()
 
-            if path.Length > 0 then
-                match types.LocalContainers.TryGetValue path with
-                | true, reached ->
-                    reaches.Add
-                        {
-                            Container = reached
-                            Depth = 0
-                            Route = ReachRoute.Root
-                        }
-                | false, _ -> ()
-
-            List.ofSeq reaches
+        List.ofSeq reaches
 
     /// WHERE this claim enters the name environment at `useSite`, `ValueNone` if out of scope.
     /// The MAXIMUM over every reach that lands on the scope HOLDING the claim.
-    let private claimRank
-        (useSite: UseSite)
-        (reaches: ContainerReach list)
-        (claim: TypeIdentity)
-        : BindingRank voption =
+    let private claimRank (useSite: UseSite) (reaches: ScopeEntry list) (claim: TypeIdentity) : BindingRank voption =
         if claim.VisibleFrom > useSite.Offset then
             ValueNone
         else
@@ -309,53 +317,47 @@ module TypeRegistry =
             // in scope and none outranks another, so a caller that must choose takes the first.
             | ValueNone -> ValueSome { Depth = 0; Offset = 0 }
             | ValueSome _ ->
-                let mutable best = ValueNone
+                BindingRank.maxOf (
+                    seq {
+                        for r in reaches do
+                            if r.Container = claim.Container then
+                                ScopeEntry.rankOf r claim.EntersAt
+                    }
+                )
 
-                for r in reaches do
-                    if r.Container = claim.Container then
-                        let rank =
-                            {
-                                Depth = r.Depth
-                                Offset =
-                                    match r.Route with
-                                    | ReachRoute.Opened o -> o
-                                    | ReachRoute.Ancestor
-                                    | ReachRoute.Root -> claim.VisibleFrom
-                            }
+    /// The max-rank claim on `written` that `admit`s at `useSite`, beside the rank it won at.
+    /// Every by-name lookup is this with a different `admit`; a qualified name reads from the
+    /// scope its path reaches.
+    let private tryWinnerRanked
+        (types: PassContextTypes)
+        (useSite: UseSite)
+        (written: WrittenTypeName)
+        (admit: TypeIdentity -> bool)
+        : struct (BindingRank * TypeIdentity) voption =
+        match types.TypeClaims.TryGetValue written.Name with
+        | true, claims ->
+            let reaches = pathReaches types useSite written.Path
 
-                        match best with
-                        | ValueSome b when b >= rank -> ()
-                        | _ -> best <- ValueSome rank
+            BindingRank.bestRanked (
+                seq {
+                    for c in claims do
+                        if admit c then
+                            match claimRank useSite reaches c with
+                            | ValueSome r -> struct (r, c)
+                            | ValueNone -> ()
+                }
+            )
+        | false, _ -> ValueNone
 
-                best
-
-    /// The max-rank claim on `written` that `admit`s at `useSite`. Every by-name lookup is this
-    /// with a different `admit`; a qualified name reads from the scope its path reaches.
     let private tryWinner
         (types: PassContextTypes)
         (useSite: UseSite)
         (written: WrittenTypeName)
         (admit: TypeIdentity -> bool)
         : TypeIdentity voption =
-        match types.TypeClaims.TryGetValue written.Name with
-        | true, claims ->
-            let reaches = pathReaches types useSite written.Path
-            let mutable best = ValueNone
-            let mutable bestRank = ValueNone
-
-            for c in claims do
-                if admit c then
-                    match claimRank useSite reaches c with
-                    | ValueSome r ->
-                        match bestRank with
-                        | ValueSome b when b >= r -> ()
-                        | _ ->
-                            bestRank <- ValueSome r
-                            best <- ValueSome c
-                    | ValueNone -> ()
-
-            best
-        | false, _ -> ValueNone
+        match tryWinnerRanked types useSite written admit with
+        | ValueSome(struct (_, c)) -> ValueSome c
+        | ValueNone -> ValueNone
 
     /// Every claim the written name reaches at `useSite`, at any arity, best rank first: the
     /// candidate set a qualified case (`Choice.Choice1Of3`) is looked up inside.
@@ -374,10 +376,21 @@ module TypeRegistry =
             |> List.map (fun struct (_, c) -> c)
         | false, _ -> []
 
-    /// Is the type `key` (claimed under the short name `name`) visible from `useSite`? The kind
-    /// indexes map a name to KEYS, but the scoping facts live on the CLAIM.
+    /// WHERE the type `key` (claimed under the short name `name`) enters the name environment
+    /// at `useSite`; `ValueNone` when it is out of scope there. The kind indexes map a name to
+    /// KEYS, but the scoping facts live on the CLAIM.
+    let private keyRankAt
+        (types: PassContextTypes)
+        (useSite: UseSite)
+        (name: string)
+        (key: TypeKey)
+        : BindingRank voption =
+        match tryWinnerRanked types useSite (WrittenTypeName.bare name) (fun c -> c.Key = key) with
+        | ValueSome(struct (r, _)) -> ValueSome r
+        | ValueNone -> ValueNone
+
     let private keyVisibleAt (types: PassContextTypes) (useSite: UseSite) (name: string) (key: TypeKey) : bool =
-        (tryWinner types useSite (WrittenTypeName.bare name) (fun c -> c.Key = key)).IsSome
+        (keyRankAt types useSite name key).IsSome
 
     /// The key `written` claims at EXACTLY this arity from `useSite`, restricted to THIS kind's
     /// index, so a same-named type of another kind shadows it into a MISS.
@@ -507,6 +520,14 @@ module TypeRegistry =
     let noteLocalContainer (types: PassContextTypes) (path: string) (container: ModuleContainer) : unit =
         types.LocalContainers.[path] <- container
         types.LocalContainerPaths.[container] <- path
+
+    /// Record an `[<AutoOpen>]` module of this file. Idempotent, first-seen order: the walk
+    /// enters elements top-down, so an enclosing module precedes each nested one.
+    let noteAutoOpenModule (types: PassContextTypes) (key: ModuleKey) : unit =
+        if not (types.AutoOpenModules.Contains key) then
+            types.AutoOpenModules.Add key
+
+    let declaredAutoOpenModules (types: PassContextTypes) : ModuleKey list = List.ofSeq types.AutoOpenModules
 
     /// `LocalContainerPaths` restricted to modules; a namespace's source path is its own
     /// dotted name, so it needs no entry.
@@ -795,34 +816,49 @@ module TypeRegistry =
     // --- The reverse name indexes: fields and union cases -----------------------------
     // A field / case name holds no claim of its own; its OWNER's claim scopes it.
 
-    /// Is the union declaring `case` visible from `useSite`?
-    let private caseVisibleAt (types: PassContextTypes) (useSite: UseSite) (case: UnionCaseInfo) : bool =
-        keyVisibleAt types useSite case.UnionName case.UnionKey
+    /// WHERE the union declaring `case` enters the name environment at `useSite`.
+    let private caseRankAt (types: PassContextTypes) (useSite: UseSite) (case: UnionCaseInfo) : BindingRank voption =
+        keyRankAt types useSite case.UnionName case.UnionKey
 
-    /// The records declaring a field `name` VISIBLE from `useSite`: the candidate set a record
-    /// literal intersects over. `{ a = 1 }` written above `type R = { a: int }` matches none.
-    let recordsWithField (types: PassContextTypes) (useSite: UseSite) (name: string) : RecordTypeInfo[] =
+    let private caseVisibleAt (types: PassContextTypes) (useSite: UseSite) (case: UnionCaseInfo) : bool =
+        (caseRankAt types useSite case).IsSome
+
+    /// The records declaring a field `name` VISIBLE from `useSite`, each with the rank its
+    /// declaration enters at: the candidate set a record literal intersects over.
+    /// `{ a = 1 }` written above `type R = { a: int }` matches none.
+    let rankedRecordsWithField
+        (types: PassContextTypes)
+        (useSite: UseSite)
+        (name: string)
+        : struct (BindingRank * RecordTypeInfo)[] =
         match types.FieldIndex.TryGetValue name with
         | true, infos ->
             let hits = ResizeArray infos.Length
 
             for info in infos do
-                if keyVisibleAt types useSite info.Name info.TypeKey then
-                    hits.Add info
+                match keyRankAt types useSite info.Name info.TypeKey with
+                | ValueSome r -> hits.Add(struct (r, info))
+                | ValueNone -> ()
 
             hits.ToArray()
         | false, _ -> Array.empty
 
-    /// The union cases named `name` VISIBLE from `useSite`. More than one is ambiguous; none
-    /// leaves an uppercase ident an ordinary bound variable in a pattern, unresolved in an expression.
-    let casesNamed (types: PassContextTypes) (useSite: UseSite) (name: string) : UnionCaseInfo[] =
+    /// The union cases named `name` VISIBLE from `useSite`, each with the rank its declaring
+    /// union enters at. More than one at the winning rank is ambiguous; none leaves an
+    /// uppercase ident an ordinary bound variable in a pattern, unresolved in an expression.
+    let rankedCasesNamed
+        (types: PassContextTypes)
+        (useSite: UseSite)
+        (name: string)
+        : struct (BindingRank * UnionCaseInfo)[] =
         match types.CtorIndex.TryGetValue name with
         | true, infos ->
             let hits = ResizeArray infos.Length
 
             for case in infos do
-                if caseVisibleAt types useSite case then
-                    hits.Add case
+                match caseRankAt types useSite case with
+                | ValueSome r -> hits.Add(struct (r, case))
+                | ValueNone -> ()
 
             hits.ToArray()
         | false, _ -> Array.empty

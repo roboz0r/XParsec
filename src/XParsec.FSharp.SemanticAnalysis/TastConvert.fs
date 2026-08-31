@@ -442,6 +442,7 @@ module TastConvert =
             IntrinsicBindings = tf.IntrinsicBindings
             GlobalValueKeys = tf.GlobalValueKeys
             ModuleSourcePaths = tf.ModuleSourcePaths
+            AutoOpenModules = tf.AutoOpenModules
             ModuleMembers = tf.ModuleMembers
             ClosureReprs = tf.ClosureReprs
             FunVerdicts = tf.FunVerdicts

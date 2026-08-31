@@ -170,6 +170,24 @@ module AttributeDecode =
     let isAutoOpen (attrs: ResolvedAttributes) : bool =
         attrs.Has RuntimeNames.autoOpenAttributeKey
 
+    /// True iff the WRITTEN attribute name is `AutoOpen`, under F#'s `Attribute`-suffix
+    /// rule: the read the assembly-level scan makes, which runs ahead of any attribute
+    /// resolution.
+    let namesAutoOpen (nameOf: SyntaxToken -> string) (li: LongIdent<SyntaxToken>) : bool =
+        match li.Idents.Length with
+        | 0 -> false
+        | n ->
+            match nameOf li.Idents.[n - 1] with
+            | "AutoOpen" -> true
+            | written -> written = "AutoOpen" + RuntimeNames.AttributeSuffix
+
+    /// The type reference an attribute's construction writes, `ValueNone` when the CST
+    /// carries none.
+    let writtenTypeRef (construction: ObjectConstruction<SyntaxToken>) : CstKeys.TypeRef voption =
+        match construction with
+        | ObjectConstruction(typ = t)
+        | InterfaceConstruction(typ = t) -> CstKeys.ofTypeRef t
+
     let decodeClassAttributes (attrs: ResolvedAttributes) : ClassAttributeVerdict =
         let isByRefLike = attrs.Has RuntimeNames.isByRefLikeAttributeKey
 

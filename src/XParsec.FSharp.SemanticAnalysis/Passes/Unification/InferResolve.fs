@@ -182,30 +182,48 @@ module internal UnificationInferResolve =
             let (DisplayName shown) = SymbolKeyOps.typeSimpleName candidate.TypeKey
             shown
 
-    /// Whether a provider (cross-file) record candidate belongs to the UNQUALIFIED field-set
-    /// index a bare `{ X = … }` literal reads: not `[<RequireQualifiedAccess>]`, and its
-    /// declaring module/namespace reachable unqualified under the opens in force here.
-    let private admitsBareExternalRecord (ctx: PassContext) (cand: ExternalRecordCandidate) : bool =
+    /// WHERE a provider (cross-file) record candidate enters the name environment at
+    /// `useSite`, for the UNQUALIFIED field-set index a bare `{ X = … }` literal reads.
+    /// `ValueNone` for a `[<RequireQualifiedAccess>]` record, and for one whose declaring
+    /// module or namespace is not a scope in force there.
+    let private bareExternalRecordRank (useSite: UseSite) (cand: ExternalRecordCandidate) : BindingRank voption =
         if cand.IsRequireQualifiedAccess then
-            false
+            ValueNone
         else
-            let key = cand.TypeKey
+            match SymbolKeyOps.tryModuleContainerOf cand.TypeKey.Container with
+            | ValueNone -> ValueNone
+            | ValueSome declaring ->
+                BindingRank.maxOf (
+                    seq {
+                        for e in useSite.Scopes do
+                            if e.Container = declaring then
+                                ScopeEntry.rank e
+                    }
+                )
 
-            match SymbolKeyOps.tryModuleContainerOf key.Container with
-            | ValueNone -> false
-            | ValueSome c when ctx.ImplicitOpens |> List.exists (fun o -> o.Container = c) -> true
-            | ValueSome c ->
-                let h = SymbolKeyOps.containerFullName c
-                let (DisplayName simple) = SymbolKeyOps.typeSimpleName key
-                let dotted = if h = "" then simple else h + "." + simple
+    /// Among the candidates declaring EXACTLY the `typed` field set, only the top-ranked
+    /// survive, so a later `open` shadows an earlier one. A candidate declaring more fields
+    /// stays a partial at any rank: `Point<'X,'Y,'Z>` declared below `Point<'X,'Y>` must not
+    /// take `{ X = …; Y = … }`.
+    let private keepBestExactFieldSet
+        (typed: Set<string>)
+        (ranked: struct (BindingRank * ResolvedRecord) list)
+        : ResolvedRecord list =
+        let exactly (struct (_, r)) = resolvedRecordFieldNames r = typed
 
-                OpenScope.tryQualify ctx.Resolution.OpenScope (fun c -> c = dotted) simple
-                |> ValueOption.isSome
+        match BindingRank.bestRanked (ranked |> List.filter exactly) with
+        | ValueNone -> ranked |> List.map (fun (struct (_, r)) -> r)
+        | ValueSome(struct (best, _)) ->
+            ranked
+            |> List.filter (fun (struct (rank, _) as c) -> not (exactly c) || rank = best)
+            |> List.map (fun (struct (_, r)) -> r)
 
     /// The verdict for the typed field set `names` at `useSite`, unioning LOCAL and provider
     /// candidates; only the FIRST field's candidates need fetching, since a record declaring
-    /// every typed field declares the first. `Bare` scope/RQA-gates the provider half;
-    /// `Qualified` keeps the candidates whose simple name is the qualifier.
+    /// every typed field declares the first.
+    ///
+    /// `Bare` reads the ranked scope stack through `keepBestExactFieldSet`. `Qualified` keeps
+    /// the candidates whose simple name is the qualifier.
     let recordFieldSetVerdict
         (ctx: PassContext)
         (useSite: UseSite)
@@ -219,24 +237,29 @@ module internal UnificationInferResolve =
                 PartialMatches = []
             }
         | first :: _ ->
-            let providerRecords =
-                ctx.TryRecordsWithField first
-                |> EqArray.filter (fun cand ->
-                    match lookup with
-                    | Bare -> admitsBareExternalRecord ctx cand
-                    | Qualified _ -> true
-                )
-
-            let withFirstField =
-                [
-                    for info in TypeRegistry.recordsWithField ctx.Types useSite first -> LocalRecord info
-                    for cand in providerRecords -> ExternalRecord cand
-                ]
-
             let candidates =
                 match lookup with
-                | Bare -> withFirstField
-                | Qualified typeName -> withFirstField |> List.filter (fun r -> resolvedRecordDisplayName r = typeName)
+                | Qualified typeName ->
+                    [
+                        for struct (_, info) in TypeRegistry.rankedRecordsWithField ctx.Types useSite first do
+                            LocalRecord info
+
+                        for cand in ctx.TryRecordsWithField first do
+                            ExternalRecord cand
+                    ]
+                    |> List.filter (fun r -> resolvedRecordDisplayName r = typeName)
+                | Bare ->
+                    keepBestExactFieldSet
+                        (Set.ofList names)
+                        [
+                            for struct (rank, info) in TypeRegistry.rankedRecordsWithField ctx.Types useSite first do
+                                struct (rank, LocalRecord info)
+
+                            for cand in ctx.TryRecordsWithField first do
+                                match bareExternalRecordRank useSite cand with
+                                | ValueSome rank -> struct (rank, ExternalRecord cand)
+                                | ValueNone -> ()
+                        ]
 
             // The classifier's dedup is first-wins, so listing local candidates first is
             // what pins a `TypeKey` present both locally and via a provider to the LOCAL

@@ -50,10 +50,6 @@ module NameResolution =
             /// has one. Name-resolved with the primary-ctor params and static lets in scope,
             /// but not `this`.
             InheritsExpr: Expr<SyntaxToken> voption
-            /// The enclosing module's `let` bindings that are VISIBLE from this type's
-            /// declaration. Entered as the lowest-priority layer of every member-body scope,
-            /// so a member can reference a module sibling unqualified. Empty for a top-level type.
-            EnclosingModuleScope: Scope
             Elements: TypeDefnElements<SyntaxToken>
         }
 
@@ -96,7 +92,7 @@ module NameResolution =
         let memberNames = w.Members |> Array.map (fun m -> m.Name) |> Set.ofArray
 
         let mutable scopeMap: Scope = Map.empty
-        scopeMap <- Map.add w.ThisName (w.ThisKey, false) scopeMap
+        scopeMap <- Map.add w.ThisName (scopeBinding w.ThisKey false) scopeMap
 
         ctx.Bindings.Binding.Set(
             w.ThisKey,
@@ -112,7 +108,7 @@ module NameResolution =
         // member mentioning it reports "Unresolved identifier: base".
         match w.BaseKey with
         | ValueSome bk ->
-            scopeMap <- Map.add "base" (bk, false) scopeMap
+            scopeMap <- Map.add "base" (scopeBinding bk false) scopeMap
 
             ctx.Bindings.Binding.Set(
                 bk,
@@ -126,7 +122,7 @@ module NameResolution =
 
         for p in w.CtorParams do
             let paramKey = BoundVarKey.identity p.DeclSite.BoundVar
-            scopeMap <- Map.add p.Name (paramKey, false) scopeMap
+            scopeMap <- Map.add p.Name (scopeBinding paramKey false) scopeMap
             declareField p.Name p.DeclSite.Tok
 
             ctx.Bindings.Binding.Set(
@@ -143,9 +139,9 @@ module NameResolution =
             declareField f.Name f.DeclSite.Tok
 
         // The enclosing module's value bindings are visible unqualified to every member
-        // body of a type nested in that module (F# spec §8.7). The lowest-priority layer, so
-        // `this` / ctor params / preamble bound variables shadow on a name clash.
-        let moduleMemberScope: Scope = w.EnclosingModuleScope
+        // body of a type nested in that module (F# spec §8.7). They resolve through the
+        // ranked environment (`LocalModulePaths`), honouring each binding's `VisibleFrom`
+        // against the member body's own offset, so no scope layer carries them here.
 
         /// Declare one preamble `let` bound variable: its binding site, its field, and the FS0905 check.
         let declarePreambleBoundVar (l: ClassLetInfo) =
@@ -190,10 +186,10 @@ module NameResolution =
                 declarePreambleBoundVar l
 
                 if l.IsRec then
-                    staticLetScope <- Map.add l.Name (l.DeclKey, l.IsMutable) staticLetScope
+                    staticLetScope <- Map.add l.Name (scopeBinding l.DeclKey l.IsMutable) staticLetScope
 
                 walkLetInit [ staticLetScope ] l
-                staticLetScope <- Map.add l.Name (l.DeclKey, l.IsMutable) staticLetScope
+                staticLetScope <- Map.add l.Name (scopeBinding l.DeclKey l.IsMutable) staticLetScope
             | ClassPreambleEntry.Do e -> CstWalk.iterExpr walker [ staticLetScope ] e
 
         // The instance sequence runs inside the primary ctor: it sees the ctor params, the static
@@ -201,9 +197,11 @@ module NameResolution =
         // the `as` alias, so a preamble `let` referencing the object is rejected rather than typed.
         let ctorParamScope =
             (Map.empty, w.CtorParams)
-            ||> Array.fold (fun acc p -> Map.add p.Name (BoundVarKey.identity p.DeclSite.BoundVar, false) acc)
+            ||> Array.fold (fun acc p ->
+                Map.add p.Name (scopeBinding (BoundVarKey.identity p.DeclSite.BoundVar) false) acc
+            )
 
-        let instanceOuterScope = [ ctorParamScope; staticLetScope; moduleMemberScope ]
+        let instanceOuterScope = [ ctorParamScope; staticLetScope ]
 
         let mutable instanceLetScope: Scope = Map.empty
 
@@ -213,10 +211,10 @@ module NameResolution =
                 declarePreambleBoundVar l
 
                 if l.IsRec then
-                    instanceLetScope <- Map.add l.Name (l.DeclKey, l.IsMutable) instanceLetScope
+                    instanceLetScope <- Map.add l.Name (scopeBinding l.DeclKey l.IsMutable) instanceLetScope
 
                 walkLetInit (instanceLetScope :: instanceOuterScope) l
-                instanceLetScope <- Map.add l.Name (l.DeclKey, l.IsMutable) instanceLetScope
+                instanceLetScope <- Map.add l.Name (scopeBinding l.DeclKey l.IsMutable) instanceLetScope
             | ClassPreambleEntry.Do e -> CstWalk.iterExpr walker (instanceLetScope :: instanceOuterScope) e
 
         // Member bodies see EVERY preamble bound variable, static and instance alike: members are a
@@ -225,9 +223,9 @@ module NameResolution =
             let m = (m, staticLetScope) ||> Map.fold (fun acc k v -> Map.add k v acc)
             (m, instanceLetScope) ||> Map.fold (fun acc k v -> Map.add k v acc)
 
-        let instanceScope = [ mergePreamble scopeMap; moduleMemberScope ]
+        let instanceScope = [ mergePreamble scopeMap ]
         // Statics see neither `this` / ctor params nor any instance bound variable.
-        let staticScope: Scope list = [ staticLetScope; moduleMemberScope ]
+        let staticScope: Scope list = [ staticLetScope ]
 
         // Primary `inherit Base(args)`: the `static let`s and primary-ctor params, without
         // `this` / `base` and without the instance bound variables, which are assigned only after
@@ -274,7 +272,7 @@ module NameResolution =
 
             for p in sc.Params do
                 let paramKey = BoundVarKey.identity p.DeclSite.BoundVar
-                scScope <- Map.add p.Name (paramKey, false) scScope
+                scScope <- Map.add p.Name (scopeBinding paramKey false) scScope
 
                 ctx.Bindings.Binding.Set(
                     paramKey,
@@ -285,7 +283,7 @@ module NameResolution =
                     }
                 )
 
-            walkCtorBody [ scScope; moduleMemberScope ] sc.Body
+            walkCtorBody [ scScope ] sc.Body
 
         // Shared by a class/union's own members and by each `interface IFace with member …`
         // block's: an interface member is an ordinary instance member whose body sees `this`.
@@ -306,7 +304,7 @@ module NameResolution =
                             if name = "_" || name = w.ThisName then
                                 instanceScope
                             else
-                                Map.add name (w.ThisKey, false) Map.empty :: instanceScope
+                                Map.add name (scopeBinding w.ThisKey false) Map.empty :: instanceScope
                         | ValueNone -> instanceScope
 
                 // The argument pats bind the method's parameters; the bound pattern (the member
@@ -334,26 +332,6 @@ module NameResolution =
                 for md in mds do
                     walkMemberDefn md
             | _ -> ()
-
-    /// The bindings of the module the walk stands in VISIBLE from a local type's own
-    /// declaration key. A type declaration is one contiguous element, so a module `let` is
-    /// above it (visible to every member body) or below it (visible to none), hence FS0039,
-    /// and `module rec` lifting it.
-    let private enclosingModuleScope (ctx: PassContext) (declKey: NodeKey) : Scope =
-        match ctx.Types.LocalContainerPaths.TryGetValue ctx.CurrentContainer with
-        | true, path ->
-            match ctx.Resolution.LocalModulePaths.TryGetValue path with
-            | true, members ->
-                let useSite = ctx.UseSiteAt declKey
-                let mutable m = Map.empty
-
-                for kv in members do
-                    if kv.Value.VisibleFrom <= useSite.Offset then
-                        m <- Map.add kv.Key (kv.Value.BindingSite, false) m
-
-                m
-            | false, _ -> Map.empty
-        | false, _ -> Map.empty
 
     let private walkClassBodies
         (ctx: PassContext)
@@ -397,7 +375,6 @@ module NameResolution =
                                 match info.Base, body.inherits with
                                 | ValueSome _, ValueSome(ClassInheritsDecl(expr = e)) -> e
                                 | _ -> ValueNone
-                            EnclosingModuleScope = enclosingModuleScope ctx info.DeclSite.Key
                             Elements = body.elements
                         }
                 | ValueNone -> ()
@@ -428,7 +405,6 @@ module NameResolution =
                     InstancePreamble = [||]
                     SecondaryCtors = [||]
                     InheritsExpr = ValueNone
-                    EnclosingModuleScope = enclosingModuleScope ctx host.DeclSite.Key
                     Elements = elems
                 }
 
@@ -452,32 +428,38 @@ module NameResolution =
     let private walkModuleElem
         (ctx: PassContext)
         (walker: CstWalk.ExprWalker<Scope list>)
-        (scope: Scope list)
+        (recScope: int voption)
         (m: ModuleElem<SyntaxToken>)
-        : Scope list =
+        : unit =
         match m with
         | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(isRec = isRec; bindings = bindings)) ->
             let isRecursive = isRec.IsSome
+
+            // A non-`rec` group outside a `rec` scope scopes its bindings below the group:
+            // a read inside its own RHSs must not resolve to them.
+            if not (isRecursive || recScope.IsSome) then
+                ctx.Resolution.PendingBindings <-
+                    Set.ofList
+                        [
+                            for b in bindings do
+                                for (_, key) in bindingsOfPat ctx b.pattern -> key
+                        ]
 
             for b in bindings do
                 // The return-type annotation only; the pattern annotations are stamped
                 // through the RHS scope hook.
                 stampBindingSigTypes ctx b
-                let rhsScope = walker.EnterBindingRhs scope isRecursive bindings b
+                let rhsScope = walker.EnterBindingRhs [] isRecursive bindings b
                 CstWalk.iterExpr walker rhsScope b.expr
-            // Writes binding-site self-entries to `ctx.Bindings.Binding` as a side effect.
-            let newEntries = bindingsToScope ctx bindings
 
-            match scope with
-            | [] -> [ newEntries ]
-            | top :: rest ->
-                let merged = (top, newEntries) ||> Map.fold (fun acc k v -> Map.add k v acc)
-                merged :: rest
-        | ModuleElem.Expression e ->
-            CstWalk.iterExpr walker scope e
-            scope
-        | ModuleElem.Type _ -> scope
-        | _ -> scope
+            ctx.Resolution.PendingBindings <- Set.empty
+
+            // A module-level binding resolves through the ranked environment
+            // (`LocalModulePaths`); only the binding-site self-entries and the pattern
+            // stamps are written here.
+            bindingsToScope ctx bindings |> ignore<Scope>
+        | ModuleElem.Expression e -> CstWalk.iterExpr walker [] e
+        | _ -> ()
 
     let private walkElems
         (ctx: PassContext)
@@ -511,40 +493,13 @@ module NameResolution =
             ctx.EnterElement w
             walkNominalBodies ctx walker w.Elem
 
-        // Module-level VALUES, in declaration order: a `let`'s bound variables join the running scope
-        // only AFTER its RHS is walked, so a use above it does not see it. A `rec` scope is a
-        // contiguous RUN of elements sharing a `RecScopeOffset`, seeded before the run is walked.
-        let elems = List.toArray elems
-        let mutable scope = [ Map.empty ]
-        let mutable i = 0
-
-        while i < elems.Length do
-            let recScope = elems.[i].RecScopeOffset
-            let mutable j = i
-
-            while j < elems.Length && elems.[j].RecScopeOffset = recScope do
-                j <- j + 1
-
-            if recScope.IsSome then
-                let mutable seeded = List.head scope
-
-                for k in i .. j - 1 do
-                    ctx.EnterElement elems.[k]
-
-                    match elems.[k].Elem with
-                    | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(bindings = bindings)) ->
-                        seeded <-
-                            (seeded, bindingsToScope ctx bindings)
-                            ||> Map.fold (fun acc k v -> Map.add k v acc)
-                    | _ -> ()
-
-                scope <- seeded :: List.tail scope
-
-            for k in i .. j - 1 do
-                ctx.EnterElement elems.[k]
-                scope <- walkModuleElem ctx walker scope elems.[k].Elem
-
-            i <- j
+        // Module-level VALUES, in declaration order. Each RHS walks with only its own
+        // expression scope: the bindings themselves resolve through `LocalModulePaths`,
+        // which `registerLocalModules` filled with each binding's visibility (including the
+        // `rec`-scope hoist) and rank.
+        for w in elems do
+            ctx.EnterElement w
+            walkModuleElem ctx walker w.RecScopeOffset w.Elem
 
     /// Walk the *un-flattened* module tree and record, per scope's dotted SOURCE path, its
     /// direct `let` bindings into `LocalModulePaths`. The flattened walk erases these
@@ -562,13 +517,20 @@ module NameResolution =
             let byPath = membersOf path
 
             for b in bindings do
+                let isMut = b.mutableToken.IsSome
+
                 for (name, key) in bindingsOfPat ctx b.pattern do
                     byPath.[name] <-
                         {
                             BindingSite = key
+                            IsMutable = isMut
                             VisibleFrom =
                                 match recScope with
                                 | ValueSome off -> off
+                                | ValueNone -> key.Offset
+                            EntersAt =
+                                match recScope with
+                                | ValueSome _ -> BindingRank.afterPrelude
                                 | ValueNone -> key.Offset
                         }
 

@@ -1,8 +1,8 @@
 # One ranked scope stack for `open`
 
-*STEP 1 LANDED; steps 2-4 unstarted. Written 2026-08-31 against the code as it stands after the
-`ImplicitOpen` rename. Two separable defects are described. Defect A is closed; defect B is the
-overhaul. Steps are ordered 1 → 2 → 3 → 4.*
+*STEPS 1-3 LANDED; step 4 remains. Written 2026-08-31 against the code as it stands after the
+`ImplicitOpen` rename. Two separable defects are described. Both are closed. Steps are ordered
+1 → 2 → 3 → 4.*
 
 *Scope is `SemanticAnalysis` alone. `IExternalSymbolResolver.ImplicitOpens`
 (`ExternalSymbols.fs:380`) is implemented in `Codegen.Clr` and `Codegen.Js`, but both return the
@@ -137,19 +137,55 @@ earliest point where the resolution is both possible and stable: `noteLocalConta
 only through `EnterContainment`, so no container is registered between entering an element and
 the queries under it.
 
-**Step 3 — one ranked stack.** Introduce `ScopeEntry`, generalise `claimRank` from types to
-values and cases, and replace the `valueInEnv` / `caseInEnv` ladders. The three `STEP 3` lists of
-`LongIdentResolutionTests.fs` come un-pended here — 17 cases across values, union cases, record
-types, depth, and `[<AutoOpen>]` ranking. **This changes behaviour** and is bounded by the
-semantics below.
+**Step 3 — one ranked stack. DONE.** `UseSite.Scopes` is a `ScopeEntry list` (`SymbolKeys.fs`),
+best rank first, built once per walked element by `Containment.ScopeStackOf` and parked on
+`PassContextResolution.Scopes`. All 17 cases of the three `STEP 3` lists of
+`LongIdentResolutionTests.fs` are un-pended and green, as are all four suites.
 
-The `[<AutoOpen>]` list is separable and larger than it looks: those cases need the same-assembly
-`[<AutoOpen>]` module contributed at all before its rank means anything (semantics §4).
+*`ScopeEntry` carries a `ScopeRoute`, not a finished `BindingRank` as this plan said.* The rank of
+a name reached through the use site's own scope, or one enclosing it, is that DECLARATION's
+position, which the entry cannot know; only an `open` fixes one rank for everything it brings in.
+So `ScopeRoute` is `Lexical of depth` | `Opened of rank` | `Ambient`, and `ScopeEntry.rankOf entry
+visibleFrom` is the rank rule. `ScopeEntry.rank` is the ambient case of that — the rank a
+declaration of another assembly takes, and the key an entry sorts under.
+
+`ResolvedOpen` is subsumed: `TypeRegistry.resolveOpens` returns `ScopeEntry list` directly, and
+resolves an `open` against the referenced surfaces as well as the scopes this file declares, so a
+cross-file `open` now carries its container too.
+
+Module-level `let`s resolve through the ranked environment alone. `LocalModulePaths` carries
+each binding's `VisibleFrom` / `EntersAt` / `IsMutable`, and `rankedValueInEnv` reads a
+`ScopeRoute.Lexical` entry's local values like any other scope's — the walk's `Scope` maps hold
+only expression and type-body bindings, which no `open` reaches over. The one fact offsets
+cannot express — a non-`rec` group's bindings are out of scope in the group's OWN RHS (probed:
+`let f (x: int) : string = f (x + 1)` under an `open` supplying `f` calls the opened `f`) — is
+`PassContextResolution.PendingBindings`, set for the RHS walk and honoured by
+`LocalScope.tryValue`. Duplicate same-scope `let`s of one name need no representation: F#
+refuses them (FS0037, probed).
+
+Visibility and entry rank split under `rec`: a declaration is VISIBLE from the scope's keyword
+(`VisibleFrom`) but ENTERS the name environment after the scope's whole prelude
+(`EntersAt = BindingRank.afterPrelude`), which is what makes it outrank each same-scope `open`
+(probed rule 5). `TypeIdentity` and `LocalModuleMember` carry both facts, minted once at
+registration (`ClaimPlacement`).
+
+Records rank inside their field-set class: among the candidates declaring EXACTLY the typed set,
+the top-ranked wins; one declaring more stays a partial, so `Point<'X,'Y,'Z>` does not take
+`{ X = …; Y = … }` from the `Point<'X,'Y>` above it.
+
+**Contributing a same-assembly `[<AutoOpen>]` module** rides the frozen file:
+`Containment.EnterContainment` records each `[<AutoOpen>]` module's `ModuleKey` (outermost
+first) into the registry, `TastFile.AutoOpenModules` / `FrozenFileResidue.AutoOpenModules`
+carry the list through the codec, and `FrozenSignature.toSurface` publishes it as the surface's
+`ImplicitOpens` — so the surface derives from the frozen file alone, with no CST re-walk.
 
 **before Step 4** [Semantic Names](./semantic-names-in-keys-plan.md)
 
 **Step 4 — delete the string channel.** Remove `OpenScope.Prefixes`, `candidates`, `tryQualify`
-and the `prefixes` parameter. Separate change, per the delete-the-old-one-separately rule.
+and the `prefixes` parameter. Separate change, per the delete-the-old-one-separately rule. After
+step 3 no resolver reads any of them: `OpenScope.tryQualify` is reached only from
+`OpenScopeTests.fs`, and `ScopeContents.openedContainers` only from `PassContext.CoreAccess` and
+`Intrinsics`, both passing `[]`.
 
 ## Semantics, probed 2026-08-31
 
@@ -190,9 +226,8 @@ names the step that un-pends it.
    ```
 
    This compiler already emits that message verbatim, so step 3 never meets the shape. The
-   comment at `OpenScopeTests.fs:51` reads FS3200 as a hoisting rule and hoists a late `open`
-   over the whole body; that path is unreachable for accepted source, making it a comment to fix
-   rather than behaviour.
+   comment at `OpenScopeTests.fs:51` read FS3200 as a hoisting rule; step 3 rewrote it to say
+   what the tree walk does and that name resolution never reaches the shape.
 
 4. **Implicit opens are a floor — FALSIFIED for `ImplicitOpen.AutoOpen`.** An `[<AutoOpen>]`
    module ranks AT the `open` that brought its enclosing scope into view, so it shadows whatever
@@ -211,11 +246,20 @@ names the step that un-pends it.
    "probed strictly BEHIND every explicit `open`" (`ExternalSymbols.fs:380`), is wrong for one of
    its three cases, and `ScopeEntry` must carry the activating `open`'s rank for `AutoOpen`.
 
-   **Found while probing this:** a same-assembly `[<AutoOpen>]` module inside a namespace
-   contributes nothing at all. Every one of the four AutoOpen cases fails first with
-   `Unresolved identifier: h`, whether reached through `open Test.Auto` or through the consuming
-   file's own `namespace Test.Auto` header. Contributing it is the first half of that work and
-   ranking it the second.
+   **Found while probing this, closed by step 3:** a same-assembly `[<AutoOpen>]` module inside a
+   namespace contributed nothing at all, so every one of the four AutoOpen cases failed first
+   with `Unresolved identifier: h`. `FrozenSignature.toSurface` now publishes a file's
+   `[<AutoOpen>]` modules, and `ScopeEntry.withAmbient` gives each the route of the entry for its
+   enclosing scope.
+
+5. **A `rec` scope's own declarations beat its own `open`s — confirmed.** In
+   `module rec R = open C; let g () : int = 10; let z = g ()` the local `g` wins, and the same
+   holds for a non-`rec` module nested in a `rec` scope and for a `type` against a same-scope
+   `open`'s type. FS3200 pins the `open`s ahead of every declaration, so the declarations enter
+   after the scope's whole prelude; a deeper `open` still wins on depth (rule 1). Rank offset
+   under `rec` is therefore `BindingRank.afterPrelude`, not the scope keyword's offset, which is
+   only the VISIBILITY hoist. All five cases are pinned under "a `rec` scope's own declarations
+   beat its own `open`s" in `LongIdentResolutionTests.fs`.
 
 ## Scope and risk
 
