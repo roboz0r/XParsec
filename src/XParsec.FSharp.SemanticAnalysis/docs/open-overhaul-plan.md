@@ -38,8 +38,8 @@ one contributes no container to a bare name.
 `Containers.firstSegmentContainers` (`:69`) composes relative prefixes (`p + "." + segment`), so
 the *qualified*-path route does not have this hole. Only bare names do.
 
-**Confirmed by running it.** Un-pending `LongIdentResolutionTests.fs:404` and printing the
-diagnostics gives:
+**Confirmed by running it.** Un-pending the `STEP 1` list of
+`LongIdentResolutionTests.fs` and printing the diagnostics gives:
 
 ```
 ["Unresolved identifier: f"; "Unresolved identifier: f"]
@@ -56,7 +56,7 @@ spelling as the variable.
 `LongIdent.valueInEnv` (`:375`) is a fixed ladder: `openedLocalValue` (`:364`), then
 `externalValueInScope`. `caseInEnv` (`:384`) has the same shape. An enclosing scope's own
 bindings are bound by the walk before either runs. So no `open` can shadow a declaration written
-above it, at any position — which is what `LongIdentResolutionTests.fs:437` pins.
+above it, at any position — which is what the `STEP 3` lists of `LongIdentResolutionTests.fs` pin.
 
 `InferResolve.admitsBareExternalRecord` (`:188`) is the third encoding of "is this container
 implicitly open", after `openedContainers` and `firstSegmentContainers`. It is correct, and
@@ -109,9 +109,8 @@ Resolution becomes "walk in rank order, first hit wins" for values, cases and ty
 
 **Step 1 — close defect A.** Make `openedContainers` compose a relative prefix against the
 containers already found, as `firstSegmentContainers` does, or resolve prefixes to containers at
-the walk. Un-pend `LongIdentResolutionTests.fs:404`; expect it to go from two unresolved-name
-errors to a type mismatch on `y`, which is defect B and stays pending until step 3. Add a test
-for the absolute-open control so the two spellings are pinned together.
+the walk. Un-pend the `STEP 1` list of `LongIdentResolutionTests.fs`, whose two cases isolate the
+relative spelling against the absolute-open control already passing beside them.
 
 Independent of steps 2-4 and worth landing alone.
 
@@ -121,31 +120,82 @@ Re-point `TypeRegistry.openedContainer` (`:199`) to read it. No behaviour change
 step that makes the four re-derivations one.
 
 **Step 3 — one ranked stack.** Introduce `ScopeEntry`, generalise `claimRank` from types to
-values and cases, and replace the `valueInEnv` / `caseInEnv` ladders. Both ptests at
-`LongIdentResolutionTests.fs:404` and `:437` come un-pended here. **This changes behaviour** and
-is bounded by the semantics below.
+values and cases, and replace the `valueInEnv` / `caseInEnv` ladders. The three `STEP 3` lists of
+`LongIdentResolutionTests.fs` come un-pended here — 17 cases across values, union cases, record
+types, depth, and `[<AutoOpen>]` ranking. **This changes behaviour** and is bounded by the
+semantics below.
+
+The `[<AutoOpen>]` list is separable and larger than it looks: those cases need the same-assembly
+`[<AutoOpen>]` module contributed at all before its rank means anything (semantics §4).
 
 **Step 4 — delete the string channel.** Remove `OpenScope.Prefixes`, `candidates`, `tryQualify`
 and the `prefixes` parameter. Separate change, per the delete-the-old-one-separately rule.
 
-## Semantic assumptions, for confirmation
+## Semantics, probed 2026-08-31
 
-These decide step 3 and are not derivable from the current code, since the current code is what
-the two ptests say is wrong. Probe `dotnet fsi` and match its exact FS codes rather than
-inventing rules.
+Each rule below was run against `dotnet fsi`, with a negative control — the same source with the
+annotation flipped — that produced FS0001. All four are pinned in
+`LongIdentResolutionTests.fs`, under the "`open` precedence" list, and each `ptest`
+names the step that un-pends it.
 
-1. **`Depth` before `Offset`.** An inner-scope declaration beats an outer `open` regardless of
-   source position. `claimRank` already encodes this; the plan assumes it generalises unchanged to
-   values and cases.
-2. **An `open` and a `let` at the same depth.** Assumed to rank by offset alone, so
-   `let g` … `open C` … `g ()` resolves `C.g` (`:437`). This is the case the ptest asserts and the
-   one most worth probing.
-3. **`open` inside a `rec` scope.** Under `rec` a declaration is visible from the top of the
-   scope (`WalkedIn.RecScopeOffset`). Whether an `open` is likewise hoisted is unprobed and
-   unassumed; step 3 must decide it explicitly.
-4. **Implicit opens are a floor, not a rank.** Assumed to stay strictly behind every written
-   `open` regardless of position, which is today's behaviour. F# ranks an `[<AutoOpen>]` module
-   the same way as far as this plan assumes, but that is untested here.
+1. **`Depth` before `Offset` — confirmed.** The two axes only disagree under `rec`, where a
+   declaration is visible from the top of its scope; nesting otherwise puts the outer entry
+   ahead of the inner scope on both axes at once. The discriminating probe:
+
+   ```fsharp
+   module rec Outer =
+       module Inner =
+           open Test.Lib.C          // C.g : string, depth 2
+           let z : string = g ()    // resolves C.g
+
+       let g () : int = 10          // depth 1, hoisted over the whole scope
+   ```
+
+   `claimRank` generalises unchanged.
+
+2. **An `open` and a `let` at the same depth rank by offset alone — confirmed.**
+   `let g` … `open C` … `g ()` resolves `C.g`. The rule extends to union cases, to record types
+   under field-driven inference, and to a later `open` over an earlier LOCALLY declared type's
+   cases.
+
+   A case test must bind without an annotation and give the two cases distinguishable payloads:
+   F#'s type-directed disambiguation reaches a SHADOWED case through an expected type, so
+   `let c : U1.E = Zip` compiles either way and pins nothing.
+
+3. **`open` inside a `rec` scope — settled, no decision required.** F# refuses an `open` that is
+   not first in a `rec` module:
+
+   ```
+   FS3200: In a recursive declaration group, 'open' declarations must come first in each module
+   ```
+
+   This compiler already emits that message verbatim, so step 3 never meets the shape. The
+   comment at `OpenScopeTests.fs:51` reads FS3200 as a hoisting rule and hoists a late `open`
+   over the whole body; that path is unreachable for accepted source, making it a comment to fix
+   rather than behaviour.
+
+4. **Implicit opens are a floor — FALSIFIED for `ImplicitOpen.AutoOpen`.** An `[<AutoOpen>]`
+   module ranks AT the `open` that brought its enclosing scope into view, so it shadows whatever
+   is written above that `open`:
+
+   ```fsharp
+   open Test.Auto.D        // D.h : int
+   let a : int = h ()
+   open Test.Auto          // activates [<AutoOpen>] Auto, h : string
+   let b : string = h ()   // Auto.h shadows the EARLIER explicit open
+   ```
+
+   It shadows an earlier local `let h` the same way. The floor holds only for a module in scope
+   with no `open` written for it — `ImplicitOpen.AssemblyAutoOpen` and
+   `ImplicitOpen.CurrentFileScope`. So `IExternalSymbolResolver.ImplicitOpens`' contract,
+   "probed strictly BEHIND every explicit `open`" (`ExternalSymbols.fs:380`), is wrong for one of
+   its three cases, and `ScopeEntry` must carry the activating `open`'s rank for `AutoOpen`.
+
+   **Found while probing this:** a same-assembly `[<AutoOpen>]` module inside a namespace
+   contributes nothing at all. Every one of the four AutoOpen cases fails first with
+   `Unresolved identifier: h`, whether reached through `open Test.Auto` or through the consuming
+   file's own `namespace Test.Auto` header. Contributing it is the first half of that work and
+   ranking it the second.
 
 ## Scope and risk
 
