@@ -296,7 +296,8 @@ lives in one place, shared by the local match path and the referenced-package on
 the handles differ by scope (`Def` token, self-`TypeSpec`, use-site instantiation). Two
 predicates beside `classify` name the layout facts the emitter branches on:
 `UnionRegime.hasTagRow` (false only for `SingleCase` until step 4 adds `TypeTested`) and
-`UnionRegime.readsTag` (false for `SingleCase` and `TypeTested`).
+`UnionRegime.readsTag` (false for `SingleCase` and `TypeTested`) — merged into one
+`UnionRegime.hasTag` by step 4, which adds `UnionCtorShape.ofRegime` beside it.
 **Step 5's first half was a prerequisite for this step**, not merely wanted early: `SingleCase`
 yields `Irrefutable`, and a single-case union carried a `_tag` its match arm and its flat
 structural bodies still loaded until that field was dropped.
@@ -320,11 +321,27 @@ ordinal for `other`, the value it did not dispatch on: `EmitStructural.OtherOrdi
 `ldfld _tag` in `Tagged`, and in `TypeTested` a bounded `isinst` chain over the remaining cases'
 tokens, minted once per union and shared with each case's own dispatch.
 
-**Step 4 — delete the vestigial field.** Drop the `_tag` field row and the base `.ctor`'s tag
-parameter for `TypeTested`, leaving its base with no fields. The proof that the field is
-vestigial is step 3's type change rather than an audit: the `TypeTest` case carries no handle, so
-a surviving reader cannot compile. A `MetadataStructure` assertion that a 2–3-case union's base
-carries no field rows pins the outcome.
+**Step 4 — delete the vestigial field. DONE.** `TypeTested` declares no `_tag` row and its base
+`.ctor` is nullary, so its base carries no fields at all.
+
+`hasTagRow` and `readsTag` coincided once the row went, so they are one `UnionRegime.hasTag`: the
+tag exists exactly where a consumer loads it, and two predicates over one fact have nothing to
+catch a divergence. `MetadataStructureTests` pins an all-payload `TypeTested` union's base at zero
+field rows against a four-case `Tagged` one at `_tag`, and the `Shape` row pin drops to
+`_unique_Dot` alone.
+
+The ctor shape itself moved into the type system as `UnionCtorShape`, `ofRegime` mapping
+`(value kind, regime)` onto `FlatTagged` / `Flat` / `TagOnly` / `Nullary` — the same
+one-mapping-two-consumers shape `UnionCaseTest.ofRegime` already takes. `UnionEmit` builds the
+`MethodDef` from it and `ClrGenerics` the generic `MemberRef` signature from it, so the two ends
+agree by construction rather than by the "Mirrors `UnionEmit.prepareUnion`" comment that used to
+hold them together, and a sixth regime cannot compile until both matches are extended.
+
+Step 3's prediction that a case `.ctor` is `Emit.buildClosureCtor` "with a different base handle
+and a leading constant, so it is a call, not a copy" is now literal: `buildClosureCtor`,
+`buildRecordCtor` and `buildUnionCaseCtor` are one `Emit.buildChainedCtor baseCtor baseArgs
+fields`, whose `Call` arity is `List.length baseArgs + 1` rather than a hand-written 1 or 2.
+`baseArgs` is `[ ILInstr.LdcI4 tag ]` under `TagOnly` and empty everywhere else.
 
 **Step 5 — `SingleCase` and `EnumLike` polish. First half DONE with step 3**, which it gates: a
 single-case union declares no `_tag` row, its `.ctor` (the flat struct form included) takes its

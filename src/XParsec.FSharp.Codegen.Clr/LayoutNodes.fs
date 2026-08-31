@@ -357,10 +357,9 @@ module internal LayoutNodes =
         }
 
     /// Per union: `_tag`, the case payloads a flat regime holds co-resident, `.ctor`
-    /// (nullary for a flat reference union, `(int32)` for a hierarchy base, the flat
-    /// `(tag, every case field)` form for a struct union), case factories, members,
-    /// [equality triple], [comparison pair]. A hierarchy union additionally nests a
-    /// `TypeDef` per case and holds a singleton field per NULLARY case.
+    /// (`UnionCtorShape.ofRegime`), case factories, members, [equality triple],
+    /// [comparison pair]. A hierarchy union additionally nests a `TypeDef` per case and
+    /// holds a singleton field per NULLARY case.
     let buildUnionNodes (symbols: ICodegenSymbols) (unions: UnionDecl list) : TypeNode list =
         [
             for ud in unions ->
@@ -373,7 +372,7 @@ module internal LayoutNodes =
                     FTUnion(td.TypeKey, EqArray.ofList (declaringMarkers td.TypeParams.Length))
 
                 // A struct union's fields are written only by its flat `.ctor`, and a
-                // hierarchy base's `_tag` only by its `.ctor(int32)`, which is what
+                // `Tagged` base's `_tag` only by its `.ctor(int32)`, which is what
                 // `initonly` permits. A flat reference union's factory still stores after
                 // `newobj`, so its fields stay writable.
                 let fieldAttrs =
@@ -386,8 +385,9 @@ module internal LayoutNodes =
                     [
                         // A single-case union's sole case needs no discriminant, and its
                         // FSC-spelled payload may itself claim the name `_tag`
-                        // (`C of tag: int`).
-                        if UnionRegime.hasTagRow ud.Regime then
+                        // (`C of tag: int`). A `TypeTested` base leaves the row out too,
+                        // and so carries no fields at all.
+                        if ud.HasTag then
                             yield
                                 {
                                     Key = FieldKey.UnionTag td.Key

@@ -65,22 +65,46 @@ module UnionRegime =
         | UnionRegime.EnumLike
         | UnionRegime.StructTagged -> false
 
-    /// Whether the union's emitted layout declares a `_tag : int32` field row, written by
-    /// its `.ctor`. `TypeTested` keeps its row until step 4 of the hierarchy plan drops it.
-    let hasTagRow (regime: UnionRegime) : bool =
-        match regime with
-        | UnionRegime.SingleCase -> false
-        | UnionRegime.EnumLike
-        | UnionRegime.StructTagged
-        | UnionRegime.TypeTested
-        | UnionRegime.Tagged -> true
-
-    /// Whether a consumer settles or orders a value of this union by loading `_tag`.
-    /// `SingleCase` has no discriminant and `TypeTested` discriminates by runtime type.
-    let readsTag (regime: UnionRegime) : bool =
+    /// Whether the union carries a `_tag : int32` discriminant, declared on the union type,
+    /// written by its `.ctor` and loaded by every consumer that settles or orders a value.
+    /// `SingleCase` has one shape to settle and `TypeTested` discriminates by runtime type.
+    let hasTag (regime: UnionRegime) : bool =
         match regime with
         | UnionRegime.SingleCase
         | UnionRegime.TypeTested -> false
         | UnionRegime.EnumLike
         | UnionRegime.StructTagged
         | UnionRegime.Tagged -> true
+
+/// The parameter list a union's own `.ctor` declares.
+[<RequireQualifiedAccess>]
+type UnionCtorShape =
+    /// `(_tag, every case's field)` in flat declaration order, `newobj`ed whole by each
+    /// case factory.
+    | FlatTagged
+    /// `(every case's field)` — a single-case struct union, whose one case is every case.
+    | Flat
+    /// `(_tag)`, stamped by whichever case `.ctor` chains it.
+    | TagOnly
+    /// `()`. A flat reference union's factories `stfld` after the `newobj`; a `TypeTested`
+    /// base has no field to write.
+    | Nullary
+
+[<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
+[<RequireQualifiedAccess>]
+module UnionCtorShape =
+
+    /// The one regime-to-ctor mapping, shared by the emitted `MethodDef` and the
+    /// `MemberRef` a generic union's use sites resolve through, so the two agree on the
+    /// signature. The value kind is a separate argument because `SingleCase` and
+    /// `EnumLike` classify the same either way.
+    let ofRegime (valueKind: UnionValueKind) (regime: UnionRegime) : UnionCtorShape =
+        if valueKind.IsValueType then
+            if UnionRegime.hasTag regime then
+                UnionCtorShape.FlatTagged
+            else
+                UnionCtorShape.Flat
+        elif regime = UnionRegime.Tagged then
+            UnionCtorShape.TagOnly
+        else
+            UnionCtorShape.Nullary

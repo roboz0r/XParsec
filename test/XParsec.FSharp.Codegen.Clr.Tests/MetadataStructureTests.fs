@@ -161,14 +161,14 @@ let tests =
                             Fields = []
                             Methods = []
                         }
-                        // Two cases with a payload, so `Shape` is a hierarchy union: an
-                        // abstract base carrying `_tag`, the `_unique_Dot` singleton and the
-                        // `.cctor` that fills it, followed (pre-order) by a nested type per
-                        // case. The base's `GetHashCode` / typed `Equals` / `Format` rows are
-                        // the abstract slots each case implements.
+                        // Two cases with a payload, so `Shape` is `TypeTested`: an abstract
+                        // base carrying the `_unique_Dot` singleton and the `.cctor` that
+                        // fills it, followed (pre-order) by a nested type per case. The
+                        // base's `GetHashCode` / typed `Equals` / `Format` rows are the
+                        // abstract slots each case implements.
                         {
                             Type = "Shape"
-                            Fields = [ "_tag"; "_unique_Dot" ]
+                            Fields = [ "_unique_Dot" ]
                             Methods =
                                 [
                                     ".ctor"
@@ -371,11 +371,10 @@ let tests =
 
                 MetadataStructure.assertWellFormed "SingleCaseUnionShape" bytes
 
-                let meters =
-                    MetadataStructure.emittedTypes bytes
-                    |> List.find (fun (t: MetadataStructure.EmittedType) -> t.Name = "Meters")
-
-                Expect.equal meters.Fields [ "item" ] "the lone positional payload, and no _tag"
+                Expect.equal
+                    (MetadataStructure.fieldsOf bytes "Meters")
+                    [ "item" ]
+                    "the lone positional payload, and no _tag"
             }
 
             // `C of tag: int` FSC-spells its payload `_tag` — the same name the
@@ -398,11 +397,65 @@ let tests =
 
                 MetadataStructure.assertWellFormed "SingleCaseTagField" bytes
 
-                let c =
-                    MetadataStructure.emittedTypes bytes
-                    |> List.find (fun (t: MetadataStructure.EmittedType) -> t.Name = "C")
+                Expect.equal (MetadataStructure.fieldsOf bytes "C") [ "_tag" ] "the payload owns the name outright"
+            }
 
-                Expect.equal c.Fields [ "_tag" ] "the payload owns the name outright"
+            // A `TypeTested` union settles a case by its runtime type, so its base declares
+            // no discriminant and — with every case carrying a payload, hence no singleton —
+            // no field rows at all (hierarchy plan, step 4).
+            test "a type-tested union's base carries no field rows" {
+                let bytes =
+                    compileSource
+                        "TypeTestedBaseFields"
+                        (String.concat
+                            "\n"
+                            [
+                                "type Shape ="
+                                "    | Circle of r: int"
+                                "    | Rect of w: int * h: int"
+                                "let area (s: Shape) ="
+                                "    match s with"
+                                "    | Circle r -> r * r"
+                                "    | Rect(w, h) -> w * h"
+                                "printfn \"%d\" (area (Rect(2, 3)))"
+                                "printfn \"%b\" (Circle 2 = Circle 2)"
+                            ])
+                    |> Codegen.toBytes
+
+                MetadataStructure.assertWellFormed "TypeTestedBaseFields" bytes
+
+                Expect.equal (MetadataStructure.fieldsOf bytes "Shape") [] "the base"
+                Expect.equal (MetadataStructure.fieldsOf bytes "Shape+Circle") [ "_r" ] "the one-payload case"
+                Expect.equal (MetadataStructure.fieldsOf bytes "Shape+Rect") [ "_w"; "_h" ] "the two-payload case"
+            }
+
+            // One case more, so the `isinst` chain gives way to `ldfld _tag` and the base
+            // declares the row the type-tested one drops.
+            test "a tagged union's base carries _tag" {
+                let bytes =
+                    compileSource
+                        "TaggedBaseFields"
+                        (String.concat
+                            "\n"
+                            [
+                                "type Quad ="
+                                "    | Q0 of int"
+                                "    | Q1 of int"
+                                "    | Q2 of int"
+                                "    | Q3 of int"
+                                "let v (q: Quad) ="
+                                "    match q with"
+                                "    | Q0 x -> x"
+                                "    | Q1 x -> x + 1"
+                                "    | Q2 x -> x + 2"
+                                "    | Q3 x -> x + 3"
+                                "printfn \"%d\" (v (Q2 5))"
+                            ])
+                    |> Codegen.toBytes
+
+                MetadataStructure.assertWellFormed "TaggedBaseFields" bytes
+
+                Expect.equal (MetadataStructure.fieldsOf bytes "Quad") [ "_tag" ] "the discriminant, and nothing else"
             }
 
             // Each Vesper package is a library full of modules, unions, records and closures.

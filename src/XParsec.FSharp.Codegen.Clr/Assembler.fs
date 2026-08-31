@@ -694,7 +694,7 @@ type internal Assembler
                     if isStack then
                         methodBody (Emit.buildStructCtor fieldHandles)
                     else
-                        methodBody (Emit.buildClosureCtor provider.ObjectCtorRef fieldHandles)
+                        methodBody (Emit.buildChainedCtor provider.ObjectCtorRef [] fieldHandles)
 
                 let invokeMethodBody =
                     methodBody (Emit.buildClosureInvoke f.EmitCtx c captureFields)

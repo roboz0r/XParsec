@@ -192,7 +192,7 @@ module internal NominalEmit =
             if recordIsStruct then
                 Emit.buildStructCtor ctorFieldRefs
             else
-                Emit.buildRecordCtor provider.ObjectCtorRef ctorFieldRefs
+                Emit.buildChainedCtor provider.ObjectCtorRef [] ctorFieldRefs
 
         let ctorMethodBody = bodyOf asm ctorBody
 

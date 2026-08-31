@@ -282,6 +282,15 @@ let emittedTypes (bytes: byte[]) : EmittedType list =
     use pe = openPe bytes
     readTypes (pe.GetMetadataReader())
 
+/// One type's `Field` row names in row order, by the `Ns.Outer+Inner` spelling.
+/// Raises when the assembly declares no such type.
+let fieldsOf (bytes: byte[]) (typeName: string) : string list =
+    let types = emittedTypes bytes
+
+    match types |> List.tryFind (fun t -> t.Name = typeName) with
+    | Some t -> t.Fields
+    | None -> failwithf "MetadataStructure: no type '%s' among %A" typeName [ for t in types -> t.Name ]
+
 /// A `TypeDef` row's declaration shape: its `extends` column, its own `GenericParam`
 /// rows in index order, and the attribute bits a caller pins.
 type TypeDecl =

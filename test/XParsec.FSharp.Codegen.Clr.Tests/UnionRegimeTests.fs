@@ -86,35 +86,62 @@ let hierarchy =
         ]
 
 [<Tests>]
-let tagPredicates =
+let tagPredicate =
     testList
-        "UnionRegime tag predicates"
+        "UnionRegime.hasTag"
         [
-            test "SingleCase alone declares no _tag row" {
-                Expect.isFalse (UnionRegime.hasTagRow UnionRegime.SingleCase) "SingleCase"
-
-                for regime in
-                    [
-                        UnionRegime.EnumLike
-                        UnionRegime.StructTagged
-                        UnionRegime.TypeTested
-                        UnionRegime.Tagged
-                    ] do
-                    Expect.isTrue (UnionRegime.hasTagRow regime) (sprintf "%A" regime)
+            // The two regimes that settle a case without a discriminant: one shape, and
+            // one nested type per case.
+            test "SingleCase and TypeTested carry no _tag" {
+                Expect.isFalse (UnionRegime.hasTag UnionRegime.SingleCase) "SingleCase"
+                Expect.isFalse (UnionRegime.hasTag UnionRegime.TypeTested) "TypeTested"
             }
 
-            // `TypeTested` is the one regime where the two predicates split: its `_tag`
-            // row survives (until step 4 of the hierarchy plan) but no consumer loads it.
-            test "TypeTested keeps its row while no consumer reads it" {
-                Expect.isTrue (UnionRegime.hasTagRow UnionRegime.TypeTested) "the row"
-                Expect.isFalse (UnionRegime.readsTag UnionRegime.TypeTested) "the read"
-            }
-
-            test "the flat multi-case regimes and Tagged read the tag" {
-                Expect.isFalse (UnionRegime.readsTag UnionRegime.SingleCase) "SingleCase"
-
+            test "the flat multi-case regimes and Tagged carry one" {
                 for regime in [ UnionRegime.EnumLike; UnionRegime.StructTagged; UnionRegime.Tagged ] do
-                    Expect.isTrue (UnionRegime.readsTag regime) (sprintf "%A" regime)
+                    Expect.isTrue (UnionRegime.hasTag regime) (sprintf "%A" regime)
+            }
+        ]
+
+[<Tests>]
+let ctorShape =
+    testList
+        "UnionCtorShape.ofRegime"
+        [
+            // A struct union's factories `newobj` the whole value, so its `.ctor` takes
+            // every case's fields, led by `_tag` wherever one exists.
+            test "a struct union's ctor is flat" {
+                Expect.equal
+                    (UnionCtorShape.ofRegime UnionValueKind.Struct UnionRegime.StructTagged)
+                    UnionCtorShape.FlatTagged
+                    "StructTagged"
+
+                Expect.equal
+                    (UnionCtorShape.ofRegime UnionValueKind.Struct UnionRegime.EnumLike)
+                    UnionCtorShape.FlatTagged
+                    "a struct EnumLike union, whose flat form is the tag alone"
+
+                Expect.equal
+                    (UnionCtorShape.ofRegime UnionValueKind.Struct UnionRegime.SingleCase)
+                    UnionCtorShape.Flat
+                    "one case IS every case, so the tag drops"
+            }
+
+            // `Tagged` is the one regime whose base takes an argument: each case `.ctor`
+            // chains it with the case's discriminant.
+            test "Tagged alone takes the tag" {
+                Expect.equal
+                    (UnionCtorShape.ofRegime UnionValueKind.RefType UnionRegime.Tagged)
+                    UnionCtorShape.TagOnly
+                    "Tagged"
+            }
+
+            test "every other reference union is nullary" {
+                for regime in [ UnionRegime.SingleCase; UnionRegime.EnumLike; UnionRegime.TypeTested ] do
+                    Expect.equal
+                        (UnionCtorShape.ofRegime UnionValueKind.RefType regime)
+                        UnionCtorShape.Nullary
+                        (sprintf "%A" regime)
             }
         ]
 

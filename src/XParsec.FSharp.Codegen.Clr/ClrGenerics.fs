@@ -114,10 +114,14 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
         | UnionMember.Ctor ->
             let s = BlobBuilder()
 
-            // Mirrors `UnionEmit.prepareUnion`: a struct union's `.ctor` is the flat
-            // `(tag, every case field)` form its factories `newobj` — minus the tag when
-            // its single case is every case; a hierarchy base's takes the tag its case
-            // ctors chain with; a flat reference union's is nullary.
+            let valueKind =
+                if userValueTypes.Contains key then
+                    UnionValueKind.Struct
+                else
+                    UnionValueKind.RefType
+
+            let intTy = FTConst(RuntimeNames.intKey, EqArray.empty)
+
             let paramTys =
                 let allCaseFields =
                     [
@@ -125,15 +129,11 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
                             for (_, t) in c.Fields -> t
                     ]
 
-                if userValueTypes.Contains key then
-                    if UnionRegime.hasTagRow shape.Regime then
-                        FTConst(RuntimeNames.intKey, EqArray.empty) :: allCaseFields
-                    else
-                        allCaseFields
-                elif isHierarchy then
-                    [ FTConst(RuntimeNames.intKey, EqArray.empty) ]
-                else
-                    []
+                match UnionCtorShape.ofRegime valueKind shape.Regime with
+                | UnionCtorShape.FlatTagged -> intTy :: allCaseFields
+                | UnionCtorShape.Flat -> allCaseFields
+                | UnionCtorShape.TagOnly -> [ intTy ]
+                | UnionCtorShape.Nullary -> []
 
             BlobEncoder(s)
                 .MethodSignature(isInstanceMethod = true)

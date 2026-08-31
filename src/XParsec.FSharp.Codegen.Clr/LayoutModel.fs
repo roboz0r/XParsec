@@ -278,8 +278,8 @@ type internal MethodKey =
     | NominalCctor of SymbolKey
     | SecondaryCtor of SymbolKey * index: int
     | UnionFactory of SymbolKey * case: string
-    /// A hierarchy union case type's `.ctor(payload…)`, which chains the union's
-    /// `.ctor(int32)` with this case's tag.
+    /// A hierarchy union case type's `.ctor(payload…)`, which chains the union's own
+    /// `.ctor`, passing this case's tag where the base declares one.
     | UnionCaseCtor of SymbolKey * case: string
     | UnionCaseStructural of SymbolKey * case: string * UnionCaseSlot
     /// An augmentation member; `index` runs over `members @ ifaceMembers`.

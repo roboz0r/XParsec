@@ -84,6 +84,13 @@ type internal UnionDecl =
     /// A nested `TypeDef` per case on an abstract base.
     member this.IsHierarchy: bool = UnionRegime.isHierarchy this.Regime
 
+    /// A `_tag : int32` discriminant on the union type.
+    member this.HasTag: bool = UnionRegime.hasTag this.Regime
+
+    /// The parameter list this union's own `.ctor` declares.
+    member this.CtorShape: UnionCtorShape =
+        UnionCtorShape.ofRegime this.ValueKind this.Regime
+
     /// The cases held as a `_unique_<Case>` singleton, constructed once by the union's
     /// `.cctor`. Empty ⇒ no `.cctor` row.
     member this.SingletonCases: Frozen.TUnionCase list =

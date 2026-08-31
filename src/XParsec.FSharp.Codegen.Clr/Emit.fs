@@ -359,24 +359,16 @@ module Emit =
             b.Add(ILInstr.Stfld field)
         )
 
-    /// Build a closure's `.ctor` body: chain to the `FSharpFunc\`2` base ctor,
-    /// then store each capture argument into its field.
-    let buildClosureCtor (baseCtor: EntityHandle) (fields: EntityHandle list) : ILBody =
+    /// Build a `.ctor` body that chains `baseCtor` with `baseArgs` pushed ahead of the
+    /// call, then stores each of its own arguments into the matching field. A closure's
+    /// captures, a record's fields and a hierarchy union case's payload all take this
+    /// shape; `baseArgs` is the union case's `ldc.i4 <tag>` where the base declares a
+    /// `_tag`, and empty everywhere else.
+    let buildChainedCtor (baseCtor: EntityHandle) (baseArgs: ILInstr list) (fields: EntityHandle list) : ILBody =
         let b = IlBuilder()
         b.Add(ILInstr.Ldarg 0)
-        b.Add(ILInstr.Call(baseCtor, 1, 0))
-        storeCtorArgs b fields
-        b.Add ILInstr.Ret
-        b.Body
-
-    /// Build a hierarchy union case type's `.ctor(payload…)`: chain the union's
-    /// `.ctor(int32)` with this case's tag, then store each payload argument into its
-    /// field. The tag reaches `_tag` through the base, so the case never touches it.
-    let buildUnionCaseCtor (unionCtor: EntityHandle) (tag: int) (fields: EntityHandle list) : ILBody =
-        let b = IlBuilder()
-        b.Add(ILInstr.Ldarg 0)
-        b.Add(ILInstr.LdcI4 tag)
-        b.Add(ILInstr.Call(unionCtor, 2, 0))
+        baseArgs |> List.iter b.Add
+        b.Add(ILInstr.Call(baseCtor, List.length baseArgs + 1, 0))
         storeCtorArgs b fields
         b.Add ILInstr.Ret
         b.Body
@@ -503,10 +495,6 @@ module Emit =
         b.Add(ILInstr.Newobj(ctorRef, args.Length + 1))
         b.Add ILInstr.Ret
         b.Body
-
-    /// Build a record's `.ctor` body: chain `Object::.ctor()`, then store each ctor
-    /// argument into the matching field.
-    let buildRecordCtor (baseCtor: EntityHandle) (fields: EntityHandle list) : ILBody = buildClosureCtor baseCtor fields
 
     // Each co-slot shim forwards through a `call`, not a `callvirt`, so the exact method
     // binds. The object arg is `ldarg.0`: an object reference for a class, a managed

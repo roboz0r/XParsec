@@ -61,9 +61,9 @@ and ValueTupleRest =
 /// parent `TypeSpec`: `List<int>` externally, `List<!0>` from inside the type's own factory bodies.
 [<RequireQualifiedAccess>]
 type UnionMember =
-    /// The union's own `.ctor`: `(int32)` on a hierarchy base, the flat
-    /// `(tag, every case field)` form on a struct union, nullary otherwise.
+    /// The union's own `.ctor`, its parameters given by `UnionCtorShape.ofRegime`.
     | Ctor
+    /// The `_tag : int32` discriminant, declared only where `UnionRegime.hasTag` holds.
     | Tag
     /// A case's payload field, parented on the case's own type in a hierarchy regime and
     /// on the union itself in a flat one.
