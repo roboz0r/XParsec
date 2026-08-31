@@ -119,7 +119,10 @@ module EmitTypes =
         {
             Name: string
             Typars: string list
-            TagField: EntityHandle
+            /// The `_tag` `Def` token, held exactly where the regime's discriminant is the
+            /// tag field. A `TypeTested` union's `_tag` row survives until step 4 of the
+            /// hierarchy plan, but no consumer holds a handle to load it by.
+            TagField: EntityHandle voption
             ValueKind: UnionValueKind
             Cases: Dictionary<string, EmittedCase>
             /// Augmentation members by source name, each mapping to the LIST of its

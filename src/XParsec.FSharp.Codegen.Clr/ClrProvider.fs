@@ -398,9 +398,9 @@ type ClrProvider
         member _.TryResolveExternalRecordField(key, tyArgs, fieldName) =
             ext.ExternalRecordField(key, tyArgs, fieldName)
 
-        member _.ExternalUnionTag(key, tyArgs, caseName) =
+        member _.ExternalUnionCaseTest(key, tyArgs, caseName) =
             // The cons-list is invisible to the generic external-union path, so match it
-            // against its known emitted layout: `Empty` is tag 0, `Cons` tag 1.
+            // against its known emitted layout: two cases with a payload ⇒ type-tested.
             if RuntimeNames.isVesperListKey key then
                 let elem =
                     match tyArgs with
@@ -408,11 +408,11 @@ type ClrProvider
                     | other -> failwithf "ClrProvider: cons-list match expects one type argument, got %A" other
 
                 match caseName with
-                | "Empty" -> ValueSome(recipes.EmitVesperListTagField elem, 0)
-                | "Cons" -> ValueSome(recipes.EmitVesperListTagField elem, 1)
+                | "Empty"
+                | "Cons" -> ValueSome(UnionCaseTest.IsInst(recipes.VesperListCaseTypeSpec(elem, caseName)))
                 | _ -> ValueNone
             else
-                ext.ExternalUnionTag(key, tyArgs, caseName)
+                ext.ExternalUnionCaseTest(key, tyArgs, caseName)
 
         member _.ExternalUnionCaseField(key, tyArgs, caseName, fieldIndex) =
             if RuntimeNames.isVesperListKey key then

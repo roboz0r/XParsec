@@ -74,11 +74,14 @@ module internal UnionEmit =
         let td = ud.Decl
         let provider = asm.Provider
         let cases = ud.Cases
+        let regime = ud.Regime
         let isStruct = ud.ValueKind.IsValueType
         let isHierarchy = ud.IsHierarchy
         let selfTy = FTUnion(td.TypeKey, EqArray.ofList (typarMarkersOf td))
 
-        let tagRef =
+        // A `SingleCase` union declares no `_tag` row, so the ref is minted exactly where
+        // the other regimes stamp theirs.
+        let tagRef () =
             selfMemberRef
                 asm
                 td
@@ -86,24 +89,29 @@ module internal UnionEmit =
                 (toEntity (asm.FieldDef(FieldKey.UnionTag td.Key)))
 
         // A struct union's `.ctor` takes the tag and EVERY case's fields in flat
-        // declaration order, and each factory `newobj`s it. A hierarchy base takes the tag
-        // alone, stamped by whichever case `.ctor` chains it. A flat reference union's is
-        // nullary and its factories `stfld` after the `newobj`.
+        // declaration order — minus the tag when its single case IS every case — and each
+        // factory `newobj`s it. A hierarchy base takes the tag alone, stamped by whichever
+        // case `.ctor` chains it. A flat reference union's is nullary and its factories
+        // `stfld` after the `newobj`.
+        let structCtorHasTag = isStruct && UnionRegime.hasTagRow regime
+
         let ctorPrepared =
             if isStruct then
+                let tagLead = if structCtorHasTag then [ tagRef () ] else []
+
                 {
                     Signature =
                         provider.RecordCtorSignature(
-                            intTy
-                            :: [
+                            (if structCtorHasTag then [ intTy ] else [])
+                            @ [
                                 for c in cases do
                                     for (_, t) in c.Fields -> t
                             ]
                         )
-                    Body = bodyOf asm (Emit.buildStructCtor (tagRef :: List.collect (fieldRefsOf asm td) cases))
+                    Body = bodyOf asm (Emit.buildStructCtor (tagLead @ List.collect (fieldRefsOf asm td) cases))
                     ParamNames =
-                        "_tag"
-                        :: [
+                        (if structCtorHasTag then [ "_tag" ] else [])
+                        @ [
                             for c in cases do
                                 yield! ud.FieldNames c
                         ]
@@ -112,7 +120,7 @@ module internal UnionEmit =
             elif isHierarchy then
                 {
                     Signature = provider.RecordCtorSignature [ intTy ]
-                    Body = bodyOf asm (Emit.buildClosureCtor provider.ObjectCtorRef [ tagRef ])
+                    Body = bodyOf asm (Emit.buildClosureCtor provider.ObjectCtorRef [ tagRef () ])
                     ParamNames = [ "_tag" ]
                     MethodTypars = []
                 }
@@ -184,7 +192,7 @@ module internal UnionEmit =
             let arity = c.Fields.Length
 
             let factoryIr =
-                if isStruct then
+                if structCtorHasTag then
                     let args =
                         [
                             for c' in cases do
@@ -197,13 +205,23 @@ module internal UnionEmit =
                         ]
 
                     Emit.buildStructUnionFactory ctorRef tag args
+                elif isStruct then
+                    // A single-case struct union: the flat `.ctor` takes exactly this
+                    // case's fields, so the factory forwards its parameters whole.
+                    Emit.buildUnionCaseFactory ctorRef arity
                 elif isHierarchy then
                     if arity = 0 then
                         Emit.buildUnionSingletonFactory (singletonRef c)
                     else
                         Emit.buildUnionCaseFactory (caseCtorRef c) arity
                 else
-                    Emit.buildUnionFactory ctorRef tag tagRef (fieldRefsOf asm td c)
+                    let tagStore =
+                        if UnionRegime.hasTagRow regime then
+                            ValueSome(tag, tagRef ())
+                        else
+                            ValueNone
+
+                    Emit.buildUnionFactory ctorRef tagStore (fieldRefsOf asm td c)
 
             let factoryBody = bodyOf asm factoryIr
             let paramTys = [ for (_, t) in c.Fields -> t ]
@@ -224,26 +242,29 @@ module internal UnionEmit =
     /// A case type's own structural bodies, one per slot `UnionCaseSlot.required` names.
     /// The typed `Equals(<Case>)` / `CompareTo(<Case>)` hold the field walk and the
     /// `U`-typed overrides are the guards that reach them.
+    ///
+    /// `caseType` is this case's own token, minted once by the caller: on a generic union
+    /// it is a `TypeSpec` row, and that table is appended to rather than deduplicated.
+    /// `otherOrdinal` is forced only when a comparison slot is required.
     let private prepareCaseStructural
         (asm: Assembler)
         (ud: UnionDecl)
         (self: StructuralSelf)
         (tag: int)
         (c: Frozen.TUnionCase)
+        (caseType: EntityHandle)
+        (otherOrdinal: unit -> EmitStructural.OtherOrdinal)
         : unit =
         let td = ud.Decl
         let provider = asm.Provider
         let handles = asm.Structural
         let caseName = c.Name
         let caseTy = caseTyOf td caseName
-        let caseType = asm.Icodegen.TypeToken caseTy
 
         // The case's own fields, seeded by its tag: the case is settled by the dispatch
         // that reaches these bodies, so nothing compares a discriminant.
         let walk: EmitStructural.StructuralWalk =
             {
-                SelfType = caseType
-                SelfTy = caseTy
                 Fields = caseFieldsOf asm td c
                 Discriminant = EmitStructural.Discriminant.CaseTag tag
             }
@@ -259,12 +280,12 @@ module internal UnionEmit =
                 }
             )
 
-        let caseSlotRef metaName paramTys retTy slot =
+        let caseSlotRef paramTys retTy slot =
             caseMethodRef
                 asm
                 td
                 caseName
-                metaName
+                (UnionCaseSlot.metaName slot)
                 paramTys
                 retTy
                 (toEntity (asm.MethodDef(MethodKey.UnionCaseStructural(td.Key, caseName, slot))))
@@ -279,7 +300,7 @@ module internal UnionEmit =
                     (EmitStructural.buildEqualsTyped handles false walk)
 
             | UnionCaseSlot.EqualsUnion ->
-                let equalsCase = caseSlotRef "Equals" [ caseTy ] boolTy UnionCaseSlot.EqualsCase
+                let equalsCase = caseSlotRef [ caseTy ] boolTy UnionCaseSlot.EqualsCase
 
                 prepared
                     slot
@@ -302,19 +323,13 @@ module internal UnionEmit =
                     (EmitStructural.buildCompareTo handles false walk)
 
             | UnionCaseSlot.CompareToUnion ->
-                let compareToCase =
-                    caseSlotRef "CompareTo" [ caseTy ] intTy UnionCaseSlot.CompareToCase
+                let compareToCase = caseSlotRef [ caseTy ] intTy UnionCaseSlot.CompareToCase
 
                 prepared
                     slot
                     (provider.CompareToTypedSignature self.SelfTy)
                     [ "other" ]
-                    (EmitStructural.buildUnionCaseCompareToUnion
-                        caseType
-                        caseTy
-                        compareToCase
-                        tag
-                        (tagFieldRefOf asm td))
+                    (EmitStructural.buildUnionCaseCompareToUnion caseType caseTy compareToCase tag (otherOrdinal ()))
 
             | UnionCaseSlot.Format ->
                 prepared
@@ -403,10 +418,15 @@ module internal UnionEmit =
         let walk: Lazy<EmitStructural.StructuralWalk> =
             lazy
                 {
-                    SelfType = self.SelfType
-                    SelfTy = self.SelfTy
                     Fields = perCase.Value |> List.collect snd
-                    Discriminant = EmitStructural.Discriminant.TagField tagField.Value
+                    Discriminant =
+                        // A single-case union has one shape, so its walk is the record's;
+                        // the other flat regimes compare `_tag` ahead of the co-resident
+                        // fields.
+                        if UnionRegime.readsTag ud.Regime then
+                            EmitStructural.Discriminant.TagField tagField.Value
+                        else
+                            EmitStructural.Discriminant.None
                 }
 
         if self.Members.Equality then
@@ -415,7 +435,7 @@ module internal UnionEmit =
                 td
                 self.SelfTy
                 (ValueSome(EmitStructural.buildGetHashCode handles walk.Value))
-                (EmitStructural.buildEqualsObj handles isStruct walk.Value)
+                (EmitStructural.buildEqualsObj handles isStruct self.SelfType self.SelfTy walk.Value)
                 (ValueSome(EmitStructural.buildEqualsTyped handles isStruct walk.Value))
 
         if self.Members.Comparison then
@@ -442,11 +462,18 @@ module internal UnionEmit =
                         }
                 ]
 
+            let formatIr =
+                match ud.Regime, cases with
+                // A single-case union renders its sole case straight through — the same
+                // body a hierarchy case type carries.
+                | UnionRegime.SingleCase, [ sole ] -> EmitStructuralFormat.buildUnionCaseFormat handles sole
+                | _ -> EmitStructuralFormat.buildUnionFormat handles tagField.Value cases
+
             asm.AddPrepared(
                 MethodKey.FmtFormat td.Key,
                 {
                     Signature = provider.StructuralFormatSignature()
-                    Body = bodyOf asm (EmitStructuralFormat.buildUnionFormat handles tagField.Value cases)
+                    Body = bodyOf asm formatIr
                     ParamNames = [ "sink" ]
                     MethodTypars = []
                 }
@@ -461,9 +488,30 @@ module internal UnionEmit =
             let td = ud.Decl
             prepareHierarchyBase asm ud self
 
-            ud.Cases
-            |> List.iteri (fun tag c ->
-                prepareCaseStructural asm ud self tag c
+            // Every case's own token, in tag order, minted once here: each case's bodies
+            // use its own, and `TypeTested`'s `CompareTo(U)` walks the others'.
+            let caseTokens = [ for c in ud.Cases -> asm.Icodegen.TypeToken(caseTyOf td c.Name) ]
+
+            // `other`'s ordinal for one case's `CompareTo(U)` — the one discriminant read
+            // a hierarchy body still takes: `Tagged` loads `_tag`, `TypeTested` walks the
+            // other cases' types.
+            let otherOrdinal tag =
+                match ud.Regime with
+                | UnionRegime.Tagged -> EmitStructural.OtherOrdinal.TagField(tagFieldRefOf asm td)
+                | UnionRegime.TypeTested ->
+                    EmitStructural.OtherOrdinal.TypeTests(
+                        caseTokens
+                        |> List.mapi (fun otherTag token -> token, otherTag)
+                        |> List.filter (fun (_, otherTag) -> otherTag <> tag)
+                    )
+                | UnionRegime.SingleCase
+                | UnionRegime.EnumLike
+                | UnionRegime.StructTagged ->
+                    failwithf "Emit: flat union '%s' declares no hierarchy case bodies" td.Name
+
+            List.zip ud.Cases caseTokens
+            |> List.iteri (fun tag (c, caseType) ->
+                prepareCaseStructural asm ud self tag c caseType (fun () -> otherOrdinal tag)
 
                 asm.AddTypeRowExtras(
                     TypeSlotKey.UnionCase(td.Key, c.Name),
@@ -511,7 +559,14 @@ module internal UnionEmit =
             {
                 Name = td.Name
                 Typars = EqArray.toList td.TypeParams
-                TagField = toEntity (asm.FieldDef(FieldKey.UnionTag td.Key))
+                // Held exactly where the discriminant is the tag: `SingleCase` has no
+                // `_tag` row, and `TypeTested` stops handing its still-present row to any
+                // consumer (hierarchy plan, step 3).
+                TagField =
+                    if UnionRegime.readsTag ud.Regime then
+                        ValueSome(toEntity (asm.FieldDef(FieldKey.UnionTag td.Key)))
+                    else
+                        ValueNone
                 ValueKind = ud.ValueKind
                 Cases = emittedCases
                 Members = emittedMembers

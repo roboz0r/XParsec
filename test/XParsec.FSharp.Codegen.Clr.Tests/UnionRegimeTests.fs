@@ -86,6 +86,39 @@ let hierarchy =
         ]
 
 [<Tests>]
+let tagPredicates =
+    testList
+        "UnionRegime tag predicates"
+        [
+            test "SingleCase alone declares no _tag row" {
+                Expect.isFalse (UnionRegime.hasTagRow UnionRegime.SingleCase) "SingleCase"
+
+                for regime in
+                    [
+                        UnionRegime.EnumLike
+                        UnionRegime.StructTagged
+                        UnionRegime.TypeTested
+                        UnionRegime.Tagged
+                    ] do
+                    Expect.isTrue (UnionRegime.hasTagRow regime) (sprintf "%A" regime)
+            }
+
+            // `TypeTested` is the one regime where the two predicates split: its `_tag`
+            // row survives (until step 4 of the hierarchy plan) but no consumer loads it.
+            test "TypeTested keeps its row while no consumer reads it" {
+                Expect.isTrue (UnionRegime.hasTagRow UnionRegime.TypeTested) "the row"
+                Expect.isFalse (UnionRegime.readsTag UnionRegime.TypeTested) "the read"
+            }
+
+            test "the flat multi-case regimes and Tagged read the tag" {
+                Expect.isFalse (UnionRegime.readsTag UnionRegime.SingleCase) "SingleCase"
+
+                for regime in [ UnionRegime.EnumLike; UnionRegime.StructTagged; UnionRegime.Tagged ] do
+                    Expect.isTrue (UnionRegime.readsTag regime) (sprintf "%A" regime)
+            }
+        ]
+
+[<Tests>]
 let caseFieldNames =
     testList
         "UnionCaseFields.names"
@@ -125,5 +158,42 @@ let caseFieldNames =
                     (UnionCaseFields.names UnionRegime.StructTagged "Val" [ ValueSome "v" ])
                     [ "Val_0" ]
                     "a declared name is qualified too"
+            }
+        ]
+
+[<Tests>]
+let caseTest =
+    testList
+        "UnionCaseTest.ofRegime"
+        [
+            // Each thunk mints its handle in the caller's scope, so a regime must force
+            // only the thunk it reads — a wrongly forced thunk here is the failure.
+            let noMint what () : System.Reflection.Metadata.EntityHandle =
+                failwithf "the regime forced the %s thunk" what
+
+            test "the tag-reading regimes compare the minted tag ref against the case's tag" {
+                let minted = System.Reflection.Metadata.EntityHandle()
+
+                for regime in [ UnionRegime.EnumLike; UnionRegime.StructTagged; UnionRegime.Tagged ] do
+                    Expect.equal
+                        (UnionCaseTest.ofRegime regime 2 (fun () -> minted) (noMint "case-type"))
+                        (UnionCaseTest.TagEquals(minted, 2))
+                        (sprintf "%A reads the tag" regime)
+            }
+
+            test "TypeTested tests the minted case type and never mints a tag ref" {
+                let minted = System.Reflection.Metadata.EntityHandle()
+
+                Expect.equal
+                    (UnionCaseTest.ofRegime UnionRegime.TypeTested 1 (noMint "tag-ref") (fun () -> minted))
+                    (UnionCaseTest.IsInst minted)
+                    "the case's runtime type discriminates"
+            }
+
+            test "SingleCase is irrefutable and mints nothing" {
+                Expect.equal
+                    (UnionCaseTest.ofRegime UnionRegime.SingleCase 0 (noMint "tag-ref") (noMint "case-type"))
+                    UnionCaseTest.Irrefutable
+                    "the sole case needs no test"
             }
         ]

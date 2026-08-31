@@ -114,16 +114,22 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
         | UnionMember.Ctor ->
             let s = BlobBuilder()
 
-            // A struct union's `.ctor` is the flat `(tag, every case field)` form its
-            // factories `newobj`; a hierarchy base's takes the tag its case ctors chain
-            // with; a flat reference union's is nullary.
+            // Mirrors `UnionEmit.prepareUnion`: a struct union's `.ctor` is the flat
+            // `(tag, every case field)` form its factories `newobj` — minus the tag when
+            // its single case is every case; a hierarchy base's takes the tag its case
+            // ctors chain with; a flat reference union's is nullary.
             let paramTys =
-                if userValueTypes.Contains key then
-                    FTConst(RuntimeNames.intKey, EqArray.empty)
-                    :: [
+                let allCaseFields =
+                    [
                         for c in shape.Cases do
                             for (_, t) in c.Fields -> t
                     ]
+
+                if userValueTypes.Contains key then
+                    if UnionRegime.hasTagRow shape.Regime then
+                        FTConst(RuntimeNames.intKey, EqArray.empty) :: allCaseFields
+                    else
+                        allCaseFields
                 elif isHierarchy then
                     [ FTConst(RuntimeNames.intKey, EqArray.empty) ]
                 else

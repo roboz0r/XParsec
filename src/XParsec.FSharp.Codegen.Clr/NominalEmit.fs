@@ -579,8 +579,6 @@ module internal NominalEmit =
         let walk: Lazy<EmitStructural.StructuralWalk> =
             lazy
                 {
-                    SelfType = self.SelfType
-                    SelfTy = self.SelfTy
                     Fields = [ for (_, h, fty) in named.Value -> h, fty ]
                     Discriminant = EmitStructural.Discriminant.None
                 }
@@ -591,7 +589,7 @@ module internal NominalEmit =
                 td
                 self.SelfTy
                 (ValueSome(EmitStructural.buildGetHashCode handles walk.Value))
-                (EmitStructural.buildEqualsObj handles recordIsStruct walk.Value)
+                (EmitStructural.buildEqualsObj handles recordIsStruct self.SelfType self.SelfTy walk.Value)
                 (ValueSome(EmitStructural.buildEqualsTyped handles recordIsStruct walk.Value))
 
         if self.Members.Comparison then

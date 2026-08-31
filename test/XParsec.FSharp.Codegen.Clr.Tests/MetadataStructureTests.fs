@@ -351,6 +351,60 @@ let tests =
                 Expect.equal (rows "_tag") 2 "the discriminant"
             }
 
+            // A single-case union's sole case is settled without a test, so the union
+            // declares no `_tag` row and its payload takes FSC's spelling on the union
+            // type itself (hierarchy plan, step 5 first half).
+            test "a single-case union carries no _tag and FSC-spells its payload" {
+                let bytes =
+                    compileSource
+                        "SingleCaseUnionShape"
+                        (String.concat
+                            "\n"
+                            [
+                                "type Meters = M of float"
+                                "let d = M 2.5"
+                                "let v = match d with M x -> x"
+                                "printfn \"%.1f\" v"
+                                "printfn \"%b\" (d = M 2.5)"
+                            ])
+                    |> Codegen.toBytes
+
+                MetadataStructure.assertWellFormed "SingleCaseUnionShape" bytes
+
+                let meters =
+                    MetadataStructure.emittedTypes bytes
+                    |> List.find (fun (t: MetadataStructure.EmittedType) -> t.Name = "Meters")
+
+                Expect.equal meters.Fields [ "item" ] "the lone positional payload, and no _tag"
+            }
+
+            // `C of tag: int` FSC-spells its payload `_tag` — the same name the
+            // discriminant row would take. Dropping the discriminant is what admits it;
+            // with the row present, Layout's field-name uniqueness check would reject the
+            // program instead of writing two same-named `FieldDef` rows.
+            test "a single-case union may declare a field named tag" {
+                let bytes =
+                    compileSource
+                        "SingleCaseTagField"
+                        (String.concat
+                            "\n"
+                            [
+                                "type C = C of tag: int"
+                                "let c = C 7"
+                                "let t = match c with C tag -> tag"
+                                "printfn \"%d\" t"
+                            ])
+                    |> Codegen.toBytes
+
+                MetadataStructure.assertWellFormed "SingleCaseTagField" bytes
+
+                let c =
+                    MetadataStructure.emittedTypes bytes
+                    |> List.find (fun (t: MetadataStructure.EmittedType) -> t.Name = "C")
+
+                Expect.equal c.Fields [ "_tag" ] "the payload owns the name outright"
+            }
+
             // Each Vesper package is a library full of modules, unions, records and closures.
             for package in
                 [

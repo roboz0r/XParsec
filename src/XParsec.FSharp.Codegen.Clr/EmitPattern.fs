@@ -143,6 +143,97 @@ module EmitPattern =
         | ClrRepr.Reference
         | ClrRepr.Boxable _ -> false
 
+    /// Where a union arm's payload extraction reads a case field from.
+    [<RequireQualifiedAccess>]
+    type private UnionArmSource =
+        /// A flat union: the fields sit on the scrutinee itself.
+        | Scrutinee
+        /// A hierarchy case emitted in this compilation: its registered `FrozenType` can
+        /// type a local, so the arm casts the scrutinee once and reads off that.
+        | CaseLocal of ty: FrozenType * token: EntityHandle
+        /// A referenced package's hierarchy case: a token no signature can name, so each
+        /// extraction casts the scrutinee in place.
+        | CastScrutinee of token: EntityHandle
+
+    /// One match arm's resolution of a union case: the test that settles it, a payload
+    /// field ref per index, and where extraction reads those fields from.
+    type private UnionArmPlan =
+        {
+            Test: UnionCaseTest
+            /// Minted on demand, so a wildcard sub-pattern adds no `MemberRef` row.
+            FieldRef: int -> EntityHandle
+            Source: UnionArmSource
+        }
+
+    /// Resolve `caseName` of the union at `key` / `tyArgs` for one match arm — either from
+    /// the union emitted here or from the provider's refs for one in a referenced package
+    /// (`match o with Some x -> …`).
+    let private resolveUnionArm
+        (env: EmitEnv)
+        (key: TypeKey)
+        (tyArgs: FrozenType list)
+        (qualName: string)
+        (caseName: string)
+        : UnionArmPlan =
+        match env.Unions.TryGetValue key with
+        | true, u ->
+            let c = u.Cases.[caseName]
+
+            // Tag / field access is a `Def` token for a monomorphic union, but a
+            // `MemberRef` on the instantiated `TypeSpec` for a generic one
+            // (`List<int>::_tag`).
+            let fieldRef i =
+                memberRef
+                    env
+                    u.Typars
+                    key
+                    tyArgs
+                    (UserMemberKind.UnionMember(UnionMember.Field(caseName, i)))
+                    c.Fields.[i]
+
+            let caseTyToken =
+                c.CaseType
+                |> ValueOption.map (fun caseKey ->
+                    let ty = FTClass(caseKey, EqArray.ofList tyArgs)
+                    ty, env.Provider.TypeToken ty
+                )
+
+            let tagRef () =
+                match u.TagField with
+                | ValueSome h -> memberRef env u.Typars key tyArgs (UserMemberKind.UnionMember UnionMember.Tag) h
+                | ValueNone -> failwithf "Emit: union '%s' is not discriminated by a tag field" qualName
+
+            let caseTypeToken () =
+                match caseTyToken with
+                | ValueSome(_, token) -> token
+                | ValueNone -> failwithf "Emit: type-tested union '%s' nests no type for case '%s'" qualName caseName
+
+            {
+                Test = UnionCaseTest.ofRegime u.Regime c.Tag tagRef caseTypeToken
+                FieldRef = fieldRef
+                Source =
+                    match caseTyToken with
+                    | ValueSome(ty, token) -> UnionArmSource.CaseLocal(ty, token)
+                    | ValueNone -> UnionArmSource.Scrutinee
+            }
+        | false, _ ->
+            match env.Provider.ExternalUnionCaseTest(key, tyArgs, caseName) with
+            | ValueSome test ->
+                let fieldRef i =
+                    match env.Provider.ExternalUnionCaseField(key, tyArgs, caseName, i) with
+                    | ValueSome(fieldRef, _) -> fieldRef
+                    | ValueNone -> failwithf "Emit: external union '%s' case '%s' has no field %d" qualName caseName i
+
+                {
+                    Test = test
+                    FieldRef = fieldRef
+                    Source =
+                        match env.Provider.ExternalUnionCaseType(key, tyArgs, caseName) with
+                        | ValueSome token -> UnionArmSource.CastScrutinee token
+                        | ValueNone -> UnionArmSource.Scrutinee
+                }
+            | ValueNone -> failwithf "Emit: no emitted union for match on '%s'" qualName
+
     /// Test a pattern against the value in local `scrutSlot`: branch to `nextLabel` on
     /// a mismatch, and bind any pattern variables. `NamedSimple` aliases its bound variable to
     /// `scrutSlot` rather than copying, so a later load resolves to the same local.
@@ -236,71 +327,66 @@ module EmitPattern =
             let nominal = nominalOfPat pat
             let key, tyArgs = keyAndTyArgs nominal
             let qualName = SymbolKeyOps.typeMetaName key
+            let plan = resolveUnionArm env key tyArgs qualName caseName
 
-            // The tag field, this case's tag value, a per-index field-ref source, and the
-            // case's own type where the union nests one — either from the union emitted
-            // here or from the provider's refs for one in a referenced package
-            // (`match o with Some x -> …`).
-            let tagRef, tagValue, fieldRef, caseToken =
-                match env.Unions.TryGetValue key with
-                | true, u ->
-                    let c = u.Cases.[caseName]
+            let extracts =
+                TastAccessor.patChildren pat
+                |> Array.exists (fun subPat ->
+                    match TastAccessor.patKind subPat with
+                    | PatShape.Wildcard -> false
+                    | _ -> true
+                )
 
-                    // Tag / field access is a `Def` token for a monomorphic union, but a
-                    // `MemberRef` on the instantiated `TypeSpec` for a generic one
-                    // (`List<int>::_tag`).
-                    let tagRef =
-                        memberRef env u.Typars key tyArgs (UserMemberKind.UnionMember UnionMember.Tag) u.TagField
+            // A local hierarchy case with payload to extract lands in a case-typed local:
+            // the `isinst` test fills it directly, a tag test follows with one `castclass`.
+            // An arm extracting nothing needs neither the local nor the cast.
+            let caseLocal, pushSource =
+                match plan.Source with
+                | UnionArmSource.CaseLocal(ty, token) when extracts ->
+                    let local = b.Local ty
+                    ValueSome(local, token), (fun () -> b.Add(ILInstr.Ldloc local))
+                | UnionArmSource.CaseLocal _
+                | UnionArmSource.Scrutinee -> ValueNone, (fun () -> b.Add(ILInstr.Ldloc scrutSlot))
+                | UnionArmSource.CastScrutinee token ->
+                    ValueNone,
+                    (fun () ->
+                        b.Add(ILInstr.Ldloc scrutSlot)
+                        b.Add(ILInstr.Castclass token)
+                    )
 
-                    let fieldRef i =
-                        memberRef
-                            env
-                            u.Typars
-                            key
-                            tyArgs
-                            (UserMemberKind.UnionMember(UnionMember.Field(caseName, i)))
-                            c.Fields.[i]
-
-                    let caseToken =
-                        c.CaseType
-                        |> ValueOption.map (fun caseKey ->
-                            env.Provider.TypeToken(FTClass(caseKey, EqArray.ofList tyArgs))
-                        )
-
-                    tagRef, c.Tag, fieldRef, caseToken
-                | false, _ ->
-                    match env.Provider.ExternalUnionTag(key, tyArgs, caseName) with
-                    | ValueSome(tagRef, tagValue) ->
-                        let fieldRef i =
-                            match env.Provider.ExternalUnionCaseField(key, tyArgs, caseName, i) with
-                            | ValueSome(fieldRef, _) -> fieldRef
-                            | ValueNone ->
-                                failwithf "Emit: external union '%s' case '%s' has no field %d" qualName caseName i
-
-                        tagRef, tagValue, fieldRef, env.Provider.ExternalUnionCaseType(key, tyArgs, caseName)
-                    | ValueNone -> failwithf "Emit: no emitted union for match on '%s'" qualName
-
-            // Skip the arm unless `scrut._tag = case.Tag`.
-            b.Add(ILInstr.Ldloc scrutSlot)
-            b.Add(ILInstr.Ldfld tagRef)
-            b.Add(ILInstr.LdcI4 tagValue)
-            b.Add(ILInstr.BneUn nextLabel)
-
-            // A hierarchy union declares the payload on the case's own type, so reaching it
-            // casts the scrutinee. `castclass` rather than a second `isinst`, because the
-            // tag test above settled the case.
-            let pushSource () =
+            match plan.Test with
+            | UnionCaseTest.Irrefutable -> ()
+            | UnionCaseTest.TagEquals(tagRef, tagValue) ->
+                // Skip the arm unless `scrut._tag = case.Tag`.
                 b.Add(ILInstr.Ldloc scrutSlot)
+                b.Add(ILInstr.Ldfld tagRef)
+                b.Add(ILInstr.LdcI4 tagValue)
+                b.Add(ILInstr.BneUn nextLabel)
 
-                match caseToken with
-                | ValueSome token -> b.Add(ILInstr.Castclass token)
+                match caseLocal with
+                | ValueSome(local, token) ->
+                    // `castclass` rather than a second `isinst`: the tag test settled it.
+                    b.Add(ILInstr.Ldloc scrutSlot)
+                    b.Add(ILInstr.Castclass token)
+                    b.Add(ILInstr.Stloc local)
                 | ValueNone -> ()
+            | UnionCaseTest.IsInst token ->
+                b.Add(ILInstr.Ldloc scrutSlot)
+                b.Add(ILInstr.Isinst token)
+
+                match caseLocal with
+                | ValueSome(local, _) ->
+                    b.Add(ILInstr.Stloc local)
+                    b.Add(ILInstr.Ldloc local)
+                | ValueNone -> ()
+
+                b.Add(ILInstr.Brfalse nextLabel)
 
             TastAccessor.patChildren pat
             |> Array.iteri (fun i subPat ->
                 match TastAccessor.patKind subPat with
                 | PatShape.Wildcard -> ()
-                | _ -> extractFieldVia pushSource (fieldRef i) subPat
+                | _ -> extractFieldVia pushSource (plan.FieldRef i) subPat
             )
         | PatShape.Record ->
             let fields = TastAccessor.patRecordFields pat

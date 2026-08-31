@@ -144,6 +144,36 @@ let tests =
                     "Box(1,9) < Box(2,0), because comparison is lexicographic on the payload"
             }
 
+            // Four payload-carrying cases put the union in the `Tagged` regime, whose
+            // `CompareTo(U)` obtains the ordinal of `other` from `_tag` rather than the
+            // `isinst` chain the three-case test above exercises.
+            test "a Tagged union's CompareTo orders across cases by tag" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "[<StructuralComparison>]"
+                            "type Quad ="
+                            "    | A of int"
+                            "    | B of int"
+                            "    | C of int"
+                            "    | D of int"
+                            "let q = A 0"
+                        ]
+
+                let artifact = compileSource "StructCmpUnionTagged" src
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let ty = asm.GetType "Quad"
+
+                let mk (case: string) (n: int) =
+                    ty.GetMethod(case, BindingFlags.Public ||| BindingFlags.Static).Invoke(null, [| box n |])
+
+                Expect.equal (signOf (compareTyped ty (mk "A" 99) (mk "D" 0))) -1 "A < D regardless of payload"
+                Expect.equal (signOf (compareTyped ty (mk "D" 0) (mk "B" 99))) 1 "D > B"
+                Expect.equal (signOf (compareTyped ty (mk "C" 3) (mk "C" 5))) -1 "C 3 < C 5 within the case"
+                Expect.equal (signOf (compareTyped ty (mk "B" 4) (mk "B" 4))) 0 "B 4 = B 4"
+            }
+
             test "CompareTo(object) boxing entry routes through the typed CompareTo" {
                 let src =
                     String.concat "\n" [ "[<StructuralComparison>]"; "type Holder = { N: int }"; "let h = { N = 0 }" ]

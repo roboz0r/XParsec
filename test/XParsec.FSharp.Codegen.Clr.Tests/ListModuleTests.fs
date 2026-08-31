@@ -175,8 +175,8 @@ let growRuntime =
         ]
 
 // `match xs with [] -> … | h :: t -> …` against the referenced `Vesper.List` cons-union,
-// whose cases live in `Vesper.List.dll` metadata. The match reads the emitted layout:
-// `_tag` (`Empty` 0, `Cons` 1) and the `Cons_0` / `Cons_1` fields.
+// whose cases live in `Vesper.List.dll` metadata. The cons-list is type-tested, so the
+// match `isinst`s the nested `Empty` / `Cons` types and reads the payload off `Cons`.
 
 // The extracted contract keeps the cons-list's op-form case names (`op_Nil` /
 // `op_ColonColon`), so these do not resolve through the generic external-union path;
@@ -186,7 +186,7 @@ let externalMatchRuntime =
     testList
         "ListExternalMatchRuntime"
         [
-            // `_` skips `Cons_0`, `t` binds `Cons_1`, so both the `_tag` compare and the
+            // `_` skips the head, `t` binds the tail, so both the case test and the
             // tail extract run.
             test "match over the external cons-list discriminates [] from :: (tail recursion)" {
                 runs

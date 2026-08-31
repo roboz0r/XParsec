@@ -223,8 +223,8 @@ let optionCtorRuntime =
         ]
 
 // Cross-package pattern matching on an external union's cases. The case pattern lowers
-// to `TPat.Union` as a local arm does; the backend reads `scrut._tag` against the case's
-// declaration-order index and `ldfld`s the `<case>_<i>` fields off the external `TypeSpec`.
+// to `TPat.Union` as a local arm does; `Option` is type-tested, so the backend `isinst`s
+// the case's nested type and `ldfld`s the payload off that case's `TypeSpec`.
 [<Tests>]
 let optionMatchFrontEnd =
     testList

@@ -122,15 +122,6 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             Pushes = 1
         }
 
-    /// The `_tag : int32` discriminator field on the referenced cons-list
-    /// `Vesper.Collections.List`1<elem>`, read by a cross-package `match` on `[]` / `::`.
-    /// Its contract keeps op-form names (`op_Nil` / `op_ColonColon`), unknown to the generic path.
-    let emitVesperListTagField (elem: FrozenType) : EntityHandle =
-        let typeSpec = vesperListTypeSpec elem
-        let s = BlobBuilder()
-        encodeType (BlobEncoder(s).FieldSignature()) (FTConst(RuntimeNames.intKey, EqArray.empty))
-        toEntity (ctx.MemberRef(typeSpec, "_tag", s))
-
     /// One case type of the referenced cons-list, nested in `List`1` and instantiated at
     /// `elem`: the type a cross-package `match` casts the scrutinee to.
     let vesperListCaseTypeSpec (elem: FrozenType) (caseName: string) : EntityHandle =
@@ -149,7 +140,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
         lazy
             (match env.ExternalUnionShape(RuntimeNames.vesperListKey, 1) with
              | ValueSome u -> u
-             | ValueNone -> failwith "ClrProvider: the cons-list recipe ran without a referenced Vesper.List")
+             | ValueNone -> failwith "ClrRecipes: the cons-list recipe ran without a referenced Vesper.List")
 
     /// One case's payload field names, in declaration order.
     let vesperListCaseFieldNames (caseName: string) : string list =
@@ -157,7 +148,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
 
         match u.Cases |> EqArray.tryFind (fun c -> c.Name = caseName) with
         | ValueSome c -> UnionCaseFields.names (UnionRegime.ofExternalShape u) caseName (EqArray.toList c.FieldNames)
-        | ValueNone -> failwithf "ClrProvider: the referenced cons-list declares no case '%s'" caseName
+        | ValueNone -> failwithf "ClrRecipes: the referenced cons-list declares no case '%s'" caseName
 
     /// One payload field of the referenced cons-list's `Cons` case, declared on that case's
     /// own nested type: the head at `'T` and the tail at `List<'T>`. The blob encodes the
@@ -788,7 +779,6 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
     member _.EmitInvoke funcTy = emitInvoke funcTy
     member _.EmitVesperListCons elem = emitVesperListCons elem
     member _.EmitVesperListEmpty elem = emitVesperListEmpty elem
-    member _.EmitVesperListTagField elem = emitVesperListTagField elem
     member _.EmitVesperListConsField(elem, fieldIndex) = emitVesperListConsField elem fieldIndex
     member _.VesperListCaseTypeSpec(elem, caseName) = vesperListCaseTypeSpec elem caseName
     member _.FunInterfaceSpec(a, b) = funInterfaceSpec a b

@@ -331,6 +331,14 @@ run = ["clr", "js"]
 path = "unions/struct-union-generic.fs"
 run = ["clr", "js"]
 
+# Reference unions across the CLR emitter's regimes — single-case (no discriminant),
+# type-tested (2–3 cases) and tagged (4+) — which the CLR emits as an abstract base with
+# nested case types while JS emits a subclass per case. Construction, matching and
+# structural equality must agree across the two representations.
+[[program]]
+path = "unions/union-hierarchy.fs"
+run = ["clr", "js"]
+
 # ---------------------------------------------------------------------------------------
 # INLINE — `let inline` is an ordinary module function that is ALSO a splice template.
 # Both backends emit the function and both splice the body, and the two have to agree on

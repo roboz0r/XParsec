@@ -306,22 +306,29 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
 
                 ValueSome(toEntity (ctx.MemberRef(parent, caseName, s)), List.length paramTys)
 
-    /// Mint the `_tag : int` field `MemberRef` on a referenced-package union at `args`, with
-    /// `caseName`'s discriminator, its zero-based index in declaration order, as the union
-    /// emitter assigns them. `ValueNone` ⇒ unknown union or case.
-    let externalUnionTag (key: TypeKey) (args: FrozenType list) (caseName: string) : (EntityHandle * int) voption =
-        let arity = List.length args
+    /// A referenced-package union's nested case type at `args`.
+    let externalCaseSpec (key: TypeKey) (tref: EntityHandle) (args: FrozenType list) (caseName: string) : EntityHandle =
+        externalTypeSpec key (toEntity (ctx.TypeRef(tref, "", caseName))) args
 
-        match externalUnionRef key arity with
+    /// The test a match arm emits for `caseName` on a referenced-package union at `args`,
+    /// via the same `UnionCaseTest.ofRegime` mapping the local match path takes, so the
+    /// two ends agree on how a case is settled. `ValueNone` ⇒ unknown union or case.
+    let externalUnionCaseTest (key: TypeKey) (args: FrozenType list) (caseName: string) : UnionCaseTest voption =
+        match externalUnionRef key (List.length args) with
         | ValueNone -> ValueNone
         | ValueSome(tref, u) ->
             match u.Cases |> EqArray.tryFindIndex (fun c -> c.Name = caseName) with
             | ValueNone -> ValueNone
             | ValueSome tag ->
-                let parent = externalTypeSpec key tref args
-                let s = BlobBuilder()
-                encodeType (BlobEncoder(s).FieldSignature()) (FTConst(RuntimeNames.intKey, EqArray.empty))
-                ValueSome(toEntity (ctx.MemberRef(parent, "_tag", s)), tag)
+                let tagField () =
+                    let parent = externalTypeSpec key tref args
+                    let s = BlobBuilder()
+                    encodeType (BlobEncoder(s).FieldSignature()) (FTConst(RuntimeNames.intKey, EqArray.empty))
+                    toEntity (ctx.MemberRef(parent, "_tag", s))
+
+                let caseType () = externalCaseSpec key tref args caseName
+
+                ValueSome(UnionCaseTest.ofRegime (UnionRegime.ofExternalShape u) tag tagField caseType)
 
     /// The `TypeSpec` a referenced-package union's case members are parented on: the case's
     /// own nested `TypeRef` in a hierarchy regime. `ValueNone` in a flat regime, where the
@@ -335,7 +342,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
         (caseName: string)
         : EntityHandle voption =
         if UnionRegime.isHierarchy regime then
-            ValueSome(externalTypeSpec key (toEntity (ctx.TypeRef(tref, "", caseName))) args)
+            ValueSome(externalCaseSpec key tref args caseName)
         else
             ValueNone
 
@@ -546,7 +553,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
 
     member _.ExternalUnionFactory(key, caseName, args) = externalUnionFactory key caseName args
 
-    member _.ExternalUnionTag(key, args, caseName) = externalUnionTag key args caseName
+    member _.ExternalUnionCaseTest(key, args, caseName) = externalUnionCaseTest key args caseName
 
     member _.ExternalUnionCaseField(key, args, caseName, fieldIndex) =
         externalUnionCaseField key args caseName fieldIndex

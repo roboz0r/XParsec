@@ -75,6 +75,38 @@ type UnionMember =
     | CaseSingleton of caseName: string
     | Factory of caseName: string
 
+/// The test one match arm emits to settle whether the scrutinee is a given case.
+[<RequireQualifiedAccess>]
+type UnionCaseTest =
+    /// A single-case union: every value inhabits the case, so no test is emitted.
+    | Irrefutable
+    /// Load `tagField` off the scrutinee and compare with the case's `tag`, its
+    /// zero-based index in declaration order.
+    | TagEquals of tagField: EntityHandle * tag: int
+    /// `isinst` the case's own type: a non-null result settles the case.
+    | IsInst of caseType: EntityHandle
+
+[<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
+[<RequireQualifiedAccess>]
+module UnionCaseTest =
+
+    /// The one regime-to-test mapping, shared by the local and referenced-package match
+    /// paths. `tag` is the case's zero-based index in declaration order. `tagField` and
+    /// `caseType` mint their handles in the caller's own scope (`Def` token, self-`TypeSpec`
+    /// or use-site instantiation); each is forced exactly under the regime that reads it.
+    let ofRegime
+        (regime: UnionRegime)
+        (tag: int)
+        (tagField: unit -> EntityHandle)
+        (caseType: unit -> EntityHandle)
+        : UnionCaseTest =
+        match regime with
+        | UnionRegime.SingleCase -> UnionCaseTest.Irrefutable
+        | UnionRegime.TypeTested -> UnionCaseTest.IsInst(caseType ())
+        | UnionRegime.EnumLike
+        | UnionRegime.StructTagged
+        | UnionRegime.Tagged -> UnionCaseTest.TagEquals(tagField (), tag)
+
 /// Which member of an emitted *generic* closure (`<closure>$n`) a `MemberRef` identifies.
 /// Signature in the closure's own generic parameters (`!i`); the parent `TypeSpec` is
 /// `<closure>$n<int>` externally, `<closure>$n<!0>` from inside its own `Invoke`.
@@ -308,10 +340,11 @@ type ICodegenProvider =
     abstract TryResolveExternalRecordField:
         key: TypeKey * tyArgs: FrozenType list * fieldName: string -> (EntityHandle * FrozenType) voption
 
-    /// The `_tag : int` discriminator field `MemberRef` on a *referenced-package* union,
-    /// instantiated at `tyArgs`, plus `caseName`'s tag value (its zero-based index in
-    /// declaration order). A cross-package `match` arm compares `scrut._tag` against it.
-    abstract ExternalUnionTag: key: TypeKey * tyArgs: FrozenType list * caseName: string -> (EntityHandle * int) voption
+    /// The test a match arm emits against a *referenced-package* union's scrutinee for
+    /// `caseName`, instantiated at `tyArgs`. Derived from the same `classify` the package's
+    /// emitter used, so the two ends agree on how a case is settled. `ValueNone` ⇒ unknown
+    /// union or case.
+    abstract ExternalUnionCaseTest: key: TypeKey * tyArgs: FrozenType list * caseName: string -> UnionCaseTest voption
 
     /// One `<caseName>_<fieldIndex>` field `MemberRef` on a referenced-package union,
     /// instantiated at `tyArgs`, plus that field's substituted declared type. The field is

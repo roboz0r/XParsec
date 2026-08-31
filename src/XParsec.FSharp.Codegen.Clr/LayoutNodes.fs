@@ -294,18 +294,18 @@ module internal LayoutNodes =
     /// entries and `GetHashCode` override the slots the base declares; the `Case`-typed pair
     /// declares no slot of its own and binds by `call`.
     let private unionCaseSlotRow (td: TastAccessor.TypeDecl) (caseName: string) (slot: UnionCaseSlot) : MethodRow =
-        let name, attrs =
+        let attrs =
             match slot with
-            | UnionCaseSlot.GetHashCode -> "GetHashCode", overrideMethodAttrs
-            | UnionCaseSlot.EqualsUnion -> "Equals", overrideMethodAttrs
-            | UnionCaseSlot.EqualsCase -> "Equals", instanceMethodAttrs
-            | UnionCaseSlot.CompareToUnion -> "CompareTo", overrideMethodAttrs
-            | UnionCaseSlot.CompareToCase -> "CompareTo", instanceMethodAttrs
-            | UnionCaseSlot.Format -> "Format", overrideMethodAttrs
+            | UnionCaseSlot.GetHashCode
+            | UnionCaseSlot.EqualsUnion
+            | UnionCaseSlot.CompareToUnion
+            | UnionCaseSlot.Format -> overrideMethodAttrs
+            | UnionCaseSlot.EqualsCase
+            | UnionCaseSlot.CompareToCase -> instanceMethodAttrs
 
         {
             Key = MethodKey.UnionCaseStructural(td.Key, caseName, slot)
-            Name = name
+            Name = UnionCaseSlot.metaName slot
             Attrs = attrs
         }
 
@@ -384,14 +384,18 @@ module internal LayoutNodes =
 
                 let fields =
                     [
-                        yield
-                            {
-                                Key = FieldKey.UnionTag td.Key
-                                Name = "_tag"
-                                Attrs = fieldAttrs
-                                Ty = FTConst(RuntimeNames.intKey, EqArray.empty)
-                                ClosureScope = ValueNone
-                            }
+                        // A single-case union's sole case needs no discriminant, and its
+                        // FSC-spelled payload may itself claim the name `_tag`
+                        // (`C of tag: int`).
+                        if UnionRegime.hasTagRow ud.Regime then
+                            yield
+                                {
+                                    Key = FieldKey.UnionTag td.Key
+                                    Name = "_tag"
+                                    Attrs = fieldAttrs
+                                    Ty = FTConst(RuntimeNames.intKey, EqArray.empty)
+                                    ClosureScope = ValueNone
+                                }
 
                         if isHierarchy then
                             for c in ud.SingletonCases ->

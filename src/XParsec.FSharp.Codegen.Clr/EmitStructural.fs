@@ -26,16 +26,9 @@ module internal EmitStructural =
         /// contributes nothing to the equality or comparison walk.
         | CaseTag of tag: int
 
-    /// The values one synthesised structural body visits, and the self shape its
-    /// `object`-typed entry point casts to.
+    /// The values one synthesised structural body visits.
     type StructuralWalk =
         {
-            /// The declaring type's own token — the `isinst` target.
-            SelfType: EntityHandle
-            /// `FTUnion` / `FTRecord` / `FTClass` at the declaring type's own typars: the
-            /// type of the cast `other` local, and the parameter type of the typed entry
-            /// points.
-            SelfTy: FrozenType
             /// `(field handle, declared type)` in visit order. A flat union crosses every
             /// case's fields, which agrees with a per-case walk because an inactive case's
             /// fields hold their default. The caller mints these as `Def` tokens or as
@@ -236,9 +229,17 @@ module internal EmitStructural =
             b.Add(ILInstr.Callvirt(h.EqualityComparerEquals fieldTy, 3, 1))
             b.Add(ILInstr.Brfalse falseLabel)
 
-    /// `override bool Equals(object obj)`: cast-or-false, then the walk.
-    let buildEqualsObj (h: IStructuralHandles) (isVt: bool) (w: StructuralWalk) : ILBody =
-        buildStructuralEqualsObj isVt w.SelfType w.SelfTy (fieldEquality h w)
+    /// `override bool Equals(object obj)`: cast-or-false, then the walk. `selfType` is the
+    /// declaring type's own token — the `isinst` target — and `selfTy` the type of the
+    /// cast `other` local.
+    let buildEqualsObj
+        (h: IStructuralHandles)
+        (isVt: bool)
+        (selfType: EntityHandle)
+        (selfTy: FrozenType)
+        (w: StructuralWalk)
+        : ILBody =
+        buildStructuralEqualsObj isVt selfType selfTy (fieldEquality h w)
 
     /// `bool Equals(Self other)` — the typed `IEquatable<Self>::Equals` over the walk.
     let buildEqualsTyped (h: IStructuralHandles) (isVt: bool) (w: StructuralWalk) : ILBody =
@@ -349,17 +350,27 @@ module internal EmitStructural =
         b.Add ILInstr.Ret
         b.Body
 
+    /// How `CompareTo(U)` obtains the ordinal of a non-null `other` of another case — the
+    /// one value the dispatch that reached the body did not settle.
+    [<RequireQualifiedAccess>]
+    type OtherOrdinal =
+        /// `Tagged`: load `other`'s `_tag`.
+        | TagField of EntityHandle
+        /// `TypeTested`: the REMAINING cases' `(type token, tag)` in tag order. The last
+        /// entry is the fall-through, so the chain over a union of n cases costs n − 2
+        /// tests here on top of the body's own-case test.
+        | TypeTests of (EntityHandle * int) list
+
     /// `override int CompareTo(U other)` on a hierarchy union's case type: an `other` of
     /// this case hands over to the typed `CompareTo(<Case>)`; a `null` one sorts after
-    /// (returns `1`, the BCL convention); any other case yields the ordinal difference.
-    /// This is the one structural body that reads a discriminant off `other`, because
-    /// `other` is the value the dispatch did not settle.
+    /// (returns `1`, the BCL convention); any other case yields the ordinal difference,
+    /// obtained per `OtherOrdinal`.
     let buildUnionCaseCompareToUnion
         (caseType: EntityHandle)
         (caseTy: FrozenType)
         (compareToCase: EntityHandle)
         (tag: int)
-        (tagField: EntityHandle)
+        (otherOrdinal: OtherOrdinal)
         : ILBody =
         let b = IlBuilder()
         let sameCaseLabel = b.Label()
@@ -375,12 +386,32 @@ module internal EmitStructural =
         b.Add(ILInstr.Ldarg 1)
         b.Add(ILInstr.Brfalse nullLabel)
 
-        // Case indices are small, so the difference cannot overflow.
-        b.Add(ILInstr.LdcI4 tag)
-        b.Add(ILInstr.Ldarg 1)
-        b.Add(ILInstr.Ldfld tagField)
-        b.Add(ILInstr.Bin ILOpCode.Sub)
-        b.Add ILInstr.Ret
+        // Case indices are small, so no difference below can overflow.
+        (match otherOrdinal with
+         | OtherOrdinal.TagField tagField ->
+             b.Add(ILInstr.LdcI4 tag)
+             b.Add(ILInstr.Ldarg 1)
+             b.Add(ILInstr.Ldfld tagField)
+             b.Add(ILInstr.Bin ILOpCode.Sub)
+             b.Add ILInstr.Ret
+         | OtherOrdinal.TypeTests others ->
+             let rec emit rest =
+                 match rest with
+                 | [] -> failwith "Emit: a hierarchy union declares at least two cases"
+                 | [ (_, lastTag) ] ->
+                     b.Add(ILInstr.LdcI4(tag - lastTag))
+                     b.Add ILInstr.Ret
+                 | (token, otherTag) :: later ->
+                     let skip = b.Label()
+                     b.Add(ILInstr.Ldarg 1)
+                     b.Add(ILInstr.Isinst token)
+                     b.Add(ILInstr.Brfalse skip)
+                     b.Add(ILInstr.LdcI4(tag - otherTag))
+                     b.Add ILInstr.Ret
+                     b.Add(ILInstr.Mark skip)
+                     emit later
+
+             emit others)
 
         b.Add(ILInstr.Mark sameCaseLabel)
         b.Add(ILInstr.Ldarg 0)

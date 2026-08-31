@@ -275,41 +275,50 @@ carrying a body — or the reverse — writes a PE the loader rejects and no gol
 regime-independent, since `isinst` and a literal tag serve `TypeTested` and `Tagged` alike. Only
 `CompareTo` still needs an ordinal for `other`, the one value it did not dispatch on.
 
-**Step 3 — move `TypeTested`'s readers off the tag.** After the structural members move to the
-case types, the surviving readers are the match arm and `CompareTo`'s ordinal for `other`. The
-discriminant becomes a DU on `EmittedUnion`:
+**Step 3 — move `TypeTested`'s readers off the tag. DONE**, together with step 5's first half,
+its prerequisite. After the structural members move to the case types, the surviving readers are
+the match arm and `CompareTo`'s ordinal for `other`. The arm's test is a DU beside the provider
+interface:
 
 ```fsharp
-type UnionDiscriminant =
-    /// `SingleCase`: the union's sole case, which every value of it inhabits.
-    | NoDiscriminant
-    /// `Tagged` / `EnumLike`: the `_tag` field handle every test and structural body loads.
-    | TagField of EntityHandle
-    /// `TypeTested`: a case's runtime type discriminates it.
-    | TypeTest
+type UnionCaseTest =
+    /// A single-case union: every value inhabits the case, so no test is emitted.
+    | Irrefutable
+    /// Load `tagField` off the scrutinee and compare with the case's `tag`.
+    | TagEquals of tagField: EntityHandle * tag: int
+    /// `isinst` the case's own type: a non-null result settles the case.
+    | IsInst of caseType: EntityHandle
 ```
 
-`UnionRegime.discriminant` maps the four regimes onto these three, so the mapping is total and
-lives in one place. **Step 5's first half is a prerequisite for this step**, not merely wanted
-early: `SingleCase` yields `NoDiscriminant`, and a single-case union carries a `_tag` its match
-arm and its flat structural bodies still load until that field is dropped.
+`UnionCaseTest.ofRegime` maps the five regimes onto these three, so the mapping is total and
+lives in one place, shared by the local match path and the referenced-package one; it takes the
+`_tag` and case-type mints as thunks, each forced exactly under the case that reads it, because
+the handles differ by scope (`Def` token, self-`TypeSpec`, use-site instantiation). Two
+predicates beside `classify` name the layout facts the emitter branches on:
+`UnionRegime.hasTagRow` (false only for `SingleCase` until step 4 adds `TypeTested`) and
+`UnionRegime.readsTag` (false for `SingleCase` and `TypeTested`).
+**Step 5's first half was a prerequisite for this step**, not merely wanted early: `SingleCase`
+yields `Irrefutable`, and a single-case union carried a `_tag` its match arm and its flat
+structural bodies still loaded until that field was dropped.
 
-`EmittedUnion.Discriminant` is a member over `this.Regime` and `this.TagField`, on the same terms
-as `Regime` itself: a union that stored a discriminant beside the regime that selects it could
-hold a `TagField` for a `TypeTested` union, which is the state step 4 relies on being
-unrepresentable. `TagField` therefore stops being a field on `EmittedUnion` in step 4 and becomes
-whatever `TagField of EntityHandle` closes over.
+`EmittedUnion.TagField` is an `EntityHandle voption`, `ValueSome` exactly where the discriminant
+IS the tag. A `TypeTested` union therefore already hands no tag handle to any consumer, ahead of
+step 4 deleting the row itself; the row's one surviving writer is the base `.ctor(int32)`, which
+reaches it by `FieldKey.UnionTag` directly.
 
-A `TypeTested` union then carries no tag handle, so no consumer can emit a load of one: the match
-arm collapses to a single `isinst` into the case-typed local, replacing both the tag compare and
-step 2's `castclass`. The external path's `externalUnionTag` (`ClrExternalMembers.fs:309`)
-resolves through the same `classify`, so a referenced package's 2–3-case union is matched by type
-test too.
+The match arm reads its test off the discriminant: a local hierarchy case lands in a case-typed
+local — filled by the single `isinst` in `TypeTested`, by one `castclass` after the tag compare
+in `Tagged` — and an arm extracting nothing takes neither the local nor the cast. A referenced
+package's case type is a token no `FrozenType` names, so no local can be typed at it and each
+extraction casts the scrutinee in place instead. The external path's `externalUnionTag` became
+`ExternalUnionCaseTest`, answering through the same `UnionCaseTest.ofRegime` over
+`UnionRegime.ofExternalShape`; the cons-list's provider arm answers `IsInst` on its nested case
+types and its `_tag` recipe is deleted.
 
-`Case::CompareTo(U)` is the only structural body this step touches, because it alone needs an
-ordinal for `other`, the value it did not dispatch on: `ldfld _tag` in `Tagged`, and a bounded
-`isinst` chain of at most two tests in `TypeTested`. Should that prove worth factoring into a
-method, it is a private non-virtual one reached by `call`.
+`Case::CompareTo(U)` is the only structural body this step touched, because it alone needs an
+ordinal for `other`, the value it did not dispatch on: `EmitStructural.OtherOrdinal` is
+`ldfld _tag` in `Tagged`, and in `TypeTested` a bounded `isinst` chain over the remaining cases'
+tokens, minted once per union and shared with each case's own dispatch.
 
 **Step 4 — delete the vestigial field.** Drop the `_tag` field row and the base `.ctor`'s tag
 parameter for `TypeTested`, leaving its base with no fields. The proof that the field is
@@ -317,11 +326,12 @@ vestigial is step 3's type change rather than an audit: the `TypeTest` case carr
 a surviving reader cannot compile. A `MetadataStructure` assertion that a 2–3-case union's base
 carries no field rows pins the outcome.
 
-**Step 5 — `SingleCase` and `EnumLike` polish.** Drop the redundant `_tag` from a single-case
-union; give an enum-like union `_unique_<Case>` singletons so nullary construction stops
-allocating. No hierarchy involved, and the second half is independent of steps 1–4. The first
-half gates step 3, which needs `SingleCase` to mean `NoDiscriminant`, and it also settles the
-collision below.
+**Step 5 — `SingleCase` and `EnumLike` polish. First half DONE with step 3**, which it gates: a
+single-case union declares no `_tag` row, its `.ctor` (the flat struct form included) takes its
+fields alone, its factory stores no tag, its structural walk is the record's, and its `%A` body
+is the one a hierarchy case type carries. That settles the collision below. The second half —
+`_unique_<Case>` singletons for an enum-like union, so nullary construction stops allocating —
+remains, and is independent of steps 1–4.
 
 **Step 6 — fix a name resolution gap.** A bare union case declared in a module-held union does not resolve across a file boundary; the namespace-level form does. `test/XParsec.FSharp.Codegen.Clr.Tests/CrossFileTests.fs:216` routes around it — the cross-file `obj`-box test declares `type Holder = Wrap of obj` at namespace level with a comment saying why. Contrast `CrossFileTests.fs:320`, where a module-held union is reached cross-file, and `LongIdentResolutionTests.fs:157` ("module-held case, bare after open, construct + match"), which passes within the same file. So the missing piece is the module-held case's bare spelling specifically on the cross-file provider channel, not module-held unions in general.
 
@@ -336,8 +346,10 @@ hierarchy regimes it is benign — the case field lands on the case type while t
 stays on the base, and FSC emits exactly that shadowing pair, base `_tag : int32` and case
 `_tag : string`, which loads and matches correctly.
 
-No source in the tree declares such a field, so this does not gate the naming rule; step 5 removes
-the discriminant well before anyone writes one. What it does gate is a **field-name uniqueness
+Step 5's first half has since landed with step 3, so the collision is closed: a single-case
+union declares no discriminant row, the payload owns the name `_tag` outright, and
+`MetadataStructureTests` pins that `type C = C of tag: int` compiles to exactly that shape.
+What the naming rule did gate is a **field-name uniqueness
 check per `TypeNode`**, added in step 1 alongside the completeness check at `Layout.fs:505`.
 Without it the emitter writes two `FieldDef` rows of one name and signature on one type: the two
 `FieldKey`s differ, so nothing collides internally and the result is silently invalid metadata
@@ -358,7 +370,7 @@ closures on the same pass.
    nullary-as-base-instance in `Tagged`. Metadata-only cost, and it removes a branch from every
    consumer of `EmittedCase`.
 4. **Where `_tag` exists, every read of it is `ldfld`.** No `Tag` property, and in particular no
-   abstract or virtual slot: the tag is never reached by dispatch. `UnionDiscriminant.TagField`
+   abstract or virtual slot: the tag is never reached by dispatch. `UnionCaseTest.TagEquals`
    carries a *field* handle, so this is unrepresentable rather than merely intended — a consumer
    holding it has nothing to call. FSC emits a `get_Tag` property; we have no caller for one,
    because match arms and structural bodies both load the field inline.

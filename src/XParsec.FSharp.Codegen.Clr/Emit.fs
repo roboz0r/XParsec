@@ -414,20 +414,24 @@ module Emit =
         b.Add ILInstr.Ret
         b.Body
 
-    /// Build a union case's static factory: `newobj` via the union's parameterless
-    /// ctor, stamp the discriminant `tag`, store each parameter into its field, return.
+    /// Build a flat reference union case's static factory: `newobj` via the union's
+    /// parameterless ctor, stamp the discriminant where the regime has one (`ValueNone`
+    /// on a single-case union), store each parameter into its field, return.
     /// `fieldHandles` are in declaration order = the factory's `ldarg.i` order.
     let buildUnionFactory
         (unionCtor: EntityHandle)
-        (tag: int)
-        (tagField: EntityHandle)
+        (tagStore: (int * EntityHandle) voption)
         (fieldHandles: EntityHandle list)
         : ILBody =
         let b = IlBuilder()
         b.Add(ILInstr.Newobj(unionCtor, 0))
-        b.Add ILInstr.Dup
-        b.Add(ILInstr.LdcI4 tag)
-        b.Add(ILInstr.Stfld tagField)
+
+        match tagStore with
+        | ValueSome(tag, tagField) ->
+            b.Add ILInstr.Dup
+            b.Add(ILInstr.LdcI4 tag)
+            b.Add(ILInstr.Stfld tagField)
+        | ValueNone -> ()
 
         fieldHandles
         |> List.iteri (fun i field ->
@@ -439,8 +443,9 @@ module Emit =
         b.Add ILInstr.Ret
         b.Body
 
-    /// Build a hierarchy union case's static factory: `newobj` the case's own `.ctor` over
-    /// the factory's parameters, in declaration order.
+    /// Build a static factory that forwards its parameters whole: `newobj` `caseCtor`
+    /// over them in declaration order. A hierarchy case's `.ctor` takes exactly its
+    /// factory's parameters, as does a single-case struct union's flat `.ctor`.
     let buildUnionCaseFactory (caseCtor: EntityHandle) (arity: int) : ILBody =
         let b = IlBuilder()
 

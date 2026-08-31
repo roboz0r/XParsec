@@ -64,3 +64,23 @@ module UnionRegime =
         | UnionRegime.SingleCase
         | UnionRegime.EnumLike
         | UnionRegime.StructTagged -> false
+
+    /// Whether the union's emitted layout declares a `_tag : int32` field row, written by
+    /// its `.ctor`. `TypeTested` keeps its row until step 4 of the hierarchy plan drops it.
+    let hasTagRow (regime: UnionRegime) : bool =
+        match regime with
+        | UnionRegime.SingleCase -> false
+        | UnionRegime.EnumLike
+        | UnionRegime.StructTagged
+        | UnionRegime.TypeTested
+        | UnionRegime.Tagged -> true
+
+    /// Whether a consumer settles or orders a value of this union by loading `_tag`.
+    /// `SingleCase` has no discriminant and `TypeTested` discriminates by runtime type.
+    let readsTag (regime: UnionRegime) : bool =
+        match regime with
+        | UnionRegime.SingleCase
+        | UnionRegime.TypeTested -> false
+        | UnionRegime.EnumLike
+        | UnionRegime.StructTagged
+        | UnionRegime.Tagged -> true
