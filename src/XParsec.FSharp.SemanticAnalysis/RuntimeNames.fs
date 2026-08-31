@@ -19,9 +19,6 @@ module RuntimeNames =
     [<Literal>]
     let private collectionsNamespace = "Vesper.Collections"
 
-    /// The namespaces resolving UNQUALIFIED in every compilation.
-    let preludeNamespaces: string list = [ intrinsicNamespace; collectionsNamespace ]
-
     // The packages carrying the intrinsics, spelled as a manifest's `depends-on` spells them,
     // because a diagnostic quotes the line for the author to add.
 

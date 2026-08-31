@@ -27,7 +27,7 @@ let private provider: IExternalSymbolProvider =
     providerOfSurface (fun b ->
         PublishedSurfaceBuilder.addType b (SymbolKeyOps.qualifiedTypeKeyOf "Tests.Direction" 0) (enum [ "Up"; "Down" ])
         PublishedSurfaceBuilder.addType b (SymbolKeyOps.qualifiedTypeKeyOf "Other.Mode" 0) (enum [ "On" ])
-        b.AmbientOpenPrefixes <- [ "Tests" ]
+        b.ImplicitOpens <- [ SymbolKeyOps.assemblyAutoOpen "Tests" ]
     )
 
 let private analyse (input: string) = analyseNameRes provider input

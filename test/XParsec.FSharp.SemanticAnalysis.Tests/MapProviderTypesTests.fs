@@ -133,7 +133,7 @@ let private fakeScope: IScopeContents =
 let private fake: IExternalSymbolProvider =
     { new ExternalSymbolProviders.ProviderDecorator(ExternalSymbolProviders.nullProvider) with
         override _.Scope = fakeScope
-        override _.AmbientOpenPrefixes = [ "Amb" ]
+        override _.ImplicitOpens = [ SymbolKeyOps.assemblyAutoOpen "Amb" ]
 
         override _.TryLookupType key =
             typeByName (SymbolKeyOps.typeMetaName key)
@@ -292,7 +292,7 @@ let tests =
             // Value-ness is a LAYOUT, not a type, and a record candidate carries identity +
             // field names only: the wrapper forwards both unchanged, so both are pinned here.
             test "non-type channels delegate unchanged" {
-                Expect.equal wrapped.AmbientOpenPrefixes [ "Amb" ] "ambient delegated"
+                Expect.equal wrapped.ImplicitOpens [ SymbolKeyOps.assemblyAutoOpen "Amb" ] "implicit opens delegated"
                 Expect.equal (wrapped.IsValueType clsKey) (ValueSome true) "value-ness delegated"
                 Expect.equal (wrapped.TryRecordsWithField "f") (EqArray.singleton candidate) "candidates delegated"
                 Expect.isTrue (shapeNamed "unknown" |> ValueOption.isNone) "unknown type misses"

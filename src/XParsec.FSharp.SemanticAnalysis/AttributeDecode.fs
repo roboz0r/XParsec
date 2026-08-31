@@ -113,6 +113,12 @@ module AttributeDecode =
         | Expr.Const(Constant.Literal tok) -> ValueSome((nameOf tok).Trim([| '"' |]))
         | _ -> ValueNone
 
+    /// The text of an attribute's single string-literal argument, for a reader working from
+    /// the CST alone. `ValueNone` when the construction takes no argument or its argument is
+    /// not a string literal.
+    let tryStringArgument (nameOf: SyntaxToken -> string) (oc: ObjectConstruction<SyntaxToken>) : string voption =
+        constructionExpr oc |> ValueOption.bind (stringArgText nameOf)
+
     /// The name `[<CompiledName("Foo")>]` gives a declaration, which is what a consumer of
     /// the assembly writes.
     let tryCompiledName (nameOf: SyntaxToken -> string) (attrs: ResolvedAttributes) : string voption =

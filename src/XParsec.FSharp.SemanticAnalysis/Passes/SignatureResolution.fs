@@ -716,14 +716,14 @@ module SignatureResolution =
 
     /// The `[<AutoOpen>]` modules a signature declares, outermost first: what a consumer
     /// resolves through with no `open` of its own. A module holding nothing is not listed.
-    let private autoOpenPrefixes (ctx: PassContext) (walked: WalkedSigElem<SyntaxToken> list) : string list =
-        let seen = HashSet<string>(System.StringComparer.Ordinal)
-        let acc = ResizeArray<string>()
+    let private implicitOpensOf (ctx: PassContext) (walked: WalkedSigElem<SyntaxToken> list) : ImplicitOpen list =
+        let seen = HashSet<ImplicitOpen>()
+        let acc = ResizeArray<ImplicitOpen>()
 
         for w in walked do
-            for prefix in ctx.AutoOpenContainersOf w.Containment do
-                if seen.Add prefix then
-                    acc.Add prefix
+            for key in ctx.ImplicitOpensOf w.Containment do
+                if seen.Add key then
+                    acc.Add key
 
         List.ofSeq acc
 
@@ -743,7 +743,7 @@ module SignatureResolution =
                 GroupInterfaceKeys = EqSet.empty
             }
 
-        let walked = CstModuleTree.walkSig ctx.NameOf ctx.Resolution.AmbientOpenScope file
+        let walked = CstModuleTree.walkSig ctx.NameOf OpenScope.empty file
 
         // Whole-file pre-scan: the `…Module` suffix rule reads `NominalTypeNames` at the very
         // first key mint, and a `module Foo` may textually precede the `type Foo` it collides
@@ -755,7 +755,7 @@ module SignatureResolution =
                     noteNominalSigTypeName ctx decl
             | _ -> ()
 
-        surface.AmbientOpenPrefixes <- autoOpenPrefixes ctx walked
+        surface.ImplicitOpens <- implicitOpensOf ctx walked
 
         for w in walked do
             ctx.EnterElement w

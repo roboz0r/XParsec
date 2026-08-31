@@ -26,7 +26,7 @@ let private provider: IExternalSymbolProvider =
 
         publishRecord b (SymbolKeyOps.qualifiedTypeKeyOf "Tests.Widget" 0) []
 
-        b.AmbientOpenPrefixes <- [ "Tests" ]
+        b.ImplicitOpens <- [ SymbolKeyOps.assemblyAutoOpen "Tests" ]
     )
 
 let private analyse (input: string) = analyseNameRes provider input

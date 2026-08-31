@@ -51,7 +51,7 @@ module AnalysedAssembly =
         {
             Assembly = sources.Assembly
             Units = analysed.Units
-            Visibility = visibility external analysed.Published
+            Visibility = visibility analysed.AutoOpens external analysed.Published
         }
 
     /// Every `[<Import>]` obligation the analysed units record, discharged against the

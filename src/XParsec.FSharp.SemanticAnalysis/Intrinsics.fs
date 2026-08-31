@@ -14,7 +14,7 @@ module internal IntrinsicResolve =
         | true, k -> Some k
         | _ ->
             let containers =
-                ScopeContents.openedContainers provider.Scope provider.AmbientOpenPrefixes
+                ScopeContents.openedContainers provider.Scope [] provider.ImplicitOpens
 
             match
                 ScopeContents.tryPickTypeIn

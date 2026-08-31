@@ -733,7 +733,9 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
         // The metadata layer scrapes IL, never F# record tycons, so it never contributes to
         // the reverse field index (F#'s `isILOrRequiredQualifiedAccess` excludes IL too).
         member _.TryRecordsWithField _ = EqArray.empty
-        member _.AmbientOpenPrefixes = []
+        // A referenced CLR assembly's own `[<assembly: AutoOpen>]` rows are not read: this
+        // layer serves BCL metadata, which carries none.
+        member _.ImplicitOpens = []
 
     interface IExternalSymbolStore with
         // The caches address the BCL compiled name, so a key is rendered before the read.

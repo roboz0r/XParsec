@@ -28,7 +28,7 @@ let private provider: IExternalSymbolProvider =
             (SymbolKeyOps.qualifiedTypeKeyOf "Rival.Tint" 0)
             [ ExternalCaseShape.create ("Green", EqArray.empty) ]
 
-        b.AmbientOpenPrefixes <- [ "Tests" ]
+        b.ImplicitOpens <- [ SymbolKeyOps.assemblyAutoOpen "Tests" ]
     )
 
 let private analyse (input: string) = analyseNameRes provider input

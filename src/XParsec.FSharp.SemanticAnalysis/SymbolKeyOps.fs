@@ -213,6 +213,14 @@ module SymbolKeyOps =
     /// `namespace Vesper` + `module Collections`, named SEPARATELY, so no dotted string to cut.
     let moduleInNamespace (dottedNs: string) (name: string) : ModuleKey = moduleKeyOf (inNamespace dottedNs) name
 
+    /// The namespace an `[<assembly: AutoOpen("Vesper.Collections")>]` names.
+    let assemblyAutoOpen (dottedNs: string) : ImplicitOpen =
+        ImplicitOpen.AssemblyAutoOpen(namespaceKey dottedNs)
+
+    /// The implicit open a file's own `namespace N` header contributes over its body.
+    let currentFileScope (dottedNs: string) : ImplicitOpen =
+        ImplicitOpen.CurrentFileScope(namespaceKey dottedNs)
+
     // --- Smart constructors -----------------------------------------------------------
 
     let typeKey (ns: string) (name: string) : SymbolKey = SymbolKey.Type(typeKeyOf ns name)

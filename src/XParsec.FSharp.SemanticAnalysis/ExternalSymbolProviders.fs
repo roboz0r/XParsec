@@ -42,7 +42,7 @@ module ExternalSymbolProviders =
             SymbolsByKey: IReadOnlyDictionary<BindingKey, ExternalSymbol>
             TryRecordsWithField: string -> EqArray<ExternalRecordCandidate>
             Platform: IPlatformFacts voption
-            AmbientOpenPrefixes: string list
+            ImplicitOpens: ImplicitOpen list
             IntrinsicTypeMap: IntrinsicTypeMap
             Scope: IScopeContents
         }
@@ -58,7 +58,7 @@ module ExternalSymbolProviders =
                 SymbolsByKey = Dictionary() :> IReadOnlyDictionary<_, _>
                 TryRecordsWithField = fun _ -> EqArray.empty
                 Platform = ValueNone
-                AmbientOpenPrefixes = []
+                ImplicitOpens = []
                 IntrinsicTypeMap = IntrinsicTypeMap.empty
             }
 
@@ -79,7 +79,7 @@ module ExternalSymbolProviders =
           interface IExternalSymbolResolver with
               member _.Scope = channels.Scope
               member _.TryRecordsWithField fieldName = channels.TryRecordsWithField fieldName
-              member _.AmbientOpenPrefixes = channels.AmbientOpenPrefixes
+              member _.ImplicitOpens = channels.ImplicitOpens
           interface IExternalSymbolStore with
               member _.TryLookupType(key: TypeKey) =
                   match channels.ShapesByKey.TryGetValue key with
@@ -132,8 +132,8 @@ module ExternalSymbolProviders =
         abstract TryRecordsWithField: fieldName: string -> EqArray<ExternalRecordCandidate>
         default _.TryRecordsWithField fieldName = inner.TryRecordsWithField fieldName
 
-        abstract AmbientOpenPrefixes: string list
-        default _.AmbientOpenPrefixes = inner.AmbientOpenPrefixes
+        abstract ImplicitOpens: ImplicitOpen list
+        default _.ImplicitOpens = inner.ImplicitOpens
 
         abstract TryLookupType: key: TypeKey -> ExternalTypeShape voption
         default _.TryLookupType key = inner.TryLookupType key
@@ -161,7 +161,7 @@ module ExternalSymbolProviders =
         interface IExternalSymbolResolver with
             member this.Scope = this.Scope
             member this.TryRecordsWithField fieldName = this.TryRecordsWithField fieldName
-            member this.AmbientOpenPrefixes = this.AmbientOpenPrefixes
+            member this.ImplicitOpens = this.ImplicitOpens
 
         interface IExternalSymbolStore with
             member this.TryLookupType(key: TypeKey) = this.TryLookupType key
@@ -184,7 +184,7 @@ module ExternalSymbolProviders =
     /// is never stamped, because a package spans as many as its files declare.
     let stack
         (stampHome: SymbolHome voption)
-        (ambient: string list)
+        (ambient: ImplicitOpen list)
         (providers: IExternalSymbolProvider list)
         : IExternalSymbolProvider =
         // Snapshot to an array so the hot lookup is an index loop, not list
@@ -278,7 +278,7 @@ module ExternalSymbolProviders =
                               yield! s.TryRecordsWithField fieldName
                       ]
 
-              member _.AmbientOpenPrefixes = ambient
+              member _.ImplicitOpens = ambient
           interface IExternalSymbolStore with
               member _.TryLookupType(key: TypeKey) =
                   firstHit (fun s -> s.TryLookupType key) |> ValueOption.map (stampHit key)
@@ -322,12 +322,12 @@ module ExternalSymbolProviders =
               member _.Platform = firstHit (fun s -> s.Platform)
         }
 
-    /// Each source's `[<AutoOpen>]` / prelude prefixes, in source priority order,
-    /// deduplicated keeping the FIRST sighting: packages share prelude prefixes.
-    let private collectAmbient (providers: IExternalSymbolProvider seq) : string list =
+    /// Each source's implicit opens, in source priority order, deduplicated keeping the
+    /// FIRST sighting: packages share the prelude their common dependency declares.
+    let collectImplicitOpens (providers: IExternalSymbolProvider seq) : ImplicitOpen list =
         [
             for s in providers do
-                yield! s.AmbientOpenPrefixes
+                yield! s.ImplicitOpens
         ]
         |> List.distinct
 
@@ -338,7 +338,7 @@ module ExternalSymbolProviders =
         match providers with
         | [] -> nullProvider
         | [ single ] -> single
-        | _ -> stack ValueNone (collectAmbient providers) providers
+        | _ -> stack ValueNone (collectImplicitOpens providers) providers
 
     /// Rebuild a provider so every `FrozenType` a VALUE can have (a parameter, a return, a
     /// field) passes through `transform` at that position's ROOT variance. A caller needing

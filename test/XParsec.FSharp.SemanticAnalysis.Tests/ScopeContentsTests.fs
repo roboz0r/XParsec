@@ -390,7 +390,7 @@ module P =
                         let scope = scopeOfCases [ "Vesper" ] []
 
                         // A `namespace Vesper` header under an ambient `Vesper` prelude prefix.
-                        match ScopeContents.openedContainers scope [ "Vesper"; "Vesper" ] with
+                        match ScopeContents.openedContainers scope [ "Vesper"; "Vesper" ] [] with
                         | [ r; v ] ->
                             Expect.equal r root "the root namespace leads"
                             Expect.equal (moduleName v) "namespace Vesper" "the prefix, once"

@@ -21,7 +21,7 @@ let private provider: IExternalSymbolProvider =
     providerOfSurface (fun b ->
         PublishedSurfaceBuilder.addType b (SymbolKeyOps.qualifiedTypeKeyOf "Tests.Widget" 0) widget
         PublishedSurfaceBuilder.addType b (SymbolKeyOps.qualifiedTypeKeyOf "Tests.Box`1" 1) box
-        b.AmbientOpenPrefixes <- [ "Tests" ]
+        b.ImplicitOpens <- [ SymbolKeyOps.assemblyAutoOpen "Tests" ]
     )
 
 let private analyse (input: string) = analyseNameRes provider input

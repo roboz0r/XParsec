@@ -9,9 +9,9 @@ raw CST — a literal; a named constant through `AttributeFold.tryNamedConstant`
 value first, then an enum case, matching expression resolution's shadowing);
 `|||`/`&&&`/`^^^` on integral constants of one width; unary minus. `AttributeFold` enforces
 `AttributeUsage` target masks (FS0842) at every folded position, signature and impl path alike.
-Gaps ptest-pinned already, needing no entry here: the bracket-sibling misfold and
-`AllowMultiple` (`AttributeFoldTests`), union-case/enum-case rows and property-row placement
-(`AttributeRowTests`).
+Gaps ptest-pinned already, needing no entry here: `AllowMultiple` (`AttributeFoldTests`),
+union-case/enum-case rows and property-row placement (`AttributeRowTests`). The
+bracket-sibling misfold was a CST parse defect and is fixed.
 
 ## 1. The literal contract leg
 

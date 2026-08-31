@@ -17,7 +17,7 @@ let private providerFor (shape: ExternalTypeShape) : IExternalSymbolProvider =
     let stub =
         providerOfSurface (fun b ->
             PublishedSurfaceBuilder.addType b (SymbolKeyOps.qualifiedTypeKeyOf "Tests.Widget" 0) shape
-            b.AmbientOpenPrefixes <- [ "Tests" ]
+            b.ImplicitOpens <- [ SymbolKeyOps.assemblyAutoOpen "Tests" ]
         )
 
     ExternalSymbolProviders.composite [ stub; realProvider.Value ]

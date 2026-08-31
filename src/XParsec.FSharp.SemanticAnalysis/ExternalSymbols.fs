@@ -235,10 +235,18 @@ module ScopeContents =
             | ValueNone -> ValueNone
         | _ -> scope.TryValue(ModuleContainer.InNamespace NamespaceKey.Global, written)
 
-    /// The containers a BARE name is read against: the root namespace, then each of
-    /// `prefixes` that names one, deduplicated. `OpenScope.Prefixes` repeats a prefix a
-    /// namespace header and an ambient prelude both carry.
-    let openedContainers (scope: IScopeContents) (prefixes: string list) : ModuleContainer list =
+    /// The containers a BARE name is read against, in search order: the root namespace, each
+    /// of `prefixes` that names one, then `implicitOpens`, deduplicated. A written `open`
+    /// shadows an implicit one, and `prefixes` repeats a path a namespace header and an
+    /// enclosing scope both carry.
+    ///
+    /// CAUTION: `prefixes` are matched by FULL path, so a `open` written relative to an
+    /// enclosing one contributes nothing here. See `docs/open-overhaul-plan.md`.
+    let openedContainers
+        (scope: IScopeContents)
+        (prefixes: string list)
+        (implicitOpens: ImplicitOpen list)
+        : ModuleContainer list =
         let found = ResizeArray<ModuleContainer>()
         found.Add(ModuleContainer.InNamespace NamespaceKey.Global)
 
@@ -246,6 +254,12 @@ module ScopeContents =
             match scope.TryContainer p with
             | ValueSome c when not (found.Contains c) -> found.Add c
             | _ -> ()
+
+        for o in implicitOpens do
+            let c = o.Container
+
+            if not (found.Contains c) then
+                found.Add c
 
         List.ofSeq found
 
@@ -361,9 +375,9 @@ type IExternalSymbolResolver =
     /// record-literal / record-pattern resolution intersects these sets to pin the type.
     abstract TryRecordsWithField: fieldName: string -> EqArray<ExternalRecordCandidate>
 
-    /// The AMBIENT `[<AutoOpen>]` open prefixes this provider contributes, probed strictly
-    /// BEHIND every explicit `open`; earliest wins: `["Vesper.ArithmeticOperators"; "Vesper"]`.
-    abstract AmbientOpenPrefixes: string list
+    /// What this provider opens with no `open` written for it. In search order, earliest
+    /// wins, probed strictly BEHIND every explicit `open`.
+    abstract ImplicitOpens: ImplicitOpen list
 
 /// What the COMPILING TARGET lays out and encodes, which no `.fsi` can state: `int` is a
 /// value type on the CLR and nothing is on JS. Implemented only by a source that IS the

@@ -76,6 +76,10 @@ files = [
     # real types in a `newobj`. After `prim-types-exn.fsi` — each inherits `exn`.
     "exceptions.js.fsi",
     "exceptions.js.fs",
+    # Last: `[<assembly: AutoOpen>]` names `AutoOpenAttribute`, declared in
+    # `compiler-attributes`. The prelude it declares holds over every file above it.
+    "assembly-info.fsi",
+    "assembly-info.fs",
 ]
 
 # The package's committed JS output, behind the generated `Vesper.Core/index.mjs` barrel.

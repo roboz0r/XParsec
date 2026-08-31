@@ -171,12 +171,10 @@ type AttributeVerdict =
 
 type PassContextResolution =
     {
-        /// The prefixes active at the module element being analysed. `open` is declaration-level,
-        /// so this stays constant inside any one expression. Seeded to `AmbientOpenScope`.
+        /// The `open`s written above the module element being analysed. `open` is
+        /// declaration-level, so this stays constant inside any one expression. Auto-opens
+        /// are absent: they are the resolver's, not this file's written scope.
         mutable OpenScope: OpenScope
-        /// The stable prelude: the referenced contracts' `[<AutoOpen>]` modules. Held apart
-        /// from `OpenScope`, which each walk overwrites per element.
-        mutable AmbientOpenScope: OpenScope
         /// The chain enclosing the element being analysed, set in lockstep with `OpenScope`.
         mutable EnclosingContainer: ModuleContainer voption
         /// The type parameters in scope, by source name. Anonymous typars (`_`) never
@@ -251,10 +249,9 @@ type PassContextResolution =
     }
 
 module PassContextResolution =
-    let create (ambient: OpenScope) : PassContextResolution =
+    let create () : PassContextResolution =
         {
-            OpenScope = ambient
-            AmbientOpenScope = ambient
+            OpenScope = OpenScope.empty
             EnclosingContainer = ValueNone
             TyparScope = Dictionary<string, TyVarId>(System.StringComparer.Ordinal)
             BindingTyparSeed = ValueNone
@@ -315,12 +312,6 @@ type PassContext(provider: IExternalSymbolProvider, file: LexedFile, assembly: C
     // Shadows the ctor arg, so every member below sees the memoised view.
     let provider = ExternalSymbolProviders.memoize provider
 
-    // The ambient prefixes sit LAST, so explicit `open`s the walk prepends win.
-    let ambientOpenScope =
-        { OpenScope.empty with
-            Prefixes = provider.AmbientOpenPrefixes
-        }
-
     // `IntrinsicBindings` holds ONLY this file's own intrinsic bindings
     // (`type int = (# "System.Int32" #)`); a referenced package's are read from the provider.
     let types = PassContextTypes.empty ()
@@ -349,12 +340,16 @@ type PassContext(provider: IExternalSymbolProvider, file: LexedFile, assembly: C
     /// comparable), resolved once from contract names, so no BCL identity is hardcoded.
     member val CapabilityIds = ExternalSymbols.resolveCapabilities provider with get
 
-    /// Resolved ONCE against the ambient prelude scope: the names are opens-insensitive, so it
-    /// hits what a per-node resolve would. `lazy`, so a file with no such access pays nothing.
+    /// What is in scope with no `open` written for it, contributed by the resolver's whole
+    /// reference set.
+    member _.ImplicitOpens: ImplicitOpen list = provider.ImplicitOpens
+
+    /// Resolved ONCE against the implicitly opened scope: the names are opens-insensitive, so
+    /// it hits what a per-node resolve would. `lazy`, so a file with no such access pays nothing.
     member val CoreAccess: Lazy<CoreAccessIntrinsics> =
         lazy
             (let containers =
-                ScopeContents.openedContainers provider.Scope ambientOpenScope.Prefixes
+                ScopeContents.openedContainers provider.Scope [] provider.ImplicitOpens
 
              let one (name: string) =
                  ScopeContents.tryValueIn provider.Scope containers name
@@ -428,7 +423,7 @@ type PassContext(provider: IExternalSymbolProvider, file: LexedFile, assembly: C
         lazy (IntrinsicTypeMap.shadow (IntrinsicTypeMap.ofBindings types.IntrinsicBindings) provider.IntrinsicTypeMap) with get
 
     member val Bindings = PassContextBindings.empty () with get
-    member val Resolution = PassContextResolution.create ambientOpenScope with get
+    member val Resolution = PassContextResolution.create () with get
 
     /// Make `scope` the typar scope until the handle is disposed, which restores both the
     /// scope and the strictness of the enclosing one. Bind it with `use`.

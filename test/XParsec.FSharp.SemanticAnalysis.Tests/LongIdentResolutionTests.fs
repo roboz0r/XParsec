@@ -396,6 +396,11 @@ module N =
                     // name, and a later `open` shadows an earlier one. Pinned by TYPE: each
                     // module's `f` returns a different type, so the annotation says which one
                     // resolved.
+                    // Confirmed failure mode: BOTH `x` and `y` report `Unresolved identifier: f`.
+                    // Ordering is never reached — `openedContainers` resolves a prefix through
+                    // `TryContainer`, which is keyed by FULL path, so the relative `open A` and
+                    // `open B` under `open Test.Lib` name no container on the bare-name route.
+                    // Writing them absolute (`open Test.Lib.A`) resolves.
                     ptest "GAP a later `open` shadows an earlier `open`" {
                         let all =
                             analyse
@@ -425,7 +430,9 @@ let y : string = f ()
 "
                                 ]
 
-                        Expect.isEmpty (errorsOf all.[1]) "x resolves A.f, y resolves B.f"
+                        Expect.isEmpty
+                            (errorsOf all.[1])
+                            (sprintf "x resolves A.f, y resolves B.f: %A" [ for d in errorsOf all.[1] -> d.Message ])
                     }
                     ptest "GAP a later `open` shadows an earlier local declaration" {
                         let all =

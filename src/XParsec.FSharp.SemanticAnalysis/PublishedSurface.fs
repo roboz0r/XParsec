@@ -47,8 +47,8 @@ type PublishedSurfaceBuilder =
         /// The source spelling of a value whose compiled name differs, and the binding it
         /// names. First spelling wins.
         SourceSpellings: Dictionary<SourceSpelling, BindingKey>
-        /// Prefixes a consumer resolves through with no `open` of its own.
-        mutable AmbientOpenPrefixes: string list
+        /// What a consumer resolves through with no `open` of its own.
+        mutable ImplicitOpens: ImplicitOpen list
     }
 
 [<RequireQualifiedAccess>]
@@ -64,7 +64,7 @@ module PublishedSurfaceBuilder =
             RecordFields = Dictionary(StringComparer.Ordinal)
             Symbols = Dictionary(HashIdentity.Structural)
             SourceSpellings = Dictionary(HashIdentity.Structural)
-            AmbientOpenPrefixes = []
+            ImplicitOpens = []
         }
 
     /// Index `m` and every module enclosing it, so a type held anywhere down the chain is
@@ -225,9 +225,10 @@ type PublishedSurface =
         /// producer cannot put a CAPABILITY interface here: it carries its platform name on
         /// its own identity and must stay OFF this axis.
         Intrinsics: IntrinsicTypeMap
-        /// Prefixes a consumer resolves through with no `open` of its own, in SEARCH order:
-        /// the one table that is not key-ordered.
-        AmbientOpenPrefixes: EqArray<string>
+        /// What a consumer resolves through with no `open` of its own, in SEARCH order: the
+        /// one table that is not key-ordered. `CurrentFileScope` never appears: a file's own
+        /// namespace header does not cross the assembly boundary.
+        ImplicitOpens: EqArray<ImplicitOpen>
     }
 
 [<RequireQualifiedAccess>]
@@ -287,7 +288,7 @@ module PublishedSurface =
                             | _ -> ()
                     }
                 )
-            AmbientOpenPrefixes = EqArray.ofList b.AmbientOpenPrefixes
+            ImplicitOpens = EqArray.ofList b.ImplicitOpens
         }
 
     /// The surface `fill` accumulates. `ofBuilder` is for a producer threading one builder
@@ -452,6 +453,6 @@ module PublishedSurface =
                         match recordFields.TryGetValue fieldName with
                         | true, cs -> cs
                         | _ -> EqArray.empty
-                AmbientOpenPrefixes = List.ofSeq surface.AmbientOpenPrefixes
+                ImplicitOpens = List.ofSeq surface.ImplicitOpens
                 IntrinsicTypeMap = surface.Intrinsics
             }

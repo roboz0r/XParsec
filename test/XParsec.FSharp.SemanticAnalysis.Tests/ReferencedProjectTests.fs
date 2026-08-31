@@ -379,22 +379,29 @@ let tests =
                     "bare int is a provider miss"
             }
 
-            test "the contract surfaces its [<AutoOpen>] modules + the language prelude as the ambient prefix set" {
+            test "the contract surfaces its [<AutoOpen>] modules ahead of its own declared prelude" {
                 let provider, _ = builtProvider.Value
-                let prefixes = provider.AmbientOpenPrefixes
-                // `ops-platform.fsi`'s `[<AutoOpen>]` modules, then the fixed prelude. The
-                // prelude is a language constant: a package declaring no `Vesper.Collections`
-                // type still carries the prefix, and it resolves nothing.
+                let autoOpens = provider.ImplicitOpens
+                let named = [ for o in autoOpens -> SymbolKeyOps.containerFullName o.Container ]
+
+                // `ops-platform.fsi`'s `[<AutoOpen>]` modules, then the namespaces
+                // `assembly-info.fs`'s `[<assembly: AutoOpen("…")>]` attributes name.
                 Expect.isTrue
-                    (List.contains "Vesper.ArithmeticOperators" prefixes)
+                    (List.contains "Vesper.ArithmeticOperators" named)
                     "ArithmeticOperators auto-open surfaced"
 
-                Expect.isTrue (List.contains "Vesper.Operators" prefixes) "Operators (hash) auto-open surfaced"
+                Expect.isTrue (List.contains "Vesper.Operators" named) "Operators (hash) auto-open surfaced"
+
+                let prelude =
+                    [
+                        SymbolKeyOps.assemblyAutoOpen "Vesper"
+                        SymbolKeyOps.assemblyAutoOpen "Vesper.Collections"
+                    ]
 
                 Expect.equal
-                    (prefixes |> List.skip (prefixes.Length - RuntimeNames.preludeNamespaces.Length))
-                    RuntimeNames.preludeNamespaces
-                    "the prelude comes LAST (probed after the AutoOpen modules)"
+                    (autoOpens |> List.skip (autoOpens.Length - prelude.Length))
+                    prelude
+                    "the declared prelude comes LAST (probed after the AutoOpen modules)"
             }
 
             test "an unknown type misses" {

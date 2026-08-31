@@ -45,21 +45,22 @@ module Containment =
 
             List.ofSeq scopes
 
-        /// The full COMPILED name of each `[<AutoOpen>]` module enclosing `c`, outermost first:
-        /// the prefixes something declared here is reachable through with no `open` written for it.
-        member this.AutoOpenContainersOf(c: DeclContainment<SyntaxToken>) : string list =
+        /// Each `[<AutoOpen>]` module enclosing `c`, outermost first: what something declared
+        /// here is reachable through with no `open` written for it.
+        member this.ImplicitOpensOf(c: DeclContainment<SyntaxToken>) : ImplicitOpen list =
             let mutable container =
                 ModuleContainer.InNamespace(SymbolKeyOps.namespaceKey c.Namespace)
 
-            let prefixes = ResizeArray<string>()
+            let opened = ResizeArray<ImplicitOpen>()
 
             for md in c.Modules do
-                container <- ModuleContainer.InModule(SymbolKeyOps.moduleKeyOf container (this.CompiledModuleName md))
+                let key = SymbolKeyOps.moduleKeyOf container (this.CompiledModuleName md)
+                container <- ModuleContainer.InModule key
 
                 if AttributeDecode.isAutoOpen (this.ResolveAttributes md.Attributes) then
-                    prefixes.Add(SymbolKeyOps.containerFullName container)
+                    opened.Add(ImplicitOpen.AutoOpen key)
 
-            List.ofSeq prefixes
+            List.ofSeq opened
 
         /// `namespace N` + `module A = module B =` yields `B ∈ A ∈ N`.
         member this.ContainerChainOf(c: DeclContainment<SyntaxToken>) : ModuleContainer =

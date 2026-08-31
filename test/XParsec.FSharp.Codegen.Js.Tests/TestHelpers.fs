@@ -395,17 +395,16 @@ let runJs (name: string) (input: string) : (int * string) option =
 
 /// Composes `sources` (no home assembly), then the covariant `number → float` resolution and
 /// the per-lookup cache, in production's order.
-let stackJs (ambient: string list) (sources: IExternalSymbolProvider list) : IExternalSymbolProvider =
+let stackJs (ambient: ImplicitOpen list) (sources: IExternalSymbolProvider list) : IExternalSymbolProvider =
     ExternalSymbolProviders.stack ValueNone ambient sources
     |> NumberCovariance.wrap
     |> ExternalSymbolProviders.memoize
 
-/// `stackJs` with the ambient prefix set AGGREGATED from the sources, as production does.
-/// `stackJs []` over a Vesper contract source drops the `Vesper` open-prefix the intrinsic
+/// `stackJs` with the implicit-open set AGGREGATED from the sources, as production does.
+/// `stackJs []` over a Vesper contract source drops the `Vesper` implicit open the intrinsic
 /// resolver needs to find `Vesper.unit`/`Vesper.int`/`Vesper.undefined` beneath a TS manifest.
 let stackWithAmbient (sources: IExternalSymbolProvider list) : IExternalSymbolProvider =
-    let ambient = sources |> List.collect (fun s -> s.AmbientOpenPrefixes)
-    stackJs ambient sources
+    stackJs (ExternalSymbolProviders.collectImplicitOpens sources) sources
 
 /// `providerOfManifest` under the JS contract's intrinsic axis, so a manifest-spelled
 /// canon name (`string`, `float`, `undefined`) mints its `Vesper` identity as in production.

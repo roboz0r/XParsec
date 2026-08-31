@@ -191,15 +191,11 @@ module internal UnificationInferResolve =
         else
             let key = cand.TypeKey
 
-            let container =
-                match key.Container with
-                | TypeContainer.InNamespace ns -> ValueSome ns.Dotted
-                | TypeContainer.InModule m -> ValueSome(SymbolKeyOps.moduleFullName m)
-                | TypeContainer.InType _ -> ValueNone
-
-            match container with
+            match SymbolKeyOps.tryModuleContainerOf key.Container with
             | ValueNone -> false
-            | ValueSome h ->
+            | ValueSome c when ctx.ImplicitOpens |> List.exists (fun o -> o.Container = c) -> true
+            | ValueSome c ->
+                let h = SymbolKeyOps.containerFullName c
                 let (DisplayName simple) = SymbolKeyOps.typeSimpleName key
                 let dotted = if h = "" then simple else h + "." + simple
 

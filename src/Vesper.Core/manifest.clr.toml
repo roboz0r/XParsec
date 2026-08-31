@@ -50,4 +50,8 @@ files = [
     "ops-std.fs",
     "int-comparison.fsi",
     "int-comparison.clr.fs",
+    # Last: `[<assembly: AutoOpen>]` names `AutoOpenAttribute`, declared in
+    # `compiler-attributes`. The prelude it declares holds over every file above it.
+    "assembly-info.fsi",
+    "assembly-info.fs",
 ]

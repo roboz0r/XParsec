@@ -78,6 +78,25 @@ and ModuleKey =
 
     member this.Namespace: NamespaceKey = this.Container.Namespace
 
+/// A path in scope with no `open` written for it. The case records the construct that
+/// declared it, which is what fixes its reach.
+[<RequireQualifiedAccess>]
+type ImplicitOpen =
+    /// `[<assembly: AutoOpen("…")>]`: in scope for every file compiled against the assembly.
+    | AssemblyAutoOpen of ns: NamespaceKey
+    /// `[<AutoOpen>]` on the module itself: in scope wherever its enclosing scope is open.
+    | AutoOpen of md: ModuleKey
+    /// A file's own `namespace N` header, implicitly opened over that file's body alone.
+    /// Never crosses the assembly boundary.
+    | CurrentFileScope of ns: NamespaceKey
+
+    /// The scope a name it brings into view is read against.
+    member this.Container: ModuleContainer =
+        match this with
+        | ImplicitOpen.AssemblyAutoOpen ns
+        | ImplicitOpen.CurrentFileScope ns -> ModuleContainer.InNamespace ns
+        | ImplicitOpen.AutoOpen md -> ModuleContainer.InModule md
+
 [<RequireQualifiedAccess>]
 type TypeContainer =
     | InNamespace of ns: NamespaceKey

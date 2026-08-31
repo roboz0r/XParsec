@@ -50,7 +50,7 @@ type private CountingProvider(name: string) =
     interface IExternalSymbolResolver with
         member _.Scope = scope
         member _.TryRecordsWithField _ = EqArray.empty
-        member _.AmbientOpenPrefixes = []
+        member _.ImplicitOpens = []
 
     interface IExternalSymbolStore with
         member _.TryLookupType(key: TypeKey) =

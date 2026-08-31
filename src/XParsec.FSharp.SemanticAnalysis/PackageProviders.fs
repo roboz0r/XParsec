@@ -156,14 +156,15 @@ module PackageProviders =
                 analysed.Add u
 
         // What a consumer resolves through: this package's `[<AutoOpen>]` modules (most
-        // specific, e.g. `Vesper.ArithmeticOperators`) ahead of the language prelude.
+        // specific, e.g. `Vesper.ArithmeticOperators`) ahead of the namespaces its
+        // `[<assembly: AutoOpen("…")>]` attributes name.
         let ambient =
             [
                 for s in surfaces do
-                    yield! s.AmbientOpenPrefixes
+                    yield! s.ImplicitOpens
+                yield! analysedUnits.AutoOpens
             ]
             |> List.distinct
-            |> (fun prefixes -> prefixes @ RuntimeNames.preludeNamespaces)
 
         let runtimeAssets = ReferencedProject.runtimeModules [ manifest ]
 

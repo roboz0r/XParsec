@@ -28,7 +28,7 @@ let private provider: IExternalSymbolProvider =
                 mkStaticProperty boxKey "Empty" (FTClass(boxKey, EqArray.ofList [ FTTypar(TyparAxis.Declaring, 0) ]))
             ]
 
-        b.AmbientOpenPrefixes <- [ "Tests" ]
+        b.ImplicitOpens <- [ SymbolKeyOps.assemblyAutoOpen "Tests" ]
     )
 
 let private analyse (input: string) = analyseNameRes provider input
@@ -120,7 +120,8 @@ let tests =
                         publishUnion b (SymbolKeyOps.qualifiedTypeKeyOf "Early.Thing" 0) []
                         publishClass b (SymbolKeyOps.qualifiedTypeKeyOf "Late.Thing" 0) []
                         // Candidate order is this list's order — `Early` wins.
-                        b.AmbientOpenPrefixes <- [ "Early"; "Late" ]
+                        b.ImplicitOpens <-
+                            [ SymbolKeyOps.assemblyAutoOpen "Early"; SymbolKeyOps.assemblyAutoOpen "Late" ]
                     )
 
                 let ctx, file = analyseNameRes shadowingProvider "let x = Thing 1"

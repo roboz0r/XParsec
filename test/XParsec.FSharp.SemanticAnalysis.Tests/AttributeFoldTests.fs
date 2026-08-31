@@ -360,9 +360,9 @@ let tests =
                 | other -> failtestf "expected exactly one error, got %A" other
             }
 
-            ptest "GAP: an argument-bearing attribute before a bracket sibling misfolds" {
-                // `[<Mark(2, "u"); RequireQualifiedAccess>]` in ONE bracket: both attributes
-                // should fold; today the shape misfolds.
+            test "an argument-bearing attribute folds beside a bracket sibling" {
+                // `[<Mark(2, "u"); RequireQualifiedAccess>]` in ONE bracket: the `;` separates
+                // the two attributes rather than sequencing `Mark`'s argument.
                 let pools =
                     freezeFor (
                         src

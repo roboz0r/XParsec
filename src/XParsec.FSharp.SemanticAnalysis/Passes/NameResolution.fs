@@ -614,6 +614,6 @@ module NameResolution =
         // Capture local-module structure before the flattened walk erases it.
         registerLocalModules ctx file
         let walker = mkWalker ctx
-        // Seeded from the ambient prelude, not `ctx.Resolution.OpenScope`, which `walkElems`
-        // overwrites per element.
-        walkElems ctx walker (CstModuleTree.walkImpl ctx.NameOf ctx.Resolution.AmbientOpenScope file)
+        // Seeded empty, not from `ctx.Resolution.OpenScope`, which `walkElems` overwrites per
+        // element. Auto-opens are not written scope: they sit on the resolver.
+        walkElems ctx walker (CstModuleTree.walkImpl ctx.NameOf OpenScope.empty file)

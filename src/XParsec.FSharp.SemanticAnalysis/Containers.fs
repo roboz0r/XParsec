@@ -93,6 +93,9 @@ module NameResolutionContainers =
             for p in ctx.Resolution.OpenScope.Prefixes do
                 atPath (p + "." + segment)
 
+            for o in ctx.ImplicitOpens do
+                add (subContainer ctx o.Container segment)
+
             atPath segment
 
         List.ofSeq found
@@ -102,7 +105,8 @@ module NameResolutionContainers =
     /// its segments denote.
     let containersOf (ctx: PassContext) (useSite: UseSite) (qualifier: Qualifier) : ModuleContainer list =
         match qualifier with
-        | Qualifier.Bare -> ScopeContents.openedContainers ctx.Resolver.Scope ctx.Resolution.OpenScope.Prefixes
+        | Qualifier.Bare ->
+            ScopeContents.openedContainers ctx.Resolver.Scope ctx.Resolution.OpenScope.Prefixes ctx.ImplicitOpens
         | Qualifier.Path segments ->
             let rec descend (cs: ModuleContainer list) (i: int) =
                 if i = segments.Length then

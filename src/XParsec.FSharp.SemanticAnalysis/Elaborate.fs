@@ -282,7 +282,7 @@ module Elaborate =
     let elaborate (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : (TDecl * (TyVarId * SemType) list) list =
         // The flattened walk NameResolution and Unification take: a by-name read during
         // lowering resolves from the module and `open`s it is written under.
-        CstModuleTree.walkImpl ctx.NameOf ctx.Resolution.AmbientOpenScope file
+        CstModuleTree.walkImpl ctx.NameOf OpenScope.empty file
         |> List.collect (fun w ->
             ctx.EnterElement w
             translateModuleElem ctx w.Elem

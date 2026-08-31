@@ -146,8 +146,9 @@ written, as F# resolves them, across files as well as within one.
 Two things sit under the package's own files in that stack:
 
 - the **dependency provider** described above, and
-- the **language prelude** (`RuntimeNames.preludeNamespaces`) as a source that
-  resolves nothing and publishes only prefixes, so a `.fsi` in
+- the package's **own prelude**, read off the `[<assembly: AutoOpen("…")>]`
+  attributes of its implementation files before the fold begins, as a source that
+  resolves nothing and publishes only auto-opens, so a `.fsi` in
   `namespace Vesper.Collections` names `unit` exactly as a consumer would.
 
 Before each `.fsi` is resolved, the `(# … #)` bindings of its paired `.fs` are read
@@ -155,8 +156,8 @@ into one table. A contract commits `type exn = extern` and leaves the spelling t
 implementation, so the repr has to be available when the `extern` is published.
 
 What the package publishes is the composite of its own files' surfaces, stamped
-with `SymbolHome.InAssembly` and carrying its `[<AutoOpen>]` prefixes ahead of the
-prelude.
+with `SymbolHome.InAssembly` and carrying its `[<AutoOpen>]` modules ahead of the
+namespaces its assembly-level attributes name.
 
 ### Kinding a type constructor
 
