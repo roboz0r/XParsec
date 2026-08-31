@@ -530,22 +530,20 @@ module rec R =
 "
                         ]
 
-                    // `openedContainers` resolves a prefix through `TryContainer`, which is keyed
-                    // by FULL path, so a relative `open` contributes no container on the
-                    // bare-name route. Confirmed failure mode: `Unresolved identifier: f`.
+                    // An `open` written relative to an enclosing one, on the bare-name route.
                     testList
-                        "STEP 1 — a relative `open` on the bare-name route"
+                        "a relative `open` on the bare-name route"
                         [
-                            presolves
-                                "STEP 1: `open Test.Lib` then `open A` reaches a bare `f`"
+                            resolves
+                                "`open Test.Lib` then `open A` reaches a bare `f`"
                                 openOrderLib
                                 "\
 open Test.Lib
 open A
 let x : int = f ()
 "
-                            preports
-                                "STEP 1: a relative `open` resolves to that module's `f`"
+                            reports
+                                "a relative `open` resolves to that module's `f`"
                                 typeMismatch
                                 openOrderLib
                                 "\

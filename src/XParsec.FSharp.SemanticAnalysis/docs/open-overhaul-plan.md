@@ -1,9 +1,8 @@
 # One ranked scope stack for `open`
 
-*UNSTARTED. Written 2026-08-31 against the code as it stands after the `ImplicitOpen` rename.
-Two separable defects are described. Defect A is small, independently verifiable, and does not
-depend on the rest; defect B is the overhaul. Steps are ordered 1 → 2 → 3 → 4, and step 1 is
-worth landing on its own whatever happens to the rest.*
+*STEP 1 LANDED; steps 2-4 unstarted. Written 2026-08-31 against the code as it stands after the
+`ImplicitOpen` rename. Two separable defects are described. Defect A is closed; defect B is the
+overhaul. Steps are ordered 1 → 2 → 3 → 4.*
 
 *Scope is `SemanticAnalysis` alone. `IExternalSymbolResolver.ImplicitOpens`
 (`ExternalSymbols.fs:380`) is implemented in `Codegen.Clr` and `Codegen.Js`, but both return the
@@ -28,7 +27,9 @@ One channel already does the right thing, for one kind of symbol. `TypeRegistry.
 (`SymbolKeys.fs:133`) over them. That is the model this plan generalises. It applies today to
 this file's own **types** and to nothing else.
 
-### Defect A — a relative `open` is dropped on the bare-name route
+### Defect A — a relative `open` is dropped on the bare-name route — CLOSED
+
+Closed by step 1. What follows is the diagnosis as written.
 
 `ScopeContents.openedContainers` (`ExternalSymbols.fs:245`) resolves each prefix with
 `scope.TryContainer p`, which is keyed by FULL path (compare `childPath`, `Containers.fs:56`).
@@ -107,12 +108,15 @@ Resolution becomes "walk in rank order, first hit wins" for values, cases and ty
 
 ## Staged plan
 
-**Step 1 — close defect A.** Make `openedContainers` compose a relative prefix against the
-containers already found, as `firstSegmentContainers` does, or resolve prefixes to containers at
-the walk. Un-pend the `STEP 1` list of `LongIdentResolutionTests.fs`, whose two cases isolate the
-relative spelling against the absolute-open control already passing beside them.
+**Step 1 — close defect A. DONE.** `openedContainers` resolves the prefix list innermost-first
+through `prefixContainer`, which reads a prefix under the containers the enclosing prefixes
+denote, nearest first, before falling back to the full path from the root. Both cases of the
+former `STEP 1` list of `LongIdentResolutionTests.fs` are un-pended and green, as are
+`XParsec.FSharp.SemanticAnalysis.Tests`, `XParsec.FSharp.Codegen.Clr.Tests`,
+`XParsec.FSharp.Codegen.Js.Tests` and `Vesper.Tests`.
 
-Independent of steps 2-4 and worth landing alone.
+Relative-before-absolute matches `firstSegmentContainers` and `dotnet fsi`, so a namespace
+header now also qualifies an `open` written under it.
 
 **Step 2 — carry the container.** Add `Container: ModuleContainer voption` to `LocalOpen`, filled
 at `CstModuleTree.fs:218`. Additively, beside `Path`, per the repo's swap-behind-an-alias rule.
