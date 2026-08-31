@@ -1,0 +1,178 @@
+module               'module'          KWModule            tok=   0  pos=   0
+                     'Test402'         Identifier          tok=   2  pos=   7
+TypeDefn.Anon:
+  [<                 '[<'              KWLAttrBracket      tok=  12  pos= 235
+  NamedType:
+    Ident            'CompiledNa...'   Identifier          tok=  13  pos= 237
+  ParenBlock         '('               KWLParen            tok=  14  pos= 249
+    StringLiteral    '"'               StringOpen          tok=  15  pos= 250
+    Parts:
+      Text           'first'           StringFragment      tok=  16  pos= 251
+                     '"'               StringClose         tok=  17  pos= 256
+                     ')'               KWRParen            tok=  18  pos= 257
+  ;                  ';'               OpSemicolon         tok=  19  pos= 258
+  NamedType:
+    Ident            'Sealed'          Identifier          tok=  21  pos= 260
+  >]                 '>]'              KWRAttrBracket      tok=  22  pos= 266
+  TypeName           'A'               Identifier          tok=  26  pos= 274
+  (                  '('               KWLParen            tok=  27  pos= 275
+  )                  ')'               KWRParen            tok=  28  pos= 276
+  =                  '='               OpEquality          tok=  30  pos= 278
+  begin              <virt>            KWBegin             tok=virt  pos= 284
+    member           'member'          KWMember            tok=  33  pos= 284
+    self             '_'               Wildcard            tok=  35  pos= 291
+    Pat.NamedSimple  'M'               Identifier          tok=  37  pos= 293
+    Pats:
+      ParenBlock     '('               KWLParen            tok=  38  pos= 294
+                     ')'               KWRParen            tok=  39  pos= 295
+    =                '='               OpEquality          tok=  41  pos= 297
+      ParenBlock     '('               KWLParen            tok=  43  pos= 299
+                     ')'               KWRParen            tok=  44  pos= 300
+  end                <virt>            KWEnd               tok=virt  pos= 303
+TypeDefn.Anon:
+  [<                 '[<'              KWLAttrBracket      tok=  47  pos= 303
+  NamedType:
+    Ident            'Obsolete'        Identifier          tok=  48  pos= 305
+  ParenBlock         '('               KWLParen            tok=  49  pos= 313
+    StringLiteral    '"'               StringOpen          tok=  50  pos= 314
+    Parts:
+      Text           'gone'            StringFragment      tok=  51  pos= 315
+                     '"'               StringClose         tok=  52  pos= 319
+                     ')'               KWRParen            tok=  53  pos= 320
+  ;                  ';'               OpSemicolon         tok=  54  pos= 321
+  NamedType:
+    Ident            'CompiledNa...'   Identifier          tok=  56  pos= 323
+  ParenBlock         '('               KWLParen            tok=  57  pos= 335
+    StringLiteral    '"'               StringOpen          tok=  58  pos= 336
+    Parts:
+      Text           'second'          StringFragment      tok=  59  pos= 337
+                     '"'               StringClose         tok=  60  pos= 343
+                     ')'               KWRParen            tok=  61  pos= 344
+  >]                 '>]'              KWRAttrBracket      tok=  62  pos= 345
+  TypeName           'B'               Identifier          tok=  66  pos= 353
+  (                  '('               KWLParen            tok=  67  pos= 354
+  )                  ')'               KWRParen            tok=  68  pos= 355
+  =                  '='               OpEquality          tok=  70  pos= 357
+  begin              <virt>            KWBegin             tok=virt  pos= 363
+    member           'member'          KWMember            tok=  73  pos= 363
+    self             '_'               Wildcard            tok=  75  pos= 370
+    Pat.NamedSimple  'M'               Identifier          tok=  77  pos= 372
+    Pats:
+      ParenBlock     '('               KWLParen            tok=  78  pos= 373
+                     ')'               KWRParen            tok=  79  pos= 374
+    =                '='               OpEquality          tok=  81  pos= 376
+      ParenBlock     '('               KWLParen            tok=  83  pos= 378
+                     ')'               KWRParen            tok=  84  pos= 379
+  end                <virt>            KWEnd               tok=virt  pos= 382
+TypeDefn.Anon:
+  [<                 '[<'              KWLAttrBracket      tok=  87  pos= 382
+  NamedType:
+    Ident            'Foo'             Identifier          tok=  88  pos= 384
+  ParenBlock         '('               KWLParen            tok=  89  pos= 387
+    Const            '1'               NumInt32            tok=  90  pos= 388
+                     ')'               KWRParen            tok=  91  pos= 389
+  ;                  ';'               OpSemicolon         tok=  92  pos= 390
+  NamedType:
+    Ident            'Bar'             Identifier          tok=  94  pos= 392
+  ParenBlock         '('               KWLParen            tok=  95  pos= 395
+    Const            '2'               NumInt32            tok=  96  pos= 396
+                     ')'               KWRParen            tok=  97  pos= 397
+  ;                  ';'               OpSemicolon         tok=  98  pos= 398
+  NamedType:
+    Ident            'Baz'             Identifier          tok= 100  pos= 400
+  ParenBlock         '('               KWLParen            tok= 101  pos= 403
+    Const            '3'               NumInt32            tok= 102  pos= 404
+                     ')'               KWRParen            tok= 103  pos= 405
+  >]                 '>]'              KWRAttrBracket      tok= 104  pos= 406
+  TypeName           'C'               Identifier          tok= 108  pos= 414
+  (                  '('               KWLParen            tok= 109  pos= 415
+  )                  ')'               KWRParen            tok= 110  pos= 416
+  =                  '='               OpEquality          tok= 112  pos= 418
+  begin              <virt>            KWBegin             tok=virt  pos= 424
+    member           'member'          KWMember            tok= 115  pos= 424
+    self             '_'               Wildcard            tok= 117  pos= 431
+    Pat.NamedSimple  'M'               Identifier          tok= 119  pos= 433
+    Pats:
+      ParenBlock     '('               KWLParen            tok= 120  pos= 434
+                     ')'               KWRParen            tok= 121  pos= 435
+    =                '='               OpEquality          tok= 123  pos= 437
+      ParenBlock     '('               KWLParen            tok= 125  pos= 439
+                     ')'               KWRParen            tok= 126  pos= 440
+  end                <virt>            KWEnd               tok=virt  pos= 443
+TypeDefn.Anon:
+  [<                 '[<'              KWLAttrBracket      tok= 129  pos= 443
+  NamedType:
+    Ident            'Sealed'          Identifier          tok= 130  pos= 445
+  ;                  ';'               OpSemicolon         tok= 131  pos= 451
+  NamedType:
+    Ident            'CompiledNa...'   Identifier          tok= 133  pos= 453
+  ParenBlock         '('               KWLParen            tok= 134  pos= 465
+    StringLiteral    '"'               StringOpen          tok= 135  pos= 466
+    Parts:
+      Text           'trailing'        StringFragment      tok= 136  pos= 467
+                     '"'               StringClose         tok= 137  pos= 475
+                     ')'               KWRParen            tok= 138  pos= 476
+  >]                 '>]'              KWRAttrBracket      tok= 139  pos= 477
+  TypeName           'D'               Identifier          tok= 143  pos= 485
+  (                  '('               KWLParen            tok= 144  pos= 486
+  )                  ')'               KWRParen            tok= 145  pos= 487
+  =                  '='               OpEquality          tok= 147  pos= 489
+  begin              <virt>            KWBegin             tok=virt  pos= 495
+    member           'member'          KWMember            tok= 150  pos= 495
+    self             '_'               Wildcard            tok= 152  pos= 502
+    Pat.NamedSimple  'M'               Identifier          tok= 154  pos= 504
+    Pats:
+      ParenBlock     '('               KWLParen            tok= 155  pos= 505
+                     ')'               KWRParen            tok= 156  pos= 506
+    =                '='               OpEquality          tok= 158  pos= 508
+      ParenBlock     '('               KWLParen            tok= 160  pos= 510
+                     ')'               KWRParen            tok= 161  pos= 511
+  end                <virt>            KWEnd               tok=virt  pos= 514
+FunctionOrValue:
+  [<                 '[<'              KWLAttrBracket      tok= 164  pos= 514
+  target             'assembly'        Identifier          tok= 165  pos= 516
+  :                  ':'               OpColon             tok= 166  pos= 524
+  NamedType:
+    Ident            'Marker'          Identifier          tok= 168  pos= 526
+  ParenBlock         '('               KWLParen            tok= 169  pos= 532
+    Const            '1'               NumInt32            tok= 170  pos= 533
+                     ')'               KWRParen            tok= 171  pos= 534
+  ;                  ';'               OpSemicolon         tok= 172  pos= 535
+  target             'assembly'        Identifier          tok= 174  pos= 537
+  :                  ':'               OpColon             tok= 175  pos= 545
+  NamedType:
+    Ident            'Marker'          Identifier          tok= 177  pos= 547
+  ParenBlock         '('               KWLParen            tok= 178  pos= 553
+    Const            '2'               NumInt32            tok= 179  pos= 554
+                     ')'               KWRParen            tok= 180  pos= 555
+  >]                 '>]'              KWRAttrBracket      tok= 181  pos= 556
+  do                 'do'              KWDo                tok= 183  pos= 559
+    ParenBlock       '('               KWLParen            tok= 185  pos= 562
+                     ')'               KWRParen            tok= 186  pos= 563
+TypeDefn.Anon:
+  [<                 '[<'              KWLAttrBracket      tok= 189  pos= 566
+  NamedType:
+    Ident            'Attr'            Identifier          tok= 190  pos= 568
+  StringLiteral      '"'               StringOpen          tok= 192  pos= 573
+  Parts:
+    Text             'bare-strin...'   StringFragment      tok= 193  pos= 574
+                     '"'               StringClose         tok= 194  pos= 589
+  ;                  ';'               OpSemicolon         tok= 195  pos= 590
+  NamedType:
+    Ident            'Sealed'          Identifier          tok= 197  pos= 592
+  >]                 '>]'              KWRAttrBracket      tok= 198  pos= 598
+  TypeName           'E'               Identifier          tok= 202  pos= 606
+  (                  '('               KWLParen            tok= 203  pos= 607
+  )                  ')'               KWRParen            tok= 204  pos= 608
+  =                  '='               OpEquality          tok= 206  pos= 610
+  begin              <virt>            KWBegin             tok=virt  pos= 616
+    member           'member'          KWMember            tok= 209  pos= 616
+    self             '_'               Wildcard            tok= 211  pos= 623
+    Pat.NamedSimple  'M'               Identifier          tok= 213  pos= 625
+    Pats:
+      ParenBlock     '('               KWLParen            tok= 214  pos= 626
+                     ')'               KWRParen            tok= 215  pos= 627
+    =                '='               OpEquality          tok= 217  pos= 629
+      ParenBlock     '('               KWLParen            tok= 219  pos= 631
+                     ')'               KWRParen            tok= 220  pos= 632
+  end                <virt>            KWEnd               tok=virt  pos= 634

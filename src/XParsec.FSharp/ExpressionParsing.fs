@@ -415,7 +415,9 @@ module ObjectConstruction =
                             || token.Token = Token.VerbatimStringOpen
                             || token.Token = Token.String3Open
                         then
-                            return! refExpr.Parser
+                            // Inside `[< … >]` a `;` separates attributes
+                            // `[<A("x"); B>]` parses as two attributes
+                            return! refExprNoSeq.Parser
                         else
                             return! fail errNoConstructorArguments
                     }
