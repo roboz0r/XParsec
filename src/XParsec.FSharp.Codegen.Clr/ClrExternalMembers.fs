@@ -320,15 +320,31 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
             match u.Cases |> EqArray.tryFindIndex (fun c -> c.Name = caseName) with
             | ValueNone -> ValueNone
             | ValueSome tag ->
-                let tagField () =
+                // A referenced package's `_tag` is private to its union, so the test calls
+                // the accessor the same emitter put there.
+                let tagGetter () =
                     let parent = externalTypeSpec key tref args
                     let s = BlobBuilder()
-                    encodeType (BlobEncoder(s).FieldSignature()) (FTConst(RuntimeNames.intKey, EqArray.empty))
-                    toEntity (ctx.MemberRef(parent, "_tag", s))
+
+                    BlobEncoder(s)
+                        .MethodSignature(isInstanceMethod = true)
+                        .Parameters(
+                            0,
+                            (fun (ret: ReturnTypeEncoder) -> ret.Type().Int32()),
+                            (fun (_: ParametersEncoder) -> ())
+                        )
+
+                    toEntity (ctx.MemberRef(parent, "get_Tag", s))
 
                 let caseType () = externalCaseSpec key tref args caseName
 
-                ValueSome(UnionCaseTest.ofRegime (UnionRegime.ofExternalShape u) tag tagField caseType)
+                let valueKind =
+                    if u.IsValueType then
+                        UnionValueKind.Struct
+                    else
+                        UnionValueKind.RefType
+
+                ValueSome(UnionCaseTest.ofRegime valueKind (UnionRegime.ofExternalShape u) tag tagGetter caseType)
 
     /// The `TypeSpec` a referenced-package union's case members are parented on: the case's
     /// own nested `TypeRef` in a hierarchy regime. `ValueNone` in a flat regime, where the

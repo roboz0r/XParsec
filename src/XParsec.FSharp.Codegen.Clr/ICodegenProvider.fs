@@ -63,26 +63,40 @@ and ValueTupleRest =
 type UnionMember =
     /// The union's own `.ctor`, its parameters given by `UnionCtorShape.ofRegime`.
     | Ctor
-    /// The `_tag : int32` discriminant, declared only where `UnionRegime.hasTag` holds.
+    /// The `private _tag : int32` discriminant, declared only where `UnionRegime.hasTag`
+    /// holds. Reachable from the union's own bodies and from its case types; elsewhere
+    /// use `GetTag`.
     | Tag
+    /// `get_Tag`, the public accessor for `Tag`.
+    | GetTag
     /// A case's payload field, parented on the case's own type in a hierarchy regime and
     /// on the union itself in a flat one.
     | Field of caseName: string * fieldIndex: int
     /// A hierarchy union case type's `.ctor(payload…)`.
     | CaseCtor of caseName: string
-    /// A hierarchy union's `_unique_<Case>` singleton for a nullary case, a `static`
-    /// field on the union typed as the union.
+    /// A reference union's `_unique_<Case>` singleton for a nullary case, a `static` field
+    /// on the union typed as the union.
     | CaseSingleton of caseName: string
     | Factory of caseName: string
+
+/// A discriminant comparison: call `Getter` on the scrutinee and branch unless the result
+/// equals `Tag`.
+type TagTest =
+    {
+        /// `get_Tag`, the accessor fronting the union's private `_tag`.
+        Getter: EntityHandle
+        /// The case's zero-based index in declaration order.
+        Tag: int
+        /// `Struct` ⇒ the scrutinee is addressed (`ldloca`) for the call.
+        ValueKind: UnionValueKind
+    }
 
 /// The test one match arm emits to settle whether the scrutinee is a given case.
 [<RequireQualifiedAccess>]
 type UnionCaseTest =
     /// A single-case union: every value inhabits the case, so no test is emitted.
     | Irrefutable
-    /// Load `tagField` off the scrutinee and compare with the case's `tag`, its
-    /// zero-based index in declaration order.
-    | TagEquals of tagField: EntityHandle * tag: int
+    | TagEquals of TagTest
     /// `isinst` the case's own type: a non-null result settles the case.
     | IsInst of caseType: EntityHandle
 
@@ -91,13 +105,14 @@ type UnionCaseTest =
 module UnionCaseTest =
 
     /// The one regime-to-test mapping, shared by the local and referenced-package match
-    /// paths. `tag` is the case's zero-based index in declaration order. `tagField` and
+    /// paths. `tag` is the case's zero-based index in declaration order. `tagGetter` and
     /// `caseType` mint their handles in the caller's own scope (`Def` token, self-`TypeSpec`
     /// or use-site instantiation); each is forced exactly under the regime that reads it.
     let ofRegime
+        (valueKind: UnionValueKind)
         (regime: UnionRegime)
         (tag: int)
-        (tagField: unit -> EntityHandle)
+        (tagGetter: unit -> EntityHandle)
         (caseType: unit -> EntityHandle)
         : UnionCaseTest =
         match regime with
@@ -105,7 +120,13 @@ module UnionCaseTest =
         | UnionRegime.TypeTested -> UnionCaseTest.IsInst(caseType ())
         | UnionRegime.EnumLike
         | UnionRegime.StructTagged
-        | UnionRegime.Tagged -> UnionCaseTest.TagEquals(tagField (), tag)
+        | UnionRegime.Tagged ->
+            UnionCaseTest.TagEquals
+                {
+                    Getter = tagGetter ()
+                    Tag = tag
+                    ValueKind = valueKind
+                }
 
 /// Which member of an emitted *generic* closure (`<closure>$n`) a `MemberRef` identifies.
 /// Signature in the closure's own generic parameters (`!i`); the parent `TypeSpec` is

@@ -127,21 +127,88 @@ let ctorShape =
                     "one case IS every case, so the tag drops"
             }
 
-            // `Tagged` is the one regime whose base takes an argument: each case `.ctor`
-            // chains it with the case's discriminant.
-            test "Tagged alone takes the tag" {
-                Expect.equal
-                    (UnionCtorShape.ofRegime UnionValueKind.RefType UnionRegime.Tagged)
-                    UnionCtorShape.TagOnly
-                    "Tagged"
-            }
-
-            test "every other reference union is nullary" {
-                for regime in [ UnionRegime.SingleCase; UnionRegime.EnumLike; UnionRegime.TypeTested ] do
+            // A reference union declaring a `_tag` takes it as its sole ctor parameter,
+            // written once: a `Tagged` case `.ctor` chains it with the case's
+            // discriminant, and an enum-like `.cctor` passes it per singleton.
+            test "a reference union with a tag takes it" {
+                for regime in [ UnionRegime.EnumLike; UnionRegime.Tagged ] do
                     Expect.equal
                         (UnionCtorShape.ofRegime UnionValueKind.RefType regime)
-                        UnionCtorShape.Nullary
+                        UnionCtorShape.TagOnly
                         (sprintf "%A" regime)
+            }
+
+            // A single case IS every case whichever way the union is stored, so the one
+            // `.ctor` takes the payload and nothing stores after construction. That is
+            // what leaves every union field `initonly`.
+            test "a single-case union's ctor is flat either way" {
+                for valueKind in [ UnionValueKind.Struct; UnionValueKind.RefType ] do
+                    Expect.equal
+                        (UnionCtorShape.ofRegime valueKind UnionRegime.SingleCase)
+                        UnionCtorShape.Flat
+                        (sprintf "%A" valueKind)
+            }
+
+            // The `TypeTested` base declares no field at all, so nothing is left to pass.
+            test "a TypeTested base alone is nullary" {
+                Expect.equal
+                    (UnionCtorShape.ofRegime UnionValueKind.RefType UnionRegime.TypeTested)
+                    UnionCtorShape.Nullary
+                    "TypeTested"
+            }
+        ]
+
+[<Tests>]
+let factoryShape =
+    testList
+        "UnionFactoryShape.ofCase"
+        [
+            // A value type caches nothing, so arity never redirects a struct union's
+            // factory: it always `newobj`s the union's own flat `.ctor`.
+            test "a struct union's factory always constructs" {
+                Expect.equal
+                    (UnionFactoryShape.ofCase UnionValueKind.Struct UnionRegime.StructTagged 2)
+                    UnionFactoryShape.StructTagged
+                    "StructTagged"
+
+                Expect.equal
+                    (UnionFactoryShape.ofCase UnionValueKind.Struct UnionRegime.EnumLike 0)
+                    UnionFactoryShape.StructTagged
+                    "a struct EnumLike case is nullary and still constructs"
+
+                Expect.equal
+                    (UnionFactoryShape.ofCase UnionValueKind.Struct UnionRegime.SingleCase 0)
+                    UnionFactoryShape.UnionCtor
+                    "a nullary single-case struct forwards no parameter"
+            }
+
+            // The rule the singleton work rests on: one nullary case of a reference union
+            // has one value, in every regime.
+            test "every nullary case of a reference union is cached" {
+                for regime in
+                    [
+                        UnionRegime.SingleCase
+                        UnionRegime.EnumLike
+                        UnionRegime.TypeTested
+                        UnionRegime.Tagged
+                    ] do
+                    Expect.equal
+                        (UnionFactoryShape.ofCase UnionValueKind.RefType regime 0)
+                        UnionFactoryShape.Cached
+                        (sprintf "%A" regime)
+            }
+
+            test "a reference case with a payload constructs where its payload lives" {
+                for regime in [ UnionRegime.TypeTested; UnionRegime.Tagged ] do
+                    Expect.equal
+                        (UnionFactoryShape.ofCase UnionValueKind.RefType regime 1)
+                        UnionFactoryShape.CaseCtor
+                        (sprintf "%A puts the payload on the case type" regime)
+
+                Expect.equal
+                    (UnionFactoryShape.ofCase UnionValueKind.RefType UnionRegime.SingleCase 1)
+                    UnionFactoryShape.UnionCtor
+                    "a single case's payload is the union's own"
             }
         ]
 
@@ -198,28 +265,48 @@ let caseTest =
             let noMint what () : System.Reflection.Metadata.EntityHandle =
                 failwithf "the regime forced the %s thunk" what
 
-            test "the tag-reading regimes compare the minted tag ref against the case's tag" {
+            test "the tag-reading regimes compare the minted accessor against the case's tag" {
                 let minted = System.Reflection.Metadata.EntityHandle()
 
-                for regime in [ UnionRegime.EnumLike; UnionRegime.StructTagged; UnionRegime.Tagged ] do
+                for (valueKind, regime) in
+                    [
+                        UnionValueKind.RefType, UnionRegime.EnumLike
+                        UnionValueKind.Struct, UnionRegime.StructTagged
+                        UnionValueKind.RefType, UnionRegime.Tagged
+                    ] do
                     Expect.equal
-                        (UnionCaseTest.ofRegime regime 2 (fun () -> minted) (noMint "case-type"))
-                        (UnionCaseTest.TagEquals(minted, 2))
+                        (UnionCaseTest.ofRegime valueKind regime 2 (fun () -> minted) (noMint "case-type"))
+                        (UnionCaseTest.TagEquals
+                            {
+                                Getter = minted
+                                Tag = 2
+                                ValueKind = valueKind
+                            })
                         (sprintf "%A reads the tag" regime)
             }
 
-            test "TypeTested tests the minted case type and never mints a tag ref" {
+            test "TypeTested tests the minted case type and never mints an accessor ref" {
                 let minted = System.Reflection.Metadata.EntityHandle()
 
                 Expect.equal
-                    (UnionCaseTest.ofRegime UnionRegime.TypeTested 1 (noMint "tag-ref") (fun () -> minted))
+                    (UnionCaseTest.ofRegime
+                        UnionValueKind.RefType
+                        UnionRegime.TypeTested
+                        1
+                        (noMint "tag-getter")
+                        (fun () -> minted))
                     (UnionCaseTest.IsInst minted)
                     "the case's runtime type discriminates"
             }
 
             test "SingleCase is irrefutable and mints nothing" {
                 Expect.equal
-                    (UnionCaseTest.ofRegime UnionRegime.SingleCase 0 (noMint "tag-ref") (noMint "case-type"))
+                    (UnionCaseTest.ofRegime
+                        UnionValueKind.RefType
+                        UnionRegime.SingleCase
+                        0
+                        (noMint "tag-getter")
+                        (noMint "case-type"))
                     UnionCaseTest.Irrefutable
                     "the sole case needs no test"
             }

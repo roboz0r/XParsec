@@ -68,7 +68,7 @@ module internal UnionEmit =
 
     // ---- The union's own rows --------------------------------------------------------
 
-    /// The union `.ctor`, the `.cctor` a hierarchy union's nullary singletons need, and one
+    /// The union `.ctor`, the `.cctor` a reference union's nullary singletons need, and one
     /// static factory per case.
     let prepareUnion (asm: Assembler) (ud: UnionDecl) : unit =
         let td = ud.Decl
@@ -78,22 +78,32 @@ module internal UnionEmit =
         let isHierarchy = ud.IsHierarchy
         let selfTy = FTUnion(td.TypeKey, EqArray.ofList (typarMarkersOf td))
 
-        // `SingleCase` and `TypeTested` declare no `_tag` row, so the ref is minted exactly
-        // where the other regimes stamp theirs.
-        let tagRef () =
-            selfMemberRef
-                asm
-                td
-                (UserMemberKind.UnionMember UnionMember.Tag)
-                (toEntity (asm.FieldDef(FieldKey.UnionTag td.Key)))
-
-
         let ctorShape = ud.CtorShape
 
-        let ctorPrepared =
+        // `_tag` is reachable only inside this binding, which holds the whole of its
+        // lifecycle: the `.ctor` writes it and `get_Tag` fronts it for every other reader.
+        // No factory or structural body below can name the field to store through.
+        let ctorPrepared, getTagPrepared =
+            // A generic union mints a `MemberRef` row per call, so the `.ctor` and `get_Tag`
+            // share one.
+            let tagRef =
+                lazy
+                    (selfMemberRef
+                        asm
+                        td
+                        (UserMemberKind.UnionMember UnionMember.Tag)
+                        (toEntity (asm.FieldDef(FieldKey.UnionTag td.Key))))
+
             // The flat forms take EVERY case's fields in declaration order, so a factory
-            // `newobj`s the whole value at once.
+            // `newobj`s the whole value at once. A value type chains no base `.ctor`.
             let flatCtor (tagged: bool) =
+                let fields =
+                    [
+                        if tagged then
+                            yield tagRef.Value
+                        yield! List.collect (fieldRefsOf asm td) cases
+                    ]
+
                 {
                     Signature =
                         provider.RecordCtorSignature
@@ -106,12 +116,10 @@ module internal UnionEmit =
                     Body =
                         bodyOf
                             asm
-                            (Emit.buildStructCtor
-                                [
-                                    if tagged then
-                                        yield tagRef ()
-                                    yield! List.collect (fieldRefsOf asm td) cases
-                                ])
+                            (if isStruct then
+                                 Emit.buildStructCtor fields
+                             else
+                                 Emit.buildChainedCtor provider.ObjectCtorRef [] fields)
                     ParamNames =
                         [
                             if tagged then
@@ -122,25 +130,44 @@ module internal UnionEmit =
                     MethodTypars = []
                 }
 
-            match ctorShape with
-            | UnionCtorShape.FlatTagged -> flatCtor true
-            | UnionCtorShape.Flat -> flatCtor false
-            | UnionCtorShape.TagOnly ->
-                {
-                    Signature = provider.RecordCtorSignature [ intTy ]
-                    Body = bodyOf asm (Emit.buildChainedCtor provider.ObjectCtorRef [] [ tagRef () ])
-                    ParamNames = [ "_tag" ]
-                    MethodTypars = []
-                }
-            | UnionCtorShape.Nullary ->
-                {
-                    Signature = provider.NullaryCtorSignature()
-                    Body = bodyOf asm (Emit.buildChainedCtor provider.ObjectCtorRef [] [])
-                    ParamNames = []
-                    MethodTypars = []
-                }
+            let ctor =
+                match ctorShape with
+                | UnionCtorShape.FlatTagged -> flatCtor true
+                | UnionCtorShape.Flat -> flatCtor false
+                | UnionCtorShape.TagOnly ->
+                    {
+                        Signature = provider.RecordCtorSignature [ intTy ]
+                        Body = bodyOf asm (Emit.buildChainedCtor provider.ObjectCtorRef [] [ tagRef.Value ])
+                        ParamNames = [ "_tag" ]
+                        MethodTypars = []
+                    }
+                | UnionCtorShape.Nullary ->
+                    {
+                        Signature = provider.RecordCtorSignature []
+                        Body = bodyOf asm (Emit.buildChainedCtor provider.ObjectCtorRef [] [])
+                        ParamNames = []
+                        MethodTypars = []
+                    }
+
+            let getTag =
+                if ud.HasTag then
+                    ValueSome
+                        {
+                            Signature = provider.InstanceMethodSignature([], intTy)
+                            Body = bodyOf asm (Emit.buildFieldGetter tagRef.Value)
+                            ParamNames = []
+                            MethodTypars = []
+                        }
+                else
+                    ValueNone
+
+            ctor, getTag
 
         asm.AddPrepared(MethodKey.NominalCtor td.Key, ctorPrepared)
+
+        match getTagPrepared with
+        | ValueSome p -> asm.AddPrepared(MethodKey.UnionGetTag td.Key, p)
+        | ValueNone -> ()
 
         let ctorRef =
             selfMemberRef
@@ -164,53 +191,68 @@ module internal UnionEmit =
                 (UserMemberKind.UnionMember(UnionMember.CaseSingleton c.Name))
                 (toEntity (asm.FieldDef(FieldKey.UnionCaseSingleton(td.Key, c.Name))))
 
+        // The arguments one case passes to the union's own `.ctor`. `TagOnly` stamps the
+        // discriminant; the shapes a case reaches otherwise take no argument a case alone
+        // supplies.
+        let ctorTagArgs (tag: int) =
+            match ctorShape with
+            | UnionCtorShape.TagOnly -> [ ILInstr.LdcI4 tag ]
+            | UnionCtorShape.Nullary
+            | UnionCtorShape.Flat
+            | UnionCtorShape.FlatTagged -> []
+
         if isHierarchy then
             // Each case's `.ctor(payload…)` chains the union's own `.ctor`, passing its tag
             // where the base declares one, so `_tag` is written once, by the base, and stays
             // `initonly`. A `TypeTested` base takes no argument and has no field to write.
             cases
             |> List.iteri (fun tag c ->
-                let chainArgs =
-                    // A hierarchy union is a reference type, so its `.ctor` is `TagOnly`
-                    // or `Nullary`.
-                    match ctorShape with
-                    | UnionCtorShape.TagOnly -> [ ILInstr.LdcI4 tag ]
-                    | UnionCtorShape.Nullary
-                    | UnionCtorShape.Flat
-                    | UnionCtorShape.FlatTagged -> []
-
                 asm.AddPrepared(
                     MethodKey.UnionCaseCtor(td.Key, c.Name),
                     {
                         Signature = provider.RecordCtorSignature [ for (_, t) in c.Fields -> t ]
-                        Body = bodyOf asm (Emit.buildChainedCtor ctorRef chainArgs (fieldRefsOf asm td c))
+                        Body = bodyOf asm (Emit.buildChainedCtor ctorRef (ctorTagArgs tag) (fieldRefsOf asm td c))
                         ParamNames = ud.FieldNames c
                         MethodTypars = []
                     }
                 )
             )
 
-            match ud.SingletonCases with
-            | [] -> ()
-            | singletons ->
-                let pairs = [ for c in singletons -> caseCtorRef c, singletonRef c ]
+        match ud.SingletonCases with
+        | [] -> ()
+        | singletons ->
+            let entries =
+                [
+                    for (tag, c) in singletons ->
+                        // A hierarchy case constructs its own type over no arguments; a
+                        // flat one IS the union, stamped with its tag where the `.ctor`
+                        // declares one.
+                        let ctor, ctorArgs =
+                            if isHierarchy then
+                                caseCtorRef c, []
+                            else
+                                ctorRef, ctorTagArgs tag
 
-                asm.AddPrepared(
-                    MethodKey.NominalCctor td.Key,
-                    {
-                        Signature = provider.CctorSignature()
-                        Body = bodyOf asm (Emit.buildUnionSingletonCctor pairs)
-                        ParamNames = []
-                        MethodTypars = []
-                    }
-                )
+                        ctorArgs @ [ ILInstr.Newobj(ctor, List.length ctorArgs) ], singletonRef c
+                ]
+
+            asm.AddPrepared(
+                MethodKey.NominalCctor td.Key,
+                {
+                    Signature = provider.CctorSignature()
+                    Body = bodyOf asm (Emit.buildCachedFieldCctor entries)
+                    ParamNames = []
+                    MethodTypars = []
+                }
+            )
 
         cases
         |> List.iteri (fun tag c ->
             let arity = c.Fields.Length
 
             let factoryIr =
-                if ctorShape = UnionCtorShape.FlatTagged then
+                match UnionFactoryShape.ofCase ud.ValueKind ud.Regime arity with
+                | UnionFactoryShape.StructTagged ->
                     let args =
                         [
                             for c' in cases do
@@ -223,19 +265,9 @@ module internal UnionEmit =
                         ]
 
                     Emit.buildStructUnionFactory ctorRef tag args
-                elif isStruct then
-                    // A single-case struct union: the flat `.ctor` takes exactly this
-                    // case's fields, so the factory forwards its parameters whole.
-                    Emit.buildUnionCaseFactory ctorRef arity
-                elif isHierarchy then
-                    if arity = 0 then
-                        Emit.buildUnionSingletonFactory (singletonRef c)
-                    else
-                        Emit.buildUnionCaseFactory (caseCtorRef c) arity
-                else
-                    let tagStore = if ud.HasTag then ValueSome(tag, tagRef ()) else ValueNone
-
-                    Emit.buildUnionFactory ctorRef tagStore (fieldRefsOf asm td c)
+                | UnionFactoryShape.Cached -> Emit.buildUnionSingletonFactory (singletonRef c)
+                | UnionFactoryShape.CaseCtor -> Emit.buildUnionCaseFactory (caseCtorRef c) arity
+                | UnionFactoryShape.UnionCtor -> Emit.buildUnionCaseFactory ctorRef arity
 
             let factoryBody = bodyOf asm factoryIr
             let paramTys = [ for (_, t) in c.Fields -> t ]
@@ -573,11 +605,13 @@ module internal UnionEmit =
             {
                 Name = td.Name
                 Typars = EqArray.toList td.TypeParams
-                // Held exactly where the discriminant is the tag, which is where a `_tag`
-                // row exists at all.
-                TagField =
+                Tag =
                     if ud.HasTag then
-                        ValueSome(toEntity (asm.FieldDef(FieldKey.UnionTag td.Key)))
+                        ValueSome
+                            {
+                                Field = toEntity (asm.FieldDef(FieldKey.UnionTag td.Key))
+                                Getter = toEntity (asm.MethodDef(MethodKey.UnionGetTag td.Key))
+                            }
                     else
                         ValueNone
                 ValueKind = ud.ValueKind

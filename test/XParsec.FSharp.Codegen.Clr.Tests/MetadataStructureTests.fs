@@ -458,6 +458,96 @@ let tests =
                 Expect.equal (MetadataStructure.fieldsOf bytes "Quad") [ "_tag" ] "the discriminant, and nothing else"
             }
 
+            // A nullary case of a reference union is constructed once into `_unique_<Case>`,
+            // in every regime (hierarchy plan, step 5 second half). An enum-like union is
+            // nullary throughout, so it carries the discriminant and a singleton per case.
+            test "an enum-like union holds a singleton per case" {
+                let bytes =
+                    compileSource
+                        "EnumLikeUnionSingletons"
+                        (String.concat
+                            "\n"
+                            [
+                                "type Colour ="
+                                "    | Red"
+                                "    | Green"
+                                "    | Blue"
+                                "let name (c: Colour) ="
+                                "    match c with"
+                                "    | Red -> \"red\""
+                                "    | Green -> \"green\""
+                                "    | Blue -> \"blue\""
+                                "printfn \"%s\" (name Green)"
+                            ])
+                    |> Codegen.toBytes
+
+                MetadataStructure.assertWellFormed "EnumLikeUnionSingletons" bytes
+
+                Expect.equal
+                    (MetadataStructure.fieldsOf bytes "Colour")
+                    [ "_tag"; "_unique_Red"; "_unique_Green"; "_unique_Blue" ]
+                    "the discriminant and one singleton per case"
+            }
+
+            // The same rule at the other end of the case count: one nullary case takes a
+            // singleton and no discriminant.
+            test "a single nullary case is a singleton and carries no _tag" {
+                let bytes =
+                    compileSource
+                        "SingleNullaryCaseSingleton"
+                        (String.concat "\n" [ "type Marker ="; "    | M"; "let m = M"; "printfn \"%b\" (m = M)" ])
+                    |> Codegen.toBytes
+
+                MetadataStructure.assertWellFormed "SingleNullaryCaseSingleton" bytes
+
+                Expect.equal (MetadataStructure.fieldsOf bytes "Marker") [ "_unique_M" ] "the singleton alone"
+            }
+
+            // A union's storage is its own: `_tag` and each `_unique_<Case>` are private,
+            // and the public surface is `get_Tag` plus the per-case factories. A match arm
+            // outside the union calls the accessor, and a construction site calls the
+            // factory, so nothing outside needs the fields.
+            test "a union's fields are private behind get_Tag and the case factories" {
+                let bytes =
+                    compileSource
+                        "UnionFieldVisibility"
+                        (String.concat
+                            "\n"
+                            [
+                                "type Colour ="
+                                "    | Red"
+                                "    | Green"
+                                "    | Blue"
+                                "let name (c: Colour) ="
+                                "    match c with"
+                                "    | Red -> \"red\""
+                                "    | Green -> \"green\""
+                                "    | Blue -> \"blue\""
+                                "printfn \"%s\" (name Green)"
+                            ])
+                    |> Codegen.toBytes
+
+                MetadataStructure.assertWellFormed "UnionFieldVisibility" bytes
+
+                let access (a: FieldAttributes) = a &&& FieldAttributes.FieldAccessMask
+
+                for (name, attrs) in MetadataStructure.fieldAttrsOf bytes "Colour" do
+                    Expect.equal (access attrs) FieldAttributes.Private (name + " is private")
+                    Expect.isTrue (attrs.HasFlag FieldAttributes.InitOnly) (name + " is initonly")
+
+                let methods = MetadataStructure.methodAttrsOf bytes "Colour"
+
+                let accessOf (name: string) =
+                    match methods |> List.tryFind (fun (n, _) -> n = name) with
+                    | Some(_, a) -> a &&& MethodAttributes.MemberAccessMask
+                    | None -> failtestf "Colour declares no %s among %A" name (List.map fst methods)
+
+                Expect.equal (accessOf "get_Tag") MethodAttributes.Public "get_Tag fronts the discriminant"
+
+                for case in [ "Red"; "Green"; "Blue" ] do
+                    Expect.equal (accessOf case) MethodAttributes.Public (case + " is the singleton's accessor")
+            }
+
             // Each Vesper package is a library full of modules, unions, records and closures.
             for package in
                 [

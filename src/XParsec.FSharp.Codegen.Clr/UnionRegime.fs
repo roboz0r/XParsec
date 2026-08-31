@@ -76,18 +76,19 @@ module UnionRegime =
         | UnionRegime.StructTagged
         | UnionRegime.Tagged -> true
 
-/// The parameter list a union's own `.ctor` declares.
+/// The parameter list a union's own `.ctor` declares. This `.ctor` is the only writer of
+/// every field it takes, so all of them are `initonly`.
 [<RequireQualifiedAccess>]
 type UnionCtorShape =
     /// `(_tag, every case's field)` in flat declaration order, `newobj`ed whole by each
     /// case factory.
     | FlatTagged
-    /// `(every case's field)` — a single-case struct union, whose one case is every case.
+    /// `(every case's field)` — a single-case union, whose one case is every case.
     | Flat
-    /// `(_tag)`, stamped by whichever case `.ctor` chains it.
+    /// `(_tag)`, stamped by whichever case `.ctor` chains it, or by the `.cctor` that
+    /// constructs an enum-like case's singleton.
     | TagOnly
-    /// `()`. A flat reference union's factories `stfld` after the `newobj`; a `TypeTested`
-    /// base has no field to write.
+    /// `()` — a `TypeTested` base, which declares no field.
     | Nullary
 
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
@@ -96,15 +97,50 @@ module UnionCtorShape =
 
     /// The one regime-to-ctor mapping, shared by the emitted `MethodDef` and the
     /// `MemberRef` a generic union's use sites resolve through, so the two agree on the
-    /// signature. The value kind is a separate argument because `SingleCase` and
-    /// `EnumLike` classify the same either way.
+    /// signature. The value kind separates the two tagged forms: a `[<Struct>]` union
+    /// holds every case's payload co-resident with the discriminant, where a reference
+    /// union puts a case's payload on the case.
     let ofRegime (valueKind: UnionValueKind) (regime: UnionRegime) : UnionCtorShape =
-        if valueKind.IsValueType then
-            if UnionRegime.hasTag regime then
+        match regime with
+        | UnionRegime.SingleCase -> UnionCtorShape.Flat
+        | UnionRegime.TypeTested -> UnionCtorShape.Nullary
+        | UnionRegime.EnumLike
+        | UnionRegime.StructTagged
+        | UnionRegime.Tagged ->
+            if valueKind.IsValueType then
                 UnionCtorShape.FlatTagged
             else
-                UnionCtorShape.Flat
-        elif regime = UnionRegime.Tagged then
-            UnionCtorShape.TagOnly
-        else
-            UnionCtorShape.Nullary
+                UnionCtorShape.TagOnly
+
+/// The body one union case's static factory takes. The arity is a case-level fact where
+/// the regime is a union-level one, so this is selected per case.
+[<RequireQualifiedAccess>]
+type UnionFactoryShape =
+    /// `ldsfld _unique_<Case>` — the instance the `.cctor` built.
+    | Cached
+    /// Forward every parameter to the union's own `.ctor`.
+    | UnionCtor
+    /// Forward every parameter to the case type's own `.ctor`.
+    | CaseCtor
+    /// Push the discriminant, this case's parameters, and a zeroed default for every other
+    /// case's field, then `newobj` the flat `.ctor`.
+    | StructTagged
+
+[<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
+[<RequireQualifiedAccess>]
+module UnionFactoryShape =
+
+    /// The one (value kind × regime × arity) mapping to a factory body. `arity` is the
+    /// case's field count.
+    let ofCase (valueKind: UnionValueKind) (regime: UnionRegime) (arity: int) : UnionFactoryShape =
+        match valueKind with
+        | UnionValueKind.Struct ->
+            if UnionRegime.hasTag regime then
+                UnionFactoryShape.StructTagged
+            else
+                UnionFactoryShape.UnionCtor
+        | UnionValueKind.RefType ->
+            match arity with
+            | 0 -> UnionFactoryShape.Cached
+            | _ when UnionRegime.isHierarchy regime -> UnionFactoryShape.CaseCtor
+            | _ -> UnionFactoryShape.UnionCtor

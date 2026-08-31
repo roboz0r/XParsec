@@ -78,9 +78,11 @@ emission until its migration lands.
 
 ## What the flat shape makes load-bearing today
 
-- `Emit.buildUnionFactory` (`Emit.fs:412`) `newobj`s the union's nullary `.ctor`, then `dup`/`stfld`s
-  the tag and each payload. That post-construction store is why reference-union fields cannot be
-  `initonly` (`LayoutNodes.fs:308`) — gap 7.
+- ~~`Emit.buildUnionFactory` `newobj`s the union's nullary `.ctor`, then `dup`/`stfld`s the tag
+  and each payload. That post-construction store is why reference-union fields cannot be
+  `initonly` — gap 7.~~ **Closed with step 5.** Every union `.ctor` takes the fields it writes
+  (`UnionCtorShape`), no factory stores after `newobj`, `buildUnionFactory` is gone, and every
+  field a union declares is `initonly`.
 - `EmitPattern`'s union arm (`EmitPattern.fs:230-283`) tests `ldfld _tag; bne`, then `extractField`
   (`:158`) `ldfld`s each payload straight off the scrutinee local.
 - The synthesised structural bodies walk **every case's fields unconditionally** once the tags
@@ -213,7 +215,8 @@ its two `failwith "unreachable"` arms are gone.
 3. `buildUnionFactory` becomes `newobj` the case ctor for a payload case and `ldsfld` for a
    nullary one; a new case `.ctor` chains the base with its literal tag and stores its fields —
    that is `Emit.buildClosureCtor` with a different base handle and a leading constant, so it is a
-   call, not a copy. `_tag` and the payload fields both become `initonly`, closing gap 7.
+   call, not a copy. `_tag` and the payload fields both become `initonly`, closing gap 7. (Landed
+   in full with step 5, which took the last post-construction store out.)
 4. `EmitPattern`'s union arm keeps the `_tag` test and `castclass`es the scrutinee before each
    extraction. `extractField` generalises to take the source PUSH rather than a slot, so a record
    and a flat union keep loading the scrutinee directly and a hierarchy case casts — a source that
@@ -343,14 +346,57 @@ and a leading constant, so it is a call, not a copy" is now literal: `buildClosu
 fields`, whose `Call` arity is `List.length baseArgs + 1` rather than a hand-written 1 or 2.
 `baseArgs` is `[ ILInstr.LdcI4 tag ]` under `TagOnly` and empty everywhere else.
 
-**Step 5 — `SingleCase` and `EnumLike` polish. First half DONE with step 3**, which it gates: a
-single-case union declares no `_tag` row, its `.ctor` (the flat struct form included) takes its
-fields alone, its factory stores no tag, its structural walk is the record's, and its `%A` body
-is the one a hierarchy case type carries. That settles the collision below. The second half —
-`_unique_<Case>` singletons for an enum-like union, so nullary construction stops allocating —
-remains, and is independent of steps 1–4.
+**Step 5 — `SingleCase` and `EnumLike` polish. DONE.** The first half landed with step 3, which
+it gates: a single-case union declares no `_tag` row, its `.ctor` (the flat struct form included)
+takes its fields alone, its factory stores no tag, its structural walk is the record's, and its
+`%A` body is the one a hierarchy case type carries. That settles the collision below.
 
-**Step 6 — fix a name resolution gap.** A bare union case declared in a module-held union does not resolve across a file boundary; the namespace-level form does. `test/XParsec.FSharp.Codegen.Clr.Tests/CrossFileTests.fs:216` routes around it — the cross-file `obj`-box test declares `type Holder = Wrap of obj` at namespace level with a comment saying why. Contrast `CrossFileTests.fs:320`, where a module-held union is reached cross-file, and `LongIdentResolutionTests.fs:157` ("module-held case, bare after open, construct + match"), which passes within the same file. So the missing piece is the module-held case's bare spelling specifically on the cross-file provider channel, not module-held unions in general.
+The second half is a rule over cases rather than over regimes: **every nullary case of a
+reference union is a `_unique_<Case>` singleton**, constructed once by the union's `.cctor`, with
+`ldsfld` for its factory body. `UnionDecl.SingletonCases` states that rule, so `EnumLike` and a
+nullary `SingleCase` join the hierarchy regimes that already cached and no nullary construction
+site allocates. FSC caches all three alike — `type T = T` hands out one instance through
+`get_T` — so this converges on FSC rather than deviating from it. A `[<Struct>]` union yields
+none, having nothing to cache.
+
+`UnionCtorShape.ofRegime` follows, and is now a total match on the regime: `SingleCase` is
+`Flat` whichever way the union is stored, `TypeTested` is `Nullary`, and a regime carrying a tag
+is `FlatTagged` on a value type and `TagOnly` on a reference one. So an enum-like `.cctor` stamps
+each singleton's tag through the ctor, and a single-case reference union's `.ctor` takes its
+payload rather than leaving the factory to store it. **Gap 7 closes here**: every field a union
+declares is written by the `.ctor` declaring it, all of them are `initonly`, and
+`Emit.buildUnionFactory` is deleted rather than reduced.
+
+A second classifier, `UnionFactoryShape.ofCase`, states the (value kind × regime × arity) rule
+the factory body follows — `Cached` for any nullary case of a reference union, `CaseCtor` where
+the payload lives on the case type, `UnionCtor` where it lives on the union, `StructTagged` for
+the flat value-type form. That replaces an ordered `elif` chain in which `arity = 0` was correct
+only because an earlier branch had already taken the struct unions out.
+
+`Emit` keeps one `.cctor` builder: `buildCachedFieldCctor` takes `(push, field)` per entry and
+serves the cached closure, the string/mixed enum and the union singleton alike.
+
+### The union owns its storage
+
+`_tag` and each `_unique_<Case>` are `private`; `get_Tag` is the public accessor and the
+per-case factory is the singleton's. A match arm sits outside the union, so `UnionCaseTest`
+carries the *getter* and `EmitPattern` emits `call get_Tag` (over `ldloca` on a value type)
+rather than `ldfld _tag` — the same handle on the local and the referenced-package paths, since
+`ClrExternalMembers` mints the accessor against a package this emitter compiled. The emitter
+writes no `Property` row for any member, so `get_Tag` is a `SpecialName` method, matching how a
+user's `member this.X` already emits.
+
+This also gives the `initonly` claim teeth it lacked: the field is unreachable from another
+type, so a stray store throws `FieldAccessException` under the suites that execute emitted code,
+and within `UnionEmit.prepareUnion` the `_tag` ref is scoped to the binding holding the `.ctor`
+and `get_Tag`, so no later body can name it.
+
+**Step 6 — emit real `Property` rows.**
+
+`get_Tag` is a `SpecialName` method, not a `Property` row. The emitter currently writes no `Property/MethodSemantics` rows for anything — a user's `member this.Start` already emits as a bare `get_Start`.
+
+
+**Step 7 — fix a name resolution gap.** A bare union case declared in a module-held union does not resolve across a file boundary; the namespace-level form does. `test/XParsec.FSharp.Codegen.Clr.Tests/CrossFileTests.fs:216` routes around it — the cross-file `obj`-box test declares `type Holder = Wrap of obj` at namespace level with a comment saying why. Contrast `CrossFileTests.fs:320`, where a module-held union is reached cross-file, and `LongIdentResolutionTests.fs:157` ("module-held case, bare after open, construct + match"), which passes within the same file. So the missing piece is the module-held case's bare spelling specifically on the cross-file provider channel, not module-held unions in general.
 
 ### A latent name collision
 

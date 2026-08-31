@@ -151,6 +151,14 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
             let s = BlobBuilder()
             BlobEncoder(s).FieldSignature().Int32()
             toEntity (ctx.MemberRef(parent, "_tag", s))
+        | UnionMember.GetTag ->
+            let s = BlobBuilder()
+
+            BlobEncoder(s)
+                .MethodSignature(isInstanceMethod = true)
+                .Parameters(0, (fun (ret: ReturnTypeEncoder) -> ret.Type().Int32()), (fun (_: ParametersEncoder) -> ()))
+
+            toEntity (ctx.MemberRef(parent, "get_Tag", s))
         | UnionMember.Field(caseName, idx) ->
             let metaName, declTy = (caseFields caseName).[idx]
 

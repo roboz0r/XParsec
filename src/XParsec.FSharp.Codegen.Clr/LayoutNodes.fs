@@ -40,6 +40,11 @@ module internal LayoutNodes =
                             Members = EqArray.toList u.Members
                             Interfaces = ifaceBlocks u.Interfaces
                             ValueKind = u.ValueKind
+                            Regime =
+                                UnionRegime.classify
+                                    u.ValueKind
+                                    u.Cases.Length
+                                    (u.Cases |> EqArray.exists (fun c -> not c.Fields.IsEmpty))
                         }
                 | TTypeKindG.Record r ->
                     records.Add
@@ -356,10 +361,10 @@ module internal LayoutNodes =
             Nested = []
         }
 
-    /// Per union: `_tag`, the case payloads a flat regime holds co-resident, `.ctor`
-    /// (`UnionCtorShape.ofRegime`), case factories, members, [equality triple],
-    /// [comparison pair]. A hierarchy union additionally nests a `TypeDef` per case and
-    /// holds a singleton field per NULLARY case.
+    /// Per union: `_tag`, a singleton field per nullary case, the case payloads a flat
+    /// regime holds co-resident, `.ctor` (`UnionCtorShape.ofRegime`), case factories,
+    /// members, [equality triple], [comparison pair]. A hierarchy union additionally nests
+    /// a `TypeDef` per case.
     let buildUnionNodes (symbols: ICodegenSymbols) (unions: UnionDecl list) : TypeNode list =
         [
             for ud in unions ->
@@ -367,53 +372,48 @@ module internal LayoutNodes =
                 let isStruct = ud.ValueKind.IsValueType
                 let isHierarchy = ud.IsHierarchy
                 let structural = StructuralMembers.ofUnion ud
+                let singletonCases = ud.SingletonCases
 
                 let selfTy =
                     FTUnion(td.TypeKey, EqArray.ofList (declaringMarkers td.TypeParams.Length))
-
-                // A struct union's fields are written only by its flat `.ctor`, and a
-                // `Tagged` base's `_tag` only by its `.ctor(int32)`, which is what
-                // `initonly` permits. A flat reference union's factory still stores after
-                // `newobj`, so its fields stay writable.
-                let fieldAttrs =
-                    if isStruct || isHierarchy then
-                        FieldAttributes.Public ||| FieldAttributes.InitOnly
-                    else
-                        FieldAttributes.Public
 
                 let fields =
                     [
                         // A single-case union's sole case needs no discriminant, and its
                         // FSC-spelled payload may itself claim the name `_tag`
-                        // (`C of tag: int`). A `TypeTested` base leaves the row out too,
-                        // and so carries no fields at all.
+                        // (`C of tag: int`). A `TypeTested` base leaves the row out too.
+                        // `get_Tag` fronts it for every reader outside the union and its
+                        // case types.
                         if ud.HasTag then
                             yield
                                 {
                                     Key = FieldKey.UnionTag td.Key
                                     Name = "_tag"
-                                    Attrs = fieldAttrs
+                                    Attrs = FieldAttributes.Private ||| FieldAttributes.InitOnly
                                     Ty = FTConst(RuntimeNames.intKey, EqArray.empty)
                                     ClosureScope = ValueNone
                                 }
 
-                        if isHierarchy then
-                            for c in ud.SingletonCases ->
-                                {
-                                    Key = FieldKey.UnionCaseSingleton(td.Key, c.Name)
-                                    Name = "_unique_" + c.Name
-                                    Attrs =
-                                        FieldAttributes.Public ||| FieldAttributes.Static ||| FieldAttributes.InitOnly
-                                    Ty = selfTy
-                                    ClosureScope = ValueNone
-                                }
-                        else
+                        // The `<Case>` factory is the singleton's public accessor.
+                        for (_, c) in singletonCases ->
+                            {
+                                Key = FieldKey.UnionCaseSingleton(td.Key, c.Name)
+                                Name = "_unique_" + c.Name
+                                Attrs = FieldAttributes.Private ||| FieldAttributes.Static ||| FieldAttributes.InitOnly
+                                Ty = selfTy
+                                ClosureScope = ValueNone
+                            }
+
+                        // A hierarchy case's payload lands on the case's own `TypeDef`.
+                        // Written by the `.ctor` declaring it (`UnionCtorShape`), hence
+                        // `initonly`.
+                        if not isHierarchy then
                             for c in ud.Cases do
                                 for (fi, name) in List.indexed (ud.FieldNames c) ->
                                     {
                                         Key = FieldKey.UnionCaseField(td.Key, c.Name, fi)
                                         Name = name
-                                        Attrs = fieldAttrs
+                                        Attrs = FieldAttributes.Public ||| FieldAttributes.InitOnly
                                         Ty = snd c.Fields.[fi]
                                         ClosureScope = ValueNone
                                     }
@@ -430,12 +430,22 @@ module internal LayoutNodes =
 
                         // The `.cctor` constructs each nullary case's singleton once, so a
                         // nullary construction site stops allocating.
-                        if not (List.isEmpty ud.SingletonCases) then
+                        if not (List.isEmpty singletonCases) then
                             yield
                                 {
                                     Key = MethodKey.NominalCctor td.Key
                                     Name = ".cctor"
                                     Attrs = cctorAttrs
+                                }
+
+                        // The public accessor for the private `_tag`, and the one channel a
+                        // match arm outside the union reads the discriminant through.
+                        if ud.HasTag then
+                            yield
+                                {
+                                    Key = MethodKey.UnionGetTag td.Key
+                                    Name = "get_Tag"
+                                    Attrs = tagGetterAttrs
                                 }
 
                         for c in ud.Cases do

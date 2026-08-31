@@ -63,11 +63,11 @@ module internal NominalShared =
                 name, selfMemberRef asm td (UserMemberKind.RecordMember(RecordMember.Field name)) h, fty
         ]
 
-    /// The `_tag` ref in the union's own scope. Callable exactly where the union's
-    /// discriminant is the tag field, which is when `EmittedUnion.TagField` holds a handle.
+    /// The `_tag` ref in the union's own scope, for a body on the union or on one of its
+    /// case types. Callable exactly where `EmittedUnion.Tag` holds a handle.
     let tagFieldRefOf (asm: Assembler) (td: TastAccessor.TypeDecl) : EntityHandle =
-        match asm.Unions.[td.TypeKey].TagField with
-        | ValueSome h -> selfMemberRef asm td (UserMemberKind.UnionMember UnionMember.Tag) h
+        match asm.Unions.[td.TypeKey].Tag with
+        | ValueSome tag -> selfMemberRef asm td (UserMemberKind.UnionMember UnionMember.Tag) tag.Field
         | ValueNone -> failwithf "Emit: union '%s' is not discriminated by a tag field" td.Name
 
     /// `GetHashCode` + `Equals(object)` override + typed `Equals(Self)`. Union and

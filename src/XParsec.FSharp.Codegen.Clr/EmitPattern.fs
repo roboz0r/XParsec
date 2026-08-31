@@ -198,9 +198,12 @@ module EmitPattern =
                     ty, env.Provider.TypeToken ty
                 )
 
-            let tagRef () =
-                match u.TagField with
-                | ValueSome h -> memberRef env u.Typars key tyArgs (UserMemberKind.UnionMember UnionMember.Tag) h
+            // A match arm sits outside the union, so it reads the discriminant through the
+            // accessor rather than the private field.
+            let tagGetterRef () =
+                match u.Tag with
+                | ValueSome tag ->
+                    memberRef env u.Typars key tyArgs (UserMemberKind.UnionMember UnionMember.GetTag) tag.Getter
                 | ValueNone -> failwithf "Emit: union '%s' is not discriminated by a tag field" qualName
 
             let caseTypeToken () =
@@ -209,7 +212,7 @@ module EmitPattern =
                 | ValueNone -> failwithf "Emit: type-tested union '%s' nests no type for case '%s'" qualName caseName
 
             {
-                Test = UnionCaseTest.ofRegime u.Regime c.Tag tagRef caseTypeToken
+                Test = UnionCaseTest.ofRegime u.ValueKind u.Regime c.Tag tagGetterRef caseTypeToken
                 FieldRef = fieldRef
                 Source =
                     match caseTyToken with
@@ -356,11 +359,18 @@ module EmitPattern =
 
             match plan.Test with
             | UnionCaseTest.Irrefutable -> ()
-            | UnionCaseTest.TagEquals(tagRef, tagValue) ->
-                // Skip the arm unless `scrut._tag = case.Tag`.
-                b.Add(ILInstr.Ldloc scrutSlot)
-                b.Add(ILInstr.Ldfld tagRef)
-                b.Add(ILInstr.LdcI4 tagValue)
+            | UnionCaseTest.TagEquals t ->
+                // Skip the arm unless `scrut.Tag = case.Tag`. A value type is called on
+                // its address.
+                b.Add(
+                    if t.ValueKind.IsValueType then
+                        ILInstr.Ldloca scrutSlot
+                    else
+                        ILInstr.Ldloc scrutSlot
+                )
+
+                b.Add(ILInstr.Call(t.Getter, 1, 1))
+                b.Add(ILInstr.LdcI4 t.Tag)
                 b.Add(ILInstr.BneUn nextLabel)
 
                 match caseLocal with

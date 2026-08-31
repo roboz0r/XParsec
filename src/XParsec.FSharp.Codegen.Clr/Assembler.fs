@@ -629,13 +629,17 @@ type internal Assembler
             // The `.cctor` constructs each case singleton in declaration order.
             let ctorHandle = toEntity (layoutHandles.MethodDefOf(MethodKey.NominalCtor td.Key))
 
+            // Each case pushes its literal (`ldstr`, or `ldc;box` for a mixed int) and
+            // `newobj`s the wrapper over it.
             let cctorCases =
                 [
                     for (caseName, lit) in sed.Cases ->
-                        caseFields.[caseName], EmitResolve.enumLiteralPush icodegen.TypeToken ctx.UserString lit
+                        EmitResolve.enumLiteralPush icodegen.TypeToken ctx.UserString lit
+                        @ [ ILInstr.Newobj(ctorHandle, 1) ],
+                        caseFields.[caseName]
                 ]
 
-            let cctorBody = methodBody (Emit.buildStructEnumCctor ctorHandle cctorCases)
+            let cctorBody = methodBody (Emit.buildCachedFieldCctor cctorCases)
 
             this.AddPrepared(
                 MethodKey.NominalCctor td.Key,
@@ -733,7 +737,7 @@ type internal Assembler
                     let cachedField = toEntity (fieldDefHandles.[FieldKey.ClosureCached c.Name])
 
                     let cctorMethodBody =
-                        methodBody (Emit.buildCachedClosureCctor ctorHandle cachedField)
+                        methodBody (Emit.buildCachedFieldCctor [ [ ILInstr.Newobj(ctorHandle, 0) ], cachedField ])
 
                     this.AddPrepared(
                         MethodKey.ClosureCctor c.Name,

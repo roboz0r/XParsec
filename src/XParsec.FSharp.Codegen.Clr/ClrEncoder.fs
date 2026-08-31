@@ -486,15 +486,6 @@ type internal ClrEncoder(env: ClrEnv) =
 
         s
 
-    member _.NullaryCtorSignature() : BlobBuilder =
-        let s = BlobBuilder()
-
-        BlobEncoder(s)
-            .MethodSignature(isInstanceMethod = true)
-            .Parameters(0, (fun (ret: ReturnTypeEncoder) -> ret.Void()), (fun (_: ParametersEncoder) -> ()))
-
-        s
-
     member _.CctorSignature() : BlobBuilder =
         let s = BlobBuilder()
 

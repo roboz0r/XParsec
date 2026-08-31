@@ -116,8 +116,6 @@ type ClrProvider
         : BlobBuilder =
         enc.GenericMethodOnTypeSignature(methodTyparCount, paramTys, retTy, isInstanceMethod)
 
-    member _.NullaryCtorSignature() : BlobBuilder = enc.NullaryCtorSignature()
-
     member _.CctorSignature() : BlobBuilder = enc.CctorSignature()
 
     member _.GenericUnionSelfSpec(key: TypeKey) : EntityHandle = generics.GenericUnionSelfSpec key

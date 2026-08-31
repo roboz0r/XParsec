@@ -784,8 +784,15 @@ let structTests =
                 Expect.equal ctors.Length 1 "a struct union declares one flat .ctor"
                 Expect.equal (ctors.[0].GetParameters().Length) 4 "tag + Point_0 + Pair_0 + Pair_1"
 
+                // `_tag` is private, so the payload and the discriminant only come out
+                // together under `NonPublic`.
                 let fields =
-                    ty.GetFields(BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly)
+                    ty.GetFields(
+                        BindingFlags.Public
+                        ||| BindingFlags.NonPublic
+                        ||| BindingFlags.Instance
+                        ||| BindingFlags.DeclaredOnly
+                    )
 
                 for f in fields do
                     Expect.isTrue f.IsInitOnly (f.Name + " is initonly")

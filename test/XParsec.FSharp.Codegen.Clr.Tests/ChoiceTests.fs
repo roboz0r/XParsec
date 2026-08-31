@@ -6,9 +6,9 @@ open Expecto
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 open XParsec.FSharp.Codegen.Clr.Tests.PackageHarness
 
-// `Vesper.Choice` has no module and no instance members, so reflection reads the `_tag`
-// and payload fields directly, and a driver program observes a constructed value only
-// through a `match`.
+// `Vesper.Choice` has no module and no instance members, so reflection reads the
+// discriminant through `get_Tag` and the payload fields directly, and a driver program
+// observes a constructed value only through a `match`.
 
 // Each case constrains one of the two parameters, so a standalone `Choice1Of2 5` is
 // `Choice<int, '_>`; every such value is annotated `: Choice<int, string>` to pin both.
@@ -34,9 +34,10 @@ let private c1IS (v: int) : obj =
 let private c2IS (v: string) : obj =
     choiceIntStr.Value.GetMethod("Choice2Of2").Invoke(null, [| box v |])
 
-/// The discriminating `_tag` field (declaration order) off a Choice value.
+/// The discriminant (declaration order) off a Choice value, through the accessor that
+/// fronts the private `_tag`.
 let private tagOf (objArg: obj) : int =
-    choiceIntStr.Value.GetField("_tag").GetValue(objArg) :?> int
+    choiceIntStr.Value.GetMethod("get_Tag").Invoke(objArg, [||]) :?> int
 
 /// Read a per-case payload field (`Choice1Of2_0` / `Choice2Of2_0`) off a value.
 let private fieldOf (name: string) (objArg: obj) : obj =
@@ -82,7 +83,7 @@ let private choice7: Lazy<Type> =
     lazy (choiceAsm.Value.GetType("Vesper.Choice`7").MakeGenericType(Array.create 7 intTy))
 
 let private tagOfOn (ty: Type) (objArg: obj) : int =
-    ty.GetField("_tag").GetValue(objArg) :?> int
+    ty.GetMethod("get_Tag").Invoke(objArg, [||]) :?> int
 
 let private fieldOfOn (ty: Type) (name: string) (objArg: obj) : obj = ty.GetField(name).GetValue(objArg)
 

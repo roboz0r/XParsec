@@ -112,17 +112,24 @@ module EmitTypes =
         /// not chain.
         | None
 
+    /// A union's discriminant, in the two spellings a reader reaches it by: the private
+    /// field for a body on the union or one of its case types, and the public accessor
+    /// everywhere else.
+    type EmittedTag =
+        {
+            Field: EntityHandle
+            Getter: EntityHandle
+        }
+
     /// A union emitted into this assembly. `Typars` empty ⇒ monomorphic: a single sealed
-    /// class whose `TagField` / `Factory` / `Fields` handles are usable as `Def` tokens.
+    /// class whose `Tag` / `Factory` / `Fields` handles are usable as `Def` tokens.
     /// Non-empty ⇒ generic, and every member is reached by `MemberRef` off `Name` instead.
     type EmittedUnion =
         {
             Name: string
             Typars: string list
-            /// The `_tag` `Def` token, held exactly where the regime's discriminant is the
-            /// tag field. A `TypeTested` union's `_tag` row survives until step 4 of the
-            /// hierarchy plan, but no consumer holds a handle to load it by.
-            TagField: EntityHandle voption
+            /// Held exactly where `UnionRegime.hasTag` holds.
+            Tag: EmittedTag voption
             ValueKind: UnionValueKind
             Cases: Dictionary<string, EmittedCase>
             /// Augmentation members by source name, each mapping to the LIST of its

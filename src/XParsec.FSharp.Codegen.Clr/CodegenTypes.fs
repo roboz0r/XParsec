@@ -72,14 +72,9 @@ type internal UnionDecl =
         /// `IsReadOnly` with `initonly` fields; the factories `newobj` the flat
         /// `(tag, every case field)` `.ctor` and return by value).
         ValueKind: UnionValueKind
+        /// The metadata shape this union is emitted in, classified once at partition time.
+        Regime: UnionRegime
     }
-
-    /// The metadata shape this union is emitted in.
-    member this.Regime: UnionRegime =
-        UnionRegime.classify
-            this.ValueKind
-            this.Cases.Length
-            (this.Cases |> List.exists (fun c -> not c.Fields.IsEmpty))
 
     /// A nested `TypeDef` per case on an abstract base.
     member this.IsHierarchy: bool = UnionRegime.isHierarchy this.Regime
@@ -91,13 +86,13 @@ type internal UnionDecl =
     member this.CtorShape: UnionCtorShape =
         UnionCtorShape.ofRegime this.ValueKind this.Regime
 
-    /// The cases held as a `_unique_<Case>` singleton, constructed once by the union's
-    /// `.cctor`. Empty ⇒ no `.cctor` row.
-    member this.SingletonCases: Frozen.TUnionCase list =
-        if this.IsHierarchy then
-            this.Cases |> List.filter (fun c -> c.Fields.IsEmpty)
-        else
-            []
+    /// The `(tag, case)` pairs held as a `_unique_<Case>` singleton, constructed once by
+    /// the union's `.cctor`. Every nullary case of a reference union qualifies, in any
+    /// regime; a `[<Struct>]` union yields none. Empty ⇒ no `.cctor` row.
+    member this.SingletonCases: (int * Frozen.TUnionCase) list =
+        match this.ValueKind with
+        | UnionValueKind.Struct -> []
+        | UnionValueKind.RefType -> this.Cases |> List.indexed |> List.filter (fun (_, c) -> c.Fields.IsEmpty)
 
     /// One case's payload field names, in declaration order.
     member this.FieldNames(c: Frozen.TUnionCase) : string list =

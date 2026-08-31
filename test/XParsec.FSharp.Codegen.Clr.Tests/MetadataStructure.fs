@@ -345,6 +345,38 @@ let typeDecl (bytes: byte[]) (name: string) : TypeDecl voption =
                 IsNested = isNested td.Attributes
             }
 
+/// One type's `Field` rows in row order as `(name, attributes)`, by the `Ns.Outer+Inner`
+/// spelling. Raises when the assembly declares no such type.
+let fieldAttrsOf (bytes: byte[]) (typeName: string) : (string * FieldAttributes) list =
+    use pe = openPe bytes
+    let md = pe.GetMetadataReader()
+
+    match md.TypeDefinitions |> Seq.tryFind (fun h -> nameOf md h = typeName) with
+    | None ->
+        failwithf "MetadataStructure: no type '%s' among %A" typeName [ for h in md.TypeDefinitions -> nameOf md h ]
+    | Some h ->
+        [
+            for fh in (md.GetTypeDefinition h).GetFields() ->
+                let fd = md.GetFieldDefinition fh
+                md.GetString fd.Name, fd.Attributes
+        ]
+
+/// One type's `Method` rows in row order as `(name, attributes)`, by the `Ns.Outer+Inner`
+/// spelling. Raises when the assembly declares no such type.
+let methodAttrsOf (bytes: byte[]) (typeName: string) : (string * MethodAttributes) list =
+    use pe = openPe bytes
+    let md = pe.GetMetadataReader()
+
+    match md.TypeDefinitions |> Seq.tryFind (fun h -> nameOf md h = typeName) with
+    | None ->
+        failwithf "MetadataStructure: no type '%s' among %A" typeName [ for h in md.TypeDefinitions -> nameOf md h ]
+    | Some h ->
+        [
+            for mh in (md.GetTypeDefinition h).GetMethods() ->
+                let mdef = md.GetMethodDefinition mh
+                md.GetString mdef.Name, mdef.Attributes
+        ]
+
 /// How many `MemberRef` rows carry `name`. The table is appended to rather than
 /// deduplicated, so a count above one is a member ref minted more than once.
 let memberRefRowCount (bytes: byte[]) (name: string) : int =

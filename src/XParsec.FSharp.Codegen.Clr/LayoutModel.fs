@@ -29,6 +29,10 @@ module internal MethodAttrSets =
     // slot to dispatch through.
     let instanceMethodAttrs = MethodAttributes.Public ||| MethodAttributes.HideBySig
 
+    // A union's `get_Tag`: non-virtual, so a match arm binds it by `call`. `SpecialName`
+    // marks it a property getter.
+    let tagGetterAttrs = instanceMethodAttrs ||| MethodAttributes.SpecialName
+
     // An `Object.Equals` / `GetHashCode` override: no `NewSlot`, so it reuses the
     // base virtual slot, matched by name + signature.
     let overrideMethodAttrs =
@@ -165,12 +169,15 @@ type internal TypeSlotKind =
 /// Identity of one `Field` row in the layout.
 [<RequireQualifiedAccess>]
 type internal FieldKey =
+    /// A union's `private initonly` discriminant, read by the union's own bodies and by
+    /// its case types; every other reader goes through `MethodKey.UnionGetTag`.
     | UnionTag of SymbolKey
     /// A case's payload field: on the case's own `TypeDef` in a hierarchy regime, and
     /// co-resident with every other case's on the union itself in a flat one.
     | UnionCaseField of SymbolKey * case: string * index: int
-    /// A hierarchy union's `public static initonly` singleton for a NULLARY case, typed as
-    /// the union. Constructed once by the union's `.cctor`; the case factory `ldsfld`s it.
+    /// A reference union's `private static initonly` singleton for a NULLARY case, typed
+    /// as the union. Constructed once by the union's `.cctor`; the case factory `ldsfld`s
+    /// it.
     | UnionCaseSingleton of SymbolKey * case: string
     | RecordField of SymbolKey * name: string
     /// A class primary-ctor parameter's backing field.
@@ -278,6 +285,9 @@ type internal MethodKey =
     | NominalCctor of SymbolKey
     | SecondaryCtor of SymbolKey * index: int
     | UnionFactory of SymbolKey * case: string
+    /// `get_Tag`, the public accessor for a union's private `_tag`. Declared exactly where
+    /// `UnionRegime.hasTag` holds.
+    | UnionGetTag of SymbolKey
     /// A hierarchy union case type's `.ctor(payload…)`, which chains the union's own
     /// `.ctor`, passing this case's tag where the base declares one.
     | UnionCaseCtor of SymbolKey * case: string

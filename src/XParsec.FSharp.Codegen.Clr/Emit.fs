@@ -373,13 +373,16 @@ module Emit =
         b.Add ILInstr.Ret
         b.Body
 
-    /// A non-capturing, monomorphic closure's `.cctor`: `newobj` the closure once into
-    /// the singleton `instance` field, so a stateless lambda allocates once rather than
-    /// per construction site.
-    let buildCachedClosureCctor (ctorHandle: EntityHandle) (cachedField: EntityHandle) : ILBody =
+    /// Build a `.cctor` that fills each `static initonly` field once, in the given order.
+    /// Each entry's instruction list leaves the instance to cache on the stack; a cached
+    /// closure, a string/mixed enum case and a union's nullary case all take this shape.
+    let buildCachedFieldCctor (entries: (ILInstr list * EntityHandle) list) : ILBody =
         let b = IlBuilder()
-        b.Add(ILInstr.Newobj(ctorHandle, 0))
-        b.Add(ILInstr.Stsfld cachedField)
+
+        for (push, cachedField) in entries do
+            push |> List.iter b.Add
+            b.Add(ILInstr.Stsfld cachedField)
+
         b.Add ILInstr.Ret
         b.Body
 
@@ -392,59 +395,24 @@ module Emit =
         b.Add ILInstr.Ret
         b.Body
 
-    /// Build a string/mixed enum's `.cctor`: per case, push its literal (`pushLit` —
-    /// `ldstr`, or `ldc;box` for a mixed int), `newobj` the wrapper's single-arg
-    /// `.ctor`, `stsfld` the singleton into the case's `static initonly` field.
-    let buildStructEnumCctor (ctorHandle: EntityHandle) (cases: (EntityHandle * ILInstr list) list) : ILBody =
-        let b = IlBuilder()
-
-        for (caseField, pushLit) in cases do
-            pushLit |> List.iter b.Add
-            b.Add(ILInstr.Newobj(ctorHandle, 1))
-            b.Add(ILInstr.Stsfld caseField)
-
-        b.Add ILInstr.Ret
-        b.Body
-
-    /// Build a flat reference union case's static factory: `newobj` via the union's
-    /// parameterless ctor, stamp the discriminant where the regime has one (`ValueNone`
-    /// on a single-case union), store each parameter into its field, return.
-    /// `fieldHandles` are in declaration order = the factory's `ldarg.i` order.
-    let buildUnionFactory
-        (unionCtor: EntityHandle)
-        (tagStore: (int * EntityHandle) voption)
-        (fieldHandles: EntityHandle list)
-        : ILBody =
-        let b = IlBuilder()
-        b.Add(ILInstr.Newobj(unionCtor, 0))
-
-        match tagStore with
-        | ValueSome(tag, tagField) ->
-            b.Add ILInstr.Dup
-            b.Add(ILInstr.LdcI4 tag)
-            b.Add(ILInstr.Stfld tagField)
-        | ValueNone -> ()
-
-        fieldHandles
-        |> List.iteri (fun i field ->
-            b.Add ILInstr.Dup
-            b.Add(ILInstr.Ldarg i)
-            b.Add(ILInstr.Stfld field)
-        )
-
-        b.Add ILInstr.Ret
-        b.Body
-
-    /// Build a static factory that forwards its parameters whole: `newobj` `caseCtor`
-    /// over them in declaration order. A hierarchy case's `.ctor` takes exactly its
-    /// factory's parameters, as does a single-case struct union's flat `.ctor`.
-    let buildUnionCaseFactory (caseCtor: EntityHandle) (arity: int) : ILBody =
+    /// Build a static factory that forwards its parameters whole: `newobj` `ctor` over
+    /// them in declaration order. A hierarchy case's `.ctor` takes exactly its factory's
+    /// parameters, as does a single-case union's flat `.ctor`.
+    let buildUnionCaseFactory (ctor: EntityHandle) (arity: int) : ILBody =
         let b = IlBuilder()
 
         for i in 0 .. arity - 1 do
             b.Add(ILInstr.Ldarg i)
 
-        b.Add(ILInstr.Newobj(caseCtor, arity))
+        b.Add(ILInstr.Newobj(ctor, arity))
+        b.Add ILInstr.Ret
+        b.Body
+
+    /// Build an instance getter over one field: `ldarg.0; ldfld; ret`.
+    let buildFieldGetter (field: EntityHandle) : ILBody =
+        let b = IlBuilder()
+        b.Add(ILInstr.Ldarg 0)
+        b.Add(ILInstr.Ldfld field)
         b.Add ILInstr.Ret
         b.Body
 
@@ -453,18 +421,6 @@ module Emit =
     let buildUnionSingletonFactory (singletonField: EntityHandle) : ILBody =
         let b = IlBuilder()
         b.Add(ILInstr.Ldsfld singletonField)
-        b.Add ILInstr.Ret
-        b.Body
-
-    /// Build a hierarchy union's `.cctor`: `newobj` each nullary case once into its
-    /// `_unique_<Case>` singleton. `cases` pairs a case's `.ctor` with that field.
-    let buildUnionSingletonCctor (cases: (EntityHandle * EntityHandle) list) : ILBody =
-        let b = IlBuilder()
-
-        for (caseCtor, singletonField) in cases do
-            b.Add(ILInstr.Newobj(caseCtor, 0))
-            b.Add(ILInstr.Stsfld singletonField)
-
         b.Add ILInstr.Ret
         b.Body
 

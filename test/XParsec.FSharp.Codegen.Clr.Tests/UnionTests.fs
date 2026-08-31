@@ -267,6 +267,48 @@ let tests =
                 | other -> failtestf "expected one static fold method, got %A" (other |> Array.map (fun m -> m.Name))
             }
 
+            // A nullary case has one value, so the union's `.cctor` constructs it once into
+            // `_unique_<Case>` and every factory call hands back that instance. The rule
+            // covers a reference union in any regime: the enum-like one below constructs
+            // the union itself with its tag, the type-tested one its case type, and the
+            // single-case one its sole shape.
+            test "a nullary case's factory returns one cached instance" {
+                let src =
+                    lines
+                        [
+                            "namespace Vesper.Collections"
+                            ""
+                            "type Colour ="
+                            "    | Red"
+                            "    | Green"
+                            "    | Blue"
+                            ""
+                            "type Shade ="
+                            "    | Plain"
+                            "    | Tinted of int"
+                            ""
+                            "type Marker ="
+                            "    | M"
+                        ]
+
+                let project = ProjectInfo.library "Vesper.Collections.Singletons"
+                let asm = loadAssembly (Codegen.toBytes (compileSourceTo project src))
+
+                let twiceIsOne (typeName: string) (caseName: string) =
+                    let ty = asm.GetType("Vesper.Collections." + typeName)
+                    Expect.isNotNull ty (sprintf "the DLL contains %s" typeName)
+                    let factory = ty.GetMethod caseName
+                    Expect.isNotNull factory (sprintf "%s has a static %s factory" typeName caseName)
+
+                    Expect.isTrue
+                        (obj.ReferenceEquals(factory.Invoke(null, [||]), factory.Invoke(null, [||])))
+                        (sprintf "two %s.%s constructions are one instance" typeName caseName)
+
+                twiceIsOne "Colour" "Red"
+                twiceIsOne "Shade" "Plain"
+                twiceIsOne "Marker" "M"
+            }
+
             test "union augmentation members surface on TTypeKind.Union" {
                 let tast = analyse memberUnionSrc
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
