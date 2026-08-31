@@ -170,7 +170,7 @@ module internal AttributeFold =
                 [
                     yield! enclosing.SelfAndAncestors
                     for o in useSite.Opens do
-                        match TypeRegistry.openedContainer ctx.Types o with
+                        match o.Container with
                         | ValueSome c -> yield c
                         | ValueNone -> ()
                 ]

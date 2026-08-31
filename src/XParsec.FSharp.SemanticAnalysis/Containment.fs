@@ -83,7 +83,9 @@ module Containment =
             chain
 
         /// Enter a walked module element, advancing both ambient facts a by-name read resolves
-        /// against: the `open`s in scope and the module chain.
+        /// against: the `open`s in scope and the module chain. Each `open` resolves here, once
+        /// per element, after the element's own chain is registered.
         member this.EnterElement(w: WalkedIn<SyntaxToken, 'Elem>) : unit =
             this.Resolution.OpenScope <- w.Scope
             this.EnterContainment w.Containment |> ignore
+            this.Resolution.ResolvedOpens <- w.Scope.Locals |> List.map (TypeRegistry.resolveOpen this.Types)

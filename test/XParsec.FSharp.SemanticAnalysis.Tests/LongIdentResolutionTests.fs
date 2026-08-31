@@ -172,6 +172,60 @@ module D =
     let h () : int = 7
 "
 
+// --- file 1: `module Foo` beside `type Foo`, so the module compiles to `FooModule` -------
+
+/// The suffixed module publishes a TYPE only.
+let private suffixedTypeOnlyLib =
+    "\
+namespace Test.Suffix
+
+type Foo =
+    | A
+    | B
+
+module Foo =
+    type Inner = | Zip
+"
+
+/// The same module, publishing a value as well.
+let private suffixedWithValueLib =
+    "\
+namespace Test.Suffix
+
+type Foo =
+    | A
+    | B
+
+module Foo =
+    type Inner = | Zip
+    let seed = 1
+"
+
+/// A suffixed module holding a nested module.
+let private suffixedNestedLib =
+    "\
+namespace Test.Suffix
+
+type Foo =
+    | A
+    | B
+
+module Foo =
+    module Bar =
+        type Inner = | Zip
+        let seed = 1
+"
+
+/// No name collision, so the compiled and source names agree: the control.
+let private unsuffixedLib =
+    "\
+namespace Test.Suffix
+
+module Foo =
+    type Inner = | Zip
+    let seed = 1
+"
+
 [<Tests>]
 let tests =
     testList
@@ -448,6 +502,146 @@ module N =
                             (errorsOf all.[0] |> List.exists undefinedDiscriminator)
                             (sprintf "%A" (errorsOf all.[0]))
                     }
+                ]
+
+            // A module whose COMPILED name differs from the name its source writes
+            // (`module Foo` beside `type Foo` compiles to `FooModule`). `dotnet fsi` accepts
+            // every case here; a `ptest` is one this analysis does not yet, and
+            // `docs/semantic-names-in-keys-plan.md` un-pends them. The boundary is exactly
+            // whether the module publishes a VALUE: a published value carries the source path
+            // of its declaring module, and nothing else contributes one.
+            testList
+                "a module whose compiled name differs"
+                [
+                    testList
+                        "holds today"
+                        [
+                            resolves
+                                "CONTROL: an unsuffixed module is reached by `open`"
+                                unsuffixedLib
+                                "namespace Consumer
+
+open Test.Suffix.Foo
+
+module M =
+    let f (v: Inner) = v
+"
+                            resolves
+                                "a suffixed module publishing a value is reached by `open`"
+                                suffixedWithValueLib
+                                "namespace Consumer
+
+open Test.Suffix.Foo
+
+module M =
+    let f (v: Inner) = v
+"
+                            resolves
+                                "a suffixed module publishing a value supplies a bare name"
+                                suffixedWithValueLib
+                                "namespace Consumer
+
+open Test.Suffix.Foo
+
+module M =
+    let n : int = seed
+"
+                            resolves
+                                "a suffixed module publishing a value is reached by a qualified path"
+                                suffixedWithValueLib
+                                "namespace Consumer
+
+module M =
+    let n : int = Test.Suffix.Foo.seed
+"
+                            resolves
+                                "a module nested under a suffixed one is reached by `open`"
+                                suffixedNestedLib
+                                "namespace Consumer
+
+open Test.Suffix.Foo.Bar
+
+module M =
+    let n : int = seed
+"
+                            // Within the file, the source path is what `LocalContainers` is
+                            // keyed by, so the suffix never surfaces.
+                            resolves
+                                "SAME FILE: a suffixed module publishing only a type is reached by a qualified path"
+                                "namespace Test.Suffix
+
+type Foo =
+    | A
+    | B
+
+module Foo =
+    type Inner = | Zip
+
+module M =
+    let f (v: Foo.Inner) = v
+"
+                                "namespace Consumer
+
+module Q =
+    let z = 1
+"
+                            resolves
+                                "SAME FILE: a suffixed module publishing only a type is reached by `open`"
+                                "namespace Test.Suffix
+
+type Foo =
+    | A
+    | B
+
+module Foo =
+    type Inner = | Zip
+
+module M =
+    open Foo
+    let f (v: Inner) = v
+"
+                                "namespace Consumer
+
+module Q =
+    let z = 1
+"
+                        ]
+
+                    testList
+                        "pending"
+                        [
+                            // The published surface indexes a module under its COMPILED path;
+                            // the source path arrives only with a published value, which a
+                            // module holding one type does not have.
+                            presolves
+                                "a suffixed module publishing only a type is reached by `open`"
+                                suffixedTypeOnlyLib
+                                "namespace Consumer
+
+open Test.Suffix.Foo
+
+module M =
+    let f (v: Inner) = v
+"
+                            presolves
+                                "a suffixed module publishing only a type is reached by a qualified path"
+                                suffixedTypeOnlyLib
+                                "namespace Consumer
+
+module M =
+    let f (v: Test.Suffix.Foo.Inner) = v
+"
+                            // The descent composes a COMPILED prefix with a SOURCE segment,
+                            // spelling `Test.Suffix.FooModule.Bar`, which no index holds.
+                            presolves
+                                "a module nested under a suffixed one is reached by a qualified path"
+                                suffixedNestedLib
+                                "namespace Consumer
+
+module M =
+    let n : int = Test.Suffix.Foo.Bar.seed
+"
+                        ]
                 ]
 
             // `open` precedence, as `dotnet fsi` has it. Every case here was probed against the

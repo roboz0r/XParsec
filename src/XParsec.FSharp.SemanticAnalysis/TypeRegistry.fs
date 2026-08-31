@@ -194,10 +194,18 @@ module TypeRegistry =
 
         go scope
 
-    /// The module / namespace this `open` resolves to, if THIS file declares it. Its written path is
-    /// resolved from the scope it is written in.
-    let openedContainer (types: PassContextTypes) (o: LocalOpen) : ModuleContainer voption =
-        tryContainerOfPath types o.Scope o.Path
+    /// Resolves a written `open` against the scopes THIS file declares, from the scope it is
+    /// written in. THE single site this resolution happens at: every consumer reads
+    /// `ResolvedOpen.Container`.
+    let resolveOpen (types: PassContextTypes) (o: LocalOpen) : ResolvedOpen =
+        {
+            Container = tryContainerOfPath types o.Scope o.Path
+            Rank =
+                {
+                    Depth = o.ScopeDepth
+                    Offset = o.Offset
+                }
+        }
 
     /// The scope the dotted SOURCE `path` reaches when written INSIDE `enclosing`, and `enclosing`
     /// itself for an empty path. An EXACT descent, no walking outward.
@@ -260,15 +268,15 @@ module TypeRegistry =
                 | ValueNone -> ()
 
             for o in useSite.Opens do
-                match openedContainer types o with
+                match o.Container with
                 | ValueSome opened ->
                     match tryContainerUnder types opened path with
                     | ValueSome reached ->
                         reaches.Add
                             {
                                 Container = reached
-                                Depth = o.ScopeDepth
-                                Route = ReachRoute.Opened o.Offset
+                                Depth = o.Rank.Depth
+                                Route = ReachRoute.Opened o.Rank.Offset
                             }
                     | ValueNone -> ()
                 | ValueNone -> ()

@@ -132,6 +132,16 @@ and TypeKey =
 [<Struct>]
 type BindingRank = { Depth: int; Offset: int }
 
+/// An `open` written in this file, carrying the scope of this file it denotes and where it
+/// enters the name environment. `Container` is `ValueNone` when the written path names a
+/// referenced scope, or no scope at all.
+[<NoComparison>]
+type ResolvedOpen =
+    {
+        Container: ModuleContainer voption
+        Rank: BindingRank
+    }
+
 /// WHERE a by-NAME lookup is resolved FROM: the position in the file, the module scope the use
 /// sits in, and the `open`s that let a sibling's types in.
 [<NoComparison>]
@@ -139,7 +149,7 @@ type UseSite =
     {
         Pos: SourcePos
         Container: ModuleContainer voption
-        Opens: LocalOpen list
+        Opens: ResolvedOpen list
     }
 
     member this.Offset: int = this.Pos.Offset

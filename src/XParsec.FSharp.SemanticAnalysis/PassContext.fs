@@ -177,6 +177,9 @@ type PassContextResolution =
         mutable OpenScope: OpenScope
         /// The chain enclosing the element being analysed, set in lockstep with `OpenScope`.
         mutable EnclosingContainer: ModuleContainer voption
+        /// `OpenScope.Locals` resolved against the scopes this file declares, set in lockstep
+        /// with `OpenScope`: what a use site under this element carries.
+        mutable ResolvedOpens: ResolvedOpen list
         /// The type parameters in scope, by source name. Anonymous typars (`_`) never
         /// enter it, because they are fresh per occurrence. Replaced only through
         /// `PassContext.PushTyparScope`.
@@ -253,6 +256,7 @@ module PassContextResolution =
         {
             OpenScope = OpenScope.empty
             EnclosingContainer = ValueNone
+            ResolvedOpens = []
             TyparScope = Dictionary<string, TyVarId>(System.StringComparer.Ordinal)
             BindingTyparSeed = ValueNone
             EnclosingTypars = ValueNone
@@ -592,7 +596,7 @@ type PassContext(provider: IExternalSymbolProvider, file: LexedFile, assembly: C
         {
             Pos = SourcePos.ofNodeKey key
             Container = this.Resolution.EnclosingContainer
-            Opens = this.Resolution.OpenScope.Locals
+            Opens = this.Resolution.ResolvedOpens
         }
 
     /// The module chain the walk stands in, which is what HOLDS a declaration written here.

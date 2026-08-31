@@ -86,7 +86,7 @@ module NameResolutionContainers =
                 add (ctx.Resolver.Scope.TryContainer(childPath h segment))
 
             for o in useSite.Opens do
-                match TypeRegistry.openedContainer ctx.Types o with
+                match o.Container with
                 | ValueSome opened -> add (TypeRegistry.tryContainerUnder ctx.Types opened segment)
                 | ValueNone -> ()
 

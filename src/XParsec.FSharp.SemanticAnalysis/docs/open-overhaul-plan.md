@@ -118,10 +118,24 @@ former `STEP 1` list of `LongIdentResolutionTests.fs` are un-pended and green, a
 Relative-before-absolute matches `firstSegmentContainers` and `dotnet fsi`, so a namespace
 header now also qualifies an `open` written under it.
 
-**Step 2 — carry the container.** Add `Container: ModuleContainer voption` to `LocalOpen`, filled
-at `CstModuleTree.fs:218`. Additively, beside `Path`, per the repo's swap-behind-an-alias rule.
-Re-point `TypeRegistry.openedContainer` (`:199`) to read it. No behaviour change; this is the
-step that makes the four re-derivations one.
+**Step 2 — carry the container. DONE.** `UseSite.Opens` is a `ResolvedOpen list`
+(`SymbolKeys.fs:136`) — `{ Container: ModuleContainer voption; Rank: BindingRank }`.
+`TypeRegistry.resolveOpen` (`:196`) is the one site the resolution happens at, called from
+`Containment.EnterElement` once per walked element and parked on
+`PassContextResolution.ResolvedOpens`. `TypeRegistry.pathReaches`,
+`Containers.firstSegmentContainers`, `AttributeFold` and `LongIdent.openedLocalValue` read
+`o.Container`. `LocalOpen.ScopeDepth` + `Offset` collapse into the `BindingRank` at that one
+site. No behaviour change; all four suites green.
+
+*The fill site is `EnterElement`, not `CstModuleTree.fs:218` as this plan said.* A
+`ModuleContainer` names a module by its COMPILED name, which `Containment.CompiledModuleNameOf`
+derives from `TypeRegistry.NominalTypeNames` and the module's resolved attributes — neither
+available to `CstModuleTree`, which takes a `nameOf` and no `PassContext`. Beyond that, an
+`open`'s target is looked up in `TypeRegistry.LocalContainers`, which `EnterContainment` fills
+as the walk descends, so it is empty when `walkImpl` builds the list. `EnterElement` is the
+earliest point where the resolution is both possible and stable: `noteLocalContainer` is reached
+only through `EnterContainment`, so no container is registered between entering an element and
+the queries under it.
 
 **Step 3 — one ranked stack.** Introduce `ScopeEntry`, generalise `claimRank` from types to
 values and cases, and replace the `valueInEnv` / `caseInEnv` ladders. The three `STEP 3` lists of
@@ -131,6 +145,8 @@ semantics below.
 
 The `[<AutoOpen>]` list is separable and larger than it looks: those cases need the same-assembly
 `[<AutoOpen>]` module contributed at all before its rank means anything (semantics §4).
+
+**before Step 4** [Semantic Names](./semantic-names-in-keys-plan.md)
 
 **Step 4 — delete the string channel.** Remove `OpenScope.Prefixes`, `candidates`, `tryQualify`
 and the `prefixes` parameter. Separate change, per the delete-the-old-one-separately rule.

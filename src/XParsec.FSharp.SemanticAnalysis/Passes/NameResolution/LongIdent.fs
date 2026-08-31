@@ -364,7 +364,7 @@ module NameResolutionLongIdent =
     let openedLocalValue (ctx: PassContext) (useSite: UseSite) (name: string) : LocalModuleMember voption =
         useSite.Opens
         |> tryPickV (fun o ->
-            match TypeRegistry.openedContainer ctx.Types o with
+            match o.Container with
             | ValueSome opened -> LocalScope.tryValue ctx useSite opened name
             | ValueNone -> ValueNone
         )
