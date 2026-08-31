@@ -104,10 +104,9 @@ type UnionCaseTest =
 [<RequireQualifiedAccess>]
 module UnionCaseTest =
 
-    /// The one regime-to-test mapping, shared by the local and referenced-package match
-    /// paths. `tag` is the case's zero-based index in declaration order. `tagGetter` and
-    /// `caseType` mint their handles in the caller's own scope (`Def` token, self-`TypeSpec`
-    /// or use-site instantiation); each is forced exactly under the regime that reads it.
+    /// The test a match arm emits under `regime`. `tag` is the case's zero-based index in
+    /// declaration order. `tagGetter` and `caseType` mint their handles in the caller's
+    /// own scope; each is forced exactly under the regime that reads it.
     let ofRegime
         (valueKind: UnionValueKind)
         (regime: UnionRegime)
@@ -280,11 +279,9 @@ type FormatSinkHandles =
         Child: EntityHandle
     }
 
-/// The BCL handles and heap strings a synthesised structural body — `Equals`,
-/// `GetHashCode`, `CompareTo`, `Format` — calls.
-///
-/// Each accessor mints its metadata row on demand, so a caller feeding several bodies over
-/// one field list resolves each handle once and shares it.
+/// The BCL handles and heap strings a synthesised structural body (`Equals`,
+/// `GetHashCode`, `CompareTo`, `Format`) calls. Each accessor mints its metadata row on
+/// demand; resolve a handle once and share it across bodies.
 type IStructuralHandles =
     /// `EqualityComparer<T>.Default` getter.
     abstract EqualityComparerDefault: elem: FrozenType -> EntityHandle
@@ -362,9 +359,7 @@ type ICodegenProvider =
         key: TypeKey * tyArgs: FrozenType list * fieldName: string -> (EntityHandle * FrozenType) voption
 
     /// The test a match arm emits against a *referenced-package* union's scrutinee for
-    /// `caseName`, instantiated at `tyArgs`. Derived from the same `classify` the package's
-    /// emitter used, so the two ends agree on how a case is settled. `ValueNone` ⇒ unknown
-    /// union or case.
+    /// `caseName`, instantiated at `tyArgs`. `ValueNone` ⇒ unknown union or case.
     abstract ExternalUnionCaseTest: key: TypeKey * tyArgs: FrozenType list * caseName: string -> UnionCaseTest voption
 
     /// One `<caseName>_<fieldIndex>` field `MemberRef` on a referenced-package union,
@@ -374,7 +369,7 @@ type ICodegenProvider =
         key: TypeKey * tyArgs: FrozenType list * caseName: string * fieldIndex: int ->
             (EntityHandle * FrozenType) voption
 
-    /// The type token for one case of a referenced-package HIERARCHY union at `tyArgs` — the
+    /// The type token for one case of a referenced-package HIERARCHY union at `tyArgs`: the
     /// nested type its payload is declared on, which a cross-package `match` arm casts the
     /// scrutinee to. `ValueNone` ⇒ a flat regime, where the payload sits on the union.
     abstract ExternalUnionCaseType: key: TypeKey * tyArgs: FrozenType list * caseName: string -> EntityHandle voption

@@ -209,8 +209,8 @@ let tests =
                 Expect.isNotNull caseTyped "Circle declares Equals(Circle), which holds the field walk"
                 Expect.isFalse caseTyped.IsVirtual "Equals(Circle) declares no slot, so it binds by `call`"
 
-                // Decision: no `IEquatable<Circle>`. Nothing can ask for
-                // `EqualityComparer<Circle>`, because no expression is typed at a case.
+                // A case type declares no `IEquatable<Circle>`: no expression is typed at
+                // a case, so `EqualityComparer<Circle>` is never requested.
                 let caseIface = typedefof<IEquatable<_>>.MakeGenericType caseTy
 
                 Expect.isFalse

@@ -360,10 +360,7 @@ module Emit =
         )
 
     /// Build a `.ctor` body that chains `baseCtor` with `baseArgs` pushed ahead of the
-    /// call, then stores each of its own arguments into the matching field. A closure's
-    /// captures, a record's fields and a hierarchy union case's payload all take this
-    /// shape; `baseArgs` is the union case's `ldc.i4 <tag>` where the base declares a
-    /// `_tag`, and empty everywhere else.
+    /// call, then stores each of its own arguments into the matching field.
     let buildChainedCtor (baseCtor: EntityHandle) (baseArgs: ILInstr list) (fields: EntityHandle list) : ILBody =
         let b = IlBuilder()
         b.Add(ILInstr.Ldarg 0)

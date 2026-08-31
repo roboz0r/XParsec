@@ -559,9 +559,8 @@ module internal NominalEmit =
             }
         )
 
-    /// Every body behind a record's synthesised structural rows. Equality, comparison and
-    /// `%A` walk the same fields, so one pass mints the field refs they share: on a generic
-    /// record a second pass would mint a second `MemberRef` row per field.
+    /// Every body behind a record's synthesised structural rows. One pass mints the field
+    /// refs that equality, comparison and `%A` share.
     let private prepareRecordStructural
         (asm: Assembler)
         (td: TastAccessor.TypeDecl)
@@ -732,8 +731,6 @@ module internal NominalEmit =
         for (index, _, mem) in NominalMembers.indexed members userInterfaces do
             prepareTypeMember asm emitCtx td selfValueTy index mem
 
-        // The same derivation `LayoutNodes` laid the rows out from, so the bodies prepared
-        // below cover exactly the rows this type declares.
         let structural = StructuralMembers.ofInput input
 
         let structuralSelf =
@@ -743,8 +740,6 @@ module internal NominalEmit =
                 Members = structural
             }
 
-        // The per-kind structural bodies, and for a hierarchy union the case types too,
-        // once the base's verdicts are settled.
         match input with
         | NominalEmissionInput.Union ud -> UnionEmit.prepareStructural asm ud structuralSelf
         | NominalEmissionInput.Record _ -> prepareRecordStructural asm td structuralSelf isStruct

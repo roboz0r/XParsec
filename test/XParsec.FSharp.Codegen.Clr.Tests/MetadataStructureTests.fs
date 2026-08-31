@@ -163,9 +163,7 @@ let tests =
                         }
                         // Two cases with a payload, so `Shape` is `TypeTested`: an abstract
                         // base carrying the `_unique_Dot` singleton and the `.cctor` that
-                        // fills it, followed (pre-order) by a nested type per case. The
-                        // base's `GetHashCode` / typed `Equals` / `Format` rows are the
-                        // abstract slots each case implements.
+                        // fills it, then (pre-order) a nested type per case.
                         {
                             Type = "Shape"
                             Fields = [ "_unique_Dot" ]
@@ -237,10 +235,9 @@ let tests =
                     ]
             }
 
-            // The hierarchy's declaration shape, read off the metadata rather than off a
-            // loaded assembly: the base is abstract, each case is a sealed nested type
-            // extending it, and a generic union's case redeclares the union's typars so its
-            // `extends` is an instantiation rather than a bare `TypeDef`.
+            // The hierarchy's declaration shape: the base is abstract, each case a sealed
+            // nested type extending it, and a generic union's case redeclares the union's
+            // typars, so its `extends` is an instantiation rather than a bare `TypeDef`.
             test "a monomorphic hierarchy union's case extends the base by TypeDef" {
                 let bytes = representativeBytes.Value
 
@@ -298,9 +295,8 @@ let tests =
             }
 
             // A generic type reaches its own members through `MemberRef`s on its open
-            // self-`TypeSpec`, and that table is appended to rather than deduplicated, so
-            // every pass that walks a case's payload adds a row per field. The byte-identity
-            // goldens cannot report a duplicate mint.
+            // self-`TypeSpec`, an append-only table: every pass that walks a case's payload
+            // adds a row per field, and the byte-identity goldens miss a duplicate mint.
             test "a generic union's case payload is minted once per pass that walks it" {
                 let artifact =
                     compileSource
@@ -353,7 +349,7 @@ let tests =
 
             // A single-case union's sole case is settled without a test, so the union
             // declares no `_tag` row and its payload takes FSC's spelling on the union
-            // type itself (hierarchy plan, step 5 first half).
+            // type itself.
             test "a single-case union carries no _tag and FSC-spells its payload" {
                 let bytes =
                     compileSource
@@ -377,10 +373,9 @@ let tests =
                     "the lone positional payload, and no _tag"
             }
 
-            // `C of tag: int` FSC-spells its payload `_tag` — the same name the
-            // discriminant row would take. Dropping the discriminant is what admits it;
-            // with the row present, Layout's field-name uniqueness check would reject the
-            // program instead of writing two same-named `FieldDef` rows.
+            // `C of tag: int` FSC-spells its payload `_tag`, the same name the
+            // discriminant row would take; dropping the discriminant is what admits it
+            // past Layout's field-name uniqueness check.
             test "a single-case union may declare a field named tag" {
                 let bytes =
                     compileSource
@@ -401,8 +396,8 @@ let tests =
             }
 
             // A `TypeTested` union settles a case by its runtime type, so its base declares
-            // no discriminant and — with every case carrying a payload, hence no singleton —
-            // no field rows at all (hierarchy plan, step 4).
+            // no discriminant and, with every case carrying a payload, no singleton: no
+            // field rows at all.
             test "a type-tested union's base carries no field rows" {
                 let bytes =
                     compileSource
@@ -459,8 +454,8 @@ let tests =
             }
 
             // A nullary case of a reference union is constructed once into `_unique_<Case>`,
-            // in every regime (hierarchy plan, step 5 second half). An enum-like union is
-            // nullary throughout, so it carries the discriminant and a singleton per case.
+            // in every regime. An enum-like union is nullary throughout, so it carries the
+            // discriminant and a singleton per case.
             test "an enum-like union holds a singleton per case" {
                 let bytes =
                     compileSource
@@ -504,9 +499,7 @@ let tests =
             }
 
             // A union's storage is its own: `_tag` and each `_unique_<Case>` are private,
-            // and the public surface is `get_Tag` plus the per-case factories. A match arm
-            // outside the union calls the accessor, and a construction site calls the
-            // factory, so nothing outside needs the fields.
+            // and the public surface is `get_Tag` plus the per-case factories.
             test "a union's fields are private behind get_Tag and the case factories" {
                 let bytes =
                     compileSource

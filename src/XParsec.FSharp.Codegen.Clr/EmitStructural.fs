@@ -5,11 +5,7 @@ open XParsec.FSharp.SemanticAnalysis
 open EmitTypes
 
 /// The synthesised equality, hashing and comparison bodies of a union, a record, and a
-/// hierarchy union's case type. Each entry point takes a `StructuralWalk` naming the values
-/// to visit, an `IStructuralHandles` for the BCL members it calls, and `isVt`, the declaring
-/// type's `[<Struct>]`.
-///
-/// `%A` is the sibling of this module: `EmitStructuralFormat`.
+/// hierarchy union's case type. The `%A` bodies are in `EmitStructuralFormat`.
 module internal EmitStructural =
 
     let private intTy = FTConst(RuntimeNames.intKey, EqArray.empty)
@@ -29,9 +25,8 @@ module internal EmitStructural =
     /// The values one synthesised structural body visits.
     type StructuralWalk =
         {
-            /// `(field handle, declared type)` in visit order. A flat union crosses every
-            /// case's fields, which agrees with a per-case walk because an inactive case's
-            /// fields hold their default. The caller mints these as `Def` tokens or as
+            /// `(field handle, declared type)` in visit order; a flat union's walk crosses
+            /// every case's fields. The caller mints these as `Def` tokens or as
             /// `MemberRef`s on the type's own `TypeSpec` (`Box\`1<!0>::Value`).
             Fields: (EntityHandle * FrozenType) list
             Discriminant: Discriminant
@@ -165,9 +160,6 @@ module internal EmitStructural =
     /// `int CompareTo(object obj)` — the non-generic `IComparable::CompareTo`. `null`
     /// sorts first (returns `1`), a non-`Self` arg throws `ArgumentException`, otherwise
     /// `typedEntry` reaches the typed `CompareTo(Self)`.
-    ///
-    /// A hierarchy union's base declares no field walk of its own, so this takes the self
-    /// shape rather than a `StructuralWalk`.
     let buildCompareToObj
         (h: IStructuralHandles)
         (isVt: bool)
@@ -229,9 +221,9 @@ module internal EmitStructural =
             b.Add(ILInstr.Callvirt(h.EqualityComparerEquals fieldTy, 3, 1))
             b.Add(ILInstr.Brfalse falseLabel)
 
-    /// `override bool Equals(object obj)`: cast-or-false, then the walk. `selfType` is the
-    /// declaring type's own token — the `isinst` target — and `selfTy` the type of the
-    /// cast `other` local.
+    /// `override bool Equals(object obj)`: cast-or-false, then the walk. `selfType` is
+    /// the `isinst` target (the declaring type's own token); `selfTy` types the cast
+    /// `other` local.
     let buildEqualsObj
         (h: IStructuralHandles)
         (isVt: bool)
@@ -246,9 +238,7 @@ module internal EmitStructural =
         buildStructuralEqualsTyped isVt (fieldEquality h w)
 
     /// `override int GetHashCode()`: a `System.HashCode` seeded by the discriminant, every
-    /// field added through `HashCode.Add<T>`, then `ToHashCode()`. Equal values hash equal,
-    /// because the seed distinguishes cases and the walk covers every field the equality
-    /// body reads.
+    /// field added through `HashCode.Add<T>`, then `ToHashCode()`.
     let buildGetHashCode (h: IStructuralHandles) (w: StructuralWalk) : ILBody =
         let b = IlBuilder()
         let hc = b.Local h.HashCodeType
@@ -283,9 +273,8 @@ module internal EmitStructural =
     // ---- Comparison ------------------------------------------------------------------
 
     /// The lexicographic walk the typed `CompareTo` takes: a `TagField` discriminant
-    /// compared first via `sub` (case indices are small, so it cannot overflow), then each
-    /// field via `Comparer<F>.Default.Compare`. The first non-zero result lands in `cLocal`
-    /// and `brtrue`-s to `returnLabel`; on fall-through every comparison returned 0.
+    /// first, via `sub` (case indices are small; the difference cannot overflow), then
+    /// each field via `Comparer<F>.Default.Compare`; a non-zero result exits via `returnLabel`.
     let private fieldComparison
         (h: IStructuralHandles)
         (w: StructuralWalk)
@@ -325,10 +314,9 @@ module internal EmitStructural =
 
     // ---- A hierarchy union's own entry points ----------------------------------------
 
-    /// `override bool Equals(U other)` on a case type: `isinst` this case and hand over to
-    /// the typed `Equals(<Case>)`, whose null guard answers a null argument and another
-    /// case alike. `call`, not `callvirt`: a case type is sealed and the typed entry
-    /// declares no slot.
+    /// `override bool Equals(U other)` on a case type: `isinst` this case and `call` the
+    /// typed `Equals(<Case>)`, whose null guard answers a null argument and another case
+    /// alike.
     let buildUnionCaseEqualsUnion (caseType: EntityHandle) (equalsCase: EntityHandle) : ILBody =
         let b = IlBuilder()
         b.Add(ILInstr.Ldarg 0)
@@ -350,7 +338,7 @@ module internal EmitStructural =
         b.Add ILInstr.Ret
         b.Body
 
-    /// How `CompareTo(U)` obtains the ordinal of a non-null `other` of another case — the
+    /// How `CompareTo(U)` obtains the ordinal of a non-null `other` of another case: the
     /// one value the dispatch that reached the body did not settle.
     [<RequireQualifiedAccess>]
     type OtherOrdinal =
@@ -363,8 +351,7 @@ module internal EmitStructural =
 
     /// `override int CompareTo(U other)` on a hierarchy union's case type: an `other` of
     /// this case hands over to the typed `CompareTo(<Case>)`; a `null` one sorts after
-    /// (returns `1`, the BCL convention); any other case yields the ordinal difference,
-    /// obtained per `OtherOrdinal`.
+    /// (returns `1`, the BCL convention); any other case yields the ordinal difference.
     let buildUnionCaseCompareToUnion
         (caseType: EntityHandle)
         (caseTy: FrozenType)

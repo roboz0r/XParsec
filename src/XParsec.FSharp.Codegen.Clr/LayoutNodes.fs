@@ -155,15 +155,9 @@ module internal LayoutNodes =
         NominalMembers.indexed members interfaces
         |> List.map (fun (i, isIfaceImpl, m) -> memberRow key i isIfaceImpl m)
 
-    /// A nominal's synthesised structural rows, in row order: the equality triple
-    /// (`GetHashCode`, `Equals(object)`, the typed `Equals(Self)`), the comparison pair
-    /// (the typed `CompareTo(Self)`, `CompareTo(object)`), then `Format`.
-    ///
-    /// `attrs` decides whether the typed entries carry a body. On a hierarchy union's base
-    /// they are abstract and each case type implements them, so `EqualityComparer<Self>`
-    /// and `Comparer<Self>` dispatch straight to the case. `Equals(object)` and
-    /// `CompareTo(object)` stay concrete in every regime: they cast and hand over to the
-    /// typed slot, so a case type declares neither.
+    /// A nominal's synthesised structural rows. `attrs` decides whether the typed
+    /// `Equals(Self)` / `CompareTo(Self)` / `Format` entries carry a body; `Equals(object)`
+    /// and `CompareTo(object)` carry one in every regime.
     let private structuralRows
         (attrs: StructuralRowAttrs)
         (s: StructuralMembers)
@@ -316,9 +310,7 @@ module internal LayoutNodes =
 
     /// One case's nested `TypeDef` in a hierarchy union: its own payload fields, its
     /// `.ctor`, and the structural bodies the base declares abstract. A generic union's
-    /// case redeclares the union's typars, so its `extends` instantiates the base over
-    /// them; the metadata name carries no arity suffix, because a nested type's own arity
-    /// counts only the typars it adds.
+    /// case redeclares the union's typars and adds none, so its name has no arity suffix.
     let private unionCaseNode (ud: UnionDecl) (structural: StructuralMembers) (c: Frozen.TUnionCase) : TypeNode =
         let td = ud.Decl
 
@@ -328,8 +320,7 @@ module internal LayoutNodes =
                 {
                     Key = FieldKey.UnionCaseField(td.Key, c.Name, fi)
                     Name = name
-                    // Written only by the case's own `.ctor`, which is what `initonly`
-                    // permits now that no factory stores after construction.
+                    // Written only by the case's own `.ctor`, hence `initonly`.
                     Attrs = FieldAttributes.Public ||| FieldAttributes.InitOnly
                     Ty = fty
                     ClosureScope = ValueNone
@@ -361,10 +352,9 @@ module internal LayoutNodes =
             Nested = []
         }
 
-    /// Per union: `_tag`, a singleton field per nullary case, the case payloads a flat
-    /// regime holds co-resident, `.ctor` (`UnionCtorShape.ofRegime`), case factories,
-    /// members, [equality triple], [comparison pair]. A hierarchy union additionally nests
-    /// a `TypeDef` per case.
+    /// Per union: `_tag`, a singleton field per nullary case, a flat regime's co-resident
+    /// case payloads, `.ctor`, case factories, members and structural rows. A hierarchy
+    /// union additionally nests a `TypeDef` per case.
     let buildUnionNodes (symbols: ICodegenSymbols) (unions: UnionDecl list) : TypeNode list =
         [
             for ud in unions ->
@@ -381,9 +371,7 @@ module internal LayoutNodes =
                     [
                         // A single-case union's sole case needs no discriminant, and its
                         // FSC-spelled payload may itself claim the name `_tag`
-                        // (`C of tag: int`). A `TypeTested` base leaves the row out too.
-                        // `get_Tag` fronts it for every reader outside the union and its
-                        // case types.
+                        // (`C of tag: int`).
                         if ud.HasTag then
                             yield
                                 {
@@ -438,8 +426,6 @@ module internal LayoutNodes =
                                     Attrs = cctorAttrs
                                 }
 
-                        // The public accessor for the private `_tag`, and the one channel a
-                        // match arm outside the union reads the discriminant through.
                         if ud.HasTag then
                             yield
                                 {

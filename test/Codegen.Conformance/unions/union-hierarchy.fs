@@ -1,7 +1,6 @@
 // Reference unions across the emitter's regimes: a single-case union (no discriminant),
-// a two-case type-tested union, and a four-case tagged union. On the CLR the multi-case
-// ones emit as an abstract base with a nested sealed type per case; JS emits a subclass
-// per case. Construction, matching and structural equality must agree across the two.
+// a two-case type-tested union, and a four-case tagged union, exercising construction,
+// matching and structural equality on both backends.
 type Meters = | M of int
 
 type Shape =

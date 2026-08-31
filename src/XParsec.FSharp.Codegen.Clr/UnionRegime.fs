@@ -5,10 +5,6 @@ open XParsec.FSharp.SemanticAnalysis
 /// The metadata shape a union declaration is emitted in, selected by the value kind, the case
 /// count and whether any case carries fields. These are FSC's four representations for a
 /// reference union at its threshold of four, plus the one shape a `[<Struct>]` union takes.
-///
-/// The value kind is settled by the time a regime exists, so `StructTagged` is the only regime
-/// a `[<Struct>]` union of two or more cases with a payload reaches, and `TypeTested` /
-/// `Tagged` are reference-union regimes.
 [<RequireQualifiedAccess>]
 type UnionRegime =
     /// A single case, its fields inline on the union type itself, with no discriminant.
@@ -95,11 +91,9 @@ type UnionCtorShape =
 [<RequireQualifiedAccess>]
 module UnionCtorShape =
 
-    /// The one regime-to-ctor mapping, shared by the emitted `MethodDef` and the
-    /// `MemberRef` a generic union's use sites resolve through, so the two agree on the
-    /// signature. The value kind separates the two tagged forms: a `[<Struct>]` union
-    /// holds every case's payload co-resident with the discriminant, where a reference
-    /// union puts a case's payload on the case.
+    /// The `.ctor` shape a regime declares. The value kind separates the two tagged
+    /// forms: a `[<Struct>]` union holds every case's payload co-resident with the
+    /// discriminant, a reference union puts a case's payload on the case.
     let ofRegime (valueKind: UnionValueKind) (regime: UnionRegime) : UnionCtorShape =
         match regime with
         | UnionRegime.SingleCase -> UnionCtorShape.Flat
@@ -130,8 +124,7 @@ type UnionFactoryShape =
 [<RequireQualifiedAccess>]
 module UnionFactoryShape =
 
-    /// The one (value kind × regime × arity) mapping to a factory body. `arity` is the
-    /// case's field count.
+    /// The factory body one case takes. `arity` is the case's field count.
     let ofCase (valueKind: UnionValueKind) (regime: UnionRegime) (arity: int) : UnionFactoryShape =
         match valueKind with
         | UnionValueKind.Struct ->

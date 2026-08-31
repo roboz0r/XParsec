@@ -165,8 +165,7 @@ module EmitPattern =
             Source: UnionArmSource
         }
 
-    /// Resolve `caseName` of the union at `key` / `tyArgs` for one match arm — either from
-    /// the union emitted here or from the provider's refs for one in a referenced package
+    /// Resolve `caseName` of the union at `key` / `tyArgs` for one match arm
     /// (`match o with Some x -> …`).
     let private resolveUnionArm
         (env: EmitEnv)
@@ -248,9 +247,7 @@ module EmitPattern =
         (pat: TastAccessor.PatId)
         : unit =
         // `ldfld` a field off the value `pushSource` leaves on the stack into a fresh
-        // local, then test the sub-pattern against that local. A record and a flat union
-        // read straight off the scrutinee; a hierarchy union's case declares its payload on
-        // the case type, so its source casts first.
+        // local, then test the sub-pattern against that local.
         let extractFieldVia (pushSource: unit -> unit) (fieldRef: EntityHandle) (subPat: TastAccessor.PatId) =
             let fldSlot = b.Local(typeOfPat subPat)
             pushSource ()

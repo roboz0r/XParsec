@@ -296,7 +296,7 @@ let fieldsOf (bytes: byte[]) (typeName: string) : string list =
 type TypeDecl =
     {
         /// `TypeDef`/`TypeRef` bases print by name; a `TypeSpec` base (an `extends` over a
-        /// generic instantiation) prints `<typespec>`, since the blob names no row.
+        /// generic instantiation) is an unnamed blob and prints `<typespec>`.
         Extends: string
         Typars: string list
         IsAbstract: bool

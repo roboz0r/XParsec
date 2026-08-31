@@ -4,22 +4,19 @@ open XParsec.FSharp.SemanticAnalysis
 open AssemblerScaffold
 
 /// One file's layout-derived handles, published to the provider before any signature is
-/// encoded. A field, factory or local signature can then `encodeType` a nominal whose
-/// `TypeDefinition` row does not exist yet, and a cross-file call can resolve to a local
-/// `MethodDef` rather than an `AssemblyRef`-scoped `MemberRef`.
+/// encoded, so a signature can `encodeType` a nominal whose `TypeDefinition` row does not
+/// exist yet and a cross-file call resolves to the local `MethodDef`.
 module internal NominalRegistration =
 
-    /// Each case's payload, at the name the regime spells it. In a hierarchy regime these
-    /// are declared on the case's own type; `RegisterGenericUnion` still carries them,
-    /// because `UnionMember.Field` is the one spelling every use site writes and it
-    /// reparents behind that.
+    /// Each case's payload, at the name the regime spells it. A hierarchy regime declares
+    /// these on the case's own type; `RegisterGenericUnion` still carries them, and
+    /// `UnionMember.Field` reparents onto the case type.
     let private caseFields (ud: UnionDecl) (c: Frozen.TUnionCase) : (string * FrozenType) list =
         List.zip (ud.FieldNames c) [ for (_, t) in c.Fields -> t ]
 
-    /// A hierarchy union's case types: the nested `TypeDef` handle, and — where the union
-    /// is generic — its shape. A case redeclares the union's typars and adds none of its
-    /// own, so it registers over them as a generic class: that family already mints the
-    /// `TypeSpec`, the `.ctor` ref over every field, and each field ref by name.
+    /// A hierarchy union's case types: the nested `TypeDef` handle and, for a generic
+    /// union, its shape. A case redeclares the union's typars and adds none, so it
+    /// registers over them as a generic class, minting the `TypeSpec`, `.ctor` and field refs.
     let private registerUnionCases (provider: ClrProvider) (handles: LayoutHandles) (ud: UnionDecl) : unit =
         let td = ud.Decl
 

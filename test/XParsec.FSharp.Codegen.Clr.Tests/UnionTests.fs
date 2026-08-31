@@ -268,10 +268,8 @@ let tests =
             }
 
             // A nullary case has one value, so the union's `.cctor` constructs it once into
-            // `_unique_<Case>` and every factory call hands back that instance. The rule
-            // covers a reference union in any regime: the enum-like one below constructs
-            // the union itself with its tag, the type-tested one its case type, and the
-            // single-case one its sole shape.
+            // `_unique_<Case>` and every factory call hands back that instance, in any
+            // reference-union regime.
             test "a nullary case's factory returns one cached instance" {
                 let src =
                     lines
@@ -444,8 +442,7 @@ let tests =
 
                 // Two cases with a payload, so the list emits as a hierarchy: the payload is
                 // declared on the nested `Cons` type, under the name the source's `Head:`
-                // label gives it. The field is the type's `!0`, so on `List<int>` it reads
-                // as `int`.
+                // label gives it, at the type's `!0` (`int` on `List<int>`).
                 let consTy = listTy.GetNestedType("Cons", BindingFlags.Public)
                 Expect.isNotNull consTy "List`1 nests a Cons case type"
 

@@ -189,10 +189,8 @@ type internal NominalEmissionInput =
         | NominalEmissionInput.Record rd -> rd.Interfaces
         | NominalEmissionInput.Class cd -> cd.Interfaces
 
-    /// A `[<Struct>]` value type: `System.ValueType` base and value-type-shaped
-    /// equality/comparison bodies. A union additionally takes `IsReadOnly` with `initonly`
-    /// fields and a flat `(tag, every case field)` `.ctor` the factories construct through;
-    /// a record takes a base-chain-free `.ctor`.
+    /// A `[<Struct>]` value type: `System.ValueType` base, `IsReadOnly`, and
+    /// value-type-shaped equality/comparison bodies.
     member this.IsValueType: bool =
         match this with
         | NominalEmissionInput.Union ud -> ud.ValueKind.IsValueType
@@ -258,9 +256,7 @@ module internal NominalMembers =
 
         go (List.length members) interfaces
 
-/// Which synthesised structural members a nominal emits. Row declaration and body
-/// preparation both derive this from the declaration, so the rows a type declares and the
-/// bodies prepared for them describe the same set.
+/// Which synthesised structural members a nominal emits.
 type internal StructuralMembers =
     {
         /// `GetHashCode`, `Equals(object)` and the typed `Equals(Self)`, plus the

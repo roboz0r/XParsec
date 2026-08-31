@@ -52,11 +52,9 @@ module internal NominalShared =
             | NominalEmissionInput.Record _ -> provider.GenericRecordSelfSpec td.TypeKey
             | NominalEmissionInput.Class _ -> provider.UserTypeHandle td.TypeKey
 
-    /// A record's `(name, field ref, declared type)` triples in declaration order — the walk
-    /// every structural body over the record takes.
-    ///
-    /// A generic record mints a `MemberRef` row per field per call, so a caller that feeds
-    /// several bodies calls this once and shares the result.
+    /// A record's `(name, field ref, declared type)` triples in declaration order: the walk
+    /// every structural body over the record takes. Each call mints a generic record's
+    /// `MemberRef` rows afresh; call once and share the result across bodies.
     let recordFieldRefs (asm: Assembler) (td: TastAccessor.TypeDecl) : (string * EntityHandle * FrozenType) list =
         [
             for (name, h, fty) in asm.Records.[td.TypeKey].Fields ->
@@ -146,7 +144,5 @@ module internal NominalShared =
         {
             SelfType: EntityHandle
             SelfTy: FrozenType
-            /// The rows `LayoutNodes` laid out for this type, so the bodies prepared here
-            /// cover exactly them.
             Members: StructuralMembers
         }

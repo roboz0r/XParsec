@@ -261,7 +261,7 @@ let caseTest =
         "UnionCaseTest.ofRegime"
         [
             // Each thunk mints its handle in the caller's scope, so a regime must force
-            // only the thunk it reads — a wrongly forced thunk here is the failure.
+            // only the thunk it reads; a wrongly forced thunk is the failure this pins.
             let noMint what () : System.Reflection.Metadata.EntityHandle =
                 failwithf "the regime forced the %s thunk" what
 

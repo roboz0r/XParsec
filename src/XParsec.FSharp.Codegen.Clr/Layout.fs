@@ -524,9 +524,8 @@ module internal Layout =
                 (List.length builtKeys)
 
         // Two `Field` rows of one name on one type are valid metadata only where their
-        // signatures differ. Distinct `FieldKey`s keep the handle maps injective, so the
-        // duplicate survives every later check and the PE comes out ill-formed. Rejected
-        // here for records, classes, closures and unions alike.
+        // signatures differ; a same-named pair is rejected here, for records, classes,
+        // closures and unions alike.
         for node in types do
             let seen = HashSet<string>()
 

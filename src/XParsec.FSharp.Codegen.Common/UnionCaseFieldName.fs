@@ -1,10 +1,8 @@
 namespace XParsec.FSharp.Codegen.Common
 
-/// How one union case field is named, before any target spells it. `of radius: float`
-/// yields `Declared "radius"`; a positional field yields its 1-based position in the case,
-/// or `Lone` where the case holds exactly one field. The position counts every field, not
-/// only the positional ones, so `M of tag: string * float` yields `Declared "tag"` then
-/// `Positional 2`.
+/// How one union case field is named, before any target spells it. `of radius: float` ⇒
+/// `Declared "radius"`; a case's sole field ⇒ `Lone`; a positional field ⇒ its 1-based
+/// position counted over every field, so `M of tag: string * float` ⇒ `Positional 2`.
 [<RequireQualifiedAccess>]
 type UnionCaseFieldName =
     | Declared of name: string

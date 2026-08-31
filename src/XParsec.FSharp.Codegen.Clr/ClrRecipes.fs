@@ -133,9 +133,8 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
         toEntity (ctx.TypeSpec tsB)
 
     /// The referenced cons-list's own union shape. The recipes below spell `List`1`'s
-    /// metadata by hand for speed, so they read the regime and the case payload names off
-    /// the symbol table rather than restating them, and follow the list through a change of
-    /// shape.
+    /// metadata by hand but read the regime and the case payload names off the symbol
+    /// table.
     let vesperListShape =
         lazy
             (match env.ExternalUnionShape(RuntimeNames.vesperListKey, 1) with

@@ -244,8 +244,7 @@ type internal UnionCaseSlot =
 [<RequireQualifiedAccess>]
 module internal UnionCaseSlot =
 
-    /// The metadata name of the method row a slot emits under, shared by the row builder
-    /// and the `MemberRef` mints so the two cannot spell a slot apart.
+    /// The metadata name of the method row a slot emits under.
     let metaName (slot: UnionCaseSlot) : string =
         match slot with
         | UnionCaseSlot.GetHashCode -> "GetHashCode"
@@ -256,8 +255,7 @@ module internal UnionCaseSlot =
         | UnionCaseSlot.Format -> "Format"
 
     /// The slots a hierarchy union's case type implements, in row order. The base declares
-    /// each of these abstract, so `LayoutNodes` and `UnionEmit` call this with the same
-    /// `StructuralMembers` and cannot describe different sets.
+    /// each of these abstract.
     let required (s: StructuralMembers) : UnionCaseSlot list =
         [
             if s.Equality then

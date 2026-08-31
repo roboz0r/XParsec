@@ -6,7 +6,7 @@ open XParsec.FSharp.SemanticAnalysis
 open AssemblerScaffold
 open NominalShared
 
-/// Union emission: the `.ctor`, the case factories, and — in a hierarchy regime — each
+/// Union emission: the `.ctor`, the case factories, and, in a hierarchy regime, each
 /// case's own nested type, its `.ctor`, and the structural bodies the base declares
 /// abstract.
 module internal UnionEmit =
@@ -14,12 +14,9 @@ module internal UnionEmit =
     let private intTy = FTConst(RuntimeNames.intKey, EqArray.empty)
     let private boolTy = FTConst(RuntimeNames.boolKey, EqArray.empty)
 
-    /// A member ref to one of a CASE type's own synthesised methods: a generic union parents
-    /// it on the case's own `TypeSpec` over the union's typar markers, a monomorphic one
-    /// uses the resolved `Def` token.
-    ///
-    /// A case's `.ctor` and payload fields go through `selfMemberRef` and the union's own
-    /// `UnionMember` spelling instead, which reparents them onto the case behind that.
+    /// A member ref to one of a CASE type's own synthesised methods: a generic union
+    /// parents it on the case's own `TypeSpec` over the union's typar markers, a
+    /// monomorphic one uses the resolved `Def` token.
     let private caseMethodRef
         (asm: Assembler)
         (td: TastAccessor.TypeDecl)
@@ -42,8 +39,8 @@ module internal UnionEmit =
     let private caseTyOf (td: TastAccessor.TypeDecl) (caseName: string) : FrozenType =
         UnionCaseType.ty td.TypeKey caseName (typarMarkersOf td)
 
-    /// A case's payload field refs in declaration order. `UnionMember.Field` is the one
-    /// spelling every site writes; it reparents onto the case type behind that.
+    /// A case's payload field refs in declaration order, via the `UnionMember.Field`
+    /// spelling, which reparents onto the case type in a hierarchy regime.
     let private fieldRefsOf (asm: Assembler) (td: TastAccessor.TypeDecl) (c: Frozen.TUnionCase) : EntityHandle list =
         [
             for fi in 0 .. c.Fields.Length - 1 ->
@@ -54,11 +51,9 @@ module internal UnionEmit =
                     (toEntity (asm.FieldDef(FieldKey.UnionCaseField(td.Key, c.Name, fi))))
         ]
 
-    /// A case's `(field ref, declared type)` pairs in declaration order — the walk every
-    /// structural body over that case takes.
-    ///
-    /// A generic union mints a `MemberRef` row per field per call, so a caller that feeds
-    /// several bodies calls this once and shares the result.
+    /// A case's `(field ref, declared type)` pairs in declaration order: the walk every
+    /// structural body over that case takes. Each call mints a generic union's `MemberRef`
+    /// rows afresh; call once and share the result across bodies.
     let private caseFieldsOf
         (asm: Assembler)
         (td: TastAccessor.TypeDecl)
@@ -80,9 +75,6 @@ module internal UnionEmit =
 
         let ctorShape = ud.CtorShape
 
-        // `_tag` is reachable only inside this binding, which holds the whole of its
-        // lifecycle: the `.ctor` writes it and `get_Tag` fronts it for every other reader.
-        // No factory or structural body below can name the field to store through.
         let ctorPrepared, getTagPrepared =
             // A generic union mints a `MemberRef` row per call, so the `.ctor` and `get_Tag`
             // share one.
@@ -191,9 +183,8 @@ module internal UnionEmit =
                 (UserMemberKind.UnionMember(UnionMember.CaseSingleton c.Name))
                 (toEntity (asm.FieldDef(FieldKey.UnionCaseSingleton(td.Key, c.Name))))
 
-        // The arguments one case passes to the union's own `.ctor`. `TagOnly` stamps the
-        // discriminant; the shapes a case reaches otherwise take no argument a case alone
-        // supplies.
+        // The arguments one case passes to the union's own `.ctor`: `TagOnly` stamps the
+        // discriminant.
         let ctorTagArgs (tag: int) =
             match ctorShape with
             | UnionCtorShape.TagOnly -> [ ILInstr.LdcI4 tag ]
@@ -203,8 +194,7 @@ module internal UnionEmit =
 
         if isHierarchy then
             // Each case's `.ctor(payload…)` chains the union's own `.ctor`, passing its tag
-            // where the base declares one, so `_tag` is written once, by the base, and stays
-            // `initonly`. A `TypeTested` base takes no argument and has no field to write.
+            // where the base declares one.
             cases
             |> List.iteri (fun tag c ->
                 asm.AddPrepared(
@@ -285,13 +275,9 @@ module internal UnionEmit =
 
     // ---- Structural bodies -----------------------------------------------------------
 
-    /// A case type's own structural bodies, one per slot `UnionCaseSlot.required` names.
-    /// The typed `Equals(<Case>)` / `CompareTo(<Case>)` hold the field walk and the
-    /// `U`-typed overrides are the guards that reach them.
-    ///
-    /// `caseType` is this case's own token, minted once by the caller: on a generic union
-    /// it is a `TypeSpec` row, and that table is appended to rather than deduplicated.
-    /// `otherOrdinal` is forced only when a comparison slot is required.
+    /// A case type's own structural bodies, one per slot `UnionCaseSlot.required` lists.
+    /// `caseType` is this case's own token, minted once by the caller (the `TypeSpec`
+    /// table is append-only); `otherOrdinal` is forced only for a comparison slot.
     let private prepareCaseStructural
         (asm: Assembler)
         (ud: UnionDecl)
@@ -307,8 +293,6 @@ module internal UnionEmit =
         let caseName = c.Name
         let caseTy = caseTyOf td caseName
 
-        // The case's own fields, seeded by its tag: the case is settled by the dispatch
-        // that reaches these bodies, so nothing compares a discriminant.
         let walk: EmitStructural.StructuralWalk =
             {
                 Fields = caseFieldsOf asm td c
@@ -443,21 +427,16 @@ module internal UnionEmit =
                 }
             )
 
-    /// A flat union's own structural bodies. Equality, comparison and `%A` all walk the
-    /// same fields, so one pass mints the field and tag refs they share: on a generic union
-    /// a second pass would mint a second `MemberRef` row per field.
-    ///
-    /// Once the tags agree the walk crosses every case's fields, not just the active
-    /// case's. An inactive case's fields hold their default, so the two agree.
+    /// A flat union's own structural bodies. One pass mints the field and tag refs that
+    /// equality, comparison and `%A` share. Once the tags agree the walk crosses every
+    /// case's fields; an inactive case's fields hold their default.
     let private prepareFlatStructural (asm: Assembler) (ud: UnionDecl) (self: StructuralSelf) : unit =
         let td = ud.Decl
         let provider = asm.Provider
         let handles = asm.Structural
         let isStruct = ud.ValueKind.IsValueType
 
-        // Minted on first use and shared from there: a type that synthesises no structural
-        // body at all adds no `MemberRef` row, and one that synthesises several adds one
-        // row per field rather than one per body.
+        // Minted on first use and shared from there.
         let perCase = lazy [ for c in ud.Cases -> c.Name, caseFieldsOf asm td c ]
         let tagField = lazy (tagFieldRefOf asm td)
 
@@ -466,9 +445,6 @@ module internal UnionEmit =
                 {
                     Fields = perCase.Value |> List.collect snd
                     Discriminant =
-                        // A single-case union has one shape, so its walk is the record's;
-                        // the other flat regimes compare `_tag` ahead of the co-resident
-                        // fields.
                         if ud.HasTag then
                             EmitStructural.Discriminant.TagField tagField.Value
                         else
@@ -510,7 +486,7 @@ module internal UnionEmit =
 
             let formatIr =
                 match ud.Regime, cases with
-                // A single-case union renders its sole case straight through — the same
+                // A single-case union renders its sole case straight through: the same
                 // body a hierarchy case type carries.
                 | UnionRegime.SingleCase, [ sole ] -> EmitStructuralFormat.buildUnionCaseFormat handles sole
                 | _ -> EmitStructuralFormat.buildUnionFormat handles tagField.Value cases
@@ -525,10 +501,8 @@ module internal UnionEmit =
                 }
             )
 
-    /// Every body behind the union's synthesised structural rows. In a hierarchy regime
-    /// that also covers each case type's rows and the `TypeRowExtras` its `TypeDefinition`
-    /// needs: it `extends` the union, instantiated over its own typars when the union is
-    /// generic, and declares no interface of its own.
+    /// Every body behind the union's synthesised structural rows; in a hierarchy regime,
+    /// also each case type's rows and the `TypeRowExtras` its `TypeDefinition` needs.
     let prepareStructural (asm: Assembler) (ud: UnionDecl) (self: StructuralSelf) : unit =
         if ud.IsHierarchy then
             let td = ud.Decl
@@ -538,7 +512,7 @@ module internal UnionEmit =
             // use its own, and `TypeTested`'s `CompareTo(U)` walks the others'.
             let caseTokens = [ for c in ud.Cases -> asm.Icodegen.TypeToken(caseTyOf td c.Name) ]
 
-            // `other`'s ordinal for one case's `CompareTo(U)` — the one discriminant read
+            // `other`'s ordinal for one case's `CompareTo(U)`, the one discriminant read
             // a hierarchy body still takes: `Tagged` loads `_tag`, `TypeTested` walks the
             // other cases' types.
             let otherOrdinal tag =
@@ -563,9 +537,8 @@ module internal UnionEmit =
                     TypeSlotKey.UnionCase(td.Key, c.Name),
                     {
                         Interfaces = []
-                        // Every case extends the one base handle. A generic union's is a
-                        // `TypeSpec`, and that table is appended to rather than
-                        // deduplicated, so re-deriving it per case would add a row per case.
+                        // Every case extends the one base handle, minted once: a generic
+                        // union's is a `TypeSpec` row, and that table is append-only.
                         BaseType = self.SelfType
                     }
                 )

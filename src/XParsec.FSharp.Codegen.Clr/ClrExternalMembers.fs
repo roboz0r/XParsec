@@ -310,9 +310,8 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     let externalCaseSpec (key: TypeKey) (tref: EntityHandle) (args: FrozenType list) (caseName: string) : EntityHandle =
         externalTypeSpec key (toEntity (ctx.TypeRef(tref, "", caseName))) args
 
-    /// The test a match arm emits for `caseName` on a referenced-package union at `args`,
-    /// via the same `UnionCaseTest.ofRegime` mapping the local match path takes, so the
-    /// two ends agree on how a case is settled. `ValueNone` ⇒ unknown union or case.
+    /// The test a match arm emits for `caseName` on a referenced-package union at `args`.
+    /// `ValueNone` ⇒ unknown union or case.
     let externalUnionCaseTest (key: TypeKey) (args: FrozenType list) (caseName: string) : UnionCaseTest voption =
         match externalUnionRef key (List.length args) with
         | ValueNone -> ValueNone
@@ -347,9 +346,8 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                 ValueSome(UnionCaseTest.ofRegime valueKind (UnionRegime.ofExternalShape u) tag tagGetter caseType)
 
     /// The `TypeSpec` a referenced-package union's case members are parented on: the case's
-    /// own nested `TypeRef` in a hierarchy regime. `ValueNone` in a flat regime, where the
-    /// members sit on the union itself, so a caller wanting only the case TYPE can tell the
-    /// two apart.
+    /// own nested `TypeRef` in a hierarchy regime, `ValueNone` in a flat one, where the
+    /// members sit on the union itself.
     let externalCaseParent
         (key: TypeKey)
         (tref: EntityHandle)
@@ -370,10 +368,9 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
         | ValueNone -> ValueNone
         | ValueSome(tref, u) -> externalCaseParent key tref (UnionRegime.ofExternalShape u) args caseName
 
-    /// Mint the `MemberRef` for one case's public payload field on a referenced-package
-    /// union at `args` (the slot a cross-package `match … Some x` reads), with that field's
-    /// type after the use-site substitution. In a hierarchy regime the field is declared on
-    /// the case's own type, so that is the parent. `ValueNone` ⇒ unknown case/index.
+    /// The `MemberRef` a cross-package `match … Some x` reads one case's payload field
+    /// through, with the field's type after the use-site substitution. In a hierarchy
+    /// regime the parent is the case's own type. `ValueNone` ⇒ unknown case/index.
     let externalUnionCaseField
         (key: TypeKey)
         (args: FrozenType list)

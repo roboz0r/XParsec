@@ -904,10 +904,7 @@ type internal Assembler
 
             let firstParam = addParams p.ParamNames
 
-            // Whether a slot is abstract is decided twice — by the row's attrs at layout
-            // and by the prepared body — and a disagreement writes a PE the loader
-            // rejects rather than anything the goldens would show. `-1` is SRM's "no
-            // body" RVA.
+            // `-1` is SRM's "no body" RVA, for an abstract row.
             let bodyOffset =
                 match row.Attrs.HasFlag MethodAttributes.Abstract, p.Body with
                 | true, PreparedBody.Abstract -> -1

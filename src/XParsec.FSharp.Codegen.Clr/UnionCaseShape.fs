@@ -11,13 +11,9 @@ module UnionCaseFields =
     let ownType (regime: UnionRegime) : bool =
         UnionRegime.isHierarchy regime || regime = UnionRegime.SingleCase
 
-    /// The metadata names of one case's payload fields, in declaration order.
-    ///
-    /// Where the fields have a `TypeDef` to themselves (`ownType`) they take FSC's
-    /// spelling: a declared name prefixed `_`, so `of radius: float` emits `_radius`, and a
-    /// positional field `item`, or `item<n>` numbered by its position in the case. The
-    /// remaining regimes hold every case's fields co-resident on the union, where
-    /// `<Case>_<i>` separates two cases' positional fields.
+    /// The metadata names of one case's payload fields, in declaration order: FSC's
+    /// spelling (`of radius: float` ⇒ `_radius`, a positional field `item` / `item<n>`)
+    /// where the fields have a `TypeDef` to themselves (`ownType`), else `<Case>_<i>`.
     let names (regime: UnionRegime) (caseName: string) (declared: string voption list) : string list =
         if ownType regime then
             UnionCaseFieldName.ofCase declared
@@ -33,10 +29,9 @@ module UnionCaseFields =
 [<RequireQualifiedAccess>]
 module UnionCaseType =
 
-    /// The `TypeKey` a hierarchy union's case type is registered under. The
-    /// `TypeContainer.InType` container spells the emitted `Ns.Union`1+Case` through
-    /// `SymbolKeyOps.typeMetaName`, and the arity is 0 because a case redeclares the
-    /// union's typars rather than adding any of its own.
+    /// The `TypeKey` a hierarchy union's case type is registered under: the
+    /// `TypeContainer.InType` container spells the emitted `Ns.Union`1+Case`, and the
+    /// arity is 0 because a case adds no typars of its own.
     let key (unionKey: TypeKey) (caseName: string) : TypeKey =
         SymbolKeyOps.typeKeyOfContainer (TypeContainer.InType unionKey) caseName 0
 
