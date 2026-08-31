@@ -349,13 +349,9 @@ module Emit =
         b.Add ILInstr.Ret
         b.Body
 
-    /// Build a closure's `.ctor` body: chain to the `FSharpFunc\`2` base ctor,
-    /// then store each capture argument into its field.
-    let buildClosureCtor (baseCtor: EntityHandle) (fields: EntityHandle list) : ILBody =
-        let b = IlBuilder()
-        b.Add(ILInstr.Ldarg 0)
-        b.Add(ILInstr.Call(baseCtor, 1, 0))
-
+    /// `this.<field_i> = arg_(i+1)`, fields in declaration order = the ctor's parameter
+    /// order. Every constructor body here ends this way.
+    let private storeCtorArgs (b: IlBuilder) (fields: EntityHandle list) : unit =
         fields
         |> List.iteri (fun i field ->
             b.Add(ILInstr.Ldarg 0)
@@ -363,6 +359,25 @@ module Emit =
             b.Add(ILInstr.Stfld field)
         )
 
+    /// Build a closure's `.ctor` body: chain to the `FSharpFunc\`2` base ctor,
+    /// then store each capture argument into its field.
+    let buildClosureCtor (baseCtor: EntityHandle) (fields: EntityHandle list) : ILBody =
+        let b = IlBuilder()
+        b.Add(ILInstr.Ldarg 0)
+        b.Add(ILInstr.Call(baseCtor, 1, 0))
+        storeCtorArgs b fields
+        b.Add ILInstr.Ret
+        b.Body
+
+    /// Build a hierarchy union case type's `.ctor(payload…)`: chain the union's
+    /// `.ctor(int32)` with this case's tag, then store each payload argument into its
+    /// field. The tag reaches `_tag` through the base, so the case never touches it.
+    let buildUnionCaseCtor (unionCtor: EntityHandle) (tag: int) (fields: EntityHandle list) : ILBody =
+        let b = IlBuilder()
+        b.Add(ILInstr.Ldarg 0)
+        b.Add(ILInstr.LdcI4 tag)
+        b.Add(ILInstr.Call(unionCtor, 2, 0))
+        storeCtorArgs b fields
         b.Add ILInstr.Ret
         b.Body
 
@@ -381,14 +396,7 @@ module Emit =
     /// none accessible. `ldarg 0` is the managed pointer `newobj` passes (`&temp`).
     let buildStructCtor (fields: EntityHandle list) : ILBody =
         let b = IlBuilder()
-
-        fields
-        |> List.iteri (fun i field ->
-            b.Add(ILInstr.Ldarg 0)
-            b.Add(ILInstr.Ldarg(i + 1))
-            b.Add(ILInstr.Stfld field)
-        )
-
+        storeCtorArgs b fields
         b.Add ILInstr.Ret
         b.Body
 
@@ -431,6 +439,38 @@ module Emit =
         b.Add ILInstr.Ret
         b.Body
 
+    /// Build a hierarchy union case's static factory: `newobj` the case's own `.ctor` over
+    /// the factory's parameters, in declaration order.
+    let buildUnionCaseFactory (caseCtor: EntityHandle) (arity: int) : ILBody =
+        let b = IlBuilder()
+
+        for i in 0 .. arity - 1 do
+            b.Add(ILInstr.Ldarg i)
+
+        b.Add(ILInstr.Newobj(caseCtor, arity))
+        b.Add ILInstr.Ret
+        b.Body
+
+    /// Build a NULLARY case's static factory: the singleton the union's `.cctor`
+    /// constructed, so construction allocates nothing.
+    let buildUnionSingletonFactory (singletonField: EntityHandle) : ILBody =
+        let b = IlBuilder()
+        b.Add(ILInstr.Ldsfld singletonField)
+        b.Add ILInstr.Ret
+        b.Body
+
+    /// Build a hierarchy union's `.cctor`: `newobj` each nullary case once into its
+    /// `_unique_<Case>` singleton. `cases` pairs a case's `.ctor` with that field.
+    let buildUnionSingletonCctor (cases: (EntityHandle * EntityHandle) list) : ILBody =
+        let b = IlBuilder()
+
+        for (caseCtor, singletonField) in cases do
+            b.Add(ILInstr.Newobj(caseCtor, 0))
+            b.Add(ILInstr.Stsfld singletonField)
+
+        b.Add ILInstr.Ret
+        b.Body
+
     /// One argument slot of a struct union's flat `.ctor`, as a case factory pushes it:
     /// the factory's own parameter for the constructed case's fields, a zeroed default
     /// (`ldloca; initobj; ldloc`) for every other case's.
@@ -459,414 +499,9 @@ module Emit =
         b.Add ILInstr.Ret
         b.Body
 
-    // The synthesised equality / comparison bodies, shared between unions and records.
-    // Each entry point takes the field walk (tag-then-fields for a union, fields for a
-    // record) and `isVt`, the declaring type's `[<Struct>]`.
-
-    /// Cast the `object` arg (`ldarg.1`) to `Self` and return its load, branching to
-    /// `failLabel` on a non-`Self` arg (`null` included). On a value type (`isVt`)
-    /// `isinst` yields a BOXED reference, `unbox.any`-ed into a value-typed local.
-    let private castObjArgOrBranch
-        (isVt: bool)
-        (selfType: EntityHandle)
-        (selfTy: FrozenType)
-        (b: IlBuilder)
-        (failLabel: int)
-        : IlBuilder -> unit =
-        let other = b.Local selfTy
-
-        if isVt then
-            let boxed = b.Local(FTConst(RuntimeNames.objKey, EqArray.empty))
-            b.Add(ILInstr.Ldarg 1)
-            b.Add(ILInstr.Isinst selfType)
-            b.Add(ILInstr.Stloc boxed)
-            b.Add(ILInstr.Ldloc boxed)
-            b.Add(ILInstr.Brfalse failLabel)
-            b.Add(ILInstr.Ldloc boxed)
-            b.Add(ILInstr.UnboxAny selfType)
-            b.Add(ILInstr.Stloc other)
-        else
-            b.Add(ILInstr.Ldarg 1)
-            b.Add(ILInstr.Isinst selfType)
-            b.Add(ILInstr.Stloc other)
-            b.Add(ILInstr.Ldloc other)
-            b.Add(ILInstr.Brfalse failLabel)
-
-        fun b -> b.Add(ILInstr.Ldloc other)
-
-    /// `override bool Equals(object obj)`: cast-or-false, then the walk; any mismatch
-    /// returns `false`.
-    let private buildStructuralEqualsObj
-        (isVt: bool)
-        (selfType: EntityHandle)
-        (selfTy: FrozenType)
-        (walk: IlBuilder -> (IlBuilder -> unit) -> int -> unit)
-        : ILBody =
-        let b = IlBuilder()
-        let falseLabel = b.Label()
-        let loadOther = castObjArgOrBranch isVt selfType selfTy b falseLabel
-
-        walk b loadOther falseLabel
-
-        b.Add(ILInstr.LdcI4 1)
-        b.Add ILInstr.Ret
-        b.Add(ILInstr.Mark falseLabel)
-        b.Add(ILInstr.LdcI4 0)
-        b.Add ILInstr.Ret
-        b.Body
-
-    /// `bool Equals(Self other)` — the typed `IEquatable<Self>::Equals`, the boxing-free
-    /// path `EqualityComparer<Self>.Default` takes, so a nested DU / record field recurses
-    /// here. A reference type null-guards `other`; a value type takes it by value.
-    let private buildStructuralEqualsTyped
-        (isVt: bool)
-        (walk: IlBuilder -> (IlBuilder -> unit) -> int -> unit)
-        : ILBody =
-        let b = IlBuilder()
-        let falseLabel = b.Label()
-
-        if not isVt then
-            b.Add(ILInstr.Ldarg 1)
-            b.Add(ILInstr.Brfalse falseLabel)
-
-        walk b (fun b -> b.Add(ILInstr.Ldarg 1)) falseLabel
-
-        b.Add(ILInstr.LdcI4 1)
-        b.Add ILInstr.Ret
-        b.Add(ILInstr.Mark falseLabel)
-        b.Add(ILInstr.LdcI4 0)
-        b.Add ILInstr.Ret
-        b.Body
-
-    /// `int CompareTo(Self other)` — the typed `IComparable<Self>::CompareTo`. A
-    /// `null` `other` sorts before any non-null value (BCL convention), returning `1`;
-    /// otherwise the walk's first non-zero result, else `0`.
-    let private buildStructuralCompareTo
-        (isVt: bool)
-        (walk: IlBuilder -> (IlBuilder -> unit) -> int -> int -> unit)
-        : ILBody =
-        let b = IlBuilder()
-        let c = b.Local(FTConst(RuntimeNames.intKey, EqArray.empty))
-        let returnLabel = b.Label()
-
-        let nullLabel =
-            if isVt then
-                ValueNone
-            else
-                let l = b.Label()
-                b.Add(ILInstr.Ldarg 1)
-                b.Add(ILInstr.Brfalse l)
-                ValueSome l
-
-        walk b (fun b -> b.Add(ILInstr.Ldarg 1)) c returnLabel
-
-        b.Add(ILInstr.LdcI4 0)
-        b.Add ILInstr.Ret
-        b.Add(ILInstr.Mark returnLabel)
-        b.Add(ILInstr.Ldloc c)
-        b.Add ILInstr.Ret
-
-        match nullLabel with
-        | ValueSome l ->
-            b.Add(ILInstr.Mark l)
-            b.Add(ILInstr.LdcI4 1)
-            b.Add ILInstr.Ret
-        | ValueNone -> ()
-
-        b.Body
-
-    /// `int CompareTo(object obj)` — the non-generic `IComparable::CompareTo`. `null`
-    /// sorts first (returns `1`), a non-`Self` arg throws `ArgumentException`,
-    /// otherwise delegate to the typed `CompareTo(Self)`.
-    let private buildStructuralCompareToObj
-        (isVt: bool)
-        (selfType: EntityHandle)
-        (selfTy: FrozenType)
-        (mismatchMessage: UserStringHandle)
-        (argumentExceptionCtor: EntityHandle)
-        (typedCompareTo: EntityHandle)
-        : ILBody =
-        let b = IlBuilder()
-        let nullLabel = b.Label()
-        let throwLabel = b.Label()
-
-        b.Add(ILInstr.Ldarg 1)
-        b.Add(ILInstr.Brfalse nullLabel)
-
-        let loadOther = castObjArgOrBranch isVt selfType selfTy b throwLabel
-
-        b.Add(ILInstr.Ldarg 0)
-        loadOther b
-        b.Add(ILInstr.Call(typedCompareTo, 2, 1))
-        b.Add ILInstr.Ret
-
-        b.Add(ILInstr.Mark throwLabel)
-        b.Add(ILInstr.Ldstr mismatchMessage)
-        b.Add(ILInstr.Newobj(argumentExceptionCtor, 1))
-        b.Add ILInstr.Throw
-        b.Add(ILInstr.Mark nullLabel)
-        b.Add(ILInstr.LdcI4 1)
-        b.Add ILInstr.Ret
-        b.Body
-
-    /// The resolved handles a union's synthesised `Equals` / `GetHashCode` bodies need.
-    /// A case factory sets only its own case's payload fields and a DU is immutable, so
-    /// once the tags match, walking EVERY field equals a per-case walk and no tag switch
-    /// is needed.
-    type UnionEqualitySupport =
-        {
-            /// The union's own `TypeDefinition` — the `isinst` target.
-            SelfType: EntityHandle
-            /// `FTUnion(key, args)` — the type of the cast `other` local.
-            SelfTy: FrozenType
-            TagField: EntityHandle
-            /// `(field handle, field type)` across every case, declaration order.
-            Fields: (EntityHandle * FrozenType) list
-            /// `int` — the tag's type, for `HashCode.Add<int>`.
-            IntType: FrozenType
-            /// `EqualityComparer<T>.Default` getter for a field type.
-            ComparerDefault: FrozenType -> EntityHandle
-            /// `EqualityComparer<T>::Equals(T, T) : bool` for a field type.
-            ComparerEquals: FrozenType -> EntityHandle
-            /// The `System.HashCode` value-type local.
-            HashCodeLocal: FrozenType
-            /// `HashCode::Add<T>(T)` for a field/tag type.
-            HashCodeAdd: FrozenType -> EntityHandle
-            /// `HashCode::ToHashCode() : int`.
-            HashCodeToHashCode: EntityHandle
-        }
-
-    /// The tag-then-field walk shared by both equality entry points: tags must match,
-    /// then each field via `EqualityComparer<F>.Default` (total equality, so a `float`
-    /// field gets `NaN = NaN` here). Any mismatch branches to `falseLabel`.
-    let private buildTagAndFieldEquality
-        (s: UnionEqualitySupport)
-        (b: IlBuilder)
-        (loadOther: IlBuilder -> unit)
-        (falseLabel: int)
-        : unit =
-        b.Add(ILInstr.Ldarg 0)
-        b.Add(ILInstr.Ldfld s.TagField)
-        loadOther b
-        b.Add(ILInstr.Ldfld s.TagField)
-        b.Add(ILInstr.BneUn falseLabel)
-
-        for (fieldHandle, fieldTy) in s.Fields do
-            b.Add(ILInstr.Call(s.ComparerDefault fieldTy, 0, 1))
-            b.Add(ILInstr.Ldarg 0)
-            b.Add(ILInstr.Ldfld fieldHandle)
-            loadOther b
-            b.Add(ILInstr.Ldfld fieldHandle)
-            b.Add(ILInstr.Callvirt(s.ComparerEquals fieldTy, 3, 1))
-            b.Add(ILInstr.Brfalse falseLabel)
-
-    /// `override bool Equals(object obj)` for a union: cast-or-false, then the shared
-    /// tag/field walk.
-    let buildUnionEquals (isVt: bool) (s: UnionEqualitySupport) : ILBody =
-        buildStructuralEqualsObj isVt s.SelfType s.SelfTy (buildTagAndFieldEquality s)
-
-    /// `bool Equals(Self other)` — the typed `IEquatable<Self>::Equals` over the
-    /// shared tag/field walk.
-    let buildUnionEqualsTyped (isVt: bool) (s: UnionEqualitySupport) : ILBody =
-        buildStructuralEqualsTyped isVt (buildTagAndFieldEquality s)
-
-    /// `override int GetHashCode()` for a union: a `System.HashCode` seeded with the
-    /// `_tag`, every field added through it, then `ToHashCode()`. Equal values hash
-    /// equal because the tag distinguishes cases and inactive-case fields are default.
-    let buildUnionGetHashCode (s: UnionEqualitySupport) : ILBody =
-        let b = IlBuilder()
-        let hc = b.Local s.HashCodeLocal
-
-        b.Add(ILInstr.Ldloca hc)
-        b.Add(ILInstr.Ldarg 0)
-        b.Add(ILInstr.Ldfld s.TagField)
-        b.Add(ILInstr.Call(s.HashCodeAdd s.IntType, 2, 0))
-
-        for (fieldHandle, fieldTy) in s.Fields do
-            b.Add(ILInstr.Ldloca hc)
-            b.Add(ILInstr.Ldarg 0)
-            b.Add(ILInstr.Ldfld fieldHandle)
-            b.Add(ILInstr.Call(s.HashCodeAdd fieldTy, 2, 0))
-
-        b.Add(ILInstr.Ldloca hc)
-        b.Add(ILInstr.Call(s.HashCodeToHashCode, 1, 1))
-        b.Add ILInstr.Ret
-        b.Body
-
     /// Build a record's `.ctor` body: chain `Object::.ctor()`, then store each ctor
     /// argument into the matching field.
     let buildRecordCtor (baseCtor: EntityHandle) (fields: EntityHandle list) : ILBody = buildClosureCtor baseCtor fields
-
-    /// The record-shaped analogue of `UnionEqualitySupport`: no `_tag` to compare or
-    /// seed. Fields are in declaration order; the caller mints their handles as `Def`
-    /// tokens or `MemberRef`s on the type's own `TypeSpec` (`Box\`1<!0>::Value`).
-    type RecordEqualitySupport =
-        {
-            /// The record's own `TypeDefinition` — the `isinst` target.
-            SelfType: EntityHandle
-            /// `FTRecord(key, args)` — the type of the cast `other` local.
-            SelfTy: FrozenType
-            /// `(field handle, field type)` in declaration order.
-            Fields: (EntityHandle * FrozenType) list
-            ComparerDefault: FrozenType -> EntityHandle
-            ComparerEquals: FrozenType -> EntityHandle
-            HashCodeLocal: FrozenType
-            HashCodeAdd: FrozenType -> EntityHandle
-            HashCodeToHashCode: EntityHandle
-        }
-
-    /// The field walk shared by both record equality entry points, the union's minus
-    /// the leading tag compare. Any field mismatch branches to `falseLabel`.
-    let private buildRecordFieldEquality
-        (s: RecordEqualitySupport)
-        (b: IlBuilder)
-        (loadOther: IlBuilder -> unit)
-        (falseLabel: int)
-        : unit =
-        for (fieldHandle, fieldTy) in s.Fields do
-            b.Add(ILInstr.Call(s.ComparerDefault fieldTy, 0, 1))
-            b.Add(ILInstr.Ldarg 0)
-            b.Add(ILInstr.Ldfld fieldHandle)
-            loadOther b
-            b.Add(ILInstr.Ldfld fieldHandle)
-            b.Add(ILInstr.Callvirt(s.ComparerEquals fieldTy, 3, 1))
-            b.Add(ILInstr.Brfalse falseLabel)
-
-    /// `override bool Equals(object obj)` for a record: cast-or-false, then the shared
-    /// field walk.
-    let buildRecordEquals (isVt: bool) (s: RecordEqualitySupport) : ILBody =
-        buildStructuralEqualsObj isVt s.SelfType s.SelfTy (buildRecordFieldEquality s)
-
-    /// `bool Equals(Self other)` — the typed `IEquatable<Self>::Equals` over the
-    /// shared field walk.
-    let buildRecordEqualsTyped (isVt: bool) (s: RecordEqualitySupport) : ILBody =
-        buildStructuralEqualsTyped isVt (buildRecordFieldEquality s)
-
-    /// `override int GetHashCode()` for a record: every field added through
-    /// `HashCode.Add<T>`, then `ToHashCode()`. No tag seed, because a record has one shape.
-    let buildRecordGetHashCode (s: RecordEqualitySupport) : ILBody =
-        let b = IlBuilder()
-        let hc = b.Local s.HashCodeLocal
-
-        for (fieldHandle, fieldTy) in s.Fields do
-            b.Add(ILInstr.Ldloca hc)
-            b.Add(ILInstr.Ldarg 0)
-            b.Add(ILInstr.Ldfld fieldHandle)
-            b.Add(ILInstr.Call(s.HashCodeAdd fieldTy, 2, 0))
-
-        b.Add(ILInstr.Ldloca hc)
-        b.Add(ILInstr.Call(s.HashCodeToHashCode, 1, 1))
-        b.Add ILInstr.Ret
-        b.Body
-
-    /// Comparison support for a union: tags compared first via `sub` (case indices are
-    /// small, so it cannot overflow), then each field via `Comparer<F>.Default.Compare`,
-    /// returning the first non-zero result.
-    type UnionComparisonSupport =
-        {
-            /// The union's own `TypeDefinition` — the `isinst` target the
-            /// `CompareTo(object)` boxing entry uses to cast and type-check.
-            SelfType: EntityHandle
-            /// `FTUnion(key, args)` — the type of the cast `other` local and the
-            /// param type of the typed `CompareTo(Self)`.
-            SelfTy: FrozenType
-            TagField: EntityHandle
-            /// `(field handle, field type)` across every case, declaration order.
-            Fields: (EntityHandle * FrozenType) list
-            /// `Comparer<T>.Default` getter for a field type.
-            ComparerDefault: FrozenType -> EntityHandle
-            /// `Comparer<T>::Compare(T, T) : int32` for a field type.
-            ComparerCompare: FrozenType -> EntityHandle
-            /// `System.ArgumentException::.ctor(string)` — the
-            /// `CompareTo(object)` body throws this on a non-`Self` arg.
-            ArgumentExceptionCtor: EntityHandle
-            /// The `"Object type mismatch"` literal `CompareTo(object)` throws with.
-            /// Minted by the caller, because the builder owns no metadata context.
-            MismatchMessage: UserStringHandle
-        }
-
-    /// The tag-then-field lex comparison shared by both `CompareTo` entry points. The
-    /// first non-zero result is left in `cLocal` and `brtrue`-ed to `returnLabel`; on
-    /// fall-through every comparison returned 0.
-    let private buildTagAndFieldComparison
-        (s: UnionComparisonSupport)
-        (b: IlBuilder)
-        (loadOther: IlBuilder -> unit)
-        (cLocal: int)
-        (returnLabel: int)
-        : unit =
-        b.Add(ILInstr.Ldarg 0)
-        b.Add(ILInstr.Ldfld s.TagField)
-        loadOther b
-        b.Add(ILInstr.Ldfld s.TagField)
-        b.Add(ILInstr.Bin ILOpCode.Sub)
-        b.Add(ILInstr.Stloc cLocal)
-        b.Add(ILInstr.Ldloc cLocal)
-        b.Add(ILInstr.Brtrue returnLabel)
-
-        for (fieldHandle, fieldTy) in s.Fields do
-            b.Add(ILInstr.Call(s.ComparerDefault fieldTy, 0, 1))
-            b.Add(ILInstr.Ldarg 0)
-            b.Add(ILInstr.Ldfld fieldHandle)
-            loadOther b
-            b.Add(ILInstr.Ldfld fieldHandle)
-            b.Add(ILInstr.Callvirt(s.ComparerCompare fieldTy, 3, 1))
-            b.Add(ILInstr.Stloc cLocal)
-            b.Add(ILInstr.Ldloc cLocal)
-            b.Add(ILInstr.Brtrue returnLabel)
-
-    /// `int CompareTo(Self other)` — the typed `IComparable<Self>::CompareTo` over the
-    /// shared tag/field lex walk.
-    let buildUnionCompareTo (isVt: bool) (s: UnionComparisonSupport) : ILBody =
-        buildStructuralCompareTo isVt (buildTagAndFieldComparison s)
-
-    /// `int CompareTo(object obj)` — the non-generic `IComparable::CompareTo`,
-    /// delegating to the typed `CompareTo(Self)`.
-    let buildUnionCompareToObj (isVt: bool) (s: UnionComparisonSupport) (typedCompareTo: EntityHandle) : ILBody =
-        buildStructuralCompareToObj isVt s.SelfType s.SelfTy s.MismatchMessage s.ArgumentExceptionCtor typedCompareTo
-
-    /// Mirror of `UnionComparisonSupport` for a record: the same shape minus the tag.
-    type RecordComparisonSupport =
-        {
-            SelfType: EntityHandle
-            SelfTy: FrozenType
-            /// `(field handle, field type)` in declaration order.
-            Fields: (EntityHandle * FrozenType) list
-            ComparerDefault: FrozenType -> EntityHandle
-            ComparerCompare: FrozenType -> EntityHandle
-            ArgumentExceptionCtor: EntityHandle
-            MismatchMessage: UserStringHandle
-        }
-
-    /// The field-by-field lex comparison shared by both record `CompareTo` entry points.
-    /// The first non-zero result lands in `cLocal` and branches to `returnLabel`.
-    let private buildRecordFieldComparison
-        (s: RecordComparisonSupport)
-        (b: IlBuilder)
-        (loadOther: IlBuilder -> unit)
-        (cLocal: int)
-        (returnLabel: int)
-        : unit =
-        for (fieldHandle, fieldTy) in s.Fields do
-            b.Add(ILInstr.Call(s.ComparerDefault fieldTy, 0, 1))
-            b.Add(ILInstr.Ldarg 0)
-            b.Add(ILInstr.Ldfld fieldHandle)
-            loadOther b
-            b.Add(ILInstr.Ldfld fieldHandle)
-            b.Add(ILInstr.Callvirt(s.ComparerCompare fieldTy, 3, 1))
-            b.Add(ILInstr.Stloc cLocal)
-            b.Add(ILInstr.Ldloc cLocal)
-            b.Add(ILInstr.Brtrue returnLabel)
-
-    /// `int CompareTo(Self other)` — the typed `IComparable<Self>::CompareTo` over the
-    /// shared field lex walk.
-    let buildRecordCompareTo (isVt: bool) (s: RecordComparisonSupport) : ILBody =
-        buildStructuralCompareTo isVt (buildRecordFieldComparison s)
-
-    /// `int CompareTo(object obj)` — the non-generic `IComparable::CompareTo`,
-    /// delegating to the typed `CompareTo(Self)`.
-    let buildRecordCompareToObj (isVt: bool) (s: RecordComparisonSupport) (typedCompareTo: EntityHandle) : ILBody =
-        buildStructuralCompareToObj isVt s.SelfType s.SelfTy s.MismatchMessage s.ArgumentExceptionCtor typedCompareTo
 
     // Each co-slot shim forwards through a `call`, not a `callvirt`, so the exact method
     // binds. The object arg is `ldarg.0`: an object reference for a class, a managed

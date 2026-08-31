@@ -17,128 +17,6 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
     let userValueTypes = env.UserValueTypes
     let encodeType te t = enc.EncodeType(te, t)
 
-    let genericUnionTypeSpec (key: TypeKey) (args: FrozenType list) : EntityHandle =
-        let shape = genericUnions.[key]
-        let tsB = BlobBuilder()
-        let te = BlobEncoder(tsB).TypeSpecificationSignature()
-
-        let g =
-            te.GenericInstantiation(userTypes.[key], shape.Typars.Length, userValueTypes.Contains key)
-
-        for a in args do
-            encodeType (g.AddArgument()) a
-
-        toEntity (ctx.TypeSpec tsB)
-
-    let genericUnionMemberRef (key: TypeKey) (args: FrozenType list) (which: UnionMember) : EntityHandle =
-        let shape = genericUnions.[key]
-        let parent = genericUnionTypeSpec key args
-
-        let caseFields cn : EqArray<string * FrozenType> =
-            match shape.Cases |> EqArray.tryFind (fun c -> c.Name = cn) with
-            | ValueSome c -> c.Fields
-            | ValueNone -> failwithf "ClrProvider: generic union '%A' has no case '%s'" key cn
-
-        match which with
-        | UnionMember.Ctor ->
-            let s = BlobBuilder()
-
-            // A struct union's `.ctor` is the flat `(tag, every case field)` form its
-            // factories `newobj`; a reference union's is nullary.
-            let paramTys =
-                if userValueTypes.Contains key then
-                    FTConst(RuntimeNames.intKey, EqArray.empty)
-                    :: [
-                        for c in shape.Cases do
-                            for (_, t) in c.Fields -> t
-                    ]
-                else
-                    []
-
-            BlobEncoder(s)
-                .MethodSignature(isInstanceMethod = true)
-                .Parameters(
-                    List.length paramTys,
-                    (fun (ret: ReturnTypeEncoder) -> ret.Void()),
-                    (fun (pars: ParametersEncoder) ->
-                        for p in paramTys do
-                            encodeType (pars.AddParameter().Type()) p
-                    )
-                )
-
-            toEntity (ctx.MemberRef(parent, ".ctor", s))
-        | UnionMember.Tag ->
-            let s = BlobBuilder()
-            BlobEncoder(s).FieldSignature().Int32()
-            toEntity (ctx.MemberRef(parent, "_tag", s))
-        | UnionMember.Field(caseName, idx) ->
-            let metaName, declTy = (caseFields caseName).[idx]
-            let s = BlobBuilder()
-            encodeType (BlobEncoder(s).FieldSignature()) declTy
-            toEntity (ctx.MemberRef(parent, metaName, s))
-        | UnionMember.Factory caseName ->
-            let paramTys = caseFields caseName |> EqArray.map snd
-
-            let retTy =
-                FTUnion(key, EqArray.init shape.Typars.Length (fun i -> FTTypar(TyparAxis.Declaring, i)))
-
-            let s = BlobBuilder()
-
-            BlobEncoder(s)
-                .MethodSignature(isInstanceMethod = false)
-                .Parameters(
-                    paramTys.Length,
-                    (fun (ret: ReturnTypeEncoder) -> encodeType (ret.Type()) retTy),
-                    (fun (pars: ParametersEncoder) ->
-                        for p in paramTys do
-                            encodeType (pars.AddParameter().Type()) p
-                    )
-                )
-
-            toEntity (ctx.MemberRef(parent, caseName, s))
-
-    let genericRecordTypeSpec (key: TypeKey) (args: FrozenType list) : EntityHandle =
-        let shape = genericRecords.[key]
-        let tsB = BlobBuilder()
-        let te = BlobEncoder(tsB).TypeSpecificationSignature()
-
-        let g =
-            te.GenericInstantiation(userTypes.[key], shape.Typars.Length, userValueTypes.Contains key)
-
-        for a in args do
-            encodeType (g.AddArgument()) a
-
-        toEntity (ctx.TypeSpec tsB)
-
-    let genericRecordMemberRef (key: TypeKey) (args: FrozenType list) (which: RecordMember) : EntityHandle =
-        let fields = genericRecords.[key].Fields
-        let parent = genericRecordTypeSpec key args
-
-        match which with
-        | RecordMember.Ctor ->
-            let paramTys = fields |> EqArray.map snd
-            let s = BlobBuilder()
-
-            BlobEncoder(s)
-                .MethodSignature(isInstanceMethod = true)
-                .Parameters(
-                    paramTys.Length,
-                    (fun (ret: ReturnTypeEncoder) -> ret.Void()),
-                    (fun (pars: ParametersEncoder) ->
-                        for p in paramTys do
-                            encodeType (pars.AddParameter().Type()) p
-                    )
-                )
-
-            toEntity (ctx.MemberRef(parent, ".ctor", s))
-        | RecordMember.Field fieldName ->
-            match fields |> EqArray.tryFind (fun (n, _) -> n = fieldName) with
-            | ValueSome(_, declTy) ->
-                let s = BlobBuilder()
-                encodeType (BlobEncoder(s).FieldSignature()) declTy
-                toEntity (ctx.MemberRef(parent, fieldName, s))
-            | ValueNone -> failwithf "ClrProvider: generic record '%A' has no field '%s'" key fieldName
-
     let genericClassTypeSpec (key: TypeKey) (args: FrozenType list) : EntityHandle =
         let shape = genericClasses.[key]
         let tsB = BlobBuilder()
@@ -204,6 +82,146 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
                 encodeType (BlobEncoder(s).FieldSignature()) declTy
                 toEntity (ctx.MemberRef(parent, fieldName, s))
             | ValueNone -> failwithf "ClrProvider: generic class '%A' has no field '%s'" key fieldName
+
+    let genericUnionTypeSpec (key: TypeKey) (args: FrozenType list) : EntityHandle =
+        let shape = genericUnions.[key]
+        let tsB = BlobBuilder()
+        let te = BlobEncoder(tsB).TypeSpecificationSignature()
+
+        let g =
+            te.GenericInstantiation(userTypes.[key], shape.Typars.Length, userValueTypes.Contains key)
+
+        for a in args do
+            encodeType (g.AddArgument()) a
+
+        toEntity (ctx.TypeSpec tsB)
+
+    let genericUnionMemberRef (key: TypeKey) (args: FrozenType list) (which: UnionMember) : EntityHandle =
+        let shape = genericUnions.[key]
+        let parent = genericUnionTypeSpec key args
+        let isHierarchy = UnionRegime.isHierarchy shape.Regime
+
+        // The union named from inside its own bodies: the type a factory returns and a
+        // `_unique_<Case>` singleton is typed at.
+        let selfTy = FTUnion(key, EqArray.ofList (declaringMarkers shape.Typars.Length))
+
+        let caseFields cn : EqArray<string * FrozenType> =
+            match shape.Cases |> EqArray.tryFind (fun c -> c.Name = cn) with
+            | ValueSome c -> c.Fields
+            | ValueNone -> failwithf "ClrProvider: generic union '%A' has no case '%s'" key cn
+
+        match which with
+        | UnionMember.Ctor ->
+            let s = BlobBuilder()
+
+            // A struct union's `.ctor` is the flat `(tag, every case field)` form its
+            // factories `newobj`; a hierarchy base's takes the tag its case ctors chain
+            // with; a flat reference union's is nullary.
+            let paramTys =
+                if userValueTypes.Contains key then
+                    FTConst(RuntimeNames.intKey, EqArray.empty)
+                    :: [
+                        for c in shape.Cases do
+                            for (_, t) in c.Fields -> t
+                    ]
+                elif isHierarchy then
+                    [ FTConst(RuntimeNames.intKey, EqArray.empty) ]
+                else
+                    []
+
+            BlobEncoder(s)
+                .MethodSignature(isInstanceMethod = true)
+                .Parameters(
+                    List.length paramTys,
+                    (fun (ret: ReturnTypeEncoder) -> ret.Void()),
+                    (fun (pars: ParametersEncoder) ->
+                        for p in paramTys do
+                            encodeType (pars.AddParameter().Type()) p
+                    )
+                )
+
+            toEntity (ctx.MemberRef(parent, ".ctor", s))
+        | UnionMember.Tag ->
+            let s = BlobBuilder()
+            BlobEncoder(s).FieldSignature().Int32()
+            toEntity (ctx.MemberRef(parent, "_tag", s))
+        | UnionMember.Field(caseName, idx) ->
+            let metaName, declTy = (caseFields caseName).[idx]
+
+            // A hierarchy union declares each case's payload on the case's own type, which
+            // is registered as a generic class over the union's typars, so both the parent
+            // `TypeSpec` and the field ref come from that family.
+            if isHierarchy then
+                genericClassMemberRef (UnionCaseType.key key caseName) args (ClassMember.Field metaName)
+            else
+                let s = BlobBuilder()
+                encodeType (BlobEncoder(s).FieldSignature()) declTy
+                toEntity (ctx.MemberRef(parent, metaName, s))
+        | UnionMember.CaseCtor caseName -> genericClassMemberRef (UnionCaseType.key key caseName) args ClassMember.Ctor
+        | UnionMember.CaseSingleton caseName ->
+            let s = BlobBuilder()
+            encodeType (BlobEncoder(s).FieldSignature()) selfTy
+            toEntity (ctx.MemberRef(parent, "_unique_" + caseName, s))
+        | UnionMember.Factory caseName ->
+            let paramTys = caseFields caseName |> EqArray.map snd
+            let retTy = selfTy
+
+            let s = BlobBuilder()
+
+            BlobEncoder(s)
+                .MethodSignature(isInstanceMethod = false)
+                .Parameters(
+                    paramTys.Length,
+                    (fun (ret: ReturnTypeEncoder) -> encodeType (ret.Type()) retTy),
+                    (fun (pars: ParametersEncoder) ->
+                        for p in paramTys do
+                            encodeType (pars.AddParameter().Type()) p
+                    )
+                )
+
+            toEntity (ctx.MemberRef(parent, caseName, s))
+
+    let genericRecordTypeSpec (key: TypeKey) (args: FrozenType list) : EntityHandle =
+        let shape = genericRecords.[key]
+        let tsB = BlobBuilder()
+        let te = BlobEncoder(tsB).TypeSpecificationSignature()
+
+        let g =
+            te.GenericInstantiation(userTypes.[key], shape.Typars.Length, userValueTypes.Contains key)
+
+        for a in args do
+            encodeType (g.AddArgument()) a
+
+        toEntity (ctx.TypeSpec tsB)
+
+    let genericRecordMemberRef (key: TypeKey) (args: FrozenType list) (which: RecordMember) : EntityHandle =
+        let fields = genericRecords.[key].Fields
+        let parent = genericRecordTypeSpec key args
+
+        match which with
+        | RecordMember.Ctor ->
+            let paramTys = fields |> EqArray.map snd
+            let s = BlobBuilder()
+
+            BlobEncoder(s)
+                .MethodSignature(isInstanceMethod = true)
+                .Parameters(
+                    paramTys.Length,
+                    (fun (ret: ReturnTypeEncoder) -> ret.Void()),
+                    (fun (pars: ParametersEncoder) ->
+                        for p in paramTys do
+                            encodeType (pars.AddParameter().Type()) p
+                    )
+                )
+
+            toEntity (ctx.MemberRef(parent, ".ctor", s))
+        | RecordMember.Field fieldName ->
+            match fields |> EqArray.tryFind (fun (n, _) -> n = fieldName) with
+            | ValueSome(_, declTy) ->
+                let s = BlobBuilder()
+                encodeType (BlobEncoder(s).FieldSignature()) declTy
+                toEntity (ctx.MemberRef(parent, fieldName, s))
+            | ValueNone -> failwithf "ClrProvider: generic record '%A' has no field '%s'" key fieldName
 
     /// The parent `TypeSpec` of a generic user type, whichever family declares it. Every
     /// family's registry is keyed by the nominal `TypeKey`, so the key alone picks the arm.
@@ -330,8 +348,8 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
     /// The nominal `TypeKey` embeds the arity, so `Choice\`2`…`Choice\`7` stay distinct.
     member _.GenericUnionSelfSpec(key: TypeKey) : EntityHandle =
         let typars = genericUnions.[key].Typars
-        genericUnionTypeSpec key [ for i in 0 .. typars.Length - 1 -> FTTypar(TyparAxis.Declaring, i) ]
+        genericUnionTypeSpec key (declaringMarkers typars.Length)
 
     member _.GenericRecordSelfSpec(key: TypeKey) : EntityHandle =
         let typars = genericRecords.[key].Typars
-        genericRecordTypeSpec key [ for i in 0 .. typars.Length - 1 -> FTTypar(TyparAxis.Declaring, i) ]
+        genericRecordTypeSpec key (declaringMarkers typars.Length)

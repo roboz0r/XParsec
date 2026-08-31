@@ -161,10 +161,36 @@ let tests =
                             Fields = []
                             Methods = []
                         }
+                        // Two cases with a payload, so `Shape` is a hierarchy union: an
+                        // abstract base carrying `_tag`, the `_unique_Dot` singleton and the
+                        // `.cctor` that fills it, followed (pre-order) by a nested type per
+                        // case. The base's `GetHashCode` / typed `Equals` / `Format` rows are
+                        // the abstract slots each case implements.
                         {
                             Type = "Shape"
-                            Fields = [ "_tag"; "Line_0" ]
-                            Methods = [ ".ctor"; "Dot"; "Line"; "GetHashCode"; "Equals"; "Equals"; "Format" ]
+                            Fields = [ "_tag"; "_unique_Dot" ]
+                            Methods =
+                                [
+                                    ".ctor"
+                                    ".cctor"
+                                    "Dot"
+                                    "Line"
+                                    "GetHashCode"
+                                    "Equals"
+                                    "Equals"
+                                    "Format"
+                                ]
+                        }
+                        {
+                            Type = "Shape+Dot"
+                            Fields = []
+                            Methods = [ ".ctor"; "GetHashCode"; "Equals"; "Equals"; "Format" ]
+                        }
+                        // A lone positional field takes FSC's `item`, on the case's own type.
+                        {
+                            Type = "Shape+Line"
+                            Fields = [ "item" ]
+                            Methods = [ ".ctor"; "GetHashCode"; "Equals"; "Equals"; "Format" ]
                         }
                         {
                             Type = "Point"
@@ -209,6 +235,120 @@ let tests =
                             Methods = [ "Main" ]
                         }
                     ]
+            }
+
+            // The hierarchy's declaration shape, read off the metadata rather than off a
+            // loaded assembly: the base is abstract, each case is a sealed nested type
+            // extending it, and a generic union's case redeclares the union's typars so its
+            // `extends` is an instantiation rather than a bare `TypeDef`.
+            test "a monomorphic hierarchy union's case extends the base by TypeDef" {
+                let bytes = representativeBytes.Value
+
+                match MetadataStructure.typeDecl bytes "Shape" with
+                | ValueNone -> failtest "no Shape TypeDef"
+                | ValueSome d ->
+                    Expect.isTrue d.IsAbstract "the base is abstract"
+                    Expect.isFalse d.IsSealed "an abstract base is not sealed"
+                    Expect.equal d.Extends "System.Object" "the base extends Object"
+
+                for case in [ "Shape+Dot"; "Shape+Line" ] do
+                    match MetadataStructure.typeDecl bytes case with
+                    | ValueNone -> failtestf "no %s TypeDef" case
+                    | ValueSome d ->
+                        Expect.isTrue d.IsNested (case + " is nested")
+                        Expect.isTrue d.IsSealed (case + " is sealed")
+                        Expect.isFalse d.IsAbstract (case + " is concrete")
+                        Expect.equal d.Extends "Shape" (case + " extends the union")
+                        Expect.equal d.Typars [] (case + " declares no typar")
+            }
+
+            test "a generic hierarchy union's case redeclares the union's typars" {
+                let artifact =
+                    compileSource
+                        "GenericUnionCaseShape"
+                        (String.concat
+                            "\n"
+                            [
+                                "type Pair<'T> ="
+                                "    | One of 'T"
+                                "    | Two of 'T * 'T"
+                                "let p = Two(1, 2)"
+                                "printfn \"%b\" (p = p)"
+                            ])
+
+                let bytes = Codegen.toBytes artifact
+                MetadataStructure.assertWellFormed "GenericUnionCaseShape" bytes
+
+                match MetadataStructure.typeDecl bytes "Pair`1" with
+                | ValueNone -> failtest "no Pair`1 TypeDef"
+                | ValueSome d ->
+                    Expect.isTrue d.IsAbstract "the base is abstract"
+                    Expect.equal d.Typars [ "T" ] "the base declares its own typar"
+
+                match MetadataStructure.typeDecl bytes "Pair`1+Two" with
+                | ValueNone -> failtest "no Pair`1+Two TypeDef"
+                | ValueSome d ->
+                    Expect.isTrue d.IsNested "the case is nested"
+                    Expect.isTrue d.IsSealed "the case is sealed"
+                    // A nested type's own arity counts only the typars it ADDS, so the name
+                    // carries no suffix even though the case declares one `GenericParam`.
+                    Expect.equal d.Typars [ "T" ] "the case redeclares the union's typar"
+
+                    Expect.equal d.Extends "<typespec>" "the case extends the base instantiated over its own typar"
+            }
+
+            // A generic type reaches its own members through `MemberRef`s on its open
+            // self-`TypeSpec`, and that table is appended to rather than deduplicated, so
+            // every pass that walks a case's payload adds a row per field. The byte-identity
+            // goldens cannot report a duplicate mint.
+            test "a generic union's case payload is minted once per pass that walks it" {
+                let artifact =
+                    compileSource
+                        "GenericUnionFieldRefRows"
+                        (String.concat
+                            "\n"
+                            [
+                                "type Pair<'T> ="
+                                "    | One of 'T"
+                                "    | Two of 'T * 'T"
+                                "let p = Two(1, 2)"
+                                "printfn \"%b\" (p = p)"
+                                "printfn \"%A\" p"
+                            ])
+
+                let rows = MetadataStructure.memberRefRowCount (Codegen.toBytes artifact)
+
+                // Two passes walk a case's fields: the `.ctor` / factory pass, and the
+                // structural pass, whose equality, comparison and `%A` bodies share one walk.
+                Expect.equal (rows "item1") 2 "Two's first field"
+                Expect.equal (rows "item2") 2 "Two's second field"
+                Expect.equal (rows "item") 2 "One's lone field"
+            }
+
+            // The flat regimes hold every case's payload co-resident on the union, and
+            // their equality, comparison and `%A` bodies walk all of it, so the same
+            // one-walk-per-pass rule covers `_tag` too.
+            test "a generic struct union's co-resident payload is minted once per pass" {
+                let artifact =
+                    compileSource
+                        "GenericStructUnionFieldRefRows"
+                        (String.concat
+                            "\n"
+                            [
+                                "[<Struct>]"
+                                "type G<'T> ="
+                                "    | Val of v: 'T"
+                                "    | Num of n: int"
+                                "let g: G<int> = Val 3"
+                                "printfn \"%b\" (g = Val 3)"
+                                "printfn \"%A\" g"
+                            ])
+
+                let rows = MetadataStructure.memberRefRowCount (Codegen.toBytes artifact)
+
+                Expect.equal (rows "Val_0") 2 "Val's payload"
+                Expect.equal (rows "Num_0") 2 "Num's payload"
+                Expect.equal (rows "_tag") 2 "the discriminant"
             }
 
             // Each Vesper package is a library full of modules, unions, records and closures.

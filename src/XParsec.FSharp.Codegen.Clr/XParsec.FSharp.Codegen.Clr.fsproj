@@ -10,7 +10,9 @@
     <Compile Include="MetadataSymbols.fs" />
     <Compile Include="ClrSymbolProviders.fs" />
     <Compile Include="ProjectInfo.fs" />
+    <Compile Include="TyparMarkers.fs" />
     <Compile Include="UnionRegime.fs" />
+    <Compile Include="UnionCaseShape.fs" />
     <Compile Include="Types.fs" />
     <Compile Include="Cil.fs" />
     <Compile Include="Metadata.fs" />
@@ -40,6 +42,7 @@
     <Compile Include="EmitCall.fs" />
     <Compile Include="EmitIntrinsic.fs" />
     <Compile Include="EmitExpr.fs" />
+    <Compile Include="EmitStructural.fs" />
     <Compile Include="EmitStructuralFormat.fs" />
     <Compile Include="Emit.fs" />
     <Compile Include="ModuleClassPlan.fs" />
@@ -51,7 +54,10 @@
     <Compile Include="AssemblerScaffold.fs" />
     <Compile Include="ClosureVerdictRewrite.fs" />
     <Compile Include="AttributeRowPrep.fs" />
+    <Compile Include="NominalRegistration.fs" />
     <Compile Include="Assembler.fs" />
+    <Compile Include="NominalShared.fs" />
+    <Compile Include="UnionEmit.fs" />
     <Compile Include="NominalEmit.fs" />
     <Compile Include="Codegen.fs" />
     <Compile Include="ClrDriver.fs" />

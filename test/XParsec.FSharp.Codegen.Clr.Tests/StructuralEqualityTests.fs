@@ -184,7 +184,38 @@ let tests =
                 let typed = typedEqualsMethod ty
                 Expect.isNotNull typed "Shape declares a typed Equals(Shape)"
                 Expect.isTrue typed.IsVirtual "the typed Equals(Shape) is virtual (implements the interface slot)"
-                Expect.isTrue typed.IsFinal "the typed Equals(Shape) is final (the union is sealed)"
+
+                // `Shape` carries a payload across four cases, so it emits as a hierarchy:
+                // the base declares the slot and each case supplies the body, which is what
+                // makes the interface dispatch land on the case rather than on a tag switch.
+                Expect.isTrue ty.IsAbstract "Shape is an abstract base"
+                Expect.isTrue typed.IsAbstract "the typed Equals(Shape) is abstract on the base"
+                Expect.isFalse typed.IsFinal "the typed Equals(Shape) is overridden by each case"
+
+                let caseTy = ty.GetNestedType("Circle", BindingFlags.Public)
+                Expect.isNotNull caseTy "Shape nests a Circle case type"
+                Expect.isTrue caseTy.IsSealed "a case type is sealed"
+                Expect.equal caseTy.BaseType ty "a case type extends the union"
+
+                let caseOverride =
+                    caseTy.GetMethod("Equals", declaredInstance, null, [| ty |], null)
+
+                Expect.isNotNull caseOverride "Circle overrides Equals(Shape)"
+
+                // The field walk lives here; the `Shape`-typed override is only the guard.
+                let caseTyped =
+                    caseTy.GetMethod("Equals", declaredInstance, null, [| caseTy |], null)
+
+                Expect.isNotNull caseTyped "Circle declares Equals(Circle), which holds the field walk"
+                Expect.isFalse caseTyped.IsVirtual "Equals(Circle) declares no slot, so it binds by `call`"
+
+                // Decision: no `IEquatable<Circle>`. Nothing can ask for
+                // `EqualityComparer<Circle>`, because no expression is typed at a case.
+                let caseIface = typedefof<IEquatable<_>>.MakeGenericType caseTy
+
+                Expect.isFalse
+                    (caseTy.GetInterfaces() |> Array.contains caseIface)
+                    "Circle declares no IEquatable<Circle>"
             }
 
             test "the typed Equals(Self) compares structurally and rejects null" {

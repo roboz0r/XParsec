@@ -294,4 +294,20 @@ let tests =
 
                 Expect.isFalse (hasMessage ctx "does not support") "no constraint diagnostic"
             }
+
+            // Checking `Tree<'T> : equality` reaches the `Node` payload, which is
+            // `Tree<'T>` again, and re-enters with the same goal. The recursion carries no
+            // set of constraints already in progress, so it does not terminate:
+            // `checkConstraint` → `verdictOutcome` → `reduceOutcome` → `checkConstraint`,
+            // overflowing the stack rather than reporting a diagnostic.
+            //
+            // A recursive generic union is an ordinary shape — it is `list`'s own — so this
+            // is reachable from any source that compares one.
+            ptest "gap: a self-recursive generic union under an equality constraint overflows the stack" {
+                let ctx =
+                    analyseFull
+                        "type Tree<'T> =\n    | Leaf of 'T\n    | Node of Tree<'T> * Tree<'T>\nlet t = Node(Leaf 1, Leaf 2)\nlet e = (t = t)"
+
+                Expect.isFalse (hasMessage ctx "does not support") "no constraint diagnostic"
+            }
         ]

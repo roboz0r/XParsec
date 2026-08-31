@@ -400,10 +400,17 @@ let tests =
                 let one = consM.Invoke(null, [| box 1; empty |])
                 Expect.isNotNull one "Cons(1, Empty) constructs a List<int>"
 
-                // The `Head` field is the type's `!0`, so on `List<int>` it reads as `int`.
-                let headField = listOfInt.GetField "Cons_0"
-                Expect.isNotNull headField "List<int> has the Cons_0 (Head) field"
-                Expect.equal (headField.GetValue one :?> int) 1 "Cons_0 holds the head value 1"
+                // Two cases with a payload, so the list emits as a hierarchy: the payload is
+                // declared on the nested `Cons` type, under the name the source's `Head:`
+                // label gives it. The field is the type's `!0`, so on `List<int>` it reads
+                // as `int`.
+                let consTy = listTy.GetNestedType("Cons", BindingFlags.Public)
+                Expect.isNotNull consTy "List`1 nests a Cons case type"
+
+                let consOfInt = consTy.MakeGenericType(typeof<int>)
+                let headField = consOfInt.GetField "_Head"
+                Expect.isNotNull headField "List<int>+Cons has the _Head field"
+                Expect.equal (headField.GetValue one :?> int) 1 "_Head holds the head value 1"
             }
 
             // Members of a generic union carry `!0` in their signatures, so each access on

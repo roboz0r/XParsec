@@ -537,18 +537,18 @@ type internal ClrEnv
 
     /// Referenced-assembly union shape by key + arity, for cross-package case
     /// construction (`Some` / `None`).
-    let externalUnionShape (key: TypeKey) (arity: int) : (EqArray<ExternalCaseShape> * SymbolOrigin) voption =
+    let externalUnionShape (key: TypeKey) (arity: int) : ExternalUnionShape voption =
         match symbols.TryLookupType key with
         | ValueSome(ExternalTypeShape.Union u) when u.Arity = arity && u.Origin.Home <> SymbolHome.Unstamped ->
-            ValueSome(u.Cases, u.Origin)
+            ValueSome u
         | _ -> ValueNone
 
-    let externalUnionRef (key: TypeKey) (arity: int) : (EntityHandle * EqArray<ExternalCaseShape>) voption =
+    let externalUnionRef (key: TypeKey) (arity: int) : (EntityHandle * ExternalUnionShape) voption =
         match externalUnionShape key arity with
-        | ValueSome(cases, origin) ->
+        | ValueSome u ->
             let simple = SymbolKeyOps.typeSegmentName key
 
-            ValueSome(toEntity (ctx.TypeRef(externalAsmRef origin.Home, key.Namespace.Dotted, simple)), cases)
+            ValueSome(toEntity (ctx.TypeRef(externalAsmRef u.Origin.Home, key.Namespace.Dotted, simple)), u)
         | ValueNone -> ValueNone
 
     // `ValueNone` ⇒ off: a `FTTypar(Method, i)` encodes to the method's own `!!i`. `ValueSome d`

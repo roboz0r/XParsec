@@ -282,6 +282,60 @@ let emittedTypes (bytes: byte[]) : EmittedType list =
     use pe = openPe bytes
     readTypes (pe.GetMetadataReader())
 
+/// A `TypeDef` row's declaration shape: its `extends` column, its own `GenericParam`
+/// rows in index order, and the attribute bits a caller pins.
+type TypeDecl =
+    {
+        /// `TypeDef`/`TypeRef` bases print by name; a `TypeSpec` base (an `extends` over a
+        /// generic instantiation) prints `<typespec>`, since the blob names no row.
+        Extends: string
+        Typars: string list
+        IsAbstract: bool
+        IsSealed: bool
+        IsNested: bool
+    }
+
+/// The declaration shape of the type `Assembly.GetType name` would bind.
+/// `ValueNone` ⇒ the assembly declares no such type.
+let typeDecl (bytes: byte[]) (name: string) : TypeDecl voption =
+    use pe = openPe bytes
+    let md = pe.GetMetadataReader()
+
+    let named = md.TypeDefinitions |> Seq.tryFind (fun h -> nameOf md h = name)
+
+    match named with
+    | None -> ValueNone
+    | Some h ->
+        let td = md.GetTypeDefinition h
+        let b = td.BaseType
+
+        let extends =
+            if b.IsNil then
+                "<none>"
+            else
+                match b.Kind with
+                | HandleKind.TypeDefinition -> nameOf md (TypeDefinitionHandle.op_Explicit b: TypeDefinitionHandle)
+                | HandleKind.TypeReference ->
+                    let tr = md.GetTypeReference(TypeReferenceHandle.op_Explicit b: TypeReferenceHandle)
+                    let ns = md.GetString tr.Namespace
+                    let n = md.GetString tr.Name
+                    if ns = "" then n else ns + "." + n
+                | _ -> "<typespec>"
+
+        ValueSome
+            {
+                Extends = extends
+                Typars =
+                    [
+                        for gh in td.GetGenericParameters() ->
+                            let gp = md.GetGenericParameter gh
+                            md.GetString gp.Name
+                    ]
+                IsAbstract = td.Attributes.HasFlag TypeAttributes.Abstract
+                IsSealed = td.Attributes.HasFlag TypeAttributes.Sealed
+                IsNested = isNested td.Attributes
+            }
+
 /// How many `MemberRef` rows carry `name`. The table is appended to rather than
 /// deduplicated, so a count above one is a member ref minted more than once.
 let memberRefRowCount (bytes: byte[]) (name: string) : int =

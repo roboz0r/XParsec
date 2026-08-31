@@ -153,14 +153,18 @@ module EmitPattern =
         (nextLabel: int)
         (pat: TastAccessor.PatId)
         : unit =
-        // `ldfld` a field of the scrutinee into a fresh local, then test the
-        // sub-pattern against that local.
-        let extractField (fieldRef: EntityHandle) (subPat: TastAccessor.PatId) =
+        // `ldfld` a field off the value `pushSource` leaves on the stack into a fresh
+        // local, then test the sub-pattern against that local. A record and a flat union
+        // read straight off the scrutinee; a hierarchy union's case declares its payload on
+        // the case type, so its source casts first.
+        let extractFieldVia (pushSource: unit -> unit) (fieldRef: EntityHandle) (subPat: TastAccessor.PatId) =
             let fldSlot = b.Local(typeOfPat subPat)
-            b.Add(ILInstr.Ldloc scrutSlot)
+            pushSource ()
             b.Add(ILInstr.Ldfld fieldRef)
             b.Add(ILInstr.Stloc fldSlot)
             buildMatchTest env b fldSlot nextLabel subPat
+
+        let extractField = extractFieldVia (fun () -> b.Add(ILInstr.Ldloc scrutSlot))
 
         match TastAccessor.patKind pat with
         | PatShape.Wildcard -> ()
@@ -233,10 +237,11 @@ module EmitPattern =
             let key, tyArgs = keyAndTyArgs nominal
             let qualName = SymbolKeyOps.typeMetaName key
 
-            // The tag field, this case's tag value, and a per-index field-ref source, either
-            // from the union emitted here or from the provider's refs for one in a
-            // referenced package (`match o with Some x -> …`).
-            let tagRef, tagValue, fieldRef =
+            // The tag field, this case's tag value, a per-index field-ref source, and the
+            // case's own type where the union nests one — either from the union emitted
+            // here or from the provider's refs for one in a referenced package
+            // (`match o with Some x -> …`).
+            let tagRef, tagValue, fieldRef, caseToken =
                 match env.Unions.TryGetValue key with
                 | true, u ->
                     let c = u.Cases.[caseName]
@@ -256,7 +261,13 @@ module EmitPattern =
                             (UserMemberKind.UnionMember(UnionMember.Field(caseName, i)))
                             c.Fields.[i]
 
-                    tagRef, c.Tag, fieldRef
+                    let caseToken =
+                        c.CaseType
+                        |> ValueOption.map (fun caseKey ->
+                            env.Provider.TypeToken(FTClass(caseKey, EqArray.ofList tyArgs))
+                        )
+
+                    tagRef, c.Tag, fieldRef, caseToken
                 | false, _ ->
                     match env.Provider.ExternalUnionTag(key, tyArgs, caseName) with
                     | ValueSome(tagRef, tagValue) ->
@@ -266,7 +277,7 @@ module EmitPattern =
                             | ValueNone ->
                                 failwithf "Emit: external union '%s' case '%s' has no field %d" qualName caseName i
 
-                        tagRef, tagValue, fieldRef
+                        tagRef, tagValue, fieldRef, env.Provider.ExternalUnionCaseType(key, tyArgs, caseName)
                     | ValueNone -> failwithf "Emit: no emitted union for match on '%s'" qualName
 
             // Skip the arm unless `scrut._tag = case.Tag`.
@@ -275,11 +286,21 @@ module EmitPattern =
             b.Add(ILInstr.LdcI4 tagValue)
             b.Add(ILInstr.BneUn nextLabel)
 
+            // A hierarchy union declares the payload on the case's own type, so reaching it
+            // casts the scrutinee. `castclass` rather than a second `isinst`, because the
+            // tag test above settled the case.
+            let pushSource () =
+                b.Add(ILInstr.Ldloc scrutSlot)
+
+                match caseToken with
+                | ValueSome token -> b.Add(ILInstr.Castclass token)
+                | ValueNone -> ()
+
             TastAccessor.patChildren pat
             |> Array.iteri (fun i subPat ->
                 match TastAccessor.patKind subPat with
                 | PatShape.Wildcard -> ()
-                | _ -> extractField (fieldRef i) subPat
+                | _ -> extractFieldVia pushSource (fieldRef i) subPat
             )
         | PatShape.Record ->
             let fields = TastAccessor.patRecordFields pat

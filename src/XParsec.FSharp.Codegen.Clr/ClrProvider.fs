@@ -282,6 +282,19 @@ type ClrProvider
 
     member _.ExternalParameterlessBaseCtor(key: TypeKey) : EntityHandle voption = ext.ExternalParameterlessBaseCtor(key)
 
+    interface IStructuralHandles with
+        member _.EqualityComparerDefault elem = recipes.EqualityComparerDefault elem
+        member _.EqualityComparerEquals elem = recipes.EqualityComparerEquals elem
+        member _.HashCodeType = FTConst(ClrSinkKeys.hashCode, EqArray.empty)
+        member _.HashCodeAdd elem = recipes.HashCodeAdd elem
+        member _.HashCodeToHashCode = env.EHashCodeToHashCode.Value
+        member _.ComparerDefault elem = recipes.ComparerDefault elem
+        member _.ComparerCompare elem = recipes.ComparerCompare elem
+        member _.ArgumentExceptionCtor = env.EArgumentExceptionCtor.Value
+        member _.FormatSink = recipes.FormatSinkHandles
+        member _.BoxToken elem = recipes.TypeToken elem
+        member _.UserString s = ctx.UserString s
+
     interface ICodegenProvider with
         member _.ObjectType = env.EObject.Value
         member _.ExternalParameterlessBaseCtor(key) = ext.ExternalParameterlessBaseCtor(key)
@@ -408,14 +421,25 @@ type ClrProvider
                     | [ e ] -> e
                     | other -> failwithf "ClrProvider: cons-list match expects one type argument, got %A" other
 
-                // Only `Cons` carries fields: `Cons_0` is the head (`elem`), `Cons_1` the tail
-                // (`List<elem>`).
+                // Only `Cons` carries fields: field 0 is the head (`elem`), field 1 the tail
+                // (`List<elem>`), both on the `Cons` case type.
                 match caseName, fieldIndex with
                 | "Cons", 0 -> ValueSome(recipes.EmitVesperListConsField(elem, 0), elem)
                 | "Cons", 1 -> ValueSome(recipes.EmitVesperListConsField(elem, 1), FTUnion(key, EqArray.ofList tyArgs))
                 | _ -> ValueNone
             else
                 ext.ExternalUnionCaseField(key, tyArgs, caseName, fieldIndex)
+
+        member _.ExternalUnionCaseType(key, tyArgs, caseName) =
+            if RuntimeNames.isVesperListKey key then
+                let elem =
+                    match tyArgs with
+                    | [ e ] -> e
+                    | other -> failwithf "ClrProvider: cons-list match expects one type argument, got %A" other
+
+                ValueSome(recipes.VesperListCaseTypeSpec(elem, caseName))
+            else
+                ext.ExternalUnionCaseType(key, tyArgs, caseName)
 
         member _.StaticFnMethodSpec(handle, instTypes) =
             ext.StaticFnMethodSpec(handle, instTypes)

@@ -55,10 +55,14 @@ uniformly.
 
 Abstractness is a consequence of that choice, not a knob, and it does not reach codegen: FSC's own
 `≥4`-case unions with no nullary case are abstract *and* discriminate by `ldfld _tag`. The reason
-to deviate is the emitter, not the runtime — `EmittedCase` always carries a case type, so no
-consumer branches on whether a case has one, and the two hierarchy regimes then differ in exactly
-one axis, whether `_tag` exists. The cost is one `TypeDef` per nullary case in `Tagged`, which is
-metadata only: the singleton is still one instance, allocated once.
+to deviate is the emitter, not the runtime — within a hierarchy regime every case carries a case
+type, so no consumer branches on whether a nullary case has one, and the two hierarchy regimes
+then differ in exactly one axis, whether `_tag` exists. The cost is one `TypeDef` per nullary case
+in `Tagged`, which is metadata only: the singleton is still one instance, allocated once.
+
+`EmittedCase.CaseType` is still a `TypeKey voption`, because the flat regimes are permanent and a
+consumer reaching a case's payload must tell the two apart: `EmitPattern`'s union arm casts on
+`ValueSome` and reads off the scrutinee on `ValueNone`.
 
 ## Today's shape already matches two of the four
 
@@ -106,18 +110,23 @@ after the layout work is green and every reader has moved.
 union's value kind, its case count, and whether any case carries fields — the three facts the
 threshold rule reads, which the local `Frozen.TUnionCase`, `GenericUnionShape.Cases` and a
 referenced package's `ExternalCaseShape` all supply, so step 3's external path calls the same
-function. A `[<Struct>]` union classifies as `SingleCase`, `EnumLike` or `Tagged`: a value type
-has no subclass to test, so `TypeTested` is unreachable for one, and `Tagged` on a value type is
-today's flat `(tag, every case field)` shape.
+function. A `[<Struct>]` union classifies as `SingleCase`, `EnumLike` or `StructTagged`: a value
+type has no subclass to test, so `TypeTested` and `Tagged` are reference-union regimes, and
+`StructTagged` is the flat `(tag, every case field)` shape.
+
+**The value kind is folded into the classification**, so `UnionRegime.isHierarchy` takes the
+regime alone and a `[<Struct>]` union in a hierarchy regime is unrepresentable. `classify` already
+takes the value kind, so a regime that still needed it to be interpreted was carrying half a
+decision; `UnionCaseFields.ownType` takes one argument for the same reason.
 
 Every carrier **derives** its regime from its own cases rather than being handed one, so a
-carrier cannot disagree with the cases beside it: `UnionDecl.Regime` (`CodegenTypes.fs:77`),
-`GenericUnionShape.Regime` (`ClrEnv.fs:43`) and `EmittedUnion.Regime` (`EmitTypes.fs:131`) are
-each a member over that record's own `Cases` and `ValueKind`. `TypeSlotKind.Union of valueKind *
-regime` (`LayoutModel.fs:92`) is the one carrier holding a stored copy, because a `TypeSlot` has
-no cases to derive from; it is built once from `ud.Regime` at `LayoutNodes.fs:360`. Every regime
-still routes to the flat emission, since no consumer branches on `Regime` yet.
-`UnionRegimeTests.fs` pins the type-test boundary against `TypeTestCaseLimit`, the
+carrier cannot disagree with the cases beside it: `UnionDecl.Regime`,
+`GenericUnionShape.Regime` (`ClrEnv.fs:43`), `EmittedUnion.Regime` (`EmitTypes.fs:135`) and
+`ClrExternalMembers.externalRegime` are each a function of that carrier's own cases and value
+kind. `TypeSlotKind.Union of valueKind * regime` (`LayoutModel.fs`) is the one carrier holding a
+stored copy, because a `TypeSlot` has no cases to derive from; the two fields drive different
+things there — the regime abstract-vs-sealed, the value kind `IsReadOnly` and the `ValueType`
+base. `UnionRegimeTests.fs` pins the type-test boundary against `TypeTestCaseLimit`, the
 all-nullary-beats-count rule, and the struct rows.
 
 `RegisterGenericUnion` takes the union's `UnionValueKind`, not a regime: the regime is a function
@@ -140,7 +149,8 @@ in `NominalEmit`, rather than widening a tuple and rethreading every match site.
 replaced by `NominalEmissionInput.Interfaces` and `.IsValueType`, the latter now covering the
 class arm on the same terms as the other two.
 
-**Step 1 — slot keys, nodes and row prediction, both hierarchy regimes.** New
+**Step 1 — slot keys, nodes and row prediction, both hierarchy regimes. DONE**, together with
+step 2: the field move breaks every `ldfld` off the base, so the two land as one change. New
 `TypeSlotKey.UnionCase of SymbolKey * case`, `TypeSlotKind.UnionCase`,
 `MethodKey.UnionCaseCtor of SymbolKey * case`, `FieldKey.UnionCaseSingleton of SymbolKey * case`.
 `FieldKey.UnionCaseField` keeps its shape and only reparents. `buildUnionNodes` moves a case's
@@ -155,13 +165,15 @@ through `TypeRowExtras`. Handle derivation (`Layout.fs:539`), the field pass and
 `verifyTypeHandle` are generic over the key types and need no change — which is the check that
 this step is right.
 
-`TypeSlotKind.Union` already carries the regime, so the abstract/sealed decision at
-`Assembler.fs:1105` reads the regime alone: `TypeTested` and `Tagged` are the hierarchy regimes
-whatever the value kind, since `classify` never pairs `Struct` with `TypeTested`. The `valueKind`
-component stays for the `IsReadOnly` marker and the `ValueType` base, which the regime does not
-determine.
+`TypeSlotKind.Union` carries the regime AND the value kind, but for different columns: the regime
+settles abstract-vs-sealed through `UnionRegime.isHierarchy`, and the value kind drives the
+`IsReadOnly` marker and the `ValueType` base.
 
-**Step 2 — bodies, both hierarchy regimes.** The step that cannot be subdivided, because moving
+The rows themselves come from one `structuralRows` (`LayoutNodes.fs`), which takes a
+`StructuralRowAttrs` — `concreteStructuralAttrs` or `abstractStructuralAttrs`, selected once per
+type — rather than an `isHierarchy` flag threaded into three builders.
+
+**Step 2 — bodies, both hierarchy regimes. DONE.** The step that cannot be subdivided, because moving
 the fields breaks every `ldfld` off the base at once. `_tag` stays the discriminant for both
 regimes here, so a match arm is unchanged apart from the cast.
 
@@ -176,28 +188,96 @@ they sit in one file; the shared helpers move down into a `NominalShared.fs` fir
 rewriting these bodies costs little; splitting after steps 3 and 4 have grown them again costs a
 merge.
 
-1. `EmittedCase` gains the case's `TypeDef` handle and its `.ctor`; `ClrGenerics` gains a case
-   `TypeSpec` and reparents `UnionMember.Field` onto it, plus a `UnionMember.CaseCtor`.
-   `GenericUnionShape`'s per-case record carries the case `TypeDef`, so no new dictionary appears.
-2. A case-typed local needs an encodable `FrozenType`. Use the precedent already in the tree:
-   `RegisterStackClosureValueType` (`ClrProvider.fs:199`) mints a synthetic `TypeKey` into
-   `UserTypes` for a type no signature could otherwise name. A case type registers the same way.
+`Emit.fs` splits on the same terms: the synthesised equality / hashing / comparison bodies leave
+for an `EmitStructural.fs` beside the `EmitStructuralFormat.fs` that already holds `%A`, taking
+`Emit.fs` from 1030 lines back to 535.
+
+`NominalEmit.prepare` dispatches on `NominalEmissionInput` exactly twice — once before the member
+loop for the `.ctor` / field / factory rows and the `extends` column, once after it for the
+structural bodies. `StructuralMembers.ofInput` supplies the verdicts to both halves, so the
+`isDataShape` / `emitsEqualityTriple` / `emitsComparisonPair` / `emitsStructuralFormat` chain and
+its two `failwith "unreachable"` arms are gone.
+
+1. `EmittedCase` gains the case's `TypeKey`, from which every use site mints the token it needs;
+   `ClrGenerics` reparents `UnionMember.Field` onto the case and gains `UnionMember.CaseCtor` and
+   `UnionMember.CaseSingleton`. A generic union's case type registers as a generic CLASS over the
+   union's typars (`Assembler.buildPrelude`), so the `TypeSpec`, the `.ctor` ref and each field ref
+   all come from machinery that already exists rather than a new dictionary.
+2. A case type needs an encodable `FrozenType`. Use the precedent already in the tree:
+   `RegisterStackClosureValueType` (`ClrProvider.fs:203`) mints a synthetic `TypeKey` into
+   `UserTypes` for a type no signature could otherwise name. `UnionCaseType.key` does the same,
+   spelling the nesting as `TypeContainer.InType` so `typeMetaName` yields the emitted
+   `Ns.Union`1+Case`. The MATCH arm needs only a token, not a `FrozenType`, which is what lets the
+   same code path serve a referenced package's case type — that one is a `TypeRef` no `UserTypes`
+   entry names.
 3. `buildUnionFactory` becomes `newobj` the case ctor for a payload case and `ldsfld` for a
    nullary one; a new case `.ctor` chains the base with its literal tag and stores its fields —
    that is `Emit.buildClosureCtor` with a different base handle and a leading constant, so it is a
    call, not a copy. `_tag` and the payload fields both become `initonly`, closing gap 7.
-4. `EmitPattern`'s union arm keeps the `_tag` test and adds a `castclass` into a case-typed local
-   before extraction. Generalise `extractField` (`EmitPattern.fs:158`) to take the source slot; the
-   record arm keeps passing the scrutinee.
-5. Equality, hashing, comparison and `%A` each gain a per-case downcast walk. Write **one**
-   per-case dispatch builder taking `(this, other)` and fold `buildUnionFormat`'s open-coded tag
-   switch (`EmitStructuralFormat.fs:112-144`) into it; four hand-rolled switches is the
-   predictable failure mode of this step.
+4. `EmitPattern`'s union arm keeps the `_tag` test and `castclass`es the scrutinee before each
+   extraction. `extractField` generalises to take the source PUSH rather than a slot, so a record
+   and a flat union keep loading the scrutinee directly and a hierarchy case casts — a source that
+   needs no `FrozenType`, only a token.
+5. The structural members become abstract on the base and are implemented per case, so no body
+   dispatches at all. See "Structural members dispatch on the runtime type" below, which
+   supersedes the per-case dispatch builder this item first described.
 6. The external path (`ClrExternalMembers.fs:274-355`) mints case fields on the case `TypeRef` and
    gains a case-type ref.
 
-**Step 3 — move `TypeTested`'s readers off the tag.** The discriminant becomes a DU on
-`EmittedUnion`:
+### Structural members dispatch on the runtime type
+
+`=`, `compare` and `hash` on a union reach it through `EqualityComparer<U>.Default` /
+`Comparer<U>.Default` (`src/Vesper.Core/ops-platform.clr.fs:40`, `:66`), which bind
+`IEquatable<U>::Equals` and `IComparable<U>::CompareTo` by interface dispatch;
+`Vesper.Printf` reaches `%A` through `IStructuralFormattable::Format`; `GetHashCode` is
+`Object`'s slot. All four are therefore *already* dispatched virtually before any body runs.
+
+In a hierarchy regime those four slots become **abstract on the base**, and each case type
+overrides them. The dispatch that already happens then lands on the case's own implementation, so
+no body compares a tag to select an arm. Per case:
+
+| member | attrs | body |
+| --- | --- | --- |
+| `Equals(U)` | override | `ldarg.0; ldarg.1; isinst <Case>; call Equals(<Case>); ret` |
+| `Equals(<Case>)` | public, non-virtual | null ⇒ false, else the case's own field walk |
+| `GetHashCode()` | override | `HashCode` seeded with the case's tag as a **literal**, then its own fields |
+| `CompareTo(U)` | override | its case ⇒ `call CompareTo(<Case>)`; otherwise the ordinal difference |
+| `CompareTo(<Case>)` | public, non-virtual | null ⇒ 1, else the case's own field walk |
+| `Format(IFormatSink)` | override | `BeginCase(name); Child (box field)×k; EndCase` |
+
+`Equals(object)` and `CompareTo(object)` stay concrete on the base and `callvirt` the typed slot,
+so neither gets a row per case. `Equals(U)` needs no branch of its own: `isinst` yields `null` for
+another case, and the null guard inside `Equals(<Case>)` already answers that as `false`.
+
+A case's field walk is the **record** walk over its own fields — `buildRecordFieldEquality` and
+`buildRecordFieldComparison` (`Emit.fs:701`, `:843`) already have that shape, and a case's
+`Format` is `buildRecordFormat` with `BeginCase` / `EndCase` in place of
+`BeginRecord` / `EndRecord`. This collapses the union/record duplication rather than adding a
+fourth open-coded switch: `buildUnionFormat`'s tag dispatch (`EmitStructuralFormat.fs:112-144`)
+and `buildTagAndFieldEquality` / `buildTagAndFieldComparison` are all reached only by the flat
+regimes afterwards.
+
+The flat regimes keep today's bodies whole. `SingleCase` and `EnumLike` have no case type to
+override anything, and a `[<Struct>]` union has no subclass at all, so the tag-then-every-field
+walk stays their implementation permanently, and `structuralRows` (`LayoutNodes.fs`) selects the
+attrs by regime.
+
+**Which slots exist, and which of them are abstract, are each decided once.**
+`UnionCaseSlot.required` (`LayoutModel.fs`) takes a `StructuralMembers` and yields the case type's
+slots in row order; `LayoutNodes` turns each into a `MethodRow` and `UnionEmit` prepares a body
+for each, so the rows a case declares and the bodies prepared for it cannot describe different
+sets. `PreparedMethod.Body` is a `PreparedBody` (`Abstract | At of offset`) rather than an
+offset with `-1` meaning abstract, and `Assembler.WriteMethods` pairs it against the row's
+`MethodAttributes.Abstract` bit, failing on a disagreement. Without that pairing an abstract row
+carrying a body — or the reverse — writes a PE the loader rejects and no golden reports.
+
+**Three of the four stop reading a discriminant.** `Equals`, `GetHashCode` and `Format` become
+regime-independent, since `isinst` and a literal tag serve `TypeTested` and `Tagged` alike. Only
+`CompareTo` still needs an ordinal for `other`, the one value it did not dispatch on.
+
+**Step 3 — move `TypeTested`'s readers off the tag.** After the structural members move to the
+case types, the surviving readers are the match arm and `CompareTo`'s ordinal for `other`. The
+discriminant becomes a DU on `EmittedUnion`:
 
 ```fsharp
 type UnionDiscriminant =
@@ -212,7 +292,7 @@ type UnionDiscriminant =
 `UnionRegime.discriminant` maps the four regimes onto these three, so the mapping is total and
 lives in one place. **Step 5's first half is a prerequisite for this step**, not merely wanted
 early: `SingleCase` yields `NoDiscriminant`, and a single-case union carries a `_tag` its match
-arm and structural bodies still load until that field is dropped.
+arm and its flat structural bodies still load until that field is dropped.
 
 `EmittedUnion.Discriminant` is a member over `this.Regime` and `this.TagField`, on the same terms
 as `Regime` itself: a union that stored a discriminant beside the regime that selects it could
@@ -222,16 +302,14 @@ whatever `TagField of EntityHandle` closes over.
 
 A `TypeTested` union then carries no tag handle, so no consumer can emit a load of one: the match
 arm collapses to a single `isinst` into the case-typed local, replacing both the tag compare and
-step 2's `castclass`. The per-case dispatch builder from step 2 takes the discriminant, so both
-regimes keep sharing it. The external path's `externalUnionTag` (`ClrExternalMembers.fs:309`)
+step 2's `castclass`. The external path's `externalUnionTag` (`ClrExternalMembers.fs:309`)
 resolves through the same `classify`, so a referenced package's 2–3-case union is matched by type
 test too.
 
-A `get_Tag` property is emitted for convenience only. Equality and `%A` need only to *dispatch*, which the
-`isinst` chain already is, and inside a dispatch arm the case is known, so hashing seeds with a
-literal rather than a load. Comparison is the one body needing an ordinal for a value it did not
-dispatch on — `other` — and takes a bounded `isinst` chain of at most two tests inline. Should
-that prove worth factoring into a method, it is a private non-virtual one reached by `call`.
+`Case::CompareTo(U)` is the only structural body this step touches, because it alone needs an
+ordinal for `other`, the value it did not dispatch on: `ldfld _tag` in `Tagged`, and a bounded
+`isinst` chain of at most two tests in `TypeTested`. Should that prove worth factoring into a
+method, it is a private non-virtual one reached by `call`.
 
 **Step 4 — delete the vestigial field.** Drop the `_tag` field row and the base `.ctor`'s tag
 parameter for `TypeTested`, leaving its base with no fields. The proof that the field is
@@ -305,31 +383,51 @@ closures on the same pass.
    properties, so it buys us only the shared convention; that is reason enough, and it is what
    opens the latent collision described under step 5.
 
+6. **A union case is not a type in the source language.** No expression is ever statically typed
+   at a case: the case type is a synthetic backend `TypeKey`, minted the way
+   `RegisterStackClosureValueType` (`ClrProvider.fs:203`) mints one for a type no signature could
+   otherwise name. So a direct call the emitter grows later — a fast path for `=` on a union
+   field, a `callvirt Format` in place of erasing through `sink.Child(box …)` — arrives holding a
+   value typed at the **union**, and binds `IEquatable<U>` / `IComparable<U>`. That is the slot
+   the abstract-per-case shape makes land on the case's implementation immediately.
+
+7. **The field walk lives in `Equals(<Case>)` / `CompareTo(<Case>)`, and the `U`-typed override is
+   the guard.** One entry point holds the predicate; the other is four instructions. Splitting it
+   the other way, or holding the walk in both, gives two bodies asserting one predicate with
+   nothing to catch a divergence.
+
+   The typed pair is emitted as plain public methods and the case type does **not** declare
+   `IEquatable<<Case>>` / `IComparable<<Case>>`. The `InterfaceImpl` row and the interface
+   `TypeSpec` pay off only for `EqualityComparer<<Case>>.Default`, which needs a case-typed
+   *generic argument*, and decision 6 says none can arise. Declaring the interfaces later is
+   purely additive — no base change, no body change, no signature change — whereas moving the walk
+   later is not, which is why the split lands now and the interfaces do not.
+
 ## Recorded, absent an objection
 
-6. **Seal our case classes** (FSC leaves them unsealed). Note that `LayoutModel.fs:28` currently
+8. **Seal our case classes** (FSC leaves them unsealed). Note that `LayoutModel.fs:28` currently
    justifies `call` dispatch on members by the union being sealed; that justification is wrong
    today — the members are non-virtual, which is what makes `call` bind — and becomes visibly
    wrong when the base stops being sealed. The comment gets corrected in step 1.
-7. **Nullary cases keep a static factory method**, not FSC's static property, so
+9. **Nullary cases keep a static factory method**, not FSC's static property, so
    `EmitConstruct.buildUnionCons` and the `UnionMember.Factory` `MemberRef` signature are untouched.
-8. `Tags`, `Is<Case>`, `get_Item`, `__DebugDisplay` and the debug proxies are **non-goals**.
+10. `Tags`, `Is<Case>`, `get_Item`, `__DebugDisplay` and the debug proxies are **non-goals**.
 
 ## Scope and risk
 
-Under the classifier, only unions with ≥2 cases and ≥1 payload case change shape. In `src/Vesper.*`
-that is `Lst`, `Option`, `Result` and `Choice`2`…`Choice`7`; all but `Choice`4`…`Choice`7` land in
-`TypeTested`. Step 2 therefore moves the whole stdlib onto the hierarchy at once, and steps 3–4
-change only how the majority of it discriminates.
+Under the classifier, only reference unions with ≥2 cases and ≥1 payload case change shape. In
+`src/Vesper.*` that is the cons-list, `Option` and `Result`, all three `TypeTested`. `Choice`2`…
+`Choice`7` are declared `[<Struct>]` (`src/Vesper.Choice/choice.fs:4`), so they stay flat and
+`ChoiceTests` needs no change — the plan's earlier reading of them was wrong. Step 2 therefore
+moves the cons-list, `Option` and `Result` onto the hierarchy at once, and steps 3–4 change only
+how they discriminate.
 
-The suites that read the flat representation directly, and must be rewritten rather than
-re-snapshotted, are `ChoiceTests.fs:37-43` and `:84-87` (reflecting `_tag` and `<Case>_<i>` off the
-union type — every case there is a lone positional field, so `Choice1Of2_0` becomes `item` on the
-case type in step 2, and `Choice`2` / `Choice`3` lose `_tag` in step 4),
-`MetadataStructureTests.fs:164-168` (the pinned `Shape` field/method rows, where `Line_0` becomes
-`item`), `OptionTests.fs:226` and `ListModuleTests.fs:179-189` (comments asserting the `_tag`
-compare).
-`StructTests.fs:797` is a struct union and stays. The CLR conformance goldens churn; regenerate with
+The suites that read the flat representation directly, and were rewritten rather than
+re-snapshotted, are `MetadataStructureTests.fs` (the pinned `Shape` field/method rows, now an
+abstract base plus a nested type per case), `StructuralEqualityTests.fs` (the typed `Equals(Self)`
+is abstract, not final) and `UnionTests.fs` (the cons-list's head field, now `_Head` on the nested
+`Cons`). `StructTests.fs:797` is a struct union and stays. The CLR conformance goldens churn;
+regenerate with
 `./claude_tools.cmd -Action Test -TestProject "XParsec.FSharp.Codegen.Clr.Tests" -UpdateSnapshots`
 **after** reading a sample diff, since a wrong layout also produces a self-consistent golden.
 

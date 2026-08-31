@@ -277,8 +277,8 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
 
         match externalUnionRef key arity with
         | ValueNone -> ValueNone
-        | ValueSome(tref, cases) ->
-            match cases |> EqArray.tryFind (fun c -> c.Name = caseName) with
+        | ValueSome(tref, u) ->
+            match u.Cases |> EqArray.tryFind (fun c -> c.Name = caseName) with
             | ValueNone -> ValueNone
             | ValueSome case ->
                 let parent = externalTypeSpec key tref args
@@ -314,8 +314,8 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
 
         match externalUnionRef key arity with
         | ValueNone -> ValueNone
-        | ValueSome(tref, cases) ->
-            match cases |> EqArray.tryFindIndex (fun c -> c.Name = caseName) with
+        | ValueSome(tref, u) ->
+            match u.Cases |> EqArray.tryFindIndex (fun c -> c.Name = caseName) with
             | ValueNone -> ValueNone
             | ValueSome tag ->
                 let parent = externalTypeSpec key tref args
@@ -323,9 +323,34 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                 encodeType (BlobEncoder(s).FieldSignature()) (FTConst(RuntimeNames.intKey, EqArray.empty))
                 ValueSome(toEntity (ctx.MemberRef(parent, "_tag", s)), tag)
 
-    /// Mint the `MemberRef` for the `<caseName>_<i>` public field of one case on a
-    /// referenced-package union at `args` (the slot a cross-package `match … Some x` reads),
-    /// with that field's type after the use-site substitution. `ValueNone` ⇒ unknown case/index.
+    /// The `TypeSpec` a referenced-package union's case members are parented on: the case's
+    /// own nested `TypeRef` in a hierarchy regime. `ValueNone` in a flat regime, where the
+    /// members sit on the union itself, so a caller wanting only the case TYPE can tell the
+    /// two apart.
+    let externalCaseParent
+        (key: TypeKey)
+        (tref: EntityHandle)
+        (regime: UnionRegime)
+        (args: FrozenType list)
+        (caseName: string)
+        : EntityHandle voption =
+        if UnionRegime.isHierarchy regime then
+            ValueSome(externalTypeSpec key (toEntity (ctx.TypeRef(tref, "", caseName))) args)
+        else
+            ValueNone
+
+    /// A referenced-package hierarchy union's case type at `args`: a `TypeRef` nested in
+    /// the union's, instantiated over the union's own arguments. `ValueNone` ⇒ a flat
+    /// regime, where the case has no type of its own.
+    let externalUnionCaseType (key: TypeKey) (args: FrozenType list) (caseName: string) : EntityHandle voption =
+        match externalUnionRef key (List.length args) with
+        | ValueNone -> ValueNone
+        | ValueSome(tref, u) -> externalCaseParent key tref (UnionRegime.ofExternalShape u) args caseName
+
+    /// Mint the `MemberRef` for one case's public payload field on a referenced-package
+    /// union at `args` (the slot a cross-package `match … Some x` reads), with that field's
+    /// type after the use-site substitution. In a hierarchy regime the field is declared on
+    /// the case's own type, so that is the parent. `ValueNone` ⇒ unknown case/index.
     let externalUnionCaseField
         (key: TypeKey)
         (args: FrozenType list)
@@ -336,18 +361,25 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
 
         match externalUnionRef key arity with
         | ValueNone -> ValueNone
-        | ValueSome(tref, cases) ->
-            match cases |> EqArray.tryFind (fun c -> c.Name = caseName) with
+        | ValueSome(tref, u) ->
+            match u.Cases |> EqArray.tryFind (fun c -> c.Name = caseName) with
             | ValueSome case when fieldIndex >= 0 && fieldIndex < case.FrozenFieldTypes.Length ->
-                let parent = externalTypeSpec key tref args
+                let regime = UnionRegime.ofExternalShape u
+
+                let fieldName =
+                    (UnionCaseFields.names regime caseName (EqArray.toList case.FieldNames)).[fieldIndex]
+
+                let parent =
+                    match externalCaseParent key tref regime args caseName with
+                    | ValueSome caseParent -> caseParent
+                    | ValueNone -> externalTypeSpec key tref args
 
                 let openFieldTy = case.FrozenFieldTypes.[fieldIndex]
 
                 let s = BlobBuilder()
                 encodeType (BlobEncoder(s).FieldSignature()) openFieldTy
 
-                let handle =
-                    toEntity (ctx.MemberRef(parent, sprintf "%s_%d" caseName fieldIndex, s))
+                let handle = toEntity (ctx.MemberRef(parent, fieldName, s))
 
                 let substitutedTy = substituteDeclaring (List.toArray args) openFieldTy
                 ValueSome(handle, substitutedTy)
@@ -518,6 +550,8 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
 
     member _.ExternalUnionCaseField(key, args, caseName, fieldIndex) =
         externalUnionCaseField key args caseName fieldIndex
+
+    member _.ExternalUnionCaseType(key, args, caseName) = externalUnionCaseType key args caseName
 
     member _.ExternalCtor(key, chosen, tyArgs, argTypes) = externalCtor key chosen tyArgs argTypes
 

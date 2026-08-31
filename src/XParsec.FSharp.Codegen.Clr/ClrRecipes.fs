@@ -131,19 +131,47 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
         encodeType (BlobEncoder(s).FieldSignature()) (FTConst(RuntimeNames.intKey, EqArray.empty))
         toEntity (ctx.MemberRef(typeSpec, "_tag", s))
 
-    /// One `Cons_<fieldIndex>` payload field on the referenced cons-list (`Cons_0` = head
-    /// `'T`, `Cons_1` = tail `List<'T>`), instantiated at `elem`. The blob encodes the
+    /// One case type of the referenced cons-list, nested in `List`1` and instantiated at
+    /// `elem`: the type a cross-package `match` casts the scrutinee to.
+    let vesperListCaseTypeSpec (elem: FrozenType) (caseName: string) : EntityHandle =
+        let caseTref = ctx.TypeRef(eVesperList1.Value, "", caseName)
+        let tsB = BlobBuilder()
+        let te = BlobEncoder(tsB).TypeSpecificationSignature()
+        let g = te.GenericInstantiation(toEntity caseTref, 1, false)
+        encodeType (g.AddArgument()) elem
+        toEntity (ctx.TypeSpec tsB)
+
+    /// The referenced cons-list's own union shape. The recipes below spell `List`1`'s
+    /// metadata by hand for speed, so they read the regime and the case payload names off
+    /// the symbol table rather than restating them, and follow the list through a change of
+    /// shape.
+    let vesperListShape =
+        lazy
+            (match env.ExternalUnionShape(RuntimeNames.vesperListKey, 1) with
+             | ValueSome u -> u
+             | ValueNone -> failwith "ClrProvider: the cons-list recipe ran without a referenced Vesper.List")
+
+    /// One case's payload field names, in declaration order.
+    let vesperListCaseFieldNames (caseName: string) : string list =
+        let u = vesperListShape.Value
+
+        match u.Cases |> EqArray.tryFind (fun c -> c.Name = caseName) with
+        | ValueSome c -> UnionCaseFields.names (UnionRegime.ofExternalShape u) caseName (EqArray.toList c.FieldNames)
+        | ValueNone -> failwithf "ClrProvider: the referenced cons-list declares no case '%s'" caseName
+
+    /// One payload field of the referenced cons-list's `Cons` case, declared on that case's
+    /// own nested type: the head at `'T` and the tail at `List<'T>`. The blob encodes the
     /// field's *open* (declaring-typar) type, matching the emitted field definition.
     let emitVesperListConsField (elem: FrozenType) (fieldIndex: int) : EntityHandle =
-        let typeSpec = vesperListTypeSpec elem
+        let typeSpec = vesperListCaseTypeSpec elem "Cons"
         let s = BlobBuilder()
         let fte = BlobEncoder(s).FieldSignature()
 
         match fieldIndex with
-        | 0 -> fte.GenericTypeParameter(0) // Cons_0 : 'T
-        | _ -> encodeVesperListOfTypar fte // Cons_1 : List<'T>
+        | 0 -> fte.GenericTypeParameter(0)
+        | _ -> encodeVesperListOfTypar fte
 
-        toEntity (ctx.MemberRef(typeSpec, sprintf "Cons_%d" fieldIndex, s))
+        toEntity (ctx.MemberRef(typeSpec, (vesperListCaseFieldNames "Cons").[fieldIndex], s))
 
     /// `Vesper.Fun`2<a,b>` as a `TypeSpec` — the interface a synthesised closure *implements*.
     let funInterfaceSpec (a: FrozenType) (b: FrozenType) : EntityHandle =
@@ -762,6 +790,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
     member _.EmitVesperListEmpty elem = emitVesperListEmpty elem
     member _.EmitVesperListTagField elem = emitVesperListTagField elem
     member _.EmitVesperListConsField(elem, fieldIndex) = emitVesperListConsField elem fieldIndex
+    member _.VesperListCaseTypeSpec(elem, caseName) = vesperListCaseTypeSpec elem caseName
     member _.FunInterfaceSpec(a, b) = funInterfaceSpec a b
     member _.FlatFunInterfaceSpecN(tys) = flatFunInterfaceSpecN tys
     member _.EmitExternalCall(binding, fnTy) = emitExternalCall binding fnTy

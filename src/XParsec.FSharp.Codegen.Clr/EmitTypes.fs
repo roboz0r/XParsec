@@ -67,6 +67,10 @@ module EmitTypes =
             Tag: int
             Factory: EntityHandle
             Fields: EntityHandle list
+            /// The case's own nested type in a hierarchy regime, which its payload fields
+            /// are declared on and which a match arm casts to. `ValueNone` where the union
+            /// is flat and every case's fields sit on the union itself.
+            CaseType: TypeKey voption
         }
 
     /// An augmentation member on a union/class `TypeDefinition`; `ParamArity` excludes

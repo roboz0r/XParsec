@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.Codegen.Js
 
 open XParsec.FSharp.SemanticAnalysis
+open XParsec.FSharp.Codegen.Common
 open EmitJsCapabilities
 
 /// Member partitioning and nominal `type`-decl collection. Runs before the walk context
@@ -34,16 +35,13 @@ module EmitJsTypes =
     /// A union case's declaration-order field names: named fields verbatim; a lone
     /// positional becomes `Item`; multiple positionals become `Item1`/`Item2`/….
     let synthFieldNames (fieldNames: string voption list) : string list =
-        match fieldNames with
-        | [ ValueSome n ] -> [ n ]
-        | [ ValueNone ] -> [ "Item" ]
-        | many ->
-            many
-            |> List.mapi (fun i nm ->
-                match nm with
-                | ValueSome n -> n
-                | ValueNone -> "Item" + string (i + 1)
-            )
+        UnionCaseFieldName.ofCase fieldNames
+        |> List.map (fun n ->
+            match n with
+            | UnionCaseFieldName.Declared name -> name
+            | UnionCaseFieldName.Lone -> "Item"
+            | UnionCaseFieldName.Positional i -> "Item" + string i
+        )
 
     /// Tag = declaration index; subclass name = `<baseName>_<case>`.
     let buildUnionInfo

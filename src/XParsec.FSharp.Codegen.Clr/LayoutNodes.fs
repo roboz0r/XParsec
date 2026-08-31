@@ -150,64 +150,60 @@ module internal LayoutNodes =
         NominalMembers.indexed members interfaces
         |> List.map (fun (i, isIfaceImpl, m) -> memberRow key i isIfaceImpl m)
 
-    /// `GetHashCode`, `Equals(obj)`, `Equals(Self)`.
-    let private equalityRows (td: TastAccessor.TypeDecl) : MethodRow list =
-        match td.EqualitySupport with
-        | EqualityVerdict.Structural ->
-            [
+    /// A nominal's synthesised structural rows, in row order: the equality triple
+    /// (`GetHashCode`, `Equals(object)`, the typed `Equals(Self)`), the comparison pair
+    /// (the typed `CompareTo(Self)`, `CompareTo(object)`), then `Format`.
+    ///
+    /// `attrs` decides whether the typed entries carry a body. On a hierarchy union's base
+    /// they are abstract and each case type implements them, so `EqualityComparer<Self>`
+    /// and `Comparer<Self>` dispatch straight to the case. `Equals(object)` and
+    /// `CompareTo(object)` stay concrete in every regime: they cast and hand over to the
+    /// typed slot, so a case type declares neither.
+    let private structuralRows
+        (attrs: StructuralRowAttrs)
+        (s: StructuralMembers)
+        (td: TastAccessor.TypeDecl)
+        : MethodRow list =
+        [
+            if s.Equality then
                 {
                     Key = MethodKey.EqGetHashCode td.Key
                     Name = "GetHashCode"
-                    Attrs = overrideMethodAttrs
+                    Attrs = attrs.ObjectSlot
                 }
+
                 {
                     Key = MethodKey.EqEqualsObj td.Key
                     Name = "Equals"
                     Attrs = overrideMethodAttrs
                 }
+
                 {
                     Key = MethodKey.EqEqualsTyped td.Key
                     Name = "Equals"
-                    Attrs = ifaceEqualsAttrs
+                    Attrs = attrs.InterfaceSlot
                 }
-            ]
-        | _ -> []
 
-    /// `CompareTo(Self)` and `CompareTo(obj)`.
-    let private comparisonRows (td: TastAccessor.TypeDecl) : MethodRow list =
-        match td.ComparisonSupport with
-        | ComparisonVerdict.Structural ->
-            [
+            if s.Comparison then
                 {
                     Key = MethodKey.CmpCompareToTyped td.Key
                     Name = "CompareTo"
-                    Attrs = ifaceEqualsAttrs
+                    Attrs = attrs.InterfaceSlot
                 }
+
                 {
                     Key = MethodKey.CmpCompareToObj td.Key
                     Name = "CompareTo"
                     Attrs = ifaceEqualsAttrs
                 }
-            ]
-        | _ -> []
 
-    /// The synthesised `IStructuralFormattable.Format` row (`%A`), for every record / union
-    /// that does not declare the interface itself: `%A` renders a value's structure and so
-    /// never depends on whether the type supports `=` / `<`.
-    let private formatRows
-        (td: TastAccessor.TypeDecl)
-        (interfaces: (FrozenNominal * TastAccessor.TypeMember list) list)
-        : MethodRow list =
-        if NominalMembers.declaresStructuralFormat interfaces then
-            []
-        else
-            [
+            if s.Format then
                 {
                     Key = MethodKey.FmtFormat td.Key
                     Name = "Format"
-                    Attrs = ifaceEqualsAttrs
+                    Attrs = attrs.InterfaceSlot
                 }
-            ]
+        ]
 
     /// The capability co-slot rows: each a new virtual slot the runtime binds to the
     /// inherited BCL interface method by name + signature, like the typed `Equals(Self)`.
@@ -294,19 +290,94 @@ module internal LayoutNodes =
                 nominalNode TypeSlotKind.Interface td [] methodRows
         ]
 
-    /// Per union: `_tag` + every case's payload fields; `.ctor` (nullary for a reference
-    /// union, the flat `(tag, every case field)` form for a struct union), case
-    /// factories, members, [equality triple], [comparison pair].
+    /// The row one structural slot takes on a hierarchy union's case type. The `Union`-typed
+    /// entries and `GetHashCode` override the slots the base declares; the `Case`-typed pair
+    /// declares no slot of its own and binds by `call`.
+    let private unionCaseSlotRow (td: TastAccessor.TypeDecl) (caseName: string) (slot: UnionCaseSlot) : MethodRow =
+        let name, attrs =
+            match slot with
+            | UnionCaseSlot.GetHashCode -> "GetHashCode", overrideMethodAttrs
+            | UnionCaseSlot.EqualsUnion -> "Equals", overrideMethodAttrs
+            | UnionCaseSlot.EqualsCase -> "Equals", instanceMethodAttrs
+            | UnionCaseSlot.CompareToUnion -> "CompareTo", overrideMethodAttrs
+            | UnionCaseSlot.CompareToCase -> "CompareTo", instanceMethodAttrs
+            | UnionCaseSlot.Format -> "Format", overrideMethodAttrs
+
+        {
+            Key = MethodKey.UnionCaseStructural(td.Key, caseName, slot)
+            Name = name
+            Attrs = attrs
+        }
+
+    /// One case's nested `TypeDef` in a hierarchy union: its own payload fields, its
+    /// `.ctor`, and the structural bodies the base declares abstract. A generic union's
+    /// case redeclares the union's typars, so its `extends` instantiates the base over
+    /// them; the metadata name carries no arity suffix, because a nested type's own arity
+    /// counts only the typars it adds.
+    let private unionCaseNode (ud: UnionDecl) (structural: StructuralMembers) (c: Frozen.TUnionCase) : TypeNode =
+        let td = ud.Decl
+
+        let fields =
+            List.zip (ud.FieldNames c) (EqArray.toList c.Fields)
+            |> List.mapi (fun fi (name, (_, fty)) ->
+                {
+                    Key = FieldKey.UnionCaseField(td.Key, c.Name, fi)
+                    Name = name
+                    // Written only by the case's own `.ctor`, which is what `initonly`
+                    // permits now that no factory stores after construction.
+                    Attrs = FieldAttributes.Public ||| FieldAttributes.InitOnly
+                    Ty = fty
+                    ClosureScope = ValueNone
+                }
+            )
+
+        let methodRows =
+            [
+                {
+                    Key = MethodKey.UnionCaseCtor(td.Key, c.Name)
+                    Name = ".ctor"
+                    Attrs = ctorAttrs
+                }
+                yield! UnionCaseSlot.required structural |> List.map (unionCaseSlotRow td c.Name)
+            ]
+
+        {
+            Slot =
+                {
+                    Key = TypeSlotKey.UnionCase(td.Key, c.Name)
+                    Kind = TypeSlotKind.UnionCase
+                    Namespace = ""
+                    MetaName = c.Name
+                    Typars = typarNames td.TypeParams
+                }
+            Enclosing = ValueSome(TypeSlotKey.Nominal td.Key)
+            Fields = fields
+            Methods = methodRows
+            Nested = []
+        }
+
+    /// Per union: `_tag`, the case payloads a flat regime holds co-resident, `.ctor`
+    /// (nullary for a flat reference union, `(int32)` for a hierarchy base, the flat
+    /// `(tag, every case field)` form for a struct union), case factories, members,
+    /// [equality triple], [comparison pair]. A hierarchy union additionally nests a
+    /// `TypeDef` per case and holds a singleton field per NULLARY case.
     let buildUnionNodes (symbols: ICodegenSymbols) (unions: UnionDecl list) : TypeNode list =
         [
             for ud in unions ->
                 let td = ud.Decl
                 let isStruct = ud.ValueKind.IsValueType
+                let isHierarchy = ud.IsHierarchy
+                let structural = StructuralMembers.ofUnion ud
 
-                // A struct union's fields are written only by its flat `.ctor`, which is
-                // what `initonly` permits; the type itself carries `IsReadOnly`.
+                let selfTy =
+                    FTUnion(td.TypeKey, EqArray.ofList (declaringMarkers td.TypeParams.Length))
+
+                // A struct union's fields are written only by its flat `.ctor`, and a
+                // hierarchy base's `_tag` only by its `.ctor(int32)`, which is what
+                // `initonly` permits. A flat reference union's factory still stores after
+                // `newobj`, so its fields stay writable.
                 let fieldAttrs =
-                    if isStruct then
+                    if isStruct || isHierarchy then
                         FieldAttributes.Public ||| FieldAttributes.InitOnly
                     else
                         FieldAttributes.Public
@@ -321,15 +392,27 @@ module internal LayoutNodes =
                                 Ty = FTConst(RuntimeNames.intKey, EqArray.empty)
                                 ClosureScope = ValueNone
                             }
-                        for c in ud.Cases do
-                            for fi in 0 .. c.Fields.Length - 1 ->
+
+                        if isHierarchy then
+                            for c in ud.SingletonCases ->
                                 {
-                                    Key = FieldKey.UnionCaseField(td.Key, c.Name, fi)
-                                    Name = sprintf "%s_%d" c.Name fi
-                                    Attrs = fieldAttrs
-                                    Ty = snd c.Fields.[fi]
+                                    Key = FieldKey.UnionCaseSingleton(td.Key, c.Name)
+                                    Name = "_unique_" + c.Name
+                                    Attrs =
+                                        FieldAttributes.Public ||| FieldAttributes.Static ||| FieldAttributes.InitOnly
+                                    Ty = selfTy
                                     ClosureScope = ValueNone
                                 }
+                        else
+                            for c in ud.Cases do
+                                for (fi, name) in List.indexed (ud.FieldNames c) ->
+                                    {
+                                        Key = FieldKey.UnionCaseField(td.Key, c.Name, fi)
+                                        Name = name
+                                        Attrs = fieldAttrs
+                                        Ty = snd c.Fields.[fi]
+                                        ClosureScope = ValueNone
+                                    }
                     ]
 
                 let methodRows =
@@ -341,6 +424,16 @@ module internal LayoutNodes =
                                 Attrs = ctorAttrs
                             }
 
+                        // The `.cctor` constructs each nullary case's singleton once, so a
+                        // nullary construction site stops allocating.
+                        if not (List.isEmpty ud.SingletonCases) then
+                            yield
+                                {
+                                    Key = MethodKey.NominalCctor td.Key
+                                    Name = ".cctor"
+                                    Attrs = cctorAttrs
+                                }
+
                         for c in ud.Cases do
                             yield
                                 {
@@ -351,13 +444,25 @@ module internal LayoutNodes =
 
                         yield! ownAndIfaceMemberRows td.Key ud.Members ud.Interfaces
 
-                        yield! equalityRows td
-                        yield! comparisonRows td
-                        yield! formatRows td ud.Interfaces
+                        let attrs =
+                            if isHierarchy then
+                                abstractStructuralAttrs
+                            else
+                                concreteStructuralAttrs
+
+                        yield! structuralRows attrs structural td
                         yield! coSlotRows symbols td ud.Interfaces
                     ]
 
-                nominalNode (TypeSlotKind.Union(ud.ValueKind, ud.Regime)) td fields methodRows
+                let node =
+                    nominalNode (TypeSlotKind.Union(ud.ValueKind, ud.Regime)) td fields methodRows
+
+                if isHierarchy then
+                    { node with
+                        Nested = [ for c in ud.Cases -> unionCaseNode ud structural c ]
+                    }
+                else
+                    node
         ]
 
     let buildRecordNodes (symbols: ICodegenSymbols) (records: RecordDecl list) : TypeNode list =
@@ -388,9 +493,7 @@ module internal LayoutNodes =
 
                         yield! ownAndIfaceMemberRows td.Key rd.Members rd.Interfaces
 
-                        yield! equalityRows td
-                        yield! comparisonRows td
-                        yield! formatRows td rd.Interfaces
+                        yield! structuralRows concreteStructuralAttrs (StructuralMembers.ofRecord rd) td
                         yield! coSlotRows symbols td rd.Interfaces
                     ]
 

@@ -25,7 +25,8 @@ module internal MethodAttrSets =
 
     let staticMethodAttrs = staticFactoryAttrs
 
-    // Non-virtual: the union / record / class is sealed, so `call` dispatch is correct.
+    // Non-virtual, which is what makes `call` bind: an augmentation member declares no
+    // slot to dispatch through.
     let instanceMethodAttrs = MethodAttributes.Public ||| MethodAttributes.HideBySig
 
     // An `Object.Equals` / `GetHashCode` override: no `NewSlot`, so it reuses the
@@ -44,6 +45,49 @@ module internal MethodAttrSets =
         ||| MethodAttributes.HideBySig
         ||| MethodAttributes.NewSlot
         ||| MethodAttributes.Final
+
+    // A new virtual slot a hierarchy union's base declares for its case types to implement.
+    // The runtime binds it to the `InterfaceImpl` by name + signature, as `ifaceEqualsAttrs`
+    // does; an implementor overrides it, so it drops `Final`.
+    let abstractIfaceSlotAttrs =
+        MethodAttributes.Public
+        ||| MethodAttributes.Abstract
+        ||| MethodAttributes.Virtual
+        ||| MethodAttributes.HideBySig
+        ||| MethodAttributes.NewSlot
+
+    // `GetHashCode` re-abstracted on a hierarchy union's base: `Object`'s slot, so no
+    // `NewSlot`.
+    let abstractOverrideAttrs =
+        MethodAttributes.Public
+        ||| MethodAttributes.Abstract
+        ||| MethodAttributes.Virtual
+        ||| MethodAttributes.HideBySig
+
+    /// The attrs one nominal's synthesised structural rows take, selected once per type.
+    /// `Equals(object)` and `CompareTo(object)` are absent because they carry a body in
+    /// every regime.
+    type StructuralRowAttrs =
+        {
+            /// `GetHashCode`, which reuses `Object`'s slot.
+            ObjectSlot: MethodAttributes
+            /// The typed `Equals(Self)` / `CompareTo(Self)` and `Format`.
+            InterfaceSlot: MethodAttributes
+        }
+
+    /// The nominal supplies every structural body itself.
+    let concreteStructuralAttrs =
+        {
+            ObjectSlot = overrideMethodAttrs
+            InterfaceSlot = ifaceEqualsAttrs
+        }
+
+    /// A hierarchy union's base declares the slots and its case types supply the bodies.
+    let abstractStructuralAttrs =
+        {
+            ObjectSlot = abstractOverrideAttrs
+            InterfaceSlot = abstractIfaceSlotAttrs
+        }
 
     let ctorAttrs =
         MethodAttributes.Public
@@ -77,6 +121,8 @@ module internal MethodAttrSets =
 type internal TypeSlotKey =
     | ModulePseudo
     | Nominal of SymbolKey
+    /// A hierarchy union's per-case type, nested in the union's own `TypeDef`.
+    | UnionCase of SymbolKey * case: string
     | Closure of name: string
     | ModuleClass of Emit.ModuleClassKey
     | Program
@@ -87,9 +133,13 @@ type internal TypeSlotKind =
     | ModulePseudo
     | Interface
     /// `valueKind` selects reference vs `[<Struct>]` value type (flips the
-    /// `System.ValueType` base). Always sealed, so it takes no `isSealed`. A `Struct`
-    /// `valueKind` pairs only with `SingleCase`, `EnumLike` or `Tagged`.
+    /// `System.ValueType` base) and stamps `IsReadOnly`. `regime` decides
+    /// abstract-vs-sealed, so it takes no `isSealed`: a hierarchy regime
+    /// (`UnionRegime.isHierarchy`) is abstract and the rest are sealed.
     | Union of valueKind: UnionValueKind * regime: UnionRegime
+    /// One case of a hierarchy union: a sealed nested class extending the union, holding
+    /// that case's payload fields.
+    | UnionCase
     /// `valueKind` selects reference vs `[<Struct>]` value type. Always sealed.
     | Record of valueKind: RecordValueKind
     /// `isSealed` reflects `[<Sealed>]`; `valueKind` selects reference vs `[<Struct>]`
@@ -116,7 +166,12 @@ type internal TypeSlotKind =
 [<RequireQualifiedAccess>]
 type internal FieldKey =
     | UnionTag of SymbolKey
+    /// A case's payload field: on the case's own `TypeDef` in a hierarchy regime, and
+    /// co-resident with every other case's on the union itself in a flat one.
     | UnionCaseField of SymbolKey * case: string * index: int
+    /// A hierarchy union's `public static initonly` singleton for a NULLARY case, typed as
+    /// the union. Constructed once by the union's `.cctor`; the case factory `ldsfld`s it.
+    | UnionCaseSingleton of SymbolKey * case: string
     | RecordField of SymbolKey * name: string
     /// A class primary-ctor parameter's backing field.
     | ClassCtorParamField of SymbolKey * name: string
@@ -159,6 +214,47 @@ type internal FieldSlot =
         ClosureScope: int voption
     }
 
+/// One synthesised structural member on a hierarchy union's case type. The `Case`-typed
+/// pair holds the field walk; the `Union`-typed overrides are the guards that reach it
+/// through the slot the base declares abstract.
+[<RequireQualifiedAccess>]
+type internal UnionCaseSlot =
+    /// `override bool Equals(U other)` — `isinst` this case, then `EqualsCase`.
+    | EqualsUnion
+    /// `bool Equals(<Case> other)` — the case's own field walk.
+    | EqualsCase
+    /// `override int GetHashCode()` — the case's tag as a literal, then its own fields.
+    | GetHashCode
+    /// `override int CompareTo(U other)` — this case ⇒ `CompareToCase`, else the ordinal
+    /// difference.
+    | CompareToUnion
+    /// `int CompareTo(<Case> other)` — the case's own field walk.
+    | CompareToCase
+    /// `override void Format(IFormatSink)` — `BeginCase`, the case's own fields, `EndCase`.
+    | Format
+
+[<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
+[<RequireQualifiedAccess>]
+module internal UnionCaseSlot =
+
+    /// The slots a hierarchy union's case type implements, in row order. The base declares
+    /// each of these abstract, so `LayoutNodes` and `UnionEmit` call this with the same
+    /// `StructuralMembers` and cannot describe different sets.
+    let required (s: StructuralMembers) : UnionCaseSlot list =
+        [
+            if s.Equality then
+                UnionCaseSlot.GetHashCode
+                UnionCaseSlot.EqualsUnion
+                UnionCaseSlot.EqualsCase
+
+            if s.Comparison then
+                UnionCaseSlot.CompareToUnion
+                UnionCaseSlot.CompareToCase
+
+            if s.Format then
+                UnionCaseSlot.Format
+        ]
+
 /// Identity of one `MethodDef` row in the layout. Indexed cases use the position in the
 /// declaring type's own list, so same-named overloads can't collide; a class's
 /// interface-impl members continue the `Member` index past its own members.
@@ -171,6 +267,10 @@ type internal MethodKey =
     | NominalCctor of SymbolKey
     | SecondaryCtor of SymbolKey * index: int
     | UnionFactory of SymbolKey * case: string
+    /// A hierarchy union case type's `.ctor(payload…)`, which chains the union's
+    /// `.ctor(int32)` with this case's tag.
+    | UnionCaseCtor of SymbolKey * case: string
+    | UnionCaseStructural of SymbolKey * case: string * UnionCaseSlot
     /// An augmentation member; `index` runs over `members @ ifaceMembers`.
     | Member of SymbolKey * index: int
     | EqGetHashCode of SymbolKey
@@ -207,13 +307,20 @@ type internal MethodRow =
         Attrs: MethodAttributes
     }
 
+/// A prepared method's IL. `Abstract` is the slot an interface, or a hierarchy union's
+/// base, declares for an implementor to supply; `WriteMethods` pairs it against the row's
+/// `MethodAttributes.Abstract` bit.
+[<RequireQualifiedAccess>]
+type internal PreparedBody =
+    | Abstract
+    | At of offset: int
+
 /// A bound method row ready to write: signature and body built at the Bind / Prepare
 /// phase against resolved handles.
 type internal PreparedMethod =
     {
         Signature: BlobBuilder
-        /// `-1` ⇒ abstract (no body).
-        BodyOffset: int
+        Body: PreparedBody
         ParamNames: string list
         /// `GenericParam` rows owned by this method (metadata names, quote already dropped).
         MethodTypars: string list

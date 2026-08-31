@@ -39,14 +39,91 @@ let tests =
                 Expect.equal (ofRef (UnionRegime.TypeTestCaseLimit + 1) true) UnionRegime.Tagged "one past it"
             }
 
-            test "a struct union with a payload case is Tagged at any case count" {
-                Expect.equal (ofStruct 2 true) UnionRegime.Tagged "two cases"
-                Expect.equal (ofStruct 3 true) UnionRegime.Tagged "three cases"
-                Expect.equal (ofStruct 4 true) UnionRegime.Tagged "four cases"
+            // A value type can neither inherit nor be abstract, so the case count buys it
+            // nothing: `StructTagged` is the one regime a payload-carrying struct union
+            // reaches, and it is unreachable for a reference union.
+            test "a struct union with a payload case is StructTagged at any case count" {
+                Expect.equal (ofStruct 2 true) UnionRegime.StructTagged "two cases"
+                Expect.equal (ofStruct 3 true) UnionRegime.StructTagged "three cases"
+                Expect.equal (ofStruct 4 true) UnionRegime.StructTagged "four cases"
             }
 
             test "a struct union classifies like a reference one where no type test is involved" {
                 Expect.equal (ofStruct 1 true) UnionRegime.SingleCase "one case"
                 Expect.equal (ofStruct 3 false) UnionRegime.EnumLike "all nullary"
+            }
+        ]
+
+[<Tests>]
+let hierarchy =
+    testList
+        "UnionRegime.isHierarchy"
+        [
+            test "the payload-carrying reference regimes nest a type per case" {
+                Expect.isTrue (UnionRegime.isHierarchy UnionRegime.TypeTested) "TypeTested"
+                Expect.isTrue (UnionRegime.isHierarchy UnionRegime.Tagged) "Tagged"
+            }
+
+            // The value kind is settled by the time a regime exists, so `classify` alone
+            // decides this and a struct union in a hierarchy regime is unrepresentable.
+            test "the remaining regimes are flat" {
+                Expect.isFalse (UnionRegime.isHierarchy UnionRegime.SingleCase) "SingleCase"
+                Expect.isFalse (UnionRegime.isHierarchy UnionRegime.EnumLike) "EnumLike"
+                Expect.isFalse (UnionRegime.isHierarchy UnionRegime.StructTagged) "StructTagged"
+            }
+
+            test "a case's fields take their own type's names exactly where they have one" {
+                Expect.isTrue (UnionCaseFields.ownType UnionRegime.TypeTested) "a hierarchy case owns its type"
+
+                Expect.isTrue
+                    (UnionCaseFields.ownType UnionRegime.SingleCase)
+                    "the sole case of a single-case union owns the union itself"
+
+                Expect.isFalse
+                    (UnionCaseFields.ownType UnionRegime.StructTagged)
+                    "a struct union holds every case's fields co-resident"
+            }
+        ]
+
+[<Tests>]
+let caseFieldNames =
+    testList
+        "UnionCaseFields.names"
+        [
+            // FSC's spelling, which is what would let the external path read an
+            // FSC-emitted union: a declared name prefixed `_`, a lone positional field
+            // `item`, and otherwise the field's 1-based position IN THE CASE.
+            test "a case with a type of its own takes FSC's spelling" {
+                Expect.equal
+                    (UnionCaseFields.names UnionRegime.TypeTested "C" [ ValueNone ])
+                    [ "item" ]
+                    "a lone positional field"
+
+                Expect.equal
+                    (UnionCaseFields.names UnionRegime.TypeTested "C" [ ValueNone; ValueNone ])
+                    [ "item1"; "item2" ]
+                    "two positional fields"
+
+                Expect.equal
+                    (UnionCaseFields.names UnionRegime.TypeTested "C" [ ValueSome "radius" ])
+                    [ "_radius" ]
+                    "a declared name"
+
+                Expect.equal
+                    (UnionCaseFields.names UnionRegime.TypeTested "M1" [ ValueSome "tag"; ValueNone ])
+                    [ "_tag"; "item2" ]
+                    "the index counts every field, not the positional ones alone"
+            }
+
+            test "co-resident fields stay qualified by their case" {
+                Expect.equal
+                    (UnionCaseFields.names UnionRegime.StructTagged "Pair" [ ValueNone; ValueNone ])
+                    [ "Pair_0"; "Pair_1" ]
+                    "two cases' positional fields would otherwise collide"
+
+                Expect.equal
+                    (UnionCaseFields.names UnionRegime.StructTagged "Val" [ ValueSome "v" ])
+                    [ "Val_0" ]
+                    "a declared name is qualified too"
             }
         ]

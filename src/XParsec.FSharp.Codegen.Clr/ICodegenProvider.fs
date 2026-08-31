@@ -61,10 +61,18 @@ and ValueTupleRest =
 /// parent `TypeSpec`: `List<int>` externally, `List<!0>` from inside the type's own factory bodies.
 [<RequireQualifiedAccess>]
 type UnionMember =
+    /// The union's own `.ctor`: `(int32)` on a hierarchy base, the flat
+    /// `(tag, every case field)` form on a struct union, nullary otherwise.
     | Ctor
     | Tag
-    /// Payload field named `<Case>_<index>`.
+    /// A case's payload field, parented on the case's own type in a hierarchy regime and
+    /// on the union itself in a flat one.
     | Field of caseName: string * fieldIndex: int
+    /// A hierarchy union case type's `.ctor(payload…)`.
+    | CaseCtor of caseName: string
+    /// A hierarchy union's `_unique_<Case>` singleton for a nullary case, a `static`
+    /// field on the union typed as the union.
+    | CaseSingleton of caseName: string
     | Factory of caseName: string
 
 /// Which member of an emitted *generic* closure (`<closure>$n`) a `MemberRef` identifies.
@@ -219,6 +227,36 @@ type FormatSinkHandles =
         Child: EntityHandle
     }
 
+/// The BCL handles and heap strings a synthesised structural body — `Equals`,
+/// `GetHashCode`, `CompareTo`, `Format` — calls.
+///
+/// Each accessor mints its metadata row on demand, so a caller feeding several bodies over
+/// one field list resolves each handle once and shares it.
+type IStructuralHandles =
+    /// `EqualityComparer<T>.Default` getter.
+    abstract EqualityComparerDefault: elem: FrozenType -> EntityHandle
+    /// `EqualityComparer<T>::Equals(T, T) : bool`.
+    abstract EqualityComparerEquals: elem: FrozenType -> EntityHandle
+    /// The `System.HashCode` accumulator local a hash body adds into.
+    abstract HashCodeType: FrozenType
+    /// `HashCode::Add<T>(T)`.
+    abstract HashCodeAdd: elem: FrozenType -> EntityHandle
+    /// `HashCode::ToHashCode() : int32`.
+    abstract HashCodeToHashCode: EntityHandle
+    /// `Comparer<T>.Default` getter.
+    abstract ComparerDefault: elem: FrozenType -> EntityHandle
+    /// `Comparer<T>::Compare(T, T) : int32`.
+    abstract ComparerCompare: elem: FrozenType -> EntityHandle
+    /// `System.ArgumentException::.ctor(string)`, which an `object`-typed `CompareTo`
+    /// throws on an argument of another type.
+    abstract ArgumentExceptionCtor: EntityHandle
+    /// The `Vesper.IFormatSink` members `Format` `callvirt`s.
+    abstract FormatSink: FormatSinkHandles
+    /// The `box` target for a field type.
+    abstract BoxToken: elem: FrozenType -> EntityHandle
+    /// A `#US` heap string, for a case label or an exception message.
+    abstract UserString: string -> UserStringHandle
+
 /// Where a class key's metadata token comes from.
 [<RequireQualifiedAccess>]
 type ClassOrigin =
@@ -281,6 +319,11 @@ type ICodegenProvider =
     abstract ExternalUnionCaseField:
         key: TypeKey * tyArgs: FrozenType list * caseName: string * fieldIndex: int ->
             (EntityHandle * FrozenType) voption
+
+    /// The type token for one case of a referenced-package HIERARCHY union at `tyArgs` — the
+    /// nested type its payload is declared on, which a cross-package `match` arm casts the
+    /// scrutinee to. `ValueNone` ⇒ a flat regime, where the payload sits on the union.
+    abstract ExternalUnionCaseType: key: TypeKey * tyArgs: FrozenType list * caseName: string -> EntityHandle voption
 
     /// A `MethodSpec` instantiating a *generic* module-static method (`fold`) at a call
     /// site. `instTypes` is the per-typar instantiation: a recursive self-call passes the

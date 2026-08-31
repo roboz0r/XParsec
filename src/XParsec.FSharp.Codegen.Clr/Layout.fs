@@ -9,6 +9,10 @@ open XParsec.FSharp.Codegen.Common
 
 module internal Layout =
 
+    /// A node's own slot key followed by every key nested beneath it, pre-order.
+    let rec private flattenKeys (n: TypeNode) : TypeSlotKey list =
+        n.Slot.Key :: List.collect flattenKeys n.Nested
+
     /// Build ONE file's contribution to the type HIERARCHY: its namespace-level nominals,
     /// then closures, then root-module classes, each carrying the types it holds and its
     /// child module classes. The shared `ClosureNamer` keeps closure names unique.
@@ -289,9 +293,12 @@ module internal Layout =
                 (nominalNodes |> List.filter (fun n -> n.Enclosing.IsNone))
                 @ closureNodes
                 @ rootModuleClassNodes
+            // A nominal carries its own nested subtree (a union's case types), so the keys
+            // the completeness check compares against are the FLATTENING, not the roots.
             BuiltKeys =
                 [
-                    for n in nominalNodes -> n.Slot.Key
+                    for n in nominalNodes do
+                        yield! flattenKeys n
                     for n in closureNodes -> n.Slot.Key
                     for h in orderedClasses -> TypeSlotKey.ModuleClass h
                 ]
@@ -515,6 +522,17 @@ module internal Layout =
                 "Layout: the type hierarchy places %d slots but %d were built, so a slot is dropped, duplicated or invented"
                 (List.length placedKeys)
                 (List.length builtKeys)
+
+        // Two `Field` rows of one name on one type are valid metadata only where their
+        // signatures differ. Distinct `FieldKey`s keep the handle maps injective, so the
+        // duplicate survives every later check and the PE comes out ill-formed. Rejected
+        // here for records, classes, closures and unions alike.
+        for node in types do
+            let seen = HashSet<string>()
+
+            for f in node.Fields do
+                if not (seen.Add f.Name) then
+                    failwithf "Layout: type '%s' declares two fields named '%s'" node.Slot.MetaName f.Name
 
         {
             Types = types

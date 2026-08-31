@@ -79,6 +79,11 @@ type internal Assembler
     // internally and a fresh encoder per body would leave a tiny body's builder unaligned.
     let bodyStream = ctx.BodyStream
 
+    /// Lower an IL body and stage it in the body stream, yielding the offset the
+    /// `MethodDef` row points at.
+    let methodBody ir : PreparedBody =
+        PreparedBody.At(Cil.buildBody encodeLocals bodyStream (IlIr.lower ir))
+
     let layout = Layout.buildMany codegenSymbols project tasts
     let layoutHandles = Layout.deriveHandles layout
 
@@ -125,102 +130,7 @@ type internal Assembler
         for c in closures do
             closureByName.[c.Name] <- c
 
-        // Register each nominal's layout-derived `TypeDefinition` handle so a field /
-        // factory / local signature can `encodeType` it before the row exists. A generic
-        // type also registers its shape, for `MemberRef`s on its `TypeSpec`.
-        for ud in partitioned.Unions do
-            let td = ud.Decl
-            provider.RegisterUserType(td.TypeKey, toEntity (layoutHandles.TypeDefOf(TypeSlotKey.Nominal td.Key)))
-
-            if ud.ValueKind.IsValueType then
-                provider.RegisterUserValueType td.TypeKey
-
-            if not td.TypeParams.IsEmpty then
-                let shape =
-                    [
-                        for c in ud.Cases ->
-                            c.Name,
-                            [
-                                for fi in 0 .. c.Fields.Length - 1 -> sprintf "%s_%d" c.Name fi, snd c.Fields.[fi]
-                            ]
-                    ]
-
-                provider.RegisterGenericUnion(td.TypeKey, td.TypeParams, shape, ud.ValueKind)
-
-        for rd in partitioned.Records do
-            let td = rd.Decl
-            provider.RegisterUserType(td.TypeKey, toEntity (layoutHandles.TypeDefOf(TypeSlotKey.Nominal td.Key)))
-
-            if rd.ValueKind.IsValueType then
-                provider.RegisterUserValueType td.TypeKey
-
-            if not td.TypeParams.IsEmpty then
-                let shape = [ for f in rd.Fields -> f.Name, f.Type ]
-                provider.RegisterGenericRecord(td.TypeKey, td.TypeParams, shape)
-
-        for cd in partitioned.Classes do
-            let td = cd.Decl
-            provider.RegisterUserType(td.TypeKey, toEntity (layoutHandles.TypeDefOf(TypeSlotKey.Nominal td.Key)))
-
-            if cd.ValueKind.IsValueType then
-                provider.RegisterUserValueType td.TypeKey
-
-            if not td.TypeParams.IsEmpty then
-                // On a generic class, ctor-param, `val`, instance-`let` and `static let`
-                // fields all reach their `ldfld`/`stfld`/`ldsfld` through a `MemberRef` on
-                // the open self-`TypeSpec`, so all four must be registered by name.
-                let ctorParamFields = [ for p in cd.CtorParams -> p.Name, p.Type ]
-
-                let shape =
-                    ctorParamFields
-                    @ [ for f in cd.Fields -> f.Name, f.Type ]
-                    @ [ for l in TPreambleEntryG.lets cd.InstancePreamble -> l.Name, l.Type ]
-                    @ [ for sl in TPreambleEntryG.lets cd.StaticPreamble -> sl.Name, sl.Type ]
-
-                provider.RegisterGenericClass(td.TypeKey, td.TypeParams, List.length ctorParamFields, shape)
-
-        // Interfaces register their `TypeDef` too, so one referencing another as a member's
-        // type (`IStructuralFormattable.Format(IFormatSink)`) resolves like any nominal.
-        // A generic one (`IStructSeq<'E>`) also needs its slots minted on a `TypeSpec`.
-        for (td, _) in partitioned.Interfaces do
-            provider.RegisterUserType(td.TypeKey, toEntity (layoutHandles.TypeDefOf(TypeSlotKey.Nominal td.Key)))
-
-            if not td.TypeParams.IsEmpty then
-                provider.RegisterGenericClass(td.TypeKey, td.TypeParams, 0, [])
-
-        // Numeric enums (a `System.Enum` subclass) and string/mixed ones (a `[<Struct>]`
-        // wrapper) are both project-local value types → `ELEMENT_TYPE_VALUETYPE`.
-        for td in
-            (partitioned.Enums |> List.map (fun ed -> ed.Decl))
-            @ (partitioned.StructEnums |> List.map (fun sed -> sed.Decl)) do
-            provider.RegisterUserType(td.TypeKey, toEntity (layoutHandles.TypeDefOf(TypeSlotKey.Nominal td.Key)))
-            provider.RegisterUserValueType td.TypeKey
-
-        // Register this file's module functions, Program-class ones included, so a SIBLING
-        // file's cross-file call resolves to the local `MethodDef` instead of an
-        // `AssemblyRef`-scoped `MemberRef`. Keyed by the `SymbolKey` a reference spells.
-        for fn in plan.StaticFns do
-            let localMethodDef =
-                toEntity (layoutHandles.MethodDefOf(MethodKey.StaticFn fn.SymbolKey))
-
-            provider.RegisterLocalModuleFn(fn.SymbolKey, localMethodDef)
-
-        // A generic closure is a real generic `TypeDefinition`; its handle lets
-        // capture-field `MemberRef`s and the construction-site `newobj` both reach it.
-        // Monomorphic closures use their `Def` tokens directly.
-        for c in closures do
-            if c.Typars > 0 then
-                let handle = toEntity (layoutHandles.TypeDefOf(TypeSlotKey.Closure c.Name))
-
-                provider.RegisterClosure(
-                    c.Name,
-                    c.Typars,
-                    c.DeclaringTypars,
-                    c.Captures |> List.map snd,
-                    c.ParamTy,
-                    c.ResultTy,
-                    handle
-                )
+        NominalRegistration.apply provider layoutHandles file
 
         let ctorHandleByNode = Dictionary<TastAccessor.ExprId, EntityHandle>()
 
@@ -512,6 +422,16 @@ type internal Assembler
         | ValueNone -> attrs
         | ValueSome _ -> (attrs &&& ~~~TypeAttributes.VisibilityMask) ||| TypeAttributes.NestedPublic
 
+    // A hierarchy union's base: abstract, so every value of it is an instance of one of its
+    // case types, which implement the structural slots it declares.
+    let abstractBaseAttrs =
+        TypeAttributes.Class
+        ||| TypeAttributes.Public
+        ||| TypeAttributes.Abstract
+        ||| TypeAttributes.AutoLayout
+        ||| TypeAttributes.AnsiClass
+        ||| TypeAttributes.BeforeFieldInit
+
     // A user class opts in to `Sealed` via `[<Sealed>]`; without it the class is open.
     // A `[<Struct>]` value type is always sealed and uses sequential layout.
     let classAttrsOf (isSealed: bool) (isValueType: bool) =
@@ -556,6 +476,14 @@ type internal Assembler
 
     member _.Provider = provider
     member _.Icodegen = icodegen
+
+    /// The BCL members and heap strings the synthesised structural bodies call.
+    member _.Structural: IStructuralHandles = provider
+
+    /// Lower an IL body and stage it in the body stream, yielding the offset the
+    /// `MethodDef` row points at.
+    member _.MethodBody(ir: ILBody) : PreparedBody = methodBody ir
+
     member _.Ctx = ctx
     member _.BodyStream = bodyStream
     member _.EncodeLocals = encodeLocals
@@ -648,7 +576,7 @@ type internal Assembler
                     MethodKey.InterfaceMethod(td.Key, i),
                     {
                         Signature = abstractMethodSignature provider m
-                        BodyOffset = -1
+                        Body = PreparedBody.Abstract
                         ParamNames = argNames (List.length paramTys)
                         MethodTypars = [ for n in m.MethodTypeParams -> n.TrimStart('\'') ]
                     }
@@ -686,14 +614,13 @@ type internal Assembler
                 | other -> failwithf "Emit: struct enum '%A' has a non-struct repr %A" td.Key other
 
             // The single-arg value-type `.ctor(value)` storing the backing field.
-            let ctorBody =
-                Cil.buildBody encodeLocals bodyStream (IlIr.lower (Emit.buildStructCtor [ backingField ]))
+            let ctorBody = methodBody (Emit.buildStructCtor [ backingField ])
 
             this.AddPrepared(
                 MethodKey.NominalCtor td.Key,
                 {
                     Signature = provider.RecordCtorSignature [ fieldTy ]
-                    BodyOffset = ctorBody
+                    Body = ctorBody
                     ParamNames = [ "value" ]
                     MethodTypars = []
                 }
@@ -708,14 +635,13 @@ type internal Assembler
                         caseFields.[caseName], EmitResolve.enumLiteralPush icodegen.TypeToken ctx.UserString lit
                 ]
 
-            let cctorBody =
-                Cil.buildBody encodeLocals bodyStream (IlIr.lower (Emit.buildStructEnumCctor ctorHandle cctorCases))
+            let cctorBody = methodBody (Emit.buildStructEnumCctor ctorHandle cctorCases)
 
             this.AddPrepared(
                 MethodKey.NominalCctor td.Key,
                 {
                     Signature = provider.CctorSignature()
-                    BodyOffset = cctorBody
+                    Body = cctorBody
                     ParamNames = []
                     MethodTypars = []
                 }
@@ -764,26 +690,20 @@ type internal Assembler
                         handleForUse
                     )
 
-                let ctorBodyOffset =
+                let ctorMethodBody =
                     if isStack then
-                        Cil.buildBody encodeLocals bodyStream (IlIr.lower (Emit.buildStructCtor fieldHandles))
+                        methodBody (Emit.buildStructCtor fieldHandles)
                     else
-                        Cil.buildBody
-                            encodeLocals
-                            bodyStream
-                            (IlIr.lower (Emit.buildClosureCtor provider.ObjectCtorRef fieldHandles))
+                        methodBody (Emit.buildClosureCtor provider.ObjectCtorRef fieldHandles)
 
-                let invokeBodyOffset =
-                    Cil.buildBody
-                        encodeLocals
-                        bodyStream
-                        (IlIr.lower (Emit.buildClosureInvoke f.EmitCtx c captureFields))
+                let invokeMethodBody =
+                    methodBody (Emit.buildClosureInvoke f.EmitCtx c captureFields)
 
                 this.AddPrepared(
                     MethodKey.ClosureCtor c.Name,
                     {
                         Signature = provider.ClosureCtorSignature(List.map snd c.Captures)
-                        BodyOffset = ctorBodyOffset
+                        Body = ctorMethodBody
                         ParamNames = argNames (List.length c.Captures)
                         MethodTypars = []
                     }
@@ -800,7 +720,7 @@ type internal Assembler
                     MethodKey.ClosureInvoke c.Name,
                     {
                         Signature = invokeSignature
-                        BodyOffset = invokeBodyOffset
+                        Body = invokeMethodBody
                         ParamNames = invokeParamNames
                         MethodTypars = []
                     }
@@ -812,17 +732,14 @@ type internal Assembler
                     let ctorHandle = toEntity (layoutHandles.MethodDefOf(MethodKey.ClosureCtor c.Name))
                     let cachedField = toEntity (fieldDefHandles.[FieldKey.ClosureCached c.Name])
 
-                    let cctorBodyOffset =
-                        Cil.buildBody
-                            encodeLocals
-                            bodyStream
-                            (IlIr.lower (Emit.buildCachedClosureCctor ctorHandle cachedField))
+                    let cctorMethodBody =
+                        methodBody (Emit.buildCachedClosureCctor ctorHandle cachedField)
 
                     this.AddPrepared(
                         MethodKey.ClosureCctor c.Name,
                         {
                             Signature = provider.CctorSignature()
-                            BodyOffset = cctorBodyOffset
+                            Body = cctorMethodBody
                             ParamNames = []
                             MethodTypars = []
                         }
@@ -884,8 +801,7 @@ type internal Assembler
             // rather than the frozen function type.
             let fn = { fn with Body = retypeBody fn.Body }
 
-            let bodyOffset =
-                Cil.buildBody encodeLocals bodyStream (IlIr.lower (Emit.buildStaticMethod emitCtx fn))
+            let staticBody = methodBody (Emit.buildStaticMethod emitCtx fn)
 
             let paramTys = fn.Params.Flat |> List.map (fun p -> p.Ty)
 
@@ -901,7 +817,7 @@ type internal Assembler
                 MethodKey.StaticFn fn.SymbolKey,
                 {
                     Signature = signature
-                    BodyOffset = bodyOffset
+                    Body = staticBody
                     ParamNames = argNames fn.Params.FlatCount
                     MethodTypars = [ for i in 0 .. typarCount - 1 -> sprintf "T%d" i ]
                 }
@@ -916,14 +832,13 @@ type internal Assembler
                         Emit.PreambleStep.Store(moduleValueFields.[mv.Key], retypeBody mv.Init)
                 ]
 
-            let bodyOffset =
-                Cil.buildBody encodeLocals bodyStream (IlIr.lower (Emit.buildStaticCctor emitCtx lets))
+            let staticBody = methodBody (Emit.buildStaticCctor emitCtx lets)
 
             this.AddPrepared(
                 MethodKey.ModuleClassCctor h,
                 {
                     Signature = provider.CctorSignature()
-                    BodyOffset = bodyOffset
+                    Body = staticBody
                     ParamNames = []
                     MethodTypars = []
                 }
@@ -938,14 +853,13 @@ type internal Assembler
                         Emit.PreambleStep.Store(moduleValueFields.[mv.Key], retypeBody mv.Init)
                 ]
 
-            let bodyOffset =
-                Cil.buildBody encodeLocals bodyStream (IlIr.lower (Emit.buildStaticCctor emitCtx lets))
+            let staticBody = methodBody (Emit.buildStaticCctor emitCtx lets)
 
             this.AddPrepared(
                 MethodKey.ProgramCctor,
                 {
                     Signature = provider.CctorSignature()
-                    BodyOffset = bodyOffset
+                    Body = staticBody
                     ParamNames = []
                     MethodTypars = []
                 }
@@ -963,14 +877,13 @@ type internal Assembler
         if f.Layout.EmitEntryPoint then
             let mainDecls = f.Layout.Lowered |> List.map f.Verdict.RetypeDecl
 
-            let mainBodyOffset =
-                Cil.buildBody encodeLocals bodyStream (IlIr.lower (Emit.buildMain f.EmitCtx mainDecls))
+            let mainMethodBody = methodBody (Emit.buildMain f.EmitCtx mainDecls)
 
             this.AddPrepared(
                 MethodKey.Main,
                 {
                     Signature = mainSignature ()
-                    BodyOffset = mainBodyOffset
+                    Body = mainMethodBody
                     ParamNames = [ "args" ]
                     MethodTypars = []
                 }
@@ -987,8 +900,21 @@ type internal Assembler
 
             let firstParam = addParams p.ParamNames
 
+            // Whether a slot is abstract is decided twice — by the row's attrs at layout
+            // and by the prepared body — and a disagreement writes a PE the loader
+            // rejects rather than anything the goldens would show. `-1` is SRM's "no
+            // body" RVA.
+            let bodyOffset =
+                match row.Attrs.HasFlag MethodAttributes.Abstract, p.Body with
+                | true, PreparedBody.Abstract -> -1
+                | false, PreparedBody.At offset -> offset
+                | true, PreparedBody.At _ ->
+                    failwithf "Layout: abstract method row '%s' (%A) was prepared with a body" row.Name row.Key
+                | false, PreparedBody.Abstract ->
+                    failwithf "Layout: method row '%s' (%A) declares a body but was prepared abstract" row.Name row.Key
+
             let handle =
-                ctx.AddMethodWithParamList(row.Attrs, row.Name, p.Signature, p.BodyOffset, firstParam)
+                ctx.AddMethodWithParamList(row.Attrs, row.Name, p.Signature, bodyOffset, firstParam)
 
             let predicted = layoutHandles.MethodDefOf row.Key
 
@@ -1102,14 +1028,24 @@ type internal Assembler
             // Unions and records are always sealed; a class opts in via `[<Sealed>]` /
             // `[<Struct>]`. A union or record opts into value-type emission via `[<Struct>]`.
             // A struct union also carries `IsReadOnly`; a record may have `mutable` fields.
-            | TypeSlotKind.Union(valueKind, _) ->
+            | TypeSlotKind.Union(valueKind, regime) ->
                 let markers =
                     if valueKind.IsValueType then
                         [ provider.IsReadOnlyAttrCtor ]
                     else
                         []
 
-                addNominalRow node (classAttrsOf true valueKind.IsValueType) markers
+                let attrs =
+                    if UnionRegime.isHierarchy regime then
+                        abstractBaseAttrs
+                    else
+                        classAttrsOf true valueKind.IsValueType
+
+                addNominalRow node attrs markers
+
+            // A case type is sealed, so the JIT devirtualises the structural overrides
+            // wherever the receiver's exact type is known.
+            | TypeSlotKind.UnionCase -> addNominalRow node (classAttrsOf true false) []
 
             | TypeSlotKind.Record valueKind -> addNominalRow node (classAttrsOf true valueKind.IsValueType) []
 
