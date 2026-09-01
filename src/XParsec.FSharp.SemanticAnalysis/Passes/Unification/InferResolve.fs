@@ -182,10 +182,9 @@ module internal UnificationInferResolve =
             let (DisplayName shown) = SymbolKeyOps.typeSimpleName candidate.TypeKey
             shown
 
-    /// WHERE a provider (cross-file) record candidate enters the name environment at
-    /// `useSite`, for the UNQUALIFIED field-set index a bare `{ X = … }` literal reads.
-    /// `ValueNone` for a `[<RequireQualifiedAccess>]` record, and for one whose declaring
-    /// module or namespace is not a scope in force there.
+    /// WHERE a provider (cross-file) record candidate enters the name environment at `useSite`,
+    /// for the UNQUALIFIED field-set index a bare `{ X = … }` literal reads. `ValueNone` for a
+    /// `[<RequireQualifiedAccess>]` record, or one whose declaring scope is out of force there.
     let private bareExternalRecordRank (useSite: UseSite) (cand: ExternalRecordCandidate) : BindingRank voption =
         if cand.IsRequireQualifiedAccess then
             ValueNone
@@ -201,10 +200,9 @@ module internal UnificationInferResolve =
                     }
                 )
 
-    /// Among the candidates declaring EXACTLY the `typed` field set, only the top-ranked
-    /// survive, so a later `open` shadows an earlier one. A candidate declaring more fields
-    /// stays a partial at any rank: `Point<'X,'Y,'Z>` declared below `Point<'X,'Y>` must not
-    /// take `{ X = …; Y = … }`.
+    /// Among the candidates declaring EXACTLY the `typed` field set, only the top-ranked survive,
+    /// so a later `open` shadows an earlier one. A candidate declaring more fields stays a
+    /// partial at any rank: `Point<'X,'Y,'Z>` below `Point<'X,'Y>` must not take `{ X = …; Y = … }`.
     let private keepBestExactFieldSet
         (typed: Set<string>)
         (ranked: struct (BindingRank * ResolvedRecord) list)
@@ -219,11 +217,8 @@ module internal UnificationInferResolve =
             |> List.map (fun (struct (_, r)) -> r)
 
     /// The verdict for the typed field set `names` at `useSite`, unioning LOCAL and provider
-    /// candidates; only the FIRST field's candidates need fetching, since a record declaring
-    /// every typed field declares the first.
-    ///
-    /// `Bare` reads the ranked scope stack through `keepBestExactFieldSet`. `Qualified` keeps
-    /// the candidates whose simple name is the qualifier.
+    /// candidates. Only the FIRST field is looked up. `Qualified` keeps the candidates whose
+    /// simple name is the qualifier; `Bare` keeps the top-ranked exact field-set match.
     let recordFieldSetVerdict
         (ctx: PassContext)
         (useSite: UseSite)

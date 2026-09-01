@@ -19,9 +19,8 @@ type TypeDeclKind =
     | IntrinsicBinding
 
 /// The positional facts of one declaration group: where its claims become visible, and where
-/// they enter the name environment within their depth. The two differ only under `rec`,
-/// which hoists visibility to the scope's keyword while the declarations enter after the
-/// scope's whole prelude.
+/// they enter the name environment within their depth. The two differ only under `rec`, which
+/// hoists visibility to the scope's keyword and enters the declarations after its prelude.
 [<Struct>]
 type ClaimPlacement = { VisibleFrom: int; EntersAt: int }
 
@@ -43,9 +42,8 @@ type TypeIdentity =
         /// A use at offset `u` sees this claim iff `VisibleFrom <= u`. It is the first token of
         /// the claim's `type … and …` GROUP, or a `module rec` / `namespace rec` keyword.
         VisibleFrom: int
-        /// WHERE the claim enters the name environment within its depth: `VisibleFrom`,
-        /// except under `rec`, where it enters after the scope's whole prelude
-        /// (`BindingRank.afterPrelude`) and so outranks each same-scope `open`.
+        /// WHERE the claim enters the name environment within its depth: `VisibleFrom`, or
+        /// `BindingRank.afterPrelude` under `rec`.
         EntersAt: int
     }
 
@@ -126,8 +124,8 @@ type PassContextTypes =
         /// Each minted type `TypeKey` → the decl-site `NodeKey` that first minted it. A second
         /// DISTINCT declaration minting the same key means the mint dropped a containment.
         SymbolKeyOrigins: Dictionary<SymbolKey, NodeKey>
-        /// The `[<AutoOpen>]` modules this file declares, outermost first, recorded as the
-        /// walk enters their elements. A module holding no element is absent.
+        /// The `[<AutoOpen>]` modules this file declares, outermost first. A module holding
+        /// no element is absent.
         AutoOpenModules: ResizeArray<ModuleKey>
     }
 
@@ -250,9 +248,8 @@ module TypeRegistry =
         go under
 
     /// The `open`s written above one module element, innermost-first, each resolved to the scope
-    /// it denotes and stamped with the rank it enters at. THE single site an `open` is resolved
-    /// at; an `open` denoting no scope contributes no entry. A relative `open` reads under the
-    /// `open`s enclosing it, nearest first, before the scope it is written in.
+    /// it denotes and stamped with the rank it enters at. An unresolvable `open` is dropped. A
+    /// relative `open` reads under the `open`s enclosing it, nearest first, before its own scope.
     let resolveOpens (types: PassContextTypes) (scope: IScopeContents) (opens: LocalOpen list) : ScopeEntry list =
         let rec go (opens: LocalOpen list) : ScopeEntry list =
             match opens with
@@ -325,9 +322,8 @@ module TypeRegistry =
                     }
                 )
 
-    /// The max-rank claim on `written` that `admit`s at `useSite`, beside the rank it won at.
-    /// Every by-name lookup is this with a different `admit`; a qualified name reads from the
-    /// scope its path reaches.
+    /// The max-rank claim on `written` that `admit`s at `useSite`, beside the rank it won at. A
+    /// qualified `written.Path` narrows the scopes read to those the path reaches.
     let private tryWinnerRanked
         (types: PassContextTypes)
         (useSite: UseSite)
@@ -377,8 +373,7 @@ module TypeRegistry =
         | false, _ -> []
 
     /// WHERE the type `key` (claimed under the short name `name`) enters the name environment
-    /// at `useSite`; `ValueNone` when it is out of scope there. The kind indexes map a name to
-    /// KEYS, but the scoping facts live on the CLAIM.
+    /// at `useSite`; `ValueNone` when it is out of scope there.
     let private keyRankAt
         (types: PassContextTypes)
         (useSite: UseSite)
@@ -521,8 +516,7 @@ module TypeRegistry =
         types.LocalContainers.[path] <- container
         types.LocalContainerPaths.[container] <- path
 
-    /// Record an `[<AutoOpen>]` module of this file. Idempotent, first-seen order: the walk
-    /// enters elements top-down, so an enclosing module precedes each nested one.
+    /// Record an `[<AutoOpen>]` module of this file. Idempotent, first-seen order.
     let noteAutoOpenModule (types: PassContextTypes) (key: ModuleKey) : unit =
         if not (types.AutoOpenModules.Contains key) then
             types.AutoOpenModules.Add key
@@ -844,8 +838,7 @@ module TypeRegistry =
         | false, _ -> Array.empty
 
     /// The union cases named `name` VISIBLE from `useSite`, each with the rank its declaring
-    /// union enters at. More than one at the winning rank is ambiguous; none leaves an
-    /// uppercase ident an ordinary bound variable in a pattern, unresolved in an expression.
+    /// union enters at.
     let rankedCasesNamed
         (types: PassContextTypes)
         (useSite: UseSite)

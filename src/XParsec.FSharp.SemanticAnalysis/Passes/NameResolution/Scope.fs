@@ -15,9 +15,8 @@ open UnificationTranslate
 
 module NameResolutionScope =
 
-    /// A name the walk has bound: an expression or type-body binding, which `open` is
-    /// declaration-level and cannot reach over. A module-level `let` is never here: it
-    /// resolves through the ranked environment (`LocalModulePaths`).
+    /// A name the walk has bound: an expression or type-body binding. A module-level `let` is
+    /// never here; it resolves through the ranked environment (`LocalModulePaths`).
     [<Struct; NoComparison>]
     type ScopeBinding = { Site: NodeKey; IsMutable: bool }
 
@@ -378,10 +377,9 @@ module NameResolutionScope =
             true
         | ValueNone -> false
 
-    /// Bind an operator's compiled name to a binding of this file: one the walk bound (a
-    /// nested `let (>=>)`), else a module-level one the ranked environment yields. A hit
-    /// shadows every provider symbol, so a mono `let (+)` retypes every `+` below its
-    /// definition.
+    /// Bind an operator's compiled name to a binding of this file: one the walk bound (a nested
+    /// `let (>=>)`), else a module-level one the ranked environment yields. A hit shadows every
+    /// provider symbol, so a mono `let (+)` retypes every `+` below its definition.
     let private tryStampBoundOperator (ctx: PassContext) (scope: Scope list) (key: NodeKey) (name: string) : bool =
         match lookupLexical scope name with
         | ValueSome b ->
@@ -392,7 +390,7 @@ module NameResolutionScope =
             | ValueSome(ResolvedValue.Local m) ->
                 stampItem ctx key (ResolvedItem.Value(ResolvedValue.Local m))
                 true
-            // An external winner stamps through the external-symbol path the caller falls to.
+            // Returns false so the caller's external-symbol path stamps it.
             | ValueSome(ResolvedValue.External _)
             | ValueNone -> false
 

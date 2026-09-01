@@ -374,4 +374,16 @@ let tests =
                     Expect.isTrue (scope.TryValue(c, "Console")).IsNone "IL declares no free value"
                     Expect.equal (scope.UnionCasesNamed(c, "Some")).Length 0 "IL declares no union case"
             }
+
+            // FSharp.Core carries 11 assembly-level `AutoOpen` rows (`Microsoft.FSharp.Core`,
+            // `Microsoft.FSharp.Collections`, …). This layer reports none, so an fsc-built
+            // reference assembly loses its prelude and a bare `List.map` stays unresolved.
+            ptest "GAP: a reference assembly's [<assembly: AutoOpen>] rows reach ImplicitOpens" {
+                let fsharpCore = typeof<int list>.Assembly.Location
+
+                let withCore =
+                    MetadataSymbols.create (fsharpCore :: MetadataSymbols.runtimeAssemblyPaths ())
+
+                Expect.isNonEmpty withCore.ImplicitOpens "FSharp.Core's assembly-level AutoOpen rows are published"
+            }
         ]

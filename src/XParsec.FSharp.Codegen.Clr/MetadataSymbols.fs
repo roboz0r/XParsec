@@ -733,8 +733,9 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
         // The metadata layer scrapes IL, never F# record tycons, so it never contributes to
         // the reverse field index (F#'s `isILOrRequiredQualifiedAccess` excludes IL too).
         member _.TryRecordsWithField _ = EqArray.empty
-        // A referenced CLR assembly's own `[<assembly: AutoOpen>]` rows are not read: this
-        // layer serves BCL metadata, which carries none.
+        // GAP: a referenced assembly's `[<assembly: AutoOpen>]` rows are dropped, so an
+        // fsc-built F# reference loses its prelude. Pinned by MetadataSymbolsTests, "GAP: a
+        // reference assembly's [<assembly: AutoOpen>] rows reach ImplicitOpens".
         member _.ImplicitOpens = []
 
     interface IExternalSymbolStore with

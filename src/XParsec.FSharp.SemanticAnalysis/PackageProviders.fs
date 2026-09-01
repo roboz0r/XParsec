@@ -9,10 +9,9 @@ open XParsec.FSharp.SemanticAnalysis.Passes
 /// composed into one provider. A symbol's namespace is its FILE's `namespace` header.
 module PackageProviders =
 
-    /// One analysed manifest set: a single built package, or a `depends-on` closure composed
-    /// into one. A backend takes the WHOLE value: a provider from one manifest set beside an
-    /// anchor domain from another resolves a served body's position against a file that was
-    /// never retained, and the wrong position is still in range.
+    /// One analysed manifest set: a single built package, or a `depends-on` closure composed into
+    /// one. A backend takes the WHOLE value: mixing a provider from one set with an anchor domain
+    /// from another resolves positions against a file that was never retained, silently in range.
     [<NoEquality; NoComparison>]
     type AnalysedManifest =
         {
@@ -105,13 +104,9 @@ module PackageProviders =
                     e.Message
                     pruned
 
-    /// Fold the package's units in manifest order against its dependency providers, nearest
-    /// first — the same fold an assembly's units go through. Every `.fsi` publishes its
-    /// declarations, a `.fs` without one publishes the surface its analysis infers, and a file
-    /// the read could not deliver yields a diagnostic and contributes nothing.
-    /// `platformMetadata` seeds the signatures with the dependencies' intrinsic axis and each
-    /// BODY with the axis published before it as well, the way its own compile presents its
-    /// primitives to itself.
+    /// Fold the package's units in manifest order against its dependency providers, nearest first;
+    /// an undeliverable file yields a diagnostic and contributes nothing. `platformMetadata` seeds
+    /// signatures with the dependencies' intrinsic axis, and each body with the axis published so far.
     let buildProviderSeeded
         (platformMetadata: IntrinsicTypeMap -> IExternalSymbolProvider list)
         (depProviders: IExternalSymbolProvider list)
@@ -157,7 +152,7 @@ module PackageProviders =
 
         // What a consumer resolves through: this package's `[<AutoOpen>]` modules (most
         // specific, e.g. `Vesper.ArithmeticOperators`) ahead of the namespaces its
-        // `[<assembly: AutoOpen("…")>]` attributes name.
+        // `[<assembly: AutoOpen("…")>]` attributes list.
         let ambient =
             [
                 for s in surfaces do

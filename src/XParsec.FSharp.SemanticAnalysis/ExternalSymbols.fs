@@ -235,9 +235,9 @@ module ScopeContents =
             | ValueNone -> ValueNone
         | _ -> scope.TryValue(ModuleContainer.InNamespace NamespaceKey.Global, written)
 
-    /// The container a written `open` path denotes, read first under `outer` — the containers
-    /// the `open`s and namespace headers ENCLOSING it denote, nearest first — then from the
-    /// root. `open Test.Lib` followed by `open A` gives `Test.Lib.A`.
+    /// The container a written `open` path denotes, read first under `outer` (the containers the
+    /// enclosing `open`s and namespace headers denote, nearest first), then from the root.
+    /// `open Test.Lib` followed by `open A` gives `Test.Lib.A`.
     let private prefixContainer
         (scope: IScopeContents)
         (outer: ModuleContainer list)
@@ -255,8 +255,7 @@ module ScopeContents =
 
     /// The containers a BARE name is read against, in search order: the root namespace, the
     /// container each of `prefixes` denotes, then `implicitOpens`, deduplicated. A written
-    /// `open` shadows an implicit one, and `prefixes` repeats a path carried by both a
-    /// namespace header and an enclosing scope.
+    /// `open` shadows an implicit one.
     let openedContainers
         (scope: IScopeContents)
         (prefixes: string list)
@@ -401,9 +400,8 @@ type IExternalSymbolResolver =
     /// record-literal / record-pattern resolution intersects these sets to pin the type.
     abstract TryRecordsWithField: fieldName: string -> EqArray<ExternalRecordCandidate>
 
-    /// What this provider opens with no `open` written for it, OUTERMOST first: an
-    /// `[<AutoOpen>]` module follows the scope that holds it. `ScopeEntry.withAmbient` ranks
-    /// them, which for an `[<AutoOpen>]` is the rank of the `open` that activated it.
+    /// What this provider opens with no `open` written for it, OUTERMOST first: an `[<AutoOpen>]`
+    /// module follows the scope that holds it.
     abstract ImplicitOpens: ImplicitOpen list
 
 /// What the COMPILING TARGET lays out and encodes, which no `.fsi` can state: `int` is a

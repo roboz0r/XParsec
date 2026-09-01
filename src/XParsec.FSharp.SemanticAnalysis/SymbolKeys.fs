@@ -78,19 +78,17 @@ and ModuleKey =
 
     member this.Namespace: NamespaceKey = this.Container.Namespace
 
-/// A path in scope with no `open` written for it. The case records the construct that
-/// declared it, which is what fixes its reach.
+/// A path in scope with no `open` written for it.
 [<RequireQualifiedAccess>]
 type ImplicitOpen =
     /// `[<assembly: AutoOpen("…")>]`: in scope for every file compiled against the assembly.
     | AssemblyAutoOpen of ns: NamespaceKey
     /// `[<AutoOpen>]` on the module itself: in scope wherever its enclosing scope is open.
     | AutoOpen of md: ModuleKey
-    /// A file's own `namespace N` header, implicitly opened over that file's body alone.
-    /// Never crosses the assembly boundary.
+    /// A file's own `namespace N` header, implicitly opened over the file's body alone.
     | CurrentFileScope of ns: NamespaceKey
 
-    /// The scope a name it brings into view is read against.
+    /// The scope this open resolves names in.
     member this.Container: ModuleContainer =
         match this with
         | ImplicitOpen.AssemblyAutoOpen ns
@@ -143,7 +141,6 @@ module BindingRank =
 
     /// The offset a declaration of a `rec` scope enters at: after the scope's whole prelude,
     /// which FS3200 pins ahead of every declaration, so it outranks each same-scope `open`.
-    /// A contest across scopes is decided by `Depth` alone.
     let afterPrelude: int = System.Int32.MaxValue
 
     /// The offset of a declaration with no position of its own within a scope: below every
@@ -197,30 +194,23 @@ module ScopeEntry =
         | ScopeRoute.Opened rank -> rank
         | ScopeRoute.Ambient -> BindingRank.floor
 
-    /// The rank of the entry itself: what a declaration with no position of its own — every
-    /// declaration of another assembly — enters at, and the sort key of `bestFirst`.
-    ///
-    /// For a `Lexical` entry this is an approximation: the true rank of a declaration found
-    /// there depends on that declaration's own position, so an order built from this key
-    /// treats a same-depth `open` as outranking every lexical declaration. A consumer that
-    /// takes the first hit inherits that; one that must honour positions ranks each hit with
-    /// `rankOf` instead.
+    /// The rank of the entry itself, and the sort key of `bestFirst`: what a declaration with
+    /// no position of its own takes, every declaration of another assembly among them. A
+    /// `Lexical` entry ranks below a same-depth `open` here; use `rankOf` where positions matter.
     let rank (entry: ScopeEntry) : BindingRank = rankOf entry BindingRank.unpositioned
 
     /// The entries of `scopes`, best rank first: the search order for a lookup that takes
     /// the first hit rather than the highest-ranked one.
     let bestFirst (scopes: ScopeEntry list) : ScopeEntry list = scopes |> List.sortByDescending rank
 
-    /// `scopes` extended with what is in force with no `open` written for it, and ordered
-    /// best rank first with one entry per scope. An `[<AutoOpen>]` module enters where its
-    /// enclosing scope did, so the `open` that activates it shadows whatever is written above
-    /// that `open`; an assembly auto-open, a file's own `namespace` header and the root
-    /// namespace are the floor.
+    /// `scopes` extended with `implicitOpens`, best rank first, one entry per scope. An
+    /// `[<AutoOpen>]` module enters where its enclosing scope did; an assembly auto-open, a
+    /// file's own `namespace` header and the root namespace enter at the floor.
     let withAmbient (implicitOpens: ImplicitOpen list) (scopes: ScopeEntry list) : ScopeEntry list =
         let acc = ResizeArray<ScopeEntry> scopes
 
-        // The activating scope's best entry so far, which for a nested `[<AutoOpen>]` is an
-        // earlier entry of the loop below: `implicitOpens` runs outermost first.
+        // Reads `acc`, so a nested `[<AutoOpen>]` finds the entry its enclosing one added:
+        // `implicitOpens` runs outermost first.
         let routeOf (o: ImplicitOpen) : ScopeRoute =
             match o with
             | ImplicitOpen.AssemblyAutoOpen _
@@ -261,8 +251,7 @@ type UseSite =
     {
         Pos: SourcePos
         Container: ModuleContainer voption
-        /// Best rank first (`ScopeEntry.rank` order), one entry per container:
-        /// `ScopeEntry.withAmbient` is the sole producer.
+        /// Best rank first (`ScopeEntry.rank` order), one entry per container.
         Scopes: ScopeEntry list
     }
 

@@ -225,9 +225,9 @@ type PublishedSurface =
         /// producer cannot put a CAPABILITY interface here: it carries its platform name on
         /// its own identity and must stay OFF this axis.
         Intrinsics: IntrinsicTypeMap
-        /// What a consumer resolves through with no `open` of its own, OUTERMOST first: the
-        /// one table that is not key-ordered. `CurrentFileScope` never appears: a file's own
-        /// namespace header does not cross the assembly boundary.
+        /// What a consumer resolves through with no `open` of its own, OUTERMOST first rather
+        /// than key-ordered. `CurrentFileScope` never appears: a file's own namespace header
+        /// does not cross the assembly boundary.
         ImplicitOpens: EqArray<ImplicitOpen>
     }
 

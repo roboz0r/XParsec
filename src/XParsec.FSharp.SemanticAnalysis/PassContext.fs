@@ -171,15 +171,14 @@ type AttributeVerdict =
 
 type PassContextResolution =
     {
-        /// The `open`s written above the module element being analysed. `open` is
-        /// declaration-level, so this stays constant inside any one expression. Auto-opens
-        /// are absent: they are the resolver's, not this file's written scope.
+        /// The `open`s written above the module element being analysed, auto-opens excluded.
+        /// `open` is declaration-level, so this stays constant inside any one expression.
         mutable OpenScope: OpenScope
         /// The chain enclosing the element being analysed, set in lockstep with `OpenScope`.
         mutable EnclosingContainer: ModuleContainer voption
-        /// Every scope in force at the element being analysed — the enclosing module chain,
-        /// the `open`s resolved to the scopes they denote, and what is in scope with no `open`
-        /// written for it — best rank first. Set in lockstep with `OpenScope`.
+        /// Every scope in force at the element being analysed, best rank first: the enclosing
+        /// module chain, the `open`s resolved to the scopes they denote, and what is in scope
+        /// with no `open` written for it. Set in lockstep with `OpenScope`.
         mutable Scopes: ScopeEntry list
         /// The type parameters in scope, by source name. Anonymous typars (`_`) never
         /// enter it, because they are fresh per occurrence. Replaced only through
@@ -245,21 +244,19 @@ type PassContextResolution =
         /// declarations; `""` under no namespace) → its directly-declared `let` bindings.
         /// Whole-file, so a reader MUST honour `VisibleFrom`.
         LocalModulePaths: Dictionary<string, Dictionary<string, LocalModuleMember>>
-        /// The binding sites of the `let` group whose RHS the walk stands in, when the group
-        /// is not self-visible: a non-`rec` group's bindings scope below the group, so a
-        /// value read inside its own RHS skips them (`LocalScope.tryValue`). Empty
-        /// everywhere else.
+        /// The binding sites of the `let` group whose RHS the walk stands in, when the group is
+        /// not self-visible: a non-`rec` group's bindings scope below the group, so a value read
+        /// inside its own RHS skips them (`LocalScope.tryValue`). Empty everywhere else.
         mutable PendingBindings: Set<NodeKey>
         /// Keyed by a module-level `[<Literal>]` binding's pattern `NodeKey` (the
-        /// `LocalModuleMember.BindingSite` a value resolution yields): the RHS's folded
-        /// constant. Written at the binding's position in the registration scan, so a
-        /// reader above the binding misses.
+        /// `LocalModuleMember.BindingSite` a value resolution yields): the RHS's folded constant.
+        /// Written at the binding's position, so a reader above the binding misses.
         LiteralValues: SideTable<TConstValue>
     }
 
 module PassContextResolution =
-    /// `ambient` is the floor of `Scopes` until the walk enters an element, and stays its
-    /// tail after: a read outside any walked element still sees what needs no `open`.
+    /// Seeds `Scopes` with `ambient` alone, so a read outside any walked element still resolves
+    /// through what needs no `open`. Entering an element replaces it.
     let create (ambient: ScopeEntry list) : PassContextResolution =
         {
             OpenScope = OpenScope.empty
@@ -353,12 +350,10 @@ type PassContext(provider: IExternalSymbolProvider, file: LexedFile, assembly: C
     /// comparable), resolved once from contract names, so no BCL identity is hardcoded.
     member val CapabilityIds = ExternalSymbols.resolveCapabilities provider with get
 
-    /// What is in scope with no `open` written for it, contributed by the resolver's whole
-    /// reference set.
+    /// What is in scope with no `open` written for it, across the resolver's whole reference set.
     member _.ImplicitOpens: ImplicitOpen list = provider.ImplicitOpens
 
-    /// Resolved ONCE against the implicitly opened scope: the names are opens-insensitive, so
-    /// it hits what a per-node resolve would. `lazy`, so a file with no such access pays nothing.
+    /// Resolved ONCE against the implicitly opened scope; these names are opens-insensitive.
     member val CoreAccess: Lazy<CoreAccessIntrinsics> =
         lazy
             (let containers =
@@ -403,12 +398,9 @@ type PassContext(provider: IExternalSymbolProvider, file: LexedFile, assembly: C
 
     member val Types = types with get
 
-    /// The binding sites of the synthetic `base` variable of every class declaring an
-    /// `inherit`. A `TExpr.Var` at one of these is a `base.M(…)` object argument. `lazy`: the
-    /// first read must come after `fillGroupBaseTypes` filled each class's `BaseType`, which is
-    /// later than the class's own registration. Elaborate is the only reader, and an earlier one
-    /// memoises an empty set, turning every `base.M()` into a `Self` call — which is what the
-    /// "`base.M ()` carries CallVia.Base" coverage test would catch.
+    /// The binding sites of the synthetic `base` variable of every class declaring an `inherit`; a
+    /// `TExpr.Var` at one is a `base.M(…)` object argument. A read before `fillGroupBaseTypes`
+    /// memoises an empty set, turning every `base.M()` into a `Self` call ("`base.M ()` carries CallVia.Base").
     member val BaseBoundVars: Lazy<HashSet<NodeKey>> =
         lazy
             (let acc = HashSet<NodeKey>()
@@ -428,10 +420,9 @@ type PassContext(provider: IExternalSymbolProvider, file: LexedFile, assembly: C
     /// provider is round-tripped per node. A non-intrinsic key caches its own identity.
     member val IntrinsicCanonCache = Dictionary<TypeKey, TypeKey>() with get
 
-    /// The intrinsic axis this file analyses under: its OWN `(# … #)` declarations shadowing
-    /// the provider's, per canon, so a local `int` hides the provider's `int` and leaves its
-    /// `float` alone. `lazy`: the first read must come AFTER name resolution filled
-    /// `IntrinsicBindings`.
+    /// The intrinsic axis this file analyses under: its OWN `(# … #)` declarations shadowing the
+    /// provider's, per canon, so a local `int` hides the provider's `int` and leaves its `float`
+    /// alone. `lazy`: the first read must come AFTER name resolution filled `IntrinsicBindings`.
     member val IntrinsicTypeMap: Lazy<IntrinsicTypeMap> =
         lazy (IntrinsicTypeMap.shadow (IntrinsicTypeMap.ofBindings types.IntrinsicBindings) provider.IntrinsicTypeMap) with get
 

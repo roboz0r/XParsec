@@ -34,9 +34,8 @@ module AssemblyAnalysis =
         | _ -> []
 
 
-    /// Every module element of an implementation file that may carry attributes at the top
-    /// level of its namespace or module, which is where an assembly-targeted attribute is
-    /// written.
+    /// The attribute sets on top-level `do` and `let` elements of an implementation file, the
+    /// only elements F# accepts an assembly-targeted attribute on.
     let private topLevelAttributes (file: ImplementationFile<SyntaxToken>) : Attributes<SyntaxToken> list =
         let elems (es: ModuleElems<SyntaxToken>) =
             [
@@ -58,12 +57,9 @@ module AssemblyAnalysis =
         | ImplementationFile.NamedModule(NamedModule.NamedModule(elements = es)) -> elems es
         | ImplementationFile.AnonymousModule es -> elems es
 
-    /// The namespaces `[<assembly: AutoOpen("…")>]` opens over every file compiled against
-    /// this assembly, its own included.
-    ///
-    /// Recognition is on the WRITTEN attribute name under F#'s `Attribute`-suffix rule, and
-    /// the path is taken as written. This runs ahead of every file of the assembly, so the
-    /// assembly declaring `AutoOpenAttribute` reaches its own prelude.
+    /// The namespaces `[<assembly: AutoOpen("…")>]` opens over every file compiled against this
+    /// assembly, its own included. Recognition is on the WRITTEN attribute name under F#'s
+    /// `Attribute`-suffix rule, and the path is taken as written.
     let assemblyAutoOpens (lexed: Lexed) (file: ImplementationFile<SyntaxToken>) : ImplicitOpen list =
         let nameOf = SyntaxToken.nameIn lexed
 
@@ -74,7 +70,7 @@ module AssemblyAnalysis =
                         match target with
                         | ValueSome(AttributeTarget.Assembly _, _) ->
                             match AttributeDecode.writtenTypeRef construction with
-                            | ValueSome typeRef when AttributeDecode.namesAutoOpen nameOf typeRef.LongIdent ->
+                            | ValueSome typeRef when AttributeDecode.isWrittenAutoOpen nameOf typeRef.LongIdent ->
                                 match AttributeDecode.tryStringArgument nameOf construction with
                                 | ValueSome path when path.Length > 0 -> SymbolKeyOps.assemblyAutoOpen path
                                 | _ -> ()
@@ -94,9 +90,9 @@ module AssemblyAnalysis =
         /// axis published so far to the platform metadata a BODY analyses over.
         | AcrossAssemblies of bodyExternal: (IntrinsicTypeMap -> IExternalSymbolProvider)
 
-    /// The assembly's OWN `[<assembly: AutoOpen("…")>]` namespaces as a source, serving no
-    /// symbols itself. The FLOOR of the visibility stack: a file resolves its own assembly's
-    /// prelude whether or not the declaring file has been analysed yet.
+    /// The assembly's OWN `[<assembly: AutoOpen("…")>]` namespaces as a source, carrying no
+    /// symbols. The FLOOR of the visibility stack: a file resolves its own assembly's prelude
+    /// whether or not the declaring file has been analysed yet.
     let private ownAutoOpens (autoOpens: ImplicitOpen list) : IExternalSymbolProvider =
         ExternalSymbolProviders.stack ValueNone autoOpens []
 
@@ -177,9 +173,9 @@ module AssemblyAnalysis =
             /// head. Composing the whole list gives the assembly-wide domain; a unit itself
             /// resolved only the views following its own.
             Published: IExternalSymbolProvider list
-            /// The namespaces the assembly's own `[<assembly: AutoOpen("…")>]` attributes
-            /// name, which its files were analysed under and a consumer inherits. Every
-            /// entry is an `ImplicitOpen.AssemblyAutoOpen`.
+            /// The namespaces this assembly's `[<assembly: AutoOpen("…")>]` attributes list:
+            /// its files were analysed under them and a consumer inherits them. Every entry is
+            /// an `ImplicitOpen.AssemblyAutoOpen`.
             AutoOpens: ImplicitOpen list
         }
 
@@ -349,8 +345,7 @@ module AssemblyAnalysis =
             ]
             |> List.distinct
 
-        // The units' published views so far, NEAREST first; `external` and the assembly's own
-        // prelude are the floor beneath them.
+        // The units' published views so far, NEAREST first.
         let mutable own: IExternalSymbolProvider list = []
 
         let signatureFloor () = visibility autoOpens external own

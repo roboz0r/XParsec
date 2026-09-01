@@ -10,8 +10,7 @@ type LocalModuleMember =
         IsMutable: bool
         VisibleFrom: int
         /// WHERE the binding enters the name environment within its depth: its own pattern
-        /// offset, except under `rec`, where it enters after the scope's whole prelude
-        /// (`BindingRank.afterPrelude`) and so outranks each same-scope `open`.
+        /// offset, or `BindingRank.afterPrelude` under `rec`.
         EntersAt: int
     }
 

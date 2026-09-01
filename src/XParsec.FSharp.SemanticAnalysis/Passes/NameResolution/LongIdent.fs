@@ -379,16 +379,14 @@ module NameResolutionLongIdent =
                         | ValueNone -> ()
             ]
 
-    /// The winning module-level value for the bare `name` at `useSite`: the first rung of
-    /// the single-ident ladder, and the environment a walk-bound name is absent from.
+    /// The winning module-level value for the bare `name` at `useSite`.
     let valueInEnv (ctx: PassContext) (useSite: UseSite) (name: string) : ResolvedValue voption =
         match rankedValueInEnv ctx useSite name with
         | ValueSome(struct (_, v)) -> ValueSome v
         | ValueNone -> ValueNone
 
-    /// Every claim on the bare case `name` at `useSite`, each with the rank the union
-    /// declaring it enters at. `[<RequireQualifiedAccess>]` cases are absent: a bare spelling
-    /// never reaches one.
+    /// Every claim on the bare case `name` at `useSite`, each with the rank the union declaring
+    /// it enters at. `[<RequireQualifiedAccess>]` cases are excluded.
     let private rankedCasesInEnv
         (ctx: PassContext)
         (useSite: UseSite)

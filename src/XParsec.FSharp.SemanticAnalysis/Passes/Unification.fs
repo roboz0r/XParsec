@@ -817,8 +817,7 @@ module Unification =
             checkHost kv.Value.TypeParams kv.Value.Members
 
     let run (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : unit =
-        // Recompute the same per-element `OpenScope` NameResolution did, from the same empty
-        // seed (not the per-element `OpenScope` the walk mutates).
+        // Recompute the same per-element `OpenScope` NameResolution did, from the same empty seed.
         walkElems ctx (CstModuleTree.walkImpl ctx.NameOf OpenScope.empty file)
         resolveListLiterals ctx
         UnificationInferGeneralize.applyDefaultsTo ctx.Store ctx.FormatHoles

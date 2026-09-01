@@ -138,10 +138,8 @@ module NameResolution =
         for f in w.InstanceFields do
             declareField f.Name f.DeclSite.Tok
 
-        // The enclosing module's value bindings are visible unqualified to every member
-        // body of a type nested in that module (F# spec §8.7). They resolve through the
-        // ranked environment (`LocalModulePaths`), honouring each binding's `VisibleFrom`
-        // against the member body's own offset, so no scope layer carries them here.
+        // The enclosing module's value bindings reach every member body of a type nested in
+        // that module (F# spec §8.7), through the ranked environment (`LocalModulePaths`).
 
         /// Declare one preamble `let` bound variable: its binding site, its field, and the FS0905 check.
         let declarePreambleBoundVar (l: ClassLetInfo) =
@@ -435,8 +433,7 @@ module NameResolution =
         | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(isRec = isRec; bindings = bindings)) ->
             let isRecursive = isRec.IsSome
 
-            // A non-`rec` group outside a `rec` scope scopes its bindings below the group:
-            // a read inside its own RHSs must not resolve to them.
+            // A non-`rec` group outside a `rec` scope scopes its bindings below the group.
             if not (isRecursive || recScope.IsSome) then
                 ctx.Resolution.PendingBindings <-
                     Set.ofList
@@ -454,9 +451,8 @@ module NameResolution =
 
             ctx.Resolution.PendingBindings <- Set.empty
 
-            // A module-level binding resolves through the ranked environment
-            // (`LocalModulePaths`); only the binding-site self-entries and the pattern
-            // stamps are written here.
+            // The returned scope is discarded: a module-level binding resolves through the
+            // ranked environment (`LocalModulePaths`), not a lexical one.
             bindingsToScope ctx bindings |> ignore<Scope>
         | ModuleElem.Expression e -> CstWalk.iterExpr walker [] e
         | _ -> ()
@@ -494,9 +490,7 @@ module NameResolution =
             walkNominalBodies ctx walker w.Elem
 
         // Module-level VALUES, in declaration order. Each RHS walks with only its own
-        // expression scope: the bindings themselves resolve through `LocalModulePaths`,
-        // which `registerLocalModules` filled with each binding's visibility (including the
-        // `rec`-scope hoist) and rank.
+        // expression scope; the bindings resolve through `LocalModulePaths`.
         for w in elems do
             ctx.EnterElement w
             walkModuleElem ctx walker w.RecScopeOffset w.Elem
@@ -576,6 +570,5 @@ module NameResolution =
         // Capture local-module structure before the flattened walk erases it.
         registerLocalModules ctx file
         let walker = mkWalker ctx
-        // Seeded empty, not from `ctx.Resolution.OpenScope`, which `walkElems` overwrites per
-        // element. Auto-opens are not written scope: they sit on the resolver.
+        // `walkElems` sets the per-element `OpenScope`, so the seed is empty.
         walkElems ctx walker (CstModuleTree.walkImpl ctx.NameOf OpenScope.empty file)

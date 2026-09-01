@@ -213,7 +213,7 @@ module SymbolKeyOps =
     /// `namespace Vesper` + `module Collections`, named SEPARATELY, so no dotted string to cut.
     let moduleInNamespace (dottedNs: string) (name: string) : ModuleKey = moduleKeyOf (inNamespace dottedNs) name
 
-    /// The namespace an `[<assembly: AutoOpen("Vesper.Collections")>]` names.
+    /// The namespace an `[<assembly: AutoOpen("Vesper.Collections")>]` opens.
     let assemblyAutoOpen (dottedNs: string) : ImplicitOpen =
         ImplicitOpen.AssemblyAutoOpen(namespaceKey dottedNs)
 

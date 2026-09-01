@@ -113,9 +113,8 @@ module AttributeDecode =
         | Expr.Const(Constant.Literal tok) -> ValueSome((nameOf tok).Trim([| '"' |]))
         | _ -> ValueNone
 
-    /// The text of an attribute's single string-literal argument, for a reader working from
-    /// the CST alone. `ValueNone` when the construction takes no argument or its argument is
-    /// not a string literal.
+    /// The text of an attribute's single string-literal argument. `ValueNone` when the
+    /// construction takes no argument or its argument is not a string literal.
     let tryStringArgument (nameOf: SyntaxToken -> string) (oc: ObjectConstruction<SyntaxToken>) : string voption =
         constructionExpr oc |> ValueOption.bind (stringArgText nameOf)
 
@@ -170,10 +169,8 @@ module AttributeDecode =
     let isAutoOpen (attrs: ResolvedAttributes) : bool =
         attrs.Has RuntimeNames.autoOpenAttributeKey
 
-    /// True iff the WRITTEN attribute name is `AutoOpen`, under F#'s `Attribute`-suffix
-    /// rule: the read the assembly-level scan makes, which runs ahead of any attribute
-    /// resolution.
-    let namesAutoOpen (nameOf: SyntaxToken -> string) (li: LongIdent<SyntaxToken>) : bool =
+    /// True iff the WRITTEN attribute name is `AutoOpen`, under F#'s `Attribute`-suffix rule.
+    let isWrittenAutoOpen (nameOf: SyntaxToken -> string) (li: LongIdent<SyntaxToken>) : bool =
         match li.Idents.Length with
         | 0 -> false
         | n ->

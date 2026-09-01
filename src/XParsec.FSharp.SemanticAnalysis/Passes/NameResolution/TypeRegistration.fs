@@ -255,10 +255,9 @@ module NameResolutionTypeRegistration =
                 | ValueNone -> ()
         | _ -> ()
 
-    /// The placement every claim of one `type … and …` group shares: visible from the
-    /// enclosing `rec` scope's keyword — else the group's own first token, so a use above the
-    /// group cannot see it and everything the group writes can — and entering after the
-    /// scope's prelude under `rec`, else at that same token.
+    /// The placement every claim of one `type … and …` group shares. Visible from the enclosing
+    /// `rec` scope's keyword, else the group's own first token; entering after the scope's
+    /// prelude under `rec`, else at that same token.
     let typeGroupPlacement
         (recScopeOffset: int voption)
         (defs: ImmutableArray<TypeDefn<SyntaxToken>>)
@@ -529,9 +528,8 @@ module NameResolutionTypeRegistration =
         | ValueNone -> ValueNone
         | ValueSome kind -> claimTypeName ctx c placement (SigDecl.typeName decl) kind
 
-    /// `typeGroupPlacement` for a signature group: the first declaration's attributes
-    /// precede the `type` keyword, and an attribute of the group may reference a member of
-    /// the group, so the earlier of the two tokens wins.
+    /// `typeGroupPlacement` for a signature group, taking the earlier of `kw` and the first
+    /// declaration's attribute token: an attribute may reference a member of the group.
     let sigGroupPlacement (recScopeOffset: int voption) (kw: SyntaxToken) (decls: SigDecl list) : ClaimPlacement =
         match recScopeOffset with
         | ValueSome offset ->
