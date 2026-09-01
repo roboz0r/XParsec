@@ -212,19 +212,19 @@ printfn \"%d\" n
             test "two files run: file 2 boxes a value into file 1's obj union case field (cross-file box)" {
                 // `Wrap 7` type-checks into file 1's `Wrap of obj` cross-file; codegen must
                 // then box it. A missing box is invalid IL that fails to load, so a clean
-                // unbox round-trip proves the cross-file box fires. Namespace-level, not
-                // module-held: a bare case of a module-held union does not yet resolve
-                // cross-file.
+                // unbox round-trip proves the cross-file box fires. Module-held, so the
+                // bare case also exercises the cross-file `open`-scope resolution.
                 let file1 =
                     "\
 namespace CrossFile
 
-type Holder = Wrap of obj
+module Lib =
+    type Holder = Wrap of obj
 "
 
                 let file2 =
                     "\
-open CrossFile
+open CrossFile.Lib
 
 let w = Wrap 7
 
