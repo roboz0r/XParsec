@@ -402,6 +402,9 @@ module FrozenCodecDiagnostics =
         | Kind.UnresolvedQualifiedName name ->
             w.Write 7uy
             w.Write name
+        | Kind.AbbreviatedNamespace path ->
+            w.Write 58uy
+            w.Write path
         | Kind.OperatorFormQualifiedName firstSegment ->
             w.Write 8uy
             w.Write firstSegment
@@ -587,6 +590,7 @@ module FrozenCodecDiagnostics =
             let expected = r.ReadInt32()
             Kind.TypeArgArity(name, expected, r.ReadInt32())
         | 7uy -> Kind.UnresolvedQualifiedName(r.ReadString())
+        | 58uy -> Kind.AbbreviatedNamespace(r.ReadString())
         | 8uy -> Kind.OperatorFormQualifiedName(r.ReadString())
         | 9uy -> Kind.UndefinedPatternDiscriminator(r.ReadString())
         | 10uy ->

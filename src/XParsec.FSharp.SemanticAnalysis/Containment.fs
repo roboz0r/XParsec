@@ -14,6 +14,8 @@ module Containment =
     type private EnclosingScope =
         {
             Container: ModuleContainer
+            /// Where the scope's own NAME enters the environment of the scope declaring it.
+            VisibleFrom: int
             /// The dotted path a local `open` writes for the scope (`List`).
             SourcePath: string
             /// The class name the module emits as, where that differs from the name its source
@@ -56,6 +58,7 @@ module Containment =
             scopes.Add
                 {
                     Container = container
+                    VisibleFrom = BindingRank.unpositioned
                     SourcePath = path
                     CompiledName = ValueNone
                     IsAutoOpen = false
@@ -71,6 +74,7 @@ module Containment =
                 scopes.Add
                     {
                         Container = container
+                        VisibleFrom = md.ModuleToken.StartIndex
                         SourcePath = path
                         CompiledName = CompiledName.OfPair(src, compiled)
                         IsAutoOpen = AttributeDecode.isAutoOpen attrs
@@ -99,12 +103,23 @@ module Containment =
 
         /// Enter a module containment: sets and returns the chain a by-name read from inside
         /// resolves against. Every enclosing scope is noted under the SOURCE path an `open`
-        /// writes it as, with the compiled class name of each module that has one.
-        member this.EnterContainment(c: DeclContainment<SyntaxToken>) : ModuleContainer =
+        /// writes it as, with the compiled class name of each module that has one. `recScope`
+        /// is the innermost enclosing `rec` scope's keyword offset, which hoists a module
+        /// declared inside it to the top of that scope.
+        member this.EnterContainment(c: DeclContainment<SyntaxToken>, recScope: int voption) : ModuleContainer =
             let enclosing = this.EnclosingChainOf c
 
             for scope in enclosing.Scopes do
-                TypeRegistry.noteLocalContainer this.Types scope.SourcePath scope.Container
+                TypeRegistry.noteLocalContainer
+                    this.Types
+                    scope.SourcePath
+                    {
+                        Container = scope.Container
+                        VisibleFrom =
+                            match recScope with
+                            | ValueSome off -> min off scope.VisibleFrom
+                            | ValueNone -> scope.VisibleFrom
+                    }
 
                 match scope.Container with
                 | ModuleContainer.InModule m ->
@@ -119,12 +134,13 @@ module Containment =
             this.Resolution.EnclosingContainer <- ValueSome enclosing.Chain
             enclosing.Chain
 
-        /// The scopes in force at an element whose enclosing chain is `chain`: the `open`s
-        /// written above it, the chain and each scope enclosing it, then what is in scope with
-        /// no `open` written for it, best rank first. A scope reached twice keeps its best rank.
-        member private this.ScopeStackOf(chain: ModuleContainer, opens: LocalOpen list) : ScopeEntry list =
+        /// The scopes in force at an element whose enclosing chain is `chain`: the resolved
+        /// `open`s written above it, the chain and each scope enclosing it, then what is in
+        /// scope with no `open` written for it, best rank first. A scope reached twice keeps
+        /// its best rank.
+        member private this.ScopeStackOf(chain: ModuleContainer, opens: ScopeEntry list) : ScopeEntry list =
             [
-                yield! TypeRegistry.resolveOpens this.Types this.Resolver.Scope opens
+                yield! opens
 
                 for h in chain.SelfAndAncestors do
                     {
@@ -134,10 +150,31 @@ module Containment =
             ]
             |> ScopeEntry.withAmbient this.ImplicitOpens
 
-        /// Enter a walked module element, advancing both ambient facts a by-name read resolves
-        /// against: the `open`s in scope and the module chain. The `open`s resolve after the
-        /// element's own chain is registered.
+        /// Enter a walked module element, advancing every ambient fact a by-name read resolves
+        /// against: the `open`s in scope, the module chain and the aliases in force. The `open`s
+        /// resolve after the element's own chain is registered.
         member this.EnterElement(w: WalkedIn<SyntaxToken, 'Elem>) : unit =
             this.Resolution.OpenScope <- w.Scope
-            let chain = this.EnterContainment w.Containment
-            this.Resolution.Scopes <- this.ScopeStackOf(chain, w.Scope.Locals)
+            let chain = this.EnterContainment(w.Containment, w.RecScopeOffset)
+            let env = TypeRegistry.resolveScopeDecls this.Types this.Resolver.Scope w.Scope
+            this.Resolution.Scopes <- this.ScopeStackOf(chain, env.Opens)
+            this.Resolution.Abbrevs <- env.Aliases
+
+        /// Report `abbrev`, written at `containment`, unless its target is a module: FS0039 for
+        /// a target that reaches nothing, FS0965 for a namespace. The target reads only the
+        /// declarations above the abbreviation, and needs `EnterElement` on the abbreviation
+        /// to have run first.
+        member this.ReportAbbrevTarget(containment: DeclContainment<SyntaxToken>, abbrev: ModuleAbbrev<SyntaxToken>) =
+            match CstModuleTree.localAbbrev this.NameOf containment abbrev with
+            | ValueNone -> ()
+            | ValueSome a ->
+                let target =
+                    TypeRegistry.resolveAbbrevTargetAt this.Types this.Resolver.Scope this.Resolution.OpenScope a
+
+                let (ModuleAbbrev.ModuleAbbrev(longIdent = li)) = abbrev
+
+                match target with
+                | TypeRegistry.AbbrevTarget.Module _ -> ()
+                | TypeRegistry.AbbrevTarget.Namespace -> this.Report(li.Idents.[0], Kind.AbbreviatedNamespace a.Path)
+                | TypeRegistry.AbbrevTarget.Unresolved ->
+                    this.Report(li.Idents.[0], Kind.UnresolvedQualifiedName a.Path)

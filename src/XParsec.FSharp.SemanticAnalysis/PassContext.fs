@@ -174,6 +174,10 @@ type PassContextResolution =
         /// The `open`s written above the module element being analysed, auto-opens excluded.
         /// `open` is declaration-level, so this stays constant inside any one expression.
         mutable OpenScope: OpenScope
+        /// The module abbreviations in force at the element being analysed, alias → the module
+        /// it binds and where the alias enters the name environment. Set in lockstep with
+        /// `OpenScope`.
+        mutable Abbrevs: Map<string, ScopeEntry>
         /// The chain enclosing the element being analysed, set in lockstep with `OpenScope`.
         mutable EnclosingContainer: ModuleContainer voption
         /// Every scope in force at the element being analysed, best rank first: the enclosing
@@ -259,6 +263,7 @@ module PassContextResolution =
     let create (ambient: ScopeEntry list) : PassContextResolution =
         {
             OpenScope = OpenScope.empty
+            Abbrevs = Map.empty
             EnclosingContainer = ValueNone
             Scopes = ambient
             PendingBindings = Set.empty

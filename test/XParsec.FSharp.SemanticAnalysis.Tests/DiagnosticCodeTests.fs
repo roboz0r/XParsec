@@ -43,6 +43,8 @@ let tests =
                         Kind.NoCase(CaseOwner.Union, "Shape", "Blob"), DiagCode.FSharp 39
                         Kind.UnknownNominalType(NominalKind.Record, "R"), DiagCode.FSharp 39
                         Kind.UnresolvedQualifiedName "A.B.c", DiagCode.FSharp 39
+                        // `tcModuleAbbreviationForNamespace`
+                        Kind.AbbreviatedNamespace "System.Collections", DiagCode.FSharp 965
                         // `TyconBadArgs`
                         Kind.TypeArgArity("Map", 2, 1), DiagCode.FSharp 33
                         // `UnionCaseWrongArguments`

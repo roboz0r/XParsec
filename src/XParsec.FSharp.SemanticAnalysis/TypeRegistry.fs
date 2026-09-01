@@ -74,6 +74,17 @@ module KindRegistry =
             Names = Dictionary<_, _>()
         }
 
+/// A module or namespace THIS FILE declares, and where its name enters the environment of the
+/// scope declaring it. A namespace has no position of its own and takes
+/// `BindingRank.unpositioned`; a module takes its `module` keyword, hoisted to the enclosing
+/// `rec` scope's keyword where there is one.
+[<Struct>]
+type LocalContainer =
+    {
+        Container: ModuleContainer
+        VisibleFrom: int
+    }
+
 type PassContextTypes =
     {
         /// Field types are RESOLVED at registration, against the types in scope at the declaration.
@@ -114,7 +125,7 @@ type PassContextTypes =
         TypeClaims: Dictionary<string, ResizeArray<TypeIdentity>>
         /// The module / namespace scopes this file DECLARES, keyed by the dotted SOURCE path an
         /// `open` writes (`"N"`, `"N.A"`).
-        LocalContainers: Dictionary<string, ModuleContainer>
+        LocalContainers: Dictionary<string, LocalContainer>
         /// The modules this file declares whose compiled class name differs from the name their
         /// source writes (`List` ⇒ `ListModule`). A module absent here compiles under its
         /// source name.
@@ -191,12 +202,27 @@ module TypeRegistry =
     // F# adds each declaration and each `open` to the name environment in source order, last
     // wins. `claimRank` is that ordering; MAX over a candidate set is the rule.
 
-    /// The scope the dotted SOURCE `path` reaches when written INSIDE `enclosing`, and `enclosing`
-    /// itself for an empty path. An EXACT descent, no walking outward.
+    /// The module or namespace `name` THIS FILE declares directly in `enclosing`, with where
+    /// its name enters the environment.
+    let tryLocalSubContainer
+        (types: PassContextTypes)
+        (enclosing: ModuleContainer)
+        (name: string)
+        : LocalContainer voption =
+        let qualified = SymbolKeyOps.qualify (SymbolKeyOps.containerFullName enclosing) name
+
+        match types.LocalContainers.TryGetValue qualified with
+        | true, lc -> ValueSome lc
+        | false, _ -> ValueNone
+
+    /// The scope the dotted SOURCE `path` reaches when written INSIDE `enclosing` at offset
+    /// `at`, and `enclosing` itself for an empty path. An EXACT descent, no walking outward.
+    /// A module of this file declared below `at` is out of scope there.
     let tryContainerUnder
         (types: PassContextTypes)
         (enclosing: ModuleContainer)
         (path: string)
+        (at: int)
         : ModuleContainer voption =
         if path.Length = 0 then
             ValueSome enclosing
@@ -204,36 +230,39 @@ module TypeRegistry =
             let qualified = SymbolKeyOps.qualify (SymbolKeyOps.containerFullName enclosing) path
 
             match types.LocalContainers.TryGetValue qualified with
-            | true, h -> ValueSome h
-            | false, _ -> ValueNone
+            | true, lc when lc.VisibleFrom <= at -> ValueSome lc.Container
+            | _ -> ValueNone
 
-    /// The scope the dotted SOURCE `path` denotes directly under `c`, this file's own
-    /// declarations first, then the referenced surfaces.
+    /// The scope the dotted SOURCE `path` denotes directly under `c` at offset `at`, this
+    /// file's own declarations first, then the referenced surfaces.
     let private tryDescend
         (types: PassContextTypes)
         (scope: IScopeContents)
         (c: ModuleContainer)
         (path: string)
+        (at: int)
         : ModuleContainer voption =
-        match tryContainerUnder types c path with
+        match tryContainerUnder types c path at with
         | ValueSome sub -> ValueSome sub
         | ValueNone -> scope.TryContainer(SymbolKeyOps.qualify (SymbolKeyOps.containerFullName c) path)
 
-    /// The scope the dotted SOURCE `path` denotes as written inside the scope whose own source
-    /// path is `under`: `under.path` first, then ever-shorter prefixes, then the root. Each
-    /// candidate reads this file's own declarations first, then the referenced surfaces.
+    /// The scope the dotted SOURCE `path` denotes as written at offset `at` inside the scope
+    /// whose own source path is `under`: `under.path` first, then ever-shorter prefixes, then
+    /// the root. Each candidate reads this file's own declarations first, then the referenced
+    /// surfaces.
     let private tryContainerOfPath
         (types: PassContextTypes)
         (scope: IScopeContents)
         (under: string)
         (path: string)
+        (at: int)
         : ModuleContainer voption =
         let rec go (under: string) =
             let qualified = SymbolKeyOps.qualify under path
 
             match types.LocalContainers.TryGetValue qualified with
-            | true, h -> ValueSome h
-            | false, _ ->
+            | true, lc when lc.VisibleFrom <= at -> ValueSome lc.Container
+            | _ ->
                 match scope.TryContainer qualified with
                 | ValueSome h -> ValueSome h
                 | ValueNone ->
@@ -245,39 +274,136 @@ module TypeRegistry =
 
         go under
 
-    /// The `open`s written above one module element, innermost-first, each resolved to the scope
-    /// it denotes and stamped with the rank it enters at. An unresolvable `open` is dropped. A
-    /// relative `open` reads under the `open`s enclosing it, nearest first, before its own scope.
-    let resolveOpens (types: PassContextTypes) (scope: IScopeContents) (opens: LocalOpen list) : ScopeEntry list =
-        let rec go (opens: LocalOpen list) : ScopeEntry list =
-            match opens with
-            | [] -> []
-            | o :: rest ->
-                let outer = go rest
+    /// The scope a dotted SOURCE `path` written at offset `at` in the scope `under` denotes,
+    /// read under each of the `outer` scopes in turn and then through `under`'s own enclosing
+    /// chain: the search an `open` and a module abbreviation share.
+    let private tryReachFrom
+        (types: PassContextTypes)
+        (scope: IScopeContents)
+        (outer: ScopeEntry list)
+        (under: string)
+        (path: string)
+        (at: int)
+        : ModuleContainer voption =
+        let rec go (entries: ScopeEntry list) =
+            match entries with
+            | [] -> tryContainerOfPath types scope under path at
+            | e :: more ->
+                match tryDescend types scope e.Container path at with
+                | ValueSome sub -> ValueSome sub
+                | ValueNone -> go more
 
-                let rec underOuter (entries: ScopeEntry list) =
-                    match entries with
-                    | [] -> tryContainerOfPath types scope o.Scope o.Path
-                    | e :: more ->
-                        match tryDescend types scope e.Container o.Path with
-                        | ValueSome sub -> ValueSome sub
-                        | ValueNone -> underOuter more
+        go outer
 
-                match underOuter outer with
+    /// The environment one element's written `open`s and module abbreviations build.
+    [<NoComparison>]
+    type ScopeEnv =
+        {
+            /// Each `open` resolved to the scope it denotes, innermost-first, stamped with
+            /// the rank it enters at. An unresolvable `open` is dropped.
+            Opens: ScopeEntry list
+            /// Alias → the module it binds and where the alias enters the name environment.
+            /// A refused abbreviation binds nothing.
+            Aliases: Map<string, ScopeEntry>
+        }
+
+    /// Where a module abbreviation's written target lands. An abbreviation binds a MODULE, so a
+    /// namespace target and a target that reaches nothing are both refused at the declaration.
+    [<RequireQualifiedAccess; Struct; NoComparison>]
+    type AbbrevTarget =
+        | Module of container: ModuleContainer
+        | Namespace
+        | Unresolved
+
+    /// Where `a`'s written target lands, read from `env`: the aliases in it, then the `open`s
+    /// in it, then `a`'s own scope's enclosing chain.
+    let private resolveAbbrevTarget
+        (types: PassContextTypes)
+        (scope: IScopeContents)
+        (env: ScopeEnv)
+        (a: LocalAbbrev)
+        : AbbrevTarget =
+        let dot = a.Path.IndexOf '.'
+
+        let viaAlias =
+            let anchor = if dot < 0 then a.Path else a.Path.Substring(0, dot)
+
+            match Map.tryFind anchor env.Aliases with
+            | Some e ->
+                let rest = if dot < 0 then "" else a.Path.Substring(dot + 1)
+                tryDescend types scope e.Container rest a.Offset
+            | None -> ValueNone
+
+        let found =
+            match viaAlias with
+            | ValueSome c -> ValueSome c
+            | ValueNone -> tryReachFrom types scope env.Opens a.Scope a.Path a.Offset
+
+        match found with
+        | ValueNone -> AbbrevTarget.Unresolved
+        | ValueSome(ModuleContainer.InNamespace _) -> AbbrevTarget.Namespace
+        | ValueSome c -> AbbrevTarget.Module c
+
+    /// The environment `decls` builds, each declaration resolved oldest-first against the
+    /// environment above it: a relative `open` reads under the `open`s enclosing it before its
+    /// own scope, and an abbreviation's target reads the aliases and `open`s above it.
+    let resolveScopeDecls (types: PassContextTypes) (scope: IScopeContents) (decls: LocalScopeDecl list) : ScopeEnv =
+        let mutable env = { Opens = []; Aliases = Map.empty }
+
+        for d in List.rev decls do
+            match d with
+            | LocalScopeDecl.Open o ->
+                match tryReachFrom types scope env.Opens o.Scope o.Path o.Offset with
                 | ValueSome c ->
-                    {
-                        Container = c
-                        Route =
-                            ScopeRoute.Opened
+                    env <-
+                        { env with
+                            Opens =
                                 {
-                                    Depth = o.ScopeDepth
-                                    Offset = o.Offset
+                                    Container = c
+                                    Route =
+                                        ScopeRoute.Opened
+                                            {
+                                                Depth = o.ScopeDepth
+                                                Offset = o.Offset
+                                            }
                                 }
-                    }
-                    :: outer
-                | ValueNone -> outer
+                                :: env.Opens
+                        }
+                | ValueNone -> ()
+            | LocalScopeDecl.Abbrev a ->
+                match resolveAbbrevTarget types scope env a with
+                | AbbrevTarget.Module c ->
+                    env <-
+                        { env with
+                            Aliases =
+                                Map.add
+                                    a.Alias
+                                    {
+                                        Container = c
+                                        Route =
+                                            ScopeRoute.Opened
+                                                {
+                                                    Depth = a.ScopeDepth
+                                                    Offset = a.Offset
+                                                }
+                                    }
+                                    env.Aliases
+                        }
+                | AbbrevTarget.Namespace
+                | AbbrevTarget.Unresolved -> ()
 
-        go opens
+        env
+
+    /// Where `a`'s written target lands, read from the `decls` above it. Positional in a `rec`
+    /// scope too: F# resolves a module abbreviation top-down even there.
+    let resolveAbbrevTargetAt
+        (types: PassContextTypes)
+        (scope: IScopeContents)
+        (decls: LocalScopeDecl list)
+        (a: LocalAbbrev)
+        : AbbrevTarget =
+        let above = decls |> List.filter (fun d -> LocalScopeDecl.offset d < a.Offset)
+        resolveAbbrevTarget types scope (resolveScopeDecls types scope above) a
 
     /// EVERY way the written module `path` (EMPTY for a bare name) reaches a scope of this file
     /// from `useSite`. Empty for a path that does not reach a scope of this file (`System.Uri`).
@@ -285,19 +411,19 @@ module TypeRegistry =
         let reaches = ResizeArray()
 
         for e in useSite.Scopes do
-            match tryContainerUnder types e.Container path with
+            match tryContainerUnder types e.Container path useSite.Offset with
             | ValueSome reached -> reaches.Add { Container = reached; Route = e.Route }
             | ValueNone -> ()
 
         if path.Length > 0 then
             match types.LocalContainers.TryGetValue path with
-            | true, reached ->
+            | true, reached when reached.VisibleFrom <= useSite.Offset ->
                 reaches.Add
                     {
-                        Container = reached
+                        Container = reached.Container
                         Route = ScopeRoute.Lexical 0
                     }
-            | false, _ -> ()
+            | _ -> ()
 
         List.ofSeq reaches
 
@@ -510,7 +636,7 @@ module TypeRegistry =
 
     /// Record a module / namespace scope this file declares, under the dotted SOURCE path an
     /// `open` or a qualified name spells. Idempotent: every pass re-enters the same scopes.
-    let noteLocalContainer (types: PassContextTypes) (path: string) (container: ModuleContainer) : unit =
+    let noteLocalContainer (types: PassContextTypes) (path: string) (container: LocalContainer) : unit =
         types.LocalContainers.[path] <- container
 
     /// Record that `m` compiles under `compiled` rather than under the name its source writes.

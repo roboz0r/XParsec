@@ -748,6 +748,12 @@ module SignatureResolution =
                     noteNominalSigTypeName ctx decl
             | _ -> ()
 
+        // Every containment registered before anything resolves: container visibility is
+        // positional (`LocalContainer.VisibleFrom`), so an alias or a qualified annotation read
+        // below reaches a module declared anywhere in the file, rec-hoisted ones included.
+        for w in walked do
+            ctx.EnterContainment(w.Containment, w.RecScopeOffset) |> ignore<ModuleContainer>
+
         surface.ImplicitOpens <- implicitOpensOf ctx walked
 
         for w in walked do
@@ -760,10 +766,10 @@ module SignatureResolution =
                 let placement = sigGroupPlacement w.RecScopeOffset kw decls
                 registerSigGroup sctx w.Containment placement decls
             | ModuleSignatureElement.Val valSig -> registerValSig sctx w.Containment valSig
+            | ModuleSignatureElement.ModuleAbbrev abbrev -> ctx.ReportAbbrevTarget(w.Containment, abbrev)
             | ModuleSignatureElement.ValLiteral _
             | ModuleSignatureElement.Exception _
             | ModuleSignatureElement.Module _
-            | ModuleSignatureElement.ModuleAbbrev _
             | ModuleSignatureElement.Import _
             | ModuleSignatureElement.CompilerDirective _
             | ModuleSignatureElement.Missing

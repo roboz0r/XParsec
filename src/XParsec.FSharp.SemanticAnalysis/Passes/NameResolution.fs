@@ -468,14 +468,23 @@ module NameResolution =
         for w in elems do
             noteNominalTypeNames ctx w.Elem
 
+        // Every containment registered before anything resolves: container visibility is
+        // positional (`LocalContainer.VisibleFrom`), so an alias or a qualified annotation read
+        // below reaches a module declared anywhere in the file, rec-hoisted ones included.
+        for w in elems do
+            ctx.EnterContainment(w.Containment, w.RecScopeOffset) |> ignore<ModuleContainer>
+
         // Type registration, top-down, one `type … and …` group at a time: when a group
         // registers, the name table holds every type above it and nothing below. Terms share
-        // the scan, so a term's ANNOTATIONS classify here (`let f (a: A)` above `type A` is FS0039).
+        // the scan, so a term's ANNOTATIONS classify here (`let f (a: A)` above `type A` is
+        // FS0039). A module abbreviation's target resolves at its declaration, and is refused
+        // there when it reaches nothing or names a namespace.
         for w in elems do
             ctx.EnterElement w
 
             match w.Elem with
             | ModuleElem.Type defs -> registerGroup ctx w.Containment w.RecScopeOffset defs
+            | ModuleElem.ModuleAbbrev abbrev -> ctx.ReportAbbrevTarget(w.Containment, abbrev)
             | m -> classifyTermTypes ctx m
 
         // `walkModuleElem` skips `ModuleElem.Type`, so member bodies are walked here instead,

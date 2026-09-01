@@ -14,17 +14,32 @@ type DeclaredModule<'T> =
     {
         Attributes: Attributes<'T> voption
         Ident: 'T
+        /// The `module` keyword: what `rec` is measured from, and what orders the module
+        /// against the declarations of its own scope.
+        ModuleToken: 'T
     }
 
 module DeclaredModule =
 
     let ofModuleDefn (md: ModuleDefn<'T>) : DeclaredModule<'T> =
-        let (ModuleDefn.ModuleDefn(attributes = attrs; ident = ident)) = md
-        { Attributes = attrs; Ident = ident }
+        let (ModuleDefn.ModuleDefn(attributes = attrs; moduleToken = kw; ident = ident)) =
+            md
+
+        {
+            Attributes = attrs
+            Ident = ident
+            ModuleToken = kw
+        }
 
     let ofModuleSignature (ms: ModuleSignature<'T>) : DeclaredModule<'T> =
-        let (ModuleSignature.ModuleSignature(attributes = attrs; ident = ident)) = ms
-        { Attributes = attrs; Ident = ident }
+        let (ModuleSignature.ModuleSignature(attributes = attrs; moduleToken = kw; ident = ident)) =
+            ms
+
+        {
+            Attributes = attrs
+            Ident = ident
+            ModuleToken = kw
+        }
 
 /// The declaring containment of an element: the `namespace` group it sits in (dotted;
 /// `""` for an anonymous / global / named-module file) and the `module` declarations it
@@ -109,12 +124,11 @@ module CstModuleTree =
         /// without one, which the implementation grammar spells and the signature one does not.
         | Nested of
             declared: DeclaredModule<SyntaxToken> *
-            moduleToken: SyntaxToken *
             isRec: SyntaxToken voption *
             body: ImmutableArray<'Elem> voption
         /// `open A.B`. NOT `open type`, which is a member channel rather than a prefix.
         | Import of openToken: SyntaxToken * path: LongIdent<SyntaxToken>
-        | Abbrev of alias: SyntaxToken * target: LongIdent<SyntaxToken>
+        | Abbrev of abbrev: ModuleAbbrev<SyntaxToken>
         /// Everything the walk passes through: it contributes no scope and no containment.
         | Plain
 
@@ -131,24 +145,47 @@ module CstModuleTree =
             Elements: ImmutableArray<'Elem>
         }
 
+    /// The alias a `module R = A.B.C` element binds, written at `containment`. Absent when
+    /// either half of the declaration is missing.
+    let localAbbrev
+        (nameOf: SyntaxToken -> string)
+        (containment: DeclContainment<SyntaxToken>)
+        (abbrev: ModuleAbbrev<SyntaxToken>)
+        : LocalAbbrev voption =
+        let (ModuleAbbrev.ModuleAbbrev(moduleToken = kw; ident = id; longIdent = li)) =
+            abbrev
+
+        let alias = nameOf id
+        let target = li.Idents |> Seq.map nameOf |> String.concat "."
+
+        if alias.Length = 0 || target.Length = 0 then
+            ValueNone
+        else
+            ValueSome
+                {
+                    Alias = alias
+                    Path = target
+                    Scope = DeclContainment.sourcePath nameOf containment
+                    ScopeDepth = List.length containment.Modules
+                    Offset = kw.StartIndex
+                }
+
     let private implNode (e: ModuleElem<SyntaxToken>) : ModuleNode<ModuleElem<SyntaxToken>> =
         match e with
-        | ModuleElem.Module((ModuleDefn.ModuleDefn(
-            moduleToken = kw; isRec = isRec; body = ModuleDefnBody(elements = body))) as md) ->
-            ModuleNode.Nested(DeclaredModule.ofModuleDefn md, kw, isRec, body)
+        | ModuleElem.Module((ModuleDefn.ModuleDefn(isRec = isRec; body = ModuleDefnBody(elements = body))) as md) ->
+            ModuleNode.Nested(DeclaredModule.ofModuleDefn md, isRec, body)
         | ModuleElem.Import(ImportDecl.ImportDecl(openToken = kw; longIdent = li)) -> ModuleNode.Import(kw, li)
-        | ModuleElem.ModuleAbbrev(ModuleAbbrev.ModuleAbbrev(ident = id; longIdent = li)) -> ModuleNode.Abbrev(id, li)
+        | ModuleElem.ModuleAbbrev abbrev -> ModuleNode.Abbrev abbrev
         | _ -> ModuleNode.Plain
 
     let private sigNode (e: ModuleSignatureElement<SyntaxToken>) : ModuleNode<ModuleSignatureElement<SyntaxToken>> =
         match e with
         | ModuleSignatureElement.Module((ModuleSignature.ModuleSignature(
-            moduleToken = kw; isRec = isRec; body = ModuleSignatureBody(elements = body))) as ms) ->
-            ModuleNode.Nested(DeclaredModule.ofModuleSignature ms, kw, isRec, ValueSome body)
+            isRec = isRec; body = ModuleSignatureBody(elements = body))) as ms) ->
+            ModuleNode.Nested(DeclaredModule.ofModuleSignature ms, isRec, ValueSome body)
         | ModuleSignatureElement.Import(ImportDecl.ImportDecl(openToken = kw; longIdent = li)) ->
             ModuleNode.Import(kw, li)
-        | ModuleSignatureElement.ModuleAbbrev(ModuleAbbrev.ModuleAbbrev(ident = id; longIdent = li)) ->
-            ModuleNode.Abbrev(id, li)
+        | ModuleSignatureElement.ModuleAbbrev abbrev -> ModuleNode.Abbrev abbrev
         | _ -> ModuleNode.Plain
 
     let private group ns kw isRec elems : ModuleGroup<'Elem> =
@@ -214,30 +251,22 @@ module CstModuleTree =
             if prefix.Length = 0 then
                 scope
             else
-                { scope with
-                    Locals =
-                        {
-                            Path = prefix
-                            Scope = DeclContainment.sourcePath nameOf containment
-                            ScopeDepth = List.length containment.Modules
-                            Offset = openToken.StartIndex
-                        }
-                        :: scope.Locals
-                }
+                LocalScopeDecl.Open
+                    {
+                        Path = prefix
+                        Scope = DeclContainment.sourcePath nameOf containment
+                        ScopeDepth = List.length containment.Modules
+                        Offset = openToken.StartIndex
+                    }
+                :: scope
 
         let accumulate (containment: DeclContainment<SyntaxToken>) (scope: OpenScope) (e: 'Elem) : OpenScope =
             match node e with
             | ModuleNode.Import(kw, li) -> addOpen scope containment kw li
-            | ModuleNode.Abbrev(id, li) ->
-                let alias = nameOf id
-                let target = longIdentText li
-
-                if alias.Length = 0 || target.Length = 0 then
-                    scope
-                else
-                    { scope with
-                        Abbrevs = Map.add alias target scope.Abbrevs
-                    }
+            | ModuleNode.Abbrev abbrev ->
+                match localAbbrev nameOf containment abbrev with
+                | ValueSome a -> LocalScopeDecl.Abbrev a :: scope
+                | ValueNone -> scope
             | ModuleNode.Nested _
             | ModuleNode.Plain -> scope
 
@@ -283,12 +312,12 @@ module CstModuleTree =
             match node e with
             // A module is a *container*: it extends the containment's module chain and
             // leaves its `Namespace` alone.
-            | ModuleNode.Nested(declared, kw, innerRec, ValueSome body) ->
+            | ModuleNode.Nested(declared, innerRec, ValueSome body) ->
                 processElems
                     body
                     scope
                     innerRec.IsSome
-                    (innerRecScope kw innerRec recScope)
+                    (innerRecScope declared.ModuleToken innerRec recScope)
                     (DeclContainment.enter declared containment)
             | ModuleNode.Nested(body = ValueNone) -> ()
             | ModuleNode.Import _

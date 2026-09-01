@@ -55,17 +55,12 @@ let private resolvesBy (case: string -> (unit -> unit) -> Test) (name: string) (
                 Expect.isEmpty (errorsOf f) (sprintf "%A: %A" f.Retained.Path (errorsOf f))
         )
 
+let private resolves (name: string) (file1: string) (file2: string) = resolvesBy testCase name file1 file2
+
 /// The second file reports at least one error satisfying `expected`, and NOTHING crashes: a
-/// name that resolves is typed, so a deliberate mismatch surfaces as a diagnostic. `case` is
-/// `testCase` or `ptestCase`.
-let private reportsBy
-    (case: string -> (unit -> unit) -> Test)
-    (name: string)
-    (expected: Diagnostic -> bool)
-    (file1: string)
-    (file2: string)
-    =
-    case
+/// name that resolves is typed, so a deliberate mismatch surfaces as a diagnostic.
+let private reports (name: string) (expected: Diagnostic -> bool) (file1: string) (file2: string) =
+    testCase
         name
         (fun () ->
             let all = analyse [ impl "file1.fs" file1; impl "file2.fs" file2 ]
@@ -73,17 +68,8 @@ let private reportsBy
             Expect.isTrue (errors |> List.exists expected) (sprintf "expected diagnostic absent; got %A" errors)
         )
 
-let private resolves (name: string) (file1: string) (file2: string) = resolvesBy testCase name file1 file2
-
-let private reports (name: string) (expected: Diagnostic -> bool) (file1: string) (file2: string) =
-    reportsBy testCase name expected file1 file2
-
 /// `resolves`, pinning a case F# accepts and this analysis does not yet.
 let private presolves (name: string) (file1: string) (file2: string) = resolvesBy ptestCase name file1 file2
-
-/// `reports`, pinning a diagnostic F# emits and this analysis does not yet.
-let private preports (name: string) (expected: Diagnostic -> bool) (file1: string) (file2: string) =
-    reportsBy ptestCase name expected file1 file2
 
 let private typeMismatch (d: Diagnostic) : bool = d.Message.Contains "Type mismatch"
 
@@ -499,11 +485,10 @@ module N =
     let a () : string = R.v
 "
 
-                    // The target is stored as written and probed absolutely, so every target
-                    // relative to the scope the abbreviation was written in misses. F# resolves
-                    // the target once, at the declaration, against the scope in force there.
-                    presolves
-                        "target relative to an `open` above the abbreviation (probed absolutely today)"
+                    // The target is resolved once, at the declaration, against the `open`s,
+                    // aliases and enclosing scopes in force there.
+                    resolves
+                        "target relative to an `open` above the abbreviation"
                         abbrevTargetLib
                         "\
 namespace Test.B
@@ -515,8 +500,8 @@ module R = M1
 module N =
     let a () : int = R.v
 "
-                    presolves
-                        "target relative to the enclosing module (probed absolutely today)"
+                    resolves
+                        "target relative to the enclosing module"
                         abbrevTargetLib
                         "\
 namespace Test.B
@@ -529,8 +514,8 @@ module Outer =
 
     let a () : int = R.v
 "
-                    presolves
-                        "an abbreviation of an abbreviation (the second target's probe misses today)"
+                    resolves
+                        "an abbreviation of an abbreviation"
                         abbrevTargetLib
                         "\
 namespace Test.B
@@ -543,8 +528,8 @@ module N =
     let a () : int = S.v
 "
 
-                    // `resolveOpens` never expands an `open`'s anchor through an abbreviation,
-                    // so the bare `v` misses.
+                    // `resolveScopeDecls` never expands an `open`'s anchor through an
+                    // abbreviation, so the bare `v` misses.
                     presolves
                         "`open` through an alias binds the target's contents (the anchor is unexpanded today)"
                         abbrevTargetLib
@@ -559,10 +544,8 @@ module N =
     let a () : int = v
 "
 
-                    // No pass reads a `ModuleAbbrev` element, so a bad abbreviation is silently
-                    // inert and surfaces only as an unresolved use elsewhere, or not at all.
-                    preports
-                        "a namespace target is refused at the declaration (unreported today)"
+                    reports
+                        "a namespace target is refused at the declaration"
                         abbreviatesNamespace
                         abbrevTargetLib
                         "\
@@ -570,8 +553,8 @@ namespace Test.B
 
 module R = Test.A
 "
-                    preports
-                        "a target declared below the abbreviation is undefined at it (unreported today)"
+                    reports
+                        "a target declared below the abbreviation is undefined at it"
                         undefinedName
                         abbrevTargetLib
                         "\
@@ -583,11 +566,67 @@ module M =
     let v : int = 1
 "
 
-                    // `firstSegmentContainers` returns on an alias hit without consulting the
-                    // scope stack, so the alias outranks a real module however the two are
-                    // ordered. F# ranks the alias like any other binding of one segment, so `b`
-                    // reads the real `R` and today's `int` disagrees with the annotation.
-                    ptest "a real module declared below the alias reclaims the name (the alias outranks it today)" {
+                    // fsi: a `rec` scope hoists a module to the top of the scope, so an
+                    // abbreviation above the module reaches it.
+                    resolves
+                        "an abbreviation of a module declared below it in a `rec` scope"
+                        abbrevTargetLib
+                        "\
+namespace Test.B
+
+module rec Outer =
+    module R = M
+
+    module M =
+        let v : int = 1
+
+    let a () : int = R.v
+"
+                    // A term's annotations classify during the top-down registration scan, so a
+                    // type below the term is not yet registered even when the `rec` hoist makes
+                    // it visible by position. The alias-free control below pins the same gap.
+                    presolves
+                        "an alias to a `rec`-hoisted module resolves a term annotation (the type below is unregistered at classification today)"
+                        abbrevTargetLib
+                        "\
+namespace Test.B
+
+module rec Outer =
+    module R = M
+
+    let f (a: R.T) : R.T = a
+
+    module M =
+        type T = T
+"
+                    presolves
+                        "a term annotation reads a type below it in a `rec` scope (unregistered at classification today)"
+                        abbrevTargetLib
+                        "\
+namespace Test.B
+
+module rec Outer =
+    let f (a: T) : T = a
+
+    type T = T
+"
+                    // fsi: FS0039 at the declaration — a module abbreviation resolves top-down
+                    // even in a `rec` scope, so an alias below it is not a target.
+                    reports
+                        "an abbreviation of an alias declared below it in a `rec` scope is refused"
+                        undefinedName
+                        abbrevTargetLib
+                        "\
+namespace Test.B
+
+module rec Outer =
+    module R = S
+    module S = Test.A.M1
+"
+
+                    // An alias is one more top-down binding of one segment: `a` reads the alias
+                    // and `b`, below the real `R`, reads the module.
+                    test "a real module declared below the alias reclaims the name" {
                         let all =
                             analyse
                                 [
@@ -606,6 +645,40 @@ module N =
         let v : string = \"shadow\"
 
     let b () : string = R.v
+"
+                                ]
+
+                        for f in all do
+                            Expect.isEmpty (errorsOf f) (sprintf "%A: %A" f.Retained.Path (errorsOf f))
+                    }
+
+                    // fsi: above the local `module M`, the referenced `Test.B.M` supplies the
+                    // name; below it, the local module shadows the referenced one.
+                    test "a use above a local module of a referenced path reads the referenced module" {
+                        let all =
+                            analyse
+                                [
+                                    impl
+                                        "file1.fs"
+                                        "\
+namespace Test.B
+
+module M =
+    let v : int = 1
+"
+                                    impl
+                                        "file2.fs"
+                                        "\
+namespace Test.B
+
+module Use =
+    let a () : int = M.v
+
+module M =
+    let v : string = \"local\"
+
+module Use2 =
+    let b () : string = M.v
 "
                                 ]
 
@@ -672,9 +745,9 @@ module N =
     let a () : int = R.v
 "
 
-                    // `resolveOpens` never reads `Abbrevs`, so `open R` binds nothing and the
-                    // bare `v` misses instead. F# refuses the `open` itself, naming the
-                    // TARGET's path rather than the alias.
+                    // `resolveScopeDecls`'s `Open` case never reads the aliases, so `open R`
+                    // binds nothing and the bare `v` misses instead. F# refuses the `open`
+                    // itself, naming the TARGET's path rather than the alias.
                     ptest "`open` through an alias to a `[<RequireQualifiedAccess>]` module is refused (unread today)" {
                         let all =
                             analyse

@@ -24,7 +24,17 @@ let private walk (input: string) : (string * string list) list =
         | _ -> "other"
 
     CstModuleTree.walkImpl ctx.NameOf OpenScope.empty file
-    |> List.map (fun w -> label w.Elem, w.Scope.Locals |> List.map (fun o -> o.Path))
+    |> List.map (fun w ->
+        let opens =
+            w.Scope
+            |> List.choose (
+                function
+                | LocalScopeDecl.Open o -> Some o.Path
+                | LocalScopeDecl.Abbrev _ -> None
+            )
+
+        label w.Elem, opens
+    )
 
 [<Tests>]
 let tests =

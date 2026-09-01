@@ -22,44 +22,36 @@ The two are in opposite states in this codebase. Type abbreviations are modelled
 need an audit plus pins. Module abbreviations are the last surviving string channel of the kind
 the open overhaul deleted, with the same defect shape.
 
-## Where module abbreviations stand — the defect
+## Where module abbreviations stand — after step 2
 
-The whole representation is `OpenScope.Abbrevs: Map<string, string>` (`OpenScope.fs:25`),
-alias → target *as written*, accumulated by the tree walk (`CstModuleTree.fs:231`). The one
-consumer is `NameResolutionContainers.firstSegmentContainers` (`Containers.fs:76`), which on an
-alias hit resolves the stored string through `atPath` (`Containers.fs:72`) — an ABSOLUTE probe
-into `LocalContainers` and `Scope.TryContainer`. The scope the target was written relative to
-is discarded — the defect the open overhaul closed for written `open`s, one field over.
+The written form travels as `LocalAbbrev` (`OpenScope.fs:22`), the mirror of `LocalOpen`, and a
+scope is one interleaved `OpenScope = LocalScopeDecl list` — `Open of LocalOpen | Abbrev of
+LocalAbbrev`, most-recent-first, in source order. `TypeRegistry.resolveScopeDecls` folds the
+list oldest-first into a `ScopeEnv { Opens; Aliases }`: each `open` and each abbreviation
+target resolves against the environment accumulated above it, through the shared
+`tryReachFrom` search. `Containment.EnterElement` puts `env.Opens` on the scope stack and
+`env.Aliases` into `PassContextResolution.Abbrevs`, and `firstSegmentContainers`
+(`Containers.fs:98`) ranks the alias against the scope-stack candidates rather than
+short-circuiting on it. `NameResolution` and `SignatureResolution` report an unresolved target
+(FS0039) and a namespace target (FS0965) at the declaration, through
+`TypeRegistry.resolveAbbrevTargetAt`, which reads only the declarations above the abbreviation
+— positional in a `rec` scope too, matching F#'s top-down abbreviation resolution there (an
+abbreviation of a real module below in a `rec` scope resolves via the hoist; an abbreviation
+of an *alias* below is FS0039).
 
-Consequences, each confirmed against `dotnet fsi` (probes 1–6, 10 and 11 below):
+A module's own position is part of `LocalContainer` (`TypeRegistry.fs:81`): its `module`
+keyword, hoisted at registration to the enclosing `rec` scope's keyword
+(`Containment.EnterContainment`). Every container lookup takes the offset it is read from, so
+a module declared below the reading position is out of scope there — which is what lets a real
+module reclaim a name from an alias below itself. `NameResolution.walkElems` and
+`SignatureResolution` register every containment up front, so target resolution is independent
+of how much of the file the walk has registered. An invisible local module does not blot the
+name out: the referenced surface supplies it (`Containers.localOrReferenced`), matching F#'s
+top-down environment where an earlier assembly's module of the same path is read above the
+local declaration.
 
-| written | F# | this analysis |
-|---|---|---|
-| `open A` then `module R = M`, `M` inside `A` | accepted | alias resolves to nothing |
-| `module R = Inner` beside `Inner` in one module | accepted | alias resolves to nothing |
-| `module R = A.M` then `module S = R` | accepted | `S`'s target probe misses |
-| `module R = A.M` then `open R` | accepted | `resolveOpens` never reads `Abbrevs` |
-| `module R = System.Collections` | FS0965 at the declaration | silently inert |
-| `module R = Undefined` | FS0039 at the declaration | silently inert |
-| `module R = A` above a real `module R` | each use reads the nearest declaration above it | the alias wins wherever the two are both in scope |
-
-The last row follows from `firstSegmentContainers` returning on an alias hit without consulting
-the scope stack (`Containers.fs:76`). `Abbrevs` is threaded through a scope's elements in
-declaration order, so a use written above the abbreviation already misses, and rebinding one
-alias already reads the binding above each use — both match F# today (probes 11 and 12).
-
-The declaration site reports nothing because no pass looks at a `ModuleAbbrev` element
-(`Validation.fs:267`, `SignatureResolution.fs:757`): a bad abbreviation surfaces only as an
-unrelated "unresolved" at some use site, or not at all.
-
-What already matches F#: an absolute target, for values, functions, types and cases
-(`LongIdentResolutionTests.fs`, "module abbreviation"); and the alias binding its segment
-outright rather than joining the candidate set (`Containers.fs:63`).
-
-`Abbrevs` being consulted before the scope stack gets probe 7 right and probe 10 wrong: F# ranks
-the alias positionally against a real module of the same name, so a real module declared *below*
-the abbreviation reclaims the name for uses below itself. A lookup that short-circuits on an
-alias hit cannot express that.
+Still outstanding: `open` through an alias, which step 3 owns — the `Open` case of the
+`resolveScopeDecls` fold reading `env.Aliases` for its anchor segment.
 
 ## Where type abbreviations stand — landed, unaudited
 
@@ -148,12 +140,13 @@ library, `ProbeLib`, built from a synthetic `.fsproj`.
 
 - The walk stays registry-free and carries the written form with its position:
   `LocalAbbrev { Alias; Path; Scope; ScopeDepth; Offset }`, the mirror of `LocalOpen`,
-  replacing the `Map<string, string>`.
-- `Containment.EnterElement` (`Containment.fs:140`) resolves the abbreviations in force beside
-  `ScopeStackOf`, through the same outer-entries-then-own-scope search `resolveOpens` runs
-  (`TypeRegistry.fs:251`), into a per-element `Map<string, ModuleContainer>` on
-  `PassContextResolution`. Resolving innermost-last lets an abbreviation's target read the
-  abbreviations and `open`s above it, which closes probes 1, 2 and 4 in one mechanism.
+  replacing the `Map<string, string>`. Opens and abbreviations travel as one interleaved,
+  source-ordered `LocalScopeDecl list`.
+- `Containment.EnterElement` resolves the list through the `resolveScopeDecls` fold, oldest
+  first, into `ScopeEnv { Opens; Aliases }`; the aliases land in a per-element
+  `Map<string, ScopeEntry>` on `PassContextResolution`, and the entry's `Opened` rank is what
+  positions the alias. Each declaration reading only the environment above it closes probes 1,
+  2 and 4 in one mechanism.
 - The declaration reports: an unresolved target (probe 6's FS0039 analogue) and a target that
   is a namespace (probe 3's FS0965 analogue) — `ModuleContainer.InNamespace` is the refusal
   case, so the check is one pattern match on the resolved container.
@@ -161,13 +154,13 @@ library, `ProbeLib`, built from a synthetic `.fsproj`.
   abbreviation's `Offset` against the scope-stack candidates, so a real module declared below
   the alias wins below itself (probe 10) and the alias wins above it (probe 7). An alias hit
   that short-circuits the scope stack fails probe 10. `atPath` is deleted.
-- `resolveOpens` expands a written `open`'s anchor segment through the map (probe 5), and the
-  RQA refusal on the expanded anchor renders the target's path (probe 14).
+- The `Open` case of the `resolveScopeDecls` fold expands a written `open`'s anchor segment
+  through `env.Aliases` (probe 5), and the RQA refusal on the expanded anchor renders the
+  target's path (probe 14).
 - Publication: none, as today — pinned by a cross-file test rather than assumed.
 - A `.fsi`'s abbreviations scope over the signature file alone (probe 13). `sigNode` and
-  `implNode` (`CstModuleTree.fs:140`, `:150`) already produce one `ModuleNode.Abbrev` shape from
-  two walks, so the requirement on step 2 is that the two walks' `LocalAbbrev`s stay in separate
-  per-element maps.
+  `implNode` produce one `ModuleNode.Abbrev` shape from two walks, each seeded `OpenScope.empty`,
+  so the two walks' `LocalAbbrev`s stay in separate per-element maps.
 
 **A type abbreviation keeps its representation; the work is pins.** The contract to pin end to
 end: a consumer writes the name and every reader — inference, conformance, CLR emission, JS
@@ -183,16 +176,33 @@ un-pended and fails for the reason this document gives — probes 1, 2 and 4 as
 `UnresolvedQualifiedName`, probe 5 as an unresolved bare `v`, probes 3 and 6 with no diagnostic
 at all.
 
-**Step 2 — resolve at declaration.** `LocalAbbrev`, the `EnterElement` resolution and map, the
-two declaration diagnostics, `firstSegmentContainers` reading the map and ranking it by offset,
-`atPath` deleted. Un-pends probes 1, 2, 4, 10 and the `reports` cases, and holds probes 11 and
-12 green.
+**Step 2 — resolve at declaration. Done.** `LocalAbbrev`, the `EnterElement` resolution and map,
+the two declaration diagnostics (`Kind.AbbreviatedNamespace` is new; the unresolved target files
+under `Kind.UnresolvedQualifiedName`), `firstSegmentContainers` ranking the alias by offset,
+`atPath` deleted. Probes 1, 2, 4, 10 and both `reports` cases are green, and probes 11 and 12
+held.
 
-**Step 3 — `open` through an abbreviation.** Anchor expansion in `resolveOpens`, and the RQA
-refusal on an expanded anchor — which needs a `Kind` case for FS0892, since `Kind` carries none
-today and the direct `open M` of an RQA module goes unreported as well. Un-pends probe 5 and
-probe 14's `open` half. Separate change: it touches ranked-scope construction, not container
-lookup.
+Ranking the alias needed a module's own declaration position, so `LocalContainers` now stores a
+`LocalContainer` carrying `VisibleFrom`, and `tryContainerUnder`, `tryContainerOfPath`,
+`pathReaches` and `subContainer` each take the offset they are read from. That bounds a
+written `open` by its own position too, which matches F#: `open M` above `module M` reaches
+nothing.
+
+A follow-up landed in the same shape: `OpenScope` became the interleaved `LocalScopeDecl list`
+folded by `resolveScopeDecls`, the declaration report reads only the declarations above the
+abbreviation (`resolveAbbrevTargetAt`), containments register up front in both resolution
+passes, and `Containers.localOrReferenced` is the single local-then-referenced policy — an
+invisible local module falls through to the referenced surface. Green pins: the `rec`-scope
+abbreviation of a module below, the FS0039 refusal of a `rec`-scope abbreviation of an alias
+below, and the referenced-module read above a local module of the same path. Pended: a term
+annotation reading a type below it in a `rec` scope, which is a registration-order gap in the
+classification scan, not an abbreviation defect.
+
+**Step 3 — `open` through an abbreviation.** The `Open` case of the `resolveScopeDecls` fold
+reads `env.Aliases` for its anchor segment, and the RQA refusal on an expanded anchor — which
+needs a `Kind` case for FS0892, since `Kind` carries none today and the direct `open M` of an
+RQA module goes unreported as well. Un-pends probe 5 and probe 14's `open` half. Separate
+change: it touches ranked-scope construction, not container lookup.
 
 **Step 4 — type-abbreviation audit and pins.** Separable; can run beside 2–3. End-to-end
 tests: a cross-file (blob-mediated) use of a published abbreviation, bare and qualified; a

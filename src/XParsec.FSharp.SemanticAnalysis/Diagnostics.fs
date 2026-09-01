@@ -398,6 +398,8 @@ type Kind =
     | UnknownNominalType of kind: NominalKind * name: string
     | TypeArgArity of name: string * expected: int * got: int
     | UnresolvedQualifiedName of name: string
+    /// A `module R = N` whose target is a namespace. An abbreviation binds a module.
+    | AbbreviatedNamespace of path: string
     | OperatorFormQualifiedName of firstSegment: string
     | ConstraintNotSupported of ty: string * constraintName: string
     /// A trait call in an inline body that no type in the support set satisfies.
@@ -520,6 +522,7 @@ module Kind =
         | Kind.UnknownNominalType _
         | Kind.UndefinedPatternDiscriminator _
         | Kind.UnresolvedQualifiedName _ -> DiagCode.FSharp 39 // UndefinedName
+        | Kind.AbbreviatedNamespace _ -> DiagCode.FSharp 965 // tcModuleAbbreviationForNamespace
         | Kind.TypeArgArity _ -> DiagCode.FSharp 33 // TyconBadArgs
         | Kind.RequireQualifiedAccessCase _ -> DiagCode.FSharp 35 // Deprecated
         // ── Constructors: fsc's "union case expects N arguments" covers both the wrong
@@ -613,6 +616,8 @@ module Kind =
         | Kind.TypeArgArity(name, expected, got) ->
             sprintf "Type '%s' expects %d type argument(s) but got %d" name expected got
         | Kind.UnresolvedQualifiedName name -> sprintf "Unresolved qualified name: %s" name
+        | Kind.AbbreviatedNamespace path ->
+            sprintf "The path '%s' is a namespace. A module abbreviation may not abbreviate a namespace." path
         | Kind.OperatorFormQualifiedName firstSegment ->
             sprintf "Operator-form qualified names not yet resolved (starting at '%s')" firstSegment
         | Kind.ConstraintNotSupported(ty, constraintName) ->
@@ -748,6 +753,7 @@ module Kind =
         | Kind.UnknownNominalType _
         | Kind.TypeArgArity _
         | Kind.UnresolvedQualifiedName _
+        | Kind.AbbreviatedNamespace _
         | Kind.OperatorFormQualifiedName _
         | Kind.Internal _
         | Kind.ConstraintNotSupported _

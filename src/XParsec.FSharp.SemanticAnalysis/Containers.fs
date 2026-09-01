@@ -53,35 +53,69 @@ module NameResolutionContainers =
         | "" -> name
         | full -> full + "." + name
 
-    /// The module or namespace `name` declared directly in `c`, local or referenced.
-    let subContainer (ctx: PassContext) (c: ModuleContainer) (name: string) : ModuleContainer voption =
-        match TypeRegistry.tryContainerUnder ctx.Types c name with
-        | ValueSome sub -> ValueSome sub
-        | ValueNone -> ctx.Resolver.Scope.TryContainer(childPath c name)
+    /// The module or namespace `name` declared directly in `c` at offset `at`: a module of
+    /// this file declared above `at`, with where its name enters the environment, else a
+    /// referenced container. A module of this file declared below `at` is out of scope there,
+    /// and the referenced surface supplies the name instead.
+    let private localOrReferenced
+        (ctx: PassContext)
+        (at: int)
+        (c: ModuleContainer)
+        (name: string)
+        : struct (int voption * ModuleContainer) voption =
+        match TypeRegistry.tryLocalSubContainer ctx.Types c name with
+        | ValueSome local when local.VisibleFrom <= at ->
+            ValueSome(struct (ValueSome local.VisibleFrom, local.Container))
+        | _ ->
+            match ctx.Resolver.Scope.TryContainer(childPath c name) with
+            | ValueSome ext -> ValueSome(struct (ValueNone, ext))
+            | ValueNone -> ValueNone
 
-    /// Every module or namespace `segment` denotes at `useSite`, nearest first. A module
-    /// abbreviation binds the segment outright: its target is the only result.
+    /// The module or namespace `name` declared directly in `c`, local or referenced. A module
+    /// of this file declared below `useSite` is out of scope there.
+    let subContainer
+        (ctx: PassContext)
+        (useSite: UseSite)
+        (c: ModuleContainer)
+        (name: string)
+        : ModuleContainer voption =
+        match localOrReferenced ctx useSite.Offset c name with
+        | ValueSome(struct (_, sub)) -> ValueSome sub
+        | ValueNone -> ValueNone
+
+    /// The rank the module or namespace `name` takes when reached through `entry` at `useSite`:
+    /// a module of this file enters at its own declaration, everything else where `entry` does.
+    let private rankedSubContainer
+        (ctx: PassContext)
+        (useSite: UseSite)
+        (entry: ScopeEntry)
+        (name: string)
+        : struct (BindingRank * ModuleContainer) voption =
+        match localOrReferenced ctx useSite.Offset entry.Container name with
+        | ValueSome(struct (ValueSome visibleFrom, sub)) -> ValueSome(struct (ScopeEntry.rankOf entry visibleFrom, sub))
+        | ValueSome(struct (ValueNone, sub)) -> ValueSome(struct (ScopeEntry.rank entry, sub))
+        | ValueNone -> ValueNone
+
+    /// Every module or namespace `segment` denotes at `useSite`, best rank first. A module
+    /// abbreviation binding the segment is one more candidate, entering where the abbreviation
+    /// is written, so a real module declared below it reclaims the name below itself.
     let firstSegmentContainers (ctx: PassContext) (useSite: UseSite) (segment: string) : ModuleContainer list =
-        let found = ResizeArray<ModuleContainer>()
+        let found = ResizeArray<struct (BindingRank * ModuleContainer)>()
 
-        let add (c: ModuleContainer voption) =
-            match c with
-            | ValueSome c when not (found.Contains c) -> found.Add c
-            | _ -> ()
+        match Map.tryFind segment ctx.Resolution.Abbrevs with
+        | Some alias -> found.Add(struct (ScopeEntry.rank alias, alias.Container))
+        | None -> ()
 
-        let atPath (path: string) =
-            add (LocalScope.tryContainer ctx path)
-            add (ctx.Resolver.Scope.TryContainer path)
+        for e in useSite.Scopes do
+            match rankedSubContainer ctx useSite e segment with
+            | ValueSome hit -> found.Add hit
+            | ValueNone -> ()
 
-        match Map.tryFind segment ctx.Resolution.OpenScope.Abbrevs with
-        | Some target -> atPath target
-        | None ->
-            for e in useSite.Scopes do
-                add (subContainer ctx e.Container segment)
-
-            atPath segment
-
-        List.ofSeq found
+        found
+        |> Seq.sortByDescending (fun (struct (r, _)) -> r)
+        |> Seq.map (fun (struct (_, c)) -> c)
+        |> Seq.distinct
+        |> List.ofSeq
 
     /// Every container to read a short name against at `useSite`, nearest first: for a bare
     /// spelling the scopes in force there, for a dotted `qualifier` the modules and namespaces
@@ -97,7 +131,7 @@ module NameResolutionContainers =
                     descend
                         [
                             for c in cs do
-                                match subContainer ctx c segments.[i] with
+                                match subContainer ctx useSite c segments.[i] with
                                 | ValueSome sub -> sub
                                 | ValueNone -> ()
                         ]

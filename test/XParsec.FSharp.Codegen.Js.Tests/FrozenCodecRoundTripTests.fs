@@ -498,6 +498,7 @@ let tests =
                         Kind.UnknownNominalType(NominalKind.Union, "U")
                         Kind.TypeArgArity("Map", 2, 1)
                         Kind.UnresolvedQualifiedName "A.B.c"
+                        Kind.AbbreviatedNamespace "System.Collections"
                         Kind.OperatorFormQualifiedName "A"
                         Kind.ConstraintNotSupported("int", "Equality")
                         Kind.TraitNotSupported(EqArray.singleton "Widget", MemberNoun.Operator, "+")

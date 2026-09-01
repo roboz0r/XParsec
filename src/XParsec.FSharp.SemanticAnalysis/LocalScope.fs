@@ -27,7 +27,7 @@ module LocalScope =
     /// The module or namespace this file declares under the dotted SOURCE path.
     let tryContainer (ctx: PassContext) (sourcePath: string) : ModuleContainer voption =
         match ctx.Types.LocalContainers.TryGetValue sourcePath with
-        | true, c -> ValueSome c
+        | true, c -> ValueSome c.Container
         | false, _ -> ValueNone
 
     /// The `let` binding `name` declared directly in `container`, above `useSite` and not a

@@ -351,7 +351,7 @@ module NameResolutionLongIdent =
                 | ValueNone -> ValueSome(unresolvedInType t names.[next] (next + 1))
 
         let sub () =
-            match subContainer ctx c name with
+            match subContainer ctx useSite c name with
             | ValueSome s when atEnd -> ValueSome(resolved (ResolvedItem.ModuleOrNamespace s) next)
             | ValueSome s -> ValueSome(inContainer ctx useSite position s names next)
             | ValueNone -> ValueNone
