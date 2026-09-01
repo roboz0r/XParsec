@@ -63,23 +63,6 @@ let private reports (name: string) (expected: Diagnostic -> bool) (file1: string
         Expect.isTrue (errors |> List.exists expected) (sprintf "expected diagnostic absent; got %A" errors)
     }
 
-/// Pending twin of `resolves`: `dotnet fsi` accepts this source and the analysis does not yet.
-let private presolves (name: string) (file1: string) (file2: string) =
-    ptest name {
-        let all = analyse [ impl "file1.fs" file1; impl "file2.fs" file2 ]
-
-        for f in all do
-            Expect.isEmpty (errorsOf f) (sprintf "%A: %A" f.Retained.Path (errorsOf f))
-    }
-
-/// Pending twin of `reports`.
-let private preports (name: string) (expected: Diagnostic -> bool) (file1: string) (file2: string) =
-    ptest name {
-        let all = analyse [ impl "file1.fs" file1; impl "file2.fs" file2 ]
-        let errors = errorsOf all.[1]
-        Expect.isTrue (errors |> List.exists expected) (sprintf "expected diagnostic absent; got %A" errors)
-    }
-
 let private typeMismatch (d: Diagnostic) : bool = d.Message.Contains "Type mismatch"
 
 let private unresolvedIdentifier (d: Diagnostic) : bool =
@@ -543,11 +526,9 @@ module N =
                 ]
 
             // A module whose COMPILED name differs from the name its source writes
-            // (`module Foo` beside `type Foo` compiles to `FooModule`). `dotnet fsi` accepts
-            // every case here; a `ptest` is one this analysis does not yet, and
-            // `docs/semantic-names-in-keys-plan.md` un-pends them. The boundary is exactly
-            // whether the module publishes a VALUE: a published value carries the source path
-            // of its declaring module, and nothing else contributes one.
+            // (`module Foo` beside `type Foo` compiles to `FooModule`) is reached by its
+            // SOURCE name everywhere resolution reads one. `dotnet fsi` accepts every case
+            // here.
             testList
                 "a module whose compiled name differs"
                 [

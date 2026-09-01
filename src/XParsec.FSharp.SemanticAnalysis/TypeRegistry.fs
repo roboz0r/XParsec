@@ -113,11 +113,8 @@ type PassContextTypes =
         /// KIND. At most one type may hold a claim; several under one name are ranked.
         TypeClaims: Dictionary<string, ResizeArray<TypeIdentity>>
         /// The module / namespace scopes this file DECLARES, keyed by the dotted SOURCE path an
-        /// `open` writes (`"N"`, `"N.A"`), not the compiled name a `ModuleKey` holds.
+        /// `open` writes (`"N"`, `"N.A"`). The inverse is `SymbolKeyOps.containerFullName`.
         LocalContainers: Dictionary<string, ModuleContainer>
-        /// The INVERSE of `LocalContainers`. A qualifier is written relative to a SCOPE (`A.T`
-        /// inside `module N.B` means `N.A.T`), so resolving one needs that scope's path.
-        LocalContainerPaths: Dictionary<ModuleContainer, string>
         /// The modules this file declares whose compiled class name differs from the name their
         /// source writes (`List` ⇒ `ListModule`). A module absent here compiles under its
         /// source name.
@@ -148,7 +145,6 @@ module PassContextTypes =
             IntrinsicAbbrevHost = Dictionary<_, _>()
             TypeClaims = Dictionary<_, _>()
             LocalContainers = Dictionary<_, _>()
-            LocalContainerPaths = Dictionary<_, _>()
             CompiledModuleNames = Dictionary<_, _>()
             NominalTypeNames = HashSet<_>()
             SymbolKeyOrigins = Dictionary<_, _>()
@@ -205,13 +201,10 @@ module TypeRegistry =
         if path.Length = 0 then
             ValueSome enclosing
         else
-            match types.LocalContainerPaths.TryGetValue enclosing with
-            | true, basePath ->
-                let qualified = if basePath.Length = 0 then path else basePath + "." + path
+            let qualified = SymbolKeyOps.qualify (SymbolKeyOps.containerFullName enclosing) path
 
-                match types.LocalContainers.TryGetValue qualified with
-                | true, h -> ValueSome h
-                | false, _ -> ValueNone
+            match types.LocalContainers.TryGetValue qualified with
+            | true, h -> ValueSome h
             | false, _ -> ValueNone
 
     /// The scope the dotted SOURCE `path` denotes directly under `c`, this file's own
@@ -519,7 +512,6 @@ module TypeRegistry =
     /// `open` or a qualified name spells. Idempotent: every pass re-enters the same scopes.
     let noteLocalContainer (types: PassContextTypes) (path: string) (container: ModuleContainer) : unit =
         types.LocalContainers.[path] <- container
-        types.LocalContainerPaths.[container] <- path
 
     /// Record that `m` compiles under `compiled` rather than under the name its source writes.
     /// Idempotent: every pass re-enters the same scopes.

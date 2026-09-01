@@ -179,7 +179,10 @@ first) into the registry, `TastFile.AutoOpenModules` / `FrozenFileResidue.AutoOp
 carry the list through the codec, and `FrozenSignature.toSurface` publishes it as the surface's
 `ImplicitOpens` — so the surface derives from the frozen file alone, with no CST re-walk.
 
-**before Step 4** [Semantic Names](./semantic-names-in-keys-plan.md)
+**before Step 4: semantic names in keys — DONE.** `ModuleKey.Name` and `BindingKey.Name` hold
+the name the source writes; the compiled name (`Module` suffix, `[<CompiledName>]`) is a
+separate published fact (`CompiledModuleNames`, `ExternalSymbol.CompiledName`), read only by
+emission. Landed so this plan's step 4 deletes strings that are already correct.
 
 **Step 4 — delete the string channel.** Remove `OpenScope.Prefixes`, `candidates`, `tryQualify`
 and the `prefixes` parameter. Separate change, per the delete-the-old-one-separately rule. After

@@ -38,18 +38,15 @@ module LocalScope =
         (container: ModuleContainer)
         (name: string)
         : LocalModuleMember voption =
-        match ctx.Types.LocalContainerPaths.TryGetValue container with
-        | true, path ->
-            match ctx.Resolution.LocalModulePaths.TryGetValue path with
-            | true, members ->
-                match members.TryGetValue name with
-                | true, m when
-                    m.VisibleFrom <= useSite.Offset
-                    && not (ctx.Resolution.PendingBindings.Contains m.BindingSite)
-                    ->
-                    ValueSome m
-                | _ -> ValueNone
-            | false, _ -> ValueNone
+        match ctx.Resolution.LocalModulePaths.TryGetValue(SymbolKeyOps.containerFullName container) with
+        | true, members ->
+            match members.TryGetValue name with
+            | true, m when
+                m.VisibleFrom <= useSite.Offset
+                && not (ctx.Resolution.PendingBindings.Contains m.BindingSite)
+                ->
+                ValueSome m
+            | _ -> ValueNone
         | false, _ -> ValueNone
 
     /// The union case `name` of a union declared directly in `container`, above `useSite`.
