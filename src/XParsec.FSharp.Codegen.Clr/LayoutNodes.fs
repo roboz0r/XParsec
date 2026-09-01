@@ -41,6 +41,20 @@ module internal LayoutNodes =
                             u.Cases.Length
                             (u.Cases |> EqArray.exists (fun c -> not c.Fields.IsEmpty))
 
+                    let placements, caseGetters =
+                        if UnionRegime.isHierarchy regime then
+                            ValueNone, []
+                        else
+                            let p = FlatUnionPlacements.ofCases regime cases
+
+                            let getters =
+                                if UnionRegime.hasCaseGetters regime then
+                                    FlatUnionPlacements.caseGetters p cases
+                                else
+                                    []
+
+                            ValueSome p, getters
+
                     unions.Add
                         {
                             Decl = td
@@ -49,11 +63,8 @@ module internal LayoutNodes =
                             Interfaces = ifaceBlocks u.Interfaces
                             ValueKind = u.ValueKind
                             Regime = regime
-                            Placements =
-                                if UnionRegime.isHierarchy regime then
-                                    ValueNone
-                                else
-                                    ValueSome(FlatUnionPlacements.ofCases regime cases)
+                            Placements = placements
+                            CaseGetters = caseGetters
                         }
                 | TTypeKindG.Record r ->
                     records.Add
@@ -444,9 +455,9 @@ module internal LayoutNodes =
                                 ClosureScope = ValueNone
                             }
 
-                        // A flat union's physical slots. Written by the `.ctor` declaring
-                        // them (`UnionCtorShape`), hence `initonly`. A hierarchy case's
-                        // payload lands on the case's own `TypeDef`.
+                        // A flat union's physical slots, `initonly` because the `.ctor` is
+                        // their only writer. A hierarchy case's payload is declared on the
+                        // case's own `TypeDef`.
                         match ud.Placements with
                         | ValueSome p ->
                             for s in p.Slots ->
@@ -494,6 +505,13 @@ module internal LayoutNodes =
                                     Name = c.Name
                                     Attrs = staticFactoryAttrs
                                 }
+
+                        for g in ud.CaseGetters ->
+                            {
+                                Key = MethodKey.UnionCaseGetter(td.Key, g.Case, g.Index)
+                                Name = g.Name
+                                Attrs = instanceMethodAttrs
+                            }
 
                         yield! ownAndIfaceMemberRows td.Key ud.Members ud.Interfaces
 

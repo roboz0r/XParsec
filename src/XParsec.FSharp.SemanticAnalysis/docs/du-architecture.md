@@ -289,10 +289,16 @@ TAST shape.
   considered and skipped in its favour, so same-name different-type
   fields across cases stay representable (pinned in
   `StructUnionSameNameFields`).
-- **FSC's convenience members are non-goals.** `Tags`, `Is<Case>`,
-  `get_Item`, `__DebugDisplay` and the debugger proxies are
+- **FSC's convenience members are non-goals, with one exception.** `Tags`,
+  `Is<Case>`, `get_Item`, `__DebugDisplay` and the debugger proxies are
   deliberately not emitted, and a nullary case is reached through its
-  static factory rather than FSC's `get_<Case>` property.
+  static factory rather than FSC's `get_<Case>` property. The exception is
+  a struct union's per-(case, field) `Get_<Case>_<i>` readers
+  (`MethodKey.UnionCaseGetter`): they are part of the CLR ABI, because a
+  match arm in another assembly reads a `StructTagged` payload only
+  through them (`UnionCaseAccess.Getter`), so the physical layout can
+  change without touching a referencing assembly. They are methods rather than
+  `Item` properties so the FSC convention is not half-followed.
 - **C#'s proposed non-boxing union surface is a non-goal, and stays
   reachable.** The proposal (`[Union]` + `IUnion`, one constructor and
   one `TryGetValue(out T)` per case type, `Value`, `HasValue`) is a

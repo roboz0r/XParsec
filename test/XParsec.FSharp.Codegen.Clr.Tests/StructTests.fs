@@ -805,6 +805,39 @@ let structTests =
                     "the flat per-(case, index) field set plus the tag"
             }
 
+            // One public instance `Get_<Case>_<i>` reader per logical case field is the
+            // union's cross-assembly payload ABI; a nullary case declares none.
+            test "a `[<Struct>]` union declares one public Get_<Case>_<i> reader per case field" {
+                let artifact = compileSourceData "StructUnionShape"
+                let bytes = Codegen.toBytes artifact
+
+                MetadataStructure.assertWellFormed "StructUnionGetters" bytes
+
+                let methods = MetadataStructure.methodAttrsOf bytes "Shape"
+                let getters = methods |> List.filter (fun (n, _) -> n.StartsWith "Get_")
+
+                Expect.equal
+                    (List.map fst getters)
+                    [ "Get_Point_0"; "Get_Pair_0"; "Get_Pair_1" ]
+                    "one getter per (case, field), in case then field order"
+
+                for (name, attrs) in getters do
+                    Expect.equal
+                        (attrs &&& MethodAttributes.MemberAccessMask)
+                        MethodAttributes.Public
+                        (name + " is public")
+
+                    Expect.isFalse (attrs.HasFlag MethodAttributes.Static) (name + " is an instance method")
+                    Expect.isFalse (attrs.HasFlag MethodAttributes.Virtual) (name + " binds by call")
+
+                let asm = loadAssembly bytes
+                let ty = asm.GetType "Shape"
+                let pair = ty.GetMethod("Pair").Invoke(null, [| box 4; box 5 |])
+
+                Expect.equal (ty.GetMethod("Get_Pair_0").Invoke(pair, [||])) (box 4) "Get_Pair_0 reads a"
+                Expect.equal (ty.GetMethod("Get_Pair_1").Invoke(pair, [||])) (box 5) "Get_Pair_1 reads b"
+            }
+
             // The last two lines are the `default` semantics: the zero value is the
             // tag-0 case (`Empty`), reachable by pattern matching and equal to it.
             test "a `[<Struct>]` union constructs, matches, equates; its zero value is the tag-0 case" {

@@ -310,6 +310,23 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     let externalCaseSpec (key: TypeKey) (tref: EntityHandle) (args: FrozenType list) (caseName: string) : EntityHandle =
         externalTypeSpec key (toEntity (ctx.TypeRef(tref, "", caseName))) args
 
+    /// The `MemberRef` of a parameterless instance method `name` on `parent` returning
+    /// `retTy`: `get_Tag` and the `Get_<Case>_<i>` readers.
+    let externalGetterRef (parent: EntityHandle) (name: string) (retTy: FrozenType) : EntityHandle =
+        let s = BlobBuilder()
+
+        BlobEncoder(s)
+            .MethodSignature(isInstanceMethod = true)
+            .Parameters(
+                0,
+                (fun (ret: ReturnTypeEncoder) -> encodeType (ret.Type()) retTy),
+                (fun (_: ParametersEncoder) -> ())
+            )
+
+        toEntity (ctx.MemberRef(parent, name, s))
+
+    let intTy = FTConst(RuntimeNames.intKey, EqArray.empty)
+
     /// The test a match arm emits for `caseName` on a referenced-package union at `args`.
     /// `ValueNone` ⇒ unknown union or case.
     let externalUnionCaseTest (key: TypeKey) (args: FrozenType list) (caseName: string) : UnionCaseTest voption =
@@ -322,28 +339,11 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                 // A referenced package's `_tag` is private to its union, so the test calls
                 // the accessor the same emitter put there.
                 let tagGetter () =
-                    let parent = externalTypeSpec key tref args
-                    let s = BlobBuilder()
-
-                    BlobEncoder(s)
-                        .MethodSignature(isInstanceMethod = true)
-                        .Parameters(
-                            0,
-                            (fun (ret: ReturnTypeEncoder) -> ret.Type().Int32()),
-                            (fun (_: ParametersEncoder) -> ())
-                        )
-
-                    toEntity (ctx.MemberRef(parent, "get_Tag", s))
+                    externalGetterRef (externalTypeSpec key tref args) "get_Tag" intTy
 
                 let caseType () = externalCaseSpec key tref args caseName
 
-                let valueKind =
-                    if u.IsValueType then
-                        UnionValueKind.Struct
-                    else
-                        UnionValueKind.RefType
-
-                ValueSome(UnionCaseTest.ofRegime valueKind (UnionRegime.ofExternalShape u) tag tagGetter caseType)
+                ValueSome(UnionCaseTest.ofRegime (UnionRegime.ofExternalShape u) tag tagGetter caseType)
 
     /// The `TypeSpec` a referenced-package union's case members are parented on: the case's
     /// own nested `TypeRef` in a hierarchy regime, `ValueNone` in a flat one, where the
@@ -368,15 +368,15 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
         | ValueNone -> ValueNone
         | ValueSome(tref, u) -> externalCaseParent key tref (UnionRegime.ofExternalShape u) args caseName
 
-    /// The `MemberRef` a cross-package `match … Some x` reads one case's payload field
-    /// through, with the field's type after the use-site substitution. In a hierarchy
-    /// regime the parent is the case's own type. `ValueNone` ⇒ unknown case/index.
+    /// The read path a cross-package `match … Some x` takes to one case's payload field,
+    /// with the field's type after the use-site substitution. `ValueNone` ⇒ unknown
+    /// case/index.
     let externalUnionCaseField
         (key: TypeKey)
         (args: FrozenType list)
         (caseName: string)
         (fieldIndex: int)
-        : (EntityHandle * FrozenType) voption =
+        : (UnionCaseAccess * FrozenType) voption =
         let arity = List.length args
 
         match externalUnionRef key arity with
@@ -385,24 +385,31 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
             match u.Cases |> EqArray.tryFind (fun c -> c.Name = caseName) with
             | ValueSome case when fieldIndex >= 0 && fieldIndex < case.FrozenFieldTypes.Length ->
                 let regime = UnionRegime.ofExternalShape u
-
-                let fieldName =
-                    (UnionCaseFields.names regime caseName (EqArray.toList case.FieldNames)).[fieldIndex]
-
-                let parent =
-                    match externalCaseParent key tref regime args caseName with
-                    | ValueSome caseParent -> caseParent
-                    | ValueNone -> externalTypeSpec key tref args
-
                 let openFieldTy = case.FrozenFieldTypes.[fieldIndex]
 
-                let s = BlobBuilder()
-                encodeType (BlobEncoder(s).FieldSignature()) openFieldTy
+                let access =
+                    if UnionRegime.hasCaseGetters regime then
+                        UnionCaseAccess.Getter(
+                            externalGetterRef
+                                (externalTypeSpec key tref args)
+                                (UnionCaseFields.getterName caseName fieldIndex)
+                                openFieldTy
+                        )
+                    else
+                        let fieldName =
+                            (UnionCaseFields.names regime caseName (EqArray.toList case.FieldNames)).[fieldIndex]
 
-                let handle = toEntity (ctx.MemberRef(parent, fieldName, s))
+                        let parent =
+                            match externalCaseParent key tref regime args caseName with
+                            | ValueSome caseParent -> caseParent
+                            | ValueNone -> externalTypeSpec key tref args
+
+                        let s = BlobBuilder()
+                        encodeType (BlobEncoder(s).FieldSignature()) openFieldTy
+                        UnionCaseAccess.Field(toEntity (ctx.MemberRef(parent, fieldName, s)))
 
                 let substitutedTy = substituteDeclaring (List.toArray args) openFieldTy
-                ValueSome(handle, substitutedTy)
+                ValueSome(access, substitutedTy)
             | _ -> ValueNone
 
     /// Mint the `MemberRef` for a referenced-assembly class's ctor, instantiated at `tyArgs`. The

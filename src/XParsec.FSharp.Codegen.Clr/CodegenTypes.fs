@@ -75,9 +75,11 @@ type internal UnionDecl =
         /// The metadata shape this union is emitted in, classified once at partition time.
         Regime: UnionRegime
         /// The physical fields on the union's own `TypeDef` and each case field's read path.
-        /// Held exactly where the regime is flat; a hierarchy regime declares each case's
-        /// payload on the case type.
+        /// `ValueSome` exactly where the regime is flat.
         Placements: FlatUnionPlacements voption
+        /// The public `Get_<Case>_<i>` readers, one per logical case field. Non-empty
+        /// exactly where `UnionRegime.hasCaseGetters` holds.
+        CaseGetters: UnionCaseGetter list
     }
 
     /// A nested `TypeDef` per case on an abstract base.

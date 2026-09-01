@@ -330,6 +330,9 @@ type internal MethodKey =
     /// `get_Tag`, the public accessor for a union's private `_tag`. Declared exactly where
     /// `UnionRegime.hasTag` holds.
     | UnionGetTag of SymbolKey
+    /// `Get_<Case>_<i>`, the public in-place reader of one logical case field. Declared
+    /// exactly where `UnionRegime.hasCaseGetters` holds.
+    | UnionCaseGetter of SymbolKey * case: string * index: int
     /// A hierarchy union case type's `.ctor(payload…)`, which chains the union's own
     /// `.ctor`, passing this case's tag where the base declares one.
     | UnionCaseCtor of SymbolKey * case: string

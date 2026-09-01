@@ -26,6 +26,9 @@ module UnionCaseFields =
         else
             declared |> List.mapi (fun i _ -> sprintf "%s_%d" caseName i)
 
+    /// The metadata name of the `Get_<Case>_<i>` reader of field `index` of `caseName`.
+    let getterName (caseName: string) (index: int) : string = sprintf "Get_%s_%d" caseName index
+
 [<RequireQualifiedAccess>]
 module UnionCaseType =
 

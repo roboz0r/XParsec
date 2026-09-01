@@ -72,6 +72,17 @@ module UnionRegime =
         | UnionRegime.StructTagged
         | UnionRegime.Tagged -> true
 
+    /// Whether the union declares one public `Get_<Case>_<i>` reader per logical case field.
+    /// A cross-assembly match arm reads a `StructTagged` union's payload through these;
+    /// every other regime exposes its payload fields directly.
+    let hasCaseGetters (regime: UnionRegime) : bool =
+        match regime with
+        | UnionRegime.StructTagged -> true
+        | UnionRegime.SingleCase
+        | UnionRegime.EnumLike
+        | UnionRegime.TypeTested
+        | UnionRegime.Tagged -> false
+
 /// The parameter list a union's own `.ctor` declares. This `.ctor` is the only writer of
 /// every field it takes, so all of them are `initonly`.
 [<RequireQualifiedAccess>]

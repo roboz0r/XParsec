@@ -9,9 +9,8 @@ open AssemblerScaffold
 module internal NominalRegistration =
 
     /// Each case's payload as `(metadata name, stored type)`: a flat union's placement
-    /// slots, or a hierarchy case's own fields at the name the regime spells them.
-    /// `RegisterGenericUnion` carries both; `UnionMember.Field` reparents a hierarchy
-    /// case's onto the case type.
+    /// slots, or a hierarchy case's own fields, which `UnionMember.Field` reparents onto
+    /// the case type.
     let private caseFields (ud: UnionDecl) (c: Frozen.TUnionCase) : (string * FrozenType) list =
         match ud.Placements with
         | ValueSome p ->

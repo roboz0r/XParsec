@@ -34,8 +34,7 @@ module UnionFieldAccess =
 
 /// The physical fields of a flat-regime union and the placement of every logical case field
 /// among them. `Slots` is in `.ctor` parameter order, after `_tag` where the regime declares
-/// one. Case factories, structural bodies and match arms read a logical field only through
-/// its placement.
+/// one.
 type FlatUnionPlacements =
     {
         Slots: UnionSlot list
@@ -48,6 +47,17 @@ type FlatUnionPlacements =
     /// The read paths to one case's fields, in declaration order.
     member this.CaseAccess(c: Frozen.TUnionCase) : UnionFieldAccess list =
         [ for i in 0 .. c.Fields.Length - 1 -> this.Access(c.Name, i) ]
+
+/// One public `Get_<Case>_<i>` reader on a flat union: the logical case field it returns
+/// and the slot it reads through.
+type UnionCaseGetter =
+    {
+        Case: string
+        Index: int
+        Name: string
+        Slot: UnionSlot
+        FieldTy: FrozenType
+    }
 
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 [<RequireQualifiedAccess>]
@@ -79,3 +89,18 @@ module FlatUnionPlacements =
                 )
                 |> Map.ofList
         }
+
+    /// One `Get_<Case>_<i>` reader per logical case field, in case then field declaration
+    /// order.
+    let caseGetters (p: FlatUnionPlacements) (cases: Frozen.TUnionCase list) : UnionCaseGetter list =
+        [
+            for c in cases do
+                for (fi, (_, fieldTy)) in List.indexed (EqArray.toList c.Fields) ->
+                    {
+                        Case = c.Name
+                        Index = fi
+                        Name = UnionCaseFields.getterName c.Name fi
+                        Slot = UnionFieldAccess.slot (p.Access(c.Name, fi))
+                        FieldTy = fieldTy
+                    }
+        ]

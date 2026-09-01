@@ -79,6 +79,16 @@ type UnionMember =
     | CaseSingleton of caseName: string
     | Factory of caseName: string
 
+/// The read path from a union scrutinee to one case field.
+[<RequireQualifiedAccess>]
+type UnionCaseAccess =
+    /// `ldfld` the payload field off the scrutinee, or off the case type in a hierarchy
+    /// regime.
+    | Field of EntityHandle
+    /// `call` the `Get_<Case>_<i>` reader on the scrutinee's address. The scrutinee is a
+    /// value type.
+    | Getter of EntityHandle
+
 /// A discriminant comparison: call `Getter` on the scrutinee and branch unless the result
 /// equals `Tag`.
 type TagTest =
@@ -87,8 +97,6 @@ type TagTest =
         Getter: EntityHandle
         /// The case's zero-based index in declaration order.
         Tag: int
-        /// `Struct` ⇒ the scrutinee is addressed (`ldloca`) for the call.
-        ValueKind: UnionValueKind
     }
 
 /// The test one match arm emits to settle whether the scrutinee is a given case.
@@ -108,7 +116,6 @@ module UnionCaseTest =
     /// declaration order. `tagGetter` and `caseType` mint their handles in the caller's
     /// own scope; each is forced exactly under the regime that reads it.
     let ofRegime
-        (valueKind: UnionValueKind)
         (regime: UnionRegime)
         (tag: int)
         (tagGetter: unit -> EntityHandle)
@@ -119,13 +126,7 @@ module UnionCaseTest =
         | UnionRegime.TypeTested -> UnionCaseTest.IsInst(caseType ())
         | UnionRegime.EnumLike
         | UnionRegime.StructTagged
-        | UnionRegime.Tagged ->
-            UnionCaseTest.TagEquals
-                {
-                    Getter = tagGetter ()
-                    Tag = tag
-                    ValueKind = valueKind
-                }
+        | UnionRegime.Tagged -> UnionCaseTest.TagEquals { Getter = tagGetter (); Tag = tag }
 
 /// Which member of an emitted *generic* closure (`<closure>$n`) a `MemberRef` identifies.
 /// Signature in the closure's own generic parameters (`!i`); the parent `TypeSpec` is
@@ -362,12 +363,12 @@ type ICodegenProvider =
     /// `caseName`, instantiated at `tyArgs`. `ValueNone` ⇒ unknown union or case.
     abstract ExternalUnionCaseTest: key: TypeKey * tyArgs: FrozenType list * caseName: string -> UnionCaseTest voption
 
-    /// One `<caseName>_<fieldIndex>` field `MemberRef` on a referenced-package union,
-    /// instantiated at `tyArgs`, plus that field's substituted declared type. The field is
-    /// the slot a `match … Some x` extracts from. `ValueNone` ⇒ unknown union/case/field.
+    /// The read path a `match … Some x` arm takes to field `fieldIndex` of `caseName` on a
+    /// referenced-package union instantiated at `tyArgs`, plus the field's substituted
+    /// declared type. `ValueNone` ⇒ unknown union/case/field.
     abstract ExternalUnionCaseField:
         key: TypeKey * tyArgs: FrozenType list * caseName: string * fieldIndex: int ->
-            (EntityHandle * FrozenType) voption
+            (UnionCaseAccess * FrozenType) voption
 
     /// The type token for one case of a referenced-package HIERARCHY union at `tyArgs`: the
     /// nested type its payload is declared on, which a cross-package `match` arm casts the

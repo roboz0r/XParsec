@@ -427,8 +427,12 @@ type ClrProvider
                 // Only `Cons` carries fields: field 0 is the head (`elem`), field 1 the tail
                 // (`List<elem>`), both on the `Cons` case type.
                 match caseName, fieldIndex with
-                | "Cons", 0 -> ValueSome(recipes.EmitVesperListConsField(elem, 0), elem)
-                | "Cons", 1 -> ValueSome(recipes.EmitVesperListConsField(elem, 1), FTUnion(key, EqArray.ofList tyArgs))
+                | "Cons", 0 -> ValueSome(UnionCaseAccess.Field(recipes.EmitVesperListConsField(elem, 0)), elem)
+                | "Cons", 1 ->
+                    ValueSome(
+                        UnionCaseAccess.Field(recipes.EmitVesperListConsField(elem, 1)),
+                        FTUnion(key, EqArray.ofList tyArgs)
+                    )
                 | _ -> ValueNone
             else
                 ext.ExternalUnionCaseField(key, tyArgs, caseName, fieldIndex)

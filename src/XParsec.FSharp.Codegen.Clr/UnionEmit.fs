@@ -39,13 +39,6 @@ module internal UnionEmit =
     let private caseTyOf (td: TastAccessor.TypeDecl) (caseName: string) : FrozenType =
         UnionCaseType.ty td.TypeKey caseName (typarMarkersOf td)
 
-    /// The placements of a flat union. A hierarchy regime declares its payload on the case
-    /// types and has none.
-    let private placementsOf (ud: UnionDecl) : FlatUnionPlacements =
-        match ud.Placements with
-        | ValueSome p -> p
-        | ValueNone -> invalidOp (sprintf "UnionEmit: hierarchy union '%s' has no flat placements" ud.Decl.Name)
-
     /// The `FieldDef` key one logical case field is read from: its placement slot on a
     /// flat union, or the case type's own field in a hierarchy regime.
     let private caseFieldKey (ud: UnionDecl) (c: Frozen.TUnionCase) (fi: int) : FieldKey =
@@ -65,15 +58,15 @@ module internal UnionEmit =
                     (toEntity (asm.FieldDef(caseFieldKey ud c fi)))
         ]
 
-    /// A flat union's physical slot refs in `.ctor` parameter order, the fields its `.ctor`
-    /// stores.
-    let private slotRefsOf (asm: Assembler) (ud: UnionDecl) (p: FlatUnionPlacements) : EntityHandle list =
+    /// A flat union's physical slots with their refs, in `.ctor` parameter order.
+    let private slotRefsOf (asm: Assembler) (ud: UnionDecl) (p: FlatUnionPlacements) : (UnionSlot * EntityHandle) list =
         [
             for s in p.Slots ->
                 let member' =
                     match s.Key with
                     | UnionSlotKey.CaseField(case, fi) -> UnionMember.Field(case, fi)
 
+                s,
                 selfMemberRef
                     asm
                     ud.Decl
@@ -103,92 +96,69 @@ module internal UnionEmit =
         let isHierarchy = ud.IsHierarchy
         let selfTy = FTUnion(td.TypeKey, EqArray.ofList (typarMarkersOf td))
 
-        let ctorShape = ud.CtorShape
-
-        let ctorPrepared, getTagPrepared =
-            // A generic union mints a `MemberRef` row per call, so the `.ctor` and `get_Tag`
-            // share one.
-            let tagRef =
-                lazy
-                    (selfMemberRef
+        // The `_tag` ref, shared by the `.ctor` and `get_Tag`: a generic union mints a
+        // `MemberRef` row per call.
+        let tagRef: EntityHandle voption =
+            if ud.HasTag then
+                ValueSome(
+                    selfMemberRef
                         asm
                         td
                         (UserMemberKind.UnionMember UnionMember.Tag)
-                        (toEntity (asm.FieldDef(FieldKey.UnionTag td.Key))))
+                        (toEntity (asm.FieldDef(FieldKey.UnionTag td.Key)))
+                )
+            else
+                ValueNone
 
-            // The flat forms take every physical slot in placement order, so a factory
-            // `newobj`s the whole value at once. A value type chains no base `.ctor`.
-            let flatCtor (tagged: bool) =
-                let p = placementsOf ud
+        // A flat union's slots with their refs, in `.ctor` order, shared by the `.ctor`,
+        // the struct factories and the `Get_<Case>_<i>` readers.
+        let slotRefs: (UnionSlot * EntityHandle) list =
+            match ud.Placements with
+            | ValueSome p -> slotRefsOf asm ud p
+            | ValueNone -> []
 
-                let fields =
-                    [
-                        if tagged then
-                            yield tagRef.Value
-                        yield! slotRefsOf asm ud p
-                    ]
+        // The `.ctor` stores `_tag` where the regime declares one, then every slot in
+        // placement order. A value type chains no base `.ctor`.
+        let ctorFields = [ yield! ValueOption.toList tagRef; for (_, h) in slotRefs -> h ]
 
-                {
-                    Signature =
-                        provider.RecordCtorSignature
-                            [
-                                if tagged then
-                                    yield intTy
-                                for s in p.Slots -> s.Ty
-                            ]
-                    Body =
-                        bodyOf
-                            asm
-                            (if isStruct then
-                                 Emit.buildStructCtor fields
-                             else
-                                 Emit.buildChainedCtor provider.ObjectCtorRef [] fields)
-                    ParamNames =
+        asm.AddPrepared(
+            MethodKey.NominalCtor td.Key,
+            {
+                Signature =
+                    provider.RecordCtorSignature
                         [
-                            if tagged then
-                                yield "_tag"
-                            for s in p.Slots -> s.MetaName
+                            if ud.HasTag then
+                                yield intTy
+                            for (s, _) in slotRefs -> s.Ty
                         ]
+                Body =
+                    bodyOf
+                        asm
+                        (if isStruct then
+                             Emit.buildStructCtor ctorFields
+                         else
+                             Emit.buildChainedCtor provider.ObjectCtorRef [] ctorFields)
+                ParamNames =
+                    [
+                        if ud.HasTag then
+                            yield "_tag"
+                        for (s, _) in slotRefs -> s.MetaName
+                    ]
+                MethodTypars = []
+            }
+        )
+
+        match tagRef with
+        | ValueSome t ->
+            asm.AddPrepared(
+                MethodKey.UnionGetTag td.Key,
+                {
+                    Signature = provider.InstanceMethodSignature([], intTy)
+                    Body = bodyOf asm (Emit.buildFieldGetter t)
+                    ParamNames = []
                     MethodTypars = []
                 }
-
-            let ctor =
-                match ctorShape with
-                | UnionCtorShape.FlatTagged -> flatCtor true
-                | UnionCtorShape.Flat -> flatCtor false
-                | UnionCtorShape.TagOnly ->
-                    {
-                        Signature = provider.RecordCtorSignature [ intTy ]
-                        Body = bodyOf asm (Emit.buildChainedCtor provider.ObjectCtorRef [] [ tagRef.Value ])
-                        ParamNames = [ "_tag" ]
-                        MethodTypars = []
-                    }
-                | UnionCtorShape.Nullary ->
-                    {
-                        Signature = provider.RecordCtorSignature []
-                        Body = bodyOf asm (Emit.buildChainedCtor provider.ObjectCtorRef [] [])
-                        ParamNames = []
-                        MethodTypars = []
-                    }
-
-            let getTag =
-                if ud.HasTag then
-                    ValueSome
-                        {
-                            Signature = provider.InstanceMethodSignature([], intTy)
-                            Body = bodyOf asm (Emit.buildFieldGetter tagRef.Value)
-                            ParamNames = []
-                            MethodTypars = []
-                        }
-                else
-                    ValueNone
-
-            ctor, getTag
-
-        asm.AddPrepared(MethodKey.NominalCtor td.Key, ctorPrepared)
-
-        match getTagPrepared with
-        | ValueSome p -> asm.AddPrepared(MethodKey.UnionGetTag td.Key, p)
+            )
         | ValueNone -> ()
 
         let ctorRef =
@@ -216,7 +186,7 @@ module internal UnionEmit =
         // The arguments one case passes to the union's own `.ctor`: `TagOnly` stamps the
         // discriminant.
         let ctorTagArgs (tag: int) =
-            match ctorShape with
+            match ud.CtorShape with
             | UnionCtorShape.TagOnly -> [ ILInstr.LdcI4 tag ]
             | UnionCtorShape.Nullary
             | UnionCtorShape.Flat
@@ -273,17 +243,18 @@ module internal UnionEmit =
             let factoryIr =
                 match UnionFactoryShape.ofCase ud.ValueKind ud.Regime arity with
                 | UnionFactoryShape.StructTagged ->
-                    let p = placementsOf ud
-
-                    // The slot each of this case's fields is stored in, by slot key.
+                    // This case's field index by the key of the slot storing it.
                     let ownedSlots =
-                        p.CaseAccess c
-                        |> List.mapi (fun fi a -> (UnionFieldAccess.slot a).Key, fi)
-                        |> Map.ofList
+                        match ud.Placements with
+                        | ValueSome p ->
+                            p.CaseAccess c
+                            |> List.mapi (fun fi a -> (UnionFieldAccess.slot a).Key, fi)
+                            |> Map.ofList
+                        | ValueNone -> failwithf "Emit: struct union '%s' has no placements" td.Name
 
                     let args =
                         [
-                            for s in p.Slots ->
+                            for (s, _) in slotRefs ->
                                 match Map.tryFind s.Key ownedSlots with
                                 | Some fi -> Emit.StructUnionCtorArg.Param fi
                                 | None -> Emit.StructUnionCtorArg.Default(s.Ty, asm.Icodegen.TypeToken s.Ty)
@@ -307,6 +278,20 @@ module internal UnionEmit =
                 }
             )
         )
+
+        // The `Get_<Case>_<i>` readers, each `ldfld`ing its slot in place on `this`.
+        let refOfSlot = slotRefs |> List.map (fun (s, h) -> s.Key, h) |> Map.ofList
+
+        for g in ud.CaseGetters do
+            asm.AddPrepared(
+                MethodKey.UnionCaseGetter(td.Key, g.Case, g.Index),
+                {
+                    Signature = provider.InstanceMethodSignature([], g.FieldTy)
+                    Body = bodyOf asm (Emit.buildFieldGetter refOfSlot.[g.Slot.Key])
+                    ParamNames = []
+                    MethodTypars = []
+                }
+            )
 
     // ---- Structural bodies -----------------------------------------------------------
 

@@ -272,13 +272,22 @@ let optionMatchRuntime =
                      + "printfn \"%b\" (isSome (None: int option))")
             }
 
-            // Construction feeding a match end-to-end.
-            test "match round-trips a constructed Some" {
-                runsOption
-                    "42"
-                    ("open Vesper\n"
-                     + "let unwrap (o: int option) =\n    match o with\n    | Some x -> x\n    | None -> -1\n"
-                     + "printfn \"%d\" (unwrap (Some 42))")
+            // Construction feeding a match end-to-end. `option` is a `[<Struct>]` union in
+            // a referenced package, so the arm extracts through the `Get_Some_0` reader
+            // and mints no `MemberRef` to the `Some_0` field.
+            test "match round-trips a constructed Some through the case getter" {
+                let (exitCode, output), bytes =
+                    runPackagesInspect
+                        [ "Vesper.Option" ]
+                        ("open Vesper\n"
+                         + "let unwrap (o: int option) =\n    match o with\n    | Some x -> x\n    | None -> -1\n"
+                         + "printfn \"%d\" (unwrap (Some 42))")
+
+                Expect.equal exitCode 0 "the driver ran"
+                Expect.equal (output.Replace("\r", "").Trim()) "42" "the payload came back through the getter"
+
+                Expect.equal (MetadataStructure.memberRefRowCount bytes "Get_Some_0") 1 "one MemberRef to the getter"
+                Expect.equal (MetadataStructure.memberRefRowCount bytes "Some_0") 0 "no MemberRef to the payload field"
             }
         ]
 

@@ -128,22 +128,28 @@ regime is flat). Consumers routed through it:
 
 No metadata change; `StructTests` stayed green.
 
-### Step 2 — accessor surface and external rerouting (the ABI cut)
+### Step 2 — accessor surface and external rerouting (the ABI cut) — LANDED
 
-- New `MethodKey.UnionCaseGetter of SymbolKey * case: string * index: int`; emit one public
-  getter per (case, field) on every `StructTagged` union, body reading through Step 1
-  placements.
-- Reroute external reads: `ICodegenProvider.ExternalUnionCaseField` (`ICodegenProvider.fs:368`)
-  currently returns a field `MemberRef`; for a `StructTagged` external union it must yield a
-  *method* to call. Split the contract (e.g. a `UnionCaseAccess = Field of … | Getter of …`
-  result) rather than overloading the meaning of one `EntityHandle`; consumers are
-  `EmitPattern.fs:225` and `ClrExternalMembers.fs:374`.
-- Update the `du-architecture.md` "convenience members are non-goals" entry: case-field getters
-  on struct unions are now part of the ABI (the rest of FSC's surface stays a non-goal).
-- Tests: a cross-package struct-union match (add one if the package tests lack it), plus
-  `MetadataStructure` assertions on the getter rows.
+- `MethodKey.UnionCaseGetter of SymbolKey * case: string * index: int`: one public instance
+  `Get_<Case>_<i>` per (case, field), spelled by `UnionCaseFields.getterName`, declared
+  exactly where `UnionRegime.hasCaseGetters` holds (`StructTagged`). `LayoutNodes` mints the
+  rows after the factories; `UnionEmit.prepareUnion` builds each body as `ldarg.0` /
+  `ldfld <slot>` through the case's placement, sharing the `.ctor` pass's slot refs so a
+  generic union's `MemberRef` count per pass is unchanged.
+- `ICodegenProvider.ExternalUnionCaseField` returns `UnionCaseAccess * FrozenType`, where
+  `UnionCaseAccess = Field of EntityHandle | Getter of EntityHandle`. `ClrExternalMembers`
+  yields `Getter` for a `StructTagged` external union and `Field` otherwise;
+  `EmitPattern` calls a `Getter` on `ldloca scrutSlot`. A union emitted in the current
+  assembly still reads its fields directly (`Field`), so a local match copies nothing.
+- `du-architecture.md` non-goals entry updated.
+- Tests: `StructTests` pins the getter rows (`MetadataStructure.methodAttrsOf`) and reads a
+  payload back by reflection; `OptionTests` pins that a cross-package `match` on the struct
+  `option` references `Get_Some_0` and never the `Some_0` field. The `struct-union` and
+  `struct-union-generic` byte-identity goldens were regenerated for the new rows.
 
-After this step the physical layout is invisible outside the defining assembly.
+After this step no emitted code outside the defining assembly references a slot field. The
+slot fields themselves are still `public initonly` (`LayoutNodes.buildUnionNodes`); they
+become private when Step 5 moves them behind `_payload`.
 
 ### Step 3 — tri-state unmanaged classifier
 
@@ -248,8 +254,8 @@ This step already delivers most of the footprint win.
 
 ## Migration checklist (strike off before deleting this doc)
 
-- [ ] Same-emitter accessor ABI: stated on the `ExternalUnionCaseField`/`UnionCaseAccess`
-      contract doc comment.
+- [x] Same-emitter accessor ABI: stated on the `UnionCaseAccess` doc comment
+      (`ICodegenProvider.fs`).
 - [ ] "Structural bodies never byte-compare `_data`" — a test with a padding-bearing case
       struct whose padding is deliberately dirtied, or a sited comment on the structural body
       emitter if undirtiable.

@@ -268,20 +268,10 @@ let caseTest =
             test "the tag-reading regimes compare the minted accessor against the case's tag" {
                 let minted = System.Reflection.Metadata.EntityHandle()
 
-                for (valueKind, regime) in
-                    [
-                        UnionValueKind.RefType, UnionRegime.EnumLike
-                        UnionValueKind.Struct, UnionRegime.StructTagged
-                        UnionValueKind.RefType, UnionRegime.Tagged
-                    ] do
+                for regime in [ UnionRegime.EnumLike; UnionRegime.StructTagged; UnionRegime.Tagged ] do
                     Expect.equal
-                        (UnionCaseTest.ofRegime valueKind regime 2 (fun () -> minted) (noMint "case-type"))
-                        (UnionCaseTest.TagEquals
-                            {
-                                Getter = minted
-                                Tag = 2
-                                ValueKind = valueKind
-                            })
+                        (UnionCaseTest.ofRegime regime 2 (fun () -> minted) (noMint "case-type"))
+                        (UnionCaseTest.TagEquals { Getter = minted; Tag = 2 })
                         (sprintf "%A reads the tag" regime)
             }
 
@@ -289,24 +279,14 @@ let caseTest =
                 let minted = System.Reflection.Metadata.EntityHandle()
 
                 Expect.equal
-                    (UnionCaseTest.ofRegime
-                        UnionValueKind.RefType
-                        UnionRegime.TypeTested
-                        1
-                        (noMint "tag-getter")
-                        (fun () -> minted))
+                    (UnionCaseTest.ofRegime UnionRegime.TypeTested 1 (noMint "tag-getter") (fun () -> minted))
                     (UnionCaseTest.IsInst minted)
                     "the case's runtime type discriminates"
             }
 
             test "SingleCase is irrefutable and mints nothing" {
                 Expect.equal
-                    (UnionCaseTest.ofRegime
-                        UnionValueKind.RefType
-                        UnionRegime.SingleCase
-                        0
-                        (noMint "tag-getter")
-                        (noMint "case-type"))
+                    (UnionCaseTest.ofRegime UnionRegime.SingleCase 0 (noMint "tag-getter") (noMint "case-type"))
                     UnionCaseTest.Irrefutable
                     "the sole case needs no test"
             }

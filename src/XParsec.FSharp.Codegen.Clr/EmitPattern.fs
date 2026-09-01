@@ -156,12 +156,12 @@ module EmitPattern =
         | CastScrutinee of token: EntityHandle
 
     /// One match arm's resolution of a union case: the test that settles it, a payload
-    /// field ref per index, and where extraction reads those fields from.
+    /// read path per index, and where a `Field` read loads its source from.
     type private UnionArmPlan =
         {
             Test: UnionCaseTest
             /// Minted on demand, so a wildcard sub-pattern adds no `MemberRef` row.
-            FieldRef: int -> EntityHandle
+            FieldAccess: int -> UnionCaseAccess
             Source: UnionArmSource
         }
 
@@ -180,15 +180,18 @@ module EmitPattern =
 
             // Tag / field access is a `Def` token for a monomorphic union, but a
             // `MemberRef` on the instantiated `TypeSpec` for a generic one
-            // (`List<int>::_tag`).
-            let fieldRef i =
-                memberRef
-                    env
-                    u.Typars
-                    key
-                    tyArgs
-                    (UserMemberKind.UnionMember(UnionMember.Field(caseName, i)))
-                    c.Fields.[i]
+            // (`List<int>::_tag`). A union emitted in this compilation reads its payload
+            // fields directly.
+            let fieldAccess i =
+                UnionCaseAccess.Field(
+                    memberRef
+                        env
+                        u.Typars
+                        key
+                        tyArgs
+                        (UserMemberKind.UnionMember(UnionMember.Field(caseName, i)))
+                        c.Fields.[i]
+                )
 
             let caseTyToken =
                 c.CaseType
@@ -211,8 +214,8 @@ module EmitPattern =
                 | ValueNone -> failwithf "Emit: type-tested union '%s' nests no type for case '%s'" qualName caseName
 
             {
-                Test = UnionCaseTest.ofRegime u.ValueKind u.Regime c.Tag tagGetterRef caseTypeToken
-                FieldRef = fieldRef
+                Test = UnionCaseTest.ofRegime u.Regime c.Tag tagGetterRef caseTypeToken
+                FieldAccess = fieldAccess
                 Source =
                     match caseTyToken with
                     | ValueSome(ty, token) -> UnionArmSource.CaseLocal(ty, token)
@@ -221,14 +224,14 @@ module EmitPattern =
         | false, _ ->
             match env.Provider.ExternalUnionCaseTest(key, tyArgs, caseName) with
             | ValueSome test ->
-                let fieldRef i =
+                let fieldAccess i =
                     match env.Provider.ExternalUnionCaseField(key, tyArgs, caseName, i) with
-                    | ValueSome(fieldRef, _) -> fieldRef
+                    | ValueSome(access, _) -> access
                     | ValueNone -> failwithf "Emit: external union '%s' case '%s' has no field %d" qualName caseName i
 
                 {
                     Test = test
-                    FieldRef = fieldRef
+                    FieldAccess = fieldAccess
                     Source =
                         match env.Provider.ExternalUnionCaseType(key, tyArgs, caseName) with
                         | ValueSome token -> UnionArmSource.CastScrutinee token
@@ -246,16 +249,33 @@ module EmitPattern =
         (nextLabel: int)
         (pat: TastAccessor.PatId)
         : unit =
-        // `ldfld` a field off the value `pushSource` leaves on the stack into a fresh
-        // local, then test the sub-pattern against that local.
-        let extractFieldVia (pushSource: unit -> unit) (fieldRef: EntityHandle) (subPat: TastAccessor.PatId) =
+        // Store the value `pushValue` leaves on the stack into a fresh local, then test
+        // the sub-pattern against that local.
+        let extractVia (pushValue: unit -> unit) (subPat: TastAccessor.PatId) =
             let fldSlot = b.Local(typeOfPat subPat)
-            pushSource ()
-            b.Add(ILInstr.Ldfld fieldRef)
+            pushValue ()
             b.Add(ILInstr.Stloc fldSlot)
             buildMatchTest env b fldSlot nextLabel subPat
 
+        // `ldfld` a field off the value `pushSource` leaves on the stack.
+        let extractFieldVia (pushSource: unit -> unit) (fieldRef: EntityHandle) =
+            extractVia (fun () ->
+                pushSource ()
+                b.Add(ILInstr.Ldfld fieldRef)
+            )
+
         let extractField = extractFieldVia (fun () -> b.Add(ILInstr.Ldloc scrutSlot))
+
+        // A union case field by its read path: a `Field` off the value `pushSource`
+        // leaves, a `Getter` called on the this pointer `pushThis` leaves.
+        let extractCaseField (pushSource: unit -> unit) (pushThis: unit -> unit) (access: UnionCaseAccess) =
+            match access with
+            | UnionCaseAccess.Field fieldRef -> extractFieldVia pushSource fieldRef
+            | UnionCaseAccess.Getter getter ->
+                extractVia (fun () ->
+                    pushThis ()
+                    b.Add(ILInstr.Call(getter, 1, 1))
+                )
 
         match TastAccessor.patKind pat with
         | PatShape.Wildcard -> ()
@@ -354,18 +374,21 @@ module EmitPattern =
                         b.Add(ILInstr.Castclass token)
                     )
 
-            match plan.Test with
-            | UnionCaseTest.Irrefutable -> ()
-            | UnionCaseTest.TagEquals t ->
-                // Skip the arm unless `scrut.Tag = case.Tag`. A value type is called on
-                // its address.
+            // The scrutinee as the this pointer of one of the union's own instance methods
+            // (`get_Tag`, a `Get_<Case>_<i>` reader): a value type is called on its address.
+            let pushThis () =
                 b.Add(
-                    if t.ValueKind.IsValueType then
+                    if isValueType env (typeOfPat pat) then
                         ILInstr.Ldloca scrutSlot
                     else
                         ILInstr.Ldloc scrutSlot
                 )
 
+            match plan.Test with
+            | UnionCaseTest.Irrefutable -> ()
+            | UnionCaseTest.TagEquals t ->
+                // Skip the arm unless `scrut.Tag = case.Tag`.
+                pushThis ()
                 b.Add(ILInstr.Call(t.Getter, 1, 1))
                 b.Add(ILInstr.LdcI4 t.Tag)
                 b.Add(ILInstr.BneUn nextLabel)
@@ -393,7 +416,7 @@ module EmitPattern =
             |> Array.iteri (fun i subPat ->
                 match TastAccessor.patKind subPat with
                 | PatShape.Wildcard -> ()
-                | _ -> extractFieldVia pushSource (plan.FieldRef i) subPat
+                | _ -> extractCaseField pushSource pushThis (plan.FieldAccess i) subPat
             )
         | PatShape.Record ->
             let fields = TastAccessor.patRecordFields pat
