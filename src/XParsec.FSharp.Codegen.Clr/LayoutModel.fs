@@ -215,9 +215,10 @@ type internal FieldKey =
     /// A union's `private initonly` discriminant, read by the union's own bodies and by
     /// its case types; every other reader goes through `MethodKey.UnionGetTag`.
     | UnionTag of SymbolKey
-    /// A case's payload field: on the case's own `TypeDef` in a hierarchy regime, and
-    /// co-resident with every other case's on the union itself in a flat one.
+    /// A case's payload field on the case's own `TypeDef` in a hierarchy regime.
     | UnionCaseField of SymbolKey * case: string * index: int
+    /// One physical field on a flat union's own `TypeDef`, placed by `FlatUnionPlacements`.
+    | UnionSlot of SymbolKey * UnionSlotKey
     /// A reference union's `private static initonly` singleton for a NULLARY case, typed
     /// as the union. Constructed once by the union's `.cctor`; the case factory `ldsfld`s
     /// it.

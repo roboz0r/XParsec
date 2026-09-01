@@ -13,6 +13,7 @@
     <Compile Include="TyparMarkers.fs" />
     <Compile Include="UnionRegime.fs" />
     <Compile Include="UnionCaseShape.fs" />
+    <Compile Include="UnionPlacements.fs" />
     <Compile Include="Types.fs" />
     <Compile Include="Cil.fs" />
     <Compile Include="Metadata.fs" />

@@ -75,7 +75,8 @@ type ClrProvider
             key: TypeKey,
             typars: EqArray<string>,
             cases: (string * (string * FrozenType) list) list,
-            valueKind: UnionValueKind
+            valueKind: UnionValueKind,
+            slots: FrozenType list
         ) : unit =
         env.GenericUnions.[key] <-
             {
@@ -90,6 +91,7 @@ type ClrProvider
                         }
                     )
                 ValueKind = valueKind
+                Slots = EqArray.ofList slots
             }
 
     member _.RegisterGenericRecord(key: TypeKey, typars: EqArray<string>, fields: (string * FrozenType) list) : unit =

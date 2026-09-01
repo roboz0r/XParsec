@@ -8,11 +8,19 @@ open AssemblerScaffold
 /// exist yet and a cross-file call resolves to the local `MethodDef`.
 module internal NominalRegistration =
 
-    /// Each case's payload, at the name the regime spells it. A hierarchy regime declares
-    /// these on the case's own type; `RegisterGenericUnion` still carries them, and
-    /// `UnionMember.Field` reparents onto the case type.
+    /// Each case's payload as `(metadata name, stored type)`: a flat union's placement
+    /// slots, or a hierarchy case's own fields at the name the regime spells them.
+    /// `RegisterGenericUnion` carries both; `UnionMember.Field` reparents a hierarchy
+    /// case's onto the case type.
     let private caseFields (ud: UnionDecl) (c: Frozen.TUnionCase) : (string * FrozenType) list =
-        List.zip (ud.FieldNames c) [ for (_, t) in c.Fields -> t ]
+        match ud.Placements with
+        | ValueSome p ->
+            [
+                for a in p.CaseAccess c ->
+                    let s = UnionFieldAccess.slot a
+                    s.MetaName, s.Ty
+            ]
+        | ValueNone -> List.zip (ud.FieldNames c) [ for (_, t) in c.Fields -> t ]
 
     /// A hierarchy union's case types: the nested `TypeDef` handle and, for a generic
     /// union, its shape. A case redeclares the union's typars and adds none, so it
@@ -41,7 +49,13 @@ module internal NominalRegistration =
 
         if not td.TypeParams.IsEmpty then
             let shape = [ for c in ud.Cases -> c.Name, caseFields ud c ]
-            provider.RegisterGenericUnion(td.TypeKey, TTypeParam.names td.TypeParams, shape, ud.ValueKind)
+
+            let slots =
+                match ud.Placements with
+                | ValueSome p -> [ for s in p.Slots -> s.Ty ]
+                | ValueNone -> []
+
+            provider.RegisterGenericUnion(td.TypeKey, TTypeParam.names td.TypeParams, shape, ud.ValueKind, slots)
 
     let private registerRecord (provider: ClrProvider) (handles: LayoutHandles) (rd: RecordDecl) : unit =
         let td = rd.Decl

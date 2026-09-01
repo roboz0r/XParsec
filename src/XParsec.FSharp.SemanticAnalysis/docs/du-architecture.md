@@ -293,6 +293,19 @@ TAST shape.
   `get_Item`, `__DebugDisplay` and the debugger proxies are
   deliberately not emitted, and a nullary case is reached through its
   static factory rather than FSC's `get_<Case>` property.
+- **C#'s proposed non-boxing union surface is a non-goal, and stays
+  reachable.** The proposal (`[Union]` + `IUnion`, one constructor and
+  one `TryGetValue(out T)` per case type, `Value`, `HasValue`) is a
+  public surface over a private layout, so it is additive on top of the
+  struct-union getters and the per-case `Payload_<Case>` views: a view
+  is the case type a multi-field case lacks, `TryGetValue` is a tag
+  check plus the view copy, and `HasValue` is `true` because a struct
+  union's default value is its tag-0 case rather than an empty state.
+  It is type-directed, so it can only ever be emitted for a union whose
+  case types are pairwise distinct after view mapping; the name-directed
+  getters and views cover every union. Adopting a tag-zero-is-empty
+  default, or letting a consumer depend on field names, would close
+  this door; nothing else in the layout does.
 - **True GADTs.** The GADT *syntax* forms are accepted and treated as
   ordinary cases (their return type names the declaring union — what
   FSharp.Core's `list` needs); genuine generalized-ADT typing is out of

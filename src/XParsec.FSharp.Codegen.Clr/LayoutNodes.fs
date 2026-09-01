@@ -33,18 +33,27 @@ module internal LayoutNodes =
                 match td.Kind with
                 | TTypeKindG.Interface methods -> interfaces.Add(td, EqArray.toList methods)
                 | TTypeKindG.Union u ->
+                    let cases = EqArray.toList u.Cases
+
+                    let regime =
+                        UnionRegime.classify
+                            u.ValueKind
+                            u.Cases.Length
+                            (u.Cases |> EqArray.exists (fun c -> not c.Fields.IsEmpty))
+
                     unions.Add
                         {
                             Decl = td
-                            Cases = EqArray.toList u.Cases
+                            Cases = cases
                             Members = EqArray.toList u.Members
                             Interfaces = ifaceBlocks u.Interfaces
                             ValueKind = u.ValueKind
-                            Regime =
-                                UnionRegime.classify
-                                    u.ValueKind
-                                    u.Cases.Length
-                                    (u.Cases |> EqArray.exists (fun c -> not c.Fields.IsEmpty))
+                            Regime = regime
+                            Placements =
+                                if UnionRegime.isHierarchy regime then
+                                    ValueNone
+                                else
+                                    ValueSome(FlatUnionPlacements.ofCases regime cases)
                         }
                 | TTypeKindG.Record r ->
                     records.Add
@@ -435,19 +444,20 @@ module internal LayoutNodes =
                                 ClosureScope = ValueNone
                             }
 
-                        // A hierarchy case's payload lands on the case's own `TypeDef`.
-                        // Written by the `.ctor` declaring it (`UnionCtorShape`), hence
-                        // `initonly`.
-                        if not isHierarchy then
-                            for c in ud.Cases do
-                                for (fi, name) in List.indexed (ud.FieldNames c) ->
-                                    {
-                                        Key = FieldKey.UnionCaseField(td.Key, c.Name, fi)
-                                        Name = name
-                                        Attrs = FieldAttributes.Public ||| FieldAttributes.InitOnly
-                                        Ty = snd c.Fields.[fi]
-                                        ClosureScope = ValueNone
-                                    }
+                        // A flat union's physical slots. Written by the `.ctor` declaring
+                        // them (`UnionCtorShape`), hence `initonly`. A hierarchy case's
+                        // payload lands on the case's own `TypeDef`.
+                        match ud.Placements with
+                        | ValueSome p ->
+                            for s in p.Slots ->
+                                {
+                                    Key = FieldKey.UnionSlot(td.Key, s.Key)
+                                    Name = s.MetaName
+                                    Attrs = FieldAttributes.Public ||| FieldAttributes.InitOnly
+                                    Ty = s.Ty
+                                    ClosureScope = ValueNone
+                                }
+                        | ValueNone -> ()
                     ]
 
                 let methodRows =

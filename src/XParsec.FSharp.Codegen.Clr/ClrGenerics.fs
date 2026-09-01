@@ -123,15 +123,11 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
             let intTy = FTConst(RuntimeNames.intKey, EqArray.empty)
 
             let paramTys =
-                let allCaseFields =
-                    [
-                        for c in shape.Cases do
-                            for (_, t) in c.Fields -> t
-                    ]
+                let slots = EqArray.toList shape.Slots
 
                 match UnionCtorShape.ofRegime valueKind shape.Regime with
-                | UnionCtorShape.FlatTagged -> intTy :: allCaseFields
-                | UnionCtorShape.Flat -> allCaseFields
+                | UnionCtorShape.FlatTagged -> intTy :: slots
+                | UnionCtorShape.Flat -> slots
                 | UnionCtorShape.TagOnly -> [ intTy ]
                 | UnionCtorShape.Nullary -> []
 
