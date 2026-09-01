@@ -260,14 +260,66 @@ let analysedConformanceTests =
                     "a val paired with its let — plain and operator — conforms"
             }
 
-            test "a [<CompiledName>]'d let satisfies the val it publishes as" {
-                // The identity the implementation PUBLISHES is `V.foo`, which is the identity
-                // the signature declares. Comparing the written names would call this drift.
+            test "a [<CompiledName>]'d pair sharing a source name conforms" {
                 Expect.isEmpty
                     (conformAnalysed
+                        "namespace V\n\n[<CompiledName(\"Foo\")>]\nval foo: int -> int"
+                        "namespace V\n\n[<CompiledName(\"Foo\")>]\nlet foo (x: int) = x")
+                    "a value's identity is the name its source writes, whatever it emits as"
+            }
+
+            test "a [<CompiledName>]'d let does not satisfy a val of that compiled name" {
+                // `fsc` refuses this pair with FS0193 "Module 'V.M' requires a value 'foo'":
+                // the halves are matched by the name each writes, not by what they emit as.
+                let m =
+                    conformAnalysed
                         "namespace V\n\nval foo: int -> int"
-                        "namespace V\n\n[<CompiledName(\"foo\")>]\nlet bar (x: int) = x")
-                    "the compiled name is the value identity"
+                        "namespace V\n\n[<CompiledName(\"foo\")>]\nlet bar (x: int) = x"
+                    |> theOne "finding"
+
+                Expect.stringContains m "V.foo" "refers to the value owing a definition"
+                Expect.stringContains m "not defined in the implementation" "the value-granularity analogue"
+            }
+
+            // ---- The EMITTED name across the pair ----
+            //
+            // A reference resolves through the signature's surface while the implementation
+            // emits under its own declaration, so a `[<CompiledName>]` on one half alone
+            // would have a consumer call a method that is never emitted.
+
+            test "a [<CompiledName>] written on the implementation alone is reported" {
+                let m =
+                    conformAnalysed
+                        "namespace V\n\nval foo: int -> int"
+                        "namespace V\n\n[<CompiledName(\"Foo\")>]\nlet foo (x: int) = x"
+                    |> theOne "finding"
+
+                Expect.stringContains m "V.foo" "names the value whose halves disagree"
+                Expect.stringContains m "'foo'" "the name the signature publishes it under"
+                Expect.stringContains m "'Foo'" "the method the implementation emits"
+            }
+
+            test "a [<CompiledName>] written on the signature alone is reported" {
+                let m =
+                    conformAnalysed
+                        "namespace V\n\n[<CompiledName(\"Foo\")>]\nval foo: int -> int"
+                        "namespace V\n\nlet foo (x: int) = x"
+                    |> theOne "finding"
+
+                Expect.stringContains m "V.foo" "names the value whose halves disagree"
+            }
+
+            test "the halves disagreeing on WHICH compiled name is reported" {
+                // ONE finding: the emitted-name check subsumes the FS1200 argument
+                // divergence for this attribute, so `divergentAttributes` skips it.
+                let emitted =
+                    conformAnalysed
+                        "namespace V\n\n[<CompiledName(\"Foo\")>]\nval foo: int -> int"
+                        "namespace V\n\n[<CompiledName(\"Bar\")>]\nlet foo (x: int) = x"
+                    |> theOne "finding"
+
+                Expect.stringContains emitted "'Foo'" "the signature's emitted name"
+                Expect.stringContains emitted "'Bar'" "the implementation's"
             }
 
             // ---- Attribute ARGUMENTS across the pair (fsc's FS1200) ----

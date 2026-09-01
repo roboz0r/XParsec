@@ -22,16 +22,9 @@ module JsFlatFns =
 
     /// An external module function's SOURCE groups. `ValueNone` unless the `key` resolves to a
     /// symbol carrying a `ValRepr`, so its call and its value-use stay curried, one at a time.
-    let externalGroups
-        (provider: IExternalSymbolProvider)
-        (key: SymbolKey voption)
-        : TastAccessor.ArgGroup list voption =
-        match key with
-        | ValueSome(SymbolKey.Binding key) ->
-            match provider.TryLookupByKey key with
-            | ValueSome sym -> sym.ValRepr |> ValueOption.map (fun vr -> vr.Groups)
-            | ValueNone -> ValueNone
-        | ValueSome _
+    let externalGroups (provider: IExternalSymbolProvider) (key: BindingKey) : TastAccessor.ArgGroup list voption =
+        match provider.TryLookupByKey key with
+        | ValueSome sym -> sym.ValRepr |> ValueOption.map (fun vr -> vr.Groups)
         | ValueNone -> ValueNone
 
     /// A tuple argument becomes N positional reads, so an impure one is spilled to a `_tg`

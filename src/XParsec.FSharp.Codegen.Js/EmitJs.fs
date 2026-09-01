@@ -57,6 +57,7 @@ module EmitJs =
         let loc = locOf ctx e
 
         match TastAccessor.exprKind e with
+        | ExprShape.Unresolved -> failwith "JS codegen: an unresolved reference reached codegen"
         | ExprShape.Const -> constExpr (TastAccessor.exprConstValue e) loc
 
         // A module function compiles FLAT (`add(a, b)`), so a bare value-use must re-curry it:
@@ -74,15 +75,12 @@ module EmitJs =
         // An external module function, imported from its package's JS runtime module. Its
         // producer emits flat too, so a value-use gets the same curried adapter.
         | ExprShape.External ->
-            let ext = TastAccessor.exprExternal e
+            let key = TastAccessor.exprExternalKey e
 
             let alias =
-                JsExpr.Identifier(
-                    JsImports.addRef ctx.Imports ext.CompiledName (externalValueRef ctx.Provider ext.Key),
-                    loc
-                )
+                JsExpr.Identifier(JsImports.addRef ctx.Imports (externalValueRef ctx.Provider key), loc)
 
-            match JsFlatFns.externalGroups ctx.Provider ext.Key with
+            match JsFlatFns.externalGroups ctx.Provider key with
             | ValueSome groups when JsFlatFns.needsAdapter groups -> JsFlatFns.curryAdapter ctx.Pool alias groups loc
             | _ -> alias
 
@@ -167,14 +165,11 @@ module EmitJs =
                         | true, cf -> ValueSome(identAt (boundVarNameOf ctx.Pool k), cf.Params.Groups)
                         | _ -> ValueNone
                     | ExprShape.External ->
-                        let ext = TastAccessor.exprExternal fn
+                        let key = TastAccessor.exprExternalKey fn
 
-                        JsFlatFns.externalGroups ctx.Provider ext.Key
+                        JsFlatFns.externalGroups ctx.Provider key
                         |> ValueOption.map (fun groups ->
-                            identAt (
-                                JsImports.addRef ctx.Imports ext.CompiledName (externalValueRef ctx.Provider ext.Key)
-                            ),
-                            groups
+                            identAt (JsImports.addRef ctx.Imports (externalValueRef ctx.Provider key)), groups
                         )
                     | _ -> ValueNone
 

@@ -495,7 +495,7 @@ module internal UnificationInferRecordAccess =
                 | ValueSome sym ->
                     // Thread the resolved `GetIndex` identity through so the `$0[$1]` body
                     // splices by KEY, under this same `IndexedLookup` node key.
-                    ctx.Resolution.IntrinsicKey.Set(node.Key, SymbolKey.Binding sym.Key)
+                    ctx.Resolution.IntrinsicKey.Set(node.Key, sym.Key)
                     let resultTy = TyVar(freshTyVar ctx)
 
                     unify
@@ -578,7 +578,7 @@ module internal UnificationInferRecordAccess =
             | [] -> ValueNone
             | _ ->
                 match ctx.CoreAccess.Value.SetIndex with
-                | ValueSome sym -> ctx.Resolution.IntrinsicKey.Set(node.Key, SymbolKey.Binding sym.Key)
+                | ValueSome sym -> ctx.Resolution.IntrinsicKey.Set(node.Key, sym.Key)
                 | ValueNone -> ()
 
                 ValueSome()

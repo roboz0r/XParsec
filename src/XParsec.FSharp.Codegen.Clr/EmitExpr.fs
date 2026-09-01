@@ -14,6 +14,7 @@ module EmitExpr =
 
     let rec buildExpr (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         match TastAccessor.exprKind e with
+        | ExprShape.Unresolved -> failwith "Emit: an unresolved reference reached codegen"
         | ExprShape.Const ->
             match TastAccessor.exprConstValue e with
             | TConstValue.String s -> b.Add(ILInstr.Ldstr(env.Ctx.UserString s))

@@ -156,6 +156,63 @@ module Use =
                 expectImportsResolvable pkg
             }
 
+            // `[<CompiledName>]` is a CLR emission fact. A JS module exports the name its
+            // source writes, so an import naming the attribute's name would bind an export
+            // the declaring module never wrote.
+            test "a [<CompiledName>]'d binding is exported and imported under its SOURCE name" {
+                let declaring =
+                    "\
+namespace Test.Pkg
+
+module Bag =
+    [<CompiledName(\"Count\")>]
+    let count (n: int) : int = n
+"
+
+                let declaringSig =
+                    "\
+namespace Test.Pkg
+
+module Bag =
+    [<CompiledName(\"Count\")>]
+    val count: n: int -> int
+"
+
+                let consuming =
+                    "\
+namespace Test.Pkg
+
+module Use =
+    open Test.Pkg.Bag
+
+    let total () : int = count 21
+"
+
+                let pkg =
+                    compileUnits
+                        [
+                            AssemblyFiles.SourceUnit.paired
+                                (AssemblyFiles.SourceFile.ofText "bag.fsi" declaringSig)
+                                (AssemblyFiles.SourceFile.ofText "bag.fs" declaring)
+                            AssemblyFiles.SourceUnit.ofImplementation (
+                                AssemblyFiles.SourceFile.ofText "use.fs" consuming
+                            )
+                        ]
+
+                let declared = sourceOf pkg "bag.mjs"
+                let used = sourceOf pkg "use.mjs"
+
+                Expect.stringContains declared "count" "the declaring module exports its source name"
+
+                Expect.isFalse (declared.Contains "Count") (sprintf "and not the attribute's, got:\n%s" declared)
+
+                Expect.stringContains used "count" "the consumer imports the export the declaring module wrote"
+
+                Expect.isFalse (used.Contains "Count") (sprintf "and not the attribute's, got:\n%s" used)
+
+                expectImportsResolvable pkg
+            }
+
             test "each emitting file becomes its own module, and the barrel re-exports them" {
                 let pkg =
                     compilePackage

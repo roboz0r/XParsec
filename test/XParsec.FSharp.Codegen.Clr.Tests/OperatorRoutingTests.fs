@@ -49,7 +49,7 @@ let private symbolText (e: TastAccessor.ExprId) : string voption =
     | ExprShape.StaticPropertyGet -> ValueSome(sprintf "%A" (TastAccessor.exprStaticPropertyGetKey e))
     | ExprShape.MethodCall -> ValueSome(sprintf "%A" (TastAccessor.exprMethodCall e).Key)
     | ExprShape.PropertyGet -> ValueSome(sprintf "%A" (TastAccessor.exprPropertyGet e).Key)
-    | ExprShape.External -> ValueSome(sprintf "%A" (TastAccessor.exprExternal e))
+    | ExprShape.External -> ValueSome(sprintf "%A" (TastAccessor.exprExternalKey e))
     | ExprShape.ExternalMember ->
         let em = TastAccessor.exprExternalMember e
         ValueSome(sprintf "%A %s" em.Key em.MemberName)
@@ -312,7 +312,7 @@ let tests =
                     (exprs
                      |> List.exists (fun x ->
                          match x with
-                         | TastAccessor.EExternal ext -> ext.CompiledName = "op_Addition"
+                         | TastAccessor.EExternal key -> key.Name = "op_Addition"
                          | _ -> false
                      ))
                     "no `op_Addition` External survives the pre-freeze eta + splice"

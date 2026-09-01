@@ -89,7 +89,7 @@ let tests =
                               [] with
                             ValRepr = valRepr
                         }
-                        |> PublishedSurfaceBuilder.addValue b ValueNone
+                        |> PublishedSurfaceBuilder.addValue b
                     )
 
                 // `a * b -> r`: one group of width 2, which mints a tuple PATTERN into a

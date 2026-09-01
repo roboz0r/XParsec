@@ -233,9 +233,9 @@ registry / `CtorIndex` at consumption time. Freeze translation
 (`ElaborateExpr.fs`):
 
 - Ctor reference outside an `App` (`:830`): a `TyUnion`-typed reference
-  is a nullary ctor → `UnionCons(name, [], ty)`; a `TyFun`-typed one is
-  ctor-as-value → `TExpr.External(name, …)` (codegen eta-expands when it
-  cares).
+  is a nullary ctor → `UnionCons(name, [], ty)`. A `TyFun`-typed one is
+  ctor-as-value, which has no identity to reference and no eta-expansion
+  here, so it reports `NotYetSupported` and stands as `TExpr.Unresolved`.
 - Ctor application (`:846`) / high-precedence application (`:848`):
   peel the argument(s) into a per-field list → `UnionCons`.
 - `h :: t` and `[…]` literals lower to `UnionCons` against the resolved

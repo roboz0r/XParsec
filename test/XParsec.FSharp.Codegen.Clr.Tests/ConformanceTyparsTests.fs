@@ -111,7 +111,6 @@ let tests =
                             PublishedSurface.build (fun b ->
                                 PublishedSurfaceBuilder.addValue
                                     b
-                                    ValueNone
                                     { add with
                                         Scheme = reverseTypars add.Scheme
                                     }

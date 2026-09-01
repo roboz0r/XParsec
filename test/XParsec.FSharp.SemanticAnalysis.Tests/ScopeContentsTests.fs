@@ -139,17 +139,23 @@ let private expectBagSpellings (view: IExternalSymbolProvider) : unit =
         (view.Scope.TryContainer "Test.A.BagModule").IsNone
         "the compiled class name is no spelling a source writes"
 
-    Expect.isTrue (view.Scope.TryValue(bySource, "size")).IsSome "its value resolves under the module"
+    let valueNamed (name: string) =
+        view.Scope.TryValue(SymbolKeyOps.bindingKeyOf bySource name)
 
-    match view.Scope.TryValue(bySource, "count"), view.Scope.TryValue(bySource, "Count") with
-    | ValueSome bySourceName, ValueSome byCompiledName ->
-        Expect.equal bySourceName.Key.Name "Count" "the source short name reaches the compiled binding"
-        Expect.equal byCompiledName.Key bySourceName.Key "one binding under both short names"
-    | other -> failtestf "a [<CompiledName>] value resolves under either short name: %A" other
+    Expect.isTrue (valueNamed "size").IsSome "its value resolves under the module"
+
+    match valueNamed "count" with
+    | ValueSome sym ->
+        Expect.equal sym.Key.Name "count" "a [<CompiledName>] value is keyed by the name its source writes"
+
+        Expect.equal sym.CompiledName (ValueSome(CompiledName "Count")) "and states the method it emits as separately"
+    | ValueNone -> failtest "a [<CompiledName>] value resolves under its source short name"
+
+    Expect.isTrue (valueNamed "Count").IsNone "the compiled method name is no spelling a source writes"
 
     // A short name is read off the binding key, never split back out of a rendered one:
     // `` `a.size` `` renders `Test.A.BagModule.a.size`, whose last dotted segment is `size`.
-    match view.Scope.TryValue(bySource, "size"), view.Scope.TryValue(bySource, "a.size") with
+    match valueNamed "size", valueNamed "a.size" with
     | ValueSome plain, ValueSome quoted ->
         Expect.equal plain.Key.Name "size" "a quoted name holding a dot claims no sibling's slot"
         Expect.equal quoted.Key.Name "a.size" "and resolves under the whole name it binds"
@@ -186,7 +192,7 @@ let private scopeOfCases (paths: string list) (cases: ExternalUnionCase list) : 
             else
                 ValueNone
 
-        member _.TryValue(_, _) = ValueNone
+        member _.TryValue _ = ValueNone
 
         member _.UnionCasesNamed(_, name) =
             EqArray.ofList
@@ -230,12 +236,15 @@ let tests =
                         let m = containerOrFail scope "Test.A.M"
                         let ns = containerOrFail scope "Test.A"
 
-                        match scope.TryValue(m, "v") with
+                        match scope.TryValue(SymbolKeyOps.bindingKeyOf m "v") with
                         | ValueSome sym -> Expect.equal sym.Key.Name "v" "the binding"
                         | ValueNone -> failtest "v is declared in M"
 
-                        Expect.isTrue (scope.TryValue(m, "w")).IsNone "no such value"
-                        Expect.isTrue (scope.TryValue(ns, "v")).IsNone "v is not declared directly in the namespace"
+                        Expect.isTrue (scope.TryValue(SymbolKeyOps.bindingKeyOf m "w")).IsNone "no such value"
+
+                        Expect.isTrue
+                            (scope.TryValue(SymbolKeyOps.bindingKeyOf ns "v")).IsNone
+                            "v is not declared directly in the namespace"
                     }
 
                     test "a same-named case in two modules resolves twice, each carrying its union" {
@@ -302,7 +311,7 @@ let tests =
                         expectBagSpellings view
 
                         match ScopeContents.tryValueAt view.Scope "Test.A.Bag.count" with
-                        | ValueSome sym -> Expect.equal sym.Key.Name "Count" "the alias carries the compiled key"
+                        | ValueSome sym -> Expect.equal sym.Key.Name "count" "the whole source path reaches the binding"
                         | ValueNone -> failtest "a [<CompiledName>] binding publishes its source spelling"
 
                         match view.Scope.TypesNamed(containerOrFail view.Scope "Test.A.Bag", "Tag") with
@@ -344,9 +353,15 @@ module P =
                         let m = containerOrFail scope "Test.A.M"
                         let p = containerOrFail scope "Test.B.P"
 
-                        Expect.isTrue (scope.TryValue(m, "v")).IsSome "file 1's value through the stack"
-                        Expect.isTrue (scope.TryValue(p, "p")).IsSome "file 2's value through the stack"
-                        Expect.isTrue (scope.TryValue(p, "v")).IsNone "no cross-module leak"
+                        Expect.isTrue
+                            (scope.TryValue(SymbolKeyOps.bindingKeyOf m "v")).IsSome
+                            "file 1's value through the stack"
+
+                        Expect.isTrue
+                            (scope.TryValue(SymbolKeyOps.bindingKeyOf p "p")).IsSome
+                            "file 2's value through the stack"
+
+                        Expect.isTrue (scope.TryValue(SymbolKeyOps.bindingKeyOf p "v")).IsNone "no cross-module leak"
                     }
                 ]
 

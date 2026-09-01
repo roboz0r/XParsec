@@ -12,6 +12,13 @@ open XParsec.FSharp.SemanticAnalysis.ElaborateObjArgs
 
 module internal ElaborateCalls =
 
+    /// The reference at `key`: an `External` under the identity `stamp` holds for it, else
+    /// `Unresolved`, standing for the name whose fault name resolution already reported.
+    let externalRef (stamp: SideTable<BindingKey>) (key: NodeKey) (ty: SemType) (tok: SyntaxToken) : TExpr =
+        match stamp.TryGetValue key with
+        | ValueSome sym -> TExpr.External(sym, ty, tok)
+        | ValueNone -> TExpr.Unresolved(ty, tok)
+
     // An argument GROUP is tupled, taking one argument whatever its parameter count, so a
     // tuple VALUE selects a 2-parameter group exactly as the literal `(3, 4)` does. But its
     // elements are not expressions, and a spliced `member inline` body needs one each.

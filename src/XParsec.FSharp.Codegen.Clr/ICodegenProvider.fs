@@ -233,9 +233,9 @@ type ClassOrigin =
 /// Resolves compiled names to emission recipes for one target.
 type ICodegenProvider =
     /// `fnTy` is the applied function's full curried type: a multi-typar call can't recover its type args
-    /// from the result alone (`List.fold` reads `'T`/`'State` from the folder). `key` is the
-    /// resolved binding identity; an operator-as-value carries none and names no module function.
-    abstract TryEmitCall: compiledName: string * key: SymbolKey voption * fnTy: FrozenType -> CallRecipe voption
+    /// from the result alone (`List.fold` reads `'T`/`'State` from the folder). `ValueSome` only
+    /// where a referenced package publishes a signature for `key`.
+    abstract TryEmitCall: key: BindingKey * fnTy: FrozenType -> CallRecipe voption
 
     /// `chosen` is the front-end-resolved `.ctor`'s `SymbolKey.MemberKey` when a `TExpr.New`
     /// recorded it, selecting that exact same-arity overload by identity; `ValueNone` falls

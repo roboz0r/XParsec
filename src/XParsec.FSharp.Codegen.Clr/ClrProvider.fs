@@ -306,29 +306,21 @@ type ClrProvider
         member _.ExternalFieldRef(key, declTy, memberTy) =
             ext.ExternalFieldRef(key, declTy, memberTy)
 
-        member _.TryEmitCall(compiledName, key, fnTy) =
-            if compiledName = "List.fold" then
-                ValueSome(recipes.EmitFold(fnTy))
-            else
-                // Only a binding key identifies a module function; an operator-as-value does not,
-                // and operators are expanded to `TExpr.ILIntrinsic` before emission anyway.
-                match key with
-                | ValueSome(SymbolKey.Binding binding as valueKey) ->
-                    // A module VALUE of this assembly is a static field: load it, and let the
-                    // caller `Invoke` any arguments a function-typed value takes.
-                    match env.LocalModuleValues.TryGetValue valueKey with
-                    | true, field ->
-                        ValueSome
-                            {
-                                Emit =
-                                    fun il ->
-                                        il.Encoder.OpCode ILOpCode.Ldsfld
-                                        il.Encoder.Token field
-                                Arity = CallArity.Flat 0
-                                Pushes = 1
-                            }
-                    | _ -> recipes.EmitExternalCall(binding, fnTy)
-                | _ -> ValueNone
+        member _.TryEmitCall(key, fnTy) =
+            // A module VALUE of this assembly is a static field: load it, and let the
+            // caller `Invoke` any arguments a function-typed value takes.
+            match env.LocalModuleValues.TryGetValue(SymbolKey.Binding key) with
+            | true, field ->
+                ValueSome
+                    {
+                        Emit =
+                            fun il ->
+                                il.Encoder.OpCode ILOpCode.Ldsfld
+                                il.Encoder.Token field
+                        Arity = CallArity.Flat 0
+                        Pushes = 1
+                    }
+            | _ -> recipes.EmitExternalCall(key, fnTy)
 
         member _.TryEmitCtor(key, chosen, tyArgs, argTypes) =
             ext.ExternalCtor(key, chosen, tyArgs, argTypes)

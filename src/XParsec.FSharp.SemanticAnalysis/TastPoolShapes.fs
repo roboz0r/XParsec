@@ -18,6 +18,7 @@ module TastPoolShapes =
         | TExprG.Const _
         | TExprG.Var _
         | TExprG.External _
+        | TExprG.Unresolved _
         | TExprG.Null _
         | TExprG.StaticPropertyGet _
         | TExprG.StaticFieldGet _ -> ()
@@ -170,6 +171,7 @@ module TastPoolShapes =
         | TExprG.Const _
         | TExprG.Var _
         | TExprG.External _
+        | TExprG.Unresolved _
         | TExprG.App _
         | TExprG.IfThenElse _
         | TExprG.Tuple _
@@ -266,12 +268,8 @@ module TastPoolShapes =
         match e with
         | TExprG.Const(value = value) -> ExprPayload.Const value
         | TExprG.Var _ -> ExprPayload.Var
-        | TExprG.External(compiledName = compiledName; key = key) ->
-            ExprPayload.External
-                {|
-                    CompiledName = compiledName
-                    Key = key
-                |}
+        | TExprG.External(key = key) -> ExprPayload.External key
+        | TExprG.Unresolved _ -> ExprPayload.Unresolved
         | TExprG.Lambda _ -> ExprPayload.Lambda
         | TExprG.App _ -> ExprPayload.App
         | TExprG.Let _ -> ExprPayload.Let

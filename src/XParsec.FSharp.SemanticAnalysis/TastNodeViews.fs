@@ -99,14 +99,6 @@ module TastNodeViews =
             ElseExpr: ExprId
         }
 
-    /// The scalar payload of an `External` node.
-    [<Struct>]
-    type ExternalView =
-        {
-            CompiledName: string
-            Key: SymbolKey voption
-        }
-
     /// The scalar payload of an `App` node (`fn arg`): the two nodes `exprChildren`
     /// yields, named by role.
     [<Struct>]

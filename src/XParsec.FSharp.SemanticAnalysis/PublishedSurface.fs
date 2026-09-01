@@ -32,16 +32,13 @@ type PublishedSurfaceBuilder =
         /// Each published module whose compiled class name differs from the name its source
         /// writes. A module absent here compiles under its source name.
         CompiledModuleNames: Dictionary<ModuleKey, CompiledName>
-        /// Declaring union's compiled name + `.` + case name -> the case; every case published.
+        /// Declaring union's `typeMetaName` + `.` + case name -> the case; every case published.
         UnionCases: Dictionary<string, ExternalUnionCase>
         /// Field name -> every record declaring it, a MULTIMAP rather than first-wins: a field
         /// name is deliberately shared across records, so each one ADDS a candidate.
         RecordFields: Dictionary<string, ResizeArray<ExternalRecordCandidate>>
         /// Every published value, one entry per identity.
         Symbols: Dictionary<BindingKey, ExternalSymbol>
-        /// The short name a source writes for a value whose compiled name differs (`fold` for
-        /// the binding compiled as `Fold`). Its declaring container is the key's own.
-        SourceNames: Dictionary<BindingKey, string>
         /// What a consumer resolves through with no `open` of its own.
         mutable ImplicitOpens: ImplicitOpen list
     }
@@ -58,7 +55,6 @@ module PublishedSurfaceBuilder =
             UnionCases = Dictionary(StringComparer.Ordinal)
             RecordFields = Dictionary(StringComparer.Ordinal)
             Symbols = Dictionary(HashIdentity.Structural)
-            SourceNames = Dictionary(HashIdentity.Structural)
             ImplicitOpens = []
         }
 
@@ -108,17 +104,11 @@ module PublishedSurfaceBuilder =
                 buf.Add candidate
                 surface.RecordFields.[f] <- buf
 
-    /// Publishes the value under its own identity, and records `sourceName` as a second short
-    /// name reaching it in the same container: `Vesper.List.fold` beside the binding compiled
-    /// as `Vesper.List.Fold`.
-    let addValue (surface: PublishedSurfaceBuilder) (sourceName: string voption) (sym: ExternalSymbol) : unit =
-        surface.Symbols.[sym.Key] <- sym
+    /// Publishes the value under its own identity. The name it emits as travels on the
+    /// symbol's `CompiledName`.
+    let addValue (surface: PublishedSurfaceBuilder) (sym: ExternalSymbol) : unit = surface.Symbols.[sym.Key] <- sym
 
-        match sourceName with
-        | ValueSome n when n <> sym.Key.Name -> surface.SourceNames.[sym.Key] <- n
-        | _ -> ()
-
-    /// Index a union case under its declaring union's compiled name plus its own
+    /// Index a union case under its declaring union's identity spelling plus its own
     /// (`` Test.A.M+Color.Red ``), so every published case is retained. An RQA union's cases
     /// carry the flag so a consumer's bare `Red` is rejected.
     let addUnionCase (surface: PublishedSurfaceBuilder) (case: ExternalUnionCase) : unit =
@@ -186,14 +176,12 @@ type PublishedSurface =
         /// Each published module whose compiled class name differs from the name its source
         /// writes.
         CompiledModuleNames: EqArray<SurfaceEntry<ModuleKey, CompiledName>>
-        /// Declaring union's compiled name + `.` + case name -> the case.
+        /// Declaring union's `typeMetaName` + `.` + case name -> the case.
         UnionCases: EqArray<SurfaceEntry<string, ExternalUnionCase>>
         /// Field name -> every record declaring it.
         RecordFields: EqArray<SurfaceEntry<string, EqArray<ExternalRecordCandidate>>>
         /// Every published value, one entry per identity.
         Symbols: EqArray<SurfaceEntry<BindingKey, ExternalSymbol>>
-        /// The short name a source writes for a value whose compiled name differs.
-        SourceNames: EqArray<SurfaceEntry<BindingKey, string>>
         /// Derived from the `Intrinsic` shapes above. The BUILDER has no such field, so a
         /// producer cannot put a CAPABILITY interface here: it carries its platform name on
         /// its own identity and must stay OFF this axis.
@@ -222,8 +210,7 @@ module PublishedSurface =
     let private byTypeKey (d: Dictionary<TypeKey, 'V>) : EqArray<SurfaceEntry<TypeKey, 'V>> =
         ordered SymbolKeyOps.typeMetaName (seq { for KeyValue(k, v) in d -> k, v })
 
-    let private bindingName (k: BindingKey) : string =
-        SymbolKeyOps.qualifiedName (SymbolKey.Binding k)
+    let private bindingName (k: BindingKey) : string = SymbolKeyOps.qualifiedBindingName k
 
     /// Copy the builder's tables into the value. A producer that keeps writing to the builder
     /// afterwards no longer changes what it published.
@@ -245,7 +232,6 @@ module PublishedSurface =
                 |> Seq.map (fun (KeyValue(k, cs)) -> k, EqArray.ofResizeArray cs)
                 |> ordered id
             Symbols = ordered bindingName (seq { for KeyValue(k, v) in b.Symbols -> k, v })
-            SourceNames = ordered bindingName (seq { for KeyValue(k, v) in b.SourceNames -> k, v })
             Intrinsics =
                 IntrinsicTypeMap.ofSeq (
                     seq {
@@ -289,20 +275,6 @@ module PublishedSurface =
     /// asks the module `A.M` for `x` rather than a name index for `A.M.x`.
     let private scopeOf (surface: PublishedSurface) : IScopeContents =
         let symbols = index surface.Symbols HashIdentity.Structural
-
-        let valuesIn =
-            Dictionary<struct (ModuleContainer * string), ExternalSymbol>(HashIdentity.Structural)
-
-        for e in surface.Symbols do
-            valuesIn.[struct (e.Key.Decl, e.Key.Name)] <- e.Value
-
-        // A source name is filed in the container of the binding it resolves to:
-        // `Vesper.Set.empty` reaches the binding compiled as `Empty`. A compiled short name
-        // already filed wins.
-        for e in surface.SourceNames do
-            match symbols.TryGetValue e.Key with
-            | true, sym -> valuesIn.TryAdd(struct (e.Key.Decl, e.Value), sym) |> ignore
-            | _ -> ()
 
         let casesIn =
             Dictionary<struct (ModuleContainer * string), ResizeArray<ExternalUnionCase>>(HashIdentity.Structural)
@@ -396,8 +368,8 @@ module PublishedSurface =
                     else
                         ModuleClassName.Undeclared
 
-            member _.TryValue(container, name) =
-                match valuesIn.TryGetValue(struct (container, name)) with
+            member _.TryValue key =
+                match symbols.TryGetValue key with
                 | true, sym -> ValueSome sym
                 | _ -> ValueNone
 

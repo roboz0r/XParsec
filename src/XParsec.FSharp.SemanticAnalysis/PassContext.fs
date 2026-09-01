@@ -119,8 +119,8 @@ type PassContextBindings =
         Scheme: SideTable<TypeScheme>
         TypeVar: SideTable<TyVarId>
         Escape: SideTable<EscapeState>
-        /// Bindings inside a named `module Foo = …`: which compiled module name (`Foo`/`FooModule`,
-        /// not the anonymous "Program" one) the emitted static method belongs to.
+        /// Bindings inside a named `module Foo = …`: which declaring module (not the anonymous
+        /// "Program" one) the emitted static method belongs to.
         ModuleMembers: Dictionary<BoundVarKey, ModuleBindingInfo>
         /// Keyed by the binding's pattern `NodeKey`, in SOURCE order, which is the method-typar order.
         DeclaredTypars: SideTable<(string * TyVarId) list>
@@ -214,13 +214,13 @@ type PassContextResolution =
         /// an expression ident ⇒ a lexically bound variable, read from `Bindings.Binding`.
         Resolved: SideTable<ResolvedItem>
         /// Keyed by an `Expr.Ident` / `Expr.LongIdentOrOp` at an external-value use-site.
-        ExternalValue: SideTable<SymbolKey>
+        ExternalValue: SideTable<BindingKey>
         /// Keyed by an external value/operator use-site. The whole symbol, not just its key,
         /// because instantiating it needs the polymorphic `Scheme` / `TyparArity` / `Constraints`.
         ExternalSymbolStamp: SideTable<ExternalSymbol>
         /// Keyed by an expression splicing a cross-package `let inline` body (an operator, `x?f`,
         /// `arr.[i]`, `arr.Length`): the intrinsic's key, so the splice is by KEY.
-        IntrinsicKey: SideTable<SymbolKey>
+        IntrinsicKey: SideTable<BindingKey>
         TypeTestTargets: SideTable<SemType>
         /// Keyed by a project-local static member access (the qualified read / call funcExpr,
         /// or an assignment's LHS access): the declaring type's instantiation at that site,

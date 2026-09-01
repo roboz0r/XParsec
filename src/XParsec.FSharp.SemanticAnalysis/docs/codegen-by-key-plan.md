@@ -203,13 +203,13 @@ Not blocked by the above, and each stands on its own.
   `IExternalSymbolProvider`) to `IExternalSymbolStore` — which makes the resolver reach
   *structurally impossible* in JS codegen, as `PassContext.Provider` did for the front end.
   This is the step that buys an invariant, not just tidiness.
-- **`RuntimeNames.arrayOfListKey`.** `ElaborateExpr.fs:672-674` mints
-  `TExpr.External(arrayOfListName, ValueNone, …)` for an array literal — the one
-  genuinely keyless node, and the sole supply for `EmitCall.fs:149-150`'s string match.
-  Give it a well-known key (precedent: `structuralFormattableKey: TypeKey`,
-  `RuntimeNames.fs:77` — *not* `structuralFormatKey`, which does not exist).
-- **`ClrProvider.fs:323-324`'s `compiledName = "List.fold"`** string test; drop
-  `compiledName` from `ICodegenProvider.TryEmitCall` (`ICodegenProvider.fs:296`).
+- ~~**`RuntimeNames.arrayOfListKey`**~~ — DONE. `TExpr.External` carries a `BindingKey`
+  outright, so no keyless node survives to supply a string match, and neither backend
+  re-narrows the key kind at emission.
+- ~~**`ClrProvider.fs`'s `compiledName = "List.fold"`** string test~~ — DONE, and the
+  `EmitFold` recipe went with it: `emitExternalCall` reads `fold`'s published signature
+  through the general path, so the intercept bought nothing. `compiledName` is off
+  `ICodegenProvider.TryEmitCall`.
 - **Contract extraction stays a resolver reach**: a producer resolving its own qualified names,
   not a consumer lookup. The three sites cited here were in `Codegen.Common/SymbolProviders.fs`,
   which is now a 47-line composition shim; the extraction they named lives in

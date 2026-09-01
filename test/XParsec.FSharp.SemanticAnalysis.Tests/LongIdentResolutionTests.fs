@@ -708,7 +708,7 @@ module M =
                             test "`[<CompiledName>]` on a value publishes it" {
                                 Expect.equal
                                     (publishedValueNames compiledNameValueLib)
-                                    [ "Test.Suffix.Bag.Empty", "Empty" ]
+                                    [ "Test.Suffix.Bag.empty", "Empty" ]
                                     "the attribute's name survives the freeze"
                             }
 

@@ -400,8 +400,8 @@ does declare the whole family with real signatures
 (`XParsec.FSharp.Lib/Printf/printf.fsi:165,200,238` — `val fprintf: textWriter:
 TextWriter -> format: TextWriterFormat<'T> -> 'T`), but it is a different package and
 is not in the self-host stack. Meanwhile the three that *are* declared already carry a
-`SymbolKey` at every use site: `PassContext.Resolution.ExternalValue :
-SideTable<SymbolKey>` (`PassContext.fs:225-231`), whose own doc says it exists so a
+`BindingKey` at every use site: `PassContext.Resolution.ExternalValue :
+SideTable<BindingKey>` (`PassContext.fs:225-231`), whose own doc says it exists so a
 consumer can ask *"is this exactly `Vesper.Printf.printfn`?"* rather than suffix-match
 a name. Probed: `TryLookupByKey` finds `Vesper.Printf.printf/printfn/sprintf`,
 `ValueNone` for the writer/builder family. **The identity seam is already built and

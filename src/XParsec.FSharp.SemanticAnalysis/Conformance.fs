@@ -48,6 +48,10 @@ module Conformance =
         /// `.fs`, the value-granularity FS0240 analogue. The converse is not reported:
         /// F# hides an impl value the signature omits, so a private helper is not drift.
         | ValueMissingInImpl of name: string
+        /// The pair's halves declare different emitted names for one value, so a consumer
+        /// resolving through the signature would reference a name the implementation never
+        /// emits. `declared` and `defined` are the emitted short names.
+        | CompiledNameDiffers of name: string * declared: string * defined: string
         /// An `[<Import>]` binding whose body is not `nativeOnly`. Because the attribute is
         /// the implementation, a real body beside it would be silently discarded.
         | ImportBodyNotNativeOnly of name: string
@@ -92,6 +96,12 @@ module Conformance =
                 defined.Label
         | ConformanceError.ValueMissingInImpl n ->
             sprintf "value '%s' is declared in the signature (.fsi) but not defined in the implementation (.fs)" n
+        | ConformanceError.CompiledNameDiffers(n, declared, defined) ->
+            sprintf
+                "value '%s' emits as '%s' in the signature (.fsi) but as '%s' in the implementation (.fs); a reference resolves through the signature, so it would call a method the implementation never emits"
+                n
+                declared
+                defined
         | ConformanceError.ImportBodyNotNativeOnly n ->
             sprintf
                 "binding '%s' carries [<Import>], whose implementation is the imported export, so its body must be exactly 'nativeOnly'"

@@ -96,11 +96,11 @@ type private ImportEntry =
     }
 
 /// An external VALUE to import: what is referenced, the module it lives in, and how that
-/// module exports it. The home comes from the provider's resolved symbol, so an unkeyed
-/// node or a provider miss leaves it empty and `addRef` throws rather than importing.
+/// module exports it. The home comes from the provider's resolved symbol, so a provider miss
+/// leaves it empty and `addRef` throws rather than importing.
 type JsValueRef =
     {
-        Key: SymbolKey voption
+        Key: BindingKey
         Home: JsHome voption
         Form: ImportForm
     }
@@ -134,9 +134,15 @@ module JsImports =
     /// which the compilation writing it also writes; a whole package, its barrel; a synthesised
     /// runtime entry, the package's runtime file, so that a package compiling ITSELF references
     /// that file directly rather than cycling through its own barrel.
-    let private moduleOf (imports: JsImports) (home: JsHome) (what: string) : JsModulePath * JsRuntimeModule voption =
+    /// `what` describes the reference for the failure message alone, so it renders only on
+    /// the failing path.
+    let private moduleOf
+        (imports: JsImports)
+        (home: JsHome)
+        (what: unit -> string)
+        : JsModulePath * JsRuntimeModule voption =
         let noModule () =
-            failwithf "JS codegen: %s from assembly '%s' has no JS runtime module" what home.Assembly
+            failwithf "JS codegen: %s from assembly '%s' has no JS runtime module" (what ()) home.Assembly
 
         let committed (pick: JsRuntimeModule * JsRuntimeModule list -> JsRuntimeModule) =
             let rt =
@@ -159,7 +165,7 @@ module JsImports =
             )
 
     /// The entry for `home`'s module, recording it on first lookup.
-    let private entryFor (imports: JsImports) (home: JsHome) (what: string) : ImportEntry =
+    let private entryFor (imports: JsImports) (home: JsHome) (what: unit -> string) : ImportEntry =
         let path, asset = moduleOf imports home what
 
         match imports.Entries.TryGetValue path with
@@ -180,24 +186,20 @@ module JsImports =
     /// The local identifier for an external value, recording the import `ref.Form` picks:
     /// `Named` → `import { f as $_f }` → `$_f`; `Default`/`CommonJs` → `import $_f` → `$_f`
     /// (`export =` binds `module.exports` to the default slot); `Namespace` → `$ns_m.f`.
-    let addRef (imports: JsImports) (compiledName: string) (ref: JsValueRef) : string =
-        // No module to import from: an unkeyed node, a type/member key, or a provider miss.
-        let unsupported () =
-            failwithf "JS codegen: unsupported external value '%s' (key %A)" compiledName ref.Key
+    let addRef (imports: JsImports) (ref: JsValueRef) : string =
+        let b = ref.Key
 
-        let b =
-            match ref.Key with
-            | ValueSome(SymbolKey.Binding b) -> b
-            | _ -> unsupported ()
+        let described () =
+            sprintf "external value '%s'" (SymbolKeyOps.qualifiedBindingName b)
 
         match ref.Home with
-        | ValueNone -> unsupported ()
+        | ValueNone -> failwithf "JS codegen: %s has no home module to import from" (described ())
         // A global pack's export is a JS-runtime intrinsic: bare name, NO import recorded.
         | ValueSome home when TsGlobalHomes.isGlobalHome home.Assembly -> b.Name
         | ValueSome home ->
             let asm = home.Assembly
             let name = b.Name
-            let entry = entryFor imports home (sprintf "external value '%s'" compiledName)
+            let entry = entryFor imports home described
 
             // `$<container>_<name>`, every `.` underscored. An UNQUALIFIED binding's container is
             // the global namespace (`""`), so the join's leading `.` survives as `_`:
@@ -236,7 +238,7 @@ module JsImports =
     /// The local identifier for an external class, importing `className` from `home`'s
     /// module as `$<asm>_<className>`, since the assembly disambiguates same-named classes.
     let addTypeRef (imports: JsImports) (home: JsHome) (className: string) : string =
-        let entry = entryFor imports home (sprintf "external type '%s'" className)
+        let entry = entryFor imports home (fun () -> sprintf "external type '%s'" className)
         let alias = "$" + home.Assembly.Replace('.', '_') + "_" + className
         entry.Named.Add { Export = className; Local = alias } |> ignore
         alias
@@ -244,7 +246,9 @@ module JsImports =
     /// The local identifier for an external member, importing the export from `home`'s
     /// module as `$<exportName>`.
     let addMemberRef (imports: JsImports) (home: JsHome) (exportName: string) : string =
-        let entry = entryFor imports home (sprintf "external member '%s'" exportName)
+        let entry =
+            entryFor imports home (fun () -> sprintf "external member '%s'" exportName)
+
         let alias = "$" + exportName
         entry.Named.Add { Export = exportName; Local = alias } |> ignore
         alias

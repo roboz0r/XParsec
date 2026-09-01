@@ -138,10 +138,9 @@ module FrozenCodec =
             w.Write 0uy
             writeTConstValue w value
         | ExprPayload.Var -> w.Write 1uy
-        | ExprPayload.External p ->
+        | ExprPayload.External key ->
             w.Write 2uy
-            w.Write p.CompiledName
-            writeVOptionWith w writeSymbolRef p.Key
+            writeSymbolRef w (SymbolKey.Binding key)
         | ExprPayload.Lambda -> w.Write 3uy
         | ExprPayload.App -> w.Write 4uy
         | ExprPayload.Let -> w.Write 5uy
@@ -249,20 +248,16 @@ module FrozenCodec =
             w.Write 40uy
             writeFilePathRef w source
         | ExprPayload.ArrayLit -> w.Write 41uy
+        | ExprPayload.Unresolved -> w.Write 42uy
 
     let private readExprPayload (r: FrozenReader) : ExprPayload =
         match r.ReadByte() with
         | 0uy -> ExprPayload.Const(readTConstValue r)
         | 1uy -> ExprPayload.Var
         | 2uy ->
-            let compiledName = r.ReadString()
-            let key = readVOptionWith r readSymbolRef
-
-            ExprPayload.External
-                {|
-                    CompiledName = compiledName
-                    Key = key
-                |}
+            match readSymbolRef r with
+            | SymbolKey.Binding key -> ExprPayload.External key
+            | k -> failwithf "FrozenCodec: an External expr stored a non-Binding key: %A" k
         | 3uy -> ExprPayload.Lambda
         | 4uy -> ExprPayload.App
         | 5uy -> ExprPayload.Let
@@ -377,6 +372,7 @@ module FrozenCodec =
             ExprPayload.InlineCall {| Spec = spec; Path = path |}
         | 40uy -> ExprPayload.CallerExpr(readFilePathRef r)
         | 41uy -> ExprPayload.ArrayLit
+        | 42uy -> ExprPayload.Unresolved
         | b -> failwithf "FrozenCodec: unknown ExprPayload tag %d" b
 
     let private writePatPayload (w: FrozenWriter) (p: PatPayload) =

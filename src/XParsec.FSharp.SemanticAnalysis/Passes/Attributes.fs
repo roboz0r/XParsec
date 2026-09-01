@@ -155,7 +155,7 @@ module Attributes =
     let rec private isNativeOnlyBody (e: TExpr) : bool =
         match e with
         | TExpr.Lambda(_, body, _, _) -> isNativeOnlyBody body
-        | TExpr.External(_, ValueSome key, _, _) -> key = RuntimeNames.nativeOnlyKey
+        | TExpr.External(key, _, _) -> key = RuntimeNames.nativeOnlyBindingKey
         | _ -> TExprG.nullaryIntrinsicText e = ValueSome RuntimeNames.importSentinelText
 
     /// `[<Import>]`: the binding's implementation IS the named export of a committed runtime

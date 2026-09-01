@@ -6,10 +6,11 @@ namespace XParsec.FSharp.SemanticAnalysis
 type ModuleBindingInfo =
     {
         Container: ModuleContainer
+        /// The short name the binding's source writes, which is what a use site writes.
         Name: string
-        /// The short name a use site writes; `[<CompiledName>]` is what makes it differ from
-        /// `Name`.
-        SourceName: string
+        /// The name the binding emits under, `ValueNone` where that is `Name`.
+        /// `[<CompiledName>]` is what makes the two differ.
+        CompiledName: CompiledName voption
         /// The binding's attributes, resolved and constant-folded, in written order.
         Attributes: TAttributes
     }
@@ -17,6 +18,9 @@ type ModuleBindingInfo =
     member this.BindingKey: BindingKey = SymbolKeyOps.bindingKeyOf this.Container this.Name
 
     member this.Key: SymbolKey = SymbolKey.Binding this.BindingKey
+
+    /// The short name the binding emits under.
+    member this.EmittedName: string = CompiledName.Emitted(this.CompiledName, this.Name)
 
     /// The named module this binding is declared in, or `ValueNone` for a top-level `let`.
     member this.DeclaringModule: ModuleKey voption =

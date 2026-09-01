@@ -65,7 +65,7 @@ module Freeze =
                         match e with
                         | TExpr.Var(k, ty, tok) ->
                             match Map.tryFind k siblings with
-                            | Some info -> ValueSome(TExpr.External(info.Name, ValueSome info.Key, ty, tok))
+                            | Some info -> ValueSome(TExpr.External(info.BindingKey, ty, tok))
                             | None -> ValueNone
                         | _ -> ValueNone
             }

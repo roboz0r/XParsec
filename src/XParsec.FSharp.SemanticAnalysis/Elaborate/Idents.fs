@@ -12,39 +12,13 @@ open XParsec.FSharp.SemanticAnalysis.ElaborateCalls
 
 module internal ElaborateIdents =
 
-    let translateIdent
-        (ctx: PassContext)
-        (e: Expr<SyntaxToken>)
-        (key: NodeKey)
-        (ty: SemType)
-        (tok: SyntaxToken)
-        : TExpr =
+    let translateIdent (ctx: PassContext) (key: NodeKey) (ty: SemType) (tok: SyntaxToken) : TExpr =
         match ctx.Bindings.Binding.TryGetValue key with
         | ValueSome rb -> TExpr.Var(rb.BindingSite, ty, tok)
-        | ValueNone ->
-            // No Binding entry => NameResolution resolved through the provider.
-            // Multi-segment names are joined with `.` so `External` carries the
-            // same key the provider sees.
-            let name =
-                match e with
-                | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) -> li.Idents |> Seq.map ctx.NameOf |> String.concat "."
-                | Expr.LongIdentOrOp(LongIdentOrOp.Op(IdentOrOp.ParenOp(opName = OpName.SymbolicOp op))) ->
-                    // `(+)`-as-a-value: carry the operator's compiled name so the
-                    // External matches what the provider (and codegen) key on.
-                    match OperatorNames.ofSymbolic (ctx.NameOf op) op with
-                    | ValueSome n -> n
-                    | ValueNone -> ctx.NameOf(CstKeys.firstTokenOfExpr e)
-                // `A.B.(+)` — the joined `A.B.op_Addition` spelling, matching the qualifier
-                // and short name NameResolution resolved.
-                | Expr.LongIdentOrOp(LongIdentOrOp.QualifiedOp(longIdent = li; op = idOp)) ->
-                    match OperatorNames.qualifiedOpName ctx.NameOf li idOp with
-                    | ValueSome n -> n
-                    | ValueNone -> ctx.NameOf(CstKeys.firstTokenOfExpr e)
-                | _ -> ctx.NameOf(CstKeys.firstTokenOfExpr e)
-
-            let symKey = ctx.Resolution.ExternalValue.TryGetValue key
-
-            TExpr.External(name, symKey, ty, tok)
+        // No Binding entry => NameResolution resolved through the provider, and stamped the
+        // identity it reached. Every spelling of one symbol carries the same key, so the
+        // written form is not re-derived here.
+        | ValueNone -> externalRef ctx.Resolution.ExternalValue key ty tok
 
     /// Fold a multi-segment `r.X.Y…` LongIdent into nested `FieldGet` nodes. The
     /// anchor segment (`r`) becomes a `Var` pointing back at the local binding.
@@ -69,7 +43,7 @@ module internal ElaborateIdents =
         let anchorExpr =
             match anchorBinding with
             | ValueSome rb -> TExpr.Var(rb.BindingSite, anchorTy, tok)
-            | ValueNone -> TExpr.External(ctx.NameOf anchorIdent, ValueNone, anchorTy, tok)
+            | ValueNone -> externalRef ctx.Resolution.ExternalValue anchorKey anchorTy tok
 
         // The chain's *last* segment may be a property read on a typar object argument constrained
         // to an interface (`this.Source.Current` where `Source : 'E :> IStructEnumerator<'T>`).

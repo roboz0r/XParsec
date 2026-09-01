@@ -98,7 +98,7 @@ module EmitJsFormat =
         // A float32 is a JS double, so shortest-round-trip rendering needs a search loop. This
         // is the one specifier that calls the `Vesper.Printf` runtime instead of inlining.
         let float32FmtRef () =
-            JsExpr.Identifier(JsImports.addRef ctx.Imports "float32ToString" float32ToStringRef, ValueNone)
+            JsExpr.Identifier(JsImports.addRef ctx.Imports float32ToStringRef, ValueNone)
 
         // `wrap` is the field-width pad. Its absence only matters to `Verbatim`: a bare `%d`
         // passes the raw operand through un-stringified, for the surrounding concat to coerce.
@@ -270,7 +270,7 @@ module EmitJsFormat =
                 )
 
         let structuralFmtRef () =
-            JsExpr.Identifier(JsImports.addRef ctx.Imports "structuralFormat" structuralFormatRef, ValueNone)
+            JsExpr.Identifier(JsImports.addRef ctx.Imports structuralFormatRef, ValueNone)
 
         // Bind the runtime star width to `w`. A JS call argument evaluates before the arrow
         // body, so `printf "%*d" (f ()) (g ())` still calls `f` before `g`, as F# does.

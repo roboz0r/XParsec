@@ -146,12 +146,54 @@ duplicated one `scopeOf`'s own `noteContainer` sweep had already filed. `SourceS
 collapsed to `SourceNames: BindingKey -> string`: its `Path` field was `containerFullName
 sym.Key.Decl` by construction at both producers, and no consumer read it.
 
-**Step 3 — flip `BindingKey.Name`.** `ModuleBindingInfo.BindingKey` selects `SourceName`;
-`ClrRecipes.fs:237` and `SymbolKeyOps.qualifiedName` (`:351`) read the published compiled name.
-Deletes `SourceNames` and the `IScopeContents.TryValue` dual-name match
-(`ExternalSymbols.fs:83`). The consumer sweep for this step is not complete in this document:
-`BindingKey` reaches `ConformanceSurface`, `ExternalSymbolProviders`, `FrozenTypeTable` and both
-backends, and each read has to be classified as wanting one name or the other before the flip.
+**Step 3 — flip `BindingKey.Name`. DONE.** `ModuleBindingInfo` carries `Name` (source) beside
+`CompiledName: CompiledName voption`, matching `Containment.ModuleScope`'s shape, and
+`EmittedName` is the one projection an emitter reads. The two mint sites fill it:
+`Elaborate.exportedBindingInfo` off `[<CompiledName>]`, `SignatureResolution.registerValSig` off
+the same attribute. `FrozenCodecTypes.writeModuleBindingInfo` carries the compiled name where
+it differs, in the column that held the source name.
+
+Four consumers wanted the emitted name, all emission: `EmitClosures.declaredEmission` and
+`Elaborate`'s `emittedName` (both `info.EmittedName`, the latter feeding the `[<Global>]`
+restatement check and the `[<Import>]` selector check), and `ClrRecipes.emitExternalCall`'s
+`MemberRef`, which reads a referenced package's through the new
+`CodegenOpenSignature.EmittedName`, filled by `CodegenSymbols.TryLookupOpenSignature` off
+`ExternalSymbol.CompiledName`. Every other read — `ConformanceSurface`, `ConformanceTypars`,
+`Layout.combine`'s clash message, `PublishedSurface`'s ordering key — wanted the identity, so
+`SymbolKeyOps.qualifiedName` is the identity spelling and no longer an emission name.
+
+`SourceNames` and the `IScopeContents.TryValue` dual-name match are gone. JS needed no change
+and one defect went with the flip: `JsRuntime.addRef` names its `import { … }` export off
+`b.Name`, and JS emits a binding under the name its source writes, so a `[<CompiledName>]`'d
+value used to import a name the module never exported. `JsPackageTests` pins it end to end.
+
+`TryValue` now takes the `BindingKey` whose two fields its `(container, name)` pair spelled,
+so `scopeOf` serves it off the symbol index it already builds and `ScopeContents.memoize`
+caches on one key rather than a parallel struct tuple.
+
+`AttributeDecode.compiledNameOf` is the one decode-then-compare rule, replacing
+`tryCompiledName` at both value mint sites.
+
+*Three semantics settled under this step:*
+
+- **An active-pattern `val` publishes nothing.** `OperatorNames.ofDeclaredName` models no
+  source form for one, so `registerValSig` files no key — matching the implementation half,
+  where `MemberNames.ofBinding` files no `ModuleBindingInfo`. A `[<CompiledName>]` on such a
+  `val` used to publish under the attribute's name, which no use site can write. The
+  consequence is that a consumer cannot resolve the pattern at all, pinned as a `ptest` in
+  `SignatureResolutionTests`.
+- **Conformance pairs the halves by the name each writes.** `dotnet build` refuses
+  `val foo` against `[<CompiledName("foo")>] let bar` with FS0193 "Module 'V.M' requires a
+  value 'foo'", and accepts the pair that shares a source name with the attribute on both.
+  `ConformanceTests`'s green "a `[<CompiledName>]`'d let satisfies the val it publishes as"
+  pinned the opposite and is replaced by both cases.
+- **The halves must agree on the EMITTED name.** Taking the compiled name off the identity
+  axis unhooked the two readings: a reference resolves through the signature's
+  `ExternalSymbol.CompiledName` while the implementation emits under its own
+  `ModuleBindingInfo`. `ConformanceSurface.checkValues` compares them and reports
+  `CompiledNameDiffers`; `definedValues` carries the whole `ModuleBindingInfo` rather than
+  its attributes alone. `[<CompiledName>]` written on one half only is silent to
+  `divergentAttributes` by design, so this is the check that catches it.
 
 **Step 4 — collapse the container index.** With both key names semantic,
 `PublishedSurface.addModuleContainer` (`:72`) indexes one vocabulary rather than a union of two,

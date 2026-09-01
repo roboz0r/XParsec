@@ -34,7 +34,8 @@ module TastUnpool =
             | ValueSome id -> TExprG.Var(widenBoundVar id, ty, tok)
             | ValueNone -> failwith "TastUnpool: a Var entry carries no resolved bound variable id"
         | ExprPayload.Const value -> TExprG.Const(value, ty, tok)
-        | ExprPayload.External p -> TExprG.External(p.CompiledName, p.Key, ty, tok)
+        | ExprPayload.External key -> TExprG.External(key, ty, tok)
+        | ExprPayload.Unresolved -> TExprG.Unresolved(ty, tok)
         | ExprPayload.Null -> TExprG.Null(ty, tok)
         | ExprPayload.StaticPropertyGet p -> TExprG.StaticPropertyGet(p.Key, p.DeclArgs, ty, tok)
         | ExprPayload.StaticFieldGet p -> TExprG.StaticFieldGet(p.DeclKey, p.FieldName, ty, tok)

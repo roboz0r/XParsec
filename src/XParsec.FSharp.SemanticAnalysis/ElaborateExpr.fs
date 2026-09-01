@@ -207,14 +207,21 @@ module internal ElaborateExpr =
             let key = LocalSymbolKey.ofProperty declKey memberName
             TExpr.StaticPropertyGet(key, declArgs, ty, tok)
         | CtorRef ctx caseName ->
-            // Bare or qualified ctor reference outside an App. The result type
-            // distinguishes a nullary ctor (→ `UnionCons`) from a ctor-as-value
-            // (`let f = Circle`, typed `TyFun(_, TyUnion _)` → `External`).
+            // Bare or qualified ctor reference outside an App. Only the nullary ctor is
+            // modelled: `TyUnion` is `Circle` itself, anything else is `let f = Circle`,
+            // a case constructor as a first-class function, which has no identity to
+            // reference and no eta-expansion here.
             match Unification.zonk ctx.Store ty with
             | TyUnion(_, _) -> TExpr.UnionCons(caseName, EqArray.empty, ty, tok)
-            | _ -> TExpr.External(caseName, ValueNone, ty, tok)
+            | _ ->
+                ctx.Report(
+                    tok,
+                    Kind.NotYetSupported(sprintf "the union case '%s' used as a first-class value" caseName)
+                )
+
+                TExpr.Unresolved(ty, tok)
         | Expr.Ident _
-        | Expr.LongIdentOrOp _ -> ElaborateIdents.translateIdent ctx e key ty tok
+        | Expr.LongIdentOrOp _ -> ElaborateIdents.translateIdent ctx key ty tok
         | Expr.App(CtorRef ctx caseName, args) ->
             // Ctor application: `Circle 1.0` / `Rectangle(2.0, 3.0)`. F# treats DU
             // arguments as ONE tuple; the TAST flattens it back to a per-field list,

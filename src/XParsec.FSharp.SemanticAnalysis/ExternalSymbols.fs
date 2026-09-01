@@ -79,10 +79,8 @@ type ExternalTypeShape =
 type IScopeContents =
     /// The module or namespace the dotted SOURCE path denotes.
     abstract TryContainer: sourcePath: string -> ModuleContainer voption
-    /// The value `name` declared directly in `container`, matched under its compiled short
-    /// name and under the short name its source writes, which a `[<CompiledName>]` makes
-    /// differ.
-    abstract TryValue: container: ModuleContainer * name: string -> ExternalSymbol voption
+    /// The value identified by `key`, declared directly in `key`'s container.
+    abstract TryValue: key: BindingKey -> ExternalSymbol voption
     /// Every case named `name` of a union declared directly in `container`, one entry per
     /// declaring union, each carrying its `[<RequireQualifiedAccess>]` flag. Two entries are
     /// an ambiguity for the caller to report.
@@ -101,7 +99,7 @@ module ScopeContents =
     let empty: IScopeContents =
         { new IScopeContents with
             member _.TryContainer _ = ValueNone
-            member _.TryValue(_, _) = ValueNone
+            member _.TryValue _ = ValueNone
             member _.UnionCasesNamed(_, _) = EqArray.empty
             member _.TypesNamed(_, _) = EqArray.empty
             member _.ModuleClassNameOf _ = ModuleClassName.Undeclared
@@ -153,7 +151,7 @@ module ScopeContents =
                 else
                     ValueNone
 
-            member _.TryValue(_, _) = ValueNone
+            member _.TryValue _ = ValueNone
             member _.UnionCasesNamed(_, _) = EqArray.empty
             // IL declares no modules.
             member _.ModuleClassNameOf _ = ModuleClassName.Undeclared
@@ -205,7 +203,7 @@ module ScopeContents =
 
             { new IScopeContents with
                 member _.TryContainer path = firstHit (fun s -> s.TryContainer path)
-                member _.TryValue(c, name) = firstHit (fun s -> s.TryValue(c, name))
+                member _.TryValue key = firstHit (fun s -> s.TryValue key)
 
                 member _.UnionCasesNamed(c, name) =
                     let seen = HashSet<struct (TypeKey * string)>(HashIdentity.Structural)
@@ -247,9 +245,9 @@ module ScopeContents =
         match written.LastIndexOf '.' with
         | i when i > 0 ->
             match scope.TryContainer(written.Substring(0, i)) with
-            | ValueSome c -> scope.TryValue(c, written.Substring(i + 1))
+            | ValueSome c -> scope.TryValue(SymbolKeyOps.bindingKeyOf c (written.Substring(i + 1)))
             | ValueNone -> ValueNone
-        | _ -> scope.TryValue(ModuleContainer.InNamespace NamespaceKey.Global, written)
+        | _ -> scope.TryValue(SymbolKeyOps.bindingKeyOf (ModuleContainer.InNamespace NamespaceKey.Global) written)
 
     /// The container a written `open` path denotes, read first under `outer` (the containers the
     /// enclosing `open`s and namespace headers denote, nearest first), then from the root.
@@ -337,7 +335,7 @@ module ScopeContents =
             match cs with
             | [] -> ValueNone
             | c :: rest ->
-                match scope.TryValue(c, name) with
+                match scope.TryValue(SymbolKeyOps.bindingKeyOf c name) with
                 | ValueSome _ as hit -> hit
                 | ValueNone -> go rest
 
@@ -355,8 +353,8 @@ module ScopeContents =
         { new IScopeContents with
             member _.TryContainer path = inner.TryContainer path
 
-            member _.TryValue(c, name) =
-                inner.TryValue(c, name) |> ValueOption.map value
+            member _.TryValue key =
+                inner.TryValue key |> ValueOption.map value
 
             member _.UnionCasesNamed(c, name) =
                 inner.UnionCasesNamed(c, name) |> EqArray.map case
@@ -377,8 +375,7 @@ module ScopeContents =
     let memoize (inner: IScopeContents) : IScopeContents =
         let containers = ConcurrentDictionary<string, ModuleContainer voption>()
 
-        let values =
-            ConcurrentDictionary<struct (ModuleContainer * string), ExternalSymbol voption>()
+        let values = ConcurrentDictionary<BindingKey, ExternalSymbol voption>()
 
         let cases =
             ConcurrentDictionary<struct (ModuleContainer * string), EqArray<ExternalUnionCase>>()
@@ -392,8 +389,8 @@ module ScopeContents =
             member _.TryContainer path =
                 containers.GetOrAdd(path, (fun p -> inner.TryContainer p))
 
-            member _.TryValue(c, name) =
-                values.GetOrAdd(struct (c, name), (fun (struct (c, n)) -> inner.TryValue(c, n)))
+            member _.TryValue key =
+                values.GetOrAdd(key, (fun k -> inner.TryValue k))
 
             member _.UnionCasesNamed(c, name) =
                 cases.GetOrAdd(struct (c, name), (fun (struct (c, n)) -> inner.UnionCasesNamed(c, n)))
@@ -495,6 +492,9 @@ type CodegenOpenSignature =
         Origin: SymbolOrigin
         Signature: FrozenType
         MethodTyparArity: int
+        /// The name the function emits under, already resolved against the declaring key's
+        /// own short name.
+        EmittedName: string
         /// The producer's SOURCE parameter grouping: the curried `Signature` alone can't
         /// tell a group `f (x,y)` from a tuple param `f (t:int*int)`.
         ValRepr: TastAccessor.ValRepr voption

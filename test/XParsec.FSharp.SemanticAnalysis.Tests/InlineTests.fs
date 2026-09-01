@@ -460,7 +460,7 @@ let tests =
                     | [ v ] -> thawPublishedDecl (TypeStore()) source (TastPoolBuilder.declTree pool v.Decl)
                     | other -> failtestf "expected exactly one published body, got %d" (List.length other)
 
-                let refs = ResizeArray<string * SymbolKey>()
+                let refs = ResizeArray<SymbolKey>()
                 let vars = ResizeArray<NodeKey>()
 
                 let collect =
@@ -468,7 +468,7 @@ let tests =
                         VisitExpr =
                             fun _ e ->
                                 match e with
-                                | TExpr.External(name, ValueSome key, _, _) -> refs.Add(name, key)
+                                | TExpr.External(key, _, _) -> refs.Add(SymbolKey.Binding key)
                                 | TExpr.Var(k, _, _) -> vars.Add k
                                 | _ -> ()
 
@@ -479,7 +479,7 @@ let tests =
                 | TDecl.Let(_, v, _, _) -> TastWalk.iterExpr collect v
                 | other -> failtestf "unexpected published decl %A" other
 
-                Expect.contains refs ("k", expected) "the sibling reference is an External carrying `k`'s SymbolKey"
+                Expect.contains refs expected "the sibling reference is an External carrying `k`'s SymbolKey"
 
                 // The only `Var` left is the template's own parameter, which the expansion
                 // rebinds.
@@ -520,14 +520,14 @@ let tests =
                     (SymbolKeyOps.valueKey (ModuleContainer.InNamespace NamespaceKey.Global) "k")
                     "a top-level binding is keyed in its file's namespace"
 
-                let refs = ResizeArray<string * SymbolKey>()
+                let refs = ResizeArray<SymbolKey>()
 
                 let collect =
                     { TastWalk.identityIter with
                         VisitExpr =
                             fun _ e ->
                                 match e with
-                                | TExpr.External(name, ValueSome key, _, _) -> refs.Add(name, key)
+                                | TExpr.External(key, _, _) -> refs.Add(SymbolKey.Binding key)
                                 | _ -> ()
 
                                 true
@@ -544,7 +544,7 @@ let tests =
                 | TDecl.Let(_, value, _, _) -> TastWalk.iterExpr collect value
                 | other -> failtestf "unexpected published decl %A" other
 
-                Expect.contains refs ("k", kKey) "the top-level sibling reference carries its SymbolKey"
+                Expect.contains refs kKey "the top-level sibling reference carries its SymbolKey"
             }
 
             test "an inline template referencing a DESTRUCTURING module binding is diagnosed, not published" {

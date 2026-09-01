@@ -110,8 +110,8 @@ let private fakeScope: IScopeContents =
     { new IScopeContents with
         member _.TryContainer _ = ValueNone
 
-        member _.TryValue(_, name) =
-            if name = "sym" then
+        member _.TryValue key =
+            if key.Name = "sym" then
                 ValueSome(ExternalSymbols.monoFrozen (SymbolKeyOps.inNamespace "") "sym" marker)
             else
                 ValueNone
@@ -274,7 +274,7 @@ let tests =
             }
 
             test "the scope's value and type channels carry the same transform" {
-                match wrapped.Scope.TryValue(rootContainer, "sym") with
+                match wrapped.Scope.TryValue(SymbolKeyOps.bindingKeyOf rootContainer "sym") with
                 | ValueSome s -> Expect.equal s.Scheme (witness Variance.Co) "scoped Scheme root is co"
                 | ValueNone -> failtest "sym is declared in the root namespace"
 

@@ -118,7 +118,7 @@ module internal ElaborateAccess =
         let anchorExpr =
             match anchorBinding with
             | ValueSome rb -> TExpr.Var(rb.BindingSite, anchorTy, tok)
-            | ValueNone -> TExpr.External(ctx.NameOf anchorIdent, ValueNone, anchorTy, tok)
+            | ValueNone -> externalRef ctx.Resolution.ExternalValue anchorKey anchorTy tok
 
         let mutable curr = anchorExpr
         let mutable currTy = anchorTy
@@ -199,8 +199,9 @@ module internal ElaborateAccess =
 
                     // Unification (`inferAssignment`) stamped the resolved `SetIndex` identity under
                     // this `Assignment` key; carry it so the `$0[$1] = $2` body splices by KEY.
-                    let setKey = ctx.Resolution.IntrinsicKey.TryGetValue key
-                    let setExpr = TExpr.External("SetIndex", setKey, TyFun(arrTy, idxPartial), tok)
+                    let setExpr =
+                        externalRef ctx.Resolution.IntrinsicKey key (TyFun(arrTy, idxPartial)) tok
+
                     let app1 = TExpr.App(setExpr, objArg, idxPartial, tok)
                     let app2 = TExpr.App(app1, translateExpr ctx idxE, valuePartial, tok)
                     TExpr.App(app2, translateExpr ctx right, ty, tok)
@@ -217,10 +218,8 @@ module internal ElaborateAccess =
             let valuePartial = TyFun(valTy, ty)
             let namePartial = TyFun(ctx.Intrinsics.String, valuePartial)
 
-            let opKey = ctx.Resolution.IntrinsicKey.TryGetValue key
-
             let opExpr =
-                TExpr.External(OperatorData.OpDynamicAssignment, opKey, TyFun(objArgTy, namePartial), tok)
+                externalRef ctx.Resolution.IntrinsicKey key (TyFun(objArgTy, namePartial)) tok
 
             let app1 = TExpr.App(opExpr, translateExpr ctx r, namePartial, tok)
             let app2 = TExpr.App(app1, nameLit, valuePartial, tok)
@@ -259,10 +258,9 @@ module internal ElaborateAccess =
             TExpr.Const(TConstValue.String(ctx.NameOf idTok), ctx.Intrinsics.String, tok)
 
         let partialTy = TyFun(ctx.Intrinsics.String, ty)
-        let opKey = ctx.Resolution.IntrinsicKey.TryGetValue key
 
         let opExpr =
-            TExpr.External(OperatorData.OpDynamic, opKey, TyFun(objArgTy, partialTy), tok)
+            externalRef ctx.Resolution.IntrinsicKey key (TyFun(objArgTy, partialTy)) tok
 
         let app1 = TExpr.App(opExpr, translateExpr ctx r, partialTy, tok)
         TExpr.App(app1, nameLit, ty, tok)
@@ -301,7 +299,6 @@ module internal ElaborateAccess =
 
                 // Unification (`inferIndexedLookup`) stamped the resolved `GetIndex` identity
                 // under this `IndexedLookup` key; carry it so the `$0[$1]` body splices by KEY.
-                let getKey = ctx.Resolution.IntrinsicKey.TryGetValue key
-                let getExpr = TExpr.External("GetIndex", getKey, getTy, tok)
+                let getExpr = externalRef ctx.Resolution.IntrinsicKey key getTy tok
                 let app1 = TExpr.App(getExpr, objArg, partialTy, tok)
                 TExpr.App(app1, translateExpr ctx idx, ty, tok)

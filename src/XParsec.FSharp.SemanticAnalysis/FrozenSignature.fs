@@ -329,12 +329,12 @@ module FrozenSignature =
             let sym =
                 { ExternalSymbols.scheme info.Container info.Name scheme (FrozenPools.typarArity frozen boundVar) [] with
                     Origin = originIn info.Container.Namespace
-                    CompiledName = CompiledName.OfPair(info.SourceName, info.Name)
+                    CompiledName = info.CompiledName
                     ValRepr = bindingValRepr boundVar
                     Attributes = info.Attributes
                 }
 
-            PublishedSurfaceBuilder.addValue surface (ValueSome info.SourceName) sym
+            PublishedSurfaceBuilder.addValue surface sym
 
         // EVERY module binding is a `Decls` entry, `inline` ones included, and its identity is in
         // `ModuleMembers`, a TOP-LEVEL binding's too, keyed in the file's namespace so it

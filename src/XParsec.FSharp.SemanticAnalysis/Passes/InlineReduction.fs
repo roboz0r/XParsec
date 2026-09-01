@@ -187,9 +187,7 @@ module InlineReduction =
     [<NoEquality; NoComparison>]
     type internal ExternalFunction =
         {
-            /// `ValueNone` is a genuine "carries no inline body", never a missed lookup: an
-            /// expandable function is key-stamped upstream, and a member is always keyed.
-            Key: SymbolKey voption
+            Key: SymbolKey
             /// A member's arguments are the call's ONE tupled argument OPENED to the declared
             /// parameters; `ValueNone` is one that does not open.
             Args: TastWalk.AppArg list voption
@@ -258,8 +256,7 @@ module InlineReduction =
         (ctx: PassContext)
         (mint: unit -> NodeKey)
         (body: TemplateBody voption)
-        (name: string)
-        (keyOpt: SymbolKey voption)
+        (key: BindingKey)
         (refTy: SemType)
         (tok: SyntaxToken)
         : TExpr voption =
@@ -289,7 +286,7 @@ module InlineReduction =
                         let resTy = SemTypeQuery.Funs.resultAfter ctx.Store (i + 1) refTy
                         TExpr.App(acc, TExpr.Var(k, pty, tok), resTy, tok)
                     )
-                    (TExpr.External(name, keyOpt, refTy, tok))
+                    (TExpr.External(key, refTy, tok))
 
             boundVars
             |> List.foldBack (fun (k, pty, _) (innerBody, innerTy) ->
@@ -390,24 +387,17 @@ module InlineReduction =
     /// Reach a cross-file body by EXACT `SymbolKey`, never by a name lookup whose best-by-arity
     /// collapse could serve a sibling overload's body. The THAW happens per lookup, so two call
     /// sites of one template never share an inference cell; the body keeps the declaring file's positions.
-    let internal lookupExternal
-        (ctx: PassContext)
-        (specs: SpecTable)
-        (keyOpt: SymbolKey voption)
-        : TemplateBody voption =
-        match keyOpt with
-        | ValueSome key ->
-            ExternalSymbolProviders.tryInlineBody ctx.Provider key
-            |> ValueOption.map (fun ib ->
-                let sources = SpecTable.retain ib.File specs
-                let thawed = InlineThaw.bodyAtPath ctx.Store sources ib.File.Path ib.Decl
+    let internal lookupExternal (ctx: PassContext) (specs: SpecTable) (key: SymbolKey) : TemplateBody voption =
+        ExternalSymbolProviders.tryInlineBody ctx.Provider key
+        |> ValueOption.map (fun ib ->
+            let sources = SpecTable.retain ib.File specs
+            let thawed = InlineThaw.bodyAtPath ctx.Store sources ib.File.Path ib.Decl
 
-                {
-                    Key = key
-                    Decl = thawed.Decl
-                    Typars = thawed.Typars
-                    ParamAttrs = ib.ParamAttrs
-                    Path = ib.File.Path
-                }
-            )
-        | ValueNone -> ValueNone
+            {
+                Key = key
+                Decl = thawed.Decl
+                Typars = thawed.Typars
+                ParamAttrs = ib.ParamAttrs
+                Path = ib.File.Path
+            }
+        )

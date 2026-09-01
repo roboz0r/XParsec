@@ -144,17 +144,17 @@ module InlineExpansion =
             // How a cross-file function presents itself; `ValueNone` is any other function.
             let external: ExternalFunction voption =
                 match fn with
-                | TExpr.External(_, keyOpt, _, _) ->
+                | TExpr.External(key, _, _) ->
                     ValueSome
                         {
-                            Key = keyOpt
+                            Key = SymbolKey.Binding key
                             Args = ValueSome args
                             RebuiltFn = fun () -> markedFn
                         }
                 | TExpr.ExternalMember(objArg, key, _, storage, widths, _, memberTok) ->
                     ValueSome
                         {
-                            Key = ValueSome key
+                            Key = key
                             Args =
                                 untupleMemberArgs storage widths args
                                 |> ValueOption.map (fun opened ->
@@ -322,7 +322,7 @@ module InlineExpansion =
         (tok: SyntaxToken)
         (args: TastWalk.AppArg list)
         : TExpr voption =
-        match lookupExternal x.Ctx x.Specs (ValueSome key) with
+        match lookupExternal x.Ctx x.Specs key with
         | ValueSome served ->
             ValueSome(
                 expandAt
@@ -417,8 +417,8 @@ module InlineExpansion =
                     // A BARE cross-package `let` whose body is one zero-operand intrinsic
                     // (`undefined`, `defaultof`) is replaced by it, so codegen emits no import.
                     // Any OTHER function-typed external etas into a closure the `App` arm expands.
-                    | TExpr.External(name, keyOpt, refTy, tok) ->
-                        let body = lookupExternal x.Ctx x.Specs keyOpt
+                    | TExpr.External(key, refTy, tok) ->
+                        let body = lookupExternal x.Ctx x.Specs (SymbolKey.Binding key)
 
                         // A nullary intrinsic needs no expansion, but crosses the same file
                         // boundary every other served body does, so it takes the same edge.
@@ -463,7 +463,7 @@ module InlineExpansion =
                                     call
                                     (fun () -> outlineNullaryIntrinsic x at call hit.Template hit.Body)
                             )
-                        | ValueNone -> etaReify x.Ctx x.Mint body name keyOpt refTy tok |> ValueOption.map walk
+                        | ValueNone -> etaReify x.Ctx x.Mint body key refTy tok |> ValueOption.map walk
                     | _ -> ValueNone
         }
 

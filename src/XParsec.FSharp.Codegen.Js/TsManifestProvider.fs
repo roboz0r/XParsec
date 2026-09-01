@@ -151,7 +151,7 @@ module TsManifestProvider =
         let surface =
             PublishedSurface.build (fun published ->
                 for sym in values do
-                    PublishedSurfaceBuilder.addValue published ValueNone sym
+                    PublishedSurfaceBuilder.addValue published sym
 
                 for (declared, shape) in regularTypes @ syntheticTypes @ structuralTypes do
                     let members =

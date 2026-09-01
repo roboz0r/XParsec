@@ -137,7 +137,10 @@ let tests =
                 let js = SymbolKeyOps.inNamespace "Js"
 
                 Expect.isTrue (raw.Scope.TryContainer "Js").IsSome "the mount prefix is a container"
-                Expect.isTrue (raw.Scope.TryValue(js, "spin")).IsSome "the free function resolves inside it"
+
+                Expect.isTrue
+                    (raw.Scope.TryValue(SymbolKeyOps.bindingKeyOf js "spin")).IsSome
+                    "the free function resolves inside it"
 
                 Expect.isNonEmpty
                     (EqArray.toList (raw.Scope.TypesNamed(js, "Widget")))

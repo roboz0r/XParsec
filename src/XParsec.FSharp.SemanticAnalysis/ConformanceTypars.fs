@@ -111,7 +111,7 @@ module ConformanceTypars =
                         if not (schemesAgree sym.Scheme ty) then
                             yield
                                 {
-                                    Name = SymbolKeyOps.qualifiedName (SymbolKey.Binding key)
+                                    Name = SymbolKeyOps.qualifiedBindingName key
                                     Declared = normAxis sym.Scheme
                                     Inferred = normAxis ty
                                 }

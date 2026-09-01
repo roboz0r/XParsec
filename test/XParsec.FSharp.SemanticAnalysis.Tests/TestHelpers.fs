@@ -188,7 +188,7 @@ let membersProvider (lookup: string -> string -> EqArray<ExternalMember>) : IExt
 let providerOfValues (symbols: ExternalSymbol list) : IExternalSymbolProvider =
     providerOfSurface (fun b ->
         for sym in symbols do
-            PublishedSurfaceBuilder.addValue b ValueNone sym
+            PublishedSurfaceBuilder.addValue b sym
     )
 
 /// `providerOfValues` for the type shapes a referenced package publishes.

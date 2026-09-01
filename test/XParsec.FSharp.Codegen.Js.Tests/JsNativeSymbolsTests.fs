@@ -33,7 +33,10 @@ let tests =
                 let scope = JsNativeSymbols.provider.Scope
                 let root = ModuleContainer.InNamespace(SymbolKeyOps.namespaceKey "")
 
-                Expect.isTrue (scope.TryValue(root, "Error")).IsNone "the table holds types alone"
+                Expect.isTrue
+                    (scope.TryValue(SymbolKeyOps.bindingKeyOf root "Error")).IsNone
+                    "the table holds types alone"
+
                 Expect.equal (scope.UnionCasesNamed(root, "Error")).Length 0 "no union case"
             }
         ]

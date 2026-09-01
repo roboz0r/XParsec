@@ -185,9 +185,7 @@ let tests =
                 | ValueSome s ->
                     Expect.equal s.TyparArity 0 "total is monomorphic"
                     // The scope resolves the SAME entry through the container that declares it.
-                    Expect.isTrue
-                        (resolver.Scope.TryValue(totalKey.Decl, totalKey.Name)).IsSome
-                        "total resolves through its container"
+                    Expect.isTrue (resolver.Scope.TryValue totalKey).IsSome "total resolves through its container"
                 | ValueNone -> failtest "total did not project"
 
                 match store.TryLookupByKey(bindingKey frozen "ident") with
@@ -227,7 +225,7 @@ let tests =
                 Expect.equal (store.TryLookupByKey secretKey) ValueNone "private 'secret' is NOT exported (by key)"
 
                 Expect.equal
-                    (resolver.Scope.TryValue(secretKey.Decl, secretKey.Name))
+                    (resolver.Scope.TryValue secretKey)
                     ValueNone
                     "private 'secret' is NOT exported (through its container)"
 

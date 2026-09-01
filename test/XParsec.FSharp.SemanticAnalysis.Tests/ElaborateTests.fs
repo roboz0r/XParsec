@@ -166,6 +166,21 @@ let tests =
                 | other -> failtestf "unexpected TAST shape: %A" other
             }
 
+            // A nullary case reference is the ctor itself; a case that takes fields is a
+            // FUNCTION when written bare, which has no identity to reference. The gap is
+            // reported, and the `Unresolved` stand-in keeps the rest of the file elaborating.
+            test "a union case used as a first-class value is reported as a gap" {
+                let tast =
+                    analyse "type Shape =\n    | Circle of float\n\nlet g = 1\nlet f = Circle\n"
+
+                Expect.equal
+                    (tast.Diagnostics |> Seq.map (fun d -> d.Message) |> List.ofSeq)
+                    [ "not yet supported: the union case 'Circle' used as a first-class value" ]
+                    "one diagnostic, naming the gap"
+
+                Expect.equal tast.Decls.Length 3 "the declarations around the gap still elaborate"
+            }
+
             test "`let xs = [|1; 2|]` freezes as an array literal over its elements" {
                 let tast = analyse "let xs = [|1; 2|]"
                 let intTy = BuiltinTypes.tyInt
@@ -310,7 +325,7 @@ let nestedModuleTests =
                     | [ info ] -> info
                     | other -> failtestf "expected exactly one module member, got %A" other
 
-                Expect.equal info.Name "f" "the binding's compiled name"
+                Expect.equal info.Name "f" "the binding's source name"
 
                 match info.DeclaringModule with
                 | ValueNone -> failtest "expected a declaring module"

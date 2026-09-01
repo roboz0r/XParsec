@@ -32,7 +32,6 @@ let private tagged (name: string) (tag: string) : IExternalSymbolProvider =
     TestHelpers.providerOfSurface (fun b ->
         PublishedSurfaceBuilder.addValue
             b
-            ValueNone
             { ExternalSymbols.monoFrozen
                   (SymbolKeyOps.inNamespace "")
                   name

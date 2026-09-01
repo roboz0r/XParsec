@@ -308,7 +308,7 @@ module AssemblyAnalysis =
 
                     let values = ConformanceSurface.checkValues r.Surface impl.Frozen
 
-                    for e in values.Missing do
+                    for e in values.Errors do
                         yield unimplemented (Conformance.describe e)
 
                     for d in values.Divergent do

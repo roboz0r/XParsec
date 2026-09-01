@@ -154,16 +154,10 @@ type internal ClrEnv
 
     // No fallback to `vesperCoreRef`: that would mint a wrong `Vesper.Core::List`1`.
     let vesperListRef =
-        lazy
-            (toEntity (
-                ctx.AssemblyRef(refRequired "Vesper.List" "a list literal / List.fold needs Vesper.Collections.List")
-            ))
+        lazy (toEntity (ctx.AssemblyRef(refRequired "Vesper.List" "a list literal needs Vesper.Collections.List")))
 
     let eVesperList1 =
         lazy (typeRefOfKey vesperListRef.Value RuntimeNames.vesperListKey)
-
-    let eListModule =
-        lazy (toEntity (ctx.TypeRef(vesperListRef.Value, "Vesper.Collections", "ListModule")))
 
     let eObject = lazy (toEntity (ctx.TypeRef(coreRef.Value, "System", "Object")))
 
@@ -575,7 +569,6 @@ type internal ClrEnv
     member _.FlatFunEntity(genericArity: int) = flatFunEntity genericArity
     member _.VesperListRef = vesperListRef
     member _.EVesperList1 = eVesperList1
-    member _.EListModule = eListModule
     member _.EObject = eObject
     member _.EValueType = eValueType
     member _.EEnum = eEnum

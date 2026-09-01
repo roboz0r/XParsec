@@ -22,8 +22,9 @@ type private CountingProvider(name: string) =
         { new IScopeContents with
             member _.TryContainer _ = ValueNone
 
-            member _.TryValue(_, n) =
+            member _.TryValue key =
                 valueHits <- valueHits + 1
+                let n = key.Name
 
                 if n = name then
                     ValueSome(

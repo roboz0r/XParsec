@@ -400,14 +400,8 @@ module EmitJsContext =
     /// The import reference for an external VALUE: home and import FORM both read off the one
     /// `ExternalSymbol` the provider resolved. `Default` means a TS `export default`, lowered
     /// to `import x from '<spec>'`. A miss leaves no home, and the import then fails loudly.
-    let externalValueRef (provider: IExternalSymbolProvider) (key: SymbolKey voption) : JsValueRef =
-        let resolved =
-            match key with
-            | ValueSome(SymbolKey.Binding b) -> provider.TryLookupByKey b
-            | ValueSome _ -> ValueNone
-            | ValueNone -> ValueNone
-
-        match resolved with
+    let externalValueRef (provider: IExternalSymbolProvider) (key: BindingKey) : JsValueRef =
+        match provider.TryLookupByKey key with
         | ValueSome sym ->
             {
                 Key = key
@@ -427,7 +421,7 @@ module EmitJsContext =
     /// provider lookup deletes this hardcode; it stands until that lookup exists.
     let private printfRuntimeRef (name: string) : JsValueRef =
         {
-            Key = ValueSome(SymbolKeyOps.moduleValueKey "Vesper" "StructuralPrinter" name)
+            Key = SymbolKeyOps.moduleBindingKey "Vesper" "StructuralPrinter" name
             Home = ValueSome(JsHome.ofAssembly "Vesper.Printf")
             Form = ImportForm.Named
         }

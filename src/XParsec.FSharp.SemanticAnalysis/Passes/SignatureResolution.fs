@@ -638,15 +638,11 @@ module SignatureResolution =
         classifyValSigTypes ctx valSig
 
         if isPublished access then
-            let sourceName = OperatorNames.ofDeclaredName ctx.NameOf ident
             let resolvedAttrs = ctx.ResolveAttributes attrs
 
-            let compiledName =
-                match AttributeDecode.tryCompiledName ctx.NameOf resolvedAttrs with
-                | ValueSome n -> ValueSome n
-                | ValueNone -> sourceName
-
-            match compiledName with
+            // An active-pattern name has no modelled source form, so it is skipped here as in
+            // the implementation half (`MemberNames.ofBinding`).
+            match OperatorNames.ofDeclaredName ctx.NameOf ident with
             | ValueNone -> ()
             | ValueSome name ->
                 let decl = localContainerChain ctx containment
@@ -693,17 +689,12 @@ module SignatureResolution =
 
                 let sym =
                     { ExternalSymbols.scheme decl name template typeParams.Length constraints with
-                        CompiledName =
-                            match sourceName with
-                            | ValueSome src -> CompiledName.OfPair(src, name)
-                            // An active-pattern name has no modelled source form, so there is
-                            // no pair to compare `name` against.
-                            | ValueNone -> ValueNone
+                        CompiledName = AttributeDecode.compiledNameOf ctx.NameOf name resolvedAttrs
                         ValRepr = valRepr
                         Attributes = AttributeFold.build ctx attrElement resolvedAttrs
                     }
 
-                PublishedSurfaceBuilder.addValue sctx.Surface sourceName sym
+                PublishedSurfaceBuilder.addValue sctx.Surface sym
 
     // --- the walk -------------------------------------------------------------------
 

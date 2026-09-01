@@ -178,6 +178,11 @@ module FrozenCodecDiagnostics =
             w.Write name
             w.Write selector
             w.Write asset
+        | Conformance.ConformanceError.CompiledNameDiffers(name, declared, defined) ->
+            w.Write 14uy
+            w.Write name
+            w.Write declared
+            w.Write defined
 
     let private readConformanceError (r: FrozenReader) : Conformance.ConformanceError =
         match r.ReadByte() with
@@ -207,6 +212,10 @@ module FrozenCodecDiagnostics =
             let name = r.ReadString()
             let selector = r.ReadString()
             Conformance.ConformanceError.ImportMissingExport(name, selector, r.ReadString())
+        | 14uy ->
+            let name = r.ReadString()
+            let declared = r.ReadString()
+            Conformance.ConformanceError.CompiledNameDiffers(name, declared, r.ReadString())
         | b -> failwithf "FrozenCodec: unknown ConformanceError tag %d" b
 
     /// A `uint16`-backed enum, written as its own representation INCLUDING the flag bits; a

@@ -102,16 +102,16 @@ let rec private tyName (t: SemType) : string =
 
 let private (|InfixOp|_|) (e: TExpr) =
     match e with
-    | TExpr.App(TExpr.App(TExpr.External(name, _, _, _), left, _, _), right, _, _) ->
-        match Map.tryFind name opSym with
+    | TExpr.App(TExpr.App(TExpr.External(key, _, _), left, _, _), right, _, _) ->
+        match Map.tryFind key.Name opSym with
         | Some sym -> Some(sym, left, right)
         | None -> None
     | _ -> None
 
 let private (|PrefixOp|_|) (e: TExpr) =
     match e with
-    | TExpr.App(TExpr.External(name, _, _, _), operand, _, _) ->
-        match Map.tryFind name prefixSym with
+    | TExpr.App(TExpr.External(key, _, _), operand, _, _) ->
+        match Map.tryFind key.Name prefixSym with
         | Some sym -> Some(sym, operand)
         | None -> None
     | _ -> None
@@ -138,7 +138,8 @@ type private Renderer() =
         match e with
         | TExpr.Const(cv, _, _) -> push (constText cv)
         | TExpr.Var(k, _, _) -> push (nameOf k)
-        | TExpr.External(name, _, _, _) -> push name
+        | TExpr.External(key, _, _) -> push key.Name
+        | TExpr.Unresolved _ -> push "<unresolved>"
 
         | InfixOp(sym, l, r) ->
             push "("

@@ -118,16 +118,22 @@ module AttributeDecode =
     let tryStringArgument (nameOf: SyntaxToken -> string) (oc: ObjectConstruction<SyntaxToken>) : string voption =
         constructionExpr oc |> ValueOption.bind (stringArgText nameOf)
 
-    /// The name `[<CompiledName("Foo")>]` gives a declaration, which is what a consumer of
-    /// the assembly writes.
-    let tryCompiledName (nameOf: SyntaxToken -> string) (attrs: ResolvedAttributes) : string voption =
+    /// The name a declaration emits under, read from the `[<CompiledName("Foo")>]` it
+    /// carries; `source` is the name its source writes. `ValueNone` where the attribute is
+    /// absent, its argument is empty, or it restates `source`.
+    let compiledNameOf
+        (nameOf: SyntaxToken -> string)
+        (source: string)
+        (attrs: ResolvedAttributes)
+        : CompiledName voption =
         match
             attrs.TryFind RuntimeNames.compiledNameAttributeKey
             |> ValueOption.bind constructionExpr
             |> ValueOption.bind (stringArgText nameOf)
         with
+        | ValueNone
         | ValueSome "" -> ValueNone
-        | other -> other
+        | ValueSome compiled -> CompiledName.OfPair(source, compiled)
 
     /// The `[<Import(selector, path)>]` a binding carries.
     let tryImport (nameOf: SyntaxToken -> string) (attrs: ResolvedAttributes) : ImportDecl =

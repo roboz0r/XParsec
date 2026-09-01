@@ -229,6 +229,7 @@ module Regions =
         | TExpr.Const _
         | TExpr.Null _
         | TExpr.External _
+        | TExpr.Unresolved _
         | TExpr.StaticPropertyGet _
         | TExpr.StaticFieldGet _ -> RegionId.Unknown
         | TExpr.Var(k, _, _) ->

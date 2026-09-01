@@ -77,6 +77,7 @@ module CodegenSymbols =
                                 Origin = sym.Origin
                                 Signature = os.Signature
                                 MethodTyparArity = os.MethodTyparArity
+                                EmittedName = sym.EmittedName
                                 ValRepr = sym.ValRepr
                                 Constraints = os.Constraints
                             }

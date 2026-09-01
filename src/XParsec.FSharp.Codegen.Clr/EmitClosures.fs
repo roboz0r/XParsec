@@ -158,7 +158,7 @@ module EmitClosures =
     /// to its file's NAMESPACE, which no CLR type corresponds to, so it emits on the Program class.
     let private declaredEmission (info: ModuleBindingInfo) : Emission =
         {
-            Name = info.Name
+            Name = info.EmittedName
             ModuleClass =
                 match info.DeclaringModule with
                 | ValueSome m -> Some m

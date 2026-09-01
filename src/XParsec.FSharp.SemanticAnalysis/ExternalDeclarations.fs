@@ -106,6 +106,10 @@ type ExternalSymbol =
         Attributes: TAttributes
     }
 
+    /// The short name the declaration emits under.
+    member this.EmittedName: string =
+        CompiledName.Emitted(this.CompiledName, this.Key.Name)
+
 /// Per-field shape inside an `ExternalTypeShape.Record`.
 type ExternalFieldShape =
     {

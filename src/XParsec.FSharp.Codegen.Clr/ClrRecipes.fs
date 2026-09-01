@@ -26,7 +26,6 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
     let eStringBuilder = env.EStringBuilder
     let eFun2 () = env.EFun2()
     let eVesperList1 = env.EVesperList1
-    let eListModule = env.EListModule
     let eFormatter = env.EFormatter
     let eConsole = env.EConsole
     let eEqualityComparer1 = env.EEqualityComparer1
@@ -169,53 +168,6 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
 
         toEntity (ctx.TypeSpec tsB)
 
-    /// `List.fold folder state xs` over the *Vesper* list — a `call` to `fold` compiled into
-    /// `Vesper.List.dll`. Folder, state, list are already on the stack (ArgCount = 3); the call
-    /// leaves the `'State` result. No FSharp.Core dep.
-    let emitFold (fnTy: FrozenType) : CallRecipe =
-        let elemTy, stateTy =
-            match fnTy with
-            | FTFun(FTFun(state, FTFun(t, _)), _) -> t, state
-            | other -> failwithf "ClrProvider: List.fold has unexpected type %A" other
-
-        // `fold`'s two method typars are self-describing `FTTypar(Method, i)` nodes (`'State` ⇒
-        // `!!0`, `'T` ⇒ `!!1`), which `encodeType` maps to `!!i`, so no ambient typar window is needed.
-        let sT = FTTypar(TyparAxis.Method, 0)
-        let eT = FTTypar(TyparAxis.Method, 1)
-        let folderT = FTFun(sT, FTFun(eT, sT))
-        let listT = FTUnion(RuntimeNames.vesperListKey, EqArray.singleton eT)
-
-        let foldSig =
-            let s = BlobBuilder()
-
-            BlobEncoder(s)
-                .MethodSignature(genericParameterCount = 2, isInstanceMethod = false)
-                .Parameters(
-                    3,
-                    (fun (ret: ReturnTypeEncoder) -> encodeType (ret.Type()) sT),
-                    (fun (pars: ParametersEncoder) ->
-                        encodeType (pars.AddParameter().Type()) folderT
-                        encodeType (pars.AddParameter().Type()) sT
-                        encodeType (pars.AddParameter().Type()) listT
-                    )
-                )
-
-            s
-
-        let foldRef = ctx.MemberRef(eListModule.Value, "fold", foldSig)
-
-        let inst = BlobBuilder()
-        let specEnc = BlobEncoder(inst).MethodSpecificationSignature(2)
-        encodeType (specEnc.AddArgument()) stateTy
-        encodeType (specEnc.AddArgument()) elemTy
-        let foldSpec = toEntity (ctx.MethodSpec(toEntity foldRef, inst))
-
-        {
-            Emit = fun il -> il.Encoder.Call foldSpec
-            Arity = CallArity.Flat 3
-            Pushes = 1
-        }
-
     /// The seq-interface witness for a referenced-package nominal type: pick the shape's
     /// `FrozenInterfaces` template matching `ifaceKey` and instantiate it at this object arg
     /// (`FTTypar(Declaring, i) := args.[i]`). Direct-declared interfaces only.
@@ -234,13 +186,13 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
     /// backend; `fnTy` is the *use-site* curried type. `binding` is taken WHOLE rather than rebuilt
     /// from `(module, name)`: a top-level `let` is held by a namespace, which a pair cannot spell.
     let emitExternalCall (binding: BindingKey) (fnTy: FrozenType) : CallRecipe voption =
-        let name = binding.Name
-        let valueKey = SymbolKey.Binding binding
-        let compiledFullName = SymbolKeyOps.qualifiedName valueKey
+        let declaration = SymbolKeyOps.qualifiedBindingName binding
 
         match symbols.TryLookupOpenSignature binding with
         | ValueNone -> ValueNone
         | ValueSome openSig ->
+            let name = openSig.EmittedName
+
             // The open curried signature *template*: its method typars are already
             // `FTTypar(Method, i)` and its nominal type constructors kind-correct (`'T option` ⇒ `FTUnion`),
             // so it encodes and recovers against the producer's emitted signature unchanged.
@@ -271,7 +223,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
                     if List.length groupParamTys <> n then
                         failwithf
                             "emitExternalCall: contract for %s declares %d source groups but its template has only %d"
-                            compiledFullName
+                            declaration
                             n
                             (List.length groupParamTys)
 
@@ -310,7 +262,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             // on a miss, mint an external `MemberRef` scoped by `openSig.Origin` (the key alone
             // carries no assembly). Only a module gives that ref a declaring type, hence `ValueNone`.
             let callBaseOpt =
-                match env.LocalModuleFns.TryGetValue valueKey with
+                match env.LocalModuleFns.TryGetValue(SymbolKey.Binding binding) with
                 | true, defHandle -> ValueSome defHandle
                 | _ ->
                     match binding.Decl with
@@ -347,7 +299,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
                                     failwithf
                                         "emitExternalCall: could not infer instantiation for method type parameter %d of %s (phantom-typar solve found no witness)"
                                         i
-                                        compiledFullName
+                                        declaration
                         ]
 
                     methodSpec callBase methodArgs
@@ -812,7 +764,6 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
     member _.EmitVesperListConsField(elem, fieldIndex) = emitVesperListConsField elem fieldIndex
     member _.FunInterfaceSpec(a, b) = funInterfaceSpec a b
     member _.FlatFunInterfaceSpecN(tys) = flatFunInterfaceSpecN tys
-    member _.EmitFold fnTy = emitFold fnTy
     member _.EmitExternalCall(binding, fnTy) = emitExternalCall binding fnTy
     member _.BuildFormatHandles() = formatHandles.Value
     member _.FormatSinkHandles = formatSinkHandles.Value

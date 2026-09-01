@@ -371,7 +371,10 @@ let tests =
                 match scope.TryContainer "System" with
                 | ValueNone -> failtest "System is a container"
                 | ValueSome c ->
-                    Expect.isTrue (scope.TryValue(c, "Console")).IsNone "IL declares no free value"
+                    Expect.isTrue
+                        (scope.TryValue(SymbolKeyOps.bindingKeyOf c "Console")).IsNone
+                        "IL declares no free value"
+
                     Expect.equal (scope.UnionCasesNamed(c, "Some")).Length 0 "IL declares no union case"
             }
 

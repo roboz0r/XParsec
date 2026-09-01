@@ -205,9 +205,14 @@ type TExprG<'ty, 'tok, 'id> =
     | Const of value: TConstValue * ty: 'ty * tok: 'tok
     /// `boundVar` is the identity of the *definition site*, not the use site.
     | Var of boundVar: 'id * ty: 'ty * tok: 'tok
-    /// An externally-provided symbol, carrying the compiled name a target dispatches on
-    /// (`op_Addition` → CIL `add`). `key` is `ValueNone` where the resolution stamped none.
-    | External of compiledName: string * key: SymbolKey voption * ty: 'ty * tok: 'tok
+    /// A reference to an externally-provided module value or operator, identified by the
+    /// key name resolution stamped. Always a binding: an external MEMBER reference is the
+    /// separate `ExternalMember` node.
+    | External of key: BindingKey * ty: 'ty * tok: 'tok
+    /// A reference with no identity behind it, reported either by name resolution or by
+    /// Elaborate for a construct it does not model. It keeps the surrounding declarations
+    /// elaborating, freezing and publishing their surface; reaching codegen is a gate failure.
+    | Unresolved of ty: 'ty * tok: 'tok
     | Lambda of param: TPatG<'ty, 'tok, 'id> * body: TExprG<'ty, 'tok, 'id> * ty: 'ty * tok: 'tok
     | App of fn: TExprG<'ty, 'tok, 'id> * arg: TExprG<'ty, 'tok, 'id> * ty: 'ty * tok: 'tok
     | Let of

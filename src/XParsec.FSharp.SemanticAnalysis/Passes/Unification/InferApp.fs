@@ -78,7 +78,7 @@ module internal UnificationInferApp =
             | None ->
                 match ctx.Resolution.ExternalSymbolStamp.TryGetValue node.Key with
                 | ValueSome sym ->
-                    ctx.Resolution.IntrinsicKey.Set(node.Key, SymbolKey.Binding sym.Key)
+                    ctx.Resolution.IntrinsicKey.Set(node.Key, sym.Key)
 
                     applyOperatorScheme
                         ctx
@@ -561,7 +561,7 @@ module internal UnificationInferApp =
         | ValueSome sym ->
             // Thread the resolved `op_Dynamic` identity to the `External` node minted at this
             // same key, so the `$0[$1]` body splices by KEY.
-            ctx.Resolution.IntrinsicKey.Set(node.Key, SymbolKey.Binding sym.Key)
+            ctx.Resolution.IntrinsicKey.Set(node.Key, sym.Key)
             let resultVar = freshTyVar ctx
             let resultTy = TyVar resultVar
 
@@ -594,7 +594,7 @@ module internal UnificationInferApp =
         | ValueSome sym ->
             // Thread the resolved `op_DynamicAssignment` identity to the `External` node
             // minted at the enclosing assignment, so the `$0[$1] = $2` body splices by KEY.
-            ctx.Resolution.IntrinsicKey.Set(node.Key, SymbolKey.Binding sym.Key)
+            ctx.Resolution.IntrinsicKey.Set(node.Key, sym.Key)
 
             unify
                 ctx

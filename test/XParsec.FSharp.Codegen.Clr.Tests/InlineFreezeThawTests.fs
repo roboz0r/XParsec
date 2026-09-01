@@ -218,7 +218,7 @@ let private publishing (unitASource: string) : IExternalSymbolProvider =
                 let scheme = asSymbolScheme declTy
 
                 ExternalSymbols.scheme binding.Decl binding.Name scheme (typarArity scheme) []
-                |> PublishedSurfaceBuilder.addValue b ValueNone
+                |> PublishedSurfaceBuilder.addValue b
         )
 
     ExternalSymbolProviders.composite

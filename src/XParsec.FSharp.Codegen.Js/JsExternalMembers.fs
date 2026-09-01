@@ -312,7 +312,7 @@ module JsExternalMembers =
         // A free function is held DIRECTLY by the namespace its export sits in, which the
         // synthetic grouping type shares, so its home is the grouping type's by construction.
         let valueKey =
-            SymbolKeyOps.valueKey (ModuleContainer.InNamespace declKey.Namespace) memberName
+            SymbolKeyOps.bindingKeyOf (ModuleContainer.InNamespace declKey.Namespace) memberName
 
         let home =
             homeOf provider declKey (sprintf "erased grouping member '%s'" memberName)
@@ -320,12 +320,12 @@ module JsExternalMembers =
         // `form` is the group's import shape, stamped on the grouping type's flags.
         let valueRef =
             {
-                Key = ValueSome valueKey
+                Key = valueKey
                 Home = ValueSome home
                 Form = form
             }
 
-        JsExpr.Identifier(JsImports.addRef imports memberName valueRef, loc)
+        JsExpr.Identifier(JsImports.addRef imports valueRef, loc)
 
     /// Aliased from the declaring type's JS runtime module. Only a Vesper-provided runtime can
     /// satisfy this export shape, because a real npm package cannot export a mangled name.

@@ -4,15 +4,17 @@ open System.Collections.Generic
 
 // `.fsi` ↔ `.fs` conformance over the two ANALYSED halves: the surface a signature publishes
 // against the declarations its implementation froze, compared by resolved identity. A
-// `[<CompiledName>]`, a `ModuleSuffix` module and a shadowed attribute are therefore all
-// already settled before a comparison here.
+// `ModuleSuffix` module and a shadowed attribute are settled by that resolution before any
+// comparison here. A `[<CompiledName>]` is off the identity axis, because fsc pairs the
+// halves by the name each writes (FS0193); it is checked as its own agreement between the
+// paired declarations.
 
-/// The findings about a signature's VALUES. `Missing` is at error severity, `Divergent` at
+/// The findings about a signature's VALUES. `Errors` is at error severity, `Divergent` at
 /// warning severity.
 [<NoComparison>]
 type ValueConformance =
     {
-        Missing: Conformance.ConformanceError list
+        Errors: Conformance.ConformanceError list
         Divergent: Conformance.AttributeDivergence list
     }
 
@@ -48,11 +50,10 @@ module ConformanceSurface =
 
         declared
 
-    /// The binding identities an implementation DEFINES, under the compiled name each
-    /// publishes, each with the attributes its declaration folded to. A pattern binding no
-    /// single variable defines no identity.
-    let private definedValues (frozen: FrozenPools) : Dictionary<BindingKey, TAttributes> =
-        let defined = Dictionary<BindingKey, TAttributes>(HashIdentity.Structural)
+    /// The binding identities an implementation DEFINES, each with the declaration it was
+    /// filed from. Only a pattern binding exactly one variable carries an identity.
+    let private definedValues (frozen: FrozenPools) : Dictionary<BindingKey, ModuleBindingInfo> =
+        let defined = Dictionary<BindingKey, ModuleBindingInfo>(HashIdentity.Structural)
         let pool = TastPoolBuilder.openOver frozen
         let moduleMembers = DenseTable.index frozen.ModuleMembers
 
@@ -62,10 +63,7 @@ module ConformanceSurface =
                                     Pattern = TastAccessor.PNamed boundVar
                                 } ->
                 match moduleMembers.TryGetValue boundVar with
-                | true, info ->
-                    match info.Key with
-                    | SymbolKey.Binding bindingKey -> defined.[bindingKey] <- info.Attributes
-                    | _ -> ()
+                | true, info -> defined.[info.BindingKey] <- info
                 | _ -> ()
             | _ -> ()
 
@@ -169,12 +167,14 @@ module ConformanceSurface =
     /// The attribute types BOTH halves write whose arguments differ, in the order `declared`
     /// writes them. Matched by resolved attribute identity and compared as folded values, so
     /// `0x1` and `1` are one argument. An attribute written on one half alone is absent.
+    /// `[<CompiledName>]` is excluded: `CompiledNameDiffers` judges the emitted name across
+    /// the pair, including the one-sided case this cannot see.
     let private divergentAttributes (declared: TAttributes) (defined: TAttributes) : TypeKey list =
         let judged = HashSet<TypeKey>(HashIdentity.Structural)
 
         [
             for a in declared do
-                if judged.Add a.Key then
+                if a.Key <> RuntimeNames.compiledNameAttributeKey && judged.Add a.Key then
                     let onImpl = occurrencesOf a.Key defined
 
                     if not (List.isEmpty onImpl) && onImpl <> occurrencesOf a.Key declared then
@@ -182,21 +182,36 @@ module ConformanceSurface =
         ]
 
     /// Value PRESENCE (every symbol the signature publishes is met by an implementation binding
-    /// of the same identity) and, for a symbol met that way, the attribute ARGUMENTS both halves
-    /// wrote (fsc's FS1200). Findings come in key order, attributes in the signature's order.
+    /// of the same identity), the EMITTED name both halves settled on, and the attribute
+    /// ARGUMENTS both halves wrote (fsc's FS1200). Findings come in key order, attributes in
+    /// the signature's order.
     let checkValues (published: PublishedSurface) (frozen: FrozenPools) : ValueConformance =
         let defined = definedValues frozen
-        let missing = ResizeArray<Conformance.ConformanceError>()
+        let errors = ResizeArray<Conformance.ConformanceError>()
         let divergent = ResizeArray<Conformance.AttributeDivergence>()
 
         for entry in published.Symbols do
             let declaration () =
-                SymbolKeyOps.qualifiedName (SymbolKey.Binding entry.Key)
+                SymbolKeyOps.qualifiedBindingName entry.Key
 
             match defined.TryGetValue entry.Key with
-            | false, _ -> missing.Add(Conformance.ConformanceError.ValueMissingInImpl(declaration ()))
-            | true, implAttrs ->
-                for key in divergentAttributes entry.Value.Attributes implAttrs do
+            | false, _ -> errors.Add(Conformance.ConformanceError.ValueMissingInImpl(declaration ()))
+            | true, impl ->
+                // A reference resolves through the SIGNATURE's surface while the
+                // implementation emits under its own declaration, so the two `[<CompiledName>]`
+                // readings are a pair that has to agree.
+                let declaredEmission = entry.Value.EmittedName
+
+                if impl.EmittedName <> declaredEmission then
+                    errors.Add(
+                        Conformance.ConformanceError.CompiledNameDiffers(
+                            declaration (),
+                            declaredEmission,
+                            impl.EmittedName
+                        )
+                    )
+
+                for key in divergentAttributes entry.Value.Attributes impl.Attributes do
                     divergent.Add
                         {
                             Declaration = declaration ()
@@ -204,6 +219,6 @@ module ConformanceSurface =
                         }
 
         {
-            Missing = List.ofSeq missing
+            Errors = List.ofSeq errors
             Divergent = List.ofSeq divergent
         }

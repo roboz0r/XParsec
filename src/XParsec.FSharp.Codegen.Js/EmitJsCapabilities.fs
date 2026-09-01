@@ -65,7 +65,7 @@ module EmitJsCapabilities =
     /// `MoveNext`/`Current` needs. No front-end symbol resolves to it, so codegen hardcodes its home.
     let private enumeratorOfRef: JsValueRef =
         {
-            Key = ValueSome(SymbolKeyOps.valueKey (SymbolKeyOps.inNamespace "Vesper.Collections") "enumeratorOf")
+            Key = SymbolKeyOps.bindingKeyOf (SymbolKeyOps.inNamespace "Vesper.Collections") "enumeratorOf"
             Home = ValueSome(JsHome.ofAssembly "Vesper.Core")
             Form = ImportForm.Named
         }
@@ -126,8 +126,7 @@ module EmitJsCapabilities =
             ValueSome(fun _ memberName objArg loc -> JsExternalMembers.attachedCall objArg memberName [] loc)
         | MemberSlot.Iterator ->
             ValueSome(fun imports _ objArg loc ->
-                let adapter =
-                    JsExpr.Identifier(JsImports.addRef imports "enumeratorOf" enumeratorOfRef, ValueNone)
+                let adapter = JsExpr.Identifier(JsImports.addRef imports enumeratorOfRef, ValueNone)
 
                 JsExpr.Call(adapter, [ objArg ], loc)
             )

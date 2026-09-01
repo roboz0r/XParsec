@@ -257,8 +257,12 @@ module SymbolKeyOps =
         SymbolKey.Binding(bindingKeyOf decl name)
 
     /// `(dotted ns, module, name)` named separately, for a value in a namespace-level module.
+    let moduleBindingKey (dottedNs: string) (declModule: string) (name: string) : BindingKey =
+        bindingKeyOf (ModuleContainer.InModule(moduleInNamespace dottedNs declModule)) name
+
+    /// `moduleBindingKey`, widened to `SymbolKey` for lookup in mixed-key tables.
     let moduleValueKey (dottedNs: string) (declModule: string) (name: string) : SymbolKey =
-        valueKey (ModuleContainer.InModule(moduleInNamespace dottedNs declModule)) name
+        SymbolKey.Binding(moduleBindingKey dottedNs declModule name)
 
     let memberKeyOf
         (decl: TypeKey)
@@ -348,12 +352,20 @@ module SymbolKeyOps =
     /// `simpleName` for a caller already holding the narrow `TypeKey`.
     let typeSimpleName (t: TypeKey) : DisplayName = DisplayName t.Name
 
-    /// The fully-qualified compiled name for an EXTERNAL nominal lookup.
+    /// `qualifiedName` for a caller already holding the narrow `BindingKey`.
+    let qualifiedBindingName (b: BindingKey) : string =
+        qualify (containerFullName b.Decl) b.Name
+
+    /// A key's IDENTITY spelled in full: its container's path plus its own name, as the
+    /// declaring source writes both. A stable ordinal sort key, and the spelling a diagnostic
+    /// refers to a declaration by. The emission name is the declaration's published `CompiledName`.
     let qualifiedName (k: SymbolKey) : string =
         match k with
         | SymbolKey.Type t -> typeMetaName t
-        | SymbolKey.Binding b -> qualify (containerFullName b.Decl) b.Name
-        | SymbolKey.Member m -> m.Name
+        | SymbolKey.Binding b -> qualifiedBindingName b
+        // A member's container is its declaring TYPE, which renders arity-suffixed like any
+        // other: `` Vesper.Collections.List`1.Length ``.
+        | SymbolKey.Member m -> qualify (typeMetaName m.Decl) m.Name
 
     /// The last `.` segment is the simple name, the prefix the namespace.
     let qualifiedTypeKeyOf (compiled: string) (arity: int) : TypeKey =

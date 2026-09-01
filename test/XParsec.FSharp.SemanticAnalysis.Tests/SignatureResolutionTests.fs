@@ -166,7 +166,7 @@ let tests =
 
                         Expect.equal
                             (compiledValueNames r)
-                            [ "App.Bag.Empty", "Empty" ]
+                            [ "App.Bag.empty", "Empty" ]
                             "the attribute reaches the surface"
                     }
 
@@ -175,6 +175,22 @@ let tests =
 
                         Expect.isEmpty (compiledModuleNames r) "`Bag` compiles under its source name"
                         Expect.isEmpty (compiledValueNames r) "`empty` compiles under its source name"
+                    }
+
+                    // GAP: an active-pattern `val` publishes nothing. `OperatorNames.ofDeclaredName`
+                    // models no source form for one, so `registerValSig` mints no key and a
+                    // consumer of the assembly cannot resolve the pattern at all. The
+                    // implementation half agrees (`MemberNames.ofBinding` files no
+                    // `ModuleBindingInfo`), so conformance stays silent about it too.
+                    ptest "a `val` declaring an active pattern publishes it" {
+                        let r =
+                            resolveFsi
+                                "app.fsi"
+                                "namespace App\n\nmodule M =\n    val (|Even|Odd|): int -> Choice<unit, unit>\n"
+
+                        Expect.isNonEmpty
+                            [ for e in r.Surface.Symbols -> e.Key ]
+                            "the active pattern reaches the published surface"
                     }
                 ]
 

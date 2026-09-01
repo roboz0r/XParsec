@@ -84,9 +84,7 @@ module EmitCall =
         let fn, appArgs = TastAccessor.collectAppChain [] e
 
         match fn with
-        | TastAccessor.EExternal ext ->
-            let name = ext.CompiledName
-            let key = ext.Key
+        | TastAccessor.EExternal key ->
             // The recipe's generic instantiation comes from the function's curried type,
             // which is stale once an argument became a value-struct closure, because that
             // argument still encodes to the `Fun`2` INTERFACE. Rebuild from the actual types.
@@ -104,7 +102,7 @@ module EmitCall =
                 else
                     typeOfExpr fn
 
-            match env.Provider.TryEmitCall(name, key, recipeFnTy) with
+            match env.Provider.TryEmitCall(key, recipeFnTy) with
             | ValueSome recipe ->
                 // `Grouped` splits one argument per SOURCE group and flattens each;
                 // `Flat` carries an already-flat count and pushes one-to-one.
@@ -135,7 +133,7 @@ module EmitCall =
                     | None -> typeOfExpr fn
 
                 foldInvoke recur env b funcTy rest
-            | ValueNone -> failwithf "Emit: no call recipe for external '%s'" name
+            | ValueNone -> failwithf "Emit: no call recipe for external '%s'" (SymbolKeyOps.qualifiedBindingName key)
 
         | TastAccessor.EVar k when env.StaticMethods.ContainsKey k ->
             // A top-level function emitted as a static method: `call` it with one

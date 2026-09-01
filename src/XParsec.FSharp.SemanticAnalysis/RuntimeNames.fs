@@ -132,8 +132,11 @@ module RuntimeNames =
     let importSentinelText = "$use-import-attribute"
 
     /// `Vesper.CompilerMarkers.nativeOnly`, the one binding whose body is the sentinel.
-    let nativeOnlyKey: SymbolKey =
-        SymbolKeyOps.moduleValueKey intrinsicNamespace "CompilerMarkers" "nativeOnly"
+    let nativeOnlyBindingKey: BindingKey =
+        SymbolKeyOps.moduleBindingKey intrinsicNamespace "CompilerMarkers" "nativeOnly"
+
+    /// `nativeOnlyBindingKey`, widened to `SymbolKey` for lookup in mixed-key tables.
+    let nativeOnlyKey: SymbolKey = SymbolKey.Binding nativeOnlyBindingKey
 
     let objAbbrevName: string = "obj"
 

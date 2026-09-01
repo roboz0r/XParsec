@@ -79,7 +79,8 @@ module TastConvert =
         match e with
         | TExprG.Const(v, ty, tok) -> TExprG.Const(v, f ty, tk tok)
         | TExprG.Var(k, ty, tok) -> TExprG.Var(k, f ty, tk tok)
-        | TExprG.External(n, k, ty, tok) -> TExprG.External(n, k, f ty, tk tok)
+        | TExprG.External(k, ty, tok) -> TExprG.External(k, f ty, tk tok)
+        | TExprG.Unresolved(ty, tok) -> TExprG.Unresolved(f ty, tk tok)
         | TExprG.Null(ty, tok) -> TExprG.Null(f ty, tk tok)
         | TExprG.Lambda(p, b, ty, tok) -> TExprG.Lambda(pp p, pe b, f ty, tk tok)
         | TExprG.App(fn, a, ty, tok) -> TExprG.App(pe fn, pe a, f ty, tk tok)

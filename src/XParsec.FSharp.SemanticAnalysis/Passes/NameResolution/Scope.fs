@@ -43,7 +43,7 @@ module NameResolutionScope =
         | ResolvedItem.Value(ResolvedValue.External sym) ->
             // Both channels or neither: with only the symbol the ref freezes to a KEYLESS
             // `External`, and inline bodies are spliced by key, so the body is lost.
-            ctx.Resolution.ExternalValue.Set(key, SymbolKey.Binding sym.Key)
+            ctx.Resolution.ExternalValue.Set(key, sym.Key)
             ctx.Resolution.ExternalSymbolStamp.Set(key, sym)
         | ResolvedItem.Value(ResolvedValue.Local m) -> bindUseSite ctx key m.BindingSite m.IsMutable
         // A referenced class in expression position is a ctor-sugar application

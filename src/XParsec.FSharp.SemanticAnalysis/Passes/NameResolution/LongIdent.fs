@@ -147,7 +147,9 @@ module NameResolutionLongIdent =
         : ResolvedValue voption =
         match LocalScope.tryValue ctx useSite c name with
         | ValueSome m -> ValueSome(ResolvedValue.Local m)
-        | ValueNone -> ctx.Resolver.Scope.TryValue(c, name) |> ValueOption.map ResolvedValue.External
+        | ValueNone ->
+            ctx.Resolver.Scope.TryValue(SymbolKeyOps.bindingKeyOf c name)
+            |> ValueOption.map ResolvedValue.External
 
     /// Every claim on the case `name` declared directly in `c`. This file's own unions shadow
     /// every referenced one.
@@ -374,7 +376,7 @@ module NameResolutionLongIdent =
                     match LocalScope.tryValue ctx useSite e.Container name with
                     | ValueSome m -> struct (ScopeEntry.rankOf e m.EntersAt, ResolvedValue.Local m)
                     | ValueNone ->
-                        match ctx.Resolver.Scope.TryValue(e.Container, name) with
+                        match ctx.Resolver.Scope.TryValue(SymbolKeyOps.bindingKeyOf e.Container name) with
                         | ValueSome sym -> struct (ScopeEntry.rank e, ResolvedValue.External sym)
                         | ValueNone -> ()
             ]

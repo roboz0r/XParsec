@@ -15,6 +15,7 @@ module TastWalk =
         | TExprG.Const(ty = ty)
         | TExprG.Var(ty = ty)
         | TExprG.External(ty = ty)
+        | TExprG.Unresolved(ty = ty)
         | TExprG.Lambda(ty = ty)
         | TExprG.App(ty = ty)
         | TExprG.Let(ty = ty)
@@ -60,6 +61,7 @@ module TastWalk =
         | TExprG.Const(tok = tok)
         | TExprG.Var(tok = tok)
         | TExprG.External(tok = tok)
+        | TExprG.Unresolved(tok = tok)
         | TExprG.Lambda(tok = tok)
         | TExprG.App(tok = tok)
         | TExprG.Let(tok = tok)
@@ -310,9 +312,12 @@ module TastWalk =
             | TExpr.Var(k, ty, tok) ->
                 let ty' = f ty
                 if refEq ty' ty then e else TExpr.Var(k, ty', tok)
-            | TExpr.External(n, k, ty, tok) ->
+            | TExpr.External(k, ty, tok) ->
                 let ty' = f ty
-                if refEq ty' ty then e else TExpr.External(n, k, ty', tok)
+                if refEq ty' ty then e else TExpr.External(k, ty', tok)
+            | TExpr.Unresolved(ty, tok) ->
+                let ty' = f ty
+                if refEq ty' ty then e else TExpr.Unresolved(ty', tok)
             | TExpr.Null(ty, tok) ->
                 let ty' = f ty
                 if refEq ty' ty then e else TExpr.Null(ty', tok)
@@ -807,6 +812,7 @@ module TastWalk =
             | TExpr.Const _
             | TExpr.Var _
             | TExpr.External _
+            | TExpr.Unresolved _
             | TExpr.Null _
             | TExpr.StaticPropertyGet _
             | TExpr.StaticFieldGet _ -> ()

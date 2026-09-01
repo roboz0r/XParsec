@@ -38,7 +38,6 @@ module TastAccessor =
     type LetView = TastNodeViews.LetView
     type AssignmentView = TastNodeViews.AssignmentView
     type IfThenElseView = TastNodeViews.IfThenElseView
-    type ExternalView = TastNodeViews.ExternalView
     type AppView = TastNodeViews.AppView
     type AppliedArg = TastNodeViews.AppliedArg
     type RecordCloneView = TastNodeViews.RecordCloneView
@@ -240,18 +239,13 @@ module TastAccessor =
         expect "TastAccessor.exprIfThenElse: not an IfThenElse node" (|EIfThenElse|_|) e
 
     [<return: Struct>]
-    let (|EExternal|_|) (e: ExprId) : ExternalView voption =
+    let (|EExternal|_|) (e: ExprId) : BindingKey voption =
         match payload e with
-        | ExprPayload.External p ->
-            ValueSome
-                {
-                    CompiledName = p.CompiledName
-                    Key = p.Key
-                }
+        | ExprPayload.External key -> ValueSome key
         | _ -> ValueNone
 
-    let exprExternal (e: ExprId) : ExternalView =
-        expect "TastAccessor.exprExternal: not an External node" (|EExternal|_|) e
+    let exprExternalKey (e: ExprId) : BindingKey =
+        expect "TastAccessor.exprExternalKey: not an External node" (|EExternal|_|) e
 
     [<return: Struct>]
     let (|EApp|_|) (e: ExprId) : AppView voption =

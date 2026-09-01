@@ -290,7 +290,13 @@ module WrittenTypeName =
     let bare (name: string) : WrittenTypeName = { Path = ""; Name = name }
 
 /// A module-level binding / operator. No `ArgSig`: modules do not overload.
-type BindingKey = { Decl: ModuleContainer; Name: string }
+type BindingKey =
+    {
+        Decl: ModuleContainer
+        /// The name the binding's source writes, an operator under its `op_` spelling. The
+        /// static method it compiles to is a published fact of its own, a `CompiledName`.
+        Name: string
+    }
 
 /// A key's name AS SHOWN TO A HUMAN, containment chain and generic arity dropped. A LOSSY
 /// projection OUT of an identity, never a route back INTO one: to ask a table, ask the KEY.

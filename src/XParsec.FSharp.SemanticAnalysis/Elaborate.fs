@@ -126,9 +126,10 @@ module Elaborate =
 
                 ctx.GenericFnSchemes.Set(boundVar, constraints)
 
-    /// The binding's exportable identity: `Name` is `[<CompiledName>]`, else the source name,
-    /// the reading a `.fsi` publishes under (`Set.empty` ⇒ `SetModule.Empty`). `ValueNone` for
-    /// a pattern with no single bound variable (`let (a, b) = p`) and for an active-pattern name.
+    /// The binding's exportable identity, keyed by the name its source writes and carrying
+    /// `[<CompiledName>]`'s as the name it emits under (`Set.empty` ⇒ `SetModule.Empty`).
+    /// `ValueSome` only where the pattern binds exactly one variable; `ValueNone` for the rest
+    /// (`let (a, b) = p`) and for an active-pattern name.
     let private exportedBindingInfo
         (ctx: PassContext)
         (container: ModuleContainer)
@@ -140,11 +141,8 @@ module Elaborate =
         |> ValueOption.map (fun m ->
             {
                 Container = container
-                Name =
-                    match AttributeDecode.tryCompiledName ctx.NameOf resolved with
-                    | ValueSome cn -> cn
-                    | ValueNone -> m.Name
-                SourceName = m.Name
+                Name = m.Name
+                CompiledName = AttributeDecode.compiledNameOf ctx.NameOf m.Name resolved
                 Attributes = attributes
             }
         )
@@ -221,7 +219,7 @@ module Elaborate =
         let attributes = AttributeFold.build ctx attrElement resolvedAttrs
 
         let info = exportedBindingInfo ctx container b resolvedAttrs attributes
-        let emittedName = info |> ValueOption.map (fun i -> i.Name)
+        let emittedName = info |> ValueOption.map (fun i -> i.EmittedName)
         let exportedKey = recordExportedBinding ctx b info boundVar
 
         let valT = translateBinding ctx b
@@ -322,12 +320,16 @@ module Elaborate =
 
         // Elaborate asserts with `failwith` rather than diagnosing. After a diagnosed error
         // nothing is code-generated, so degrade; unguarded otherwise, so a real bug surfaces.
-        let hasErrors = ctx.Diagnostics |> Seq.exists Diagnostic.isError
+        // Read at CATCH time, so an error Elaborate itself reported on the way down (an
+        // unsupported construct) degrades the same way an earlier pass's does. A diagnosed
+        // error masks any Elaborate crash in the same file: fix the reported errors first.
+        let hasErrors () =
+            ctx.Diagnostics |> Seq.exists Diagnostic.isError
 
         let elaborated =
             try
                 ValueSome(elaborateDecls ())
-            with _ when hasErrors ->
+            with _ when hasErrors () ->
                 ValueNone
 
         let decls, specializations =

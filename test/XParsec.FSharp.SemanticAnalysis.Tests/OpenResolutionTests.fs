@@ -18,9 +18,9 @@ let private provider: IExternalSymbolProvider =
         ExternalSymbols.monoFrozen moduleB name (FTConst(RuntimeNames.intKey, EqArray.empty))
 
     providerOfSurface (fun b ->
-        PublishedSurfaceBuilder.addValue b ValueNone (mono "thing")
+        PublishedSurfaceBuilder.addValue b (mono "thing")
         // The qualified operator `A.B.(+)` resolves to its compiled name `A.B.op_Addition`.
-        PublishedSurfaceBuilder.addValue b ValueNone (mono "op_Addition")
+        PublishedSurfaceBuilder.addValue b (mono "op_Addition")
         publishClass b (SymbolKeyOps.qualifiedTypeKeyOf "Some.Where.Foo" 1) []
 
         publishRqaUnion

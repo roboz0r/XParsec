@@ -591,17 +591,7 @@ ref-struct predicate `LocalStack ∧ StackOnlyEligible` is stated in prose in tw
 
 Deletes: both axis banners and the `Axis-2` prefixes on the `reprOf` / `reprOfNested` docs.
 
-## B24. `TExpr.External`'s key should not be a `voption`
-
-`IntrinsicKeyStampTests` exists to assert a field is populated that the type permits to be
-empty. If minting an `External` node required a `SymbolKey`, the header sentence (*"a
-`ValueNone` key here is a silent mis-splice / phantom `call` downstream, not a graceful
-miss"*), the `Some ValueNone` arm of `assertStamped` with its 3-line `failtestf`, and the
-negative half of the suite all disappear — the remaining tests become "the right key" rather
-than "a key at all".
-
-Acceptance test: afterwards nothing in the file needs a sentence about what a missing key
-would mean.
+## B24. ~~`TExpr.External`'s key should not be a `voption`~~ — DONE
 
 ## B25. `SizedProgram` should carry `Measured`, not just `Ceiling`
 

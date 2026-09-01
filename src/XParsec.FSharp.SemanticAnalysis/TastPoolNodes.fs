@@ -10,6 +10,7 @@ type ExprShape =
     | Const
     | Var
     | External
+    | Unresolved
     | Lambda
     | App
     | Let
@@ -184,11 +185,8 @@ type FormatSegShape =
 type ExprPayload =
     | Const of TConstValue
     | Var
-    | External of
-        {|
-            CompiledName: string
-            Key: SymbolKey voption
-        |}
+    | External of key: BindingKey
+    | Unresolved
     | Lambda
     | App
     | Let
@@ -306,6 +304,7 @@ module ExprPayload =
         | ExprPayload.Const _ -> ExprShape.Const
         | ExprPayload.Var -> ExprShape.Var
         | ExprPayload.External _ -> ExprShape.External
+        | ExprPayload.Unresolved -> ExprShape.Unresolved
         | ExprPayload.Lambda -> ExprShape.Lambda
         | ExprPayload.App -> ExprShape.App
         | ExprPayload.Let -> ExprShape.Let
@@ -369,6 +368,7 @@ module ExprPayload =
         | ExprPayload.Const _
         | ExprPayload.Var
         | ExprPayload.External _
+        | ExprPayload.Unresolved
         | ExprPayload.Lambda
         | ExprPayload.App
         | ExprPayload.Let
