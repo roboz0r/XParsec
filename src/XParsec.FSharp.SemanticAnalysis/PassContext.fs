@@ -240,10 +240,9 @@ type PassContextResolution =
         /// scope (`EnterElement`): the external half of attribute resolution reads `OpenScope`,
         /// so the first resolution of a site must run inside the walk that owns it.
         AttributeVerdicts: SideTable<AttributeVerdict>
-        /// A scope's dotted SOURCE path (`N.SetTree`; the namespace path alone for its direct
-        /// declarations; `""` under no namespace) → its directly-declared `let` bindings.
-        /// Whole-file, so a reader MUST honour `VisibleFrom`.
-        LocalModulePaths: Dictionary<string, Dictionary<string, LocalModuleMember>>
+        /// A module or namespace scope this file declares → its directly-declared `let`
+        /// bindings. Whole-file, so a reader MUST honour `VisibleFrom`.
+        LocalModuleMembers: Dictionary<ModuleContainer, Dictionary<string, LocalModuleMember>>
         /// The binding sites of the `let` group whose RHS the walk stands in, when the group is
         /// not self-visible: a non-`rec` group's bindings scope below the group, so a value read
         /// inside its own RHS skips them (`LocalScope.tryValue`). Empty everywhere else.
@@ -283,7 +282,7 @@ module PassContextResolution =
             ResolvedType = SideTable<_>()
             TypeRefVerdicts = SideTable<_>()
             AttributeVerdicts = SideTable<_>()
-            LocalModulePaths = Dictionary<_, _>(System.StringComparer.Ordinal)
+            LocalModuleMembers = Dictionary<_, _>()
             LiteralValues = SideTable<_>()
         }
 
@@ -356,8 +355,7 @@ type PassContext(provider: IExternalSymbolProvider, file: LexedFile, assembly: C
     /// Resolved ONCE against the implicitly opened scope; these names are opens-insensitive.
     member val CoreAccess: Lazy<CoreAccessIntrinsics> =
         lazy
-            (let containers =
-                ScopeContents.openedContainers provider.Scope [] provider.ImplicitOpens
+            (let containers = ImplicitOpen.containers provider.ImplicitOpens
 
              let one (name: string) =
                  ScopeContents.tryValueIn provider.Scope containers name

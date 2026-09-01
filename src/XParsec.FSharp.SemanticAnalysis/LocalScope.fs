@@ -38,7 +38,7 @@ module LocalScope =
         (container: ModuleContainer)
         (name: string)
         : LocalModuleMember voption =
-        match ctx.Resolution.LocalModulePaths.TryGetValue(SymbolKeyOps.containerFullName container) with
+        match ctx.Resolution.LocalModuleMembers.TryGetValue container with
         | true, members ->
             match members.TryGetValue name with
             | true, m when

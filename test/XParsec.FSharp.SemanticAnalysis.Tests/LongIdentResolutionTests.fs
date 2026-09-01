@@ -7,9 +7,8 @@ open XParsec.FSharp.SemanticAnalysis.AssemblyAnalysis
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 // How a dotted name resolves, in each syntactic position, across and within files: through a
-// module path, a type, or bare after an `open`, in F#'s order. The `ptest`s of the
-// "`open` precedence" list pin `docs/open-overhaul-plan.md`, and each names the step of that
-// plan which un-pends it.
+// module path, a type, or bare after an `open`, in F#'s order. A `ptest` pins a case F#
+// accepts and this analysis does not yet, with the gap named in the test name.
 
 let private asm: CompilingAssembly =
     {
@@ -153,6 +152,19 @@ module Auto =
 
 module D =
     let h () : int = 7
+"
+
+/// `autoOpenLib`'s signature.
+let private autoOpenSig =
+    "\
+namespace Test.Auto
+
+[<AutoOpen>]
+module Auto =
+    val h: unit -> string
+
+module D =
+    val h: unit -> int
 "
 
 // --- file 1: `module Foo` beside `type Foo`, so the module compiles to `FooModule` -------
@@ -361,6 +373,50 @@ open Test.A.M
 
 module N =
     let a () : int = Red
+"
+                ]
+
+            testList
+                "module abbreviation"
+                [
+                    resolves
+                        "value and function, qualified through the abbreviation"
+                        moduleLib
+                        "\
+namespace Test.B
+
+module R = Test.A.M
+
+module N =
+    let a () : int = R.f R.v
+"
+                    resolves
+                        "type and case, qualified through the abbreviation"
+                        moduleLib
+                        "\
+namespace Test.B
+
+module R = Test.A.M
+
+module N =
+    let a () : R.Color = R.Green 3
+
+    let b (c: R.Color) : int =
+        match c with
+        | R.Red -> 0
+        | R.Green n -> n
+"
+                    reports
+                        "a value reached through the abbreviation is TYPED: a mismatch is reported"
+                        typeMismatch
+                        moduleLib
+                        "\
+namespace Test.B
+
+module R = Test.A.M
+
+module N =
+    let a () : string = R.v
 "
                 ]
 
@@ -703,9 +759,7 @@ module M =
 
             // `open` precedence, as `dotnet fsi` has it. Every case here was probed against the
             // real compiler; the negative controls all produced FS0001, so a positive case
-            // cannot pass by the name going unresolved. A `ptest` is a case F# accepts and the
-            // analysis does not yet, and the step of `docs/open-overhaul-plan.md` that un-pends
-            // it names it.
+            // cannot pass by the name going unresolved.
             testList
                 "`open` precedence"
                 [
@@ -1088,6 +1142,31 @@ module Consumer =
     open D
     let b : int = h ()
 "
+                        ]
+
+                    // The same `[<AutoOpen>]` module behind a `.fsi`. `conformSignature` homes
+                    // the resolved signature with an empty ambient list, and
+                    // `ExternalSymbolProviders.stack`'s ambient parameter SHADOWS the inner
+                    // providers' implicit opens, so the signature's `[<AutoOpen>]` modules are
+                    // dropped for later files of the same assembly. The signature-less control
+                    // is "an explicit `open` after the activating one wins" above.
+                    testList
+                        "an `[<AutoOpen>]` module behind a `.fsi`"
+                        [
+                            ptest
+                                "reaches a later file of the same assembly (dropped today: `conformSignature` homes the signature with an empty ambient)" {
+                                let all =
+                                    analyse
+                                        [
+                                            SourceUnit.paired
+                                                (SourceFile.ofText "auto.fsi" autoOpenSig)
+                                                (SourceFile.ofText "auto.fs" autoOpenLib)
+                                            impl "file2.fs" "open Test.Auto\nlet a : string = h ()\n"
+                                        ]
+
+                                for f in all do
+                                    Expect.isEmpty (errorsOf f) (sprintf "%A: %A" f.Retained.Path (errorsOf f))
+                            }
                         ]
                 ]
         ]

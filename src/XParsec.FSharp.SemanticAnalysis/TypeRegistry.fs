@@ -113,7 +113,7 @@ type PassContextTypes =
         /// KIND. At most one type may hold a claim; several under one name are ranked.
         TypeClaims: Dictionary<string, ResizeArray<TypeIdentity>>
         /// The module / namespace scopes this file DECLARES, keyed by the dotted SOURCE path an
-        /// `open` writes (`"N"`, `"N.A"`). The inverse is `SymbolKeyOps.containerFullName`.
+        /// `open` writes (`"N"`, `"N.A"`).
         LocalContainers: Dictionary<string, ModuleContainer>
         /// The modules this file declares whose compiled class name differs from the name their
         /// source writes (`List` ⇒ `ListModule`). A module absent here compiles under its

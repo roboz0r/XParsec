@@ -215,7 +215,6 @@ module CstModuleTree =
                 scope
             else
                 { scope with
-                    Prefixes = prefix :: scope.Prefixes
                     Locals =
                         {
                             Path = prefix
@@ -304,27 +303,17 @@ module CstModuleTree =
                     }
 
         for g in groups do
-            // The implicit prefix a `namespace N` header contributes: a dotted prefix and no
-            // `LocalOpen`, because the namespace holds the body rather than importing it.
             let ns =
                 match g.Namespace with
                 | ValueSome li -> longIdentText li
                 | ValueNone -> ""
-
-            let scope =
-                if ns.Length = 0 then
-                    ambient
-                else
-                    { ambient with
-                        Prefixes = ns :: ambient.Prefixes
-                    }
 
             let recScope =
                 match g.Keyword with
                 | ValueSome kw -> innerRecScope kw g.IsRec ValueNone
                 | ValueNone -> ValueNone
 
-            processElems g.Elements scope g.IsRec.IsSome recScope (DeclContainment.ofNamespace ns)
+            processElems g.Elements ambient g.IsRec.IsSome recScope (DeclContainment.ofNamespace ns)
 
         List.ofSeq out
 

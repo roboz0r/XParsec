@@ -98,6 +98,23 @@ type ImplicitOpen =
         | ImplicitOpen.AutoOpen md -> ModuleContainer.InModule md
 
 [<RequireQualifiedAccess>]
+module ImplicitOpen =
+
+    /// The containers a BARE name is read against, in search order: the root namespace,
+    /// then the container each of `implicitOpens` denotes, deduplicated.
+    let containers (implicitOpens: ImplicitOpen list) : ModuleContainer list =
+        let found = ResizeArray<ModuleContainer>()
+        found.Add(ModuleContainer.InNamespace NamespaceKey.Global)
+
+        for o in implicitOpens do
+            let c = o.Container
+
+            if not (found.Contains c) then
+                found.Add c
+
+        List.ofSeq found
+
+[<RequireQualifiedAccess>]
 type TypeContainer =
     | InNamespace of ns: NamespaceKey
     /// `parent` identifies the module by the name its source writes; the static class it

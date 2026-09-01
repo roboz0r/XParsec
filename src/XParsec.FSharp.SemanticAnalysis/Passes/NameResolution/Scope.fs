@@ -16,7 +16,7 @@ open UnificationTranslate
 module NameResolutionScope =
 
     /// A name the walk has bound: an expression or type-body binding. A module-level `let` is
-    /// never here; it resolves through the ranked environment (`LocalModulePaths`).
+    /// never here; it resolves through the ranked environment (`LocalModuleMembers`).
     [<Struct; NoComparison>]
     type ScopeBinding = { Site: NodeKey; IsMutable: bool }
 

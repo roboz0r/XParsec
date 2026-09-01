@@ -139,7 +139,7 @@ module NameResolution =
             declareField f.Name f.DeclSite.Tok
 
         // The enclosing module's value bindings reach every member body of a type nested in
-        // that module (F# spec §8.7), through the ranked environment (`LocalModulePaths`).
+        // that module (F# spec §8.7), through the ranked environment (`LocalModuleMembers`).
 
         /// Declare one preamble `let` bound variable: its binding site, its field, and the FS0905 check.
         let declarePreambleBoundVar (l: ClassLetInfo) =
@@ -452,7 +452,7 @@ module NameResolution =
             ctx.Resolution.PendingBindings <- Set.empty
 
             // The returned scope is discarded: a module-level binding resolves through the
-            // ranked environment (`LocalModulePaths`), not a lexical one.
+            // ranked environment (`LocalModuleMembers`), not a lexical one.
             bindingsToScope ctx bindings |> ignore<Scope>
         | ModuleElem.Expression e -> CstWalk.iterExpr walker [] e
         | _ -> ()
@@ -490,31 +490,34 @@ module NameResolution =
             walkNominalBodies ctx walker w.Elem
 
         // Module-level VALUES, in declaration order. Each RHS walks with only its own
-        // expression scope; the bindings resolve through `LocalModulePaths`.
+        // expression scope; the bindings resolve through `LocalModuleMembers`.
         for w in elems do
             ctx.EnterElement w
             walkModuleElem ctx walker w.RecScopeOffset w.Elem
 
-    /// Walk the *un-flattened* module tree and record, per scope's dotted SOURCE path, its
-    /// direct `let` bindings into `LocalModulePaths`. The flattened walk erases these
-    /// boundaries, so it runs first.
+    /// Walk the *un-flattened* module tree and record, per scope, its direct `let` bindings
+    /// into `LocalModuleMembers`. The flattened walk erases these boundaries, so it runs first.
     let private registerLocalModules (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : unit =
-        let membersOf (path: string) =
-            match ctx.Resolution.LocalModulePaths.TryGetValue path with
+        let membersOf (container: ModuleContainer) =
+            match ctx.Resolution.LocalModuleMembers.TryGetValue container with
             | true, d -> d
             | false, _ ->
                 let d = System.Collections.Generic.Dictionary<string, LocalModuleMember>()
-                ctx.Resolution.LocalModulePaths.[path] <- d
+                ctx.Resolution.LocalModuleMembers.[container] <- d
                 d
 
-        let registerLet (path: string) (recScope: int voption) (bindings: ImmutableArray<Binding<SyntaxToken>>) =
-            let byPath = membersOf path
+        let registerLet
+            (container: ModuleContainer)
+            (recScope: int voption)
+            (bindings: ImmutableArray<Binding<SyntaxToken>>)
+            =
+            let byName = membersOf container
 
             for b in bindings do
                 let isMut = b.mutableToken.IsSome
 
                 for (name, key) in bindingsOfPat ctx b.pattern do
-                    byPath.[name] <-
+                    byName.[name] <-
                         {
                             BindingSite = key
                             IsMutable = isMut
@@ -537,34 +540,40 @@ module NameResolution =
             else
                 inherited
 
-        let rec walk (path: string) (recScope: int voption) (elems: ModuleElems<SyntaxToken>) =
+        let rec walk (container: ModuleContainer) (recScope: int voption) (elems: ModuleElems<SyntaxToken>) =
             for e in elems do
                 match e with
                 | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(bindings = bindings)) ->
-                    registerLet path recScope bindings
+                    registerLet container recScope bindings
                 | ModuleElem.Module(ModuleDefn.ModuleDefn(
                     moduleToken = kw; isRec = isRec; ident = ident; body = ModuleDefnBody(elements = inner))) ->
                     match inner with
                     | ValueSome innerElems ->
                         let name = ctx.NameOf ident
-                        let innerPath = if path.Length = 0 then name else path + "." + name
-                        walk innerPath (innerRecScope kw isRec recScope) innerElems
+                        let sub = ModuleContainer.InModule(SymbolKeyOps.moduleKeyOf container name)
+                        walk sub (innerRecScope kw isRec recScope) innerElems
                     | ValueNone -> ()
                 | _ -> ()
 
+        let root = ModuleContainer.InNamespace NamespaceKey.Global
+
         // A whole-file `module A.B.C` homes its declarations in the global namespace, as
-        // `CstModuleTree.walkImpl` does, so its path is the empty one.
+        // `CstModuleTree.walkImpl` does.
         match file with
-        | ImplementationFile.AnonymousModule elems -> walk "" ValueNone elems
+        | ImplementationFile.AnonymousModule elems -> walk root ValueNone elems
         | ImplementationFile.NamedModule(NamedModule.NamedModule(moduleToken = kw; isRec = isRec; elements = elems)) ->
-            walk "" (innerRecScope kw isRec ValueNone) elems
+            walk root (innerRecScope kw isRec ValueNone) elems
         | ImplementationFile.Namespaces groups ->
             for g in groups do
                 match g with
                 | NamespaceDeclGroup.Named(namespaceToken = kw; isRec = isRec; longIdent = li; elements = elems) ->
-                    let path = li.Idents |> Seq.map ctx.NameOf |> String.concat "."
-                    walk path (innerRecScope kw isRec ValueNone) elems
-                | NamespaceDeclGroup.Global(elements = elems) -> walk "" ValueNone elems
+                    let ns = li.Idents |> Seq.map ctx.NameOf |> String.concat "."
+
+                    walk
+                        (ModuleContainer.InNamespace(SymbolKeyOps.namespaceKey ns))
+                        (innerRecScope kw isRec ValueNone)
+                        elems
+                | NamespaceDeclGroup.Global(elements = elems) -> walk root ValueNone elems
 
     let run (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : unit =
         // Capture local-module structure before the flattened walk erases it.

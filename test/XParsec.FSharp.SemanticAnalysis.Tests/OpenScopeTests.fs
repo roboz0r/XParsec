@@ -5,7 +5,8 @@ open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
-/// Flatten a source string to `(label, prefixes)` per element — the prefixes in force there.
+/// Flatten a source string to `(label, open paths)` per element — the opens in force there,
+/// most-recent-first.
 let private walk (input: string) : (string * string list) list =
     let lexed, file = parseFile input
 
@@ -23,7 +24,7 @@ let private walk (input: string) : (string * string list) list =
         | _ -> "other"
 
     CstModuleTree.walkImpl ctx.NameOf OpenScope.empty file
-    |> List.map (fun w -> label w.Elem, w.Scope.Prefixes)
+    |> List.map (fun w -> label w.Elem, w.Scope.Locals |> List.map (fun o -> o.Path))
 
 [<Tests>]
 let tests =
@@ -38,18 +39,18 @@ let tests =
 
                 let expected =
                     [
-                        "open A", [ "N" ]
-                        "let x", [ "A"; "N" ]
-                        "open B", [ "A"; "N" ]
-                        "let y", [ "B"; "A"; "N" ]
-                        "let z", [ "B"; "A"; "N" ]
+                        "open A", []
+                        "let x", [ "A" ]
+                        "open B", [ "A" ]
+                        "let y", [ "B"; "A" ]
+                        "let z", [ "B"; "A" ]
                     ]
 
-                Expect.equal got expected "per-element prefixes (most-recent-first)"
+                Expect.equal got expected "per-element opens (most-recent-first)"
             }
 
             test "recursive module: constant prelude, every open applies to the whole body" {
-                // The tree walk shares one prefix set across a `rec` body, so `open Q` below
+                // The tree walk shares one open set across a `rec` body, so `open Q` below
                 // `let a` reaches it. Name resolution never meets the shape: FS3200 refuses an
                 // `open` that is not first in a `rec` module, and this compiler emits it.
                 let src = "module rec R\n\nopen P\nlet a = 1\nopen Q\nlet b = 2\n"
@@ -65,37 +66,6 @@ let tests =
                     ]
 
                 Expect.equal got expected "constant prelude shared by all elements"
-            }
-
-            test "module abbrev expands the anchor segment before probing" {
-                let scope =
-                    { OpenScope.empty with
-                        Abbrevs = Map.ofList [ "R", "A.B.C" ]
-                    }
-
-                Expect.equal
-                    (OpenScope.tryQualify scope (fun n -> n = "A.B.C.X") "R.X")
-                    (ValueSome "A.B.C.X")
-                    "R.X expands to A.B.C.X"
-            }
-
-            test "tryQualify: bare name first, then prefixes, head prefix shadows" {
-                let scope =
-                    { OpenScope.empty with
-                        Prefixes = [ "B"; "A" ]
-                    }
-
-                Expect.equal
-                    (OpenScope.tryQualify scope (fun n -> n = "Foo") "Foo")
-                    (ValueSome "Foo")
-                    "bare name wins when present at root"
-
-                Expect.equal
-                    (OpenScope.tryQualify scope (fun n -> n = "A.x" || n = "B.x") "x")
-                    (ValueSome "B.x")
-                    "B (most recent) shadows A"
-
-                Expect.equal (OpenScope.tryQualify scope (fun _ -> false) "x") ValueNone "no candidate resolves"
             }
 
         ]

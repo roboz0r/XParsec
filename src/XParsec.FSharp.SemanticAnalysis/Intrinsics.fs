@@ -13,8 +13,7 @@ module internal IntrinsicResolve =
         match intrinsicKeys.TryGetValue name with
         | true, k -> Some k
         | _ ->
-            let containers =
-                ScopeContents.openedContainers provider.Scope [] provider.ImplicitOpens
+            let containers = ImplicitOpen.containers provider.ImplicitOpens
 
             match
                 ScopeContents.tryPickTypeIn

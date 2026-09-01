@@ -249,59 +249,6 @@ module ScopeContents =
             | ValueNone -> ValueNone
         | _ -> scope.TryValue(SymbolKeyOps.bindingKeyOf (ModuleContainer.InNamespace NamespaceKey.Global) written)
 
-    /// The container a written `open` path denotes, read first under `outer` (the containers the
-    /// enclosing `open`s and namespace headers denote, nearest first), then from the root.
-    /// `open Test.Lib` followed by `open A` gives `Test.Lib.A`.
-    let private prefixContainer
-        (scope: IScopeContents)
-        (outer: ModuleContainer list)
-        (prefix: string)
-        : ModuleContainer voption =
-        let rec relative (cs: ModuleContainer list) =
-            match cs with
-            | [] -> scope.TryContainer prefix
-            | c :: rest ->
-                match scope.TryContainer(SymbolKeyOps.qualify (SymbolKeyOps.containerFullName c) prefix) with
-                | ValueSome sub -> ValueSome sub
-                | ValueNone -> relative rest
-
-        relative outer
-
-    /// The containers a BARE name is read against, in search order: the root namespace, the
-    /// container each of `prefixes` denotes, then `implicitOpens`, deduplicated. A written
-    /// `open` shadows an implicit one.
-    let openedContainers
-        (scope: IScopeContents)
-        (prefixes: string list)
-        (implicitOpens: ImplicitOpen list)
-        : ModuleContainer list =
-        // `prefixes` runs innermost-first, so the tail of the list is what a prefix is
-        // written relative to.
-        let rec resolve (ps: string list) : ModuleContainer list =
-            match ps with
-            | [] -> []
-            | p :: outer ->
-                let outer = resolve outer
-
-                match prefixContainer scope outer p with
-                | ValueSome c -> c :: outer
-                | ValueNone -> outer
-
-        let found = ResizeArray<ModuleContainer>()
-        found.Add(ModuleContainer.InNamespace NamespaceKey.Global)
-
-        for c in resolve prefixes do
-            if not (found.Contains c) then
-                found.Add c
-
-        for o in implicitOpens do
-            let c = o.Container
-
-            if not (found.Contains c) then
-                found.Add c
-
-        List.ofSeq found
-
     /// The first hit `pick` admits among the types called `name` in `containers`, taking each
     /// container's types narrowest arity first per `TypesNamed`.
     let tryPickTypeIn

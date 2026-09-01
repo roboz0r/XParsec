@@ -183,14 +183,10 @@ let private caseOf (unionKey: TypeKey) (name: string) : ExternalUnionCase =
         IsRequireQualifiedAccess = false
     }
 
-/// A scope declaring `cases` in every container, whose `TryContainer` resolves `paths`.
-let private scopeOfCases (paths: string list) (cases: ExternalUnionCase list) : IScopeContents =
+/// A scope declaring `cases` in every container.
+let private scopeOfCases (cases: ExternalUnionCase list) : IScopeContents =
     { new IScopeContents with
-        member _.TryContainer path =
-            if List.contains path paths then
-                ValueSome(ModuleContainer.InNamespace(SymbolKeyOps.namespaceKey path))
-            else
-                ValueNone
+        member _.TryContainer _ = ValueNone
 
         member _.TryValue _ = ValueNone
 
@@ -421,7 +417,7 @@ module P =
                         // The `.fsi` and `.fs` halves of one package both publish its cases.
                         let composed =
                             ScopeContents.composite
-                                [ scopeOfCases [] [ shared ]; scopeOfCases [] [ shared; caseOf light "Red" ] ]
+                                [ scopeOfCases [ shared ]; scopeOfCases [ shared; caseOf light "Red" ] ]
 
                         match EqArray.toArray (composed.UnionCasesNamed(root, "Red")) with
                         | [| a; b |] ->
@@ -430,14 +426,18 @@ module P =
                         | other -> failtestf "one entry per case identity: %A" other
                     }
 
-                    test "a prefix listed twice names its container once" {
-                        let scope = scopeOfCases [ "Vesper" ] []
+                    test "an implicit open listed twice names its container once" {
+                        // A file's own `namespace Vesper` header under an assembly-level
+                        // `[<assembly: AutoOpen("Vesper")>]`.
+                        let vesper = SymbolKeyOps.namespaceKey "Vesper"
 
-                        // A `namespace Vesper` header under an ambient `Vesper` prelude prefix.
-                        match ScopeContents.openedContainers scope [ "Vesper"; "Vesper" ] [] with
+                        match
+                            ImplicitOpen.containers
+                                [ ImplicitOpen.AssemblyAutoOpen vesper; ImplicitOpen.CurrentFileScope vesper ]
+                        with
                         | [ r; v ] ->
                             Expect.equal r root "the root namespace leads"
-                            Expect.equal (moduleName v) "namespace Vesper" "the prefix, once"
+                            Expect.equal (moduleName v) "namespace Vesper" "the container, once"
                         | other -> failtestf "the root plus one container: %A" other
                     }
                 ]

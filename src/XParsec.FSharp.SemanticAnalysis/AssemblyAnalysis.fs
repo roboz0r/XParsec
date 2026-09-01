@@ -273,6 +273,12 @@ module AssemblyAnalysis =
         : ConformedSignature =
         // Homed in the IMPLEMENTATION file, so a later file of the same assembly resolves the
         // signature's symbols as locals.
+        //
+        // KNOWN GAP: the empty ambient list SHADOWS `r.Published`'s implicit opens (`stack`
+        // surfaces its ambient argument alone), so the signature's `[<AutoOpen>]` modules are
+        // dropped for later files of this assembly while consumers of the published assembly
+        // see them. Pinned pending under "an `[<AutoOpen>]` module behind a `.fsi`" in
+        // `LongIdentResolutionTests.fs`.
         let published =
             ExternalSymbolProviders.stack (ValueSome(SymbolHome.InFile impl.Retained.Path)) [] [ r.Published ]
 
