@@ -44,28 +44,60 @@ let private errorsOf (f: FrozenFile) : Diagnostic list =
     f.Frozen.Residue.Diagnostics |> List.filter Diagnostic.isError
 
 /// Two files, the second resolving against the first's published view; every file free of
-/// error-severity diagnostics.
-let private resolves (name: string) (file1: string) (file2: string) =
-    test name {
-        let all = analyse [ impl "file1.fs" file1; impl "file2.fs" file2 ]
+/// error-severity diagnostics. `case` is `testCase` or `ptestCase`.
+let private resolvesBy (case: string -> (unit -> unit) -> Test) (name: string) (file1: string) (file2: string) =
+    case
+        name
+        (fun () ->
+            let all = analyse [ impl "file1.fs" file1; impl "file2.fs" file2 ]
 
-        for f in all do
-            Expect.isEmpty (errorsOf f) (sprintf "%A: %A" f.Retained.Path (errorsOf f))
-    }
+            for f in all do
+                Expect.isEmpty (errorsOf f) (sprintf "%A: %A" f.Retained.Path (errorsOf f))
+        )
 
 /// The second file reports at least one error satisfying `expected`, and NOTHING crashes: a
-/// name that resolves is typed, so a deliberate mismatch surfaces as a diagnostic.
+/// name that resolves is typed, so a deliberate mismatch surfaces as a diagnostic. `case` is
+/// `testCase` or `ptestCase`.
+let private reportsBy
+    (case: string -> (unit -> unit) -> Test)
+    (name: string)
+    (expected: Diagnostic -> bool)
+    (file1: string)
+    (file2: string)
+    =
+    case
+        name
+        (fun () ->
+            let all = analyse [ impl "file1.fs" file1; impl "file2.fs" file2 ]
+            let errors = errorsOf all.[1]
+            Expect.isTrue (errors |> List.exists expected) (sprintf "expected diagnostic absent; got %A" errors)
+        )
+
+let private resolves (name: string) (file1: string) (file2: string) = resolvesBy testCase name file1 file2
+
 let private reports (name: string) (expected: Diagnostic -> bool) (file1: string) (file2: string) =
-    test name {
-        let all = analyse [ impl "file1.fs" file1; impl "file2.fs" file2 ]
-        let errors = errorsOf all.[1]
-        Expect.isTrue (errors |> List.exists expected) (sprintf "expected diagnostic absent; got %A" errors)
-    }
+    reportsBy testCase name expected file1 file2
+
+/// `resolves`, pinning a case F# accepts and this analysis does not yet.
+let private presolves (name: string) (file1: string) (file2: string) = resolvesBy ptestCase name file1 file2
+
+/// `reports`, pinning a diagnostic F# emits and this analysis does not yet.
+let private preports (name: string) (expected: Diagnostic -> bool) (file1: string) (file2: string) =
+    reportsBy ptestCase name expected file1 file2
 
 let private typeMismatch (d: Diagnostic) : bool = d.Message.Contains "Type mismatch"
 
 let private unresolvedIdentifier (d: Diagnostic) : bool =
     d.Message.Contains "Unresolved identifier"
+
+/// FS0039, whichever of the resolution-miss verdicts files under it.
+let private undefinedName (d: Diagnostic) : bool = d.Code = DiagCode.FSharp 39
+
+/// FS0892, `open` of a `[<RequireQualifiedAccess>]` module.
+let private opensRqaModule (d: Diagnostic) : bool = d.Code = DiagCode.FSharp 892
+
+/// FS0965, a module abbreviation whose target is a namespace.
+let private abbreviatesNamespace (d: Diagnostic) : bool = d.Code = DiagCode.FSharp 965
 
 let private undefinedDiscriminator (d: Diagnostic) : bool =
     match d.Kind with
@@ -109,6 +141,54 @@ module M =
     type Color =
         | Red
         | Green of int
+"
+
+// --- file 1 for the positional abbreviation cases ---------------------------------------
+//
+// `M1` and `M2` publish `v` at DIFFERENT types, so which target an alias resolved to is legible
+// from the annotation a use type-checks against.
+
+let private abbrevTargetLib =
+    "\
+namespace Test.A
+
+module M1 =
+    let v : int = 1
+
+module M2 =
+    let v : string = \"2\"
+
+[<RequireQualifiedAccess>]
+module Rqa =
+    let v : int = 7
+"
+
+// --- file 2 as a `.fsi` / `.fs` pair: the abbreviation is written in the signature half ----
+
+let private abbrevSig =
+    "\
+namespace Test.B
+
+module R = Test.A.M
+
+module N =
+    val a : unit -> R.Color
+"
+
+let private abbrevImpl =
+    "\
+namespace Test.B
+
+module N =
+    let a () : Test.A.M.Color = Test.A.M.Red
+"
+
+let private abbrevImplUsingAlias =
+    "\
+namespace Test.B
+
+module N =
+    let a () : R.Color = R.Red
 "
 
 // --- file 1 for the `open`-precedence suite ---------------------------------------------
@@ -418,6 +498,258 @@ module R = Test.A.M
 module N =
     let a () : string = R.v
 "
+
+                    // The target is stored as written and probed absolutely, so every target
+                    // relative to the scope the abbreviation was written in misses. F# resolves
+                    // the target once, at the declaration, against the scope in force there.
+                    presolves
+                        "target relative to an `open` above the abbreviation (probed absolutely today)"
+                        abbrevTargetLib
+                        "\
+namespace Test.B
+
+open Test.A
+
+module R = M1
+
+module N =
+    let a () : int = R.v
+"
+                    presolves
+                        "target relative to the enclosing module (probed absolutely today)"
+                        abbrevTargetLib
+                        "\
+namespace Test.B
+
+module Outer =
+    module Inner =
+        let v : int = 1
+
+    module R = Inner
+
+    let a () : int = R.v
+"
+                    presolves
+                        "an abbreviation of an abbreviation (the second target's probe misses today)"
+                        abbrevTargetLib
+                        "\
+namespace Test.B
+
+module R = Test.A.M1
+
+module S = R
+
+module N =
+    let a () : int = S.v
+"
+
+                    // `resolveOpens` never expands an `open`'s anchor through an abbreviation,
+                    // so the bare `v` misses.
+                    presolves
+                        "`open` through an alias binds the target's contents (the anchor is unexpanded today)"
+                        abbrevTargetLib
+                        "\
+namespace Test.B
+
+module R = Test.A.M1
+
+open R
+
+module N =
+    let a () : int = v
+"
+
+                    // No pass reads a `ModuleAbbrev` element, so a bad abbreviation is silently
+                    // inert and surfaces only as an unresolved use elsewhere, or not at all.
+                    preports
+                        "a namespace target is refused at the declaration (unreported today)"
+                        abbreviatesNamespace
+                        abbrevTargetLib
+                        "\
+namespace Test.B
+
+module R = Test.A
+"
+                    preports
+                        "a target declared below the abbreviation is undefined at it (unreported today)"
+                        undefinedName
+                        abbrevTargetLib
+                        "\
+namespace Test.B
+
+module R = M
+
+module M =
+    let v : int = 1
+"
+
+                    // `firstSegmentContainers` returns on an alias hit without consulting the
+                    // scope stack, so the alias outranks a real module however the two are
+                    // ordered. F# ranks the alias like any other binding of one segment, so `b`
+                    // reads the real `R` and today's `int` disagrees with the annotation.
+                    ptest "a real module declared below the alias reclaims the name (the alias outranks it today)" {
+                        let all =
+                            analyse
+                                [
+                                    impl "file1.fs" abbrevTargetLib
+                                    impl
+                                        "file2.fs"
+                                        "\
+namespace Test.B
+
+module N =
+    module R = Test.A.M1
+
+    let a () : int = R.v
+
+    module R =
+        let v : string = \"shadow\"
+
+    let b () : string = R.v
+"
+                                ]
+
+                        for f in all do
+                            Expect.isEmpty (errorsOf f) (sprintf "%A: %A" f.Retained.Path (errorsOf f))
+                    }
+
+                    test "the alias is out of scope above its own declaration" {
+                        let all =
+                            analyse
+                                [
+                                    impl "file1.fs" abbrevTargetLib
+                                    impl
+                                        "file2.fs"
+                                        "\
+namespace Test.B
+
+module N =
+    let a () : int = R.v
+
+    module R = Test.A.M1
+"
+                                ]
+
+                        Expect.isTrue
+                            (errorsOf all.[1] |> List.exists undefinedName)
+                            (sprintf "FS0039 at the use above the abbreviation; got %A" (errorsOf all.[1]))
+                    }
+
+                    test "rebinding one alias: each use reads the target declared above it" {
+                        let all =
+                            analyse
+                                [
+                                    impl "file1.fs" abbrevTargetLib
+                                    impl
+                                        "file2.fs"
+                                        "\
+namespace Test.B
+
+module N =
+    module R = Test.A.M1
+
+    let a () : int = R.v
+
+    module R = Test.A.M2
+
+    let b () : string = R.v
+"
+                                ]
+
+                        for f in all do
+                            Expect.isEmpty (errorsOf f) (sprintf "%A: %A" f.Retained.Path (errorsOf f))
+                    }
+
+                    resolves
+                        "a `[<RequireQualifiedAccess>]` target is reached through the alias: the alias qualifies"
+                        abbrevTargetLib
+                        "\
+namespace Test.B
+
+module R = Test.A.Rqa
+
+module N =
+    let a () : int = R.v
+"
+
+                    // `resolveOpens` never reads `Abbrevs`, so `open R` binds nothing and the
+                    // bare `v` misses instead. F# refuses the `open` itself, naming the
+                    // TARGET's path rather than the alias.
+                    ptest "`open` through an alias to a `[<RequireQualifiedAccess>]` module is refused (unread today)" {
+                        let all =
+                            analyse
+                                [
+                                    impl "file1.fs" abbrevTargetLib
+                                    impl
+                                        "file2.fs"
+                                        "\
+namespace Test.B
+
+module R = Test.A.Rqa
+
+open R
+
+module N =
+    let a () : int = v
+"
+                                ]
+
+                        Expect.isTrue
+                            (errorsOf all.[1] |> List.exists opensRqaModule)
+                            (sprintf "FS0892 at the `open`; got %A" (errorsOf all.[1]))
+                    }
+
+                    test "an abbreviation written in a `.fsi` resolves a type for the rest of that signature" {
+                        let all =
+                            analyse
+                                [
+                                    impl "file1.fs" moduleLib
+                                    SourceUnit.paired
+                                        (SourceFile.ofText "pair.fsi" abbrevSig)
+                                        (SourceFile.ofText "pair.fs" abbrevImpl)
+                                ]
+
+                        for f in all do
+                            Expect.isEmpty (errorsOf f) (sprintf "%A: %A" f.Retained.Path (errorsOf f))
+                    }
+
+                    test "an abbreviation written in a `.fsi` is out of scope in the companion `.fs`" {
+                        let all =
+                            analyse
+                                [
+                                    impl "file1.fs" moduleLib
+                                    SourceUnit.paired
+                                        (SourceFile.ofText "pair.fsi" abbrevSig)
+                                        (SourceFile.ofText "pair.fs" abbrevImplUsingAlias)
+                                ]
+
+                        Expect.isTrue
+                            (errorsOf all.[1] |> List.exists undefinedName)
+                            (sprintf "FS0039 for `R` in the implementation half; got %A" (errorsOf all.[1]))
+                    }
+
+                    test "an abbreviation written in a `.fsi` is out of scope for a consumer file" {
+                        let all =
+                            analyse
+                                [
+                                    impl "file1.fs" moduleLib
+                                    SourceUnit.paired
+                                        (SourceFile.ofText "pair.fsi" abbrevSig)
+                                        (SourceFile.ofText "pair.fs" abbrevImpl)
+                                    impl
+                                        "file3.fs"
+                                        "\
+namespace Test.C
+
+module Q =
+    let b () : int = Test.B.R.v
+"
+                                ]
+
+                        Expect.isTrue
+                            (errorsOf all.[2] |> List.exists undefinedName)
+                            (sprintf "FS0039 for `Test.B.R` in the consumer; got %A" (errorsOf all.[2]))
+                    }
                 ]
 
             testList

@@ -1756,4 +1756,85 @@ module N =
                     Expect.equal arity 1 "`pair` takes one type parameter"
                 | other -> failtestf "expected Test.A.pair to publish as an abbreviation, got %A" other
             }
+
+            test "a `private` type abbreviation is readable from a nested module of its declaring module" {
+                let file1 =
+                    "\
+namespace Test.A
+
+module Priv =
+    type private myalias = int
+
+    module Nested =
+        let h (x: myalias) : int = x + 1
+
+    let f (x: myalias) : int = x
+"
+
+                let all = analyseAssembly asm realProvider.Value [ impl "file1.fs" file1 ] |> files
+
+                Expect.isEmpty
+                    (all.[0].Frozen.Residue.Diagnostics |> List.filter Diagnostic.isError)
+                    "`private` reaches the declaring module and the modules nested in it"
+            }
+
+            test "file 2 does NOT resolve a `private` type abbreviation file 1 declares" {
+                let file1 =
+                    "\
+namespace Test.A
+
+module Priv =
+    type private myalias = int
+
+    let f (x: myalias) : int = x
+"
+
+                let file2 =
+                    "\
+namespace Test.B
+
+module N =
+    let g (x: Test.A.Priv.myalias) : int = x
+"
+
+                let all =
+                    analyseAssembly asm realProvider.Value [ impl "file1.fs" file1; impl "file2.fs" file2 ]
+                    |> files
+
+                Expect.isEmpty
+                    (all.[0].Frozen.Residue.Diagnostics |> List.filter Diagnostic.isError)
+                    "the declaring file reads its own `private` abbreviation"
+
+                Expect.isNonEmpty
+                    (all.[1].Frozen.Residue.Diagnostics |> List.filter Diagnostic.isError)
+                    "FS1092: a `private` abbreviation is out of reach from another file"
+            }
+
+            test "file 2 resolves an `internal` type abbreviation file 1 declares" {
+                let file1 =
+                    "\
+namespace Test.A
+
+module Intern =
+    type internal myalias = int
+"
+
+                let file2 =
+                    "\
+namespace Test.B
+
+module N =
+    let g (x: Test.A.Intern.myalias) : int = x + 1
+"
+
+                let all =
+                    analyseAssembly asm realProvider.Value [ impl "file1.fs" file1; impl "file2.fs" file2 ]
+                    |> files
+
+                Expect.isEmpty
+                    (all.[1].Frozen.Residue.Diagnostics |> List.filter Diagnostic.isError)
+                    (sprintf
+                        "`internal` reaches the rest of the assembly (diagnostics: %A)"
+                        all.[1].Frozen.Residue.Diagnostics)
+            }
         ]
