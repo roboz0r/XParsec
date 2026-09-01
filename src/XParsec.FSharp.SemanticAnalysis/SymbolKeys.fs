@@ -295,6 +295,20 @@ type BindingKey = { Decl: ModuleContainer; Name: string }
 [<Struct>]
 type DisplayName = | DisplayName of string
 
+/// The name a declaration compiles to, carried only where it DIFFERS from the name its source
+/// writes: `[<CompiledName>]` on a value, the `Module` suffix on a module. Generic arity is a
+/// separate axis, rendered `` `N `` from `TypeKey.TyparArity` by `SymbolKeyOps.typeMetaName`.
+[<Struct>]
+type CompiledName =
+    | CompiledName of string
+
+    /// `ValueNone` where a declaration's source name and the name it emits as agree.
+    static member OfPair(source: string, compiled: string) : CompiledName voption =
+        if source = compiled then
+            ValueNone
+        else
+            ValueSome(CompiledName compiled)
+
 /// A PLACE (assembly + namespace): enough to mint a ref without re-resolving. A symbol's
 /// declaring type is not here; containment is the key's job.
 type SymbolOrigin =

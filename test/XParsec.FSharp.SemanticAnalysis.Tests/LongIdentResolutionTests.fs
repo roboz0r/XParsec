@@ -226,6 +226,44 @@ module Foo =
     let seed = 1
 "
 
+/// A value whose `[<CompiledName>]` makes its emitted method differ from the name its source
+/// writes.
+let private compiledNameValueLib =
+    "\
+namespace Test.Suffix
+
+module Bag =
+    [<CompiledName(\"Empty\")>]
+    let empty : int = 0
+"
+
+// --- what a consumer that never sees the declaration reads ------------------------------
+
+/// The surface `file1` publishes, taken through the blob so the assertions cover the freeze.
+let private publishedBy (file1: string) : PublishedSurface =
+    let f = (analyse [ impl "file1.fs" file1 ]).[0]
+    Expect.isEmpty (errorsOf f) (sprintf "%A" (errorsOf f))
+    FrozenSignature.toSurface f.Retained (FrozenCodec.thaw (FrozenCodec.flatten f.Frozen))
+
+let private compiledNameText (CompiledName n) : string = n
+
+/// Every published module keyed against the class name it emits as, ordinal-ordered by
+/// `PublishedSurface`. The key half is asserted too: the channel IS the association, and a
+/// compiled name landing on the wrong module is what the key flip risks.
+let private publishedModuleNames (file1: string) : (string * string) list =
+    [
+        for e in (publishedBy file1).CompiledModuleNames -> SymbolKeyOps.moduleFullName e.Key, compiledNameText e.Value
+    ]
+
+/// Every published value keyed against the method name it emits as.
+let private publishedValueNames (file1: string) : (string * string) list =
+    [
+        for e in (publishedBy file1).Symbols do
+            match e.Value.CompiledName with
+            | ValueSome cn -> SymbolKeyOps.qualifiedName (SymbolKey.Binding e.Key), compiledNameText cn
+            | ValueNone -> ()
+    ]
+
 [<Tests>]
 let tests =
     testList
@@ -641,6 +679,54 @@ module M =
 module M =
     let n : int = Test.Suffix.Foo.Bar.seed
 "
+                        ]
+
+                    // The compiled name as a published fact of its own, independent of the
+                    // key: what `Layout`, `ClrEnv` and `ClrRecipes` read once the keys hold
+                    // semantic names. Absence means the declaration compiles under the name
+                    // its source writes.
+                    testList
+                        "publishes its compiled name"
+                        [
+                            test "a module publishing only a type publishes it" {
+                                Expect.equal
+                                    (publishedModuleNames suffixedTypeOnlyLib)
+                                    [ "Test.Suffix.FooModule", "FooModule" ]
+                                    "the suffix survives the freeze without a published value"
+                            }
+
+                            test "a module publishing a value publishes it" {
+                                Expect.equal
+                                    (publishedModuleNames suffixedWithValueLib)
+                                    [ "Test.Suffix.FooModule", "FooModule" ]
+                                    "the suffix survives the freeze"
+                            }
+
+                            test "only the suffixed module of a nested pair publishes one" {
+                                Expect.equal
+                                    (publishedModuleNames suffixedNestedLib)
+                                    [ "Test.Suffix.FooModule", "FooModule" ]
+                                    "`Foo` carries the suffix and `Bar` compiles under its source name"
+                            }
+
+                            test "CONTROL: an unsuffixed module publishes none" {
+                                Expect.isEmpty
+                                    (publishedModuleNames unsuffixedLib)
+                                    "no declaration here compiles under another name"
+                            }
+
+                            test "`[<CompiledName>]` on a value publishes it" {
+                                Expect.equal
+                                    (publishedValueNames compiledNameValueLib)
+                                    [ "Test.Suffix.Bag.Empty", "Empty" ]
+                                    "the attribute's name survives the freeze"
+                            }
+
+                            test "CONTROL: a value with no `[<CompiledName>]` publishes none" {
+                                Expect.isEmpty
+                                    (publishedValueNames unsuffixedLib)
+                                    "`seed` compiles under the name its source writes"
+                            }
                         ]
                 ]
 

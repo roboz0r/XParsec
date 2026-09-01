@@ -1,6 +1,6 @@
 # Keys hold semantic names
 
-*Unstarted. Written 2026-08-31 against the code as it stands after step 2 of
+*Step 1 landed. Written 2026-08-31 against the code as it stands after step 2 of
 `open-overhaul-plan.md`. Three cases are pinned as `ptest`s under
 `LongIdentResolutionTests.fs`'s "a module whose compiled name differs" list.*
 
@@ -99,11 +99,22 @@ the source path is in the key. `PublishedSurface.SourceSpellings` goes away for 
 
 ## Staged plan
 
-**Step 1 — publish the compiled name.** Add `CompiledName` and a published channel carrying it,
-filled at the two mint sites. Additively, beside the existing key names, and read by nobody yet.
-`ClrEnv.externalModuleRef` and `ClrRecipes.emitExternalCall` emit for modules and values of
-*referenced* packages, so the compiled name has to survive the freeze and reach a consumer that
-never sees the declaration. This step is what makes that true.
+**Step 1 — publish the compiled name. DONE.** `CompiledName` (`SymbolKeys.fs`) travels two
+channels, both filled at the mint sites and read by nobody yet:
+
+- a module's, through `PassContextTypes.CompiledModuleNames` → `TastFile` /
+  `FrozenFileResidue.CompiledModuleNames` → the blob → `PublishedSurface.CompiledModuleNames`
+- a value's, on `ExternalSymbol.CompiledName`, filled by `FrozenSignature.addValue` off
+  `ModuleBindingInfo`'s two names and by `SignatureResolution.registerValSig` off the attribute
+
+`CompiledName.OfPair` is the one comparison rule all three sites call. A `val` whose declared
+name is an active pattern has no modelled source form, so `registerValSig` publishes no compiled
+name for it — step 3 has to decide what such a binding's key holds before flipping
+`BindingKey.Name`.
+
+Step 2 and step 3 read these instead of the key. Covered by "publishes its compiled name"
+(`LongIdentResolutionTests.fs`, the `.fs` half through the blob) and "publishes a compiled name"
+(`SignatureResolutionTests.fs`, the `.fsi` half).
 
 **Step 2 — flip `ModuleKey.Name`.** `CompiledModuleNameOf` mints the source name; `Layout.fs:258`
 and `ClrEnv.fs:451` read the published compiled name. Deletes `ModuleSourcePaths` and

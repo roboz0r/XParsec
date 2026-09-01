@@ -9,84 +9,115 @@ open XParsec.FSharp.Parser
 [<AutoOpen>]
 module Containment =
 
+    /// One scope of a declaration's enclosing chain.
+    [<NoComparison>]
+    type private EnclosingScope =
+        {
+            Container: ModuleContainer
+            /// The dotted path a local `open` writes for the scope (`List`).
+            SourcePath: string
+            /// The class name the module emits as, where that differs from the name its source
+            /// writes. A namespace has none.
+            CompiledName: CompiledName voption
+            /// `[<AutoOpen>]` is written on the module.
+            IsAutoOpen: bool
+        }
+
+    /// A declaration's enclosing scopes, OUTERMOST first, with the innermost chain itself.
+    [<NoComparison>]
+    type private EnclosingChain =
+        {
+            Scopes: EnclosingScope list
+            Chain: ModuleContainer
+        }
+
     type PassContext with
 
         /// The name of the static class a module compiles to: `Foo`, or `FooModule` when a
         /// nominal type in the same file is also called `Foo`, or when
         /// `[<CompilationRepresentation(ModuleSuffix)>]` pins the suffix.
-        member private this.CompiledModuleNameOf(attrs: Attributes<SyntaxToken> voption, name: string) : string =
+        member private this.CompiledModuleNameOf(attrs: ResolvedAttributes, name: string) : string =
             if
                 TypeRegistry.isNominalTypeName this.Types name
-                || AttributeDecode.hasModuleSuffix this.NameOf (this.ResolveAttributes attrs)
+                || AttributeDecode.hasModuleSuffix this.NameOf attrs
             then
                 name + "Module"
             else
                 name
 
-        member private this.CompiledModuleName(md: DeclaredModule<SyntaxToken>) : string =
-            this.CompiledModuleNameOf(md.Attributes, this.NameOf md.Ident)
-
-        /// Every container `c` sits in (the declaring namespace, then each enclosing `module`),
-        /// OUTERMOST first, paired with the dotted path a local `open` writes for it
-        /// (`List`), which is not the compiled module name (`ListModule`).
-        member private this.EnclosingContainersOf(c: DeclContainment<SyntaxToken>) : (string * ModuleContainer) list =
+        /// Every container `c` sits in: the declaring namespace, then each enclosing `module`.
+        member private this.EnclosingChainOf(c: DeclContainment<SyntaxToken>) : EnclosingChain =
             let mutable container =
                 ModuleContainer.InNamespace(SymbolKeyOps.namespaceKey c.Namespace)
 
             let mutable path = c.Namespace
             let scopes = ResizeArray(c.Modules.Length + 1)
-            scopes.Add(path, container)
+
+            scopes.Add
+                {
+                    Container = container
+                    SourcePath = path
+                    CompiledName = ValueNone
+                    IsAutoOpen = false
+                }
 
             for md in c.Modules do
                 let src = this.NameOf md.Ident
-                container <- ModuleContainer.InModule(SymbolKeyOps.moduleKeyOf container (this.CompiledModuleName md))
+                let attrs = this.ResolveAttributes md.Attributes
+                let compiled = this.CompiledModuleNameOf(attrs, src)
+                container <- ModuleContainer.InModule(SymbolKeyOps.moduleKeyOf container compiled)
                 path <- SymbolKeyOps.qualify path src
-                scopes.Add(path, container)
 
-            List.ofSeq scopes
+                scopes.Add
+                    {
+                        Container = container
+                        SourcePath = path
+                        CompiledName = CompiledName.OfPair(src, compiled)
+                        IsAutoOpen = AttributeDecode.isAutoOpen attrs
+                    }
 
-        /// Each `[<AutoOpen>]` module enclosing `c`, outermost first.
-        member private this.AutoOpenModuleKeysOf(c: DeclContainment<SyntaxToken>) : ModuleKey list =
-            let mutable container =
-                ModuleContainer.InNamespace(SymbolKeyOps.namespaceKey c.Namespace)
-
-            let opened = ResizeArray<ModuleKey>()
-
-            for md in c.Modules do
-                let key = SymbolKeyOps.moduleKeyOf container (this.CompiledModuleName md)
-                container <- ModuleContainer.InModule key
-
-                if AttributeDecode.isAutoOpen (this.ResolveAttributes md.Attributes) then
-                    opened.Add key
-
-            List.ofSeq opened
+            {
+                Scopes = List.ofSeq scopes
+                Chain = container
+            }
 
         /// Each `[<AutoOpen>]` module enclosing `c`, outermost first.
         member this.ImplicitOpensOf(c: DeclContainment<SyntaxToken>) : ImplicitOpen list =
-            this.AutoOpenModuleKeysOf c |> List.map ImplicitOpen.AutoOpen
+            [
+                for scope in (this.EnclosingChainOf c).Scopes do
+                    match scope.Container with
+                    | ModuleContainer.InModule m when scope.IsAutoOpen -> ImplicitOpen.AutoOpen m
+                    | _ -> ()
+            ]
 
         /// `namespace N` + `module A = module B =` yields `B ∈ A ∈ N`.
         member this.ContainerChainOf(c: DeclContainment<SyntaxToken>) : ModuleContainer =
-            this.EnclosingContainersOf c |> List.last |> snd
+            (this.EnclosingChainOf c).Chain
 
         member this.TypeContainerOf(c: DeclContainment<SyntaxToken>) : TypeContainer =
             SymbolKeyOps.typeContainerOf (this.ContainerChainOf c)
 
         /// Enter a module containment: sets and returns the chain a by-name read from inside
         /// resolves against. Every enclosing scope is noted under the SOURCE path an `open`
-        /// writes it as.
+        /// writes it as, with the compiled class name of each module that has one.
         member this.EnterContainment(c: DeclContainment<SyntaxToken>) : ModuleContainer =
-            let scopes = this.EnclosingContainersOf c
+            let enclosing = this.EnclosingChainOf c
 
-            for (path, container) in scopes do
-                TypeRegistry.noteLocalContainer this.Types path container
+            for scope in enclosing.Scopes do
+                TypeRegistry.noteLocalContainer this.Types scope.SourcePath scope.Container
 
-            for key in this.AutoOpenModuleKeysOf c do
-                TypeRegistry.noteAutoOpenModule this.Types key
+                match scope.Container with
+                | ModuleContainer.InModule m ->
+                    match scope.CompiledName with
+                    | ValueSome compiled -> TypeRegistry.noteCompiledModuleName this.Types m compiled
+                    | ValueNone -> ()
 
-            let chain = scopes |> List.last |> snd
-            this.Resolution.EnclosingContainer <- ValueSome chain
-            chain
+                    if scope.IsAutoOpen then
+                        TypeRegistry.noteAutoOpenModule this.Types m
+                | ModuleContainer.InNamespace _ -> ()
+
+            this.Resolution.EnclosingContainer <- ValueSome enclosing.Chain
+            enclosing.Chain
 
         /// The scopes in force at an element whose enclosing chain is `chain`: the `open`s
         /// written above it, the chain and each scope enclosing it, then what is in scope with

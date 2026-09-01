@@ -118,6 +118,10 @@ type PassContextTypes =
         /// The INVERSE of `LocalContainers`. A qualifier is written relative to a SCOPE (`A.T`
         /// inside `module N.B` means `N.A.T`), so resolving one needs that scope's path.
         LocalContainerPaths: Dictionary<ModuleContainer, string>
+        /// The modules this file declares whose compiled class name differs from the name their
+        /// source writes (`List` ⇒ `ListModule`). A module absent here compiles under its
+        /// source name.
+        CompiledModuleNames: Dictionary<ModuleKey, CompiledName>
         /// The RECORD / UNION / CLASS short names this file declares, which is what a `module` of
         /// the same name collides with. Filled whole-file first: `module Foo` may precede `type Foo`.
         NominalTypeNames: HashSet<string>
@@ -145,6 +149,7 @@ module PassContextTypes =
             TypeClaims = Dictionary<_, _>()
             LocalContainers = Dictionary<_, _>()
             LocalContainerPaths = Dictionary<_, _>()
+            CompiledModuleNames = Dictionary<_, _>()
             NominalTypeNames = HashSet<_>()
             SymbolKeyOrigins = Dictionary<_, _>()
             AutoOpenModules = ResizeArray<_>()
@@ -516,6 +521,11 @@ module TypeRegistry =
         types.LocalContainers.[path] <- container
         types.LocalContainerPaths.[container] <- path
 
+    /// Record that `m` compiles under `compiled` rather than under the name its source writes.
+    /// Idempotent: every pass re-enters the same scopes.
+    let noteCompiledModuleName (types: PassContextTypes) (m: ModuleKey) (compiled: CompiledName) : unit =
+        types.CompiledModuleNames.[m] <- compiled
+
     /// Record an `[<AutoOpen>]` module of this file. Idempotent, first-seen order.
     let noteAutoOpenModule (types: PassContextTypes) (key: ModuleKey) : unit =
         if not (types.AutoOpenModules.Contains key) then
@@ -534,6 +544,9 @@ module TypeRegistry =
             | ModuleContainer.InNamespace _ -> ()
 
         EqDict.ofSeq d
+
+    let declaredCompiledModuleNames (types: PassContextTypes) : EqDict<ModuleKey, CompiledName> =
+        EqDict.ofSeq types.CompiledModuleNames
 
     let noteNominalTypeName (types: PassContextTypes) (name: string) : unit =
         types.NominalTypeNames.Add name |> ignore

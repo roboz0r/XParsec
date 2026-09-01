@@ -120,11 +120,67 @@ let declaredInterfaces (p: IExternalSymbolStore) (key: TypeKey) : EqArray<Frozen
     | ValueSome(ExternalTypeShape.Intrinsic { Class = ValueSome surface }) -> surface.Interfaces
     | _ -> EqArray.empty
 
+let private compiledNameText (CompiledName n) : string = n
+
+/// Every module the `.fsi` publishes keyed against the class name it emits as. The key half is
+/// asserted too: the channel IS the association, and a compiled name landing on the wrong
+/// module is what the key flip risks.
+let private compiledModuleNames (r: Resolved) : (string * string) list =
+    [
+        for e in r.Surface.CompiledModuleNames -> SymbolKeyOps.moduleFullName e.Key, compiledNameText e.Value
+    ]
+
+/// Every value the `.fsi` publishes keyed against the method name it emits as.
+let private compiledValueNames (r: Resolved) : (string * string) list =
+    [
+        for e in r.Surface.Symbols do
+            match e.Value.CompiledName with
+            | ValueSome cn -> SymbolKeyOps.qualifiedName (SymbolKey.Binding e.Key), compiledNameText cn
+            | ValueNone -> ()
+    ]
+
 [<Tests>]
 let tests =
     testList
         "SignatureResolution"
         [
+            // The compiled name as a published fact of its own, independent of the key: what
+            // the backends read once the keys hold semantic names.
+            testList
+                "publishes a compiled name"
+                [
+                    test "`module Foo` beside `type Foo` publishes `FooModule`" {
+                        let r =
+                            resolveFsi
+                                "app.fsi"
+                                "namespace App\n\ntype Foo =\n    | A\n\nmodule Foo =\n    val seed: int\n"
+
+                        Expect.equal
+                            (compiledModuleNames r)
+                            [ "App.FooModule", "FooModule" ]
+                            "the suffix reaches the surface"
+                    }
+
+                    test "`[<CompiledName>]` on a val publishes the attribute's name" {
+                        let r =
+                            resolveFsi
+                                "app.fsi"
+                                "namespace App\n\nmodule Bag =\n    [<CompiledName(\"Empty\")>]\n    val empty: int\n"
+
+                        Expect.equal
+                            (compiledValueNames r)
+                            [ "App.Bag.Empty", "Empty" ]
+                            "the attribute reaches the surface"
+                    }
+
+                    test "CONTROL: a module and a val under their source names publish none" {
+                        let r = resolveFsi "app.fsi" "namespace App\n\nmodule Bag =\n    val empty: int\n"
+
+                        Expect.isEmpty (compiledModuleNames r) "`Bag` compiles under its source name"
+                        Expect.isEmpty (compiledValueNames r) "`empty` compiles under its source name"
+                    }
+                ]
+
             test "cross-package nominal resolves through a dependency provider and bakes kind-correct" {
                 // A dependency's `Union` shape must bake `TyUnion` at resolution time, whether
                 // the reference is fully qualified or reached via an `open`.

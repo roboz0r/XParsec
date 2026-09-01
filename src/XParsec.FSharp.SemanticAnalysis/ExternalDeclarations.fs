@@ -91,6 +91,9 @@ type ExternalSymbol =
         /// The symbol's identity. Every written spelling that reaches this symbol carries it,
         /// so an identity check ("is this `Vesper.Collections.List.fold`?") is an equality test.
         Key: BindingKey
+        /// The static method the declaration emits as, `ValueNone` where that is the name its
+        /// source writes. Populated only by a Vesper `.fsi` or a frozen `.fs`.
+        CompiledName: CompiledName voption
         /// The producer's SOURCE parameter grouping; `ValueNone` for anything not
         /// contract-extracted.
         ValRepr: TastAccessor.ValRepr voption

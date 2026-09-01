@@ -128,6 +128,9 @@ type FrozenFileResidue =
         IntrinsicBindings: EqDict<TypeKey, IntrinsicBindingInfo>
         GlobalValueKeys: EqSet<SymbolKey>
         ModuleSourcePaths: EqDict<ModuleKey, string>
+        /// Each module the file declares whose compiled class name differs from the name its
+        /// source writes. A module absent here compiles under its source name.
+        CompiledModuleNames: EqDict<ModuleKey, CompiledName>
         /// The `[<AutoOpen>]` modules the file declares, outermost first: what a consumer
         /// resolves through with no `open` of its own.
         AutoOpenModules: ModuleKey list
@@ -256,6 +259,7 @@ module FrozenPools =
                     IntrinsicBindings = EqDict.empty
                     GlobalValueKeys = EqSet.empty
                     ModuleSourcePaths = EqDict.empty
+                    CompiledModuleNames = EqDict.empty
                     AutoOpenModules = []
                     Accessibility = EqDict.empty
                 }

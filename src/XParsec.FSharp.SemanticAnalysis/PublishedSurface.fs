@@ -37,6 +37,9 @@ type PublishedSurfaceBuilder =
         /// Dotted source path of a declared module -> the container a type it holds sits in.
         /// What makes a written `A.M.T` reach the type compiled as `A.M+T`.
         ModuleContainers: Dictionary<string, TypeContainer>
+        /// Each published module whose compiled class name differs from the name its source
+        /// writes. A module absent here compiles under its source name.
+        CompiledModuleNames: Dictionary<ModuleKey, CompiledName>
         /// Declaring union's compiled name + `.` + case name -> the case; every case published.
         UnionCases: Dictionary<string, ExternalUnionCase>
         /// Field name -> every record declaring it, a MULTIMAP rather than first-wins: a field
@@ -60,6 +63,7 @@ module PublishedSurfaceBuilder =
             ExternForms = Dictionary()
             MembersByKey = Dictionary()
             ModuleContainers = Dictionary(StringComparer.Ordinal)
+            CompiledModuleNames = Dictionary(HashIdentity.Structural)
             UnionCases = Dictionary(StringComparer.Ordinal)
             RecordFields = Dictionary(StringComparer.Ordinal)
             Symbols = Dictionary(HashIdentity.Structural)
@@ -86,6 +90,11 @@ module PublishedSurfaceBuilder =
         | TypeContainer.InModule m -> addModuleContainer surface m
         | TypeContainer.InNamespace _
         | TypeContainer.InType _ -> ()
+
+    /// Publish that `m` emits as the class `compiled` rather than as the name its source
+    /// writes.
+    let addCompiledModuleName (surface: PublishedSurfaceBuilder) (m: ModuleKey) (compiled: CompiledName) : unit =
+        surface.CompiledModuleNames.[m] <- compiled
 
     /// Registering a shape whose `TyparArity` disagrees with `key`'s will fail: the two state
     /// the same fact, and `typeKeyOfContainer` is the one minting rule for it.
@@ -213,6 +222,9 @@ type PublishedSurface =
         MembersByKey: EqArray<SurfaceEntry<TypeKey, EqArray<ExternalMember>>>
         /// Dotted source path of a declared module -> the container a type it holds sits in.
         ModuleContainers: EqArray<SurfaceEntry<string, TypeContainer>>
+        /// Each published module whose compiled class name differs from the name its source
+        /// writes.
+        CompiledModuleNames: EqArray<SurfaceEntry<ModuleKey, CompiledName>>
         /// Declaring union's compiled name + `.` + case name -> the case.
         UnionCases: EqArray<SurfaceEntry<string, ExternalUnionCase>>
         /// Field name -> every record declaring it.
@@ -268,6 +280,8 @@ module PublishedSurface =
                 |> Seq.map (fun (KeyValue(k, ms)) -> k, EqArray.ofResizeArray ms)
                 |> ordered SymbolKeyOps.typeMetaName
             ModuleContainers = byName b.ModuleContainers
+            CompiledModuleNames =
+                ordered SymbolKeyOps.moduleFullName (seq { for KeyValue(k, v) in b.CompiledModuleNames -> k, v })
             UnionCases = byName b.UnionCases
             RecordFields =
                 b.RecordFields

@@ -776,6 +776,7 @@ module ExternalSymbols =
             Constraints = []
             Origin = SymbolOrigin.Empty
             Key = key
+            CompiledName = ValueNone
             ValRepr = ValueNone
             ImportForm = ImportForm.Named
             InlineBody = ValueNone

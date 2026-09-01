@@ -696,6 +696,12 @@ module SignatureResolution =
 
                 let sym =
                     { ExternalSymbols.scheme decl name template typeParams.Length constraints with
+                        CompiledName =
+                            match sourceName with
+                            | ValueSome src -> CompiledName.OfPair(src, name)
+                            // An active-pattern name has no modelled source form, so there is
+                            // no pair to compare `name` against.
+                            | ValueNone -> ValueNone
                         ValRepr = valRepr
                         Attributes = AttributeFold.build ctx attrElement resolvedAttrs
                     }
@@ -775,6 +781,9 @@ module SignatureResolution =
             | ModuleSignatureElement.CompilerDirective _
             | ModuleSignatureElement.Missing
             | ModuleSignatureElement.SkipsTokens _ -> ()
+
+        for KeyValue(m, compiled) in ctx.Types.CompiledModuleNames do
+            PublishedSurfaceBuilder.addCompiledModuleName surface m compiled
 
         PublishedSurface.ofBuilder surface
 

@@ -329,6 +329,7 @@ module FrozenSignature =
             let sym =
                 { ExternalSymbols.scheme info.Container info.Name scheme (FrozenPools.typarArity frozen boundVar) [] with
                     Origin = originIn info.Container.Namespace
+                    CompiledName = CompiledName.OfPair(info.SourceName, info.Name)
                     ValRepr = bindingValRepr boundVar
                     Attributes = info.Attributes
                 }
@@ -389,6 +390,9 @@ module FrozenSignature =
                     )
 
             PublishedSurfaceBuilder.addType surface typeKey shape
+
+        for KeyValue(m, compiled) in frozen.Residue.CompiledModuleNames do
+            PublishedSurfaceBuilder.addCompiledModuleName surface m compiled
 
         surface.ImplicitOpens <- [ for k in frozen.Residue.AutoOpenModules -> ImplicitOpen.AutoOpen k ]
         PublishedSurface.ofBuilder surface
