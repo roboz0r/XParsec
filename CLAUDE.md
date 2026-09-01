@@ -103,6 +103,9 @@ Seven constructions to stop producing:
    type gets NO comment. An `Empty` static needs nothing. Do not explain that a type is a
    `Set` if the F# type signature already says `Set<_>`. Write type annotations on parameters
    where the function's inferred type is non-obvious.
+8. **Use affirmative, direct language** — Avoid chained negations or confusing negative framing.
+   - *DON'T:* "A pattern with no single bound variable has none."
+   - *DO:* "Only a pattern binding exactly one variable carries an identity."
 
 **Why:** The underlying instinct of an AI is to write comments as an argument for the design
 instead of a description of the value. Exclusion framing, premise-then-inference, and
