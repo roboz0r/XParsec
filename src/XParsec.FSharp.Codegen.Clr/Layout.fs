@@ -220,10 +220,14 @@ module internal Layout =
                             }
             ]
 
-        // The class name a module emits as. The residue covers every module the file
-        // declares, so absence from it is the declaration that the source name is emitted.
+        // The class name a module emits as: the compiled name the residue declares for it,
+        // else its source name.
         let moduleClassName (h: Emit.ModuleClassKey) : string =
-            CompiledName.Emitted(EqDict.tryFind h pools.Residue.CompiledModuleNames, h.Name)
+            let compiled =
+                EqDict.tryFind h pools.Residue.Modules
+                |> ValueOption.bind (fun facts -> facts.CompiledName)
+
+            CompiledName.Emitted(compiled, h.Name)
 
         // A module class node: its module-value fields (immutable ⇒ `initonly`, set only in
         // the module class `.cctor`), its methods, and the types it holds followed by its

@@ -707,19 +707,6 @@ module SignatureResolution =
 
     // --- the walk -------------------------------------------------------------------
 
-    /// The `[<AutoOpen>]` modules a signature declares, outermost first: what a consumer
-    /// resolves through with no `open` of its own. A module holding nothing is not listed.
-    let private implicitOpensOf (ctx: PassContext) (walked: WalkedSigElem<SyntaxToken> list) : ImplicitOpen list =
-        let seen = HashSet<ImplicitOpen>()
-        let acc = ResizeArray<ImplicitOpen>()
-
-        for w in walked do
-            for key in ctx.ImplicitOpensOf w.Containment do
-                if seen.Add key then
-                    acc.Add key
-
-        List.ofSeq acc
-
     let private declsOf (TypeSignatures(first = first; rest = rest)) : SigDecl list =
         [ yield sigDeclOf first; for (_, ts) in rest -> sigDeclOf ts ]
 
@@ -754,8 +741,6 @@ module SignatureResolution =
         for w in walked do
             ctx.EnterContainment(w.Containment, w.RecScopeOffset) |> ignore<ModuleContainer>
 
-        surface.ImplicitOpens <- implicitOpensOf ctx walked
-
         for w in walked do
             ctx.EnterElement w
 
@@ -767,16 +752,16 @@ module SignatureResolution =
                 registerSigGroup sctx w.Containment placement decls
             | ModuleSignatureElement.Val valSig -> registerValSig sctx w.Containment valSig
             | ModuleSignatureElement.ModuleAbbrev abbrev -> ctx.ReportAbbrevTarget(w.Containment, abbrev)
+            | ModuleSignatureElement.Import import -> ctx.ReportOpenTarget(w.Containment, import)
             | ModuleSignatureElement.ValLiteral _
             | ModuleSignatureElement.Exception _
             | ModuleSignatureElement.Module _
-            | ModuleSignatureElement.Import _
             | ModuleSignatureElement.CompilerDirective _
             | ModuleSignatureElement.Missing
             | ModuleSignatureElement.SkipsTokens _ -> ()
 
-        for KeyValue(m, compiled) in ctx.Types.CompiledModuleNames do
-            PublishedSurfaceBuilder.addCompiledModuleName surface m compiled
+        for KeyValue(m, facts) in ctx.Types.Modules do
+            PublishedSurfaceBuilder.addModule surface m facts
 
         PublishedSurface.ofBuilder surface
 

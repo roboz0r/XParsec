@@ -398,10 +398,9 @@ module FrozenSignature =
 
             PublishedSurfaceBuilder.addType surface typeKey shape
 
-        for KeyValue(m, compiled) in frozen.Residue.CompiledModuleNames do
-            PublishedSurfaceBuilder.addCompiledModuleName surface m compiled
+        for KeyValue(m, facts) in frozen.Residue.Modules do
+            PublishedSurfaceBuilder.addModule surface m facts
 
-        surface.ImplicitOpens <- [ for k in frozen.Residue.AutoOpenModules -> ImplicitOpen.AutoOpen k ]
         PublishedSurface.ofBuilder surface
 
     /// `toSurface` as a provider view.

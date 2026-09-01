@@ -71,9 +71,10 @@ type IScopeContents =
     /// Every type named `name` declared directly in `container`, one per generic arity,
     /// ASCENDING by arity: a spelling written without type args takes the narrowest.
     abstract TypesNamed: container: ModuleContainer * name: string -> EqArray<struct (TypeKey * ExternalTypeShape)>
-    /// The static class `m` emits as. `Undeclared` from a source that does not declare `m`,
-    /// which an emitter must treat as an error rather than as a bare `m.Name`.
-    abstract ModuleClassNameOf: m: ModuleKey -> ModuleClassName
+    /// What this source declares about the module `m`. `ValueNone` from a source that does not
+    /// declare `m` at all, which an emitter must treat as an error rather than as a bare
+    /// `m.Name`.
+    abstract TryModule: m: ModuleKey -> ModuleFacts voption
 
 [<RequireQualifiedAccess>]
 module ScopeContents =
@@ -85,7 +86,7 @@ module ScopeContents =
             member _.TryValue _ = ValueNone
             member _.UnionCasesNamed(_, _) = EqArray.empty
             member _.TypesNamed(_, _) = EqArray.empty
-            member _.ModuleClassNameOf _ = ModuleClassName.Undeclared
+            member _.TryModule _ = ValueNone
         }
 
     /// An `IScopeContents` over TYPES declared in a namespace, and over those alone. `slots`
@@ -137,7 +138,7 @@ module ScopeContents =
             member _.TryValue _ = ValueNone
             member _.UnionCasesNamed(_, _) = EqArray.empty
             // IL declares no modules.
-            member _.ModuleClassNameOf _ = ModuleClassName.Undeclared
+            member _.TryModule _ = ValueNone
 
             member _.TypesNamed(c, name) =
                 match c with
@@ -209,15 +210,7 @@ module ScopeContents =
 
                     result
 
-                member _.ModuleClassNameOf m =
-                    let mutable result = ModuleClassName.Undeclared
-                    let mutable i = 0
-
-                    while result = ModuleClassName.Undeclared && i < sources.Length do
-                        result <- sources.[i].ModuleClassNameOf m
-                        i <- i + 1
-
-                    result
+                member _.TryModule m = firstHit (fun s -> s.TryModule m)
             }
 
     /// The value a LITERAL dotted spelling denotes: its leading segments are the container
@@ -272,8 +265,8 @@ module ScopeContents =
         go containers
 
     /// `inner` with each result rewritten: `value` over a value symbol, `case` over a union
-    /// case, `shape` over a type shape at its resolved key. `TryContainer` and
-    /// `ModuleClassNameOf` pass through.
+    /// case, `shape` over a type shape at its resolved key. `TryContainer` and `TryModule`
+    /// pass through.
     let decorate
         (value: ExternalSymbol -> ExternalSymbol)
         (case: ExternalUnionCase -> ExternalUnionCase)
@@ -293,7 +286,7 @@ module ScopeContents =
                 inner.TypesNamed(c, name)
                 |> EqArray.map (fun (struct (key, s)) -> struct (key, shape key s))
 
-            member _.ModuleClassNameOf m = inner.ModuleClassNameOf m
+            member _.TryModule m = inner.TryModule m
         }
 
     /// `inner` with each value symbol rewritten. Every other channel passes through.
@@ -313,7 +306,7 @@ module ScopeContents =
         let types =
             ConcurrentDictionary<struct (ModuleContainer * string), EqArray<struct (TypeKey * ExternalTypeShape)>>()
 
-        let moduleClassNames = ConcurrentDictionary<ModuleKey, ModuleClassName>()
+        let modules = ConcurrentDictionary<ModuleKey, ModuleFacts voption>()
 
         { new IScopeContents with
             member _.TryContainer path =
@@ -328,8 +321,8 @@ module ScopeContents =
             member _.TypesNamed(c, name) =
                 types.GetOrAdd(struct (c, name), (fun (struct (c, n)) -> inner.TypesNamed(c, n)))
 
-            member _.ModuleClassNameOf m =
-                moduleClassNames.GetOrAdd(m, (fun k -> inner.ModuleClassNameOf k))
+            member _.TryModule m =
+                modules.GetOrAdd(m, (fun k -> inner.TryModule k))
         }
 
 /// The RESOLVER view of the external-symbol contract: spelling → identity, opens-aware.
@@ -450,9 +443,9 @@ type ICodegenSymbols =
     abstract TryRebaseCapabilityMember: key: SymbolKey -> SymbolKey voption
     /// The open `FrozenType` signature of a module-level function by its value key.
     abstract TryLookupOpenSignature: key: BindingKey -> CodegenOpenSignature voption
-    /// The static class an external module emits as. `Undeclared` where no referenced
-    /// surface declares the module, which emission must refuse rather than guess at.
-    abstract ModuleClassNameOf: m: ModuleKey -> ModuleClassName
+    /// What the referenced surfaces declare about an external module. `ValueNone` where none
+    /// declares it, which emission must refuse rather than guess a class name for.
+    abstract TryModule: m: ModuleKey -> ModuleFacts voption
     /// The platform type id emission mints a primitive reference through: `int` →
     /// `"System.Int32"`. `ValueNone` for a canon the compiling target binds no id for.
     abstract TryPlatformTypeId: canon: TypeKey -> PlatformTypeId voption

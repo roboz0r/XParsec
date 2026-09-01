@@ -485,6 +485,7 @@ module NameResolution =
             match w.Elem with
             | ModuleElem.Type defs -> registerGroup ctx w.Containment w.RecScopeOffset defs
             | ModuleElem.ModuleAbbrev abbrev -> ctx.ReportAbbrevTarget(w.Containment, abbrev)
+            | ModuleElem.Import import -> ctx.ReportOpenTarget(w.Containment, import)
             | m -> classifyTermTypes ctx m
 
         // `walkModuleElem` skips `ModuleElem.Type`, so member bodies are walked here instead,

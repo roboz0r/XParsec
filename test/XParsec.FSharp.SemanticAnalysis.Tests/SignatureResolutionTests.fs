@@ -127,7 +127,10 @@ let private compiledNameText (CompiledName n) : string = n
 /// module is what the key flip risks.
 let private compiledModuleNames (r: Resolved) : (string * string) list =
     [
-        for e in r.Surface.CompiledModuleNames -> SymbolKeyOps.moduleFullName e.Key, compiledNameText e.Value
+        for e in r.Surface.Modules do
+            match e.Value.CompiledName with
+            | ValueSome compiled -> SymbolKeyOps.moduleFullName e.Key, compiledNameText compiled
+            | ValueNone -> ()
     ]
 
 /// Every value the `.fsi` publishes keyed against the method name it emits as.

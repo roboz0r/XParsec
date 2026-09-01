@@ -145,6 +145,27 @@ module CstModuleTree =
             Elements: ImmutableArray<'Elem>
         }
 
+    /// The `open A.B` an `open` element writes at `containment`. Absent when the declaration
+    /// carries no path.
+    let localOpen
+        (nameOf: SyntaxToken -> string)
+        (containment: DeclContainment<SyntaxToken>)
+        (openToken: SyntaxToken)
+        (li: LongIdent<SyntaxToken>)
+        : LocalOpen voption =
+        let prefix = li.Idents |> Seq.map nameOf |> String.concat "."
+
+        if prefix.Length = 0 then
+            ValueNone
+        else
+            ValueSome
+                {
+                    Path = prefix
+                    Scope = DeclContainment.sourcePath nameOf containment
+                    ScopeDepth = List.length containment.Modules
+                    Offset = openToken.StartIndex
+                }
+
     /// The alias a `module R = A.B.C` element binds, written at `containment`. Absent when
     /// either half of the declaration is missing.
     let localAbbrev
@@ -246,19 +267,9 @@ module CstModuleTree =
             (openToken: SyntaxToken)
             (li: LongIdent<SyntaxToken>)
             : OpenScope =
-            let prefix = longIdentText li
-
-            if prefix.Length = 0 then
-                scope
-            else
-                LocalScopeDecl.Open
-                    {
-                        Path = prefix
-                        Scope = DeclContainment.sourcePath nameOf containment
-                        ScopeDepth = List.length containment.Modules
-                        Offset = openToken.StartIndex
-                    }
-                :: scope
+            match localOpen nameOf containment openToken li with
+            | ValueSome o -> LocalScopeDecl.Open o :: scope
+            | ValueNone -> scope
 
         let accumulate (containment: DeclContainment<SyntaxToken>) (scope: OpenScope) (e: 'Elem) : OpenScope =
             match node e with
@@ -291,11 +302,20 @@ module CstModuleTree =
 
             if isRec then
                 // Constant prelude: every open/abbrev in this scope applies to the whole
-                // body, regardless of position.
+                // body, regardless of position. An `open` or abbreviation is the exception:
+                // its own target resolves top-down even here, so it enters under the
+                // declarations above it.
                 let constScope = (start, elems) ||> Seq.fold (accumulate containment)
+                let mutable s = start
 
                 for e in elems do
-                    emit e constScope recScope containment
+                    match node e with
+                    | ModuleNode.Import _
+                    | ModuleNode.Abbrev _ -> emit e s recScope containment
+                    | ModuleNode.Nested _
+                    | ModuleNode.Plain -> emit e constScope recScope containment
+
+                    s <- accumulate containment s e
             else
                 let mutable s = start
 

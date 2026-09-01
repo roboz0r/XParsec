@@ -464,12 +464,11 @@ type internal ClrEnv
     /// empty namespace; only the chain's root carries one. A key never says WHERE, hence `origin`.
     let rec externalModuleRef (origin: SymbolOrigin) (m: ModuleKey) : EntityHandle =
         let metaName =
-            match symbols.ModuleClassNameOf m with
-            | ModuleClassName.Compiled(CompiledName n) -> n
-            | ModuleClassName.SourceName -> m.Name
+            match symbols.TryModule m with
+            | ValueSome facts -> CompiledName.Emitted(facts.CompiledName, m.Name)
             // Emitting the bare source name here would bind to no `TypeDef` and fault at
             // load time, so an undeclared module fails the compile instead.
-            | ModuleClassName.Undeclared ->
+            | ValueNone ->
                 failwithf
                     "ClrProvider: no referenced surface declares module '%s', so the class it emits as is unknown."
                     (SymbolKeyOps.moduleFullName m)

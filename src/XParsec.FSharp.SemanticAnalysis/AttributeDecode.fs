@@ -175,6 +175,11 @@ module AttributeDecode =
     let isAutoOpen (attrs: ResolvedAttributes) : bool =
         attrs.Has RuntimeNames.autoOpenAttributeKey
 
+    /// True iff the module-level attributes carry `[<RequireQualifiedAccess>]`, so an `open`
+    /// of the module is refused.
+    let isRequireQualifiedAccess (attrs: ResolvedAttributes) : bool =
+        attrs.Has RuntimeNames.requireQualifiedAccessAttributeKey
+
     /// True iff the WRITTEN attribute name is `AutoOpen`, under F#'s `Attribute`-suffix rule.
     let isWrittenAutoOpen (nameOf: SyntaxToken -> string) (li: LongIdent<SyntaxToken>) : bool =
         match li.Idents.Length with

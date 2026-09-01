@@ -451,24 +451,21 @@ module FrozenCodec =
         writeListWith w writeDiagnostic res.Diagnostics
         writeTypeKeyDict w writeIntrinsicBindingInfo res.IntrinsicBindings
         writeSymbolSet w res.GlobalValueKeys
-        writeModuleDict w (fun w (CompiledName n) -> w.Write n) res.CompiledModuleNames
-        writeListWith w writeModuleRef res.AutoOpenModules
+        writeModuleDict w writeModuleFacts res.Modules
         writeSymbolDict w writeAccessibility res.Accessibility
 
     let private readResidue (r: FrozenReader) : FrozenFileResidue =
         let diagnostics = readListWith r readDiagnostic
         let intrinsicBindings = readTypeKeyDict r readIntrinsicBindingInfo
         let globalValueKeys = readSymbolSet r
-        let compiledModuleNames = readModuleDict r (fun r -> CompiledName(r.ReadString()))
-        let autoOpenModules = readListWith r readModuleRef
+        let modules = readModuleDict r readModuleFacts
         let accessibility = readSymbolDict r readAccessibility
 
         {
             Diagnostics = diagnostics
             IntrinsicBindings = intrinsicBindings
             GlobalValueKeys = globalValueKeys
-            CompiledModuleNames = compiledModuleNames
-            AutoOpenModules = autoOpenModules
+            Modules = modules
             Accessibility = accessibility
         }
 

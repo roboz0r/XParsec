@@ -400,6 +400,9 @@ type Kind =
     | UnresolvedQualifiedName of name: string
     /// A `module R = N` whose target is a namespace. An abbreviation binds a module.
     | AbbreviatedNamespace of path: string
+    /// An `open` of a `[<RequireQualifiedAccess>]` module. `path` is the TARGET's full path,
+    /// so an `open` written through a module abbreviation names what it reached.
+    | RequireQualifiedAccessModule of path: string
     | OperatorFormQualifiedName of firstSegment: string
     | ConstraintNotSupported of ty: string * constraintName: string
     /// A trait call in an inline body that no type in the support set satisfies.
@@ -523,6 +526,7 @@ module Kind =
         | Kind.UndefinedPatternDiscriminator _
         | Kind.UnresolvedQualifiedName _ -> DiagCode.FSharp 39 // UndefinedName
         | Kind.AbbreviatedNamespace _ -> DiagCode.FSharp 965 // tcModuleAbbreviationForNamespace
+        | Kind.RequireQualifiedAccessModule _ -> DiagCode.FSharp 892 // tcModuleRequiresQualifiedAccess
         | Kind.TypeArgArity _ -> DiagCode.FSharp 33 // TyconBadArgs
         | Kind.RequireQualifiedAccessCase _ -> DiagCode.FSharp 35 // Deprecated
         // ── Constructors: fsc's "union case expects N arguments" covers both the wrong
@@ -618,6 +622,10 @@ module Kind =
         | Kind.UnresolvedQualifiedName name -> sprintf "Unresolved qualified name: %s" name
         | Kind.AbbreviatedNamespace path ->
             sprintf "The path '%s' is a namespace. A module abbreviation may not abbreviate a namespace." path
+        | Kind.RequireQualifiedAccessModule path ->
+            sprintf
+                "This declaration opens the module '%s', which is marked as 'RequireQualifiedAccess'. Adjust your code to use qualified references to the elements of the module instead, e.g. 'List.map' instead of 'map'. This change will ensure that your code is robust as new constructs are added to libraries."
+                path
         | Kind.OperatorFormQualifiedName firstSegment ->
             sprintf "Operator-form qualified names not yet resolved (starting at '%s')" firstSegment
         | Kind.ConstraintNotSupported(ty, constraintName) ->
@@ -754,6 +762,7 @@ module Kind =
         | Kind.TypeArgArity _
         | Kind.UnresolvedQualifiedName _
         | Kind.AbbreviatedNamespace _
+        | Kind.RequireQualifiedAccessModule _
         | Kind.OperatorFormQualifiedName _
         | Kind.Internal _
         | Kind.ConstraintNotSupported _

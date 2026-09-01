@@ -63,13 +63,9 @@ type TastFileG<'ty, 'tok, 'id when 'id: comparison> =
         /// The `[<Global>]` module-level bindings: values that ARE a target global (JS
         /// `undefined`), so the declaring file emits no definition for one.
         GlobalValueKeys: EqSet<SymbolKey>
-        /// Each module this file declares whose compiled class name differs from the name its
-        /// source writes (`ListModule` for `module List`). A module absent here compiles
-        /// under its source name.
-        CompiledModuleNames: EqDict<ModuleKey, CompiledName>
-        /// The `[<AutoOpen>]` modules this file declares, outermost first: what a consumer
-        /// resolves through with no `open` of its own. A module holding no element is absent.
-        AutoOpenModules: ModuleKey list
+        /// Every module this file declares, with what its declaration states: the class it
+        /// emits as, `[<RequireQualifiedAccess>]`, `[<AutoOpen>]`.
+        Modules: EqDict<ModuleKey, ModuleFacts>
         /// A module-level binding's bound variable → its named-module placement (`module Foo`'s
         /// functions emit on a real `Foo`/`FooModule` static class, not the anonymous
         /// "Program" class).

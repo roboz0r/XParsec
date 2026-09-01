@@ -102,7 +102,7 @@ module NameResolutionContainers =
     let firstSegmentContainers (ctx: PassContext) (useSite: UseSite) (segment: string) : ModuleContainer list =
         let found = ResizeArray<struct (BindingRank * ModuleContainer)>()
 
-        match Map.tryFind segment ctx.Resolution.Abbrevs with
+        match Map.tryFind segment ctx.Resolution.Env.Aliases with
         | Some alias -> found.Add(struct (ScopeEntry.rank alias, alias.Container))
         | None -> ()
 

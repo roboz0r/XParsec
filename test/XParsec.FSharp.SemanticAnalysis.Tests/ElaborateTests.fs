@@ -1527,7 +1527,7 @@ let tastFileEqualityTests =
 
                 Expect.isFalse a.IntrinsicBindings.IsEmpty "the source declares an intrinsic"
                 Expect.isFalse a.GlobalValueKeys.IsEmpty "the source declares a global"
-                Expect.isFalse a.CompiledModuleNames.IsEmpty "the source declares a suffixed module"
+                Expect.isFalse a.Modules.IsEmpty "the source declares a suffixed module"
                 Expect.isFalse a.Accessibility.IsEmpty "the source declares a private binding"
 
                 Expect.equal a b "separately built files with the same content are equal"

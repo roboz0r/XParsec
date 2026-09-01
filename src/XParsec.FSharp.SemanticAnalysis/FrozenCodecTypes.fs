@@ -219,6 +219,22 @@ module FrozenCodecTypes =
     let readTAttributes (r: FrozenReader) : TAttributes =
         EqArray.ofArray (readArrayWith r readTAttribute)
 
+    let writeModuleFacts (w: FrozenWriter) (facts: ModuleFacts) =
+        writeVOptionWith w (fun w (CompiledName n) -> w.Write n) facts.CompiledName
+        w.Write facts.RequiresQualifiedAccess
+        w.Write facts.IsAutoOpen
+
+    let readModuleFacts (r: FrozenReader) : ModuleFacts =
+        let compiledName = readVOptionWith r (fun r -> CompiledName(r.ReadString()))
+        let requiresQualifiedAccess = r.ReadBoolean()
+        let isAutoOpen = r.ReadBoolean()
+
+        {
+            CompiledName = compiledName
+            RequiresQualifiedAccess = requiresQualifiedAccess
+            IsAutoOpen = isAutoOpen
+        }
+
     let writeAccessibility (w: FrozenWriter) (a: Accessibility) =
         match a with
         | Accessibility.Public -> w.Write 0uy

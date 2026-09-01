@@ -18,11 +18,8 @@ module Containment =
             VisibleFrom: int
             /// The dotted path a local `open` writes for the scope (`List`).
             SourcePath: string
-            /// The class name the module emits as, where that differs from the name its source
-            /// writes. A namespace has none.
-            CompiledName: CompiledName voption
-            /// `[<AutoOpen>]` is written on the module.
-            IsAutoOpen: bool
+            /// What the module's declaration states. A namespace takes `ModuleFacts.plain`.
+            Facts: ModuleFacts
         }
 
     /// A declaration's enclosing scopes, OUTERMOST first, with the innermost chain itself.
@@ -60,8 +57,7 @@ module Containment =
                     Container = container
                     VisibleFrom = BindingRank.unpositioned
                     SourcePath = path
-                    CompiledName = ValueNone
-                    IsAutoOpen = false
+                    Facts = ModuleFacts.plain
                 }
 
             for md in c.Modules do
@@ -76,23 +72,18 @@ module Containment =
                         Container = container
                         VisibleFrom = md.ModuleToken.StartIndex
                         SourcePath = path
-                        CompiledName = CompiledName.OfPair(src, compiled)
-                        IsAutoOpen = AttributeDecode.isAutoOpen attrs
+                        Facts =
+                            {
+                                CompiledName = CompiledName.OfPair(src, compiled)
+                                RequiresQualifiedAccess = AttributeDecode.isRequireQualifiedAccess attrs
+                                IsAutoOpen = AttributeDecode.isAutoOpen attrs
+                            }
                     }
 
             {
                 Scopes = List.ofSeq scopes
                 Chain = container
             }
-
-        /// Each `[<AutoOpen>]` module enclosing `c`, outermost first.
-        member this.ImplicitOpensOf(c: DeclContainment<SyntaxToken>) : ImplicitOpen list =
-            [
-                for scope in (this.EnclosingChainOf c).Scopes do
-                    match scope.Container with
-                    | ModuleContainer.InModule m when scope.IsAutoOpen -> ImplicitOpen.AutoOpen m
-                    | _ -> ()
-            ]
 
         /// `namespace N` + `module A = module B =` yields `B ∈ A ∈ N`.
         member this.ContainerChainOf(c: DeclContainment<SyntaxToken>) : ModuleContainer =
@@ -103,7 +94,7 @@ module Containment =
 
         /// Enter a module containment: sets and returns the chain a by-name read from inside
         /// resolves against. Every enclosing scope is noted under the SOURCE path an `open`
-        /// writes it as, with the compiled class name of each module that has one. `recScope`
+        /// writes it as, and each enclosing module with what its declaration states. `recScope`
         /// is the innermost enclosing `rec` scope's keyword offset, which hoists a module
         /// declared inside it to the top of that scope.
         member this.EnterContainment(c: DeclContainment<SyntaxToken>, recScope: int voption) : ModuleContainer =
@@ -122,13 +113,7 @@ module Containment =
                     }
 
                 match scope.Container with
-                | ModuleContainer.InModule m ->
-                    match scope.CompiledName with
-                    | ValueSome compiled -> TypeRegistry.noteCompiledModuleName this.Types m compiled
-                    | ValueNone -> ()
-
-                    if scope.IsAutoOpen then
-                        TypeRegistry.noteAutoOpenModule this.Types m
+                | ModuleContainer.InModule m -> TypeRegistry.noteModule this.Types m scope.Facts
                 | ModuleContainer.InNamespace _ -> ()
 
             this.Resolution.EnclosingContainer <- ValueSome enclosing.Chain
@@ -158,18 +143,36 @@ module Containment =
             let chain = this.EnterContainment(w.Containment, w.RecScopeOffset)
             let env = TypeRegistry.resolveScopeDecls this.Types this.Resolver.Scope w.Scope
             this.Resolution.Scopes <- this.ScopeStackOf(chain, env.Opens)
-            this.Resolution.Abbrevs <- env.Aliases
+            this.Resolution.Env <- env
+
+        /// Report `import`, written at `containment`, when it opens a
+        /// `[<RequireQualifiedAccess>]` module: FS0892 naming the TARGET's full path, so an
+        /// `open` written through a module abbreviation names what it reached. Reads the
+        /// environment `EnterElement` set for the `open`, which holds the declarations above it.
+        member this.ReportOpenTarget(containment: DeclContainment<SyntaxToken>, import: ImportDecl<SyntaxToken>) =
+            match import with
+            // `open type` is a member channel rather than a prefix, and carries no such refusal.
+            | ImportDecl.ImportDeclType _ -> ()
+            | ImportDecl.ImportDecl(openToken = kw; longIdent = li) ->
+                match CstModuleTree.localOpen this.NameOf containment kw li with
+                | ValueNone -> ()
+                | ValueSome o ->
+                    let scope = this.Resolver.Scope
+
+                    match TypeRegistry.resolveInEnv this.Types scope this.Resolution.Env o.Scope o.Path o.Offset with
+                    | ValueSome c when TypeRegistry.requiresQualifiedAccess this.Types scope c ->
+                        this.Report(li.Idents.[0], Kind.RequireQualifiedAccessModule(SymbolKeyOps.containerFullName c))
+                    | _ -> ()
 
         /// Report `abbrev`, written at `containment`, unless its target is a module: FS0039 for
-        /// a target that reaches nothing, FS0965 for a namespace. The target reads only the
-        /// declarations above the abbreviation, and needs `EnterElement` on the abbreviation
-        /// to have run first.
+        /// a target that reaches nothing, FS0965 for a namespace. Reads the environment
+        /// `EnterElement` set for the abbreviation, which holds the declarations above it.
         member this.ReportAbbrevTarget(containment: DeclContainment<SyntaxToken>, abbrev: ModuleAbbrev<SyntaxToken>) =
             match CstModuleTree.localAbbrev this.NameOf containment abbrev with
             | ValueNone -> ()
             | ValueSome a ->
                 let target =
-                    TypeRegistry.resolveAbbrevTargetAt this.Types this.Resolver.Scope this.Resolution.OpenScope a
+                    TypeRegistry.resolveAbbrevTarget this.Types this.Resolver.Scope this.Resolution.Env a
 
                 let (ModuleAbbrev.ModuleAbbrev(longIdent = li)) = abbrev
 

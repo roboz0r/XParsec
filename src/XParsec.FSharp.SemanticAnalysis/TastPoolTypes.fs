@@ -127,12 +127,8 @@ type FrozenFileResidue =
         Diagnostics: XParsec.FSharp.SemanticAnalysis.Diagnostic list
         IntrinsicBindings: EqDict<TypeKey, IntrinsicBindingInfo>
         GlobalValueKeys: EqSet<SymbolKey>
-        /// Each module the file declares whose compiled class name differs from the name its
-        /// source writes. A module absent here compiles under its source name.
-        CompiledModuleNames: EqDict<ModuleKey, CompiledName>
-        /// The `[<AutoOpen>]` modules the file declares, outermost first: what a consumer
-        /// resolves through with no `open` of its own.
-        AutoOpenModules: ModuleKey list
+        /// Every module the file declares, with what its declaration states.
+        Modules: EqDict<ModuleKey, ModuleFacts>
         Accessibility: EqDict<SymbolKey, Accessibility>
     }
 
@@ -241,8 +237,7 @@ module FrozenPools =
                     Diagnostics = []
                     IntrinsicBindings = EqDict.empty
                     GlobalValueKeys = EqSet.empty
-                    CompiledModuleNames = EqDict.empty
-                    AutoOpenModules = []
+                    Modules = EqDict.empty
                     Accessibility = EqDict.empty
                 }
             ModuleMembers = [||]

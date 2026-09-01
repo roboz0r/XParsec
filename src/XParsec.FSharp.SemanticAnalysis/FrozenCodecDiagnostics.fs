@@ -405,6 +405,9 @@ module FrozenCodecDiagnostics =
         | Kind.AbbreviatedNamespace path ->
             w.Write 58uy
             w.Write path
+        | Kind.RequireQualifiedAccessModule path ->
+            w.Write 59uy
+            w.Write path
         | Kind.OperatorFormQualifiedName firstSegment ->
             w.Write 8uy
             w.Write firstSegment
@@ -591,6 +594,7 @@ module FrozenCodecDiagnostics =
             Kind.TypeArgArity(name, expected, r.ReadInt32())
         | 7uy -> Kind.UnresolvedQualifiedName(r.ReadString())
         | 58uy -> Kind.AbbreviatedNamespace(r.ReadString())
+        | 59uy -> Kind.RequireQualifiedAccessModule(r.ReadString())
         | 8uy -> Kind.OperatorFormQualifiedName(r.ReadString())
         | 9uy -> Kind.UndefinedPatternDiscriminator(r.ReadString())
         | 10uy ->

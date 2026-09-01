@@ -29,9 +29,8 @@ type PublishedSurfaceBuilder =
         ExternForms: Dictionary<TypeKey, ExternForm>
         /// A type's FULL member list, in DECLARATION order: the overload scan depends on it.
         MembersByKey: Dictionary<TypeKey, ResizeArray<ExternalMember>>
-        /// Each published module whose compiled class name differs from the name its source
-        /// writes. A module absent here compiles under its source name.
-        CompiledModuleNames: Dictionary<ModuleKey, CompiledName>
+        /// Every published module, with what its declaration states.
+        Modules: Dictionary<ModuleKey, ModuleFacts>
         /// Declaring union's `typeMetaName` + `.` + case name -> the case; every case published.
         UnionCases: Dictionary<string, ExternalUnionCase>
         /// Field name -> every record declaring it, a MULTIMAP rather than first-wins: a field
@@ -39,7 +38,8 @@ type PublishedSurfaceBuilder =
         RecordFields: Dictionary<string, ResizeArray<ExternalRecordCandidate>>
         /// Every published value, one entry per identity.
         Symbols: Dictionary<BindingKey, ExternalSymbol>
-        /// What a consumer resolves through with no `open` of its own.
+        /// What a consumer resolves through with no `open` of its own, beyond the
+        /// `[<AutoOpen>]` modules in `Modules`: assembly-level auto-opens.
         mutable ImplicitOpens: ImplicitOpen list
     }
 
@@ -51,17 +51,16 @@ module PublishedSurfaceBuilder =
             ShapesByKey = Dictionary()
             ExternForms = Dictionary()
             MembersByKey = Dictionary()
-            CompiledModuleNames = Dictionary(HashIdentity.Structural)
+            Modules = Dictionary(HashIdentity.Structural)
             UnionCases = Dictionary(StringComparer.Ordinal)
             RecordFields = Dictionary(StringComparer.Ordinal)
             Symbols = Dictionary(HashIdentity.Structural)
             ImplicitOpens = []
         }
 
-    /// Publish that `m` emits as the class `compiled` rather than as the name its source
-    /// writes.
-    let addCompiledModuleName (surface: PublishedSurfaceBuilder) (m: ModuleKey) (compiled: CompiledName) : unit =
-        surface.CompiledModuleNames.[m] <- compiled
+    /// Publish `m` with what its declaration states.
+    let addModule (surface: PublishedSurfaceBuilder) (m: ModuleKey) (facts: ModuleFacts) : unit =
+        surface.Modules.[m] <- facts
 
     /// Registering a shape whose `TyparArity` disagrees with `key`'s will fail: the two state
     /// the same fact, and `typeKeyOfContainer` is the one minting rule for it.
@@ -180,9 +179,8 @@ type PublishedSurface =
         ExternForms: EqArray<SurfaceEntry<TypeKey, ExternForm>>
         /// A type's FULL member list, in DECLARATION order: the overload scan depends on it.
         MembersByKey: EqArray<SurfaceEntry<TypeKey, EqArray<ExternalMember>>>
-        /// Each published module whose compiled class name differs from the name its source
-        /// writes.
-        CompiledModuleNames: EqArray<SurfaceEntry<ModuleKey, CompiledName>>
+        /// Every published module, with what its declaration states.
+        Modules: EqArray<SurfaceEntry<ModuleKey, ModuleFacts>>
         /// Declaring union's `typeMetaName` + `.` + case name -> the case.
         UnionCases: EqArray<SurfaceEntry<string, ExternalUnionCase>>
         /// Field name -> every record declaring it.
@@ -193,9 +191,10 @@ type PublishedSurface =
         /// producer cannot put a CAPABILITY interface here: it carries its platform name on
         /// its own identity and must stay OFF this axis.
         Intrinsics: IntrinsicTypeMap
-        /// What a consumer resolves through with no `open` of its own, OUTERMOST first rather
-        /// than key-ordered. `CurrentFileScope` never appears: a file's own namespace header
-        /// does not cross the assembly boundary.
+        /// What a consumer resolves through with no `open` of its own: the assembly-level
+        /// auto-opens, then the `[<AutoOpen>]` modules in `Modules` OUTERMOST first.
+        /// `CurrentFileScope` never appears: a file's own namespace header does not cross the
+        /// assembly boundary.
         ImplicitOpens: EqArray<ImplicitOpen>
     }
 
@@ -224,6 +223,10 @@ module PublishedSurface =
     let ofBuilder (b: PublishedSurfaceBuilder) : PublishedSurface =
         let shapes = byTypeKey b.ShapesByKey
 
+        // Ordinal order on the full name puts every module after the modules enclosing it.
+        let modules =
+            ordered SymbolKeyOps.moduleFullName (seq { for KeyValue(k, v) in b.Modules -> k, v })
+
         {
             ShapesByKey = shapes
             ExternForms = byTypeKey b.ExternForms
@@ -231,8 +234,7 @@ module PublishedSurface =
                 b.MembersByKey
                 |> Seq.map (fun (KeyValue(k, ms)) -> k, EqArray.ofResizeArray ms)
                 |> ordered SymbolKeyOps.typeMetaName
-            CompiledModuleNames =
-                ordered SymbolKeyOps.moduleFullName (seq { for KeyValue(k, v) in b.CompiledModuleNames -> k, v })
+            Modules = modules
             UnionCases = byName b.UnionCases
             RecordFields =
                 b.RecordFields
@@ -252,7 +254,16 @@ module PublishedSurface =
                             | _ -> ()
                     }
                 )
-            ImplicitOpens = EqArray.ofList b.ImplicitOpens
+            ImplicitOpens =
+                EqArray.ofSeq (
+                    seq {
+                        yield! b.ImplicitOpens
+
+                        for e in modules do
+                            if e.Value.IsAutoOpen then
+                                ImplicitOpen.AutoOpen e.Key
+                    }
+                )
         }
 
     /// The surface `fill` accumulates. `ofBuilder` is for a producer threading one builder
@@ -356,7 +367,11 @@ module PublishedSurface =
         for e in surface.Symbols do
             noteContainer e.Key.Decl
 
-        let compiledModuleNames = index surface.CompiledModuleNames HashIdentity.Structural
+        // A module holding nothing is still a container an `open` reaches.
+        for e in surface.Modules do
+            noteContainer (ModuleContainer.InModule e.Key)
+
+        let modules = index surface.Modules HashIdentity.Structural
 
         { new IScopeContents with
             member _.TryContainer path =
@@ -364,16 +379,10 @@ module PublishedSurface =
                 | true, c -> ValueSome c
                 | _ -> ValueNone
 
-            // `containers` holds every module this surface declares, so absence from it is
-            // what separates "emits under its source name" from "not published here".
-            member _.ModuleClassNameOf m =
-                match compiledModuleNames.TryGetValue m with
-                | true, compiled -> ModuleClassName.Compiled compiled
-                | _ ->
-                    if containers.ContainsKey(SymbolKeyOps.moduleFullName m) then
-                        ModuleClassName.SourceName
-                    else
-                        ModuleClassName.Undeclared
+            member _.TryModule m =
+                match modules.TryGetValue m with
+                | true, facts -> ValueSome facts
+                | _ -> ValueNone
 
             member _.TryValue key =
                 match symbols.TryGetValue key with

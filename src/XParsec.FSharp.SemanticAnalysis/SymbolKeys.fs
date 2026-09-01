@@ -341,16 +341,30 @@ type CompiledName =
         | ValueSome(CompiledName n) -> n
         | ValueNone -> source
 
-/// What a module emits its static class as, as stated by a source that declares it.
-[<RequireQualifiedAccess>]
-type ModuleClassName =
-    /// The module emits under the name its source writes.
-    | SourceName
-    /// The module emits as this class instead (`ListModule` for `module List`).
-    | Compiled of CompiledName
-    /// The module is absent from every source consulted, so its emitted class name is
-    /// unknown. Distinct from `SourceName`, which is a declaration.
-    | Undeclared
+/// What a module's declaration states about it.
+[<Struct>]
+type ModuleFacts =
+    {
+        /// The static class the module emits as, where that differs from the name its source
+        /// writes (`ListModule` for `module List`).
+        CompiledName: CompiledName voption
+        /// `[<RequireQualifiedAccess>]` is written on the module, so an `open` of it is refused.
+        RequiresQualifiedAccess: bool
+        /// `[<AutoOpen>]` is written on the module, so its contents are in scope wherever the
+        /// module itself is.
+        IsAutoOpen: bool
+    }
+
+module ModuleFacts =
+
+    /// A module declared with no attribute: it emits under its source name and admits an
+    /// `open`.
+    let plain: ModuleFacts =
+        {
+            CompiledName = ValueNone
+            RequiresQualifiedAccess = false
+            IsAutoOpen = false
+        }
 
 /// A PLACE (assembly + namespace): enough to mint a ref without re-resolving. A symbol's
 /// declaring type is not here; containment is the key's job.

@@ -164,14 +164,14 @@ let private expectBagSpellings (view: IExternalSymbolProvider) : unit =
     match bySource with
     | ModuleContainer.InModule m ->
         Expect.equal
-            (view.Scope.ModuleClassNameOf m)
-            (ModuleClassName.Compiled(CompiledName "BagModule"))
+            (view.Scope.TryModule m |> ValueOption.bind (fun facts -> facts.CompiledName))
+            (ValueSome(CompiledName "BagModule"))
             "the suffixed module states the class it emits as"
     | ModuleContainer.InNamespace _ -> failtest "Test.A.Bag is a module"
 
     Expect.equal
-        (view.Scope.ModuleClassNameOf(SymbolKeyOps.moduleInNamespace "Test.A" "Absent"))
-        ModuleClassName.Undeclared
+        (view.Scope.TryModule(SymbolKeyOps.moduleInNamespace "Test.A" "Absent"))
+        ValueNone
         "a module this surface never published states nothing, rather than defaulting to its source name"
 
 // --- Composition ------------------------------------------------------------------------
@@ -199,7 +199,7 @@ let private scopeOfCases (cases: ExternalUnionCase list) : IScopeContents =
                 ]
 
         member _.TypesNamed(_, _) = EqArray.empty
-        member _.ModuleClassNameOf _ = ModuleClassName.Undeclared
+        member _.TryModule _ = ValueNone
     }
 
 let private root = ModuleContainer.InNamespace NamespaceKey.Global
@@ -325,8 +325,8 @@ let tests =
                         match containerOrFail scope "Test.Ar.M" with
                         | ModuleContainer.InModule m ->
                             Expect.equal
-                                (scope.ModuleClassNameOf m)
-                                ModuleClassName.SourceName
+                                (scope.TryModule m)
+                                (ValueSome ModuleFacts.plain)
                                 "a published module carrying no suffix is a declaration, not an absence"
                         | ModuleContainer.InNamespace _ -> failtest "Test.Ar.M is a module"
                     }

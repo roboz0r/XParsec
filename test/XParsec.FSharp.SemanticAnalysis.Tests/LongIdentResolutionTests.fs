@@ -313,7 +313,10 @@ let private compiledNameText (CompiledName n) : string = n
 /// compiled name landing on the wrong module is what the key flip risks.
 let private publishedModuleNames (file1: string) : (string * string) list =
     [
-        for e in (publishedBy file1).CompiledModuleNames -> SymbolKeyOps.moduleFullName e.Key, compiledNameText e.Value
+        for e in (publishedBy file1).Modules do
+            match e.Value.CompiledName with
+            | ValueSome compiled -> SymbolKeyOps.moduleFullName e.Key, compiledNameText compiled
+            | ValueNone -> ()
     ]
 
 /// Every published value keyed against the method name it emits as.
@@ -528,10 +531,8 @@ module N =
     let a () : int = S.v
 "
 
-                    // `resolveScopeDecls` never expands an `open`'s anchor through an
-                    // abbreviation, so the bare `v` misses.
-                    presolves
-                        "`open` through an alias binds the target's contents (the anchor is unexpanded today)"
+                    resolves
+                        "`open` through an alias binds the target's contents"
                         abbrevTargetLib
                         "\
 namespace Test.B
@@ -745,10 +746,8 @@ module N =
     let a () : int = R.v
 "
 
-                    // `resolveScopeDecls`'s `Open` case never reads the aliases, so `open R`
-                    // binds nothing and the bare `v` misses instead. F# refuses the `open`
-                    // itself, naming the TARGET's path rather than the alias.
-                    ptest "`open` through an alias to a `[<RequireQualifiedAccess>]` module is refused (unread today)" {
+                    // fsi: the refusal names the TARGET's path, not the alias.
+                    test "`open` through an alias to a `[<RequireQualifiedAccess>]` module is refused" {
                         let all =
                             analyse
                                 [
@@ -767,9 +766,61 @@ module N =
 "
                                 ]
 
+                        let refusals =
+                            [
+                                for d in errorsOf all.[1] do
+                                    match d.Kind with
+                                    | Kind.RequireQualifiedAccessModule path -> path
+                                    | _ -> ()
+                            ]
+
+                        Expect.equal
+                            refusals
+                            [ "Test.A.Rqa" ]
+                            (sprintf "FS0892 at the `open`, naming the target; got %A" (errorsOf all.[1]))
+                    }
+
+                    test "`open` of a `[<RequireQualifiedAccess>]` module is refused" {
+                        let all =
+                            analyse
+                                [
+                                    impl "file1.fs" abbrevTargetLib
+                                    impl
+                                        "file2.fs"
+                                        "\
+namespace Test.B
+
+open Test.A.Rqa
+
+module N =
+    let a () : int = v
+"
+                                ]
+
                         Expect.isTrue
                             (errorsOf all.[1] |> List.exists opensRqaModule)
                             (sprintf "FS0892 at the `open`; got %A" (errorsOf all.[1]))
+                    }
+
+                    test "`open` of a module carrying no `[<RequireQualifiedAccess>]` is admitted" {
+                        let all =
+                            analyse
+                                [
+                                    impl "file1.fs" abbrevTargetLib
+                                    impl
+                                        "file2.fs"
+                                        "\
+namespace Test.B
+
+open Test.A.M1
+
+module N =
+    let a () : int = v
+"
+                                ]
+
+                        for f in all do
+                            Expect.isEmpty (errorsOf f) (sprintf "%A: %A" f.Retained.Path (errorsOf f))
                     }
 
                     test "an abbreviation written in a `.fsi` resolves a type for the rest of that signature" {

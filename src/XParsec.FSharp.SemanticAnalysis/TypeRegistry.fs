@@ -126,19 +126,14 @@ type PassContextTypes =
         /// The module / namespace scopes this file DECLARES, keyed by the dotted SOURCE path an
         /// `open` writes (`"N"`, `"N.A"`).
         LocalContainers: Dictionary<string, LocalContainer>
-        /// The modules this file declares whose compiled class name differs from the name their
-        /// source writes (`List` ⇒ `ListModule`). A module absent here compiles under its
-        /// source name.
-        CompiledModuleNames: Dictionary<ModuleKey, CompiledName>
+        /// Every module this file declares, with what its declaration states.
+        Modules: Dictionary<ModuleKey, ModuleFacts>
         /// The RECORD / UNION / CLASS short names this file declares, which is what a `module` of
         /// the same name collides with. Filled whole-file first: `module Foo` may precede `type Foo`.
         NominalTypeNames: HashSet<string>
         /// Each minted type `TypeKey` → the decl-site `NodeKey` that first minted it. A second
         /// DISTINCT declaration minting the same key means the mint dropped a containment.
         SymbolKeyOrigins: Dictionary<SymbolKey, NodeKey>
-        /// The `[<AutoOpen>]` modules this file declares, outermost first. A module holding
-        /// no element is absent.
-        AutoOpenModules: ResizeArray<ModuleKey>
     }
 
 module PassContextTypes =
@@ -156,10 +151,9 @@ module PassContextTypes =
             IntrinsicAbbrevHost = Dictionary<_, _>()
             TypeClaims = Dictionary<_, _>()
             LocalContainers = Dictionary<_, _>()
-            CompiledModuleNames = Dictionary<_, _>()
+            Modules = Dictionary<_, _>()
             NominalTypeNames = HashSet<_>()
             SymbolKeyOrigins = Dictionary<_, _>()
-            AutoOpenModules = ResizeArray<_>()
         }
 
 /// The project-local type registries, keyed by `TypeKey`, so a NAME addresses a candidate set.
@@ -307,6 +301,35 @@ module TypeRegistry =
             Aliases: Map<string, ScopeEntry>
         }
 
+    module ScopeEnv =
+        let empty: ScopeEnv = { Opens = []; Aliases = Map.empty }
+
+    /// The scope the written `path`, at offset `at` in the scope `under`, denotes in `env`: the
+    /// aliases in it, then the `open`s in it, then `under`'s own enclosing chain. The search an
+    /// `open` and a module abbreviation share, so an alias anchors either one.
+    let resolveInEnv
+        (types: PassContextTypes)
+        (scope: IScopeContents)
+        (env: ScopeEnv)
+        (under: string)
+        (path: string)
+        (at: int)
+        : ModuleContainer voption =
+        let dot = path.IndexOf '.'
+
+        let viaAlias =
+            let anchor = if dot < 0 then path else path.Substring(0, dot)
+
+            match Map.tryFind anchor env.Aliases with
+            | Some e ->
+                let rest = if dot < 0 then "" else path.Substring(dot + 1)
+                tryDescend types scope e.Container rest at
+            | None -> ValueNone
+
+        match viaAlias with
+        | ValueSome c -> ValueSome c
+        | ValueNone -> tryReachFrom types scope env.Opens under path at
+
     /// Where a module abbreviation's written target lands. An abbreviation binds a MODULE, so a
     /// namespace target and a target that reaches nothing are both refused at the declaration.
     [<RequireQualifiedAccess; Struct; NoComparison>]
@@ -315,45 +338,28 @@ module TypeRegistry =
         | Namespace
         | Unresolved
 
-    /// Where `a`'s written target lands, read from `env`: the aliases in it, then the `open`s
-    /// in it, then `a`'s own scope's enclosing chain.
-    let private resolveAbbrevTarget
+    /// Where `a`'s written target lands, read from `env`.
+    let resolveAbbrevTarget
         (types: PassContextTypes)
         (scope: IScopeContents)
         (env: ScopeEnv)
         (a: LocalAbbrev)
         : AbbrevTarget =
-        let dot = a.Path.IndexOf '.'
-
-        let viaAlias =
-            let anchor = if dot < 0 then a.Path else a.Path.Substring(0, dot)
-
-            match Map.tryFind anchor env.Aliases with
-            | Some e ->
-                let rest = if dot < 0 then "" else a.Path.Substring(dot + 1)
-                tryDescend types scope e.Container rest a.Offset
-            | None -> ValueNone
-
-        let found =
-            match viaAlias with
-            | ValueSome c -> ValueSome c
-            | ValueNone -> tryReachFrom types scope env.Opens a.Scope a.Path a.Offset
-
-        match found with
+        match resolveInEnv types scope env a.Scope a.Path a.Offset with
         | ValueNone -> AbbrevTarget.Unresolved
         | ValueSome(ModuleContainer.InNamespace _) -> AbbrevTarget.Namespace
         | ValueSome c -> AbbrevTarget.Module c
 
     /// The environment `decls` builds, each declaration resolved oldest-first against the
-    /// environment above it: a relative `open` reads under the `open`s enclosing it before its
-    /// own scope, and an abbreviation's target reads the aliases and `open`s above it.
+    /// environment above it: an `open` and an abbreviation's target alike read the aliases and
+    /// the `open`s above them before the writing scope's own enclosing chain.
     let resolveScopeDecls (types: PassContextTypes) (scope: IScopeContents) (decls: LocalScopeDecl list) : ScopeEnv =
-        let mutable env = { Opens = []; Aliases = Map.empty }
+        let mutable env = ScopeEnv.empty
 
         for d in List.rev decls do
             match d with
             | LocalScopeDecl.Open o ->
-                match tryReachFrom types scope env.Opens o.Scope o.Path o.Offset with
+                match resolveInEnv types scope env o.Scope o.Path o.Offset with
                 | ValueSome c ->
                     env <-
                         { env with
@@ -393,17 +399,6 @@ module TypeRegistry =
                 | AbbrevTarget.Unresolved -> ()
 
         env
-
-    /// Where `a`'s written target lands, read from the `decls` above it. Positional in a `rec`
-    /// scope too: F# resolves a module abbreviation top-down even there.
-    let resolveAbbrevTargetAt
-        (types: PassContextTypes)
-        (scope: IScopeContents)
-        (decls: LocalScopeDecl list)
-        (a: LocalAbbrev)
-        : AbbrevTarget =
-        let above = decls |> List.filter (fun d -> LocalScopeDecl.offset d < a.Offset)
-        resolveAbbrevTarget types scope (resolveScopeDecls types scope above) a
 
     /// EVERY way the written module `path` (EMPTY for a bare name) reaches a scope of this file
     /// from `useSite`. Empty for a path that does not reach a scope of this file (`System.Uri`).
@@ -639,20 +634,26 @@ module TypeRegistry =
     let noteLocalContainer (types: PassContextTypes) (path: string) (container: LocalContainer) : unit =
         types.LocalContainers.[path] <- container
 
-    /// Record that `m` compiles under `compiled` rather than under the name its source writes.
-    /// Idempotent: every pass re-enters the same scopes.
-    let noteCompiledModuleName (types: PassContextTypes) (m: ModuleKey) (compiled: CompiledName) : unit =
-        types.CompiledModuleNames.[m] <- compiled
+    /// Record what `m`'s declaration in this file states. Idempotent: every pass re-enters the
+    /// same scopes.
+    let noteModule (types: PassContextTypes) (m: ModuleKey) (facts: ModuleFacts) : unit = types.Modules.[m] <- facts
 
-    /// Record an `[<AutoOpen>]` module of this file. Idempotent, first-seen order.
-    let noteAutoOpenModule (types: PassContextTypes) (key: ModuleKey) : unit =
-        if not (types.AutoOpenModules.Contains key) then
-            types.AutoOpenModules.Add key
+    /// Is `container` a `[<RequireQualifiedAccess>]` module? A namespace carries no such marker.
+    let requiresQualifiedAccess (types: PassContextTypes) (scope: IScopeContents) (container: ModuleContainer) : bool =
+        match container with
+        | ModuleContainer.InNamespace _ -> false
+        | ModuleContainer.InModule m ->
+            // A `ModuleContainer` does not carry which source resolved it, so this file's own
+            // declaration is read ahead of the referenced surfaces. Step 5 of
+            // abbrev-representation-plan.md carries the provenance through resolution.
+            match types.Modules.TryGetValue m with
+            | true, facts -> facts.RequiresQualifiedAccess
+            | _ ->
+                match scope.TryModule m with
+                | ValueSome facts -> facts.RequiresQualifiedAccess
+                | ValueNone -> false
 
-    let declaredAutoOpenModules (types: PassContextTypes) : ModuleKey list = List.ofSeq types.AutoOpenModules
-
-    let declaredCompiledModuleNames (types: PassContextTypes) : EqDict<ModuleKey, CompiledName> =
-        EqDict.ofSeq types.CompiledModuleNames
+    let declaredModules (types: PassContextTypes) : EqDict<ModuleKey, ModuleFacts> = EqDict.ofSeq types.Modules
 
     let noteNominalTypeName (types: PassContextTypes) (name: string) : unit =
         types.NominalTypeNames.Add name |> ignore

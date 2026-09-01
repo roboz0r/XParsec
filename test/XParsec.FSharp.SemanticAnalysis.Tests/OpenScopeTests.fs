@@ -59,23 +59,25 @@ let tests =
                 Expect.equal got expected "per-element opens (most-recent-first)"
             }
 
-            test "recursive module: constant prelude, every open applies to the whole body" {
+            test "recursive module: constant prelude for the body, positional for each open" {
                 // The tree walk shares one open set across a `rec` body, so `open Q` below
-                // `let a` reaches it. Name resolution never meets the shape: FS3200 refuses an
-                // `open` that is not first in a `rec` module, and this compiler emits it.
+                // `let a` reaches it. An `open` itself resolves its target top-down even here,
+                // so it enters under the declarations above it alone. Name resolution never
+                // meets the shape: FS3200 refuses an `open` that is not first in a `rec`
+                // module, and this compiler emits it.
                 let src = "module rec R\n\nopen P\nlet a = 1\nopen Q\nlet b = 2\n"
 
                 let got = walk src
 
                 let expected =
                     [
-                        "open P", [ "Q"; "P" ]
+                        "open P", []
                         "let a", [ "Q"; "P" ]
-                        "open Q", [ "Q"; "P" ]
+                        "open Q", [ "P" ]
                         "let b", [ "Q"; "P" ]
                     ]
 
-                Expect.equal got expected "constant prelude shared by all elements"
+                Expect.equal got expected "constant prelude for the body, positional for each open"
             }
 
         ]

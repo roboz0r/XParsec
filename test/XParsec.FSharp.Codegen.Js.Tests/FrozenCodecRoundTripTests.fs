@@ -499,6 +499,7 @@ let tests =
                         Kind.TypeArgArity("Map", 2, 1)
                         Kind.UnresolvedQualifiedName "A.B.c"
                         Kind.AbbreviatedNamespace "System.Collections"
+                        Kind.RequireQualifiedAccessModule "Test.A.Rqa"
                         Kind.OperatorFormQualifiedName "A"
                         Kind.ConstraintNotSupported("int", "Equality")
                         Kind.TraitNotSupported(EqArray.singleton "Widget", MemberNoun.Operator, "+")

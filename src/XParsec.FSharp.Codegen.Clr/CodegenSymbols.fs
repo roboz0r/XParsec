@@ -82,7 +82,7 @@ module CodegenSymbols =
                                 Constraints = os.Constraints
                             }
 
-            member _.ModuleClassNameOf m = provider.Scope.ModuleClassNameOf m
+            member _.TryModule m = provider.Scope.TryModule m
 
             member _.TryPlatformTypeId canon =
                 IntrinsicTypeMap.tryPlatformTypeId canon provider.IntrinsicTypeMap
