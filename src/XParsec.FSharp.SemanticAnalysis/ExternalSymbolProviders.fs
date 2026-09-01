@@ -254,12 +254,17 @@ module ExternalSymbolProviders =
         let stampHit (key: TypeKey) (shape: ExternalTypeShape) : ExternalTypeShape =
             stampType (foldIntrinsicSurface key shape)
 
+        let stampDeclaration =
+            match stampHome with
+            | ValueNone -> id
+            | ValueSome h -> fun (d: ModuleDeclaration) -> { d with Home = h }
+
         // The scope exposes the same values and types as the key channels, so it carries
         // the same home stamp and the same intrinsic fold. A union case takes its origin from
         // its declaring union's shape.
         let scope =
             ScopeContents.composite [ for p in providers -> p.Scope ]
-            |> ScopeContents.decorate stampSymbol id stampHit
+            |> ScopeContents.decorate stampSymbol id stampHit stampDeclaration
 
         { new IExternalSymbolProvider
 
@@ -426,7 +431,7 @@ module ExternalSymbolProviders =
         // carries the same transform.
         let mappedScope =
             inner.Scope
-            |> ScopeContents.decorate mapSymbol (fun uc -> { uc with Case = mapCase uc.Case }) (fun _ -> mapShape)
+            |> ScopeContents.decorate mapSymbol (fun uc -> { uc with Case = mapCase uc.Case }) (fun _ -> mapShape) id
 
         // An `ExternalRecordCandidate` carries identity + field NAMES only, and value-ness is
         // a layout not a type: neither channel carries a position to map.

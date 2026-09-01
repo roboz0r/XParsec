@@ -634,27 +634,6 @@ module TypeRegistry =
     let noteLocalContainer (types: PassContextTypes) (path: string) (container: LocalContainer) : unit =
         types.LocalContainers.[path] <- container
 
-    /// Record what `m`'s declaration in this file states. Idempotent: every pass re-enters the
-    /// same scopes.
-    let noteModule (types: PassContextTypes) (m: ModuleKey) (facts: ModuleFacts) : unit = types.Modules.[m] <- facts
-
-    /// Is `container` a `[<RequireQualifiedAccess>]` module? A namespace carries no such marker.
-    let requiresQualifiedAccess (types: PassContextTypes) (scope: IScopeContents) (container: ModuleContainer) : bool =
-        match container with
-        | ModuleContainer.InNamespace _ -> false
-        | ModuleContainer.InModule m ->
-            // A `ModuleContainer` does not carry which source resolved it, so this file's own
-            // declaration is read ahead of the referenced surfaces. Step 5 of
-            // abbrev-representation-plan.md carries the provenance through resolution.
-            match types.Modules.TryGetValue m with
-            | true, facts -> facts.RequiresQualifiedAccess
-            | _ ->
-                match scope.TryModule m with
-                | ValueSome facts -> facts.RequiresQualifiedAccess
-                | ValueNone -> false
-
-    let declaredModules (types: PassContextTypes) : EqDict<ModuleKey, ModuleFacts> = EqDict.ofSeq types.Modules
-
     let noteNominalTypeName (types: PassContextTypes) (name: string) : unit =
         types.NominalTypeNames.Add name |> ignore
 

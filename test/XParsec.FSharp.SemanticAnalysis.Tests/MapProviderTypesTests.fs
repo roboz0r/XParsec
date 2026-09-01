@@ -135,7 +135,7 @@ let private fakeScope: IScopeContents =
                 EqArray.singleton (struct (SymbolKeyOps.qualifiedTypeKeyOf name shape.TyparArity, shape))
             | ValueNone -> EqArray.empty
 
-        member _.TryModule _ = ValueNone
+        member _.DeclarationsOf _ = EqArray.empty
     }
 
 // A key-channel source given a scope, so `mapProviderTypes` rewrites both.

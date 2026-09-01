@@ -500,6 +500,7 @@ let tests =
                         Kind.UnresolvedQualifiedName "A.B.c"
                         Kind.AbbreviatedNamespace "System.Collections"
                         Kind.RequireQualifiedAccessModule "Test.A.Rqa"
+                        Kind.DuplicateModule "Test.A.Dup"
                         Kind.OperatorFormQualifiedName "A"
                         Kind.ConstraintNotSupported("int", "Equality")
                         Kind.TraitNotSupported(EqArray.singleton "Widget", MemberNoun.Operator, "+")

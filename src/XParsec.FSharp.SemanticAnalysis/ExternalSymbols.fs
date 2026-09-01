@@ -71,10 +71,10 @@ type IScopeContents =
     /// Every type named `name` declared directly in `container`, one per generic arity,
     /// ASCENDING by arity: a spelling written without type args takes the narrowest.
     abstract TypesNamed: container: ModuleContainer * name: string -> EqArray<struct (TypeKey * ExternalTypeShape)>
-    /// What this source declares about the module `m`. `ValueNone` from a source that does not
-    /// declare `m` at all, which an emitter must treat as an error rather than as a bare
-    /// `m.Name`.
-    abstract TryModule: m: ModuleKey -> ModuleFacts voption
+    /// Every declaration of the module `m` this source carries, one per declaring surface,
+    /// each with its home. EMPTY from a source that does not declare `m` at all, which an
+    /// emitter must treat as an error rather than as a bare `m.Name`.
+    abstract DeclarationsOf: m: ModuleKey -> EqArray<ModuleDeclaration>
 
 [<RequireQualifiedAccess>]
 module ScopeContents =
@@ -86,7 +86,7 @@ module ScopeContents =
             member _.TryValue _ = ValueNone
             member _.UnionCasesNamed(_, _) = EqArray.empty
             member _.TypesNamed(_, _) = EqArray.empty
-            member _.TryModule _ = ValueNone
+            member _.DeclarationsOf _ = EqArray.empty
         }
 
     /// An `IScopeContents` over TYPES declared in a namespace, and over those alone. `slots`
@@ -138,7 +138,7 @@ module ScopeContents =
             member _.TryValue _ = ValueNone
             member _.UnionCasesNamed(_, _) = EqArray.empty
             // IL declares no modules.
-            member _.TryModule _ = ValueNone
+            member _.DeclarationsOf _ = EqArray.empty
 
             member _.TypesNamed(c, name) =
                 match c with
@@ -164,10 +164,11 @@ module ScopeContents =
     let private caseIdentity (uc: ExternalUnionCase) = struct (uc.UnionKey, uc.Case.Name)
 
     /// The nearest-first composition: a container or value is the first source's that
-    /// declares it, and a type name is the first source's non-empty arity set. Union cases
-    /// are the UNION across sources: a case name recurs across packages, and the caller
-    /// decides between the claims. A package's `.fsi` and `.fs` halves both publish its
-    /// union, and the shared case appears once.
+    /// declares it, and a type name is the first source's non-empty arity set. Union cases and
+    /// module declarations are the UNION across sources: a case name recurs across packages,
+    /// and the caller decides between the claims; a module PATH is declared by as many
+    /// assemblies as write it, and `open` reaches every declaration. A case reached through
+    /// two sources appears once.
     let composite (sources: IScopeContents list) : IScopeContents =
         match sources with
         | [] -> empty
@@ -210,7 +211,12 @@ module ScopeContents =
 
                     result
 
-                member _.TryModule m = firstHit (fun s -> s.TryModule m)
+                member _.DeclarationsOf m =
+                    EqArray.ofSeq
+                        [
+                            for s in sources do
+                                yield! (s.DeclarationsOf m).Underlying
+                        ]
             }
 
     /// The value a LITERAL dotted spelling denotes: its leading segments are the container
@@ -265,12 +271,13 @@ module ScopeContents =
         go containers
 
     /// `inner` with each result rewritten: `value` over a value symbol, `case` over a union
-    /// case, `shape` over a type shape at its resolved key. `TryContainer` and `TryModule`
-    /// pass through.
+    /// case, `shape` over a type shape at its resolved key, `declaration` over a module
+    /// declaration. `TryContainer` passes through.
     let decorate
         (value: ExternalSymbol -> ExternalSymbol)
         (case: ExternalUnionCase -> ExternalUnionCase)
         (shape: TypeKey -> ExternalTypeShape -> ExternalTypeShape)
+        (declaration: ModuleDeclaration -> ModuleDeclaration)
         (inner: IScopeContents)
         : IScopeContents =
         { new IScopeContents with
@@ -286,12 +293,13 @@ module ScopeContents =
                 inner.TypesNamed(c, name)
                 |> EqArray.map (fun (struct (key, s)) -> struct (key, shape key s))
 
-            member _.TryModule m = inner.TryModule m
+            member _.DeclarationsOf m =
+                inner.DeclarationsOf m |> EqArray.map declaration
         }
 
     /// `inner` with each value symbol rewritten. Every other channel passes through.
     let mapValues (value: ExternalSymbol -> ExternalSymbol) (inner: IScopeContents) : IScopeContents =
-        decorate value id (fun _ s -> s) inner
+        decorate value id (fun _ s -> s) id inner
 
     /// `inner` with every query cached, MISSES included. The resolver repeats a segment read
     /// once per candidate spelling, and a contract is immutable for a compile.
@@ -306,7 +314,7 @@ module ScopeContents =
         let types =
             ConcurrentDictionary<struct (ModuleContainer * string), EqArray<struct (TypeKey * ExternalTypeShape)>>()
 
-        let modules = ConcurrentDictionary<ModuleKey, ModuleFacts voption>()
+        let modules = ConcurrentDictionary<ModuleKey, EqArray<ModuleDeclaration>>()
 
         { new IScopeContents with
             member _.TryContainer path =
@@ -321,8 +329,8 @@ module ScopeContents =
             member _.TypesNamed(c, name) =
                 types.GetOrAdd(struct (c, name), (fun (struct (c, n)) -> inner.TypesNamed(c, n)))
 
-            member _.TryModule m =
-                modules.GetOrAdd(m, (fun k -> inner.TryModule k))
+            member _.DeclarationsOf m =
+                modules.GetOrAdd(m, (fun k -> inner.DeclarationsOf k))
         }
 
 /// The RESOLVER view of the external-symbol contract: spelling → identity, opens-aware.
@@ -443,9 +451,10 @@ type ICodegenSymbols =
     abstract TryRebaseCapabilityMember: key: SymbolKey -> SymbolKey voption
     /// The open `FrozenType` signature of a module-level function by its value key.
     abstract TryLookupOpenSignature: key: BindingKey -> CodegenOpenSignature voption
-    /// What the referenced surfaces declare about an external module. `ValueNone` where none
-    /// declares it, which emission must refuse rather than guess a class name for.
-    abstract TryModule: m: ModuleKey -> ModuleFacts voption
+    /// Every declaration of an external module the referenced surfaces carry, each with its
+    /// home. EMPTY where none declares it, which emission must refuse rather than guess a
+    /// class name for.
+    abstract DeclarationsOf: m: ModuleKey -> EqArray<ModuleDeclaration>
     /// The platform type id emission mints a primitive reference through: `int` →
     /// `"System.Int32"`. `ValueNone` for a canon the compiling target binds no id for.
     abstract TryPlatformTypeId: canon: TypeKey -> PlatformTypeId voption

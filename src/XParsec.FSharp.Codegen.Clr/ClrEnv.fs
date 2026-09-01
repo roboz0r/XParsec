@@ -464,13 +464,18 @@ type internal ClrEnv
     /// empty namespace; only the chain's root carries one. A key never says WHERE, hence `origin`.
     let rec externalModuleRef (origin: SymbolOrigin) (m: ModuleKey) : EntityHandle =
         let metaName =
-            match symbols.TryModule m with
-            | ValueSome facts -> CompiledName.Emitted(facts.CompiledName, m.Name)
-            // Emitting the bare source name here would bind to no `TypeDef` and fault at
-            // load time, so an undeclared module fails the compile instead.
+            // Each declaration of a path emits its own class, so the one homed where the
+            // symbol is decides. Emitting the bare source name would bind to no `TypeDef` and
+            // fault at load time, so a module undeclared at `origin` fails the compile instead.
+            match
+                symbols.DeclarationsOf m
+                |> EqArray.tryFind (fun declaration -> declaration.Home = origin.Home)
+            with
+            | ValueSome declaration -> CompiledName.Emitted(declaration.Facts.CompiledName, m.Name)
             | ValueNone ->
                 failwithf
-                    "ClrProvider: no referenced surface declares module '%s', so the class it emits as is unknown."
+                    "ClrProvider: no referenced surface homed in %A declares module '%s', so the class it emits as is unknown."
+                    origin.Home
                     (SymbolKeyOps.moduleFullName m)
 
         match m.Container with

@@ -761,7 +761,13 @@ module SignatureResolution =
             | ModuleSignatureElement.SkipsTokens _ -> ()
 
         for KeyValue(m, facts) in ctx.Types.Modules do
-            PublishedSurfaceBuilder.addModule surface m facts
+            PublishedSurfaceBuilder.addModule
+                surface
+                m
+                {
+                    Home = SymbolHome.InFile ctx.File.Path
+                    Facts = facts
+                }
 
         PublishedSurface.ofBuilder surface
 

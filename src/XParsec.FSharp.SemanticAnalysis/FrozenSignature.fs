@@ -399,7 +399,13 @@ module FrozenSignature =
             PublishedSurfaceBuilder.addType surface typeKey shape
 
         for KeyValue(m, facts) in frozen.Residue.Modules do
-            PublishedSurfaceBuilder.addModule surface m facts
+            PublishedSurfaceBuilder.addModule
+                surface
+                m
+                {
+                    Home = SymbolHome.InFile declaredIn.Path
+                    Facts = facts
+                }
 
         PublishedSurface.ofBuilder surface
 

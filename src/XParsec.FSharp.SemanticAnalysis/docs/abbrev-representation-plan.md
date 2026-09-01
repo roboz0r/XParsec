@@ -138,6 +138,24 @@ library, `ProbeLib`, built from a synthetic `.fsproj`.
     unqualified `Target` resolves. This is general namespace scoping rather than an
     abbreviation rule, and it is why probe 9's shape writes a *different* namespace's path.
 
+Third round, 2026-09-01, for step 5. Every case is a compiled consumer project referencing
+`ProbeLib`, because `#load` puts a signature file's namespace under `FSI_0001` and the two
+declarations then never share a path.
+
+18. **A module path declared by this compilation and by a reference.** Two modules of one path
+    in ONE assembly is `FS0248: Two modules named 'N.Dup' occur in two parts of this assembly`,
+    so the shadow needs a reference. Across the boundary both declarations stand, and one
+    `open` of the path reaches both: a consumer declaring `N.Plain` beside `ProbeLib`'s
+    `N.Plain` reads its own `locV` and the reference's `extW` under a single `open Plain`.
+19. **`[<RequireQualifiedAccess>]` on either declaration of a shared path.** Both directions are
+    `FS0892`, rendering the shared path. A plain local `N.Rqa` beside a `[<RequireQualifiedAccess>]`
+    referenced `N.Rqa` is refused, and so is a `[<RequireQualifiedAccess>]` local `N.Plain`
+    beside a plain referenced `N.Plain`.
+20. **`[<AutoOpen>]` on one declaration of a shared path.** `[<AutoOpen>]` on the local
+    declaration auto-opens its own contents alone: the reference's `extPlain` at the same path
+    is `FS0039: The value or constructor 'extPlain' is not defined`. An `open` is per-PATH; an
+    auto-open is per-DECLARATION.
+
 ## Target shape
 
 **A module abbreviation is a named `open`, resolved once at its declaration.**
@@ -208,27 +226,28 @@ classification scan, not an abbreviation defect.
 
 The RQA half needed a channel that did not exist. `Kind.RequireQualifiedAccessModule` (FS0892)
 is reported by `Containment.ReportOpenTarget`, which resolves the `open`'s target against the
-`env` that `EnterElement` stored for it and asks `TypeRegistry.requiresQualifiedAccess`.
-Answering that needed a module's `[<RequireQualifiedAccess>]` marker to reach a later file, and
-no per-module published fact carried it: the surface published only compiled module names.
+`env` that `EnterElement` stored for it and asks `requiresQualifiedAccess`. Answering that
+needed a module's `[<RequireQualifiedAccess>]` marker to reach a later file, and no per-module
+published fact carried it: the surface published only compiled module names.
 
 So `CompiledModuleNames` and `AutoOpenModules` became one dense `Modules` table, every declared
 module → `ModuleFacts { CompiledName; RequiresQualifiedAccess; IsAutoOpen }`, along the whole
 chain — `PassContextTypes`, `TastFile`, `FrozenFileResidue`, the codec, `PublishedSurface`, and
-`IScopeContents.TryModule: ModuleKey -> ModuleFacts voption`. `ValueNone` means exactly "not
-declared by this source"; a surface's `ImplicitOpens` is derived from the table in
+the `IScopeContents` module channel, which step 5 below widened to
+`DeclarationsOf: ModuleKey -> EqArray<ModuleFacts>`. Empty means exactly "not declared by this
+source"; a surface's `ImplicitOpens` is derived from the table in
 `PublishedSurface.ofBuilder`, ordinal order on the full name giving outermost first.
-`ICodegenSymbols.TryModule` replaced `ModuleClassNameOf`, and the three-way `ModuleClassName`
-is gone: the CLR emitter reads `CompiledName.Emitted` off the facts and fails on `ValueNone`.
+`ICodegenSymbols.DeclarationsOf` replaced `ModuleClassNameOf`, and the three-way
+`ModuleClassName` is gone: the CLR emitter reads `CompiledName.Emitted` off the facts and fails
+where no source declares the module.
 
 Green pins: probe 5, probe 14's `open` half asserted on the rendered path (`Test.A.Rqa`, the
 target rather than the alias), a direct `open` of an RQA module, and an `open` of a plain
 module as the negative control.
 
-Known imprecision, step 5 below: `requiresQualifiedAccess` reads this file's own declaration
-of the module first and the referenced surfaces second, because a `ModuleContainer` does not
-carry which of the two it was resolved from. A file that declares `N.M` plainly while a
-referenced assembly declares an RQA `N.M` would have its own `open N.M` refused.
+This step left `requiresQualifiedAccess` reading this file's own declaration of the module and
+falling through to the referenced surfaces, so a file declaring `N.M` plainly beside a
+referenced RQA `N.M` admitted its own `open N.M`. Step 5 closed that.
 
 **Step 4 — type-abbreviation audit and pins.** Separable; can run beside 2–3. End-to-end
 tests: a cross-file (blob-mediated) use of a published abbreviation, bare and qualified; a
@@ -242,28 +261,50 @@ beside the existing cross-file abbreviation tests: `private` readable from a nes
 its declaring module, `private` refused from another file, `internal` readable across the
 assembly. The remaining step-4 surface is the emission audit and the codegen pins.
 
-**Step 5 — container provenance.** `tryContainerOfPath` and `tryDescend` (`TypeRegistry.fs`)
-each read `types.LocalContainers` first and `scope.TryContainer` second, and return a bare
-`ModuleContainer` that no longer says which of the two answered. `requiresQualifiedAccess`
-then has to guess, and guesses local-first: a file that declares `N.M` plainly beside a
-referenced RQA `N.M` has its own `open N.M` refused, and the opposite shadowing direction
-would let an RQA module through.
+**Step 5 — module facts across sources. Done.** The step was written on the premise that
+resolution picks one of the two sources declaring a module path and loses which; probes 18–20
+falsify it. Both declarations of a shared path stand, one `open` reaches both, and
+`[<RequireQualifiedAccess>]` on either refuses it. There is no provenance to carry, because the
+answer is the union rather than a choice.
 
-The fix is to return what resolution already had in hand. `LocalContainer` grows the
-`ModuleFacts` its `EnterContainment` registration reads (or points at the `Modules` entry), so
-the local branch of `tryContainerOfPath` yields the facts beside the container, and the
-referenced branch yields `scope.TryModule`. `resolveInEnv` then answers with a
-`struct (ModuleContainer * ModuleFacts voption)`, `ReportOpenTarget` reads
-`RequiresQualifiedAccess` off it, and `requiresQualifiedAccess` is deleted. Pin: a file
-declaring a plain `N.M` after a referenced RQA `N.M`, and the reverse, each opened from the
-same file. fsi is the oracle for which one F# reads in each direction.
+So the multi-source read is the channel's own job. `IScopeContents.TryModule` became
+`DeclarationsOf: ModuleKey -> EqArray<ModuleDeclaration>`, one entry per declaring surface, and
+`ScopeContents.composite` concatenates it as it already did `UnionCasesNamed`. A
+`ModuleDeclaration` is a `ModuleFacts` with its `SymbolHome`: a surface homes its declarations
+in the file (`FrozenSignature.toSurface`, `SignatureResolution.run`), and
+`ExternalSymbolProviders.stack` re-homes them in the package through `ScopeContents.decorate`,
+exactly as it stamps every symbol's `SymbolOrigin`. `ModuleDeclarations` (its own file, lifted
+out of `TypeRegistry`) joins this compilation's own declaration to that array in `reaching`,
+where the declaration's `LocalContainer.VisibleFrom` precedes the use site, and
+`ModuleDeclaration.anyRefusesOpen` is the one statement of the merge rule. That refuses probe
+19's first direction, which the local-first guess admitted; the second direction was already
+refused and holds. The planned threading — `LocalContainer` growing `ModuleFacts`,
+`resolveInEnv` answering with a `struct (ModuleContainer * ModuleFacts voption)` — is not
+built. `Containers.localOrReferenced` keeps its order: both branches yield the same
+`ModuleContainer` for a shared path and differ only in the rank, where the local declaration's
+own position is the higher one anyway.
 
-Best point: its own change, immediately after step 3 and before step 4's codegen pins. It
-touches only the container lookup and `ReportOpenTarget`, and every further reader of a
-module fact off a resolved container (an RQA check on a bare use, `[<AutoOpen>]` through an
-alias) would otherwise copy the guess. It must land before the module-path string channel is
-retired, because that retirement rewrites the same two lookups and would have to carry the
-provenance anyway.
+`RequiresQualifiedAccess` is the only per-PATH field of `ModuleFacts`; `CompiledName` and
+`IsAutoOpen` are per-DECLARATION (probe 20) and a reader selects rather than merges them. The
+one selecting reader is `ClrEnv.externalModuleRef`, which takes the declaration whose `Home`
+is the symbol's `origin.Home` and fails where none is.
+
+The per-assembly uniqueness the union relies on (FS0248) is enforced at each unit:
+`Containment.EnterContainment` reports `Kind.DuplicateModule` at a module's name on its first
+entry when an earlier file of the compiling assembly — a declaration homed in the same
+assembly — already declares the path.
+
+Green pins in `OpenResolutionTests.fs`, over `ExternalSymbolProviders.composite` of the contract
+stack with three published `Ref` modules, each publishing a value: each direction of probe 19,
+probe 18's merge — `locV + extW` under one `open Other` — and a local
+`[<RequireQualifiedAccess>]` declared BELOW the `open`, which does not refuse it. The stack is
+the real one because a local module's `[<RequireQualifiedAccess>]` is read by resolving the
+attribute type, which a bare `providerOfSurface` declares nothing for. Reverting `reaching` to
+the local-first guess turns the first pin red. `ScopeContentsTests.fs` pins the composition
+directly: two package stacks declaring one path, disagreeing about
+`[<RequireQualifiedAccess>]`, each declaration homed in its assembly, and reverting the
+concatenation to first-hit turns it red. `LongIdentResolutionTests.fs` pins FS0248 over two
+files of one assembly.
 
 ## Semantics confirmed
 
@@ -297,7 +338,9 @@ Module-abbreviation steps touch `OpenScope`, `CstModuleTree`, `Containment`, `Pa
 `Containers`, `TypeRegistry`, and the SemanticAnalysis tests. Nothing is published for an
 abbreviation itself, but step 3's RQA refusal widened the per-module published table, so the
 blob and its codec did change. Step 4 adds tests across both backends and changes code only where the
-audit finds a hole. Step 5 touches `TypeRegistry` and `Containment` alone. `XParsec.FSharp.SemanticAnalysis.Tests`, `XParsec.FSharp.Codegen.Clr.Tests`,
+audit finds a hole. Step 5 touched `SymbolKeys`, `ExternalSymbols`,
+`PublishedSurface`, `TypeRegistry`, the new `ModuleDeclarations`, `Containment`, `Elaborate` and
+the CLR backend's `CodegenSymbols` / `ClrEnv`. `XParsec.FSharp.SemanticAnalysis.Tests`, `XParsec.FSharp.Codegen.Clr.Tests`,
 `XParsec.FSharp.Codegen.Js.Tests` and `Vesper.Tests` gate each step.
 
 Sequencing: after the open overhaul, whose ranked machinery step 2 reuses. Step 2 deletes the

@@ -45,6 +45,8 @@ let tests =
                         Kind.UnresolvedQualifiedName "A.B.c", DiagCode.FSharp 39
                         // `tcModuleAbbreviationForNamespace`
                         Kind.AbbreviatedNamespace "System.Collections", DiagCode.FSharp 965
+                        // `DuplicateModuleSpecification`
+                        Kind.DuplicateModule "Test.A.Dup", DiagCode.FSharp 248
                         // `TyconBadArgs`
                         Kind.TypeArgArity("Map", 2, 1), DiagCode.FSharp 33
                         // `UnionCaseWrongArguments`

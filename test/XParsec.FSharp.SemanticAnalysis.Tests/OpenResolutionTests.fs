@@ -34,16 +34,63 @@ let private provider: IExternalSymbolProvider =
             [ ExternalCaseShape.create ("Blue", EqArray.empty) ]
     )
 
-let private analyse (input: string) =
+/// The contract stack, extended with three modules of `namespace Ref`, of which `Ref.Rqa`
+/// alone carries `[<RequireQualifiedAccess>]`. Each module publishes one value named `ext…`.
+/// The shadowing sources below declare a module at each path, so each `open` reaches two
+/// declarations of one path. The real contracts stay in the stack because a module's own
+/// `[<RequireQualifiedAccess>]` is read by resolving the attribute type.
+let private shadowedProvider: IExternalSymbolProvider =
+    let modul name =
+        SymbolKeyOps.moduleInNamespace "Ref" name
+
+    let publishModule (b: PublishedSurfaceBuilder) (name: string) (facts: ModuleFacts) (valueName: string) =
+        PublishedSurfaceBuilder.addModule
+            b
+            (modul name)
+            {
+                Home = SymbolHome.Unstamped
+                Facts = facts
+            }
+
+        PublishedSurfaceBuilder.addValue
+            b
+            (ExternalSymbols.monoFrozen
+                (ModuleContainer.InModule(modul name))
+                valueName
+                (FTConst(RuntimeNames.intKey, EqArray.empty)))
+
+    let published =
+        providerOfSurface (fun b ->
+            publishModule
+                b
+                "Rqa"
+                { ModuleFacts.plain with
+                    RequiresQualifiedAccess = true
+                }
+                "extV"
+
+            publishModule b "Plain" ModuleFacts.plain "extX"
+            publishModule b "Other" ModuleFacts.plain "extW"
+        )
+
+    ExternalSymbolProviders.composite [ published; realProvider.Value ]
+
+let private analyseWith (external: IExternalSymbolProvider) (input: string) =
     let lexed, file = parseFile input
 
-    let ctx = PassContext(provider, LexedFile.ofText lexed, testCompiling)
+    let ctx = PassContext(external, LexedFile.ofText lexed, testCompiling)
 
     NameResolution.run ctx file
     ctx
 
+let private analyse (input: string) = analyseWith provider input
+
 let private hasUnresolved (ctx: PassContext) : bool =
     ctx.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "Unresolved")
+
+/// FS0892, `open` of a `[<RequireQualifiedAccess>]` module.
+let private refusesOpen (ctx: PassContext) : bool =
+    ctx.Diagnostics |> Seq.exists (fun d -> d.Code = DiagCode.FSharp 892)
 
 [<Tests>]
 let tests =
@@ -125,5 +172,116 @@ let tests =
             test "an unknown qualified operator long-ident is unresolved" {
                 let ctx = analyse "let f = A.B.(*)"
                 Expect.isTrue (hasUnresolved ctx) "A.B.(*) is unresolved — provider knows no op_Multiply"
+            }
+
+            // A module path declared by this compilation AND by a reference: `open` reaches
+            // both declarations, so `[<RequireQualifiedAccess>]` on either one refuses it and a
+            // path both declare plainly contributes both their members. The three cases run
+            // each refusal direction and the merge. Probed against a compiled reference
+            // (probes 18 and 19 of abbrev-representation-plan.md).
+            test "the reference's [<RequireQualifiedAccess>] refuses an open of a plain local module" {
+                let ctx =
+                    analyseWith
+                        shadowedProvider
+                        "\
+namespace Ref
+
+module Rqa =
+    let locV = 1
+
+module Use =
+    open Rqa
+    let x = locV
+"
+
+                Expect.isTrue (refusesOpen ctx) "Ref.Rqa is RQA in the reference"
+            }
+
+            // Both members are read QUALIFIED: the refusal falls on the `open` alone, and the
+            // reference's `extX` stays reachable through the path the local declaration shares.
+            test "a local [<RequireQualifiedAccess>] refuses an open of a plain referenced module" {
+                let ctx =
+                    analyseWith
+                        shadowedProvider
+                        "\
+namespace Ref
+
+[<RequireQualifiedAccess>]
+module Plain =
+    let locV = 1
+
+module Use =
+    open Plain
+    let x = Plain.locV + Plain.extX
+"
+
+                Expect.isTrue (refusesOpen ctx) "Ref.Plain is RQA in this compilation"
+                Expect.isFalse (hasUnresolved ctx) "both declarations of Ref.Plain answer a qualified read"
+            }
+
+            // A local declaration below the `open` has not entered scope there, so the
+            // `open` reaches the reference's declaration alone and its own
+            // `[<RequireQualifiedAccess>]` does not refuse it.
+            test "a local [<RequireQualifiedAccess>] declared below the open does not refuse it" {
+                let ctx =
+                    analyseWith
+                        shadowedProvider
+                        "\
+namespace Ref
+
+module Use =
+    open Plain
+    let x = extX
+
+[<RequireQualifiedAccess>]
+module Plain =
+    let locV = 1
+"
+
+                Expect.isFalse (refusesOpen ctx) "the local Ref.Plain enters scope below the open"
+                Expect.isFalse (hasUnresolved ctx) "extX is the reference's"
+            }
+
+            // Above the local `module Plain`, the reference's `Ref.Plain` supplies a qualified
+            // name; below it, the local declaration is in scope as well.
+            test "a use above a local module of a referenced path reads the referenced module" {
+                let ctx =
+                    analyseWith
+                        shadowedProvider
+                        "\
+namespace Ref
+
+module Use =
+    let a = Plain.extX
+
+module Plain =
+    let locV = 1
+
+module Use2 =
+    let b = Plain.locV + Plain.extX
+"
+
+                Expect.isFalse (hasUnresolved ctx) "extX is the reference's above and below; locV the local's below"
+            }
+
+            // Probe 18: one `open` of a shared path reaches both declarations, so this
+            // compilation's `locV` and the reference's `extW` are in scope together.
+            test "an open of a path both sources declare plainly admits both their members" {
+                let ctx =
+                    analyseWith
+                        shadowedProvider
+                        "\
+namespace Ref
+
+module Other =
+    let locV = 1
+
+module Use =
+    open Other
+    let x = locV + extW
+"
+
+                Expect.isFalse (refusesOpen ctx) "neither declaration of Ref.Other is RQA"
+                Expect.isFalse (hasUnresolved ctx) "locV is this compilation's, extW the reference's"
             }
         ]

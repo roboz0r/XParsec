@@ -341,17 +341,22 @@ type CompiledName =
         | ValueSome(CompiledName n) -> n
         | ValueNone -> source
 
-/// What a module's declaration states about it.
+/// What ONE declaration of a module states about it. A module path is declared at most once
+/// per assembly (FS0248), so a path declared by this compilation and by a reference has one
+/// of these per assembly.
 [<Struct>]
 type ModuleFacts =
     {
-        /// The static class the module emits as, where that differs from the name its source
-        /// writes (`ListModule` for `module List`).
+        /// The static class THIS declaration emits as, where that differs from the name its
+        /// source writes (`ListModule` for `module List`). Each declaration of a path emits
+        /// its own class.
         CompiledName: CompiledName voption
-        /// `[<RequireQualifiedAccess>]` is written on the module, so an `open` of it is refused.
+        /// `[<RequireQualifiedAccess>]` is written on THIS declaration. An `open` addresses the
+        /// path rather than one declaration, so `ModuleDeclaration.anyRefusesOpen` decides an
+        /// `open`.
         RequiresQualifiedAccess: bool
-        /// `[<AutoOpen>]` is written on the module, so its contents are in scope wherever the
-        /// module itself is.
+        /// `[<AutoOpen>]` is written on THIS declaration, so ITS contents are in scope wherever
+        /// the module itself is. Another assembly's declaration of the path stays closed.
         IsAutoOpen: bool
     }
 
@@ -365,6 +370,22 @@ module ModuleFacts =
             RequiresQualifiedAccess = false
             IsAutoOpen = false
         }
+
+/// One declaration of a module path, with the assembly or file declaring it. A published
+/// surface homes its declarations in the file, and a package stack re-homes them in the
+/// assembly, as it does every symbol's `SymbolOrigin`.
+[<Struct>]
+type ModuleDeclaration =
+    { Home: SymbolHome; Facts: ModuleFacts }
+
+module ModuleDeclaration =
+
+    /// An `open` of a module path is refused when ANY declaration of the path carries
+    /// `[<RequireQualifiedAccess>]`. `CompiledName` and `IsAutoOpen` take no such fold: each
+    /// states a fact of its own declaration, which a reader selects rather than merges.
+    let anyRefusesOpen (declarations: EqArray<ModuleDeclaration>) : bool =
+        declarations
+        |> EqArray.exists (fun declaration -> declaration.Facts.RequiresQualifiedAccess)
 
 /// A PLACE (assembly + namespace): enough to mint a ref without re-resolving. A symbol's
 /// declaring type is not here; containment is the key's job.

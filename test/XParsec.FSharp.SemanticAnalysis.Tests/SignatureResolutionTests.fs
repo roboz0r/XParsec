@@ -128,7 +128,7 @@ let private compiledNameText (CompiledName n) : string = n
 let private compiledModuleNames (r: Resolved) : (string * string) list =
     [
         for e in r.Surface.Modules do
-            match e.Value.CompiledName with
+            match e.Value.Facts.CompiledName with
             | ValueSome compiled -> SymbolKeyOps.moduleFullName e.Key, compiledNameText compiled
             | ValueNone -> ()
     ]

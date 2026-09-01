@@ -361,21 +361,6 @@ module internal Layout =
                         (List.length p.ProgramCctorValues + List.length p.ProgramMainValues)
         )
 
-        // A module class contributed by two files is a same-FQN module split across files.
-        // Rejected by name here rather than as an opaque duplicate-key throw when the
-        // handles are derived.
-        let classSeen = HashSet<TypeSlotKey>()
-
-        for f in files do
-            for k in f.BuiltKeys do
-                match k with
-                | TypeSlotKey.ModuleClass _ ->
-                    if not (classSeen.Add k) then
-                        failwithf
-                            "Layout.combine: module class %A is contributed by more than one file, so that module's definition is split across files"
-                            k
-                | _ -> ()
-
         // Minted here, not per file, so it is TypeDef row 1 for the whole assembly no
         // matter how many files are combined.
         let moduleNode =

@@ -122,6 +122,7 @@
     <Compile Include="Intrinsics.fs" />
     <Compile Include="TypeInfos.fs" />
     <Compile Include="TypeRegistry.fs" />
+    <Compile Include="ModuleDeclarations.fs" />
     <Compile Include="ResolvedItem.fs" />
     <Compile Include="PassContext.fs" />
     <Compile Include="BaseEligibility.fs" />

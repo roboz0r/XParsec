@@ -163,15 +163,18 @@ let private expectBagSpellings (view: IExternalSymbolProvider) : unit =
 
     match bySource with
     | ModuleContainer.InModule m ->
-        Expect.equal
-            (view.Scope.TryModule m |> ValueOption.bind (fun facts -> facts.CompiledName))
-            (ValueSome(CompiledName "BagModule"))
-            "the suffixed module states the class it emits as"
+        match view.Scope.DeclarationsOf m with
+        | EqOne declaration ->
+            Expect.equal
+                declaration.Facts.CompiledName
+                (ValueSome(CompiledName "BagModule"))
+                "the suffixed module states the class it emits as"
+        | other -> failtestf "one view declares Test.A.Bag once: %A" other
     | ModuleContainer.InNamespace _ -> failtest "Test.A.Bag is a module"
 
     Expect.equal
-        (view.Scope.TryModule(SymbolKeyOps.moduleInNamespace "Test.A" "Absent"))
-        ValueNone
+        (view.Scope.DeclarationsOf(SymbolKeyOps.moduleInNamespace "Test.A" "Absent"))
+        EqArray.empty
         "a module this surface never published states nothing, rather than defaulting to its source name"
 
 // --- Composition ------------------------------------------------------------------------
@@ -199,7 +202,7 @@ let private scopeOfCases (cases: ExternalUnionCase list) : IScopeContents =
                 ]
 
         member _.TypesNamed(_, _) = EqArray.empty
-        member _.TryModule _ = ValueNone
+        member _.DeclarationsOf _ = EqArray.empty
     }
 
 let private root = ModuleContainer.InNamespace NamespaceKey.Global
@@ -325,8 +328,8 @@ let tests =
                         match containerOrFail scope "Test.Ar.M" with
                         | ModuleContainer.InModule m ->
                             Expect.equal
-                                (scope.TryModule m)
-                                (ValueSome ModuleFacts.plain)
+                                (scope.DeclarationsOf m |> EqArray.map (fun d -> d.Facts))
+                                (EqArray.singleton ModuleFacts.plain)
                                 "a published module carrying no suffix is a declaration, not an absence"
                         | ModuleContainer.InNamespace _ -> failtest "Test.Ar.M is a module"
                     }
@@ -358,6 +361,58 @@ module P =
                             "file 2's value through the stack"
 
                         Expect.isTrue (scope.TryValue(SymbolKeyOps.bindingKeyOf p "v")).IsNone "no cross-module leak"
+                    }
+
+                    // Two assemblies declaring ONE module path, disagreeing about
+                    // `[<RequireQualifiedAccess>]`. A first-hit composition would answer with
+                    // whichever source came first, turning the `open` refusal on list order.
+                    // Each source is its own package stack, so each declaration carries its
+                    // assembly as its home.
+                    test "a composed stack carries every source's declaration of a shared module path" {
+                        let dual = SymbolKeyOps.moduleInNamespace "Test.Shared" "Dual"
+
+                        let declaring (assembly: string) (facts: ModuleFacts) : IExternalSymbolProvider =
+                            ExternalSymbolProviders.stack
+                                (ValueSome(SymbolHome.InAssembly(AssemblyName assembly)))
+                                []
+                                [
+                                    providerOfSurface (fun b ->
+                                        PublishedSurfaceBuilder.addModule
+                                            b
+                                            dual
+                                            {
+                                                Home = SymbolHome.Unstamped
+                                                Facts = facts
+                                            }
+                                    )
+                                ]
+
+                        let scope =
+                            (ExternalSymbolProviders.composite
+                                [
+                                    declaring "PlainAsm" ModuleFacts.plain
+                                    declaring
+                                        "RqaAsm"
+                                        { ModuleFacts.plain with
+                                            RequiresQualifiedAccess = true
+                                        }
+                                ])
+                                .Scope
+
+                        let declarations = scope.DeclarationsOf dual
+
+                        Expect.equal
+                            (declarations |> EqArray.map (fun d -> d.Home))
+                            (EqArray.ofSeq
+                                [
+                                    SymbolHome.InAssembly(AssemblyName "PlainAsm")
+                                    SymbolHome.InAssembly(AssemblyName "RqaAsm")
+                                ])
+                            "both assemblies declare Test.Shared.Dual, each homed in itself"
+
+                        Expect.isTrue
+                            (ModuleDeclaration.anyRefusesOpen declarations)
+                            "one assembly's [<RequireQualifiedAccess>] refuses the open"
                     }
                 ]
 

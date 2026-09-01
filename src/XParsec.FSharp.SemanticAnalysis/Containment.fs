@@ -9,6 +9,17 @@ open XParsec.FSharp.Parser
 [<AutoOpen>]
 module Containment =
 
+    /// A module scope's own declaration.
+    [<NoComparison>]
+    type private EnclosingModule =
+        {
+            Key: ModuleKey
+            /// What the declaration states.
+            Facts: ModuleFacts
+            /// The module's name token, where a diagnostic about the declaration lands.
+            Ident: SyntaxToken
+        }
+
     /// One scope of a declaration's enclosing chain.
     [<NoComparison>]
     type private EnclosingScope =
@@ -18,8 +29,8 @@ module Containment =
             VisibleFrom: int
             /// The dotted path a local `open` writes for the scope (`List`).
             SourcePath: string
-            /// What the module's declaration states. A namespace takes `ModuleFacts.plain`.
-            Facts: ModuleFacts
+            /// The scope's declaration. A namespace scope carries none.
+            Module: EnclosingModule voption
         }
 
     /// A declaration's enclosing scopes, OUTERMOST first, with the innermost chain itself.
@@ -57,14 +68,15 @@ module Containment =
                     Container = container
                     VisibleFrom = BindingRank.unpositioned
                     SourcePath = path
-                    Facts = ModuleFacts.plain
+                    Module = ValueNone
                 }
 
             for md in c.Modules do
                 let src = this.NameOf md.Ident
                 let attrs = this.ResolveAttributes md.Attributes
                 let compiled = this.CompiledModuleNameOf(attrs, src)
-                container <- ModuleContainer.InModule(SymbolKeyOps.moduleKeyOf container src)
+                let key = SymbolKeyOps.moduleKeyOf container src
+                container <- ModuleContainer.InModule key
                 path <- SymbolKeyOps.qualify path src
 
                 scopes.Add
@@ -72,12 +84,18 @@ module Containment =
                         Container = container
                         VisibleFrom = md.ModuleToken.StartIndex
                         SourcePath = path
-                        Facts =
-                            {
-                                CompiledName = CompiledName.OfPair(src, compiled)
-                                RequiresQualifiedAccess = AttributeDecode.isRequireQualifiedAccess attrs
-                                IsAutoOpen = AttributeDecode.isAutoOpen attrs
-                            }
+                        Module =
+                            ValueSome
+                                {
+                                    Key = key
+                                    Facts =
+                                        {
+                                            CompiledName = CompiledName.OfPair(src, compiled)
+                                            RequiresQualifiedAccess = AttributeDecode.isRequireQualifiedAccess attrs
+                                            IsAutoOpen = AttributeDecode.isAutoOpen attrs
+                                        }
+                                    Ident = md.Ident
+                                }
                     }
 
             {
@@ -96,7 +114,8 @@ module Containment =
         /// resolves against. Every enclosing scope is noted under the SOURCE path an `open`
         /// writes it as, and each enclosing module with what its declaration states. `recScope`
         /// is the innermost enclosing `rec` scope's keyword offset, which hoists a module
-        /// declared inside it to the top of that scope.
+        /// declared inside it to the top of that scope. A module already declared by an earlier
+        /// file of this assembly is FS0248, reported at its first entry.
         member this.EnterContainment(c: DeclContainment<SyntaxToken>, recScope: int voption) : ModuleContainer =
             let enclosing = this.EnclosingChainOf c
 
@@ -112,9 +131,16 @@ module Containment =
                             | ValueNone -> scope.VisibleFrom
                     }
 
-                match scope.Container with
-                | ModuleContainer.InModule m -> TypeRegistry.noteModule this.Types m scope.Facts
-                | ModuleContainer.InNamespace _ -> ()
+                match scope.Module with
+                | ValueSome md ->
+                    if
+                        not (this.Types.Modules.ContainsKey md.Key)
+                        && ModuleDeclarations.declaredEarlierInAssembly this.Resolver.Scope this.AssemblyName md.Key
+                    then
+                        this.Report(md.Ident, Kind.DuplicateModule(SymbolKeyOps.moduleFullName md.Key))
+
+                    ModuleDeclarations.note this.Types md.Key md.Facts
+                | ValueNone -> ()
 
             this.Resolution.EnclosingContainer <- ValueSome enclosing.Chain
             enclosing.Chain
@@ -159,8 +185,10 @@ module Containment =
                 | ValueSome o ->
                     let scope = this.Resolver.Scope
 
+                    let home = SymbolHome.InFile this.File.Path
+
                     match TypeRegistry.resolveInEnv this.Types scope this.Resolution.Env o.Scope o.Path o.Offset with
-                    | ValueSome c when TypeRegistry.requiresQualifiedAccess this.Types scope c ->
+                    | ValueSome c when ModuleDeclarations.requiresQualifiedAccess this.Types scope home o.Offset c ->
                         this.Report(li.Idents.[0], Kind.RequireQualifiedAccessModule(SymbolKeyOps.containerFullName c))
                     | _ -> ()
 

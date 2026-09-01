@@ -667,10 +667,10 @@ printfn \"%d\" (callIt g)
             }
 
             // Codegen composes the per-file views nearest-first, matching analysis. That
-            // agreement is NOT observable by running a re-declaration: layout rejects the
-            // second contribution to a module first, so the shadowed definition is
+            // agreement is NOT observable by running a re-declaration: analysis refuses the
+            // second file's declaration of the path (FS0248), so the shadowed definition is
             // unreachable rather than merely unpreferred. Analysis pins the ordering itself
-            // (`AssemblyFilesTests`); this pins the rejection that keeps it unobservable here.
+            // (`AssemblyFilesTests`); this pins the refusal that keeps it unobservable here.
             test "a module contributed by two files is REJECTED before emission" {
                 let file1 =
                     "\
@@ -717,8 +717,8 @@ printfn \"%d\" (Shared.dup ())
                 | Some m ->
                     Expect.stringContains
                         m
-                        "contributed by more than one file"
-                        (sprintf "layout rejects the split module; got %A" m)
+                        "Two modules named 'CrossFile.Shared' occur in two parts of this assembly"
+                        (sprintf "analysis refuses the split module; got %A" m)
             }
 
             // A prior file's module VALUE. The front end resolves and types it; codegen has a

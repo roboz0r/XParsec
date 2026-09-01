@@ -82,6 +82,9 @@ let private undefinedName (d: Diagnostic) : bool = d.Code = DiagCode.FSharp 39
 /// FS0892, `open` of a `[<RequireQualifiedAccess>]` module.
 let private opensRqaModule (d: Diagnostic) : bool = d.Code = DiagCode.FSharp 892
 
+/// FS0248, a module path declared by two files of one assembly.
+let private duplicatesModule (d: Diagnostic) : bool = d.Code = DiagCode.FSharp 248
+
 /// FS0965, a module abbreviation whose target is a namespace.
 let private abbreviatesNamespace (d: Diagnostic) : bool = d.Code = DiagCode.FSharp 965
 
@@ -314,7 +317,7 @@ let private compiledNameText (CompiledName n) : string = n
 let private publishedModuleNames (file1: string) : (string * string) list =
     [
         for e in (publishedBy file1).Modules do
-            match e.Value.CompiledName with
+            match e.Value.Facts.CompiledName with
             | ValueSome compiled -> SymbolKeyOps.moduleFullName e.Key, compiledNameText compiled
             | ValueNone -> ()
     ]
@@ -653,40 +656,6 @@ module N =
                             Expect.isEmpty (errorsOf f) (sprintf "%A: %A" f.Retained.Path (errorsOf f))
                     }
 
-                    // fsi: above the local `module M`, the referenced `Test.B.M` supplies the
-                    // name; below it, the local module shadows the referenced one.
-                    test "a use above a local module of a referenced path reads the referenced module" {
-                        let all =
-                            analyse
-                                [
-                                    impl
-                                        "file1.fs"
-                                        "\
-namespace Test.B
-
-module M =
-    let v : int = 1
-"
-                                    impl
-                                        "file2.fs"
-                                        "\
-namespace Test.B
-
-module Use =
-    let a () : int = M.v
-
-module M =
-    let v : string = \"local\"
-
-module Use2 =
-    let b () : string = M.v
-"
-                                ]
-
-                        for f in all do
-                            Expect.isEmpty (errorsOf f) (sprintf "%A: %A" f.Retained.Path (errorsOf f))
-                    }
-
                     test "the alias is out of scope above its own declaration" {
                         let all =
                             analyse
@@ -800,6 +769,30 @@ module N =
                         Expect.isTrue
                             (errorsOf all.[1] |> List.exists opensRqaModule)
                             (sprintf "FS0892 at the `open`; got %A" (errorsOf all.[1]))
+                    }
+
+                    // FS0248: a module path is declared at most once per assembly. The second
+                    // file's declaration is the duplicate, reported at its name.
+                    test "a module path declared by two files of one assembly is refused" {
+                        let all =
+                            analyse
+                                [
+                                    impl "file1.fs" moduleLib
+                                    impl
+                                        "file2.fs"
+                                        "\
+namespace Test.A
+
+module M =
+    let w : int = 2
+"
+                                ]
+
+                        Expect.isEmpty (errorsOf all.[0]) "the first declaration stands"
+
+                        Expect.isTrue
+                            (errorsOf all.[1] |> List.exists duplicatesModule)
+                            (sprintf "FS0248 at the second declaration; got %A" (errorsOf all.[1]))
                     }
 
                     test "`open` of a module carrying no `[<RequireQualifiedAccess>]` is admitted" {

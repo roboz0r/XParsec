@@ -408,6 +408,9 @@ module FrozenCodecDiagnostics =
         | Kind.RequireQualifiedAccessModule path ->
             w.Write 59uy
             w.Write path
+        | Kind.DuplicateModule path ->
+            w.Write 60uy
+            w.Write path
         | Kind.OperatorFormQualifiedName firstSegment ->
             w.Write 8uy
             w.Write firstSegment
@@ -595,6 +598,7 @@ module FrozenCodecDiagnostics =
         | 7uy -> Kind.UnresolvedQualifiedName(r.ReadString())
         | 58uy -> Kind.AbbreviatedNamespace(r.ReadString())
         | 59uy -> Kind.RequireQualifiedAccessModule(r.ReadString())
+        | 60uy -> Kind.DuplicateModule(r.ReadString())
         | 8uy -> Kind.OperatorFormQualifiedName(r.ReadString())
         | 9uy -> Kind.UndefinedPatternDiscriminator(r.ReadString())
         | 10uy ->

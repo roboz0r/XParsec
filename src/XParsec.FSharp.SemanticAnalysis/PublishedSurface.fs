@@ -29,8 +29,8 @@ type PublishedSurfaceBuilder =
         ExternForms: Dictionary<TypeKey, ExternForm>
         /// A type's FULL member list, in DECLARATION order: the overload scan depends on it.
         MembersByKey: Dictionary<TypeKey, ResizeArray<ExternalMember>>
-        /// Every published module, with what its declaration states.
-        Modules: Dictionary<ModuleKey, ModuleFacts>
+        /// Every published module, with what its declaration states and where it is declared.
+        Modules: Dictionary<ModuleKey, ModuleDeclaration>
         /// Declaring union's `typeMetaName` + `.` + case name -> the case; every case published.
         UnionCases: Dictionary<string, ExternalUnionCase>
         /// Field name -> every record declaring it, a MULTIMAP rather than first-wins: a field
@@ -58,9 +58,9 @@ module PublishedSurfaceBuilder =
             ImplicitOpens = []
         }
 
-    /// Publish `m` with what its declaration states.
-    let addModule (surface: PublishedSurfaceBuilder) (m: ModuleKey) (facts: ModuleFacts) : unit =
-        surface.Modules.[m] <- facts
+    /// Publish `m`'s declaration.
+    let addModule (surface: PublishedSurfaceBuilder) (m: ModuleKey) (declaration: ModuleDeclaration) : unit =
+        surface.Modules.[m] <- declaration
 
     /// Registering a shape whose `TyparArity` disagrees with `key`'s will fail: the two state
     /// the same fact, and `typeKeyOfContainer` is the one minting rule for it.
@@ -179,8 +179,8 @@ type PublishedSurface =
         ExternForms: EqArray<SurfaceEntry<TypeKey, ExternForm>>
         /// A type's FULL member list, in DECLARATION order: the overload scan depends on it.
         MembersByKey: EqArray<SurfaceEntry<TypeKey, EqArray<ExternalMember>>>
-        /// Every published module, with what its declaration states.
-        Modules: EqArray<SurfaceEntry<ModuleKey, ModuleFacts>>
+        /// Every published module, with what its declaration states and where it is declared.
+        Modules: EqArray<SurfaceEntry<ModuleKey, ModuleDeclaration>>
         /// Declaring union's `typeMetaName` + `.` + case name -> the case.
         UnionCases: EqArray<SurfaceEntry<string, ExternalUnionCase>>
         /// Field name -> every record declaring it.
@@ -260,7 +260,7 @@ module PublishedSurface =
                         yield! b.ImplicitOpens
 
                         for e in modules do
-                            if e.Value.IsAutoOpen then
+                            if e.Value.Facts.IsAutoOpen then
                                 ImplicitOpen.AutoOpen e.Key
                     }
                 )
@@ -379,10 +379,12 @@ module PublishedSurface =
                 | true, c -> ValueSome c
                 | _ -> ValueNone
 
-            member _.TryModule m =
+            // One view is one surface's declarations, and a surface declares a module path
+            // at most once.
+            member _.DeclarationsOf m =
                 match modules.TryGetValue m with
-                | true, facts -> ValueSome facts
-                | _ -> ValueNone
+                | true, declaration -> EqArray.singleton declaration
+                | _ -> EqArray.empty
 
             member _.TryValue key =
                 match symbols.TryGetValue key with
