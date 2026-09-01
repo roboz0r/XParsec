@@ -814,6 +814,26 @@ let tests =
                 Expect.isFalse (isHeritable ctx "IFoo") "not recorded as a heritable base"
             }
 
+            test "static abstract member diagnoses NotYetSupported and registers static" {
+                let ctx = analyse "type ICounter =\n    static abstract Next: int -> int"
+
+                let rejected =
+                    ctx.Diagnostics
+                    |> Seq.exists (fun d ->
+                        match d.Kind with
+                        | Kind.NotYetSupported feature -> feature.Contains "static abstract"
+                        | _ -> false
+                    )
+
+                Expect.isTrue rejected "static abstract slot reports NotYetSupported"
+
+                let info = expectClass ctx "ICounter"
+
+                match info.Members |> Seq.tryFind (fun m -> m.Name = "Next") with
+                | Some m -> Expect.isTrue m.IsStatic "the slot registers with its staticness"
+                | None -> failtest "static abstract slot not registered"
+            }
+
             // A cycle is only WRITABLE inside one `type … and …` group: file-order scoping
             // lets a class inherit only from a type declared above it, so the back-edge
             // needs the group.

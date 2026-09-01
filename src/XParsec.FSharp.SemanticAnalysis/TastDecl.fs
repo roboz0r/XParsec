@@ -300,6 +300,9 @@ type TAbstractMethodG<'ty> =
         /// (`abstract member Current: int`, emitted as a `get_Current` slot), `Accessor` for one
         /// half of `abstract P: int with get, set`, and `Method` for a slot keeping its bare name.
         Kind: TMemberKind
+        /// `static abstract Op: …`. Declaring one is diagnosed `NotYetSupported`, so codegen
+        /// sees only `false`.
+        IsStatic: bool
     }
 
 /// The payload of `TTypeKindG.Class`. No `'tok`: a class bears no token of its own, `Enum`'s

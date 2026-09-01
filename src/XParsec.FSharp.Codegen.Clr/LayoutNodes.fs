@@ -318,8 +318,7 @@ module internal LayoutNodes =
                                 Method = key
                                 Name = m.Name
                                 Kind = m.Kind
-                                // `TAbstractMethod` carries no staticness.
-                                IsStatic = false
+                                IsStatic = m.IsStatic
                                 ParamTys = abstractMethodParamTys m
                                 RetTy = snd (uncurry m.Signature)
                             }

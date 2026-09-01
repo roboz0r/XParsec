@@ -293,6 +293,7 @@ module TastConvert =
             MethodTypeParams = am.MethodTypeParams
             Signature = f am.Signature
             Kind = am.Kind
+            IsStatic = am.IsStatic
         }
 
     let enumCase (fTok: 'ta -> 'tb) (c: TEnumCaseG<'ta>) : TEnumCaseG<'tb> =

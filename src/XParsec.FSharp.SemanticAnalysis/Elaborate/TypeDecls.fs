@@ -139,6 +139,7 @@ module internal ElaborateTypeDecls =
                                         MethodTypeParams = EqArray.ofArray (GeneralizedTypars.names m.CanonicalTypars)
                                         Signature = m.Type
                                         Kind = m.Kind
+                                        IsStatic = m.IsStatic
                                     }
                         }
                     )

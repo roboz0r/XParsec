@@ -306,6 +306,11 @@ module NameResolutionMemberRegistration =
             | TypeDefnElement.Member(MemberDefn.Member(staticToken = s; keyword = kw; defn = d)) ->
                 let isStatic = s.IsSome
 
+                match kw with
+                | MemberKeyword.Abstract(abstractToken = abstractTok) when isStatic ->
+                    ctx.Report(abstractTok, Kind.NotYetSupported "static abstract member")
+                | _ -> ()
+
                 let isOverride =
                     match kw with
                     | MemberKeyword.Override _

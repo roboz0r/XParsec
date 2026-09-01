@@ -629,18 +629,21 @@ module FrozenCodecTypes =
         writeStringArray w m.MethodTypeParams
         writeTypeRef w m.Signature
         writeTMemberKind w m.Kind
+        w.Write m.IsStatic
 
     let readAbstractMethod (r: FrozenReader) : Frozen.TAbstractMethod =
         let name = r.ReadString()
         let methodTypeParams = readStringArray r
         let signature = readTypeRef r
         let kind = readTMemberKind r
+        let isStatic = r.ReadBoolean()
 
         {
             Name = name
             MethodTypeParams = methodTypeParams
             Signature = signature
             Kind = kind
+            IsStatic = isStatic
         }
 
     let writeUnionCase (w: FrozenWriter) (c: Frozen.TUnionCase) =

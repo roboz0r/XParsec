@@ -111,7 +111,7 @@ module FrozenSignature =
 
                     ExternalSignature.make (declArity, methodArity, parameters, returnTy)
 
-            memberFromParts declKey declArity am.Name false methodArity signature
+            memberFromParts declKey declArity am.Name am.IsStatic methodArity signature
 
         let membersOf
             (declKey: TypeKey)
