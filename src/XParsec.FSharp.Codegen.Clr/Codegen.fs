@@ -49,9 +49,8 @@ module Codegen =
         // After Prepare, so a local attribute class's ctor handle is registered.
         asm.PrepareCustomAttributeRows()
 
-        // Write the MethodDef table in layout order, then the TypeDef rows +
-        // sorted GenericParams, and serialise.
         asm.WriteMethods()
+        asm.WriteProperties()
         asm.Finalise()
 
     /// A gated assembly → one in-memory PE artifact, so a cross-file reference is re-homed to

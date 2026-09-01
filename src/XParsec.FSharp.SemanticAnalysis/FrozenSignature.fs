@@ -101,7 +101,7 @@ module FrozenSignature =
             let methodArity = am.MethodTypeParams.Length
 
             let signature =
-                if am.IsProperty then
+                if am.Kind = TMemberKind.Property then
                     ExternalSignature.value (declArity, methodArity, am.Signature)
                 else
                     let parameters, returnTy =

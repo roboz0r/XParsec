@@ -165,6 +165,68 @@ module Unification =
             mInfo.Generalise(canonicalMemberTypars ctx classTypars mInfo memberTy)
         | _ -> ()
 
+    /// The declared halves of one property share the property's type: unify the getter's
+    /// index and value types with the setter's, so a divergent pair
+    /// (`… with get () = 1 and set (v: string) = …`) diagnoses at the setter's site.
+    let private checkAccessorConformance (ctx: PassContext) (members: TypeMemberInfo[]) : unit =
+        // (index types, value type) as the accessor's zonked type spells them: a getter's
+        // parameters index the property and its return is the value (`get ()` types as
+        // `unit -> T`, an empty index); a setter carries the value last.
+        let shapeOf (mInfo: TypeMemberInfo) (role: TAccessorRole) : SemType list * SemType =
+            let rec uncurry acc t =
+                match t with
+                | TyFun(a, b) -> uncurry (a :: acc) b
+                | _ -> List.rev acc, t
+
+            let ty = zonk ctx.Store mInfo.Type
+
+            match mInfo.Kind with
+            | TMemberKind.Property -> [], ty
+            | _ ->
+                match role, uncurry [] ty with
+                | TAccessorRole.Getter, ([ p ], ret) when p = BuiltinTypes.tyUnit -> [], ret
+                | TAccessorRole.Getter, (index, ret) -> index, ret
+                | TAccessorRole.Setter, (ps, _) ->
+                    match List.rev ps with
+                    | value :: revIndex -> List.rev revIndex, value
+                    | [] -> [], ty
+
+        let halves =
+            [
+                for mInfo in members do
+                    match TMemberKind.propertyOf mInfo.Name mInfo.Kind with
+                    | ValueSome(prop, role) -> (prop, mInfo.IsStatic), (role, mInfo)
+                    | ValueNone -> ()
+            ]
+
+        for ((prop, _), group) in List.groupBy fst halves do
+            let find (wanted: TAccessorRole) =
+                group
+                |> List.tryPick (fun (_, (role, m)) -> if role = wanted then Some m else None)
+
+            match find TAccessorRole.Getter, find TAccessorRole.Setter with
+            | Some getter, Some setter ->
+                let gIndex, gValue = shapeOf getter TAccessorRole.Getter
+                let sIndex, sValue = shapeOf setter TAccessorRole.Setter
+
+                if List.length gIndex <> List.length sIndex then
+                    ctx.Report(
+                        setter.DeclSite.Tok,
+                        Kind.Message(
+                            sprintf
+                                "The getter of property '%s' takes %d index parameter(s) but the setter takes %d; the two halves of a property share its index parameters."
+                                prop
+                                (List.length gIndex)
+                                (List.length sIndex)
+                        )
+                    )
+                else
+                    for (gi, si) in List.zip gIndex sIndex do
+                        unify ctx setter.DeclSite.Tok gi si
+
+                    unify ctx setter.DeclSite.Tok gValue sValue
+            | _ -> ()
+
     /// Walk every method / property / auto-property body under a typar scope seeded
     /// from `TypeParams`, plus a `this` binding linked to `MkSelfType`. Placeholder
     /// member TyVars are pre-populated so body inference links them to the inferred type.
@@ -240,7 +302,7 @@ module Unification =
                 match mInfoOpt with
                 | Some mInfo when
                     generalisesMembers fc.Host
-                    && mInfo.Kind = ClassMemberKind.Method
+                    && mInfo.ClassKind = ClassMemberKind.Method
                     // An `override` conforms to a base virtual slot, so it is
                     // never generic.
                     && not mInfo.IsOverride
@@ -283,7 +345,7 @@ module Unification =
 
                         // An abstract method has no body to infer, so mint its
                         // canonical ABI order from the elaborated signature.
-                        if mInfo.Kind = ClassMemberKind.Method && not mInfo.SeedTypars.IsEmpty then
+                        if mInfo.ClassKind = ClassMemberKind.Method && not mInfo.SeedTypars.IsEmpty then
                             mInfo.Generalise(canonicalMemberTypars ctx fc.TypeParams mInfo sigTy)
                     | _ -> ()
                 | None -> ()
@@ -346,6 +408,8 @@ module Unification =
                             | ValueNone -> ()
                     | _ -> ()
                 | _ -> ()
+
+            checkAccessorConformance ctx fc.Members
         finally
             ctx.Resolution.EnclosingTypars <- savedEnclosing
 
@@ -409,7 +473,7 @@ module Unification =
     /// does, the slot is `System.Object`'s.
     let private checkOverrideConformance (ctx: PassContext) (info: ClassTypeInfo) : unit =
         for mInfo in info.Members do
-            if mInfo.IsOverride && mInfo.Kind = ClassMemberKind.Method then
+            if mInfo.IsOverride && mInfo.ClassKind = ClassMemberKind.Method then
                 let expected =
                     match tryBaseSlotType ctx info mInfo.Name with
                     | ValueSome slotTy -> ValueSome slotTy

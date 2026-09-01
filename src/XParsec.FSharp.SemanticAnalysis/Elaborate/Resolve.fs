@@ -137,7 +137,7 @@ module internal ElaborateResolve =
         (li: LongIdent<SyntaxToken>)
         : (NodeKey * SemType * string) voption =
         match tryLongIdentClassAnchor ctx li with
-        | ValueSome(bs, ty, m) when m.Kind = kind -> ValueSome(bs, ty, lastSegmentName ctx li)
+        | ValueSome(bs, ty, m) when m.ClassKind = kind -> ValueSome(bs, ty, lastSegmentName ctx li)
         | _ -> ValueNone
 
     /// `C.M` on a class / union / record `C`, when `M` is a static member of `kind`;
@@ -150,7 +150,7 @@ module internal ElaborateResolve =
         match tryLongIdentStaticMember ctx li with
         | ValueSome nm ->
             match kind with
-            | ValueSome k when nm.Member.Kind <> k -> ValueNone
+            | ValueSome k when nm.Member.ClassKind <> k -> ValueNone
             | _ -> ValueSome(nm.Decl.TypeKey, lastSegmentName ctx li)
         | ValueNone -> ValueNone
 
@@ -190,7 +190,7 @@ module internal ElaborateResolve =
             let useSite = ctx.UseSiteAt(NodeKey.ofToken classTok NodeKind.ExprIdent)
 
             TypeRegistry.tryStaticMember ctx.Types useSite (ctx.NameOf classTok) memberName
-            |> ValueOption.map (fun nm -> nm.Decl.TypeKey, memberName, nm.Member.Kind)
+            |> ValueOption.map (fun nm -> nm.Decl.TypeKey, memberName, nm.Member.ClassKind)
         | _ -> ValueNone
 
     /// `r.M(...)` where `r` has a class / union type and `M` is one of its instance methods.
@@ -208,7 +208,8 @@ module internal ElaborateResolve =
             match Unification.zonk ctx.Store (typeOfKey ctx (CstKeys.ofExpr r)) with
             | TyNominal(typeKey, _) ->
                 match TypeRegistry.tryNominalMemberByKey ctx.Types typeKey memberName with
-                | ValueSome nm when nm.Member.Kind = ClassMemberKind.Method -> ValueSome(r, nm.Decl.TypeKey, memberName)
+                | ValueSome nm when nm.Member.ClassKind = ClassMemberKind.Method ->
+                    ValueSome(r, nm.Decl.TypeKey, memberName)
                 | _ -> ValueNone
             | _ -> ValueNone
         | _ -> ValueNone
@@ -261,7 +262,7 @@ module internal ElaborateResolve =
                 let memberName = ctx.NameOf li.Idents.[n - 1]
 
                 match TypeRegistry.tryNominalMemberByKey ctx.Types typeKey memberName with
-                | ValueSome nm when nm.Member.Kind = ClassMemberKind.Method ->
+                | ValueSome nm when nm.Member.ClassKind = ClassMemberKind.Method ->
                     ValueSome(chainPrefix li, objArgTy, memberName)
                 | _ -> ValueNone
             | _ -> ValueNone

@@ -561,7 +561,7 @@ type internal Assembler
                         ParamArity = List.length paramTys
                         // The IL method name (a property → its `get_<Name>` getter);
                         // the use-site table below stays keyed by the bare member name.
-                        MetaName = if m.IsProperty then "get_" + m.Name else m.Name
+                        MetaName = memberMetaName m.Name m.Kind
                         ParamTys = paramTys
                         RetTy = retTy
                         MethodTyparCount = m.MethodTypeParams.Length
@@ -935,6 +935,36 @@ type internal Assembler
                 prepared.Count
                 layoutHandles.TotalMethods
 
+    /// Per row: the `Property` row, then a `MethodSemantics` row per half declared for it.
+    member this.WriteProperties() =
+        for row in layout.Properties do
+            let signature =
+                provider.PropertySignature(row.IsInstance, row.IndexTys, row.ValueTy)
+
+            let handle = ctx.AddProperty(row.Name, signature)
+            let predicted = layoutHandles.PropertyDefOf row.Key
+
+            if handle <> predicted then
+                failwithf
+                    "Layout: property '%s' predicted Property row %d <> actual %d"
+                    row.Name
+                    (MetadataTokens.GetRowNumber(toEntity predicted))
+                    (MetadataTokens.GetRowNumber(toEntity handle))
+
+            let bind (semantics: MethodSemanticsAttributes) (accessor: MethodKey voption) =
+                match accessor with
+                | ValueNone -> ()
+                | ValueSome key -> ctx.AddMethodSemantics(toEntity handle, semantics, layoutHandles.MethodDefOf key)
+
+            bind MethodSemanticsAttributes.Getter row.Getter
+            bind MethodSemanticsAttributes.Setter row.Setter
+
+        if ctx.PropertyRowCount <> layoutHandles.TotalProperties then
+            failwithf
+                "Layout: the Property table has %d rows but the layout owns %d"
+                ctx.PropertyRowCount
+                layoutHandles.TotalProperties
+
     member this.Finalise() : ClrArtifact =
         for struct (parent, attrCtor, blob) in attributeRows.Rows do
             ctx.AddCustomAttribute(parent, attrCtor, blob) |> ignore
@@ -1143,6 +1173,14 @@ type internal Assembler
                     )
 
                 verifyTypeHandle slot typeHandle
+
+        // The `PropertyMap` table: layout order is ascending by `Parent`, as `AddPropertyMap`
+        // requires.
+        for node in layout.Types do
+            match node.Properties with
+            | [] -> ()
+            | _ ->
+                ctx.AddPropertyMap(layoutHandles.TypeDefOf node.Slot.Key, layoutHandles.FirstPropertyOf node.Slot.Key)
 
         // Every handle now exists: add `GenericParam` rows in the order SRM
         // validates: by the owner's `TypeOrMethodDef` coded index, then index.

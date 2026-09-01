@@ -391,9 +391,36 @@ type, so a stray store throws `FieldAccessException` under the suites that execu
 and within `UnionEmit.prepareUnion` the `_tag` ref is scoped to the binding holding the `.ctor`
 and `get_Tag`, so no later body can name it.
 
-**Step 6 — emit real `Property` rows.**
+**Step 6 — emit real `Property` rows. DONE.** Every property a nominal declares — a class,
+record or union member, an interface's abstract slot, and a union's `Tag` — emits a `Property`
+row, a `PropertyMap` row on its declaring type, and a `MethodSemantics` row per accessor.
+Accessor method rows gained `MethodAttributes.SpecialName`.
 
-`get_Tag` is a `SpecialName` method, not a `Property` row. The emitter currently writes no `Property/MethodSemantics` rows for anything — a user's `member this.Start` already emits as a bare `get_Start`.
+**The pairing came from the TAST, not from unmangling names in the backend.** `TMemberKind`
+gained `Accessor of prop: string * role: TAccessorRole`, so `get_P` and `set_P` name the
+property they halve; `Elaborate/Members.fs` used to flatten `PropertyAccessors.PropertyAccessor`
+to a bare `Method` kind and make every consumer re-derive the pairing. `TypeMemberInfo.Kind`
+widened to `TMemberKind` with `ClassMemberKind` derived from it through
+`ClassMemberKind.ofMemberKind`, which is what carries the role onto an `abstract P: int with
+get, set` slot; the resolution sites read `TypeMemberInfo.ClassKind`, since whether a use site
+applies an argument group is a different question from which accessor a member is.
+`TMemberKind.keyKind` replaced the two open-coded `MemberKind` projections.
+
+The `Property` table is laid out like `Field` and `MethodDef` — `PropertySlot` on `TypeNode`,
+prefix-summed in `LayoutHandles`, written in row order against the prediction — because
+`PropertyMap` ranges must partition it. SRM sorts `MethodSemantics` for us but neither sorts
+nor validates `PropertyMap`, so those rows are added in one walk over the layout order rather
+than inside the five branches of the `TypeDef` walk. `MetadataStructure.assertPropertyRanges`
+pins the partition and that no accessor is named outside its declaring type's method range;
+`ClrStructuralDigest` folds the property rows and their accessor names, so the conformance
+goldens cover the new table.
+
+A property's signature comes from its getter when it declares one and from its setter's last
+parameter otherwise, derived once in `PropertySlot.ofAccessors`. The halves group by
+(property name, staticness), so a static and an instance property sharing a name are two
+rows. `Unification.checkAccessorConformance` unifies a declared pair's index and value types
+at the setter's site — a divergent pair diagnoses in the front end, and the layout asserts
+the agreement it then relies on.
 
 
 **Step 7 — fix a name resolution gap.** A bare union case declared in a module-held union does not resolve across a file boundary; the namespace-level form does. `test/XParsec.FSharp.Codegen.Clr.Tests/CrossFileTests.fs:216` routes around it — the cross-file `obj`-box test declares `type Holder = Wrap of obj` at namespace level with a comment saying why. Contrast `CrossFileTests.fs:320`, where a module-held union is reached cross-file, and `LongIdentResolutionTests.fs:157` ("module-held case, bare after open, construct + match"), which passes within the same file. So the missing piece is the module-held case's bare spelling specifically on the cross-file provider channel, not module-held unions in general.
@@ -432,11 +459,14 @@ closures on the same pass.
 3. **A nested type for every case, and a uniformly abstract base**, deviating from FSC's
    nullary-as-base-instance in `Tagged`. Metadata-only cost, and it removes a branch from every
    consumer of `EmittedCase`.
-4. **Where `_tag` exists, every read of it is `ldfld`.** No `Tag` property, and in particular no
-   abstract or virtual slot: the tag is never reached by dispatch. `UnionCaseTest.TagEquals`
-   carries a *field* handle, so this is unrepresentable rather than merely intended — a consumer
-   holding it has nothing to call. FSC emits a `get_Tag` property; we have no caller for one,
-   because match arms and structural bodies both load the field inline.
+4. **The union owns `_tag`, and every read of it outside the union goes through `get_Tag`.**
+   Step 5 made the field private and the accessor public, and `UnionCaseTest.TagEquals` carries
+   the *getter* (`TagTest.Getter`), so a match arm emits `call get_Tag`. `get_Tag` is
+   non-virtual, so the tag is still never reached by dispatch. Step 6 gives it a `Property`
+   row, matching FSC's `Tag`.
+
+   This supersedes the original decision — no accessor, no property, every reader `ldfld`ing
+   the field inline — which step 5 overtook.
 
 5. **A field takes the name the source declared, and FSC's positional name otherwise.**
    `of radius: float` emits `_radius`, matching FSC's backing-field spelling; a positional field

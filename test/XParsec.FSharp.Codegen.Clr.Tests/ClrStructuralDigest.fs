@@ -1,6 +1,6 @@
 /// SHA-256 over source-derived metadata only: assembly identity, referenced names +
-/// signatures, each `TypeDef`'s fields/methods/IL bodies. The Module row is excluded:
-/// its MVID is a fresh `Guid.NewGuid()` per compile, so raw PE bytes never match.
+/// signatures, each `TypeDef`'s fields/methods/properties/IL bodies. The Module row is
+/// excluded: its MVID is a fresh `Guid.NewGuid()` per compile, so raw PE bytes never match.
 module XParsec.FSharp.Codegen.Clr.Tests.ClrStructuralDigest
 
 open System
@@ -75,6 +75,24 @@ let private fold (h: IncrementalHash) (pe: PEReader) : unit =
 
                 if not ls.IsNil then
                     feedBytes h (md.GetBlobBytes (md.GetStandaloneSignature ls).Signature)
+
+        // Each accessor is folded by NAME, so a `MethodSemantics` row rebound to a
+        // different method moves the digest.
+        for ph in td.GetProperties() do
+            let pd = md.GetPropertyDefinition ph
+            feedString h (md.GetString pd.Name)
+            feedInt h (int pd.Attributes)
+            feedBytes h (md.GetBlobBytes pd.Signature)
+
+            let accessors = pd.GetAccessors()
+
+            for a in [ accessors.Getter; accessors.Setter ] do
+                feedString
+                    h
+                    (if a.IsNil then
+                         ""
+                     else
+                         md.GetString((md.GetMethodDefinition a).Name))
 
 /// The lowercase-hex SHA-256 of the structural fold over `bytes`.
 let ofBytes (bytes: byte[]) : string =

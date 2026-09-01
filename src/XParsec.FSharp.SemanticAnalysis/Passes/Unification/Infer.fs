@@ -110,7 +110,7 @@ module UnificationInfer =
         | ValueSome info when info.IsByRefLike ->
             let hasDispose =
                 info.Members
-                |> Array.exists (fun m -> m.Name = "Dispose" && not m.IsStatic && m.Kind = ClassMemberKind.Method)
+                |> Array.exists (fun m -> m.Name = "Dispose" && not m.IsStatic && m.ClassKind = ClassMemberKind.Method)
 
             if hasDispose then
                 ValueSome(SymbolKeyOps.memberKey info.TypeKey "Dispose" EqArray.empty 0 MemberKind.Method)

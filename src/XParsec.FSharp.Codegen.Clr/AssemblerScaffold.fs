@@ -22,34 +22,8 @@ module internal AssemblerScaffold =
 
         sigB
 
-    /// `FTFun('A, 'B)` ⇒ `(['A], 'B)`.
-    let rec uncurry (t: FrozenType) : FrozenType list * FrozenType =
-        match t with
-        | FTFun(a, b) ->
-            let ps, r = uncurry b
-            a :: ps, r
-        | _ -> [], t
-
     let argNames (n: int) : string list =
         [ for i in 0 .. n - 1 -> sprintf "arg%d" i ]
-
-    let private isUnitTy t =
-        match t with
-        | FTUnit -> true
-        | _ -> false
-
-    /// An abstract member's metadata parameter types: `abstract M : unit -> X` is a
-    /// *no-arg* method, so a sole leading `unit` argument is dropped.
-    let abstractMethodParamTys (m: Frozen.TAbstractMethod) : FrozenType list =
-        let paramTys, _ = uncurry m.Signature
-
-        match paramTys with
-        | [ single ] when isUnitTy single -> []
-        // `abstract Invoke : 'A * 'B -> 'C` has one tupled domain but emits as 2 params,
-        // as its conforming `member _.Invoke(a, b)` does; flatten so the runtime can bind
-        // the impl to the slot.
-        | [ FTTuple elems ] when elems.Length >= 2 -> EqArray.toList elems
-        | _ -> paramTys
 
     /// `instance <ret> <name><'C…>(<params…>)` for an abstract interface method.
     let abstractMethodSignature (provider: ClrProvider) (m: Frozen.TAbstractMethod) : BlobBuilder =

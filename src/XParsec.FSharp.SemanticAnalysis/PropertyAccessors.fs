@@ -12,10 +12,9 @@ module PropertyAccessors =
     /// declares.
     type PropertyAccessor =
         {
-            /// `P` for a parameterless getter; `get_P` / `set_P` for every other accessor,
-            /// which are methods because a property carries an object argument and nothing else.
+            /// `P` for a parameterless getter; `get_P` / `set_P` for every other accessor.
             Name: string
-            MemberKind: ClassMemberKind
+            Kind: TMemberKind
             /// The `get` / `set` token's site, so the two accessors of one property key apart.
             Site: NodeSite
             /// A parameterless getter's `()` is dropped, so the member types as `T` rather
@@ -43,7 +42,7 @@ module PropertyAccessors =
                 ValueSome
                     {
                         Name = propName
-                        MemberKind = ClassMemberKind.Property
+                        Kind = TMemberKind.Property
                         Site = m.Site
                         Defn =
                             { b with
@@ -54,7 +53,7 @@ module PropertyAccessors =
                 ValueSome
                     {
                         Name = AccessorNames.getterName propName
-                        MemberKind = ClassMemberKind.Method
+                        Kind = TMemberKind.Accessor(propName, TAccessorRole.Getter)
                         Site = m.Site
                         Defn = b
                     }
@@ -62,7 +61,7 @@ module PropertyAccessors =
                 ValueSome
                     {
                         Name = AccessorNames.setterName propName
-                        MemberKind = ClassMemberKind.Method
+                        Kind = TMemberKind.Accessor(propName, TAccessorRole.Setter)
                         Site = m.Site
                         Defn = b
                     }

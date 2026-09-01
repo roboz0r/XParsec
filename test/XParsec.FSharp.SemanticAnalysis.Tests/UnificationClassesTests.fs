@@ -449,6 +449,44 @@ let tests =
                     "one diagnostic, naming the property rather than the qualified name"
             }
 
+            // The two halves of one property share the property's type, so a divergent
+            // pair diagnoses at the setter instead of reaching the backend.
+            test "a getter/setter value-type mismatch diagnoses" {
+                let src =
+                    "type C() =\n    let mutable q = 0\n    member this.Q with get () = q and set (v: string) = ()"
+
+                let ctx = analyse src
+
+                let hasMismatch =
+                    ctx.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "mismatch")
+
+                Expect.isTrue hasMismatch "the halves' value types unify, so divergence diagnoses"
+            }
+
+            test "a getter/setter index-arity mismatch diagnoses" {
+                let src =
+                    "type C() =\n    let mutable q = 0\n    member this.Item with get (i: int) = i + q and set (w: int) = q <- w"
+
+                let ctx = analyse src
+
+                Expect.equal
+                    (ctx.Diagnostics |> Seq.map (fun d -> d.Message) |> List.ofSeq)
+                    [
+                        "The getter of property 'Item' takes 1 index parameter(s) but the setter takes 0; the two halves of a property share its index parameters."
+                    ]
+                    "the arity divergence is named rather than reported as a type mismatch"
+            }
+
+            // The unification that rejects a divergent pair also grounds an unannotated
+            // setter from its getter.
+            test "an unannotated setter takes its value type from the getter" {
+                let src =
+                    "type C() =\n    let mutable q = 0\n    member this.Q with get () = q and set (w) = q <- w"
+
+                let ctx = analyse src
+                Expect.isEmpty ctx.Diagnostics "no diagnostics"
+            }
+
             // The array declares its own `get_Item`, so it reaches the same accessor lookup
             // every other indexable type does.
             test "an array index is unaffected by the accessor lookup" {

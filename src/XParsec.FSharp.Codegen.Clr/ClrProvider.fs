@@ -134,6 +134,9 @@ type ClrProvider
     member _.InstanceMethodSignatureVoid(paramTys: FrozenType list) : BlobBuilder =
         enc.InstanceMethodSignatureVoid(paramTys)
 
+    member _.PropertySignature(isInstance: bool, indexTys: FrozenType list, valueTy: FrozenType) : BlobBuilder =
+        enc.PropertySignature(isInstance, indexTys, valueTy)
+
     member _.StaticMethodSignatureVoid(paramTys: FrozenType list) : BlobBuilder =
         enc.StaticMethodSignatureVoid(paramTys)
 

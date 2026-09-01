@@ -62,11 +62,6 @@ module internal ElaborateMembers =
         | MemberKeyword.Member _
         | MemberKeyword.Abstract _ -> false
 
-    let tMemberKindOf (kind: ClassMemberKind) : TMemberKind =
-        match kind with
-        | ClassMemberKind.Method -> TMemberKind.Method
-        | ClassMemberKind.Property -> TMemberKind.Property
-
     /// One `TTypeMember` a member element declares. A `with get`/`set` clause declares one per
     /// accessor; every other member form declares exactly one.
     [<NoEquality; NoComparison>]
@@ -112,7 +107,7 @@ module internal ElaborateMembers =
             |> Array.map (fun a ->
                 {
                     Name = a.Name
-                    Kind = tMemberKindOf a.MemberKind
+                    Kind = a.Kind
                     DeclKey = ValueSome a.Site.Key
                     Defn = ValueSome a.Defn
                     OwnAccess = ValueNone
@@ -178,13 +173,15 @@ module internal ElaborateMembers =
             let memberAccessibility = accessibilityOfToken memberAccess
             let decls = memberDecls ctx d
 
-            // A `PropertyWithGetSet` yields only `Property` decls, so the first decl's kind
-            // is the element's. `AbstractSignature` yields none: no element to check.
+            // Every decl a `PropertyWithGetSet` yields accesses the one property, so the first
+            // decl's kind is the element's. `AbstractSignature` yields none: no element to check.
             let usedOn =
                 match decls with
                 | [||] -> AttrTarget.Unchecked
-                | ds when ds.[0].Kind = TMemberKind.Property -> AttrTarget.Property
-                | _ -> AttrTarget.Method
+                | ds ->
+                    match TMemberKind.propertyOf ds.[0].Name ds.[0].Kind with
+                    | ValueSome _ -> AttrTarget.Property
+                    | ValueNone -> AttrTarget.Method
 
             let attributes = AttributeFold.resolveAndBuild ctx usedOn memberAttrs
 

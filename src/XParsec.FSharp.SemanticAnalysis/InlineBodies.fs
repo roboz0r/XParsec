@@ -110,10 +110,7 @@ module InlineBodies =
                         for m in TTypeKindG.members tdecl.Kind do
                             match liftMemberBody file m with
                             | Some body ->
-                                let kind =
-                                    match m.Kind with
-                                    | TMemberKind.Method -> MemberKind.Method
-                                    | TMemberKind.Property -> MemberKind.Property
+                                let kind = TMemberKind.keyKind m.Kind
 
                                 let key =
                                     SymbolKeyOps.memberKey

@@ -40,6 +40,8 @@ type MetadataContext() =
     // builder's own row count; a caller-side parallel counter drifts from the adds.
     member _.FieldRowCount: int = mb.GetRowCount(TableIndex.Field)
 
+    member _.PropertyRowCount: int = mb.GetRowCount(TableIndex.Property)
+
     /// The handle the *next* `AddParameter` will return (a method's `ParamList`
     /// start; past-the-end for a zero-parameter method).
     member _.NextParamHandle: ParameterHandle =
@@ -182,6 +184,24 @@ type MetadataContext() =
             bodyOffset,
             firstParam
         )
+
+    /// Properties must be added in the order the owning types claim them, because a
+    /// `PropertyMap` row's `PropertyList` runs to the next map row's.
+    member _.AddProperty(name: string, signature: BlobBuilder) : PropertyDefinitionHandle =
+        mb.AddProperty(PropertyAttributes.None, mb.GetOrAddString(name), mb.GetOrAddBlob(signature))
+
+    /// Claims `firstProperty` onward for `declaringType`. SRM neither sorts nor validates
+    /// this table, so callers must add rows in ascending `declaringType` order; a type
+    /// declaring no property gets NO row, rather than an empty range.
+    member _.AddPropertyMap(declaringType: TypeDefinitionHandle, firstProperty: PropertyDefinitionHandle) : unit =
+        mb.AddPropertyMap(declaringType, firstProperty)
+
+    /// Binds an accessor to the property it half-implements. SRM sorts the table by
+    /// `Association`, so add order is free.
+    member _.AddMethodSemantics
+        (association: EntityHandle, semantics: MethodSemanticsAttributes, accessor: MethodDefinitionHandle)
+        : unit =
+        mb.AddMethodSemantics(association, semantics, accessor)
 
     /// The mandatory `<Module>` pseudo-type (table row 1). `firstMethod`
     /// points at the first real method so its own method range stays empty.

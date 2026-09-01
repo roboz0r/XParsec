@@ -231,7 +231,7 @@ module NameResolutionMemberRegistration =
             let explicit = memberTyparNames ctx b.typarDefns
 
             let implicit =
-                match kind with
+                match ClassMemberKind.ofMemberKind kind with
                 | ClassMemberKind.Method -> implicitMemberTypars ctx classTypars b
                 | _ -> []
 
@@ -250,7 +250,7 @@ module NameResolutionMemberRegistration =
         let registerAutoProperty id isStatic isOverride =
             addMember
                 (ctx.NameOf id)
-                ClassMemberKind.Property
+                TMemberKind.Property
                 isStatic
                 isOverride
                 (NodeSite.ofToken NodeKind.PatIdent id)
@@ -280,14 +280,24 @@ module NameResolutionMemberRegistration =
                 match halves.Getter with
                 | ValueSome tok ->
                     match sigArgs.Length with
-                    | 0 -> registerAbstractSlot propName tok tds isStatic ClassMemberKind.Property
+                    | 0 -> registerAbstractSlot propName tok tds isStatic TMemberKind.Property
                     | _ ->
-                        registerAbstractSlot (AccessorNames.getterName propName) tok tds isStatic ClassMemberKind.Method
+                        registerAbstractSlot
+                            (AccessorNames.getterName propName)
+                            tok
+                            tds
+                            isStatic
+                            (TMemberKind.Accessor(propName, TAccessorRole.Getter))
                 | ValueNone -> ()
 
                 match halves.Setter with
                 | ValueSome tok ->
-                    registerAbstractSlot (AccessorNames.setterName propName) tok tds isStatic ClassMemberKind.Method
+                    registerAbstractSlot
+                        (AccessorNames.setterName propName)
+                        tok
+                        tds
+                        isStatic
+                        (TMemberKind.Accessor(propName, TAccessorRole.Setter))
                 | ValueNone -> ()
             | ValueNone -> ()
 
@@ -304,8 +314,8 @@ module NameResolutionMemberRegistration =
                     | MemberKeyword.Abstract _ -> false
 
                 match d with
-                | MethodOrPropDefn.Method(defn = b) -> registerNamed b ClassMemberKind.Method isStatic isOverride
-                | MethodOrPropDefn.Property(defn = b) -> registerNamed b ClassMemberKind.Property isStatic isOverride
+                | MethodOrPropDefn.Method(defn = b) -> registerNamed b TMemberKind.Method isStatic isOverride
+                | MethodOrPropDefn.Property(defn = b) -> registerNamed b TMemberKind.Property isStatic isOverride
                 | MethodOrPropDefn.AutoProperty(ident = id) -> registerAutoProperty id isStatic isOverride
                 | MethodOrPropDefn.AbstractSignature(MemberSig.MethodOrPropSig(
                     ident = idOrOp; typarDefns = tds; sign = CurriedSig(args = sigArgs))) ->
@@ -313,16 +323,16 @@ module NameResolutionMemberRegistration =
                     // is an abstract *property*; a curried/function signature is a method.
                     let kind =
                         if sigArgs.IsEmpty then
-                            ClassMemberKind.Property
+                            TMemberKind.Property
                         else
-                            ClassMemberKind.Method
+                            TMemberKind.Method
 
                     registerAbstractMethod idOrOp tds isStatic kind
                 | MethodOrPropDefn.PropertyWithGetSet(ident = propId; defns = defns) ->
                     PropertyAccessors.reportNonAccessors ctx propId defns
 
                     for a in PropertyAccessors.accessors ctx propId defns do
-                        registerBinding a.Name a.Site a.Defn a.MemberKind isStatic isOverride
+                        registerBinding a.Name a.Site a.Defn a.Kind isStatic isOverride
                 | MethodOrPropDefn.AbstractSignature(MemberSig.PropSig(
                     ident = idOrOp; typarDefns = tds; sign = CurriedSig(args = sigArgs); getSet = getSet)) ->
                     registerAbstractProperty idOrOp tds isStatic sigArgs getSet

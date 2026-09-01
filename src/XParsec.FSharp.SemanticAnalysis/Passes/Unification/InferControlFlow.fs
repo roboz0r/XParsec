@@ -99,11 +99,11 @@ module internal UnificationInferControlFlow =
 
         let moveNext =
             enumInfo.Members
-            |> Array.tryFind (fun m -> m.Name = "MoveNext" && not m.IsStatic && m.Kind = ClassMemberKind.Method)
+            |> Array.tryFind (fun m -> m.Name = "MoveNext" && not m.IsStatic && m.ClassKind = ClassMemberKind.Method)
 
         let current =
             enumInfo.Members
-            |> Array.tryFind (fun m -> m.Name = "Current" && not m.IsStatic && m.Kind = ClassMemberKind.Property)
+            |> Array.tryFind (fun m -> m.Name = "Current" && not m.IsStatic && m.ClassKind = ClassMemberKind.Property)
 
         match moveNext, current with
         | Some mn, Some cur ->
@@ -400,7 +400,9 @@ module internal UnificationInferControlFlow =
             match
                 info.Members
                 |> Array.tryFind (fun m ->
-                    m.Name = "GetEnumerator" && not m.IsStatic && m.Kind = ClassMemberKind.Method
+                    m.Name = "GetEnumerator"
+                    && not m.IsStatic
+                    && m.ClassKind = ClassMemberKind.Method
                 )
             with
             | Some ge ->

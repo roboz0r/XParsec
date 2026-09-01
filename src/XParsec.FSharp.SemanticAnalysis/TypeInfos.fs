@@ -27,11 +27,23 @@ type RecordFieldInfo(name: string, ty: SemType, isMutable: bool, declKey: NodeKe
     member val DeclKey = declKey
     member val Attributes: TAttributes = attributes
 
-/// Properties are read-only (get-only); an `AutoProperty` also lands here as `Property`.
+/// How resolution reads a member: whether a use site applies an argument group to it.
+/// `Property` is the parameterless getter, an `AutoProperty` included; every other accessor
+/// carries a parameter vector and reads as a `Method`.
 [<RequireQualifiedAccess>]
 type ClassMemberKind =
     | Method
     | Property
+
+[<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
+[<RequireQualifiedAccess>]
+module ClassMemberKind =
+
+    let ofMemberKind (kind: TMemberKind) : ClassMemberKind =
+        match kind with
+        | TMemberKind.Property -> ClassMemberKind.Property
+        | TMemberKind.Method
+        | TMemberKind.Accessor _ -> ClassMemberKind.Method
 
 /// Per-member metadata for a class, union or interface-impl augmentation. A forward reference
 /// within the same type captures this cell, so it must observe the seed → canonical transition.
@@ -40,7 +52,7 @@ type TypeMemberInfo
     internal
     (
         name: string,
-        kind: ClassMemberKind,
+        kind: TMemberKind,
         isStatic: bool,
         ty: SemType,
         declSite: NodeSite,
@@ -49,6 +61,10 @@ type TypeMemberInfo
     ) =
     member val Name = name
     member val Kind = kind
+
+    /// `Kind` as resolution reads it.
+    member val ClassKind = ClassMemberKind.ofMemberKind kind
+
     member val IsStatic = isStatic
     member val Type = ty
     member val DeclSite = declSite

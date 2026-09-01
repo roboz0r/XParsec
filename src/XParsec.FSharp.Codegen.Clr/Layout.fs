@@ -273,6 +273,7 @@ module internal Layout =
                     | ModuleContainer.InNamespace _ -> ValueNone
                 Fields = fields
                 Methods = moduleClassMethodRows h
+                Properties = []
                 Nested = held @ children
             }
 
@@ -386,6 +387,7 @@ module internal Layout =
                 Enclosing = ValueNone
                 Fields = []
                 Methods = []
+                Properties = []
                 Nested = []
             }
 
@@ -485,6 +487,7 @@ module internal Layout =
                                             Attrs = staticMethodAttrs
                                         }
                             ]
+                        Properties = []
                         Nested = []
                     }
                 ]
@@ -537,6 +540,7 @@ module internal Layout =
             Types = types
             Fields = types |> List.collect (fun n -> n.Fields)
             Methods = types |> List.collect (fun n -> n.Methods)
+            Properties = types |> List.collect (fun n -> n.Properties)
             // Whether the PE serialises with an entry point.
             EmitEntryPoint = entryFile.IsSome
             Files = files
@@ -562,27 +566,38 @@ module internal Layout =
         let typeDefs = Dictionary<TypeSlotKey, TypeDefinitionHandle>()
         let firstFields = Dictionary<TypeSlotKey, FieldDefinitionHandle>()
         let firstMethods = Dictionary<TypeSlotKey, MethodDefinitionHandle>()
+        let firstProperties = Dictionary<TypeSlotKey, PropertyDefinitionHandle>()
         let methodDefs = Dictionary<MethodKey, MethodDefinitionHandle>()
+        let propertyDefs = Dictionary<PropertyKey, PropertyDefinitionHandle>()
         let mutable fieldCursor = 0
         let mutable methodCursor = 0
+        let mutable propertyCursor = 0
 
         layout.Types
         |> List.iteri (fun i node ->
             typeDefs.Add(node.Slot.Key, MetadataTokens.TypeDefinitionHandle(i + 1))
             firstFields.Add(node.Slot.Key, MetadataTokens.FieldDefinitionHandle(fieldCursor + 1))
             firstMethods.Add(node.Slot.Key, MetadataTokens.MethodDefinitionHandle(methodCursor + 1))
+            firstProperties.Add(node.Slot.Key, MetadataTokens.PropertyDefinitionHandle(propertyCursor + 1))
             fieldCursor <- fieldCursor + List.length node.Fields
             methodCursor <- methodCursor + List.length node.Methods
+            propertyCursor <- propertyCursor + List.length node.Properties
         )
 
         layout.Methods
         |> List.iteri (fun i row -> methodDefs.Add(row.Key, MetadataTokens.MethodDefinitionHandle(i + 1)))
 
+        layout.Properties
+        |> List.iteri (fun i row -> propertyDefs.Add(row.Key, MetadataTokens.PropertyDefinitionHandle(i + 1)))
+
         {
             TypeDefs = typeDefs
             FirstFields = firstFields
             FirstMethods = firstMethods
+            FirstProperties = firstProperties
             MethodDefs = methodDefs
+            PropertyDefs = propertyDefs
             TotalFields = fieldCursor
             TotalMethods = methodCursor
+            TotalProperties = propertyCursor
         }

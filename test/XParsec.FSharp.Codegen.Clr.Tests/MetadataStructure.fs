@@ -17,8 +17,8 @@ let inline private toEntity (h: ^T) : EntityHandle =
 
 let inline private rowOf (h: ^T) : int = MetadataTokens.GetRowNumber(toEntity h)
 
-/// A `TypeDef` row as the PE carries it: the field / method rows its `FieldList` /
-/// `MethodList` range claims, in row order.
+/// A `TypeDef` row as the PE carries it: the field / method / property rows its
+/// `FieldList` / `MethodList` / `PropertyMap` range claims, in row order.
 type EmittedType =
     {
         /// `Ns.Name` for a top-level type, `Ns.Outer+Inner` for a nested one. This is
@@ -27,6 +27,7 @@ type EmittedType =
         Row: int
         Fields: string list
         Methods: string list
+        Properties: string list
     }
 
 /// What a caller expects one type's rows to be; `Type` uses the same name spelling.
@@ -84,61 +85,61 @@ let readTypes (md: MetadataReader) : EmittedType list =
                 Row = rowOf h
                 Fields = [ for f in td.GetFields() -> md.GetString((md.GetFieldDefinition f).Name) ]
                 Methods = [ for m in td.GetMethods() -> md.GetString((md.GetMethodDefinition m).Name) ]
+                Properties =
+                    [
+                        for p in td.GetProperties() -> md.GetString((md.GetPropertyDefinition p).Name)
+                    ]
             }
     ]
 
 // ---- The range partition -----------------------------------------------------
 // Each type's field and method ranges must be consecutive, non-overlapping and
-// gap-free, together covering the `Field` / `MethodDef` tables exactly.
+// gap-free, together covering the `Field` / `MethodDef` / `Property` tables exactly.
+
+/// `ranges` pairs each claiming type with the table rows its range holds, in claim order.
+/// The ranges must consecutively cover rows `1..total`.
+// `owner` is indexed by row id (1-based), so overlap and gap are both lookups.
+let private assertTableRanges (label: string) (table: string) (total: int) (ranges: (string * int list) list) =
+    let owner = Array.create (total + 1) ""
+    let mutable cursor = 1
+
+    for typeName, rows in ranges do
+        match rows with
+        | [] -> ()
+        | first :: _ ->
+            if first <> cursor then
+                failwithf
+                    "%s: %s range of '%s' starts at row %d but the previous types claim through %d, so the ranges are not consecutive"
+                    label
+                    table
+                    typeName
+                    first
+                    (cursor - 1)
+
+        rows
+        |> List.iteri (fun i row ->
+            if row <> cursor + i then
+                failwithf "%s: %s range of '%s' is not consecutive: %A" label table typeName rows
+
+            if row < 1 || row > total then
+                failwithf "%s: %s row %d claimed by '%s' is outside the table (1..%d)" label table row typeName total
+
+            if owner.[row] <> "" then
+                failwithf "%s: %s row %d is claimed by both '%s' and '%s'" label table row owner.[row] typeName
+
+            owner.[row] <- typeName
+        )
+
+        cursor <- cursor + List.length rows
+
+    if cursor <> total + 1 then
+        failwithf "%s: the TypeDef rows claim %d %s rows but the table has %d" label (cursor - 1) table total
+
+    for row in 1..total do
+        if owner.[row] = "" then
+            failwithf "%s: %s row %d is claimed by no TypeDef" label table row
 
 let private assertRangePartition (label: string) (md: MetadataReader) =
-    // `owner` is indexed by row id (1-based), so overlap and gap are both lookups.
-    let check (table: string) (total: int) (ranges: (string * int list) list) =
-        let owner = Array.create (total + 1) ""
-        let mutable cursor = 1
-
-        for typeName, rows in ranges do
-            match rows with
-            | [] -> ()
-            | first :: _ ->
-                if first <> cursor then
-                    failwithf
-                        "%s: %s range of '%s' starts at row %d but the previous types claim through %d, so the ranges are not consecutive"
-                        label
-                        table
-                        typeName
-                        first
-                        (cursor - 1)
-
-            rows
-            |> List.iteri (fun i row ->
-                if row <> cursor + i then
-                    failwithf "%s: %s range of '%s' is not consecutive: %A" label table typeName rows
-
-                if row < 1 || row > total then
-                    failwithf
-                        "%s: %s row %d claimed by '%s' is outside the table (1..%d)"
-                        label
-                        table
-                        row
-                        typeName
-                        total
-
-                if owner.[row] <> "" then
-                    failwithf "%s: %s row %d is claimed by both '%s' and '%s'" label table row owner.[row] typeName
-
-                owner.[row] <- typeName
-            )
-
-            cursor <- cursor + List.length rows
-
-        if cursor <> total + 1 then
-            failwithf "%s: the TypeDef rows claim %d %s rows but the table has %d" label (cursor - 1) table total
-
-        for row in 1..total do
-            if owner.[row] = "" then
-                failwithf "%s: %s row %d is claimed by no TypeDef" label table row
-
     let types =
         [
             for h in md.TypeDefinitions do
@@ -147,8 +148,51 @@ let private assertRangePartition (label: string) (md: MetadataReader) =
                 nameOf md h, [ for f in td.GetFields() -> rowOf f ], [ for m in td.GetMethods() -> rowOf m ]
         ]
 
-    check "Field" (md.GetTableRowCount TableIndex.Field) [ for n, f, _ in types -> n, f ]
-    check "MethodDef" (md.GetTableRowCount TableIndex.MethodDef) [ for n, _, m in types -> n, m ]
+    assertTableRanges label "Field" (md.GetTableRowCount TableIndex.Field) [ for n, f, _ in types -> n, f ]
+
+    assertTableRanges label "MethodDef" (md.GetTableRowCount TableIndex.MethodDef) [ for n, _, m in types -> n, m ]
+
+// ---- The `Property` table and its `PropertyMap` claimants ---------------------
+// A type declaring no property gets no `PropertyMap` row, so the claimants are a SUBSET
+// of the TypeDef table. SRM neither sorts nor validates `PropertyMap`, which makes this
+// the check that the emitter added those rows ascending by parent.
+
+let private assertPropertyRanges (label: string) (md: MetadataReader) =
+    let claimants =
+        [
+            for h in md.TypeDefinitions do
+                match [ for p in (md.GetTypeDefinition h).GetProperties() -> rowOf p ] with
+                | [] -> ()
+                | rows -> nameOf md h, rows
+        ]
+
+    assertTableRanges label "Property" (md.GetTableRowCount TableIndex.Property) claimants
+
+    let mapRows = md.GetTableRowCount TableIndex.PropertyMap
+
+    if mapRows <> List.length claimants then
+        failwithf
+            "%s: the PropertyMap table has %d rows but %d types claim a property range, so a row is orphaned or duplicated"
+            label
+            mapRows
+            (List.length claimants)
+
+    // Every accessor a `MethodSemantics` row names must be a method of the property's own
+    // declaring type, which a mis-sorted table would violate.
+    for h in md.TypeDefinitions do
+        let td = md.GetTypeDefinition h
+        let own = set [ for m in td.GetMethods() -> rowOf m ]
+
+        for p in td.GetProperties() do
+            let accessors = (md.GetPropertyDefinition p).GetAccessors()
+
+            for a in [ accessors.Getter; accessors.Setter ] do
+                if not a.IsNil && not (own.Contains(rowOf a)) then
+                    failwithf
+                        "%s: property '%s' on '%s' names an accessor outside that type's own MethodDef range"
+                        label
+                        (md.GetString((md.GetPropertyDefinition p).Name))
+                        (nameOf md h)
 
 // ---- `<Module>` is TypeDef row 1 ---------------------------------------------
 
@@ -273,6 +317,7 @@ let private assertPreOrderContiguity (label: string) (md: MetadataReader) =
 let assertWellFormedMetadata (label: string) (md: MetadataReader) : unit =
     assertModuleRow label md
     assertRangePartition label md
+    assertPropertyRanges label md
     assertNestedClassRows label md
     assertPreOrderContiguity label md
 
@@ -281,6 +326,29 @@ let assertWellFormedMetadata (label: string) (md: MetadataReader) : unit =
 let emittedTypes (bytes: byte[]) : EmittedType list =
     use pe = openPe bytes
     readTypes (pe.GetMetadataReader())
+
+/// One type's `Property` row names, each with the accessor method names bound to it by
+/// `MethodSemantics`. Raises when the assembly declares no such type.
+let propertiesOf (bytes: byte[]) (typeName: string) : (string * (string voption * string voption)) list =
+    use pe = openPe bytes
+    let md = pe.GetMetadataReader()
+
+    match md.TypeDefinitions |> Seq.tryFind (fun h -> nameOf md h = typeName) with
+    | None -> failwithf "the assembly declares no type '%s'" typeName
+    | Some h ->
+        let nameOfAccessor (a: MethodDefinitionHandle) =
+            if a.IsNil then
+                ValueNone
+            else
+                ValueSome(md.GetString((md.GetMethodDefinition a).Name))
+
+        [
+            for p in (md.GetTypeDefinition h).GetProperties() do
+                let pd = md.GetPropertyDefinition p
+                let accessors = pd.GetAccessors()
+
+                md.GetString pd.Name, (nameOfAccessor accessors.Getter, nameOfAccessor accessors.Setter)
+        ]
 
 /// One type's `Field` row names in row order, by the `Ns.Outer+Inner` spelling.
 /// Raises when the assembly declares no such type.

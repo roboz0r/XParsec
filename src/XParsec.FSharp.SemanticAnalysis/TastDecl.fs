@@ -125,11 +125,41 @@ type TRecordFieldG<'ty> =
         Attributes: TAttributes
     }
 
+/// Which half of a property an accessor supplies.
+[<RequireQualifiedAccess>]
+type TAccessorRole =
+    | Getter
+    | Setter
+
 [<RequireQualifiedAccess>]
 type TMemberKind =
     | Method
     /// A parameterless getter, emitted as a `get_<Name>` method.
     | Property
+    /// One accessor of the property `prop`, declared by `member x.prop with get … and set …`.
+    /// The member's own `Name` is the accessor's (`get_<prop>` / `set_<prop>`); a
+    /// parameterless getter takes the `Property` form instead.
+    | Accessor of prop: string * role: TAccessorRole
+
+[<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
+[<RequireQualifiedAccess>]
+module TMemberKind =
+
+    /// The property a member accesses, with the half it supplies; `ValueNone` for a method.
+    /// `name` is the member's own, which the parameterless-getter form spells the property with.
+    let propertyOf (name: string) (kind: TMemberKind) : (string * TAccessorRole) voption =
+        match kind with
+        | TMemberKind.Method -> ValueNone
+        | TMemberKind.Property -> ValueSome(name, TAccessorRole.Getter)
+        | TMemberKind.Accessor(prop, role) -> ValueSome(prop, role)
+
+    /// How a `MemberKey` spells the member: a parameterless getter keys as a value, and
+    /// every other form keys with the parameter vector its overloads differ at.
+    let keyKind (kind: TMemberKind) : MemberKind =
+        match kind with
+        | TMemberKind.Property -> MemberKind.Property
+        | TMemberKind.Method
+        | TMemberKind.Accessor _ -> MemberKind.Method
 
 type TTypeMemberG<'ty, 'id, 'body> =
     {
@@ -266,10 +296,10 @@ type TAbstractMethodG<'ty> =
         Name: string
         MethodTypeParams: EqArray<string>
         Signature: 'ty
-        /// `true` for an abstract *property*: an arg-less member sig, `abstract member
-        /// Current : int`, which emits as a `get_Current` slot. A method slot keeps its
-        /// bare name.
-        IsProperty: bool
+        /// The same three forms a concrete member takes: `Property` for an arg-less member sig
+        /// (`abstract member Current: int`, emitted as a `get_Current` slot), `Accessor` for one
+        /// half of `abstract P: int with get, set`, and `Method` for a slot keeping its bare name.
+        Kind: TMemberKind
     }
 
 /// The payload of `TTypeKindG.Class`. No `'tok`: a class bears no token of its own, `Enum`'s

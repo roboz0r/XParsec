@@ -113,12 +113,6 @@ module internal ElaborateClassMembers =
                 |> Array.map (fun (name, root) -> name, TyVar root)
                 |> EqArray.ofArray
 
-            let kindMatches (mi: TypeMemberInfo) =
-                match mi.Kind, site.Kind with
-                | ClassMemberKind.Method, TMemberKind.Method
-                | ClassMemberKind.Property, TMemberKind.Property -> true
-                | _ -> false
-
             // Match the exact overload by its registration `DeclKey` first: same-name
             // overloads share `Name`/`Kind`/`IsStatic`, so a name-only find would give
             // every one the FIRST overload's typars, dropping the others' own `'T`.
@@ -131,7 +125,9 @@ module internal ElaborateClassMembers =
                 byKey
                 |> Option.orElseWith (fun () ->
                     info.Members
-                    |> Array.tryFind (fun mi -> mi.Name = site.Name && mi.IsStatic = site.IsStatic && kindMatches mi)
+                    |> Array.tryFind (fun mi ->
+                        mi.Name = site.Name && mi.IsStatic = site.IsStatic && mi.Kind = site.Kind
+                    )
                 )
             with
             | Some mi ->

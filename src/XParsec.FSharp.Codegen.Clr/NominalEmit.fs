@@ -53,7 +53,7 @@ module internal NominalEmit =
                     Handle = toEntity (asm.MethodDef(MethodKey.Member(td.Key, i)))
                     IsStatic = mem.IsStatic
                     ParamArity = mem.Params.Length
-                    MetaName = memberMetaName mem
+                    MetaName = memberMetaName mem.Name mem.Kind
                     ParamTys = [ for (_, t) in mem.Params -> t ]
                     RetTy = mem.ReturnTy
                     MethodTyparCount = mem.MethodTypeParams.Length
@@ -653,7 +653,13 @@ module internal NominalEmit =
                     name
             | Some(i, mem) ->
                 let kind =
-                    UserMemberKind.Member(memberMetaName mem, false, 0, [ for (_, t) in mem.Params -> t ], mem.ReturnTy)
+                    UserMemberKind.Member(
+                        memberMetaName mem.Name mem.Kind,
+                        false,
+                        0,
+                        [ for (_, t) in mem.Params -> t ],
+                        mem.ReturnTy
+                    )
 
                 selfMemberRef asm td kind (toEntity (asm.MethodDef(MethodKey.Member(td.Key, i)))), mem.ReturnTy
 

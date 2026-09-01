@@ -273,11 +273,28 @@ module FrozenCodecTypes =
         match k with
         | TMemberKind.Method -> w.Write 0uy
         | TMemberKind.Property -> w.Write 1uy
+        | TMemberKind.Accessor(prop, role) ->
+            w.Write 2uy
+            w.Write prop
+
+            match role with
+            | TAccessorRole.Getter -> w.Write 0uy
+            | TAccessorRole.Setter -> w.Write 1uy
 
     let readTMemberKind (r: FrozenReader) : TMemberKind =
         match r.ReadByte() with
         | 0uy -> TMemberKind.Method
         | 1uy -> TMemberKind.Property
+        | 2uy ->
+            let prop = r.ReadString()
+
+            let role =
+                match r.ReadByte() with
+                | 0uy -> TAccessorRole.Getter
+                | 1uy -> TAccessorRole.Setter
+                | b -> failwithf "FrozenCodec: unknown TAccessorRole tag %d" b
+
+            TMemberKind.Accessor(prop, role)
         | b -> failwithf "FrozenCodec: unknown TMemberKind tag %d" b
 
     let writeClosureRepr (w: FrozenWriter) (c: ClosureRepr) =
@@ -611,19 +628,19 @@ module FrozenCodecTypes =
         w.Write m.Name
         writeStringArray w m.MethodTypeParams
         writeTypeRef w m.Signature
-        w.Write m.IsProperty
+        writeTMemberKind w m.Kind
 
     let readAbstractMethod (r: FrozenReader) : Frozen.TAbstractMethod =
         let name = r.ReadString()
         let methodTypeParams = readStringArray r
         let signature = readTypeRef r
-        let isProperty = r.ReadBoolean()
+        let kind = readTMemberKind r
 
         {
             Name = name
             MethodTypeParams = methodTypeParams
             Signature = signature
-            IsProperty = isProperty
+            Kind = kind
         }
 
     let writeUnionCase (w: FrozenWriter) (c: Frozen.TUnionCase) =

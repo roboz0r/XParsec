@@ -135,14 +135,16 @@ module internal LayoutNodes =
     let private memberRow (key: SymbolKey) (index: int) (isIfaceImpl: bool) (mem: TastAccessor.TypeMember) : MethodRow =
         {
             Key = MethodKey.Member(key, index)
-            Name = memberMetaName mem
+            Name = memberMetaName mem.Name mem.Kind
             Attrs =
-                if isIfaceImpl then ifaceEqualsAttrs
-                elif mem.IsStatic then staticMethodAttrs
-                // An `override` reuses the base slot: `Public Virtual HideBySig`, no
-                // `NewSlot`. A plain `member` stays non-virtual.
-                elif mem.IsOverride then overrideMethodAttrs
-                else instanceMethodAttrs
+                accessorAttrs
+                    mem.Kind
+                    (if isIfaceImpl then ifaceEqualsAttrs
+                     elif mem.IsStatic then staticMethodAttrs
+                     // An `override` reuses the base slot: `Public Virtual HideBySig`, no
+                     // `NewSlot`. A plain `member` stays non-virtual.
+                     elif mem.IsOverride then overrideMethodAttrs
+                     else instanceMethodAttrs)
         }
 
     /// A nominal type's own augmentation members followed by its user `interface …
@@ -154,6 +156,27 @@ module internal LayoutNodes =
         : MethodRow list =
         NominalMembers.indexed members interfaces
         |> List.map (fun (i, isIfaceImpl, m) -> memberRow key i isIfaceImpl m)
+
+    /// The `Property` rows a nominal type's members declare, over the same indexed member
+    /// list `ownAndIfaceMemberRows` walks, so an accessor's row and its property agree on
+    /// which `MethodDef` the `MethodSemantics` row binds.
+    let private ownAndIfaceProperties
+        (key: SymbolKey)
+        (members: TastAccessor.TypeMember list)
+        (interfaces: (FrozenNominal * TastAccessor.TypeMember list) list)
+        : PropertySlot list =
+        NominalMembers.indexed members interfaces
+        |> List.map (fun (i, _, m) ->
+            {
+                Method = MethodKey.Member(key, i)
+                Name = m.Name
+                Kind = m.Kind
+                IsStatic = m.IsStatic
+                ParamTys = [ for (_, t) in m.Params -> t ]
+                RetTy = m.ReturnTy
+            }
+        )
+        |> PropertySlot.ofAccessors key
 
     /// A nominal's synthesised structural rows. `attrs` decides whether the typed
     /// `Equals(Self)` / `CompareTo(Self)` / `Format` entries carry a body; `Equals(object)`
@@ -243,6 +266,7 @@ module internal LayoutNodes =
         (td: TastAccessor.TypeDecl)
         (fields: FieldSlot list)
         (methods: MethodRow list)
+        (properties: PropertySlot list)
         : TypeNode =
         let ns, enclosing =
             match declaringModule td with
@@ -261,6 +285,7 @@ module internal LayoutNodes =
             Enclosing = enclosing
             Fields = fields
             Methods = methods
+            Properties = properties
             Nested = []
         }
 
@@ -274,19 +299,36 @@ module internal LayoutNodes =
     let buildInterfaceNodes (interfaces: (TastAccessor.TypeDecl * Frozen.TAbstractMethod list) list) : TypeNode list =
         [
             for (td, methods) in interfaces ->
-                let methodRows =
+                let rows =
                     methods
                     |> List.mapi (fun i m ->
-                        {
-                            Key = MethodKey.InterfaceMethod(td.Key, i)
-                            // An abstract property emits as its `get_<Name>` getter
-                            // slot; a method keeps its bare name.
-                            Name = if m.IsProperty then "get_" + m.Name else m.Name
-                            Attrs = abstractMethodAttrs
-                        }
+                        let key = MethodKey.InterfaceMethod(td.Key, i)
+
+                        let methodRow: MethodRow =
+                            {
+                                Key = key
+                                // An abstract property emits as its `get_<Name>` getter
+                                // slot; a method keeps its bare name.
+                                Name = memberMetaName m.Name m.Kind
+                                Attrs = accessorAttrs m.Kind abstractMethodAttrs
+                            }
+
+                        let accessor: AccessorRow =
+                            {
+                                Method = key
+                                Name = m.Name
+                                Kind = m.Kind
+                                // `TAbstractMethod` carries no staticness.
+                                IsStatic = false
+                                ParamTys = abstractMethodParamTys m
+                                RetTy = snd (uncurry m.Signature)
+                            }
+
+                        methodRow, accessor
                     )
 
-                nominalNode TypeSlotKind.Interface td [] methodRows
+                let properties = rows |> List.map snd |> PropertySlot.ofAccessors td.Key
+                nominalNode TypeSlotKind.Interface td [] (List.map fst rows) properties
         ]
 
     /// The row one structural slot takes on a hierarchy union's case type. The `Union`-typed
@@ -349,6 +391,7 @@ module internal LayoutNodes =
             Enclosing = ValueSome(TypeSlotKey.Nominal td.Key)
             Fields = fields
             Methods = methodRows
+            Properties = []
             Nested = []
         }
 
@@ -454,8 +497,26 @@ module internal LayoutNodes =
                         yield! coSlotRows symbols td ud.Interfaces
                     ]
 
+                let properties =
+                    [
+                        // The public reader of the union's private `_tag`, declared exactly
+                        // where the discriminant is.
+                        if ud.HasTag then
+                            {
+                                Key = PropertyKey.UnionTag td.Key
+                                Name = "Tag"
+                                IsInstance = true
+                                IndexTys = []
+                                ValueTy = FTConst(RuntimeNames.intKey, EqArray.empty)
+                                Getter = ValueSome(MethodKey.UnionGetTag td.Key)
+                                Setter = ValueNone
+                            }
+
+                        yield! ownAndIfaceProperties td.Key ud.Members ud.Interfaces
+                    ]
+
                 let node =
-                    nominalNode (TypeSlotKind.Union(ud.ValueKind, ud.Regime)) td fields methodRows
+                    nominalNode (TypeSlotKind.Union(ud.ValueKind, ud.Regime)) td fields methodRows properties
 
                 if isHierarchy then
                     { node with
@@ -497,7 +558,12 @@ module internal LayoutNodes =
                         yield! coSlotRows symbols td rd.Interfaces
                     ]
 
-                nominalNode (TypeSlotKind.Record rd.ValueKind) td fields methodRows
+                nominalNode
+                    (TypeSlotKind.Record rd.ValueKind)
+                    td
+                    fields
+                    methodRows
+                    (ownAndIfaceProperties td.Key rd.Members rd.Interfaces)
         ]
 
     /// Per class: ctor-param backing fields, `val` fields (immutable ⇒ `initonly`),
@@ -595,7 +661,12 @@ module internal LayoutNodes =
                         yield! coSlotRows symbols td cd.Interfaces
                     ]
 
-                nominalNode (TypeSlotKind.Class(cd.IsSealed, cd.ValueKind)) td fields methodRows
+                nominalNode
+                    (TypeSlotKind.Class(cd.IsSealed, cd.ValueKind))
+                    td
+                    fields
+                    methodRows
+                    (ownAndIfaceProperties td.Key cd.Members cd.Interfaces)
         ]
 
     /// Per numeric enum: the special-name `value__` field the CLR reads for
@@ -635,7 +706,7 @@ module internal LayoutNodes =
                             }
                     ]
 
-                nominalNode TypeSlotKind.Enum td fields []
+                nominalNode TypeSlotKind.Enum td fields [] []
         ]
 
     /// Per string/mixed enum, a `[<Struct>]` wrapper: one backing field (`string`, or
@@ -694,7 +765,7 @@ module internal LayoutNodes =
                         }
                     ]
 
-                nominalNode TypeSlotKind.StructEnum td fields methodRows
+                nominalNode TypeSlotKind.StructEnum td fields methodRows []
         ]
 
     /// Per closure: capture fields; `.ctor` + `Invoke`. Closures synthesise their typar
@@ -767,6 +838,7 @@ module internal LayoutNodes =
                     Enclosing = ValueNone
                     Fields = fields
                     Methods = methodRows
+                    Properties = []
                     Nested = []
                 }
         ]

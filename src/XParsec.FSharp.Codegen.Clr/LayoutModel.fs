@@ -8,6 +8,36 @@ open XParsec.FSharp.SemanticAnalysis
 
 // Every ranged-table row enumerated as data; handle = position in the layout.
 
+/// How an abstract member's curried signature maps onto metadata parameters.
+[<AutoOpen>]
+module internal AbstractMemberShape =
+
+    /// `FTFun('A, 'B)` ⇒ `(['A], 'B)`.
+    let rec uncurry (t: FrozenType) : FrozenType list * FrozenType =
+        match t with
+        | FTFun(a, b) ->
+            let ps, r = uncurry b
+            a :: ps, r
+        | _ -> [], t
+
+    let isUnitTy t =
+        match t with
+        | FTUnit -> true
+        | _ -> false
+
+    /// An abstract member's metadata parameter types: `abstract M : unit -> X` is a
+    /// *no-arg* method, so a sole leading `unit` argument is dropped.
+    let abstractMethodParamTys (m: Frozen.TAbstractMethod) : FrozenType list =
+        let paramTys, _ = uncurry m.Signature
+
+        match paramTys with
+        | [ single ] when isUnitTy single -> []
+        // `abstract Invoke : 'A * 'B -> 'C` has one tupled domain but emits as 2 params,
+        // as its conforming `member _.Invoke(a, b)` does; flatten so the runtime can bind
+        // the impl to the slot.
+        | [ FTTuple elems ] when elems.Length >= 2 -> EqArray.toList elems
+        | _ -> paramTys
+
 [<AutoOpen>]
 module internal MethodAttrSets =
 
@@ -32,6 +62,14 @@ module internal MethodAttrSets =
     // A union's `get_Tag`: non-virtual, so a match arm binds it by `call`. `SpecialName`
     // marks it a property getter.
     let tagGetterAttrs = instanceMethodAttrs ||| MethodAttributes.SpecialName
+
+    /// A method row bound to a `Property` row by `MethodSemantics` carries `SpecialName`,
+    /// which is how a reflecting consumer tells an accessor from a method beside it.
+    let accessorAttrs (kind: TMemberKind) (attrs: MethodAttributes) : MethodAttributes =
+        match kind with
+        | TMemberKind.Method -> attrs
+        | TMemberKind.Property
+        | TMemberKind.Accessor _ -> attrs ||| MethodAttributes.SpecialName
 
     // An `Object.Equals` / `GetHashCode` override: no `NewSlot`, so it reuses the
     // base virtual slot, matched by name + signature.
@@ -115,10 +153,15 @@ module internal MethodAttrSets =
         ||| MethodAttributes.NewSlot
         ||| MethodAttributes.Final
 
-    let memberMetaName (mem: TastAccessor.TypeMember) : string =
-        match mem.Kind with
-        | TMemberKind.Property -> "get_" + mem.Name
-        | TMemberKind.Method -> mem.Name
+    /// The `MethodDef` name a member emits under, concrete and abstract alike, derived
+    /// from the member's kind: an accessor spells `get_`/`set_` over the property it
+    /// accesses; a method keeps its bare name.
+    let memberMetaName (name: string) (kind: TMemberKind) : string =
+        match kind with
+        | TMemberKind.Method -> name
+        | TMemberKind.Property -> AccessorNames.getterName name
+        | TMemberKind.Accessor(prop, TAccessorRole.Getter) -> AccessorNames.getterName prop
+        | TMemberKind.Accessor(prop, TAccessorRole.Setter) -> AccessorNames.setterName prop
 
 /// Identity of one `TypeDefinition` row in the layout.
 [<RequireQualifiedAccess>]
@@ -317,6 +360,104 @@ type internal MethodKey =
     | StaticFn of SymbolKey
     | Main
 
+/// Identity of one `Property` row in the layout.
+[<RequireQualifiedAccess>]
+type internal PropertyKey =
+    /// A union's `Tag`, whose getter is `MethodKey.UnionGetTag`.
+    | UnionTag of SymbolKey
+    /// A property a nominal type declares, keyed by the property's name and staticness,
+    /// which both halves share. A static and an instance property of one name are two rows.
+    | Declared of SymbolKey * prop: string * isStatic: bool
+
+/// One accessor, as the grouping into properties reads it.
+type internal AccessorRow =
+    {
+        /// The `MethodDef` row this accessor emits under.
+        Method: MethodKey
+        /// The member's own name; the parameterless-getter form spells its property with it.
+        Name: string
+        Kind: TMemberKind
+        IsStatic: bool
+        /// The accessor's own metadata parameters: a getter's parameters index the property;
+        /// a setter's index it and carry the value last.
+        ParamTys: FrozenType list
+        RetTy: FrozenType
+    }
+
+/// One `Property` row, with the accessor rows a `MethodSemantics` row binds to it. At least
+/// one half is always `ValueSome`.
+type internal PropertySlot =
+    {
+        Key: PropertyKey
+        Name: string
+        /// `HASTHIS` on the row's signature, which must agree with the accessors' own.
+        IsInstance: bool
+        /// An indexed property's index parameters; empty for a plain one.
+        IndexTys: FrozenType list
+        ValueTy: FrozenType
+        Getter: MethodKey voption
+        Setter: MethodKey voption
+    }
+
+[<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
+[<RequireQualifiedAccess>]
+module internal PropertySlot =
+
+    /// The `Property` rows a member list declares, in first-accessor order. Accessors of one
+    /// property at one staticness share a row.
+    let ofAccessors (key: SymbolKey) (accessors: AccessorRow list) : PropertySlot list =
+        accessors
+        |> List.choose (fun a ->
+            match TMemberKind.propertyOf a.Name a.Kind with
+            | ValueSome(prop, role) -> Some((prop, a.IsStatic), (a, role))
+            | ValueNone -> None
+        )
+        |> List.groupBy fst
+        |> List.map (fun ((prop, isStatic), halves) ->
+            let pick (wanted: TAccessorRole) : AccessorRow voption =
+                match
+                    halves
+                    |> List.tryPick (fun (_, (a, role)) -> if role = wanted then Some a else None)
+                with
+                | Some a -> ValueSome a
+                | None -> ValueNone
+
+            let getter = pick TAccessorRole.Getter
+            let setter = pick TAccessorRole.Setter
+
+            // A getter's parameters index the property and its return is the value; a
+            // setter carries the value last, behind the same index parameters.
+            let setterShape =
+                setter
+                |> ValueOption.map (fun s ->
+                    match List.rev s.ParamTys with
+                    | value :: revIndex -> List.rev revIndex, value
+                    | [] -> failwithf "Layout: property '%s' declares a setter taking no value" prop
+                )
+
+            let indexTys, valueTy =
+                match getter, setterShape with
+                | ValueSome g, ValueSome(sIndex, sValue) ->
+                    // Unification has conformed the halves.
+                    if g.ParamTys <> sIndex || g.RetTy <> sValue then
+                        failwithf "Layout: the getter and setter of property '%s' disagree on its type" prop
+
+                    g.ParamTys, g.RetTy
+                | ValueSome g, ValueNone -> g.ParamTys, g.RetTy
+                | ValueNone, ValueSome shape -> shape
+                | ValueNone, ValueNone -> failwithf "Layout: property '%s' groups no accessor" prop
+
+            {
+                Key = PropertyKey.Declared(key, prop, isStatic)
+                Name = prop
+                IsInstance = not isStatic
+                IndexTys = indexTys
+                ValueTy = valueTy
+                Getter = getter |> ValueOption.map (fun a -> a.Method)
+                Setter = setter |> ValueOption.map (fun a -> a.Method)
+            }
+        )
+
 /// One `MethodDef` row: the i-th entry of `AssemblyLayout.Methods` is table row i+1.
 /// The signature / body / params are bound late (`PreparedMethod`).
 type internal MethodRow =
@@ -385,6 +526,8 @@ type internal TypeNode =
         Enclosing: TypeSlotKey voption
         Fields: FieldSlot list
         Methods: MethodRow list
+        /// The `PropertyMap` row's range. Empty ⇒ the type gets no `PropertyMap` row at all.
+        Properties: PropertySlot list
         Nested: TypeNode list
     }
 
@@ -427,6 +570,8 @@ type internal AssemblyLayout =
         Fields: FieldSlot list
         /// The full `MethodDef` table in row order: the methods of `Types`, in `Types` order.
         Methods: MethodRow list
+        /// The full `Property` table in row order, which each `PropertyMap` row ranges over.
+        Properties: PropertySlot list
         /// The Program slot's presence is a layout decision: exe (`Main`) or
         /// Program-class fns. True iff some file carries the entry point.
         EmitEntryPoint: bool
@@ -443,14 +588,19 @@ type internal LayoutHandles =
         TypeDefs: Dictionary<TypeSlotKey, TypeDefinitionHandle>
         FirstFields: Dictionary<TypeSlotKey, FieldDefinitionHandle>
         FirstMethods: Dictionary<TypeSlotKey, MethodDefinitionHandle>
+        FirstProperties: Dictionary<TypeSlotKey, PropertyDefinitionHandle>
         MethodDefs: Dictionary<MethodKey, MethodDefinitionHandle>
+        PropertyDefs: Dictionary<PropertyKey, PropertyDefinitionHandle>
         /// Total ranged-table rows the layout owns; the writer checks the real builder
         /// counts against these.
         TotalFields: int
         TotalMethods: int
+        TotalProperties: int
     }
 
     member this.TypeDefOf(key: TypeSlotKey) : TypeDefinitionHandle = this.TypeDefs.[key]
     member this.FirstFieldOf(key: TypeSlotKey) : FieldDefinitionHandle = this.FirstFields.[key]
     member this.FirstMethodOf(key: TypeSlotKey) : MethodDefinitionHandle = this.FirstMethods.[key]
+    member this.FirstPropertyOf(key: TypeSlotKey) : PropertyDefinitionHandle = this.FirstProperties.[key]
     member this.MethodDefOf(key: MethodKey) : MethodDefinitionHandle = this.MethodDefs.[key]
+    member this.PropertyDefOf(key: PropertyKey) : PropertyDefinitionHandle = this.PropertyDefs.[key]

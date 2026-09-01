@@ -357,10 +357,7 @@ module UnificationInferOverload =
             ]
 
     /// The kind-mapped `MemberKind` of a member (methods dispatch, properties store).
-    let private memberKindOf (m: TypeMemberInfo) : MemberKind =
-        match m.Kind with
-        | ClassMemberKind.Property -> MemberKind.Property
-        | ClassMemberKind.Method -> MemberKind.Method
+    let private memberKindOf (m: TypeMemberInfo) : MemberKind = TMemberKind.keyKind m.Kind
 
     /// The frozen `MemberKey` identity of a resolved user member on declaring type `declKey`:
     /// the declaring-open argSig + real method-typar arity, so two same-name overloads mint

@@ -519,12 +519,12 @@ let tests =
                 // The per-member key mint the inline-body collector performs: decl, name,
                 // kind, structural argSig and method-typar arity.
                 let mintKey (m: TastAccessor.TypeMember) : SymbolKey =
-                    let kind =
-                        match m.Kind with
-                        | TMemberKind.Method -> MemberKind.Method
-                        | TMemberKind.Property -> MemberKind.Property
-
-                    SymbolKeyOps.memberKey declKey m.Name (m.Params |> EqArray.map snd) m.MethodTypeParams.Length kind
+                    SymbolKeyOps.memberKey
+                        declKey
+                        m.Name
+                        (m.Params |> EqArray.map snd)
+                        m.MethodTypeParams.Length
+                        (TMemberKind.keyKind m.Kind)
 
                 let kInt = mintKey (pokeMemberOf "$0 + 1" ftInt)
                 let kStr = mintKey (pokeMemberOf "$0.length" ftString)

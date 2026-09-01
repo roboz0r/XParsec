@@ -463,7 +463,7 @@ let tests =
                 Expect.equal info.CtorParams.[0].Name "x" "ctor param named x"
                 Expect.equal info.Members.Length 1 "one member"
                 Expect.equal info.Members.[0].Name "X" "member named X"
-                Expect.equal info.Members.[0].Kind ClassMemberKind.Property "member is a property"
+                Expect.equal info.Members.[0].Kind TMemberKind.Property "member is a property"
             }
 
             test "static member registers with IsStatic = true" {
@@ -674,8 +674,12 @@ let tests =
                 let byName n =
                     info.Members |> Array.find (fun m -> m.Name = n)
 
-                Expect.equal (byName "P").Kind ClassMemberKind.Property "a parameterless getter stays a property"
-                Expect.equal (byName "set_P").Kind ClassMemberKind.Method "a setter is an accessor method"
+                Expect.equal (byName "P").Kind TMemberKind.Property "a parameterless getter stays a property"
+
+                Expect.equal
+                    (byName "set_P").Kind
+                    (TMemberKind.Accessor("P", TAccessorRole.Setter))
+                    "the setter names the property it is a half of"
 
                 Expect.notEqual
                     (byName "P").DeclSite.Key
@@ -698,7 +702,12 @@ let tests =
                 let info = expectClass ctx "C"
                 Expect.equal info.Members.Length 1 "one member"
                 Expect.equal info.Members.[0].Name "get_Item" "an index makes the getter a method"
-                Expect.equal info.Members.[0].Kind ClassMemberKind.Method "registered as a method"
+
+                Expect.equal
+                    info.Members.[0].Kind
+                    (TMemberKind.Accessor("Item", TAccessorRole.Getter))
+                    "an indexed getter still names the property it reads"
+
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
 
@@ -710,7 +719,7 @@ let tests =
                 let info = expectClass ctx "C"
                 Expect.equal info.Members.Length 1 "one slot"
                 Expect.equal info.Members.[0].Name "P" "a parameterless getter is the property itself"
-                Expect.equal info.Members.[0].Kind ClassMemberKind.Property "registered as a property"
+                Expect.equal info.Members.[0].Kind TMemberKind.Property "registered as a property"
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
 
@@ -720,7 +729,12 @@ let tests =
                 let info = expectClass ctx "C"
                 Expect.equal info.Members.Length 1 "one slot"
                 Expect.equal info.Members.[0].Name "get_Item" "an index makes the getter a method"
-                Expect.equal info.Members.[0].Kind ClassMemberKind.Method "registered as a method"
+
+                Expect.equal
+                    info.Members.[0].Kind
+                    (TMemberKind.Accessor("Item", TAccessorRole.Getter))
+                    "an abstract indexed getter names its property too"
+
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
 
@@ -733,8 +747,12 @@ let tests =
                 let byName n =
                     info.Members |> Array.find (fun m -> m.Name = n)
 
-                Expect.equal (byName "P").Kind ClassMemberKind.Property "the getter half"
-                Expect.equal (byName "set_P").Kind ClassMemberKind.Method "the setter half"
+                Expect.equal (byName "P").Kind TMemberKind.Property "the getter half"
+
+                Expect.equal
+                    (byName "set_P").Kind
+                    (TMemberKind.Accessor("P", TAccessorRole.Setter))
+                    "the setter half, naming the property both halves share"
 
                 Expect.notEqual
                     (byName "P").DeclSite.Key
@@ -750,7 +768,12 @@ let tests =
                 let info = expectClass ctx "C"
                 Expect.equal info.Members.Length 1 "one slot"
                 Expect.equal info.Members.[0].Name "set_P" "no getter is declared, so none is registered"
-                Expect.equal info.Members.[0].Kind ClassMemberKind.Method "a setter is an accessor method"
+
+                Expect.equal
+                    info.Members.[0].Kind
+                    (TMemberKind.Accessor("P", TAccessorRole.Setter))
+                    "a lone setter still names its property"
+
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
 

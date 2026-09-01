@@ -562,6 +562,25 @@ type internal ClrEncoder(env: ClrEnv) =
 
         s
 
+    /// A `Property` row's signature: the `PROPERTY` calling convention over the value type,
+    /// preceded by an indexed property's index parameters. `isInstance` sets `HASTHIS`, which
+    /// must agree with the accessors' own signatures.
+    member _.PropertySignature(isInstance: bool, indexTys: FrozenType list, valueTy: FrozenType) : BlobBuilder =
+        let s = BlobBuilder()
+
+        BlobEncoder(s)
+            .PropertySignature(isInstanceProperty = isInstance)
+            .Parameters(
+                List.length indexTys,
+                (fun (ret: ReturnTypeEncoder) -> encodeType (ret.Type()) valueTy),
+                (fun (pars: ParametersEncoder) ->
+                    for p in indexTys do
+                        encodeType (pars.AddParameter().Type()) p
+                )
+            )
+
+        s
+
     /// `instance void M(params…)`. A `unit`-returning method normally encodes its return as
     /// `System.ValueTuple`, but an interface-impl member on a `void` BCL slot must match it, or
     /// the runtime reports "does not have an implementation". Body emitted in void mode.

@@ -138,7 +138,7 @@ module internal ElaborateTypeDecls =
                                         Name = m.Name
                                         MethodTypeParams = EqArray.ofArray (GeneralizedTypars.names m.CanonicalTypars)
                                         Signature = m.Type
-                                        IsProperty = (m.Kind = ClassMemberKind.Property)
+                                        Kind = m.Kind
                                     }
                         }
                     )
