@@ -321,7 +321,6 @@ module TastUnpool =
             Diagnostics = pools.Residue.Diagnostics
             IntrinsicBindings = pools.Residue.IntrinsicBindings
             GlobalValueKeys = pools.Residue.GlobalValueKeys
-            ModuleSourcePaths = pools.Residue.ModuleSourcePaths
             CompiledModuleNames = pools.Residue.CompiledModuleNames
             AutoOpenModules = pools.Residue.AutoOpenModules
             ModuleMembers = boundVarKeyedMap readmittedBoundVar pools.ModuleMembers

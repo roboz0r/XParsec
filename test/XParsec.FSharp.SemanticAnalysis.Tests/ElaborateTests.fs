@@ -1499,9 +1499,9 @@ let typeAccessibilityTests =
 [<Tests>]
 let tastFileEqualityTests =
     // Populates all four collection fields: an intrinsic abbreviation, a `[<Global>]` binding,
-    // a nested module and a `private` binding.
+    // a nested module the same-named type suffixes, and a `private` binding.
     let src =
-        "module M\n\ntype nat = (# \"number\" #)\n\n[<Global>]\nlet undefined = (# \"undefined\" #)\n\nlet private hidden = 1\n\nmodule Inner =\n    let y = 2\n"
+        "module M\n\ntype nat = (# \"number\" #)\n\n[<Global>]\nlet undefined = (# \"undefined\" #)\n\nlet private hidden = 1\n\ntype Inner = | A\n\nmodule Inner =\n    let y = 2\n"
 
     testList
         "TastFile equality"
@@ -1512,7 +1512,7 @@ let tastFileEqualityTests =
 
                 Expect.isFalse a.IntrinsicBindings.IsEmpty "the source declares an intrinsic"
                 Expect.isFalse a.GlobalValueKeys.IsEmpty "the source declares a global"
-                Expect.isFalse a.ModuleSourcePaths.IsEmpty "the source declares a module"
+                Expect.isFalse a.CompiledModuleNames.IsEmpty "the source declares a suffixed module"
                 Expect.isFalse a.Accessibility.IsEmpty "the source declares a private binding"
 
                 Expect.equal a b "separately built files with the same content are equal"

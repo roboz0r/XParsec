@@ -1,5 +1,5 @@
 // Generated from seq.fs
-import { zeroCreate as $Vesper_Collections_ArrayModule_zeroCreate } from "../Vesper.Array/index.mjs";
+import { zeroCreate as $Vesper_Collections_Array_zeroCreate } from "../Vesper.Array/index.mjs";
 import { enumeratorOf as $Vesper_Collections_enumeratorOf } from "../Vesper.Core/Vesper.Core.mjs";
 export class TruncateSeq {
   constructor(source, limit) {
@@ -53,7 +53,7 @@ export const toArray = (source) => ((buffer) => ((count) => ((() => {
         const _s107 = buffer[i];
         (grown[i] = _s107);
       }
-    })(), (buffer = grown)))($Vesper_Collections_ArrayModule_zeroCreate(((_s95) => (Math.imul((_s95), (2))))(buffer.length))) : undefined);
+    })(), (buffer = grown)))($Vesper_Collections_Array_zeroCreate(((_s95) => (Math.imul((_s95), (2))))(buffer.length))) : undefined);
     (buffer[count] = x);
     (count = (((count) + (1)) | 0));
   }
@@ -63,4 +63,4 @@ export const toArray = (source) => ((buffer) => ((count) => ((() => {
     const _s123 = buffer[i];
     (result[i] = _s123);
   }
-})(), result))($Vesper_Collections_ArrayModule_zeroCreate(count))))(0))($Vesper_Collections_ArrayModule_zeroCreate(4));
+})(), result))($Vesper_Collections_Array_zeroCreate(count))))(0))($Vesper_Collections_Array_zeroCreate(4));

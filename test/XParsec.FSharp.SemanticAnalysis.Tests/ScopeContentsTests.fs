@@ -134,9 +134,12 @@ let private moduleName (c: ModuleContainer) : string =
 
 let private expectBagSpellings (view: IExternalSymbolProvider) : unit =
     let bySource = containerOrFail view.Scope "Test.A.Bag"
-    let byCompiled = containerOrFail view.Scope "Test.A.BagModule"
-    Expect.equal bySource byCompiled "one module, two spellings"
-    Expect.isTrue (view.Scope.TryValue(bySource, "size")).IsSome "its value resolves under either"
+
+    Expect.isTrue
+        (view.Scope.TryContainer "Test.A.BagModule").IsNone
+        "the compiled class name is no spelling a source writes"
+
+    Expect.isTrue (view.Scope.TryValue(bySource, "size")).IsSome "its value resolves under the module"
 
     match view.Scope.TryValue(bySource, "count"), view.Scope.TryValue(bySource, "Count") with
     | ValueSome bySourceName, ValueSome byCompiledName ->
@@ -151,6 +154,19 @@ let private expectBagSpellings (view: IExternalSymbolProvider) : unit =
         Expect.equal plain.Key.Name "size" "a quoted name holding a dot claims no sibling's slot"
         Expect.equal quoted.Key.Name "a.size" "and resolves under the whole name it binds"
     | other -> failtestf "both bindings resolve under their own short names: %A" other
+
+    match bySource with
+    | ModuleContainer.InModule m ->
+        Expect.equal
+            (view.Scope.ModuleClassNameOf m)
+            (ModuleClassName.Compiled(CompiledName "BagModule"))
+            "the suffixed module states the class it emits as"
+    | ModuleContainer.InNamespace _ -> failtest "Test.A.Bag is a module"
+
+    Expect.equal
+        (view.Scope.ModuleClassNameOf(SymbolKeyOps.moduleInNamespace "Test.A" "Absent"))
+        ModuleClassName.Undeclared
+        "a module this surface never published states nothing, rather than defaulting to its source name"
 
 // --- Composition ------------------------------------------------------------------------
 
@@ -181,6 +197,7 @@ let private scopeOfCases (paths: string list) (cases: ExternalUnionCase list) : 
                 ]
 
         member _.TypesNamed(_, _) = EqArray.empty
+        member _.ModuleClassNameOf _ = ModuleClassName.Undeclared
     }
 
 let private root = ModuleContainer.InNamespace NamespaceKey.Global
@@ -271,7 +288,7 @@ let tests =
                         Expect.equal arities [ 0; 2; 10 ] "every declared arity, ascending"
                     }
 
-                    test "a signature publishes a ModuleSuffix module under its source path and its compiled name" {
+                    test "a signature publishes a ModuleSuffix module under the path its source writes" {
                         let unit =
                             SourceUnit.paired
                                 (SourceFile.ofText "lib.fsi" bagSignature)
@@ -292,9 +309,21 @@ let tests =
                         | EqOne(struct (key, _)) ->
                             Expect.equal
                                 (SymbolKeyOps.typeMetaName key)
-                                "Test.A.BagModule+Tag"
-                                "the source path reaches the compiled module"
+                                "Test.A.Bag+Tag"
+                                "the type is held by the module, not by the namespace"
                         | other -> failtestf "a type the module holds resolves under the module's source path: %A" other
+                    }
+
+                    test "an unsuffixed module states that it emits under the name its source writes" {
+                        let scope = (publishedViews [ "lib.fs", arityLib ]).[0].Scope
+
+                        match containerOrFail scope "Test.Ar.M" with
+                        | ModuleContainer.InModule m ->
+                            Expect.equal
+                                (scope.ModuleClassNameOf m)
+                                ModuleClassName.SourceName
+                                "a published module carrying no suffix is a declaration, not an absence"
+                        | ModuleContainer.InNamespace _ -> failtest "Test.Ar.M is a module"
                     }
 
                     test "a composed stack resolves from every file, nearest first" {

@@ -31,9 +31,11 @@ Four sites need the semantic name and read a compiled one:
 `JsRuntime.fs:206` reads `containerFullName` for its import alias. It needs a name that is
 unique and stable, and either name serves.
 
-## The recovery already built, and what it misses
+## The recovery that was built, and what it missed
 
-The semantic name is recorded, serialised, read back, and compared — five stages to restore what
+*History: step 2 deleted every stage below. Line numbers are as of the diagnosis.*
+
+The semantic name was recorded, serialised, read back, and compared — five stages to restore what
 the mint threw away:
 
 1. `TypeRegistry.noteLocalContainer` (`:504`) records `ModuleKey → source path` in
@@ -95,7 +97,7 @@ applies it.
 
 `ModuleSourcePaths` inverts: the same blob column carries the compiled name where it differs,
 instead of the source path where it differs. `sourcePathOf` and its `failwithf` go away, because
-the source path is in the key. `PublishedSurface.SourceSpellings` goes away for the same reason.
+the source path is in the key. `PublishedSurface.SourceNames` goes away for the same reason.
 
 ## Staged plan
 
@@ -116,14 +118,37 @@ Step 2 and step 3 read these instead of the key. Covered by "publishes its compi
 (`LongIdentResolutionTests.fs`, the `.fs` half through the blob) and "publishes a compiled name"
 (`SignatureResolutionTests.fs`, the `.fsi` half).
 
-**Step 2 — flip `ModuleKey.Name`.** `CompiledModuleNameOf` mints the source name; `Layout.fs:258`
-and `ClrEnv.fs:451` read the published compiled name. Deletes `ModuleSourcePaths` and
-`sourcePathOf`. Un-pends the three cases above. **This changes emitted CLR names if a consumer is
-missed**, so the CLR suite is the gate.
+**Step 2 — flip `ModuleKey.Name`. DONE.** `EnclosingChainOf` mints the source name.
+`Layout.moduleClassName` reads its own file's `FrozenFileResidue.CompiledModuleNames`;
+`ClrEnv.externalModuleRef` reads a referenced module's through
+`IScopeContents.ModuleClassNameOf` / `ICodegenSymbols.ModuleClassNameOf`, served by
+`PublishedSurface.scopeOf`. `ModuleSourcePaths` and `sourcePathOf` are gone. The three cases
+above are un-pended and pass.
+
+The channel returns `ModuleClassName`, three-state: a `Compiled` class name, the declaration
+`SourceName`, or `Undeclared` for a module no consulted surface publishes. `scopeOf` separates
+the last two by the `containers` index it already builds, and `externalModuleRef` fails the
+compile on `Undeclared` — a bare source name there would bind to no `TypeDef` and fault at
+load time instead. Pinned by the two `ModuleClassNameOf` cases in `ScopeContentsTests.fs`.
+
+Two renderings followed the key. `SymbolKeyOps.typeMetaName` spells a module-held type
+`N.M+T` rather than `N.MModule+T`; the CLR ref path composes its `TypeRef` chain through
+`externalModuleRef` instead, so no emission site reads that rendering. `typeMetaName` is now the
+identity spelling only, and `MetadataSymbols.lookupTypeByKey` declines a module-held key rather
+than handing that rendering to `asm.GetType`. The JS import alias is
+`$Vesper_Collections_List_length`, and `src/Vesper.Seq/Vesper.Seq.mjs` was regenerated for the
+matching `Vesper.Array` alias.
+
+*Also collapsed under this step, because the flip is what made them redundant:*
+`PublishedSurface.ModuleContainers` (with `addModuleContainer` / `addModuleChain`) mapped a
+module's source path to its container, which the key now renders directly — every entry it held
+duplicated one `scopeOf`'s own `noteContainer` sweep had already filed. `SourceSpelling`
+collapsed to `SourceNames: BindingKey -> string`: its `Path` field was `containerFullName
+sym.Key.Decl` by construction at both producers, and no consumer read it.
 
 **Step 3 — flip `BindingKey.Name`.** `ModuleBindingInfo.BindingKey` selects `SourceName`;
 `ClrRecipes.fs:237` and `SymbolKeyOps.qualifiedName` (`:351`) read the published compiled name.
-Deletes `SourceSpellings` and the `IScopeContents.TryValue` dual-name match
+Deletes `SourceNames` and the `IScopeContents.TryValue` dual-name match
 (`ExternalSymbols.fs:83`). The consumer sweep for this step is not complete in this document:
 `BindingKey` reaches `ConformanceSurface`, `ExternalSymbolProviders`, `FrozenTypeTable` and both
 backends, and each read has to be classified as wanting one name or the other before the flip.
@@ -156,12 +181,10 @@ prerequisite.
 
 4. **`Layout.fs:62` mints a key for a synthetic class.**
    `moduleKeyOf (InNamespace Global) project.ModuleName` names the program class, which has no
-   source declaration. After the flip its `Name` field is a compiled name in a semantic-name
-   slot. Backend-local and harmless, or worth a distinct construct — undecided.
+   source declaration. Its `Name` field is a compiled name in a semantic-name slot. Backend-local
+   and harmless, or worth a distinct construct — undecided.
 
-5. **The JS import alias.** `JsRuntime.fs:206` mangles `containerFullName b.Decl`. Flipping the
-   key changes the emitted alias text. Nothing external is believed to depend on it, and the
-   `Codegen.Js` suite is the gate.
+5. **The JS import alias.** Settled by step 2: `JsRuntime.fs:206` now mangles the source path.
 
 ## Scope and risk
 

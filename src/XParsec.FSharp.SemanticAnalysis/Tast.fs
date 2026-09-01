@@ -63,11 +63,6 @@ type TastFileG<'ty, 'tok, 'id when 'id: comparison> =
         /// The `[<Global>]` module-level bindings: values that ARE a target global (JS
         /// `undefined`), so the declaring file emits no definition for one.
         GlobalValueKeys: EqSet<SymbolKey>
-        /// Each module this file declares → the dotted SOURCE path an `open` or a qualified
-        /// name writes it as (`Vesper.Collections.List` for the module compiled as
-        /// `Vesper.Collections.ListModule`). A namespace needs no entry: its source path is
-        /// its own dotted name.
-        ModuleSourcePaths: EqDict<ModuleKey, string>
         /// Each module this file declares whose compiled class name differs from the name its
         /// source writes (`ListModule` for `module List`). A module absent here compiles
         /// under its source name.

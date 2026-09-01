@@ -455,7 +455,6 @@ module FrozenCodec =
         writeListWith w writeDiagnostic res.Diagnostics
         writeTypeKeyDict w writeIntrinsicBindingInfo res.IntrinsicBindings
         writeSymbolSet w res.GlobalValueKeys
-        writeModuleDict w (fun w (path: string) -> w.Write path) res.ModuleSourcePaths
         writeModuleDict w (fun w (CompiledName n) -> w.Write n) res.CompiledModuleNames
         writeListWith w writeModuleRef res.AutoOpenModules
         writeSymbolDict w writeAccessibility res.Accessibility
@@ -464,7 +463,6 @@ module FrozenCodec =
         let diagnostics = readListWith r readDiagnostic
         let intrinsicBindings = readTypeKeyDict r readIntrinsicBindingInfo
         let globalValueKeys = readSymbolSet r
-        let moduleSourcePaths = readModuleDict r (fun r -> r.ReadString())
         let compiledModuleNames = readModuleDict r (fun r -> CompiledName(r.ReadString()))
         let autoOpenModules = readListWith r readModuleRef
         let accessibility = readSymbolDict r readAccessibility
@@ -473,7 +471,6 @@ module FrozenCodec =
             Diagnostics = diagnostics
             IntrinsicBindings = intrinsicBindings
             GlobalValueKeys = globalValueKeys
-            ModuleSourcePaths = moduleSourcePaths
             CompiledModuleNames = compiledModuleNames
             AutoOpenModules = autoOpenModules
             Accessibility = accessibility

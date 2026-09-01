@@ -447,9 +447,20 @@ type internal ClrEnv
     /// static class): a nested module chains through its parent's `TypeRef` with the bare name +
     /// empty namespace; only the chain's root carries one. A key never says WHERE, hence `origin`.
     let rec externalModuleRef (origin: SymbolOrigin) (m: ModuleKey) : EntityHandle =
+        let metaName =
+            match symbols.ModuleClassNameOf m with
+            | ModuleClassName.Compiled(CompiledName n) -> n
+            | ModuleClassName.SourceName -> m.Name
+            // Emitting the bare source name here would bind to no `TypeDef` and fault at
+            // load time, so an undeclared module fails the compile instead.
+            | ModuleClassName.Undeclared ->
+                failwithf
+                    "ClrProvider: no referenced surface declares module '%s', so the class it emits as is unknown."
+                    (SymbolKeyOps.moduleFullName m)
+
         match m.Container with
-        | ModuleContainer.InModule parent -> toEntity (ctx.TypeRef(externalModuleRef origin parent, "", m.Name))
-        | ModuleContainer.InNamespace ns -> toEntity (ctx.TypeRef(externalAsmRef origin.Home, ns.Dotted, m.Name))
+        | ModuleContainer.InModule parent -> toEntity (ctx.TypeRef(externalModuleRef origin parent, "", metaName))
+        | ModuleContainer.InNamespace ns -> toEntity (ctx.TypeRef(externalAsmRef origin.Home, ns.Dotted, metaName))
 
     let rec externalClassRef (key: TypeKey) : EntityHandle voption =
         match symbols.TryLookupType key with

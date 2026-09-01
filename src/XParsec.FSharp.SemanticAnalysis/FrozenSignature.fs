@@ -334,13 +334,7 @@ module FrozenSignature =
                     Attributes = info.Attributes
                 }
 
-            let source: SourceSpelling =
-                {
-                    Path = FrozenFileResidue.sourcePathOf frozen.Residue info.Container
-                    Name = info.SourceName
-                }
-
-            PublishedSurfaceBuilder.addValue surface (ValueSome source) sym
+            PublishedSurfaceBuilder.addValue surface (ValueSome info.SourceName) sym
 
         // EVERY module binding is a `Decls` entry, `inline` ones included, and its identity is in
         // `ModuleMembers`, a TOP-LEVEL binding's too, keyed in the file's namespace so it

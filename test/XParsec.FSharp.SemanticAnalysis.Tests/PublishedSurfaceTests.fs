@@ -22,7 +22,6 @@ let private surfaceOf (names: string list) : PublishedSurface =
 
     for n in names do
         let k = key "Ns" n 0
-        PublishedSurfaceBuilder.addModuleChain b k
         PublishedSurfaceBuilder.addShape b k (shapeOf 0)
 
         PublishedSurfaceBuilder.addUnionCase

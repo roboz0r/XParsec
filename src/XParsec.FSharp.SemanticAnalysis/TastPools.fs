@@ -389,7 +389,6 @@ module TastPools =
                         Diagnostics = file.Diagnostics
                         IntrinsicBindings = file.IntrinsicBindings
                         GlobalValueKeys = file.GlobalValueKeys
-                        ModuleSourcePaths = file.ModuleSourcePaths
                         CompiledModuleNames = file.CompiledModuleNames
                         AutoOpenModules = file.AutoOpenModules
                         Accessibility = file.Accessibility

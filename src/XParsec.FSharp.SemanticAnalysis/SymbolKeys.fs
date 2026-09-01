@@ -73,6 +73,8 @@ type ModuleContainer =
 and ModuleKey =
     {
         Container: ModuleContainer
+        /// The name the module's source writes. The class name it compiles to is a published
+        /// fact of its own, a `CompiledName`.
         Name: string
     }
 
@@ -98,8 +100,8 @@ type ImplicitOpen =
 [<RequireQualifiedAccess>]
 type TypeContainer =
     | InNamespace of ns: NamespaceKey
-    /// `parent` identifies the module's COMPILED module class, with the `…Module` suffix already
-    /// applied, never the source name an `open` writes.
+    /// `parent` identifies the module by the name its source writes; the static class it
+    /// compiles to may carry the `…Module` suffix.
     | InModule of parent: ModuleKey
     /// A CLR *nested* type such as `` List`1+Enumerator ``; the parser cannot declare one.
     /// Nesting is decoded STRUCTURALLY, because that `+` is a reflection DISPLAY convention.
@@ -308,6 +310,24 @@ type CompiledName =
             ValueNone
         else
             ValueSome(CompiledName compiled)
+
+    /// The name to emit under, given what a producer published for a declaration whose source
+    /// writes `source`.
+    static member Emitted(compiled: CompiledName voption, source: string) : string =
+        match compiled with
+        | ValueSome(CompiledName n) -> n
+        | ValueNone -> source
+
+/// What a module emits its static class as, as stated by a source that declares it.
+[<RequireQualifiedAccess>]
+type ModuleClassName =
+    /// The module emits under the name its source writes.
+    | SourceName
+    /// The module emits as this class instead (`ListModule` for `module List`).
+    | Compiled of CompiledName
+    /// The module is absent from every source consulted, so its emitted class name is
+    /// unknown. Distinct from `SourceName`, which is a declaration.
+    | Undeclared
 
 /// A PLACE (assembly + namespace): enough to mint a ref without re-resolving. A symbol's
 /// declaring type is not here; containment is the key's job.

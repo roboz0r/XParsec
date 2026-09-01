@@ -552,7 +552,7 @@ module N =
                 "a module whose compiled name differs"
                 [
                     testList
-                        "holds today"
+                        "reached by the name its source writes"
                         [
                             resolves
                                 "CONTROL: an unsuffixed module is reached by `open`"
@@ -643,15 +643,7 @@ module M =
 module Q =
     let z = 1
 "
-                        ]
-
-                    testList
-                        "pending"
-                        [
-                            // The published surface indexes a module under its COMPILED path;
-                            // the source path arrives only with a published value, which a
-                            // module holding one type does not have.
-                            presolves
+                            resolves
                                 "a suffixed module publishing only a type is reached by `open`"
                                 suffixedTypeOnlyLib
                                 "namespace Consumer
@@ -661,7 +653,7 @@ open Test.Suffix.Foo
 module M =
     let f (v: Inner) = v
 "
-                            presolves
+                            resolves
                                 "a suffixed module publishing only a type is reached by a qualified path"
                                 suffixedTypeOnlyLib
                                 "namespace Consumer
@@ -669,9 +661,7 @@ module M =
 module M =
     let f (v: Test.Suffix.Foo.Inner) = v
 "
-                            // The descent composes a COMPILED prefix with a SOURCE segment,
-                            // spelling `Test.Suffix.FooModule.Bar`, which no index holds.
-                            presolves
+                            resolves
                                 "a module nested under a suffixed one is reached by a qualified path"
                                 suffixedNestedLib
                                 "namespace Consumer
@@ -691,21 +681,21 @@ module M =
                             test "a module publishing only a type publishes it" {
                                 Expect.equal
                                     (publishedModuleNames suffixedTypeOnlyLib)
-                                    [ "Test.Suffix.FooModule", "FooModule" ]
+                                    [ "Test.Suffix.Foo", "FooModule" ]
                                     "the suffix survives the freeze without a published value"
                             }
 
                             test "a module publishing a value publishes it" {
                                 Expect.equal
                                     (publishedModuleNames suffixedWithValueLib)
-                                    [ "Test.Suffix.FooModule", "FooModule" ]
+                                    [ "Test.Suffix.Foo", "FooModule" ]
                                     "the suffix survives the freeze"
                             }
 
                             test "only the suffixed module of a nested pair publishes one" {
                                 Expect.equal
                                     (publishedModuleNames suffixedNestedLib)
-                                    [ "Test.Suffix.FooModule", "FooModule" ]
+                                    [ "Test.Suffix.Foo", "FooModule" ]
                                     "`Foo` carries the suffix and `Bar` compiles under its source name"
                             }
 

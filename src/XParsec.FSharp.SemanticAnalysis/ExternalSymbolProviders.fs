@@ -12,7 +12,7 @@ type KeyedMemberName =
 /// is keyed on.
 type ExternalMemberName =
     {
-        /// The declaring type's qualified compiled name.
+        /// The declaring type's `typeMetaName` rendering.
         DeclaringType: string
         Name: string
     }

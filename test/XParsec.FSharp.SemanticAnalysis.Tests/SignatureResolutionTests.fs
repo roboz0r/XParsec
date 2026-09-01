@@ -155,10 +155,7 @@ let tests =
                                 "app.fsi"
                                 "namespace App\n\ntype Foo =\n    | A\n\nmodule Foo =\n    val seed: int\n"
 
-                        Expect.equal
-                            (compiledModuleNames r)
-                            [ "App.FooModule", "FooModule" ]
-                            "the suffix reaches the surface"
+                        Expect.equal (compiledModuleNames r) [ "App.Foo", "FooModule" ] "the suffix reaches the surface"
                     }
 
                     test "`[<CompiledName>]` on a val publishes the attribute's name" {

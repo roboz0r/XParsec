@@ -519,7 +519,6 @@ module SignatureResolution =
             let key =
                 SymbolKeyOps.typeKeyOfContainer (localTypeContainer ctx containment) name arity
 
-            PublishedSurfaceBuilder.addModuleChain sctx.Surface key
             publishShape sctx key (ExternalTypeShape.Unmodelled(reason, arity))
 
     /// The shape ONE claimed declaration publishes, once every declaration in its group has
@@ -562,8 +561,6 @@ module SignatureResolution =
                 // member referencing a sibling declared below it classifies correctly.
                 if SigDecl.isInterfaceForm decl then
                     groupInterfaceKeys.Add id.Key
-
-                PublishedSurfaceBuilder.addModuleChain sctx.Surface id.Key
             | ValueNone ->
                 match SigDecl.unmodelledReason decl with
                 | ValueSome reason ->
@@ -706,17 +703,7 @@ module SignatureResolution =
                         Attributes = AttributeFold.build ctx attrElement resolvedAttrs
                     }
 
-                let source =
-                    sourceName
-                    |> ValueOption.map (fun n ->
-                        {
-                            Path = DeclContainment.sourcePath ctx.NameOf containment
-                            Name = n
-                        }
-                        : SourceSpelling
-                    )
-
-                PublishedSurfaceBuilder.addValue sctx.Surface source sym
+                PublishedSurfaceBuilder.addValue sctx.Surface sourceName sym
 
     // --- the walk -------------------------------------------------------------------
 

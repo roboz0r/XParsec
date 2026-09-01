@@ -533,18 +533,6 @@ module TypeRegistry =
 
     let declaredAutoOpenModules (types: PassContextTypes) : ModuleKey list = List.ofSeq types.AutoOpenModules
 
-    /// `LocalContainerPaths` restricted to modules; a namespace's source path is its own
-    /// dotted name, so it needs no entry.
-    let declaredModulePaths (types: PassContextTypes) : EqDict<ModuleKey, string> =
-        let d = Dictionary<ModuleKey, string>()
-
-        for KeyValue(container, path) in types.LocalContainerPaths do
-            match container with
-            | ModuleContainer.InModule m -> d.[m] <- path
-            | ModuleContainer.InNamespace _ -> ()
-
-        EqDict.ofSeq d
-
     let declaredCompiledModuleNames (types: PassContextTypes) : EqDict<ModuleKey, CompiledName> =
         EqDict.ofSeq types.CompiledModuleNames
 

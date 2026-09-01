@@ -671,6 +671,21 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
             typeCache.[name] <- v
             v
 
+    let rec heldByModule (c: TypeContainer) : bool =
+        match c with
+        | TypeContainer.InModule _ -> true
+        | TypeContainer.InNamespace _ -> false
+        | TypeContainer.InType outer -> heldByModule outer.Container
+
+    /// The reflection lookup for `key`, declined for a type an F# module holds:
+    /// `typeMetaName` spells the module under the name its source writes, and IL nests the
+    /// type under the module's compiled class, so the rendering would address nothing.
+    let lookupTypeByKey (key: TypeKey) : ExternalTypeShape voption =
+        if heldByModule key.Container then
+            ValueNone
+        else
+            lookupTypeByName (SymbolKeyOps.typeMetaName key)
+
     /// Every `(namespace, plain name, arity)` the reference set exports at top level,
     /// forwarded types included: `asm.GetType` follows a type forwarder, so the directory
     /// must too. Identity alone; a slot's shape resolves on demand.
@@ -739,9 +754,8 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
         member _.ImplicitOpens = []
 
     interface IExternalSymbolStore with
-        // The caches address the BCL compiled name, so a key is rendered before the read.
-        member _.TryLookupType(key: TypeKey) =
-            lookupTypeByName (SymbolKeyOps.typeMetaName key)
+        // The caches address a reflection name, so a key is rendered before the read.
+        member _.TryLookupType(key: TypeKey) = lookupTypeByKey key
 
         member this.TryLookupMembers(key, memberName) =
             this.LookupMembersByName(
@@ -791,7 +805,10 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
             match IntrinsicTypeMap.tryPlatform key intrinsics with
             | ValueSome(IntrinsicPlatform.Bound typeId) -> reflected typeId.Value
             | ValueSome(IntrinsicPlatform.Unsupported _) -> ValueNone
-            | ValueNone -> reflected (SymbolKeyOps.typeMetaName key)
+            | ValueNone ->
+                match lookupTypeByKey key with
+                | ValueSome(ExternalTypeShape.Class shape) -> ValueSome shape.Flags.IsValueType
+                | _ -> ValueNone
 
         member _.TupleType(arity: int) =
             if ClrTuples.isTupleArity arity then

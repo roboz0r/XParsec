@@ -65,7 +65,7 @@ module Containment =
                 let src = this.NameOf md.Ident
                 let attrs = this.ResolveAttributes md.Attributes
                 let compiled = this.CompiledModuleNameOf(attrs, src)
-                container <- ModuleContainer.InModule(SymbolKeyOps.moduleKeyOf container compiled)
+                container <- ModuleContainer.InModule(SymbolKeyOps.moduleKeyOf container src)
                 path <- SymbolKeyOps.qualify path src
 
                 scopes.Add

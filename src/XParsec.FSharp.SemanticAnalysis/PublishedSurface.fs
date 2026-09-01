@@ -22,11 +22,6 @@ type ExternForm =
     /// interface, which is an opaque value repr.
     | Capability
 
-/// How the source spells a published value: the declaring scope's dotted path and the
-/// binding's short name, each as WRITTEN (`Vesper.List` + `fold` for the value compiled as
-/// `Vesper.ListModule.fold`).
-type SourceSpelling = { Path: string; Name: string }
-
 type PublishedSurfaceBuilder =
     {
         ShapesByKey: Dictionary<TypeKey, ExternalTypeShape>
@@ -34,9 +29,6 @@ type PublishedSurfaceBuilder =
         ExternForms: Dictionary<TypeKey, ExternForm>
         /// A type's FULL member list, in DECLARATION order: the overload scan depends on it.
         MembersByKey: Dictionary<TypeKey, ResizeArray<ExternalMember>>
-        /// Dotted source path of a declared module -> the container a type it holds sits in.
-        /// What makes a written `A.M.T` reach the type compiled as `A.M+T`.
-        ModuleContainers: Dictionary<string, TypeContainer>
         /// Each published module whose compiled class name differs from the name its source
         /// writes. A module absent here compiles under its source name.
         CompiledModuleNames: Dictionary<ModuleKey, CompiledName>
@@ -47,9 +39,9 @@ type PublishedSurfaceBuilder =
         RecordFields: Dictionary<string, ResizeArray<ExternalRecordCandidate>>
         /// Every published value, one entry per identity.
         Symbols: Dictionary<BindingKey, ExternalSymbol>
-        /// The source spelling of a value whose compiled name differs, and the binding it
-        /// names. First spelling wins.
-        SourceSpellings: Dictionary<SourceSpelling, BindingKey>
+        /// The short name a source writes for a value whose compiled name differs (`fold` for
+        /// the binding compiled as `Fold`). Its declaring container is the key's own.
+        SourceNames: Dictionary<BindingKey, string>
         /// What a consumer resolves through with no `open` of its own.
         mutable ImplicitOpens: ImplicitOpen list
     }
@@ -62,34 +54,13 @@ module PublishedSurfaceBuilder =
             ShapesByKey = Dictionary()
             ExternForms = Dictionary()
             MembersByKey = Dictionary()
-            ModuleContainers = Dictionary(StringComparer.Ordinal)
             CompiledModuleNames = Dictionary(HashIdentity.Structural)
             UnionCases = Dictionary(StringComparer.Ordinal)
             RecordFields = Dictionary(StringComparer.Ordinal)
             Symbols = Dictionary(HashIdentity.Structural)
-            SourceSpellings = Dictionary(HashIdentity.Structural)
+            SourceNames = Dictionary(HashIdentity.Structural)
             ImplicitOpens = []
         }
-
-    /// Index `m` and every module enclosing it, so a type held anywhere down the chain is
-    /// reachable by the dotted path its source writes.
-    let rec addModuleContainer (surface: PublishedSurfaceBuilder) (m: ModuleKey) : unit =
-        let path = SymbolKeyOps.moduleFullName m
-
-        if not (surface.ModuleContainers.ContainsKey path) then
-            surface.ModuleContainers.[path] <- TypeContainer.InModule m
-
-        match m.Container with
-        | ModuleContainer.InModule parent -> addModuleContainer surface parent
-        | ModuleContainer.InNamespace _ -> ()
-
-    /// Index the enclosing module chain that makes a written `A.M.T` reach the type compiled
-    /// as `A.M+T`. An `InType`-nested or namespace-direct type has no enclosing module.
-    let addModuleChain (surface: PublishedSurfaceBuilder) (key: TypeKey) : unit =
-        match key.Container with
-        | TypeContainer.InModule m -> addModuleContainer surface m
-        | TypeContainer.InNamespace _
-        | TypeContainer.InType _ -> ()
 
     /// Publish that `m` emits as the class `compiled` rather than as the name its source
     /// writes.
@@ -137,22 +108,15 @@ module PublishedSurfaceBuilder =
                 buf.Add candidate
                 surface.RecordFields.[f] <- buf
 
-    /// Publishes the value under its own identity, and records `source` as a second spelling
-    /// reaching it where the two differ: `Vesper.List.fold` beside `Vesper.ListModule.fold`.
-    /// Only a module `source.Path` is added to `ModuleContainers`.
-    let addValue (surface: PublishedSurfaceBuilder) (source: SourceSpelling voption) (sym: ExternalSymbol) : unit =
+    /// Publishes the value under its own identity, and records `sourceName` as a second short
+    /// name reaching it in the same container: `Vesper.List.fold` beside the binding compiled
+    /// as `Vesper.List.Fold`.
+    let addValue (surface: PublishedSurfaceBuilder) (sourceName: string voption) (sym: ExternalSymbol) : unit =
         surface.Symbols.[sym.Key] <- sym
 
-        match source with
-        | ValueSome s ->
-            if s.Path <> SymbolKeyOps.containerFullName sym.Key.Decl || s.Name <> sym.Key.Name then
-                surface.SourceSpellings.TryAdd(s, sym.Key) |> ignore
-
-                match sym.Key.Decl with
-                | ModuleContainer.InModule m ->
-                    surface.ModuleContainers.TryAdd(s.Path, TypeContainer.InModule m) |> ignore
-                | ModuleContainer.InNamespace _ -> ()
-        | ValueNone -> ()
+        match sourceName with
+        | ValueSome n when n <> sym.Key.Name -> surface.SourceNames.[sym.Key] <- n
+        | _ -> ()
 
     /// Index a union case under its declaring union's compiled name plus its own
     /// (`` Test.A.M+Color.Red ``), so every published case is retained. An RQA union's cases
@@ -160,17 +124,16 @@ module PublishedSurfaceBuilder =
     let addUnionCase (surface: PublishedSurfaceBuilder) (case: ExternalUnionCase) : unit =
         surface.UnionCases.[SymbolKeyOps.typeMetaName case.UnionKey + "." + case.Case.Name] <- case
 
-    /// The one entry point for publishing a type declaration: compiled name, module chain,
-    /// shape, member table, and the case or field index the shape implies. `members` is the
-    /// type's FULL member list in declaration order, duplicating a shape's own. The cons-list
-    /// is the one shape whose cases are left out of the case index.
+    /// The one entry point for publishing a type declaration: shape, member table, and the
+    /// case or field index the shape implies. `members` is the type's FULL member list in
+    /// declaration order, duplicating a shape's own. The cons-list is the one shape whose
+    /// cases are left out of the case index.
     let addTypeWith
         (surface: PublishedSurfaceBuilder)
         (key: TypeKey)
         (shape: ExternalTypeShape)
         (members: seq<ExternalMember>)
         : unit =
-        addModuleChain surface key
         addShape surface key shape
         addMembers surface key members
 
@@ -220,8 +183,6 @@ type PublishedSurface =
         ExternForms: EqArray<SurfaceEntry<TypeKey, ExternForm>>
         /// A type's FULL member list, in DECLARATION order: the overload scan depends on it.
         MembersByKey: EqArray<SurfaceEntry<TypeKey, EqArray<ExternalMember>>>
-        /// Dotted source path of a declared module -> the container a type it holds sits in.
-        ModuleContainers: EqArray<SurfaceEntry<string, TypeContainer>>
         /// Each published module whose compiled class name differs from the name its source
         /// writes.
         CompiledModuleNames: EqArray<SurfaceEntry<ModuleKey, CompiledName>>
@@ -231,8 +192,8 @@ type PublishedSurface =
         RecordFields: EqArray<SurfaceEntry<string, EqArray<ExternalRecordCandidate>>>
         /// Every published value, one entry per identity.
         Symbols: EqArray<SurfaceEntry<BindingKey, ExternalSymbol>>
-        /// The source spelling of a value whose compiled name differs, and the binding it names.
-        SourceSpellings: EqArray<SurfaceEntry<SourceSpelling, BindingKey>>
+        /// The short name a source writes for a value whose compiled name differs.
+        SourceNames: EqArray<SurfaceEntry<BindingKey, string>>
         /// Derived from the `Intrinsic` shapes above. The BUILDER has no such field, so a
         /// producer cannot put a CAPABILITY interface here: it carries its platform name on
         /// its own identity and must stay OFF this axis.
@@ -261,9 +222,6 @@ module PublishedSurface =
     let private byTypeKey (d: Dictionary<TypeKey, 'V>) : EqArray<SurfaceEntry<TypeKey, 'V>> =
         ordered SymbolKeyOps.typeMetaName (seq { for KeyValue(k, v) in d -> k, v })
 
-    /// The whole name a source spelling writes: `Vesper.List.fold`.
-    let private writtenName (s: SourceSpelling) : string = SymbolKeyOps.qualify s.Path s.Name
-
     let private bindingName (k: BindingKey) : string =
         SymbolKeyOps.qualifiedName (SymbolKey.Binding k)
 
@@ -279,7 +237,6 @@ module PublishedSurface =
                 b.MembersByKey
                 |> Seq.map (fun (KeyValue(k, ms)) -> k, EqArray.ofResizeArray ms)
                 |> ordered SymbolKeyOps.typeMetaName
-            ModuleContainers = byName b.ModuleContainers
             CompiledModuleNames =
                 ordered SymbolKeyOps.moduleFullName (seq { for KeyValue(k, v) in b.CompiledModuleNames -> k, v })
             UnionCases = byName b.UnionCases
@@ -288,7 +245,7 @@ module PublishedSurface =
                 |> Seq.map (fun (KeyValue(k, cs)) -> k, EqArray.ofResizeArray cs)
                 |> ordered id
             Symbols = ordered bindingName (seq { for KeyValue(k, v) in b.Symbols -> k, v })
-            SourceSpellings = ordered writtenName (seq { for KeyValue(k, v) in b.SourceSpellings -> k, v })
+            SourceNames = ordered bindingName (seq { for KeyValue(k, v) in b.SourceNames -> k, v })
             Intrinsics =
                 IntrinsicTypeMap.ofSeq (
                     seq {
@@ -339,12 +296,12 @@ module PublishedSurface =
         for e in surface.Symbols do
             valuesIn.[struct (e.Key.Decl, e.Key.Name)] <- e.Value
 
-        // A source spelling is filed in the container of the binding it resolves to:
-        // `Vesper.Set.empty` reaches the binding compiled as `SetModule.Empty`. A compiled
-        // short name already filed wins.
-        for e in surface.SourceSpellings do
-            match symbols.TryGetValue e.Value with
-            | true, sym -> valuesIn.TryAdd(struct (e.Value.Decl, e.Key.Name), sym) |> ignore
+        // A source name is filed in the container of the binding it resolves to:
+        // `Vesper.Set.empty` reaches the binding compiled as `Empty`. A compiled short name
+        // already filed wins.
+        for e in surface.SourceNames do
+            match symbols.TryGetValue e.Key with
+            | true, sym -> valuesIn.TryAdd(struct (e.Key.Decl, e.Value), sym) |> ignore
             | _ -> ()
 
         let casesIn =
@@ -420,22 +377,24 @@ module PublishedSurface =
         for e in surface.Symbols do
             noteContainer e.Key.Decl
 
-        // Last, so a compiled path already registered wins. `e.Key` is the source path:
-        // `Vesper.List` beside the compiled `Vesper.ListModule`.
-        for e in surface.ModuleContainers do
-            match e.Value with
-            | TypeContainer.InModule m ->
-                let c = ModuleContainer.InModule m
-                noteContainer c
-                containers.TryAdd(e.Key, c) |> ignore
-            | TypeContainer.InNamespace ns -> noteNamespace ns.Dotted
-            | TypeContainer.InType _ -> ()
+        let compiledModuleNames = index surface.CompiledModuleNames HashIdentity.Structural
 
         { new IScopeContents with
             member _.TryContainer path =
                 match containers.TryGetValue path with
                 | true, c -> ValueSome c
                 | _ -> ValueNone
+
+            // `containers` holds every module this surface declares, so absence from it is
+            // what separates "emits under its source name" from "not published here".
+            member _.ModuleClassNameOf m =
+                match compiledModuleNames.TryGetValue m with
+                | true, compiled -> ModuleClassName.Compiled compiled
+                | _ ->
+                    if containers.ContainsKey(SymbolKeyOps.moduleFullName m) then
+                        ModuleClassName.SourceName
+                    else
+                        ModuleClassName.Undeclared
 
             member _.TryValue(container, name) =
                 match valuesIn.TryGetValue(struct (container, name)) with

@@ -321,7 +321,7 @@ let localTypeContainment =
                 Expect.equal (SymbolKeyOps.typeMetaName k) "N.A+B+T" "the whole module chain nests, outermost first"
             }
 
-            test "the module's key carries its COMPILED container name (…Module on a type collision)" {
+            test "the module's key carries the name its SOURCE writes, though it compiles suffixed" {
                 let k =
                     Local.typeKeyOf
                         0
@@ -340,8 +340,8 @@ let localTypeContainment =
                 | TypeContainer.InModule m ->
                     Expect.equal
                         m.Name
-                        "MModule"
-                        "the module collides with `type M`, so its container class is suffixed"
+                        "M"
+                        "the collision with `type M` suffixes the emitted class, which is published apart from the key"
                 | other -> failtestf "expected InModule, got %A" other
             }
         ]

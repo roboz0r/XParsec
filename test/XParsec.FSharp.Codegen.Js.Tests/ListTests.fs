@@ -102,8 +102,8 @@ let tests =
             test "List.length imports the runtime function AND the case classes it constructs" {
                 Expect.equal
                     (emitJs "let n = List.length [1; 2; 3]")
-                    ("import { List_Cons as $Vesper_List_List_Cons, List_Empty as $Vesper_List_List_Empty, length as $Vesper_Collections_ListModule_length } from \"./Vesper.List/index.mjs\";\n"
-                     + "const n = $Vesper_Collections_ListModule_length(new $Vesper_List_List_Cons(1, new $Vesper_List_List_Cons(2, new $Vesper_List_List_Cons(3, new $Vesper_List_List_Empty()))));\n")
+                    ("import { List_Cons as $Vesper_List_List_Cons, List_Empty as $Vesper_List_List_Empty, length as $Vesper_Collections_List_length } from \"./Vesper.List/index.mjs\";\n"
+                     + "const n = $Vesper_Collections_List_length(new $Vesper_List_List_Cons(1, new $Vesper_List_List_Cons(2, new $Vesper_List_List_Cons(3, new $Vesper_List_List_Empty()))));\n")
                     "one import merges the function and the case classes; the `new` sites reference the imported class aliases (no local re-emit)"
             }
 

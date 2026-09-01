@@ -353,7 +353,6 @@ module Elaborate =
             Diagnostics = List.ofSeq ctx.Diagnostics
             IntrinsicBindings = EqDict.ofSeq ctx.Types.IntrinsicBindings
             GlobalValueKeys = EqSet.ofSeq ctx.Bindings.GlobalValueKeys
-            ModuleSourcePaths = TypeRegistry.declaredModulePaths ctx.Types
             CompiledModuleNames = TypeRegistry.declaredCompiledModuleNames ctx.Types
             AutoOpenModules = TypeRegistry.declaredAutoOpenModules ctx.Types
             ModuleMembers = emptyIfDegraded ctx.Bindings.ModuleMembers

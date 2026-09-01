@@ -1,14 +1,14 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
 /// The exportable identity of a module-level `let`, with the attributes it declares.
-/// `InModule m` identifies the compiled module type, because an F# module is a static class
-/// (`Vesper.Collections.ListModule::fold`).
+/// `InModule m` names the declaring module as its source writes it; the static class it
+/// compiles to may carry the `…Module` suffix (`Vesper.Collections.ListModule::fold`).
 type ModuleBindingInfo =
     {
         Container: ModuleContainer
         Name: string
         /// The short name a use site writes; `[<CompiledName>]` is what makes it differ from
-        /// `Name`. The declaring scope's source path is in `FrozenFileResidue.ModuleSourcePaths`.
+        /// `Name`.
         SourceName: string
         /// The binding's attributes, resolved and constant-folded, in written order.
         Attributes: TAttributes

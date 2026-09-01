@@ -37,6 +37,7 @@ type private CountingProvider(name: string) =
 
             member _.UnionCasesNamed(_, _) = EqArray.empty
             member _.TypesNamed(_, _) = EqArray.empty
+            member _.ModuleClassNameOf _ = ModuleClassName.Undeclared
         }
 
     member _.ValueHits = valueHits

@@ -127,7 +127,6 @@ type FrozenFileResidue =
         Diagnostics: XParsec.FSharp.SemanticAnalysis.Diagnostic list
         IntrinsicBindings: EqDict<TypeKey, IntrinsicBindingInfo>
         GlobalValueKeys: EqSet<SymbolKey>
-        ModuleSourcePaths: EqDict<ModuleKey, string>
         /// Each module the file declares whose compiled class name differs from the name its
         /// source writes. A module absent here compiles under its source name.
         CompiledModuleNames: EqDict<ModuleKey, CompiledName>
@@ -136,22 +135,6 @@ type FrozenFileResidue =
         AutoOpenModules: ModuleKey list
         Accessibility: EqDict<SymbolKey, Accessibility>
     }
-
-[<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
-module FrozenFileResidue =
-
-    /// The dotted SOURCE path `container` is written as. A module's is declared, a
-    /// namespace's is its own dotted name.
-    let sourcePathOf (res: FrozenFileResidue) (container: ModuleContainer) : string =
-        match container with
-        | ModuleContainer.InNamespace ns -> ns.Dotted
-        | ModuleContainer.InModule m ->
-            match EqDict.tryFind m res.ModuleSourcePaths with
-            | ValueSome path -> path
-            | ValueNone ->
-                failwithf
-                    "FrozenFileResidue.sourcePathOf: module %s has no ModuleSourcePaths entry, so this pool was built from a partial scope table"
-                    (SymbolKeyOps.moduleFullName m)
 
 /// THE frozen file: the expr, pat and decl struct-of-arrays columns, each indexable by the
 /// matching `*PoolId`, plus the decl roots in source order. A bound variable IS its slot, indexable
@@ -258,7 +241,6 @@ module FrozenPools =
                     Diagnostics = []
                     IntrinsicBindings = EqDict.empty
                     GlobalValueKeys = EqSet.empty
-                    ModuleSourcePaths = EqDict.empty
                     CompiledModuleNames = EqDict.empty
                     AutoOpenModules = []
                     Accessibility = EqDict.empty

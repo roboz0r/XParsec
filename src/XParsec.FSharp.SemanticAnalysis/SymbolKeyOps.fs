@@ -121,8 +121,9 @@ module SymbolKeyOps =
             TyparArity = arity
         }
 
-    /// The `+`-joined chain of a module's COMPILED CLASS names, WITHOUT the namespace
-    /// (`A+B` for `module A` ⊃ `module B`), because a module compiles to a static class.
+    /// The `+`-joined chain of a module's SOURCE names, WITHOUT the namespace (`A+B` for
+    /// `module A` ⊃ `module B`). A suffixed module renders unsuffixed; its emitted class name
+    /// is a published `CompiledName`.
     let rec private moduleNestedName (m: ModuleKey) : string =
         match m.Container with
         | ModuleContainer.InNamespace _ -> m.Name
@@ -130,7 +131,7 @@ module SymbolKeyOps =
 
     /// The `+`-joined nested chain WITHOUT the namespace (`` List`1+Enumerator ``). EACH
     /// segment renders its OWN arity, so a generic nested in a generic spells both
-    /// (`` Outer`1+Inner`1 ``); a module-held type renders `+` too (`N.MModule+T`).
+    /// (`` Outer`1+Inner`1 ``); a module-held type renders `+` too (`N.M+T`).
     let rec typeNestedName (t: TypeKey) : string =
         let self = typeSegmentName t
 
@@ -141,8 +142,11 @@ module SymbolKeyOps =
 
     let typeNs (t: TypeKey) : string = t.Namespace.Dotted
 
-    /// The full metadata/reflection name of a type (`` Ns.Outer`2+Inner `` for a nested
-    /// one): the string handed to `asm.GetType`, and what provider stores are keyed by.
+    /// A type's identity rendered in metadata form (`` Ns.Outer`2+Inner `` for a nested one):
+    /// what provider stores are keyed by, and a stable ordinal sort key. An enclosing MODULE
+    /// renders under the name its source writes, so for a module-held type this is the
+    /// identity spelling and NOT the reflection name — a reflection reader must decline such
+    /// a key rather than pass this to `asm.GetType`.
     let typeMetaName (t: TypeKey) : string =
         let ns = typeNs t
         let simple = typeNestedName t
@@ -194,8 +198,8 @@ module SymbolKeyOps =
 
     // --- Modules ---------------------------------------------------------------------
 
-    /// The full dotted name of a module (`Vesper.Collections`): namespace path plus the
-    /// module chain, and the name of the CLR type it compiles to.
+    /// The dotted path a module's source writes (`Vesper.Collections.List`): namespace path
+    /// plus the module chain.
     let rec moduleFullName (m: ModuleKey) : string =
         match m.Container with
         | ModuleContainer.InNamespace ns ->
