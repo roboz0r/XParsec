@@ -646,7 +646,7 @@ module AutoPropDefn =
 [<RequireQualifiedAccess>]
 module MemberDefn =
     let private errExpectedMemberOrValAfterStatic: ErrorType<PositionedToken, ParseState> =
-        Message "Expected 'member' or 'val' after 'static'"
+        Message "Expected 'member', 'abstract' or 'val' after 'static'"
 
     // Ths spec has incorrect grammar for member definitions, so we need to
     // reverse-engineer it from examples and the F# spec text.
@@ -655,9 +655,10 @@ module MemberDefn =
     let private pStaticMemberDefn =
         parser {
             let! staticTok = pStatic
+            let! t = peekNextSyntaxToken
 
-            match! peekNextSyntaxToken with
-            | t when t.Token = Token.KWMember ->
+            match t.Token with
+            | Token.KWMember ->
                 let! mem = consumePeeked t
                 let! inlineTok = opt pInline
 
@@ -691,7 +692,24 @@ module MemberDefn =
                                 defn
                             )
                         )
-            | t when t.Token = Token.KWVal ->
+            | Token.KWAbstract ->
+                let! abstractTok = consumePeeked t
+                let! memTok = opt pMember
+                let! access = opt pAccessModifier
+                let! sigDef = MemberSig.parse
+
+                return
+                    (fun attrs ->
+                        MemberDefn.Member(
+                            attrs,
+                            ValueSome staticTok,
+                            MemberKeyword.Abstract(abstractTok, memTok),
+                            ValueNone,
+                            access,
+                            MethodOrPropDefn.AbstractSignature sigDef
+                        )
+                    )
+            | Token.KWVal ->
                 let! valTok = consumePeeked t
                 let! mut = opt pMutable
                 let! access = opt pAccessModifier
