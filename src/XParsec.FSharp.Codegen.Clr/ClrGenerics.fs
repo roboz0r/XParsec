@@ -111,8 +111,7 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
             | ValueSome home -> home.Slots
             | ValueNone -> []
 
-        let payloadTy =
-            UnionPayloadType.payloadTy key (declaringMarkers shape.Typars.Length)
+        let payloadTy = UnionPayloadType.payloadTyDeclaring key shape.Typars.Length
 
         let caseFields cn : EqArray<string * FrozenType> =
             match shape.Cases |> EqArray.tryFind (fun c -> c.Name = cn) with

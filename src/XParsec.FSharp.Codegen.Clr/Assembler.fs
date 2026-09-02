@@ -1002,10 +1002,9 @@ type internal Assembler
                     (rowOf (toEntity predicted))
                     (rowOf (toEntity actual))
 
-        // Written while the NESTED type is being written, not its enclosing one, so the
-        // `NestedClass` table comes out sorted by the nested handle, which is what SRM
-        // validates.
-        // The enclosing handle exists already: it precedes this node in the flattening.
+        // Called while the NESTED type is written, so the `NestedClass` table comes out
+        // sorted by the nested handle, which SRM validates. The enclosing type precedes
+        // this node in the flattening, so its handle already resolves.
         let addNesting (node: TypeNode) (typeHandle: TypeDefinitionHandle) =
             match node.Enclosing with
             | ValueNone -> ()
@@ -1050,9 +1049,7 @@ type internal Assembler
             slot.Typars
             |> List.iteri (fun i n -> genericParams.Add(toEntity typeHandle, i, n))
 
-        // A struct union's `Payload` and overlay types: `assembly`-visible value types,
-        // read directly by match arms in this assembly.
-        let addUnionStorageRow (node: TypeNode) (attrs: TypeAttributes) =
+        let addUnionValueTypeRow (node: TypeNode) (attrs: TypeAttributes) (markerAttrCtors: EntityHandle list) =
             typeRowExtras.Add(
                 node.Slot.Key,
                 {
@@ -1061,7 +1058,12 @@ type internal Assembler
                 }
             )
 
-            addNominalRow node (assemblyVisible attrs) []
+            addNominalRow node attrs markerAttrCtors
+
+        // A struct union's `Payload` and overlay types: `assembly`-visible value types,
+        // read directly by match arms in this assembly.
+        let addUnionStorageRow (node: TypeNode) (attrs: TypeAttributes) =
+            addUnionValueTypeRow node (assemblyVisible attrs) []
 
         for node in layout.Types do
             let slot = node.Slot
@@ -1122,6 +1124,11 @@ type internal Assembler
 
                 for f in node.Fields do
                     ctx.AddFieldLayout(fieldDefHandles.[f.Key], 0)
+
+            // The union's public consumer surface: nested-public over `assembly`-visible
+            // storage, and `IsReadOnly` because its one field is `initonly`.
+            | TypeSlotKind.UnionCaseView ->
+                addUnionValueTypeRow node (classAttrsOf true true) [ provider.IsReadOnlyAttrCtor ]
 
             | TypeSlotKind.Record valueKind -> addNominalRow node (classAttrsOf true valueKind.IsValueType) []
 

@@ -3,6 +3,7 @@ module XParsec.FSharp.Codegen.Clr.Tests.UnionRegimeTests
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
+open XParsec.FSharp.Codegen.Common
 
 let private ofRef (caseCount: int) (anyCaseCarriesFields: bool) =
     UnionRegime.classify UnionValueKind.RefType caseCount anyCaseCarriesFields
@@ -193,23 +194,23 @@ let factoryShape =
 [<Tests>]
 let caseFieldNames =
     testList
-        "UnionCaseFields.names"
+        "UnionCaseFieldName.fscFieldNames"
         [
             // FSC's spelling, which is what would let the external path read an
             // FSC-emitted union: a declared name prefixed `_`, a lone positional field
             // `item`, and otherwise the field's 1-based position IN THE CASE.
             test "a case with a type of its own takes FSC's spelling" {
-                Expect.equal (UnionCaseFields.names [ ValueNone ]) [ "item" ] "a lone positional field"
+                Expect.equal (UnionCaseFieldName.fscFieldNames [ ValueNone ]) [ "item" ] "a lone positional field"
 
                 Expect.equal
-                    (UnionCaseFields.names [ ValueNone; ValueNone ])
+                    (UnionCaseFieldName.fscFieldNames [ ValueNone; ValueNone ])
                     [ "item1"; "item2" ]
                     "two positional fields"
 
-                Expect.equal (UnionCaseFields.names [ ValueSome "radius" ]) [ "_radius" ] "a declared name"
+                Expect.equal (UnionCaseFieldName.fscFieldNames [ ValueSome "radius" ]) [ "_radius" ] "a declared name"
 
                 Expect.equal
-                    (UnionCaseFields.names [ ValueSome "tag"; ValueNone ])
+                    (UnionCaseFieldName.fscFieldNames [ ValueSome "tag"; ValueNone ])
                     [ "_tag"; "item2" ]
                     "the index counts every field, not the positional ones alone"
             }

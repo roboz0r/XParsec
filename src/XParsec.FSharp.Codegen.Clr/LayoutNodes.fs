@@ -132,7 +132,7 @@ module internal LayoutNodes =
         }
 
     /// Metadata typar names: `'T` → `T`.
-    let private typarNames (typeParams: EqArray<TTypeParam>) : string list =
+    let typarNames (typeParams: EqArray<TTypeParam>) : string list =
         [ for p in typeParams -> p.Name.TrimStart('\'') ]
 
     /// An augmentation member's method row: an interface-impl member forces the
@@ -155,7 +155,7 @@ module internal LayoutNodes =
 
     /// A nominal type's own augmentation members followed by its user `interface …
     /// with` impl members, as `MethodKey.Member` rows.
-    let private ownAndIfaceMemberRows
+    let ownAndIfaceMemberRows
         (key: SymbolKey)
         (members: TastAccessor.TypeMember list)
         (interfaces: (FrozenNominal * TastAccessor.TypeMember list) list)
@@ -166,7 +166,7 @@ module internal LayoutNodes =
     /// The `Property` rows a nominal type's members declare, over the same indexed member
     /// list `ownAndIfaceMemberRows` walks, so an accessor's row and its property agree on
     /// which `MethodDef` the `MethodSemantics` row binds.
-    let private ownAndIfaceProperties
+    let ownAndIfaceProperties
         (key: SymbolKey)
         (members: TastAccessor.TypeMember list)
         (interfaces: (FrozenNominal * TastAccessor.TypeMember list) list)
@@ -187,11 +187,7 @@ module internal LayoutNodes =
     /// A nominal's synthesised structural rows. `attrs` decides whether the typed
     /// `Equals(Self)` / `CompareTo(Self)` / `Format` entries carry a body; `Equals(object)`
     /// and `CompareTo(object)` carry one in every regime.
-    let private structuralRows
-        (attrs: StructuralRowAttrs)
-        (s: StructuralMembers)
-        (td: TastAccessor.TypeDecl)
-        : MethodRow list =
+    let structuralRows (attrs: StructuralRowAttrs) (s: StructuralMembers) (td: TastAccessor.TypeDecl) : MethodRow list =
         [
             if s.Equality then
                 {
@@ -235,7 +231,7 @@ module internal LayoutNodes =
 
     /// The capability co-slot rows: each a new virtual slot the runtime binds to the
     /// inherited BCL interface method by name + signature, like the typed `Equals(Self)`.
-    let private coSlotRows
+    let coSlotRows
         (symbols: ICodegenSymbols)
         (td: TastAccessor.TypeDecl)
         (interfaces: (FrozenNominal * TastAccessor.TypeMember list) list)
@@ -267,7 +263,7 @@ module internal LayoutNodes =
     /// A nominal type's node. Its `TypeDef` sits in its declaring module's class
     /// when it has one, with an empty namespace column and a `NestedClass` row, and at the
     /// root of its namespace otherwise.
-    let private nominalNode
+    let nominalNode
         (kind: TypeSlotKind)
         (td: TastAccessor.TypeDecl)
         (fields: FieldSlot list)
@@ -298,7 +294,7 @@ module internal LayoutNodes =
     // Backing storage for ctor params and `let` bindings is `assembly`, like FSC: a
     // lambda in a member body is lifted into a closure class nested in the enclosing
     // MODULE, so `private` would fault its read at JIT with `FieldAccessException`.
-    let private compilerGeneratedStorage = FieldAttributes.Assembly
+    let compilerGeneratedStorage = FieldAttributes.Assembly
 
     // ---- Per-kind node builders ------------------------------------------------------
 
@@ -334,272 +330,6 @@ module internal LayoutNodes =
 
                 let properties = rows |> List.map snd |> PropertySlot.ofAccessors td.Key
                 nominalNode TypeSlotKind.Interface td [] (List.map fst rows) properties
-        ]
-
-    /// The row one structural slot takes on a hierarchy union's case type. The `Union`-typed
-    /// entries and `GetHashCode` override the slots the base declares; the `Case`-typed pair
-    /// declares no slot of its own and binds by `call`.
-    let private unionCaseSlotRow (td: TastAccessor.TypeDecl) (caseName: string) (slot: UnionCaseSlot) : MethodRow =
-        let attrs =
-            match slot with
-            | UnionCaseSlot.GetHashCode
-            | UnionCaseSlot.EqualsUnion
-            | UnionCaseSlot.CompareToUnion
-            | UnionCaseSlot.Format -> overrideMethodAttrs
-            | UnionCaseSlot.EqualsCase
-            | UnionCaseSlot.CompareToCase -> instanceMethodAttrs
-
-        {
-            Key = MethodKey.UnionCaseStructural(td.Key, caseName, slot)
-            Name = UnionCaseSlot.metaName slot
-            Attrs = attrs
-        }
-
-    /// One case's nested `TypeDef` in a hierarchy union: its own payload fields, its
-    /// `.ctor`, and the structural bodies the base declares abstract. A generic union's
-    /// case redeclares the union's typars and adds none, so its name has no arity suffix.
-    let private unionCaseNode (ud: UnionDecl) (structural: StructuralMembers) (c: Frozen.TUnionCase) : TypeNode =
-        let td = ud.Decl
-
-        let fields =
-            List.zip (ud.FieldNames c) (EqArray.toList c.Fields)
-            |> List.mapi (fun fi (name, (_, fty)) ->
-                {
-                    Key = FieldKey.UnionCaseField(td.Key, c.Name, fi)
-                    Name = name
-                    // Written only by the case's own `.ctor`, hence `initonly`.
-                    Attrs = FieldAttributes.Public ||| FieldAttributes.InitOnly
-                    Ty = fty
-                    ClosureScope = ValueNone
-                }
-            )
-
-        let methodRows =
-            [
-                {
-                    Key = MethodKey.UnionCaseCtor(td.Key, c.Name)
-                    Name = ".ctor"
-                    Attrs = ctorAttrs
-                }
-                yield! UnionCaseSlot.required structural |> List.map (unionCaseSlotRow td c.Name)
-            ]
-
-        {
-            Slot =
-                {
-                    Key = TypeSlotKey.UnionCase(td.Key, c.Name)
-                    Kind = TypeSlotKind.UnionCase
-                    Namespace = ""
-                    MetaName = c.Name
-                    Typars = typarNames td.TypeParams
-                }
-            Enclosing = ValueSome(TypeSlotKey.Nominal td.Key)
-            Fields = fields
-            Methods = methodRows
-            Properties = []
-            Nested = []
-        }
-
-    /// The `TypeNode` of one value type nested behind a `StructTagged` union's `_payload`:
-    /// `assembly` fields and no method.
-    let private unionNestedNode (td: TastAccessor.TypeDecl) (t: UnionNestedType) : TypeNode =
-        let field (key: FieldKey) (name: string) (ty: FrozenType) : FieldSlot =
-            {
-                Key = key
-                Name = name
-                Attrs = compilerGeneratedStorage
-                Ty = ty
-                ClosureScope = ValueNone
-            }
-
-        let typars, fields =
-            match t with
-            | UnionNestedType.Payload slots ->
-                typarNames td.TypeParams,
-                [ for s in slots -> field (FieldKey.UnionSlot(td.Key, s.Key)) s.MetaName s.Ty ]
-            | UnionNestedType.Overlay cases ->
-                [],
-                [
-                    for c in cases ->
-                        field
-                            (FieldKey.UnionOverlayCase(td.Key, c.Case))
-                            c.Case
-                            (UnionPayloadType.caseDataTy td.TypeKey c.Case)
-                ]
-            | UnionNestedType.CaseData c ->
-                [],
-                [
-                    for f in c.Fields -> field (FieldKey.UnionCaseDataField(td.Key, c.Case, f.Index)) f.MetaName f.Ty
-                ]
-
-        {
-            Slot =
-                {
-                    Key = UnionNestedType.slotKey td.Key t
-                    Kind = UnionNestedType.slotKind t
-                    Namespace = ""
-                    MetaName = t.Name
-                    Typars = typars
-                }
-            Enclosing = ValueSome(TypeSlotKey.Nominal td.Key)
-            Fields = fields
-            Methods = []
-            Properties = []
-            Nested = []
-        }
-
-    /// Per union: `_tag`, a singleton field per nullary case, a flat regime's payload
-    /// slots or its `_payload`, `.ctor`, case factories, members and structural rows. A
-    /// hierarchy union additionally nests a `TypeDef` per case; a `StructTagged` one nests
-    /// its `Payload` and overlay structs.
-    let buildUnionNodes (symbols: ICodegenSymbols) (unions: UnionDecl list) : TypeNode list =
-        [
-            for ud in unions ->
-                let td = ud.Decl
-                let isStruct = ud.ValueKind.IsValueType
-                let isHierarchy = ud.IsHierarchy
-                let structural = StructuralMembers.ofUnion ud
-                let singletonCases = ud.SingletonCases
-
-                let selfTy =
-                    FTUnion(td.TypeKey, EqArray.ofList (declaringMarkers td.TypeParams.Length))
-
-                // A flat union's storage: `initonly` inline slots on its own `TypeDef`, or the
-                // one `_payload` field with the value types nested behind it. A hierarchy
-                // union declares each case's payload on the case's own nested `TypeDef`.
-                let storageFields, nested =
-                    match ud.Placements with
-                    | ValueSome p ->
-                        match p.Home with
-                        | UnionSlotHome.Inline slots ->
-                            [
-                                for s in slots ->
-                                    {
-                                        Key = FieldKey.UnionSlot(td.Key, s.Key)
-                                        Name = s.MetaName
-                                        Attrs = FieldAttributes.Public ||| FieldAttributes.InitOnly
-                                        Ty = s.Ty
-                                        ClosureScope = ValueNone
-                                    }
-                            ],
-                            []
-                        | UnionSlotHome.Payload _ ->
-                            [
-                                {
-                                    Key = FieldKey.UnionPayload td.Key
-                                    Name = UnionPayloadType.payloadFieldName
-                                    Attrs = compilerGeneratedStorage ||| FieldAttributes.InitOnly
-                                    Ty = UnionPayloadType.payloadTy td.TypeKey (declaringMarkers td.TypeParams.Length)
-                                    ClosureScope = ValueNone
-                                }
-                            ],
-                            [ for t in p.NestedTypes -> unionNestedNode td t ]
-                    | ValueNone -> [], [ for c in ud.Cases -> unionCaseNode ud structural c ]
-
-                let fields =
-                    [
-                        // A single-case union's sole case needs no discriminant, and its
-                        // FSC-spelled payload may itself claim the name `_tag`
-                        // (`C of tag: int`).
-                        if ud.HasTag then
-                            yield
-                                {
-                                    Key = FieldKey.UnionTag td.Key
-                                    Name = "_tag"
-                                    Attrs = FieldAttributes.Private ||| FieldAttributes.InitOnly
-                                    Ty = FTConst(RuntimeNames.intKey, EqArray.empty)
-                                    ClosureScope = ValueNone
-                                }
-
-                        // The `<Case>` factory is the singleton's public accessor.
-                        for (_, c) in singletonCases ->
-                            {
-                                Key = FieldKey.UnionCaseSingleton(td.Key, c.Name)
-                                Name = "_unique_" + c.Name
-                                Attrs = FieldAttributes.Private ||| FieldAttributes.Static ||| FieldAttributes.InitOnly
-                                Ty = selfTy
-                                ClosureScope = ValueNone
-                            }
-
-                        yield! storageFields
-                    ]
-
-                let methodRows =
-                    [
-                        yield
-                            {
-                                Key = MethodKey.NominalCtor td.Key
-                                Name = ".ctor"
-                                Attrs = ctorAttrs
-                            }
-
-                        // The `.cctor` constructs each nullary case's singleton once, so a
-                        // nullary construction site stops allocating.
-                        if not (List.isEmpty singletonCases) then
-                            yield
-                                {
-                                    Key = MethodKey.NominalCctor td.Key
-                                    Name = ".cctor"
-                                    Attrs = cctorAttrs
-                                }
-
-                        if ud.HasTag then
-                            yield
-                                {
-                                    Key = MethodKey.UnionGetTag td.Key
-                                    Name = "get_Tag"
-                                    Attrs = tagGetterAttrs
-                                }
-
-                        for c in ud.Cases do
-                            yield
-                                {
-                                    Key = MethodKey.UnionFactory(td.Key, c.Name)
-                                    Name = c.Name
-                                    Attrs = staticFactoryAttrs
-                                }
-
-                        for g in ud.CaseGetters ->
-                            {
-                                Key = MethodKey.UnionCaseGetter(td.Key, g.Case, g.Index)
-                                Name = g.Name
-                                Attrs = instanceMethodAttrs
-                            }
-
-                        yield! ownAndIfaceMemberRows td.Key ud.Members ud.Interfaces
-
-                        let attrs =
-                            if isHierarchy then
-                                abstractStructuralAttrs
-                            else
-                                concreteStructuralAttrs
-
-                        yield! structuralRows attrs structural td
-                        yield! coSlotRows symbols td ud.Interfaces
-                    ]
-
-                let properties =
-                    [
-                        // The public reader of the union's private `_tag`, declared exactly
-                        // where the discriminant is.
-                        if ud.HasTag then
-                            {
-                                Key = PropertyKey.UnionTag td.Key
-                                Name = "Tag"
-                                IsInstance = true
-                                IndexTys = []
-                                ValueTy = FTConst(RuntimeNames.intKey, EqArray.empty)
-                                Getter = ValueSome(MethodKey.UnionGetTag td.Key)
-                                Setter = ValueNone
-                            }
-
-                        yield! ownAndIfaceProperties td.Key ud.Members ud.Interfaces
-                    ]
-
-                let node =
-                    nominalNode (TypeSlotKind.Union(ud.ValueKind, ud.Regime)) td fields methodRows properties
-
-                { node with Nested = nested }
         ]
 
     let buildRecordNodes (symbols: ICodegenSymbols) (records: RecordDecl list) : TypeNode list =

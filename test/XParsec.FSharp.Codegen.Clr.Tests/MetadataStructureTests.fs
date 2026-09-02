@@ -342,9 +342,10 @@ let tests =
 
                 let rows = MetadataStructure.memberRefRowCount (Codegen.toBytes artifact)
 
-                // `'T` takes an exact slot on `Payload`, the unmanaged `int` case the
-                // overlay; both are reached through `_payload`.
-                Expect.equal (rows "_payload") 2 "the payload field"
+                // `Payload_Val` and `Payload_Num` spell their wrapped field `_payload` too,
+                // and their rows stay distinct from the union's: a row is per (declaring
+                // type, member) rather than per name.
+                Expect.equal (rows "_payload") 4 "the payload field, on the union and on each case view"
                 Expect.equal (rows "_val0") 2 "Val's payload slot"
                 Expect.equal (rows "_data") 2 "the overlay slot Num lands in"
                 Expect.equal (rows "_tag") 2 "the discriminant"

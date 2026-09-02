@@ -298,7 +298,11 @@ TAST shape.
   match arm in another assembly reads a `StructTagged` payload only
   through them (`UnionCaseAccess.Getter`), so the physical layout can
   change without touching a referencing assembly. They are methods rather than
-  `Item` properties so the FSC convention is not half-followed.
+  `Item` properties so the FSC convention is not half-followed. A struct
+  union's `Get_<Case>` (`MethodKey.UnionCaseViewAccessor`) is a method of
+  the same family on a PAYLOAD-BEARING case, returning that case's
+  `Payload_<Case>` view; the static factory owns the bare case name, and
+  the `get_` spelling is reserved for real property accessors.
 - **C#'s proposed non-boxing union surface is a non-goal, and stays
   reachable.** The proposal (`[Union]` + `IUnion`, one constructor and
   one `TryGetValue(out T)` per case type, `Value`, `HasValue`) is a

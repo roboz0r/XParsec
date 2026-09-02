@@ -26,3 +26,25 @@ module UnionCaseFieldName =
                 | ValueSome n -> UnionCaseFieldName.Declared n
                 | ValueNone -> UnionCaseFieldName.Positional(i + 1)
             )
+
+    /// Each field's name in F#'s own spelling, in declaration order: a declared name
+    /// verbatim, `Item` for a lone positional field, `Item<n>` otherwise.
+    let fsharpNames (declared: string voption list) : string list =
+        ofCase declared
+        |> List.map (fun n ->
+            match n with
+            | UnionCaseFieldName.Declared name -> name
+            | UnionCaseFieldName.Lone -> "Item"
+            | UnionCaseFieldName.Positional i -> "Item" + string i
+        )
+
+    /// Each field's name in FSC's backing-field spelling, in declaration order:
+    /// `of radius: float` ⇒ `_radius`, a lone positional field `item`, `item<n>` otherwise.
+    let fscFieldNames (declared: string voption list) : string list =
+        ofCase declared
+        |> List.map (fun n ->
+            match n with
+            | UnionCaseFieldName.Declared name -> "_" + name
+            | UnionCaseFieldName.Lone -> "item"
+            | UnionCaseFieldName.Positional i -> "item" + string i
+        )

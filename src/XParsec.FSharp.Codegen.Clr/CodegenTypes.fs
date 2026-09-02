@@ -89,12 +89,6 @@ type internal UnionDecl =
     /// The parameter list this union's own `.ctor` declares.
     member this.CtorShape: UnionCtorShape = UnionCtorShape.ofRegime this.Regime
 
-    /// The public `Get_<Case>_<i>` readers; empty for a hierarchy regime.
-    member this.CaseGetters: UnionCaseGetter list =
-        match this.Placements with
-        | ValueSome p -> p.Getters
-        | ValueNone -> []
-
     /// The `(tag, case)` pairs held as a `_unique_<Case>` singleton, constructed once by
     /// the union's `.cctor`. Every nullary case of a reference union qualifies, in any
     /// regime; a `[<Struct>]` union yields none. Empty ⇒ no `.cctor` row.
@@ -105,7 +99,7 @@ type internal UnionDecl =
 
     /// One case's payload field names, in declaration order.
     member this.FieldNames(c: Frozen.TUnionCase) : string list =
-        UnionCaseFields.names [ for (n, _) in c.Fields -> n ]
+        UnionCaseFieldName.fscFieldNames [ for (n, _) in c.Fields -> n ]
 
 /// A partitioned record declaration: its `TTypeDecl`, fields, and members.
 type internal RecordDecl =

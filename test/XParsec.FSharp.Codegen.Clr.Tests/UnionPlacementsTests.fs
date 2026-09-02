@@ -60,16 +60,16 @@ let private slotLines (p: FlatUnionPlacements) : string list =
 
 /// `<Case>.<i> -> <slot>` per logical field, with the `castclass` target of an erased read,
 /// or `-> _data.<CaseStruct>.<field>` for an overlaid one.
-let private placementLines (p: FlatUnionPlacements) (cases: Frozen.TUnionCase list) : string list =
+let private placementLines (p: FlatUnionPlacements) : string list =
     [
-        for c in cases do
-            for (fi, access) in List.indexed (p.CaseAccess c) ->
-                match access with
-                | UnionFieldAccess.Direct s -> sprintf "%s.%d -> %s" c.Name fi s.MetaName
+        for c in p.Cases do
+            for f in c.Fields ->
+                match f.Access with
+                | UnionFieldAccess.Direct s -> sprintf "%s.%d -> %s" f.Case f.Index s.MetaName
                 | UnionFieldAccess.Erased(s, declared) ->
-                    sprintf "%s.%d -> %s as %s" c.Name fi s.MetaName (ConformanceTypars.describeType declared)
-                | UnionFieldAccess.Overlaid f ->
-                    sprintf "%s.%d -> _data.%s.%s" c.Name fi (UnionPayloadType.caseDataName f.Case) f.MetaName
+                    sprintf "%s.%d -> %s as %s" f.Case f.Index s.MetaName (ConformanceTypars.describeType declared)
+                | UnionFieldAccess.Overlaid o ->
+                    sprintf "%s.%d -> _data.%s.%s" f.Case f.Index (UnionPayloadType.caseDataName o.Case) o.MetaName
     ]
 
 let private placementsOf
@@ -106,7 +106,7 @@ let tests =
                             let symbols, decls = analysedSymbols defaultPackages program (dataSource program)
                             let p, cases = placementsOf symbols decls unionName
                             yield sprintf "%s slots: %s" unionName (String.concat ", " (slotLines p))
-                            yield! placementLines p cases
+                            yield! placementLines p
                     ]
 
                 Expect.equal
@@ -178,11 +178,11 @@ let tests =
                     let symbols, decls = analysedSymbols defaultPackages program (dataSource program)
                     let p, cases = placementsOf symbols decls unionName
 
-                    for c in cases do
+                    for c in p.Cases do
                         let keys =
                             [
-                                for a in p.CaseAccess c do
-                                    match a with
+                                for f in c.Fields do
+                                    match f.Access with
                                     | UnionFieldAccess.Direct s
                                     | UnionFieldAccess.Erased(s, _) -> s.Key
                                     | UnionFieldAccess.Overlaid _ -> ()
@@ -191,7 +191,7 @@ let tests =
                         Expect.equal
                             (List.length (List.distinct keys))
                             (List.length keys)
-                            (sprintf "%s.%s" unionName c.Name)
+                            (sprintf "%s.%s" unionName c.Case.Name)
             }
 
             // The overlay lists exactly the cases with an unmanaged field, and `_data` is
@@ -203,18 +203,22 @@ let tests =
 
                     let overlaidCases =
                         [
-                            for c in cases do
+                            for c in p.Cases do
                                 let overlaid =
                                     [
-                                        for a in p.CaseAccess c do
-                                            match a with
-                                            | UnionFieldAccess.Overlaid f -> f
+                                        for f in c.Fields do
+                                            match f.Access with
+                                            | UnionFieldAccess.Overlaid o -> o
                                             | UnionFieldAccess.Direct _
                                             | UnionFieldAccess.Erased _ -> ()
                                     ]
 
                                 if not (List.isEmpty overlaid) then
-                                    { Case = c.Name; Fields = overlaid }
+                                    ({
+                                        Case = c.Case.Name
+                                        Fields = overlaid
+                                    }
+                                    : UnionCaseData)
                         ]
 
                     Expect.equal p.OverlaidCases overlaidCases unionName
@@ -223,6 +227,39 @@ let tests =
                         (p.Slots |> List.exists (fun s -> s.Key = UnionSlotKey.Data))
                         (not (List.isEmpty overlaidCases))
                         (unionName + " declares `_data`")
+            }
+
+            // Every payload-bearing case of a `Payload` home has a view, and the union's
+            // field readers cover every placed field.
+            test "the views and the field readers are projections of the placement table" {
+                for (program, unionName) in corpus do
+                    let symbols, decls = analysedSymbols defaultPackages program (dataSource program)
+                    let p, cases = placementsOf symbols decls unionName
+
+                    Expect.equal
+                        [ for v in p.Views -> v.Case.Name ]
+                        [
+                            for c in cases do
+                                if not c.Fields.IsEmpty then
+                                    c.Name
+                        ]
+                        (unionName + " has a view per payload-bearing case")
+
+                    Expect.equal
+                        [ for g in p.Getters -> g.Case, g.Index ]
+                        [
+                            for c in cases do
+                                for i in 0 .. c.Fields.Length - 1 -> c.Name, i
+                        ]
+                        (unionName + " has a field reader per logical field")
+
+                    for v in p.Views do
+                        let c = cases |> List.find (fun c -> c.Name = v.Case.Name)
+
+                        Expect.equal
+                            [ for f in v.Fields -> f.PropertyName ]
+                            (UnionCaseFieldName.fsharpNames [ for (n, _) in c.Fields -> n ])
+                            (sprintf "%s.%s spells its properties in F#'s own spelling" unionName v.Case.Name)
             }
 
             // A single case has nothing to overlap with, so its fields keep FSC's spelling
@@ -239,9 +276,9 @@ type Boxed = B of label: string * count: int
 printfn "%d" (match B("a", 1) with | B(_, n) -> n)
 """
 
-                let p, cases = placementsOf symbols decls "Boxed"
+                let p, _ = placementsOf symbols decls "Boxed"
 
                 Expect.equal (slotLines p) [ "_label: string"; "_count: int" ] "FSC-spelled, declared types"
-                Expect.equal (placementLines p cases) [ "B.0 -> _label"; "B.1 -> _count" ] "no erasure, no sharing"
+                Expect.equal (placementLines p) [ "B.0 -> _label"; "B.1 -> _count" ] "no erasure, no sharing"
             }
         ]

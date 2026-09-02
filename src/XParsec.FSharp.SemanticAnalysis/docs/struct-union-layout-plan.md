@@ -37,7 +37,7 @@ For a `UnionRegime.StructTagged` union, the emitted value type holds:
    union, wrapping a single `Payload` field and exposing one get-only property per logical
    field, each reading through that field's placement. Every view has the layout of
    `Payload` by construction, so a view is obtained by a plain by-value copy of `_payload`
-   and needs no reinterpretation. A `get_<Case>` instance method on the union returns the
+   and needs no reinterpretation. A `Get_<Case>` instance method on the union returns the
    view (the tag is the caller's responsibility to have checked, as with FSC's `Item`
    properties).
 
@@ -51,7 +51,7 @@ Two read surfaces, one placement table:
   through `ldflda _payload`, so a compiled `match` copies nothing. This is what a
   cross-assembly arm calls, plus the existing factories and `get_Tag`.
 - **Consumer surface** (Step 6): the `Payload_<Case>` views, for hand-written callers and
-  C# interop. A view costs one copy of `Payload` at `get_<Case>`; the JIT inlines both
+  C# interop. A view costs one copy of `Payload` at `Get_<Case>`; the JIT inlines both
   surfaces to the same field chain thereafter. The compiled match does not use views, so
   the copy is paid only where a caller asks for one.
 
@@ -94,7 +94,7 @@ which redeclares the union's typars on the nested case type.
   colliding with the FSC `Item` convention we deliberately don't follow.
 - **View spelling** (Step 6 fixes it): nested readonly struct `Payload_<Case>`, properties
   named by `UnionCaseFields.names` in the own-type spelling (`Radius`, `Item1`), union method
-  `get_<Case>` returning it. Only payload-bearing cases get a view.
+  `Get_<Case>` returning it. Only payload-bearing cases get a view.
 
 ## Steps
 
@@ -275,21 +275,55 @@ precedent); reads use `ldfld` chains rather than `ldflda`; the types are `assemb
 rather than private. Step 6's views wrap a `Payload` field, which the `assembly` visibility
 permits.
 
-### Step 6 — per-case payload views (additive)
+### Step 6 — per-case payload views (additive) — LANDED
 
-- For each payload-bearing case, a nested public readonly struct `Payload_<Case>` with one
-  `Payload` field, one get-only property per logical field whose getter is the Step 2 getter
-  body re-rooted at the wrapped field, and a union method `get_<Case>` that copies `_payload`
-  into a new view. `TypeSlotKind` and `MethodKey` cases for the view, its properties and the
-  accessor; the view shares `Payload`'s typars.
-- Nothing in the compiled match or the structural bodies reads through a view; the
-  placements table is the single source for both surfaces, so the property bodies are minted
-  by the same function as the Step 2 getters.
-- Tests: `MetadataStructure` assertions on the view rows, a reflection round-trip through
-  `PeInspection.loadAssembly` reading every field of a mixed union via its view, and a check
-  that the view's only instance field is of type `Payload`.
+- `FlatUnionPlacements` holds one table, `Cases: UnionCasePlacement list`, whose entries carry
+  each field's placement and both reader names (`UnionCaseField.GetterName` /
+  `PropertyName`). The two public surfaces are members over it: `Getters` flattens every
+  field of a `Payload` home, `Views` is the payload-bearing placements of a `Payload` home. A
+  view IS its case's `UnionCasePlacement`; `UnionNestedType.CaseView` puts it in the one
+  enumeration `UnionLayoutNodes` and `NominalRegistration` already map, so a view is
+  registered, keyed and laid out like the storage types. `UnionNestedType.Fields` is the one
+  spelling of a nested type's field rows, which registration and layout both read.
+- `Payload_<Case>` (`TypeSlotKey`/`TypeSlotKind.UnionCaseView`) is a sealed sequential
+  `NestedPublic` `IsReadOnly` value type redeclaring a generic union's typars, holding one
+  `private initonly _payload` (`FieldKey.UnionCaseViewPayload`) and declaring an
+  `assembly .ctor(Payload)` (`MethodKey.UnionCaseViewCtor`) whose only caller is the union.
+  `Payload` is `assembly`-visible, so the `.ctor` is too.
+- One `Property` row per logical field (`PropertyKey.UnionCaseViewField`), named by
+  `UnionCaseFieldName.fsharpNames` in F#'s own spelling — a declared field verbatim, `Item`
+  for a lone positional field, `Item<n>` otherwise, confirmed against `dotnet fsi`. The
+  plan's `Radius`/`Item1` illustration was corrected to that verbatim spelling. Each getter
+  is `MethodKey.UnionCaseViewGetter`, `Public HideBySig SpecialName`.
+- `Get_<Case>` on the union (`MethodKey.UnionCaseViewAccessor`) is `ldarg.0`, `ldfld
+  _payload`, `newobj` the view's `.ctor`.
+- One function mints both read surfaces: `UnionEmit`'s `fieldGetterIr` takes the root the
+  `ldfld` chain hangs off — `_payload` for a union getter, the view's wrapped field for a
+  view property — and the rest of the chain plus the `castclass` comes from the shared
+  placement. The view's property getters mint no slot ref of their own; they reuse
+  `FlatPass.Refs`.
+- A generic union's views are registered as generic classes over its typars
+  (`UnionNestedType.IsGeneric`), with a `.ctor` over their fields (`HasCtor`), so
+  `ClassMember.Ctor` and `ClassMember.Field` mint on the view's own `TypeSpec`.
+- Tests: `StructUnionTests` pins the view rows (visibility, layout, the single `_payload`
+  field, the `.ctor`-then-getters method order, the `assembly` `.ctor`, the get-only
+  properties and `Get_Point`/`Get_Pair` beside the field readers on the union), a reflection round-trip
+  reading every storage kind of `StructUnionMixedStorage` through its view, and the generic
+  views of `StructUnionGenericOverlay` at a `string` instantiation. `UnionPlacementsTests`
+  pins that a view covers exactly one payload-bearing case through the same placements.
+  `MetadataStructureTests` now counts four `_payload` `MemberRef`s: the count is per
+  (declaring type, member), and each view spells its own wrapped field with that name. The
+  two byte-identity goldens were regenerated.
 
-### Step 7 — cleanup and doc migration
+### Step 7 — Front end naming diagnostics
+
+Known gap, not introduced by the layout: a case `X_0` beside a case `X of int` would spell `Get_X_0` twice on
+the union, and a field whose declared name is the positional spelling of another
+(`M of Item2: int * float`) would spell one property getter twice on the view.
+
+Need to probe `dotnet fsi` for the required behaviour and diagnostics.
+
+### Step 8 — cleanup and doc migration
 
 - Update `du-architecture.md`: rewrite the "struct-union layout optimisation" known-gap entry
   as a description of the landed layout; fix the non-goals entry per Steps 2 and 6.

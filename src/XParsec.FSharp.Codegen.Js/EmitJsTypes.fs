@@ -32,17 +32,6 @@ module EmitJsTypes =
 
     // ---- Unions --------------------------------------------------------------
 
-    /// A union case's declaration-order field names: named fields verbatim; a lone
-    /// positional becomes `Item`; multiple positionals become `Item1`/`Item2`/….
-    let synthFieldNames (fieldNames: string voption list) : string list =
-        UnionCaseFieldName.ofCase fieldNames
-        |> List.map (fun n ->
-            match n with
-            | UnionCaseFieldName.Declared name -> name
-            | UnionCaseFieldName.Lone -> "Item"
-            | UnionCaseFieldName.Positional i -> "Item" + string i
-        )
-
     /// Tag = declaration index; subclass name = `<baseName>_<case>`.
     let buildUnionInfo
         (home: JsHome voption)
@@ -56,7 +45,7 @@ module EmitJsTypes =
                     CaseName = caseName
                     ClassName = baseName + "_" + caseName
                     Tag = tag
-                    Fields = synthFieldNames fieldNames
+                    Fields = UnionCaseFieldName.fsharpNames fieldNames
                 }
             )
 

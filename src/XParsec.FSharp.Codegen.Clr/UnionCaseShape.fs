@@ -11,22 +11,12 @@ module UnionCaseFields =
     let ownType (regime: UnionRegime) : bool =
         UnionRegime.isHierarchy regime || regime = UnionRegime.SingleCase
 
-    /// The metadata names of one case's payload fields, in declaration order, in FSC's
-    /// spelling: `of radius: float` ⇒ `_radius`, a positional field `item` / `item<n>`.
-    /// The spelling of a field on a `TypeDef` the case owns: its case type where `ownType`
-    /// holds, and its data struct in the `Payload` overlay; `FlatUnionPlacements` spells
-    /// the shared slots.
-    let names (declared: string voption list) : string list =
-        UnionCaseFieldName.ofCase declared
-        |> List.map (fun n ->
-            match n with
-            | UnionCaseFieldName.Declared name -> "_" + name
-            | UnionCaseFieldName.Lone -> "item"
-            | UnionCaseFieldName.Positional i -> "item" + string i
-        )
-
     /// The metadata name of the `Get_<Case>_<i>` reader of field `index` of `caseName`.
     let getterName (caseName: string) (index: int) : string = sprintf "Get_%s_%d" caseName index
+
+    /// The metadata name of the `Get_<Case>` reader returning the case's `Payload_<Case>`
+    /// view.
+    let viewGetterName (caseName: string) : string = "Get_" + caseName
 
 [<RequireQualifiedAccess>]
 module UnionCaseType =
@@ -43,16 +33,17 @@ module UnionCaseType =
         FTClass(key unionKey caseName, EqArray.ofList args)
 
 /// The value types nested in a `StructTagged` union, each keyed like a hierarchy case type:
-/// `Payload`, its `ExplicitLayout` overlay `Data`, and one `Data_<Case>` per case with
-/// unmanaged fields. Only `Payload` is generic: explicit layout is illegal on a generic type.
+/// `Payload`, its `ExplicitLayout` overlay `Data`, one `Data_<Case>` per case with unmanaged
+/// fields, and one public `Payload_<Case>` view per payload-bearing case.
 [<RequireQualifiedAccess>]
 module UnionPayloadType =
 
     let payloadName = "Payload"
     let overlayName = "Data"
     let caseDataName (caseName: string) : string = "Data_" + caseName
+    let viewName (caseName: string) : string = "Payload_" + caseName
 
-    /// The union's field holding its `Payload`.
+    /// The union's field holding its `Payload`; also the view's field holding its copy.
     let payloadFieldName = "_payload"
     /// The `Payload` field holding the overlay.
     let overlayFieldName = "_data"
@@ -63,13 +54,23 @@ module UnionPayloadType =
     let payloadKey (unionKey: TypeKey) : TypeKey = nested unionKey payloadName
     let overlayKey (unionKey: TypeKey) : TypeKey = nested unionKey overlayName
     let caseDataKey (unionKey: TypeKey) (caseName: string) : TypeKey = nested unionKey (caseDataName caseName)
+    let viewKey (unionKey: TypeKey) (caseName: string) : TypeKey = nested unionKey (viewName caseName)
 
     /// `Payload` at the union's own type arguments.
     let payloadTy (unionKey: TypeKey) (args: FrozenType list) : FrozenType =
         FTClass(payloadKey unionKey, EqArray.ofList args)
+
+    /// `Payload` in the scope of the union's own `arity` typars: the type its `_payload`
+    /// field, its `.ctor` parameter and each view's wrapped field are declared at.
+    let payloadTyDeclaring (unionKey: TypeKey) (arity: int) : FrozenType =
+        payloadTy unionKey (declaringMarkers arity)
 
     let overlayTy (unionKey: TypeKey) : FrozenType =
         FTClass(overlayKey unionKey, EqArray.empty)
 
     let caseDataTy (unionKey: TypeKey) (caseName: string) : FrozenType =
         FTClass(caseDataKey unionKey caseName, EqArray.empty)
+
+    /// One case's view at the union's own type arguments.
+    let viewTy (unionKey: TypeKey) (caseName: string) (args: FrozenType list) : FrozenType =
+        FTClass(viewKey unionKey caseName, EqArray.ofList args)

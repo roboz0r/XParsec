@@ -10,19 +10,30 @@ module internal NominalShared =
 
     let typarMarkersOf (td: TastAccessor.TypeDecl) : FrozenType list = declaringMarkers td.TypeParams.Length
 
-    /// A reference to one of this type's own members (field / tag / ctor): a generic
-    /// type reaches it through a `MemberRef` on the open self-`TypeSpec`
-    /// (`Box\`1<!0>::n`), a monomorphic type through the resolved `Def` token.
+    /// A reference to a member of `parent`, a type registered over `td`'s own typars: the
+    /// type itself, or a case type or nested value type of a union. A generic `td` reaches
+    /// it through a `MemberRef` on the open `TypeSpec` (`Box\`1<!0>::n`), a monomorphic
+    /// one through the resolved `Def` token.
+    let memberRefOn
+        (asm: Assembler)
+        (td: TastAccessor.TypeDecl)
+        (parent: TypeKey)
+        (kind: UserMemberKind)
+        (monoHandle: EntityHandle)
+        : EntityHandle =
+        if not td.TypeParams.IsEmpty then
+            asm.Icodegen.UserGenericMemberRef(parent, typarMarkersOf td, kind)
+        else
+            monoHandle
+
+    /// A reference to one of this type's own members (field / tag / ctor).
     let selfMemberRef
         (asm: Assembler)
         (td: TastAccessor.TypeDecl)
         (kind: UserMemberKind)
         (monoHandle: EntityHandle)
         : EntityHandle =
-        if not td.TypeParams.IsEmpty then
-            asm.Icodegen.UserGenericMemberRef(td.TypeKey, typarMarkersOf td, kind)
-        else
-            monoHandle
+        memberRefOn asm td td.TypeKey kind monoHandle
 
     let bodyOf (asm: Assembler) (ir: ILBody) : PreparedBody = asm.MethodBody ir
 

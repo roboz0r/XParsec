@@ -161,7 +161,35 @@ type UnionSlotHome =
         | UnionSlotHome.Inline slots -> slots
         | UnionSlotHome.Payload p -> p.Slots
 
-/// One value type nested in a `StructTagged` union behind `_payload`.
+/// One logical case field of a flat union: its read path and both spellings of its name.
+type UnionCaseField =
+    {
+        Case: string
+        /// The field's index in the case's declaration.
+        Index: int
+        /// The field's property name on its `Payload_<Case>` view, in F#'s own spelling: a
+        /// declared name verbatim, `Item` for a lone positional field, `Item<n>` otherwise.
+        PropertyName: string
+        Access: UnionFieldAccess
+    }
+
+    /// The name of the union's `Get_<Case>_<i>` reader of the field.
+    member this.GetterName: string = UnionCaseFields.getterName this.Case this.Index
+
+    /// The field's declared type, which an `Erased` slot stores as `object`.
+    member this.FieldTy: FrozenType = UnionFieldAccess.declaredTy this.Access
+
+/// One case's fields and their placements, in declaration order. A payload-bearing case of
+/// a `Payload` home is also the shape of its `Payload_<Case>` view: one get-only property
+/// per field, reading through the wrapped `Payload`.
+type UnionCasePlacement =
+    {
+        Case: Frozen.TUnionCase
+        Fields: UnionCaseField list
+    }
+
+/// One value type a `StructTagged` union nests: the storage behind `_payload`, or a public
+/// per-case view over it.
 [<RequireQualifiedAccess>]
 type UnionNestedType =
     /// `Payload`, holding the slots in field-row order and redeclaring a generic union's
@@ -171,12 +199,16 @@ type UnionNestedType =
     | Overlay of cases: UnionCaseData list
     /// `Data_<Case>`, sequential, holding the case's unmanaged fields.
     | CaseData of UnionCaseData
+    /// `Payload_<Case>`, the public view over one case's fields, redeclaring a generic
+    /// union's typars.
+    | CaseView of UnionCasePlacement
 
     member this.Name: string =
         match this with
         | UnionNestedType.Payload _ -> UnionPayloadType.payloadName
         | UnionNestedType.Overlay _ -> UnionPayloadType.overlayName
         | UnionNestedType.CaseData c -> UnionPayloadType.caseDataName c.Case
+        | UnionNestedType.CaseView v -> UnionPayloadType.viewName v.Case.Name
 
     /// The key the type is registered under, nested in `unionKey`.
     member this.TypeKey(unionKey: TypeKey) : TypeKey =
@@ -184,40 +216,67 @@ type UnionNestedType =
         | UnionNestedType.Payload _ -> UnionPayloadType.payloadKey unionKey
         | UnionNestedType.Overlay _ -> UnionPayloadType.overlayKey unionKey
         | UnionNestedType.CaseData c -> UnionPayloadType.caseDataKey unionKey c.Case
+        | UnionNestedType.CaseView v -> UnionPayloadType.viewKey unionKey v.Case.Name
 
-/// One public `Get_<Case>_<i>` reader on a flat union: the logical case field it returns
-/// and the read path its body is.
-type UnionCaseGetter =
-    {
-        Case: string
-        Index: int
-        Access: UnionFieldAccess
-    }
+    /// Whether the type redeclares the union's typars. Explicit layout is illegal on a
+    /// generic type, so the overlay and the case data structs declare none.
+    member this.IsGeneric: bool =
+        match this with
+        | UnionNestedType.Payload _
+        | UnionNestedType.CaseView _ -> true
+        | UnionNestedType.Overlay _
+        | UnionNestedType.CaseData _ -> false
 
-    member this.Name: string = UnionCaseFields.getterName this.Case this.Index
+    /// Whether the type declares a `.ctor`, taking each of its fields in row order. Only a
+    /// view does; the storage types are written field by field.
+    member this.HasCtor: bool =
+        match this with
+        | UnionNestedType.CaseView _ -> true
+        | UnionNestedType.Payload _
+        | UnionNestedType.Overlay _
+        | UnionNestedType.CaseData _ -> false
 
-    /// The reader's return type.
-    member this.FieldTy: FrozenType = UnionFieldAccess.declaredTy this.Access
+    /// The type's fields as `(name, type)` in row order, in the scope of the union's own
+    /// `arity` typars.
+    member this.Fields(unionKey: TypeKey, arity: int) : (string * FrozenType) list =
+        match this with
+        | UnionNestedType.Payload slots -> [ for s in slots -> s.MetaName, s.Ty ]
+        | UnionNestedType.Overlay cases -> [ for c in cases -> c.Case, UnionPayloadType.caseDataTy unionKey c.Case ]
+        | UnionNestedType.CaseData c -> [ for f in c.Fields -> f.MetaName, f.Ty ]
+        | UnionNestedType.CaseView _ ->
+            [
+                UnionPayloadType.payloadFieldName, UnionPayloadType.payloadTyDeclaring unionKey arity
+            ]
 
-/// The physical slots of a flat-regime union, the placement of every logical case field
-/// among them, and the public readers over them.
+/// The physical slots of a flat-regime union and the placement of every logical case field
+/// among them.
 type FlatUnionPlacements =
     {
         Home: UnionSlotHome
-        Fields: Map<string * int, UnionFieldAccess>
-        /// One reader per logical case field, in case then field declaration order, where
-        /// `UnionRegime.hasCaseGetters` holds; else empty.
-        Getters: UnionCaseGetter list
+        /// One placement per case, in declaration order.
+        Cases: UnionCasePlacement list
     }
 
     member this.Slots: UnionSlot list = this.Home.Slots
 
-    /// The read path to field `index` of case `caseName`.
-    member this.Access(caseName: string, index: int) : UnionFieldAccess = this.Fields.[(caseName, index)]
+    /// The fields behind the union's public `Get_<Case>_<i>` readers, in case then field
+    /// declaration order: every field of a `Payload` home. An `Inline` home's slots are
+    /// read directly, so it declares none.
+    member this.Getters: UnionCaseField list =
+        match this.Home with
+        | UnionSlotHome.Inline _ -> []
+        | UnionSlotHome.Payload _ ->
+            [
+                for p in this.Cases do
+                    yield! p.Fields
+            ]
 
-    /// The read paths to one case's fields, in declaration order.
-    member this.CaseAccess(c: Frozen.TUnionCase) : UnionFieldAccess list =
-        [ for i in 0 .. c.Fields.Length - 1 -> this.Access(c.Name, i) ]
+    /// The cases with a `Payload_<Case>` view: every payload-bearing case of a `Payload`
+    /// home, in declaration order. An `Inline` home has none.
+    member this.Views: UnionCasePlacement list =
+        match this.Home with
+        | UnionSlotHome.Inline _ -> []
+        | UnionSlotHome.Payload _ -> this.Cases |> List.filter (fun p -> not p.Fields.IsEmpty)
 
     /// The case data structs of the overlay; empty where there is none.
     member this.OverlaidCases: UnionCaseData list =
@@ -225,9 +284,9 @@ type FlatUnionPlacements =
         | UnionSlotHome.Payload p -> p.OverlaidCases
         | UnionSlotHome.Inline _ -> []
 
-    /// The value types nested behind `_payload`, in `TypeDef` row order: `Payload`, then,
-    /// where the overlay exists, `Data` and one `Data_<Case>` per overlaid case. Empty for
-    /// an `Inline` home.
+    /// The value types the union nests, in `TypeDef` row order: `Payload`, then, where the
+    /// overlay exists, `Data` and one `Data_<Case>` per overlaid case, then one
+    /// `Payload_<Case>` per view. Empty for an `Inline` home.
     member this.NestedTypes: UnionNestedType list =
         match this.Home with
         | UnionSlotHome.Inline _ -> []
@@ -241,6 +300,8 @@ type FlatUnionPlacements =
                     yield UnionNestedType.Overlay cases
 
                     for c in cases -> UnionNestedType.CaseData c
+
+                for v in this.Views -> UnionNestedType.CaseView v
             ]
 
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
@@ -249,37 +310,73 @@ module FlatUnionPlacements =
 
     let private objTy = FTConst(RuntimeNames.objKey, EqArray.empty)
 
-    /// A home and the placement of every logical case field in it.
-    type private Placed =
+    /// One declared case field with both spellings of its name.
+    type private DeclaredField =
         {
-            Home: UnionSlotHome
-            Fields: ((string * int) * UnionFieldAccess) list
+            /// FSC's backing-field spelling: `_radius`, `item`, `item<n>`.
+            MetaName: string
+            /// F#'s own spelling: `radius`, `Item`, `Item<n>`.
+            PropertyName: string
+            Ty: FrozenType
+        }
+
+    /// A case's fields in declaration order.
+    let private declaredFields (c: Frozen.TUnionCase) : DeclaredField list =
+        let declared = [ for (n, _) in c.Fields -> n ]
+
+        List.zip3
+            (UnionCaseFieldName.fscFieldNames declared)
+            (UnionCaseFieldName.fsharpNames declared)
+            [ for (_, ty) in c.Fields -> ty ]
+        |> List.map (fun (metaName, propertyName, ty) ->
+            {
+                MetaName = metaName
+                PropertyName = propertyName
+                Ty = ty
+            }
+        )
+
+    /// A case's placement over the read path of each of its fields, in declaration order.
+    let private placement (c: Frozen.TUnionCase) (accesses: UnionFieldAccess list) : UnionCasePlacement =
+        {
+            Case = c
+            Fields =
+                [
+                    for (fi, (f, access)) in List.indexed (List.zip (declaredFields c) accesses) ->
+                        {
+                            Case = c.Name
+                            Index = fi
+                            PropertyName = f.PropertyName
+                            Access = access
+                        }
+                ]
         }
 
     /// One slot per logical field on the union itself, in case then field declaration
-    /// order, named by `UnionCaseFields.names`.
-    let private unshared (cases: Frozen.TUnionCase list) : Placed =
-        let slots, fields =
+    /// order, named by `UnionCaseFieldName.fscFieldNames`.
+    let private unshared (cases: Frozen.TUnionCase list) : UnionSlotHome * UnionCasePlacement list =
+        let caseSlots =
             [
-                for c in cases do
-                    let names = UnionCaseFields.names [ for (n, _) in c.Fields -> n ]
-
-                    for (fi, (name, (_, ty))) in List.indexed (List.zip names (EqArray.toList c.Fields)) ->
-                        let slot =
+                for c in cases ->
+                    c,
+                    [
+                        for (fi, f) in List.indexed (declaredFields c) ->
                             {
                                 Key = UnionSlotKey.CaseField(c.Name, fi)
-                                MetaName = name
-                                Ty = ty
+                                MetaName = f.MetaName
+                                Ty = f.Ty
                             }
-
-                        slot, ((c.Name, fi), UnionFieldAccess.Direct slot)
+                    ]
             ]
-            |> List.unzip
 
-        {
-            Home = UnionSlotHome.Inline slots
-            Fields = fields
-        }
+        UnionSlotHome.Inline
+            [
+                for (_, slots) in caseSlots do
+                    yield! slots
+            ],
+        [
+            for (c, slots) in caseSlots -> placement c (List.map UnionFieldAccess.Direct slots)
+        ]
 
     /// One pool of `Payload` slots, keyed and named by position, growing in first-claim
     /// order.
@@ -313,37 +410,40 @@ module FlatUnionPlacements =
     /// Cases overlap on the `Payload` struct: an unmanaged field on its case's data struct
     /// in the `_data` overlay, a reference field in an `object` slot, any other field in a
     /// slot of its exact type. The fields of one case take distinct slots.
-    let private shared (symbols: ICodegenSymbols) (unionKey: TypeKey) (cases: Frozen.TUnionCase list) : Placed =
+    let private shared
+        (symbols: ICodegenSymbols)
+        (unionKey: TypeKey)
+        (cases: Frozen.TUnionCase list)
+        : UnionSlotHome * UnionCasePlacement list =
         let oracle = UnionStorage.layoutOracle symbols
         let refs = SlotPool(UnionSlotKey.RefSlot, sprintf "_ref%d")
         let exacts = SlotPool(UnionSlotKey.ExactSlot, sprintf "_val%d")
         let overlay = ResizeArray<UnionCaseData>()
 
-        let fields =
+        let placements =
             [
-                for c in cases do
+                for c in cases ->
                     let claimed = HashSet<UnionSlotKey>()
-                    let names = UnionCaseFields.names [ for (n, _) in c.Fields -> n ]
                     let dataFields = ResizeArray<UnionOverlaidField>()
 
-                    for (fi, (name, (_, ty))) in List.indexed (List.zip names (EqArray.toList c.Fields)) do
-                        let access =
-                            match UnionStorage.ofFrozen symbols oracle ty with
-                            | UnionStorage.Unmanaged ->
-                                let f =
-                                    {
-                                        Case = c.Name
-                                        Index = fi
-                                        MetaName = name
-                                        Ty = ty
-                                    }
+                    let accesses =
+                        [
+                            for (fi, f) in List.indexed (declaredFields c) ->
+                                match UnionStorage.ofFrozen symbols oracle f.Ty with
+                                | UnionStorage.Unmanaged ->
+                                    let overlaid =
+                                        {
+                                            Case = c.Name
+                                            Index = fi
+                                            MetaName = f.MetaName
+                                            Ty = f.Ty
+                                        }
 
-                                dataFields.Add f
-                                UnionFieldAccess.Overlaid f
-                            | UnionStorage.Reference -> UnionFieldAccess.Erased(refs.Claim(objTy, claimed), ty)
-                            | UnionStorage.Exact -> UnionFieldAccess.Direct(exacts.Claim(ty, claimed))
-
-                        yield (c.Name, fi), access
+                                    dataFields.Add overlaid
+                                    UnionFieldAccess.Overlaid overlaid
+                                | UnionStorage.Reference -> UnionFieldAccess.Erased(refs.Claim(objTy, claimed), f.Ty)
+                                | UnionStorage.Exact -> UnionFieldAccess.Direct(exacts.Claim(f.Ty, claimed))
+                        ]
 
                     if dataFields.Count > 0 then
                         overlay.Add
@@ -351,6 +451,8 @@ module FlatUnionPlacements =
                                 Case = c.Name
                                 Fields = List.ofSeq dataFields
                             }
+
+                    placement c accesses
             ]
 
         let overlay =
@@ -368,16 +470,13 @@ module FlatUnionPlacements =
                         Cases = cases
                     }
 
-        {
-            Home =
-                UnionSlotHome.Payload
-                    {
-                        Overlay = overlay
-                        Refs = refs.Slots
-                        Exacts = exacts.Slots
-                    }
-            Fields = fields
-        }
+        UnionSlotHome.Payload
+            {
+                Overlay = overlay
+                Refs = refs.Slots
+                Exacts = exacts.Slots
+            },
+        placements
 
     /// The placements of a flat regime, `ValueNone` for a hierarchy one.
     let ofCases
@@ -390,29 +489,9 @@ module FlatUnionPlacements =
             match regime with
             | UnionRegime.SingleCase -> ValueSome(unshared cases)
             | UnionRegime.StructTagged -> ValueSome(shared symbols unionKey cases)
-            | UnionRegime.EnumLike ->
-                ValueSome
-                    {
-                        Home = UnionSlotHome.Inline []
-                        Fields = []
-                    }
+            | UnionRegime.EnumLike -> ValueSome(UnionSlotHome.Inline [], [ for c in cases -> placement c [] ])
             | UnionRegime.TypeTested
             | UnionRegime.Tagged -> ValueNone
 
         placed
-        |> ValueOption.map (fun placed ->
-            {
-                Home = placed.Home
-                Fields = Map.ofList placed.Fields
-                Getters =
-                    [
-                        if UnionRegime.hasCaseGetters regime then
-                            for ((case, index), access) in placed.Fields ->
-                                {
-                                    Case = case
-                                    Index = index
-                                    Access = access
-                                }
-                    ]
-            }
-        )
+        |> ValueOption.map (fun (home, placements) -> { Home = home; Cases = placements })

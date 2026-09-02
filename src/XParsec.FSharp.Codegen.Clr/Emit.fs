@@ -160,9 +160,8 @@ module Emit =
         b.Body
 
     /// Build a nominal member's body: an instance member's `this` is `ldarg.0` and its
-    /// parameters `ldarg.1…`, a static member's parameters start at `ldarg.0`. Member
-    /// bodies synthesise no closures, so an empty capture map is passed. `selfValueTy`
-    /// is the declaring type when it is a VALUE type, `ValueNone` otherwise.
+    /// parameters `ldarg.1…`, a static member's parameters start at `ldarg.0`.
+    /// `selfValueTy` is the declaring type when it is a VALUE type, `ValueNone` otherwise.
     let buildMember
         (ctx: EmitContext)
         (selfValueTy: FrozenType voption)
@@ -427,6 +426,16 @@ module Emit =
         | ValueSome token -> b.Add(ILInstr.Castclass token)
         | ValueNone -> ()
 
+        b.Add ILInstr.Ret
+        b.Body
+
+    /// Build a struct union's `Get_<Case>`: copy `_payload` off `this` into a fresh
+    /// `Payload_<Case>` view.
+    let buildUnionCaseViewGetter (payloadField: EntityHandle) (viewCtor: EntityHandle) : ILBody =
+        let b = IlBuilder()
+        b.Add(ILInstr.Ldarg 0)
+        b.Add(ILInstr.Ldfld payloadField)
+        b.Add(ILInstr.Newobj(viewCtor, 1))
         b.Add ILInstr.Ret
         b.Body
 

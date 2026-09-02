@@ -245,12 +245,17 @@ let structUnionTests =
                 MetadataStructure.assertWellFormed "StructUnionGetters" bytes
 
                 let methods = MetadataStructure.methodAttrsOf bytes "Shape"
-                let getters = methods |> List.filter (fun (n, _) -> n.StartsWith "Get_")
+
+                // The `Get_<Case>` view accessors share the prefix, so the whole `Get_`
+                // family is pinned by name: the field readers first, then the accessors.
+                let getterNames = [ "Get_Point_0"; "Get_Pair_0"; "Get_Pair_1" ]
 
                 Expect.equal
-                    (List.map fst getters)
-                    [ "Get_Point_0"; "Get_Pair_0"; "Get_Pair_1" ]
-                    "one getter per (case, field), in case then field order"
+                    (methods |> List.map fst |> List.filter (fun n -> n.StartsWith "Get_"))
+                    [ yield! getterNames; yield "Get_Point"; yield "Get_Pair" ]
+                    "one getter per (case, field) in case then field order, then one view accessor per payload-bearing case"
+
+                let getters = methods |> List.filter (fun (n, _) -> List.contains n getterNames)
 
                 for (name, attrs) in getters do
                     Expect.equal
@@ -267,6 +272,182 @@ let structUnionTests =
 
                 Expect.equal (ty.GetMethod("Get_Pair_0").Invoke(pair, [||])) (box 4) "Get_Pair_0 reads a"
                 Expect.equal (ty.GetMethod("Get_Pair_1").Invoke(pair, [||])) (box 5) "Get_Pair_1 reads b"
+            }
+
+            // The consumer surface: one public readonly `Payload_<Case>` per payload-bearing
+            // case, wrapping a `Payload` and exposing the case's fields as properties in
+            // F#'s own spelling. The compiled match reads the placement directly instead.
+            test "a `[<Struct>]` union nests one public Payload_<Case> view per payload-bearing case" {
+                let bytes = Codegen.toBytes (compileSourceData "StructUnionShape")
+
+                MetadataStructure.assertWellFormed "StructUnionViews" bytes
+
+                let decl name =
+                    match MetadataStructure.typeDecl bytes name with
+                    | ValueSome d -> d
+                    | ValueNone -> failwithf "no type %s" name
+
+                for name in [ "Shape+Payload_Point"; "Shape+Payload_Pair" ] do
+                    let d = decl name
+                    Expect.equal d.Visibility TypeAttributes.NestedPublic (name + " is public")
+                    Expect.equal d.Layout TypeAttributes.SequentialLayout (name + " is sequential")
+                    Expect.isTrue d.IsSealed (name + " is sealed")
+                    Expect.equal d.Extends "System.ValueType" (name + " is a value type")
+
+                    Expect.equal
+                        (MetadataStructure.fieldsOf bytes name)
+                        [ "_payload" ]
+                        (name + " wraps one Payload and nothing else")
+
+                Expect.equal
+                    (MetadataStructure.propertiesOf bytes "Shape+Payload_Pair")
+                    [ "a", (ValueSome "get_a", ValueNone); "b", (ValueSome "get_b", ValueNone) ]
+                    "one get-only property per logical field, in declaration order"
+
+                Expect.equal
+                    (MetadataStructure.methodAttrsOf bytes "Shape+Payload_Pair" |> List.map fst)
+                    [ ".ctor"; "get_a"; "get_b" ]
+                    "the .ctor then the property getters"
+
+                // `Payload` is assembly-visible, so the `.ctor` taking one is too: a
+                // consumer outside the assembly reaches a view through `Get_<Case>`.
+                for (name, attrs) in MetadataStructure.methodAttrsOf bytes "Shape+Payload_Pair" do
+                    let access = attrs &&& MethodAttributes.MemberAccessMask
+
+                    if name = ".ctor" then
+                        Expect.equal access MethodAttributes.Assembly ".ctor is assembly-visible"
+                    else
+                        Expect.equal access MethodAttributes.Public (name + " is public")
+                        Expect.isTrue (attrs.HasFlag MethodAttributes.SpecialName) (name + " is an accessor")
+
+                // `Get_<Case>` is a plain method beside the `Get_<Case>_<i>` field readers,
+                // spelled outside the `get_` accessor convention, since it backs no property.
+                Expect.equal
+                    (MetadataStructure.methodAttrsOf bytes "Shape"
+                     |> List.map fst
+                     |> List.filter (fun n -> n.StartsWith "get_" || n.StartsWith "Get_"))
+                    [
+                        "get_Tag"
+                        "Get_Point_0"
+                        "Get_Pair_0"
+                        "Get_Pair_1"
+                        "Get_Point"
+                        "Get_Pair"
+                    ]
+                    "the union hands out each case's view through Get_<Case>, after the field readers"
+
+                let asm = loadAssembly bytes
+                let ty = asm.GetType "Shape"
+
+                Expect.equal
+                    (asm.GetType "Shape+Payload_Pair")
+                    (ty.GetMethod("Get_Pair").ReturnType)
+                    "Get_Pair returns the case's view"
+
+                let pair = ty.GetMethod("Pair").Invoke(null, [| box 4; box 5 |])
+                let view = ty.GetMethod("Get_Pair").Invoke(pair, [||])
+
+                Expect.equal (view.GetType().GetProperty("a").GetValue view) (box 4) "the view reads a"
+                Expect.equal (view.GetType().GetProperty("b").GetValue view) (box 5) "the view reads b"
+            }
+
+            // One view per storage kind, over the same placement table the `Get_<Case>_<i>`
+            // readers use: the overlay, the `object` slot with its cast, and both exact
+            // slots.
+            test "a mixed-storage struct union reads every storage kind back through its case views" {
+                let bytes = Codegen.toBytes (compileSourceData "StructUnionMixedStorage")
+                let asm = loadAssembly bytes
+                let ty = asm.GetType "Storage"
+                let payloadTy = asm.GetType "Storage+Payload"
+
+                // A view's whole state is the payload it reads through, so a view copy
+                // costs one `Payload`.
+                for case in [ "Scalars"; "Nested"; "Text"; "Labelled"; "Id"; "Both" ] do
+                    let viewTy = asm.GetType("Storage+Payload_" + case)
+                    Expect.isNotNull viewTy (case + " has a view")
+
+                    let fields =
+                        viewTy.GetFields(
+                            BindingFlags.Public
+                            ||| BindingFlags.NonPublic
+                            ||| BindingFlags.Instance
+                            ||| BindingFlags.DeclaredOnly
+                        )
+
+                    Expect.equal
+                        (fields |> Array.map (fun f -> f.FieldType))
+                        [| payloadTy |]
+                        (case + "'s view holds one Payload and nothing else")
+
+                let build (case: string) (args: obj[]) : obj = ty.GetMethod(case).Invoke(null, args)
+
+                let viewOf (case: string) (value: obj) : obj =
+                    ty.GetMethod("Get_" + case).Invoke(value, [||])
+
+                let read (view: obj) (prop: string) : obj =
+                    view.GetType().GetProperty(prop).GetValue view
+
+                let scalars = viewOf "Scalars" (build "Scalars" [| box 5; box true |])
+                Expect.equal (read scalars "x") (box 5) "an overlaid int"
+                Expect.equal (read scalars "y") (box true) "an overlaid bool"
+
+                let inner = Activator.CreateInstance(asm.GetType "Inner", [| box 2; box 3.5 |])
+
+                Expect.equal
+                    (read (viewOf "Nested" (build "Nested" [| inner |])) "inner")
+                    inner
+                    "an overlaid struct record"
+
+                Expect.equal
+                    (read (viewOf "Text" (build "Text" [| box "hello" |])) "s")
+                    (box "hello")
+                    "an erased string"
+
+                let tagged = Activator.CreateInstance(asm.GetType "Tagged", [| box "ab"; box 10 |])
+
+                Expect.equal
+                    (read (viewOf "Labelled" (build "Labelled" [| tagged |])) "t")
+                    tagged
+                    "a managed struct in an exact slot"
+
+                let id = Guid.NewGuid()
+                Expect.equal (read (viewOf "Id" (build "Id" [| box id |])) "id") (box id) "an undetermined BCL struct"
+
+                let both = viewOf "Both" (build "Both" [| box 7; box "xyz" |])
+                Expect.equal (read both "k") (box 7) "the overlaid int of a mixed case"
+                Expect.equal (read both "name") (box "xyz") "the erased string of a mixed case"
+            }
+
+            // The views share `Payload`'s typars, so a view's `.ctor` and its wrapped field
+            // are minted on the view's own `TypeSpec`.
+            test "a generic struct union's case views are generic with it" {
+                let bytes = Codegen.toBytes (compileSourceData "StructUnionGenericOverlay")
+
+                let decl name =
+                    match MetadataStructure.typeDecl bytes name with
+                    | ValueSome d -> d
+                    | ValueNone -> failwithf "no type %s" name
+
+                Expect.equal (decl "GShape`1+Payload_Val").Typars [ "T" ] "the view redeclares the union's typar"
+                Expect.equal (decl "GShape`1+Payload_Pt").Typars [ "T" ] "every view does, whatever the case stores"
+
+                Expect.equal
+                    (MetadataStructure.propertiesOf bytes "GShape`1+Payload_Pt")
+                    [ "x", (ValueSome "get_x", ValueNone); "y", (ValueSome "get_y", ValueNone) ]
+                    "the overlaid case's properties"
+
+                let asm = loadAssembly bytes
+                let ty = (asm.GetType "GShape`1").MakeGenericType [| typeof<string> |]
+
+                let read (case: string) (value: obj) (prop: string) : obj =
+                    let view = ty.GetMethod("Get_" + case).Invoke(value, [||])
+                    view.GetType().GetProperty(prop).GetValue view
+
+                let pt = ty.GetMethod("Pt").Invoke(null, [| box 4; box 5 |])
+                Expect.equal (read "Pt" pt "y") (box 5) "an overlaid field at a string instantiation"
+
+                let v = ty.GetMethod("Val").Invoke(null, [| box "abc" |])
+                Expect.equal (read "Val" v "v") (box "abc") "the typar slot at a string instantiation"
             }
 
             // The last two lines are the `default` semantics: the zero value is the

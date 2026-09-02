@@ -59,9 +59,9 @@ module internal MethodAttrSets =
     // slot to dispatch through.
     let instanceMethodAttrs = MethodAttributes.Public ||| MethodAttributes.HideBySig
 
-    // A union's `get_Tag`: non-virtual, so a match arm binds it by `call`. `SpecialName`
-    // marks it a property getter.
-    let tagGetterAttrs = instanceMethodAttrs ||| MethodAttributes.SpecialName
+    // A synthesised property getter (a union's `get_Tag`, a case view's field property):
+    // non-virtual, so a caller binds it by `call`. `SpecialName` marks it an accessor.
+    let getterAttrs = instanceMethodAttrs ||| MethodAttributes.SpecialName
 
     /// A method row bound to a `Property` row by `MethodSemantics` carries `SpecialName`,
     /// which is how a reflecting consumer tells an accessor from a method beside it.
@@ -137,6 +137,12 @@ module internal MethodAttrSets =
         ||| MethodAttributes.SpecialName
         ||| MethodAttributes.RTSpecialName
 
+    // A case view's `.ctor(Payload)`: `Payload` is assembly-visible, so the ctor is too,
+    // and a consumer outside the assembly obtains a view through `Get_<Case>`.
+    let assemblyCtorAttrs =
+        (ctorAttrs &&& ~~~MethodAttributes.MemberAccessMask)
+        ||| MethodAttributes.Assembly
+
     let cctorAttrs =
         MethodAttributes.Private
         ||| MethodAttributes.Static
@@ -176,6 +182,8 @@ type internal TypeSlotKey =
     | UnionOverlay of SymbolKey
     /// One case's data struct `Data_<Case>` in the overlay, nested in the union.
     | UnionCaseData of SymbolKey * case: string
+    /// One case's public view `Payload_<Case>`, nested in the union.
+    | UnionCaseView of SymbolKey * case: string
     | Closure of name: string
     | ModuleClass of Emit.ModuleClassKey
     | Program
@@ -185,10 +193,8 @@ type internal TypeSlotKey =
 type internal TypeSlotKind =
     | ModulePseudo
     | Interface
-    /// `valueKind` selects reference vs `[<Struct>]` value type (flips the
-    /// `System.ValueType` base) and stamps `IsReadOnly`. `regime` decides
-    /// abstract-vs-sealed, so it takes no `isSealed`: a hierarchy regime
-    /// (`UnionRegime.isHierarchy`) is abstract and the rest are sealed.
+    /// A union: sealed, or abstract where `UnionRegime.isHierarchy` holds. A `[<Struct>]`
+    /// `valueKind` makes it a `System.ValueType`-based value type stamped `IsReadOnly`.
     | Union of valueKind: UnionValueKind * regime: UnionRegime
     /// One case of a hierarchy union: a sealed nested class extending the union, holding
     /// that case's payload fields.
@@ -202,6 +208,9 @@ type internal TypeSlotKind =
     /// One case's data struct in the overlay: a sealed sequential non-generic `assembly`
     /// value type holding the case's unmanaged fields.
     | UnionCaseData
+    /// One case's `Payload_<Case>` view: a sealed sequential PUBLIC readonly value type
+    /// over a single `Payload` field, redeclaring a generic union's typars.
+    | UnionCaseView
     /// `valueKind` selects reference vs `[<Struct>]` value type. Always sealed.
     | Record of valueKind: RecordValueKind
     /// `isSealed` reflects `[<Sealed>]`; `valueKind` selects reference vs `[<Struct>]`
@@ -234,12 +243,14 @@ module internal UnionNestedType =
         | UnionNestedType.Payload _ -> TypeSlotKey.UnionPayload key
         | UnionNestedType.Overlay _ -> TypeSlotKey.UnionOverlay key
         | UnionNestedType.CaseData c -> TypeSlotKey.UnionCaseData(key, c.Case)
+        | UnionNestedType.CaseView v -> TypeSlotKey.UnionCaseView(key, v.Case.Name)
 
     let slotKind (t: UnionNestedType) : TypeSlotKind =
         match t with
         | UnionNestedType.Payload _ -> TypeSlotKind.UnionPayload
         | UnionNestedType.Overlay _ -> TypeSlotKind.UnionOverlay
         | UnionNestedType.CaseData _ -> TypeSlotKind.UnionCaseData
+        | UnionNestedType.CaseView _ -> TypeSlotKind.UnionCaseView
 
 /// Identity of one `Field` row in the layout.
 [<RequireQualifiedAccess>]
@@ -259,6 +270,9 @@ type internal FieldKey =
     | UnionOverlayCase of SymbolKey * case: string
     /// One unmanaged case field on the case's data struct.
     | UnionCaseDataField of SymbolKey * case: string * index: int
+    /// A case view's single `private initonly` field, the `Payload` copy its properties
+    /// read through.
+    | UnionCaseViewPayload of SymbolKey * case: string
     /// A reference union's `private static initonly` singleton for a NULLARY case, typed
     /// as the union. Constructed once by the union's `.cctor`; the case factory `ldsfld`s
     /// it.
@@ -373,6 +387,14 @@ type internal MethodKey =
     /// `Get_<Case>_<i>`, the public in-place reader of one logical case field. Declared
     /// exactly where `UnionRegime.hasCaseGetters` holds.
     | UnionCaseGetter of SymbolKey * case: string * index: int
+    /// `Get_<Case>`, the union's public reader returning one case's `Payload_<Case>` view.
+    /// One per `FlatUnionPlacements.Views` entry.
+    | UnionCaseViewAccessor of SymbolKey * case: string
+    /// A case view's `assembly .ctor(Payload)`, called by `Get_<Case>`.
+    | UnionCaseViewCtor of SymbolKey * case: string
+    /// `get_<Prop>` on a case view: the getter of the property reading one logical field
+    /// through the wrapped `Payload`.
+    | UnionCaseViewGetter of SymbolKey * case: string * index: int
     /// A hierarchy union case type's `.ctor(payload…)`, which chains the union's own
     /// `.ctor`, passing this case's tag where the base declares one.
     | UnionCaseCtor of SymbolKey * case: string
@@ -409,6 +431,9 @@ type internal MethodKey =
 type internal PropertyKey =
     /// A union's `Tag`, whose getter is `MethodKey.UnionGetTag`.
     | UnionTag of SymbolKey
+    /// One logical case field's property on its `Payload_<Case>` view, whose getter is
+    /// `MethodKey.UnionCaseViewGetter`.
+    | UnionCaseViewField of SymbolKey * case: string * index: int
     /// A property a nominal type declares, keyed by the property's name and staticness,
     /// which both halves share. A static and an instance property of one name are two rows.
     | Declared of SymbolKey * prop: string * isStatic: bool

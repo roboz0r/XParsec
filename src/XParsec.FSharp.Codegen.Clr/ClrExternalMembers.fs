@@ -4,6 +4,7 @@ open System.Collections.Generic
 open System.Reflection.Metadata
 open System.Reflection.Metadata.Ecma335
 open XParsec.FSharp.SemanticAnalysis
+open XParsec.FSharp.Codegen.Common
 
 /// The instantiation is part of the identity: `IEnumerable<!!0>.GetEnumerator` and
 /// `IEnumerable<!!1>.GetEnumerator` must mint distinct `MemberRef`s.
@@ -397,7 +398,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                         )
                     else
                         let fieldName =
-                            (UnionCaseFields.names (EqArray.toList case.FieldNames)).[fieldIndex]
+                            (UnionCaseFieldName.fscFieldNames (EqArray.toList case.FieldNames)).[fieldIndex]
 
                         let parent =
                             match externalCaseParent key tref regime args caseName with

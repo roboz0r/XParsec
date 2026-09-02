@@ -154,7 +154,7 @@ module internal Layout =
         // flattening.
         let interfaceNodes = LayoutNodes.buildInterfaceNodes partitioned.Interfaces
 
-        let unionNodes = LayoutNodes.buildUnionNodes symbols partitioned.Unions
+        let unionNodes = UnionLayoutNodes.buildUnionNodes symbols partitioned.Unions
         let recordNodes = LayoutNodes.buildRecordNodes symbols partitioned.Records
 
         let classNodes = LayoutNodes.buildClassNodes symbols partitioned.Classes

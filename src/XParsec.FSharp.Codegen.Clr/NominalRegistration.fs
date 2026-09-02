@@ -38,9 +38,9 @@ module internal NominalRegistration =
         if ud.IsHierarchy then
             registerUnionCases provider handles ud
 
-        // The value types behind `_payload`, each a local value type; `Payload` is also a
-        // generic class over a generic union's typars, which parents its slot refs on its
-        // own `TypeSpec`.
+        // The value types the union nests, each a local value type; `Payload` and the case
+        // views are also generic classes over a generic union's typars, which parents
+        // their slot, field and `.ctor` refs on their own `TypeSpec`s.
         match ud.Placements with
         | ValueSome p ->
             for t in p.NestedTypes do
@@ -48,12 +48,10 @@ module internal NominalRegistration =
                 provider.RegisterUserType(typeKey, toEntity (handles.TypeDefOf(UnionNestedType.slotKey td.Key t)))
                 provider.RegisterUserValueType typeKey
 
-                match t with
-                | UnionNestedType.Payload slots when not td.TypeParams.IsEmpty ->
-                    provider.RegisterGenericClass(typeKey, td.TypeParams, 0, [ for s in slots -> s.MetaName, s.Ty ])
-                | UnionNestedType.Payload _
-                | UnionNestedType.Overlay _
-                | UnionNestedType.CaseData _ -> ()
+                if t.IsGeneric && not td.TypeParams.IsEmpty then
+                    let fields = t.Fields(td.TypeKey, td.TypeParams.Length)
+                    let ctorParamCount = if t.HasCtor then List.length fields else 0
+                    provider.RegisterGenericClass(typeKey, td.TypeParams, ctorParamCount, fields)
         | ValueNone -> ()
 
         if not td.TypeParams.IsEmpty then
