@@ -77,6 +77,7 @@
     <Compile Include="SecondaryCtorParamTypesTests.fs" />
     <Compile Include="DuplicateTypeNameTests.fs" />
     <Compile Include="TypeScopeOrderTests.fs" />
+    <Compile Include="SameNameResolutionTests.fs" />
     <Compile Include="FileOrderScopingTests.fs" />
     <Compile Include="ModuleScopingTests.fs" />
     <Compile Include="ParseDiagnosticsTests.fs" />

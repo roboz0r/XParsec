@@ -356,7 +356,9 @@ type ModuleFacts =
         /// `open`.
         RequiresQualifiedAccess: bool
         /// `[<AutoOpen>]` is written on THIS declaration, so ITS contents are in scope wherever
-        /// the module itself is. Another assembly's declaration of the path stays closed.
+        /// the module itself is, and another assembly's declaration of the path stays closed.
+        /// `PublishedSurface.ofBuilder` derives a path-shaped `ImplicitOpen` from the marker,
+        /// which reaches both declarations — pinned as a GAP in `OpenResolutionTests`.
         IsAutoOpen: bool
     }
 

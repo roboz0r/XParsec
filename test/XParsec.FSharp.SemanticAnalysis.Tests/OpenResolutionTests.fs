@@ -75,6 +75,40 @@ let private shadowedProvider: IExternalSymbolProvider =
 
     ExternalSymbolProviders.composite [ published; realProvider.Value ]
 
+/// Two packages declaring `Ref.Auto`, of which one carries `[<AutoOpen>]`. Each publishes one
+/// value, so a bare read names the declaration the auto-open brought into scope.
+let private autoOpenShadowProvider: IExternalSymbolProvider =
+    let path = SymbolKeyOps.moduleInNamespace "Ref" "Auto"
+
+    let surface (facts: ModuleFacts) (valueName: string) =
+        providerOfSurface (fun b ->
+            PublishedSurfaceBuilder.addModule
+                b
+                path
+                {
+                    Home = SymbolHome.Unstamped
+                    Facts = facts
+                }
+
+            PublishedSurfaceBuilder.addValue
+                b
+                (ExternalSymbols.monoFrozen
+                    (ModuleContainer.InModule path)
+                    valueName
+                    (FTConst(RuntimeNames.intKey, EqArray.empty)))
+        )
+
+    ExternalSymbolProviders.composite
+        [
+            surface
+                { ModuleFacts.plain with
+                    IsAutoOpen = true
+                }
+                "autoV"
+            surface ModuleFacts.plain "plainV"
+            realProvider.Value
+        ]
+
 let private analyseWith (external: IExternalSymbolProvider) (input: string) =
     let lexed, file = parseFile input
 
@@ -177,8 +211,8 @@ let tests =
             // A module path declared by this compilation AND by a reference: `open` reaches
             // both declarations, so `[<RequireQualifiedAccess>]` on either one refuses it and a
             // path both declare plainly contributes both their members. The three cases run
-            // each refusal direction and the merge. Probed against a compiled reference
-            // (probes 18 and 19 of abbrev-representation-plan.md).
+            // each refusal direction and the merge, each verified against a compiled reference
+            // assembly.
             test "the reference's [<RequireQualifiedAccess>] refuses an open of a plain local module" {
                 let ctx =
                     analyseWith
@@ -264,8 +298,8 @@ module Use2 =
                 Expect.isFalse (hasUnresolved ctx) "extX is the reference's above and below; locV the local's below"
             }
 
-            // Probe 18: one `open` of a shared path reaches both declarations, so this
-            // compilation's `locV` and the reference's `extW` are in scope together.
+            // One `open` of a shared path reaches both declarations, so this compilation's
+            // `locV` and the reference's `extW` are in scope together.
             test "an open of a path both sources declare plainly admits both their members" {
                 let ctx =
                     analyseWith
@@ -283,5 +317,25 @@ module Use =
 
                 Expect.isFalse (refusesOpen ctx) "neither declaration of Ref.Other is RQA"
                 Expect.isFalse (hasUnresolved ctx) "locV is this compilation's, extW the reference's"
+            }
+
+            // fsi: an `open` addresses a PATH, but an `[<AutoOpen>]` is per-DECLARATION — it
+            // brings its own package's contents into scope and leaves another package's
+            // declaration of the path closed. `PublishedSurface.ofBuilder` derives a
+            // path-shaped `ImplicitOpen` from the marker, which reaches both.
+            test "an [<AutoOpen>] declaration of a shared path brings its own contents into scope" {
+                let ctx = analyseWith autoOpenShadowProvider "let x = autoV"
+                Expect.isFalse (hasUnresolved ctx) "the [<AutoOpen>] declaration of Ref.Auto is in scope"
+            }
+
+            ptest "GAP: an [<AutoOpen>] declaration does not auto-open another package's declaration of the path" {
+                let ctx = analyseWith autoOpenShadowProvider "let x = plainV"
+                Expect.isTrue (hasUnresolved ctx) "the plain declaration of Ref.Auto stays closed"
+            }
+
+            // CONTROL: written explicitly, the `open` addresses the path and reaches both.
+            test "an explicit open of the path both packages declare reaches both" {
+                let ctx = analyseWith autoOpenShadowProvider "open Ref.Auto\nlet x = autoV + plainV"
+                Expect.isFalse (hasUnresolved ctx) "both declarations of Ref.Auto answer under one open"
             }
         ]

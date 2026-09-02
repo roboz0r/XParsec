@@ -867,6 +867,43 @@ module Q =
                             (errorsOf all.[2] |> List.exists undefinedName)
                             (sprintf "FS0039 for `Test.B.R` in the consumer; got %A" (errorsOf all.[2]))
                     }
+
+                    // An abbreviation is published to nobody, whichever half of a file declares
+                    // it: the declaring file reads the alias, and a later file of the same
+                    // assembly reaches the target by its own path alone.
+                    test "an abbreviation written in a `.fs` is out of scope for a consumer file" {
+                        let all =
+                            analyse
+                                [
+                                    impl "file1.fs" moduleLib
+                                    impl
+                                        "file2.fs"
+                                        "\
+namespace Test.B
+
+module R = Test.A.M
+
+module N =
+    let a () : int = R.v
+"
+                                    impl
+                                        "file3.fs"
+                                        "\
+namespace Test.C
+
+module Q =
+    let b () : int = Test.B.R.v
+"
+                                ]
+
+                        Expect.isEmpty
+                            (errorsOf all.[1])
+                            (sprintf "the declaring file reads its own alias; got %A" (errorsOf all.[1]))
+
+                        Expect.isTrue
+                            (errorsOf all.[2] |> List.exists undefinedName)
+                            (sprintf "FS0039 for `Test.B.R` in the consumer; got %A" (errorsOf all.[2]))
+                    }
                 ]
 
             testList

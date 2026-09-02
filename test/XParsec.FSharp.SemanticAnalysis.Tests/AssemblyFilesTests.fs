@@ -1838,6 +1838,31 @@ module N =
                         all.[1].Frozen.Residue.Diagnostics)
             }
 
+            // fsi: an abbreviation is checked against its right-hand side's accessibility, and a
+            // leak is a WARNING, so the declaration stands and the alias resolves.
+            ptest "GAP: a public abbreviation over a `private` right-hand side warns (FS0044)" {
+                let file1 =
+                    "\
+namespace Test.A
+
+module Leak =
+    type private Inner = { X: int }
+
+    type Pub = Inner
+"
+
+                let all = analyseAssembly asm realProvider.Value [ impl "file1.fs" file1 ] |> files
+
+                Expect.isEmpty
+                    (all.[0].Frozen.Residue.Diagnostics |> List.filter Diagnostic.isError)
+                    "the declaration stands"
+
+                Expect.isTrue
+                    (all.[0].Frozen.Residue.Diagnostics
+                     |> List.exists (fun d -> d.Code = DiagCode.FSharp 44))
+                    (sprintf "FS0044 at `Pub` (diagnostics: %A)" all.[0].Frozen.Residue.Diagnostics)
+            }
+
             // A published abbreviation is a name a consumer writes as if it were a real type:
             // bare under an `open`, as a type argument, and over a nominal whose members it
             // reaches. Every use expands; the abbreviation's own key is never a type.
@@ -2160,7 +2185,9 @@ module N =
 
             // An abbreviation instantiating a type parameter of its body (`Box<int>`) is NOT read
             // through its key: the key carries no instantiation, and a constructor read through it
-            // would infer fresh type arguments in place of `int`.
+            // would infer fresh type arguments in place of `int`. Closing this means carrying the
+            // body's instantiation into `ResolvedItem.Ctor` and the by-name kind lookups, rather
+            // than a key alone.
             ptest "GAP: `type IntBox = Box<int>` then `IntBox(1)` constructs `Box<int>`" {
                 let file1 =
                     "\
