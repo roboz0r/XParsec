@@ -139,6 +139,10 @@ type MetadataContext() =
     member _.AddField(attrs: FieldAttributes, name: string, signature: BlobBuilder) : FieldDefinitionHandle =
         mb.AddFieldDefinition(attrs, mb.GetOrAddString(name), mb.GetOrAddBlob(signature))
 
+    /// A `FieldLayout` row: `field`'s byte offset within its `ExplicitLayout` type. Rows are
+    /// added in field-row order, the sort SRM validates.
+    member _.AddFieldLayout(field: FieldDefinitionHandle, offset: int) : unit = mb.AddFieldLayout(field, offset)
+
     /// A `Constant` row for a `[<Literal>]` static field, namely an enum case carrying its
     /// underlying integer. `value` is that primitive, boxed (`int`/`byte`/`uint32`/`int64`);
     /// its runtime type is what SRM maps to the `ConstantTypeCode`. Add order is free.

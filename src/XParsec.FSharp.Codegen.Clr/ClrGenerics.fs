@@ -104,6 +104,16 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
         // `_unique_<Case>` singleton is typed at.
         let selfTy = FTUnion(key, EqArray.ofList (declaringMarkers shape.Typars.Length))
 
+        // A flat regime's slots, and the `Payload` struct a `StructTagged` union nests, in
+        // the same scope.
+        let slots =
+            match shape.Home with
+            | ValueSome home -> home.Slots
+            | ValueNone -> []
+
+        let payloadTy =
+            UnionPayloadType.payloadTy key (declaringMarkers shape.Typars.Length)
+
         let caseFields cn : EqArray<string * FrozenType> =
             match shape.Cases |> EqArray.tryFind (fun c -> c.Name = cn) with
             | ValueSome c -> c.Fields
@@ -112,21 +122,12 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
         match which with
         | UnionMember.Ctor ->
             let s = BlobBuilder()
-
-            let valueKind =
-                if userValueTypes.Contains key then
-                    UnionValueKind.Struct
-                else
-                    UnionValueKind.RefType
-
             let intTy = FTConst(RuntimeNames.intKey, EqArray.empty)
 
             let paramTys =
-                let slots = [ for s in shape.Slots -> s.Ty ]
-
-                match UnionCtorShape.ofRegime valueKind shape.Regime with
-                | UnionCtorShape.FlatTagged -> intTy :: slots
-                | UnionCtorShape.Flat -> slots
+                match UnionCtorShape.ofRegime shape.Regime with
+                | UnionCtorShape.FlatTagged -> [ intTy; payloadTy ]
+                | UnionCtorShape.Flat -> [ for s in slots -> s.Ty ]
                 | UnionCtorShape.TagOnly -> [ intTy ]
                 | UnionCtorShape.Nullary -> []
 
@@ -160,12 +161,21 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
             let metaName, _ = (caseFields caseName).[idx]
             genericClassMemberRef (UnionCaseType.key key caseName) args (ClassMember.Field metaName)
         | UnionMember.Slot slotKey ->
-            match shape.Slots |> EqArray.tryFind (fun s -> s.Key = slotKey) with
-            | ValueSome slot ->
+            match slots |> List.tryFind (fun s -> s.Key = slotKey), shape.Home with
+            | Some slot, ValueSome(UnionSlotHome.Inline _) ->
                 let s = BlobBuilder()
                 encodeType (BlobEncoder(s).FieldSignature()) slot.Ty
                 toEntity (ctx.MemberRef(parent, slot.MetaName, s))
-            | ValueNone -> failwithf "ClrProvider: generic union '%A' has no slot '%A'" key slotKey
+            // `Payload` is registered as a generic class over the union's typars, so its
+            // slot refs come from that family.
+            | Some slot, ValueSome(UnionSlotHome.Payload _) ->
+                genericClassMemberRef (UnionPayloadType.payloadKey key) args (ClassMember.Field slot.MetaName)
+            | Some _, ValueNone
+            | None, _ -> failwithf "ClrProvider: generic union '%A' has no slot '%A'" key slotKey
+        | UnionMember.Payload ->
+            let s = BlobBuilder()
+            encodeType (BlobEncoder(s).FieldSignature()) payloadTy
+            toEntity (ctx.MemberRef(parent, UnionPayloadType.payloadFieldName, s))
         | UnionMember.CaseCtor caseName -> genericClassMemberRef (UnionCaseType.key key caseName) args ClassMember.Ctor
         | UnionMember.CaseSingleton caseName ->
             let s = BlobBuilder()

@@ -39,9 +39,9 @@ type internal GenericUnionShape =
         /// case type's own field rows, and every case factory's parameter types.
         Cases: EqArray<GenericUnionCase>
         ValueKind: UnionValueKind
-        /// A flat regime's physical slots in `.ctor` parameter order, after `_tag` where
-        /// the regime declares one. Empty for a hierarchy regime.
-        Slots: EqArray<UnionSlot>
+        /// A flat regime's physical slots and the `TypeDef` declaring them. `ValueNone` for
+        /// a hierarchy regime.
+        Home: UnionSlotHome voption
     }
 
     /// The metadata shape this union is emitted in.

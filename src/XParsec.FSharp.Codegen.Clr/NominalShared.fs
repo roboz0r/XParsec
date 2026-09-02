@@ -60,7 +60,10 @@ module internal NominalShared =
             for (name, h, fty) in asm.Records.[td.TypeKey].Fields ->
                 name,
                 {
-                    Handle = selfMemberRef asm td (UserMemberKind.RecordMember(RecordMember.Field name)) h
+                    Path =
+                        [
+                            selfMemberRef asm td (UserMemberKind.RecordMember(RecordMember.Field name)) h
+                        ]
                     Ty = fty
                     Cast = ValueNone
                 }

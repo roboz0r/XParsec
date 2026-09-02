@@ -108,53 +108,31 @@ let ctorShape =
     testList
         "UnionCtorShape.ofRegime"
         [
-            // A struct union's factories `newobj` the whole value, so its `.ctor` takes
-            // every case's fields, led by `_tag` wherever one exists.
-            test "a struct union's ctor is flat" {
-                Expect.equal
-                    (UnionCtorShape.ofRegime UnionValueKind.Struct UnionRegime.StructTagged)
-                    UnionCtorShape.FlatTagged
-                    "StructTagged"
-
-                Expect.equal
-                    (UnionCtorShape.ofRegime UnionValueKind.Struct UnionRegime.EnumLike)
-                    UnionCtorShape.FlatTagged
-                    "a struct EnumLike union, whose flat form is the tag alone"
-
-                Expect.equal
-                    (UnionCtorShape.ofRegime UnionValueKind.Struct UnionRegime.SingleCase)
-                    UnionCtorShape.Flat
-                    "one case IS every case, so the tag drops"
+            // A struct union's factories each build the `Payload` and `newobj` the whole
+            // value, so its `.ctor` takes `_tag` and `_payload`.
+            test "a StructTagged union's ctor takes the tag and the payload" {
+                Expect.equal (UnionCtorShape.ofRegime UnionRegime.StructTagged) UnionCtorShape.FlatTagged "StructTagged"
             }
 
-            // A reference union declaring a `_tag` takes it as its sole ctor parameter,
-            // written once: a `Tagged` case `.ctor` chains it with the case's
-            // discriminant, and an enum-like `.cctor` passes it per singleton.
-            test "a reference union with a tag takes it" {
+            // A union declaring a `_tag` and no payload takes the tag as its sole ctor
+            // parameter, written once: a `Tagged` case `.ctor` chains it with the case's
+            // discriminant, an enum-like struct factory stamps it, and an enum-like
+            // reference `.cctor` passes it per singleton.
+            test "a tagged union without a payload takes the tag alone" {
                 for regime in [ UnionRegime.EnumLike; UnionRegime.Tagged ] do
-                    Expect.equal
-                        (UnionCtorShape.ofRegime UnionValueKind.RefType regime)
-                        UnionCtorShape.TagOnly
-                        (sprintf "%A" regime)
+                    Expect.equal (UnionCtorShape.ofRegime regime) UnionCtorShape.TagOnly (sprintf "%A" regime)
             }
 
             // A single case IS every case whichever way the union is stored, so the one
             // `.ctor` takes the payload and nothing stores after construction. That is
             // what leaves every union field `initonly`.
-            test "a single-case union's ctor is flat either way" {
-                for valueKind in [ UnionValueKind.Struct; UnionValueKind.RefType ] do
-                    Expect.equal
-                        (UnionCtorShape.ofRegime valueKind UnionRegime.SingleCase)
-                        UnionCtorShape.Flat
-                        (sprintf "%A" valueKind)
+            test "a single-case union's ctor is flat" {
+                Expect.equal (UnionCtorShape.ofRegime UnionRegime.SingleCase) UnionCtorShape.Flat "SingleCase"
             }
 
             // The `TypeTested` base declares no field at all, so nothing is left to pass.
             test "a TypeTested base alone is nullary" {
-                Expect.equal
-                    (UnionCtorShape.ofRegime UnionValueKind.RefType UnionRegime.TypeTested)
-                    UnionCtorShape.Nullary
-                    "TypeTested"
+                Expect.equal (UnionCtorShape.ofRegime UnionRegime.TypeTested) UnionCtorShape.Nullary "TypeTested"
             }
         ]
 
@@ -173,8 +151,8 @@ let factoryShape =
 
                 Expect.equal
                     (UnionFactoryShape.ofCase UnionValueKind.Struct UnionRegime.EnumLike 0)
-                    UnionFactoryShape.StructTagged
-                    "a struct EnumLike case is nullary and still constructs"
+                    UnionFactoryShape.StructTag
+                    "a struct EnumLike case is nullary and still constructs, from the tag alone"
 
                 Expect.equal
                     (UnionFactoryShape.ofCase UnionValueKind.Struct UnionRegime.SingleCase 0)

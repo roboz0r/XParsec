@@ -13,8 +13,8 @@ type UnionRegime =
     /// cached singleton.
     | EnumLike
     /// A `[<Struct>]` union of two or more cases with at least one carrying fields: `_tag`
-    /// plus the shared payload slots `FlatUnionPlacements` places every case's fields in,
-    /// co-resident on the one value type.
+    /// plus `_payload`, the nested `Payload` struct whose slots `FlatUnionPlacements` places
+    /// every case's fields in.
     | StructTagged
     /// A reference union of two or three cases with at least one carrying fields: a nested
     /// type per case on an abstract base, discriminated by an instance's runtime type.
@@ -88,13 +88,14 @@ module UnionRegime =
 /// every field it takes, so all of them are `initonly`.
 [<RequireQualifiedAccess>]
 type UnionCtorShape =
-    /// `(_tag, every physical payload slot)` in placement order, `newobj`ed whole by each
-    /// case factory.
+    /// `(_tag, _payload)` — a `StructTagged` union, whose case factories each build the
+    /// `Payload`.
     | FlatTagged
     /// `(every case's field)` — a single-case union, whose one case is every case.
     | Flat
-    /// `(_tag)`, stamped by whichever case `.ctor` chains it, or by the `.cctor` that
-    /// constructs an enum-like case's singleton.
+    /// `(_tag)` — an `EnumLike` union, stamped by each struct case factory or by the
+    /// `.cctor` constructing a reference case's singleton, and a `Tagged` base, stamped by
+    /// the case `.ctor` chaining it.
     | TagOnly
     /// `()` — a `TypeTested` base, which declares no field.
     | Nullary
@@ -103,20 +104,14 @@ type UnionCtorShape =
 [<RequireQualifiedAccess>]
 module UnionCtorShape =
 
-    /// The `.ctor` shape a regime declares. The value kind separates the two tagged
-    /// forms: a `[<Struct>]` union holds every case's payload co-resident with the
-    /// discriminant, a reference union puts a case's payload on the case.
-    let ofRegime (valueKind: UnionValueKind) (regime: UnionRegime) : UnionCtorShape =
+    /// The `.ctor` shape a regime declares.
+    let ofRegime (regime: UnionRegime) : UnionCtorShape =
         match regime with
         | UnionRegime.SingleCase -> UnionCtorShape.Flat
         | UnionRegime.TypeTested -> UnionCtorShape.Nullary
+        | UnionRegime.StructTagged -> UnionCtorShape.FlatTagged
         | UnionRegime.EnumLike
-        | UnionRegime.StructTagged
-        | UnionRegime.Tagged ->
-            if valueKind.IsValueType then
-                UnionCtorShape.FlatTagged
-            else
-                UnionCtorShape.TagOnly
+        | UnionRegime.Tagged -> UnionCtorShape.TagOnly
 
 /// The body one union case's static factory takes. The arity is a case-level fact where
 /// the regime is a union-level one, so this is selected per case.
@@ -128,9 +123,11 @@ type UnionFactoryShape =
     | UnionCtor
     /// Forward every parameter to the case type's own `.ctor`.
     | CaseCtor
-    /// Push the discriminant, this case's parameters into the slots it owns, and a zeroed
-    /// default into every slot it does not, then `newobj` the flat `.ctor`.
+    /// Build a zeroed `Payload`, write this case's parameters into their placements, then
+    /// `newobj` the `.ctor(tag, payload)`.
     | StructTagged
+    /// An `EnumLike` struct case: push the discriminant and `newobj` the `.ctor(tag)`.
+    | StructTag
 
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 [<RequireQualifiedAccess>]
@@ -140,10 +137,11 @@ module UnionFactoryShape =
     let ofCase (valueKind: UnionValueKind) (regime: UnionRegime) (arity: int) : UnionFactoryShape =
         match valueKind with
         | UnionValueKind.Struct ->
-            if UnionRegime.hasTag regime then
-                UnionFactoryShape.StructTagged
-            else
-                UnionFactoryShape.UnionCtor
+            match UnionCtorShape.ofRegime regime with
+            | UnionCtorShape.FlatTagged -> UnionFactoryShape.StructTagged
+            | UnionCtorShape.TagOnly -> UnionFactoryShape.StructTag
+            | UnionCtorShape.Flat
+            | UnionCtorShape.Nullary -> UnionFactoryShape.UnionCtor
         | UnionValueKind.RefType ->
             match arity with
             | 0 -> UnionFactoryShape.Cached

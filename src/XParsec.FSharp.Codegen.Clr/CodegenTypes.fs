@@ -69,17 +69,15 @@ type internal UnionDecl =
         /// type + its already-typed member bodies.
         Interfaces: (FrozenNominal * TastAccessor.TypeMember list) list
         /// `Struct` for a `[<Struct>]` union (`System.ValueType` base, sealed,
-        /// `IsReadOnly` with `initonly` fields; the factories `newobj` the flat
-        /// `(tag, every case field)` `.ctor` and return by value).
+        /// `IsReadOnly` with `initonly` fields; the factories `newobj` the flat `.ctor` and
+        /// return by value).
         ValueKind: UnionValueKind
         /// The metadata shape this union is emitted in, classified once at partition time.
         Regime: UnionRegime
-        /// The physical fields on the union's own `TypeDef` and each case field's read path.
-        /// `ValueSome` exactly where the regime is flat.
+        /// The physical slots, where they are declared, each case field's read path and
+        /// the public `Get_<Case>_<i>` readers. `ValueSome` exactly where the regime is
+        /// flat.
         Placements: FlatUnionPlacements voption
-        /// The public `Get_<Case>_<i>` readers, one per logical case field. Non-empty
-        /// exactly where `UnionRegime.hasCaseGetters` holds.
-        CaseGetters: UnionCaseGetter list
     }
 
     /// A nested `TypeDef` per case on an abstract base.
@@ -89,8 +87,13 @@ type internal UnionDecl =
     member this.HasTag: bool = UnionRegime.hasTag this.Regime
 
     /// The parameter list this union's own `.ctor` declares.
-    member this.CtorShape: UnionCtorShape =
-        UnionCtorShape.ofRegime this.ValueKind this.Regime
+    member this.CtorShape: UnionCtorShape = UnionCtorShape.ofRegime this.Regime
+
+    /// The public `Get_<Case>_<i>` readers; empty for a hierarchy regime.
+    member this.CaseGetters: UnionCaseGetter list =
+        match this.Placements with
+        | ValueSome p -> p.Getters
+        | ValueNone -> []
 
     /// The `(tag, case)` pairs held as a `_unique_<Case>` singleton, constructed once by
     /// the union's `.cctor`. Every nullary case of a reference union qualifies, in any

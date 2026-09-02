@@ -342,10 +342,11 @@ let tests =
 
                 let rows = MetadataStructure.memberRefRowCount (Codegen.toBytes artifact)
 
-                // `'T` and `int` are distinct stored types, so the two cases take a slot
-                // each.
+                // `'T` takes an exact slot on `Payload`, the unmanaged `int` case the
+                // overlay; both are reached through `_payload`.
+                Expect.equal (rows "_payload") 2 "the payload field"
                 Expect.equal (rows "_val0") 2 "Val's payload slot"
-                Expect.equal (rows "_val1") 2 "Num's payload slot"
+                Expect.equal (rows "_data") 2 "the overlay slot Num lands in"
                 Expect.equal (rows "_tag") 2 "the discriminant"
             }
 

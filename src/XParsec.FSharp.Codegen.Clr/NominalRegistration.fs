@@ -38,15 +38,34 @@ module internal NominalRegistration =
         if ud.IsHierarchy then
             registerUnionCases provider handles ud
 
+        // The value types behind `_payload`, each a local value type; `Payload` is also a
+        // generic class over a generic union's typars, which parents its slot refs on its
+        // own `TypeSpec`.
+        match ud.Placements with
+        | ValueSome p ->
+            for t in p.NestedTypes do
+                let typeKey = t.TypeKey td.TypeKey
+                provider.RegisterUserType(typeKey, toEntity (handles.TypeDefOf(UnionNestedType.slotKey td.Key t)))
+                provider.RegisterUserValueType typeKey
+
+                match t with
+                | UnionNestedType.Payload slots when not td.TypeParams.IsEmpty ->
+                    provider.RegisterGenericClass(typeKey, td.TypeParams, 0, [ for s in slots -> s.MetaName, s.Ty ])
+                | UnionNestedType.Payload _
+                | UnionNestedType.Overlay _
+                | UnionNestedType.CaseData _ -> ()
+        | ValueNone -> ()
+
         if not td.TypeParams.IsEmpty then
             let shape = [ for c in ud.Cases -> c.Name, caseFields ud c ]
 
-            let slots =
-                match ud.Placements with
-                | ValueSome p -> p.Slots
-                | ValueNone -> []
-
-            provider.RegisterGenericUnion(td.TypeKey, TTypeParam.names td.TypeParams, shape, ud.ValueKind, slots)
+            provider.RegisterGenericUnion(
+                td.TypeKey,
+                TTypeParam.names td.TypeParams,
+                shape,
+                ud.ValueKind,
+                ud.Placements |> ValueOption.map (fun p -> p.Home)
+            )
 
     let private registerRecord (provider: ClrProvider) (handles: LayoutHandles) (rd: RecordDecl) : unit =
         let td = rd.Decl

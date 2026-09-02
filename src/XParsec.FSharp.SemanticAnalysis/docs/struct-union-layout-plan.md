@@ -224,36 +224,56 @@ no loader risk.
 
 This step already delivers most of the footprint win.
 
-### Step 5 — unmanaged overlay via per-case structs
+### Step 5 — unmanaged overlay via per-case structs — LANDED
 
-- For each case with ≥1 `Unmanaged` field, synthesize a private nested sequential struct
-  holding those fields; synthesize the private `ExplicitLayout` overlay struct with every case
-  struct at `FieldOffset(0)`; replace those fields' slots with the single `_data` field.
-- Introduce the `Payload` struct here, in the same writer change: the union's fields become
-  `_tag` and `_payload`, `FlatUnionPlacements.Slots` become `Payload`'s fields, the union
-  `.ctor` takes `(tag, Payload)`, and a factory builds a `Payload` in an `initobj`-zeroed
-  local (`ldloca` + `stfld` per owned slot, so `Payload`'s slots are plain private, not
-  `initonly`). Step 4 keeps the slots directly on the union to stay free of writer changes.
-- `LayoutModel.fs`: new `TypeSlotKind` cases (case-data struct, overlay struct), a
-  `UnionSlotKey.Data` slot for `_data` plus `FieldKey` cases for the case-struct member
-  fields, nested via the existing
-  `TypeNode.Nested`/`NestedClass` machinery (`TypeSlotKey.UnionCase` is precedent for nesting
-  only: the new nodes carry `Typars = []` regardless of the union's arity, per "Target
-  layout").
-- Writer: first uses of `AddTypeLayout`/`AddFieldLayout`; `ExplicitLayout` flag on the overlay.
-  `MetadataStructure` assertions on the ClassLayout/FieldLayout rows are part of the
-  deliverable (Codegen.Clr CLAUDE.md).
-- IL details: `_data` stays `initonly`, written once by the union `.ctor` from an overlay
-  parameter. Case-struct member fields are plain (non-`initonly`) private, because
-  `initonly` would forbid the factory writing them through `ldflda`; factories build the
-  overlay in an `initobj`-zeroed local. No `Unsafe`, no C#-level workaround.
-- Extraction: `ldflda _payload` / `ldflda _data` / `ldflda <caseStruct>` / `ldfld <field>`
-  through placements; a ref or exact slot is `ldflda _payload` / `ldfld <slot>`.
-- Tests: run the full struct-union suite through `PeInspection.loadAssembly` (the loader is
-  the arbiter of overlay legality), a mixed union exercising all four storage kinds in one
-  type, and a GENERIC struct union with an unmanaged payload case loaded the same way
-  (`StructUnionGenericShape` only carries a `'T` field, so it would not catch a generic
-  overlay).
+- `UnionStorage.ofFrozen` classifies `Unmanaged` (through `Unmanagedness`) ahead of the
+  Step 4 reference/exact split. An unmanaged field is `UnionFieldAccess.Overlaid`, placed on
+  its case's data struct (`UnionCaseData`, FSC-spelled field names); `UnionSlotKey.Data` is
+  the `_data` slot, minted exactly when some case has an unmanaged field.
+- `FlatUnionPlacements.Home: UnionSlotHome` holds the slots where they are declared:
+  `Inline of slots` on the union (`SingleCase`; `EnumLike` with none) or `Payload of
+  UnionPayloadSlots` on the nested `Payload` struct, with the overlay (`_data` slot plus its
+  case data structs) as a `voption`, the `object` slots and the exact slots as separate
+  pools. `Slots` is computed from `Home` in that order, so the `_data` slot exists exactly
+  when the overlay does. `FlatUnionPlacements.NestedTypes` is the one enumeration of the
+  value types behind `_payload` (`UnionNestedType`), which the layout nodes and the
+  provider registration both map.
+- Nested types (`UnionPayloadType`): `Payload` (sequential, redeclares the union's typars
+  whenever the union is generic, keyed like a case type with arity 0), the `ExplicitLayout`
+  overlay `Data` (one field per case data struct, each with a `FieldLayout` row at offset 0)
+  and one `Data_<Case>` per overlaid case. The overlay and the case data structs declare no
+  typar. All three are `NestedAssembly` value types with `assembly` non-`initonly` fields, so
+  a same-assembly match arm reads through them directly and the factory writes them through
+  `ldflda`. No `ClassLayout` row: the loader computes every size (Roslyn likewise emits none
+  for pack 0 / size 0).
+- The union's fields are `_tag` and `_payload` (`assembly initonly`), the `.ctor` takes
+  `(tag, Payload)`, and a factory builds the payload in an `initobj`-zeroed local
+  (`Emit.buildStructUnionPayloadFactory`). An `EnumLike` union's `.ctor` is `TagOnly`
+  whichever its value kind, and a struct one's factory is `UnionFactoryShape.StructTag`.
+- Every read path is an `ldfld` chain (`UnionCaseAccess.Field of EntityHandle list`,
+  `EmitStructural.StructuralField.Path`, `EmittedCaseField.Steps`): `ldfld` accepts an
+  object reference, a managed pointer and a value-type instance alike, and unlike `ldflda`
+  is verifiable on an `initonly` field outside the `.ctor`. Match arms, getters and
+  structural bodies share one placement table. `UnionEmit` derives every path once as
+  `EmitTypes.FieldStep<FieldKey>` (the `UnionMember` a generic instantiation re-spells a
+  `Member` step by rides along) and a pass resolves every step's handle once, up front
+  (`FlatPass.Refs`); a match arm sees the same steps mapped to `Def` tokens.
+- Generic unions: `GenericUnionShape.Home` carries the `UnionSlotHome`; `Payload` is
+  registered as a generic class so `UnionMember.Slot` mints on its `TypeSpec`, and
+  `UnionMember.Payload` mints `_payload` on the union's.
+- Tests: `StructUnionTests` pins the nested type set, the `ExplicitLayout` flag, the
+  `FieldLayout` rows, the absence of `ClassLayout` rows, field attributes, a loader pass
+  over every `StructUnion*` program, a mixed union of all four storage kinds
+  (`StructUnionMixedStorage.fs`: overlay, `object`, managed struct exact, `Guid` exact) read
+  back through the getters, and a generic union with an unmanaged case
+  (`StructUnionGenericOverlay.fs`). `UnionPlacementsTests` pins the new placement table and
+  the overlay/`_data` invariant; the two byte-identity goldens were regenerated.
+
+Deviations from the plan as written: `Payload` is generic exactly when the union is, rather
+than only when a slot mentions a typar (one generic/mono decision, matching the case-type
+precedent); reads use `ldfld` chains rather than `ldflda`; the types are `assembly`-visible
+rather than private. Step 6's views wrap a `Payload` field, which the `assembly` visibility
+permits.
 
 ### Step 6 — per-case payload views (additive)
 
@@ -281,9 +301,9 @@ This step already delivers most of the footprint win.
 
 - [x] Same-emitter accessor ABI: stated on the `UnionCaseAccess` doc comment
       (`ICodegenProvider.fs`).
-- [ ] "Structural bodies never byte-compare `_data`" — a test with a padding-bearing case
-      struct whose padding is deliberately dirtied, or a sited comment on the structural body
-      emitter if undirtiable.
+- [x] "Structural bodies never byte-compare `_data`" — stated on
+      `EmitStructural.StructuralWalk.Tagged`; the emitter has no whole-struct compare path, and
+      the payload is only reachable field by field through the placement table.
 - [x] Determinism of placement assignment: `UnionPlacementsTests` "two computations of one
       shape agree".
 - [x] `Undetermined` worklist: `UnmanagednessTests` "census over the struct-union data

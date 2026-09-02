@@ -170,6 +170,12 @@ type internal TypeSlotKey =
     | Nominal of SymbolKey
     /// A hierarchy union's per-case type, nested in the union's own `TypeDef`.
     | UnionCase of SymbolKey * case: string
+    /// A `StructTagged` union's `Payload` struct, nested in the union's own `TypeDef`.
+    | UnionPayload of SymbolKey
+    /// A `StructTagged` union's `ExplicitLayout` overlay `Data`, nested in the union.
+    | UnionOverlay of SymbolKey
+    /// One case's data struct `Data_<Case>` in the overlay, nested in the union.
+    | UnionCaseData of SymbolKey * case: string
     | Closure of name: string
     | ModuleClass of Emit.ModuleClassKey
     | Program
@@ -187,6 +193,15 @@ type internal TypeSlotKind =
     /// One case of a hierarchy union: a sealed nested class extending the union, holding
     /// that case's payload fields.
     | UnionCase
+    /// A `StructTagged` union's `Payload`: a sealed sequential `assembly` value type holding
+    /// the shared slots, redeclaring a generic union's typars.
+    | UnionPayload
+    /// A `StructTagged` union's overlay `Data`: a sealed non-generic `assembly` value type
+    /// with `ExplicitLayout`, every field at offset 0.
+    | UnionOverlay
+    /// One case's data struct in the overlay: a sealed sequential non-generic `assembly`
+    /// value type holding the case's unmanaged fields.
+    | UnionCaseData
     /// `valueKind` selects reference vs `[<Struct>]` value type. Always sealed.
     | Record of valueKind: RecordValueKind
     /// `isSealed` reflects `[<Sealed>]`; `valueKind` selects reference vs `[<Struct>]`
@@ -209,6 +224,23 @@ type internal TypeSlotKind =
     /// its `.cctor` runs before `Main`).
     | Program of hasCctor: bool
 
+[<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
+[<RequireQualifiedAccess>]
+module internal UnionNestedType =
+
+    /// The layout slot of a type nested in union `key`.
+    let slotKey (key: SymbolKey) (t: UnionNestedType) : TypeSlotKey =
+        match t with
+        | UnionNestedType.Payload _ -> TypeSlotKey.UnionPayload key
+        | UnionNestedType.Overlay _ -> TypeSlotKey.UnionOverlay key
+        | UnionNestedType.CaseData c -> TypeSlotKey.UnionCaseData(key, c.Case)
+
+    let slotKind (t: UnionNestedType) : TypeSlotKind =
+        match t with
+        | UnionNestedType.Payload _ -> TypeSlotKind.UnionPayload
+        | UnionNestedType.Overlay _ -> TypeSlotKind.UnionOverlay
+        | UnionNestedType.CaseData _ -> TypeSlotKind.UnionCaseData
+
 /// Identity of one `Field` row in the layout.
 [<RequireQualifiedAccess>]
 type internal FieldKey =
@@ -217,8 +249,16 @@ type internal FieldKey =
     | UnionTag of SymbolKey
     /// A case's payload field on the case's own `TypeDef` in a hierarchy regime.
     | UnionCaseField of SymbolKey * case: string * index: int
-    /// One physical field on a flat union's own `TypeDef`, placed by `FlatUnionPlacements`.
+    /// One physical slot of a flat union, placed by `FlatUnionPlacements`: a field of the
+    /// union's own `TypeDef` or of its `Payload` struct, per `UnionSlotHome`.
     | UnionSlot of SymbolKey * UnionSlotKey
+    /// A `StructTagged` union's `_payload`, its one `assembly initonly` field typed as the
+    /// nested `Payload` struct.
+    | UnionPayload of SymbolKey
+    /// The overlay's field holding one case's data struct, at offset 0.
+    | UnionOverlayCase of SymbolKey * case: string
+    /// One unmanaged case field on the case's data struct.
+    | UnionCaseDataField of SymbolKey * case: string * index: int
     /// A reference union's `private static initonly` singleton for a NULLARY case, typed
     /// as the union. Constructed once by the union's `.cctor`; the case factory `ldsfld`s
     /// it.

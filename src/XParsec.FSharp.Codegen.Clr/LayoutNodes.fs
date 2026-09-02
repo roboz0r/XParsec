@@ -41,20 +41,6 @@ module internal LayoutNodes =
                             u.Cases.Length
                             (u.Cases |> EqArray.exists (fun c -> not c.Fields.IsEmpty))
 
-                    let placements, caseGetters =
-                        if UnionRegime.isHierarchy regime then
-                            ValueNone, []
-                        else
-                            let p = FlatUnionPlacements.ofCases symbols regime cases
-
-                            let getters =
-                                if UnionRegime.hasCaseGetters regime then
-                                    FlatUnionPlacements.caseGetters p cases
-                                else
-                                    []
-
-                            ValueSome p, getters
-
                     unions.Add
                         {
                             Decl = td
@@ -63,8 +49,7 @@ module internal LayoutNodes =
                             Interfaces = ifaceBlocks u.Interfaces
                             ValueKind = u.ValueKind
                             Regime = regime
-                            Placements = placements
-                            CaseGetters = caseGetters
+                            Placements = FlatUnionPlacements.ofCases symbols td.TypeKey regime cases
                         }
                 | TTypeKindG.Record r ->
                     records.Add
@@ -415,9 +400,58 @@ module internal LayoutNodes =
             Nested = []
         }
 
+    /// The `TypeNode` of one value type nested behind a `StructTagged` union's `_payload`:
+    /// `assembly` fields and no method.
+    let private unionNestedNode (td: TastAccessor.TypeDecl) (t: UnionNestedType) : TypeNode =
+        let field (key: FieldKey) (name: string) (ty: FrozenType) : FieldSlot =
+            {
+                Key = key
+                Name = name
+                Attrs = compilerGeneratedStorage
+                Ty = ty
+                ClosureScope = ValueNone
+            }
+
+        let typars, fields =
+            match t with
+            | UnionNestedType.Payload slots ->
+                typarNames td.TypeParams,
+                [ for s in slots -> field (FieldKey.UnionSlot(td.Key, s.Key)) s.MetaName s.Ty ]
+            | UnionNestedType.Overlay cases ->
+                [],
+                [
+                    for c in cases ->
+                        field
+                            (FieldKey.UnionOverlayCase(td.Key, c.Case))
+                            c.Case
+                            (UnionPayloadType.caseDataTy td.TypeKey c.Case)
+                ]
+            | UnionNestedType.CaseData c ->
+                [],
+                [
+                    for f in c.Fields -> field (FieldKey.UnionCaseDataField(td.Key, c.Case, f.Index)) f.MetaName f.Ty
+                ]
+
+        {
+            Slot =
+                {
+                    Key = UnionNestedType.slotKey td.Key t
+                    Kind = UnionNestedType.slotKind t
+                    Namespace = ""
+                    MetaName = t.Name
+                    Typars = typars
+                }
+            Enclosing = ValueSome(TypeSlotKey.Nominal td.Key)
+            Fields = fields
+            Methods = []
+            Properties = []
+            Nested = []
+        }
+
     /// Per union: `_tag`, a singleton field per nullary case, a flat regime's payload
-    /// slots, `.ctor`, case factories, members and structural rows. A hierarchy union
-    /// additionally nests a `TypeDef` per case.
+    /// slots or its `_payload`, `.ctor`, case factories, members and structural rows. A
+    /// hierarchy union additionally nests a `TypeDef` per case; a `StructTagged` one nests
+    /// its `Payload` and overlay structs.
     let buildUnionNodes (symbols: ICodegenSymbols) (unions: UnionDecl list) : TypeNode list =
         [
             for ud in unions ->
@@ -429,6 +463,38 @@ module internal LayoutNodes =
 
                 let selfTy =
                     FTUnion(td.TypeKey, EqArray.ofList (declaringMarkers td.TypeParams.Length))
+
+                // A flat union's storage: `initonly` inline slots on its own `TypeDef`, or the
+                // one `_payload` field with the value types nested behind it. A hierarchy
+                // union declares each case's payload on the case's own nested `TypeDef`.
+                let storageFields, nested =
+                    match ud.Placements with
+                    | ValueSome p ->
+                        match p.Home with
+                        | UnionSlotHome.Inline slots ->
+                            [
+                                for s in slots ->
+                                    {
+                                        Key = FieldKey.UnionSlot(td.Key, s.Key)
+                                        Name = s.MetaName
+                                        Attrs = FieldAttributes.Public ||| FieldAttributes.InitOnly
+                                        Ty = s.Ty
+                                        ClosureScope = ValueNone
+                                    }
+                            ],
+                            []
+                        | UnionSlotHome.Payload _ ->
+                            [
+                                {
+                                    Key = FieldKey.UnionPayload td.Key
+                                    Name = UnionPayloadType.payloadFieldName
+                                    Attrs = compilerGeneratedStorage ||| FieldAttributes.InitOnly
+                                    Ty = UnionPayloadType.payloadTy td.TypeKey (declaringMarkers td.TypeParams.Length)
+                                    ClosureScope = ValueNone
+                                }
+                            ],
+                            [ for t in p.NestedTypes -> unionNestedNode td t ]
+                    | ValueNone -> [], [ for c in ud.Cases -> unionCaseNode ud structural c ]
 
                 let fields =
                     [
@@ -455,20 +521,7 @@ module internal LayoutNodes =
                                 ClosureScope = ValueNone
                             }
 
-                        // A flat union's physical slots, `initonly` because the `.ctor` is
-                        // their only writer. A hierarchy case's payload is declared on the
-                        // case's own `TypeDef`.
-                        match ud.Placements with
-                        | ValueSome p ->
-                            for s in p.Slots ->
-                                {
-                                    Key = FieldKey.UnionSlot(td.Key, s.Key)
-                                    Name = s.MetaName
-                                    Attrs = FieldAttributes.Public ||| FieldAttributes.InitOnly
-                                    Ty = s.Ty
-                                    ClosureScope = ValueNone
-                                }
-                        | ValueNone -> ()
+                        yield! storageFields
                     ]
 
                 let methodRows =
@@ -546,12 +599,7 @@ module internal LayoutNodes =
                 let node =
                     nominalNode (TypeSlotKind.Union(ud.ValueKind, ud.Regime)) td fields methodRows properties
 
-                if isHierarchy then
-                    { node with
-                        Nested = [ for c in ud.Cases -> unionCaseNode ud structural c ]
-                    }
-                else
-                    node
+                { node with Nested = nested }
         ]
 
     let buildRecordNodes (symbols: ICodegenSymbols) (records: RecordDecl list) : TypeNode list =

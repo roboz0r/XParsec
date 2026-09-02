@@ -69,6 +69,7 @@
     <Compile Include="ClassTests.fs" />
     <Compile Include="ArityOverloadedClassTests.fs" />
     <Compile Include="StructTests.fs" />
+    <Compile Include="StructUnionTests.fs" />
     <Compile Include="AttributeRowTests.fs" />
     <Compile Include="PropertyRowTests.fs" />
     <Compile Include="EnumTests.fs" />

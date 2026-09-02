@@ -370,6 +370,10 @@ type TypeDecl =
         IsAbstract: bool
         IsSealed: bool
         IsNested: bool
+        /// The `LayoutMask` bits: `AutoLayout`, `SequentialLayout` or `ExplicitLayout`.
+        Layout: TypeAttributes
+        /// The `VisibilityMask` bits.
+        Visibility: TypeAttributes
     }
 
 /// The declaration shape of the type `Assembly.GetType name` would bind.
@@ -411,7 +415,34 @@ let typeDecl (bytes: byte[]) (name: string) : TypeDecl voption =
                 IsAbstract = td.Attributes.HasFlag TypeAttributes.Abstract
                 IsSealed = td.Attributes.HasFlag TypeAttributes.Sealed
                 IsNested = isNested td.Attributes
+                Layout = td.Attributes &&& TypeAttributes.LayoutMask
+                Visibility = td.Attributes &&& TypeAttributes.VisibilityMask
             }
+
+/// One type's `FieldLayout` rows as `(field name, offset)` in field-row order, by the
+/// `Ns.Outer+Inner` spelling; a field with no row is absent. Raises when the assembly
+/// declares no such type.
+let fieldLayoutsOf (bytes: byte[]) (typeName: string) : (string * int) list =
+    use pe = openPe bytes
+    let md = pe.GetMetadataReader()
+
+    match md.TypeDefinitions |> Seq.tryFind (fun h -> nameOf md h = typeName) with
+    | None ->
+        failwithf "MetadataStructure: no type '%s' among %A" typeName [ for h in md.TypeDefinitions -> nameOf md h ]
+    | Some h ->
+        [
+            for fh in (md.GetTypeDefinition h).GetFields() do
+                let fd = md.GetFieldDefinition fh
+                let offset = fd.GetOffset()
+
+                if offset >= 0 then
+                    md.GetString fd.Name, offset
+        ]
+
+/// The `ClassLayout` table's row count.
+let classLayoutRowCount (bytes: byte[]) : int =
+    use pe = openPe bytes
+    pe.GetMetadataReader().GetTableRowCount TableIndex.ClassLayout
 
 /// One type's `Field` rows in row order as `(name, attributes)`, by the `Ns.Outer+Inner`
 /// spelling. Raises when the assembly declares no such type.

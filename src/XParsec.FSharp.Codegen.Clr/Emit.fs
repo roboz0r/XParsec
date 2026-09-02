@@ -413,13 +413,20 @@ module Emit =
         b.Add ILInstr.Ret
         b.Body
 
-    /// Read a field stored erased to `object` and `castclass` it to `castTo`, the type the
-    /// getter returns.
-    let buildErasedFieldGetter (field: EntityHandle) (castTo: EntityHandle) : ILBody =
+    /// Build an instance getter over a field chain: `ldarg.0`, `ldfld` each field of the
+    /// non-empty `path` in turn, then `castclass` to `castTo` where the chain ends on a slot
+    /// stored erased to `object`.
+    let buildFieldPathGetter (path: EntityHandle list) (castTo: EntityHandle voption) : ILBody =
         let b = IlBuilder()
         b.Add(ILInstr.Ldarg 0)
-        b.Add(ILInstr.Ldfld field)
-        b.Add(ILInstr.Castclass castTo)
+
+        for h in path do
+            b.Add(ILInstr.Ldfld h)
+
+        match castTo with
+        | ValueSome token -> b.Add(ILInstr.Castclass token)
+        | ValueNone -> ()
+
         b.Add ILInstr.Ret
         b.Body
 
@@ -431,31 +438,52 @@ module Emit =
         b.Add ILInstr.Ret
         b.Body
 
-    /// One argument slot of a struct union's flat `.ctor`, as a case factory pushes it:
-    /// the factory's own parameter for the constructed case's fields, a zeroed default
-    /// (`ldloca; initobj; ldloc`) for every other case's.
-    [<RequireQualifiedAccess>]
-    type StructUnionCtorArg =
-        | Param of index: int
-        | Default of ty: FrozenType * token: EntityHandle
-
-    /// Build a `[<Struct>]` union case's static factory: push the discriminant `tag` and
-    /// each flat `.ctor` argument (`args` are in field declaration order), `newobj` the
-    /// union's flat `.ctor`, return the value.
-    let buildStructUnionFactory (ctorRef: EntityHandle) (tag: int) (args: StructUnionCtorArg list) : ILBody =
+    /// Build a nullary `[<Struct>]` union case's static factory where the union declares no
+    /// payload: push the discriminant `tag` and `newobj` the `.ctor(tag)`.
+    let buildStructUnionTagFactory (ctorRef: EntityHandle) (tag: int) : ILBody =
         let b = IlBuilder()
         b.Add(ILInstr.LdcI4 tag)
+        b.Add(ILInstr.Newobj(ctorRef, 1))
+        b.Add ILInstr.Ret
+        b.Body
 
-        for a in args do
-            match a with
-            | StructUnionCtorArg.Param i -> b.Add(ILInstr.Ldarg i)
-            | StructUnionCtorArg.Default(ty, token) ->
-                let slot = b.Local ty
-                b.Add(ILInstr.Ldloca slot)
-                b.Add(ILInstr.Initobj token)
-                b.Add(ILInstr.Ldloc slot)
+    /// One store a struct union case's factory makes into the `Payload` it builds: the
+    /// factory parameter `Arg`, written by `ldflda` through each struct-typed field of `Via`
+    /// from the `Payload` value and `stfld` into `Field`.
+    type PayloadStore =
+        {
+            Arg: int
+            Via: EntityHandle list
+            Field: EntityHandle
+        }
 
-        b.Add(ILInstr.Newobj(ctorRef, args.Length + 1))
+    /// Build a `[<Struct>]` union case's static factory: zero a `Payload` local with
+    /// `initobj`, write each of this case's parameters into its placement, then push the
+    /// discriminant `tag` and the payload and `newobj` the union's `.ctor(tag, payload)`.
+    let buildStructUnionPayloadFactory
+        (ctorRef: EntityHandle)
+        (tag: int)
+        (payloadTy: FrozenType)
+        (payloadToken: EntityHandle)
+        (stores: PayloadStore list)
+        : ILBody =
+        let b = IlBuilder()
+        let payload = b.Local payloadTy
+        b.Add(ILInstr.Ldloca payload)
+        b.Add(ILInstr.Initobj payloadToken)
+
+        for s in stores do
+            b.Add(ILInstr.Ldloca payload)
+
+            for via in s.Via do
+                b.Add(ILInstr.Ldflda via)
+
+            b.Add(ILInstr.Ldarg s.Arg)
+            b.Add(ILInstr.Stfld s.Field)
+
+        b.Add(ILInstr.LdcI4 tag)
+        b.Add(ILInstr.Ldloc payload)
+        b.Add(ILInstr.Newobj(ctorRef, 2))
         b.Add ILInstr.Ret
         b.Body
 

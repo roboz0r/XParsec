@@ -76,7 +76,7 @@ type ClrProvider
             typars: EqArray<string>,
             cases: (string * (string * FrozenType) list) list,
             valueKind: UnionValueKind,
-            slots: UnionSlot list
+            home: UnionSlotHome voption
         ) : unit =
         env.GenericUnions.[key] <-
             {
@@ -91,7 +91,7 @@ type ClrProvider
                         }
                     )
                 ValueKind = valueKind
-                Slots = EqArray.ofList slots
+                Home = home
             }
 
     member _.RegisterGenericRecord(key: TypeKey, typars: EqArray<string>, fields: (string * FrozenType) list) : unit =
@@ -427,10 +427,10 @@ type ClrProvider
                 // Only `Cons` carries fields: field 0 is the head (`elem`), field 1 the tail
                 // (`List<elem>`), both on the `Cons` case type.
                 match caseName, fieldIndex with
-                | "Cons", 0 -> ValueSome(UnionCaseAccess.Field(recipes.EmitVesperListConsField(elem, 0)), elem)
+                | "Cons", 0 -> ValueSome(UnionCaseAccess.Field [ recipes.EmitVesperListConsField(elem, 0) ], elem)
                 | "Cons", 1 ->
                     ValueSome(
-                        UnionCaseAccess.Field(recipes.EmitVesperListConsField(elem, 1)),
+                        UnionCaseAccess.Field [ recipes.EmitVesperListConsField(elem, 1) ],
                         FTUnion(key, EqArray.ofList tyArgs)
                     )
                 | _ -> ValueNone

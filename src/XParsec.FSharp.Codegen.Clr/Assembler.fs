@@ -415,12 +415,28 @@ type internal Assembler
         else
             baseAttrs ||| TypeAttributes.BeforeFieldInit
 
-    // Nested visibility REPLACES the 3-bit visibility field rather than adding to it, so
-    // a nested type's `Public` becomes `NestedPublic`.
+    // Nested visibility REPLACES the 3-bit visibility field rather than adding to it: a
+    // nested type's `Public` becomes `NestedPublic` and its `NotPublic` (assembly-visible)
+    // becomes `NestedAssembly`.
     let nestedAttrsOf (enclosing: TypeSlotKey voption) (attrs: TypeAttributes) =
         match enclosing with
         | ValueNone -> attrs
-        | ValueSome _ -> (attrs &&& ~~~TypeAttributes.VisibilityMask) ||| TypeAttributes.NestedPublic
+        | ValueSome _ ->
+            let visibility = attrs &&& TypeAttributes.VisibilityMask
+
+            let nested =
+                if visibility = TypeAttributes.Public then
+                    TypeAttributes.NestedPublic
+                elif visibility = TypeAttributes.NotPublic then
+                    TypeAttributes.NestedAssembly
+                else
+                    failwithf "Layout: '%A' is not a top-level visibility" visibility
+
+            (attrs &&& ~~~TypeAttributes.VisibilityMask) ||| nested
+
+    // `attrs` at assembly visibility: `NotPublic` at the top level, `NestedAssembly` nested.
+    let assemblyVisible (attrs: TypeAttributes) =
+        (attrs &&& ~~~TypeAttributes.VisibilityMask) ||| TypeAttributes.NotPublic
 
     // A hierarchy union's base: abstract, so every value of it is an instance of one of its
     // case types, which implement the structural slots it declares.
@@ -452,6 +468,11 @@ type internal Assembler
             baseAttrs ||| TypeAttributes.Sealed
         else
             baseAttrs
+
+    // A struct union's overlay: the one `ExplicitLayout` type the emitter writes.
+    let explicitLayoutStructAttrs =
+        (classAttrsOf true true &&& ~~~TypeAttributes.LayoutMask)
+        ||| TypeAttributes.ExplicitLayout
 
     // `Param` rows are one global table referenced by each `MethodDefinition.ParamList`,
     // so they must be added in method order. Call this immediately before each
@@ -1029,6 +1050,19 @@ type internal Assembler
             slot.Typars
             |> List.iteri (fun i n -> genericParams.Add(toEntity typeHandle, i, n))
 
+        // A struct union's `Payload` and overlay types: `assembly`-visible value types,
+        // read directly by match arms in this assembly.
+        let addUnionStorageRow (node: TypeNode) (attrs: TypeAttributes) =
+            typeRowExtras.Add(
+                node.Slot.Key,
+                {
+                    Interfaces = []
+                    BaseType = provider.ValueTypeBase
+                }
+            )
+
+            addNominalRow node (assemblyVisible attrs) []
+
         for node in layout.Types do
             let slot = node.Slot
 
@@ -1077,6 +1111,17 @@ type internal Assembler
             // A case type is sealed, so the JIT devirtualises the structural overrides
             // wherever the receiver's exact type is known.
             | TypeSlotKind.UnionCase -> addNominalRow node (classAttrsOf true false) []
+
+            | TypeSlotKind.UnionPayload
+            | TypeSlotKind.UnionCaseData -> addUnionStorageRow node (classAttrsOf true true)
+
+            // Every case data struct sits at offset 0 of the overlay: one `FieldLayout` row
+            // per field and no `ClassLayout` row, leaving every size to the loader.
+            | TypeSlotKind.UnionOverlay ->
+                addUnionStorageRow node explicitLayoutStructAttrs
+
+                for f in node.Fields do
+                    ctx.AddFieldLayout(fieldDefHandles.[f.Key], 0)
 
             | TypeSlotKind.Record valueKind -> addNominalRow node (classAttrsOf true valueKind.IsValueType) []
 

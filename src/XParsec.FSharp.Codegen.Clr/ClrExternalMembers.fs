@@ -406,7 +406,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
 
                         let s = BlobBuilder()
                         encodeType (BlobEncoder(s).FieldSignature()) openFieldTy
-                        UnionCaseAccess.Field(toEntity (ctx.MemberRef(parent, fieldName, s)))
+                        UnionCaseAccess.Field [ toEntity (ctx.MemberRef(parent, fieldName, s)) ]
 
                 let substitutedTy = substituteDeclaring (List.toArray args) openFieldTy
                 ValueSome(access, substitutedTy)

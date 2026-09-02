@@ -13,9 +13,10 @@ module internal EmitStructural =
     /// One value a synthesised structural body visits.
     type StructuralField =
         {
-            /// A `Def` token, or a `MemberRef` on the type's own `TypeSpec` where the type
-            /// is generic (`Box\`1<!0>::Value`).
-            Handle: EntityHandle
+            /// The non-empty `ldfld` chain from the value to the field: `Def` tokens, or
+            /// `MemberRef`s on the type's own `TypeSpec` where the type is generic
+            /// (`Box\`1<!0>::Value`).
+            Path: EntityHandle list
             /// The declared type, which the comparer, the hasher and `%A`'s `box` are
             /// instantiated at.
             Ty: FrozenType
@@ -31,13 +32,16 @@ module internal EmitStructural =
         /// apart.
         | Flat of seed: int voption * fields: StructuralField list
         /// A flat union's `_tag`, compared and hashed ahead of the fields, then selecting
-        /// the case's own walk. `cases` is in tag order.
+        /// the case's own walk. `cases` is in tag order. Every body visits the active case's
+        /// fields one at a time: padding inside a case data struct is not preserved across copies.
         | Tagged of tagField: EntityHandle * cases: StructuralField list list
 
-    /// `ldfld` the field off the value already pushed, adding the `castclass` an erased
-    /// slot needs.
+    /// `ldfld` the field's chain off the value already pushed, adding the `castclass` an
+    /// erased slot needs. One chain serves `this`, a by-value `other` and a scrutinee alike:
+    /// `ldfld` accepts an object reference, a managed pointer and a value type instance.
     let loadField (b: IlBuilder) (f: StructuralField) : unit =
-        b.Add(ILInstr.Ldfld f.Handle)
+        for h in f.Path do
+            b.Add(ILInstr.Ldfld h)
 
         match f.Cast with
         | ValueSome token -> b.Add(ILInstr.Castclass token)

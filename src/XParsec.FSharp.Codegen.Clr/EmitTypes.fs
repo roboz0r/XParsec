@@ -60,14 +60,40 @@ module EmitTypes =
     let closureIsCached (c: Closure) : bool =
         List.isEmpty c.Captures && c.Typars = 0 && not c.IsValueStruct
 
-    /// One logical case field of a union emitted here, by the read path a match arm takes.
+    /// One `ldfld` step of a union field's read path, over the field's identity `'h`: its
+    /// layout `FieldKey` while the union is laid out, its `Def` token once emitted.
     [<RequireQualifiedAccess>]
+    type FieldStep<'h> =
+        /// A field of the union, its `Payload` or a hierarchy case type: the field itself at
+        /// a monomorphic union, else `member'` re-spelled on the instantiated `TypeSpec`.
+        | Member of field: 'h * member': UnionMember
+        /// A field of a non-generic type nested in the union, the same at every
+        /// instantiation.
+        | Def of field: 'h
+
+    [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
+    [<RequireQualifiedAccess>]
+    module FieldStep =
+
+        let field (step: FieldStep<'h>) : 'h =
+            match step with
+            | FieldStep.Member(f, _)
+            | FieldStep.Def f -> f
+
+        let map (f: 'a -> 'b) (step: FieldStep<'a>) : FieldStep<'b> =
+            match step with
+            | FieldStep.Member(h, member') -> FieldStep.Member(f h, member')
+            | FieldStep.Def h -> FieldStep.Def(f h)
+
+    /// One logical case field of a union emitted here, by the read path a match arm takes:
+    /// the non-empty `ldfld` chain from the scrutinee, or from the case type in a hierarchy
+    /// regime. An `Erased` path ends on an `object` slot, which a read `castclass`es back to
+    /// the field's type at the use site.
     type EmittedCaseField =
-        /// A hierarchy case's own field, declared on the case type.
-        | CaseField of def: EntityHandle
-        /// A flat union's placement slot. An `erased` slot stores `object`, which a read
-        /// `castclass`es back to the field's type at the use site.
-        | Slot of key: UnionSlotKey * def: EntityHandle * erased: bool
+        {
+            Steps: FieldStep<EntityHandle> list
+            Erased: bool
+        }
 
     /// One case of an emitted union: runtime `Tag`, the static factory
     /// `TExpr.UnionCons` `call`s, and its payload fields in declaration order.

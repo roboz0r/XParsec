@@ -71,8 +71,11 @@ type UnionMember =
     | GetTag
     /// A hierarchy case's payload field, parented on the case's own type.
     | Field of caseName: string * fieldIndex: int
-    /// A flat union's physical slot, which several cases' fields may share.
+    /// A flat union's physical slot, which several cases' fields may share: a field of the
+    /// union itself or of its `Payload` struct, per `UnionSlotHome`.
     | Slot of UnionSlotKey
+    /// A `StructTagged` union's `_payload` field, typed as its `Payload` struct.
+    | Payload
     /// A hierarchy union case type's `.ctor(payload…)`.
     | CaseCtor of caseName: string
     /// A reference union's `_unique_<Case>` singleton for a nullary case, a `static` field
@@ -83,12 +86,12 @@ type UnionMember =
 /// The read path from a union scrutinee to one case field.
 [<RequireQualifiedAccess>]
 type UnionCaseAccess =
-    /// `ldfld` the payload field off the scrutinee, or off the case type in a hierarchy
-    /// regime.
-    | Field of EntityHandle
-    /// `ldfld` a shared `object` slot off the scrutinee, then `castclass` to the field's
-    /// type at this use site.
-    | ErasedField of EntityHandle
+    /// `ldfld` each field of the non-empty chain in turn, off the scrutinee or off the case
+    /// type in a hierarchy regime, ending on the payload field.
+    | Field of EntityHandle list
+    /// `ldfld` the chain to a shared `object` slot, then `castclass` to the field's type at
+    /// this use site.
+    | ErasedField of EntityHandle list
     /// `call` the `Get_<Case>_<i>` reader on the scrutinee's address. The scrutinee is a
     /// value type.
     | Getter of EntityHandle

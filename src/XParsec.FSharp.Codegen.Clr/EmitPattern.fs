@@ -183,19 +183,21 @@ module EmitPattern =
             // (`List<int>::_tag`). A union emitted in this compilation reads its payload
             // fields directly.
             let fieldAccess i =
-                let ref' (member': UnionMember) (def: EntityHandle) =
-                    memberRef env u.Typars key tyArgs (UserMemberKind.UnionMember member') def
+                let field = c.Fields.[i]
 
-                match c.Fields.[i] with
-                | EmitTypes.EmittedCaseField.CaseField def ->
-                    UnionCaseAccess.Field(ref' (UnionMember.Field(caseName, i)) def)
-                | EmitTypes.EmittedCaseField.Slot(slotKey, def, erased) ->
-                    let handle = ref' (UnionMember.Slot slotKey) def
+                let path =
+                    [
+                        for step in field.Steps ->
+                            match step with
+                            | EmitTypes.FieldStep.Member(def, member') ->
+                                memberRef env u.Typars key tyArgs (UserMemberKind.UnionMember member') def
+                            | EmitTypes.FieldStep.Def def -> def
+                    ]
 
-                    if erased then
-                        UnionCaseAccess.ErasedField handle
-                    else
-                        UnionCaseAccess.Field handle
+                if field.Erased then
+                    UnionCaseAccess.ErasedField path
+                else
+                    UnionCaseAccess.Field path
 
             let caseTyToken =
                 c.CaseType
@@ -270,18 +272,22 @@ module EmitPattern =
 
         let extractField = extractFieldVia (fun () -> b.Add(ILInstr.Ldloc scrutSlot))
 
-        // A union case field by its read path: a `Field` off the value `pushSource` leaves,
-        // a `Getter` called on the this pointer `pushThis` leaves, an `ErasedField` cast to
-        // the sub-pattern's own type, this use site's instantiation of the declared type.
+        // A union case field by its read path: a field chain off the value `pushSource`
+        // leaves, or a getter called on the this pointer `pushThis` leaves.
         let extractCaseField (pushSource: unit -> unit) (pushThis: unit -> unit) (access: UnionCaseAccess) =
+            let pushPath (path: EntityHandle list) =
+                pushSource ()
+
+                for h in path do
+                    b.Add(ILInstr.Ldfld h)
+
             match access with
-            | UnionCaseAccess.Field fieldRef -> extractFieldVia pushSource fieldRef
-            | UnionCaseAccess.ErasedField fieldRef ->
+            | UnionCaseAccess.Field path -> extractVia (fun () -> pushPath path)
+            | UnionCaseAccess.ErasedField path ->
                 fun subPat ->
                     extractVia
                         (fun () ->
-                            pushSource ()
-                            b.Add(ILInstr.Ldfld fieldRef)
+                            pushPath path
                             b.Add(ILInstr.Castclass(env.Provider.TypeToken(typeOfPat subPat)))
                         )
                         subPat
