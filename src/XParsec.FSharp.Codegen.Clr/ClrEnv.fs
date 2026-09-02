@@ -35,13 +35,13 @@ type internal GenericUnionCase =
 type internal GenericUnionShape =
     {
         Typars: EqArray<string>
-        /// Per case, each logical field's `(metadata name, stored type)`: the spelling a
-        /// `UnionMember.Field` ref carries.
+        /// Per case, each logical field's `(FSC-spelled name, declared type)`: a hierarchy
+        /// case type's own field rows, and every case factory's parameter types.
         Cases: EqArray<GenericUnionCase>
         ValueKind: UnionValueKind
-        /// A flat regime's physical slot types in `.ctor` parameter order, after `_tag`
-        /// where the regime declares one. Empty for a hierarchy regime.
-        Slots: EqArray<FrozenType>
+        /// A flat regime's physical slots in `.ctor` parameter order, after `_tag` where
+        /// the regime declares one. Empty for a hierarchy regime.
+        Slots: EqArray<UnionSlot>
     }
 
     /// The metadata shape this union is emitted in.

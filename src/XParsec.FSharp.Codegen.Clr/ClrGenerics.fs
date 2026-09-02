@@ -99,7 +99,6 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
     let genericUnionMemberRef (key: TypeKey) (args: FrozenType list) (which: UnionMember) : EntityHandle =
         let shape = genericUnions.[key]
         let parent = genericUnionTypeSpec key args
-        let isHierarchy = UnionRegime.isHierarchy shape.Regime
 
         // The union named from inside its own bodies: the type a factory returns and a
         // `_unique_<Case>` singleton is typed at.
@@ -123,7 +122,7 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
             let intTy = FTConst(RuntimeNames.intKey, EqArray.empty)
 
             let paramTys =
-                let slots = EqArray.toList shape.Slots
+                let slots = [ for s in shape.Slots -> s.Ty ]
 
                 match UnionCtorShape.ofRegime valueKind shape.Regime with
                 | UnionCtorShape.FlatTagged -> intTy :: slots
@@ -156,17 +155,17 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
 
             toEntity (ctx.MemberRef(parent, "get_Tag", s))
         | UnionMember.Field(caseName, idx) ->
-            let metaName, declTy = (caseFields caseName).[idx]
-
-            // A hierarchy union declares each case's payload on the case's own type, which
-            // is registered as a generic class over the union's typars, so both the parent
-            // `TypeSpec` and the field ref come from that family.
-            if isHierarchy then
-                genericClassMemberRef (UnionCaseType.key key caseName) args (ClassMember.Field metaName)
-            else
+            // The case's own type is registered as a generic class over the union's typars,
+            // so its field refs come from that family rather than off `parent`.
+            let metaName, _ = (caseFields caseName).[idx]
+            genericClassMemberRef (UnionCaseType.key key caseName) args (ClassMember.Field metaName)
+        | UnionMember.Slot slotKey ->
+            match shape.Slots |> EqArray.tryFind (fun s -> s.Key = slotKey) with
+            | ValueSome slot ->
                 let s = BlobBuilder()
-                encodeType (BlobEncoder(s).FieldSignature()) declTy
-                toEntity (ctx.MemberRef(parent, metaName, s))
+                encodeType (BlobEncoder(s).FieldSignature()) slot.Ty
+                toEntity (ctx.MemberRef(parent, slot.MetaName, s))
+            | ValueNone -> failwithf "ClrProvider: generic union '%A' has no slot '%A'" key slotKey
         | UnionMember.CaseCtor caseName -> genericClassMemberRef (UnionCaseType.key key caseName) args ClassMember.Ctor
         | UnionMember.CaseSingleton caseName ->
             let s = BlobBuilder()

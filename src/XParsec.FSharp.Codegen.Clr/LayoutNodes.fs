@@ -17,7 +17,7 @@ module internal LayoutNodes =
             for (ifaceTy, ms) in interfaces -> FrozenNominal.ofFrozen "an `interface` clause" ifaceTy, EqArray.toList ms
         ]
 
-    let partitionTypeDecls (decls: TastAccessor.DeclId list) : PartitionedTypeDecls =
+    let partitionTypeDecls (symbols: ICodegenSymbols) (decls: TastAccessor.DeclId list) : PartitionedTypeDecls =
         let interfaces = ResizeArray()
         let unions = ResizeArray()
         let records = ResizeArray()
@@ -45,7 +45,7 @@ module internal LayoutNodes =
                         if UnionRegime.isHierarchy regime then
                             ValueNone, []
                         else
-                            let p = FlatUnionPlacements.ofCases regime cases
+                            let p = FlatUnionPlacements.ofCases symbols regime cases
 
                             let getters =
                                 if UnionRegime.hasCaseGetters regime then
@@ -415,9 +415,9 @@ module internal LayoutNodes =
             Nested = []
         }
 
-    /// Per union: `_tag`, a singleton field per nullary case, a flat regime's co-resident
-    /// case payloads, `.ctor`, case factories, members and structural rows. A hierarchy
-    /// union additionally nests a `TypeDef` per case.
+    /// Per union: `_tag`, a singleton field per nullary case, a flat regime's payload
+    /// slots, `.ctor`, case factories, members and structural rows. A hierarchy union
+    /// additionally nests a `TypeDef` per case.
     let buildUnionNodes (symbols: ICodegenSymbols) (unions: UnionDecl list) : TypeNode list =
         [
             for ud in unions ->

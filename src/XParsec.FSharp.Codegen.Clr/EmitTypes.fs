@@ -60,16 +60,25 @@ module EmitTypes =
     let closureIsCached (c: Closure) : bool =
         List.isEmpty c.Captures && c.Typars = 0 && not c.IsValueStruct
 
+    /// One logical case field of a union emitted here, by the read path a match arm takes.
+    [<RequireQualifiedAccess>]
+    type EmittedCaseField =
+        /// A hierarchy case's own field, declared on the case type.
+        | CaseField of def: EntityHandle
+        /// A flat union's placement slot. An `erased` slot stores `object`, which a read
+        /// `castclass`es back to the field's type at the use site.
+        | Slot of key: UnionSlotKey * def: EntityHandle * erased: bool
+
     /// One case of an emitted union: runtime `Tag`, the static factory
-    /// `TExpr.UnionCons` `call`s, and its payload field handles in declaration order.
+    /// `TExpr.UnionCons` `call`s, and its payload fields in declaration order.
     type EmittedCase =
         {
             Tag: int
             Factory: EntityHandle
-            Fields: EntityHandle list
+            Fields: EmittedCaseField list
             /// The case's own nested type in a hierarchy regime, which its payload fields
             /// are declared on and which a match arm casts to. `ValueNone` where the union
-            /// is flat and every case's fields sit on the union itself.
+            /// is flat and every case reads its payload from slots on the union itself.
             CaseType: TypeKey voption
         }
 

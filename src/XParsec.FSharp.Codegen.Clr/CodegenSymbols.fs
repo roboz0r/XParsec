@@ -6,8 +6,9 @@ open XParsec.FSharp.SemanticAnalysis
 /// a module function's open signature, but not `Instantiate` / constraints / inline bodies.
 module CodegenSymbols =
 
-    /// The settled layout of a REFERENCED type: `Unsettled` for a non-type key, and for a
-    /// name this compilation emits itself.
+    /// The settled layout of `key`: the target's, else the `[<Struct>]` its declaration asked
+    /// for. `AnalysedAssembly.Visibility` publishes this compilation's own declarations, so
+    /// they settle here too. `Unsettled` for a non-type key.
     let externalLayout (symbols: ICodegenSymbols) (key: TypeKey) : TypeLayout =
         symbols.IsValueType key |> TypeLayout.ofSettled
 

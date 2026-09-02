@@ -93,7 +93,7 @@ module internal Layout =
         // Member bodies never pass through lowering because it drops every `type` decl.
         // Partitioned once and published, so closure discovery and body emission walk the
         // same node IDS, which the `…ByNode` tables key on.
-        let partitioned = LayoutNodes.partitionTypeDecls decls
+        let partitioned = LayoutNodes.partitionTypeDecls symbols decls
 
         // Closure-discovery roots: every member body AND every class-preamble expression.
         // A preamble initialiser is emitted into the `.ctor` / `.cctor` from these very

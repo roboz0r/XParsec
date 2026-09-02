@@ -10,27 +10,91 @@ module internal EmitStructural =
 
     let private intTy = FTConst(RuntimeNames.intKey, EqArray.empty)
 
-    /// What separates two values of a type before their fields are reached.
-    [<RequireQualifiedAccess>]
-    type Discriminant =
-        /// A record, or a single-case union: one shape, so the field walk stands alone.
-        | None
-        /// A flat union's `_tag`: compared ahead of the fields, and seeds the hash.
-        | TagField of EntityHandle
-        /// A hierarchy union's case type, whose case the dispatch reaching the body already
-        /// settled. It seeds the hash, so two cases of equal payload hash apart, and
-        /// contributes nothing to the equality or comparison walk.
-        | CaseTag of tag: int
-
-    /// The values one synthesised structural body visits.
-    type StructuralWalk =
+    /// One value a synthesised structural body visits.
+    type StructuralField =
         {
-            /// `(field handle, declared type)` in visit order; a flat union's walk crosses
-            /// every case's fields. The caller mints these as `Def` tokens or as
-            /// `MemberRef`s on the type's own `TypeSpec` (`Box\`1<!0>::Value`).
-            Fields: (EntityHandle * FrozenType) list
-            Discriminant: Discriminant
+            /// A `Def` token, or a `MemberRef` on the type's own `TypeSpec` where the type
+            /// is generic (`Box\`1<!0>::Value`).
+            Handle: EntityHandle
+            /// The declared type, which the comparer, the hasher and `%A`'s `box` are
+            /// instantiated at.
+            Ty: FrozenType
+            /// The `castclass` target a slot storing `object` is read through.
+            Cast: EntityHandle voption
         }
+
+    /// The values one synthesised structural body visits, and the order it reaches them in.
+    [<RequireQualifiedAccess>]
+    type StructuralWalk =
+        /// One straight-line walk: a record, a single-case union, or a hierarchy union's
+        /// case type. `seed` enters the hash alone, so two cases of equal payload hash
+        /// apart.
+        | Flat of seed: int voption * fields: StructuralField list
+        /// A flat union's `_tag`, compared and hashed ahead of the fields, then selecting
+        /// the case's own walk. `cases` is in tag order.
+        | Tagged of tagField: EntityHandle * cases: StructuralField list list
+
+    /// `ldfld` the field off the value already pushed, adding the `castclass` an erased
+    /// slot needs.
+    let loadField (b: IlBuilder) (f: StructuralField) : unit =
+        b.Add(ILInstr.Ldfld f.Handle)
+
+        match f.Cast with
+        | ValueSome token -> b.Add(ILInstr.Castclass token)
+        | ValueNone -> ()
+
+    /// Run `body` over the fields of whichever case `_tag` identifies, off `this`. A case
+    /// carrying no field is reached by the fall-through, so an all-nullary union emits
+    /// nothing here. `body` leaves the stack as it found it.
+    let private perCaseDispatch
+        (b: IlBuilder)
+        (tagField: EntityHandle)
+        (cases: StructuralField list list)
+        (body: StructuralField list -> unit)
+        : unit =
+        match cases |> List.indexed |> List.filter (fun (_, fs) -> not (List.isEmpty fs)) with
+        | [] -> ()
+        | occupied ->
+            let doneLabel = b.Label()
+            let labelled = [ for (tag, fs) in occupied -> tag, fs, b.Label() ]
+
+            for (tag, _, label) in labelled do
+                b.Add(ILInstr.Ldarg 0)
+                b.Add(ILInstr.Ldfld tagField)
+                b.Add(ILInstr.LdcI4 tag)
+                b.Add(ILInstr.Beq label)
+
+            b.Add(ILInstr.Br doneLabel)
+
+            // The last case falls through to `doneLabel`.
+            let rec bodies (rest: (int * StructuralField list * int) list) =
+                match rest with
+                | [] -> ()
+                | (_, fs, label) :: later ->
+                    b.Add(ILInstr.Mark label)
+                    body fs
+
+                    if not (List.isEmpty later) then
+                        b.Add(ILInstr.Br doneLabel)
+
+                    bodies later
+
+            bodies labelled
+            b.Add(ILInstr.Mark doneLabel)
+
+    /// Run `onTag` on a `Tagged` walk's `_tag`, then `fields` over the fields the walk
+    /// reaches.
+    let private walk
+        (b: IlBuilder)
+        (w: StructuralWalk)
+        (onTag: EntityHandle -> unit)
+        (fields: StructuralField list -> unit)
+        : unit =
+        match w with
+        | StructuralWalk.Flat(_, fs) -> fields fs
+        | StructuralWalk.Tagged(tagField, cases) ->
+            onTag tagField
+            perCaseDispatch b tagField cases fields
 
     /// Cast the `object` arg (`ldarg.1`) to `Self` and return its load, branching to
     /// `failLabel` on a non-`Self` arg (`null` included). On a value type (`isVt`)
@@ -192,9 +256,9 @@ module internal EmitStructural =
 
     // ---- Equality --------------------------------------------------------------------
 
-    /// The walk both equality entry points share: a `TagField` discriminant must match,
-    /// then each field via `EqualityComparer<F>.Default` (total equality, so a `float`
-    /// field gets `NaN = NaN` here). Any mismatch branches to `falseLabel`.
+    /// The walk both equality entry points share: a `Tagged` walk's tags must match, then
+    /// the active case's fields via `EqualityComparer<F>.Default` (total equality, so a
+    /// `float` field gets `NaN = NaN` here). Any mismatch branches to `falseLabel`.
     let private fieldEquality
         (h: IStructuralHandles)
         (w: StructuralWalk)
@@ -202,24 +266,24 @@ module internal EmitStructural =
         (loadOther: IlBuilder -> unit)
         (falseLabel: int)
         : unit =
-        match w.Discriminant with
-        | Discriminant.TagField tagField ->
+        let fields (fs: StructuralField list) =
+            for f in fs do
+                b.Add(ILInstr.Call(h.EqualityComparerDefault f.Ty, 0, 1))
+                b.Add(ILInstr.Ldarg 0)
+                loadField b f
+                loadOther b
+                loadField b f
+                b.Add(ILInstr.Callvirt(h.EqualityComparerEquals f.Ty, 3, 1))
+                b.Add(ILInstr.Brfalse falseLabel)
+
+        let tagsMatch (tagField: EntityHandle) =
             b.Add(ILInstr.Ldarg 0)
             b.Add(ILInstr.Ldfld tagField)
             loadOther b
             b.Add(ILInstr.Ldfld tagField)
             b.Add(ILInstr.BneUn falseLabel)
-        | Discriminant.None
-        | Discriminant.CaseTag _ -> ()
 
-        for (fieldHandle, fieldTy) in w.Fields do
-            b.Add(ILInstr.Call(h.EqualityComparerDefault fieldTy, 0, 1))
-            b.Add(ILInstr.Ldarg 0)
-            b.Add(ILInstr.Ldfld fieldHandle)
-            loadOther b
-            b.Add(ILInstr.Ldfld fieldHandle)
-            b.Add(ILInstr.Callvirt(h.EqualityComparerEquals fieldTy, 3, 1))
-            b.Add(ILInstr.Brfalse falseLabel)
+        walk b w tagsMatch fields
 
     /// `override bool Equals(object obj)`: cast-or-false, then the walk. `selfType` is
     /// the `isinst` target (the declaring type's own token); `selfTy` types the cast
@@ -237,21 +301,13 @@ module internal EmitStructural =
     let buildEqualsTyped (h: IStructuralHandles) (isVt: bool) (w: StructuralWalk) : ILBody =
         buildStructuralEqualsTyped isVt (fieldEquality h w)
 
-    /// `override int GetHashCode()`: a `System.HashCode` seeded by the discriminant, every
-    /// field added through `HashCode.Add<T>`, then `ToHashCode()`.
+    /// `override int GetHashCode()`: a `System.HashCode` seeded by the case, the active
+    /// case's fields added through `HashCode.Add<T>`, then `ToHashCode()`.
     let buildGetHashCode (h: IStructuralHandles) (w: StructuralWalk) : ILBody =
         let b = IlBuilder()
         let hc = b.Local h.HashCodeType
 
-        let seedPush =
-            match w.Discriminant with
-            | Discriminant.None -> []
-            | Discriminant.CaseTag tag -> [ ILInstr.LdcI4 tag ]
-            | Discriminant.TagField tagField -> [ ILInstr.Ldarg 0; ILInstr.Ldfld tagField ]
-
-        match seedPush with
-        | [] -> ()
-        | pushes ->
+        let seed (pushes: ILInstr list) =
             b.Add(ILInstr.Ldloca hc)
 
             for p in pushes do
@@ -259,11 +315,19 @@ module internal EmitStructural =
 
             b.Add(ILInstr.Call(h.HashCodeAdd intTy, 2, 0))
 
-        for (fieldHandle, fieldTy) in w.Fields do
-            b.Add(ILInstr.Ldloca hc)
-            b.Add(ILInstr.Ldarg 0)
-            b.Add(ILInstr.Ldfld fieldHandle)
-            b.Add(ILInstr.Call(h.HashCodeAdd fieldTy, 2, 0))
+        let fields (fs: StructuralField list) =
+            for f in fs do
+                b.Add(ILInstr.Ldloca hc)
+                b.Add(ILInstr.Ldarg 0)
+                loadField b f
+                b.Add(ILInstr.Call(h.HashCodeAdd f.Ty, 2, 0))
+
+        match w with
+        | StructuralWalk.Flat(ValueSome tag, _) -> seed [ ILInstr.LdcI4 tag ]
+        | StructuralWalk.Flat(ValueNone, _)
+        | StructuralWalk.Tagged _ -> ()
+
+        walk b w (fun tagField -> seed [ ILInstr.Ldarg 0; ILInstr.Ldfld tagField ]) fields
 
         b.Add(ILInstr.Ldloca hc)
         b.Add(ILInstr.Call(h.HashCodeToHashCode, 1, 1))
@@ -272,9 +336,9 @@ module internal EmitStructural =
 
     // ---- Comparison ------------------------------------------------------------------
 
-    /// The lexicographic walk the typed `CompareTo` takes: a `TagField` discriminant
-    /// first, via `sub` (case indices are small; the difference cannot overflow), then
-    /// each field via `Comparer<F>.Default.Compare`; a non-zero result exits via `returnLabel`.
+    /// The lexicographic walk the typed `CompareTo` takes: a `Tagged` walk orders by tag
+    /// first via `sub` (case indices are small, so the difference cannot overflow), then the
+    /// active case's fields via `Comparer<F>.Default.Compare`; a non-zero exits `returnLabel`.
     let private fieldComparison
         (h: IStructuralHandles)
         (w: StructuralWalk)
@@ -283,8 +347,19 @@ module internal EmitStructural =
         (cLocal: int)
         (returnLabel: int)
         : unit =
-        match w.Discriminant with
-        | Discriminant.TagField tagField ->
+        let fields (fs: StructuralField list) =
+            for f in fs do
+                b.Add(ILInstr.Call(h.ComparerDefault f.Ty, 0, 1))
+                b.Add(ILInstr.Ldarg 0)
+                loadField b f
+                loadOther b
+                loadField b f
+                b.Add(ILInstr.Callvirt(h.ComparerCompare f.Ty, 3, 1))
+                b.Add(ILInstr.Stloc cLocal)
+                b.Add(ILInstr.Ldloc cLocal)
+                b.Add(ILInstr.Brtrue returnLabel)
+
+        let tagsOrder (tagField: EntityHandle) =
             b.Add(ILInstr.Ldarg 0)
             b.Add(ILInstr.Ldfld tagField)
             loadOther b
@@ -293,19 +368,8 @@ module internal EmitStructural =
             b.Add(ILInstr.Stloc cLocal)
             b.Add(ILInstr.Ldloc cLocal)
             b.Add(ILInstr.Brtrue returnLabel)
-        | Discriminant.None
-        | Discriminant.CaseTag _ -> ()
 
-        for (fieldHandle, fieldTy) in w.Fields do
-            b.Add(ILInstr.Call(h.ComparerDefault fieldTy, 0, 1))
-            b.Add(ILInstr.Ldarg 0)
-            b.Add(ILInstr.Ldfld fieldHandle)
-            loadOther b
-            b.Add(ILInstr.Ldfld fieldHandle)
-            b.Add(ILInstr.Callvirt(h.ComparerCompare fieldTy, 3, 1))
-            b.Add(ILInstr.Stloc cLocal)
-            b.Add(ILInstr.Ldloc cLocal)
-            b.Add(ILInstr.Brtrue returnLabel)
+        walk b w tagsOrder fields
 
     /// `int CompareTo(Self other)` — the typed `IComparable<Self>::CompareTo` over the
     /// lexicographic walk.

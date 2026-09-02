@@ -782,7 +782,10 @@ let structTests =
                     ty.GetConstructors(BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Instance)
 
                 Expect.equal ctors.Length 1 "a struct union declares one flat .ctor"
-                Expect.equal (ctors.[0].GetParameters().Length) 4 "tag + Point_0 + Pair_0 + Pair_1"
+
+                // `Point.x`, `Pair.a` and `Pair.b` are all `int`, so `Point` and `Pair`
+                // overlap on the first slot and only `Pair.b` needs a second.
+                Expect.equal (ctors.[0].GetParameters().Length) 3 "tag + two shared int slots"
 
                 // `_tag` is private, so the payload and the discriminant only come out
                 // together under `NonPublic`.
@@ -799,10 +802,7 @@ let structTests =
 
                 let names = fields |> Array.map (fun f -> f.Name) |> Set.ofArray
 
-                Expect.equal
-                    names
-                    (Set.ofList [ "_tag"; "Point_0"; "Pair_0"; "Pair_1" ])
-                    "the flat per-(case, index) field set plus the tag"
+                Expect.equal names (Set.ofList [ "_tag"; "_val0"; "_val1" ]) "the shared slot set plus the tag"
             }
 
             // One public instance `Get_<Case>_<i>` reader per logical case field is the
@@ -869,5 +869,42 @@ let structTests =
 
             test "same-name different-type case fields are representable (FS3585 relaxed)" {
                 runsDataLines [ "5"; "hello"; "true"; "false" ] "StructUnionSameNameFields"
+            }
+
+            // A generic struct union's factory and match arm reach the erased `object` slot
+            // through `MemberRef`s on the instantiated `TypeSpec`, at the declared types.
+            test "a generic `[<Struct>]` union erases a string and a local record into one slot" {
+                runsDataLines [ "three"; "hi"; "n"; "true"; "false" ] "StructUnionLocalRefPayload"
+            }
+
+            // The reference field is erased into a shared `object` slot; the `int` one
+            // keeps its own type. A same-name pair still lands in two slots, so the FS3585
+            // relaxation survives the sharing.
+            test "a reference-typed case field is stored in an `object` slot" {
+                let artifact = compileSourceData "StructUnionSameNameFields"
+                let bytes = Codegen.toBytes artifact
+
+                MetadataStructure.assertWellFormed "StructUnionSlots" bytes
+
+                Expect.equal
+                    (MetadataStructure.fieldAttrsOf bytes "Mixed" |> List.map fst)
+                    [ "_tag"; "_val0"; "_ref0" ]
+                    "the tag, one exact slot and one object slot"
+
+                let asm = loadAssembly bytes
+                let ty = asm.GetType "Mixed"
+
+                let fieldTy name =
+                    ty
+                        .GetField(name, BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Instance)
+                        .FieldType
+
+                Expect.equal (fieldTy "_val0") typeof<int> "the exact slot keeps `int`"
+                Expect.equal (fieldTy "_ref0") typeof<obj> "the reference slot is `object`"
+
+                // `Get_S_0` returns `string`, so the erased read `castclass`es on the way
+                // out.
+                let s = ty.GetMethod("S").Invoke(null, [| box "hi" |])
+                Expect.equal (ty.GetMethod("Get_S_0").Invoke(s, [||])) (box "hi") "Get_S_0 reads through the cast"
             }
         ]

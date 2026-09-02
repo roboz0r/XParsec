@@ -11,20 +11,17 @@ module UnionCaseFields =
     let ownType (regime: UnionRegime) : bool =
         UnionRegime.isHierarchy regime || regime = UnionRegime.SingleCase
 
-    /// The metadata names of one case's payload fields, in declaration order: FSC's
-    /// spelling (`of radius: float` ⇒ `_radius`, a positional field `item` / `item<n>`)
-    /// where the fields have a `TypeDef` to themselves (`ownType`), else `<Case>_<i>`.
-    let names (regime: UnionRegime) (caseName: string) (declared: string voption list) : string list =
-        if ownType regime then
-            UnionCaseFieldName.ofCase declared
-            |> List.map (fun n ->
-                match n with
-                | UnionCaseFieldName.Declared name -> "_" + name
-                | UnionCaseFieldName.Lone -> "item"
-                | UnionCaseFieldName.Positional i -> "item" + string i
-            )
-        else
-            declared |> List.mapi (fun i _ -> sprintf "%s_%d" caseName i)
+    /// The metadata names of one case's payload fields, in declaration order, in FSC's
+    /// spelling: `of radius: float` ⇒ `_radius`, a positional field `item` / `item<n>`.
+    /// Callable where `ownType` holds; elsewhere `FlatUnionPlacements` spells the slots.
+    let names (declared: string voption list) : string list =
+        UnionCaseFieldName.ofCase declared
+        |> List.map (fun n ->
+            match n with
+            | UnionCaseFieldName.Declared name -> "_" + name
+            | UnionCaseFieldName.Lone -> "item"
+            | UnionCaseFieldName.Positional i -> "item" + string i
+        )
 
     /// The metadata name of the `Get_<Case>_<i>` reader of field `index` of `caseName`.
     let getterName (caseName: string) (index: int) : string = sprintf "Get_%s_%d" caseName index

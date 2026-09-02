@@ -413,6 +413,16 @@ module Emit =
         b.Add ILInstr.Ret
         b.Body
 
+    /// Read a field stored erased to `object` and `castclass` it to `castTo`, the type the
+    /// getter returns.
+    let buildErasedFieldGetter (field: EntityHandle) (castTo: EntityHandle) : ILBody =
+        let b = IlBuilder()
+        b.Add(ILInstr.Ldarg 0)
+        b.Add(ILInstr.Ldfld field)
+        b.Add(ILInstr.Castclass castTo)
+        b.Add ILInstr.Ret
+        b.Body
+
     /// Build a NULLARY case's static factory: the singleton the union's `.cctor`
     /// constructed, so construction allocates nothing.
     let buildUnionSingletonFactory (singletonField: EntityHandle) : ILBody =

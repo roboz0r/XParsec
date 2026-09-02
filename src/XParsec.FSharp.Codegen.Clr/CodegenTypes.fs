@@ -102,7 +102,7 @@ type internal UnionDecl =
 
     /// One case's payload field names, in declaration order.
     member this.FieldNames(c: Frozen.TUnionCase) : string list =
-        UnionCaseFields.names this.Regime c.Name [ for (n, _) in c.Fields -> n ]
+        UnionCaseFields.names [ for (n, _) in c.Fields -> n ]
 
 /// A partitioned record declaration: its `TTypeDecl`, fields, and members.
 type internal RecordDecl =

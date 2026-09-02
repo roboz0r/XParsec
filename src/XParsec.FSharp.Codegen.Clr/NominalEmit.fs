@@ -576,11 +576,7 @@ module internal NominalEmit =
 
         // One shape, so nothing precedes the field walk.
         let walk: Lazy<EmitStructural.StructuralWalk> =
-            lazy
-                {
-                    Fields = [ for (_, h, fty) in named.Value -> h, fty ]
-                    Discriminant = EmitStructural.Discriminant.None
-                }
+            lazy (EmitStructural.StructuralWalk.Flat(ValueNone, [ for (_, f) in named.Value -> f ]))
 
         if self.Members.Equality then
             prepareEqualityTriple

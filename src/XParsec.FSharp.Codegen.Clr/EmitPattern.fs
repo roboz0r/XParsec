@@ -183,15 +183,19 @@ module EmitPattern =
             // (`List<int>::_tag`). A union emitted in this compilation reads its payload
             // fields directly.
             let fieldAccess i =
-                UnionCaseAccess.Field(
-                    memberRef
-                        env
-                        u.Typars
-                        key
-                        tyArgs
-                        (UserMemberKind.UnionMember(UnionMember.Field(caseName, i)))
-                        c.Fields.[i]
-                )
+                let ref' (member': UnionMember) (def: EntityHandle) =
+                    memberRef env u.Typars key tyArgs (UserMemberKind.UnionMember member') def
+
+                match c.Fields.[i] with
+                | EmitTypes.EmittedCaseField.CaseField def ->
+                    UnionCaseAccess.Field(ref' (UnionMember.Field(caseName, i)) def)
+                | EmitTypes.EmittedCaseField.Slot(slotKey, def, erased) ->
+                    let handle = ref' (UnionMember.Slot slotKey) def
+
+                    if erased then
+                        UnionCaseAccess.ErasedField handle
+                    else
+                        UnionCaseAccess.Field handle
 
             let caseTyToken =
                 c.CaseType
@@ -266,11 +270,21 @@ module EmitPattern =
 
         let extractField = extractFieldVia (fun () -> b.Add(ILInstr.Ldloc scrutSlot))
 
-        // A union case field by its read path: a `Field` off the value `pushSource`
-        // leaves, a `Getter` called on the this pointer `pushThis` leaves.
+        // A union case field by its read path: a `Field` off the value `pushSource` leaves,
+        // a `Getter` called on the this pointer `pushThis` leaves, an `ErasedField` cast to
+        // the sub-pattern's own type, this use site's instantiation of the declared type.
         let extractCaseField (pushSource: unit -> unit) (pushThis: unit -> unit) (access: UnionCaseAccess) =
             match access with
             | UnionCaseAccess.Field fieldRef -> extractFieldVia pushSource fieldRef
+            | UnionCaseAccess.ErasedField fieldRef ->
+                fun subPat ->
+                    extractVia
+                        (fun () ->
+                            pushSource ()
+                            b.Add(ILInstr.Ldfld fieldRef)
+                            b.Add(ILInstr.Castclass(env.Provider.TypeToken(typeOfPat subPat)))
+                        )
+                        subPat
             | UnionCaseAccess.Getter getter ->
                 extractVia (fun () ->
                     pushThis ()

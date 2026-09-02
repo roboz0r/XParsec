@@ -221,37 +221,43 @@ let caseFieldNames =
             // FSC-emitted union: a declared name prefixed `_`, a lone positional field
             // `item`, and otherwise the field's 1-based position IN THE CASE.
             test "a case with a type of its own takes FSC's spelling" {
-                Expect.equal
-                    (UnionCaseFields.names UnionRegime.TypeTested "C" [ ValueNone ])
-                    [ "item" ]
-                    "a lone positional field"
+                Expect.equal (UnionCaseFields.names [ ValueNone ]) [ "item" ] "a lone positional field"
 
                 Expect.equal
-                    (UnionCaseFields.names UnionRegime.TypeTested "C" [ ValueNone; ValueNone ])
+                    (UnionCaseFields.names [ ValueNone; ValueNone ])
                     [ "item1"; "item2" ]
                     "two positional fields"
 
-                Expect.equal
-                    (UnionCaseFields.names UnionRegime.TypeTested "C" [ ValueSome "radius" ])
-                    [ "_radius" ]
-                    "a declared name"
+                Expect.equal (UnionCaseFields.names [ ValueSome "radius" ]) [ "_radius" ] "a declared name"
 
                 Expect.equal
-                    (UnionCaseFields.names UnionRegime.TypeTested "M1" [ ValueSome "tag"; ValueNone ])
+                    (UnionCaseFields.names [ ValueSome "tag"; ValueNone ])
                     [ "_tag"; "item2" ]
                     "the index counts every field, not the positional ones alone"
             }
 
-            test "co-resident fields stay qualified by their case" {
-                Expect.equal
-                    (UnionCaseFields.names UnionRegime.StructTagged "Pair" [ ValueNone; ValueNone ])
-                    [ "Pair_0"; "Pair_1" ]
-                    "two cases' positional fields would otherwise collide"
+            // A regime whose fields have no `TypeDef` to themselves places them in shared
+            // slots spelled `_ref<n>` / `_val<n>`, which `UnionPlacementsTests` covers.
+            test "the regimes that name a case's fields are exactly the own-type ones" {
+                let regimes =
+                    [
+                        UnionRegime.SingleCase
+                        UnionRegime.EnumLike
+                        UnionRegime.StructTagged
+                        UnionRegime.TypeTested
+                        UnionRegime.Tagged
+                    ]
 
                 Expect.equal
-                    (UnionCaseFields.names UnionRegime.StructTagged "Val" [ ValueSome "v" ])
-                    [ "Val_0" ]
-                    "a declared name is qualified too"
+                    [ for r in regimes -> r, UnionCaseFields.ownType r ]
+                    [
+                        UnionRegime.SingleCase, true
+                        UnionRegime.EnumLike, false
+                        UnionRegime.StructTagged, false
+                        UnionRegime.TypeTested, true
+                        UnionRegime.Tagged, true
+                    ]
+                    "own-type regimes"
             }
         ]
 

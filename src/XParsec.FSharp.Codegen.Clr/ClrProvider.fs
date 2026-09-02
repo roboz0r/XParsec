@@ -76,7 +76,7 @@ type ClrProvider
             typars: EqArray<string>,
             cases: (string * (string * FrozenType) list) list,
             valueKind: UnionValueKind,
-            slots: FrozenType list
+            slots: UnionSlot list
         ) : unit =
         env.GenericUnions.[key] <-
             {

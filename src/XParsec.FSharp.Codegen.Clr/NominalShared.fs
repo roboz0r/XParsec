@@ -52,13 +52,18 @@ module internal NominalShared =
             | NominalEmissionInput.Record _ -> provider.GenericRecordSelfSpec td.TypeKey
             | NominalEmissionInput.Class _ -> provider.UserTypeHandle td.TypeKey
 
-    /// A record's `(name, field ref, declared type)` triples in declaration order: the walk
-    /// every structural body over the record takes. Each call mints a generic record's
+    /// A record's fields paired with their names, in declaration order: the walk every
+    /// structural body over the record takes. Each call mints a generic record's
     /// `MemberRef` rows afresh; call once and share the result across bodies.
-    let recordFieldRefs (asm: Assembler) (td: TastAccessor.TypeDecl) : (string * EntityHandle * FrozenType) list =
+    let recordFieldRefs (asm: Assembler) (td: TastAccessor.TypeDecl) : (string * EmitStructural.StructuralField) list =
         [
             for (name, h, fty) in asm.Records.[td.TypeKey].Fields ->
-                name, selfMemberRef asm td (UserMemberKind.RecordMember(RecordMember.Field name)) h, fty
+                name,
+                {
+                    Handle = selfMemberRef asm td (UserMemberKind.RecordMember(RecordMember.Field name)) h
+                    Ty = fty
+                    Cast = ValueNone
+                }
         ]
 
     /// The `_tag` ref in the union's own scope, for a body on the union or on one of its

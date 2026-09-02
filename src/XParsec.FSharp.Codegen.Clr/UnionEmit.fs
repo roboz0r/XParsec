@@ -39,50 +39,52 @@ module internal UnionEmit =
     let private caseTyOf (td: TastAccessor.TypeDecl) (caseName: string) : FrozenType =
         UnionCaseType.ty td.TypeKey caseName (typarMarkersOf td)
 
-    /// The `FieldDef` key one logical case field is read from: its placement slot on a
-    /// flat union, or the case type's own field in a hierarchy regime.
-    let private caseFieldKey (ud: UnionDecl) (c: Frozen.TUnionCase) (fi: int) : FieldKey =
-        match ud.Placements with
-        | ValueSome p -> FieldKey.UnionSlot(ud.Decl.Key, (UnionFieldAccess.slot (p.Access(c.Name, fi))).Key)
-        | ValueNone -> FieldKey.UnionCaseField(ud.Decl.Key, c.Name, fi)
-
-    /// A case's payload field refs in declaration order, via the `UnionMember.Field`
-    /// spelling, which reparents onto the case type in a hierarchy regime.
-    let private fieldRefsOf (asm: Assembler) (ud: UnionDecl) (c: Frozen.TUnionCase) : EntityHandle list =
+    /// A hierarchy case's payload field refs in declaration order, parented on the case
+    /// type.
+    let private caseFieldRefsOf (asm: Assembler) (ud: UnionDecl) (c: Frozen.TUnionCase) : EntityHandle list =
         [
             for fi in 0 .. c.Fields.Length - 1 ->
                 selfMemberRef
                     asm
                     ud.Decl
                     (UserMemberKind.UnionMember(UnionMember.Field(c.Name, fi)))
-                    (toEntity (asm.FieldDef(caseFieldKey ud c fi)))
+                    (toEntity (asm.FieldDef(FieldKey.UnionCaseField(ud.Decl.Key, c.Name, fi))))
         ]
+
+    let private slotRefOf (asm: Assembler) (ud: UnionDecl) (key: UnionSlotKey) : EntityHandle =
+        selfMemberRef
+            asm
+            ud.Decl
+            (UserMemberKind.UnionMember(UnionMember.Slot key))
+            (toEntity (asm.FieldDef(FieldKey.UnionSlot(ud.Decl.Key, key))))
 
     /// A flat union's physical slots with their refs, in `.ctor` parameter order.
     let private slotRefsOf (asm: Assembler) (ud: UnionDecl) (p: FlatUnionPlacements) : (UnionSlot * EntityHandle) list =
-        [
-            for s in p.Slots ->
-                let member' =
-                    match s.Key with
-                    | UnionSlotKey.CaseField(case, fi) -> UnionMember.Field(case, fi)
+        [ for s in p.Slots -> s, slotRefOf asm ud s.Key ]
 
-                s,
-                selfMemberRef
-                    asm
-                    ud.Decl
-                    (UserMemberKind.UnionMember member')
-                    (toEntity (asm.FieldDef(FieldKey.UnionSlot(ud.Decl.Key, s.Key))))
-        ]
-
-    /// A case's `(field ref, declared type)` pairs in declaration order: the walk every
-    /// structural body over that case takes. Each call mints a generic union's `MemberRef`
-    /// rows afresh; call once and share the result across bodies.
+    /// A case's structural fields in declaration order: the walk every structural body over
+    /// that case takes, `castclass`ing an erased slot back to the declared type. Each call
+    /// mints a generic union's `MemberRef` rows afresh; call once and share across bodies.
     let private caseFieldsOf
         (asm: Assembler)
         (ud: UnionDecl)
         (c: Frozen.TUnionCase)
-        : (EntityHandle * FrozenType) list =
-        List.zip (fieldRefsOf asm ud c) [ for (_, t) in c.Fields -> t ]
+        : EmitStructural.StructuralField list =
+        match ud.Placements with
+        | ValueSome p ->
+            [
+                for access in p.CaseAccess c ->
+                    {
+                        Handle = slotRefOf asm ud (UnionFieldAccess.slot access).Key
+                        Ty = UnionFieldAccess.declaredTy access
+                        Cast = UnionFieldAccess.cast access |> ValueOption.map asm.Icodegen.TypeToken
+                    }
+            ]
+        | ValueNone ->
+            [
+                for (h, (_, t)) in List.zip (caseFieldRefsOf asm ud c) (EqArray.toList c.Fields) ->
+                    { Handle = h; Ty = t; Cast = ValueNone }
+            ]
 
     // ---- The union's own rows --------------------------------------------------------
 
@@ -201,7 +203,7 @@ module internal UnionEmit =
                     MethodKey.UnionCaseCtor(td.Key, c.Name),
                     {
                         Signature = provider.RecordCtorSignature [ for (_, t) in c.Fields -> t ]
-                        Body = bodyOf asm (Emit.buildChainedCtor ctorRef (ctorTagArgs tag) (fieldRefsOf asm ud c))
+                        Body = bodyOf asm (Emit.buildChainedCtor ctorRef (ctorTagArgs tag) (caseFieldRefsOf asm ud c))
                         ParamNames = ud.FieldNames c
                         MethodTypars = []
                     }
@@ -279,15 +281,24 @@ module internal UnionEmit =
             )
         )
 
-        // The `Get_<Case>_<i>` readers, each `ldfld`ing its slot in place on `this`.
+        // The `Get_<Case>_<i>` readers, each `ldfld`ing its slot in place on `this`, and
+        // casting back where the slot stores `object`.
         let refOfSlot = slotRefs |> List.map (fun (s, h) -> s.Key, h) |> Map.ofList
 
         for g in ud.CaseGetters do
+            let fieldRef = refOfSlot.[(UnionFieldAccess.slot g.Access).Key]
+
+            let getterIr =
+                match g.Access with
+                | UnionFieldAccess.Direct _ -> Emit.buildFieldGetter fieldRef
+                | UnionFieldAccess.Erased(_, declared) ->
+                    Emit.buildErasedFieldGetter fieldRef (asm.Icodegen.TypeToken declared)
+
             asm.AddPrepared(
                 MethodKey.UnionCaseGetter(td.Key, g.Case, g.Index),
                 {
                     Signature = provider.InstanceMethodSignature([], g.FieldTy)
-                    Body = bodyOf asm (Emit.buildFieldGetter refOfSlot.[g.Slot.Key])
+                    Body = bodyOf asm getterIr
                     ParamNames = []
                     MethodTypars = []
                 }
@@ -313,11 +324,8 @@ module internal UnionEmit =
         let caseName = c.Name
         let caseTy = caseTyOf td caseName
 
-        let walk: EmitStructural.StructuralWalk =
-            {
-                Fields = caseFieldsOf asm ud c
-                Discriminant = EmitStructural.Discriminant.CaseTag tag
-            }
+        let fields = caseFieldsOf asm ud c
+        let walk = EmitStructural.StructuralWalk.Flat(ValueSome tag, fields)
 
         let prepared slot signature paramNames ir =
             asm.AddPrepared(
@@ -386,12 +394,7 @@ module internal UnionEmit =
                     slot
                     (provider.StructuralFormatSignature())
                     [ "sink" ]
-                    (EmitStructuralFormat.buildUnionCaseFormat
-                        handles
-                        {
-                            Name = caseName
-                            Fields = walk.Fields
-                        })
+                    (EmitStructuralFormat.buildUnionCaseFormat handles { Name = caseName; Fields = fields })
 
     /// A hierarchy base's own structural bodies: `Equals(object)` and `CompareTo(object)`
     /// cast and dispatch to the abstract typed slots, and every other entry is a slot the
@@ -448,8 +451,8 @@ module internal UnionEmit =
             )
 
     /// A flat union's own structural bodies. One pass mints the field and tag refs that
-    /// equality, comparison and `%A` share. Once the tags agree the walk crosses every
-    /// case's fields; an inactive case's fields hold their default.
+    /// equality, comparison and `%A` share. Once the tags agree, `_tag` selects the active
+    /// case's own field walk, because cases share slots.
     let private prepareFlatStructural (asm: Assembler) (ud: UnionDecl) (self: StructuralSelf) : unit =
         let td = ud.Decl
         let provider = asm.Provider
@@ -462,14 +465,10 @@ module internal UnionEmit =
 
         let walk: Lazy<EmitStructural.StructuralWalk> =
             lazy
-                {
-                    Fields = perCase.Value |> List.collect snd
-                    Discriminant =
-                        if ud.HasTag then
-                            EmitStructural.Discriminant.TagField tagField.Value
-                        else
-                            EmitStructural.Discriminant.None
-                }
+                (if ud.HasTag then
+                     EmitStructural.StructuralWalk.Tagged(tagField.Value, [ for (_, fs) in perCase.Value -> fs ])
+                 else
+                     EmitStructural.StructuralWalk.Flat(ValueNone, perCase.Value |> List.collect snd))
 
         if self.Members.Equality then
             prepareEqualityTriple
@@ -582,9 +581,25 @@ module internal UnionEmit =
                     Tag = tag
                     Factory = toEntity (asm.MethodDef(MethodKey.UnionFactory(td.Key, c.Name)))
                     Fields =
-                        [
-                            for fi in 0 .. c.Fields.Length - 1 -> toEntity (asm.FieldDef(caseFieldKey ud c fi))
-                        ]
+                        match ud.Placements with
+                        | ValueSome p ->
+                            [
+                                for access in p.CaseAccess c ->
+                                    let slotKey = (UnionFieldAccess.slot access).Key
+
+                                    EmitTypes.EmittedCaseField.Slot(
+                                        slotKey,
+                                        toEntity (asm.FieldDef(FieldKey.UnionSlot(td.Key, slotKey))),
+                                        (UnionFieldAccess.cast access).IsSome
+                                    )
+                            ]
+                        | ValueNone ->
+                            [
+                                for fi in 0 .. c.Fields.Length - 1 ->
+                                    EmitTypes.EmittedCaseField.CaseField(
+                                        toEntity (asm.FieldDef(FieldKey.UnionCaseField(td.Key, c.Name, fi)))
+                                    )
+                            ]
                     CaseType =
                         if ud.IsHierarchy then
                             ValueSome(UnionCaseType.key td.TypeKey c.Name)

@@ -7,8 +7,8 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 open XParsec.FSharp.Codegen.Clr.Tests.PackageHarness
 
 // `Vesper.Choice` has no module and no instance members, so reflection reads the
-// discriminant through `get_Tag` and the payload fields directly, and a driver program
-// observes a constructed value only through a `match`.
+// discriminant through `get_Tag` and the payload through the `Get_<Case>_<i>` readers,
+// and a driver program observes a constructed value only through a `match`.
 
 // Each case constrains one of the two parameters, so a standalone `Choice1Of2 5` is
 // `Choice<int, '_>`; every such value is annotated `: Choice<int, string>` to pin both.
@@ -39,9 +39,10 @@ let private c2IS (v: string) : obj =
 let private tagOf (objArg: obj) : int =
     choiceIntStr.Value.GetMethod("get_Tag").Invoke(objArg, [||]) :?> int
 
-/// Read a per-case payload field (`Choice1Of2_0` / `Choice2Of2_0`) off a value.
-let private fieldOf (name: string) (objArg: obj) : obj =
-    choiceIntStr.Value.GetField(name).GetValue(objArg)
+/// Read a per-case payload through the union's payload ABI, the `Get_<Case>_<i>` reader.
+/// The physical slots behind it are shared between cases and are not addressable by case.
+let private payloadOf (name: string) (objArg: obj) : obj =
+    choiceIntStr.Value.GetMethod(name).Invoke(objArg, [||])
 
 [<Tests>]
 let tests =
@@ -58,12 +59,15 @@ let tests =
                 Expect.equal (tagOf (c2IS "e")) 1 "Choice2Of2 is tag 1"
             }
 
-            test "Choice1Of2 payload reads back through Choice1Of2_0" {
-                Expect.equal (fieldOf "Choice1Of2_0" (c1IS 7) :?> int) 7 "Choice1Of2 7 carries 7"
+            test "Choice1Of2 payload reads back through Get_Choice1Of2_0" {
+                Expect.equal (payloadOf "Get_Choice1Of2_0" (c1IS 7) :?> int) 7 "Choice1Of2 7 carries 7"
             }
 
-            test "Choice2Of2 payload reads back through Choice2Of2_0" {
-                Expect.equal (fieldOf "Choice2Of2_0" (c2IS "hi") :?> string) "hi" "Choice2Of2 \"hi\" carries \"hi\""
+            test "Choice2Of2 payload reads back through Get_Choice2Of2_0" {
+                Expect.equal
+                    (payloadOf "Get_Choice2Of2_0" (c2IS "hi") :?> string)
+                    "hi"
+                    "Choice2Of2 \"hi\" carries \"hi\""
             }
         ]
 
@@ -85,7 +89,7 @@ let private choice7: Lazy<Type> =
 let private tagOfOn (ty: Type) (objArg: obj) : int =
     ty.GetMethod("get_Tag").Invoke(objArg, [||]) :?> int
 
-let private fieldOfOn (ty: Type) (name: string) (objArg: obj) : obj = ty.GetField(name).GetValue(objArg)
+let private payloadOfOn (ty: Type) (name: string) (objArg: obj) : obj = ty.GetMethod(name).Invoke(objArg, [||])
 
 [<Tests>]
 let higherArity =
@@ -101,12 +105,12 @@ let higherArity =
                 Expect.equal (tagOfOn choice3.Value c3) 2 "Choice3Of3 is tag 2"
             }
 
-            // The struct carries one field per arm: `Choice1Of3_0` … `Choice3Of3_0`.
+            // The struct declares one reader per arm: `Get_Choice1Of3_0` … `Get_Choice3Of3_0`.
             test "Choice`3 payloads read back per case" {
                 let c1 = choice3.Value.GetMethod("Choice1Of3").Invoke(null, [| box 5 |])
                 let c3 = choice3.Value.GetMethod("Choice3Of3").Invoke(null, [| box true |])
-                Expect.equal (fieldOfOn choice3.Value "Choice1Of3_0" c1 :?> int) 5 "Choice1Of3 carries 5"
-                Expect.equal (fieldOfOn choice3.Value "Choice3Of3_0" c3 :?> bool) true "Choice3Of3 carries true"
+                Expect.equal (payloadOfOn choice3.Value "Get_Choice1Of3_0" c1 :?> int) 5 "Choice1Of3 carries 5"
+                Expect.equal (payloadOfOn choice3.Value "Get_Choice3Of3_0" c3 :?> bool) true "Choice3Of3 carries true"
             }
 
             // The widest member of the family.
@@ -115,7 +119,7 @@ let higherArity =
                 let last = choice7.Value.GetMethod("Choice7Of7").Invoke(null, [| box 7 |])
                 Expect.equal (tagOfOn choice7.Value first) 0 "Choice1Of7 is tag 0"
                 Expect.equal (tagOfOn choice7.Value last) 6 "Choice7Of7 is tag 6"
-                Expect.equal (fieldOfOn choice7.Value "Choice7Of7_0" last :?> int) 7 "Choice7Of7 carries 7"
+                Expect.equal (payloadOfOn choice7.Value "Get_Choice7Of7_0" last :?> int) 7 "Choice7Of7 carries 7"
             }
 
             test "Choice`2 and Choice`3 are distinct emitted types" {
@@ -154,8 +158,8 @@ let higherArityRuntime =
         ]
 
 // Construction + pattern matching of `Choice`'s cases across the package boundary
-// (`open Vesper`). The `match` drives each case's field extract: `Choice1Of2_0` at
-// tag 0, `Choice2Of2_0` at tag 1.
+// (`open Vesper`). The `match` drives each case's payload extract at tag 0 and tag 1
+// respectively.
 [<Tests>]
 let ctorAndMatchRuntime =
     testList

@@ -12,7 +12,7 @@ module internal EmitStructuralFormat =
     type UnionFormatCase =
         {
             Name: string
-            Fields: (EntityHandle * FrozenType) list
+            Fields: EmitStructural.StructuralField list
         }
 
     /// `sink.Text(str)` — push the sink, the literal, `callvirt Text`.
@@ -37,24 +37,23 @@ module internal EmitStructuralFormat =
     /// `sink.Child(box this.<field>)` — load the field off `this` (`ldarg.0`). The `box`
     /// is uniform, a no-op on reference types (ECMA-335 III.4.1), so `Child` sees the
     /// runtime type behind the erased `obj`.
-    let private sinkChild (b: IlBuilder) (h: IStructuralHandles) (fieldHandle: EntityHandle) (fty: FrozenType) : unit =
+    let private sinkChild (b: IlBuilder) (h: IStructuralHandles) (f: EmitStructural.StructuralField) : unit =
         b.Add(ILInstr.Ldarg 1)
         b.Add(ILInstr.Ldarg 0)
-        b.Add(ILInstr.Ldfld fieldHandle)
-        b.Add(ILInstr.Box(h.BoxToken fty))
+        EmitStructural.loadField b f
+        b.Add(ILInstr.Box(h.BoxToken f.Ty))
         b.Add(ILInstr.Callvirt(h.FormatSink.Child, 2, 0))
 
     /// `void Format(IFormatSink sink)` for a record: `BeginRecord;
     /// (Field name; Child (box field))×n; EndRecord`, 2+2n calls in declaration order.
-    /// `fields` is `(label, field handle, field type)`.
-    let buildRecordFormat (h: IStructuralHandles) (fields: (string * EntityHandle * FrozenType) list) : ILBody =
+    let buildRecordFormat (h: IStructuralHandles) (fields: (string * EmitStructural.StructuralField) list) : ILBody =
         let b = IlBuilder()
 
         sinkCall0 b h.FormatSink.BeginRecord
 
-        for (name, handle, t) in fields do
+        for (name, f) in fields do
             sinkLabel b h h.FormatSink.Field name
-            sinkChild b h handle t
+            sinkChild b h f
 
         sinkCall0 b h.FormatSink.EndRecord
 
@@ -66,8 +65,8 @@ module internal EmitStructuralFormat =
     let private emitFormatCase (b: IlBuilder) (h: IStructuralHandles) (c: UnionFormatCase) : unit =
         sinkLabel b h h.FormatSink.BeginCase c.Name
 
-        for (handle, t) in c.Fields do
-            sinkChild b h handle t
+        for f in c.Fields do
+            sinkChild b h f
 
         sinkCall0 b h.FormatSink.EndCase
 

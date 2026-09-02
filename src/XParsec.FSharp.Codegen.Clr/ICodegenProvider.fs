@@ -69,9 +69,10 @@ type UnionMember =
     | Tag
     /// `get_Tag`, the public accessor for `Tag`.
     | GetTag
-    /// A case's payload field, parented on the case's own type in a hierarchy regime and
-    /// on the union itself in a flat one.
+    /// A hierarchy case's payload field, parented on the case's own type.
     | Field of caseName: string * fieldIndex: int
+    /// A flat union's physical slot, which several cases' fields may share.
+    | Slot of UnionSlotKey
     /// A hierarchy union case type's `.ctor(payload…)`.
     | CaseCtor of caseName: string
     /// A reference union's `_unique_<Case>` singleton for a nullary case, a `static` field
@@ -85,6 +86,9 @@ type UnionCaseAccess =
     /// `ldfld` the payload field off the scrutinee, or off the case type in a hierarchy
     /// regime.
     | Field of EntityHandle
+    /// `ldfld` a shared `object` slot off the scrutinee, then `castclass` to the field's
+    /// type at this use site.
+    | ErasedField of EntityHandle
     /// `call` the `Get_<Case>_<i>` reader on the scrutinee's address. The scrutinee is a
     /// value type.
     | Getter of EntityHandle

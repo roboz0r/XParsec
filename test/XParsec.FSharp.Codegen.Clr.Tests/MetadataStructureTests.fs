@@ -321,9 +321,9 @@ let tests =
                 Expect.equal (rows "item") 2 "One's lone field"
             }
 
-            // The flat regimes hold every case's payload co-resident on the union, and
-            // their equality, comparison and `%A` bodies walk all of it, so the same
-            // one-walk-per-pass rule covers `_tag` too.
+            // The flat regimes place every case's payload in slots co-resident on the
+            // union, and their equality, comparison and `%A` bodies walk each case's
+            // slots, so the same one-walk-per-pass rule covers `_tag` too.
             test "a generic struct union's co-resident payload is minted once per pass" {
                 let artifact =
                     compileSource
@@ -342,8 +342,10 @@ let tests =
 
                 let rows = MetadataStructure.memberRefRowCount (Codegen.toBytes artifact)
 
-                Expect.equal (rows "Val_0") 2 "Val's payload"
-                Expect.equal (rows "Num_0") 2 "Num's payload"
+                // `'T` and `int` are distinct stored types, so the two cases take a slot
+                // each.
+                Expect.equal (rows "_val0") 2 "Val's payload slot"
+                Expect.equal (rows "_val1") 2 "Num's payload slot"
                 Expect.equal (rows "_tag") 2 "the discriminant"
             }
 

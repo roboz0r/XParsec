@@ -66,8 +66,9 @@ as a leading discriminant, relying on each logical field owning a typed slot and
 fields holding their zero default. Once a ref slot is typed `object` (Step 4) a flat walk would
 compare a `string` through `IComparable.CompareTo(object)` instead of the typed ordinal path,
 and once `_data` exists (Step 5) the payload is behind an opaque struct. Equality, hashing and
-comparison therefore need a new `EmitStructural` shape: a tag `switch` dispatching to one
-`StructuralWalk` per case, read through placements. Format already carries a per-case list.
+comparison therefore need a new `EmitStructural` shape: a tag dispatch (a `beq` chain, since
+`ILInstr` has no `switch`) to one field walk per case, read through placements. Format already
+carries a per-case list.
 Never a raw byte compare of `_data` (padding inside case structs is not preserved across
 copies).
 
@@ -184,28 +185,42 @@ type, so widening the classifier later is an observable worklist, not an audit.
   `StructUnion*` data programs (`StructUnionExternalPayload.fs` was added to the corpus so
   the census carries `Undetermined` entries).
 
-### Step 4 — slot sharing without the overlay
+### Step 4 — slot sharing without the overlay — LANDED
 
-Change the `FlatUnionPlacements` computation and `LayoutNodes` minting; no explicit layout
-yet, so no loader risk:
+`FlatUnionPlacements.ofCases` takes `ICodegenSymbols` and splits in two: `unshared` (the
+Step 1 computation, one slot per field at FSC's spelling) exactly where
+`UnionCaseFields.ownType` holds, and `shared` for `StructTagged`. No explicit layout yet, so
+no loader risk.
 
-- `Reference`-classified fields → shared `object` slots (`UnionSlotKey.RefSlot of index`),
-  read through a new `UnionFieldAccess` case carrying the declared type to `castclass` to;
-  count = max over cases.
-- Everything else → exact-type slots (`UnionSlotKey.ExactSlot`), keyed by canonical stored
-  `FrozenType`, shared only between identical types. Deterministic assignment: declaration
-  order of cases, then fields.
-- `UnionMember.Slot of UnionSlotKey` for the generic `.ctor` store refs (`slotRefsOf`).
-- `UnionCtorShape.FlatTagged` becomes one parameter per *physical* slot; the factory's
-  zero-default list shrinks accordingly (`UnionEmit.fs:245`).
-- Getters read through the updated placements (mechanical, given Step 1).
-- Structural bodies change shape here, not mechanically: the flat walk becomes a tag `switch`
-  over per-case walks (see "Target layout"), because an `object` slot cannot be compared
-  through its declared type by a flat walk. This is the substantive work of the step.
-- Tests: `StructUnionSameNameFields` and `StructUnionGenericShape` (`StructTests.fs:834`)
-  stay green — same-name *different*-type fields land in distinct exact slots, so the FS3585
-  relaxation is preserved; add `MetadataStructure` assertions on the reduced field count and a
-  determinism pin (two computations of one shape agree).
+- `UnionStorage` (`UnionPlacements.fs`) classifies a field by `TypeLayout.resolve` over an
+  `ILayoutOracle` on `ICodegenSymbols`: a settled `Reference` erases, a value type, a typar
+  and any unsettled layout are `Exact`. Step 3's `Unmanagedness` is not consulted until the
+  overlay exists.
+- `Reference` → `UnionSlotKey.RefSlot of index`, stored `object`, read through
+  `UnionFieldAccess.Erased(slot, declared)`, which carries the `castclass` target.
+- Everything else → `UnionSlotKey.ExactSlot of index`, shared only between identical stored
+  `FrozenType`s. Slots are minted in case-then-field declaration order and a case never
+  claims one twice, so its own fields land in distinct slots.
+- `UnionMember.Slot of UnionSlotKey` mints every flat slot ref (the `.ctor` stores, the
+  getters, the structural walks and the match arms alike); `UnionMember.Field` is
+  hierarchy-only, and `GenericUnionShape.Cases` keeps the declared field types, which the
+  case factories' `MemberRef`s are spelled from. `GenericUnionShape.Slots` carries
+  `UnionSlot` rather than a bare type so the ref can be spelled from the key.
+- Getters read through the placements, `Emit.buildErasedFieldGetter` appending the cast.
+  `UnionCaseAccess.ErasedField` does the same for a local match arm, casting to the
+  sub-pattern's own type, which is the use site's instantiation of the declared type.
+- Structural bodies changed shape: `EmitStructural.StructuralWalk` is now
+  `Flat of seed * fields` or `Tagged of tagField * per-case fields`, and every body
+  (equality, hashing, comparison) dispatches on `_tag` to the active case's walk. A
+  `StructuralField` carries the `castclass` an erased read needs, so a `string` is still
+  compared through `EqualityComparer<string>` rather than `object`. `%A` already dispatched
+  per case and only gained the cast.
+- Tests: `UnionPlacementsTests` pins the placement table over the `StructUnion*` corpus, the
+  determinism of two computations, the distinct-slots-per-case invariant and the
+  `SingleCase` carve-out; `StructTests` pins the reduced field set (`_tag`, `_val0`,
+  `_val1`), the `object` typing of `_ref0` and a getter round-trip through the cast.
+  `ChoiceTests` moved off field reads onto the Step 2 getter ABI. The `struct-union` and
+  `struct-union-generic` byte-identity goldens were regenerated.
 
 This step already delivers most of the footprint win.
 
@@ -269,10 +284,11 @@ This step already delivers most of the footprint win.
 - [ ] "Structural bodies never byte-compare `_data`" — a test with a padding-bearing case
       struct whose padding is deliberately dirtied, or a sited comment on the structural body
       emitter if undirtiable.
-- [ ] Determinism of placement assignment: pinned by test (Step 4).
+- [x] Determinism of placement assignment: `UnionPlacementsTests` "two computations of one
+      shape agree".
 - [x] `Undetermined` worklist: `UnmanagednessTests` "census over the struct-union data
       corpus" is the durable home.
-- [ ] Exact-slot sharing is unconditionally safe: stated on `UnionSlotKey.ExactSlot`.
+- [x] Exact-slot sharing is unconditionally safe: stated on `UnionSlotKey.ExactSlot`.
 
 ## Risks
 

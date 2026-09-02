@@ -13,7 +13,8 @@ type UnionRegime =
     /// cached singleton.
     | EnumLike
     /// A `[<Struct>]` union of two or more cases with at least one carrying fields: `_tag`
-    /// plus every case's fields, co-resident on the one value type.
+    /// plus the shared payload slots `FlatUnionPlacements` places every case's fields in,
+    /// co-resident on the one value type.
     | StructTagged
     /// A reference union of two or three cases with at least one carrying fields: a nested
     /// type per case on an abstract base, discriminated by an instance's runtime type.
@@ -87,7 +88,7 @@ module UnionRegime =
 /// every field it takes, so all of them are `initonly`.
 [<RequireQualifiedAccess>]
 type UnionCtorShape =
-    /// `(_tag, every case's field)` in flat declaration order, `newobj`ed whole by each
+    /// `(_tag, every physical payload slot)` in placement order, `newobj`ed whole by each
     /// case factory.
     | FlatTagged
     /// `(every case's field)` — a single-case union, whose one case is every case.
@@ -127,8 +128,8 @@ type UnionFactoryShape =
     | UnionCtor
     /// Forward every parameter to the case type's own `.ctor`.
     | CaseCtor
-    /// Push the discriminant, this case's parameters, and a zeroed default for every other
-    /// case's field, then `newobj` the flat `.ctor`.
+    /// Push the discriminant, this case's parameters into the slots it owns, and a zeroed
+    /// default into every slot it does not, then `newobj` the flat `.ctor`.
     | StructTagged
 
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
