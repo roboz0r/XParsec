@@ -19,10 +19,10 @@ For a `UnionRegime.StructTagged` union, the emitted value type holds:
 2. `_payload : Payload` — one `initonly` field typed as a synthesized nested *sequential*
    struct `Payload`, generic over the union's typars exactly when an exact-type slot mentions
    one. Its fields are the physical slots (`FlatUnionPlacements.Slots`):
-   1. One overlay field `_data`, typed as a synthesized private nested NON-GENERIC struct
-      with `ExplicitLayout`: one field per payload-bearing case, each a synthesized private
-      nested *sequential* struct holding that case's transitively-unmanaged fields, all at
-      `FieldOffset(0)`. The loader computes every size; overlapping unmanaged structs is
+   1. One overlay field `_data`, typed as a synthesized `assembly` NON-GENERIC struct
+      `<Union>$Data` with `ExplicitLayout`, emitted BESIDE the union in its container: one
+      field per payload-bearing case, each a synthesized *sequential* struct nested in the
+      overlay holding that case's transitively-unmanaged fields, all at `FieldOffset(0)`. The loader computes every size; overlapping unmanaged structs is
       legal; `nativeint`/`unativeint` lay out per-platform correctly because nothing is
       computed at compile time.
    2. Shared `object` reference slots: fields classified `Reference` map to slot indices,
@@ -74,10 +74,16 @@ copies).
 
 **Generic types cannot have explicit layout** (loader: "Could not load type 'Overlay`1' …
 because generic types cannot have explicit layout", confirmed with `dotnet fsi`). The overlay
-and case structs are emitted with ZERO typars even when the union is generic: IL permits a
-non-generic type nested in a generic one, and only `Unmanaged` fields land there, so no typar
-is ever referenced. This diverges from the `unionCaseNode` precedent (`LayoutNodes.fs:353`),
-which redeclares the union's typars on the nested case type.
+and case structs are emitted with ZERO typars even when the union is generic, and only
+`Unmanaged` fields land there, so no typar is ever referenced. IL permits a non-generic type
+nested in a generic one, but C# always gives a nested type its enclosing type's typars, so
+that shape is one C# never emits and ICSharpCode.Decompiler throws rendering a reference to
+it. The overlay is therefore the union's SIBLING, named `<Union>$Data`, or `<Union>$Data$<N>`
+for arity `N` (`GBox$Data$1`), so two unions differing only in arity keep distinct overlays.
+`$` keeps it outside any name source can declare, and the spelling carries no backtick, so
+`SymbolKeyOps.typeKeyOfSegment` reads it back as a plain arity-0 name. This diverges from the
+`unionCaseNode` precedent (`LayoutNodes.fs:353`), which redeclares the union's typars on the
+nested case type.
 
 ## Decisions already taken (confirm before Step 1)
 
@@ -235,14 +241,16 @@ This step already delivers most of the footprint win.
   UnionPayloadSlots` on the nested `Payload` struct, with the overlay (`_data` slot plus its
   case data structs) as a `voption`, the `object` slots and the exact slots as separate
   pools. `Slots` is computed from `Home` in that order, so the `_data` slot exists exactly
-  when the overlay does. `FlatUnionPlacements.NestedTypes` is the one enumeration of the
-  value types behind `_payload` (`UnionNestedType`), which the layout nodes and the
-  provider registration both map.
-- Nested types (`UnionPayloadType`): `Payload` (sequential, redeclares the union's typars
-  whenever the union is generic, keyed like a case type with arity 0), the `ExplicitLayout`
-  overlay `Data` (one field per case data struct, each with a `FieldLayout` row at offset 0)
-  and one `Data_<Case>` per overlaid case. The overlay and the case data structs declare no
-  typar. All three are `NestedAssembly` value types with `assembly` non-`initonly` fields, so
+  when the overlay does. `FlatUnionPlacements.NestedTypes` (under the union) and
+  `OverlayTypes` (the overlay's subtree) enumerate the value types behind `_payload`
+  (`UnionNestedType`), which the layout nodes and the provider registration both map; each
+  type's row placement derives from its own case (`UnionLayoutNodes.ownedPlacement`).
+- Owned types (`UnionPayloadType`): `Payload` (sequential, nested in the union, redeclares
+  the union's typars whenever the union is generic, keyed like a case type with arity 0),
+  the `ExplicitLayout` overlay `<Union>$Data` (the union's sibling; one field per case data
+  struct, each with a `FieldLayout` row at offset 0) and one `Data_<Case>` per overlaid case
+  nested in the overlay. The overlay and the case data structs declare no typar. All three
+  are `assembly` value types with `assembly` non-`initonly` fields, so
   a same-assembly match arm reads through them directly and the factory writes them through
   `ldflda`. No `ClassLayout` row: the loader computes every size (Roslyn likewise emits none
   for pack 0 / size 0).

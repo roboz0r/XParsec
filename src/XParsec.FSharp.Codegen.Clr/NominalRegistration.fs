@@ -38,20 +38,23 @@ module internal NominalRegistration =
         if ud.IsHierarchy then
             registerUnionCases provider handles ud
 
-        // The value types the union nests, each a local value type; `Payload` and the case
+        // The value types the union owns, each a local value type; `Payload` and the case
         // views are also generic classes over a generic union's typars, which parents
         // their slot, field and `.ctor` refs on their own `TypeSpec`s.
+        let registerOwned (t: UnionNestedType) =
+            let typeKey = t.TypeKey td.TypeKey
+            provider.RegisterUserType(typeKey, toEntity (handles.TypeDefOf(UnionNestedType.slotKey td.Key t)))
+            provider.RegisterUserValueType typeKey
+
+            if t.IsGeneric && not td.TypeParams.IsEmpty then
+                let fields = t.Fields(td.TypeKey, td.TypeParams.Length)
+                let ctorParamCount = if t.HasCtor then List.length fields else 0
+                provider.RegisterGenericClass(typeKey, td.TypeParams, ctorParamCount, fields)
+
         match ud.Placements with
         | ValueSome p ->
-            for t in p.NestedTypes do
-                let typeKey = t.TypeKey td.TypeKey
-                provider.RegisterUserType(typeKey, toEntity (handles.TypeDefOf(UnionNestedType.slotKey td.Key t)))
-                provider.RegisterUserValueType typeKey
-
-                if t.IsGeneric && not td.TypeParams.IsEmpty then
-                    let fields = t.Fields(td.TypeKey, td.TypeParams.Length)
-                    let ctorParamCount = if t.HasCtor then List.length fields else 0
-                    provider.RegisterGenericClass(typeKey, td.TypeParams, ctorParamCount, fields)
+            List.iter registerOwned p.NestedTypes
+            List.iter registerOwned p.OverlayTypes
         | ValueNone -> ()
 
         if not td.TypeParams.IsEmpty then

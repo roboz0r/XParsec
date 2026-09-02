@@ -32,29 +32,42 @@ module UnionCaseType =
     let ty (unionKey: TypeKey) (caseName: string) (args: FrozenType list) : FrozenType =
         FTClass(key unionKey caseName, EqArray.ofList args)
 
-/// The value types nested in a `StructTagged` union, each keyed like a hierarchy case type:
-/// `Payload`, its `ExplicitLayout` overlay `Data`, one `Data_<Case>` per case with unmanaged
-/// fields, and one public `Payload_<Case>` view per payload-bearing case.
+/// The value types a `StructTagged` union owns: `Payload` and one public `Payload_<Case>`
+/// view per payload-bearing case, nested in the union; the non-generic `ExplicitLayout`
+/// overlay `<Union>$Data` beside it, holding one `Data_<Case>` per case with unmanaged fields.
 [<RequireQualifiedAccess>]
 module UnionPayloadType =
 
     let payloadName = "Payload"
-    let overlayName = "Data"
     let caseDataName (caseName: string) : string = "Data_" + caseName
     let viewName (caseName: string) : string = "Payload_" + caseName
+
+    /// `<Union>$Data`, or `<Union>$Data$<N>` for a union of arity `N` (`GBox$Data$1`), so
+    /// unions differing only in arity own distinct overlays. `$` is outside F# and C# source
+    /// syntax, and the spelling carries no `` ` ``, so the name reads back as an arity-0 segment.
+    let overlayName (unionKey: TypeKey) : string =
+        match unionKey.TyparArity with
+        | 0 -> unionKey.Name + "$Data"
+        | n -> sprintf "%s$Data$%d" unionKey.Name n
 
     /// The union's field holding its `Payload`; also the view's field holding its copy.
     let payloadFieldName = "_payload"
     /// The `Payload` field holding the overlay.
     let overlayFieldName = "_data"
 
-    let private nested (unionKey: TypeKey) (name: string) : TypeKey =
-        SymbolKeyOps.typeKeyOfContainer (TypeContainer.InType unionKey) name 0
+    let private nestedIn (outer: TypeKey) (name: string) : TypeKey =
+        SymbolKeyOps.typeKeyOfContainer (TypeContainer.InType outer) name 0
 
-    let payloadKey (unionKey: TypeKey) : TypeKey = nested unionKey payloadName
-    let overlayKey (unionKey: TypeKey) : TypeKey = nested unionKey overlayName
-    let caseDataKey (unionKey: TypeKey) (caseName: string) : TypeKey = nested unionKey (caseDataName caseName)
-    let viewKey (unionKey: TypeKey) (caseName: string) : TypeKey = nested unionKey (viewName caseName)
+    let payloadKey (unionKey: TypeKey) : TypeKey = nestedIn unionKey payloadName
+    let viewKey (unionKey: TypeKey) (caseName: string) : TypeKey = nestedIn unionKey (viewName caseName)
+
+    /// The overlay, a sibling of the union in the union's own container.
+    let overlayKey (unionKey: TypeKey) : TypeKey =
+        SymbolKeyOps.typeKeyOfContainer unionKey.Container (overlayName unionKey) 0
+
+    /// One case's data struct, nested in the overlay.
+    let caseDataKey (unionKey: TypeKey) (caseName: string) : TypeKey =
+        nestedIn (overlayKey unionKey) (caseDataName caseName)
 
     /// `Payload` at the union's own type arguments.
     let payloadTy (unionKey: TypeKey) (args: FrozenType list) : FrozenType =

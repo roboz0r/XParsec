@@ -17,6 +17,7 @@
     <PackageVersion Include="Expecto" Version="10.2.2" />
     <PackageVersion Include="Expecto.FsCheck" Version="10.2.2" />
     <PackageVersion Include="Fable.Pyxpecto" Version="1.2.0" />
+    <PackageVersion Include="ICSharpCode.Decompiler" Version="11.0.0.9375" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.13.0" />
     <PackageVersion Include="YoloDev.Expecto.TestSdk" Version="0.15.3" />
   </ItemGroup>

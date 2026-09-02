@@ -260,9 +260,14 @@ module internal LayoutNodes =
                 failwithf "Layout: local type '%s' claims a CLR-nested container '%s'" td.Name outer.Name
         | k -> failwithf "Layout: type declaration '%s' carries a non-type key %A" td.Name k
 
-    /// A nominal type's node. Its `TypeDef` sits in its declaring module's class
-    /// when it has one, with an empty namespace column and a `NestedClass` row, and at the
-    /// root of its namespace otherwise.
+    /// Where a declaration's `TypeDef` row sits: `(namespace column, enclosing slot)`. A
+    /// type held by a module has an empty namespace column and a `NestedClass` row under
+    /// the module class; one declared straight in a namespace is a root of that namespace.
+    let containerPlacement (td: TastAccessor.TypeDecl) : string * TypeSlotKey voption =
+        match declaringModule td with
+        | ValueSome m -> "", ValueSome(TypeSlotKey.ModuleClass m)
+        | ValueNone -> SymbolKeyOps.typeNs td.TypeKey, ValueNone
+
     let nominalNode
         (kind: TypeSlotKind)
         (td: TastAccessor.TypeDecl)
@@ -270,10 +275,7 @@ module internal LayoutNodes =
         (methods: MethodRow list)
         (properties: PropertySlot list)
         : TypeNode =
-        let ns, enclosing =
-            match declaringModule td with
-            | ValueSome m -> "", ValueSome(TypeSlotKey.ModuleClass m)
-            | ValueNone -> SymbolKeyOps.typeNs td.TypeKey, ValueNone
+        let ns, enclosing = containerPlacement td
 
         {
             Slot =

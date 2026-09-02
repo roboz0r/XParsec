@@ -178,9 +178,10 @@ type internal TypeSlotKey =
     | UnionCase of SymbolKey * case: string
     /// A `StructTagged` union's `Payload` struct, nested in the union's own `TypeDef`.
     | UnionPayload of SymbolKey
-    /// A `StructTagged` union's `ExplicitLayout` overlay `Data`, nested in the union.
+    /// A `StructTagged` union's `ExplicitLayout` overlay `<Union>$Data`, the union's
+    /// sibling in its container.
     | UnionOverlay of SymbolKey
-    /// One case's data struct `Data_<Case>` in the overlay, nested in the union.
+    /// One case's data struct `Data_<Case>`, nested in the overlay.
     | UnionCaseData of SymbolKey * case: string
     /// One case's public view `Payload_<Case>`, nested in the union.
     | UnionCaseView of SymbolKey * case: string
@@ -202,8 +203,8 @@ type internal TypeSlotKind =
     /// A `StructTagged` union's `Payload`: a sealed sequential `assembly` value type holding
     /// the shared slots, redeclaring a generic union's typars.
     | UnionPayload
-    /// A `StructTagged` union's overlay `Data`: a sealed non-generic `assembly` value type
-    /// with `ExplicitLayout`, every field at offset 0.
+    /// A `StructTagged` union's overlay `<Union>$Data`: a sealed non-generic `assembly`
+    /// value type with `ExplicitLayout`, every field at offset 0.
     | UnionOverlay
     /// One case's data struct in the overlay: a sealed sequential non-generic `assembly`
     /// value type holding the case's unmanaged fields.
@@ -237,7 +238,7 @@ type internal TypeSlotKind =
 [<RequireQualifiedAccess>]
 module internal UnionNestedType =
 
-    /// The layout slot of a type nested in union `key`.
+    /// The layout slot of a type owned by union `key`.
     let slotKey (key: SymbolKey) (t: UnionNestedType) : TypeSlotKey =
         match t with
         | UnionNestedType.Payload _ -> TypeSlotKey.UnionPayload key

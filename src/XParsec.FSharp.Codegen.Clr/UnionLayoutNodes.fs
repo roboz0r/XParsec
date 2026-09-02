@@ -90,15 +90,26 @@ module internal UnionLayoutNodes =
         | UnionNestedType.Overlay _
         | UnionNestedType.CaseData _ -> compilerGeneratedStorage
 
-    /// The `TypeNode` of one value type nested in a `StructTagged` union: its `Slot`, its
+    /// Where an owned type's `TypeDef` row sits: `Payload` and the views under the union,
+    /// the overlay beside the union in its container, a case data struct under the overlay.
+    let private ownedPlacement (td: TastAccessor.TypeDecl) (t: UnionNestedType) : string * TypeSlotKey voption =
+        match t with
+        | UnionNestedType.Payload _
+        | UnionNestedType.CaseView _ -> "", ValueSome(TypeSlotKey.Nominal td.Key)
+        | UnionNestedType.Overlay _ -> containerPlacement td
+        | UnionNestedType.CaseData _ -> "", ValueSome(TypeSlotKey.UnionOverlay td.Key)
+
+    /// The `TypeNode` of one value type a `StructTagged` union owns: its `Slot`, its
     /// fields, and the method and property rows it declares. Redeclares a generic union's
     /// typars where `IsGeneric` holds.
-    let private nestedNode
+    let private ownedNode
         (td: TastAccessor.TypeDecl)
         (t: UnionNestedType)
         (methods: MethodRow list)
         (properties: PropertySlot list)
         : TypeNode =
+        let ns, enclosing = ownedPlacement td t
+
         let fields =
             List.map2
                 (fun key (name, ty) ->
@@ -118,11 +129,11 @@ module internal UnionLayoutNodes =
                 {
                     Key = UnionNestedType.slotKey td.Key t
                     Kind = UnionNestedType.slotKind t
-                    Namespace = ""
-                    MetaName = t.Name
+                    Namespace = ns
+                    MetaName = t.MetaName td.TypeKey
                     Typars = if t.IsGeneric then typarNames td.TypeParams else []
                 }
-            Enclosing = ValueSome(TypeSlotKey.Nominal td.Key)
+            Enclosing = enclosing
             Fields = fields
             Methods = methods
             Properties = properties
@@ -165,23 +176,30 @@ module internal UnionLayoutNodes =
                     }
             ]
 
-        nestedNode td (UnionNestedType.CaseView v) methods properties
+        ownedNode td (UnionNestedType.CaseView v) methods properties
 
-    /// The `TypeNode` of one value type a `StructTagged` union nests: a view declares its
+    /// The `TypeNode` of one value type a `StructTagged` union owns: a view declares its
     /// `.ctor` and properties; a storage type declares fields alone.
-    let private unionNestedNode (td: TastAccessor.TypeDecl) (t: UnionNestedType) : TypeNode =
+    let private unionOwnedNode (td: TastAccessor.TypeDecl) (t: UnionNestedType) : TypeNode =
         match t with
         | UnionNestedType.CaseView v -> unionCaseViewNode td v
         | UnionNestedType.Payload _
         | UnionNestedType.Overlay _
-        | UnionNestedType.CaseData _ -> nestedNode td t [] []
+        | UnionNestedType.CaseData _ -> ownedNode td t [] []
+
+    /// The overlay `TypeNode` with one `Data_<Case>` node nested in it per overlaid case.
+    let private unionOverlayNode (td: TastAccessor.TypeDecl) (cases: UnionCaseData list) : TypeNode =
+        { unionOwnedNode td (UnionNestedType.Overlay cases) with
+            Nested = [ for c in cases -> unionOwnedNode td (UnionNestedType.CaseData c) ]
+        }
 
     /// Per union: `_tag`, a singleton field per nullary case, a flat regime's payload
     /// slots or its `_payload`, `.ctor`, case factories, members and structural rows,
-    /// then the nested `TypeDef`s its regime calls for.
+    /// then the nested `TypeDef`s its regime calls for. A union with an overlay is followed
+    /// by the overlay's node.
     let buildUnionNodes (symbols: ICodegenSymbols) (unions: UnionDecl list) : TypeNode list =
         [
-            for ud in unions ->
+            for ud in unions do
                 let td = ud.Decl
                 let isHierarchy = ud.IsHierarchy
                 let structural = StructuralMembers.ofUnion ud
@@ -219,7 +237,7 @@ module internal UnionLayoutNodes =
                                     ClosureScope = ValueNone
                                 }
                             ],
-                            [ for t in p.NestedTypes -> unionNestedNode td t ]
+                            [ for t in p.NestedTypes -> unionOwnedNode td t ]
                     | ValueNone -> [], [ for c in ud.Cases -> unionCaseNode ud structural c ]
 
                 let fields =
@@ -338,5 +356,12 @@ module internal UnionLayoutNodes =
                 let node =
                     nominalNode (TypeSlotKind.Union(ud.ValueKind, ud.Regime)) td fields methodRows properties
 
-                { node with Nested = nested }
+                yield { node with Nested = nested }
+
+                match ud.Placements with
+                | ValueSome p ->
+                    match p.OverlaidCases with
+                    | [] -> ()
+                    | cases -> yield unionOverlayNode td cases
+                | ValueNone -> ()
         ]

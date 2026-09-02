@@ -948,3 +948,105 @@ let runtimeThrows (expectedTypeFragment: string) (src: string) : unit =
     | Some msg ->
         failwithf "expected a runtime %s but got a different failure:\n%s\nfor:\n%s" expectedTypeFragment msg src
     | None -> failwithf "expected a runtime %s but the program completed for:\n%s" expectedTypeFragment src
+
+// ---- The struct-union data corpus ---------------------------------------------
+
+/// One `StructUnion*` data program and the `[<Struct>]` union it declares.
+type StructUnionProgram =
+    {
+        Program: string
+        /// The union's source name.
+        Union: string
+        Arity: int
+    }
+
+    /// The union's metadata name (`` GBox`1 ``).
+    member this.MetaName: string = SymbolKeyOps.arityName this.Union this.Arity
+
+/// Every `StructUnion*` data program with its union. The census tables are in this order.
+let structUnionCorpus: StructUnionProgram list =
+    [
+        {
+            Program = "StructUnionShape"
+            Union = "Shape"
+            Arity = 0
+        }
+        {
+            Program = "StructUnionGenericShape"
+            Union = "GBox"
+            Arity = 1
+        }
+        {
+            Program = "StructUnionSameNameFields"
+            Union = "Mixed"
+            Arity = 0
+        }
+        {
+            Program = "StructUnionExternalPayload"
+            Union = "Payload"
+            Arity = 0
+        }
+        {
+            Program = "StructUnionLocalRefPayload"
+            Union = "Holder"
+            Arity = 1
+        }
+        {
+            Program = "StructUnionMixedStorage"
+            Union = "Storage"
+            Arity = 0
+        }
+        {
+            Program = "StructUnionGenericOverlay"
+            Union = "GShape"
+            Arity = 1
+        }
+    ]
+
+type AnalysedUnion =
+    {
+        Key: TypeKey
+        Regime: UnionRegime
+        Cases: Frozen.TUnionCase list
+    }
+
+/// The union `unionName` among the analysed declarations. Raises when the program declares
+/// no such union.
+let unionOf (decls: TastAccessor.DeclId list) (unionName: string) : AnalysedUnion =
+    let found =
+        [
+            for d in decls do
+                match TastAccessor.declKind d with
+                | DeclShape.Type ->
+                    let td = TastAccessor.declType d
+
+                    match td.Kind with
+                    | TTypeKindG.Union u when td.Name = unionName ->
+                        {
+                            Key = td.TypeKey
+                            Regime =
+                                UnionRegime.classify
+                                    u.ValueKind
+                                    u.Cases.Length
+                                    (u.Cases |> EqArray.exists (fun c -> not c.Fields.IsEmpty))
+                            Cases = EqArray.toList u.Cases
+                        }
+                    | _ -> ()
+                | _ -> ()
+        ]
+
+    match found with
+    | [ one ] -> one
+    | _ -> failwithf "no union '%s' among the analysed declarations" unionName
+
+/// The flat placements of `u`. Raises when the union's regime is a hierarchy one.
+let flatPlacementsOf (symbols: ICodegenSymbols) (u: AnalysedUnion) : FlatUnionPlacements =
+    match FlatUnionPlacements.ofCases symbols u.Key u.Regime u.Cases with
+    | ValueSome p -> p
+    | ValueNone -> failwithf "%A is a hierarchy regime" u.Regime
+
+let analysedStructUnion (entry: StructUnionProgram) : ICodegenSymbols * AnalysedUnion =
+    let symbols, decls =
+        analysedSymbols defaultPackages entry.Program (dataSource entry.Program)
+
+    symbols, unionOf decls entry.Union

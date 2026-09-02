@@ -188,14 +188,16 @@ type UnionCasePlacement =
         Fields: UnionCaseField list
     }
 
-/// One value type a `StructTagged` union nests: the storage behind `_payload`, or a public
-/// per-case view over it.
+/// One value type a `StructTagged` union owns: the storage behind `_payload`, or a public
+/// per-case view over it. `Payload` and the views are nested in the union; the overlay is
+/// the union's sibling, with the case data structs nested in the overlay.
 [<RequireQualifiedAccess>]
 type UnionNestedType =
     /// `Payload`, holding the slots in field-row order and redeclaring a generic union's
     /// typars.
     | Payload of slots: UnionSlot list
-    /// `Data`, the `ExplicitLayout` overlay: one field per case data struct, at offset 0.
+    /// `<Union>$Data`, the `ExplicitLayout` overlay: one field per case data struct, at
+    /// offset 0.
     | Overlay of cases: UnionCaseData list
     /// `Data_<Case>`, sequential, holding the case's unmanaged fields.
     | CaseData of UnionCaseData
@@ -203,14 +205,6 @@ type UnionNestedType =
     /// union's typars.
     | CaseView of UnionCasePlacement
 
-    member this.Name: string =
-        match this with
-        | UnionNestedType.Payload _ -> UnionPayloadType.payloadName
-        | UnionNestedType.Overlay _ -> UnionPayloadType.overlayName
-        | UnionNestedType.CaseData c -> UnionPayloadType.caseDataName c.Case
-        | UnionNestedType.CaseView v -> UnionPayloadType.viewName v.Case.Name
-
-    /// The key the type is registered under, nested in `unionKey`.
     member this.TypeKey(unionKey: TypeKey) : TypeKey =
         match this with
         | UnionNestedType.Payload _ -> UnionPayloadType.payloadKey unionKey
@@ -218,8 +212,10 @@ type UnionNestedType =
         | UnionNestedType.CaseData c -> UnionPayloadType.caseDataKey unionKey c.Case
         | UnionNestedType.CaseView v -> UnionPayloadType.viewKey unionKey v.Case.Name
 
-    /// Whether the type redeclares the union's typars. Explicit layout is illegal on a
-    /// generic type, so the overlay and the case data structs declare none.
+    /// The `TypeDef` name: one segment, with no arity suffix.
+    member this.MetaName(unionKey: TypeKey) : string = (this.TypeKey unionKey).Name
+
+    /// Whether the type redeclares the union's typars.
     member this.IsGeneric: bool =
         match this with
         | UnionNestedType.Payload _
@@ -284,8 +280,7 @@ type FlatUnionPlacements =
         | UnionSlotHome.Payload p -> p.OverlaidCases
         | UnionSlotHome.Inline _ -> []
 
-    /// The value types the union nests, in `TypeDef` row order: `Payload`, then, where the
-    /// overlay exists, `Data` and one `Data_<Case>` per overlaid case, then one
+    /// The value types nested in the union, in `TypeDef` row order: `Payload`, then one
     /// `Payload_<Case>` per view. Empty for an `Inline` home.
     member this.NestedTypes: UnionNestedType list =
         match this.Home with
@@ -294,14 +289,19 @@ type FlatUnionPlacements =
             [
                 yield UnionNestedType.Payload p.Slots
 
-                match p.OverlaidCases with
-                | [] -> ()
-                | cases ->
-                    yield UnionNestedType.Overlay cases
-
-                    for c in cases -> UnionNestedType.CaseData c
-
                 for v in this.Views -> UnionNestedType.CaseView v
+            ]
+
+    /// The overlay's subtree, in `TypeDef` row order: the overlay, then one `Data_<Case>`
+    /// per overlaid case nested in it. Empty when no case is overlaid.
+    member this.OverlayTypes: UnionNestedType list =
+        match this.OverlaidCases with
+        | [] -> []
+        | cases ->
+            [
+                yield UnionNestedType.Overlay cases
+
+                for c in cases -> UnionNestedType.CaseData c
             ]
 
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]

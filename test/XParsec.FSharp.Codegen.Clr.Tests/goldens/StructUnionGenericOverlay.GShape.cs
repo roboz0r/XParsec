@@ -1,0 +1,196 @@
+/*
+[<Struct>]
+type GShape<'T> =
+    | Val of v: 'T
+    | Pt of x: int * y: int
+*/
+
+using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+using Vesper;
+
+[Struct]
+public readonly struct GShape<T> : IEquatable<GShape<T>>, IStructuralFormattable
+{
+	internal struct Payload
+	{
+		internal GShape$Data$1 _data;
+
+		internal T _val0;
+	}
+
+	public readonly struct Payload_Val
+	{
+		private readonly Payload _payload;
+
+		public T v => _payload._val0;
+
+		internal Payload_Val(Payload _payload)
+		{
+			this._payload = _payload;
+		}
+	}
+
+	public readonly struct Payload_Pt
+	{
+		private readonly Payload _payload;
+
+		public int x => _payload._data.Pt._x;
+
+		public int y => _payload._data.Pt._y;
+
+		internal Payload_Pt(Payload _payload)
+		{
+			this._payload = _payload;
+		}
+	}
+
+	private readonly int _tag;
+
+	internal readonly Payload _payload;
+
+	public int Tag => _tag;
+
+	public GShape(int _tag, Payload _payload)
+	{
+		this._tag = _tag;
+		this._payload = _payload;
+	}
+
+	public static GShape<T> Val(T arg0)
+	{
+		Payload payload = default(Payload);
+		payload._val0 = arg0;
+		return new GShape<T>(0, payload);
+	}
+
+	public static GShape<T> Pt(int arg0, int arg1)
+	{
+		Payload payload = default(Payload);
+		payload._data.Pt._x = arg0;
+		payload._data.Pt._y = arg1;
+		return new GShape<T>(1, payload);
+	}
+
+	public T Get_Val_0()
+	{
+		return _payload._val0;
+	}
+
+	public int Get_Pt_0()
+	{
+		return _payload._data.Pt._x;
+	}
+
+	public int Get_Pt_1()
+	{
+		return _payload._data.Pt._y;
+	}
+
+	public Payload_Val Get_Val()
+	{
+		return new Payload_Val(_payload);
+	}
+
+	public Payload_Pt Get_Pt()
+	{
+		return new Payload_Pt(_payload);
+	}
+
+	public override int GetHashCode()
+	{
+		HashCode hashCode = default(HashCode);
+		hashCode.Add(_tag);
+		if (_tag != 0)
+		{
+			if (_tag == 1)
+			{
+				hashCode.Add(_payload._data.Pt._x);
+				hashCode.Add(_payload._data.Pt._y);
+			}
+		}
+		else
+		{
+			hashCode.Add(_payload._val0);
+		}
+		return hashCode.ToHashCode();
+	}
+
+	public override bool Equals(object obj)
+	{
+		object obj2 = ((obj is GShape<T>) ? obj : null);
+		if (obj2 != null)
+		{
+			GShape<T> gShape = (GShape<T>)obj2;
+			if (_tag == gShape._tag)
+			{
+				if (_tag != 0)
+				{
+					if (_tag != 1 || (EqualityComparer<int>.Default.Equals(_payload._data.Pt._x, gShape._payload._data.Pt._x) && EqualityComparer<int>.Default.Equals(_payload._data.Pt._y, gShape._payload._data.Pt._y)))
+					{
+						goto IL_00de;
+					}
+				}
+				else if (EqualityComparer<T>.Default.Equals(_payload._val0, gShape._payload._val0))
+				{
+					goto IL_00de;
+				}
+			}
+		}
+		return false;
+		IL_00de:
+		return true;
+	}
+
+	public bool Equals(GShape<T> other)
+	{
+		if (_tag == other._tag)
+		{
+			if (_tag != 0)
+			{
+				if (_tag != 1 || (EqualityComparer<int>.Default.Equals(_payload._data.Pt._x, other._payload._data.Pt._x) && EqualityComparer<int>.Default.Equals(_payload._data.Pt._y, other._payload._data.Pt._y)))
+				{
+					goto IL_00ca;
+				}
+			}
+			else if (EqualityComparer<T>.Default.Equals(_payload._val0, other._payload._val0))
+			{
+				goto IL_00ca;
+			}
+		}
+		return false;
+		IL_00ca:
+		return true;
+	}
+
+	public void Format(IFormatSink sink)
+	{
+		if (_tag != 0)
+		{
+			sink.BeginCase("Pt");
+			sink.Child((object)_payload._data.Pt._x);
+			sink.Child((object)_payload._data.Pt._y);
+			sink.EndCase();
+		}
+		else
+		{
+			sink.BeginCase("Val");
+			sink.Child((object)_payload._val0);
+			sink.EndCase();
+		}
+	}
+}
+[StructLayout(LayoutKind.Explicit)]
+internal struct GShape$Data$1
+{
+	internal struct Data_Pt
+	{
+		internal int _x;
+
+		internal int _y;
+	}
+
+	[FieldOffset(0)]
+	internal Data_Pt Pt;
+}

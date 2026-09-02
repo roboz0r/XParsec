@@ -6,6 +6,7 @@ open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Common
+open XParsec.FSharp.Codegen.Common.Tests
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 open XParsec.FSharp.Codegen.Clr.Tests.PeInspection
 
@@ -71,7 +72,8 @@ let structUnionTests =
 
             // `Point.x`, `Pair.a` and `Pair.b` are all unmanaged `int`s, so every case's
             // fields sit on its own data struct and the two structs share offset 0 of the
-            // explicit-layout overlay `Data`, which is `Payload`'s only slot.
+            // explicit-layout overlay `Shape$Data`, which is `Payload`'s only slot. The
+            // overlay is the union's sibling, with the case data structs nested in it.
             test "a `[<Struct>]` union's unmanaged fields overlap at offset 0 of an explicit-layout overlay" {
                 let bytes = Codegen.toBytes (compileSourceData "StructUnionShape")
                 MetadataStructure.assertWellFormed "StructUnionOverlay" bytes
@@ -82,33 +84,37 @@ let structUnionTests =
                     "Payload holds the overlay alone"
 
                 Expect.equal
-                    (MetadataStructure.fieldsOf bytes "Shape+Data")
+                    (MetadataStructure.fieldsOf bytes "Shape$Data")
                     [ "Point"; "Pair" ]
                     "one overlay field per case"
 
-                Expect.equal (MetadataStructure.fieldsOf bytes "Shape+Data_Point") [ "_x" ] "Point's data struct"
-                Expect.equal (MetadataStructure.fieldsOf bytes "Shape+Data_Pair") [ "_a"; "_b" ] "Pair's data struct"
+                Expect.equal (MetadataStructure.fieldsOf bytes "Shape$Data+Data_Point") [ "_x" ] "Point's data struct"
+
+                Expect.equal
+                    (MetadataStructure.fieldsOf bytes "Shape$Data+Data_Pair")
+                    [ "_a"; "_b" ]
+                    "Pair's data struct"
 
                 let decl name =
                     match MetadataStructure.typeDecl bytes name with
                     | ValueSome d -> d
                     | ValueNone -> failwithf "no type %s" name
 
-                let overlay = decl "Shape+Data"
+                let overlay = decl "Shape$Data"
                 Expect.equal overlay.Layout TypeAttributes.ExplicitLayout "the overlay is ExplicitLayout"
-                Expect.equal overlay.Visibility TypeAttributes.NestedAssembly "the overlay is assembly-visible"
+                Expect.equal overlay.Visibility TypeAttributes.NotPublic "the overlay is assembly-visible"
                 Expect.isTrue overlay.IsSealed "the overlay is sealed"
                 Expect.equal overlay.Extends "System.ValueType" "the overlay is a value type"
                 Expect.isEmpty overlay.Typars "the overlay declares no typar"
 
                 Expect.equal
-                    (MetadataStructure.fieldLayoutsOf bytes "Shape+Data")
+                    (MetadataStructure.fieldLayoutsOf bytes "Shape$Data")
                     [ "Point", 0; "Pair", 0 ]
                     "every case data struct sits at offset 0"
 
                 Expect.equal (MetadataStructure.classLayoutRowCount bytes) 0 "the loader computes every size"
 
-                for name in [ "Shape+Payload"; "Shape+Data_Point"; "Shape+Data_Pair" ] do
+                for name in [ "Shape+Payload"; "Shape$Data+Data_Point"; "Shape$Data+Data_Pair" ] do
                     let d = decl name
                     Expect.equal d.Layout TypeAttributes.SequentialLayout (name + " is sequential")
                     Expect.equal d.Extends "System.ValueType" (name + " is a value type")
@@ -116,7 +122,7 @@ let structUnionTests =
 
                 // The factory writes a case's fields through `ldflda` into a zeroed
                 // `Payload` local, which `initonly` would forbid.
-                for name in [ "Shape+Payload"; "Shape+Data"; "Shape+Data_Pair" ] do
+                for name in [ "Shape+Payload"; "Shape$Data"; "Shape$Data+Data_Pair" ] do
                     for (field, attrs) in MetadataStructure.fieldAttrsOf bytes name do
                         Expect.isFalse (attrs.HasFlag FieldAttributes.InitOnly) (sprintf "%s.%s is writable" name field)
 
@@ -175,7 +181,7 @@ let structUnionTests =
                     "the overlay, the object slot, then the two exact slots"
 
                 Expect.equal
-                    (MetadataStructure.fieldsOf bytes "Storage+Data")
+                    (MetadataStructure.fieldsOf bytes "Storage$Data")
                     [ "Scalars"; "Nested"; "Both" ]
                     "the cases with an unmanaged field"
 
@@ -201,8 +207,9 @@ let structUnionTests =
                 Expect.equal (read "Get_Id_0" zero) (box Guid.Empty) "the zero value's exact slot"
             }
 
-            // The overlay and its case data struct are non-generic types nested in the
-            // generic union, so explicit layout stays off the generic type.
+            // The overlay and its case data struct are non-generic siblings of the generic
+            // union, so explicit layout stays off the generic type and every type nested in
+            // the generic union redeclares its typars.
             test "a generic struct union with an unmanaged case loads and runs" {
                 let bytes = Codegen.toBytes (compileSourceData "StructUnionGenericOverlay")
                 MetadataStructure.assertWellFormed "StructUnionGenericOverlay" bytes
@@ -213,9 +220,9 @@ let structUnionTests =
                     | ValueNone -> failwithf "no type %s" name
 
                 Expect.equal (decl "GShape`1+Payload").Typars [ "T" ] "Payload redeclares the union's typar"
-                Expect.isEmpty (decl "GShape`1+Data").Typars "the overlay is non-generic"
-                Expect.equal (decl "GShape`1+Data").Layout TypeAttributes.ExplicitLayout "the overlay is ExplicitLayout"
-                Expect.isEmpty (decl "GShape`1+Data_Pt").Typars "the case data struct is non-generic"
+                Expect.isEmpty (decl "GShape$Data$1").Typars "the overlay is non-generic"
+                Expect.equal (decl "GShape$Data$1").Layout TypeAttributes.ExplicitLayout "the overlay is ExplicitLayout"
+                Expect.isEmpty (decl "GShape$Data$1+Data_Pt").Typars "the case data struct is non-generic"
 
                 let asm = loadAssembly bytes
                 let ty = (asm.GetType "GShape`1").MakeGenericType [| typeof<string> |]
@@ -516,7 +523,7 @@ let structUnionTests =
                         .GetField(name, BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Instance)
                         .FieldType
 
-                Expect.equal (fieldTy "_data") (asm.GetType "Mixed+Data") "the overlay slot is the nested Data"
+                Expect.equal (fieldTy "_data") (asm.GetType "Mixed$Data") "the overlay slot is the sibling overlay"
                 Expect.equal (fieldTy "_ref0") typeof<obj> "the reference slot is `object`"
 
                 let ty = asm.GetType "Mixed"
@@ -525,5 +532,86 @@ let structUnionTests =
                 // out.
                 let s = ty.GetMethod("S").Invoke(null, [| box "hi" |])
                 Expect.equal (ty.GetMethod("Get_S_0").Invoke(s, [||])) (box "hi") "Get_S_0 reads through the cast"
+            }
+        ]
+
+// ---- Decompiled-C# goldens --------------------------------------------------
+// One golden per union in the struct-union data corpus, `goldens/<Program>.<Union>.cs`: the
+// union's F# declaration in a leading block comment, then the union and its sibling overlay
+// rendered as C#. The rendering will not compile: the overlay's `$` name has no C# spelling.
+// Regenerate with `-UpdateSnapshots`.
+
+let private goldensDir = IO.Path.Combine(__SOURCE_DIRECTORY__, "goldens")
+
+let private goldenFile (entry: StructUnionProgram) : string =
+    sprintf "%s.%s.cs" entry.Program entry.Union
+
+/// The union's declaration in its data program: the `type` line with the attribute lines
+/// directly above it, through every following blank or indented line.
+let private unionDeclSource (entry: StructUnionProgram) : string =
+    let lines =
+        (dataSource entry.Program).Split '\n' |> Array.map (fun l -> l.TrimEnd '\r')
+
+    let declares (line: string) =
+        let prefix = "type " + entry.Union
+
+        line.StartsWith prefix
+        && (line.Length = prefix.Length || " <=".IndexOf line.[prefix.Length] >= 0)
+
+    let typeLine =
+        match Array.tryFindIndex declares lines with
+        | Some i -> i
+        | None -> failwithf "%s declares no `type %s`" entry.Program entry.Union
+
+    let rec firstAttr i =
+        if i > 0 && lines.[i - 1].StartsWith "[<" then
+            firstAttr (i - 1)
+        else
+            i
+
+    let continues (line: string) =
+        line.Length = 0 || Char.IsWhiteSpace line.[0]
+
+    let rec pastEnd i =
+        if i < lines.Length && continues lines.[i] then
+            pastEnd (i + 1)
+        else
+            i
+
+    lines.[firstAttr typeLine .. pastEnd (typeLine + 1) - 1]
+    |> Array.rev
+    |> Array.skipWhile (fun l -> l.Length = 0)
+    |> Array.rev
+    |> String.concat "\n"
+
+[<Tests>]
+let structUnionLayoutGoldens =
+    testList
+        "StructUnion layout goldens"
+        [
+            for entry in structUnionCorpus do
+                let file = goldenFile entry
+
+                test file {
+                    let artifact = compileSourceData entry.Program
+                    let symbols, u = analysedStructUnion entry
+
+                    let names =
+                        [
+                            yield entry.MetaName
+
+                            match (flatPlacementsOf symbols u).OverlaidCases with
+                            | [] -> ()
+                            | _ -> yield UnionPayloadType.overlayName u.Key
+                        ]
+
+                    let actual =
+                        sprintf "/*\n%s\n*/\n\n%s" (unionDeclSource entry) (Decompile.typesAsCSharp artifact names)
+
+                    Goldens.check (IO.Path.Combine(goldensDir, file)) file actual
+                }
+
+            test "no golden outlives the union it pins" {
+                Goldens.checkNoOrphans goldensDir "StructUnion*.cs" (List.map goldenFile structUnionCorpus)
             }
         ]

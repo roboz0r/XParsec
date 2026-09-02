@@ -21,6 +21,7 @@
   <ItemGroup>
     <Compile Include="PeInspection.fs" />
     <Compile Include="TestHelpers.fs" />
+    <Compile Include="Decompile.fs" />
     <Compile Include="PackageHarness.fs" />
     <Compile Include="MetadataStructure.fs" />
     <Compile Include="ClrStructuralDigest.fs" />
@@ -113,6 +114,9 @@
     <PackageReference Include="YoloDev.Expecto.TestSdk" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="FSharp.Core" />
+    <!-- Decompiled-C# goldens (`Decompile.fs`): one type or method rendered as C# so a
+         layout change reads as a source diff. -->
+    <PackageReference Include="ICSharpCode.Decompiler" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\XParsec.FSharp.SemanticAnalysis\XParsec.FSharp.SemanticAnalysis.fsproj" />

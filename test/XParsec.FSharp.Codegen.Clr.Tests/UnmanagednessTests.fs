@@ -290,19 +290,13 @@ printfn "%d" (match B (System.Text.StringBuilder()) with | B _ -> 1 | _ -> 0)
             // `StructUnion*` data programs, classified. Widening the classifier or changing
             // a program changes this table.
             test "census over the struct-union data corpus" {
-                let corpus =
-                    [
-                        "StructUnionShape", "Shape"
-                        "StructUnionGenericShape", "GBox"
-                        "StructUnionSameNameFields", "Mixed"
-                        "StructUnionExternalPayload", "Payload"
-                    ]
-
                 let actual =
                     [
-                        for (program, unionName) in corpus do
-                            let symbols, decls = analysedSymbols defaultPackages program (dataSource program)
-                            yield! census symbols decls unionName
+                        for entry in structUnionCorpus do
+                            let symbols, decls =
+                                analysedSymbols defaultPackages entry.Program (dataSource entry.Program)
+
+                            yield! census symbols decls entry.Union
                     ]
 
                 Expect.equal
@@ -321,6 +315,20 @@ printfn "%d" (match B (System.Text.StringBuilder()) with | B _ -> 1 | _ -> 0)
                         "Payload.Text.s: Managed"
                         "Payload.Id.id: Undetermined(Guid)"
                         "Payload.Stamp.at: Undetermined(DateTime)"
+                        "Holder.Val.v: Managed"
+                        "Holder.Text.s: Managed"
+                        "Holder.Rec.r: Managed"
+                        "Storage.Scalars.x: Unmanaged"
+                        "Storage.Scalars.y: Unmanaged"
+                        "Storage.Nested.inner: Unmanaged"
+                        "Storage.Text.s: Managed"
+                        "Storage.Labelled.t: Managed"
+                        "Storage.Id.id: Undetermined(Guid)"
+                        "Storage.Both.k: Unmanaged"
+                        "Storage.Both.name: Managed"
+                        "GShape.Val.v: Managed"
+                        "GShape.Pt.x: Unmanaged"
+                        "GShape.Pt.y: Unmanaged"
                     ]
                     "the census"
             }
