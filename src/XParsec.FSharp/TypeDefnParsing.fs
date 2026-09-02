@@ -1370,23 +1370,29 @@ module TypeDefn =
                         [
                             parser {
                                 let! tNormal = Type.parse
-                                let! peekAfter = peekNextSyntaxToken
+                                // The peek fails at end of input and on an offside token,
+                                // which is how a block-closing dedent presents; either way
+                                // no operator follows the type.
+                                let! peekAfter = opt peekNextSyntaxToken
                                 let! state = getUserState
 
-                                // Also treat fused `^-` / `^+` operators (lexer merges
-                                // `^-N` into a single custom operator at Append precedence)
-                                // as a signal to retry as measure type.
-                                let startsWithCaret = ParseState.tokenStringStartsWith "^" peekAfter state
+                                match peekAfter with
+                                | ValueNone -> return tNormal
+                                | ValueSome peekAfter ->
+                                    // Also treat fused `^-` / `^+` operators (lexer merges
+                                    // `^-N` into a single custom operator at Append precedence)
+                                    // as a signal to retry as measure type.
+                                    let startsWithCaret = ParseState.tokenStringStartsWith "^" peekAfter state
 
-                                if
-                                    peekAfter.Token = Token.OpDivision
-                                    || peekAfter.Token = Token.OpConcatenate
-                                    || peekAfter.Token = Token.OpMultiply
-                                    || startsWithCaret
-                                then
-                                    return! fail errRetryAsMeasureType
-                                else
-                                    return tNormal
+                                    if
+                                        peekAfter.Token = Token.OpDivision
+                                        || peekAfter.Token = Token.OpConcatenate
+                                        || peekAfter.Token = Token.OpMultiply
+                                        || startsWithCaret
+                                    then
+                                        return! fail errRetryAsMeasureType
+                                    else
+                                        return tNormal
                             }
                             (Measure.parse |>> Type.MeasureType)
                         ]

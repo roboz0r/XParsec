@@ -1,0 +1,118 @@
+namespace                          'namespace'       KWNamespace         tok=   0  pos=   0
+                                   'Test'            Identifier          tok=   2  pos=  10
+  Module:
+    module                         'module'          KWModule            tok=  11  pos= 233
+    ident                          'Tuple'           Identifier          tok=  13  pos= 240
+    =                              '='               OpEquality          tok=  15  pos= 246
+    begin                          <virt>            KWBegin             tok=virt  pos= 252
+      TypeDefn.Abbrev:
+        TypeName                   'intpair'         Identifier          tok=  20  pos= 257
+        =                          '='               OpEquality          tok=  22  pos= 265
+          TupleType:
+            NamedType:
+              Ident                'int'             Identifier          tok=  24  pos= 267
+            *                      '*'               OpMultiply          tok=  26  pos= 271
+            NamedType:
+              Ident                'int'             Identifier          tok=  28  pos= 273
+    end                            <virt>            KWEnd               tok=virt  pos= 278
+  Module:
+    module                         'module'          KWModule            tok=  31  pos= 278
+    ident                          'Generic'         Identifier          tok=  33  pos= 285
+    =                              '='               OpEquality          tok=  35  pos= 293
+    begin                          <virt>            KWBegin             tok=virt  pos= 299
+      TypeDefn.Abbrev:
+        TypeName                   'pairs'           Identifier          tok=  40  pos= 304
+        =                          '='               OpEquality          tok=  42  pos= 310
+          GenericType:
+            Ident                  'List'            Identifier          tok=  44  pos= 312
+            <                      '<'               op_LessThan         tok=  45  pos= 316
+            TypeArg.Type:
+              TupleType:
+                NamedType:
+                  Ident            'int'             Identifier          tok=  46  pos= 317
+                *                  '*'               OpMultiply          tok=  48  pos= 321
+                NamedType:
+                  Ident            'int'             Identifier          tok=  50  pos= 323
+            >                      '>'               op_GreaterThan      tok=  51  pos= 326
+    end                            <virt>            KWEnd               tok=virt  pos= 329
+  Module:
+    module                         'module'          KWModule            tok=  54  pos= 329
+    ident                          'Named'           Identifier          tok=  56  pos= 336
+    =                              '='               OpEquality          tok=  58  pos= 342
+    begin                          <virt>            KWBegin             tok=virt  pos= 348
+      TypeDefn.Abbrev:
+        TypeName                   'myint'           Identifier          tok=  63  pos= 353
+        =                          '='               OpEquality          tok=  65  pos= 359
+          NamedType:
+            Ident                  'int'             Identifier          tok=  67  pos= 361
+    end                            <virt>            KWEnd               tok=virt  pos= 441
+  Module:
+    module                         'module'          KWModule            tok=  72  pos= 441
+    ident                          'Units'           Identifier          tok=  74  pos= 448
+    =                              '='               OpEquality          tok=  76  pos= 454
+    begin                          <virt>            KWBegin             tok=virt  pos= 460
+      TypeDefn.Abstract:
+        [<                         '[<'              KWLAttrBracket      tok=  79  pos= 460
+        NamedType:
+          Ident                    'Measure'         Identifier          tok=  80  pos= 462
+        >]                         '>]'              KWRAttrBracket      tok=  81  pos= 469
+        TypeName                   'kg'              Identifier          tok=  86  pos= 481
+      TypeDefn.Abstract:
+        [<                         '[<'              KWLAttrBracket      tok=  90  pos= 489
+        NamedType:
+          Ident                    'Measure'         Identifier          tok=  91  pos= 491
+        >]                         '>]'              KWRAttrBracket      tok=  92  pos= 498
+        TypeName                   's'               Identifier          tok=  97  pos= 510
+      TypeDefn.Abbrev:
+        [<                         '[<'              KWLAttrBracket      tok= 101  pos= 517
+        NamedType:
+          Ident                    'Measure'         Identifier          tok= 102  pos= 519
+        >]                         '>]'              KWRAttrBracket      tok= 103  pos= 526
+        TypeName                   'N'               Identifier          tok= 108  pos= 538
+        =                          '='               OpEquality          tok= 110  pos= 540
+          TupleType:
+            NamedType:
+              Ident                'kg'              Identifier          tok= 112  pos= 542
+            *                      '*'               OpMultiply          tok= 114  pos= 545
+            NamedType:
+              Ident                's'               Identifier          tok= 116  pos= 547
+    end                            <virt>            KWEnd               tok=virt  pos= 550
+  Module:
+    module                         'module'          KWModule            tok= 119  pos= 550
+    ident                          'Use'             Identifier          tok= 121  pos= 557
+    =                              '='               OpEquality          tok= 123  pos= 561
+    begin                          <virt>            KWBegin             tok=virt  pos= 567
+      FunctionOrValue:
+        let                        'let'             KWLet               tok= 126  pos= 567
+          Pat.NamedSimple          'both'            Identifier          tok= 128  pos= 571
+          Pats:
+            ParenBlock             '('               KWLParen            tok= 130  pos= 576
+              Pat.Typed:
+                Pat.NamedSimple    'p'               Identifier          tok= 131  pos= 577
+                Colon              ':'               OpColon             tok= 132  pos= 578
+                NamedType:
+                  LongIdent:
+                                   'Tuple'           Identifier          tok= 134  pos= 580
+                                   'intpair'         Identifier          tok= 136  pos= 586
+                                   ')'               KWRParen            tok= 137  pos= 593
+          ReturnColon              ':'               OpColon             tok= 139  pos= 595
+          NamedType:
+            LongIdent:
+                                   'Named'           Identifier          tok= 141  pos= 597
+                                   'myint'           Identifier          tok= 143  pos= 603
+          =                        '='               OpEquality          tok= 145  pos= 609
+            Let                    'let'             KWLet               tok= 148  pos= 619
+              ParenBlock           '('               KWLParen            tok= 150  pos= 623
+                Pat.Tuple:
+                  Pat.NamedSimple  'a'               Identifier          tok= 151  pos= 624
+                  ,                ','               OpComma             tok= 152  pos= 625
+                  Pat.NamedSimple  'b'               Identifier          tok= 154  pos= 627
+                                   ')'               KWRParen            tok= 155  pos= 628
+              =                    '='               OpEquality          tok= 157  pos= 630
+                Ident              'p'               Identifier          tok= 159  pos= 632
+            in                     <virt>            KWIn                tok=virt  pos= 642
+            Body:
+              InfixApp             '+'               op_Addition         tok= 164  pos= 644
+                Ident              'a'               Identifier          tok= 162  pos= 642
+                Ident              'b'               Identifier          tok= 166  pos= 646
+    end                            <virt>            KWEnd               tok=virt  pos= 648

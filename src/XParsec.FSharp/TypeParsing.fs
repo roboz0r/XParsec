@@ -376,19 +376,24 @@ module Type =
             [
                 parser {
                     let! tNormal = refType.Parser
-                    let! peekAfter = peekNextSyntaxToken
+                    // A failed peek (end of input, offside token) means no operator follows.
+                    let! peekAfter = opt peekNextSyntaxToken
                     let! state = getUserState
-                    let startsWithCaret = ParseState.tokenStringStartsWith "^" peekAfter state
 
-                    if
-                        peekAfter.Token = Token.OpDivision
-                        || peekAfter.Token = Token.OpConcatenate
-                        || peekAfter.Token = Token.OpMultiply
-                        || startsWithCaret
-                    then
-                        return! fail errRetryAsMeasureArg
-                    else
-                        return TypeArg.Type tNormal
+                    match peekAfter with
+                    | ValueNone -> return TypeArg.Type tNormal
+                    | ValueSome peekAfter ->
+                        let startsWithCaret = ParseState.tokenStringStartsWith "^" peekAfter state
+
+                        if
+                            peekAfter.Token = Token.OpDivision
+                            || peekAfter.Token = Token.OpConcatenate
+                            || peekAfter.Token = Token.OpMultiply
+                            || startsWithCaret
+                        then
+                            return! fail errRetryAsMeasureArg
+                        else
+                            return TypeArg.Type tNormal
                 }
                 (refMeasure.Parser |>> TypeArg.Measure)
             ]
