@@ -202,6 +202,28 @@ let f (t: T<int>) = t
 "
                     }
 
+                    // An `inherit` clause is TYPE position, so an arity disagreement there is
+                    // FS0033 against the max-rank claim (`B.T<_,_>`), never FS1124.
+                    test "an inherit clause under an arity disagreement reports FS0033 against the max-rank claim" {
+                        expectOneUserError
+                            "expects 2 type argument"
+                            "\
+module A =
+    type T<'a>(x: 'a) =
+        member _.X = x
+
+module B =
+    type T<'a, 'b>(x: 'a, y: 'b) =
+        member _.X = x
+
+module N =
+    open A
+    open B
+
+    type D(y: int) =
+        inherit T(y)
+"
+                    }
                 ]
 
             testList
@@ -240,11 +262,11 @@ let v = T(1)
                     }
 
                     // FS1124: "Multiple types exist called 'T', taking different numbers of
-                    // generic parameters. Provide a type instantiation to disambiguate." The
-                    // name currently resolves to nothing silently, and the unresolved type
-                    // reaches the freeze as a stray `TyVar`.
-                    ptest "GAP: generic claims that disagree on arity report an ambiguity" {
-                        expectUserError
+                    // generic parameters. Provide a type instantiation to disambiguate." F#
+                    // reports it alone, so the name recovers to the claim of nearest arity and
+                    // the binding still types.
+                    test "generic claims that disagree on arity report an ambiguity" {
+                        expectOneUserError
                             "Multiple types"
                             "\
 module A =
@@ -254,6 +276,47 @@ module A =
 module B =
     type T<'a, 'b>(x: 'a, y: 'b) =
         member _.X = x
+
+module N =
+    open A
+    open B
+
+    let v = T(1)
+"
+                    }
+
+                    // Two RECORDS at different arities are the same FS1124: the candidate set
+                    // is every claim the position admits.
+                    test "record claims that disagree on arity report an ambiguity" {
+                        expectOneUserError
+                            "Multiple types"
+                            "\
+module A =
+    type T<'a> = { X: 'a }
+
+module B =
+    type T<'a, 'b> = { Y: 'a; Z: 'b }
+
+module N =
+    open A
+    open B
+
+    let v = T
+"
+                    }
+
+                    // A bare name in expression position denotes a CONSTRUCTOR, so the one
+                    // class claiming it settles the arity and the same-named record of another
+                    // arity is no ambiguity. F# accepts this.
+                    test "a lone class claim settles the arity past a record of another arity" {
+                        expectClean
+                            "\
+module A =
+    type T<'a>(x: 'a) =
+        member _.X = x
+
+module B =
+    type T<'a, 'b> = { X: 'a; Y: 'b }
 
 module N =
     open A

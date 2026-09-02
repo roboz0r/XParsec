@@ -56,6 +56,16 @@ type ClaimedTypeDefn =
         Defn: TypeDefn<SyntaxToken>
     }
 
+/// The claim a type name written WITHOUT type arguments takes at a use site.
+[<RequireQualifiedAccess>]
+type ArglessClaim =
+    /// The max-rank non-generic claim, else the max-rank claim at the one arity claimed.
+    | Takes of TypeIdentity
+    /// Claims reach the use site at several arities, none of them 0 (FS1124). `arities` is
+    /// ascending; `recovery` is the max-rank claim at the smallest arity.
+    | Disagreement of arities: EqArray<int> * recovery: TypeIdentity
+    | NoClaim
+
 /// One type kind's entries, addressed by the type's own `TypeKey`: the WHOLE containment
 /// chain, not a name. A name resolves to a key through the name table, `TypeClaims`.
 type KindRegistry<'Info> = Dictionary<TypeKey, 'Info>
@@ -194,31 +204,44 @@ module TypeRegistry =
                     }
                 )
 
+    /// Every claim on `written` reaching `useSite`, at any arity, beside its rank, best rank
+    /// first. Claims sharing a rank keep declaration order. A qualified `written.Path` narrows
+    /// the scopes read to those the path reaches.
+    let private rankedClaims
+        (types: PassContextTypes)
+        (useSite: UseSite)
+        (written: WrittenTypeName)
+        : struct (BindingRank * TypeIdentity) list =
+        match types.TypeClaims.TryGetValue written.Name with
+        | true, claims ->
+            let reaches = pathReaches types useSite written.Path
+
+            [
+                for c in claims do
+                    match claimRank useSite reaches c with
+                    | ValueSome r -> struct (r, c)
+                    | ValueNone -> ()
+            ]
+            |> List.sortByDescending (fun struct (r, _) -> r)
+        | false, _ -> []
+
     /// `pick` applied to the max-rank claim on `written` at `useSite` that `pick` accepts,
-    /// beside the rank it won at. A qualified `written.Path` narrows the scopes read to those
-    /// the path reaches.
+    /// beside the rank it won at.
     let private tryPickWinnerRanked
         (types: PassContextTypes)
         (useSite: UseSite)
         (written: WrittenTypeName)
         (pick: TypeIdentity -> 'T voption)
         : struct (BindingRank * 'T) voption =
-        match types.TypeClaims.TryGetValue written.Name with
-        | true, claims ->
-            let reaches = pathReaches types useSite written.Path
+        let rec first (ranked: struct (BindingRank * TypeIdentity) list) =
+            match ranked with
+            | [] -> ValueNone
+            | struct (r, c) :: rest ->
+                match pick c with
+                | ValueSome picked -> ValueSome(struct (r, picked))
+                | ValueNone -> first rest
 
-            BindingRank.bestRanked (
-                seq {
-                    for c in claims do
-                        match pick c with
-                        | ValueSome picked ->
-                            match claimRank useSite reaches c with
-                            | ValueSome r -> struct (r, picked)
-                            | ValueNone -> ()
-                        | ValueNone -> ()
-                }
-            )
-        | false, _ -> ValueNone
+        first (rankedClaims types useSite written)
 
     let private tryPickWinner
         (types: PassContextTypes)
@@ -242,19 +265,22 @@ module TypeRegistry =
     /// Every claim the written name reaches at `useSite`, at any arity, best rank first: the
     /// candidate set a qualified case (`Choice.Choice1Of3`) is looked up inside.
     let writtenTypeClaims (types: PassContextTypes) (useSite: UseSite) (written: WrittenTypeName) : TypeIdentity list =
-        match types.TypeClaims.TryGetValue written.Name with
-        | true, claims ->
-            let reaches = pathReaches types useSite written.Path
+        rankedClaims types useSite written |> List.map (fun struct (_, c) -> c)
 
-            [
-                for c in claims do
-                    match claimRank useSite reaches c with
-                    | ValueSome r -> struct (r, c)
-                    | ValueNone -> ()
-            ]
-            |> List.sortByDescending (fun struct (r, _) -> r)
-            |> List.map (fun struct (_, c) -> c)
-        | false, _ -> []
+    /// The claim a name written without type arguments takes from `claims`, which are ordered
+    /// best rank first.
+    let private arglessClaimOf (claims: TypeIdentity list) : ArglessClaim =
+        let arities =
+            claims |> List.map (fun c -> c.TyparArity) |> List.distinct |> List.sort
+
+        let bestAt (arity: int) =
+            claims |> List.find (fun c -> c.TyparArity = arity)
+
+        match arities with
+        | [] -> ArglessClaim.NoClaim
+        | [ arity ]
+        | (0 as arity) :: _ -> ArglessClaim.Takes(bestAt arity)
+        | nearest :: _ -> ArglessClaim.Disagreement(EqArray.ofList arities, bestAt nearest)
 
     /// WHERE the type `key` (claimed under the short name `name`) enters the name environment
     /// at `useSite`; `ValueNone` when it is out of scope there.
@@ -347,38 +373,34 @@ module TypeRegistry =
             )
 
     /// The key in `reg` that `written` WITHOUT type arguments stands for at `useSite`: a
-    /// NON-GENERIC type of that name, else the candidates' agreed arity, else NOTHING.
+    /// NON-GENERIC type of that name, else the candidates' agreed arity. Candidates that
+    /// disagree on arity recover to the nearest one, silently.
     let private tryKeyOfArglessName
         (types: PassContextTypes)
         (reg: KindRegistry<'T>)
         (useSite: UseSite)
         (written: WrittenTypeName)
         : TypeKey voption =
-        let inThisKind (c: TypeIdentity) = keyInKind types reg c
+        let inKind (c: TypeIdentity) = (keyInKind types reg c).IsSome
 
-        match tryKeyOfArity types reg useSite written 0 with
-        | ValueSome key -> ValueSome key
-        | ValueNone ->
-            // The generic claimants resolve only if they agree on an arity.
-            let arities =
-                match types.TypeClaims.TryGetValue written.Name with
-                | true, claims ->
-                    let reaches = pathReaches types useSite written.Path
-                    let mutable seen = ValueNone
-                    let mutable oneArity = true
+        match writtenTypeClaims types useSite written |> List.filter inKind |> arglessClaimOf with
+        | ArglessClaim.Takes c
+        | ArglessClaim.Disagreement(_, c) -> keyInKind types reg c
+        | ArglessClaim.NoClaim -> ValueNone
 
-                    for c in claims do
-                        if (inThisKind c).IsSome && (claimRank useSite reaches c).IsSome then
-                            match seen with
-                            | ValueSome a when a <> c.TyparArity -> oneArity <- false
-                            | _ -> seen <- ValueSome c.TyparArity
+    /// The claim the bare `name` takes at `useSite` in EXPRESSION position, where it denotes a
+    /// CONSTRUCTOR: a non-generic claim of ANY kind, else the classes' claim, else every
+    /// claim's.
+    let arglessExprClaim (types: PassContextTypes) (useSite: UseSite) (name: string) : ArglessClaim =
+        let claims = writtenTypeClaims types useSite (WrittenTypeName.bare name)
+        let isClass (c: TypeIdentity) = (keyInKind types types.Class c).IsSome
 
-                    if oneArity then seen else ValueNone
-                | false, _ -> ValueNone
-
-            match arities with
-            | ValueNone -> ValueNone
-            | ValueSome arity -> tryKeyOfArity types reg useSite written arity
+        match arglessClaimOf claims with
+        | ArglessClaim.Disagreement _ as overAll ->
+            match claims |> List.filter isClass |> arglessClaimOf with
+            | ArglessClaim.NoClaim -> overAll
+            | overClasses -> overClasses
+        | settled -> settled
 
     /// Chains onto a by-name resolution, whose miss passes straight through.
     let private tryOfKey (reg: KindRegistry<'T>) (key: TypeKey voption) : 'T voption =

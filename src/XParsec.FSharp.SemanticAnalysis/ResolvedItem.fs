@@ -89,4 +89,7 @@ type ResolvedItem =
     /// Several unions visible at the use site each declare a case `name`. A local claim
     /// shadows every referenced one, so the claims are all local or all referenced.
     | AmbiguousCase of name: string * claims: ResolvedUnionCase[]
+    /// Types called `name` reach the use site at several arities. The bare name requires a
+    /// written instantiation. `arities` is ascending.
+    | AmbiguousTypeArity of name: string * arities: EqArray<int>
     | Unresolved of UnresolvedName

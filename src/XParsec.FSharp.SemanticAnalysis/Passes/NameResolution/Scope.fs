@@ -57,6 +57,7 @@ module NameResolutionScope =
         | ResolvedItem.StaticMember _
         | ResolvedItem.ModuleOrNamespace _
         | ResolvedItem.AmbiguousCase _
+        | ResolvedItem.AmbiguousTypeArity _
         | ResolvedItem.Unresolved _ -> ()
 
     /// A type whose member misses are Unification's to report, with the precise `NoCase` /
@@ -109,6 +110,7 @@ module NameResolutionScope =
         | ResolvedItem.UnionCase(case, true) ->
             ctx.Report(tok, Kind.RequireQualifiedAccessCase(case.UnionName, case.CaseName))
         | ResolvedItem.AmbiguousCase(name, claims) -> ctx.Report(tok, Kind.AmbiguousConstructor(name, claims.Length))
+        | ResolvedItem.AmbiguousTypeArity(name, arities) -> ctx.Report(tok, Kind.AmbiguousTypeArity(name, arities))
         | ResolvedItem.ModuleOrNamespace _ -> unresolved ()
         | ResolvedItem.Ctor _ -> ()
         | ResolvedItem.Type(ResolvedTypeRef.Local _) -> unresolved ()

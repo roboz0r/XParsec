@@ -397,6 +397,9 @@ type Kind =
     /// A nominal shape resolved to a key unknown to every registry and provider.
     | UnknownNominalType of kind: NominalKind * name: string
     | TypeArgArity of name: string * expected: int * got: int
+    /// Types called `name` reach the use site at several arities. The bare name requires a
+    /// written instantiation. `arities` is ascending.
+    | AmbiguousTypeArity of name: string * arities: EqArray<int>
     | UnresolvedQualifiedName of name: string
     /// A `module R = N` whose target is a namespace. An abbreviation binds a module.
     | AbbreviatedNamespace of path: string
@@ -531,6 +534,7 @@ module Kind =
         | Kind.RequireQualifiedAccessModule _ -> DiagCode.FSharp 892 // tcModuleRequiresQualifiedAccess
         | Kind.DuplicateModule _ -> DiagCode.FSharp 248 // DuplicateModuleSpecification
         | Kind.TypeArgArity _ -> DiagCode.FSharp 33 // TyconBadArgs
+        | Kind.AmbiguousTypeArity _ -> DiagCode.FSharp 1124 // MultipleGenericTypesOfSameName
         | Kind.RequireQualifiedAccessCase _ -> DiagCode.FSharp 35 // Deprecated
         // ── Constructors: fsc's "union case expects N arguments" covers both the wrong
         // count and the nullary-in-pattern-position case.
@@ -622,6 +626,14 @@ module Kind =
             sprintf "Unknown %s type '%s'" kindWord name
         | Kind.TypeArgArity(name, expected, got) ->
             sprintf "Type '%s' expects %d type argument(s) but got %d" name expected got
+        | Kind.AmbiguousTypeArity(name, arities) ->
+            let counts = arities |> Seq.map string |> String.concat ", "
+
+            sprintf
+                "Multiple types exist called '%s', taking different numbers of generic parameters (%s). Provide a type instantiation to disambiguate, e.g. '%s<_>'."
+                name
+                counts
+                name
         | Kind.UnresolvedQualifiedName name -> sprintf "Unresolved qualified name: %s" name
         | Kind.AbbreviatedNamespace path ->
             sprintf "The path '%s' is a namespace. A module abbreviation may not abbreviate a namespace." path
@@ -764,6 +776,7 @@ module Kind =
         | Kind.NoCase _
         | Kind.UnknownNominalType _
         | Kind.TypeArgArity _
+        | Kind.AmbiguousTypeArity _
         | Kind.UnresolvedQualifiedName _
         | Kind.AbbreviatedNamespace _
         | Kind.RequireQualifiedAccessModule _

@@ -45,11 +45,12 @@ order and implements it.
 
 ## Where the compiler stands
 
-*Updated after step 2.* Nineteen of the twenty-two pinned cases are green: arity overloading
+*Updated after step 3.* Twenty-two of the twenty-four pinned cases are green: arity overloading
 within a module, every cross-arity reach, both kind-shadowing cases, every bare-name
-expression-position case, and, since step 2, every type-position case. Type resolution runs
-through `NameResolutionLongIdent.resolveType` (`LongIdent.fs:611`) over `TypeClaims`, which is
-kind-agnostic and ranked. GAP 3, 6 and 7 remain, pended in `SameNameResolutionTests.fs`.
+expression-position case including the arity ambiguity, and every type-position case. Type
+resolution runs through `NameResolutionLongIdent.resolveType` (`LongIdent.fs:611`) over
+`TypeClaims`, which is kind-agnostic and ranked. GAP 6 and 7 remain, pended in
+`SameNameResolutionTests.fs`.
 
 ### GAP 1, 2, 4 and 5 — a bare generic name in TYPE position is accepted. Closed by step 2.
 
@@ -81,17 +82,22 @@ found at another arity. `classifyTypeRef` reports that arm as FS0033 and stamps
 `TypeRefVerdict.LocalTypeAtOtherArity claim`, so the reference stays a type and the claim
 travels with the verdict.
 
-### GAP 3 — an arity ambiguity in expression position reaches the freeze
+### GAP 3 — an arity ambiguity in expression position reaches the freeze. Closed by step 3.
 
-`T(1)` with `A.T<'a>` and `B.T<'a,'b>` both opened resolves to nothing:
-`tryKeyOfArglessName`'s agreed-arity scan finds two arities, returns `ValueNone`, and no
-diagnostic is emitted at the use site. The unresolved type survives to the freeze, where it
-trips the internal backstop:
+*Was:* `T(1)` with `A.T<'a>` and `B.T<'a,'b>` both opened resolved to nothing:
+`tryKeyOfArglessName`'s agreed-arity scan found two arities, returned `ValueNone`, and no
+diagnostic was emitted at the use site. The unresolved type survived to the freeze, where it
+tripped the internal backstop:
 
 > internal compiler error: the frozen TAST holds 1 unresolved TyVar(s)
 
 An internal backstop is not a verdict a user can act on. F# names the fault at the use site
 (FS1124) and says how to fix it.
+
+*Now:* `TypeRegistry.arglessExprClaim` returns `ArglessClaim`, and `typeInEnv` stamps
+`ResolvedItem.AmbiguousTypeArity` for the `Disagreement` arm, which `Scope.fs`'s `reportExpr`
+reports once as `Kind.AmbiguousTypeArity` (FS1124). `tryKeyOfArglessName` recovers to the claim
+of nearest arity, so the binding still types and the backstop stays quiet.
 
 ### GAP 6 and 7 — a WRITTEN arity in expression position is unreported
 
@@ -167,11 +173,37 @@ exactly as predicted — `UnificationGenericsTests`' "generic type written bare"
 no diagnostic for `let b : Box = …`. It now asserts FS0033 and keeps its back-fill assertion,
 since recovery still types `b` as `Box<int>`.
 
-**Step 3 — report the arity ambiguity at the use site.** `tryKeyOfArglessName`'s scan already
-computes the fact (`oneArity = false`); it discards it and returns `ValueNone`, so the caller
-cannot tell "no such name" from "several arities". Return the disagreement, and add a
-diagnostic kind for FS1124. Closes GAP 3, and removes one route to the unresolved-`TyVar`
-backstop.
+**Step 3 — report the arity ambiguity at the use site. Done.** One scan, `rankedClaims`, is
+the primitive under every by-name lookup in `TypeRegistry`. `arglessClaimOf` reads a ranked
+claim list into `ArglessClaim` (`Takes` / `Disagreement` / `NoClaim`), each arm carrying the
+winning claim so no consumer looks it up again; `tryKeyOfArglessName` and the new
+`arglessExprClaim` both read it. `Kind.AmbiguousTypeArity` carries the name and the ascending
+arities and files under FS1124. GAP 3 closed, and one route to the unresolved-`TyVar` backstop
+removed.
+
+Three things the 2026-09-01 probes settled while the step was written, each now pinned:
+
+- The candidate set is by POSITION, not by kind. A bare name in expression position denotes a
+  constructor, so `A.T<'a>` (class) beside `B.T<'a,'b>` (record) is no ambiguity — F# accepts
+  `T(1)` there and takes the class — while two records at different arities are FS1124. A
+  non-generic claim of ANY kind still settles the name first, which is what keeps the pinned
+  cross-arity reach past a nearer generic working.
+- F# reports FS1124 alone, so the recovery must ground the expression. `tryKeyOfArglessName`
+  takes the claim of NEAREST arity, which is step 5's rule read at the written arity 0.
+  `TyUnknown` will not serve: a binder unified with it links nothing, and the free `TyVar`
+  reaches the backstop anyway.
+- `typeInEnv` picked the max-rank claim at ANY arity, which disagreed with the arity
+  `tryKeyOfArglessName` settles on in Unification, and reported a bare name landing on a record
+  as an unresolved identifier. It now reads the claim at the settled arity, so the two stages
+  agree.
+
+The residue is `T.M 1`, which F# reports as FS1124 too. A qualified name goes through
+`typeFirst`, not `typeInEnv`, so it is still silent.
+
+`inherit T(y)` under the same disagreement is NOT a residue. It is type position, and F# reports
+FS0033 against the max-rank claim (`B.T<_,_>`) there, never FS1124. `tryKeyOfArglessName`'s
+silent recovery is therefore the right verdict for every `*Bare` caller reached from
+`InheritParent`, and the 2026-09-02 probe pinned it in `SameNameResolutionTests.fs`.
 
 **Step 4 — rank before reading the kind.** Option (1) above: `tryPickWinnerRanked` ranks over
 an `admit` predicate and hands back the winning claim; `tryKeyOfArity` and
@@ -225,16 +257,22 @@ Answered by the 2026-09-01 probes, and pinned:
    `unit`-constructor `T` is a constructor-arity error, never a silent fallthrough to `T<'a>`.
 6. **An uninferable instantiation is a WARNING, not an error** (FS1125), and only in expression
    position. Any diagnostic added for it must not be an error.
+7. **The FS1124 candidate set is the position's, not the kind's.** A bare name in expression
+   position denotes a constructor, so a lone class claim settles the arity past a same-named
+   record of another arity, and two records at different arities are the ambiguity. An arity-0
+   claim of any kind still settles the name ahead of both.
 
 ## Scope and risk
 
 Step 2 landed in `PassContext.TypeRefVerdict`, `LongIdent.resolveType`, `TypeRefStamp`,
 `ResolvedItem`, `Scope`'s `TypeApp` arm and `Translate`, and needed no new diagnostic kind: the
-existing `Kind.TypeArgArity` already carries FS0033. Step 3 touches
-`TypeRegistry.tryKeyOfArglessName`, its four `*Bare` callers and the diagnostic kinds. Step 4
-touches `TypeRegistry` only. Step 5 touches the enum-case and union-case qualifier paths, plus
-`tryWrittenTypeClaimAnyArity`'s choice of candidate. All four are front-end, publish nothing new,
-and leave the frozen blob and its codec alone.
+existing `Kind.TypeArgArity` already carries FS0033. Step 3 landed in `TypeRegistry`,
+`ResolvedItem`, `LongIdent.typeInEnv`, `Scope`'s expression report and the diagnostic kinds
+plus their codec; the four `*Bare` callers needed no change, because the recovery inside
+`tryKeyOfArglessName` keeps them on `voption`. Step 4 touches `TypeRegistry` only. Step 5
+touches the enum-case and union-case qualifier paths, plus `tryWrittenTypeClaimAnyArity`'s
+choice of candidate. All four are front-end, publish nothing new, and leave the frozen blob and
+its codec alone.
 
 Step 5 carries the wider blast radius of the four, because the nearest-arity change reaches every
 existing FS0033 against a multi-arity name, in type position as well as expression position.

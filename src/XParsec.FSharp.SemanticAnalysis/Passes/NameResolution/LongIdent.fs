@@ -455,13 +455,17 @@ module NameResolutionLongIdent =
             |]
             |> caseAmong name
 
-    /// A bare type name at any arity: this file's claim in scope, else the external providers.
-    let private typeInEnv (ctx: PassContext) (useSite: UseSite) (name: string) : ResolvedTypeRef voption =
-        match TypeRegistry.tryTypeClaimAnyArity ctx.Types useSite name with
-        | ValueSome claim -> ValueSome(localType ctx claim)
-        | ValueNone ->
+    /// A bare type name in expression position: this file's claim in scope, else the external
+    /// providers. Claims of this file at several arities are the ambiguity.
+    let private typeInEnv (ctx: PassContext) (useSite: UseSite) (name: string) : ResolvedItem voption =
+        match TypeRegistry.arglessExprClaim ctx.Types useSite name with
+        | ArglessClaim.Disagreement(arities, _) -> ValueSome(ResolvedItem.AmbiguousTypeArity(name, arities))
+        | ArglessClaim.Takes claim -> ValueSome(finalTypeItem Position.Expression (localType ctx claim))
+        | ArglessClaim.NoClaim ->
             classifyExternalWritten ctx useSite WrittenArity.Any Qualifier.Bare name
-            |> ValueOption.map (fun (struct (key, shape)) -> externalType ctx key shape)
+            |> ValueOption.map (fun (struct (key, shape)) ->
+                finalTypeItem Position.Expression (externalType ctx key shape)
+            )
 
     /// `names.[0]` as a type in the environment and `names.[1]` inside it: every claim of this
     /// file in scope under the name, then the external providers at each arity. A type that
@@ -590,7 +594,7 @@ module NameResolutionLongIdent =
                 | ValueSome item -> resolved item 1
                 | ValueNone ->
                     match typeInEnv ctx useSite first with
-                    | ValueSome t -> resolved (finalTypeItem Position.Expression t) 1
+                    | ValueSome item -> resolved item 1
                     | ValueNone -> unresolvedInEnv first 1
             | n -> firstOf (qualifiedReadings ctx useSite Position.Expression names) (unresolvedInEnv first n)
 
