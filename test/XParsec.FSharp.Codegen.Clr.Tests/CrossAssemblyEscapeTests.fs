@@ -30,6 +30,10 @@ let private producerFsi =
             "    val getUnit: unit -> int"
             "    /// Drives the intra-assembly higher-order use of `addOne`."
             "    val bumpTwice: x: int -> int"
+            "    /// A published abbreviation: a consumer writes the name, and every writing"
+            "    /// expands to `int * int`. No type is emitted for it."
+            "    type Pair = int * int"
+            "    val sumPair: p: Pair -> int"
         ]
 
 /// `bumpTwice` passes `addOne` as a value to `applyTwice`, so `addOne` ESCAPES
@@ -46,6 +50,10 @@ let private producerFs =
             "    let getUnit () = 42"
             "    let applyTwice g x = g (g x)"
             "    let bumpTwice x = applyTwice addOne x"
+            "    type Pair = int * int"
+            "    let sumPair (p: Pair) ="
+            "        let (a, b) = p"
+            "        a + b"
         ]
 
 /// `name` is omitted so it defaults to the directory name, which is what the consumer
@@ -136,6 +144,33 @@ let tests =
                             "printfn \"%d\" (Producer.bumpTwice 5)"
                             "printfn \"%d\" (Producer.addPair (3, 4))"
                             "printfn \"%d\" (Producer.getUnit ())"
+                        ])
+            }
+
+            // The producer's `.fsi` publishes `Pair` as an abbreviation and its DLL carries no
+            // type for it. The consumer writes the name qualified and bare; both expand to
+            // `int * int`, which is what `sumPair` takes across the boundary.
+            test "a consumer writes a producer's published type abbreviation, which expands to its body" {
+                let typeNames = PeInspection.peTypeDefNames (File.ReadAllBytes producerDll.Value)
+
+                Expect.isFalse
+                    (typeNames |> List.exists (fun n -> n = "Pair" || n.EndsWith ".Pair"))
+                    (sprintf "no type is emitted for the abbreviation `Pair`; types = %A" typeNames)
+
+                runConsumer
+                    [
+                        "7" // sumPair through a `Producer.Pair`-annotated value
+                        "30" // sumPair through a bare `Pair` under `open Producer`
+                    ]
+                    (String.concat
+                        "\n"
+                        [
+                            "open Vesper"
+                            "let p: Producer.Pair = (3, 4)"
+                            "printfn \"%d\" (Producer.sumPair p)"
+                            "open Producer"
+                            "let q: Pair = (10, 20)"
+                            "printfn \"%d\" (sumPair q)"
                         ])
             }
         ]

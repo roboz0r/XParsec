@@ -177,7 +177,7 @@ type PassContextResolution =
         /// `OpenScope` resolved: each `open` as the scope it denotes and each module
         /// abbreviation as alias → the module it binds, with where each enters the name
         /// environment. Set in lockstep with `OpenScope`.
-        mutable Env: TypeRegistry.ScopeEnv
+        mutable Env: ScopeResolution.ScopeEnv
         /// The chain enclosing the element being analysed, set in lockstep with `OpenScope`.
         mutable EnclosingContainer: ModuleContainer voption
         /// Every scope in force at the element being analysed, best rank first: the enclosing
@@ -263,7 +263,7 @@ module PassContextResolution =
     let create (ambient: ScopeEntry list) : PassContextResolution =
         {
             OpenScope = OpenScope.empty
-            Env = TypeRegistry.ScopeEnv.empty
+            Env = ScopeResolution.ScopeEnv.empty
             EnclosingContainer = ValueNone
             Scopes = ambient
             PendingBindings = Set.empty
@@ -408,7 +408,7 @@ type PassContext(provider: IExternalSymbolProvider, file: LexedFile, assembly: C
         lazy
             (let acc = HashSet<NodeKey>()
 
-             for kv in types.Class.ByKey do
+             for kv in types.Class do
                  if kv.Value.Base.IsSome then
                      acc.Add(BoundVarKey.identity kv.Value.BaseKey) |> ignore
 

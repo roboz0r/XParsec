@@ -552,7 +552,7 @@ let tests =
             }
 
             test "[<AllowNullLiteral>] on an abbreviation reports FS0934" {
-                // The alias states nothing of its own: `null` belongs to the type it renames.
+                // The alias states nothing of its own: `null` belongs to the type it aliases.
                 let ctx = analyse "[<AllowNullLiteral>]\ntype X = string"
                 Expect.isTrue (reportsWrongKind ctx) "FS0934 reported"
             }

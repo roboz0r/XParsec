@@ -851,13 +851,13 @@ module Unification =
                 if not needsEq then
                     ctx.Report(nameTok, Kind.CustomComparisonNeedsEquality)
 
-        for kv in ctx.Types.Class.ByKey do
+        for kv in ctx.Types.Class do
             checkHost (kv.Value :> IInterfaceImplHost)
 
-        for kv in ctx.Types.Union.ByKey do
+        for kv in ctx.Types.Union do
             checkHost (kv.Value :> IInterfaceImplHost)
 
-        for kv in ctx.Types.Record.ByKey do
+        for kv in ctx.Types.Record do
             checkHost (kv.Value :> IInterfaceImplHost)
 
     /// FS0438: two members agreeing on name, static-ness, kind, value-parameter signature
@@ -871,13 +871,13 @@ module Unification =
                 if not (seen.Add(UnificationInferOverload.memberSignatureKey ctx.Store typeParams m)) then
                     ctx.Report(m.DeclSite.Tok, Kind.DuplicateMember m.Name)
 
-        for kv in ctx.Types.Class.ByKey do
+        for kv in ctx.Types.Class do
             checkHost kv.Value.TypeParams kv.Value.Members
 
-        for kv in ctx.Types.Union.ByKey do
+        for kv in ctx.Types.Union do
             checkHost kv.Value.TypeParams kv.Value.Members
 
-        for kv in ctx.Types.Record.ByKey do
+        for kv in ctx.Types.Record do
             checkHost kv.Value.TypeParams kv.Value.Members
 
     let run (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : unit =

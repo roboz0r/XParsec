@@ -100,6 +100,7 @@
     <Compile Include="PrintfSpecTests.fs" />
     <Compile Include="MetadataStructureTests.fs" />
     <Compile Include="CrossFileTests.fs" />
+    <Compile Include="TypeAbbreviationTests.fs" />
     <Compile Include="SelfPackageIntrinsicsTests.fs" />
 
     <Compile Include="Program.fs" />

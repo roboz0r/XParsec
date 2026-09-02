@@ -1837,4 +1837,348 @@ module N =
                         "`internal` reaches the rest of the assembly (diagnostics: %A)"
                         all.[1].Frozen.Residue.Diagnostics)
             }
+
+            // A published abbreviation is a name a consumer writes as if it were a real type:
+            // bare under an `open`, as a type argument, and over a nominal whose members it
+            // reaches. Every use expands; the abbreviation's own key is never a type.
+            test "file 2 resolves a published abbreviation BARE under an `open`" {
+                let file1 =
+                    "\
+namespace Test.A
+
+type myalias = int
+
+type pair<'T> = 'T * 'T
+"
+
+                let file2 =
+                    "\
+namespace Test.B
+
+open Test.A
+
+module N =
+    let f (x: myalias) : myalias = x + 1
+
+    let g (p: pair<myalias>) : myalias list =
+        let (a, b) = p
+        [ a; b ]
+"
+
+                let all =
+                    analyseAssembly asm realProvider.Value [ impl "file1.fs" file1; impl "file2.fs" file2 ]
+                    |> files
+
+                Expect.isEmpty
+                    (all.[1].Frozen.Residue.Diagnostics |> List.filter Diagnostic.isError)
+                    (sprintf
+                        "bare `myalias` and `pair<myalias>` expand (diagnostics: %A)"
+                        all.[1].Frozen.Residue.Diagnostics)
+            }
+
+            // The abbreviation CLOSES its module body: the token after its RHS is the dedented
+            // next declaration. The parser once fell into its measure retry there, so the body
+            // filled as a type variable and every consumer read `'a`.
+            test "file 2 destructures a tuple through a published abbreviation that closes a MODULE, bare under `open`" {
+                // Both files in ONE namespace, the module opened by its full path.
+                let file1 =
+                    "\
+namespace Test.A
+
+module Decls =
+    type myint = int
+
+    type intpair = int * int
+"
+
+                let file2 =
+                    "\
+namespace Test.A
+
+module N =
+    open Test.A.Decls
+
+    let both (p: intpair) : myint =
+        let (a, b) = p
+        a + b
+
+    let qualified (p: Decls.intpair) : int =
+        let (a, b) = p
+        a + b
+"
+
+                let all =
+                    analyseAssembly asm realProvider.Value [ impl "file1.fs" file1; impl "file2.fs" file2 ]
+                    |> files
+
+                Expect.isEmpty
+                    (all.[1].Frozen.Residue.Diagnostics |> List.filter Diagnostic.isError)
+                    (sprintf
+                        "`intpair` expands to `int * int` bare and qualified (diagnostics: %A)"
+                        all.[1].Frozen.Residue.Diagnostics)
+            }
+
+            test "a later module of the SAME file destructures a tuple through an abbreviation that closes a module" {
+                let file1 =
+                    "\
+namespace Test.A
+
+module Decls =
+    type intpair = int * int
+
+module N =
+    let qualified (p: Decls.intpair) : int =
+        let (a, b) = p
+        a + b
+"
+
+                let all = analyseAssembly asm realProvider.Value [ impl "file1.fs" file1 ] |> files
+
+                Expect.isEmpty
+                    (all.[0].Frozen.Residue.Diagnostics |> List.filter Diagnostic.isError)
+                    (sprintf
+                        "`Decls.intpair` expands to `int * int` (diagnostics: %A)"
+                        all.[0].Frozen.Residue.Diagnostics)
+            }
+
+            test "file 2 reads a record's field through a published abbreviation of the record" {
+                let file1 =
+                    "\
+namespace Test.A
+
+type Point = { X: int; Y: int }
+
+type P = Point
+"
+
+                // A record literal resolves by the field set in scope, so the record's
+                // namespace is opened; the annotation is the abbreviation under test.
+                let file2 =
+                    "\
+namespace Test.B
+
+open Test.A
+
+module N =
+    let sum (p: Test.A.P) : int = p.X + p.Y
+
+    let origin: P = { X = 0; Y = 0 }
+"
+
+                let all =
+                    analyseAssembly asm realProvider.Value [ impl "file1.fs" file1; impl "file2.fs" file2 ]
+                    |> files
+
+                Expect.isEmpty
+                    (all.[1].Frozen.Residue.Diagnostics |> List.filter Diagnostic.isError)
+                    (sprintf
+                        "`P` expands to `Point` for the field read and the literal (diagnostics: %A)"
+                        all.[1].Frozen.Residue.Diagnostics)
+            }
+
+            test "a union case is reachable through a LOCAL abbreviation of the union" {
+                let file1 =
+                    "\
+namespace Test.A
+
+module M =
+    type Shape =
+        | Circle of int
+        | Square of int
+
+    type S = Shape
+
+    let unit: S = S.Square 1
+
+    let area (s: S) : int =
+        match s with
+        | S.Circle r -> 3 * r * r
+        | S.Square w -> w * w
+"
+
+                let all = analyseAssembly asm realProvider.Value [ impl "file1.fs" file1 ] |> files
+
+                Expect.isEmpty
+                    (all.[0].Frozen.Residue.Diagnostics |> List.filter Diagnostic.isError)
+                    (sprintf
+                        "`S.Square` and `S.Circle` are `Shape`'s cases (diagnostics: %A)"
+                        all.[0].Frozen.Residue.Diagnostics)
+            }
+
+            test "file 2 reaches a union case through a published abbreviation of the union" {
+                let file1 =
+                    "\
+namespace Test.A
+
+type Shape =
+    | Circle of int
+    | Square of int
+
+type S = Shape
+"
+
+                let file2 =
+                    "\
+namespace Test.B
+
+module N =
+    let unit: Test.A.S = Test.A.S.Square 1
+
+    let area (s: Test.A.S) : int =
+        match s with
+        | Test.A.S.Circle r -> 3 * r * r
+        | Test.A.S.Square w -> w * w
+"
+
+                let all =
+                    analyseAssembly asm realProvider.Value [ impl "file1.fs" file1; impl "file2.fs" file2 ]
+                    |> files
+
+                Expect.isEmpty
+                    (all.[1].Frozen.Residue.Diagnostics |> List.filter Diagnostic.isError)
+                    (sprintf "`Test.A.S.Square` is `Shape.Square` (diagnostics: %A)" all.[1].Frozen.Residue.Diagnostics)
+            }
+
+            test "a class constructs and its static reads through a LOCAL abbreviation of the class" {
+                let file1 =
+                    "\
+namespace Test.A
+
+module M =
+    type Counter(start: int) =
+        member _.Value = start
+        static member Zero = Counter(0)
+
+    type C = Counter
+
+    let one: int = C(1).Value
+
+    let zero: C = C.Zero
+
+    let zeroValue: int = zero.Value
+"
+
+                let all = analyseAssembly asm realProvider.Value [ impl "file1.fs" file1 ] |> files
+
+                Expect.isEmpty
+                    (all.[0].Frozen.Residue.Diagnostics |> List.filter Diagnostic.isError)
+                    (sprintf "`C(1)` and `C.Zero` are `Counter`'s (diagnostics: %A)" all.[0].Frozen.Residue.Diagnostics)
+            }
+
+            test "file 2 constructs a class and reads its static through a published abbreviation" {
+                let file1 =
+                    "\
+namespace Test.A
+
+type Counter(start: int) =
+    member _.Value = start
+    static member Zero = Counter(0)
+
+type C = Counter
+"
+
+                let file2 =
+                    "\
+namespace Test.B
+
+module N =
+    let one: int = Test.A.C(1).Value
+
+    let zero: Test.A.C = Test.A.C.Zero
+
+    let zeroValue: int = zero.Value
+"
+
+                let all =
+                    analyseAssembly asm realProvider.Value [ impl "file1.fs" file1; impl "file2.fs" file2 ]
+                    |> files
+
+                Expect.isEmpty
+                    (all.[1].Frozen.Residue.Diagnostics |> List.filter Diagnostic.isError)
+                    (sprintf
+                        "`Test.A.C(1)` and `Test.A.C.Zero` are `Counter`'s (diagnostics: %A)"
+                        all.[1].Frozen.Residue.Diagnostics)
+            }
+
+            // In expression and pattern position an abbreviation stands for the type it ALIASES,
+            // carrying the same type parameters.
+            test "a generic class constructs through a LOCAL abbreviation that aliases it" {
+                let file1 =
+                    "\
+namespace Test.A
+
+type Box<'a>(item: 'a) =
+    member _.Item = item
+
+type MyBox<'a> = Box<'a>
+
+module M =
+    let one: int = MyBox(1).Item
+"
+
+                let all = analyseAssembly asm realProvider.Value [ impl "file1.fs" file1 ] |> files
+
+                Expect.isEmpty
+                    (all.[0].Frozen.Residue.Diagnostics |> List.filter Diagnostic.isError)
+                    (sprintf "`MyBox(1)` is `Box(1)` (diagnostics: %A)" all.[0].Frozen.Residue.Diagnostics)
+            }
+
+            // Control without an abbreviation: `Test.A.Box(2)` is the same
+            // `UnresolvedQualifiedName`. A generic REFERENCED class constructs only through an
+            // explicit `TypeApp` (`NameResolutionLongIdent.finalTypeItem`), so the alias inherits
+            // the gap rather than adding one.
+            ptest
+                "GAP: a generic class of another file constructs from a bare name, plainly (`Test.A.Box(2)`) and through an alias" {
+                let file1 =
+                    "\
+namespace Test.A
+
+type Box<'a>(item: 'a) =
+    member _.Item = item
+
+type MyBox<'a> = Box<'a>
+"
+
+                let file2 =
+                    "\
+namespace Test.B
+
+module N =
+    let two: int = Test.A.Box(2).Item
+
+    let three: int = Test.A.MyBox(3).Item
+"
+
+                let all =
+                    analyseAssembly asm realProvider.Value [ impl "file1.fs" file1; impl "file2.fs" file2 ]
+                    |> files
+
+                Expect.isEmpty
+                    (all.[1].Frozen.Residue.Diagnostics |> List.filter Diagnostic.isError)
+                    (sprintf "`Test.A.MyBox(3)` is `Box(3)` (diagnostics: %A)" all.[1].Frozen.Residue.Diagnostics)
+            }
+
+            // An abbreviation instantiating a type parameter of its body (`Box<int>`) is NOT read
+            // through its key: the key carries no instantiation, and a constructor read through it
+            // would infer fresh type arguments in place of `int`.
+            ptest "GAP: `type IntBox = Box<int>` then `IntBox(1)` constructs `Box<int>`" {
+                let file1 =
+                    "\
+namespace Test.A
+
+type Box<'a>(item: 'a) =
+    member _.Item = item
+
+type IntBox = Box<int>
+
+module M =
+    let one: int = IntBox(1).Item
+"
+
+                let all = analyseAssembly asm realProvider.Value [ impl "file1.fs" file1 ] |> files
+
+                Expect.isEmpty
+                    (all.[0].Frozen.Residue.Diagnostics |> List.filter Diagnostic.isError)
+                    (sprintf "`IntBox(1)` is `Box<int>(1)` (diagnostics: %A)" all.[0].Frozen.Residue.Diagnostics)
+            }
         ]

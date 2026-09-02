@@ -501,9 +501,7 @@ module UnificationEngineCore =
 
     let private nominalKeyOf (store: TypeStore) (ty: SemType) : TypeKey voption =
         match resolveStep store ty with
-        | TyClass(k, _)
-        | TyUnion(k, _)
-        | TyRecord(k, _) -> ValueSome k
+        | TyNominal(k, _) -> ValueSome k
         | _ -> ValueNone
 
     // The instantiated declared base of the nominal the walk is expanding. Either tier's

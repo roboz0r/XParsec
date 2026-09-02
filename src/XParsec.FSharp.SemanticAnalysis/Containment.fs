@@ -167,7 +167,10 @@ module Containment =
         member this.EnterElement(w: WalkedIn<SyntaxToken, 'Elem>) : unit =
             this.Resolution.OpenScope <- w.Scope
             let chain = this.EnterContainment(w.Containment, w.RecScopeOffset)
-            let env = TypeRegistry.resolveScopeDecls this.Types this.Resolver.Scope w.Scope
+
+            let env =
+                ScopeResolution.resolveScopeDecls this.Types.LocalContainers this.Resolver.Scope w.Scope
+
             this.Resolution.Scopes <- this.ScopeStackOf(chain, env.Opens)
             this.Resolution.Env <- env
 
@@ -187,7 +190,15 @@ module Containment =
 
                     let home = SymbolHome.InFile this.File.Path
 
-                    match TypeRegistry.resolveInEnv this.Types scope this.Resolution.Env o.Scope o.Path o.Offset with
+                    match
+                        ScopeResolution.resolveInEnv
+                            this.Types.LocalContainers
+                            scope
+                            this.Resolution.Env
+                            o.Scope
+                            o.Path
+                            o.Offset
+                    with
                     | ValueSome c when ModuleDeclarations.requiresQualifiedAccess this.Types scope home o.Offset c ->
                         this.Report(li.Idents.[0], Kind.RequireQualifiedAccessModule(SymbolKeyOps.containerFullName c))
                     | _ -> ()
@@ -200,12 +211,16 @@ module Containment =
             | ValueNone -> ()
             | ValueSome a ->
                 let target =
-                    TypeRegistry.resolveAbbrevTarget this.Types this.Resolver.Scope this.Resolution.Env a
+                    ScopeResolution.resolveAbbrevTarget
+                        this.Types.LocalContainers
+                        this.Resolver.Scope
+                        this.Resolution.Env
+                        a
 
                 let (ModuleAbbrev.ModuleAbbrev(longIdent = li)) = abbrev
 
                 match target with
-                | TypeRegistry.AbbrevTarget.Module _ -> ()
-                | TypeRegistry.AbbrevTarget.Namespace -> this.Report(li.Idents.[0], Kind.AbbreviatedNamespace a.Path)
-                | TypeRegistry.AbbrevTarget.Unresolved ->
+                | ScopeResolution.AbbrevTarget.Module _ -> ()
+                | ScopeResolution.AbbrevTarget.Namespace -> this.Report(li.Idents.[0], Kind.AbbreviatedNamespace a.Path)
+                | ScopeResolution.AbbrevTarget.Unresolved ->
                     this.Report(li.Idents.[0], Kind.UnresolvedQualifiedName a.Path)

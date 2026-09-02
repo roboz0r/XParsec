@@ -63,7 +63,7 @@ module NameResolutionContainers =
         (c: ModuleContainer)
         (name: string)
         : struct (int voption * ModuleContainer) voption =
-        match TypeRegistry.tryLocalSubContainer ctx.Types c name with
+        match ScopeResolution.tryLocalSubContainer ctx.Types.LocalContainers c name with
         | ValueSome local when local.VisibleFrom <= at ->
             ValueSome(struct (ValueSome local.VisibleFrom, local.Container))
         | _ ->

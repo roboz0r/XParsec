@@ -56,6 +56,26 @@ type ExternalTypeShape =
         | Abbrev(arity = a)
         | Unmodelled(arity = a) -> a
 
+    /// The type this abbreviation ALIASES: its body is a keyed type applied to the
+    /// abbreviation's own type parameters, each exactly once (`Box<int>` is not an alias).
+    member this.AliasedKey: TypeKey voption =
+        match this with
+        | Abbrev(arity, FTKeyed(key, args)) when args.Length = arity ->
+            let seen = Array.zeroCreate<bool> arity
+
+            let isAlias =
+                args
+                |> EqArray.forall (fun a ->
+                    match a with
+                    | FTTypar(TyparAxis.Declaring, i) when i < arity && not seen.[i] ->
+                        seen.[i] <- true
+                        true
+                    | _ -> false
+                )
+
+            if isAlias then ValueSome key else ValueNone
+        | _ -> ValueNone
+
 /// The contents of a module or namespace, one segment at a time: the queries dotted-name
 /// resolution makes after its first segment has been classified. Every query is scoped to a
 /// container.

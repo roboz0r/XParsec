@@ -105,6 +105,43 @@ let peMethodNames (bytes: byte[]) : (string * string) list =
                     yield qualified, md.GetString m.Name
     ]
 
+/// Every type-def in the PE by namespace-qualified name, `<Module>` excluded.
+let peTypeDefNames (bytes: byte[]) : string list =
+    use peReader = openPe bytes
+    let md = peReader.GetMetadataReader()
+
+    [
+        for tdHandle in md.TypeDefinitions do
+            let td = md.GetTypeDefinition tdHandle
+            let typeName = md.GetString td.Name
+
+            if typeName <> "<Module>" then
+                let ns = md.GetString td.Namespace
+
+                if System.String.IsNullOrEmpty ns then
+                    yield typeName
+                else
+                    yield sprintf "%s.%s" ns typeName
+    ]
+
+/// Every TypeRef in the PE by namespace-qualified name: the external types the emitted
+/// metadata binds to by name.
+let peTypeRefNames (bytes: byte[]) : string list =
+    use peReader = openPe bytes
+    let md = peReader.GetMetadataReader()
+
+    [
+        for trHandle in md.TypeReferences do
+            let tr = md.GetTypeReference trHandle
+            let ns = md.GetString tr.Namespace
+            let name = md.GetString tr.Name
+
+            if System.String.IsNullOrEmpty ns then
+                yield name
+            else
+                yield sprintf "%s.%s" ns name
+    ]
+
 /// Every AssemblyRef name in the PE: the dependency surface the loader resolves.
 let peAssemblyRefs (bytes: byte[]) : string list =
     use peReader = openPe bytes

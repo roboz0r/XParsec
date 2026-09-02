@@ -249,17 +249,66 @@ This step left `requiresQualifiedAccess` reading this file's own declaration of 
 falling through to the referenced surfaces, so a file declaring `N.M` plainly beside a
 referenced RQA `N.M` admitted its own `open N.M`. Step 5 closed that.
 
-**Step 4 — type-abbreviation audit and pins.** Separable; can run beside 2–3. End-to-end
-tests: a cross-file (blob-mediated) use of a published abbreviation, bare and qualified; a
-generic abbreviation applied at the use site; an abbreviation flowing through emitted CLR code
-(`Codegen.Clr.Tests`) and JS code (`Codegen.Js.Tests`); `private` and `internal` abbreviations
-expands an abbreviation rather than rendering its `TypeKey` into a `TypeRef` / import. Any hole
-found becomes its own pinned fix.
+**Step 4 — type-abbreviation audit and pins. Done.** The emission invariant held: no path
+renders an abbreviation's `TypeKey` into a `TypeRef` or a JS import. It is pinned in
+`TypeAbbreviationTests.fs` in both codegen suites — a record, a union, a class, a generic tuple
+and an `int` alias, each written through its alias in a program that runs, with the PE's
+`TypeDef` and `TypeRef` tables (`PeInspection.peTypeDefNames` / `peTypeRefNames`) and the
+emitted JS text asserted alias-free; the same set across two files of one assembly, bare and
+qualified, and published through a `.fsi`; and, in `CrossAssemblyEscapeTests.fs`, a `Pair`
+abbreviation published by the producer's `.fsi`, consumed by name from another assembly, with no
+type in the producer DLL.
 
-Probe 15's three accessibility boundaries are already pinned green in `AssemblyFilesTests.fs`
-beside the existing cross-file abbreviation tests: `private` readable from a nested module of
-its declaring module, `private` refused from another file, `internal` readable across the
-assembly. The remaining step-4 surface is the emission audit and the codegen pins.
+The audit found three holes, each now fixed and pinned.
+
+1. **An abbreviation name in expression or pattern position.** `S.Square 1`, `| S.Circle r`,
+   `C(1)` and `C.Zero`, where `S` and `C` abbreviate a union and a class, were `StaticMember`
+   items on the abbreviation itself (`NameResolutionLongIdent.inType`), so the pattern was
+   `UndefinedPatternDiscriminator`, the constructor `Unresolved identifier`, and the static
+   `UnresolvedQualifiedName`, locally and across files. The fix is one `dealias` step in
+   `LongIdent`, applied where a `ResolvedTypeRef` is produced for expression or pattern
+   position (`localType`, `externalType`), so every consumer reads an already-dealiased
+   reference. An abbreviation is read through its key only when it ALIASES a keyed type: its
+   body is that type applied to the abbreviation's own type parameters, each exactly once
+   (`TypeRegistry.tryAliasedKey` over the filled body, `ExternalTypeShape.AliasedKey` over the
+   frozen one). A `ResolvedTypeRef` and a `TypeKey` carry no instantiation, so an abbreviation
+   instantiating any parameter of its body (`type IntBox = Box<int>`) stays itself, as does one
+   whose body is unfilled at the read (a `rec` scope reading below itself). The later pass
+   reads local classes and statics by WRITTEN name, so `TypeRegistry.tryKeyOfArity` and
+   `tryKeyOfArglessName` admit an aliasing abbreviation claim under the same rule (`keyInKind`),
+   which fixes `tryWrittenClass`, `tryStaticMember`, `tryUnionBare` and every other by-name
+   kind lookup at once.
+2. **An abbreviation closing an indented module body.** `module M =` / `    type intpair =
+   int * int` followed by a dedent parsed the RHS as a unit-of-measure product, and `type t =
+   int` in the same position parsed as a measure too, so the body filled as a bare type
+   variable and every consumer read `'a` — with no diagnostic at the declaration, and none at
+   an `int`-typed use, which is why the existing module-level abbreviation tests passed. The
+   abbreviation branch of `TypeDefn.parse` peeks the token after the type to decide the
+   measure retry, and `peekNextSyntaxToken` FAILS with an offside error on a dedented token,
+   which the branch propagated and `choice` answered with the measure parser. Both retry sites
+   (`TypeDefnParsing`, and `pTypeArg` in `TypeParsing`) now read a failed peek as "nothing
+   follows". Golden `403_type_abbrev_closes_indented_module.fs`; no other golden changed. A
+   `[<Measure>] type N = kg * s` in that position now parses as a tuple, which is what it
+   parses as everywhere else — the type checker owns that disambiguation.
+3. **Vacuous pins.** The cross-file `myalias = int` tests asserted only on error diagnostics,
+   which an alias collapsing to a type variable never produces. The new pins destructure a
+   tuple-bodied alias and add its components, so a collapse is an SRTP error.
+
+Two gaps beside the audit are pended in `Codegen.Js.Tests/TypeAbbreviationTests.fs`, each
+with a no-abbreviation control: the JS emitter refuses a top-level tuple-pattern binding
+(`EmitJs: unsupported declaration`), and refuses constructing a class declared in another
+file of the package (`construction of external type … has no JS analogue`). A record literal
+resolves by the field set in scope rather than by the annotation's expected type, so a
+cross-file literal needs the record's namespace opened; the fixtures open it.
+
+Probe 15's three accessibility boundaries were already pinned green in `AssemblyFilesTests.fs`:
+`private` readable from a nested module of its declaring module, `private` refused from another
+file, `internal` readable across the assembly. A transparent generic alias in constructor position
+(`type MyBox<'a> = Box<'a>` then `MyBox(1)`) is pinned green; an instantiating one
+(`type IntBox = Box<int>` then `IntBox(1)`) is pinned as a `ptest` GAP, because reading it
+through a key would drop `int` and infer a fresh argument. Closing it means carrying the
+instantiation from the abbreviation's body into `ResolvedItem.Ctor` and the by-name kind
+lookups, rather than a key alone.
 
 **Step 5 — module facts across sources. Done.** The step was written on the premise that
 resolution picks one of the two sources declaring a module path and loses which; probes 18–20

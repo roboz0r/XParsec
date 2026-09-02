@@ -22,7 +22,9 @@ module ModuleDeclarations =
         : EqArray<ModuleDeclaration> =
         let referenced = scope.DeclarationsOf m
 
-        match types.Modules.TryGetValue m, TypeRegistry.tryLocalSubContainer types m.Container m.Name with
+        match
+            types.Modules.TryGetValue m, ScopeResolution.tryLocalSubContainer types.LocalContainers m.Container m.Name
+        with
         | (true, own), ValueSome local when local.VisibleFrom <= at ->
             EqArray.append (EqArray.singleton { Home = home; Facts = own }) referenced
         | _ -> referenced

@@ -240,6 +240,29 @@ module SemTypePatterns =
         | TyRecord(key, args) -> ValueSome(struct (key, args))
         | _ -> ValueNone
 
+    /// A type declared under a `TypeKey`, as `(key, its type args)`: a nominal, an enum (no
+    /// args) or an intrinsic. Does NOT zonk: match an already-resolved type.
+    [<return: Struct>]
+    let (|TyKeyed|_|) (ty: SemType) : struct (TypeKey * EqArray<SemType>) voption =
+        match ty with
+        | TyClass(key, args)
+        | TyUnion(key, args)
+        | TyRecord(key, args)
+        | TyConst(key, args) -> ValueSome(struct (key, args))
+        | TyEnum key -> ValueSome(struct (key, EqArray.empty))
+        | _ -> ValueNone
+
+    /// `TyKeyed` over `FrozenType`.
+    [<return: Struct>]
+    let (|FTKeyed|_|) (ty: FrozenType) : struct (TypeKey * EqArray<FrozenType>) voption =
+        match ty with
+        | FTClass(key, args)
+        | FTUnion(key, args)
+        | FTRecord(key, args)
+        | FTConst(key, args) -> ValueSome(struct (key, args))
+        | FTEnum key -> ValueSome(struct (key, EqArray.empty))
+        | _ -> ValueNone
+
     /// A type-level node still carried unevaluated: `keyof T`, `T[K]` or a conditional. Does
     /// NOT zonk: match an already-resolved type. An exhaustive match over `SemType` spells the
     /// three cases out instead, so the compiler reports a new carrier form there.

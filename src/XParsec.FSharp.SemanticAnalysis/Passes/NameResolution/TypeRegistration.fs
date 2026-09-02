@@ -407,12 +407,12 @@ module NameResolutionTypeRegistration =
             cases: UnionTypeCases<SyntaxToken> *
             extensions: TypeExtensionElementsSignature<SyntaxToken> voption
         | Enum of typeName: TypeName<SyntaxToken> * cases: EnumTypeCases<SyntaxToken>
-        /// A transparent alias: `type t = u` renames `u` and declares nothing of its own.
+        /// A transparent alias: `type t = u` aliases `u` and declares nothing of its own.
         | Abbrev of
             typeName: TypeName<SyntaxToken> *
             rhs: Type<SyntaxToken> *
             extensions: TypeExtensionElementsSignature<SyntaxToken> voption
-        /// `type t = (# "…" #)`: a primitive BINDING rather than a rename. A signature
+        /// `type t = (# "…" #)`: a primitive BINDING rather than an alias. A signature
         /// normally writes `extern` for this and leaves the repr to its implementation, but
         /// the inline-IL spelling parses here too and claims what it claims in a `.fs`.
         | IntrinsicAbbrev of

@@ -23,6 +23,7 @@
     <Compile Include="Goldens.fs" />
     <Compile Include="OperatorClauses.fs" />
     <Compile Include="RegionProbe.fs" />
+    <Compile Include="TypeAbbreviationFixtures.fs" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Expecto" />

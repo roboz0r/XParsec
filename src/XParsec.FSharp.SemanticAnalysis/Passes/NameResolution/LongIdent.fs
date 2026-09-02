@@ -58,6 +58,37 @@ module NameResolutionLongIdent =
                 })
             rest
 
+    /// The type a reference in expression or pattern position denotes. An abbreviation
+    /// aliasing a keyed type denotes that type: this file's declaration of it, else the
+    /// referenced one. Every other reference denotes itself.
+    let private dealias (ctx: PassContext) (t: ResolvedTypeRef) : ResolvedTypeRef =
+        let ofKey (key: TypeKey) : ResolvedTypeRef voption =
+            match TypeRegistry.tryIdentityByKey ctx.Types key with
+            | ValueSome claim -> ValueSome(ResolvedTypeRef.Local claim)
+            | ValueNone ->
+                match ctx.Provider.TryLookupType key with
+                | ValueSome shape -> ValueSome(ResolvedTypeRef.External(key, shape))
+                | ValueNone -> ValueNone
+
+        let aliased =
+            match t with
+            | ResolvedTypeRef.Local claim when claim.Kind = TypeDeclKind.Abbreviation ->
+                TypeRegistry.tryAliasedKey ctx.Types claim.Key |> ValueOption.bind ofKey
+            | ResolvedTypeRef.External(_, shape) -> shape.AliasedKey |> ValueOption.bind ofKey
+            | ResolvedTypeRef.Local _ -> ValueNone
+
+        match aliased with
+        | ValueSome a -> a
+        | ValueNone -> t
+
+    /// `dealias` over this file's claim.
+    let private localType (ctx: PassContext) (claim: TypeIdentity) : ResolvedTypeRef =
+        dealias ctx (ResolvedTypeRef.Local claim)
+
+    /// `dealias` over a referenced type.
+    let private externalType (ctx: PassContext) (key: TypeKey) (shape: ExternalTypeShape) : ResolvedTypeRef =
+        dealias ctx (ResolvedTypeRef.External(key, shape))
+
     let private unresolvedInType (t: ResolvedTypeRef) (segment: string) (rest: int) : Resolution =
         resolved
             (ResolvedItem.Unresolved
@@ -176,9 +207,9 @@ module NameResolutionLongIdent =
         | [] ->
             [
                 for struct (key, shape) in (ctx.Resolver.Scope.TypesNamed(c, name)).Underlying ->
-                    ResolvedTypeRef.External(key, shape)
+                    externalType ctx key shape
             ]
-        | claims -> List.map ResolvedTypeRef.Local claims
+        | claims -> List.map (localType ctx) claims
 
     /// A union-case claim beside its declaring union's `[<RequireQualifiedAccess>]`.
     [<Struct; NoEquality; NoComparison>]
@@ -235,9 +266,9 @@ module NameResolutionLongIdent =
         anyStatic name || anyStatic (AccessorNames.setterName name)
 
     /// `name` inside the type `t`: a union or enum case in either position; in expression
-    /// position also a static member, which must be declared on the type. An abbreviation, an
-    /// intrinsic repr and an unmodelled type admit a static unchecked, for Unification to
-    /// resolve.
+    /// position also a static member, which must be declared on the type. `t` arrives
+    /// dealiased, so a surviving abbreviation, an intrinsic repr and an unmodelled type admit
+    /// a static unchecked, for Unification to resolve.
     let private inType
         (ctx: PassContext)
         (position: Position)
@@ -427,10 +458,10 @@ module NameResolutionLongIdent =
     /// A bare type name at any arity: this file's claim in scope, else the external providers.
     let private typeInEnv (ctx: PassContext) (useSite: UseSite) (name: string) : ResolvedTypeRef voption =
         match TypeRegistry.tryTypeClaimAnyArity ctx.Types useSite name with
-        | ValueSome claim -> ValueSome(ResolvedTypeRef.Local claim)
+        | ValueSome claim -> ValueSome(localType ctx claim)
         | ValueNone ->
             classifyExternalWritten ctx useSite WrittenArity.Any Qualifier.Bare name
-            |> ValueOption.map (fun (struct (key, shape)) -> ResolvedTypeRef.External(key, shape))
+            |> ValueOption.map (fun (struct (key, shape)) -> externalType ctx key shape)
 
     /// `names.[0]` as a type in the environment and `names.[1]` inside it: every claim of this
     /// file in scope under the name, then the external providers at each arity. A type that
@@ -445,7 +476,7 @@ module NameResolutionLongIdent =
 
         let local =
             TypeRegistry.writtenTypeClaims ctx.Types useSite (WrittenTypeName.bare names.[0])
-            |> List.map ResolvedTypeRef.Local
+            |> List.map (localType ctx)
 
         let hit =
             match local |> tryPickV (fun t -> inType ctx position t second) with
@@ -455,7 +486,7 @@ module NameResolutionLongIdent =
                     ctx
                     useSite
                     WrittenArity.Any
-                    (fun key shape -> inType ctx position (ResolvedTypeRef.External(key, shape)) second)
+                    (fun key shape -> inType ctx position (externalType ctx key shape) second)
                     Qualifier.Bare
                     names.[0]
 
@@ -467,7 +498,7 @@ module NameResolutionLongIdent =
                 | t :: _ -> ValueSome t
                 | [] ->
                     classifyExternalWritten ctx useSite WrittenArity.Any Qualifier.Bare names.[0]
-                    |> ValueOption.map (fun (struct (key, shape)) -> ResolvedTypeRef.External(key, shape))
+                    |> ValueOption.map (fun (struct (key, shape)) -> externalType ctx key shape)
 
             found |> ValueOption.map (fun t -> unresolvedInType t second 2)
 
@@ -487,7 +518,7 @@ module NameResolutionLongIdent =
             | Position.Expression ->
                 classifyExternalWritten ctx useSite WrittenArity.Any (Qualifier.Path names.[.. n - 2]) last
                 |> ValueOption.map (fun (struct (key, shape)) ->
-                    resolved (finalTypeItem position (ResolvedTypeRef.External(key, shape))) n
+                    resolved (finalTypeItem position (externalType ctx key shape)) n
                 )
             | Position.Pattern -> ValueNone
 
@@ -505,16 +536,14 @@ module NameResolutionLongIdent =
                 ctx
                 useSite
                 WrittenArity.Any
-                (fun key shape -> inType ctx position (ResolvedTypeRef.External(key, shape)) last)
+                (fun key shape -> inType ctx position (externalType ctx key shape) last)
                 prefixQualifier
                 prefixName
             |> ValueOption.map (fun item -> resolved item n)
 
         let prefixMiss () =
             classifyExternalWritten ctx useSite WrittenArity.Any prefixQualifier prefixName
-            |> ValueOption.map (fun (struct (key, shape)) ->
-                unresolvedInType (ResolvedTypeRef.External(key, shape)) last n
-            )
+            |> ValueOption.map (fun (struct (key, shape)) -> unresolvedInType (externalType ctx key shape) last n)
 
         [ asType; prefixMember; prefixMiss ] |> tryPickV (fun step -> step ())
 
