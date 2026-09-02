@@ -100,9 +100,10 @@ let tests =
                 Expect.isTrue hasArity "arity-mismatch diagnostic emitted"
             }
 
-            test "generic type written bare back-fills fresh typars" {
-                // `Box` is arity 1 but named bare: its typar is back-filled with a fresh
-                // TyVar, which the record literal then pins to `int`. No arity diagnostic.
+            test "generic type written bare diagnoses yet back-fills fresh typars" {
+                // A bare `Box` is arity 0 exactly, so the annotation is FS0033. Recovery
+                // back-fills the typar with a fresh TyVar, which the record literal pins
+                // to `int`, keeping the rest of the file typed.
                 let ctx = analyse "type Box<'a> = { Value: 'a }\nlet b : Box = { Value = 1 }"
                 // pat b at 33: 28-char type decl + "\n" + "let ".
                 let patKey = NodeKey.ofSource 33 NodeKind.PatIdent
@@ -112,7 +113,11 @@ let tests =
                     (TyRecord("Box", EqArray.singleton BuiltinTypes.tyInt))
                     "b : Box<int> — bare name back-filled and pinned"
 
-                Expect.isEmpty ctx.Diagnostics "no diagnostics — a bare generic name is lenient"
+                let hasArity =
+                    ctx.Diagnostics
+                    |> Seq.exists (fun d -> d.Message.Contains "expects 1 type argument(s) but got 0")
+
+                Expect.isTrue hasArity "arity-mismatch diagnostic emitted for the bare generic name"
             }
 
             test "generic intrinsic written bare back-fills an element arg, not empty" {

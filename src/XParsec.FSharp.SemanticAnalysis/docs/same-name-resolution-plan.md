@@ -27,6 +27,7 @@ lookup, and the consequences run in three directions.
     `interface … with` — for a record, union, class, abbreviation and a BCL generic alike.
     Several arities and none of them 0 is still FS0033, reported against the best-ranked
     candidate rather than as an ambiguity. `C<_>` is how the arity is left to inference.
+    (Step 5 diverges here on purpose: this compiler will name the NEAREST arity instead.)
   - In **expression and pattern** position a bare name is normal F# and resolves: the order is
     an arity-0 claim, else the candidates' agreed arity, else refuse. `T(1)`, `C.Make 5` and a
     union-case pattern all work with no type arguments written. Where the instantiation cannot
@@ -44,15 +45,15 @@ order and implements it.
 
 ## Where the compiler stands
 
-Ten of the fifteen pinned cases are green. Arity overloading within a module, every cross-arity
-reach, both kind-shadowing cases, and every expression-position case behave as F# does, because
-type resolution runs through `NameResolutionLongIdent.resolveType` (`LongIdent.fs:611`) over
-`TypeClaims`, which is kind-agnostic and ranked. The five gaps are pended in
-`SameNameResolutionTests.fs`.
+*Updated after step 2.* Nineteen of the twenty-two pinned cases are green: arity overloading
+within a module, every cross-arity reach, both kind-shadowing cases, every bare-name
+expression-position case, and, since step 2, every type-position case. Type resolution runs
+through `NameResolutionLongIdent.resolveType` (`LongIdent.fs:611`) over `TypeClaims`, which is
+kind-agnostic and ranked. GAP 3, 6 and 7 remain, pended in `SameNameResolutionTests.fs`.
 
-### GAP 1, 2, 4 and 5 — a bare generic name in TYPE position is accepted
+### GAP 1, 2, 4 and 5 — a bare generic name in TYPE position is accepted. Closed by step 2.
 
-`resolveType` falls back from the written arity to ANY arity:
+*Was:* `resolveType` fell back from the written arity to ANY arity:
 
 ```fsharp
 let local =
@@ -75,6 +76,11 @@ wrong arity as a TYPE rather than as an unresolved segment, which the verdict st
 depends on. Removing it wholesale would turn FS0033 into an unresolved-name diagnostic, which
 is a worse answer. The fix has to distinguish the two outcomes.
 
+*Now:* `resolveType` returns `TypeNameResolution`, whose `LocalAtOtherArity` arm is the claim
+found at another arity. `classifyTypeRef` reports that arm as FS0033 and stamps
+`TypeRefVerdict.LocalTypeAtOtherArity claim`, so the reference stays a type and the claim
+travels with the verdict.
+
 ### GAP 3 — an arity ambiguity in expression position reaches the freeze
 
 `T(1)` with `A.T<'a>` and `B.T<'a,'b>` both opened resolves to nothing:
@@ -86,6 +92,31 @@ trips the internal backstop:
 
 An internal backstop is not a verdict a user can act on. F# names the fault at the use site
 (FS1124) and says how to fix it.
+
+### GAP 6 and 7 — a WRITTEN arity in expression position is unreported
+
+Step 2 made NameResolution the sole owner of the local FS0033, reporting it from
+`classifyTypeRef`, which runs over TYPE references. An `Expr.TypeApp` is not one. `Scope.fs`'s
+`TypeApp` arm resolves the applied name itself and, on `LocalAtOtherArity`, stamps the claim
+without reporting, leaving the arity to Unification.
+
+Unification reaches it in `inferTypeApp` (`InferTypeOps.fs:36`), which reports only against a
+`TypeAppTarget.Scheme` or `Nominal` — a generalised binding, or a class / record / union RESULT.
+Two applied forms type onto neither:
+
+| written, with `E` an enum and `U<'a>` a union | F# | this compiler |
+| --- | --- | --- |
+| `E<int>.A` | FS0033, "does not expect any type arguments, but here is given 1" | no user diagnostic |
+| `U<int, string>.Case 1` | FS0033, "expects 1 type argument(s) but is given 2" | no user diagnostic |
+
+An enum-case and a union-case qualifier each discard the written type arguments before
+`inferTypeApp` has a target, so nothing is reported and the unpinned TyVars reach the freeze:
+
+> internal compiler error: the frozen TAST holds 2 unresolved TyVar(s)
+
+The ctor (`C<int, string>(1)`) and static-member (`C<int, string>.M`) forms of the same mistake
+report correctly, and are pinned green beside the two gaps. So the fault is the qualifier paths,
+not the `TypeApp` arm as a whole.
 
 ## A correction to `tryKeyOfArity`'s doc
 
@@ -120,12 +151,21 @@ wants anyway. Until one of them lands, the sentence is false and should not be c
 each quoting its F# verdict under its FS code. Ten green; the five gaps pended, each failing for
 the reason given above when un-pended.
 
-**Step 2 — separate "wrong arity" from "not a type".** Give `resolveType` a third outcome
-between `ResolvedItem.Type` and `ResolvedItem.Unresolved`: a claim found at an arity other than
-the written one. The `voption` returned by the two-step lookup is standing in for three answers
-(hit at this arity / hit at another arity / no claim), which is the signal for a DU. Report the
-new case as FS0033 and stamp it as a type, preserving the verdict the downstream stamp reads.
-Closes GAP 1, 2, 4 and 5, since all four reach `resolveType`.
+**Step 2 — separate "wrong arity" from "not a type". Done.** `resolveType` returns
+`TypeNameResolution` (`Type` / `LocalAtOtherArity` / `Unresolved`), and `TypeRefVerdict` carries
+the claim: `LocalType claim` at the written arity, `LocalTypeAtOtherArity claim` otherwise.
+`classifyTypeRef` reports the latter as FS0033, once, because the first visit of a site settles
+its verdict and a later stamping walk reads it back. GAP 1, 2, 4 and 5 closed.
+
+NameResolution is the sole owner of the local FS0033. `Translate.translateTypeRef` reads the
+stamped verdict at every written reference instead of re-deriving the claim from the registry,
+so it reports no arity of its own; a claim at another arity recovers by fitting the written
+args to the claim's arity with fresh TyVars, which is the one recovery for a bare `Box`, a
+`T<int>` against `T<'a, 'b>`, and a qualified `A.T<int>` alike. The `float<m>` carrier is the
+one by-name resolution left, because no walk stamps a measured carrier. One fixture reddened,
+exactly as predicted — `UnificationGenericsTests`' "generic type written bare", which asserted
+no diagnostic for `let b : Box = …`. It now asserts FS0033 and keeps its back-fill assertion,
+since recovery still types `b` as `Box<int>`.
 
 **Step 3 — report the arity ambiguity at the use site.** `tryKeyOfArglessName`'s scan already
 computes the fact (`oneArity = false`); it discards it and returns `ValueNone`, so the caller
@@ -140,6 +180,33 @@ behaviour change is expected, since no current call site can observe the differe
 to write first is the one that would: a kind-specific lookup asked for a name whose max-rank
 claim is of another kind.
 
+**Step 5 — report a written arity no claim holds, and name the nearest arity.** Closes GAP 6
+and 7. Two parts; the second is a deliberate divergence from F#.
+
+*Report it.* The enum-case and union-case qualifier paths must carry the written type arguments
+as far as the claim's arity so the two can be compared. `Scope.fs`'s `TypeApp` arm holds both
+numbers already, so reporting there is the small fix, but it double-reports the ctor and
+static-member forms, which step 2 pinned as reported ONCE (`expectOneUserError`). The report
+belongs where the qualifier resolves its claim, so that reported-once holds by construction
+instead of by a case analysis over target kinds.
+
+*Name the nearest arity.* FS0033 names whichever candidate `tryWrittenTypeClaimAnyArity`
+(`TypeRegistry.fs:424`) ranks first, and rank is scope distance, not arity distance. Probed
+2026-09-01: with `A.T<'a,'b,'c>` and `B.T<'a>` both opened and `T<int,int,int,int>` written, F#
+reports against `B.T<_>` — "expects 1 type argument(s) but is given 4" — the nearer open, three
+arities out, while `A.T` is one arity out and is the likelier intent. Suggest the claim of
+NEAREST arity instead, ties broken by rank.
+
+`writtenTypeClaims` (`TypeRegistry.fs:244`) already returns every reachable claim rank-ordered,
+so this is a stable sort by `abs(claim.TyparArity - written)` over a list that exists, not a new
+lookup. `tryWrittenTypeClaimAnyArity` is the single caller whose choice changes, and it feeds
+`TypeNameResolution.LocalAtOtherArity`, so type position gains the better suggestion at the same
+time.
+
+The divergence is confined to WHICH candidate an already-emitted FS0033 names; whether the
+diagnostic fires at all is unchanged. Any fixture asserting a specific "expects N" against a
+multi-arity name is therefore a finding to re-read rather than a regression.
+
 ## Semantics confirmed
 
 Answered by the 2026-09-01 probes, and pinned:
@@ -153,7 +220,7 @@ Answered by the 2026-09-01 probes, and pinned:
 4. **Type position never infers a type argument, and expression position always may.** The
    split is by syntactic position, uniform within each: nine type positions all give FS0033,
    and constructors, static accesses and union-case patterns all resolve bare. Type position
-   is the one place F# is stricter than this compiler currently is.
+   was the one place F# was stricter than this compiler; step 2 closed it.
 5. **Expression position prefers arity 0 and does not backtrack.** `T(1)` against a
    `unit`-constructor `T` is a constructor-arity error, never a silent fallthrough to `T<'a>`.
 6. **An uninferable instantiation is a WARNING, not an error** (FS1125), and only in expression
@@ -161,15 +228,19 @@ Answered by the 2026-09-01 probes, and pinned:
 
 ## Scope and risk
 
-Step 2 touches `LongIdent.resolveType`, `TypeRefStamp`, `ResolvedItem` and the diagnostic
-kinds. Step 3 touches `TypeRegistry.tryKeyOfArglessName`, its four `*Bare` callers and the
-diagnostic kinds. Step 4 touches `TypeRegistry` only. All three are front-end, publish nothing
-new, and leave the frozen blob and its codec alone.
+Step 2 landed in `PassContext.TypeRefVerdict`, `LongIdent.resolveType`, `TypeRefStamp`,
+`ResolvedItem`, `Scope`'s `TypeApp` arm and `Translate`, and needed no new diagnostic kind: the
+existing `Kind.TypeArgArity` already carries FS0033. Step 3 touches
+`TypeRegistry.tryKeyOfArglessName`, its four `*Bare` callers and the diagnostic kinds. Step 4
+touches `TypeRegistry` only. Step 5 touches the enum-case and union-case qualifier paths, plus
+`tryWrittenTypeClaimAnyArity`'s choice of candidate. All four are front-end, publish nothing new,
+and leave the frozen blob and its codec alone.
 
-The risk concentrates in step 2, and it is narrower than the leniency's age suggests. Only
-TYPE positions redden: a fixture writing `T(1)`, `C.Make 5` or a union-case pattern goes
-through `tryKeyOfArglessName` and is untouched, and those are where a bare generic name is
-idiomatic F#. What reddens is a fixture that annotates with a bare generic name, or writes one
-at a type argument or in an `inherit` clause — none of which any F# compiler accepts, so each
-hit is a fixture that was never valid F#. Expect the red surface to be the deliverable, and
-read each failure as a fixture to correct rather than a regression.
+Step 5 carries the wider blast radius of the four, because the nearest-arity change reaches every
+existing FS0033 against a multi-arity name, in type position as well as expression position.
+`Kind.TypeArgArity` already carries the arity it quotes, so no new diagnostic kind is needed.
+
+The risk was concentrated in step 2, and it proved narrower still: one fixture across the four
+suites. Only TYPE positions redden — a fixture writing `T(1)`, `C.Make 5` or a union-case
+pattern goes through `tryKeyOfArglessName` and is untouched, and those are where a bare generic
+name is idiomatic F#.

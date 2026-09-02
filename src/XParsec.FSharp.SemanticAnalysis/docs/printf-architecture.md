@@ -353,6 +353,14 @@ a sink for native lowering without ever asking the target whether it can lower i
 different axis. Because these calls are UNOBSERVABLE they must keep working, so emitting
 them is part of this work. See "Two capability axes" below.)*
 
+> **SUPERSEDED — the mechanism this rests on no longer exists, and the probe now fails.**
+> `resolveQualifiedTypeName` was deleted by `236bcbf8`; an unresolved dotted name reaches
+> `unresolvedRefTy` (`Translate.fs:47`), which reports through `ctx.UndefinedType` and returns
+> `TyUnknown(UnknownReason.UndefinedName …)` rather than a fresh `TyVar`. Re-run of the probe
+> below against current code: `let go (w: Foo.Bar.Baz) = fprintf w "%d" 42` yields ONE error,
+> `The type 'Foo.Bar.Baz' is not defined`. Whatever remains of the sink argument needs
+> re-deriving from `TyUnknown`'s behaviour, not from a free typar's.
+
 **The user's annotation does not unify by string coincidence — it unifies because it
 is a free type variable.** `Translate.fs:539-571` (`resolveQualifiedTypeName`) returns
 `TyVar(freshTyVar ctx)` for an unresolved **dotted** name under a non-local qualifier

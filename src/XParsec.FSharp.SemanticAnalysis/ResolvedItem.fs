@@ -61,6 +61,15 @@ type UnresolvedName =
         Within: ResolutionScope
     }
 
+/// What a written type name at a written arity denotes at its use site.
+[<RequireQualifiedAccess; NoEquality; NoComparison>]
+type TypeNameResolution =
+    | Type of ResolvedTypeRef
+    /// A type declared in this file, in scope under the written name but claiming a different
+    /// arity (FS0033). `claim.TyparArity` is the arity the name must be written at.
+    | LocalAtOtherArity of claim: TypeIdentity
+    | Unresolved of UnresolvedName
+
 /// What a written name denotes at its use site, in the position it is written in.
 [<RequireQualifiedAccess; NoEquality; NoComparison>]
 type ResolvedItem =

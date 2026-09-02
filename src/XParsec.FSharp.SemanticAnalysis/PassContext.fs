@@ -151,11 +151,15 @@ module PassContextBindings =
 
 /// What a written type name resolves to, as NameResolution's classifying walk found it. Recorded
 /// at every type reference the walk visits, so ABSENT means unvisited, not "resolved to nothing".
-[<Struct; RequireQualifiedAccess>]
+/// The first visit of a site settles its verdict.
+[<RequireQualifiedAccess; NoEquality; NoComparison>]
 type TypeRefVerdict =
-    /// A type declared in this file is in scope at the use site; its identity comes from the
-    /// type registry, not from here.
-    | LocalType
+    /// A type declared in this file, in scope at the use site at the arity written.
+    | LocalType of claim: TypeIdentity
+    /// A type declared in this file, in scope under the written name but claiming a different
+    /// arity. `claim.TyparArity` is the arity the name must be written at; FS0033 is reported
+    /// as the verdict is stamped.
+    | LocalTypeAtOtherArity of claim: TypeIdentity
     /// Resolved to this key, at the type-arg arity written at the use site.
     | ExternalType of key: TypeKey
     /// Nothing in scope at the use site, and no external type of that spelling.

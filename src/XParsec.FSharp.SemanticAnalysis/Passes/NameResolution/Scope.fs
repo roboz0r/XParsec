@@ -7,7 +7,6 @@ open XParsec.FSharp.SemanticAnalysis
 open NameResolutionContainers
 open NameResolutionLongIdent
 open NameResolutionTypeRefStamp
-open UnificationTranslate
 
 // Scope tracking and ident-use resolution for NameResolution. A name denoting a binding of
 // this file is bound in `ctx.Bindings.Binding` at its use-site key; any other name resolves
@@ -232,21 +231,10 @@ module NameResolutionScope =
     /// (a claim in scope wins, else the external universe) and diagnose a SINGLE-SEGMENT one
     /// that resolves to neither (FS0039); a DOTTED name is judged where its path's scope is resolved.
     let classifyingTypeIter (ctx: PassContext) : CstTypeWalk.TypeIter =
-        // `float<kg>` is a measured carrier, not a generic type applied to a type argument.
-        // Neither the carrier (there is no arity-1 `float` to find) nor the measure is a type
-        // reference, so classification stops here, exactly where translation stops.
-        let isMeasuredCarrier (t: Type<SyntaxToken>) =
-            match t with
-            | Type.GenericType(longIdent = li; typeArgs = args) ->
-                li.Idents.Length = 1
-                && args.Length = 1
-                && isNumericCarrier (ctx.NameOf li.Idents.[0])
-            | _ -> false
-
         { CstTypeWalk.identityTypeIter with
             VisitType =
                 fun _ t ->
-                    if isMeasuredCarrier t then
+                    if isMeasuredCarrier ctx t then
                         false
                     else
                         match CstKeys.ofTypeRef t with
@@ -264,7 +252,8 @@ module NameResolutionScope =
                                     ctx.NameOf typeRef.Site.Tok
                                 )
                             | TypeRefVerdict.UnknownType
-                            | TypeRefVerdict.LocalType
+                            | TypeRefVerdict.LocalType _
+                            | TypeRefVerdict.LocalTypeAtOtherArity _
                             | TypeRefVerdict.ExternalType _ -> ()
                         | ValueNone -> ()
 
@@ -502,11 +491,17 @@ module NameResolutionScope =
                 let key = CstKeys.ofExpr expr
 
                 match resolveType ctx (ctx.UseSiteAt key) written types.Length with
-                | ResolvedItem.Type(ResolvedTypeRef.Local _) as item -> ctx.Resolution.Resolved.Set(key, item)
-                | ResolvedItem.Type(ResolvedTypeRef.External(typeKey, _)) as item ->
-                    ctx.Resolution.Resolved.Set(key, item)
+                | TypeNameResolution.Type(ResolvedTypeRef.Local _ as t) ->
+                    ctx.Resolution.Resolved.Set(key, ResolvedItem.Type t)
+                // A claim at another arity is still this file's type. Unification reports the
+                // arity when the application types onto a nominal result or a scheme; an enum-
+                // or union-case qualifier types onto neither and goes unreported.
+                | TypeNameResolution.LocalAtOtherArity claim ->
+                    ctx.Resolution.Resolved.Set(key, ResolvedItem.Type(ResolvedTypeRef.Local claim))
+                | TypeNameResolution.Type(ResolvedTypeRef.External(typeKey, _) as t) ->
+                    ctx.Resolution.Resolved.Set(key, ResolvedItem.Type t)
                     ctx.Resolution.ResolvedType.Set(key, typeKey)
-                | _ -> ()
+                | TypeNameResolution.Unresolved _ -> ()
             | ValueNone -> ()
         | Expr.InfixApp _
         | Expr.PrefixApp _ -> stampOperator ctx scope e

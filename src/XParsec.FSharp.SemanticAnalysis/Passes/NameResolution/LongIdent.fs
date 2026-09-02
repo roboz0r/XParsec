@@ -607,29 +607,29 @@ module NameResolutionLongIdent =
         | n -> firstOf (qualifiedReadings ctx useSite Position.Pattern names) (unresolvedInEnv first n)
 
     /// A written type name at `arity`: a claim of this file in scope at the use site, at that
-    /// arity else at any, then the referenced contracts at exactly that arity.
-    let resolveType (ctx: PassContext) (useSite: UseSite) (written: WrittenTypeName) (arity: int) : ResolvedItem =
-        let local =
-            match TypeRegistry.tryWrittenTypeClaim ctx.Types useSite written arity with
-            | ValueSome claim -> ValueSome claim
-            | ValueNone -> TypeRegistry.tryWrittenTypeClaimAnyArity ctx.Types useSite written
-
-        match local with
-        | ValueSome claim -> ResolvedItem.Type(ResolvedTypeRef.Local claim)
+    /// arity else at any, then the referenced contracts at exactly that arity. A claim of this
+    /// file at ANY arity settles the name: `LocalAtOtherArity` is that name, at the wrong
+    /// arity, and never an external namesake.
+    let resolveType (ctx: PassContext) (useSite: UseSite) (written: WrittenTypeName) (arity: int) : TypeNameResolution =
+        match TypeRegistry.tryWrittenTypeClaim ctx.Types useSite written arity with
+        | ValueSome claim -> TypeNameResolution.Type(ResolvedTypeRef.Local claim)
         | ValueNone ->
-            match
-                tryPickExternalWritten
-                    ctx
-                    useSite
-                    (WrittenArity.Exact arity)
-                    (fun key shape -> ValueSome(ResolvedTypeRef.External(key, shape)))
-                    (Qualifier.ofPath written.Path)
-                    written.Name
-            with
-            | ValueSome t -> ResolvedItem.Type t
+            match TypeRegistry.tryWrittenTypeClaimAnyArity ctx.Types useSite written with
+            | ValueSome claim -> TypeNameResolution.LocalAtOtherArity claim
             | ValueNone ->
-                ResolvedItem.Unresolved
-                    {
-                        Segment = written.Name
-                        Within = ResolutionScope.Environment
-                    }
+                match
+                    tryPickExternalWritten
+                        ctx
+                        useSite
+                        (WrittenArity.Exact arity)
+                        (fun key shape -> ValueSome(ResolvedTypeRef.External(key, shape)))
+                        (Qualifier.ofPath written.Path)
+                        written.Name
+                with
+                | ValueSome t -> TypeNameResolution.Type t
+                | ValueNone ->
+                    TypeNameResolution.Unresolved
+                        {
+                            Segment = written.Name
+                            Within = ResolutionScope.Environment
+                        }

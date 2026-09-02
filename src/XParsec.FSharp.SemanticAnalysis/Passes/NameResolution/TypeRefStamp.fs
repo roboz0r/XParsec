@@ -10,36 +10,55 @@ open NameResolutionLongIdent
 
 module NameResolutionTypeRefStamp =
 
-    /// A local claim WINS, including one qualified by a module of this file. The claims
-    /// consulted are those VISIBLE AT THE USE SITE, so one written ABOVE a same-named local
-    /// declaration sees none: F#'s file-order shadowing.
+    /// A local claim WINS at the arity written, including one qualified by a module of this
+    /// file. A bare `T` is arity 0; a name claimed only at another arity is still that type,
+    /// and reports FS0033. Claims apply only where VISIBLE AT THE USE SITE (file-order shadowing).
     let classifyTypeRef (ctx: PassContext) (typeRef: CstKeys.TypeRef) : TypeRefVerdict =
-        let written = ctx.WrittenTypeNameOf typeRef.LongIdent
+        match ctx.Resolution.TypeRefVerdicts.TryGetValue typeRef.Site.Key with
+        | ValueSome verdict -> verdict
+        | ValueNone ->
+            let written = ctx.WrittenTypeNameOf typeRef.LongIdent
 
-        let item =
-            resolveType ctx (ctx.UseSiteAt typeRef.Site.Key) written typeRef.TyparArity
+            let verdict =
+                match resolveType ctx (ctx.UseSiteAt typeRef.Site.Key) written typeRef.TyparArity with
+                | TypeNameResolution.Type(ResolvedTypeRef.Local claim) -> TypeRefVerdict.LocalType claim
+                | TypeNameResolution.Type(ResolvedTypeRef.External(key, _)) -> TypeRefVerdict.ExternalType key
+                | TypeNameResolution.LocalAtOtherArity claim ->
+                    ctx.Report(
+                        typeRef.Site.Tok,
+                        Kind.TypeArgArity(written.Written, claim.TyparArity, typeRef.TyparArity)
+                    )
 
-        let verdict =
-            match item with
-            | ResolvedItem.Type(ResolvedTypeRef.Local _) -> TypeRefVerdict.LocalType
-            | ResolvedItem.Type(ResolvedTypeRef.External(key, _)) -> TypeRefVerdict.ExternalType key
-            | _ -> TypeRefVerdict.UnknownType
+                    TypeRefVerdict.LocalTypeAtOtherArity claim
+                | TypeNameResolution.Unresolved _ -> TypeRefVerdict.UnknownType
 
-        ctx.Resolution.Resolved.Set(typeRef.Site.Key, item)
-        ctx.Resolution.TypeRefVerdicts.Set(typeRef.Site.Key, verdict)
-        verdict
+            ctx.Resolution.TypeRefVerdicts.Set(typeRef.Site.Key, verdict)
+            verdict
 
+    /// `float<kg>` is a measured carrier, not a generic type applied to a type argument.
+    /// Neither the carrier nor the measure is a type reference: no walk stamps a verdict at
+    /// either, and translation resolves the carrier by name at arity 0.
+    let isMeasuredCarrier (ctx: PassContext) (t: Type<SyntaxToken>) : bool =
+        match t with
+        | Type.GenericType(longIdent = li; typeArgs = args) ->
+            li.Idents.Length = 1
+            && args.Length = 1
+            && RuntimeNames.isNumericCarrier (ctx.NameOf li.Idents.[0])
+        | _ -> false
 
     /// A structural shape applies no type name, so it records no verdict.
     let stampTypeIter (ctx: PassContext) : CstTypeWalk.TypeIter =
         { CstTypeWalk.identityTypeIter with
             VisitType =
                 fun _ t ->
-                    match CstKeys.ofTypeRef t with
-                    | ValueSome typeRef -> classifyTypeRef ctx typeRef |> ignore
-                    | ValueNone -> ()
+                    if isMeasuredCarrier ctx t then
+                        false
+                    else
+                        match CstKeys.ofTypeRef t with
+                        | ValueSome typeRef -> classifyTypeRef ctx typeRef |> ignore
+                        | ValueNone -> ()
 
-                    true
+                        true
         }
 
     let stampTypeRefs (ctx: PassContext) (ty: Type<SyntaxToken>) : unit =

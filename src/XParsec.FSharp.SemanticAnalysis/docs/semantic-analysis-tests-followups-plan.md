@@ -162,12 +162,17 @@ Two comments **outside this project** name `Frozen.TastFile` and were not verifi
 
 ## A12. The resolve-once premise is not uniform — a measure carrier resolves by name
 
-`Passes/Unification/Translate.fs:186` disables the by-name external hook explicitly
-(`resolveBareTypeName ctx li.Idents.[0] (fun _name -> ValueNone)`), but line 226 passes a live
-one to the same helper (`resolveBareTypeName ctx carrierTok (fun name -> tryResolveExternalType
-ctx name EqArray.empty)`). So an external type CAN still be reached by spelling, at the
-measure-carrier site, with no recorded verdict. Either the rule holds everywhere and that
-callback should go, or it does not and the suite's premise needs restating.
+**Second horn taken; the pluggable-resolver shape is gone.** `236bcbf8` deleted
+`resolveBareTypeName` and its `resolveExternal` callback parameter. A written reference now
+reads its stamped verdict and nothing else (`Translate.fs:391`, `translateTypeRef`), and the
+one by-name escape is a named function of its own: `Translate.fs:425`
+(`resolveMeasureCarrier`), whose sole call to `tryResolveExternalType` (`:438`) resolves a
+`float<m>` carrier at arity 0. So the rule does NOT hold everywhere, the exception is the
+measure carrier alone, and both sides now state it — `isMeasuredCarrier`
+(`Passes/NameResolution/TypeRefStamp.fs`) records that no walk stamps a verdict there.
+
+What remains open is only the suite's premise, restated: a missing verdict is invisible on the
+read side EXCEPT at a measure carrier, where a by-name resolution can mask it.
 
 The comment stating the premise as absolute (*"a missing verdict is invisible on the read
 side … has no by-name fallback, so nothing else in the suite would catch a regression"*) is

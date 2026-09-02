@@ -459,6 +459,11 @@ module RuntimeNames =
         |> Seq.append numericAliasNames
         |> Set.ofSeq
 
+    /// Does `name` spell a numeric primitive that can carry a measure (`float<m>`, `int<kg>`)?
+    /// Matched on the spelling, before the name resolves to anything, so the aliases (`single`,
+    /// `double`) match as themselves.
+    let isNumericCarrier (name: string) : bool = numericTypeNames.Contains name
+
     /// NOT a `namespace Vesper` type: `null` is a keyword, so it has no declaring namespace
     /// and its identity is the bare name.
     let nullKey: TypeKey = opaqueKey nullTypeName

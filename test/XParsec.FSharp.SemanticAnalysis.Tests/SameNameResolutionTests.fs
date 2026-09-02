@@ -27,12 +27,24 @@ let private expectErrorIn (es: string list) (needle: string) =
 let private expectError (needle: string) (source: string) =
     expectErrorIn (errors (analyse source)) needle
 
-/// `expectError`, and the diagnostic must be a user-facing one: an unresolved name that
+/// `expectErrorIn`, and the diagnostic must be a user-facing one: an unresolved name that
 /// reaches the freeze as a stray `TyVar` trips the internal backstop instead.
-let private expectUserError (needle: string) (source: string) =
-    let es = errors (analyse source)
+let private expectUserErrorIn (es: string list) (needle: string) =
     expectErrorIn es needle
     Expect.isFalse (es |> List.exists (fun m -> m.Contains "internal compiler error")) "no internal error"
+
+let private expectUserError (needle: string) (source: string) =
+    expectUserErrorIn (errors (analyse source)) needle
+
+/// `expectUserError`, and exactly one diagnostic matches.
+let private expectOneUserError (needle: string) (source: string) =
+    let es = errors (analyse source)
+    expectUserErrorIn es needle
+
+    Expect.equal
+        (es |> List.filter (fun m -> m.Contains needle) |> List.length)
+        1
+        (sprintf "'%s' reported once; diagnostics were %A" needle es)
 
 // A type name is claimed at an ARITY: one module may hold `T` and `T<'a>` at once, and a bare
 // name reaches an outer arity-0 claim past a nearer generic one. Within one arity the max-rank
@@ -116,10 +128,9 @@ module N =
                 "a bare generic name in TYPE position is an error"
                 [
                     // FS0033: "The type 'T<_>' expects 1 type argument(s) but is given 0". The
-                    // type argument is NOT inferred from the annotation's context. The
-                    // annotation is currently accepted, reporting nothing.
-                    ptest "GAP: a bare generic name in an annotation is an error" {
-                        expectUserError
+                    // type argument is NOT inferred from the annotation's context.
+                    test "a bare generic name in an annotation is an error" {
+                        expectOneUserError
                             "expects 1 type argument"
                             "\
 module A =
@@ -134,9 +145,8 @@ module N =
 
                     // FS0033 again, against the best-ranked candidate: several arities in scope
                     // and none of them 0 is still a missing-argument error, not an ambiguity.
-                    // The annotation is currently accepted, reporting nothing.
-                    ptest "GAP: two generic arities and no arity-0 claim is an error" {
-                        expectUserError
+                    test "two generic arities and no arity-0 claim is an error" {
+                        expectOneUserError
                             "expects 2 type argument"
                             "\
 module A =
@@ -155,8 +165,8 @@ module N =
 
                     // FS0033 at a type ARGUMENT: no type position exempts a bare generic name,
                     // `inherit`, `typeof<>` and `interface ... with` included.
-                    ptest "GAP: a bare generic name as a type argument is an error" {
-                        expectUserError
+                    test "a bare generic name as a type argument is an error" {
+                        expectOneUserError
                             "expects 1 type argument"
                             "\
 type C<'a>(x: 'a) =
@@ -168,8 +178,8 @@ let f (xs: C list) = List.length xs
 
                     // FS0033 in an `inherit` clause: the base's value arguments do NOT supply
                     // its type arguments.
-                    ptest "GAP: a bare generic name in an `inherit` clause is an error" {
-                        expectUserError
+                    test "a bare generic name in an `inherit` clause is an error" {
+                        expectOneUserError
                             "expects 1 type argument"
                             "\
 type B<'a>(x: 'a) =
@@ -179,6 +189,19 @@ type D(y: int) =
     inherit B(y)
 "
                     }
+
+                    // A WRITTEN arity that no claim on the name holds is the same FS0033, and
+                    // both NameResolution and the type translation reach it.
+                    test "a written arity no claim holds is reported once" {
+                        expectOneUserError
+                            "expects 2 type argument"
+                            "\
+type T<'a, 'b> = { P: 'a; Q: 'b }
+
+let f (t: T<int>) = t
+"
+                    }
+
                 ]
 
             testList
@@ -263,6 +286,62 @@ let f (u: U<int>) =
     match u with
     | A n -> n
     | B -> 0
+"
+                    }
+                ]
+
+            // A WRITTEN arity in expression position is FS0033 exactly as in type position, but
+            // NameResolution defers it to Unification, which reaches it only through a nominal
+            // result or a scheme. A ctor and a static member give one; an enum-case or
+            // union-case qualifier gives neither, so nothing is reported and the unpinned
+            // TyVars reach the freeze as an internal error.
+            testList
+                "a WRITTEN arity in EXPRESSION position is checked against the claim"
+                [
+                    test "a ctor at a written arity no claim holds is an error" {
+                        expectOneUserError
+                            "expects 1 type argument"
+                            "\
+type C<'a>(x: 'a) =
+    member _.X = x
+
+let c = C<int, string>(1)
+"
+                    }
+
+                    test "a static member at a written arity no claim holds is an error" {
+                        expectOneUserError
+                            "expects 1 type argument"
+                            "\
+type C<'a>() =
+    static member M = 1
+
+let x = C<int, string>.M
+"
+                    }
+
+                    // FS0033: "The non-generic type 'E' does not expect any type arguments, but
+                    // here is given 1 type argument(s)".
+                    ptest "GAP: an enum qualifier at a written arity is unreported" {
+                        expectOneUserError
+                            "expects 0 type argument"
+                            "\
+type E =
+    | A = 1
+
+let x = E<int>.A
+"
+                    }
+
+                    // FS0033: "The type 'U<_>' expects 1 type argument(s) but is given 2".
+                    ptest "GAP: a union-case qualifier at a written arity is unreported" {
+                        expectOneUserError
+                            "expects 1 type argument"
+                            "\
+type U<'a> =
+    | Case of 'a
+
+let u = U<int, string>.Case 1
 "
                     }
                 ]
