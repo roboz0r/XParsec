@@ -541,21 +541,34 @@ type ConformanceRoundTripArtifacts =
         PoolRoundTripped: ClrArtifact
     }
 
+/// `input` analysed as one assembly named `assemblyName` against `manifestPaths` and gated,
+/// or a test failure rendering the error diagnostics.
+let analysedEmittable (manifestPaths: string list) (assemblyName: string) (input: string) : EmittableAssembly =
+    match AnalysedAssembly.gate RuntimeModules.unsupported (analyseContract manifestPaths assemblyName input) with
+    | Ok emittable -> emittable
+    | Error ds ->
+        failwithf
+            "%s: %d error diagnostic(s):\n%s"
+            assemblyName
+            (List.length ds)
+            (AssemblyFiles.AnchoredDiagnostic.renderAll ds)
+
+/// The codegen symbol view used when emitting an `analysedEmittable` assembly, with its
+/// pooled declarations.
+let analysedSymbols
+    (manifestPaths: string list)
+    (assemblyName: string)
+    (input: string)
+    : ICodegenSymbols * TastAccessor.DeclId list =
+    let emittable = analysedEmittable manifestPaths assemblyName input
+    let decls = emittable.Files |> List.collect (fun f -> pooledDecls f.Frozen)
+    CodegenSymbols.ofProvider emittable.Visibility, decls
+
 /// Produce the round-trip artifacts a frozen-tree gate reconciles. One analysis, one gate and
 /// one project, so an artifact differs from `Direct` only by its round-trip.
 let compileConformanceDirectAndRoundTripped (assemblyName: string) (input: string) : ConformanceRoundTripArtifacts =
     let project = ProjectInfo.defaults assemblyName
-
-    let emittable =
-        match AnalysedAssembly.gate RuntimeModules.unsupported (analyseContract defaultPackages assemblyName input) with
-        | Ok emittable -> emittable
-        | Error ds ->
-            failwithf
-                "%s: %d error diagnostic(s):\n%s"
-                assemblyName
-                (List.length ds)
-                (AssemblyFiles.AnchoredDiagnostic.renderAll ds)
-
+    let emittable = analysedEmittable defaultPackages assemblyName input
     let file = List.exactlyOne emittable.Files
     let cored = withCore project
 

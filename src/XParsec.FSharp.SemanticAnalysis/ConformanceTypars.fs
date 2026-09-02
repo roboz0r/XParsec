@@ -4,11 +4,10 @@ namespace XParsec.FSharp.SemanticAnalysis
 
 module ConformanceTypars =
 
-    /// A scheme as a compiler MESSAGE reads it: `'a -> ('a * int) -> 'b`. Typars render by
-    /// index off their axis, which is what a disagreement here is always about. Approximate
-    /// by design — a shape with no source spelling (`keyof`, a conditional) renders as its
-    /// constructor and children rather than growing a second type syntax.
-    let rec private describeType (t: FrozenType) : string =
+    /// A scheme as a compiler MESSAGE reads it: `'0 -> ('0 * int) -> '1`, with typars
+    /// rendered by index off their axis. `keyof`, indexed-access and conditional shapes
+    /// render in TypeScript syntax (`keyof T`, `T[K]`, `T extends U ? A : B`).
+    let rec describeType (t: FrozenType) : string =
         let args (name: string) (xs: EqArray<FrozenType>) =
             match xs.Length with
             | 0 -> name

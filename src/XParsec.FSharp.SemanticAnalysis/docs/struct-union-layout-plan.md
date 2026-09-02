@@ -151,28 +151,38 @@ After this step no emitted code outside the defining assembly references a slot 
 slot fields themselves are still `public initonly` (`LayoutNodes.buildUnionNodes`); they
 become private when Step 5 moves them behind `_payload`.
 
-### Step 3 — tri-state unmanaged classifier
+### Step 3 — tri-state unmanaged classifier — LANDED
 
-`Unmanagedness = Unmanaged | Managed | Undetermined of blocker: FrozenType`, a pure
-provider-backed function over `FrozenType`. `Undetermined` is treated as `Managed` by layout
-but carries the blocking type, so widening the classifier later is an observable worklist, not
-an audit.
+`Unmanagedness = Unmanaged | Managed | Undetermined of blocker: FrozenType`
+(`Codegen.Clr/Unmanagedness.fs`), a pure function over `FrozenType` resolved through
+`ICodegenSymbols`. `Undetermined` is treated as `Managed` by layout but carries the blocking
+type, so widening the classifier later is an observable worklist, not an audit.
 
-- Primitives/enums by `RuntimeNames` key: `Unmanaged`. Reference kinds (`FTClass` non-struct,
-  arrays, `FTFun`, `string`, hierarchy unions): `Managed` (they are `Reference` for slotting —
-  see Step 4). Typars: `Managed` (exact-slot).
-- Local nominals: transitive walk over the registry's field lists; struct records/unions
-  recurse. Terminate on a visited set; a cycle is `Undetermined`.
-- External nominals: `ExternalLayout` (`ICodegenProvider.fs:459`) gives value-kindness;
-  `ExternalRecordShape` gives record fields. Anything whose fields the provider cannot
-  enumerate (BCL structs such as `DateTime`, external classes with `val` fields) is
-  `Undetermined` — seed a small allowlist of known-unmanaged BCL types only if a test needs it.
-- `FTTuple` fields would classify `Undetermined` through the provider, because
-  `System.ValueTuple` fields cannot be enumerated there; its layout is known, so the classifier
-  recurses into the items directly. This is the first census item.
-- Lands with unit tests over local, external, generic-instantiated and cyclic shapes, plus one
-  test pinning the current `Undetermined` census over the struct-union test corpus so progress
-  and regressions both show.
+- An intrinsic (`FTConst`) classifies by the CLR type its `(# … #)` binding names, read
+  through `ICodegenSymbols.TryPlatformTypeId` (the `IntrinsicTypeMap`), never by its Vesper
+  name: `PlatformTypeIds.isUnmanagedScalar` (the ECMA-335 primitive value element types,
+  `System.Decimal`, `System.ValueTuple` for `unit`, and pointer syntax) is `Unmanaged`, IL
+  array syntax is `Managed`, and any other platform type (`System.String`,
+  `System.Numerics.BigInteger`) is settled by `IsValueType`: a reference is `Managed`, a
+  struct is `Undetermined`. Numeric enums: `Unmanaged`. `FTFun`, `FTOr`, interfaces,
+  reference records/unions/classes, string and mixed enums: `Managed` (they are `Reference`
+  for slotting — see Step 4). Typars: `Managed` (exact-slot).
+- Nominals, this compilation's and referenced alike, resolve through one path: the analysed
+  assembly's `Visibility` publishes local declarations as `ExternalTypeShape`s, so a struct
+  record or struct union recurses into its case/record field templates instantiated by
+  `FrozenTypeBridge.substituteDeclaring`. `ICodegenSymbols.IsValueType` (target first, then
+  the declaration) decides value-kindness. A cycle on the instantiation path is
+  `Undetermined` at the repeated type.
+- A value type whose fields the provider cannot enumerate (a BCL struct such as `Guid` or
+  `DateTime`, a struct class with `val` fields, an intrinsic scalar outside the tables) is
+  `Undetermined` at itself. No BCL allowlist yet.
+- `FTTuple` recurses into its items directly. `FTUnknown`, `FTKeyOf`, `FTIndexedAccess` and
+  `FTConditional` are `Undetermined`.
+- `UnmanagednessTests` covers primitives, local struct records/unions at concrete and open
+  generic instantiations, the referenced `Vesper.Option` struct union at `int` and `string`,
+  BCL `Guid`/`StringBuilder`, a hand-built cyclic record, and pins the census over the
+  `StructUnion*` data programs (`StructUnionExternalPayload.fs` was added to the corpus so
+  the census carries `Undetermined` entries).
 
 ### Step 4 — slot sharing without the overlay
 
@@ -260,7 +270,8 @@ This step already delivers most of the footprint win.
       struct whose padding is deliberately dirtied, or a sited comment on the structural body
       emitter if undirtiable.
 - [ ] Determinism of placement assignment: pinned by test (Step 4).
-- [ ] `Undetermined` worklist: census test (Step 3) survives as the durable home.
+- [x] `Undetermined` worklist: `UnmanagednessTests` "census over the struct-union data
+      corpus" is the durable home.
 - [ ] Exact-slot sharing is unconditionally safe: stated on `UnionSlotKey.ExactSlot`.
 
 ## Risks

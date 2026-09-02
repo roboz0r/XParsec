@@ -12,6 +12,8 @@
     <Compile Include="ProjectInfo.fs" />
     <Compile Include="TyparMarkers.fs" />
     <Compile Include="UnionRegime.fs" />
+    <Compile Include="PlatformTypeIds.fs" />
+    <Compile Include="Unmanagedness.fs" />
     <Compile Include="UnionCaseShape.fs" />
     <Compile Include="UnionPlacements.fs" />
     <Compile Include="Types.fs" />
@@ -20,7 +22,6 @@
     <Compile Include="ICodegenProvider.fs" />
     <Compile Include="CodegenSymbols.fs" />
     <Compile Include="ClrEnv.fs" />
-    <Compile Include="PlatformTypeIds.fs" />
     <Compile Include="ClrEncoder.fs" />
     <Compile Include="ClrGenerics.fs" />
     <Compile Include="ClrExternalMembers.fs" />

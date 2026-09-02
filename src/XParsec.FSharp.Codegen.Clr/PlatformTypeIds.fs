@@ -8,39 +8,64 @@ open XParsec.FSharp.SemanticAnalysis
 /// `(# … #)` declarations, not here.
 module PlatformTypeIds =
 
+    /// What a value of an ECMA-335 primitive element type holds.
+    [<RequireQualifiedAccess>]
+    type private ElementKind =
+        | Scalar
+        | Reference
+
     /// A key is the type id the `.fs` declares verbatim, usually a BCL name, but the
     /// pointer-width pair is IL signature syntax (`type nativeint = (# "native int" #)`)
     /// because `native int` / `unsigned native int` ARE ECMA-335 element types.
-    let private valueTypeWriters: Map<string, SignatureTypeEncoder -> unit> =
+    let private elementTypes: Map<string, ElementKind * (SignatureTypeEncoder -> unit)> =
         Map
             [
-                "System.Int32", (fun te -> te.Int32())
-                "System.UInt32", (fun te -> te.UInt32())
-                "System.Int64", (fun te -> te.Int64())
-                "System.UInt64", (fun te -> te.UInt64())
-                "System.SByte", (fun te -> te.SByte())
-                "System.Byte", (fun te -> te.Byte())
-                "System.Int16", (fun te -> te.Int16())
-                "System.UInt16", (fun te -> te.UInt16())
-                "System.Double", (fun te -> te.Double())
-                "System.Single", (fun te -> te.Single())
-                "System.Boolean", (fun te -> te.Boolean())
-                "System.Char", (fun te -> te.Char())
-                "System.String", (fun te -> te.String())
-                "native int", (fun te -> te.IntPtr())
-                "unsigned native int", (fun te -> te.UIntPtr())
+                "System.Int32", (ElementKind.Scalar, (fun te -> te.Int32()))
+                "System.UInt32", (ElementKind.Scalar, (fun te -> te.UInt32()))
+                "System.Int64", (ElementKind.Scalar, (fun te -> te.Int64()))
+                "System.UInt64", (ElementKind.Scalar, (fun te -> te.UInt64()))
+                "System.SByte", (ElementKind.Scalar, (fun te -> te.SByte()))
+                "System.Byte", (ElementKind.Scalar, (fun te -> te.Byte()))
+                "System.Int16", (ElementKind.Scalar, (fun te -> te.Int16()))
+                "System.UInt16", (ElementKind.Scalar, (fun te -> te.UInt16()))
+                "System.Double", (ElementKind.Scalar, (fun te -> te.Double()))
+                "System.Single", (ElementKind.Scalar, (fun te -> te.Single()))
+                "System.Boolean", (ElementKind.Scalar, (fun te -> te.Boolean()))
+                "System.Char", (ElementKind.Scalar, (fun te -> te.Char()))
+                "System.String", (ElementKind.Reference, (fun te -> te.String()))
+                "native int", (ElementKind.Scalar, (fun te -> te.IntPtr()))
+                "unsigned native int", (ElementKind.Scalar, (fun te -> te.UIntPtr()))
             ]
 
     /// Encode a primitive value type directly onto `te`. Returns `false` for type ids that
     /// need a `TypeRef` (`System.Decimal`, `System.ValueTuple`) and for unknown ids.
     let tryEncodeValueType (te: SignatureTypeEncoder) (typeId: PlatformTypeId) : bool =
-        match Map.tryFind typeId.Value valueTypeWriters with
-        | Some write ->
+        match Map.tryFind typeId.Value elementTypes with
+        | Some(_, write) ->
             write te
             true
         | None -> false
 
     /// True iff `typeId` is a primitive value type the IL encoder writes DIRECTLY. The
-    /// encoder-free form, for a caller that has no `SignatureTypeEncoder` to hand.
+    /// encoder-free form, callable without a `SignatureTypeEncoder`.
     let isEncodableValueType (typeId: PlatformTypeId) : bool =
-        Map.containsKey typeId.Value valueTypeWriters
+        Map.containsKey typeId.Value elementTypes
+
+    /// The scalar value types written through a `TypeRef` rather than an element type.
+    /// `System.ValueTuple` is the zero-field struct `unit` binds to.
+    let private typeRefScalars: Set<string> =
+        Set [ "System.Decimal"; "System.ValueTuple" ]
+
+    /// True iff `typeId` alone settles a value as unmanaged: a scalar element type, a
+    /// `TypeRef` scalar, or a pointer in IL signature syntax. The pointer ids are `void*`
+    /// (`voidptr`) and `!0*` (`ilsigptr<'T>`), from `prim-types-nativeint.clr.fs`.
+    let isUnmanagedScalar (typeId: PlatformTypeId) : bool =
+        match Map.tryFind typeId.Value elementTypes with
+        | Some(ElementKind.Scalar, _) -> true
+        | Some(ElementKind.Reference, _) -> false
+        | None -> typeRefScalars.Contains typeId.Value || typeId.Value.EndsWith "*"
+
+    /// True iff `typeId` is IL array syntax: `!0[]` (`'T[]`, `prim-types-array.fs`) or
+    /// `!0[0 ..., 0 ...]` (the rank-n `[,]` family, `prim-types-nd-array.clr.fs`). A
+    /// reference whatever the element.
+    let isArray (typeId: PlatformTypeId) : bool = typeId.Value.EndsWith "]"
