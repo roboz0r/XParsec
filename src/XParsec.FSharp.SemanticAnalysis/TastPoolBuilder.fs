@@ -24,6 +24,8 @@ type PoolBuilder =
             /// How many bound variables this overlay has handed out. A COUNT rather than a column,
             /// because no source spells a minted bound variable.
             mutable OvBoundVarCount: int
+            /// The overlay-minted bound variables bound by a mutable `NamedSimple` pattern row.
+            OvMutableBoundVars: HashSet<BoundVarId>
             /// The bound variable key `declTree` hands a DU-typed consumer for each bound variable. Per
             /// BUILDER, not per unpool: two unpools of one subtree are two views of the same
             /// bound variables and must key them alike.
@@ -52,6 +54,7 @@ module TastPoolBuilder =
             OvPats = ResizeArray()
             OvDecls = ResizeArray()
             OvBoundVarCount = 0
+            OvMutableBoundVars = HashSet()
             UnpooledBoundVarKeys = Dictionary()
             UnpoolCount = 0
             ModuleMemberIndex = lazy (DenseTable.index pools.ModuleMembers)
@@ -233,6 +236,10 @@ module TastPoolBuilder =
     let boundVarTok (b: PoolBuilder) (id: BoundVarId) : Anchor =
         readBoundVar b id (fun p (BoundVarId i) -> p.BoundVarToks.[i]) (fun _ -> Anchor.nowhere)
 
+    /// Whether the bound variable is bound by a `let mutable`.
+    let boundVarIsMutable (b: PoolBuilder) (id: BoundVarId) : bool =
+        readBoundVar b id FrozenPools.boundVarIsMutable b.OvMutableBoundVars.Contains
+
     // The size of the expr and bound variable id spaces: the next append takes the count itself.
 
     let exprCount (b: PoolBuilder) : int = b.ExprBase + b.OvExprs.Count
@@ -254,6 +261,11 @@ module TastPoolBuilder =
     let appendPat (b: PoolBuilder) (row: PatRow) : PatPoolId =
         let id = b.PatBase + b.OvPats.Count
         b.OvPats.Add row
+
+        match row.Payload with
+        | PatPayload.NamedSimple(boundVar, true) -> b.OvMutableBoundVars.Add boundVar |> ignore
+        | _ -> ()
+
         PatPoolId id
 
     let appendDecl (b: PoolBuilder) (row: DeclRow) : DeclPoolId =
@@ -355,7 +367,7 @@ module TastPoolBuilder =
         // introduces a bound variable of DEST's own.
         let payload =
             match PatPayload.mapTys fTy row.Payload with
-            | PatPayload.NamedSimple _ -> PatPayload.NamedSimple(mintBoundVar dest)
+            | PatPayload.NamedSimple(_, isMutable) -> PatPayload.NamedSimple(mintBoundVar dest, isMutable)
             | p -> p
 
         appendPat

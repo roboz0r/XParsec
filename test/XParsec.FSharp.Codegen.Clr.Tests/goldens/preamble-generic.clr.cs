@@ -34,14 +34,8 @@ public class Cell<T>
 		this.x = x;
 		this.n = n;
 		int num = this.n;
-		int num2 = 2;
-		int num3 = num;
-		int num4 = num2;
-		int num5 = num3 * num4;
-		int num6 = 1;
-		int num7 = num5;
-		int num8 = num6;
-		k = num7 + num8;
+		int num2 = num * 2;
+		k = num2 + 1;
 		get = new <closure>$0<T>(this);
 	}
 

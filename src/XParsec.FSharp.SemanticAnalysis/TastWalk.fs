@@ -234,9 +234,13 @@ module TastWalk =
             let f = m.MapType
 
             match p with
-            | TPat.NamedSimple(k, ty, tok) ->
+            | TPat.NamedSimple(k, ty, tok, isMutable) ->
                 let ty' = f ty
-                if refEq ty' ty then p else TPat.NamedSimple(k, ty', tok)
+
+                if refEq ty' ty then
+                    p
+                else
+                    TPat.NamedSimple(k, ty', tok, isMutable)
             | TPat.Wildcard(ty, tok) ->
                 let ty' = f ty
                 if refEq ty' ty then p else TPat.Wildcard(ty', tok)
@@ -929,6 +933,23 @@ module TastWalk =
             arm.Guard |> ValueOption.iter (iterExpr it)
             iterExpr it arm.Body
 
+    /// Whether `pred` holds at some node under `e`. The descent stops at the first hit.
+    let existsExpr (pred: TExpr -> bool) (e: TExpr) : bool =
+        let mutable found = false
+
+        let it =
+            { identityIter with
+                VisitExpr =
+                    fun _ n ->
+                        if pred n then
+                            found <- true
+
+                        not found
+            }
+
+        iterExpr it e
+        found
+
     /// Every value `f` yields over `e`'s nodes, in walk order and with repeats. `f` is
     /// asked at EVERY node and a `ValueNone` prunes nothing, so a caller that must stop the
     /// descent at a node writes its own `Iter` instead.
@@ -987,7 +1008,7 @@ module TastWalk =
     /// the token spelling the name.
     let rec namedSimplesOfTPat (p: TPat) : struct (NodeKey * SyntaxToken) list =
         match p with
-        | TPat.NamedSimple(k, _, tok) -> [ struct (k, tok) ]
+        | TPat.NamedSimple(k, _, tok, _) -> [ struct (k, tok) ]
         // An or-pattern that binds names is rejected before lowering, so its alternatives
         // introduce no bound variables here.
         | TPat.Or _

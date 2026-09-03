@@ -34,7 +34,7 @@ module internal ElaboratePatterns =
     /// built, because that is the last moment the key and the token that produced it are
     /// together. Without that spelling the freeze has no name for the bound variable.
     let private namedSimple (ctx: PassContext) (key: NodeKey) (ty: SemType) (tok: SyntaxToken) : TPat =
-        let node = TPat.NamedSimple(key, ty, tok)
+        let node = TPat.NamedSimple(key, ty, tok, false)
 
         BoundVarKey.ofPat node
         |> ValueOption.iter (fun b -> ctx.SetBoundVarName(b, tok))
@@ -188,3 +188,9 @@ module internal ElaboratePatterns =
             // gives it a frozen identity, and so an entry the inline-body loader can find.
             namedSimple ctx key ty tok
         | _ -> failwithf "Elaborate.translatePat: TODO %A" p
+
+    /// The pattern of a `let`/`use` binding. A `let mutable` binds its bound variable mutably.
+    let translateBindingPat (ctx: PassContext) (b: Binding<SyntaxToken>) : TPat =
+        match translatePat ctx b.pattern with
+        | TPat.NamedSimple(k, ty, tok, _) when b.mutableToken.IsSome -> TPat.NamedSimple(k, ty, tok, true)
+        | p -> p

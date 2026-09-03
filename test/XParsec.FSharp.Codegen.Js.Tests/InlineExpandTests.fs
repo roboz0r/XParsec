@@ -31,13 +31,15 @@ let private declExprs (d: TastAccessor.DeclId) : TastAccessor.ExprId list =
 
     List.ofSeq acc
 
-let private edgeCount (decls: TastAccessor.DeclId list) : int =
+let private countKind (kind: ExprShape) (decls: TastAccessor.DeclId list) : int =
     decls
     |> List.sumBy (fun d ->
         declExprs d
-        |> List.filter (fun e -> TastAccessor.exprKind e = ExprShape.InlineCall)
+        |> List.filter (fun e -> TastAccessor.exprKind e = kind)
         |> List.length
     )
+
+let private edgeCount (decls: TastAccessor.DeclId list) : int = countKind ExprShape.InlineCall decls
 
 /// The pool over a program's frozen trees, with its own declarations.
 let private opened (input: string) : PoolBuilder * TastAccessor.DeclId list =
@@ -181,10 +183,11 @@ let tests =
             }
 
             test "a node re-authored REPEATEDLY still points to the file it was copied from" {
-                // `1 + 2` reduces to a `let` chain of pure bindings, and each collapse re-authors
-                // the operator node, so the origin is filed several links from the node emitted.
-                // Following one link falls back to the CALL SITE's anchor: in range, wrong file.
-                let pool, decls = opened "let a = 1 + 2\n"
+                // Each operand of the outer `+` is compound, so stays bound, and each collapse
+                // re-authors the operator node: the origin is filed several links from the node
+                // emitted. Following one link falls back to the CALL SITE's anchor: in range,
+                // wrong file.
+                let pool, decls = opened "let a = (1 + 2) + (3 + 4)\n"
                 let expansion = InlineExpand.expand pool decls
 
                 let derivation = InlineExpand.Derivation.create ()
@@ -210,10 +213,12 @@ let tests =
 
                 Expect.notEqual copied body "the expansion left at least one bound variable `let` to collapse"
 
+                // Through the chain, because the expansion re-authors this node too: substituting
+                // an atomic argument rebuilds the path down to each reference.
                 let expected =
-                    match expansion.Origins.TryGetValue copied with
-                    | true, origin -> origin
-                    | _ -> failtest "the operator node came out of the table, or the chain below tests nothing"
+                    match InlineExpand.Derivation.tryFind expansion.Derived expansion.Origins copied with
+                    | ValueSome origin -> origin
+                    | ValueNone -> failtest "the operator node came out of the table, or the chain below tests nothing"
 
                 // Collapse the WHOLE chain, not a fixed two links.
                 let rec collapseAll (e: TastAccessor.ExprId) (links: int) =
@@ -240,7 +245,7 @@ let tests =
                 // One entry, two edges. Each edge takes its own copy, so the bound variables, and
                 // the codegen local slots they become, must not alias: a shared slot would be one
                 // site's value read at the other's.
-                let input = "let a = 1 + 2\nlet b = 30 + 40\n"
+                let input = "let a = (1 + 2) + (3 + 4)\nlet b = (30 + 40) + (50 + 60)\n"
                 let pool, decls = opened input
                 let frozenBoundVars = TastPoolBuilder.boundVarCount pool
 
@@ -258,5 +263,68 @@ let tests =
                     (List.length (List.distinct boundVars))
                     (List.length boundVars)
                     "no bound variable is introduced twice — the two copies share no slot"
+            }
+
+            test "an IMMUTABLE variable argument is substituted, spending no binding" {
+                // Both operands of the inlined `+` are references to an immutable parameter.
+                let pool, decls = opened "let f (a: int) = a + a\n"
+                let expansion = InlineExpand.expand pool decls
+                Expect.equal (countKind ExprShape.Let expansion.Decls) 0 "the expansion binds nothing"
+            }
+
+            test "a MUTABLE local read by a body with no write is substituted" {
+                // Between the binding and each use the body runs no assignment to `m`, and a
+                // closure capturing `m` would have promoted it to a cell before the freeze.
+                let pool, decls = opened "let g () =\n    let mutable m = 1\n    m + m\n"
+                let expansion = InlineExpand.expand pool decls
+                Expect.equal (countKind ExprShape.Let expansion.Decls) 1 "only the source `let mutable`"
+            }
+
+            test "a MUTABLE local stays bound where the body writes it" {
+                // `let x = m` snapshots `m`; the write to `m` in the second operand would
+                // otherwise be read through `x`.
+                let pool, decls = opened "let g () =\n    let mutable m = 1\n    m + (m <- 2; m)\n"
+                let expansion = InlineExpand.expand pool decls
+
+                Expect.equal
+                    (countKind ExprShape.Let expansion.Decls)
+                    3
+                    "the source `let mutable`, the compound operand, and the snapshot of `m`"
+            }
+
+            test "a MUTABLE local stays bound where a closure in the body captures the parameter" {
+                // The closure would read `m` when it runs, after any later write.
+                let pool, decls =
+                    opened "let inline delay (x: int) = fun () -> x\nlet g () =\n    let mutable m = 1\n    delay m\n"
+
+                let expansion = InlineExpand.expand pool decls
+
+                Expect.equal
+                    (countKind ExprShape.Let expansion.Decls)
+                    2
+                    "the source `let mutable` and the snapshot of `m`"
+            }
+
+            test "a MUTABLE local is substituted past a closure that does not capture the parameter" {
+                // The lambda references neither `x` nor `m`, so substitution leaves its captures
+                // unchanged.
+                let pool, decls =
+                    opened
+                        "let inline beside (x: int) = (fun () -> 0), x + x\nlet g () =\n    let mutable m = 1\n    beside m\n"
+
+                let expansion = InlineExpand.expand pool decls
+                Expect.equal (countKind ExprShape.Let expansion.Decls) 1 "only the source `let mutable`"
+            }
+
+            test "a MUTABLE local captured by a closure reaches the freeze as a cell" {
+                // `substitutable` finds a local mutable's writes in the body alone, which requires
+                // that every closure-captured mutable is a cell by the freeze.
+                let pool, _ =
+                    opened "let g () =\n    let mutable m = 1\n    let f () = m\n    m + f ()\n"
+
+                for i in 0 .. TastPoolBuilder.boundVarCount pool - 1 do
+                    Expect.isFalse
+                        (TastPoolBuilder.boundVarIsMutable pool (BoundVarId i))
+                        (sprintf "bound variable %d is a cell rather than a mutable" i)
             }
         ]

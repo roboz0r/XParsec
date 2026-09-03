@@ -94,7 +94,7 @@ let tests =
                 let expected = NodeKey.ofSource 4 NodeKind.PatIdent
 
                 match tast.Decls.[0] with
-                | TDecl.Let(TPat.NamedSimple(bindingKey, _, _), _, _, _) ->
+                | TDecl.Let(TPat.NamedSimple(bindingKey, _, _, _), _, _, _) ->
                     Expect.equal bindingKey expected "binding key"
                 | other -> failtestf "unexpected: %A" other
             }

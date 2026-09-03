@@ -165,7 +165,7 @@ module TastUnpool =
         (ps: TPatG<FrozenType, Anchor, 'id>[])
         : TPatG<FrozenType, Anchor, 'id> =
         match payload with
-        | PatPayload.NamedSimple boundVar -> TPatG.NamedSimple(widenBoundVar boundVar, ty, tok)
+        | PatPayload.NamedSimple(boundVar, isMutable) -> TPatG.NamedSimple(widenBoundVar boundVar, ty, tok, isMutable)
         | PatPayload.Wildcard -> TPatG.Wildcard(ty, tok)
         | PatPayload.Null -> TPatG.Null(ty, tok)
         | PatPayload.Const value -> TPatG.Const(value, ty, tok)

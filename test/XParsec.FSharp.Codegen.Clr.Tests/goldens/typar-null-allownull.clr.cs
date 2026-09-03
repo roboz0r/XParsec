@@ -28,15 +28,6 @@ public class Node
 		this.v = v;
 	}
 }
-public sealed class <closure>$0 : Fun<Node, Node>
-{
-	public static readonly <closure>$0 instance = new <closure>$0();
-
-	public Node Invoke(Node arg0)
-	{
-		return Program.f(arg0);
-	}
-}
 public static class Program
 {
 	public static T0 onlyNull<T0>(T0 arg0)
@@ -51,7 +42,6 @@ public static class Program
 
 	public static int Main(string[] args)
 	{
-		Fun<Node, Node> instance = <closure>$0.instance;
 		ValueTuple valueTuple = default(ValueTuple);
 		return 0;
 	}

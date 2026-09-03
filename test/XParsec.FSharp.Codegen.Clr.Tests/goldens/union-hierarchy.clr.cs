@@ -455,11 +455,7 @@ public static class Program
 			Quad.Q2 q2 = (Quad.Q2)arg0;
 			int item2 = q2.item1;
 			int item3 = q2.item2;
-			int num = item2;
-			int num2 = item3;
-			int num3 = num;
-			int num4 = num2;
-			result = num3 + num4;
+			result = item2 + item3;
 		}
 		else
 		{
@@ -471,15 +467,8 @@ public static class Program
 			int item4 = q3.item1;
 			int item5 = q3.item2;
 			int item6 = q3.item3;
-			int num5 = item4;
-			int num6 = item5;
-			int num7 = num5;
-			int num8 = num6;
-			int num9 = num7 + num8;
-			int num10 = item6;
-			int num11 = num9;
-			int num12 = num10;
-			result = num11 + num12;
+			int num = item4 + item5;
+			result = num + item6;
 		}
 		return result;
 	}

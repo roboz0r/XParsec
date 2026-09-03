@@ -22,25 +22,15 @@ module RefCellPromotion =
     let private collectPromotions (ctx: PassContext) (decls: EqArray<TDecl>) : Dictionary<NodeKey, SemType> =
         let promote = Dictionary<NodeKey, SemType>(HashIdentity.Structural)
 
-        let consider (k: NodeKey) (origTy: SemType) =
-            match ctx.Bindings.Binding.TryGetValue k with
-            | ValueSome rb when rb.IsMutable ->
-                match ctx.Bindings.Escape.TryGetValue k with
-                | ValueSome HeapShared -> promote.[k] <- refType origTy
-                | _ -> ()
-            | _ -> ()
-
-        let considerPat (p: TPat) =
-            match p with
-            | TPat.NamedSimple(k, t, _) -> consider k t
-            | _ -> ()
-
         let iter: TastWalk.Iter =
             { TastWalk.identityIter with
                 VisitExpr =
                     fun _ e ->
                         match e with
-                        | TExpr.Let(pat, _, _, _, _) -> considerPat pat
+                        | TExpr.Let(TPat.NamedSimple(k, t, _, true), _, _, _, _) ->
+                            match ctx.Bindings.Escape.TryGetValue k with
+                            | ValueSome HeapShared -> promote.[k] <- refType t
+                            | _ -> ()
                         | _ -> ()
 
                         true
@@ -64,7 +54,7 @@ module RefCellPromotion =
     let private rewriteExpr (promote: IReadOnlyDictionary<NodeKey, SemType>) (e: TExpr) : TExpr =
         let wrapValueIfPromoted (pat: TPat) (value: TExpr) : TExpr =
             match pat with
-            | TPat.NamedSimple(k, _, _) when promote.ContainsKey k ->
+            | TPat.NamedSimple(k, _, _, _) when promote.ContainsKey k ->
                 // The synthesised cell wraps `value`; anchor it at the value's token.
                 TExpr.RecordCons(EqArray.singleton (ContentsField, value), promote.[k], TastWalk.exprTok value)
             | _ -> value
@@ -77,9 +67,10 @@ module RefCellPromotion =
                 OverridePat =
                     fun _ p ->
                         match p with
-                        | TPat.NamedSimple(k, _, tok) ->
+                        | TPat.NamedSimple(k, _, tok, _) ->
                             match promote.TryGetValue k with
-                            | true, refTy -> ValueSome(TPat.NamedSimple(k, refTy, tok))
+                            // The cell is bound once; only its `contents` is written.
+                            | true, refTy -> ValueSome(TPat.NamedSimple(k, refTy, tok, false))
                             | _ -> ValueNone
                         | _ -> ValueNone
                 OverrideExpr =

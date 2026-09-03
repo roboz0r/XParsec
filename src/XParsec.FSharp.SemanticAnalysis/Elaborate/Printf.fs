@@ -191,7 +191,13 @@ module internal ElaboratePrintf =
                             t
                         )
 
-                    TExpr.Let(TPat.NamedSimple(sKey, scratch.ScratchTy, t), newScratch, seq, ctx.Intrinsics.String, t)
+                    TExpr.Let(
+                        TPat.NamedSimple(sKey, scratch.ScratchTy, t, false),
+                        newScratch,
+                        seq,
+                        ctx.Intrinsics.String,
+                        t
+                    )
 
             // `spec.Ty` records the `%a` value type (`unit` for `%t`) for provenance;
             // the residue is a `string` expr the backends splice like a `%s` hole.
@@ -423,7 +429,7 @@ module internal ElaboratePrintf =
         for i = parameters.Count - 1 downto 0 do
             let (pk, pty, ptok) = parameters.[i]
             let lamTy = TyFun(pty, resultTy)
-            body <- TExpr.Lambda(TPat.NamedSimple(pk, pty, ptok), body, lamTy, ptok)
+            body <- TExpr.Lambda(TPat.NamedSimple(pk, pty, ptok, false), body, lamTy, ptok)
             resultTy <- lamTy
 
         body

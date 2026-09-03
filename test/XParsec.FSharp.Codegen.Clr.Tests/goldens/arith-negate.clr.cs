@@ -57,16 +57,12 @@ public static class Program
 
 	public static sbyte negS(sbyte arg0)
 	{
-		sbyte b = arg0;
-		sbyte b2 = b;
-		return (sbyte)(-b2);
+		return (sbyte)(-arg0);
 	}
 
 	public static short negH(short arg0)
 	{
-		short num = arg0;
-		short num2 = num;
-		return (short)(-num2);
+		return (short)(-arg0);
 	}
 
 	public static int Main(string[] args)
@@ -108,29 +104,25 @@ public static class Program
 		ValueTuple valueTuple7 = default(ValueTuple);
 		Formatter formatter8 = new Formatter(0, 1, Console.Out);
 		sbyte b = negS(100);
-		sbyte b2 = b;
-		formatter8.AppendFormatted((int)b2);
+		formatter8.AppendFormatted((int)b);
 		formatter8.AppendLiteral("\n");
 		formatter8.Flush();
 		ValueTuple valueTuple8 = default(ValueTuple);
 		Formatter formatter9 = new Formatter(0, 1, Console.Out);
-		sbyte b3 = negS(sbyte.MinValue);
-		sbyte b4 = b3;
-		formatter9.AppendFormatted((int)b4);
+		sbyte b2 = negS(sbyte.MinValue);
+		formatter9.AppendFormatted((int)b2);
 		formatter9.AppendLiteral("\n");
 		formatter9.Flush();
 		ValueTuple valueTuple9 = default(ValueTuple);
 		Formatter formatter10 = new Formatter(0, 1, Console.Out);
 		short num = negH(30000);
-		short num2 = num;
-		formatter10.AppendFormatted((int)num2);
+		formatter10.AppendFormatted((int)num);
 		formatter10.AppendLiteral("\n");
 		formatter10.Flush();
 		ValueTuple valueTuple10 = default(ValueTuple);
 		Formatter formatter11 = new Formatter(0, 1, Console.Out);
-		short num3 = negH(short.MinValue);
-		short num4 = num3;
-		formatter11.AppendFormatted((int)num4);
+		short num2 = negH(short.MinValue);
+		formatter11.AppendFormatted((int)num2);
 		formatter11.AppendLiteral("\n");
 		formatter11.Flush();
 		ValueTuple valueTuple11 = default(ValueTuple);

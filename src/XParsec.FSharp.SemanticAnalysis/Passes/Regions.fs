@@ -197,7 +197,7 @@ module Regions =
         // sub-patterns recurse so each name shares it. An approximation, because
         // destructuring really projects each element separately.
         match p with
-        | TPat.NamedSimple(k, _, _) ->
+        | TPat.NamedSimple(k, _, _, _) ->
             s.BindingRegions.[k] <- r
             stampTyVar ctx k r
         | TPat.Tuple(items, _, _) ->
@@ -458,7 +458,7 @@ module Regions =
             // on demand if a caller didn't pre-mint (keeps the pass total).
             let r =
                 match p with
-                | TPat.NamedSimple(k, _, _) when s.BindingRegions.ContainsKey k -> s.BindingRegions.[k]
+                | TPat.NamedSimple(k, _, _, _) when s.BindingRegions.ContainsKey k -> s.BindingRegions.[k]
                 | _ ->
                     let r = freshLambda s
                     recordBindingRegion s ctx p r
@@ -472,10 +472,7 @@ module Regions =
 
             let isMutable =
                 match p with
-                | TPat.NamedSimple(k, _, _) ->
-                    match ctx.Bindings.Binding.TryGetValue k with
-                    | ValueSome rb -> rb.IsMutable
-                    | ValueNone -> false
+                | TPat.NamedSimple(isMutable = m) -> m
                 | _ -> false
 
             if isMutable then

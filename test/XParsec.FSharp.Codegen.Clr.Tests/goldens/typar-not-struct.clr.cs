@@ -14,12 +14,9 @@ public static class Program
 {
 	public static readonly string s;
 
-	public static readonly string value$5;
-
 	static Program()
 	{
 		s = onlyRef("x");
-		value$5 = s;
 	}
 
 	public static T0 onlyRef<T0>(T0 arg0)

@@ -12,7 +12,7 @@ module TastConvert =
         let tk = fTok
 
         match p with
-        | TPatG.NamedSimple(k, ty, tok) -> TPatG.NamedSimple(k, f ty, tk tok)
+        | TPatG.NamedSimple(k, ty, tok, isMutable) -> TPatG.NamedSimple(k, f ty, tk tok, isMutable)
         | TPatG.Wildcard(ty, tok) -> TPatG.Wildcard(f ty, tk tok)
         | TPatG.Const(v, ty, tok) -> TPatG.Const(v, f ty, tk tok)
         | TPatG.Tuple(items, ty, tok) -> TPatG.Tuple(EqArray.map pp items, f ty, tk tok)

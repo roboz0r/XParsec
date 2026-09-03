@@ -182,13 +182,16 @@ type FrozenPools =
         /// `InlineCall` payload carries. An entry's body may reference a LATER slot, so resolve
         /// an id against the whole array, not in definition order.
         Specializations: PooledSpecialization[]
-        /// The bound variable pool's two parallel columns, indexed by `BoundVarId`. This one is the
+        /// The bound variable pool's parallel columns, indexed by `BoundVarId`. This one is the
         /// identifier the source spells the bound variable with, EMPTY where none does, as at a
         /// class's `this`/`base` or a freshened inline bound variable.
         BoundVarNames: string[]
         /// The token the bound variable's name is spelled at, as an index into this file's `Lexed`.
         /// `Anchor.nowhere` for a definition site no node spells, which still has a name.
         BoundVarToks: Anchor[]
+        /// Whether the bound variable is bound by a `let mutable`: its `NamedSimple` pattern
+        /// payload's flag, projected to the bound variable's slot.
+        BoundVarMutable: bool[]
         /// The remainder of the file that has no pooled form, carried verbatim.
         Residue: FrozenFileResidue
         /// The side tables that keep a KEY, re-keyed by `BoundVarId`. A value that is not a
@@ -232,6 +235,7 @@ module FrozenPools =
             Specializations = [||]
             BoundVarNames = [||]
             BoundVarToks = [||]
+            BoundVarMutable = [||]
             Residue =
                 {
                     Diagnostics = []
@@ -251,6 +255,10 @@ module FrozenPools =
     let boundVarNaming (pools: FrozenPools) (id: BoundVarId) : BoundVarNaming =
         let (BoundVarId i) = id
         BoundVarNaming.ofColumn pools.BoundVarNames.[i] id
+
+    let boundVarIsMutable (pools: FrozenPools) (id: BoundVarId) : bool =
+        let (BoundVarId i) = id
+        pools.BoundVarMutable.[i]
 
     /// The typar-axis width recorded for `boundVar`. An empty slot is genuinely 0 rather than
     /// a fallback: a bound variable with no recorded width quantifies nothing.

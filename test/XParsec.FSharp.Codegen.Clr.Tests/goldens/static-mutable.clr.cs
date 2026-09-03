@@ -31,8 +31,7 @@ public class Counter
 	public void Add(int arg0)
 	{
 		int num = total;
-		int num2 = num;
-		total = num2 + arg0;
+		total = num + arg0;
 		ValueTuple valueTuple = default(ValueTuple);
 	}
 

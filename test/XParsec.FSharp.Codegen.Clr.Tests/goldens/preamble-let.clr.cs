@@ -25,19 +25,13 @@ public class Boxed
 	{
 		this.n = n;
 		int num = this.n;
-		int num2 = 1;
-		int num3 = num;
-		int num4 = num2;
-		m = num3 + num4;
+		m = num + 1;
 	}
 
 	public int M()
 	{
 		int num = m;
-		int num2 = 10;
-		int num3 = num;
-		int num4 = num2;
-		return num3 * num4;
+		return num * 10;
 	}
 }
 public static class Program

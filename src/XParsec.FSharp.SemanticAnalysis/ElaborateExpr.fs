@@ -414,7 +414,7 @@ module internal ElaborateExpr =
         let tpat = translatePat ctx pat
 
         match rangeBounds, tpat with
-        | ValueSome(a, b), TPat.NamedSimple(varKey, _, identTok) ->
+        | ValueSome(a, b), TPat.NamedSimple(varKey, _, identTok, _) ->
             TExpr.ForTo(varKey, identTok, translateExpr ctx a, translateExpr ctx b, translateExpr ctx body, ty, tok)
         | _ ->
             // How the source yields its enumerator was resolved by Unification and
@@ -447,7 +447,7 @@ module internal ElaborateExpr =
 
         let scrutinee = TExpr.Var(paramKey, paramTy, tok)
         let body = TExpr.Match(scrutinee, translateRules ctx rules, resultTy, tok)
-        TExpr.Lambda(TPat.NamedSimple(paramKey, paramTy, tok), body, ty, tok)
+        TExpr.Lambda(TPat.NamedSimple(paramKey, paramTy, tok, false), body, ty, tok)
 
     and private translateRecord
         (ctx: PassContext)
@@ -698,7 +698,7 @@ module internal ElaborateExpr =
                 ()
             else
 
-                let tpat = translatePat ctx b.pattern
+                let tpat = translateBindingPat ctx b
                 let valT = translateBinding ctx b
                 // The let/use node's source anchor is its bound variable pattern's first token.
                 let bindTok = CstKeys.firstTokenOfPat b.pattern

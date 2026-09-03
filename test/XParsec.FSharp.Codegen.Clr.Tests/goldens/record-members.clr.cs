@@ -36,10 +36,7 @@ public sealed class Vec : IEquatable<Vec>, IStructuralFormattable
 		get
 		{
 			int x = X;
-			int num = 2;
-			int num2 = x;
-			int num3 = num;
-			return num2 * num3;
+			return x * 2;
 		}
 	}
 
@@ -53,20 +50,15 @@ public sealed class Vec : IEquatable<Vec>, IStructuralFormattable
 	{
 		int x = X;
 		int y = Y;
-		int num = x;
-		int num2 = y;
-		return num + num2;
+		return x + y;
 	}
 
 	public int AddN(int arg0)
 	{
 		int x = X;
 		int y = Y;
-		int num = x;
-		int num2 = y;
-		int num3 = num + num2;
-		int num4 = num3;
-		return num4 + arg0;
+		int num = x + y;
+		return num + arg0;
 	}
 
 	public override int GetHashCode()

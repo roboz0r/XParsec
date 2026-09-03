@@ -216,7 +216,8 @@ module Inline =
                 OverridePat =
                     fun _ p ->
                         match p with
-                        | TPat.NamedSimple(k, t, tok) -> ValueSome(TPat.NamedSimple(bind k, t, tok))
+                        | TPat.NamedSimple(k, t, tok, isMutable) ->
+                            ValueSome(TPat.NamedSimple(bind k, t, tok, isMutable))
                         | _ -> ValueNone
                 OverrideExpr =
                     fun m e ->
@@ -247,9 +248,10 @@ module Inline =
     let rec betaReduce (fn: TExpr) (args: TastWalk.AppArg list) : TExpr =
         match fn, args with
         | _, [] -> fn
-        | TExpr.Lambda(TPat.NamedSimple(k, paramTy, patTok), lamBody, _, _), a :: rest ->
+        | TExpr.Lambda(TPat.NamedSimple(k, paramTy, patTok, _), lamBody, _, _), a :: rest ->
             let reduced = betaReduce lamBody rest
-            TExpr.Let(TPat.NamedSimple(k, paramTy, patTok), a.Arg, reduced, TastWalk.exprTy reduced, a.AppTok)
+
+            TExpr.Let(TPat.NamedSimple(k, paramTy, patTok, false), a.Arg, reduced, TastWalk.exprTy reduced, a.AppTok)
         | TExpr.Lambda(param, _, _, _), _ ->
             failwithf "Inline.betaReduce: inline parameter destructuring is out of scope: %A" param
         | _, _ :: _ -> failwith "Inline.betaReduce: over-application of an inline function"

@@ -167,7 +167,7 @@ let tests =
                     Expect.isEmpty tast.Diagnostics "no diagnostics, because (+) resolves as a value"
 
                     match tast.Decls with
-                    | EqList [ TDecl.Let(TPat.NamedSimple(kAdd, _, _),
+                    | EqList [ TDecl.Let(TPat.NamedSimple(kAdd, _, _, _),
                                          TExpr.Lambda(_, TExpr.Lambda(_, _, _, _), _, _),
                                          false,
                                          _)
@@ -273,5 +273,16 @@ let tests =
                             [ 2 ]
                             (sprintf "the eta'd body calls V's own op_Addition on both params, got %A" body)
                     | other -> failtestf "expected a curried Lambda eta-expansion, got %A" other
+                }
+
+            // The parameter is bound before the closure is created, so the later write to
+            // `m` is invisible to it.
+            yield
+                test "a mutable local passed to an inline function returning a closure is captured by value" {
+                    runs
+                        "1"
+                        ("let inline delay (x: int) = fun () -> x\n"
+                         + "let test () =\n    let mutable m = 1\n    let g = delay m\n    m <- 2\n    g ()\n"
+                         + "printfn \"%d\" (test ())")
                 }
         ]

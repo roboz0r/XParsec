@@ -70,12 +70,9 @@ public static class Program
 {
 	public static readonly Point p;
 
-	public static readonly Point value$5;
-
 	static Program()
 	{
 		p = onlyStruct(new Point(1, 2));
-		value$5 = p;
 	}
 
 	public static T0 onlyStruct<T0>(T0 arg0)

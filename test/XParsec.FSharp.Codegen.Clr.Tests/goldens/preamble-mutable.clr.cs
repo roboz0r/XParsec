@@ -56,11 +56,8 @@ public sealed class <closure>$0 : Fun<int, ValueTuple>
 		Counter counter = capture0;
 		int count = capture0.count;
 		int step = capture0.step;
-		int num = step;
-		int num2 = arg0 * num;
-		int num3 = count;
-		int num4 = num2;
-		counter.count = num3 + num4;
+		int num = arg0 * step;
+		counter.count = count + num;
 		return default(ValueTuple);
 	}
 }

@@ -42,8 +42,9 @@ type ParamAttrs =
 
 [<RequireQualifiedAccess>]
 type TPatG<'ty, 'tok, 'id> =
-    /// `boundVar` is the definition site a `TExpr.Var` identifies.
-    | NamedSimple of boundVar: 'id * ty: 'ty * tok: 'tok
+    /// `boundVar` is the definition site a `TExpr.Var` identifies. `isMutable` holds for the
+    /// bound variable of a `let mutable` until it is promoted to a ref cell.
+    | NamedSimple of boundVar: 'id * ty: 'ty * tok: 'tok * isMutable: bool
     /// `_` placeholder. Has a type (the matched value's type) but binds nothing.
     | Wildcard of ty: 'ty * tok: 'tok
     /// `ty` is always a `TyTuple` of the elements' types.

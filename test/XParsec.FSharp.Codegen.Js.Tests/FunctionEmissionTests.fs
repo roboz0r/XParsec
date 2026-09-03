@@ -201,4 +201,21 @@ let tests =
                     Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
                     Expect.equal out "1800030000" "deep tail recursion over a tuple group does not grow the stack"
             }
+
+            test "a mutable local passed to an inline function returning a closure is captured by value" {
+                // The parameter is bound before the closure is created, so the later write to
+                // `m` is invisible to it. Substituting `m` into the closure would read it at
+                // call time.
+                match
+                    runJs
+                        "fn-inline-closure-snapshot"
+                        ("let inline delay (x: int) = fun () -> x\n"
+                         + "let test () =\n    let mutable m = 1\n    let g = delay m\n    m <- 2\n    g ()\n"
+                         + "printfn \"%d\" (test ())")
+                with
+                | None -> skiptest "node not found on PATH"
+                | Some(code, out) ->
+                    Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
+                    Expect.equal out "1" "the closure holds the value bound before the write"
+            }
         ]

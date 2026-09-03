@@ -484,8 +484,8 @@ module ExprPayload =
 [<RequireQualifiedAccess>]
 type PatPayload =
     /// The single bound variable this pattern INTRODUCES, named by the dense id its `Var` references
-    /// resolve to.
-    | NamedSimple of boundVar: BoundVarId
+    /// resolve to. `isMutable` holds for the bound variable of a `let mutable`.
+    | NamedSimple of boundVar: BoundVarId * isMutable: bool
     | Wildcard
     | Null
     | Tuple

@@ -519,7 +519,10 @@ let tests =
                 let tast = analyse "let f (a, b) = a + b"
 
                 match tast.Decls.[0] with
-                | TDecl.Let(TPat.Tuple(EqList [ TPat.NamedSimple(_, _, _); TPat.NamedSimple(_, _, _) ], _, _), _, _, _) ->
+                | TDecl.Let(TPat.Tuple(EqList [ TPat.NamedSimple(_, _, _, _); TPat.NamedSimple(_, _, _, _) ], _, _),
+                            _,
+                            _,
+                            _) ->
                     // For function-form let, `f`'s own pattern is NamedSimple and the
                     // tuple sits on the Lambda — not on the TDecl.Let.
                     failtest "did not expect TDecl.Let to be the tuple pattern itself"

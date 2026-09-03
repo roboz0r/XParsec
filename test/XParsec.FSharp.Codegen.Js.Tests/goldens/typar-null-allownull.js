@@ -6,5 +6,4 @@ class Node {
 const Node__get_V = (_s0) => _s0.v;
 const onlyNull = (x) => x;
 const f = (n) => onlyNull(n);
-const _s7 = f;
-(void (_s7));
+(void (f));

@@ -291,7 +291,7 @@ module InlineReduction =
             boundVars
             |> List.foldBack (fun (k, pty, _) (innerBody, innerTy) ->
                 let lamTy = TyFun(pty, innerTy)
-                TExpr.Lambda(TPat.NamedSimple(k, pty, tok), innerBody, lamTy, tok), lamTy
+                TExpr.Lambda(TPat.NamedSimple(k, pty, tok, false), innerBody, lamTy, tok), lamTy
             )
             <| (appBody, SemTypeQuery.Funs.resultAfter ctx.Store arity refTy)
             |> fst
@@ -311,7 +311,7 @@ module InlineReduction =
         let rec peel (fn: TExpr) (args: TastWalk.AppArg list) (acc: InlineParam list) : InlineParam list * TExpr =
             match fn, args with
             | _, [] -> List.rev acc, fn
-            | TExpr.Lambda(TPat.NamedSimple(k, paramTy, patTok), body, _, _), (a: TastWalk.AppArg) :: rest ->
+            | TExpr.Lambda(TPat.NamedSimple(k, paramTy, patTok, _), body, _, _), (a: TastWalk.AppArg) :: rest ->
                 let arg = a.Arg
 
                 peel

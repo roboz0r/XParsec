@@ -19,11 +19,7 @@ public static class Program
 	public static int Main(string[] args)
 	{
 		Formatter formatter = new Formatter(0, 1, Console.Out);
-		int num = 1;
-		int num2 = 0;
-		int num3 = num;
-		int num4 = num2;
-		formatter.AppendFormatted(num3 / num4);
+		formatter.AppendFormatted(1 / 0);
 		formatter.AppendLiteral("\n");
 		formatter.Flush();
 		ValueTuple valueTuple = default(ValueTuple);

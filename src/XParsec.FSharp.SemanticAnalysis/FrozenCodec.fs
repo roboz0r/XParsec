@@ -377,9 +377,10 @@ module FrozenCodec =
 
     let private writePatPayload (w: FrozenWriter) (p: PatPayload) =
         match p with
-        | PatPayload.NamedSimple boundVar ->
+        | PatPayload.NamedSimple(boundVar, isMutable) ->
             w.Write 0uy
             writeBoundVarId w boundVar
+            w.Write isMutable
         | PatPayload.Wildcard -> w.Write 1uy
         | PatPayload.Null -> w.Write 2uy
         | PatPayload.Tuple -> w.Write 3uy
@@ -403,7 +404,10 @@ module FrozenCodec =
 
     let private readPatPayload (r: FrozenReader) : PatPayload =
         match r.ReadByte() with
-        | 0uy -> PatPayload.NamedSimple(readBoundVarId r)
+        | 0uy ->
+            let boundVar = readBoundVarId r
+            let isMutable = r.ReadBoolean()
+            PatPayload.NamedSimple(boundVar, isMutable)
         | 1uy -> PatPayload.Wildcard
         | 2uy -> PatPayload.Null
         | 3uy -> PatPayload.Tuple
@@ -491,6 +495,7 @@ module FrozenCodec =
         writeArrayWith w writeSpecialization p.Specializations
         writeArrayWith w (fun w (s: string) -> w.Write s) p.BoundVarNames
         writeArrayWith w writeAnchor p.BoundVarToks
+        writeArrayWith w (fun w (m: bool) -> w.Write m) p.BoundVarMutable
         writeResidue w p.Residue
         writeDenseTable w writeBoundVarId writeModuleBindingInfo p.ModuleMembers
         writeDenseTable w writeBoundVarId writeClosureRepr p.ClosureReprs
@@ -501,7 +506,13 @@ module FrozenCodec =
         writeDenseTable w writeBoundVarId writeValRepr p.BindingValReprs
         writeBoundVarColumn w (fun w (i: int) -> w.Write i) p.BindingTyparArities
 
+    /// The blob layout's version. Bump it with every change to a column, a payload or a
+    /// table's encoding, so a blob of an older layout is refused rather than misread.
+    [<Literal>]
+    let private FormatVersion = 2uy
+
     let private writePools (w: FrozenWriter) (p: FrozenPools) =
+        w.Write FormatVersion
         // The tables must be READ first, but are not KNOWN until the body has been written: a
         // payload embeds types the `ty` columns never carried, and interning them is what
         // appends the rows. So the body is buffered and the finished rows go out in front.
@@ -510,6 +521,10 @@ module FrozenCodec =
         w.Write(body, 0, body.Length)
 
     let private readPools (r: FrozenReader) : FrozenPools =
+        match r.ReadByte() with
+        | FormatVersion -> ()
+        | v -> failwithf "FrozenCodec: blob format version %d, expected %d" v FormatVersion
+
         // The tables come first and everything below resolves against THEM, so the reader is
         // rebound to the file's own before a single column is touched.
         let types = FrozenTypeTable.OfRows(readTypeRows r)
@@ -533,6 +548,7 @@ module FrozenCodec =
         let specializations = readArrayWith r readSpecialization
         let boundVarNames = readArrayWith r (fun r -> r.ReadString())
         let boundVarToks = readArrayWith r readAnchor
+        let boundVarMutable = readArrayWith r (fun r -> r.ReadBoolean())
         let residue = readResidue r
         let moduleMembers = readDenseTable r readBoundVarId readModuleBindingInfo
         let closureReprs = readDenseTable r readBoundVarId readClosureRepr
@@ -555,6 +571,7 @@ module FrozenCodec =
         checkColumn "PatTys" patPayloads.Length patTys
         checkColumn "PatToks" patPayloads.Length patToks
         checkColumn "BoundVarToks" boundVarNames.Length boundVarToks
+        checkColumn "BoundVarMutable" boundVarNames.Length boundVarMutable
 
         {
             Path = path
@@ -577,6 +594,7 @@ module FrozenCodec =
             Specializations = specializations
             BoundVarNames = boundVarNames
             BoundVarToks = boundVarToks
+            BoundVarMutable = boundVarMutable
             Residue = residue
             ModuleMembers = moduleMembers
             ClosureReprs = closureReprs

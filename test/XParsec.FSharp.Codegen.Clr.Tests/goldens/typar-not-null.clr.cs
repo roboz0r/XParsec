@@ -18,15 +18,10 @@ public static class Program
 
 	public static readonly string s;
 
-	public static readonly int value$8;
-
-	public static string value$9;
-
 	static Program()
 	{
 		i = notNull(42);
 		s = notNull("x");
-		value$8 = i;
 	}
 
 	public static T0 notNull<T0>(T0 arg0)
@@ -37,7 +32,6 @@ public static class Program
 	public static int Main(string[] args)
 	{
 		ValueTuple valueTuple = default(ValueTuple);
-		value$9 = s;
 		ValueTuple valueTuple2 = default(ValueTuple);
 		return 0;
 	}

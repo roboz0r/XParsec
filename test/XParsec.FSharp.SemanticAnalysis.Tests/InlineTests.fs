@@ -230,7 +230,7 @@ let tests =
 
                 // `id`'s body is `fun x -> x`; at 'a := int every position is concrete int.
                 match expanded with
-                | TExpr.Lambda(TPat.NamedSimple(_, TyConst(k1, _), _),
+                | TExpr.Lambda(TPat.NamedSimple(_, TyConst(k1, _), _, _),
                                TExpr.Var(_, TyConst(k2, _), _),
                                TyFun(TyConst(k3, _), TyConst(k4, _)),
                                _) when
@@ -257,7 +257,7 @@ let tests =
                         Inline.inlineExpand ctx0 template.Decl template.Typars [| BuiltinTypes.tyBool |]
 
                     match again with
-                    | TExpr.Lambda(TPat.NamedSimple(_, TyConst(k, _), _), _, _, _) when
+                    | TExpr.Lambda(TPat.NamedSimple(_, TyConst(k, _), _, _), _, _, _) when
                         SymbolKeyOps.typeSimpleName k = DisplayName "bool"
                         ->
                         ()
@@ -313,7 +313,7 @@ let tests =
                 // succ is monomorphic (int -> int) — expansion is a no-op
                 // substitution returning the retained `fun x -> x + 1` body.
                 match fst (Inline.inlineExpand ctx0 succDecl [||] [||]) with
-                | TExpr.Lambda(TPat.NamedSimple(_, TyConst(k1, _), _),
+                | TExpr.Lambda(TPat.NamedSimple(_, TyConst(k1, _), _, _),
                                TExpr.InlineCall(
                                    args = EqList [ TExpr.Var(_, TyConst(k2, _), _)
                                                    TExpr.Const(TConstValue.Integral(IntKind.Int32, 1L), _, _) ]),
@@ -340,7 +340,7 @@ let tests =
             // shape `fun x -> x + 1`.
             let succBoundVarAndVar (e: TExpr) =
                 match e with
-                | TExpr.Lambda(TPat.NamedSimple(kb, _, _),
+                | TExpr.Lambda(TPat.NamedSimple(kb, _, _, _),
                                TExpr.InlineCall(
                                    args = EqList [ TExpr.Var(kv, _, _)
                                                    TExpr.Const(TConstValue.Integral(IntKind.Int32, 1L), _, _) ]),
@@ -382,7 +382,7 @@ let tests =
 
                 let body =
                     TExpr.Let(
-                        TPat.NamedSimple(boundKey, tyInt, dummyTok),
+                        TPat.NamedSimple(boundKey, tyInt, dummyTok, false),
                         TExpr.Var(freeKey, tyInt, dummyTok),
                         TExpr.Var(boundKey, tyInt, dummyTok),
                         tyInt,
@@ -390,7 +390,7 @@ let tests =
                     )
 
                 match Inline.freshen (sharedMinter ()) body with
-                | TExpr.Let(TPat.NamedSimple(kb, _, _), TExpr.Var(kFree, _, _), TExpr.Var(kRef, _, _), _, _) ->
+                | TExpr.Let(TPat.NamedSimple(kb, _, _, _), TExpr.Var(kFree, _, _), TExpr.Var(kRef, _, _), _, _) ->
                     Expect.equal kFree freeKey "free Var passes through unchanged"
                     Expect.notEqual kb boundKey "the bound name is freshened"
                     Expect.equal kRef kb "the bound reference follows the fresh bound variable"
@@ -425,6 +425,17 @@ let tests =
                 let body = expandedCore tast tast.Decls.[1]
                 Expect.isFalse (body.Contains "fun") (sprintf "both closures eliminated: %s" body)
                 Expect.stringContains body ", 1)" "…and both copies of the lambda's body are there to show for it"
+            }
+
+            test "a fused lambda's argument is bound, its reduction being the freeze's" {
+                // `f x` reduces the caller's lambda against `x` into a `let`. Collapsing the
+                // binding is post-freeze work, so the pre-freeze tree keeps it.
+                let tast =
+                    analyse "let inline apply (f: int -> int) (x: int) = f x in apply (fun y -> y + 1) 41"
+
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+                let body = expandedCore tast tast.Decls.[1]
+                Expect.stringContains body "let " (sprintf "the parameter is bound: %s" body)
             }
 
             test "a published body's reference to a NON-inline module sibling is an External carrying its key" {

@@ -664,7 +664,7 @@ module TastAccessor =
     /// binds nothing (`Wildcard`, `Const`) or through sub-patterns (`Tuple`, `Or`).
     let patBoundVar (p: PatId) : BoundVarId voption =
         match patPayload p with
-        | PatPayload.NamedSimple boundVar -> ValueSome boundVar
+        | PatPayload.NamedSimple(boundVar, _) -> ValueSome boundVar
         | _ -> ValueNone
 
     [<return: Struct>]
@@ -675,7 +675,7 @@ module TastAccessor =
     [<return: Struct>]
     let (|PNamedNaming|_|) (p: PatId) : BoundVarNaming voption =
         match patPayload p with
-        | PatPayload.NamedSimple boundVar -> ValueSome(TastPoolBuilder.boundVarNaming p.Pool boundVar)
+        | PatPayload.NamedSimple(boundVar, _) -> ValueSome(TastPoolBuilder.boundVarNaming p.Pool boundVar)
         | _ -> ValueNone
 
     [<return: Struct>]
@@ -970,8 +970,9 @@ module TastAccessor =
                     }
         }
 
+    /// An immutable named pattern binding `boundVar`.
     let mintNamedPat (pool: PoolBuilder) (boundVar: BoundVarId) (ty: FrozenType) (tok: Anchor) : PatId =
-        mintPat pool ty tok [||] (PatPayload.NamedSimple boundVar)
+        mintPat pool ty tok [||] (PatPayload.NamedSimple(boundVar, false))
 
     /// An anonymous `_` pattern.
     let mintWildcardPat (pool: PoolBuilder) (ty: FrozenType) (tok: Anchor) : PatId =

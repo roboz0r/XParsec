@@ -220,11 +220,7 @@ public static class Program
 				throw new Exception("The match cases were incomplete");
 			}
 			int n = g._payload._data.Num._n;
-			int num = n;
-			int num2 = 10;
-			int num3 = num;
-			int num4 = num2;
-			result = num3 * num4;
+			result = n * 10;
 		}
 		return result;
 	}
@@ -262,16 +258,13 @@ public static class Program
 		formatter2.Flush();
 		ValueTuple valueTuple2 = default(ValueTuple);
 		Formatter formatter3 = new Formatter(0, 1, Console.Out);
-		G<int> x = a;
 		G<int> y = G<int>.Val(3);
-		formatter3.AppendBool(EqualityComparer<G<int>>.Default.Equals(x, y), 0);
+		formatter3.AppendBool(EqualityComparer<G<int>>.Default.Equals(a, y), 0);
 		formatter3.AppendLiteral("\n");
 		formatter3.Flush();
 		ValueTuple valueTuple3 = default(ValueTuple);
 		Formatter formatter4 = new Formatter(0, 1, Console.Out);
-		G<int> x2 = a;
-		G<int> y2 = b;
-		formatter4.AppendBool(EqualityComparer<G<int>>.Default.Equals(x2, y2), 0);
+		formatter4.AppendBool(EqualityComparer<G<int>>.Default.Equals(a, b), 0);
 		formatter4.AppendLiteral("\n");
 		formatter4.Flush();
 		ValueTuple valueTuple4 = default(ValueTuple);
@@ -282,9 +275,8 @@ public static class Program
 		formatter5.Flush();
 		ValueTuple valueTuple5 = default(ValueTuple);
 		Formatter formatter6 = new Formatter(0, 1, Console.Out);
-		G<string> x3 = s;
-		G<string> y3 = G<string>.Val("hi");
-		formatter6.AppendBool(EqualityComparer<G<string>>.Default.Equals(x3, y3), 0);
+		G<string> y2 = G<string>.Val("hi");
+		formatter6.AppendBool(EqualityComparer<G<string>>.Default.Equals(s, y2), 0);
 		formatter6.AppendLiteral("\n");
 		formatter6.Flush();
 		ValueTuple valueTuple6 = default(ValueTuple);

@@ -55,20 +55,15 @@ public sealed class <closure>$0 : Fun<int, int>
 
 	public int Invoke(int arg0)
 	{
-		int num = 1;
 		int result;
-		if (arg0 <= num)
+		if (arg0 <= 1)
 		{
 			result = 1;
 		}
 		else
 		{
-			Fun<int, int> fact = capture0.fact;
-			int num2 = 1;
-			int num3 = num2;
-			int num4 = fact.Invoke(arg0 - num3);
-			int num5 = num4;
-			result = arg0 * num5;
+			int num = capture0.fact.Invoke(arg0 - 1);
+			result = arg0 * num;
 		}
 		return result;
 	}

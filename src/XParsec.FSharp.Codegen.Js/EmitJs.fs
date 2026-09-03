@@ -607,8 +607,7 @@ module EmitJs =
 
                 match l.Pattern with
                 | TastAccessor.PNamed k ->
-                    let binding =
-                        localBinding k l.Body (boundVarNameOf ctx.Pool k) (buildExpr ctx l.Value)
+                    let binding = localBinding ctx.Pool k (buildExpr ctx l.Value)
 
                     binding :: recur l.Body
                 | _ ->
@@ -670,10 +669,8 @@ module EmitJs =
                 let l = TastAccessor.exprLet e
 
                 match l.Pattern with
-                // A mutable bound variable emits a reassignable `let`; an immutable one a `const`.
                 | TastAccessor.PNamed k ->
-                    let binding =
-                        localBinding k l.Body (boundVarNameOf ctx.Pool k) (emitBound ctx k l.Value)
+                    let binding = localBinding ctx.Pool k (emitBound ctx k l.Value)
 
                     binding :: buildStatements ctx l.Body
                 | _ ->
@@ -1061,17 +1058,6 @@ module EmitJs =
                     yield! emitStaticPreamble ctx pc.Name pc.StaticPreamble
             ]
 
-        // A module bound variable mutated by a later module-level `Assignment` must emit as
-        // `let`/`export let`, not `const`.
-        let reassignedAtTop (k: BoundVarId) =
-            lowered
-            |> List.exists (fun d ->
-                match TastAccessor.declKind d with
-                | DeclShape.Expression -> isAssignedIn k (TastAccessor.declExpression d)
-                | DeclShape.Let -> isAssignedIn k (TastAccessor.declLet d).Value
-                | DeclShape.Type -> false
-            )
-
         let body =
             [
                 for decl in lowered do
@@ -1089,7 +1075,11 @@ module EmitJs =
                                 | true, cf -> emitFlatModuleFn ctx k cf (locOf ctx value)
                                 | _ -> emitBound ctx k value
 
-                            topLevelBinding ctx (reassignedAtTop k) (boundVarNameOf ctx.Pool k) init
+                            topLevelBinding
+                                ctx
+                                (TastPoolBuilder.boundVarIsMutable ctx.Pool k)
+                                (boundVarNameOf ctx.Pool k)
+                                init
                         | _ -> failwithf "EmitJs: unsupported declaration %A" decl
                     | DeclShape.Type -> failwithf "EmitJs: unsupported declaration %A" decl
             ]

@@ -362,10 +362,11 @@ module EmitJsContext =
         else
             JsStatement.Const(name, init)
 
-    /// Emit a nested `let`/`const` for bound variable `k`: a reassignable `let` when the body
-    /// mutates the bound variable (`k <- …`), else a `const`.
-    let localBinding (k: BoundVarId) (body: TastAccessor.ExprId) (name: string) (init: JsExpr) : JsStatement =
-        if isAssignedIn k body then
+    /// Emit a nested binding of `k`: a reassignable `let` for a `let mutable`, else a `const`.
+    let localBinding (pool: PoolBuilder) (k: BoundVarId) (init: JsExpr) : JsStatement =
+        let name = boundVarNameOf pool k
+
+        if TastPoolBuilder.boundVarIsMutable pool k then
             JsStatement.Let(name, init)
         else
             JsStatement.Const(name, init)

@@ -85,7 +85,7 @@ let private pokeMemberWith (paramTy: FrozenType) (mkBody: BoundVarId -> Pooled.T
     // The parameter's definition site, taken off the `NamedSimple` pattern a source member
     // would carry.
     let xBoundVar =
-        match BoundVarKey.ofPat (TPatG.NamedSimple(xId, paramTy, dummyTok)) with
+        match BoundVarKey.ofPat (TPatG.NamedSimple(xId, paramTy, dummyTok, false)) with
         | ValueSome b -> b
         | ValueNone -> failwith "a `NamedSimple` pattern introduces a bound variable"
 
@@ -229,11 +229,11 @@ let tests =
                 match InlineBodies.liftMemberBody nowhereSource (pokeMember ()) with
                 | Some body ->
                     match body.Decl with
-                    | TDeclG.Let(_, TExprG.Lambda(TPatG.NamedSimple(_, thisTy, _), inner, _, _), true, declTy) ->
+                    | TDeclG.Let(_, TExprG.Lambda(TPatG.NamedSimple(_, thisTy, _, _), inner, _, _), true, declTy) ->
                         Expect.equal thisTy ftWidget "outer param is `this : widget`"
 
                         match inner with
-                        | TExprG.Lambda(TPatG.NamedSimple(_, FTConst(k1, _), _),
+                        | TExprG.Lambda(TPatG.NamedSimple(_, FTConst(k1, _), _, _),
                                         TExprG.ILIntrinsic _,
                                         FTFun(FTConst(k2, _), FTConst(k3, _)),
                                         _) when
@@ -269,7 +269,7 @@ let tests =
                 | Some body ->
                     match body.Decl with
                     | TDeclG.Let(_,
-                                 TExprG.Lambda(TPatG.NamedSimple(_, FTConst(k0, _), _), TExprG.ILIntrinsic _, _, _),
+                                 TExprG.Lambda(TPatG.NamedSimple(_, FTConst(k0, _), _, _), TExprG.ILIntrinsic _, _, _),
                                  true,
                                  declTy) when SymbolKeyOps.typeSimpleName k0 = DisplayName "int" ->
                         match declTy with
@@ -582,7 +582,7 @@ let tests =
                 match lifted |> List.tryFind (fun (name, _) -> name = "Poke") with
                 | Some(_, body) ->
                     match body.Decl with
-                    | TDeclG.Let(_, TExprG.Lambda(TPatG.NamedSimple(_, FTConst(key, _), _), _, _, _), true, _) when
+                    | TDeclG.Let(_, TExprG.Lambda(TPatG.NamedSimple(_, FTConst(key, _), _, _), _, _, _), true, _) when
                         SymbolKeyOps.typeSimpleName key = DisplayName "widget"
                         ->
                         ()

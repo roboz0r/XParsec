@@ -121,22 +121,26 @@ module JsEmitHelpers =
 
     // ---- Pure-`let` substitution ---------------------------------------------
 
-    /// Safe to DUPLICATE at a use site: no side effects, no evaluation-order dependence.
+    /// An intrinsic op that allocates or accesses memory, so duplicating it changes the program.
+    let private touchesMemory (op: string) : bool =
+        match op with
+        | "newarr"
+        | "ldelem"
+        | "stelem"
+        | "ldlen"
+        | "ldobj"
+        | "ldloca" -> true
+        | _ -> false
+
+    /// Safe to DUPLICATE at a use site: no side effects, no evaluation-order dependence. A
+    /// `let mutable` read is impure: a write may intervene between uses.
     let rec isPureValue (e: TastAccessor.ExprId) : bool =
         match TastAccessor.exprKind e with
-        | ExprShape.Const
-        | ExprShape.Var -> true
-        // Duplicating one of these would re-allocate (`newarr`) or re-read after an
-        // intervening `stelem`.
+        | ExprShape.Const -> true
+        | ExprShape.Var -> not (TastPoolBuilder.boundVarIsMutable e.Pool (TastAccessor.exprVarBoundVar e))
         | ExprShape.ILIntrinsic ->
-            match TastAccessor.exprILIntrinsicOpCode e with
-            | "newarr"
-            | "ldelem"
-            | "stelem"
-            | "ldlen"
-            | "ldobj"
-            | "ldloca" -> false
-            | _ -> TastAccessor.exprChildren e |> Array.forall isPureValue
+            not (touchesMemory (TastAccessor.exprILIntrinsicOpCode e))
+            && TastAccessor.exprChildren e |> Array.forall isPureValue
         | ExprShape.Let ->
             let l = TastAccessor.exprLet e
 
@@ -145,57 +149,33 @@ module JsEmitHelpers =
             | _ -> false
         | _ -> false
 
-    /// Replaces every `Var k` in `e` with `value`; sound only where `value` is duplicable.
-    let rec substVar
-        (derivation: InlineExpand.Derivation)
-        (k: BoundVarId)
-        (value: TastAccessor.ExprId)
-        (e: TastAccessor.ExprId)
-        : TastAccessor.ExprId =
-        match TastAccessor.exprKind e with
-        | ExprShape.Var when TastAccessor.exprVarBoundVar e = k -> value
-        | _ ->
-            let result = TastAccessor.mapChildren (substVar derivation k value) e
-            InlineExpand.Derivation.authored derivation e result
-            result
+    /// `InlineExpand.substitutable`, extended through a memory-free intrinsic and a simple
+    /// `let`: `v` recomputed at each use of `k` yields the value the binding would.
+    let rec private substitutableValue (k: BoundVarId) (v: TastAccessor.ExprId) (body: TastAccessor.ExprId) : bool =
+        match TastAccessor.exprKind v with
+        | ExprShape.ILIntrinsic when not (touchesMemory (TastAccessor.exprILIntrinsicOpCode v)) ->
+            TastAccessor.exprChildren v
+            |> Array.forall (fun c -> substitutableValue k c body)
+        | ExprShape.Let ->
+            let l = TastAccessor.exprLet v
 
-    let rec isAssignedIn (k: BoundVarId) (e: TastAccessor.ExprId) : bool =
-        match TastAccessor.exprKind e with
-        | ExprShape.Assignment ->
-            let a = TastAccessor.exprAssignment e
+            TastAccessor.patKind l.Pattern = PatShape.NamedSimple
+            && substitutableValue k l.Value body
+            && substitutableValue k l.Body body
+        | _ -> InlineExpand.substitutable k v body
 
-            if
-                TastAccessor.exprKind a.Lhs = ExprShape.Var
-                && TastAccessor.exprVarBoundVar a.Lhs = k
-            then
-                true
-            else
-                TastAccessor.existsChild (isAssignedIn k) e
-        | _ -> TastAccessor.existsChild (isAssignedIn k) e
-
-    /// `let x = value` SNAPSHOTS at the bind point, but substituting re-reads at every use: in
-    /// `let x = m in (m <- e; x)` the uses would see the post-assignment `m`. Purity is not enough.
-    let rec valueReadsAssignedIn (body: TastAccessor.ExprId) (value: TastAccessor.ExprId) : bool =
-        match TastAccessor.exprKind value with
-        | ExprShape.Var -> isAssignedIn (TastAccessor.exprVarBoundVar value) body
-        | _ -> TastAccessor.existsChild (valueReadsAssignedIn body) value
-
-    /// A `let x = v` whose `v` is safe to inline, reduced to its substituted body.
+    /// A `let x = v` whose `v` is substitutable over the body, reduced to its substituted body.
     let reduceInlinableLet (derivation: InlineExpand.Derivation) (e: TastAccessor.ExprId) : TastAccessor.ExprId option =
         match TastAccessor.exprKind e with
         | ExprShape.Let ->
             let l = TastAccessor.exprLet e
 
             match l.Pattern with
-            | TastAccessor.PNamed k ->
-                if
-                    isPureValue l.Value
-                    && not (isAssignedIn k l.Body)
-                    && not (valueReadsAssignedIn l.Body l.Value)
-                then
-                    Some(substVar derivation k l.Value l.Body)
-                else
-                    None
+            | TastAccessor.PNamed k when
+                not (TastPoolBuilder.boundVarIsMutable e.Pool k)
+                && substitutableValue k l.Value l.Body
+                ->
+                Some(InlineExpand.substituteVar derivation k l.Value l.Body)
             | _ -> None
         | _ -> None
 

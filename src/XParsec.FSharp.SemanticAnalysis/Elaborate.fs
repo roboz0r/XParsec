@@ -18,7 +18,7 @@ module Elaborate =
         | TExpr.Lambda(p, inner, _, _) ->
             if i = 0 then
                 match p with
-                | TPat.NamedSimple(k, _, _) -> ValueSome(k, inner)
+                | TPat.NamedSimple(k, _, _, _) -> ValueSome(k, inner)
                 | _ -> ValueNone
             else
                 nthLambdaParam inner (i - 1)
@@ -197,7 +197,7 @@ module Elaborate =
         (container: ModuleContainer)
         (b: Binding<SyntaxToken>)
         : (TDecl * (TyVarId * SemType) list) voption =
-        let tpat = translatePat ctx b.pattern
+        let tpat = translateBindingPat ctx b
         let elided = ctx.PrintfFormatLiterals.ContainsKey(CstKeys.ofPat b.pattern)
 
         // Read off the TRANSLATED pattern, never the CST binding: the analysis identity
@@ -230,7 +230,7 @@ module Elaborate =
         Attributes.declareImportBinding ctx b emittedName exportedKey valT
 
         match tpat with
-        | TPat.NamedSimple(boundVarKey, _, _) -> recordInlineParamAttrs ctx b boundVarKey valT
+        | TPat.NamedSimple(boundVarKey, _, _, _) -> recordInlineParamAttrs ctx b boundVarKey valT
         | _ -> ()
 
         // A bound-variable-less pattern has nowhere to file the typar-axis width.
@@ -297,7 +297,7 @@ module Elaborate =
             // `^T` template.
             for (d, env) in elaborated do
                 match d with
-                | TDecl.Let(TPat.NamedSimple(k, _, _), _, true, _) ->
+                | TDecl.Let(TPat.NamedSimple(k, _, _, _), _, true, _) ->
                     ctx.InlineTemplates.[k] <- freezeTypars ctx.Store env d
                 | _ -> ()
 

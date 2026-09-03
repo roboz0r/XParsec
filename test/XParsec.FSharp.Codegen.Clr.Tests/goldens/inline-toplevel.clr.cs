@@ -33,18 +33,14 @@ public sealed class <closure>$0 : Fun<int, int>
 
 	public int Invoke(int arg0)
 	{
-		int num = 2;
-		int num2 = num;
-		return arg0 * num2;
+		return arg0 * 2;
 	}
 }
 public static class Program
 {
 	public static int @double(int arg0)
 	{
-		int num = 2;
-		int num2 = num;
-		return arg0 * num2;
+		return arg0 * 2;
 	}
 
 	public static T0 applySum<T0>(Fun<int, T0> arg0, int arg1, int arg2)
@@ -54,32 +50,19 @@ public static class Program
 
 	public static int d(int arg0)
 	{
-		int num = 2;
-		int num2 = num;
-		return arg0 * num2;
+		return arg0 * 2;
 	}
 
 	public static int Main(string[] args)
 	{
 		Formatter formatter = new Formatter(0, 1, Console.Out);
-		int num = 21;
-		int num2 = num;
-		int num3 = 2;
-		int num4 = num2;
-		int num5 = num3;
-		formatter.AppendFormatted(num4 * num5);
+		formatter.AppendFormatted(21 * 2);
 		formatter.AppendLiteral("\n");
 		formatter.Flush();
 		ValueTuple valueTuple = default(ValueTuple);
 		Formatter formatter2 = new Formatter(0, 1, Console.Out);
 		Fun<int, int> instance = <closure>$0.instance;
-		int num6 = 20;
-		int num7 = 1;
-		int num8 = num6;
-		int num9 = num7;
-		int num10 = num8;
-		int num11 = num9;
-		formatter2.AppendFormatted(instance.Invoke(num10 + num11));
+		formatter2.AppendFormatted(instance.Invoke(20 + 1));
 		formatter2.AppendLiteral("\n");
 		formatter2.Flush();
 		ValueTuple valueTuple2 = default(ValueTuple);

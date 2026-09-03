@@ -258,11 +258,7 @@ public static class Program
 			}
 			int a = shape._payload._data.Pair._a;
 			int b = shape._payload._data.Pair._b;
-			int num = a;
-			int num2 = b;
-			int num3 = num;
-			int num4 = num2;
-			result = num3 + num4;
+			result = a + b;
 		}
 		return result;
 	}
@@ -285,37 +281,32 @@ public static class Program
 		formatter3.Flush();
 		ValueTuple valueTuple3 = default(ValueTuple);
 		Formatter formatter4 = new Formatter(0, 1, Console.Out);
-		Shape x = s1;
 		Shape y = Shape.Point(3);
-		formatter4.AppendBool(EqualityComparer<Shape>.Default.Equals(x, y), 0);
+		formatter4.AppendBool(EqualityComparer<Shape>.Default.Equals(s1, y), 0);
 		formatter4.AppendLiteral("\n");
 		formatter4.Flush();
 		ValueTuple valueTuple4 = default(ValueTuple);
 		Formatter formatter5 = new Formatter(0, 1, Console.Out);
-		Shape x2 = s1;
 		Shape y2 = Shape.Empty();
-		formatter5.AppendBool(EqualityComparer<Shape>.Default.Equals(x2, y2), 0);
+		formatter5.AppendBool(EqualityComparer<Shape>.Default.Equals(s1, y2), 0);
 		formatter5.AppendLiteral("\n");
 		formatter5.Flush();
 		ValueTuple valueTuple5 = default(ValueTuple);
 		Formatter formatter6 = new Formatter(0, 1, Console.Out);
-		Shape x3 = Shape.Point(3);
-		Shape y3 = s1;
-		formatter6.AppendBool(EqualityComparer<Shape>.Default.Equals(x3, y3), 0);
+		Shape x = Shape.Point(3);
+		formatter6.AppendBool(EqualityComparer<Shape>.Default.Equals(x, s1), 0);
 		formatter6.AppendLiteral("\n");
 		formatter6.Flush();
 		ValueTuple valueTuple6 = default(ValueTuple);
 		Formatter formatter7 = new Formatter(0, 1, Console.Out);
-		Shape x4 = s2;
-		Shape y4 = Shape.Pair(4, 5);
-		formatter7.AppendBool(EqualityComparer<Shape>.Default.Equals(x4, y4), 0);
+		Shape y3 = Shape.Pair(4, 5);
+		formatter7.AppendBool(EqualityComparer<Shape>.Default.Equals(s2, y3), 0);
 		formatter7.AppendLiteral("\n");
 		formatter7.Flush();
 		ValueTuple valueTuple7 = default(ValueTuple);
 		Formatter formatter8 = new Formatter(0, 1, Console.Out);
-		Shape x5 = s2;
-		Shape y5 = Shape.Pair(4, 6);
-		formatter8.AppendBool(EqualityComparer<Shape>.Default.Equals(x5, y5), 0);
+		Shape y4 = Shape.Pair(4, 6);
+		formatter8.AppendBool(EqualityComparer<Shape>.Default.Equals(s2, y4), 0);
 		formatter8.AppendLiteral("\n");
 		formatter8.Flush();
 		ValueTuple valueTuple8 = default(ValueTuple);

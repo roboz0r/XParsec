@@ -122,6 +122,78 @@ module InlineExpand =
             CallerSite: Site
         }
 
+    /// Whether `e` contains an assignment to `boundVar`.
+    let rec private assigns (boundVar: BoundVarId) (e: TastAccessor.ExprId) : bool =
+        match TastAccessor.exprKind e with
+        | ExprShape.Assignment when
+            (match (TastAccessor.exprAssignment e).Lhs with
+             | TastAccessor.EVar b -> b = boundVar
+             | _ -> false)
+            ->
+            true
+        | _ -> TastAccessor.existsChild (assigns boundVar) e
+
+    /// Whether `e` contains a reference to `boundVar`.
+    let rec private references (boundVar: BoundVarId) (e: TastAccessor.ExprId) : bool =
+        match e with
+        | TastAccessor.EVar b -> b = boundVar
+        | _ -> TastAccessor.existsChild (references boundVar) e
+
+    /// Whether a reference to `boundVar` under `e` sits inside a lambda.
+    let rec private referencedUnderLambda (boundVar: BoundVarId) (e: TastAccessor.ExprId) : bool =
+        match TastAccessor.exprKind e with
+        | ExprShape.Lambda -> references boundVar (TastAccessor.exprLambda e).Body
+        | _ -> TastAccessor.existsChild (referencedUnderLambda boundVar) e
+
+    /// Whether `arg` read at every use of `param` in `body` yields the value the binding would:
+    /// a literal, a reference to an immutable variable, or a reference to a local mutable that
+    /// `body` never assigns and that no lambda in `body` would capture through `param`.
+    let substitutable (param: BoundVarId) (arg: TastAccessor.ExprId) (body: TastAccessor.ExprId) : bool =
+        match TastAccessor.exprKind arg with
+        | ExprShape.Const -> true
+        | ExprShape.Var ->
+            let b = TastAccessor.exprVarBoundVar arg
+
+            not (TastPoolBuilder.boundVarIsMutable arg.Pool b)
+            || (not ((TastPoolBuilder.moduleMembers arg.Pool).ContainsKey b)
+                && not (assigns b body)
+                && not (referencedUnderLambda param body))
+        | _ -> false
+
+    /// Replace every reference to `boundVar` under `e` with `replacement`. Only the path down to
+    /// a reference is rebuilt, and each rebuilt node is filed in `d` as authored from the node
+    /// it replaces.
+    let rec substituteVar
+        (d: Derivation)
+        (boundVar: BoundVarId)
+        (replacement: TastAccessor.ExprId)
+        (e: TastAccessor.ExprId)
+        : TastAccessor.ExprId =
+        match e with
+        | TastAccessor.EVar b when b = boundVar -> replacement
+        | _ ->
+            let result = TastAccessor.mapChildren (substituteVar d boundVar replacement) e
+            Derivation.authored d e result
+            result
+
+    /// Collapse every `let` under `e` whose bound variable is immutable and whose value is
+    /// `substitutable` into its substituted body. Each rebuilt node is filed in `d` as authored
+    /// from the node it replaces.
+    let rec private reduceLets (d: Derivation) (e: TastAccessor.ExprId) : TastAccessor.ExprId =
+        let reduced = TastAccessor.mapChildren (reduceLets d) e
+        Derivation.authored d e reduced
+
+        match reduced with
+        | TastAccessor.ELet l ->
+            match l.Pattern with
+            | TastAccessor.PNamed k when
+                not (TastPoolBuilder.boundVarIsMutable reduced.Pool k)
+                && substitutable k l.Value l.Body
+                ->
+                substituteVar d k l.Value l.Body
+            | _ -> reduced
+        | _ -> reduced
+
     /// Splice every `TExprG.InlineCall` in `decls` — member bodies included, via
     /// `mapDeclBodies` — with the entry it identifies, applied to the edge's own arguments. A
     /// `TExprG.CallerExpr` is unwrapped and its subtree left where it stands, being the caller's.
@@ -181,7 +253,8 @@ module InlineExpand =
                                 Children = kids
                                 Payload =
                                     match row.Payload with
-                                    | PatPayload.NamedSimple b -> PatPayload.NamedSimple(bind copy b)
+                                    | PatPayload.NamedSimple(b, isMutable) ->
+                                        PatPayload.NamedSimple(bind copy b, isMutable)
                                     | other -> other
                             }
                         )
@@ -335,8 +408,13 @@ module InlineExpand =
                     | other -> failwithf "InlineExpand: inline parameter destructuring is out of scope: %A" other
                 | other -> failwithf "InlineExpand: over-application of an inline body, at a %A" other
 
+        let expandDecl (decl: TastAccessor.DeclId) : TastAccessor.DeclId =
+            decl
+            |> TastAccessor.mapDeclBodies (go Compiling [] InPlace)
+            |> TastAccessor.mapDeclBodies (reduceLets derived)
+
         {
-            Decls = decls |> List.map (TastAccessor.mapDeclBodies (go Compiling [] InPlace))
+            Decls = List.map expandDecl decls
             Origins = origins
             Derived = derived
         }

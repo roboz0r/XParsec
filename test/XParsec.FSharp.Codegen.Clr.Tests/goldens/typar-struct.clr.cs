@@ -19,15 +19,10 @@ public static class Program
 
 	public static readonly bool b;
 
-	public static readonly int value$8;
-
-	public static bool value$9;
-
 	static Program()
 	{
 		i = onlyStruct(42);
 		b = onlyStruct(arg0: true);
-		value$8 = i;
 	}
 
 	public static T0 onlyStruct<T0>(T0 arg0)
@@ -38,7 +33,6 @@ public static class Program
 	public static int Main(string[] args)
 	{
 		ValueTuple valueTuple = default(ValueTuple);
-		value$9 = b;
 		ValueTuple valueTuple2 = default(ValueTuple);
 		return 0;
 	}

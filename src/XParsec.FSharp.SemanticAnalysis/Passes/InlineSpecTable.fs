@@ -111,22 +111,13 @@ module InlineSpecTable =
     /// fused material belongs to one site, so a second site reaching the entry that holds it
     /// would run its own call against the first site's operand.
     let containsCallerExpr (e: TExpr) : bool =
-        let mutable found = false
-
-        TastWalk.iterExpr
-            { TastWalk.identityIter with
-                VisitExpr =
-                    fun _ n ->
-                        match n with
-                        | TExpr.CallerExpr _ -> found <- true
-                        | _ -> ()
-
-                        // Existence, not enumeration: the descent stops at the first hit.
-                        not found
-            }
+        TastWalk.existsExpr
+            (fun n ->
+                match n with
+                | TExpr.CallerExpr _ -> true
+                | _ -> false
+            )
             e
-
-        found
 
     /// Every specialization `e` REFERENCES, in walk order and with repeats: the graph's EDGE
     /// relation, read off a tree rather than stored.
@@ -274,7 +265,7 @@ module InlineSpecTable =
                 List.foldBack
                     (fun (p: InlineParam) (inner, innerTy) ->
                         let lamTy = TyFun(p.Ty, innerTy)
-                        TExpr.Lambda(TPat.NamedSimple(p.Key, p.Ty, p.PatTok), inner, lamTy, p.PatTok), lamTy
+                        TExpr.Lambda(TPat.NamedSimple(p.Key, p.Ty, p.PatTok, false), inner, lamTy, p.PatTok), lamTy
                     )
                     reduced.Survivors
                     (reduced.Body, TastWalk.exprTy reduced.Body)
@@ -293,7 +284,7 @@ module InlineSpecTable =
                         Path = o.Path
                         // Every consumer reads the VALUE alone, so this bound variable is
                         // minted rather than taken from anything.
-                        Pat = TPat.NamedSimple(t.Mint(), declTy, TastWalk.exprTok value)
+                        Pat = TPat.NamedSimple(t.Mint(), declTy, TastWalk.exprTok value, false)
                         Value = value
                     }
 

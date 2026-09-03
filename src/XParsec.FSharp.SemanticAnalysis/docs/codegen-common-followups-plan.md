@@ -72,6 +72,32 @@ Two consequences, neither currently visible from the file:
 Decide whether the oracle belongs in the test project, or whether the CLR runtime should be
 differentially tested against it too.
 
+### A5 — a fused lambda returning a closure loses its parameter's binding
+
+Both backends fail on an inline function whose lambda parameter is applied and returns a closure:
+
+```fsharp
+let inline apply (f: int -> unit -> int) (x: int) = f x
+let test () =
+    let mutable m = 1
+    let g = apply (fun y -> fun () -> y) m
+    m <- 2
+    g ()
+printfn "%d" (test ())
+```
+
+JS emits `((_u11) => _s7)` and node throws `ReferenceError: _s7 is not defined`. CLR fails in
+`EmitConstruct.buildHeapClosure` with `Emit: no binding for variable BoundVarId 7 (captures=0)`.
+The fused lambda's parameter `y` reaches the inner closure's body with no binding in scope and
+no capture recorded for it, so the pre-freeze fusion (`InlineExpansion`, `AppliedFunction.Fused`)
+drops the binding somewhere between `Inline.betaReduce` and the closure verdicts `Regions`
+computes. Reproduces before and after the substitution work on `betaReduce`, so it is
+independent of it. F# prints `1`.
+
+Start from a `SemanticAnalysis` test that expands the program and asserts every `Var` under the
+inner lambda is bound by a pattern on its path to the root, which is where the loss is visible
+before either backend runs.
+
 ---
 
 ## Part B — type candidates

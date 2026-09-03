@@ -67,7 +67,7 @@ module InlineExpansion =
 
         for (d, env) in decls do
             match d with
-            | TDecl.Let(TPat.NamedSimple(b, _, _) as pattern, _, true, _) ->
+            | TDecl.Let(TPat.NamedSimple(b, _, _, _) as pattern, _, true, _) ->
                 locals.[b] <-
                     {
                         Key = templateKey pattern

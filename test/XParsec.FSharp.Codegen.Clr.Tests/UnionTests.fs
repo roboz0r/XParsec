@@ -197,7 +197,7 @@ let tests =
                     )
                     |> ValueOption.map (fun d ->
                         match d with
-                        | TDecl.Let(TPat.NamedSimple(k, _, _), TExpr.Lambda _, _, _) -> k
+                        | TDecl.Let(TPat.NamedSimple(k, _, _, _), TExpr.Lambda _, _, _) -> k
                         | _ -> failwith "unreachable"
                     )
 

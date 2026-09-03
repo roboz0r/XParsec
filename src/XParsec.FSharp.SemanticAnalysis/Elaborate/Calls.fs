@@ -54,7 +54,7 @@ module internal ElaborateCalls =
 
                 let tuplePat =
                     TPat.Tuple(
-                        EqArray.ofSeq (seq { for (k, ty) in elems -> TPat.NamedSimple(k, ty, argTok) }),
+                        EqArray.ofSeq (seq { for (k, ty) in elems -> TPat.NamedSimple(k, ty, argTok, false) }),
                         argTy,
                         argTok
                     )
@@ -65,7 +65,7 @@ module internal ElaborateCalls =
                         let rKey = ctx.NewSynthBoundVar()
                         let rTy = TastWalk.exprTy r
 
-                        [ TPat.NamedSimple(rKey, rTy, memberTok), r ],
+                        [ TPat.NamedSimple(rKey, rTy, memberTok, false), r ],
                         TExpr.ExternalMember(
                             ValueSome(TExpr.Var(rKey, rTy, memberTok)),
                             key,

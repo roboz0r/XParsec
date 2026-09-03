@@ -376,7 +376,7 @@ module TastPoolShapes =
     /// child sub-pat ids. `boundVar` is `NamedSimple`'s own bound variable, and no other case's.
     let patPayload (boundVar: BoundVarId voption) (p: TPatG<FrozenType, 'tok, 'id>) : PatPayload =
         match p with
-        | TPatG.NamedSimple _ -> PatPayload.NamedSimple(introducedBoundVar boundVar)
+        | TPatG.NamedSimple(isMutable = isMutable) -> PatPayload.NamedSimple(introducedBoundVar boundVar, isMutable)
         | TPatG.Wildcard _ -> PatPayload.Wildcard
         | TPatG.Null _ -> PatPayload.Null
         | TPatG.Tuple _ -> PatPayload.Tuple

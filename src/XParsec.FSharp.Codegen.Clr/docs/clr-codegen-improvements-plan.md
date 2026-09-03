@@ -7,7 +7,7 @@ Line numbers are deliberately absent — they rot. Constructs and file names onl
 Raised by the decompiled-C# conformance goldens (`test/XParsec.FSharp.Codegen.Clr.Tests/goldens/*.clr.cs`),
 added when `ConformanceByteIdentityTests` gained a whole-module render beside its structural
 digest. Every finding below cites the golden that shows it, so each is reproducible by reading a
-committed file. A1 and C1 have landed; the rest is outstanding.
+committed file. A1, B1 and C1 have landed; the rest is outstanding.
 
 **Part A** is ABI and metadata defects. **Part B** is IL quality. **Part C** is the harness.
 
@@ -236,7 +236,10 @@ assembly's public surface under a name no source wrote.
 
 - Residue storage takes assembly visibility rather than `public`. A name minted because nothing
   in the source names the value cannot be part of an intended ABI.
-- B1's substitution removes the binding here outright, since the argument is a `Var`.
+- B1's substitution removes the binding here outright, since the argument is a `Var`. **Landed**:
+  `value$8` and `value$9` are gone from `typar-struct.clr.cs`, and the JS counterpart `const _s5`
+  from the six `typar-*` JS goldens. The visibility half above still stands on its own, covering
+  a residue whose argument is not atomic.
 
 **Verify.** One corpus-wide field-visibility sweep, over every PE the conformance suite emits
 rather than over a hand-written source. It carries two assertions:
@@ -321,7 +324,7 @@ than the rendering, through a `paramNamesOf` helper beside `methodAttrsOf` in
 
 # Part B — IL quality
 
-## B1. Every operand of an inlined operator is spilled twice
+## B1. Every operand of an inlined operator is spilled twice — DONE
 
 `arith-int.clr.cs`, for `printfn "%d" (2 + 3)`:
 
@@ -357,6 +360,36 @@ reviewability, not throughput. Do not attach a performance claim to this without
 
 **Also check.** `betaReduce` lives in SemanticAnalysis, so the JS backend inherits the same
 bindings; confirm what its emitted JS does with them before choosing where the fix goes.
+
+**Landed.** Both `betaReduce`s bind every argument, as before: `Inline.betaReduce` pre-freeze
+for a call-site lambda fused into a template body, `InlineExpand.betaReduce` post-freeze for
+each `TExprG.InlineCall` edge. One pass, `InlineExpand.reduceLets`, then collapses every
+`let` in the expanded declarations whose bound variable is immutable and whose value is
+`substitutable` over the body: a `Const`; a `Var` referencing an immutable variable; or a
+`Var` referencing a local mutable variable that the body never assigns and that no lambda in
+the body would capture through the bound variable. A module-level mutable stays bound, being
+writable by any call. A field read stays bound. The binding snapshots a value where
+substitution would re-read it at each use, including inside a closure the body returns. The
+pass runs inside `InlineExpand.expand`, so both backends and every consumer of an expansion
+see the same trees under one rule.
+
+Mutability is a fact of the bound variable and lives on its definition site:
+`TPat.NamedSimple` and the pooled `PatPayload.NamedSimple` carry `isMutable`, set by
+`translateBindingPat` from the `let mutable` keyword and cleared by `RefCellPromotion` when
+the variable becomes a cell. The frozen pool projects it to the `BoundVarMutable` column,
+filled from the pattern payloads, so a `Var` can read it through
+`TastPoolBuilder.boundVarIsMutable`. A lambda parameter, a match binding and a `use` bind
+immutably. `JsEmitHelpers.reduceInlinableLet` builds on `InlineExpand.substitutable`,
+extending it through pure intrinsics and simple `let`s for the JS expression form.
+
+The JS goldens moved where a binding reached the module surface: the six `typar-*` programs
+lost the `const _s5 = s;` that `ignore`'s splice residue produced, which is A4's second half.
+`typar-struct.clr.cs` lost the `value$8` and `value$9` fields A4 names, leaving A4's first half,
+assembly visibility for residue storage, as the only part of that entry still outstanding.
+
+`InlineExpandTests` pins both halves post-freeze: an immutable operand spends no binding, a
+mutable one keeps its own. Each backend has a runtime test where a mutable local is passed to
+an inline function that returns a closure and is written after the call.
 
 ## B2. A unit-valued call in statement position reifies `()`
 
@@ -440,8 +473,7 @@ depends on it. A2 stage 1 and B2 both move assembler row counts and should not b
 the same time as each other, because a failure in the handle predictions is far easier to read
 against one of them than against both.
 
-B1 lands whenever convenient; it removes bindings rather than rows, and A4's first half is
-independent of it.
+B1 has landed, and with it A4's second half.
 
 A5 touches no row count and no table, so it is free of the row-order contention above and can
 run beside any of them. Its stage 5 is the exception: it widens `Frozen.TAbstractMethod`, so

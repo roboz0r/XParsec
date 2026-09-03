@@ -32,21 +32,15 @@ public class Ordered
 	{
 		this.n = n;
 		int num = this.n;
-		int num2 = 1;
-		int num3 = num;
-		int num4 = num2;
-		a = num3 + num4;
+		a = num + 1;
 		Formatter formatter = new Formatter(7, 1, Console.Out);
 		formatter.AppendLiteral("ctor a=");
 		formatter.AppendFormatted(a);
 		formatter.AppendLiteral("\n");
 		formatter.Flush();
 		ValueTuple valueTuple = default(ValueTuple);
-		int num5 = a;
-		int num6 = 3;
-		int num7 = num5;
-		int num8 = num6;
-		b = num7 * num8;
+		int num2 = a;
+		b = num2 * 3;
 		Formatter formatter2 = new Formatter(7, 1, Console.Out);
 		formatter2.AppendLiteral("ctor b=");
 		formatter2.AppendFormatted(b);

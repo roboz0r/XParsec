@@ -612,7 +612,11 @@ type private Renderer() =
 
     member this.Pat(p: TPat) : unit =
         match p with
-        | TPat.NamedSimple(k, _, _) -> push (nameOf k)
+        | TPat.NamedSimple(k, _, _, isMutable) ->
+            if isMutable then
+                push "mutable "
+
+            push (nameOf k)
         | TPat.Wildcard _ -> push "_"
         | TPat.Const(cv, _, _) -> push (constText cv)
         | TPat.Tuple(items, _, _) ->

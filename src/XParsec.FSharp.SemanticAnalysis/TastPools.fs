@@ -134,7 +134,7 @@ module TastPools =
                 Ty = pools.Types.[pools.PatTys.[i]]
                 BoundVar =
                     match pools.PatPayloads.[i] with
-                    | PatPayload.NamedSimple boundVar -> ValueSome boundVar
+                    | PatPayload.NamedSimple(boundVar, _) -> ValueSome boundVar
                     | _ -> ValueNone
                 ConstValue =
                     match pools.PatPayloads.[i] with
@@ -150,7 +150,7 @@ module TastPools =
 
                     match pools.PatPayloads.[pattern] with
                     // Only a simple bound variable has a side-table identity.
-                    | PatPayload.NamedSimple boundVar ->
+                    | PatPayload.NamedSimple(boundVar, _) ->
                         let groups, body =
                             ArgGroups.peel unLambda facts (ChildColumn.item pools.DeclExprChildren d 0)
 
@@ -207,7 +207,7 @@ module TastPools =
         let declPayloads = ResizeArray<DeclPayload>()
 
         // The bound variable pool: each definition site the walk reaches takes a dense `BoundVarId` on
-        // first encounter, its two columns recording the source spelling and where. A
+        // first encounter, its columns recording the source spelling and where. A
         // `BoundVarId` may have no pooled pattern (a `this` slot has none).
         let boundVarNames = ResizeArray<string>()
         let boundVarToks = ResizeArray<Anchor>()
@@ -361,6 +361,13 @@ module TastPools =
 
             col
 
+        let boundVarMutable = Array.zeroCreate boundVarNames.Count
+
+        for p in patPayloads do
+            match p with
+            | PatPayload.NamedSimple(BoundVarId i, true) -> boundVarMutable.[i] <- true
+            | _ -> ()
+
         // Every column is snapshotted here; the derived table below only READS the pools.
         let pools =
             {
@@ -384,6 +391,7 @@ module TastPools =
                 Specializations = specializations
                 BoundVarNames = boundVarNames.ToArray()
                 BoundVarToks = boundVarToks.ToArray()
+                BoundVarMutable = boundVarMutable
                 Residue =
                     {
                         Diagnostics = file.Diagnostics
