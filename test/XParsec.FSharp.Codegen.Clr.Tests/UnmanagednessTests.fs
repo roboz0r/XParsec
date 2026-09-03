@@ -329,6 +329,9 @@ printfn "%d" (match B (System.Text.StringBuilder()) with | B _ -> 1 | _ -> 0)
                         "GShape.Val.v: Managed"
                         "GShape.Pt.x: Unmanaged"
                         "GShape.Pt.y: Unmanaged"
+                        "Readers.X.a: Unmanaged"
+                        "Readers.X.b: Unmanaged"
+                        "Readers.X_0.c: Managed"
                     ]
                     "the census"
             }

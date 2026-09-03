@@ -8,7 +8,7 @@ open NameResolutionTypeRefStamp
 open UnificationTranslate
 open NameResolutionTypeRegistration
 
-// The registry ENTRY of each record / union / enum / intrinsic-binding / abbreviation /
+// The registry ENTRY of each record / enum / intrinsic-binding / abbreviation /
 // measure definition, built from its claimed identity and its declaration's CST. A
 // definition's declared STRUCTURE resolves here, against the types claimed ABOVE it plus its
 // own `type … and …` group; member BODIES are typed later, in Unification.
@@ -18,7 +18,7 @@ module NameResolutionDeclRegistration =
     /// `[<CustomEquality>]` / `[<CustomComparison>]` on a record or union is out of scope:
     /// neither has an interface-impl side table to satisfy the `IEquatable<_>` /
     /// `IComparable<_>` the verdict promises, so a `Custom` verdict is a diagnostic instead.
-    let private rejectCustomOnDataType
+    let rejectCustomOnDataType
         (ctx: PassContext)
         (declTok: SyntaxToken)
         (eq: EqualityVerdict)
@@ -28,7 +28,7 @@ module NameResolutionDeclRegistration =
             ctx.Report(declTok, Kind.CustomEqualityOnRecordOrUnion)
 
     /// File `v` at the FRONT of `index.[name]`'s bucket: the newest declaration wins the slot.
-    let private prependToIndex (index: Dictionary<string, EqArray<'T>>) (name: string) (v: 'T) : unit =
+    let prependToIndex (index: Dictionary<string, EqArray<'T>>) (name: string) (v: 'T) : unit =
         match index.TryGetValue name with
         | true, existing ->
             let buf = ResizeArray(existing.Length + 1)
@@ -102,134 +102,6 @@ module NameResolutionDeclRegistration =
 
         for fi in fieldInfos do
             prependToIndex ctx.Types.FieldIndex fi.Name info
-
-    /// A union case's ctor name: `([])` → `Empty`, `(::)` → `Cons`, an ordinary case its
-    /// own text. A case with no name (`(*)`, range / active-pattern ops) yields `""`, which
-    /// `inspectCaseData` reads as "drop this case".
-    let private unionCaseName (ctx: PassContext) (ident: IdentOrOp<SyntaxToken>) : string =
-        match OperatorNames.unionCaseCtorName ctx.NameOf ident with
-        | ValueSome n -> n
-        | ValueNone -> ""
-
-    /// One union case's registrable shape: its ctor name plus, positionally, each field's source
-    /// name (`ValueNone` when unnamed) and written type. GADT-SYNTAX cases (FSharp.Core's list)
-    /// decompose here too, their return type read as the declaring union; true GADTs do not.
-    [<NoEquality; NoComparison>]
-    type private UnionCaseShape =
-        {
-            Name: string
-            FieldNames: string voption[]
-            FieldTypes: Type<SyntaxToken>[]
-        }
-
-    let private inspectCaseData (ctx: PassContext) (data: UnionTypeCaseData<SyntaxToken>) : UnionCaseShape voption =
-        let named (name: string) (fieldNames: string voption[]) (fieldTypes: Type<SyntaxToken>[]) =
-            if name.Length = 0 then
-                ValueNone
-            else
-                ValueSome
-                    {
-                        Name = name
-                        FieldNames = fieldNames
-                        FieldTypes = fieldTypes
-                    }
-
-        match data with
-        | UnionTypeCaseData.Nullary(name = ident)
-        | UnionTypeCaseData.GadtNullary(name = ident) -> named (unionCaseName ctx ident) [||] [||]
-        | UnionTypeCaseData.Nary(name = ident; fields = fields) ->
-            named
-                (unionCaseName ctx ident)
-                [|
-                    for f in fields ->
-                        match f with
-                        | UnionTypeField.Named(ident = id) -> ValueSome(ctx.NameOf id)
-                        | UnionTypeField.Unnamed _ -> ValueNone
-                |]
-                [|
-                    for f in fields ->
-                        match f with
-                        | UnionTypeField.Named(typ = t)
-                        | UnionTypeField.Unnamed(typ = t) -> t
-                |]
-        | UnionTypeCaseData.GadtNary(name = ident; sign = UncurriedSig(args = ArgsSpec(args = specs))) ->
-            named
-                (unionCaseName ctx ident)
-                [|
-                    for ArgSpec(name = nm) in specs ->
-                        match nm with
-                        | ValueSome(ArgNameSpec(ident = id)) -> ValueSome(ctx.NameOf id)
-                        | ValueNone -> ValueNone
-                |]
-                [| for ArgSpec(typ = t) in specs -> t |]
-
-    let registerUnionDecl
-        (ctx: PassContext)
-        (id: TypeIdentity)
-        (tn: TypeName<SyntaxToken>)
-        (cases: UnionTypeCases<SyntaxToken>)
-        : unit =
-        let name = id.Name
-        let declSite = id.DeclSite
-        let typeParams = declaredTyparsOfTypeName ctx tn
-        let typarConstraints = typarConstraintsOfTypeName tn
-        let caseInfos = ResizeArray<UnionCaseInfo>(cases.Length)
-
-        underTyparScope
-            ctx
-            typeParams
-            (fun () ->
-                match typarConstraints with
-                | ValueSome cs -> translateConstraints ctx cs
-                | ValueNone -> ()
-
-                for UnionTypeCase(attributes = caseAttrs; data = data) in cases do
-                    match inspectCaseData ctx data with
-                    | ValueSome shape ->
-                        let fieldTys = shape.FieldTypes |> Array.map (translateType ctx)
-
-                        // The case carries its union's own claim KEY, so "which union
-                        // declares this case" never re-resolves a name.
-                        caseInfos.Add(
-                            UnionCaseInfo(
-                                shape.Name,
-                                name,
-                                id.Key,
-                                fieldTys,
-                                shape.FieldNames,
-                                declSite.Key,
-                                AttributeFold.resolveAndBuild ctx AttrTarget.UnionCase caseAttrs
-                            )
-                        )
-                    | ValueNone -> ()
-            )
-
-        let caseInfos = caseInfos.ToArray()
-
-        let info =
-            UnionTypeInfo(name, typeParams, caseInfos, id.DeclSite, typarConstraints, id.Key)
-
-        // `[<Struct>]` union ⇒ value type. Unions have no `struct … end` form, so the
-        // attribute is the whole verdict.
-        info.IsValueType <- isStructAttributed ctx tn
-
-        info.Attributes <-
-            Attributes.foldAndValidateTypeDefn
-                ctx
-                info.DefnKind
-                declSite.Tok
-                (ctx.ResolveAttributes(Attributes.attributesOfTypeName tn))
-
-        rejectCustomOnDataType ctx declSite.Tok info.EqualitySupport info.ComparisonSupport
-
-        TypeRegistry.registerUnion ctx.Types info
-
-        // Record the decl-site identity so the type-decl emitter recovers the union by its
-        // arity-qualified key rather than re-deriving `(name, arity)`.
-        ctx.Resolution.ResolvedType.Set(declSite.Key, info.TypeKey)
-
-        for c in caseInfos do
-            prependToIndex ctx.Types.CtorIndex c.Name c
 
     /// Register an enum's nominal identity and its case table, so a `(x: E)` annotation
     /// resolves to `TyEnum Key` and a qualified `E.C1` can validate the case name. Enums are

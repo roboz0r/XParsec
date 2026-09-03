@@ -76,6 +76,7 @@
     <Compile Include="TypeRefVerdictTests.fs" />
     <Compile Include="SecondaryCtorParamTypesTests.fs" />
     <Compile Include="DuplicateTypeNameTests.fs" />
+    <Compile Include="UnionCaseFieldNameTests.fs" />
     <Compile Include="TypeScopeOrderTests.fs" />
     <Compile Include="SameNameResolutionTests.fs" />
     <Compile Include="MeasureResolutionTests.fs" />

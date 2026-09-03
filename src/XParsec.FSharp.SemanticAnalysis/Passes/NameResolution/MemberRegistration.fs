@@ -11,6 +11,7 @@ open NameResolutionTypeRefStamp
 open NameResolutionScope
 open NameResolutionTypeRegistration
 open NameResolutionDeclRegistration
+open NameResolutionUnionRegistration
 
 // Registry stamping for class type definitions and union augmentation members, plus the
 // `type … and …` group registration algorithm. A class's declared STRUCTURE (ctor-param

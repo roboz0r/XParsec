@@ -324,7 +324,7 @@ module FlatUnionPlacements =
         let declared = [ for (n, _) in c.Fields -> n ]
 
         List.zip3
-            (UnionCaseFieldName.fscFieldNames declared)
+            (UnionCaseFields.fscFieldNames declared)
             (UnionCaseFieldName.fsharpNames declared)
             [ for (_, ty) in c.Fields -> ty ]
         |> List.map (fun (metaName, propertyName, ty) ->
@@ -352,7 +352,7 @@ module FlatUnionPlacements =
         }
 
     /// One slot per logical field on the union itself, in case then field declaration
-    /// order, named by `UnionCaseFieldName.fscFieldNames`.
+    /// order, named by `UnionCaseFields.fscFieldNames`.
     let private unshared (cases: Frozen.TUnionCase list) : UnionSlotHome * UnionCasePlacement list =
         let caseSlots =
             [

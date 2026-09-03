@@ -489,6 +489,15 @@ module FrozenCodecDiagnostics =
         | Kind.DuplicateMember name ->
             w.Write 32uy
             w.Write name
+        | Kind.UnionCaseFieldNameClash(name, clash) ->
+            w.Write 64uy
+            w.Write name
+
+            w.Write(
+                match clash with
+                | UnionFieldNameClash.Declared -> 0uy
+                | UnionFieldNameClash.AnonymousSpelling -> 1uy
+            )
         | Kind.CyclicType(name, via) ->
             w.Write 33uy
             w.Write name
@@ -712,6 +721,16 @@ module FrozenCodecDiagnostics =
         | 57uy -> Kind.ConformanceFinding(readConformanceError r)
         | 62uy -> Kind.MeasureExpected
         | 63uy -> Kind.TypeExpectedNotMeasure
+        | 64uy ->
+            let name = r.ReadString()
+
+            let clash =
+                match r.ReadByte() with
+                | 0uy -> UnionFieldNameClash.Declared
+                | 1uy -> UnionFieldNameClash.AnonymousSpelling
+                | b -> failwithf "FrozenCodec: unknown UnionFieldNameClash tag %d" b
+
+            Kind.UnionCaseFieldNameClash(name, clash)
         | b -> failwithf "FrozenCodec: unknown Kind tag %d" b
 
     let writeDiagnostic (w: FrozenWriter) (d: XParsec.FSharp.SemanticAnalysis.Diagnostic) =

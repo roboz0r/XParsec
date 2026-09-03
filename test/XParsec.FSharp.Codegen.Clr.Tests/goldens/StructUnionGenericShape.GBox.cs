@@ -83,12 +83,12 @@ public readonly struct GBox<T> : IEquatable<GBox<T>>, IStructuralFormattable
 		return _payload._data.Num._n;
 	}
 
-	public Payload_Val Get_Val()
+	public Payload_Val GetPayload_Val()
 	{
 		return new Payload_Val(_payload);
 	}
 
-	public Payload_Num Get_Num()
+	public Payload_Num GetPayload_Num()
 	{
 		return new Payload_Num(_payload);
 	}

@@ -144,6 +144,7 @@ let structUnionTests =
                         "StructUnionLocalRefPayload"
                         "StructUnionMixedStorage"
                         "StructUnionGenericOverlay"
+                        "StructUnionReaderNameClash"
                     ] do
                     let asm = loadAssembly (Codegen.toBytes (compileSourceData program))
 
@@ -173,7 +174,7 @@ let structUnionTests =
                 for name in [ "Get_Point_0"; "Get_Pair_0"; "Get_Pair_1" ] do
                     Expect.isTrue (editorBrowsableNever (shape.GetMethod name)) (name + " is EditorBrowsable(Never)")
 
-                for name in [ "Get_Point"; "Get_Pair"; "Point"; "Pair" ] do
+                for name in [ "GetPayload_Point"; "GetPayload_Pair"; "Point"; "Pair" ] do
                     Expect.isFalse (editorBrowsableNever (shape.GetMethod name)) (name + " stays browsable")
             }
 
@@ -267,13 +268,15 @@ let structUnionTests =
 
                 let methods = MetadataStructure.methodAttrsOf bytes "Shape"
 
-                // The `Get_<Case>` view accessors share the prefix, so the whole `Get_`
-                // family is pinned by name: the field readers first, then the accessors.
+                // The `GetPayload_<Case>` view accessors carry a prefix of their own, so
+                // both families are pinned by name: the field readers, then the accessors.
                 let getterNames = [ "Get_Point_0"; "Get_Pair_0"; "Get_Pair_1" ]
 
                 Expect.equal
-                    (methods |> List.map fst |> List.filter (fun n -> n.StartsWith "Get_"))
-                    [ yield! getterNames; yield "Get_Point"; yield "Get_Pair" ]
+                    (methods
+                     |> List.map fst
+                     |> List.filter (fun n -> n.StartsWith "Get_" || n.StartsWith "GetPayload_"))
+                    [ yield! getterNames; yield "GetPayload_Point"; yield "GetPayload_Pair" ]
                     "one getter per (case, field) in case then field order, then one view accessor per payload-bearing case"
 
                 let getters = methods |> List.filter (fun (n, _) -> List.contains n getterNames)
@@ -331,7 +334,7 @@ let structUnionTests =
                     "the .ctor then the property getters"
 
                 // `Payload` is assembly-visible, so the `.ctor` taking one is too: a
-                // consumer outside the assembly reaches a view through `Get_<Case>`.
+                // consumer outside the assembly reaches a view through `GetPayload_<Case>`.
                 for (name, attrs) in MetadataStructure.methodAttrsOf bytes "Shape+Payload_Pair" do
                     let access = attrs &&& MethodAttributes.MemberAccessMask
 
@@ -341,32 +344,33 @@ let structUnionTests =
                         Expect.equal access MethodAttributes.Public (name + " is public")
                         Expect.isTrue (attrs.HasFlag MethodAttributes.SpecialName) (name + " is an accessor")
 
-                // `Get_<Case>` is a plain method beside the `Get_<Case>_<i>` field readers,
-                // spelled outside the `get_` accessor convention, since it backs no property.
+                // `GetPayload_<Case>` is a plain method beside the `Get_<Case>_<i>` field
+                // readers, spelled outside the `get_` accessor convention, since it backs no
+                // property, and clear of the readers, which a case named `X_0` would collide with.
                 Expect.equal
                     (MetadataStructure.methodAttrsOf bytes "Shape"
                      |> List.map fst
-                     |> List.filter (fun n -> n.StartsWith "get_" || n.StartsWith "Get_"))
+                     |> List.filter (fun n -> n.StartsWith "get_" || n.StartsWith "Get_" || n.StartsWith "GetPayload_"))
                     [
                         "get_Tag"
                         "Get_Point_0"
                         "Get_Pair_0"
                         "Get_Pair_1"
-                        "Get_Point"
-                        "Get_Pair"
+                        "GetPayload_Point"
+                        "GetPayload_Pair"
                     ]
-                    "the union hands out each case's view through Get_<Case>, after the field readers"
+                    "the union hands out each case's view through GetPayload_<Case>, after the field readers"
 
                 let asm = loadAssembly bytes
                 let ty = asm.GetType "Shape"
 
                 Expect.equal
                     (asm.GetType "Shape+Payload_Pair")
-                    (ty.GetMethod("Get_Pair").ReturnType)
-                    "Get_Pair returns the case's view"
+                    (ty.GetMethod("GetPayload_Pair").ReturnType)
+                    "GetPayload_Pair returns the case's view"
 
                 let pair = ty.GetMethod("Pair").Invoke(null, [| box 4; box 5 |])
-                let view = ty.GetMethod("Get_Pair").Invoke(pair, [||])
+                let view = ty.GetMethod("GetPayload_Pair").Invoke(pair, [||])
 
                 Expect.equal (view.GetType().GetProperty("a").GetValue view) (box 4) "the view reads a"
                 Expect.equal (view.GetType().GetProperty("b").GetValue view) (box 5) "the view reads b"
@@ -403,7 +407,7 @@ let structUnionTests =
                 let build (case: string) (args: obj[]) : obj = ty.GetMethod(case).Invoke(null, args)
 
                 let viewOf (case: string) (value: obj) : obj =
-                    ty.GetMethod("Get_" + case).Invoke(value, [||])
+                    ty.GetMethod("GetPayload_" + case).Invoke(value, [||])
 
                 let read (view: obj) (prop: string) : obj =
                     view.GetType().GetProperty(prop).GetValue view
@@ -461,7 +465,7 @@ let structUnionTests =
                 let ty = (asm.GetType "GShape`1").MakeGenericType [| typeof<string> |]
 
                 let read (case: string) (value: obj) (prop: string) : obj =
-                    let view = ty.GetMethod("Get_" + case).Invoke(value, [||])
+                    let view = ty.GetMethod("GetPayload_" + case).Invoke(value, [||])
                     view.GetType().GetProperty(prop).GetValue view
 
                 let pt = ty.GetMethod("Pt").Invoke(null, [| box 4; box 5 |])
@@ -502,6 +506,22 @@ let structUnionTests =
 
             test "same-name different-type case fields are representable (FS3585 relaxed)" {
                 runsDataLines [ "5"; "hello"; "true"; "false" ] "StructUnionSameNameFields"
+            }
+
+            // `Get_<Case>_<i>` ends in a digit run, so no two cases spell one reader, and
+            // `GetPayload_<Case>` is a family of its own. A case named `X_0` beside
+            // `X of int * int` is where the two families would meet.
+            test "a case named as another case's reader index keeps both readers distinct" {
+                runsDataLines [ "7"; "5"; "true"; "false" ] "StructUnionReaderNameClash"
+
+                let bytes = Codegen.toBytes (compileSourceData "StructUnionReaderNameClash")
+
+                Expect.equal
+                    (MetadataStructure.methodAttrsOf bytes "Readers"
+                     |> List.map fst
+                     |> List.filter (fun n -> n.StartsWith "Get_" || n.StartsWith "GetPayload_"))
+                    [ "Get_X_0"; "Get_X_1"; "Get_X_0_0"; "GetPayload_X"; "GetPayload_X_0" ]
+                    "X's field readers, X_0's field reader, then both view accessors"
             }
 
             // A generic struct union's factory and match arm reach the erased `object` slot

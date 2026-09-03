@@ -92,12 +92,12 @@ public readonly struct GShape<T> : IEquatable<GShape<T>>, IStructuralFormattable
 		return _payload._data.Pt._y;
 	}
 
-	public Payload_Val Get_Val()
+	public Payload_Val GetPayload_Val()
 	{
 		return new Payload_Val(_payload);
 	}
 
-	public Payload_Pt Get_Pt()
+	public Payload_Pt GetPayload_Pt()
 	{
 		return new Payload_Pt(_payload);
 	}

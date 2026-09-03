@@ -538,6 +538,8 @@ let tests =
                         Kind.CustomComparisonNeedsEquality
                         Kind.MemberAndLocalBindingClash "x"
                         Kind.DuplicateMember "M"
+                        Kind.UnionCaseFieldNameClash("a", UnionFieldNameClash.Declared)
+                        Kind.UnionCaseFieldNameClash("Item2", UnionFieldNameClash.AnonymousSpelling)
                         Kind.CyclicType("A", TypeCycle.Inheritance)
                         Kind.CyclicType("A", TypeCycle.StructField)
                         Kind.CyclicType("A", TypeCycle.Abbreviation)

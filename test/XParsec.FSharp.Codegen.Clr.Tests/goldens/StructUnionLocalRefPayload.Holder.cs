@@ -108,17 +108,17 @@ public readonly struct Holder<T> : IEquatable<Holder<T>>, IStructuralFormattable
 		return (Node)_payload._ref0;
 	}
 
-	public Payload_Val Get_Val()
+	public Payload_Val GetPayload_Val()
 	{
 		return new Payload_Val(_payload);
 	}
 
-	public Payload_Text Get_Text()
+	public Payload_Text GetPayload_Text()
 	{
 		return new Payload_Text(_payload);
 	}
 
-	public Payload_Rec Get_Rec()
+	public Payload_Rec GetPayload_Rec()
 	{
 		return new Payload_Rec(_payload);
 	}

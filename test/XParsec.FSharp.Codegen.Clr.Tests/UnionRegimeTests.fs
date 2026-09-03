@@ -194,23 +194,23 @@ let factoryShape =
 [<Tests>]
 let caseFieldNames =
     testList
-        "UnionCaseFieldName.fscFieldNames"
+        "UnionCaseFields.fscFieldNames"
         [
             // FSC's spelling, which is what would let the external path read an
             // FSC-emitted union: a declared name prefixed `_`, a lone positional field
             // `item`, and otherwise the field's 1-based position IN THE CASE.
             test "a case with a type of its own takes FSC's spelling" {
-                Expect.equal (UnionCaseFieldName.fscFieldNames [ ValueNone ]) [ "item" ] "a lone positional field"
+                Expect.equal (UnionCaseFields.fscFieldNames [ ValueNone ]) [ "item" ] "a lone positional field"
 
                 Expect.equal
-                    (UnionCaseFieldName.fscFieldNames [ ValueNone; ValueNone ])
+                    (UnionCaseFields.fscFieldNames [ ValueNone; ValueNone ])
                     [ "item1"; "item2" ]
                     "two positional fields"
 
-                Expect.equal (UnionCaseFieldName.fscFieldNames [ ValueSome "radius" ]) [ "_radius" ] "a declared name"
+                Expect.equal (UnionCaseFields.fscFieldNames [ ValueSome "radius" ]) [ "_radius" ] "a declared name"
 
                 Expect.equal
-                    (UnionCaseFieldName.fscFieldNames [ ValueSome "tag"; ValueNone ])
+                    (UnionCaseFields.fscFieldNames [ ValueSome "tag"; ValueNone ])
                     [ "_tag"; "item2" ]
                     "the index counts every field, not the positional ones alone"
             }

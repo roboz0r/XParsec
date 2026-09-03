@@ -77,6 +77,12 @@ let tests =
                         // `tcTypeDefinitionIsCyclic` — the abbreviation route is fsc's other
                         // number (`type A = B and B = A` reports 953).
                         Kind.CyclicType("A", TypeCycle.Abbreviation), DiagCode.FSharp 953
+                        // `tcFieldNameIsUsedModeThanOnce` and
+                        // `tcFieldNameConflictsWithGeneratedNameForAnonymousField` — fsc
+                        // files both under 3176.
+                        Kind.UnionCaseFieldNameClash("a", UnionFieldNameClash.Declared), DiagCode.FSharp 3176
+                        Kind.UnionCaseFieldNameClash("Item2", UnionFieldNameClash.AnonymousSpelling),
+                        DiagCode.FSharp 3176
                     ]
 
                 for kind, code in expected do

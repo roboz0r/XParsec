@@ -1,4 +1,4 @@
-namespace XParsec.FSharp.Codegen.Common
+namespace XParsec.FSharp.SemanticAnalysis
 
 /// How one union case field is named, before any target spells it. `of radius: float` ⇒
 /// `Declared "radius"`; a case's sole field ⇒ `Lone`; a positional field ⇒ its 1-based
@@ -36,15 +36,4 @@ module UnionCaseFieldName =
             | UnionCaseFieldName.Declared name -> name
             | UnionCaseFieldName.Lone -> "Item"
             | UnionCaseFieldName.Positional i -> "Item" + string i
-        )
-
-    /// Each field's name in FSC's backing-field spelling, in declaration order:
-    /// `of radius: float` ⇒ `_radius`, a lone positional field `item`, `item<n>` otherwise.
-    let fscFieldNames (declared: string voption list) : string list =
-        ofCase declared
-        |> List.map (fun n ->
-            match n with
-            | UnionCaseFieldName.Declared name -> "_" + name
-            | UnionCaseFieldName.Lone -> "item"
-            | UnionCaseFieldName.Positional i -> "item" + string i
         )

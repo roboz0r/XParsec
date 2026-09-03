@@ -174,27 +174,27 @@ public readonly struct External : IEquatable<External>, IStructuralFormattable
 		return _payload._val1;
 	}
 
-	public Payload_Scalars Get_Scalars()
+	public Payload_Scalars GetPayload_Scalars()
 	{
 		return new Payload_Scalars(_payload);
 	}
 
-	public Payload_Nested Get_Nested()
+	public Payload_Nested GetPayload_Nested()
 	{
 		return new Payload_Nested(_payload);
 	}
 
-	public Payload_Text Get_Text()
+	public Payload_Text GetPayload_Text()
 	{
 		return new Payload_Text(_payload);
 	}
 
-	public Payload_Id Get_Id()
+	public Payload_Id GetPayload_Id()
 	{
 		return new Payload_Id(_payload);
 	}
 
-	public Payload_Stamp Get_Stamp()
+	public Payload_Stamp GetPayload_Stamp()
 	{
 		return new Payload_Stamp(_payload);
 	}

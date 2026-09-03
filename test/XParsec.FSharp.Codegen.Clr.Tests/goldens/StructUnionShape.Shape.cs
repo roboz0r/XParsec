@@ -95,12 +95,12 @@ public readonly struct Shape : IEquatable<Shape>, IStructuralFormattable
 		return _payload._data.Pair._b;
 	}
 
-	public Payload_Point Get_Point()
+	public Payload_Point GetPayload_Point()
 	{
 		return new Payload_Point(_payload);
 	}
 
-	public Payload_Pair Get_Pair()
+	public Payload_Pair GetPayload_Pair()
 	{
 		return new Payload_Pair(_payload);
 	}

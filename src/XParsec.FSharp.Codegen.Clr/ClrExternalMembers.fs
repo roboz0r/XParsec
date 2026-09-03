@@ -397,7 +397,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                         )
                     else
                         let fieldName =
-                            (UnionCaseFieldName.fscFieldNames (EqArray.toList case.FieldNames)).[fieldIndex]
+                            (UnionCaseFields.fscFieldNames (EqArray.toList case.FieldNames)).[fieldIndex]
 
                         let parent =
                             match externalCaseParent key tref regime args caseName with

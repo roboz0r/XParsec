@@ -5,6 +5,7 @@ open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open NameResolutionTypeRegistration
 open NameResolutionDeclRegistration
+open NameResolutionUnionRegistration
 open UnificationTranslate
 open SignatureResolutionContext
 open SignatureResolutionMembers

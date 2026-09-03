@@ -1001,6 +1001,11 @@ let structUnionCorpus: StructUnionProgram list =
             Union = "GShape"
             Arity = 1
         }
+        {
+            Program = "StructUnionReaderNameClash"
+            Union = "Readers"
+            Arity = 0
+        }
     ]
 
 type AnalysedUnion =

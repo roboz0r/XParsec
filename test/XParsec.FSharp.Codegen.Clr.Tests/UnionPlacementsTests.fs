@@ -95,6 +95,12 @@ let tests =
                         "Val.0 -> _val0"
                         "Pt.0 -> _data.Data_Pt._x"
                         "Pt.1 -> _data.Data_Pt._y"
+                        // A case named `X_0` beside `X`: the case name reaches the reader
+                        // spellings, never the placements.
+                        "Readers slots: _data: Readers$Data, _ref0: obj"
+                        "X.0 -> _data.Data_X._a"
+                        "X.1 -> _data.Data_X._b"
+                        "X_0.0 -> _ref0 as string"
                     ]
                     "the placement table"
             }

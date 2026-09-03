@@ -209,32 +209,32 @@ public readonly struct Storage : IEquatable<Storage>, IStructuralFormattable
 		return (string)_payload._ref0;
 	}
 
-	public Payload_Scalars Get_Scalars()
+	public Payload_Scalars GetPayload_Scalars()
 	{
 		return new Payload_Scalars(_payload);
 	}
 
-	public Payload_Nested Get_Nested()
+	public Payload_Nested GetPayload_Nested()
 	{
 		return new Payload_Nested(_payload);
 	}
 
-	public Payload_Text Get_Text()
+	public Payload_Text GetPayload_Text()
 	{
 		return new Payload_Text(_payload);
 	}
 
-	public Payload_Labelled Get_Labelled()
+	public Payload_Labelled GetPayload_Labelled()
 	{
 		return new Payload_Labelled(_payload);
 	}
 
-	public Payload_Id Get_Id()
+	public Payload_Id GetPayload_Id()
 	{
 		return new Payload_Id(_payload);
 	}
 
-	public Payload_Both Get_Both()
+	public Payload_Both GetPayload_Both()
 	{
 		return new Payload_Both(_payload);
 	}

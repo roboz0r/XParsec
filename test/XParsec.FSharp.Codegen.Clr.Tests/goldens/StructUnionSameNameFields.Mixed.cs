@@ -82,12 +82,12 @@ public readonly struct Mixed : IEquatable<Mixed>, IStructuralFormattable
 		return (string)_payload._ref0;
 	}
 
-	public Payload_I Get_I()
+	public Payload_I GetPayload_I()
 	{
 		return new Payload_I(_payload);
 	}
 
-	public Payload_S Get_S()
+	public Payload_S GetPayload_S()
 	{
 		return new Payload_S(_payload);
 	}

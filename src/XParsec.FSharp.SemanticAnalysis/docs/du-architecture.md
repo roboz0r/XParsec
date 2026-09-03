@@ -316,7 +316,7 @@ TAST shape.
   `EditorBrowsable(Never)`: ABI, withheld from IDE completion. The C#-facing
   surface (`Try<Case>(out Payload_<Case>)` or the C# union proposal's shape) is
   deferred until C# unions settle. A struct
-  union's `Get_<Case>` (`MethodKey.UnionCaseViewAccessor`) is a method of
+  union's `GetPayload_<Case>` (`MethodKey.UnionCaseViewAccessor`) is a method of
   the same family on a PAYLOAD-BEARING case, returning that case's
   `Payload_<Case>` view; the static factory owns the bare case name, and
   the `get_` spelling is reserved for real property accessors.

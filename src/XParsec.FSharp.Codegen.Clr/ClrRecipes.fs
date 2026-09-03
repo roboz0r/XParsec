@@ -146,7 +146,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
         let u = vesperListShape.Value
 
         match u.Cases |> EqArray.tryFind (fun c -> c.Name = caseName) with
-        | ValueSome c -> UnionCaseFieldName.fscFieldNames (EqArray.toList c.FieldNames)
+        | ValueSome c -> UnionCaseFields.fscFieldNames (EqArray.toList c.FieldNames)
         | ValueNone -> failwithf "ClrRecipes: the referenced cons-list declares no case '%s'" caseName
 
     /// One payload field of the referenced cons-list's `Cons` case, declared on that case's

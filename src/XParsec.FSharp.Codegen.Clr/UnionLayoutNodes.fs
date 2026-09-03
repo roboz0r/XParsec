@@ -304,7 +304,7 @@ module internal UnionLayoutNodes =
                                 }
 
                         // The two public read surfaces of a `Payload` home: the
-                        // `Get_<Case>_<i>` field readers, then the `Get_<Case>` view
+                        // `Get_<Case>_<i>` field readers, then the `GetPayload_<Case>` view
                         // accessors.
                         match ud.Placements with
                         | ValueSome p ->

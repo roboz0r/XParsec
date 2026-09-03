@@ -37,6 +37,7 @@
     <Compile Include="RuntimeNames.fs" />
     <Compile Include="OperatorNames.fs" />
     <Compile Include="AccessorNames.fs" />
+    <Compile Include="UnionCaseFieldName.fs" />
     <Compile Include="AttributeDecode.fs" />
     <!-- After the attribute vocabulary it shares with the key-based reader: the CST reader
          here decodes the same `[<Import>]` arguments into the same shapes. -->
@@ -153,6 +154,7 @@
     <Compile Include="Passes\NameResolution\Scope.fs" />
     <Compile Include="Passes\NameResolution\TypeRegistration.fs" />
     <Compile Include="Passes\NameResolution\DeclRegistration.fs" />
+    <Compile Include="Passes\NameResolution\UnionRegistration.fs" />
     <Compile Include="Passes\NameResolution\InheritParent.fs" />
     <Compile Include="Passes\NameResolution\MemberRegistration.fs" />
     <Compile Include="Passes\NameResolution.fs" />

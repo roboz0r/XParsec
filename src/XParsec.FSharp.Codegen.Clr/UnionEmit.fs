@@ -183,7 +183,7 @@ module internal UnionEmit =
             (UnionFieldAccess.cast access |> ValueOption.map asm.Icodegen.TypeToken)
 
     /// One `Payload_<Case>` view's bodies: its `.ctor` writing the wrapped `Payload`, one
-    /// property getter per field rooted at that wrapped field, and the union's `Get_<Case>`
+    /// property getter per field rooted at that wrapped field, and the union's `GetPayload_<Case>`
     /// copying `_payload` into a fresh view.
     let private prepareCaseView
         (asm: Assembler)

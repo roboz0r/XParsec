@@ -429,7 +429,7 @@ module Emit =
         b.Add ILInstr.Ret
         b.Body
 
-    /// Build a struct union's `Get_<Case>`: copy `_payload` off `this` into a fresh
+    /// Build a struct union's `GetPayload_<Case>`: copy `_payload` off `this` into a fresh
     /// `Payload_<Case>` view.
     let buildUnionCaseViewGetter (payloadField: EntityHandle) (viewCtor: EntityHandle) : ILBody =
         let b = IlBuilder()

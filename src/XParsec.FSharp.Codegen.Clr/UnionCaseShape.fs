@@ -11,12 +11,24 @@ module UnionCaseFields =
     let ownType (regime: UnionRegime) : bool =
         UnionRegime.isHierarchy regime || regime = UnionRegime.SingleCase
 
+    /// Each field's name in fsc's backing-field spelling, in declaration order:
+    /// `of radius: float` ⇒ `_radius`, a lone positional field `item`, `item<n>` otherwise.
+    let fscFieldNames (declared: string voption list) : string list =
+        UnionCaseFieldName.ofCase declared
+        |> List.map (fun n ->
+            match n with
+            | UnionCaseFieldName.Declared name -> "_" + name
+            | UnionCaseFieldName.Lone -> "item"
+            | UnionCaseFieldName.Positional i -> "item" + string i
+        )
+
     /// The metadata name of the `Get_<Case>_<i>` reader of field `index` of `caseName`.
+    /// Distinct cases spell distinct readers at every index.
     let getterName (caseName: string) (index: int) : string = sprintf "Get_%s_%d" caseName index
 
-    /// The metadata name of the `Get_<Case>` reader returning the case's `Payload_<Case>`
-    /// view.
-    let viewGetterName (caseName: string) : string = "Get_" + caseName
+    /// The metadata name of the `GetPayload_<Case>` reader returning the case's
+    /// `Payload_<Case>` view. Disjoint from `getterName` at every case name.
+    let viewGetterName (caseName: string) : string = "GetPayload_" + caseName
 
 [<RequireQualifiedAccess>]
 module UnionCaseType =

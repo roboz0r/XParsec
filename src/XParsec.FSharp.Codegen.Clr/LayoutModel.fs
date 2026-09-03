@@ -138,7 +138,7 @@ module internal MethodAttrSets =
         ||| MethodAttributes.RTSpecialName
 
     // A union's `.ctor` and a case view's `.ctor(Payload)`: the public route to a value is
-    // the static factory, and to a view `Get_<Case>`.
+    // the static factory, and to a view `GetPayload_<Case>`.
     let assemblyCtorAttrs =
         (ctorAttrs &&& ~~~MethodAttributes.MemberAccessMask)
         ||| MethodAttributes.Assembly
@@ -388,10 +388,10 @@ type internal MethodKey =
     /// `Get_<Case>_<i>`, the public in-place reader of one logical case field. Declared
     /// exactly where `UnionRegime.hasCaseGetters` holds.
     | UnionCaseGetter of SymbolKey * case: string * index: int
-    /// `Get_<Case>`, the union's public reader returning one case's `Payload_<Case>` view.
+    /// `GetPayload_<Case>`, the union's public reader returning one case's `Payload_<Case>` view.
     /// One per `FlatUnionPlacements.Views` entry.
     | UnionCaseViewAccessor of SymbolKey * case: string
-    /// A case view's `assembly .ctor(Payload)`, called by `Get_<Case>`.
+    /// A case view's `assembly .ctor(Payload)`, called by `GetPayload_<Case>`.
     | UnionCaseViewCtor of SymbolKey * case: string
     /// `get_<Prop>` on a case view: the getter of the property reading one logical field
     /// through the wrapped `Payload`.
