@@ -272,23 +272,42 @@ TAST shape.
   accepted even though `Rectangle` / `Point` are uncovered. Belongs to
   the broader pattern-completeness work in Validation; the current
   contract is "no spurious diagnostics" on incomplete matches.
-- **The struct-union layout optimisation.** On the CLR, `UnionRegime`
-  (`Codegen.Clr/UnionRegime.fs`) selects the emitted shape from the
-  value kind, the case count and whether any case carries fields, at
-  FSC's threshold of four: a reference union with two or more cases
-  and a payload case is a class hierarchy — a nested sealed type per
-  case on an abstract base — while `SingleCase`, `EnumLike` and every
-  `[<Struct>]` union stay flat (`_tag` plus one field per
-  (case, field-index)). Flat is the PERMANENT representation for a
+- **The struct-union split-payload layout (landed, CLR only).**
+  `UnionRegime` (`Codegen.Clr/UnionRegime.fs`) selects the emitted shape
+  from the value kind, the case count and whether any case carries
+  fields, at FSC's threshold of four: a reference union with two or more
+  cases and a payload case is a class hierarchy — a nested sealed type
+  per case on an abstract base — while `SingleCase`, `EnumLike` and every
+  `[<Struct>]` union are flat. Flat is the PERMANENT representation for a
   struct union — a value type cannot inherit. `[<Struct>]` selects
-  `UnionValueKind.Struct`, carried on `TUnionG` through the freeze
-  codec and the external shape; the JS backend emits the hierarchy
-  for every union. The open item is the flat form's field footprint:
-  the overlapping split-payload design in `brainstorm-du-layout.md`.
-  F#'s same-name-same-type slot sharing (the FS3585 layout) was
-  considered and skipped in its favour, so same-name different-type
-  fields across cases stay representable (pinned in
-  `StructUnionSameNameFields`).
+  `UnionValueKind.Struct`, carried on `TUnionG` through the freeze codec
+  and the external shape; the JS backend emits the hierarchy for every
+  union. A `SingleCase` union keeps one field per logical field. A
+  `StructTagged` union holds `_tag : int32` and one `_payload` field
+  typed as a nested sequential `Payload` struct, whose slots are
+  assigned by `FlatUnionPlacements` (`Codegen.Clr/UnionPlacements.fs`)
+  from each field's `UnionStorage`: a field proven `Unmanaged` by
+  `Unmanagedness` (`Codegen.Clr/Unmanagedness.fs`) lives on its case's
+  `Data_<Case>` struct inside the `ExplicitLayout` overlay `<Union>$Data`,
+  a non-generic sibling of the union whose case structs all sit at offset
+  0; a settled `Reference` field erases to a shared `object` slot read
+  back through `castclass`; every other field (managed struct, typar,
+  `Undetermined`) takes an exact slot shared only with an identical
+  stored type in another case. Sizes and offsets are the loader's:
+  the emitter never computes one, and a generic union's overlay
+  mentions no typar, since generic types cannot have explicit layout.
+  Every read is an `ldfld` chain through one placement table: the
+  `Get_<Case>_<i>` readers a cross-assembly match arm calls, a
+  same-assembly match arm, the structural bodies (which dispatch on
+  `_tag` to a per-case field walk and never byte-compare the overlay),
+  and the `Payload_<Case>` views. Each case owns its own placements, so
+  same-name different-type fields across cases stay representable
+  (pinned in `StructUnionSameNameFields`); F#'s FS3585 same-name
+  slot sharing is not enforced. `Unmanagedness` is conservative: a value
+  type whose fields the provider cannot enumerate (a BCL struct such as
+  `Guid`) is `Undetermined` and falls to an exact slot, correct but less
+  packed; `UnmanagednessTests` keeps a census over the `StructUnion*`
+  corpus so that worklist stays visible.
 - **A struct union's storage stays mutable.** The union itself and its
   `Payload_<Case>` views carry `IsReadOnly` with `initonly` fields; the
   `Payload`, `$Data` overlay and `Data_<Case>` structs are assembly-visible

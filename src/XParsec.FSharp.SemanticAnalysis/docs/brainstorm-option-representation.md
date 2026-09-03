@@ -6,9 +6,10 @@ Captures a design discussion behind the `Vesper.Option` package
 already implemented in `option.fsi` / `option.fs`; this doc records *why*, and the
 optimisation strategy for the one real cost (by-value copies of a large
 payload). It generalises to `Result` and every immutable struct DU, so read it
-alongside [brainstorm-du-layout](brainstorm-du-layout.md) (the physical layout)
-and [brainstorm-effects](brainstorm-effects.md) (the cross-call reasoning that
-makes the copies disappear).
+alongside the struct-union layout entry of [du-architecture](du-architecture.md)
+(the physical layout: `_tag` plus a `Payload` struct whose unmanaged fields
+overlay at offset 0) and [brainstorm-effects](brainstorm-effects.md) (the
+cross-call reasoning that makes the copies disappear).
 
 ## OR1 — Struct option; `None` is the zero-initialized struct
 
@@ -148,9 +149,9 @@ devirtualisation + purity reasoning rather than needing bespoke option support.
 
 ## OR8 — Generalisation
 
-Nothing here is option-specific. `Result`, and any immutable struct DU emitted by
-the [brainstorm-du-layout](brainstorm-du-layout.md) split-payload algorithm, get
-the same treatment: SROA on locals from the value-level guarantees (immutable +
+Nothing here is option-specific. `Result`, and any immutable struct DU emitted in
+the split-payload layout ([du-architecture](du-architecture.md), "struct-union
+split-payload layout"), get the same treatment: SROA on locals from the value-level guarantees (immutable +
 no identity), cross-call elision from inferred purity. Option is just the first
 and smallest instance.
 
@@ -171,7 +172,7 @@ and smallest instance.
 
 - [`../../Vesper.Option/option.fsi`](../../Vesper.Option/option.fsi) — the implemented contract; OR1/OR2 decisions in situ.
 - [core-lib-architecture](core-lib-architecture.md) — one impl DLL per package; why the data types are structs, and why the public-ABI seam (OR4) and cross-assembly effect summaries matter.
-- [brainstorm-du-layout](brainstorm-du-layout.md) — the split-payload physical layout this representation sits on top of.
+- [du-architecture](du-architecture.md) — the landed split-payload physical layout this representation sits on top of (the "struct-union split-payload layout" entry).
 - [brainstorm-structural-equality](brainstorm-structural-equality.md) — the equality/hashing half of OR2's observable-semantics invariant.
 - [brainstorm-effects](brainstorm-effects.md) — inferred purity as the cross-call summary that resolves OR7 without inlining.
 - [function-representation-plan](function-representation-plan.md) — `Fun` and the closure-devirtualisation endgame (OR7).
