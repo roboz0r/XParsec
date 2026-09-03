@@ -143,11 +143,12 @@ module N =
 "
                     }
 
-                    // FS0033 again, against the best-ranked candidate: several arities in scope
-                    // and none of them 0 is still a missing-argument error, not an ambiguity.
-                    test "two generic arities and no arity-0 claim is an error" {
+                    // FS0033 again: several arities in scope and none of them 0 is still a
+                    // missing-argument error, not an ambiguity. F# reports the best-RANKED
+                    // candidate `B.T<_,_>`, "expects 2"; this compiler reports the NEAREST arity.
+                    test "two generic arities and no arity-0 claim reports the nearest arity" {
                         expectOneUserError
-                            "expects 2 type argument"
+                            "expects 1 type argument"
                             "\
 module A =
     type T<'a> = { Y: 'a }
@@ -160,6 +161,27 @@ module N =
     open B
 
     let f (t: T) = t
+"
+                    }
+
+                    // A deliberate divergence: F# ranks by scope distance and reports the nearer
+                    // `B.T<_>`, "expects 1 type argument(s) but is given 4", whereas
+                    // `A.T<_,_,_>` is one arity out and is the likelier intent.
+                    test "a wrong written arity reports the nearest arity, not the nearest scope" {
+                        expectOneUserError
+                            "expects 3 type argument"
+                            "\
+module A =
+    type T<'a, 'b, 'c> = { P: 'a; Q: 'b; R: 'c }
+
+module B =
+    type T<'a> = { Y: 'a }
+
+module N =
+    open A
+    open B
+
+    let f (t: T<int, int, int, int>) = t
 "
                     }
 
@@ -203,10 +225,11 @@ let f (t: T<int>) = t
                     }
 
                     // An `inherit` clause is TYPE position, so an arity disagreement there is
-                    // FS0033 against the max-rank claim (`B.T<_,_>`), never FS1124.
-                    test "an inherit clause under an arity disagreement reports FS0033 against the max-rank claim" {
+                    // FS0033, never FS1124. F# reports the max-rank claim `B.T<_,_>`, "expects
+                    // 2"; this compiler reports the nearest arity, `A.T<_>`.
+                    test "an inherit clause under an arity disagreement reports FS0033, not an ambiguity" {
                         expectOneUserError
-                            "expects 2 type argument"
+                            "expects 1 type argument"
                             "\
 module A =
     type T<'a>(x: 'a) =
@@ -379,11 +402,9 @@ let f (u: U<int>) =
                     }
                 ]
 
-            // A WRITTEN arity in expression position is FS0033 exactly as in type position, but
-            // NameResolution defers it to Unification, which reaches it only through a nominal
-            // result or a scheme. A ctor and a static member give one; an enum-case or
-            // union-case qualifier gives neither, so nothing is reported and the unpinned
-            // TyVars reach the freeze as an internal error.
+            // A WRITTEN arity in expression position is FS0033 exactly as in type position.
+            // NameResolution defers it to Unification, where each qualifier form compares the
+            // written count against the claim it resolves, so the report lands once.
             testList
                 "a WRITTEN arity in EXPRESSION position is checked against the claim"
                 [
@@ -411,7 +432,7 @@ let x = C<int, string>.M
 
                     // FS0033: "The non-generic type 'E' does not expect any type arguments, but
                     // here is given 1 type argument(s)".
-                    ptest "GAP: an enum qualifier at a written arity is unreported" {
+                    test "an enum qualifier at a written arity is an error" {
                         expectOneUserError
                             "expects 0 type argument"
                             "\
@@ -423,7 +444,7 @@ let x = E<int>.A
                     }
 
                     // FS0033: "The type 'U<_>' expects 1 type argument(s) but is given 2".
-                    ptest "GAP: a union-case qualifier at a written arity is unreported" {
+                    test "a union-case qualifier at a written arity is an error" {
                         expectOneUserError
                             "expects 1 type argument"
                             "\
@@ -431,6 +452,67 @@ type U<'a> =
     | Case of 'a
 
 let u = U<int, string>.Case 1
+"
+                    }
+
+                    test "a union-case qualifier at the claim's arity resolves" {
+                        expectClean
+                            "\
+type U<'a> =
+    | Case of 'a
+
+let u = U<int>.Case 1
+"
+                    }
+
+                    // `expectError` and not `expectOneUserError`: the folded `U.Nope 1` trips
+                    // the freeze backstop too, the `NoCase` error type being a free `TyVar`
+                    // the binding then carries.
+                    test "a union-case miss through an instantiated qualifier is NoCase" {
+                        expectError
+                            "Union 'U' has no case 'Nope'"
+                            "\
+type U<'a> =
+    | Case of 'a
+
+let u = U<int>.Nope 1
+"
+                    }
+
+                    // FS0033 alone, as F# reports it: an enum claims arity 0, and the written
+                    // count is checked before the case name.
+                    test "an enum-case miss at a written arity is the arity error alone" {
+                        expectOneUserError
+                            "expects 0 type argument"
+                            "\
+type E =
+    | A = 1
+
+let x = E<int>.Nope
+"
+                    }
+
+                    // FS0039, reported once by NameResolution as the folded `C.Nope` is.
+                    test "a class member miss through an instantiated qualifier is one NoMember" {
+                        expectOneUserError
+                            "has no value or member 'Nope'"
+                            "\
+type C<'a>(x: 'a) =
+    member _.X = x
+
+let v = C<int>.Nope
+"
+                    }
+
+                    test "a union static member through an instantiated qualifier resolves ahead of the case search" {
+                        expectClean
+                            "\
+type U<'a> =
+    | Case of 'a
+
+    static member Make(x: 'a) : U<'a> = Case x
+
+let u = U<int>.Make 1
 "
                     }
                 ]

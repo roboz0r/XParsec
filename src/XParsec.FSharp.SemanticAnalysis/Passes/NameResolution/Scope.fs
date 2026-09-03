@@ -420,6 +420,52 @@ module NameResolutionScope =
     let private resolvedByTypeApp (ctx: PassContext) (e: Expr<SyntaxToken>) : bool =
         ctx.Resolution.Resolved.ContainsKey(CstKeys.ofExpr e)
 
+    /// Resolve the applied name of an `Expr.TypeApp` at `types.Length` and stamp it at the
+    /// applied expression. Returns this file's claim on the name, at the written arity else at
+    /// the nearest one; Unification checks the written count against the claim's arity.
+    let private resolveTypeApp
+        (ctx: PassContext)
+        (applied: Expr<SyntaxToken>)
+        (types: ImmutableArray<Type<SyntaxToken>>)
+        : TypeIdentity voption =
+        match typeAppTypeName ctx applied with
+        | ValueSome written ->
+            let key = CstKeys.ofExpr applied
+
+            match resolveType ctx (ctx.UseSiteAt key) written types.Length with
+            | TypeNameResolution.Type(ResolvedTypeRef.Local claim as t) ->
+                ctx.Resolution.Resolved.Set(key, ResolvedItem.Type t)
+                ValueSome claim
+            | TypeNameResolution.LocalAtOtherArity claim ->
+                ctx.Resolution.Resolved.Set(key, ResolvedItem.Type(ResolvedTypeRef.Local claim))
+                ValueSome claim
+            | TypeNameResolution.Type(ResolvedTypeRef.External(typeKey, _) as t) ->
+                ctx.Resolution.Resolved.Set(key, ResolvedItem.Type t)
+                ctx.Resolution.ResolvedType.Set(key, typeKey)
+                ValueNone
+            | TypeNameResolution.Unresolved _ -> ValueNone
+        | ValueNone -> ValueNone
+
+    /// `U<int>.Case`, `E<int>.A`, `C<int>.M`: the member inside `claim`, stamped at the
+    /// `DotLookup` node as the folded `U.Case` is stamped at its `LongIdent`. A class member
+    /// miss is reported here; a union, record or enum miss is Unification's `NoCase`/`NoMember`.
+    let private resolveTypeAppMember
+        (ctx: PassContext)
+        (e: Expr<SyntaxToken>)
+        (claim: TypeIdentity)
+        (memberTok: SyntaxToken)
+        : unit =
+        let item = memberOfLocalType ctx claim (ctx.NameOf memberTok)
+        ctx.Resolution.Resolved.Set(CstKeys.ofExpr e, item)
+
+        match item with
+        | ResolvedItem.Unresolved {
+                                      Segment = segment
+                                      Within = ResolutionScope.Type owner
+                                  } when not (missReportedDownstream owner) ->
+            ctx.Report(memberTok, Kind.NoMember(owner.Key.Name, MemberNoun.ValueOrMember, segment))
+        | _ -> ()
+
     let private visit (ctx: PassContext) (scope: Scope list) (e: Expr<SyntaxToken>) : unit =
         // Stamp every external type name embedded in this node's annotations. Recursion
         // into child expressions is the walker's, so each name is stamped once.
@@ -484,27 +530,16 @@ module NameResolutionScope =
             let displayName = ctx.NameOf firstTok
 
             ctx.Report(CstKeys.firstTokenOfExpr e, Kind.OperatorFormQualifiedName displayName)
-        | Expr.TypeApp(expr = expr; types = types) ->
-            // The type-arg count lives on THIS node, so the applied name and its arity are
-            // resolved together, so `EqualityComparer<int>.Default` resolves at the exact
-            // arity. A local claim wins: `T<'a>(…)` in `T`'s own file means `T`'s decl.
-            match typeAppTypeName ctx expr with
-            | ValueSome written ->
-                let key = CstKeys.ofExpr expr
-
-                match resolveType ctx (ctx.UseSiteAt key) written types.Length with
-                | TypeNameResolution.Type(ResolvedTypeRef.Local _ as t) ->
-                    ctx.Resolution.Resolved.Set(key, ResolvedItem.Type t)
-                // A claim at another arity is still this file's type. Unification reports the
-                // arity when the application types onto a nominal result or a scheme; an enum-
-                // or union-case qualifier types onto neither and goes unreported.
-                | TypeNameResolution.LocalAtOtherArity claim ->
-                    ctx.Resolution.Resolved.Set(key, ResolvedItem.Type(ResolvedTypeRef.Local claim))
-                | TypeNameResolution.Type(ResolvedTypeRef.External(typeKey, _) as t) ->
-                    ctx.Resolution.Resolved.Set(key, ResolvedItem.Type t)
-                    ctx.Resolution.ResolvedType.Set(key, typeKey)
-                | TypeNameResolution.Unresolved _ -> ()
+        | Expr.DotLookup(expr = Expr.TypeApp(expr = applied; types = types); longIdentOrOp = LongIdentOrOp.LongIdent li) when
+            li.Idents.Length = 1
+            ->
+            match resolveTypeApp ctx applied types with
+            | ValueSome claim -> resolveTypeAppMember ctx e claim li.Idents.[0]
             | ValueNone -> ()
+        // The walker reaches a qualifier `TypeApp` again as its own node, already stamped by
+        // the arm above.
+        | Expr.TypeApp(expr = applied; types = types) when not (resolvedByTypeApp ctx applied) ->
+            resolveTypeApp ctx applied types |> ignore
         | Expr.InfixApp _
         | Expr.PrefixApp _ -> stampOperator ctx scope e
         // `x?name` — stamp `op_Dynamic`. The SET form (`x?name <- v`) parses as

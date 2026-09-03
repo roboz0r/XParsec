@@ -57,6 +57,36 @@ module ResolvedStamps =
         | ValueSome(ResolvedItem.UnionCase(ResolvedUnionCase.Local info, _)) -> ValueSome info
         | _ -> ValueNone
 
+    /// The enum of this file owning the `E.C1` case access stamped at `key`.
+    let tryLocalEnumCase (stamps: SideTable<ResolvedItem>) (key: NodeKey) : TypeKey voption =
+        match stamps.TryGetValue key with
+        | ValueSome(ResolvedItem.EnumCase(ResolvedTypeRef.Local claim, _)) -> ValueSome claim.Key
+        | _ -> ValueNone
+
+    /// The type of this file a member access at `key` missed inside, and the member name.
+    /// Unification reports the miss for a union, record or enum owner.
+    let tryLocalTypeMiss (stamps: SideTable<ResolvedItem>) (key: NodeKey) : struct (TypeIdentity * string) voption =
+        match stamps.TryGetValue key with
+        | ValueSome(ResolvedItem.Unresolved {
+                                                Segment = name
+                                                Within = ResolutionScope.Type(ResolvedTypeRef.Local claim)
+                                            }) -> ValueSome(struct (claim, name))
+        | _ -> ValueNone
+
+    /// The enum qualifying the case access or the case miss stamped at `key`, of this file or
+    /// external.
+    let tryEnumQualifier (stamps: SideTable<ResolvedItem>) (key: NodeKey) : TypeKey voption =
+        let enumKey (owner: ResolvedTypeRef) : TypeKey voption =
+            match owner with
+            | ResolvedTypeRef.Local { Kind = TypeDeclKind.Enum; Key = key } -> ValueSome key
+            | ResolvedTypeRef.External(typeKey, ExternalTypeShape.Enum _) -> ValueSome typeKey
+            | _ -> ValueNone
+
+        match stamps.TryGetValue key with
+        | ValueSome(ResolvedItem.EnumCase(owner, _))
+        | ValueSome(ResolvedItem.Unresolved { Within = ResolutionScope.Type owner }) -> enumKey owner
+        | _ -> ValueNone
+
     /// NameResolution reported the bare case name at `key` as ambiguous, so a later pass
     /// types the use as unresolved without a second report.
     let isAmbiguousCase (stamps: SideTable<ResolvedItem>) (key: NodeKey) : bool =

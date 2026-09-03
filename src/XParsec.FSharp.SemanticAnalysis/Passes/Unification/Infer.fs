@@ -241,7 +241,10 @@ module UnificationInfer =
                 | ValueNone ->
                     match tryLocalTypeAppStaticMember ctx node r li.Idents.[0] with
                     | ValueSome ty -> ty
-                    | ValueNone -> inferFieldAccess infer ctx node r li.Idents.[0]
+                    | ValueNone ->
+                        match tryLocalTypeAppCase ctx node r with
+                        | ValueSome ty -> ty
+                        | ValueNone -> inferFieldAccess infer ctx node r li.Idents.[0]
             | Expr.IndexedLookup(expr = objArg; indexExpr = idx) -> inferIndexedLookup infer ctx node objArg idx
             | Expr.New(typ = t; expr = argExpr) -> inferNew infer ctx node t argExpr
             | Expr.ILIntrinsic(args = args; returnType = rt) -> inferILIntrinsic infer ctx args rt

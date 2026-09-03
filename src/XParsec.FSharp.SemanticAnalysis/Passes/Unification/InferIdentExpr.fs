@@ -224,3 +224,43 @@ module internal UnificationInferIdentExpr =
                 ValueSome memberTy
             | ValueNone -> ValueNone
         | _ -> ValueNone
+
+    /// `U<int>.Case` and `E<int>.A`, typed off the case NameResolution stamped at `node`. The
+    /// written `<'args>` unify into the case's own instantiation (an enum's arity is 0), so a
+    /// wrong count is FS0033 at the qualifier, and a miss at the right count is `NoCase`.
+    let tryLocalTypeAppCase (ctx: PassContext) (node: NodeSite) (qualifier: Expr<SyntaxToken>) : SemType voption =
+        match qualifier with
+        | Expr.TypeApp(expr = applied; types = writtenTys) ->
+            let stamps = ctx.Resolution.Resolved
+            let appliedTok = CstKeys.firstTokenOfExpr applied
+
+            let instantiate (declArgs: EqArray<SemType>) (ty: SemType) : SemType voption =
+                unifyWrittenDeclArgs ctx appliedTok writtenTys declArgs
+                ValueSome ty
+
+            let miss (owner: CaseOwner) (claim: TypeIdentity) (caseName: string) : SemType voption =
+                if writtenTys.Length <> claim.TyparArity then
+                    ValueSome(
+                        errorTy
+                            ctx
+                            appliedTok
+                            (Kind.TypeArgArity(ctx.NameOf appliedTok, claim.TyparArity, writtenTys.Length))
+                    )
+                else
+                    ValueSome(errorTy ctx node.Tok (Kind.NoCase(owner, claim.Name, caseName)))
+
+            match ResolvedStamps.tryLocalUnionCase stamps node.Key with
+            | ValueSome info ->
+                let declArgs, ty = ctorTypeInstance ctx info
+                instantiate declArgs ty
+            | ValueNone ->
+                match ResolvedStamps.tryLocalEnumCase stamps node.Key with
+                | ValueSome enumKey -> instantiate EqArray.empty (TyEnum enumKey)
+                | ValueNone ->
+                    match ResolvedStamps.tryLocalTypeMiss stamps node.Key with
+                    | ValueSome(struct (({ Kind = TypeDeclKind.Union } as claim), caseName)) ->
+                        miss CaseOwner.Union claim caseName
+                    | ValueSome(struct (({ Kind = TypeDeclKind.Enum } as claim), caseName)) ->
+                        miss CaseOwner.Enum claim caseName
+                    | _ -> ValueNone
+        | _ -> ValueNone

@@ -55,24 +55,52 @@ module internal ElaborateNominals =
             | _ -> ValueNone
         | _ -> ValueNone
 
-    /// The enum key for a two-segment `E.C1` access/pattern. The node's own `TyEnum` type
-    /// resolves every valid case; the local registry is the error-path fallback only, where
-    /// an invalid case (`E.BadCase`, diagnosed upstream) left the node's type un-pinned.
+    /// The enum owning the case access or pattern at `key`. The node's own `TyEnum` type
+    /// resolves every valid case; the stamp is the error-path fallback, where an invalid case
+    /// (`E.BadCase`, diagnosed upstream) left the node's type un-pinned.
+    let enumKeyAt (ctx: PassContext) (key: NodeKey) (ty: SemType) : TypeKey voption =
+        match enumKeyOfTy ctx.Store ty with
+        | ValueSome k -> ValueSome k
+        | ValueNone -> ResolvedStamps.tryEnumQualifier ctx.Resolution.Resolved key
+
+    /// An enum-case access `E.C1` or `E<int>.C1`: the enum key and the case name.
     [<return: Struct>]
-    let (|EnumCaseAccess|_|) (ctx: PassContext) (ty: SemType) (li: LongIdent<SyntaxToken>) : TypeKey voption =
+    let (|EnumCaseAccess|_|)
+        (ctx: PassContext)
+        (key: NodeKey)
+        (ty: SemType)
+        (e: Expr<SyntaxToken>)
+        : struct (TypeKey * string) voption =
+        let caseTok =
+            match e with
+            | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when li.Idents.Length = 2 -> ValueSome li.Idents.[1]
+            | Expr.DotLookup(expr = Expr.TypeApp _; longIdentOrOp = LongIdentOrOp.LongIdent li) when
+                li.Idents.Length = 1
+                ->
+                ValueSome li.Idents.[0]
+            | _ -> ValueNone
+
+        match caseTok with
+        | ValueSome tok ->
+            match enumKeyAt ctx key ty with
+            | ValueSome k -> ValueSome(struct (k, ctx.NameOf tok))
+            | ValueNone -> ValueNone
+        | ValueNone -> ValueNone
+
+    /// An enum-case pattern `| E.C1`: the enum key and the case name.
+    [<return: Struct>]
+    let (|EnumCasePattern|_|)
+        (ctx: PassContext)
+        (key: NodeKey)
+        (ty: SemType)
+        (li: LongIdent<SyntaxToken>)
+        : struct (TypeKey * string) voption =
         if li.Idents.Length <> 2 then
             ValueNone
         else
-            match enumKeyOfTy ctx.Store ty with
-            | ValueSome key -> ValueSome key
-            | ValueNone ->
-                // The written enum name's own token is the use site.
-                let useSite =
-                    ctx.UseSiteAt(NodeKey.ofToken (CstKeys.firstTokenOfLongIdent li) NodeKind.ExprIdent)
-
-                match TypeRegistry.tryEnum ctx.Types useSite (ctx.NameOf li.Idents.[0]) with
-                | ValueSome info -> ValueSome info.TypeKey
-                | ValueNone -> ValueNone
+            match enumKeyAt ctx key ty with
+            | ValueSome k -> ValueSome(struct (k, ctx.NameOf li.Idents.[1]))
+            | ValueNone -> ValueNone
 
     /// The declaring nominal `TypeKey` of a class/union/record object-argument type, the
     /// `Decl` slot of the `MemberKey` minted for an instance member access. Only called where

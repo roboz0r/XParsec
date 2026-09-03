@@ -337,6 +337,20 @@ module NameResolutionLongIdent =
             | ExternalTypeShape.Abbrev _
             | ExternalTypeShape.Unmodelled _ -> staticMember ()
 
+    /// `name` inside the type of this file `claim`, in expression position: a union or enum
+    /// case, a declared static member, else the miss within the type.
+    let memberOfLocalType (ctx: PassContext) (claim: TypeIdentity) (name: string) : ResolvedItem =
+        let t = localType ctx claim
+
+        match inType ctx Position.Expression t name with
+        | ValueSome item -> item
+        | ValueNone ->
+            ResolvedItem.Unresolved
+                {
+                    Segment = name
+                    Within = ResolutionScope.Type t
+                }
+
     /// `names.[i..]` inside the module or namespace `c`. Expression position: value, case of a
     /// union without `[<RequireQualifiedAccess>]`, type, sub-module, then the case with it.
     /// Pattern position: case, value, type, sub-module. The first item wins; on a total miss
@@ -611,14 +625,14 @@ module NameResolutionLongIdent =
         | n -> firstOf (qualifiedReadings ctx useSite Position.Pattern names) (unresolvedInEnv first n)
 
     /// A written type name at `arity`: a claim of this file in scope at the use site, at that
-    /// arity else at any, then the referenced contracts at exactly that arity. A claim of this
-    /// file at ANY arity settles the name: `LocalAtOtherArity` is that name, at the wrong
-    /// arity, and never an external namesake.
+    /// arity else at the nearest one, then the referenced contracts at exactly that arity. A
+    /// claim of this file at ANY arity settles the name: `LocalAtOtherArity` is that name, at
+    /// the wrong arity, and never an external namesake.
     let resolveType (ctx: PassContext) (useSite: UseSite) (written: WrittenTypeName) (arity: int) : TypeNameResolution =
         match TypeRegistry.tryWrittenTypeClaim ctx.Types useSite written arity with
         | ValueSome claim -> TypeNameResolution.Type(ResolvedTypeRef.Local claim)
         | ValueNone ->
-            match TypeRegistry.tryWrittenTypeClaimAnyArity ctx.Types useSite written with
+            match TypeRegistry.tryWrittenTypeClaimNearestArity ctx.Types useSite written arity with
             | ValueSome claim -> TypeNameResolution.LocalAtOtherArity claim
             | ValueNone ->
                 match

@@ -448,26 +448,18 @@ module TypeRegistry =
         | true, claims -> claims.Exists(fun c -> c.TyparArity = arity && c.Container = container)
         | false, _ -> false
 
-    /// The claim the written name reaches at `useSite` at ANY arity: the local/external
-    /// precedence test. Arity-blind: a wrong-arity name is LOCAL, never an external namesake.
-    let tryWrittenTypeClaimAnyArity
+    /// The claim on the written name whose arity is CLOSEST to `arity`, ties broken by scope
+    /// rank. A name claimed at ANY arity resolves LOCAL here, so a wrong-arity write stays this
+    /// file's type. Diverges from F#, which takes the max-rank claim at any arity.
+    let tryWrittenTypeClaimNearestArity
         (types: PassContextTypes)
         (useSite: UseSite)
         (written: WrittenTypeName)
+        (arity: int)
         : TypeIdentity voption =
-        tryWinner types useSite written (fun _ -> true)
-
-    /// `tryWrittenTypeClaimAnyArity` for a name written with no qualifier.
-    let tryTypeClaimAnyArity (types: PassContextTypes) (useSite: UseSite) (name: string) : TypeIdentity voption =
-        tryWrittenTypeClaimAnyArity types useSite (WrittenTypeName.bare name)
-
-    /// Does the written name reach a project-local type at `useSite`, at any arity?
-    let isWrittenTypeNameInScope (types: PassContextTypes) (useSite: UseSite) (written: WrittenTypeName) : bool =
-        (tryWrittenTypeClaimAnyArity types useSite written).IsSome
-
-    /// `isWrittenTypeNameInScope` for a name written with no qualifier.
-    let isTypeNameInScope (types: PassContextTypes) (useSite: UseSite) (name: string) : bool =
-        isWrittenTypeNameInScope types useSite (WrittenTypeName.bare name)
+        match writtenTypeClaims types useSite written with
+        | [] -> ValueNone
+        | claims -> ValueSome(claims |> List.minBy (fun c -> abs (c.TyparArity - arity)))
 
     /// Record a module / namespace scope this file declares, under the dotted SOURCE path an
     /// `open` or a qualified name spells. Idempotent: every pass re-enters the same scopes.

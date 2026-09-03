@@ -101,10 +101,10 @@ module internal UnificationInferResolve =
         | ValueSome t -> t
         | ValueNone -> TyVar(freshTyVar ctx)
 
-    /// Function-shaped type for a DU ctor reference. Multi-field cases bundle the fields
-    /// into a tuple, because an F# DU takes a tuple as its single argument. The union's typars
-    /// are instantiated fresh, so two independent uses of `Some` don't share a `'a`.
-    let ctorType (ctx: PassContext) (info: UnionCaseInfo) : SemType =
+    /// The declaring union's type arguments, instantiated fresh so two independent uses of
+    /// `Some` don't share a `'a`, and the function-shaped type of a DU ctor reference.
+    /// Multi-field cases bundle the fields into a tuple, an F# DU's single argument.
+    let ctorTypeInstance (ctx: PassContext) (info: UnionCaseInfo) : EqArray<SemType> * SemType =
         let unionInfo = TypeRegistry.unionOfCase ctx.Types info
         let args, subst = freshNamedInstance ctx unionInfo.TypeParams
         let unionTy = TyUnion(unionInfo.TypeKey, args)
@@ -112,9 +112,11 @@ module internal UnificationInferResolve =
         let walkedFields = info.Fields |> Array.map (substituteWith ctx.Store subst)
 
         match walkedFields.Length with
-        | 0 -> unionTy
-        | 1 -> TyFun(walkedFields.[0], unionTy)
-        | _ -> TyFun(TyTuple(EqArray.ofArray walkedFields), unionTy)
+        | 0 -> args, unionTy
+        | 1 -> args, TyFun(walkedFields.[0], unionTy)
+        | _ -> args, TyFun(TyTuple(EqArray.ofArray walkedFields), unionTy)
+
+    let ctorType (ctx: PassContext) (info: UnionCaseInfo) : SemType = snd (ctorTypeInstance ctx info)
 
     /// The union type and per-field types of a resolved external case, instantiating the
     /// declaring union's typars fresh (one TyVar per declared arity). The union is the

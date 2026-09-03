@@ -109,11 +109,9 @@ module internal ElaborateResolve =
                 let n = ctx.NameOf t
 
                 if isCase n then ValueSome n else ValueNone
-            // A case reached through its module (`Test.A.M.Red`), as NameResolution stamped it.
-            | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
-                (ResolvedStamps.tryUnionCase ctx.Resolution.Resolved key).IsSome
-                ->
-                ValueSome(ctx.NameOf li.Idents.[li.Idents.Length - 1])
+            // A case reached through its module (`Test.A.M.Red`) or an instantiated union
+            // (`U<int>.Case`), as NameResolution stamped it.
+            | Resolves ResolvedStamps.tryUnionCase ctx.Resolution.Resolved key case -> ValueSome case.CaseName
             | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
                 let n = ctx.NameOf li.Idents.[0]
 

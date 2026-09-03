@@ -136,8 +136,8 @@ module internal ElaboratePatterns =
         // `| E.C1` enum-case pattern, project-local or external. The case's underlying
         // literal is NOT copied onto the node: codegen looks it up by key + name in the
         // frozen enum case table and compares, exactly like a `Const` pattern.
-        | Pat.Named(longIdent = li & EnumCaseAccess ctx ty enumKey) ->
-            TPat.EnumCase(enumKey, ctx.NameOf li.Idents.[1], ty, tok)
+        | Pat.Named(longIdent = EnumCasePattern ctx key ty (enumKey, caseName)) ->
+            TPat.EnumCase(enumKey, caseName, ty, tok)
         | Pat.Named(longIdent = li; argumentPats = args) when
             (ResolvedStamps.tryUnionCase ctx.Resolution.Resolved key).IsSome
             || (li.Idents.Length = 1

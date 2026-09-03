@@ -3,9 +3,9 @@
 *Written 2026-09-01, against the code as it stands after the abbreviation-representation work
 (`dealias` in expression and pattern position; `KindRegistry` reduced to a bare
 `Dictionary<TypeKey, 'Info>` with the short-name index deleted; `tryKeyOfArity` and
-`tryKeyOfArglessName` in the `tryPickWinner` shape this document changes). Not started. Every F#
-verdict below was probed with `dotnet fsi` on 2026-09-01, and every case is pinned in
-`test/XParsec.FSharp.SemanticAnalysis.Tests/SameNameResolutionTests.fs`.*
+`tryKeyOfArglessName` in the `tryPickWinner` shape this document changes). All five steps are
+done. Every F# verdict below was probed with `dotnet fsi` on 2026-09-01 or 2026-09-03, and every
+case is pinned in `test/XParsec.FSharp.SemanticAnalysis.Tests/SameNameResolutionTests.fs`.*
 
 ## The rule
 
@@ -33,7 +33,7 @@ lookup, and the consequences run in three directions.
     `interface … with` — for a record, union, class, abbreviation and a BCL generic alike.
     Several arities and none of them 0 is still FS0033, reported against the best-ranked
     candidate rather than as an ambiguity. `C<_>` is how the arity is left to inference.
-    (Step 5 diverges here on purpose: this compiler will name the NEAREST arity instead.)
+    (Step 5 diverges here on purpose: this compiler names the NEAREST arity instead.)
   - In **expression and pattern** position a bare name is normal F# and resolves: the order is
     an arity-0 claim, else the candidates' agreed arity, else refuse. `T(1)`, `C.Make 5` and a
     union-case pattern all work with no type arguments written. Where the instantiation cannot
@@ -51,13 +51,10 @@ order and implements it.
 
 ## Where the compiler stands
 
-*Updated after step 4b.* Twenty-seven of the twenty-nine pinned cases are green: arity
-overloading within a module, every cross-arity reach, every kind-shadowing case in both
-positions, every bare-name expression-position case including the arity ambiguity, and every
-type-position case. Type
-resolution runs through `NameResolutionLongIdent.resolveType` (`LongIdent.fs:611`) over
-`TypeClaims`, which is kind-agnostic and ranked. GAP 6 and 7 remain, pended in
-`SameNameResolutionTests.fs`.
+*Updated after step 5.* All thirty-one pinned cases in `SameNameResolutionTests.fs` are green,
+and the file holds no `ptest`. Type resolution runs through
+`NameResolutionLongIdent.resolveType` (`LongIdent.fs:611`) over `TypeClaims`, which is
+kind-agnostic and ranked. Every gap this document opened is closed.
 
 ### GAP 1, 2, 4 and 5 — a bare generic name in TYPE position is accepted. Closed by step 2.
 
@@ -106,9 +103,9 @@ An internal backstop is not a verdict a user can act on. F# names the fault at t
 reports once as `Kind.AmbiguousTypeArity` (FS1124). `tryKeyOfArglessName` recovers to the claim
 of nearest arity, so the binding still types and the backstop stays quiet.
 
-### GAP 6 and 7 — a WRITTEN arity in expression position is unreported
+### GAP 6 and 7 — a WRITTEN arity in expression position is unreported. Closed by step 5.
 
-Step 2 made NameResolution the sole owner of the local FS0033, reporting it from
+*Was:* Step 2 made NameResolution the sole owner of the local FS0033, reporting it from
 `classifyTypeRef`, which runs over TYPE references. An `Expr.TypeApp` is not one. `Scope.fs`'s
 `TypeApp` arm resolves the applied name itself and, on `LocalAtOtherArity`, stamps the claim
 without reporting, leaving the arity to Unification.
@@ -130,6 +127,13 @@ An enum-case and a union-case qualifier each discard the written type arguments 
 The ctor (`C<int, string>(1)`) and static-member (`C<int, string>.M`) forms of the same mistake
 report correctly, and are pinned green beside the two gaps. So the fault is the qualifier paths,
 not the `TypeApp` arm as a whole.
+
+*Now:* the `TypeApp` visit in `Scope.fs` resolves the trailing member inside the claim it
+applied, through `NameResolutionLongIdent.memberOfLocalType`, and stamps the result at the
+`DotLookup` node exactly as the folded `U.Case` is stamped at its `LongIdent`.
+`UnificationInferIdentExpr.tryLocalTypeAppCase` types the form off that stamp, beside
+`tryLocalTypeAppStaticMember` in the same `DotLookup` cascade, and `Elaborate` lowers it through
+the same stamp-reading arms the folded form uses.
 
 ## A correction to `tryKeyOfArity`'s doc
 
@@ -305,32 +309,49 @@ whose provider carries the BCL. One fixture reddened, and it was a finding: `Typ
 forward-reference case asserted the retired "unknown type" wording and now asserts FS0039. No
 other fixture across the three suites moved.
 
-**Step 5 — report a written arity no claim holds, and name the nearest arity.** Closes GAP 6
-and 7. Two parts; the second is a deliberate divergence from F#.
+**Step 5 — report a written arity no claim holds, and name the nearest arity. Done.** Closes GAP
+6 and 7. Two parts; the second is a deliberate divergence from F#.
 
-*Report it.* The enum-case and union-case qualifier paths must carry the written type arguments
-as far as the claim's arity so the two can be compared. `Scope.fs`'s `TypeApp` arm holds both
-numbers already, so reporting there is the small fix, but it double-reports the ctor and
-static-member forms, which step 2 pinned as reported ONCE (`expectOneUserError`). The report
-belongs where the qualifier resolves its claim, so that reported-once holds by construction
-instead of by a case analysis over target kinds.
+*Report it.* The gap was wider than "unreported": `U<int>.Case 1` at the claim's OWN arity was
+broken too, tripping the same backstop, because `DotLookup(TypeApp(U, <'args>), .Case)` reached
+no arm that knows a case. The fix is one stamp. `Scope.fs`'s `DotLookup(TypeApp …)` visit
+resolves the applied name at the written arity, then resolves the trailing member inside that
+claim through `memberOfLocalType`, the `inType` projection the folded `U.Case` already goes
+through, and stamps the `UnionCase`, `EnumCase`, `StaticMember` or `Unresolved` item at the
+`DotLookup` node. A first cut re-derived that projection by hand in Unification and again in
+Elaborate; the stamp replaced both.
 
-*Name the nearest arity.* FS0033 names whichever candidate `tryWrittenTypeClaimAnyArity`
-(`TypeRegistry.fs:424`) ranks first, and rank is scope distance, not arity distance. Probed
-2026-09-01: with `A.T<'a,'b,'c>` and `B.T<'a>` both opened and `T<int,int,int,int>` written, F#
-reports against `B.T<_>` — "expects 1 type argument(s) but is given 4" — the nearer open, three
-arities out, while `A.T` is one arity out and is the likelier intent. Suggest the claim of
-NEAREST arity instead, ties broken by rank.
+`UnificationInferIdentExpr.tryLocalTypeAppCase` reads the stamp beside
+`tryLocalTypeAppStaticMember` in the `DotLookup` cascade and hands the case's own fresh
+instantiation to `unifyWrittenDeclArgs`, the helper the static-member path uses, so the written
+count is compared and FS0033 reported at the one site this form resolves its claim. An enum is
+claimed at arity 0 and instantiates nothing, so any written argument is that report. A miss
+inside a union or enum is FS0033 at a wrong written count, else `NoCase`, as F# orders them.
+`ctorType` split into `ctorTypeInstance`, which yields the declaring union's fresh args beside
+the ctor type instead of discarding them.
 
-`writtenTypeClaims` (`TypeRegistry.fs:244`) already returns every reachable claim rank-ordered,
-so this is a stable sort by `abs(claim.TyparArity - written)` over a list that exists, not a new
-lookup. `tryWrittenTypeClaimAnyArity` is the single caller whose choice changes, and it feeds
-`TypeNameResolution.LocalAtOtherArity`, so type position gains the better suggestion at the same
-time.
+Elaborate reads the same stamp: `tryCtorRef` (`Elaborate/Resolve.fs`) accepts any node stamped
+as a union case, whatever its spelling, and `EnumCaseAccess` (`Elaborate/Nominals.fs`) covers
+`E<int>.A` beside `E.A`, with the stamp as the error-path fallback where the registry lookup by
+written name used to be.
+
+*Name the nearest arity.* FS0033 named whichever candidate `tryWrittenTypeClaimAnyArity` ranked
+first, and rank is scope distance, not arity distance. Probed 2026-09-01 and again 2026-09-03:
+with `A.T<'a,'b,'c>` and `B.T<'a>` both opened and `T<int,int,int,int>` written, F# reports
+against `B.T<_>` — "expects 1 type argument(s) but is given 4" — the nearer open, three arities
+out, while `A.T` is one arity out and is the likelier intent.
+
+`tryWrittenTypeClaimNearestArity` replaces it, a `List.minBy` on `abs(TyparArity - written)`
+over the rank-ordered `writtenTypeClaims`, so ties break by rank. `resolveType` is its one
+caller and it feeds `TypeNameResolution.LocalAtOtherArity`, so type position gains the better
+suggestion at the same time. `tryTypeClaimAnyArity`, `isWrittenTypeNameInScope` and
+`isTypeNameInScope` had no caller left and went with it.
 
 The divergence is confined to WHICH candidate an already-emitted FS0033 names; whether the
-diagnostic fires at all is unchanged. Any fixture asserting a specific "expects N" against a
-multi-arity name is therefore a finding to re-read rather than a regression.
+diagnostic fires at all is unchanged. Two fixtures reddened, both in
+`SameNameResolutionTests.fs` and both the predicted finding — a bare `T` and an `inherit T(y)`
+under `A.T<'a>` and `B.T<'a,'b>` each asserted F#'s "expects 2" and now assert "expects 1". No
+fixture across the four suites moved otherwise.
 
 ## Semantics confirmed
 
@@ -369,15 +390,16 @@ and `InheritParent`, needed no signature change, and reddened nothing across the
 SemanticAnalysis and two Codegen suites; step 4a landed in `InheritParent` and
 `MemberRegistration.registerInheritedSlot`, deleting code only, and reddened nothing across the
 same three suites; step 4b landed in `InheritParent` alone, deleting code only, and reddened
-one wording assertion. Step 5 touches the enum-case and union-case qualifier paths, plus
-`tryWrittenTypeClaimAnyArity`'s choice of candidate. All four are front-end, publish nothing
-new, and leave the frozen blob and its codec alone.
+one wording assertion. Step 5 landed in `TypeRegistry`'s choice of candidate, `PassContext`'s
+`ResolvedStamps`, `InferIdentExpr`, `InferResolve.ctorType`, `Infer`'s `DotLookup` arm,
+`Elaborate/Resolve.tryCtorRef`, `Elaborate/Nominals` and `ElaborateExpr`. All five are
+front-end, publish nothing new, and leave the frozen blob and its codec alone.
+`Kind.TypeArgArity` already carries the arity it quotes, so no step needed a new diagnostic
+kind.
 
-Step 5 carries the wider blast radius of the four, because the nearest-arity change reaches every
-existing FS0033 against a multi-arity name, in type position as well as expression position.
-`Kind.TypeArgArity` already carries the arity it quotes, so no new diagnostic kind is needed.
-
-The risk was concentrated in step 2, and it proved narrower still: one fixture across the four
-suites. Only TYPE positions redden — a fixture writing `T(1)`, `C.Make 5` or a union-case
-pattern goes through `tryKeyOfArglessName` and is untouched, and those are where a bare generic
-name is idiomatic F#.
+Step 5 was expected to carry the wider blast radius of the five, because the nearest-arity
+change reaches every existing FS0033 against a multi-arity name, in type position as well as
+expression position. It reddened two assertions, both in `SameNameResolutionTests.fs`. Step 2's
+one fixture and step 5's two are the whole cost across the four suites: only TYPE positions
+redden, since a fixture writing `T(1)`, `C.Make 5` or a union-case pattern goes through
+`tryKeyOfArglessName` and is untouched, and those are where a bare generic name is idiomatic F#.
