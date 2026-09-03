@@ -6,10 +6,10 @@ open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Common
 
 let private ofRef (caseCount: int) (anyCaseCarriesFields: bool) =
-    UnionRegime.classify UnionValueKind.RefType caseCount anyCaseCarriesFields
+    UnionRegime.classify NominalValueKind.RefType caseCount anyCaseCarriesFields
 
 let private ofStruct (caseCount: int) (anyCaseCarriesFields: bool) =
-    UnionRegime.classify UnionValueKind.Struct caseCount anyCaseCarriesFields
+    UnionRegime.classify NominalValueKind.Struct caseCount anyCaseCarriesFields
 
 [<Tests>]
 let tests =
@@ -146,17 +146,17 @@ let factoryShape =
             // factory: it always `newobj`s the union's own flat `.ctor`.
             test "a struct union's factory always constructs" {
                 Expect.equal
-                    (UnionFactoryShape.ofCase UnionValueKind.Struct UnionRegime.StructTagged 2)
+                    (UnionFactoryShape.ofCase NominalValueKind.Struct UnionRegime.StructTagged 2)
                     UnionFactoryShape.StructTagged
                     "StructTagged"
 
                 Expect.equal
-                    (UnionFactoryShape.ofCase UnionValueKind.Struct UnionRegime.EnumLike 0)
+                    (UnionFactoryShape.ofCase NominalValueKind.Struct UnionRegime.EnumLike 0)
                     UnionFactoryShape.StructTag
                     "a struct EnumLike case is nullary and still constructs, from the tag alone"
 
                 Expect.equal
-                    (UnionFactoryShape.ofCase UnionValueKind.Struct UnionRegime.SingleCase 0)
+                    (UnionFactoryShape.ofCase NominalValueKind.Struct UnionRegime.SingleCase 0)
                     UnionFactoryShape.UnionCtor
                     "a nullary single-case struct forwards no parameter"
             }
@@ -172,7 +172,7 @@ let factoryShape =
                         UnionRegime.Tagged
                     ] do
                     Expect.equal
-                        (UnionFactoryShape.ofCase UnionValueKind.RefType regime 0)
+                        (UnionFactoryShape.ofCase NominalValueKind.RefType regime 0)
                         UnionFactoryShape.Cached
                         (sprintf "%A" regime)
             }
@@ -180,12 +180,12 @@ let factoryShape =
             test "a reference case with a payload constructs where its payload lives" {
                 for regime in [ UnionRegime.TypeTested; UnionRegime.Tagged ] do
                     Expect.equal
-                        (UnionFactoryShape.ofCase UnionValueKind.RefType regime 1)
+                        (UnionFactoryShape.ofCase NominalValueKind.RefType regime 1)
                         UnionFactoryShape.CaseCtor
                         (sprintf "%A puts the payload on the case type" regime)
 
                 Expect.equal
-                    (UnionFactoryShape.ofCase UnionValueKind.RefType UnionRegime.SingleCase 1)
+                    (UnionFactoryShape.ofCase NominalValueKind.RefType UnionRegime.SingleCase 1)
                     UnionFactoryShape.UnionCtor
                     "a single case's payload is the union's own"
             }

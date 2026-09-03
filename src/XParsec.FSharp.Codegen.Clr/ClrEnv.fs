@@ -38,7 +38,7 @@ type internal GenericUnionShape =
         /// Per case, each logical field's `(FSC-spelled name, declared type)`: a hierarchy
         /// case type's own field rows, and every case factory's parameter types.
         Cases: EqArray<GenericUnionCase>
-        ValueKind: UnionValueKind
+        ValueKind: NominalValueKind
         /// A flat regime's physical slots and the `TypeDef` declaring them. `ValueNone` for
         /// a hierarchy regime.
         Home: UnionSlotHome voption

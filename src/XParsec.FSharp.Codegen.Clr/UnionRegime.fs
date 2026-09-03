@@ -33,7 +33,7 @@ module UnionRegime =
     let TypeTestCaseLimit = 3
 
     /// The regime a union of this shape is emitted in. `caseCount` is at least 1.
-    let classify (valueKind: UnionValueKind) (caseCount: int) (anyCaseCarriesFields: bool) : UnionRegime =
+    let classify (valueKind: NominalValueKind) (caseCount: int) (anyCaseCarriesFields: bool) : UnionRegime =
         match caseCount with
         | 1 -> UnionRegime.SingleCase
         | _ when not anyCaseCarriesFields -> UnionRegime.EnumLike
@@ -47,9 +47,9 @@ module UnionRegime =
     let ofExternalShape (u: ExternalUnionShape) : UnionRegime =
         let valueKind =
             if u.IsValueType then
-                UnionValueKind.Struct
+                NominalValueKind.Struct
             else
-                UnionValueKind.RefType
+                NominalValueKind.RefType
 
         classify valueKind u.Cases.Length (u.Cases |> EqArray.exists (fun c -> not c.FrozenFieldTypes.IsEmpty))
 
@@ -134,15 +134,15 @@ type UnionFactoryShape =
 module UnionFactoryShape =
 
     /// The factory body one case takes. `arity` is the case's field count.
-    let ofCase (valueKind: UnionValueKind) (regime: UnionRegime) (arity: int) : UnionFactoryShape =
+    let ofCase (valueKind: NominalValueKind) (regime: UnionRegime) (arity: int) : UnionFactoryShape =
         match valueKind with
-        | UnionValueKind.Struct ->
+        | NominalValueKind.Struct ->
             match UnionCtorShape.ofRegime regime with
             | UnionCtorShape.FlatTagged -> UnionFactoryShape.StructTagged
             | UnionCtorShape.TagOnly -> UnionFactoryShape.StructTag
             | UnionCtorShape.Flat
             | UnionCtorShape.Nullary -> UnionFactoryShape.UnionCtor
-        | UnionValueKind.RefType ->
+        | NominalValueKind.RefType ->
             match arity with
             | 0 -> UnionFactoryShape.Cached
             | _ when UnionRegime.isHierarchy regime -> UnionFactoryShape.CaseCtor

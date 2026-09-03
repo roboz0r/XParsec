@@ -220,9 +220,9 @@ module internal ElaborateTypeDecls =
 
             let valueKind =
                 if info.IsValueType then
-                    UnionValueKind.Struct
+                    NominalValueKind.Struct
                 else
-                    UnionValueKind.RefType
+                    NominalValueKind.RefType
 
             Some(
                 mkTypeDecl
@@ -326,9 +326,9 @@ module internal ElaborateTypeDecls =
 
             let valueKind =
                 if info.IsValueType then
-                    RecordValueKind.Struct
+                    NominalValueKind.Struct
                 else
-                    RecordValueKind.RefType
+                    NominalValueKind.RefType
 
             Some(
                 mkTypeDecl

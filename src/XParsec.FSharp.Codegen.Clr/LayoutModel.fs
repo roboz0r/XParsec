@@ -196,7 +196,7 @@ type internal TypeSlotKind =
     | Interface
     /// A union: sealed, or abstract where `UnionRegime.isHierarchy` holds. A `[<Struct>]`
     /// `valueKind` makes it a `System.ValueType`-based value type stamped `IsReadOnly`.
-    | Union of valueKind: UnionValueKind * regime: UnionRegime
+    | Union of valueKind: NominalValueKind * regime: UnionRegime
     /// One case of a hierarchy union: a sealed nested class extending the union, holding
     /// that case's payload fields.
     | UnionCase
@@ -213,7 +213,7 @@ type internal TypeSlotKind =
     /// over a single `Payload` field, redeclaring a generic union's typars.
     | UnionCaseView
     /// `valueKind` selects reference vs `[<Struct>]` value type. Always sealed.
-    | Record of valueKind: RecordValueKind
+    | Record of valueKind: NominalValueKind
     /// `isSealed` reflects `[<Sealed>]`; `valueKind` selects reference vs `[<Struct>]`
     /// value type (flips sequential layout + `Sealed` + the `ValueType` base) vs
     /// `[<IsByRefLike>]`, which additionally stamps `IsByRefLikeAttribute`.

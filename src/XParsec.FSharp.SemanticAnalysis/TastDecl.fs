@@ -57,12 +57,6 @@ type NominalValueKind =
         | RefType -> false
         | Struct -> true
 
-type RecordValueKind = NominalValueKind
-
-/// For a union, `Struct` is the flat tag-plus-all-case-fields value type and `RefType` is
-/// the reference emission of that same flat shape as a sealed class.
-type UnionValueKind = NominalValueKind
-
 /// What a class declaration STATES about itself with an attribute, as against what its
 /// contents decide. Carried whole through the TAST, the freeze and the external shape.
 [<Struct>]
@@ -199,7 +193,9 @@ type TUnionG<'ty, 'id, 'body> =
         /// Each entry pairs a resolved interface type with the bodies of its
         /// `interface … with` block.
         Interfaces: EqArray<'ty * EqArray<TTypeMemberG<'ty, 'id, 'body>>>
-        ValueKind: UnionValueKind
+        /// `Struct` is the flat tag-plus-all-case-fields value type; `RefType` is the
+        /// reference emission of that same flat shape as a sealed class.
+        ValueKind: NominalValueKind
     }
 
 /// The payload of `TTypeKindG.Record`.
@@ -212,7 +208,7 @@ type TRecordG<'ty, 'id, 'body> =
         /// Each entry pairs a resolved interface type with the bodies of its
         /// `interface … with` block.
         Interfaces: EqArray<'ty * EqArray<TTypeMemberG<'ty, 'id, 'body>>>
-        ValueKind: RecordValueKind
+        ValueKind: NominalValueKind
     }
 
 /// One `[static] let [mutable] x = <init>` of a class preamble: a private static field the

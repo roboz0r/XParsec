@@ -165,7 +165,7 @@ module EmitTypes =
             Typars: string list
             /// Held exactly where `UnionRegime.hasTag` holds.
             Tag: EmittedTag voption
-            ValueKind: UnionValueKind
+            ValueKind: NominalValueKind
             Cases: Dictionary<string, EmittedCase>
             /// Augmentation members by source name, each mapping to the LIST of its
             /// overloads: own members first, interface impls last. `Append(v:'T)` and

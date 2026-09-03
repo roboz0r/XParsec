@@ -71,7 +71,7 @@ type internal UnionDecl =
         /// `Struct` for a `[<Struct>]` union (`System.ValueType` base, sealed,
         /// `IsReadOnly` with `initonly` fields; the factories `newobj` the flat `.ctor` and
         /// return by value).
-        ValueKind: UnionValueKind
+        ValueKind: NominalValueKind
         /// The metadata shape this union is emitted in, classified once at partition time.
         Regime: UnionRegime
         /// The physical slots, where they are declared, each case field's read path and
@@ -94,8 +94,8 @@ type internal UnionDecl =
     /// regime; a `[<Struct>]` union yields none. Empty ⇒ no `.cctor` row.
     member this.SingletonCases: (int * Frozen.TUnionCase) list =
         match this.ValueKind with
-        | UnionValueKind.Struct -> []
-        | UnionValueKind.RefType -> this.Cases |> List.indexed |> List.filter (fun (_, c) -> c.Fields.IsEmpty)
+        | NominalValueKind.Struct -> []
+        | NominalValueKind.RefType -> this.Cases |> List.indexed |> List.filter (fun (_, c) -> c.Fields.IsEmpty)
 
     /// One case's payload field names, in declaration order.
     member this.FieldNames(c: Frozen.TUnionCase) : string list =
@@ -111,7 +111,7 @@ type internal RecordDecl =
         /// type + its already-typed member bodies.
         Interfaces: (FrozenNominal * TastAccessor.TypeMember list) list
         /// `Struct` for a `[<Struct>]` record (`System.ValueType` base, sealed).
-        ValueKind: RecordValueKind
+        ValueKind: NominalValueKind
     }
 
 /// A partitioned class declaration. `Fields` are the explicit `val [mutable] x: T`

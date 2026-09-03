@@ -280,7 +280,7 @@ TAST shape.
   per case on an abstract base — while `SingleCase`, `EnumLike` and every
   `[<Struct>]` union are flat. Flat is the PERMANENT representation for a
   struct union — a value type cannot inherit. `[<Struct>]` selects
-  `UnionValueKind.Struct`, carried on `TUnionG` through the freeze codec
+  `NominalValueKind.Struct`, carried on `TUnionG` through the freeze codec
   and the external shape; the JS backend emits the hierarchy for every
   union. A `SingleCase` union keeps one field per logical field. A
   `StructTagged` union holds `_tag : int32` and one `_payload` field
