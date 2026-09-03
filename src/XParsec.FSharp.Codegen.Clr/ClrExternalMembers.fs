@@ -326,7 +326,6 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
 
         toEntity (ctx.MemberRef(parent, name, s))
 
-    let intTy = FTConst(RuntimeNames.intKey, EqArray.empty)
 
     /// The test a match arm emits for `caseName` on a referenced-package union at `args`.
     /// `ValueNone` ⇒ unknown union or case.
@@ -340,7 +339,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                 // A referenced package's `_tag` is private to its union, so the test calls
                 // the accessor the same emitter put there.
                 let tagGetter () =
-                    externalGetterRef (externalTypeSpec key tref args) "get_Tag" intTy
+                    externalGetterRef (externalTypeSpec key tref args) "get_Tag" RuntimeNames.intTy
 
                 let caseType () = externalCaseSpec key tref args caseName
 

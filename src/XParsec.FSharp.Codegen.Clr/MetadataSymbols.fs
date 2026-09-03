@@ -57,7 +57,7 @@ module private MetadataMapping =
         else
             match t.FullName with
             | null -> None // constructed/exotic type with no metadata full name
-            | "System.Void" -> Some(FTConst(RuntimeNames.unitKey, EqArray.empty))
+            | "System.Void" -> Some(RuntimeNames.unitTy)
             // A BCL name with a canon surfaces AS the canon: scalars
             // (`System.Int32` → `int`) and subtype roots (`System.Object` → `obj`,
             // `System.Exception` → `exn`) alike. Anything else stays a nominal `FTClass`.

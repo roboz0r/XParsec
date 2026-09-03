@@ -436,4 +436,49 @@ let tests =
                 Expect.isTrue (iface.IsAssignableFrom closed) "Box`1 declares IComparable<Box<!0>>"
                 Expect.isTrue (typeof<IComparable>.IsAssignableFrom closed) "Box`1 declares IComparable"
             }
+
+            // The scalar fields compare through IL opcodes and `String.CompareOrdinal`
+            // rather than `Comparer<T>.Default`: an unsigned field orders unsigned, a
+            // string field orders ordinally (`Comparer<string>.Default` is culture
+            // sensitive, `compare` in F# is ordinal), and an enum field orders by its
+            // underlying value.
+            test "record CompareTo orders unsigned, string and enum fields as F# compare does" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type Level = | Low = 0 | High = 1"
+                            "[<StructuralComparison>]"
+                            "type Row = { U: uint32; S: string; L: Level }"
+                            "let r = { U = 0u; S = \"\"; L = Level.Low }"
+                        ]
+
+                let artifact = compileSource "StructCmpScalars" src
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let ty = asm.GetType "Row"
+                let level = asm.GetType "Level"
+
+                let mk (u: uint32) (s: string) (l: int) =
+                    Activator.CreateInstance(ty, [| box u; box s; Enum.ToObject(level, l) |])
+
+                // `0x80000000u` is negative as an `int32`, so a signed compare inverts it.
+                Expect.equal (signOf (compareTyped ty (mk 0x80000000u "a" 0) (mk 1u "a" 0))) 1 "uint32 orders unsigned"
+                Expect.equal (signOf (compareTyped ty (mk 1u "a" 0) (mk 0x80000000u "a" 0))) -1 "uint32 orders unsigned"
+
+                // Ordinal: `'B'` (66) sorts before `'a'` (97); a culture compare puts `a` first.
+                Expect.equal (signOf (compareTyped ty (mk 0u "a" 0) (mk 0u "B" 0))) 1 "string orders ordinally"
+                Expect.equal (signOf (compareTyped ty (mk 0u "B" 0) (mk 0u "a" 0))) -1 "string orders ordinally"
+                Expect.equal (signOf (compareTyped ty (mk 0u "a" 0) (mk 0u "a" 0))) 0 "equal strings"
+
+                Expect.equal (signOf (compareTyped ty (mk 0u "a" 0) (mk 0u "a" 1))) -1 "Low < High"
+                Expect.equal (signOf (compareTyped ty (mk 0u "a" 1) (mk 0u "a" 0))) 1 "High > Low"
+                Expect.equal (signOf (compareTyped ty (mk 0u "a" 1) (mk 0u "a" 1))) 0 "High = High"
+
+                let equals (a: obj) (b: obj) = a.Equals b
+                Expect.isTrue (equals (mk 7u "x" 1) (mk 7u "x" 1)) "equal rows"
+                Expect.isFalse (equals (mk 7u "x" 1) (mk 7u "x" 0)) "enum field differs"
+                Expect.isFalse (equals (mk 7u "x" 1) (mk 8u "x" 1)) "uint32 field differs"
+                Expect.isFalse (equals (mk 7u "x" 1) (mk 7u "X" 1)) "string field differs ordinally"
+            }
         ]

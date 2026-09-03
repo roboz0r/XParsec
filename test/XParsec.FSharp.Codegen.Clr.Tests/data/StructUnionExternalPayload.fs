@@ -5,14 +5,14 @@
 type Inner = { A: int; B: float }
 
 [<Struct>]
-type Payload =
+type External =
     | Scalars of x: int * y: bool
     | Nested of inner: Inner
     | Text of s: string
     | Id of id: System.Guid
     | Stamp of at: System.DateTime
 
-let describe (p: Payload) : int =
+let describe (p: External) : int =
     match p with
     | Scalars(x, _) -> x
     | Nested i -> i.A

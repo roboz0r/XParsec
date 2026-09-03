@@ -105,7 +105,7 @@ module EmitBindings =
                         disposeKey
                         CallVia.Self
                         [||]
-                        (FTConst(RuntimeNames.unitKey, EqArray.empty))
+                        (RuntimeNames.unitTy)
                         tok)
 
                 b.Add ILInstr.Pop
@@ -118,10 +118,7 @@ module EmitBindings =
                         disposeKey,
                         false,
                         false,
-                        FTFun(
-                            FTConst(RuntimeNames.unitKey, EqArray.empty),
-                            FTConst(RuntimeNames.unitKey, EqArray.empty)
-                        )
+                        FTFun(RuntimeNames.unitTy, RuntimeNames.unitTy)
                     )
 
                 b.Add(ILInstr.Ldloc slot)

@@ -79,6 +79,9 @@ type ILInstr =
     | Brtrue of int
     | BneUn of int
     | Beq of int
+    /// `switch` — pops an `int32` selector and jumps to `targets.[selector]`; a selector
+    /// outside `0 .. targets.Length - 1` falls through.
+    | Switch of targets: int list
     /// `throw` — pops the exception object; a terminator, like `Ret`.
     | Throw
     | Ret
@@ -151,7 +154,8 @@ module private InstrDelta =
         | ILInstr.Recipe recipe -> recipe.Pushes - recipe.Arity.FlatArgCount
         | ILInstr.Bin _ -> -1
         | ILInstr.Brfalse _
-        | ILInstr.Brtrue _ -> -1
+        | ILInstr.Brtrue _
+        | ILInstr.Switch _ -> -1
         | ILInstr.BneUn _
         | ILInstr.Beq _ -> -2
         | ILInstr.Throw -> -1
@@ -251,6 +255,7 @@ module IlIr =
         | ILInstr.Brtrue _
         | ILInstr.BneUn _
         | ILInstr.Beq _
+        | ILInstr.Switch _
         | ILInstr.Throw
         | ILInstr.Ret
         | ILInstr.Try
@@ -325,6 +330,15 @@ module IlIr =
                         cur <- ValueSome(d - 2)
                     | ValueSome _ -> err <- Some "stack underflow at compare-branch"
                     | ValueNone -> err <- Some "unreachable compare-branch"
+                | ILInstr.Switch targets ->
+                    match cur with
+                    | ValueSome d when d >= 1 ->
+                        for l in targets do
+                            note l (d - 1)
+
+                        cur <- ValueSome(d - 1)
+                    | ValueSome _ -> err <- Some "stack underflow at switch"
+                    | ValueNone -> err <- Some "unreachable switch"
                 | ILInstr.Leave l ->
                     // `leave` clears the evaluation stack, so the target sees depth 0
                     // whatever the source depth. A dead `Leave` notes nothing.
@@ -448,6 +462,7 @@ module IlIr =
             | ILInstr.Brtrue l -> Cil.emitBrTrue il labels.[l]
             | ILInstr.BneUn l -> Cil.emitBneUn il labels.[l]
             | ILInstr.Beq l -> Cil.emitBeq il labels.[l]
+            | ILInstr.Switch targets -> Cil.emitSwitch il [ for l in targets -> labels.[l] ]
             | ILInstr.Throw -> Cil.emitThrow il
             | ILInstr.Ret -> Cil.emitRet il
             | ILInstr.Try ->

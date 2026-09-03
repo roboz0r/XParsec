@@ -77,6 +77,7 @@ module internal NominalShared =
                         ]
                     Ty = fty
                     Cast = ValueNone
+                    Compare = asm.FieldCompareOf fty
                 }
         ]
 
@@ -165,3 +166,29 @@ module internal NominalShared =
             SelfTy: FrozenType
             Members: StructuralMembers
         }
+
+
+    /// The type's own `name(Self) : retTy` structural method, as an `object`-typed override
+    /// calls it: the `MethodDef` at a monomorphic type, else the `MemberRef` on the
+    /// instantiated self-`TypeSpec`.
+    let private typedStructuralMethod
+        (asm: Assembler)
+        (td: TastAccessor.TypeDecl)
+        (self: StructuralSelf)
+        (name: string)
+        (retTy: FrozenType)
+        (key: MethodKey)
+        : EntityHandle =
+        selfMemberRef
+            asm
+            td
+            (UserMemberKind.Member(name, false, 0, [ self.SelfTy ], retTy))
+            (toEntity (asm.MethodDef key))
+
+    /// The type's own typed `Equals(Self)`.
+    let equalsTyped (asm: Assembler) (td: TastAccessor.TypeDecl) (self: StructuralSelf) : EntityHandle =
+        typedStructuralMethod asm td self "Equals" RuntimeNames.boolTy (MethodKey.EqEqualsTyped td.Key)
+
+    /// The type's own typed `CompareTo(Self)`.
+    let compareToTyped (asm: Assembler) (td: TastAccessor.TypeDecl) (self: StructuralSelf) : EntityHandle =
+        typedStructuralMethod asm td self "CompareTo" RuntimeNames.intTy (MethodKey.CmpCompareToTyped td.Key)

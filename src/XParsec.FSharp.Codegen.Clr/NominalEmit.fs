@@ -584,7 +584,11 @@ module internal NominalEmit =
                 td
                 self.SelfTy
                 (ValueSome(EmitStructural.buildGetHashCode handles walk.Value))
-                (EmitStructural.buildEqualsObj handles recordIsStruct self.SelfType self.SelfTy walk.Value)
+                (EmitStructural.buildEqualsObj
+                    recordIsStruct
+                    self.SelfType
+                    self.SelfTy
+                    (EmitStructural.TypedEntry.Direct(equalsTyped asm td self)))
                 (ValueSome(EmitStructural.buildEqualsTyped handles recordIsStruct walk.Value))
 
         if self.Members.Comparison then
@@ -599,7 +603,7 @@ module internal NominalEmit =
                     recordIsStruct
                     self.SelfType
                     self.SelfTy
-                    (EmitStructural.TypedEntry.Direct(toEntity (asm.MethodDef(MethodKey.CmpCompareToTyped td.Key)))))
+                    (EmitStructural.TypedEntry.Direct(compareToTyped asm td self)))
 
         if self.Members.Format then
             asm.AddPrepared(
@@ -673,7 +677,7 @@ module internal NominalEmit =
                 | CoSlot.EnumeratorCurrent ->
                     let current, elemTy = capabilityMember ifaceTy slot
 
-                    provider.InstanceMethodSignature([], FTConst(RuntimeNames.objKey, EqArray.empty)),
+                    provider.InstanceMethodSignature([], RuntimeNames.objTy),
                     Emit.buildEnumeratorCurrentCoSlot current (icodegen.TypeToken elemTy)
                 | CoSlot.EnumeratorReset ->
                     provider.InstanceMethodSignatureVoid [],

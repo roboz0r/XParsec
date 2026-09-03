@@ -251,7 +251,7 @@ module internal UnionLayoutNodes =
                                     Key = FieldKey.UnionTag td.Key
                                     Name = "_tag"
                                     Attrs = FieldAttributes.Private ||| FieldAttributes.InitOnly
-                                    Ty = FTConst(RuntimeNames.intKey, EqArray.empty)
+                                    Ty = RuntimeNames.intTy
                                     ClosureScope = ValueNone
                                 }
 
@@ -274,7 +274,7 @@ module internal UnionLayoutNodes =
                             {
                                 Key = MethodKey.NominalCtor td.Key
                                 Name = ".ctor"
-                                Attrs = ctorAttrs
+                                Attrs = assemblyCtorAttrs
                             }
 
                         // The `.cctor` constructs each nullary case's singleton once, so a
@@ -345,7 +345,7 @@ module internal UnionLayoutNodes =
                                 Name = "Tag"
                                 IsInstance = true
                                 IndexTys = []
-                                ValueTy = FTConst(RuntimeNames.intKey, EqArray.empty)
+                                ValueTy = RuntimeNames.intTy
                                 Getter = ValueSome(MethodKey.UnionGetTag td.Key)
                                 Setter = ValueNone
                             }

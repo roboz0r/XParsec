@@ -15,12 +15,6 @@ module internal EmitStructuralFormat =
             Fields: EmitStructural.StructuralField list
         }
 
-    /// `sink.Text(str)` — push the sink, the literal, `callvirt Text`.
-    let private sinkText (b: IlBuilder) (h: IStructuralHandles) (str: string) : unit =
-        b.Add(ILInstr.Ldarg 1)
-        b.Add(ILInstr.Ldstr(h.UserString str))
-        b.Add(ILInstr.Callvirt(h.FormatSink.Text, 2, 0))
-
     /// A nullary sink call (`sink.BeginRecord()` / `sink.EndRecord()` /
     /// `sink.EndCase()`).
     let private sinkCall0 (b: IlBuilder) (handle: EntityHandle) : unit =
@@ -34,14 +28,18 @@ module internal EmitStructuralFormat =
         b.Add(ILInstr.Ldstr(h.UserString name))
         b.Add(ILInstr.Callvirt(label, 2, 0))
 
-    /// `sink.Child(box this.<field>)` — load the field off `this` (`ldarg.0`). The `box`
-    /// is uniform, a no-op on reference types (ECMA-335 III.4.1), so `Child` sees the
-    /// runtime type behind the erased `obj`.
+    /// `sink.Child(box this.<field>)`. An erased slot already holds `object` and is passed
+    /// as read. Otherwise the `box` is uniform, a no-op on reference types (ECMA-335
+    /// III.4.1), so `Child` sees the runtime type.
     let private sinkChild (b: IlBuilder) (h: IStructuralHandles) (f: EmitStructural.StructuralField) : unit =
         b.Add(ILInstr.Ldarg 1)
         b.Add(ILInstr.Ldarg 0)
-        EmitStructural.loadField b f
-        b.Add(ILInstr.Box(h.BoxToken f.Ty))
+        EmitStructural.loadFieldPath b f
+
+        match f.Cast with
+        | ValueSome _ -> ()
+        | ValueNone -> b.Add(ILInstr.Box(h.BoxToken f.Ty))
+
         b.Add(ILInstr.Callvirt(h.FormatSink.Child, 2, 0))
 
     /// `void Format(IFormatSink sink)` for a record: `BeginRecord;
@@ -82,41 +80,18 @@ module internal EmitStructuralFormat =
     /// arm emits that case. `cases` is in tag order (index = `_tag` value).
     let buildUnionFormat (h: IStructuralHandles) (tagField: EntityHandle) (cases: UnionFormatCase list) : ILBody =
         let b = IlBuilder()
-        let n = List.length cases
 
-        match cases with
-        | [] ->
-            // F# unions always have ≥1 case; the dispatch below indexes `cases.[n - 1]`.
-            sinkText b h "()"
-        | _ ->
-            let endLabel = b.Label()
-            // One label per non-last case; the last case is the dispatch fall-through.
-            let caseLabels = [| for _ in 0 .. n - 2 -> b.Label() |]
-
-            // Dispatch: `if _tag = k goto caseK` for every case but the last.
-            cases
-            |> List.iteri (fun k _ ->
-                if k < n - 1 then
-                    b.Add(ILInstr.Ldarg 0)
-                    b.Add(ILInstr.Ldfld tagField)
-                    b.Add(ILInstr.LdcI4 k)
-                    b.Add(ILInstr.Beq caseLabels.[k])
-            )
-
-            // Fall-through ⇒ the last (highest-tag) case.
-            emitFormatCase b h cases.[n - 1]
-            b.Add(ILInstr.Br endLabel)
-
-            // The earlier cases, each branched to and exiting to `endLabel`.
-            cases
-            |> List.iteri (fun k c ->
-                if k < n - 1 then
-                    b.Add(ILInstr.Mark caseLabels.[k])
-                    emitFormatCase b h c
-                    b.Add(ILInstr.Br endLabel)
-            )
-
-            b.Add(ILInstr.Mark endLabel)
+        EmitStructural.switchOnTag
+            b
+            tagField
+            [
+                for (tag, c) in List.indexed cases ->
+                    tag,
+                    (fun () ->
+                        emitFormatCase b h c
+                        EmitStructural.WalkExit.Joins
+                    )
+            ]
 
         b.Add ILInstr.Ret
         b.Body

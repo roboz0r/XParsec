@@ -7,7 +7,7 @@ type Shape =
 */
 
 using System;
-using System.Collections.Generic;
+using System.ComponentModel;
 using System.Runtime.InteropServices;
 using Vesper;
 
@@ -51,7 +51,7 @@ public readonly struct Shape : IEquatable<Shape>, IStructuralFormattable
 
 	public int Tag => _tag;
 
-	public Shape(int _tag, Payload _payload)
+	internal Shape(int _tag, Payload _payload)
 	{
 		this._tag = _tag;
 		this._payload = _payload;
@@ -77,16 +77,19 @@ public readonly struct Shape : IEquatable<Shape>, IStructuralFormattable
 		return new Shape(2, payload);
 	}
 
+	[EditorBrowsable(EditorBrowsableState.Never)]
 	public int Get_Point_0()
 	{
 		return _payload._data.Point._x;
 	}
 
+	[EditorBrowsable(EditorBrowsableState.Never)]
 	public int Get_Pair_0()
 	{
 		return _payload._data.Pair._a;
 	}
 
+	[EditorBrowsable(EditorBrowsableState.Never)]
 	public int Get_Pair_1()
 	{
 		return _payload._data.Pair._b;
@@ -106,17 +109,15 @@ public readonly struct Shape : IEquatable<Shape>, IStructuralFormattable
 	{
 		HashCode hashCode = default(HashCode);
 		hashCode.Add(_tag);
-		if (_tag != 1)
+		switch (_tag)
 		{
-			if (_tag == 2)
-			{
-				hashCode.Add(_payload._data.Pair._a);
-				hashCode.Add(_payload._data.Pair._b);
-			}
-		}
-		else
-		{
+		case 1:
 			hashCode.Add(_payload._data.Point._x);
+			break;
+		case 2:
+			hashCode.Add(_payload._data.Pair._a);
+			hashCode.Add(_payload._data.Pair._b);
+			break;
 		}
 		return hashCode.ToHashCode();
 	}
@@ -126,70 +127,52 @@ public readonly struct Shape : IEquatable<Shape>, IStructuralFormattable
 		object obj2 = ((obj is Shape) ? obj : null);
 		if (obj2 != null)
 		{
-			Shape shape = (Shape)obj2;
-			if (_tag == shape._tag)
-			{
-				if (_tag != 1)
-				{
-					if (_tag != 2 || (EqualityComparer<int>.Default.Equals(_payload._data.Pair._a, shape._payload._data.Pair._a) && EqualityComparer<int>.Default.Equals(_payload._data.Pair._b, shape._payload._data.Pair._b)))
-					{
-						goto IL_00f2;
-					}
-				}
-				else if (EqualityComparer<int>.Default.Equals(_payload._data.Point._x, shape._payload._data.Point._x))
-				{
-					goto IL_00f2;
-				}
-			}
+			Shape other = (Shape)obj2;
+			return Equals(other);
 		}
 		return false;
-		IL_00f2:
-		return true;
 	}
 
 	public bool Equals(Shape other)
 	{
 		if (_tag == other._tag)
 		{
-			if (_tag != 1)
+			switch (_tag)
 			{
-				if (_tag != 2 || (EqualityComparer<int>.Default.Equals(_payload._data.Pair._a, other._payload._data.Pair._a) && EqualityComparer<int>.Default.Equals(_payload._data.Pair._b, other._payload._data.Pair._b)))
-				{
-					goto IL_00de;
-				}
+			case 1:
+				return _payload._data.Point._x == other._payload._data.Point._x;
+			case 2:
+				break;
+			default:
+				return true;
 			}
-			else if (EqualityComparer<int>.Default.Equals(_payload._data.Point._x, other._payload._data.Point._x))
+			if (_payload._data.Pair._a == other._payload._data.Pair._a)
 			{
-				goto IL_00de;
+				return _payload._data.Pair._b == other._payload._data.Pair._b;
 			}
 		}
 		return false;
-		IL_00de:
-		return true;
 	}
 
 	public void Format(IFormatSink sink)
 	{
-		if (_tag != 0)
+		switch (_tag)
 		{
-			if (_tag != 1)
-			{
-				sink.BeginCase("Pair");
-				sink.Child((object)_payload._data.Pair._a);
-				sink.Child((object)_payload._data.Pair._b);
-				sink.EndCase();
-			}
-			else
-			{
-				sink.BeginCase("Point");
-				sink.Child((object)_payload._data.Point._x);
-				sink.EndCase();
-			}
-		}
-		else
-		{
+		case 0:
 			sink.BeginCase("Empty");
 			sink.EndCase();
+			break;
+		case 1:
+			sink.BeginCase("Point");
+			sink.Child((object)_payload._data.Point._x);
+			sink.EndCase();
+			break;
+		case 2:
+			sink.BeginCase("Pair");
+			sink.Child((object)_payload._data.Pair._a);
+			sink.Child((object)_payload._data.Pair._b);
+			sink.EndCase();
+			break;
 		}
 	}
 }

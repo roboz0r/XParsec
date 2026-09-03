@@ -245,6 +245,28 @@ type internal ClrEnv
 
              toEntity (ctx.MemberRef(attrRef, ".ctor", s)))
 
+    // `System.ComponentModel.EditorBrowsableAttribute::.ctor(EditorBrowsableState)` —
+    // stamped `Never` to withhold a member from IDE completion.
+    let eEditorBrowsableAttrCtor =
+        lazy
+            (let attrRef =
+                toEntity (ctx.TypeRef(coreRef.Value, "System.ComponentModel", "EditorBrowsableAttribute"))
+
+             let stateRef =
+                 toEntity (ctx.TypeRef(coreRef.Value, "System.ComponentModel", "EditorBrowsableState"))
+
+             let s = BlobBuilder()
+
+             BlobEncoder(s)
+                 .MethodSignature(isInstanceMethod = true)
+                 .Parameters(
+                     1,
+                     (fun (ret: ReturnTypeEncoder) -> ret.Void()),
+                     (fun (pars: ParametersEncoder) -> pars.AddParameter().Type().Type(stateRef, true))
+                 )
+
+             toEntity (ctx.MemberRef(attrRef, ".ctor", s)))
+
     let eTextWriter =
         lazy (toEntity (ctx.TypeRef(coreRef.Value, "System.IO", "TextWriter")))
 
@@ -319,6 +341,31 @@ type internal ClrEnv
                  )
 
              toEntity (ctx.MemberRef(eArgumentException.Value, ".ctor", s)))
+
+    let eString = lazy (toEntity (ctx.TypeRef(coreRef.Value, "System", "String")))
+
+    // `static (string, string) -> T` on `System.String`.
+    let stringBinaryStatic (name: string) (ret: ReturnTypeEncoder -> unit) =
+        lazy
+            (let s = BlobBuilder()
+
+             BlobEncoder(s)
+                 .MethodSignature(isInstanceMethod = false)
+                 .Parameters(
+                     2,
+                     ret,
+                     (fun (pars: ParametersEncoder) ->
+                         pars.AddParameter().Type().String()
+                         pars.AddParameter().Type().String()
+                     )
+                 )
+
+             toEntity (ctx.MemberRef(eString.Value, name, s)))
+
+    let eStringEquals = stringBinaryStatic "Equals" (fun ret -> ret.Type().Boolean())
+
+    let eStringCompareOrdinal =
+        stringBinaryStatic "CompareOrdinal" (fun ret -> ret.Type().Int32())
 
     // `System.NotSupportedException` — thrown by the synthesised `IEnumerator.Reset` co-slot,
     // on the parameterless ctor so the BCL supplies the message.
@@ -602,6 +649,7 @@ type internal ClrEnv
     member _.EIsByRefLikeAttrCtor = eIsByRefLikeAttrCtor
     member _.EIsReadOnlyAttrCtor = eIsReadOnlyAttrCtor
     member _.EAttributeUsageAttrCtor = eAttributeUsageAttrCtor
+    member _.EEditorBrowsableAttrCtor = eEditorBrowsableAttrCtor
     member _.ETextWriter = eTextWriter
     member _.EStringBuilder = eStringBuilder
     member _.EConsole = eConsole
@@ -619,6 +667,8 @@ type internal ClrEnv
     member _.EObjectCtor = eObjectCtor
     member _.EExceptionCtor = eExceptionCtor
     member _.EArgumentExceptionCtor = eArgumentExceptionCtor
+    member _.EStringEquals = eStringEquals
+    member _.EStringCompareOrdinal = eStringCompareOrdinal
     member _.ENotSupportedExceptionCtor = eNotSupportedExceptionCtor
     member _.EDecimalCtor = eDecimalCtor
     member _.EHashCodeToHashCode = eHashCodeToHashCode

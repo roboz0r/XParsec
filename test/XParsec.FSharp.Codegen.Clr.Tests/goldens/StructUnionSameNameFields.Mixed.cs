@@ -6,7 +6,7 @@ type Mixed =
 */
 
 using System;
-using System.Collections.Generic;
+using System.ComponentModel;
 using System.Runtime.InteropServices;
 using Vesper;
 
@@ -50,7 +50,7 @@ public readonly struct Mixed : IEquatable<Mixed>, IStructuralFormattable
 
 	public int Tag => _tag;
 
-	public Mixed(int _tag, Payload _payload)
+	internal Mixed(int _tag, Payload _payload)
 	{
 		this._tag = _tag;
 		this._payload = _payload;
@@ -70,11 +70,13 @@ public readonly struct Mixed : IEquatable<Mixed>, IStructuralFormattable
 		return new Mixed(1, payload);
 	}
 
+	[EditorBrowsable(EditorBrowsableState.Never)]
 	public int Get_I_0()
 	{
 		return _payload._data.I._x;
 	}
 
+	[EditorBrowsable(EditorBrowsableState.Never)]
 	public string Get_S_0()
 	{
 		return (string)_payload._ref0;
@@ -94,16 +96,14 @@ public readonly struct Mixed : IEquatable<Mixed>, IStructuralFormattable
 	{
 		HashCode hashCode = default(HashCode);
 		hashCode.Add(_tag);
-		if (_tag != 0)
+		switch (_tag)
 		{
-			if (_tag == 1)
-			{
-				hashCode.Add((string)_payload._ref0);
-			}
-		}
-		else
-		{
+		case 0:
 			hashCode.Add(_payload._data.I._x);
+			break;
+		case 1:
+			hashCode.Add((string)_payload._ref0);
+			break;
 		}
 		return hashCode.ToHashCode();
 	}
@@ -113,61 +113,40 @@ public readonly struct Mixed : IEquatable<Mixed>, IStructuralFormattable
 		object obj2 = ((obj is Mixed) ? obj : null);
 		if (obj2 != null)
 		{
-			Mixed mixed = (Mixed)obj2;
-			if (_tag == mixed._tag)
-			{
-				if (_tag != 0)
-				{
-					if (_tag != 1 || EqualityComparer<string>.Default.Equals((string)_payload._ref0, (string)mixed._payload._ref0))
-					{
-						goto IL_00af;
-					}
-				}
-				else if (EqualityComparer<int>.Default.Equals(_payload._data.I._x, mixed._payload._data.I._x))
-				{
-					goto IL_00af;
-				}
-			}
+			Mixed other = (Mixed)obj2;
+			return Equals(other);
 		}
 		return false;
-		IL_00af:
-		return true;
 	}
 
 	public bool Equals(Mixed other)
 	{
 		if (_tag == other._tag)
 		{
-			if (_tag != 0)
+			return _tag switch
 			{
-				if (_tag != 1 || EqualityComparer<string>.Default.Equals((string)_payload._ref0, (string)other._payload._ref0))
-				{
-					goto IL_009b;
-				}
-			}
-			else if (EqualityComparer<int>.Default.Equals(_payload._data.I._x, other._payload._data.I._x))
-			{
-				goto IL_009b;
-			}
+				0 => _payload._data.I._x == other._payload._data.I._x, 
+				1 => string.Equals((string)_payload._ref0, (string)other._payload._ref0), 
+				_ => true, 
+			};
 		}
 		return false;
-		IL_009b:
-		return true;
 	}
 
 	public void Format(IFormatSink sink)
 	{
-		if (_tag != 0)
+		switch (_tag)
 		{
-			sink.BeginCase("S");
-			sink.Child((object)(string)_payload._ref0);
-			sink.EndCase();
-		}
-		else
-		{
+		case 0:
 			sink.BeginCase("I");
 			sink.Child((object)_payload._data.I._x);
 			sink.EndCase();
+			break;
+		case 1:
+			sink.BeginCase("S");
+			sink.Child(_payload._ref0);
+			sink.EndCase();
+			break;
 		}
 	}
 }

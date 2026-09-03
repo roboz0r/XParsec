@@ -31,13 +31,13 @@ type ClrProvider
     /// `System.Enum` — the IL base type of a numeric enum's `TypeDefinition`.
     member _.EnumBase: EntityHandle = env.EEnum.Value
 
-    /// `System.Runtime.CompilerServices.IsByRefLikeAttribute::.ctor()` — the
-    /// `CustomAttribute` constructor stamped on a `[<IsByRefLike>]` value type.
-    member _.IsByRefLikeAttrCtor: EntityHandle = env.EIsByRefLikeAttrCtor.Value
-
-    /// `System.Runtime.CompilerServices.IsReadOnlyAttribute::.ctor()` — the
-    /// `CustomAttribute` constructor stamped on a `[<Struct>]` union.
-    member _.IsReadOnlyAttrCtor: EntityHandle = env.EIsReadOnlyAttrCtor.Value
+    /// The `.ctor` `MemberRef` a synthetic attribute's `CustomAttribute` row is written
+    /// against.
+    member _.SyntheticAttributeCtor(attr: SyntheticAttribute) : EntityHandle =
+        match attr with
+        | SyntheticAttribute.IsReadOnly -> env.EIsReadOnlyAttrCtor.Value
+        | SyntheticAttribute.IsByRefLike -> env.EIsByRefLikeAttrCtor.Value
+        | SyntheticAttribute.EditorBrowsableNever -> env.EEditorBrowsableAttrCtor.Value
 
     /// `System.AttributeUsageAttribute::.ctor(System.AttributeTargets)` — the CLR spelling
     /// a `[<AttributeUsage>]` row is written against.
@@ -293,6 +293,8 @@ type ClrProvider
         member _.HashCodeToHashCode = env.EHashCodeToHashCode.Value
         member _.ComparerDefault elem = recipes.ComparerDefault elem
         member _.ComparerCompare elem = recipes.ComparerCompare elem
+        member _.StringEquals = env.EStringEquals.Value
+        member _.StringCompareOrdinal = env.EStringCompareOrdinal.Value
         member _.ArgumentExceptionCtor = env.EArgumentExceptionCtor.Value
         member _.FormatSink = recipes.FormatSinkHandles
         member _.BoxToken elem = recipes.TypeToken elem

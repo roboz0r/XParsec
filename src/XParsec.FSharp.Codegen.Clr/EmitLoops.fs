@@ -89,7 +89,7 @@ module EmitLoops =
                 MemberKind.Method,
             false,
             false,
-            FTFun(FTConst(RuntimeNames.unitKey, EqArray.empty), FTConst(RuntimeNames.unitKey, EqArray.empty))
+            FTFun(RuntimeNames.unitTy, RuntimeNames.unitTy)
         )
 
     /// `MoveNext` / `Current` for an external enumerator `E`: the refs go against the
@@ -108,7 +108,7 @@ module EmitLoops =
                 enumeratorTy,
                 false,
                 false,
-                FTFun(FTConst(RuntimeNames.unitKey, EqArray.empty), FTConst(RuntimeNames.boolKey, EqArray.empty))
+                FTFun(RuntimeNames.unitTy, RuntimeNames.boolTy)
             )
 
         let cur =
@@ -244,12 +244,7 @@ module EmitLoops =
             let geHandle =
                 match getEnum with
                 | ForInGetEnumG.External geKey ->
-                    env.Provider.ExternalMemberRef(
-                        geKey,
-                        false,
-                        false,
-                        FTFun(FTConst(RuntimeNames.unitKey, EqArray.empty), enumeratorTy)
-                    )
+                    env.Provider.ExternalMemberRef(geKey, false, false, FTFun(RuntimeNames.unitTy, enumeratorTy))
                 | ForInGetEnumG.Local -> fst (resolveInstanceMember env (nominalOfExpr source) "GetEnumerator" [])
                 | ForInGetEnumG.ConstrainedInterface(ifaceKey, ifaceArgs) ->
                     constrainedSlot env ifaceKey ifaceArgs "GetEnumerator"
@@ -311,12 +306,7 @@ module EmitLoops =
                     MemberKind.Method
 
             let geHandle =
-                env.Provider.ExternalMemberRef(
-                    geKey,
-                    false,
-                    false,
-                    FTFun(FTConst(RuntimeNames.unitKey, EqArray.empty), enumTy)
-                )
+                env.Provider.ExternalMemberRef(geKey, false, false, FTFun(RuntimeNames.unitTy, enumTy))
 
             let mnKey =
                 SymbolKeyOps.memberKey
@@ -327,12 +317,7 @@ module EmitLoops =
                     MemberKind.Method
 
             let mnHandle =
-                env.Provider.ExternalMemberRef(
-                    mnKey,
-                    false,
-                    false,
-                    FTFun(FTConst(RuntimeNames.unitKey, EqArray.empty), FTConst(RuntimeNames.boolKey, EqArray.empty))
-                )
+                env.Provider.ExternalMemberRef(mnKey, false, false, FTFun(RuntimeNames.unitTy, RuntimeNames.boolTy))
 
             let curKey =
                 SymbolKeyOps.memberKey
@@ -380,9 +365,8 @@ module EmitLoops =
         // `a`/`b` are evaluated once, into the loop variable and a hidden limit local.
         // The loop exits *before* the increment when `i = limit`, so the last iteration
         // cannot overflow `i + 1` at `b = Int32.MaxValue`.
-        let intTy = FTConst(RuntimeNames.intKey, EqArray.empty)
-        let iSlot = b.Local intTy
-        let limitSlot = b.Local intTy
+        let iSlot = b.Local RuntimeNames.intTy
+        let limitSlot = b.Local RuntimeNames.intTy
         env.Slots.[var] <- iSlot
 
         recur env b startExpr

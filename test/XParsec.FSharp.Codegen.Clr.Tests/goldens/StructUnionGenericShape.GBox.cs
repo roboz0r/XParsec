@@ -7,6 +7,7 @@ type GBox<'T> =
 
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Runtime.InteropServices;
 using Vesper;
 
@@ -50,7 +51,7 @@ public readonly struct GBox<T> : IEquatable<GBox<T>>, IStructuralFormattable
 
 	public int Tag => _tag;
 
-	public GBox(int _tag, Payload _payload)
+	internal GBox(int _tag, Payload _payload)
 	{
 		this._tag = _tag;
 		this._payload = _payload;
@@ -70,11 +71,13 @@ public readonly struct GBox<T> : IEquatable<GBox<T>>, IStructuralFormattable
 		return new GBox<T>(1, payload);
 	}
 
+	[EditorBrowsable(EditorBrowsableState.Never)]
 	public T Get_Val_0()
 	{
 		return _payload._val0;
 	}
 
+	[EditorBrowsable(EditorBrowsableState.Never)]
 	public int Get_Num_0()
 	{
 		return _payload._data.Num._n;
@@ -94,16 +97,14 @@ public readonly struct GBox<T> : IEquatable<GBox<T>>, IStructuralFormattable
 	{
 		HashCode hashCode = default(HashCode);
 		hashCode.Add(_tag);
-		if (_tag != 0)
+		switch (_tag)
 		{
-			if (_tag == 1)
-			{
-				hashCode.Add(_payload._data.Num._n);
-			}
-		}
-		else
-		{
+		case 0:
 			hashCode.Add(_payload._val0);
+			break;
+		case 1:
+			hashCode.Add(_payload._data.Num._n);
+			break;
 		}
 		return hashCode.ToHashCode();
 	}
@@ -113,61 +114,40 @@ public readonly struct GBox<T> : IEquatable<GBox<T>>, IStructuralFormattable
 		object obj2 = ((obj is GBox<T>) ? obj : null);
 		if (obj2 != null)
 		{
-			GBox<T> gBox = (GBox<T>)obj2;
-			if (_tag == gBox._tag)
-			{
-				if (_tag != 0)
-				{
-					if (_tag != 1 || EqualityComparer<int>.Default.Equals(_payload._data.Num._n, gBox._payload._data.Num._n))
-					{
-						goto IL_00a5;
-					}
-				}
-				else if (EqualityComparer<T>.Default.Equals(_payload._val0, gBox._payload._val0))
-				{
-					goto IL_00a5;
-				}
-			}
+			GBox<T> other = (GBox<T>)obj2;
+			return Equals(other);
 		}
 		return false;
-		IL_00a5:
-		return true;
 	}
 
 	public bool Equals(GBox<T> other)
 	{
 		if (_tag == other._tag)
 		{
-			if (_tag != 0)
+			return _tag switch
 			{
-				if (_tag != 1 || EqualityComparer<int>.Default.Equals(_payload._data.Num._n, other._payload._data.Num._n))
-				{
-					goto IL_0091;
-				}
-			}
-			else if (EqualityComparer<T>.Default.Equals(_payload._val0, other._payload._val0))
-			{
-				goto IL_0091;
-			}
+				0 => EqualityComparer<T>.Default.Equals(_payload._val0, other._payload._val0), 
+				1 => _payload._data.Num._n == other._payload._data.Num._n, 
+				_ => true, 
+			};
 		}
 		return false;
-		IL_0091:
-		return true;
 	}
 
 	public void Format(IFormatSink sink)
 	{
-		if (_tag != 0)
+		switch (_tag)
 		{
-			sink.BeginCase("Num");
-			sink.Child((object)_payload._data.Num._n);
-			sink.EndCase();
-		}
-		else
-		{
+		case 0:
 			sink.BeginCase("Val");
 			sink.Child((object)_payload._val0);
 			sink.EndCase();
+			break;
+		case 1:
+			sink.BeginCase("Num");
+			sink.Child((object)_payload._data.Num._n);
+			sink.EndCase();
+			break;
 		}
 	}
 }

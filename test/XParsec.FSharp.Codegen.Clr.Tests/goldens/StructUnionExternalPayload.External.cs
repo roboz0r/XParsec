@@ -1,12 +1,11 @@
 /*
 [<Struct>]
-type Storage =
+type External =
     | Scalars of x: int * y: bool
     | Nested of inner: Inner
     | Text of s: string
-    | Labelled of t: Tagged
     | Id of id: System.Guid
-    | Both of k: int * name: string
+    | Stamp of at: System.DateTime
 */
 
 using System;
@@ -16,17 +15,17 @@ using System.Runtime.InteropServices;
 using Vesper;
 
 [Struct]
-public readonly struct Storage : IEquatable<Storage>, IStructuralFormattable
+public readonly struct External : IEquatable<External>, IStructuralFormattable
 {
 	internal struct Payload
 	{
-		internal Storage$Data _data;
+		internal External$Data _data;
 
 		internal object _ref0;
 
-		internal Tagged _val0;
+		internal Guid _val0;
 
-		internal Guid _val1;
+		internal DateTime _val1;
 	}
 
 	public readonly struct Payload_Scalars
@@ -67,23 +66,11 @@ public readonly struct Storage : IEquatable<Storage>, IStructuralFormattable
 		}
 	}
 
-	public readonly struct Payload_Labelled
-	{
-		private readonly Payload _payload;
-
-		public Tagged t => _payload._val0;
-
-		internal Payload_Labelled(Payload _payload)
-		{
-			this._payload = _payload;
-		}
-	}
-
 	public readonly struct Payload_Id
 	{
 		private readonly Payload _payload;
 
-		public Guid id => _payload._val1;
+		public Guid id => _payload._val0;
 
 		internal Payload_Id(Payload _payload)
 		{
@@ -91,15 +78,13 @@ public readonly struct Storage : IEquatable<Storage>, IStructuralFormattable
 		}
 	}
 
-	public readonly struct Payload_Both
+	public readonly struct Payload_Stamp
 	{
 		private readonly Payload _payload;
 
-		public int k => _payload._data.Both._k;
+		public DateTime at => _payload._val1;
 
-		public string name => (string)_payload._ref0;
-
-		internal Payload_Both(Payload _payload)
+		internal Payload_Stamp(Payload _payload)
 		{
 			this._payload = _payload;
 		}
@@ -111,54 +96,46 @@ public readonly struct Storage : IEquatable<Storage>, IStructuralFormattable
 
 	public int Tag => _tag;
 
-	internal Storage(int _tag, Payload _payload)
+	internal External(int _tag, Payload _payload)
 	{
 		this._tag = _tag;
 		this._payload = _payload;
 	}
 
-	public static Storage Scalars(int arg0, bool arg1)
+	public static External Scalars(int arg0, bool arg1)
 	{
 		Payload payload = default(Payload);
 		payload._data.Scalars._x = arg0;
 		payload._data.Scalars._y = arg1;
-		return new Storage(0, payload);
+		return new External(0, payload);
 	}
 
-	public static Storage Nested(Inner arg0)
+	public static External Nested(Inner arg0)
 	{
 		Payload payload = default(Payload);
 		payload._data.Nested._inner = arg0;
-		return new Storage(1, payload);
+		return new External(1, payload);
 	}
 
-	public static Storage Text(string arg0)
+	public static External Text(string arg0)
 	{
 		Payload payload = default(Payload);
 		payload._ref0 = arg0;
-		return new Storage(2, payload);
+		return new External(2, payload);
 	}
 
-	public static Storage Labelled(Tagged arg0)
+	public static External Id(Guid arg0)
 	{
 		Payload payload = default(Payload);
 		payload._val0 = arg0;
-		return new Storage(3, payload);
+		return new External(3, payload);
 	}
 
-	public static Storage Id(Guid arg0)
+	public static External Stamp(DateTime arg0)
 	{
 		Payload payload = default(Payload);
 		payload._val1 = arg0;
-		return new Storage(4, payload);
-	}
-
-	public static Storage Both(int arg0, string arg1)
-	{
-		Payload payload = default(Payload);
-		payload._data.Both._k = arg0;
-		payload._ref0 = arg1;
-		return new Storage(5, payload);
+		return new External(4, payload);
 	}
 
 	[EditorBrowsable(EditorBrowsableState.Never)]
@@ -186,27 +163,15 @@ public readonly struct Storage : IEquatable<Storage>, IStructuralFormattable
 	}
 
 	[EditorBrowsable(EditorBrowsableState.Never)]
-	public Tagged Get_Labelled_0()
+	public Guid Get_Id_0()
 	{
 		return _payload._val0;
 	}
 
 	[EditorBrowsable(EditorBrowsableState.Never)]
-	public Guid Get_Id_0()
+	public DateTime Get_Stamp_0()
 	{
 		return _payload._val1;
-	}
-
-	[EditorBrowsable(EditorBrowsableState.Never)]
-	public int Get_Both_0()
-	{
-		return _payload._data.Both._k;
-	}
-
-	[EditorBrowsable(EditorBrowsableState.Never)]
-	public string Get_Both_1()
-	{
-		return (string)_payload._ref0;
 	}
 
 	public Payload_Scalars Get_Scalars()
@@ -224,19 +189,14 @@ public readonly struct Storage : IEquatable<Storage>, IStructuralFormattable
 		return new Payload_Text(_payload);
 	}
 
-	public Payload_Labelled Get_Labelled()
-	{
-		return new Payload_Labelled(_payload);
-	}
-
 	public Payload_Id Get_Id()
 	{
 		return new Payload_Id(_payload);
 	}
 
-	public Payload_Both Get_Both()
+	public Payload_Stamp Get_Stamp()
 	{
-		return new Payload_Both(_payload);
+		return new Payload_Stamp(_payload);
 	}
 
 	public override int GetHashCode()
@@ -261,53 +221,43 @@ public readonly struct Storage : IEquatable<Storage>, IStructuralFormattable
 		case 4:
 			hashCode.Add(_payload._val1);
 			break;
-		case 5:
-			hashCode.Add(_payload._data.Both._k);
-			hashCode.Add((string)_payload._ref0);
-			break;
 		}
 		return hashCode.ToHashCode();
 	}
 
 	public override bool Equals(object obj)
 	{
-		object obj2 = ((obj is Storage) ? obj : null);
+		object obj2 = ((obj is External) ? obj : null);
 		if (obj2 != null)
 		{
-			Storage other = (Storage)obj2;
+			External other = (External)obj2;
 			return Equals(other);
 		}
 		return false;
 	}
 
-	public bool Equals(Storage other)
+	public bool Equals(External other)
 	{
 		if (_tag == other._tag)
 		{
 			switch (_tag)
 			{
 			case 0:
-				if (_payload._data.Scalars._x == other._payload._data.Scalars._x)
-				{
-					return _payload._data.Scalars._y == other._payload._data.Scalars._y;
-				}
 				break;
 			case 1:
 				return EqualityComparer<Inner>.Default.Equals(_payload._data.Nested._inner, other._payload._data.Nested._inner);
 			case 2:
 				return string.Equals((string)_payload._ref0, (string)other._payload._ref0);
 			case 3:
-				return EqualityComparer<Tagged>.Default.Equals(_payload._val0, other._payload._val0);
+				return EqualityComparer<Guid>.Default.Equals(_payload._val0, other._payload._val0);
 			case 4:
-				return EqualityComparer<Guid>.Default.Equals(_payload._val1, other._payload._val1);
-			case 5:
-				if (_payload._data.Both._k == other._payload._data.Both._k)
-				{
-					return string.Equals((string)_payload._ref0, (string)other._payload._ref0);
-				}
-				break;
+				return EqualityComparer<DateTime>.Default.Equals(_payload._val1, other._payload._val1);
 			default:
 				return true;
+			}
+			if (_payload._data.Scalars._x == other._payload._data.Scalars._x)
+			{
+				return _payload._data.Scalars._y == other._payload._data.Scalars._y;
 			}
 		}
 		return false;
@@ -334,26 +284,20 @@ public readonly struct Storage : IEquatable<Storage>, IStructuralFormattable
 			sink.EndCase();
 			break;
 		case 3:
-			sink.BeginCase("Labelled");
+			sink.BeginCase("Id");
 			sink.Child((object)_payload._val0);
 			sink.EndCase();
 			break;
 		case 4:
-			sink.BeginCase("Id");
+			sink.BeginCase("Stamp");
 			sink.Child((object)_payload._val1);
-			sink.EndCase();
-			break;
-		case 5:
-			sink.BeginCase("Both");
-			sink.Child((object)_payload._data.Both._k);
-			sink.Child(_payload._ref0);
 			sink.EndCase();
 			break;
 		}
 	}
 }
 [StructLayout(LayoutKind.Explicit)]
-internal struct Storage$Data
+internal struct External$Data
 {
 	internal struct Data_Scalars
 	{
@@ -367,17 +311,9 @@ internal struct Storage$Data
 		internal Inner _inner;
 	}
 
-	internal struct Data_Both
-	{
-		internal int _k;
-	}
-
 	[FieldOffset(0)]
 	internal Data_Scalars Scalars;
 
 	[FieldOffset(0)]
 	internal Data_Nested Nested;
-
-	[FieldOffset(0)]
-	internal Data_Both Both;
 }

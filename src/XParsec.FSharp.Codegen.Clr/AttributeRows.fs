@@ -32,6 +32,35 @@ module ClrAttributeNames =
         else
             ValueNone
 
+/// A compiler-owned `CustomAttribute` row on a type or method, written without a source
+/// attribute.
+[<RequireQualifiedAccess>]
+type SyntheticAttribute =
+    /// `System.Runtime.CompilerServices.IsReadOnlyAttribute`: a consumer reads it as C#'s
+    /// `readonly struct` and skips defensive copies.
+    | IsReadOnly
+    /// `System.Runtime.CompilerServices.IsByRefLikeAttribute`: the CLR confines the value
+    /// type to the stack.
+    | IsByRefLike
+    /// `System.ComponentModel.EditorBrowsable(EditorBrowsableState.Never)`: the member is
+    /// withheld from IDE completion.
+    | EditorBrowsableNever
+
+module SyntheticAttribute =
+
+    /// The II.23.3 blob: prolog, the fixed arguments, zero named arguments.
+    let blob (attr: SyntheticAttribute) : BlobBuilder =
+        let b = BlobBuilder()
+        b.WriteUInt16(1us)
+
+        match attr with
+        | SyntheticAttribute.IsReadOnly
+        | SyntheticAttribute.IsByRefLike -> ()
+        | SyntheticAttribute.EditorBrowsableNever -> b.WriteInt32(1)
+
+        b.WriteUInt16(0us)
+        b
+
 /// Why an argument list has no II.23.3 blob; the caller emits no row.
 [<RequireQualifiedAccess>]
 type AttributeBlobRejection =

@@ -308,7 +308,6 @@ type FlatUnionPlacements =
 [<RequireQualifiedAccess>]
 module FlatUnionPlacements =
 
-    let private objTy = FTConst(RuntimeNames.objKey, EqArray.empty)
 
     /// One declared case field with both spellings of its name.
     type private DeclaredField =
@@ -441,7 +440,8 @@ module FlatUnionPlacements =
 
                                     dataFields.Add overlaid
                                     UnionFieldAccess.Overlaid overlaid
-                                | UnionStorage.Reference -> UnionFieldAccess.Erased(refs.Claim(objTy, claimed), f.Ty)
+                                | UnionStorage.Reference ->
+                                    UnionFieldAccess.Erased(refs.Claim(RuntimeNames.objTy, claimed), f.Ty)
                                 | UnionStorage.Exact -> UnionFieldAccess.Direct(exacts.Claim(f.Ty, claimed))
                         ]
 

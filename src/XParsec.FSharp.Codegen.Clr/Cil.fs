@@ -255,6 +255,15 @@ module Cil =
         il.Encoder.Branch(ILOpCode.Beq, label)
         il.Adjust -2
 
+    /// `switch` over `targets`, pops the `int32` selector.
+    let emitSwitch (il: Il) (targets: LabelHandle list) : unit =
+        let s = il.Encoder.Switch(List.length targets)
+
+        for label in targets do
+            s.Branch label
+
+        il.Adjust -1
+
     /// Pops the exception object. The path terminates here, so the tracked depth
     /// matters only until the next `Mark` resets it.
     let emitThrow (il: Il) : unit =

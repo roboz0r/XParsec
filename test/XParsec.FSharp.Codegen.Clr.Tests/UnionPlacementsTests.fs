@@ -65,7 +65,7 @@ let tests =
                         "S.0 -> _ref0 as string"
                         // A struct record of scalars is unmanaged and joins the overlay;
                         // `Guid` and `DateTime` are undetermined and take an exact slot each.
-                        "Payload slots: _data: Payload$Data, _ref0: obj, _val0: Guid, _val1: DateTime"
+                        "External slots: _data: External$Data, _ref0: obj, _val0: Guid, _val1: DateTime"
                         "Scalars.0 -> _data.Data_Scalars._x"
                         "Scalars.1 -> _data.Data_Scalars._y"
                         "Nested.0 -> _data.Data_Nested._inner"

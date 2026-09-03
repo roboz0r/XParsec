@@ -494,7 +494,7 @@ module EmitPattern =
                 buildMatchTest env b castSlot nextLabel inner
             | ClrRepr.Value
             | ClrRepr.Boxable _ ->
-                let boxedSlot = b.Local(FTConst(RuntimeNames.objKey, EqArray.empty))
+                let boxedSlot = b.Local(RuntimeNames.objTy)
                 b.Add(ILInstr.Stloc boxedSlot)
                 b.Add(ILInstr.Ldloc boxedSlot)
                 b.Add(ILInstr.Brfalse nextLabel)

@@ -121,13 +121,12 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
         match which with
         | UnionMember.Ctor ->
             let s = BlobBuilder()
-            let intTy = FTConst(RuntimeNames.intKey, EqArray.empty)
 
             let paramTys =
                 match UnionCtorShape.ofRegime shape.Regime with
-                | UnionCtorShape.FlatTagged -> [ intTy; payloadTy ]
+                | UnionCtorShape.FlatTagged -> [ RuntimeNames.intTy; payloadTy ]
                 | UnionCtorShape.Flat -> [ for s in slots -> s.Ty ]
-                | UnionCtorShape.TagOnly -> [ intTy ]
+                | UnionCtorShape.TagOnly -> [ RuntimeNames.intTy ]
                 | UnionCtorShape.Nullary -> []
 
             BlobEncoder(s)

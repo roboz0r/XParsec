@@ -289,6 +289,20 @@ TAST shape.
   considered and skipped in its favour, so same-name different-type
   fields across cases stay representable (pinned in
   `StructUnionSameNameFields`).
+- **A struct union's storage stays mutable.** The union itself and its
+  `Payload_<Case>` views carry `IsReadOnly` with `initonly` fields; the
+  `Payload`, `$Data` overlay and `Data_<Case>` structs are assembly-visible
+  with writable fields, and a factory writes the case's fields through
+  `ldflda` into a zeroed `Payload` local. Making the storage `readonly` in
+  C#'s sense means `initonly` fields built through a constructor per storage
+  type and a `newobj` chain per factory. Measured under `DOTNET_JitDisasm`
+  on .NET 10 (2026-09): RyuJIT reads neither `IsReadOnlyAttribute` nor
+  instance `initonly`, so the readonly and mutable constructor-chain
+  variants produce identical machine code; physical promotion already
+  scalarises the `ldflda` form completely, overlay included; and the
+  constructor chain pushes the factory past the inline budget, so consumers
+  gain a call and a stack round trip. Readonly storage is a cost with no
+  runtime upside, so it is not a goal.
 - **FSC's convenience members are non-goals, with one exception.** `Tags`,
   `Is<Case>`, `get_Item`, `__DebugDisplay` and the debugger proxies are
   deliberately not emitted, and a nullary case is reached through its
@@ -298,7 +312,10 @@ TAST shape.
   match arm in another assembly reads a `StructTagged` payload only
   through them (`UnionCaseAccess.Getter`), so the physical layout can
   change without touching a referencing assembly. They are methods rather than
-  `Item` properties so the FSC convention is not half-followed. A struct
+  `Item` properties so the FSC convention is not half-followed, and they carry
+  `EditorBrowsable(Never)`: ABI, withheld from IDE completion. The C#-facing
+  surface (`Try<Case>(out Payload_<Case>)` or the C# union proposal's shape) is
+  deferred until C# unions settle. A struct
   union's `Get_<Case>` (`MethodKey.UnionCaseViewAccessor`) is a method of
   the same family on a PAYLOAD-BEARING case, returning that case's
   `Payload_<Case>` view; the static factory owns the bare case name, and

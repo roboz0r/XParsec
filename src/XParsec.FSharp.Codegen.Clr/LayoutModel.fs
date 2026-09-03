@@ -137,8 +137,8 @@ module internal MethodAttrSets =
         ||| MethodAttributes.SpecialName
         ||| MethodAttributes.RTSpecialName
 
-    // A case view's `.ctor(Payload)`: `Payload` is assembly-visible, so the ctor is too,
-    // and a consumer outside the assembly obtains a view through `Get_<Case>`.
+    // A union's `.ctor` and a case view's `.ctor(Payload)`: the public route to a value is
+    // the static factory, and to a view `Get_<Case>`.
     let assemblyCtorAttrs =
         (ctorAttrs &&& ~~~MethodAttributes.MemberAccessMask)
         ||| MethodAttributes.Assembly
@@ -426,6 +426,16 @@ type internal MethodKey =
     /// and under entry-file shadowing.
     | StaticFn of SymbolKey
     | Main
+
+[<RequireQualifiedAccess>]
+module internal MethodKey =
+
+    /// The compiler-owned attribute rows on a method row. The `Get_<Case>_<i>` readers are
+    /// the cross-assembly ABI of a match arm, withheld from IDE completion.
+    let syntheticAttributes (key: MethodKey) : SyntheticAttribute list =
+        match key with
+        | MethodKey.UnionCaseGetter _ -> [ SyntheticAttribute.EditorBrowsableNever ]
+        | _ -> []
 
 /// Identity of one `Property` row in the layout.
 [<RequireQualifiedAccess>]

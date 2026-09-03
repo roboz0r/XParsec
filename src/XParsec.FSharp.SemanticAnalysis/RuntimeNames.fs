@@ -300,6 +300,12 @@ module RuntimeNames =
     let int16Key: TypeKey = primitiveKey "int16"
     let uint16Key: TypeKey = primitiveKey "uint16"
     let intKey: TypeKey = primitiveKey "int"
+
+    let unitTy: FrozenType = FTConst(unitKey, EqArray.empty)
+    let boolTy: FrozenType = FTConst(boolKey, EqArray.empty)
+    let objTy: FrozenType = FTConst(objKey, EqArray.empty)
+    let intTy: FrozenType = FTConst(intKey, EqArray.empty)
+
     let uint32Key: TypeKey = primitiveKey "uint32"
     let int64Key: TypeKey = primitiveKey "int64"
     let uint64Key: TypeKey = primitiveKey "uint64"

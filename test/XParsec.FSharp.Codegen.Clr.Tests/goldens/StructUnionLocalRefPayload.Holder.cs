@@ -8,6 +8,7 @@ type Holder<'T> =
 
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using Vesper;
 
 [Struct]
@@ -62,7 +63,7 @@ public readonly struct Holder<T> : IEquatable<Holder<T>>, IStructuralFormattable
 
 	public int Tag => _tag;
 
-	public Holder(int _tag, Payload _payload)
+	internal Holder(int _tag, Payload _payload)
 	{
 		this._tag = _tag;
 		this._payload = _payload;
@@ -89,16 +90,19 @@ public readonly struct Holder<T> : IEquatable<Holder<T>>, IStructuralFormattable
 		return new Holder<T>(2, payload);
 	}
 
+	[EditorBrowsable(EditorBrowsableState.Never)]
 	public T Get_Val_0()
 	{
 		return _payload._val0;
 	}
 
+	[EditorBrowsable(EditorBrowsableState.Never)]
 	public string Get_Text_0()
 	{
 		return (string)_payload._ref0;
 	}
 
+	[EditorBrowsable(EditorBrowsableState.Never)]
 	public Node Get_Rec_0()
 	{
 		return (Node)_payload._ref0;
@@ -123,23 +127,17 @@ public readonly struct Holder<T> : IEquatable<Holder<T>>, IStructuralFormattable
 	{
 		HashCode hashCode = default(HashCode);
 		hashCode.Add(_tag);
-		if (_tag != 0)
+		switch (_tag)
 		{
-			if (_tag != 1)
-			{
-				if (_tag == 2)
-				{
-					hashCode.Add((Node)_payload._ref0);
-				}
-			}
-			else
-			{
-				hashCode.Add((string)_payload._ref0);
-			}
-		}
-		else
-		{
+		case 0:
 			hashCode.Add(_payload._val0);
+			break;
+		case 1:
+			hashCode.Add((string)_payload._ref0);
+			break;
+		case 2:
+			hashCode.Add((Node)_payload._ref0);
+			break;
 		}
 		return hashCode.ToHashCode();
 	}
@@ -149,84 +147,46 @@ public readonly struct Holder<T> : IEquatable<Holder<T>>, IStructuralFormattable
 		object obj2 = ((obj is Holder<T>) ? obj : null);
 		if (obj2 != null)
 		{
-			Holder<T> holder = (Holder<T>)obj2;
-			if (_tag == holder._tag)
-			{
-				if (_tag != 0)
-				{
-					if (_tag != 1)
-					{
-						if (_tag != 2 || EqualityComparer<Node>.Default.Equals((Node)_payload._ref0, (Node)holder._payload._ref0))
-						{
-							goto IL_00db;
-						}
-					}
-					else if (EqualityComparer<string>.Default.Equals((string)_payload._ref0, (string)holder._payload._ref0))
-					{
-						goto IL_00db;
-					}
-				}
-				else if (EqualityComparer<T>.Default.Equals(_payload._val0, holder._payload._val0))
-				{
-					goto IL_00db;
-				}
-			}
+			Holder<T> other = (Holder<T>)obj2;
+			return Equals(other);
 		}
 		return false;
-		IL_00db:
-		return true;
 	}
 
 	public bool Equals(Holder<T> other)
 	{
 		if (_tag == other._tag)
 		{
-			if (_tag != 0)
+			return _tag switch
 			{
-				if (_tag != 1)
-				{
-					if (_tag != 2 || EqualityComparer<Node>.Default.Equals((Node)_payload._ref0, (Node)other._payload._ref0))
-					{
-						goto IL_00c7;
-					}
-				}
-				else if (EqualityComparer<string>.Default.Equals((string)_payload._ref0, (string)other._payload._ref0))
-				{
-					goto IL_00c7;
-				}
-			}
-			else if (EqualityComparer<T>.Default.Equals(_payload._val0, other._payload._val0))
-			{
-				goto IL_00c7;
-			}
+				0 => EqualityComparer<T>.Default.Equals(_payload._val0, other._payload._val0), 
+				1 => string.Equals((string)_payload._ref0, (string)other._payload._ref0), 
+				2 => EqualityComparer<Node>.Default.Equals((Node)_payload._ref0, (Node)other._payload._ref0), 
+				_ => true, 
+			};
 		}
 		return false;
-		IL_00c7:
-		return true;
 	}
 
 	public void Format(IFormatSink sink)
 	{
-		if (_tag != 0)
+		switch (_tag)
 		{
-			if (_tag != 1)
-			{
-				sink.BeginCase("Rec");
-				sink.Child((object)(Node)_payload._ref0);
-				sink.EndCase();
-			}
-			else
-			{
-				sink.BeginCase("Text");
-				sink.Child((object)(string)_payload._ref0);
-				sink.EndCase();
-			}
-		}
-		else
-		{
+		case 0:
 			sink.BeginCase("Val");
 			sink.Child((object)_payload._val0);
 			sink.EndCase();
+			break;
+		case 1:
+			sink.BeginCase("Text");
+			sink.Child(_payload._ref0);
+			sink.EndCase();
+			break;
+		case 2:
+			sink.BeginCase("Rec");
+			sink.Child(_payload._ref0);
+			sink.EndCase();
+			break;
 		}
 	}
 }

@@ -983,7 +983,7 @@ let structUnionCorpus: StructUnionProgram list =
         }
         {
             Program = "StructUnionExternalPayload"
-            Union = "Payload"
+            Union = "External"
             Arity = 0
         }
         {

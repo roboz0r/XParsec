@@ -161,6 +161,20 @@ let structUnionTests =
                     (shape.GetMethod("Get_Pair_1").Invoke(pair, [||]))
                     (box 5)
                     "Pair.b reads through the overlay"
+
+                // The readers are ABI, withheld from IDE completion; the views are surface.
+                let editorBrowsableNever (m: MethodInfo) =
+                    m.GetCustomAttributesData()
+                    |> Seq.exists (fun a ->
+                        a.AttributeType.FullName = "System.ComponentModel.EditorBrowsableAttribute"
+                        && a.ConstructorArguments.[0].Value = box 1
+                    )
+
+                for name in [ "Get_Point_0"; "Get_Pair_0"; "Get_Pair_1" ] do
+                    Expect.isTrue (editorBrowsableNever (shape.GetMethod name)) (name + " is EditorBrowsable(Never)")
+
+                for name in [ "Get_Point"; "Get_Pair"; "Point"; "Pair" ] do
+                    Expect.isFalse (editorBrowsableNever (shape.GetMethod name)) (name + " stays browsable")
             }
 
             // The ten lines are `score` over each constructed value, then the equalities:

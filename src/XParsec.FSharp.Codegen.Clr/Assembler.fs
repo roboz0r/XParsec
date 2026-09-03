@@ -164,7 +164,7 @@ type internal Assembler
 
             enums.[ed.Decl.TypeKey] <-
                 {
-                    Repr = Emit.EmittedEnumRepr.NumericEnum caseValues
+                    Repr = Emit.EmittedEnumRepr.NumericEnum(ed.Underlying, caseValues)
                 }
 
         // A project-local seq class's `GetEnumerator` RETURN type is the enumerator over
@@ -495,11 +495,30 @@ type internal Assembler
     // is free.
     let mutable attributeRows: AttributeRowPrep.Prepared = { Rows = []; Skipped = [] }
 
+    let addSyntheticAttribute (parent: EntityHandle) (attr: SyntheticAttribute) =
+        ctx.AddCustomAttribute(parent, provider.SyntheticAttributeCtor attr, SyntheticAttribute.blob attr)
+        |> ignore
+
     member _.Provider = provider
     member _.Icodegen = icodegen
 
     /// The BCL members and heap strings the synthesised structural bodies call.
     member _.Structural: IStructuralHandles = provider
+
+    /// How a structural body compares a field of type `ty`: a primitive by its own key,
+    /// a project-local numeric enum by its underlying key, everything else through the
+    /// BCL comparers.
+    member _.FieldCompareOf(ty: FrozenType) : EmitStructural.FieldCompare =
+        match ty with
+        | FTConst(key, args) when args.IsEmpty -> EmitStructural.FieldCompare.ofPrimitiveKey key
+        | FTEnum key ->
+            match enums.TryGetValue key with
+            | true,
+              {
+                  Repr = Emit.EmittedEnumRepr.NumericEnum(underlying, _)
+              } -> EmitStructural.FieldCompare.ofPrimitiveKey underlying
+            | _ -> EmitStructural.FieldCompare.Comparer
+        | _ -> EmitStructural.FieldCompare.Comparer
 
     /// Lower an IL body and stage it in the body stream, yielding the offset the
     /// `MethodDef` row points at.
@@ -947,6 +966,9 @@ type internal Assembler
                     (MetadataTokens.GetRowNumber(toEntity predicted))
                     (MetadataTokens.GetRowNumber(toEntity handle))
 
+            for a in MethodKey.syntheticAttributes row.Key do
+                addSyntheticAttribute (toEntity handle) a
+
             p.MethodTypars
             |> List.iteri (fun i n -> genericParams.Add(toEntity handle, i, n))
 
@@ -1013,7 +1035,7 @@ type internal Assembler
         // Union, record, class and closure `TypeDefinition` rows share one recipe.
         // Walking the layout in order keeps the `InterfaceImpl` / `GenericParam` rows
         // ascending (sorted by `Class` / `TypeOrMethodDef`).
-        let addNominalRow (node: TypeNode) (attrs: TypeAttributes) (markerAttrCtors: EntityHandle list) =
+        let addNominalRow (node: TypeNode) (attrs: TypeAttributes) (markers: SyntheticAttribute list) =
             let slot = node.Slot
 
             let extras =
@@ -1034,14 +1056,8 @@ type internal Assembler
             verifyTypeHandle slot typeHandle
             addNesting node typeHandle
 
-            // A marker attribute is parameterless: blob = prolog `0x0001` + zero named
-            // args = `01 00 00 00`. There is no `TypeAttributes` bit for one.
-            for attrCtor in markerAttrCtors do
-                let blob = BlobBuilder()
-                blob.WriteUInt16(1us)
-                blob.WriteUInt16(0us)
-
-                ctx.AddCustomAttribute(toEntity typeHandle, attrCtor, blob) |> ignore
+            for m in markers do
+                addSyntheticAttribute (toEntity typeHandle) m
 
             for iface in extras.Interfaces do
                 ctx.AddInterfaceImplementation(typeHandle, iface)
@@ -1049,7 +1065,7 @@ type internal Assembler
             slot.Typars
             |> List.iteri (fun i n -> genericParams.Add(toEntity typeHandle, i, n))
 
-        let addUnionValueTypeRow (node: TypeNode) (attrs: TypeAttributes) (markerAttrCtors: EntityHandle list) =
+        let addUnionValueTypeRow (node: TypeNode) (attrs: TypeAttributes) (markers: SyntheticAttribute list) =
             typeRowExtras.Add(
                 node.Slot.Key,
                 {
@@ -1058,7 +1074,7 @@ type internal Assembler
                 }
             )
 
-            addNominalRow node attrs markerAttrCtors
+            addNominalRow node attrs markers
 
         // A struct union's `Payload` and overlay types: `assembly`-visible value types,
         // read directly by match arms in this assembly.
@@ -1098,7 +1114,7 @@ type internal Assembler
             | TypeSlotKind.Union(valueKind, regime) ->
                 let markers =
                     if valueKind.IsValueType then
-                        [ provider.IsReadOnlyAttrCtor ]
+                        [ SyntheticAttribute.IsReadOnly ]
                     else
                         []
 
@@ -1128,14 +1144,14 @@ type internal Assembler
             // The union's public consumer surface: nested-public over `assembly`-visible
             // storage, and `IsReadOnly` because its one field is `initonly`.
             | TypeSlotKind.UnionCaseView ->
-                addUnionValueTypeRow node (classAttrsOf true true) [ provider.IsReadOnlyAttrCtor ]
+                addUnionValueTypeRow node (classAttrsOf true true) [ SyntheticAttribute.IsReadOnly ]
 
             | TypeSlotKind.Record valueKind -> addNominalRow node (classAttrsOf true valueKind.IsValueType) []
 
             | TypeSlotKind.Class(isSealed, valueKind) ->
                 let markers =
                     if valueKind = ClassValueKind.RefStruct then
-                        [ provider.IsByRefLikeAttrCtor ]
+                        [ SyntheticAttribute.IsByRefLike ]
                     else
                         []
 

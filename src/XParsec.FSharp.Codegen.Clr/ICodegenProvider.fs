@@ -305,6 +305,10 @@ type IStructuralHandles =
     abstract ComparerDefault: elem: FrozenType -> EntityHandle
     /// `Comparer<T>::Compare(T, T) : int32`.
     abstract ComparerCompare: elem: FrozenType -> EntityHandle
+    /// `static bool String::Equals(string, string)`, an ordinal comparison.
+    abstract StringEquals: EntityHandle
+    /// `static int32 String::CompareOrdinal(string, string)`.
+    abstract StringCompareOrdinal: EntityHandle
     /// `System.ArgumentException::.ctor(string)`, which an `object`-typed `CompareTo`
     /// throws on an argument of another type.
     abstract ArgumentExceptionCtor: EntityHandle

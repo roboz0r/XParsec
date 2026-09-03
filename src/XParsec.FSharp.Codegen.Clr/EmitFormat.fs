@@ -267,7 +267,7 @@ module EmitFormat =
                     match d.Width with
                     | ValueNone -> None
                     | ValueSome widthExpr ->
-                        let l = b.Local(FTConst(RuntimeNames.intKey, EqArray.empty))
+                        let l = b.Local(RuntimeNames.intTy)
                         buildExpr env b widthExpr
 
                         let form =
@@ -296,7 +296,7 @@ module EmitFormat =
                     match d.Precision with
                     | ValueNone -> None
                     | ValueSome precExpr ->
-                        let l = b.Local(FTConst(RuntimeNames.intKey, EqArray.empty))
+                        let l = b.Local(RuntimeNames.intTy)
                         buildExpr env b precExpr
 
                         match d.Spec.Source with

@@ -11,8 +11,6 @@ open NominalShared
 /// abstract.
 module internal UnionEmit =
 
-    let private intTy = FTConst(RuntimeNames.intKey, EqArray.empty)
-    let private boolTy = FTConst(RuntimeNames.boolKey, EqArray.empty)
 
     /// The self-describing type of a case, in the scope of the union's own typars.
     let private caseTyOf (td: TastAccessor.TypeDecl) (caseName: string) : FrozenType =
@@ -131,6 +129,7 @@ module internal UnionEmit =
                     Path = handlesOf pass (readPathOf td pass.Placements f.Access)
                     Ty = f.FieldTy
                     Cast = UnionFieldAccess.cast f.Access |> ValueOption.map asm.Icodegen.TypeToken
+                    Compare = asm.FieldCompareOf f.FieldTy
                 }
         ]
 
@@ -156,6 +155,7 @@ module internal UnionEmit =
                     Path = [ h ]
                     Ty = t
                     Cast = ValueNone
+                    Compare = asm.FieldCompareOf t
                 }
         ]
 
@@ -320,7 +320,7 @@ module internal UnionEmit =
                     provider.RecordCtorSignature
                         [
                             if ud.HasTag then
-                                yield intTy
+                                yield RuntimeNames.intTy
                             for p in ctorParams -> p.Ty
                         ]
                 Body =
@@ -345,7 +345,7 @@ module internal UnionEmit =
             asm.AddPrepared(
                 MethodKey.UnionGetTag td.Key,
                 {
-                    Signature = provider.InstanceMethodSignature([], intTy)
+                    Signature = provider.InstanceMethodSignature([], RuntimeNames.intTy)
                     Body = bodyOf asm (Emit.buildFieldGetter t)
                     ParamNames = []
                     MethodTypars = []
@@ -550,7 +550,7 @@ module internal UnionEmit =
                     (EmitStructural.buildEqualsTyped handles false walk)
 
             | UnionCaseSlot.EqualsUnion ->
-                let equalsCase = caseSlotRef [ caseTy ] boolTy UnionCaseSlot.EqualsCase
+                let equalsCase = caseSlotRef [ caseTy ] RuntimeNames.boolTy UnionCaseSlot.EqualsCase
 
                 prepared
                     slot
@@ -573,7 +573,8 @@ module internal UnionEmit =
                     (EmitStructural.buildCompareTo handles false walk)
 
             | UnionCaseSlot.CompareToUnion ->
-                let compareToCase = caseSlotRef [ caseTy ] intTy UnionCaseSlot.CompareToCase
+                let compareToCase =
+                    caseSlotRef [ caseTy ] RuntimeNames.intTy UnionCaseSlot.CompareToCase
 
                 prepared
                     slot
@@ -596,28 +597,16 @@ module internal UnionEmit =
         let provider = asm.Provider
 
         if self.Members.Equality then
-            let equalsUnion =
-                selfMemberRef
-                    asm
-                    td
-                    (UserMemberKind.Member("Equals", false, 0, [ self.SelfTy ], boolTy))
-                    (toEntity (asm.MethodDef(MethodKey.EqEqualsTyped td.Key)))
-
             prepareEqualityTriple
                 asm
                 td
                 self.SelfTy
                 ValueNone
-                (EmitStructural.buildUnionBaseEqualsObj self.SelfType equalsUnion)
+                (EmitStructural.buildUnionBaseEqualsObj self.SelfType (equalsTyped asm td self))
                 ValueNone
 
         if self.Members.Comparison then
-            let typedCompareTo =
-                selfMemberRef
-                    asm
-                    td
-                    (UserMemberKind.Member("CompareTo", false, 0, [ self.SelfTy ], intTy))
-                    (toEntity (asm.MethodDef(MethodKey.CmpCompareToTyped td.Key)))
+            let typedCompareTo = compareToTyped asm td self
 
             prepareComparisonPair
                 asm
@@ -677,7 +666,11 @@ module internal UnionEmit =
                 td
                 self.SelfTy
                 (ValueSome(EmitStructural.buildGetHashCode handles walk.Value))
-                (EmitStructural.buildEqualsObj handles isStruct self.SelfType self.SelfTy walk.Value)
+                (EmitStructural.buildEqualsObj
+                    isStruct
+                    self.SelfType
+                    self.SelfTy
+                    (EmitStructural.TypedEntry.Direct(equalsTyped asm td self)))
                 (ValueSome(EmitStructural.buildEqualsTyped handles isStruct walk.Value))
 
         if self.Members.Comparison then
@@ -692,7 +685,7 @@ module internal UnionEmit =
                     isStruct
                     self.SelfType
                     self.SelfTy
-                    (EmitStructural.TypedEntry.Direct(toEntity (asm.MethodDef(MethodKey.CmpCompareToTyped td.Key)))))
+                    (EmitStructural.TypedEntry.Direct(compareToTyped asm td self)))
 
         if self.Members.Format then
             let cases =

@@ -345,7 +345,7 @@ module EmitResolve =
         match env.Enums.TryGetValue declKey with
         | true, e ->
             match e.Repr with
-            | EmittedEnumRepr.NumericEnum caseValues ->
+            | EmittedEnumRepr.NumericEnum(_, caseValues) ->
                 match caseValues.TryGetValue name with
                 | true, v -> ValueSome(fst (enumIntLoad v))
                 | false, _ -> failwithf "Emit: enum '%A' has no emitted case '%s'" declKey name

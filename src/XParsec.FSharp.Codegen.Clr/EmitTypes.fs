@@ -242,7 +242,7 @@ module EmitTypes =
         /// A numeric enum: a `System.Enum` subclass. Its case fields are `literal`, so
         /// metadata-only (`ldsfld` on one throws `MissingFieldException`). Both `E.A` and
         /// `| E.A` push the underlying integer `CaseValues.[case]` directly instead.
-        | NumericEnum of CaseValues: Dictionary<string, TConstValue>
+        | NumericEnum of Underlying: TypeKey * CaseValues: Dictionary<string, TConstValue>
         /// A string / mixed enum: a `[<Struct>]` wrapper whose cases are
         /// `.cctor`-initialised `static initonly` fields, so `E.A` is `ldsfld
         /// caseFields.[case]` and `| E.A` compares `backingField` against `caseLits.[case]`.
@@ -491,9 +491,9 @@ module EmitTypes =
     /// Materialise `()` on the stack (net +1). `unit` is a zero-field struct, so the value
     /// is reified by zero-initialising a scratch local: `ldloca; initobj; ldloc`.
     let buildUnitValue (env: EmitEnv) (b: IlBuilder) : unit =
-        let slot = b.Local(FTConst(RuntimeNames.unitKey, EqArray.empty))
+        let slot = b.Local(RuntimeNames.unitTy)
         b.Add(ILInstr.Ldloca slot)
-        b.Add(ILInstr.Initobj(env.Provider.TypeToken(FTConst(RuntimeNames.unitKey, EqArray.empty))))
+        b.Add(ILInstr.Initobj(env.Provider.TypeToken(RuntimeNames.unitTy)))
         b.Add(ILInstr.Ldloc slot)
 
     /// What a call leaves on the stack.
