@@ -36,24 +36,22 @@ public class Ordered
 		int num3 = num;
 		int num4 = num2;
 		a = num3 + num4;
-		Formatter val = default(Formatter);
-		((Formatter)(ref val))..ctor(7, 1, Console.Out);
-		((Formatter)(ref val)).AppendLiteral("ctor a=");
-		((Formatter)(ref val)).AppendFormatted<int>(a);
-		((Formatter)(ref val)).AppendLiteral("\n");
-		((Formatter)(ref val)).Flush();
+		Formatter formatter = new Formatter(7, 1, Console.Out);
+		formatter.AppendLiteral("ctor a=");
+		formatter.AppendFormatted(a);
+		formatter.AppendLiteral("\n");
+		formatter.Flush();
 		ValueTuple valueTuple = default(ValueTuple);
 		int num5 = a;
 		int num6 = 3;
 		int num7 = num5;
 		int num8 = num6;
 		b = num7 * num8;
-		Formatter val2 = default(Formatter);
-		((Formatter)(ref val2))..ctor(7, 1, Console.Out);
-		((Formatter)(ref val2)).AppendLiteral("ctor b=");
-		((Formatter)(ref val2)).AppendFormatted<int>(b);
-		((Formatter)(ref val2)).AppendLiteral("\n");
-		((Formatter)(ref val2)).Flush();
+		Formatter formatter2 = new Formatter(7, 1, Console.Out);
+		formatter2.AppendLiteral("ctor b=");
+		formatter2.AppendFormatted(b);
+		formatter2.AppendLiteral("\n");
+		formatter2.Flush();
 		ValueTuple valueTuple2 = default(ValueTuple);
 	}
 
@@ -75,20 +73,18 @@ public static class Program
 
 	public static int Main(string[] args)
 	{
-		Formatter val = default(Formatter);
-		((Formatter)(ref val))..ctor(2, 1, Console.Out);
-		((Formatter)(ref val)).AppendLiteral("b=");
-		((Formatter)(ref val)).AppendFormatted<int>(o1.B());
-		((Formatter)(ref val)).AppendLiteral("\n");
-		((Formatter)(ref val)).Flush();
+		Formatter formatter = new Formatter(2, 1, Console.Out);
+		formatter.AppendLiteral("b=");
+		formatter.AppendFormatted(o1.B());
+		formatter.AppendLiteral("\n");
+		formatter.Flush();
 		ValueTuple valueTuple = default(ValueTuple);
 		o2 = new Ordered(5);
-		Formatter val2 = default(Formatter);
-		((Formatter)(ref val2))..ctor(2, 1, Console.Out);
-		((Formatter)(ref val2)).AppendLiteral("b=");
-		((Formatter)(ref val2)).AppendFormatted<int>(o2.B());
-		((Formatter)(ref val2)).AppendLiteral("\n");
-		((Formatter)(ref val2)).Flush();
+		Formatter formatter2 = new Formatter(2, 1, Console.Out);
+		formatter2.AppendLiteral("b=");
+		formatter2.AppendFormatted(o2.B());
+		formatter2.AppendLiteral("\n");
+		formatter2.Flush();
 		ValueTuple valueTuple2 = default(ValueTuple);
 		return 0;
 	}

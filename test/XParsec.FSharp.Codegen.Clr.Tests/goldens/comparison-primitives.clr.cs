@@ -13,21 +13,19 @@ public static class Program
 {
 	public static int Main(string[] args)
 	{
-		Formatter val = default(Formatter);
-		((Formatter)(ref val))..ctor(0, 1, Console.Out);
+		Formatter formatter = new Formatter(0, 1, Console.Out);
 		int num = 1;
 		int num2 = 2;
-		((Formatter)(ref val)).AppendBool(num < num2, 0);
-		((Formatter)(ref val)).AppendLiteral("\n");
-		((Formatter)(ref val)).Flush();
+		formatter.AppendBool(num < num2, 0);
+		formatter.AppendLiteral("\n");
+		formatter.Flush();
 		ValueTuple valueTuple = default(ValueTuple);
-		Formatter val2 = default(Formatter);
-		((Formatter)(ref val2))..ctor(0, 1, Console.Out);
+		Formatter formatter2 = new Formatter(0, 1, Console.Out);
 		int num3 = 2;
 		int num4 = 1;
-		((Formatter)(ref val2)).AppendBool(num3 < num4, 0);
-		((Formatter)(ref val2)).AppendLiteral("\n");
-		((Formatter)(ref val2)).Flush();
+		formatter2.AppendBool(num3 < num4, 0);
+		formatter2.AppendLiteral("\n");
+		formatter2.Flush();
 		ValueTuple valueTuple2 = default(ValueTuple);
 		return 0;
 	}

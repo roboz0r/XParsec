@@ -24,6 +24,13 @@ type ProjectInfo =
 
 module ProjectInfo =
 
+    /// Each reference path keyed by the simple assembly name read off the file. A name
+    /// absent from the result is a BCL name, supplied by the shared framework.
+    let referenceSources (project: ProjectInfo) : Map<string, string> =
+        project.References
+        |> List.map (fun path -> System.Reflection.AssemblyName.GetAssemblyName(path).Name, path)
+        |> Map.ofList
+
     let defaults (assemblyName: string) : ProjectInfo =
         {
             AssemblyName = assemblyName

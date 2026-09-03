@@ -139,7 +139,7 @@ public readonly struct Mixed : IEquatable<Mixed>, IStructuralFormattable
 		{
 		case 0:
 			sink.BeginCase("I");
-			sink.Child((object)_payload._data.I._x);
+			sink.Child(_payload._data.I._x);
 			sink.EndCase();
 			break;
 		case 1:

@@ -84,17 +84,15 @@ public static class Program
 
 	public static int Main(string[] args)
 	{
-		Formatter val = default(Formatter);
-		((Formatter)(ref val))..ctor(0, 1, Console.Out);
-		((Formatter)(ref val)).AppendFormatted<int>(f.Value());
-		((Formatter)(ref val)).AppendLiteral("\n");
-		((Formatter)(ref val)).Flush();
+		Formatter formatter = new Formatter(0, 1, Console.Out);
+		formatter.AppendFormatted(f.Value());
+		formatter.AppendLiteral("\n");
+		formatter.Flush();
 		ValueTuple valueTuple = default(ValueTuple);
-		Formatter val2 = default(Formatter);
-		((Formatter)(ref val2))..ctor(0, 1, Console.Out);
-		((Formatter)(ref val2)).AppendFormatted<int>(f.Of(6));
-		((Formatter)(ref val2)).AppendLiteral("\n");
-		((Formatter)(ref val2)).Flush();
+		Formatter formatter2 = new Formatter(0, 1, Console.Out);
+		formatter2.AppendFormatted(f.Of(6));
+		formatter2.AppendLiteral("\n");
+		formatter2.Flush();
 		ValueTuple valueTuple2 = default(ValueTuple);
 		return 0;
 	}

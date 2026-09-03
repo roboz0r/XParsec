@@ -164,13 +164,13 @@ public readonly struct Shape : IEquatable<Shape>, IStructuralFormattable
 			break;
 		case 1:
 			sink.BeginCase("Point");
-			sink.Child((object)_payload._data.Point._x);
+			sink.Child(_payload._data.Point._x);
 			sink.EndCase();
 			break;
 		case 2:
 			sink.BeginCase("Pair");
-			sink.Child((object)_payload._data.Pair._a);
-			sink.Child((object)_payload._data.Pair._b);
+			sink.Child(_payload._data.Pair._a);
+			sink.Child(_payload._data.Pair._b);
 			sink.EndCase();
 			break;
 		}

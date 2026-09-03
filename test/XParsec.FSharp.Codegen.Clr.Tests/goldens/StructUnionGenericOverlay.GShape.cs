@@ -157,13 +157,13 @@ public readonly struct GShape<T> : IEquatable<GShape<T>>, IStructuralFormattable
 		{
 		case 0:
 			sink.BeginCase("Val");
-			sink.Child((object)_payload._val0);
+			sink.Child(_payload._val0);
 			sink.EndCase();
 			break;
 		case 1:
 			sink.BeginCase("Pt");
-			sink.Child((object)_payload._data.Pt._x);
-			sink.Child((object)_payload._data.Pt._y);
+			sink.Child(_payload._data.Pt._x);
+			sink.Child(_payload._data.Pt._y);
 			sink.EndCase();
 			break;
 		}

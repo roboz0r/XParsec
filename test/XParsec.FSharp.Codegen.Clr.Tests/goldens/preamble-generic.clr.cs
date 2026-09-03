@@ -52,7 +52,7 @@ public class Cell<T>
 
 	public T X()
 	{
-		return ((Fun<ValueTuple, ValueTuple>)(object)get).Invoke(default(ValueTuple));
+		return get.Invoke(default(ValueTuple));
 	}
 }
 public sealed class <closure>$0<T0> : Fun<ValueTuple, T0>
@@ -83,21 +83,19 @@ public static class Program
 
 	public static int Main(string[] args)
 	{
-		Formatter val = default(Formatter);
-		((Formatter)(ref val))..ctor(1, 2, Console.Out);
-		((Formatter)(ref val)).AppendFormatted<int>(s.K());
-		((Formatter)(ref val)).AppendLiteral(" ");
-		((Formatter)(ref val)).AppendFormatted<string>(s.X());
-		((Formatter)(ref val)).AppendLiteral("\n");
-		((Formatter)(ref val)).Flush();
+		Formatter formatter = new Formatter(1, 2, Console.Out);
+		formatter.AppendFormatted(s.K());
+		formatter.AppendLiteral(" ");
+		formatter.AppendFormatted(s.X());
+		formatter.AppendLiteral("\n");
+		formatter.Flush();
 		ValueTuple valueTuple = default(ValueTuple);
-		Formatter val2 = default(Formatter);
-		((Formatter)(ref val2))..ctor(1, 2, Console.Out);
-		((Formatter)(ref val2)).AppendFormatted<int>(i.K());
-		((Formatter)(ref val2)).AppendLiteral(" ");
-		((Formatter)(ref val2)).AppendFormatted<int>(i.X());
-		((Formatter)(ref val2)).AppendLiteral("\n");
-		((Formatter)(ref val2)).Flush();
+		Formatter formatter2 = new Formatter(1, 2, Console.Out);
+		formatter2.AppendFormatted(i.K());
+		formatter2.AppendLiteral(" ");
+		formatter2.AppendFormatted(i.X());
+		formatter2.AppendLiteral("\n");
+		formatter2.Flush();
 		ValueTuple valueTuple2 = default(ValueTuple);
 		return 0;
 	}

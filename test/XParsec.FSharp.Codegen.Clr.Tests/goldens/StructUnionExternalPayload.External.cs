@@ -269,13 +269,13 @@ public readonly struct External : IEquatable<External>, IStructuralFormattable
 		{
 		case 0:
 			sink.BeginCase("Scalars");
-			sink.Child((object)_payload._data.Scalars._x);
-			sink.Child((object)_payload._data.Scalars._y);
+			sink.Child(_payload._data.Scalars._x);
+			sink.Child(_payload._data.Scalars._y);
 			sink.EndCase();
 			break;
 		case 1:
 			sink.BeginCase("Nested");
-			sink.Child((object)_payload._data.Nested._inner);
+			sink.Child(_payload._data.Nested._inner);
 			sink.EndCase();
 			break;
 		case 2:
@@ -285,12 +285,12 @@ public readonly struct External : IEquatable<External>, IStructuralFormattable
 			break;
 		case 3:
 			sink.BeginCase("Id");
-			sink.Child((object)_payload._val0);
+			sink.Child(_payload._val0);
 			sink.EndCase();
 			break;
 		case 4:
 			sink.BeginCase("Stamp");
-			sink.Child((object)_payload._val1);
+			sink.Child(_payload._val1);
 			sink.EndCase();
 			break;
 		}

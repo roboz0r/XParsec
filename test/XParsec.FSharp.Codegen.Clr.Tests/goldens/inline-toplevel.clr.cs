@@ -61,19 +61,17 @@ public static class Program
 
 	public static int Main(string[] args)
 	{
-		Formatter val = default(Formatter);
-		((Formatter)(ref val))..ctor(0, 1, Console.Out);
+		Formatter formatter = new Formatter(0, 1, Console.Out);
 		int num = 21;
 		int num2 = num;
 		int num3 = 2;
 		int num4 = num2;
 		int num5 = num3;
-		((Formatter)(ref val)).AppendFormatted<int>(num4 * num5);
-		((Formatter)(ref val)).AppendLiteral("\n");
-		((Formatter)(ref val)).Flush();
+		formatter.AppendFormatted(num4 * num5);
+		formatter.AppendLiteral("\n");
+		formatter.Flush();
 		ValueTuple valueTuple = default(ValueTuple);
-		Formatter val2 = default(Formatter);
-		((Formatter)(ref val2))..ctor(0, 1, Console.Out);
+		Formatter formatter2 = new Formatter(0, 1, Console.Out);
 		Fun<int, int> instance = <closure>$0.instance;
 		int num6 = 20;
 		int num7 = 1;
@@ -81,15 +79,14 @@ public static class Program
 		int num9 = num7;
 		int num10 = num8;
 		int num11 = num9;
-		((Formatter)(ref val2)).AppendFormatted<int>(instance.Invoke(num10 + num11));
-		((Formatter)(ref val2)).AppendLiteral("\n");
-		((Formatter)(ref val2)).Flush();
+		formatter2.AppendFormatted(instance.Invoke(num10 + num11));
+		formatter2.AppendLiteral("\n");
+		formatter2.Flush();
 		ValueTuple valueTuple2 = default(ValueTuple);
-		Formatter val3 = default(Formatter);
-		((Formatter)(ref val3))..ctor(0, 1, Console.Out);
-		((Formatter)(ref val3)).AppendFormatted<int>(d(7));
-		((Formatter)(ref val3)).AppendLiteral("\n");
-		((Formatter)(ref val3)).Flush();
+		Formatter formatter3 = new Formatter(0, 1, Console.Out);
+		formatter3.AppendFormatted(d(7));
+		formatter3.AppendLiteral("\n");
+		formatter3.Flush();
 		ValueTuple valueTuple3 = default(ValueTuple);
 		return 0;
 	}

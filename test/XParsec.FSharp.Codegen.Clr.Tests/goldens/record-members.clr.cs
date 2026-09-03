@@ -99,9 +99,9 @@ public sealed class Vec : IEquatable<Vec>, IStructuralFormattable
 	{
 		sink.BeginRecord();
 		sink.Field("X");
-		sink.Child((object)X);
+		sink.Child(X);
 		sink.Field("Y");
-		sink.Child((object)Y);
+		sink.Child(Y);
 		sink.EndRecord();
 	}
 }
@@ -116,29 +116,25 @@ public static class Program
 
 	public static int Main(string[] args)
 	{
-		Formatter val = default(Formatter);
-		((Formatter)(ref val))..ctor(0, 1, Console.Out);
-		((Formatter)(ref val)).AppendFormatted<int>(v.Sum());
-		((Formatter)(ref val)).AppendLiteral("\n");
-		((Formatter)(ref val)).Flush();
+		Formatter formatter = new Formatter(0, 1, Console.Out);
+		formatter.AppendFormatted(v.Sum());
+		formatter.AppendLiteral("\n");
+		formatter.Flush();
 		ValueTuple valueTuple = default(ValueTuple);
-		Formatter val2 = default(Formatter);
-		((Formatter)(ref val2))..ctor(0, 1, Console.Out);
-		((Formatter)(ref val2)).AppendFormatted<int>(v.AddN(10));
-		((Formatter)(ref val2)).AppendLiteral("\n");
-		((Formatter)(ref val2)).Flush();
+		Formatter formatter2 = new Formatter(0, 1, Console.Out);
+		formatter2.AppendFormatted(v.AddN(10));
+		formatter2.AppendLiteral("\n");
+		formatter2.Flush();
 		ValueTuple valueTuple2 = default(ValueTuple);
-		Formatter val3 = default(Formatter);
-		((Formatter)(ref val3))..ctor(0, 1, Console.Out);
-		((Formatter)(ref val3)).AppendFormatted<int>(v.Doubled);
-		((Formatter)(ref val3)).AppendLiteral("\n");
-		((Formatter)(ref val3)).Flush();
+		Formatter formatter3 = new Formatter(0, 1, Console.Out);
+		formatter3.AppendFormatted(v.Doubled);
+		formatter3.AppendLiteral("\n");
+		formatter3.Flush();
 		ValueTuple valueTuple3 = default(ValueTuple);
-		Formatter val4 = default(Formatter);
-		((Formatter)(ref val4))..ctor(0, 1, Console.Out);
-		((Formatter)(ref val4)).AppendFormatted<int>(v.X);
-		((Formatter)(ref val4)).AppendLiteral("\n");
-		((Formatter)(ref val4)).Flush();
+		Formatter formatter4 = new Formatter(0, 1, Console.Out);
+		formatter4.AppendFormatted(v.X);
+		formatter4.AppendLiteral("\n");
+		formatter4.Flush();
 		ValueTuple valueTuple4 = default(ValueTuple);
 		return 0;
 	}

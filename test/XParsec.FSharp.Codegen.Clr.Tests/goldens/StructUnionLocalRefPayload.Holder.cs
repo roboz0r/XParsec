@@ -174,7 +174,7 @@ public readonly struct Holder<T> : IEquatable<Holder<T>>, IStructuralFormattable
 		{
 		case 0:
 			sink.BeginCase("Val");
-			sink.Child((object)_payload._val0);
+			sink.Child(_payload._val0);
 			sink.EndCase();
 			break;
 		case 1:

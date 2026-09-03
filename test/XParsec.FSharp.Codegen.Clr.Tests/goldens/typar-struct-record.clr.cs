@@ -60,9 +60,9 @@ public struct Point : IEquatable<Point>, IStructuralFormattable
 	{
 		sink.BeginRecord();
 		sink.Field("X");
-		sink.Child((object)X);
+		sink.Child(X);
 		sink.Field("Y");
-		sink.Child((object)Y);
+		sink.Child(Y);
 		sink.EndRecord();
 	}
 }

@@ -15,28 +15,25 @@ public static class Program
 {
 	public static int Main(string[] args)
 	{
-		Formatter val = default(Formatter);
-		((Formatter)(ref val))..ctor(0, 1, Console.Out);
+		Formatter formatter = new Formatter(0, 1, Console.Out);
 		string text = "ab";
 		string text2 = "cd";
 		string text3 = text;
 		string text4 = text2;
-		((Formatter)(ref val)).AppendFormatted<string>(text3 + text4);
-		((Formatter)(ref val)).AppendLiteral("\n");
-		((Formatter)(ref val)).Flush();
+		formatter.AppendFormatted(text3 + text4);
+		formatter.AppendLiteral("\n");
+		formatter.Flush();
 		ValueTuple valueTuple = default(ValueTuple);
-		Formatter val2 = default(Formatter);
-		((Formatter)(ref val2))..ctor(0, 1, Console.Out);
+		Formatter formatter2 = new Formatter(0, 1, Console.Out);
 		string text5 = "";
 		string text6 = "x";
 		string text7 = text5;
 		string text8 = text6;
-		((Formatter)(ref val2)).AppendFormatted<string>(text7 + text8);
-		((Formatter)(ref val2)).AppendLiteral("\n");
-		((Formatter)(ref val2)).Flush();
+		formatter2.AppendFormatted(text7 + text8);
+		formatter2.AppendLiteral("\n");
+		formatter2.Flush();
 		ValueTuple valueTuple2 = default(ValueTuple);
-		Formatter val3 = default(Formatter);
-		((Formatter)(ref val3))..ctor(0, 1, Console.Out);
+		Formatter formatter3 = new Formatter(0, 1, Console.Out);
 		string text9 = "a";
 		string text10 = "b";
 		string text11 = text9;
@@ -45,9 +42,9 @@ public static class Program
 		string text14 = "c";
 		string text15 = text13;
 		string text16 = text14;
-		((Formatter)(ref val3)).AppendFormatted<string>(text15 + text16);
-		((Formatter)(ref val3)).AppendLiteral("\n");
-		((Formatter)(ref val3)).Flush();
+		formatter3.AppendFormatted(text15 + text16);
+		formatter3.AppendLiteral("\n");
+		formatter3.Flush();
 		ValueTuple valueTuple3 = default(ValueTuple);
 		return 0;
 	}

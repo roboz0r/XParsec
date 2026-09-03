@@ -156,8 +156,8 @@ public readonly struct Readers : IEquatable<Readers>, IStructuralFormattable
 		{
 		case 0:
 			sink.BeginCase("X");
-			sink.Child((object)_payload._data.X._a);
-			sink.Child((object)_payload._data.X._b);
+			sink.Child(_payload._data.X._a);
+			sink.Child(_payload._data.X._b);
 			sink.EndCase();
 			break;
 		case 1:

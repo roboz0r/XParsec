@@ -96,7 +96,7 @@ public sealed class Meters : IEquatable<Meters>, IStructuralFormattable
 	public void Format(IFormatSink sink)
 	{
 		sink.BeginCase("M");
-		sink.Child((object)item);
+		sink.Child(item);
 		sink.EndCase();
 	}
 }
@@ -166,7 +166,7 @@ public abstract class Shape : IEquatable<Shape>, IStructuralFormattable
 		public override void Format(IFormatSink sink)
 		{
 			sink.BeginCase("Line");
-			sink.Child((object)_len);
+			sink.Child(_len);
 			sink.EndCase();
 		}
 	}
@@ -270,7 +270,7 @@ public abstract class Quad : IEquatable<Quad>, IStructuralFormattable
 		public override void Format(IFormatSink sink)
 		{
 			sink.BeginCase("Q1");
-			sink.Child((object)item);
+			sink.Child(item);
 			sink.EndCase();
 		}
 	}
@@ -314,8 +314,8 @@ public abstract class Quad : IEquatable<Quad>, IStructuralFormattable
 		public override void Format(IFormatSink sink)
 		{
 			sink.BeginCase("Q2");
-			sink.Child((object)item1);
-			sink.Child((object)item2);
+			sink.Child(item1);
+			sink.Child(item2);
 			sink.EndCase();
 		}
 	}
@@ -363,9 +363,9 @@ public abstract class Quad : IEquatable<Quad>, IStructuralFormattable
 		public override void Format(IFormatSink sink)
 		{
 			sink.BeginCase("Q3");
-			sink.Child((object)item1);
-			sink.Child((object)item2);
-			sink.Child((object)item3);
+			sink.Child(item1);
+			sink.Child(item2);
+			sink.Child(item3);
 			sink.EndCase();
 		}
 	}
@@ -486,119 +486,103 @@ public static class Program
 
 	public static int Main(string[] args)
 	{
-		Formatter val = default(Formatter);
-		((Formatter)(ref val))..ctor(0, 1, Console.Out);
-		((Formatter)(ref val)).AppendFormatted<int>(metersValue(Meters.M(7)));
-		((Formatter)(ref val)).AppendLiteral("\n");
-		((Formatter)(ref val)).Flush();
+		Formatter formatter = new Formatter(0, 1, Console.Out);
+		formatter.AppendFormatted(metersValue(Meters.M(7)));
+		formatter.AppendLiteral("\n");
+		formatter.Flush();
 		ValueTuple valueTuple = default(ValueTuple);
-		Formatter val2 = default(Formatter);
-		((Formatter)(ref val2))..ctor(0, 1, Console.Out);
-		((Formatter)(ref val2)).AppendFormatted<int>(describeShape(Shape.Dot()));
-		((Formatter)(ref val2)).AppendLiteral("\n");
-		((Formatter)(ref val2)).Flush();
+		Formatter formatter2 = new Formatter(0, 1, Console.Out);
+		formatter2.AppendFormatted(describeShape(Shape.Dot()));
+		formatter2.AppendLiteral("\n");
+		formatter2.Flush();
 		ValueTuple valueTuple2 = default(ValueTuple);
-		Formatter val3 = default(Formatter);
-		((Formatter)(ref val3))..ctor(0, 1, Console.Out);
-		((Formatter)(ref val3)).AppendFormatted<int>(describeShape(Shape.Line(4)));
-		((Formatter)(ref val3)).AppendLiteral("\n");
-		((Formatter)(ref val3)).Flush();
+		Formatter formatter3 = new Formatter(0, 1, Console.Out);
+		formatter3.AppendFormatted(describeShape(Shape.Line(4)));
+		formatter3.AppendLiteral("\n");
+		formatter3.Flush();
 		ValueTuple valueTuple3 = default(ValueTuple);
-		Formatter val4 = default(Formatter);
-		((Formatter)(ref val4))..ctor(0, 1, Console.Out);
-		((Formatter)(ref val4)).AppendFormatted<int>(describeQuad(Quad.Q0()));
-		((Formatter)(ref val4)).AppendLiteral("\n");
-		((Formatter)(ref val4)).Flush();
+		Formatter formatter4 = new Formatter(0, 1, Console.Out);
+		formatter4.AppendFormatted(describeQuad(Quad.Q0()));
+		formatter4.AppendLiteral("\n");
+		formatter4.Flush();
 		ValueTuple valueTuple4 = default(ValueTuple);
-		Formatter val5 = default(Formatter);
-		((Formatter)(ref val5))..ctor(0, 1, Console.Out);
-		((Formatter)(ref val5)).AppendFormatted<int>(describeQuad(Quad.Q1(5)));
-		((Formatter)(ref val5)).AppendLiteral("\n");
-		((Formatter)(ref val5)).Flush();
+		Formatter formatter5 = new Formatter(0, 1, Console.Out);
+		formatter5.AppendFormatted(describeQuad(Quad.Q1(5)));
+		formatter5.AppendLiteral("\n");
+		formatter5.Flush();
 		ValueTuple valueTuple5 = default(ValueTuple);
-		Formatter val6 = default(Formatter);
-		((Formatter)(ref val6))..ctor(0, 1, Console.Out);
-		((Formatter)(ref val6)).AppendFormatted<int>(describeQuad(Quad.Q2(2, 3)));
-		((Formatter)(ref val6)).AppendLiteral("\n");
-		((Formatter)(ref val6)).Flush();
+		Formatter formatter6 = new Formatter(0, 1, Console.Out);
+		formatter6.AppendFormatted(describeQuad(Quad.Q2(2, 3)));
+		formatter6.AppendLiteral("\n");
+		formatter6.Flush();
 		ValueTuple valueTuple6 = default(ValueTuple);
-		Formatter val7 = default(Formatter);
-		((Formatter)(ref val7))..ctor(0, 1, Console.Out);
-		((Formatter)(ref val7)).AppendFormatted<int>(describeQuad(Quad.Q3(1, 2, 3)));
-		((Formatter)(ref val7)).AppendLiteral("\n");
-		((Formatter)(ref val7)).Flush();
+		Formatter formatter7 = new Formatter(0, 1, Console.Out);
+		formatter7.AppendFormatted(describeQuad(Quad.Q3(1, 2, 3)));
+		formatter7.AppendLiteral("\n");
+		formatter7.Flush();
 		ValueTuple valueTuple7 = default(ValueTuple);
-		Formatter val8 = default(Formatter);
-		((Formatter)(ref val8))..ctor(0, 1, Console.Out);
+		Formatter formatter8 = new Formatter(0, 1, Console.Out);
 		Meters x = Meters.M(7);
 		Meters y = Meters.M(7);
-		((Formatter)(ref val8)).AppendBool(EqualityComparer<Meters>.Default.Equals(x, y), 0);
-		((Formatter)(ref val8)).AppendLiteral("\n");
-		((Formatter)(ref val8)).Flush();
+		formatter8.AppendBool(EqualityComparer<Meters>.Default.Equals(x, y), 0);
+		formatter8.AppendLiteral("\n");
+		formatter8.Flush();
 		ValueTuple valueTuple8 = default(ValueTuple);
-		Formatter val9 = default(Formatter);
-		((Formatter)(ref val9))..ctor(0, 1, Console.Out);
+		Formatter formatter9 = new Formatter(0, 1, Console.Out);
 		Meters x2 = Meters.M(7);
 		Meters y2 = Meters.M(8);
-		((Formatter)(ref val9)).AppendBool(EqualityComparer<Meters>.Default.Equals(x2, y2), 0);
-		((Formatter)(ref val9)).AppendLiteral("\n");
-		((Formatter)(ref val9)).Flush();
+		formatter9.AppendBool(EqualityComparer<Meters>.Default.Equals(x2, y2), 0);
+		formatter9.AppendLiteral("\n");
+		formatter9.Flush();
 		ValueTuple valueTuple9 = default(ValueTuple);
-		Formatter val10 = default(Formatter);
-		((Formatter)(ref val10))..ctor(0, 1, Console.Out);
+		Formatter formatter10 = new Formatter(0, 1, Console.Out);
 		Shape x3 = Shape.Dot();
 		Shape y3 = Shape.Dot();
-		((Formatter)(ref val10)).AppendBool(EqualityComparer<Shape>.Default.Equals(x3, y3), 0);
-		((Formatter)(ref val10)).AppendLiteral("\n");
-		((Formatter)(ref val10)).Flush();
+		formatter10.AppendBool(EqualityComparer<Shape>.Default.Equals(x3, y3), 0);
+		formatter10.AppendLiteral("\n");
+		formatter10.Flush();
 		ValueTuple valueTuple10 = default(ValueTuple);
-		Formatter val11 = default(Formatter);
-		((Formatter)(ref val11))..ctor(0, 1, Console.Out);
+		Formatter formatter11 = new Formatter(0, 1, Console.Out);
 		Shape x4 = Shape.Line(4);
 		Shape y4 = Shape.Line(4);
-		((Formatter)(ref val11)).AppendBool(EqualityComparer<Shape>.Default.Equals(x4, y4), 0);
-		((Formatter)(ref val11)).AppendLiteral("\n");
-		((Formatter)(ref val11)).Flush();
+		formatter11.AppendBool(EqualityComparer<Shape>.Default.Equals(x4, y4), 0);
+		formatter11.AppendLiteral("\n");
+		formatter11.Flush();
 		ValueTuple valueTuple11 = default(ValueTuple);
-		Formatter val12 = default(Formatter);
-		((Formatter)(ref val12))..ctor(0, 1, Console.Out);
+		Formatter formatter12 = new Formatter(0, 1, Console.Out);
 		Shape x5 = Shape.Line(4);
 		Shape y5 = Shape.Line(5);
-		((Formatter)(ref val12)).AppendBool(EqualityComparer<Shape>.Default.Equals(x5, y5), 0);
-		((Formatter)(ref val12)).AppendLiteral("\n");
-		((Formatter)(ref val12)).Flush();
+		formatter12.AppendBool(EqualityComparer<Shape>.Default.Equals(x5, y5), 0);
+		formatter12.AppendLiteral("\n");
+		formatter12.Flush();
 		ValueTuple valueTuple12 = default(ValueTuple);
-		Formatter val13 = default(Formatter);
-		((Formatter)(ref val13))..ctor(0, 1, Console.Out);
+		Formatter formatter13 = new Formatter(0, 1, Console.Out);
 		Shape x6 = Shape.Line(4);
 		Shape y6 = Shape.Dot();
-		((Formatter)(ref val13)).AppendBool(EqualityComparer<Shape>.Default.Equals(x6, y6), 0);
-		((Formatter)(ref val13)).AppendLiteral("\n");
-		((Formatter)(ref val13)).Flush();
+		formatter13.AppendBool(EqualityComparer<Shape>.Default.Equals(x6, y6), 0);
+		formatter13.AppendLiteral("\n");
+		formatter13.Flush();
 		ValueTuple valueTuple13 = default(ValueTuple);
-		Formatter val14 = default(Formatter);
-		((Formatter)(ref val14))..ctor(0, 1, Console.Out);
+		Formatter formatter14 = new Formatter(0, 1, Console.Out);
 		Quad x7 = Quad.Q0();
 		Quad y7 = Quad.Q0();
-		((Formatter)(ref val14)).AppendBool(EqualityComparer<Quad>.Default.Equals(x7, y7), 0);
-		((Formatter)(ref val14)).AppendLiteral("\n");
-		((Formatter)(ref val14)).Flush();
+		formatter14.AppendBool(EqualityComparer<Quad>.Default.Equals(x7, y7), 0);
+		formatter14.AppendLiteral("\n");
+		formatter14.Flush();
 		ValueTuple valueTuple14 = default(ValueTuple);
-		Formatter val15 = default(Formatter);
-		((Formatter)(ref val15))..ctor(0, 1, Console.Out);
+		Formatter formatter15 = new Formatter(0, 1, Console.Out);
 		Quad x8 = Quad.Q2(2, 3);
 		Quad y8 = Quad.Q2(2, 3);
-		((Formatter)(ref val15)).AppendBool(EqualityComparer<Quad>.Default.Equals(x8, y8), 0);
-		((Formatter)(ref val15)).AppendLiteral("\n");
-		((Formatter)(ref val15)).Flush();
+		formatter15.AppendBool(EqualityComparer<Quad>.Default.Equals(x8, y8), 0);
+		formatter15.AppendLiteral("\n");
+		formatter15.Flush();
 		ValueTuple valueTuple15 = default(ValueTuple);
-		Formatter val16 = default(Formatter);
-		((Formatter)(ref val16))..ctor(0, 1, Console.Out);
+		Formatter formatter16 = new Formatter(0, 1, Console.Out);
 		Quad x9 = Quad.Q2(2, 3);
 		Quad y9 = Quad.Q3(1, 2, 3);
-		((Formatter)(ref val16)).AppendBool(EqualityComparer<Quad>.Default.Equals(x9, y9), 0);
-		((Formatter)(ref val16)).AppendLiteral("\n");
-		((Formatter)(ref val16)).Flush();
+		formatter16.AppendBool(EqualityComparer<Quad>.Default.Equals(x9, y9), 0);
+		formatter16.AppendLiteral("\n");
+		formatter16.Flush();
 		ValueTuple valueTuple16 = default(ValueTuple);
 		return 0;
 	}

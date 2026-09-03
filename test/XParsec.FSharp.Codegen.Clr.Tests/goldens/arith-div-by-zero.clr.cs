@@ -18,15 +18,14 @@ public static class Program
 {
 	public static int Main(string[] args)
 	{
-		Formatter val = default(Formatter);
-		((Formatter)(ref val))..ctor(0, 1, Console.Out);
+		Formatter formatter = new Formatter(0, 1, Console.Out);
 		int num = 1;
 		int num2 = 0;
 		int num3 = num;
 		int num4 = num2;
-		((Formatter)(ref val)).AppendFormatted<int>(num3 / num4);
-		((Formatter)(ref val)).AppendLiteral("\n");
-		((Formatter)(ref val)).Flush();
+		formatter.AppendFormatted(num3 / num4);
+		formatter.AppendLiteral("\n");
+		formatter.Flush();
 		ValueTuple valueTuple = default(ValueTuple);
 		return 0;
 	}

@@ -140,12 +140,12 @@ public readonly struct GBox<T> : IEquatable<GBox<T>>, IStructuralFormattable
 		{
 		case 0:
 			sink.BeginCase("Val");
-			sink.Child((object)_payload._val0);
+			sink.Child(_payload._val0);
 			sink.EndCase();
 			break;
 		case 1:
 			sink.BeginCase("Num");
-			sink.Child((object)_payload._data.Num._n);
+			sink.Child(_payload._data.Num._n);
 			sink.EndCase();
 			break;
 		}

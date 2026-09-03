@@ -7,7 +7,7 @@ Line numbers are deliberately absent — they rot. Constructs and file names onl
 Raised by the decompiled-C# conformance goldens (`test/XParsec.FSharp.Codegen.Clr.Tests/goldens/*.clr.cs`),
 added when `ConformanceByteIdentityTests` gained a whole-module render beside its structural
 digest. Every finding below cites the golden that shows it, so each is reproducible by reading a
-committed file. Nothing here has been implemented.
+committed file. C1 has landed; the rest is outstanding.
 
 **Part A** is ABI and metadata defects. **Part B** is IL quality. **Part C** is the harness.
 
@@ -270,15 +270,15 @@ callers to audit are the `buildUnitValue` sites in `EmitCall`, `EmitFormat`, `Em
 
 # Part C — harness
 
-## C1. `Formatter` renders as `((Formatter)(ref val))..ctor(...)` — a resolution artifact
+## C1. `Formatter` renders as `((Formatter)(ref val))..ctor(...)` — a resolution artifact — DONE
 
-Read as C#, `preamble-do-order.clr.cs` looks like a constructor invoked on a cast address, which
-reads as suspect IL. It is not.
+Read as C#, `preamble-do-order.clr.cs` looked like a constructor invoked on a cast address, which
+read as suspect IL. It was not.
 
 What the emitter writes is `ldloca slot; ldc; ldc; [sink]; call instance void Formatter::.ctor`
 (`buildFormat` in `EmitFormat`) — the same sequence C# itself emits for
 `Formatter val = new Formatter(...)`. The rendering degrades because `Vesper.Printf.dll` cannot
-be resolved: `decompilerOf` in the tests' `Decompile` seeds `UniversalAssemblyResolver` from
+be resolved: `decompilerOf` in the tests' `Decompile` seeded `UniversalAssemblyResolver` from
 `AppContext.BaseDirectory`, while the Vesper packages build into repo-root `tmp/pkg-Vesper.*`.
 With `Formatter` unresolved, ILSpy cannot know it is a value type and prints the raw address-call
 form. A struct defined in the program under test renders normally in the same corpus —
@@ -287,11 +287,19 @@ form. A struct defined in the program under test renders normally in the same co
 Two independent confirmations that the IL is valid: these conformance programs run and match
 their `.expected` output, and `MetadataStructure.assertWellFormed` passes over them.
 
-**Fix.** Seed the resolver with the Vesper package output directories, or copy those DLLs beside
-the test assembly, then regenerate. Expect `Formatter val = new Formatter(7, 1, Console.Out);`
-and plain `val.AppendLiteral("ctor a=")` calls afterwards, which also shrinks every golden.
+**Landed.** `Decompile.ReferenceResolver` answers a reference from
+`ProjectInfo.referenceSources`, which keys each `ProjectInfo.References` path by the assembly
+name read off the file, and delegates every other name to `UniversalAssemblyResolver`. The 47
+re-rendered goldens read `Formatter formatter = new Formatter(7, 1, Console.Out);
+formatter.AppendLiteral("ctor a=");` and lost 237 lines net. No `.clr.txt` digest moved, which
+is the check that only the rendering changed.
 
-Until it lands, `..ctor` in a golden means "unresolved reference", not "defect".
+Resolution also let ILSpy drop the now-implicit `(object)` on the `sink.Child` calls throughout
+the `StructUnion*` goldens, so the box per union child is visible only in the `.clr.txt` digest.
+
+`assertReferencesResolve` raises when any `AssemblyRef` the PE binds fails to resolve, so a
+future path or naming change fails the suite instead of silently re-rendering the goldens by
+name. Emptying the reference map turns 49 tests red, which is what pins it.
 
 ## C2. Extending the decompiled goldens past the conformance corpus
 
@@ -323,5 +331,4 @@ against one of them than against both.
 B1 lands whenever convenient; it removes bindings rather than rows, and A4's first half is
 independent of it.
 
-C1 is worth doing before any of the above, because every re-render of the goldens is easier to
-review once `Formatter` resolves.
+C1 has landed, so every re-render of the goldens below reads against resolved `Formatter` calls.

@@ -84,18 +84,13 @@ module Materialise =
             // FSharp.Core alone the host-loaded copy when no reference overrides it. A name
             // with no source is a BCL name, resolved from the shared framework, so skipped.
             let referenceSources =
-                let fromProject =
-                    project.References
-                    |> List.map (fun path -> System.Reflection.AssemblyName.GetAssemblyName(path).Name, path)
-                    |> Map.ofList
-
                 let withFallback name (hostPath: unit -> string) m =
                     if Map.containsKey name m then
                         m
                     else
                         Map.add name (hostPath ()) m
 
-                fromProject
+                ProjectInfo.referenceSources project
                 |> withFallback "FSharp.Core" (fun () -> typeof<Microsoft.FSharp.Core.Unit>.Assembly.Location)
 
             // Ship set closed over transitive references, because a `%A` program's PE references

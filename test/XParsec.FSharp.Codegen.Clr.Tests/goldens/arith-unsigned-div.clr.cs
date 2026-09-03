@@ -21,8 +21,7 @@ public static class Program
 {
 	public static int Main(string[] args)
 	{
-		Formatter val = default(Formatter);
-		((Formatter)(ref val))..ctor(0, 1, Console.Out);
+		Formatter formatter = new Formatter(0, 1, Console.Out);
 		byte b = 10;
 		byte b2 = 3;
 		byte b3 = b;
@@ -33,12 +32,11 @@ public static class Program
 		byte b8 = b6;
 		byte b9 = (byte)(b7 * b8);
 		byte b10 = b9;
-		((Formatter)(ref val)).AppendFormatted<int>((int)b10);
-		((Formatter)(ref val)).AppendLiteral("\n");
-		((Formatter)(ref val)).Flush();
+		formatter.AppendFormatted((int)b10);
+		formatter.AppendLiteral("\n");
+		formatter.Flush();
 		ValueTuple valueTuple = default(ValueTuple);
-		Formatter val2 = default(Formatter);
-		((Formatter)(ref val2))..ctor(0, 1, Console.Out);
+		Formatter formatter2 = new Formatter(0, 1, Console.Out);
 		byte b11 = 7;
 		byte b12 = 2;
 		byte b13 = b11;
@@ -49,12 +47,11 @@ public static class Program
 		byte b18 = b16;
 		byte b19 = (byte)(b17 * b18);
 		byte b20 = b19;
-		((Formatter)(ref val2)).AppendFormatted<int>((int)b20);
-		((Formatter)(ref val2)).AppendLiteral("\n");
-		((Formatter)(ref val2)).Flush();
+		formatter2.AppendFormatted((int)b20);
+		formatter2.AppendLiteral("\n");
+		formatter2.Flush();
 		ValueTuple valueTuple2 = default(ValueTuple);
-		Formatter val3 = default(Formatter);
-		((Formatter)(ref val3))..ctor(0, 1, Console.Out);
+		Formatter formatter3 = new Formatter(0, 1, Console.Out);
 		ushort num = 10;
 		ushort num2 = 3;
 		ushort num3 = num;
@@ -65,12 +62,11 @@ public static class Program
 		ushort num8 = num6;
 		ushort num9 = (ushort)(num7 * num8);
 		ushort num10 = num9;
-		((Formatter)(ref val3)).AppendFormatted<int>((int)num10);
-		((Formatter)(ref val3)).AppendLiteral("\n");
-		((Formatter)(ref val3)).Flush();
+		formatter3.AppendFormatted((int)num10);
+		formatter3.AppendLiteral("\n");
+		formatter3.Flush();
 		ValueTuple valueTuple3 = default(ValueTuple);
-		Formatter val4 = default(Formatter);
-		((Formatter)(ref val4))..ctor(0, 1, Console.Out);
+		Formatter formatter4 = new Formatter(0, 1, Console.Out);
 		sbyte b21 = 10;
 		sbyte b22 = 3;
 		sbyte b23 = b21;
@@ -81,12 +77,11 @@ public static class Program
 		sbyte b28 = b26;
 		sbyte b29 = (sbyte)(b27 * b28);
 		sbyte b30 = b29;
-		((Formatter)(ref val4)).AppendFormatted<int>((int)b30);
-		((Formatter)(ref val4)).AppendLiteral("\n");
-		((Formatter)(ref val4)).Flush();
+		formatter4.AppendFormatted((int)b30);
+		formatter4.AppendLiteral("\n");
+		formatter4.Flush();
 		ValueTuple valueTuple4 = default(ValueTuple);
-		Formatter val5 = default(Formatter);
-		((Formatter)(ref val5))..ctor(0, 1, Console.Out);
+		Formatter formatter5 = new Formatter(0, 1, Console.Out);
 		short num11 = 10;
 		short num12 = 3;
 		short num13 = num11;
@@ -97,12 +92,11 @@ public static class Program
 		short num18 = num16;
 		short num19 = (short)(num17 * num18);
 		short num20 = num19;
-		((Formatter)(ref val5)).AppendFormatted<int>((int)num20);
-		((Formatter)(ref val5)).AppendLiteral("\n");
-		((Formatter)(ref val5)).Flush();
+		formatter5.AppendFormatted((int)num20);
+		formatter5.AppendLiteral("\n");
+		formatter5.Flush();
 		ValueTuple valueTuple5 = default(ValueTuple);
-		Formatter val6 = default(Formatter);
-		((Formatter)(ref val6))..ctor(0, 1, Console.Out);
+		Formatter formatter6 = new Formatter(0, 1, Console.Out);
 		uint num21 = 10u;
 		uint num22 = 3u;
 		uint num23 = num21;
@@ -113,12 +107,11 @@ public static class Program
 		uint num28 = num26;
 		uint num29 = num27 * num28;
 		uint num30 = num29;
-		((Formatter)(ref val6)).AppendUnsigned((ulong)num30, 0);
-		((Formatter)(ref val6)).AppendLiteral("\n");
-		((Formatter)(ref val6)).Flush();
+		formatter6.AppendUnsigned(num30, 0);
+		formatter6.AppendLiteral("\n");
+		formatter6.Flush();
 		ValueTuple valueTuple6 = default(ValueTuple);
-		Formatter val7 = default(Formatter);
-		((Formatter)(ref val7))..ctor(0, 1, Console.Out);
+		Formatter formatter7 = new Formatter(0, 1, Console.Out);
 		int num31 = 10;
 		int num32 = 3;
 		int num33 = num31;
@@ -127,9 +120,9 @@ public static class Program
 		int num36 = 3;
 		int num37 = num35;
 		int num38 = num36;
-		((Formatter)(ref val7)).AppendFormatted<int>(num37 * num38);
-		((Formatter)(ref val7)).AppendLiteral("\n");
-		((Formatter)(ref val7)).Flush();
+		formatter7.AppendFormatted(num37 * num38);
+		formatter7.AppendLiteral("\n");
+		formatter7.Flush();
 		ValueTuple valueTuple7 = default(ValueTuple);
 		return 0;
 	}

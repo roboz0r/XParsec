@@ -67,11 +67,10 @@ public static class Program
 
 	public static int Main(string[] args)
 	{
-		Formatter val = default(Formatter);
-		((Formatter)(ref val))..ctor(0, 1, Console.Out);
-		((Formatter)(ref val)).AppendFormatted<int>(a.Twice(10));
-		((Formatter)(ref val)).AppendLiteral("\n");
-		((Formatter)(ref val)).Flush();
+		Formatter formatter = new Formatter(0, 1, Console.Out);
+		formatter.AppendFormatted(a.Twice(10));
+		formatter.AppendLiteral("\n");
+		formatter.Flush();
 		ValueTuple valueTuple = default(ValueTuple);
 		return 0;
 	}

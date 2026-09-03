@@ -168,12 +168,12 @@ public readonly struct G<T> : IEquatable<G<T>>, IStructuralFormattable
 		{
 		case 0:
 			sink.BeginCase("Val");
-			sink.Child((object)_payload._val0);
+			sink.Child(_payload._val0);
 			sink.EndCase();
 			break;
 		case 1:
 			sink.BeginCase("Num");
-			sink.Child((object)_payload._data.Num._n);
+			sink.Child(_payload._data.Num._n);
 			sink.EndCase();
 			break;
 		}
@@ -251,48 +251,42 @@ public static class Program
 
 	public static int Main(string[] args)
 	{
-		Formatter val = default(Formatter);
-		((Formatter)(ref val))..ctor(0, 1, Console.Out);
-		((Formatter)(ref val)).AppendFormatted<int>(pick(a));
-		((Formatter)(ref val)).AppendLiteral("\n");
-		((Formatter)(ref val)).Flush();
+		Formatter formatter = new Formatter(0, 1, Console.Out);
+		formatter.AppendFormatted(pick(a));
+		formatter.AppendLiteral("\n");
+		formatter.Flush();
 		ValueTuple valueTuple = default(ValueTuple);
-		Formatter val2 = default(Formatter);
-		((Formatter)(ref val2))..ctor(0, 1, Console.Out);
-		((Formatter)(ref val2)).AppendFormatted<int>(pick(b));
-		((Formatter)(ref val2)).AppendLiteral("\n");
-		((Formatter)(ref val2)).Flush();
+		Formatter formatter2 = new Formatter(0, 1, Console.Out);
+		formatter2.AppendFormatted(pick(b));
+		formatter2.AppendLiteral("\n");
+		formatter2.Flush();
 		ValueTuple valueTuple2 = default(ValueTuple);
-		Formatter val3 = default(Formatter);
-		((Formatter)(ref val3))..ctor(0, 1, Console.Out);
+		Formatter formatter3 = new Formatter(0, 1, Console.Out);
 		G<int> x = a;
 		G<int> y = G<int>.Val(3);
-		((Formatter)(ref val3)).AppendBool(EqualityComparer<G<int>>.Default.Equals(x, y), 0);
-		((Formatter)(ref val3)).AppendLiteral("\n");
-		((Formatter)(ref val3)).Flush();
+		formatter3.AppendBool(EqualityComparer<G<int>>.Default.Equals(x, y), 0);
+		formatter3.AppendLiteral("\n");
+		formatter3.Flush();
 		ValueTuple valueTuple3 = default(ValueTuple);
-		Formatter val4 = default(Formatter);
-		((Formatter)(ref val4))..ctor(0, 1, Console.Out);
+		Formatter formatter4 = new Formatter(0, 1, Console.Out);
 		G<int> x2 = a;
 		G<int> y2 = b;
-		((Formatter)(ref val4)).AppendBool(EqualityComparer<G<int>>.Default.Equals(x2, y2), 0);
-		((Formatter)(ref val4)).AppendLiteral("\n");
-		((Formatter)(ref val4)).Flush();
+		formatter4.AppendBool(EqualityComparer<G<int>>.Default.Equals(x2, y2), 0);
+		formatter4.AppendLiteral("\n");
+		formatter4.Flush();
 		ValueTuple valueTuple4 = default(ValueTuple);
 		s = G<string>.Val("hi");
-		Formatter val5 = default(Formatter);
-		((Formatter)(ref val5))..ctor(0, 1, Console.Out);
-		((Formatter)(ref val5)).AppendFormatted<string>(text(s));
-		((Formatter)(ref val5)).AppendLiteral("\n");
-		((Formatter)(ref val5)).Flush();
+		Formatter formatter5 = new Formatter(0, 1, Console.Out);
+		formatter5.AppendFormatted(text(s));
+		formatter5.AppendLiteral("\n");
+		formatter5.Flush();
 		ValueTuple valueTuple5 = default(ValueTuple);
-		Formatter val6 = default(Formatter);
-		((Formatter)(ref val6))..ctor(0, 1, Console.Out);
+		Formatter formatter6 = new Formatter(0, 1, Console.Out);
 		G<string> x3 = s;
 		G<string> y3 = G<string>.Val("hi");
-		((Formatter)(ref val6)).AppendBool(EqualityComparer<G<string>>.Default.Equals(x3, y3), 0);
-		((Formatter)(ref val6)).AppendLiteral("\n");
-		((Formatter)(ref val6)).Flush();
+		formatter6.AppendBool(EqualityComparer<G<string>>.Default.Equals(x3, y3), 0);
+		formatter6.AppendLiteral("\n");
+		formatter6.Flush();
 		ValueTuple valueTuple6 = default(ValueTuple);
 		return 0;
 	}
