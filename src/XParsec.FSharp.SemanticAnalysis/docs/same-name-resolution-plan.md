@@ -14,11 +14,17 @@ lookup, and the consequences run in three directions.
 
 - **One module may hold `T` and `T<'a>` at once.** Arity overloading inside a single module is
   legal, and `DuplicateTypeNameTests` is right to collide only within an arity.
-- **Shadowing is per-arity and blind to kind.** Within one arity bucket the max-rank claim wins
-  and its kind is read afterwards, so a nearer class puts a same-arity record of that name out
-  of reach entirely: `t.X` on the shadowed record is FS0039, not a fallthrough to the record.
-  Across arities there is no shadowing at all, so a bare `T` reaches an outer arity-0 record
-  past a nearer `T<'a>`, of any kind, and past a later `open` that supplies one.
+- **In TYPE position, shadowing is per-arity and blind to kind.** Within one arity bucket the
+  max-rank claim wins and its kind is read afterwards, so a nearer class puts a same-arity
+  record of that name out of reach entirely: `t.X` on the shadowed record is FS0039, not a
+  fallthrough to the record. Across arities there is no shadowing at all, so a bare `T` reaches
+  an outer arity-0 record past a nearer `T<'a>`, of any kind, and past a later `open` that
+  supplies one.
+- **In EXPRESSION position the candidate set is the CLASSES, and a claim of another kind is
+  invisible to it.** A bare name there denotes a constructor, so a nearer record neither
+  shadows a same-arity class (`T()` takes the outer class while `t: T` in the same scope takes
+  the nearer record) nor settles the arity with an arity-0 claim (`T(1)` takes the sole class
+  `T<'a>` past a record `T`). Probed 2026-09-03.
 - **What a bare name means depends on POSITION, and the two positions disagree.**
   - In **type** position a bare name is arity 0, exactly, and the type argument is never
     inferred from context: `T` where only `T<'a>` is in scope is FS0033, "expects 1 type
@@ -45,9 +51,10 @@ order and implements it.
 
 ## Where the compiler stands
 
-*Updated after step 3.* Twenty-two of the twenty-four pinned cases are green: arity overloading
-within a module, every cross-arity reach, both kind-shadowing cases, every bare-name
-expression-position case including the arity ambiguity, and every type-position case. Type
+*Updated after step 4a.* Twenty-seven of the twenty-nine pinned cases are green: arity
+overloading within a module, every cross-arity reach, every kind-shadowing case in both
+positions, every bare-name expression-position case including the arity ambiguity, and every
+type-position case. Type
 resolution runs through `NameResolutionLongIdent.resolveType` (`LongIdent.fs:611`) over
 `TypeClaims`, which is kind-agnostic and ranked. GAP 6 and 7 remain, pended in
 `SameNameResolutionTests.fs`.
@@ -132,11 +139,11 @@ not the `TypeApp` arm as a whole.
 
 The mechanism it describes does not exist. `tryPickWinnerRanked` (`TypeRegistry.fs:199`) applies
 `pick` BEFORE ranking, so a claim `keyInKind` rejects is skipped rather than allowed to win, and
-a lower-ranked same-kind claim can still be returned. The sentence nonetheless describes correct
-F# semantics, which is why it was written; the shadowing simply happens somewhere else, in
-`resolveType` over `TypeClaims`, and the kind-specific lookups are never asked a question whose
-answer would expose the difference. Their callers (`InferCtor.fs:285`, `InferIdentExpr.fs:73`
-and `:177`, `Elaborate/Resolve.fs:34`, `InheritParent.fs:79`) each already hold a kind.
+a lower-ranked same-kind claim can still be returned. The sentence was written believing it
+describes correct F# semantics, and the kind-specific lookups were believed never to be asked a
+question whose answer would expose the difference. Their callers (`InferCtor.fs:285`,
+`InferIdentExpr.fs:73` and `:177`, `Elaborate/Resolve.fs:34`, `InheritParent.fs:173`) each
+already hold a kind.
 
 Two ways to close it, in preference order:
 
@@ -148,8 +155,12 @@ Two ways to close it, in preference order:
    not ranked: cross-kind precedence is the caller's, through the name table", matching
    `tryAbbrev`'s doc at `TypeRegistry.fs:544`.
 
-(1) costs a signature change across five call sites and is the shape the rest of this plan
-wants anyway. Until one of them lands, the sentence is false and should not be cited.
+*Settled by step 4's probes: (2).* The sentence is false in F# as well as in the code. The
+kind-specific lookups serve expression position, where the candidate set is the CLASSES, so a
+record outranking a class must NOT shadow it: `T()` under a nearer record takes the outer class
+(probed 2026-09-03, and pinned). Under (1) that lookup would miss, so (1) would encode the
+wrong rule. Kind shadowing is TYPE position's, and type position resolves through `resolveType`
+over `TypeClaims` already.
 
 ## Staged plan
 
@@ -185,9 +196,11 @@ Three things the 2026-09-01 probes settled while the step was written, each now 
 
 - The candidate set is by POSITION, not by kind. A bare name in expression position denotes a
   constructor, so `A.T<'a>` (class) beside `B.T<'a,'b>` (record) is no ambiguity — F# accepts
-  `T(1)` there and takes the class — while two records at different arities are FS1124. A
-  non-generic claim of ANY kind still settles the name first, which is what keeps the pinned
-  cross-arity reach past a nearer generic working.
+  `T(1)` there and takes the class — while two records at different arities are FS1124.
+  (Written as "a non-generic claim of ANY kind still settles the name first". Step 4 probed
+  that and it is false: an arity-0 record leaves `T(1)` to the class `T<'a>`, and leaves two
+  disagreeing classes at FS1124. The claim of another kind is outside the candidate set, so it
+  supplies no arity.)
 - F# reports FS1124 alone, so the recovery must ground the expression. `tryKeyOfArglessName`
   takes the claim of NEAREST arity, which is step 5's rule read at the written arity 0.
   `TyUnknown` will not serve: a binder unified with it links nothing, and the free `TyVar`
@@ -205,12 +218,73 @@ FS0033 against the max-rank claim (`B.T<_,_>`) there, never FS1124. `tryKeyOfArg
 silent recovery is therefore the right verdict for every `*Bare` caller reached from
 `InheritParent`, and the 2026-09-02 probe pinned it in `SameNameResolutionTests.fs`.
 
-**Step 4 — rank before reading the kind.** Option (1) above: `tryPickWinnerRanked` ranks over
-an `admit` predicate and hands back the winning claim; `tryKeyOfArity` and
-`tryKeyOfArglessName` project it into `reg` and miss when the winner is of another kind. No
-behaviour change is expected, since no current call site can observe the difference. The test
-to write first is the one that would: a kind-specific lookup asked for a name whose max-rank
-claim is of another kind.
+**Step 4 — rank before reading the kind. Done, as option (2), and it is a behaviour change.**
+The test written first was the one that would observe the difference — a kind-specific lookup
+asked for a name whose max-rank claim is of another kind — and F# answers it against option
+(1): `T()` beside a nearer same-arity record takes the outer CLASS, and `T(1)` beside an
+arity-0 record takes the class `T<'a>`. Both were red, reporting "Unresolved identifier: T".
+
+So the kind filter inside the ranked scan is the RIGHT rule for the kind-specific lookups,
+because in expression position the kind IS the candidate set, and `tryKeyOfArity`'s doc now
+says so. What was wrong is who else read the kind:
+
+- `TypeRegistry.arglessExprClaim` settled the name over every claim and narrowed to the classes
+  only on a `Disagreement`. It now takes the argless rule over the classes first and falls back
+  to every claim, which is where a name no class claims reports its arity disagreement. That
+  fallback is what keeps two records at different arities reporting FS1124.
+- `InheritParent.resolveInheritArgName` cascaded record → union → class, so a nearer class lost
+  an `inherit Base<T>(t)` argument to an outer record of the same arity, giving "Type mismatch:
+  N+T vs T" where F# is clean. It was first repaired in place, by reading the max-rank claim at
+  the written arity through `TypeClaims` and dispatching on the kind after.
+
+**Step 4a — read the stamped verdict instead of re-deriving it.** That in-place repair was the
+third time an `inherit` argument's own copy of `resolveType` was corrected to agree with the
+original. `classifyGroupTypeNames` stamps the whole `inherit` clause at step 2 of
+`registerGroup`, and `fillGroupBaseTypes` runs at step 7, so the verdict is already cached when
+the argument resolves. The first cut of this step read the verdict through a fourth copy,
+`resolveInheritArgRef` beside a hand-pruned `translateInheritArg`. The review collapsed both:
+an `inherit` argument is now `UnificationTranslate.translateType`, run under the class's
+typar scope through `TypeRegistration.underTyparScope` at the one call site in
+`MemberRegistration.registerInheritedSlot`, exactly as a ctor parameter annotation or a `val`
+field already is. `resolveInheritParent` lost its `Map` typar-scope parameter with it, and
+`resolveClaimedType` and `fitArgs` stay private to `Translate.fs`. Five divergences closed,
+the first four pinned in `UnificationInheritanceTests.fs` where a test distinguishes them:
+
+- A wrong-arity argument built a nominal whose key declared an arity its args did not carry,
+  reporting "Type mismatch: T\`1 vs T\`1" beside the correct FS0033. The args are now fitted.
+- A qualified argument (`inherit Base<A.T>(t)`) fell to a fresh TyVar; F# resolves it.
+- The external leg matched at `WrittenArity.Any` where every other position matches at the
+  exact arity.
+- An enum, an intrinsic binding and an abbreviation resolve through the claim rather than
+  landing opaque.
+- The copy sent an array, a `null` member, an anonymous union, a `when`-constrained type and
+  every measured carrier (`inherit Base<float<kg>>`) to a fresh TyVar, and an unresolved name
+  to an opaque `TyConst` that unified as a real nominal. `translateType` models the shapes and
+  yields `TyUnknown` for the name, whose FS0039 the classifying walk already reported at the
+  same site.
+
+**Step 4b — the PARENT reads the stamped verdict too.** `resolveInheritParent`
+is the last copy of `resolveType` in the tree: its own `nameAndArgs` walk, the
+`li.Idents.Length <> 1` rejection, `TypeRegistry.tryClass` by name, `tryIntrinsicKeyOf` for a
+heritable local, then `tryPickExternalWritten` through `providerBaseOf`. The verdict for the
+parent's site is stamped by the same step-2 walk that stamps its arguments, so the parent
+dispatches on it instead:
+
+- `LocalType` claim: `TypeDeclKind.Class` admits through `tryClassByKey` (an interface is
+  `BaseVerdict.Interface`); `Abbreviation` follows `tryAliasedKey` to the class it aliases, as
+  `keyInKind` does today; `IntrinsicBinding` is the heritable-local arm; every other kind is
+  `BaseVerdict.NotAClass`.
+- `LocalTypeAtOtherArity`: FS0033 is already reported; recover as `NotAClass` or the fitted
+  class, whichever step 5 settles for the argument position.
+- `ExternalType key`: `ctx.Provider.TryLookupType key` through `providerBaseOf`, replacing the
+  by-name `tryPickExternalWritten` scan.
+- `UnknownType`: `BaseVerdict.UnknownName`.
+
+This deletes `nameAndArgs`, `tryCtorBearingCanon`'s by-name scan and `resolveThroughProvider`,
+and lifts the qualified-parent `NotYetSupported` for free, since the verdict already resolves
+`inherit A.Base<int>(v)`. The test to write first is the qualified parent, red today, plus a
+parent of each kind (record, union, enum, abbreviation to a class, interface, external class,
+`exn`, `Attribute`) so each `BaseVerdict` arm is pinned before the copy goes.
 
 **Step 5 — report a written arity no claim holds, and name the nearest arity.** Closes GAP 6
 and 7. Two parts; the second is a deliberate divergence from F#.
@@ -246,9 +320,9 @@ Answered by the 2026-09-01 probes, and pinned:
 1. **Arity overloading within one module** is legal, and a bare name means arity 0 there.
 2. **Cross-arity reach outward** holds through nesting and through `open`, across kinds, and an
    arity-0 claim outranks a later `open`'s generic one.
-3. **Kind shadowing within an arity** is total: the shadowed type is unreachable, not merely
-   outranked, and it applies by rank, so a later `open` shadows exactly as a nearer declaration
-   does.
+3. **Kind shadowing within an arity** is total IN TYPE POSITION: the shadowed type is
+   unreachable, not merely outranked, and it applies by rank, so a later `open` shadows exactly
+   as a nearer declaration does. Expression position shadows within the CLASSES only (7).
 4. **Type position never infers a type argument, and expression position always may.** The
    split is by syntactic position, uniform within each: nine type positions all give FS0033,
    and constructors, static accesses and union-case patterns all resolve bare. Type position
@@ -257,10 +331,12 @@ Answered by the 2026-09-01 probes, and pinned:
    `unit`-constructor `T` is a constructor-arity error, never a silent fallthrough to `T<'a>`.
 6. **An uninferable instantiation is a WARNING, not an error** (FS1125), and only in expression
    position. Any diagnostic added for it must not be an error.
-7. **The FS1124 candidate set is the position's, not the kind's.** A bare name in expression
-   position denotes a constructor, so a lone class claim settles the arity past a same-named
-   record of another arity, and two records at different arities are the ambiguity. An arity-0
-   claim of any kind still settles the name ahead of both.
+7. **The expression-position candidate set is the CLASSES, and FS1124 is over them.** A lone
+   class claim settles the arity past a same-named record of any other arity, and past a record
+   at arity 0, which supplies nothing. Two classes at different arities are the ambiguity.
+   Where no class claims the name at all, every claim is the set, which is how two records at
+   different arities report FS1124. Corrected 2026-09-03; the first reading had an arity-0
+   claim of any kind settling the name.
 
 ## Scope and risk
 
@@ -269,7 +345,11 @@ Step 2 landed in `PassContext.TypeRefVerdict`, `LongIdent.resolveType`, `TypeRef
 existing `Kind.TypeArgArity` already carries FS0033. Step 3 landed in `TypeRegistry`,
 `ResolvedItem`, `LongIdent.typeInEnv`, `Scope`'s expression report and the diagnostic kinds
 plus their codec; the four `*Bare` callers needed no change, because the recovery inside
-`tryKeyOfArglessName` keeps them on `voption`. Step 4 touches `TypeRegistry` only. Step 5
+`tryKeyOfArglessName` keeps them on `voption`. Step 4 landed in `TypeRegistry.arglessExprClaim`
+and `InheritParent`, needed no signature change, and reddened nothing across the
+SemanticAnalysis and two Codegen suites; step 4a landed in `InheritParent` and
+`MemberRegistration.registerInheritedSlot`, deleting code only, and reddened nothing across the
+same three suites. Step 4b touches `InheritParent` alone. Step 5
 touches the enum-case and union-case qualifier paths, plus `tryWrittenTypeClaimAnyArity`'s
 choice of candidate. All four are front-end, publish nothing new, and leave the frozen blob and
 its codec alone.

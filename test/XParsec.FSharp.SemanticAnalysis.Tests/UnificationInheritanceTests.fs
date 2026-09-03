@@ -194,6 +194,60 @@ let tests =
                 Expect.isEmpty ctx.Diagnostics (sprintf "no diagnostics — both arities resolve: %A" ctx.Diagnostics)
             }
 
+            // --- an `inherit` clause's type ARGUMENT resolves as any other type position ---
+
+            test "a qualified inherit type argument resolves to the type it names" {
+                // `inherit Base<A.T>` instantiates `'a` at `A.T`, so `W`'s parameter is `A.T`
+                // and an `int` argument is FS0001. A free TyVar here would take the `int`.
+                let ctx =
+                    analyse (
+                        String.concat
+                            "\n"
+                            [
+                                "module A ="
+                                "    type T = { X: int }"
+                                "type Base<'a>(n: int) ="
+                                "    member this.W (y: 'a) = y"
+                                "type D() ="
+                                "    inherit Base<A.T>(1)"
+                                "let d = D()"
+                                "let bad = d.W 42"
+                            ]
+                    )
+
+                let es = errors ctx
+
+                Expect.isTrue
+                    (es |> List.exists (fun d -> d.Message.Contains "mismatch"))
+                    (sprintf "int against A.T is a mismatch; diagnostics were %A" es)
+            }
+
+            test "an inherit type argument at the wrong arity reports the arity alone" {
+                // `T` is claimed only at arity 1, so the written `T` is FS0033. Its args are
+                // fitted to the claim's arity, leaving a nominal that unifies with `T<int>`
+                // instead of a same-key mismatch reported beside the arity error.
+                let ctx =
+                    analyse (
+                        String.concat
+                            "\n"
+                            [
+                                "type Base<'a>(x: 'a) ="
+                                "    member this.V = x"
+                                "type T<'a>(y: 'a) ="
+                                "    member this.Y = y"
+                                "type D(t: T<int>) ="
+                                "    inherit Base<T>(t)"
+                            ]
+                    )
+
+                let es = errors ctx |> List.map (fun d -> d.Message)
+
+                Expect.equal
+                    es
+                    [ "Type 'T' expects 1 type argument(s) but got 0" ]
+                    (sprintf "the arity error alone; diagnostics were %A" es)
+            }
+
             // --- `override` conforms to the slot it targets ---
 
             test "override of a base-declared virtual conforms to the base slot" {

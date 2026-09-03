@@ -3,99 +3,15 @@ namespace XParsec.FSharp.SemanticAnalysis.Passes
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open UnificationEngineCore
+open UnificationTranslate
 open NameResolutionContainers
 open NameResolutionLongIdent
-open NameResolutionTypeRefStamp
 
 // Resolving an `inherit` clause's PARENT, at registration time and in the scope the clause is
 // written. The parent is an arbitrary written name reached through the same opens-aware engine
 // as any other type reference, so the miss cases are as much of the work as the hits.
 
 module NameResolutionInheritParent =
-
-    /// The use site of the type name at `li`: its own position in the file, under
-    /// the module and `open`s the registration scan currently stands in.
-    let private useSiteOfTypeName (ctx: PassContext) (li: LongIdent<SyntaxToken>) : UseSite =
-        ctx.UseSiteAt(NodeKey.ofToken li.Idents.[li.Idents.Length - 1] NodeKind.TypeNamed)
-
-    /// Resolve a named type in an `inherit` clause *argument* position (`inherit
-    /// Box<int>(v)`'s `int`) to a best-effort `SemType`: a registration-time mini
-    /// translation, so an abbrev-named arg lands as an opaque `TyConst`, expanded later.
-    let rec private translateInheritArg
-        (ctx: PassContext)
-        (typarScope: Map<string, TyVarId>)
-        (t: Type<SyntaxToken>)
-        : SemType =
-        let freshTv () =
-            let tv = ctx.NewTypeVar()
-            ctx.Store.SetLevel(UnionFind.find ctx.Store tv, 0)
-            TyVar tv
-
-        match t with
-        | Type.ParenType(typ = inner) -> translateInheritArg ctx typarScope inner
-        | Type.VarType(Typar.Named(ident = id))
-        | Type.VarType(Typar.Static(ident = id)) ->
-            // A typar in the inherit clause binds to the derived class's prototype
-            // TyVar so generic inheritance substitutes correctly at member-lookup
-            // time (`type Wrapper<'a>(v: 'a) = inherit Box<'a>(v)`).
-            match typarScope.TryFind(ctx.NameOf id) with
-            | Some tv -> TyVar tv
-            | None -> freshTv ()
-        | Type.VarType(Typar.Anon _) -> freshTv ()
-        | Type.NamedType li when li.Idents.Length = 1 ->
-            resolveInheritArgName ctx (useSiteOfTypeName ctx li) (ctx.NameOf li.Idents.[0]) EqArray.empty
-        | Type.GenericType(longIdent = li; typeArgs = args) when li.Idents.Length = 1 ->
-            let targs =
-                EqArray.ofList
-                    [
-                        for a in args do
-                            match a with
-                            | TypeArg.Type at -> yield translateInheritArg ctx typarScope at
-                            | TypeArg.Measure _ -> ()
-                    ]
-
-            resolveInheritArgName ctx (useSiteOfTypeName ctx li) (ctx.NameOf li.Idents.[0]) targs
-        | Type.SuffixedType(baseType = bt; longIdent = li) when li.Idents.Length = 1 ->
-            resolveInheritArgName
-                ctx
-                (useSiteOfTypeName ctx li)
-                (ctx.NameOf li.Idents.[0])
-                (EqArray.singleton (translateInheritArg ctx typarScope bt))
-        | Type.TupleType(types = types) ->
-            TyTuple(EqArray.ofList [ for ty in types -> translateInheritArg ctx typarScope ty ])
-        | Type.FunctionType(fromType = f; toType = into) ->
-            TyFun(translateInheritArg ctx typarScope f, translateInheritArg ctx typarScope into)
-        | _ -> freshTv ()
-
-    and private resolveInheritArgName
-        (ctx: PassContext)
-        (useSite: UseSite)
-        (name: string)
-        (args: EqArray<SemType>)
-        : SemType =
-        match TypeRegistry.tryRecord ctx.Types useSite name with
-        | ValueSome info -> TyRecord(info.TypeKey, args)
-        | ValueNone ->
-            match TypeRegistry.tryUnionBare ctx.Types useSite name with
-            | ValueSome info -> TyUnion(info.TypeKey, args)
-            | ValueNone ->
-                match TypeRegistry.tryClass ctx.Types useSite name with
-                | ValueSome info -> TyClass(info.TypeKey, args)
-                | ValueNone ->
-                    match ctx.Types.IntrinsicKeys.TryGetValue name with
-                    | true, k -> TyConst(k, args)
-                    | _ ->
-                        match
-                            tryPickExternalWritten
-                                ctx
-                                useSite
-                                WrittenArity.Any
-                                (fun _ shape -> ExternalSymbols.intrinsicCanonOf shape)
-                                Qualifier.Bare
-                                name
-                        with
-                        | ValueSome c -> TyConst(c, args)
-                        | ValueNone -> TyConst(RuntimeNames.opaqueKey name, EqArray.empty)
 
     /// An `inherit` parent resolved through a provider, rather than the project-local type
     /// registry. The arm is fixed at construction, so a caller matches on it rather than
@@ -133,17 +49,12 @@ module NameResolutionInheritParent =
                     ProviderBase.HeritablePlatform id
             )
 
-    /// Resolve an `inherit` clause's parent type to a nominal under the derived class's
-    /// typar scope. Diagnoses (and returns `ValueNone`) when the parent is an interface, a
-    /// non-class type, an unknown name, a multi-segment name, or a shape with no nominal
-    /// head; the diagnostic is reported at `inhTok` where the written shape retains no
-    /// name token.
-    let resolveInheritParent
-        (ctx: PassContext)
-        (typarScope: Map<string, TyVarId>)
-        (inhTok: SyntaxToken)
-        (t: Type<SyntaxToken>)
-        : BaseParent voption =
+    /// Resolve an `inherit` clause's parent type to a nominal. The caller runs it under the
+    /// derived class's typar scope, so a `'a` in the clause is the class's prototype TyVar.
+    /// Diagnoses (and returns `ValueNone`) when the parent is an interface, a non-class type,
+    /// an unknown name, a multi-segment name, or a shape with no nominal head; the
+    /// diagnostic is reported at `inhTok` where the written shape retains no name token.
+    let resolveInheritParent (ctx: PassContext) (inhTok: SyntaxToken) (t: Type<SyntaxToken>) : BaseParent voption =
         let rec nameAndArgs (t: Type<SyntaxToken>) : (LongIdent<SyntaxToken> * SemType list) voption =
             match t with
             | Type.ParenType(typ = inner) -> nameAndArgs inner
@@ -153,13 +64,12 @@ module NameResolutionInheritParent =
                     [
                         for a in args do
                             match a with
-                            | TypeArg.Type at -> yield translateInheritArg ctx typarScope at
+                            | TypeArg.Type at -> yield translateType ctx at
                             | TypeArg.Measure _ -> ()
                     ]
 
                 ValueSome(li, targs)
-            | Type.SuffixedType(baseType = bt; longIdent = li) ->
-                ValueSome(li, [ translateInheritArg ctx typarScope bt ])
+            | Type.SuffixedType(baseType = bt; longIdent = li) -> ValueSome(li, [ translateType ctx bt ])
             | _ -> ValueNone
 
         let diagnose (tok: SyntaxToken) (kind: Kind) = ctx.Report(tok, kind)
@@ -171,7 +81,7 @@ module NameResolutionInheritParent =
             BaseEligibility.classify
                 (BaseEligibility.isInterfaceKey ctx)
                 (BaseEligibility.isHeritableCanon ctx)
-                (translateInheritArg ctx typarScope t)
+                (translateType ctx t)
             |> BaseEligibility.admit ctx inhTok
         | ValueSome(li, targs) ->
             let nameTok = li.Idents.[li.Idents.Length - 1]

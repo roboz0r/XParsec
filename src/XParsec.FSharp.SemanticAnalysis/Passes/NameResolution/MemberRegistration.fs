@@ -625,11 +625,13 @@ module NameResolutionMemberRegistration =
                 | ValueSome info when info.IsInterface ->
                     ctx.Report(inhTok, Kind.NotYetSupported "interface inheritance in an implementation file")
                 | ValueSome info ->
-                    let typarScope =
-                        (Map.empty, info.TypeParams)
-                        ||> EqArray.fold (fun acc (n, tv) -> Map.add n tv acc)
+                    let parent =
+                        underTyparScope
+                            ctx
+                            info.TypeParams
+                            (fun () -> NameResolutionInheritParent.resolveInheritParent ctx inhTok parentTyp)
 
-                    match NameResolutionInheritParent.resolveInheritParent ctx typarScope inhTok parentTyp with
+                    match parent with
                     | ValueSome parent -> info.Base <- ValueSome { Parent = parent; CtorArgs = exprOpt }
                     | ValueNone -> ()
                 | ValueNone -> ()

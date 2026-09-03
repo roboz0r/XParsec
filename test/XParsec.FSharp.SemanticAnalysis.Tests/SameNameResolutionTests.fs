@@ -305,6 +305,32 @@ module N =
 "
                     }
 
+                    // The arity-0 record sits outside the candidate set, so it supplies no
+                    // arity and the two classes still disagree. F# reports FS1124 here.
+                    test "an arity-0 record leaves two disagreeing classes ambiguous" {
+                        expectOneUserError
+                            "Multiple types"
+                            "\
+module A =
+    type T<'a>(x: 'a) =
+        member _.X = x
+
+module B =
+    type T<'a, 'b>(x: 'a, y: 'b) =
+        member _.X = x
+
+module C =
+    type T = { Z: int }
+
+module N =
+    open A
+    open B
+    open C
+
+    let v = T(1)
+"
+                    }
+
                     // A bare name in expression position denotes a CONSTRUCTOR, so the one
                     // class claiming it settles the arity and the same-named record of another
                     // arity is no ambiguity. F# accepts this.
@@ -441,6 +467,28 @@ module N =
 "
                     }
 
+                    // An `inherit` clause's type ARGUMENT is type position too, so the nearer
+                    // class is what `Base<T>` is instantiated at.
+                    test "an inherit type argument takes the max-rank claim, not the first kind" {
+                        expectClean
+                            "\
+type Base<'a>(x: 'a) =
+    member _.V = x
+
+type T = { X: int }
+
+module N =
+    type T() =
+        member _.Y = 42
+
+    type D(t: T) =
+        inherit Base<T>(t)
+
+    let d = D(T())
+    let y = d.V.Y
+"
+                    }
+
                     // FS0039 again: the shadowing is by RANK, so the last `open` shadows just
                     // as a nearer declaration does.
                     test "a shadowed record is unreachable through a later `open`" {
@@ -459,6 +507,49 @@ module N =
     open B
 
     let f (t: T) = t.X
+"
+                    }
+                ]
+
+            // The shadowing above is TYPE position's. A bare name in expression position
+            // denotes a constructor, so the candidate set is the CLASSES reaching the site and
+            // a claim of another kind neither shadows one nor settles the arity.
+            testList
+                "a constructor is picked among the CLASSES, whatever outranks them"
+                [
+                    // The same `T`, in the same scope, is the nearer record in type position and
+                    // the outer class in expression position.
+                    test "a ctor reaches an outer class past a nearer same-arity record" {
+                        expectClean
+                            "\
+type T() =
+    member _.Y = 42
+
+module N =
+    type T = { X: int }
+
+    let asType (t: T) = t.X
+    let asCtor = T().Y
+"
+                    }
+
+                    // An arity-0 claim settles a bare name only from within the candidate set:
+                    // a record at arity 0 leaves the sole class claim to supply the arity.
+                    test "an arity-0 record does not settle a bare ctor name" {
+                        expectClean
+                            "\
+module A =
+    type T<'a>(x: 'a) =
+        member _.Y = x
+
+module C =
+    type T = { Z: int }
+
+module N =
+    open A
+    open C
+
+    let v = T(1).Y
 "
                     }
                 ]

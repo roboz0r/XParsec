@@ -352,8 +352,9 @@ module TypeRegistry =
             | TypeDeclKind.Abbreviation -> tryAliasedKey types c.Key |> ValueOption.filter reg.ContainsKey
             | _ -> ValueNone
 
-    /// The key in `reg` that `written` at EXACTLY this arity stands for at `useSite`. A
-    /// same-named type of another kind shadows it into a MISS.
+    /// The key in `reg` that `written` at EXACTLY this arity stands for at `useSite`. Claims of
+    /// another kind are skipped, not ranked; cross-kind precedence belongs to the caller,
+    /// through the name table.
     let private tryKeyOfArity
         (types: PassContextTypes)
         (reg: KindRegistry<'T>)
@@ -372,6 +373,18 @@ module TypeRegistry =
                     ValueNone
             )
 
+    /// The argless rule applied to the claims on `written` that `reg` holds: `reg`'s own
+    /// claims are the whole candidate set, and they alone settle the arity.
+    let private arglessClaimIn
+        (types: PassContextTypes)
+        (reg: KindRegistry<'T>)
+        (useSite: UseSite)
+        (written: WrittenTypeName)
+        : ArglessClaim =
+        let inKind (c: TypeIdentity) = (keyInKind types reg c).IsSome
+
+        writtenTypeClaims types useSite written |> List.filter inKind |> arglessClaimOf
+
     /// The key in `reg` that `written` WITHOUT type arguments stands for at `useSite`: a
     /// NON-GENERIC type of that name, else the candidates' agreed arity. Candidates that
     /// disagree on arity recover to the nearest one, silently.
@@ -381,26 +394,20 @@ module TypeRegistry =
         (useSite: UseSite)
         (written: WrittenTypeName)
         : TypeKey voption =
-        let inKind (c: TypeIdentity) = (keyInKind types reg c).IsSome
-
-        match writtenTypeClaims types useSite written |> List.filter inKind |> arglessClaimOf with
+        match arglessClaimIn types reg useSite written with
         | ArglessClaim.Takes c
         | ArglessClaim.Disagreement(_, c) -> keyInKind types reg c
         | ArglessClaim.NoClaim -> ValueNone
 
     /// The claim the bare `name` takes at `useSite` in EXPRESSION position, where it denotes a
-    /// CONSTRUCTOR: a non-generic claim of ANY kind, else the classes' claim, else every
-    /// claim's.
+    /// CONSTRUCTOR: the argless rule over the CLASSES reaching the site. Where no class claims
+    /// the name, every claim is the candidate set, so records still report an arity disagreement.
     let arglessExprClaim (types: PassContextTypes) (useSite: UseSite) (name: string) : ArglessClaim =
-        let claims = writtenTypeClaims types useSite (WrittenTypeName.bare name)
-        let isClass (c: TypeIdentity) = (keyInKind types types.Class c).IsSome
+        let written = WrittenTypeName.bare name
 
-        match arglessClaimOf claims with
-        | ArglessClaim.Disagreement _ as overAll ->
-            match claims |> List.filter isClass |> arglessClaimOf with
-            | ArglessClaim.NoClaim -> overAll
-            | overClasses -> overClasses
-        | settled -> settled
+        match arglessClaimIn types types.Class useSite written with
+        | ArglessClaim.NoClaim -> arglessClaimOf (writtenTypeClaims types useSite written)
+        | overClasses -> overClasses
 
     /// Chains onto a by-name resolution, whose miss passes straight through.
     let private tryOfKey (reg: KindRegistry<'T>) (key: TypeKey voption) : 'T voption =
