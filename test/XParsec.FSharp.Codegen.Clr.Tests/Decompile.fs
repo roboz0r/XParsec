@@ -45,3 +45,8 @@ let typesAsCSharp (artifact: ClrArtifact) (fullNames: string list) : string =
         ]
 
     decompiler.DecompileTypesAsString handles
+
+/// Every type the assembly defines, with its assembly- and module-level attributes, as one
+/// C# rendering.
+let moduleAsCSharp (artifact: ClrArtifact) : string =
+    (decompilerOf artifact).DecompileWholeModuleAsString()
