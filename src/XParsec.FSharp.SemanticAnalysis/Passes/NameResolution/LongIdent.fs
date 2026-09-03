@@ -484,41 +484,59 @@ module NameResolutionLongIdent =
     /// `names.[0]` as a type in the environment and `names.[1]` inside it: every claim of this
     /// file in scope under the name, then the external providers at each arity. A type that
     /// matches the name but not the member is the miss returned.
+    ///
+    /// In expression position the bare qualifier is subject to the argless rule, so claims at
+    /// several arities are the FS1124 ambiguity before any member is searched. In pattern
+    /// position every claim is searched for the case.
     let private typeFirst
         (ctx: PassContext)
         (useSite: UseSite)
         (position: Position)
         (names: string[])
         : Resolution voption =
+        let first = names.[0]
         let second = names.[1]
 
-        let local =
-            TypeRegistry.writtenTypeClaims ctx.Types useSite (WrittenTypeName.bare names.[0])
-            |> List.map (localType ctx)
+        let ambiguity =
+            match position with
+            | Position.Expression ->
+                match TypeRegistry.arglessExprClaim ctx.Types useSite first with
+                | ArglessClaim.Disagreement(arities, _) ->
+                    ValueSome(resolved (ResolvedItem.AmbiguousTypeArity(first, arities)) 2)
+                | ArglessClaim.Takes _
+                | ArglessClaim.NoClaim -> ValueNone
+            | Position.Pattern -> ValueNone
 
-        let hit =
-            match local |> tryPickV (fun t -> inType ctx position t second) with
-            | ValueSome item -> ValueSome item
-            | ValueNone ->
-                tryPickExternalWritten
-                    ctx
-                    useSite
-                    WrittenArity.Any
-                    (fun key shape -> inType ctx position (externalType ctx key shape) second)
-                    Qualifier.Bare
-                    names.[0]
-
-        match hit with
-        | ValueSome item -> ValueSome(resolved item 2)
+        match ambiguity with
+        | ValueSome r -> ValueSome r
         | ValueNone ->
-            let found =
-                match local with
-                | t :: _ -> ValueSome t
-                | [] ->
-                    classifyExternalWritten ctx useSite WrittenArity.Any Qualifier.Bare names.[0]
-                    |> ValueOption.map (fun (struct (key, shape)) -> externalType ctx key shape)
+            let local =
+                TypeRegistry.writtenTypeClaims ctx.Types useSite (WrittenTypeName.bare first)
+                |> List.map (localType ctx)
 
-            found |> ValueOption.map (fun t -> unresolvedInType t second 2)
+            let hit =
+                match local |> tryPickV (fun t -> inType ctx position t second) with
+                | ValueSome item -> ValueSome item
+                | ValueNone ->
+                    tryPickExternalWritten
+                        ctx
+                        useSite
+                        WrittenArity.Any
+                        (fun key shape -> inType ctx position (externalType ctx key shape) second)
+                        Qualifier.Bare
+                        first
+
+            match hit with
+            | ValueSome item -> ValueSome(resolved item 2)
+            | ValueNone ->
+                let found =
+                    match local with
+                    | t :: _ -> ValueSome t
+                    | [] ->
+                        classifyExternalWritten ctx useSite WrittenArity.Any Qualifier.Bare first
+                        |> ValueOption.map (fun (struct (key, shape)) -> externalType ctx key shape)
+
+                found |> ValueOption.map (fun t -> unresolvedInType t second 2)
 
     /// The referenced contracts probed by the folded spelling, a whole name at a time: the
     /// whole name as a type, then the prefix as a type and the last segment inside it.

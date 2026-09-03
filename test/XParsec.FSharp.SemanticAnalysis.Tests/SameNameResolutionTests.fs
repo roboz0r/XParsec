@@ -354,6 +354,97 @@ module N =
 "
                     }
 
+                    // The qualifier of a static access is the same bare name, so the same
+                    // FS1124. F# reports it before the member is searched, so a member only
+                    // one candidate declares does not settle the ambiguity.
+                    test "a qualified static member under an arity disagreement reports the ambiguity" {
+                        expectOneUserError
+                            "Multiple types"
+                            "\
+module A =
+    type T<'a>(x: 'a) =
+        member _.X = x
+        static member M (v: 'a) = T<'a>(v)
+
+module B =
+    type T<'a, 'b>(x: 'a, y: 'b) =
+        member _.X = x
+
+module N =
+    open A
+    open B
+
+    let v = T.M 1
+"
+                    }
+
+                    test "a qualified access on records that disagree on arity reports the ambiguity" {
+                        expectOneUserError
+                            "Multiple types"
+                            "\
+module A =
+    type T<'a> = { X: 'a }
+
+module B =
+    type T<'a, 'b> = { Y: 'a; Z: 'b }
+
+module N =
+    open A
+    open B
+
+    let v = T.X
+"
+                    }
+
+                    // The candidate set is the CLASSES: a union at arity 0 supplies nothing, so
+                    // the sole class settles the qualifier. F# accepts this.
+                    test "a qualified static member past an arity-0 union takes the sole class" {
+                        expectClean
+                            "\
+module A =
+    type T<'a>(x: 'a) =
+        member _.X = x
+        static member M (v: 'a) = T<'a>(v)
+
+module C =
+    type T =
+        | Q
+        | R
+
+module N =
+    open A
+    open C
+
+    let v = T.M 1
+"
+                    }
+
+                    // PATTERN position searches every claim for the case and reports no
+                    // ambiguity. F# accepts this.
+                    test "a qualified case pattern under an arity disagreement matches" {
+                        expectClean
+                            "\
+module A =
+    type T<'a> =
+        | A of 'a
+        | B
+
+module B =
+    type T<'a, 'b> =
+        | A of 'a
+        | C of 'b
+
+module N =
+    open A
+    open B
+
+    let f x =
+        match x with
+        | T.A v -> v
+        | _ -> 0
+"
+                    }
+
                     // A bare name in expression position denotes a CONSTRUCTOR, so the one
                     // class claiming it settles the arity and the same-named record of another
                     // arity is no ambiguity. F# accepts this.
