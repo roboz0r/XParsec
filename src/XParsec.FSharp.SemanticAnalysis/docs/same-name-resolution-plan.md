@@ -51,7 +51,7 @@ order and implements it.
 
 ## Where the compiler stands
 
-*Updated after step 4a.* Twenty-seven of the twenty-nine pinned cases are green: arity
+*Updated after step 4b.* Twenty-seven of the twenty-nine pinned cases are green: arity
 overloading within a module, every cross-arity reach, every kind-shadowing case in both
 positions, every bare-name expression-position case including the arity ambiguity, and every
 type-position case. Type
@@ -263,28 +263,47 @@ the first four pinned in `UnificationInheritanceTests.fs` where a test distingui
   yields `TyUnknown` for the name, whose FS0039 the classifying walk already reported at the
   same site.
 
-**Step 4b — the PARENT reads the stamped verdict too.** `resolveInheritParent`
-is the last copy of `resolveType` in the tree: its own `nameAndArgs` walk, the
-`li.Idents.Length <> 1` rejection, `TypeRegistry.tryClass` by name, `tryIntrinsicKeyOf` for a
-heritable local, then `tryPickExternalWritten` through `providerBaseOf`. The verdict for the
-parent's site is stamped by the same step-2 walk that stamps its arguments, so the parent
-dispatches on it instead:
+**Step 4b — the PARENT reads the stamped verdict too. Done.** `resolveInheritParent` was the
+last copy of `resolveType` in the tree: its own `nameAndArgs` walk, the `li.Idents.Length <> 1`
+rejection, `TypeRegistry.tryClass` by name, `tryIntrinsicKeyOf` for a heritable local, then
+`tryPickExternalWritten` through `providerBaseOf`. The verdict for the parent's site is stamped
+by the same step-2 walk that stamps its arguments, so the parent now goes the way the argument
+went at step 4a and the signature front end already did: `translateType` reads the verdict, and
+`BaseEligibility.classify` reads the kind off the result. The verdict arms fall out of that:
 
-- `LocalType` claim: `TypeDeclKind.Class` admits through `tryClassByKey` (an interface is
-  `BaseVerdict.Interface`); `Abbreviation` follows `tryAliasedKey` to the class it aliases, as
-  `keyInKind` does today; `IntrinsicBinding` is the heritable-local arm; every other kind is
-  `BaseVerdict.NotAClass`.
-- `LocalTypeAtOtherArity`: FS0033 is already reported; recover as `NotAClass` or the fitted
-  class, whichever step 5 settles for the argument position.
-- `ExternalType key`: `ctx.Provider.TryLookupType key` through `providerBaseOf`, replacing the
-  by-name `tryPickExternalWritten` scan.
-- `UnknownType`: `BaseVerdict.UnknownName`.
+- `LocalType` claim: a class is `TyClass` and admits unless `isInterfaceKey`; an abbreviation
+  EXPANDS, so `type IntBox = Box<int>` followed by `inherit IntBox(1)` is admitted where
+  `keyInKind`'s alias-only rule refused it (F# admits it; pinned); an intrinsic binding is its
+  canon `TyConst`, the heritable arm; a record, union or enum is `NotAClass`.
+- `LocalTypeAtOtherArity`: FS0033 is already reported, and the args are fitted to the claim's
+  arity, so the parent is the fitted class.
+- `ExternalType key`: `tryExternalTypeOfKey`, so a BCL class declared as an intrinsic's
+  platform type (`System.Attribute`) is the canon `TyConst`, the same base the bare `Attribute`
+  gives.
+- `UnknownType`: `unresolvedRefTy` reports FS0039 at the name and yields `TyUnknown`, which
+  classifies as `AlreadyDiagnosed`. "Cannot inherit from unknown type" is gone; F# reports
+  FS0039 there.
 
-This deletes `nameAndArgs`, `tryCtorBearingCanon`'s by-name scan and `resolveThroughProvider`,
-and lifts the qualified-parent `NotYetSupported` for free, since the verdict already resolves
-`inherit A.Base<int>(v)`. The test to write first is the qualified parent, red today, plus a
-parent of each kind (record, union, enum, abbreviation to a class, interface, external class,
-`exn`, `Attribute`) so each `BaseVerdict` arm is pinned before the copy goes.
+A heritable primitive is admitted by CANON on both front ends, so `resolveInheritParent` is
+now `classify |> admit`, the expression `Members.fs` already used for `FrozenBaseType`. The
+CLR backend resolves the canon to its platform class at emit. The one place the platform type
+matters up front is the ctor check: a primitive whose contract declares no `.ctor` (a
+`(# class … #)` binding with no signature) offers its platform type's constructors instead,
+which `ClassCtors.heritableCtorSurfaceOf` reads through the same `BaseCtorSurface` dispatch
+as any other base. A platform id that resolves to no external type, or one unbound on the
+target, is diagnosed there, at the argument list. Pinned in the CLR suite's `ClassTests.fs`
+with a same-file `(# class "System.Exception" #)` base, and confirmed by negative control.
+
+Deleted: `ProviderBase`, `providerBaseOf`, `nameAndArgs`, `tryCtorBearingCanon`,
+`typeIdToExternalBase`, `resolveThroughProvider`, and `BaseVerdict.UnknownName`, which had no
+producer left. The qualified-parent
+`NotYetSupported` lifted with them. Pinned in `UnificationInheritanceTests.fs`: the qualified
+parent, its ctor-argument check, an alias abbreviation, an instantiating abbreviation, a record,
+a union, an enum, a local interface, an unknown name, `Attribute` and `exn`; the qualified
+external parent (`inherit System.Attribute()`) is pinned in the CLR suite's `ClassTests.fs`,
+whose provider carries the BCL. One fixture reddened, and it was a finding: `TypeScopeOrderTests`'
+forward-reference case asserted the retired "unknown type" wording and now asserts FS0039. No
+other fixture across the three suites moved.
 
 **Step 5 — report a written arity no claim holds, and name the nearest arity.** Closes GAP 6
 and 7. Two parts; the second is a deliberate divergence from F#.
@@ -349,10 +368,10 @@ plus their codec; the four `*Bare` callers needed no change, because the recover
 and `InheritParent`, needed no signature change, and reddened nothing across the
 SemanticAnalysis and two Codegen suites; step 4a landed in `InheritParent` and
 `MemberRegistration.registerInheritedSlot`, deleting code only, and reddened nothing across the
-same three suites. Step 4b touches `InheritParent` alone. Step 5
-touches the enum-case and union-case qualifier paths, plus `tryWrittenTypeClaimAnyArity`'s
-choice of candidate. All four are front-end, publish nothing new, and leave the frozen blob and
-its codec alone.
+same three suites; step 4b landed in `InheritParent` alone, deleting code only, and reddened
+one wording assertion. Step 5 touches the enum-case and union-case qualifier paths, plus
+`tryWrittenTypeClaimAnyArity`'s choice of candidate. All four are front-end, publish nothing
+new, and leave the frozen blob and its codec alone.
 
 Step 5 carries the wider blast radius of the four, because the nearest-arity change reaches every
 existing FS0033 against a multi-arity name, in type position as well as expression position.

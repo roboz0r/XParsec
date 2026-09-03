@@ -16,7 +16,6 @@ type BaseVerdict =
     | NotAClass of key: TypeKey
     /// A shape with no nominal head: a tuple, a function type, a typar.
     | NotANominal
-    | UnknownName of name: string
     /// A `TyUnknown` already diagnosed at its source; a second report would double up.
     | AlreadyDiagnosed
     /// A `TyUnknown` with no diagnostic reported at its source.
@@ -136,9 +135,6 @@ module BaseEligibility =
             ValueNone
         | BaseVerdict.NotANominal ->
             ctx.Report(tok, Kind.Message "Cannot inherit from this type, because only classes are inheritable")
-            ValueNone
-        | BaseVerdict.UnknownName name ->
-            ctx.Report(tok, Kind.Message(sprintf "Cannot inherit from unknown type '%s'" name))
             ValueNone
         | BaseVerdict.AlreadyDiagnosed -> ValueNone
         | BaseVerdict.Undiagnosed reason ->

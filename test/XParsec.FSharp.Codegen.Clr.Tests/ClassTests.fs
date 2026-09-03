@@ -1899,6 +1899,64 @@ let interfaceImplTests =
                 | ValueNone -> failtest "class D was not registered"
             }
 
+            // A BCL class declared as an intrinsic's platform type inherits by canon.
+            test "inheriting a qualified external class resolves to the same base as the bare name" {
+                let provider = ClrSymbolProviders.buildContract defaultPackages
+
+                let baseOf (src: string) =
+                    let lexed, file = parseFile src
+
+                    let ctx, tast =
+                        Pipeline.analyseSemWithContextFor testCompiling provider (LexedFile.ofText lexed) file
+
+                    let errors = tast.Diagnostics |> Diagnostic.errors
+                    Expect.isEmpty errors (sprintf "no front-end errors (%A)" errors)
+
+                    match TypeRegistry.tryClass ctx.Types UseSite.unbounded "MarkAttribute" with
+                    | ValueSome info ->
+                        match info.Base with
+                        | ValueSome b -> b.Parent
+                        | ValueNone -> failtest "MarkAttribute records no base"
+                    | ValueNone -> failtest "class MarkAttribute was not registered"
+
+                let qualified = baseOf "type MarkAttribute() =\n    inherit System.Attribute()"
+
+                let bare = baseOf "type MarkAttribute() =\n    inherit Attribute()"
+
+                Expect.equal qualified bare "System.Attribute and Attribute denote one base"
+
+                match qualified with
+                | BaseParentG.PrimitiveCanon n -> Expect.equal n.Key.Name "Attribute" "inherited by canon"
+                | other -> failtestf "expected a canon base, got %A" other
+            }
+
+            test "inheriting a ctor-less heritable binding checks arguments against its platform type" {
+                let provider = ClrSymbolProviders.buildContract defaultPackages
+
+                let errorsOf (inheritLine: string) =
+                    let lexed, file =
+                        parseFile (
+                            String.concat
+                                "\n"
+                                [
+                                    "type Base = (# class \"System.Exception\" #)"
+                                    "type D(m: string) ="
+                                    inheritLine
+                                ]
+                        )
+
+                    let _, tast =
+                        Pipeline.analyseSemWithContextFor testCompiling provider (LexedFile.ofText lexed) file
+
+                    tast.Diagnostics |> Diagnostic.errors
+
+                let ok = errorsOf "    inherit Base(m)"
+                Expect.isEmpty ok (sprintf "a string matches Exception(string) (%A)" ok)
+
+                let bad = errorsOf "    inherit Base(1, 2, 3)"
+                Expect.isNonEmpty bad "no Exception ctor takes three ints"
+            }
+
             // Each `interface … with` block resolves its OWN declared `GetEnumerator`
             // (the metadata walk is `DeclaredOnly`), so one conforms to
             // `unit -> IEnumerator<int>` and the other to `unit -> IEnumerator`.

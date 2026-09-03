@@ -129,12 +129,12 @@ let tests =
                     "type argument", "type A = { x: Wrap<B> }\ntype Wrap<'a> = { w: 'a }\ntype B = { y: int }"
                 ] -> test $"forward reference from a {position} is rejected" { expectError "'B' is not defined" source }
 
-            // `inherit` is the one reference resolved against the parent's registered DETAIL
-            // rather than its identity, so it fills at group close — never from below.
+            // `inherit` resolves against the parent's registered DETAIL rather than its
+            // identity, so it fills at group close; a parent declared below is FS0039.
             yield
                 test "forward reference from an inherit clause is rejected" {
                     expectError
-                        "unknown type 'Base'"
+                        "'Base' is not defined"
                         "type Derived() =\n    inherit Base()\ntype Base() =\n    member this.X = 1"
                 }
 

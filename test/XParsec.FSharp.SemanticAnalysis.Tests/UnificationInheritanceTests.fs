@@ -248,6 +248,177 @@ let tests =
                     (sprintf "the arity error alone; diagnostics were %A" es)
             }
 
+            // --- an `inherit` clause's PARENT resolves as any other type position ---
+
+            test "a qualified inherit parent resolves to the class it names" {
+                let ctx =
+                    analyse (
+                        String.concat
+                            "\n"
+                            [
+                                "module A ="
+                                "    type Base<'a>(v: 'a) ="
+                                "        member this.V = v"
+                                "type D() ="
+                                "    inherit A.Base<int>(1)"
+                            ]
+                    )
+
+                Expect.isEmpty (errors ctx) "a qualified parent resolves"
+
+                match (expectClass ctx "D").Base with
+                | ValueSome b -> Expect.equal b.Parent.Key.Name "Base" "D's base is A.Base<int>"
+                | ValueNone -> failtest "D records no base"
+            }
+
+            test "a qualified inherit parent's ctor argument is checked" {
+                let ctx =
+                    analyse (
+                        String.concat
+                            "\n"
+                            [
+                                "module A ="
+                                "    type Base<'a>(v: 'a) ="
+                                "        member this.V = v"
+                                "type D() ="
+                                "    inherit A.Base<int>(\"s\")"
+                            ]
+                    )
+
+                let es = errors ctx
+
+                Expect.isTrue
+                    (es |> List.exists (fun d -> d.Message.Contains "mismatch"))
+                    (sprintf "string against int is a mismatch; diagnostics were %A" es)
+            }
+
+            test "an abbreviation of a class is an inheritable parent" {
+                let ctx =
+                    analyse (
+                        String.concat
+                            "\n"
+                            [
+                                "type B(x: int) ="
+                                "    member this.X = x"
+                                "type Alias = B"
+                                "type D() ="
+                                "    inherit Alias(1)"
+                            ]
+                    )
+
+                Expect.isEmpty (errors ctx) "the abbreviation resolves to the class"
+
+                match (expectClass ctx "D").Base with
+                | ValueSome b -> Expect.equal b.Parent.Key.Name "B" "D's base is the aliased class"
+                | ValueNone -> failtest "D records no base"
+            }
+
+            test "an abbreviation instantiating a generic class is an inheritable parent" {
+                let ctx =
+                    analyse (
+                        String.concat
+                            "\n"
+                            [
+                                "type Box<'a>(v: 'a) ="
+                                "    member this.V = v"
+                                "type IntBox = Box<int>"
+                                "type D() ="
+                                "    inherit IntBox(1)"
+                            ]
+                    )
+
+                Expect.isEmpty (errors ctx) "the abbreviation resolves to Box<int>"
+
+                match (expectClass ctx "D").Base with
+                | ValueSome b -> Expect.equal b.Parent.Nominal.Args (EqArray.singleton intTy) "instantiated at int"
+                | ValueNone -> failtest "D records no base"
+            }
+
+            test "a record is not an inheritable parent" {
+                let ctx =
+                    analyse "type R = { X: int }\ntype D() =\n    inherit R\n    member this.M () = 1"
+
+                let es = errors ctx |> List.map (fun d -> d.Message)
+
+                Expect.equal
+                    es
+                    [ "Cannot inherit from type 'R', because only classes are inheritable" ]
+                    (sprintf "the kind rejection alone; diagnostics were %A" es)
+
+                Expect.isTrue (expectClass ctx "D").Base.IsNone "the record is not recorded as D's base"
+            }
+
+            test "a union is not an inheritable parent" {
+                let ctx =
+                    analyse "type U =\n    | A\n    | B\ntype D() =\n    inherit U\n    member this.M () = 1"
+
+                let es = errors ctx |> List.map (fun d -> d.Message)
+
+                Expect.equal
+                    es
+                    [ "Cannot inherit from type 'U', because only classes are inheritable" ]
+                    (sprintf "the kind rejection alone; diagnostics were %A" es)
+            }
+
+            test "an enum is not an inheritable parent" {
+                let ctx =
+                    analyse "type E =\n    | A = 1\n    | B = 2\ntype D() =\n    inherit E\n    member this.M () = 1"
+
+                let es = errors ctx |> List.map (fun d -> d.Message)
+
+                Expect.equal
+                    es
+                    [ "Cannot inherit from type 'E', because only classes are inheritable" ]
+                    (sprintf "the kind rejection alone; diagnostics were %A" es)
+            }
+
+            test "a local interface is not an inheritable parent" {
+                let ctx =
+                    analyse "type I =\n    abstract M: int\ntype D() =\n    inherit I\n    member this.M () = 1"
+
+                let es = errors ctx |> List.map (fun d -> d.Message)
+
+                Expect.equal
+                    es
+                    [ "Cannot inherit from interface 'I'; implement it with 'interface I with'" ]
+                    (sprintf "the interface rejection alone; diagnostics were %A" es)
+            }
+
+            test "an unknown inherit parent is an undefined type" {
+                let ctx = analyse "type D() =\n    inherit Gadget()\n    member this.M () = 1"
+
+                let kinds = errors ctx |> List.map (fun d -> d.Kind)
+
+                Expect.equal kinds [ Kind.UndefinedType "Gadget" ] "FS0039 at the written name, once"
+                Expect.isTrue (expectClass ctx "D").Base.IsNone "no base is recorded"
+            }
+
+            // The contract declares `Attribute`'s ctor, as it does `exn`'s.
+
+            test "the heritable `Attribute` primitive is inherited by canon" {
+                let ctx = analyse "type MarkAttribute() =\n    inherit Attribute()"
+
+                Expect.isEmpty (errors ctx) "Attribute() checks against the contract ctor"
+
+                match (expectClass ctx "MarkAttribute").Base with
+                | ValueSome {
+                                Parent = BaseParentG.PrimitiveCanon n
+                            } -> Expect.equal n.Key.Name "Attribute" "the canon"
+                | ValueSome { Parent = other } -> failtestf "expected a canon base, got %A" other
+                | ValueNone -> failtest "MarkAttribute records no base"
+            }
+
+            test "the heritable `exn` primitive is inherited by canon" {
+                let ctx = analyse "type MyErr(m: string) =\n    inherit exn(m)"
+
+                match (expectClass ctx "MyErr").Base with
+                | ValueSome {
+                                Parent = BaseParentG.PrimitiveCanon n
+                            } -> Expect.equal n.Key.Name "exn" "the canon"
+                | ValueSome { Parent = other } -> failtestf "expected a canon base, got %A" other
+                | ValueNone -> failtest "MyErr records no base"
+            }
+
             // --- `override` conforms to the slot it targets ---
 
             test "override of a base-declared virtual conforms to the base slot" {

@@ -133,28 +133,58 @@ module internal UnificationClassCtors =
         /// metadata class's protected `.ctor` (`System.Attribute`) is absent from the
         /// catalogue, and a self-host build has no shape for a heritable primitive at all.
         | Unmodelled
+        /// A heritable primitive that declares no `.ctor`, and whose platform type id does not
+        /// resolve to an external type: a sentinel id (`"!Vesper.Attribute"`), or a missing
+        /// dependency.
+        | PlatformUnresolved of canon: TypeKey * PlatformTypeId
+        /// A heritable primitive that declares no `.ctor`, and whose platform binding does not
+        /// cover this target.
+        | PlatformUnsupported of canon: TypeKey * target: string
 
-    /// Classify what `baseTy` offers an `inherit` clause. A provider class published by a FILE
-    /// of this assembly carries every constructor it declares, so an empty catalogue there is a
-    /// real "declares none" and still reaches `Provided`, which diagnoses it.
+    /// The surface a nominal class base offers: its project-local declaration, else the
+    /// provider's.
+    let private classCtorSurfaceOf (ctx: PassContext) (baseKey: TypeKey) (baseArgs: EqArray<SemType>) =
+        match TypeRegistry.tryClassByKey ctx.Types baseKey with
+        | ValueSome baseInfo -> BaseCtorSurface.Local(baseInfo, baseArgs)
+        | ValueNone ->
+            let declaredInThisAssembly =
+                match ctx.Provider.TryLookupType baseKey with
+                | ValueSome(ExternalTypeShape.Class shape) -> shape.Origin.Home.DeclaringFile.IsSome
+                | _ -> false
+
+            match ctx.Provider.TryLookupMembers(baseKey, ".ctor"), declaredInThisAssembly with
+            | EqEmpty, false -> BaseCtorSurface.Unmodelled
+            | _ -> BaseCtorSurface.Provided(baseKey, baseArgs)
+
+    /// The surface a heritable primitive offers: its contract `.ctor`s (`exn`), else the
+    /// constructors of the platform type its identity denotes.
+    let private heritableCtorSurfaceOf (ctx: PassContext) (canonKey: TypeKey) (canonArgs: EqArray<SemType>) =
+        let surface = ExternalSymbols.tryIntrinsicClass ctx.Provider canonKey
+
+        match surface with
+        | ValueSome(struct (_, s)) when s.Members |> EqArray.exists (fun m -> m.Name = ".ctor") ->
+            BaseCtorSurface.Heritable(canonKey, canonArgs, s)
+        | _ ->
+            // The platform type id: this file's own `(# class … #)` binding, else the
+            // provider's identity.
+            let platform =
+                match ctx.Types.IntrinsicBindings.TryGetValue canonKey with
+                | true, binding -> ValueSome(IntrinsicPlatform.Bound binding.TypeId)
+                | _ -> surface |> ValueOption.map (fun (struct (id, _)) -> id.Platform)
+
+            match platform with
+            | ValueSome(IntrinsicPlatform.Bound typeId) ->
+                match ExternalSymbols.tryMetaTypeAt ctx.Provider typeId.Value canonArgs.Length with
+                | ValueSome(struct (extKey, _)) -> classCtorSurfaceOf ctx extKey canonArgs
+                | ValueNone -> BaseCtorSurface.PlatformUnresolved(canonKey, typeId)
+            | ValueSome(IntrinsicPlatform.Unsupported target) -> BaseCtorSurface.PlatformUnsupported(canonKey, target)
+            | ValueNone -> BaseCtorSurface.Unmodelled
+
+    /// Classify what `baseTy` offers an `inherit` clause.
     let private baseCtorSurfaceOf (ctx: PassContext) (baseTy: SemType) : BaseCtorSurface =
         match baseTy with
-        | TyClass(baseKey, baseArgs) ->
-            match TypeRegistry.tryClassByKey ctx.Types baseKey with
-            | ValueSome baseInfo -> BaseCtorSurface.Local(baseInfo, baseArgs)
-            | ValueNone ->
-                let declaredInThisAssembly =
-                    match ctx.Provider.TryLookupType baseKey with
-                    | ValueSome(ExternalTypeShape.Class shape) -> shape.Origin.Home.DeclaringFile.IsSome
-                    | _ -> false
-
-                match ctx.Provider.TryLookupMembers(baseKey, ".ctor"), declaredInThisAssembly with
-                | EqEmpty, false -> BaseCtorSurface.Unmodelled
-                | _ -> BaseCtorSurface.Provided(baseKey, baseArgs)
-        | TyConst(canonKey, canonArgs) ->
-            match ExternalSymbols.tryIntrinsicClass ctx.Provider canonKey with
-            | ValueSome(struct (_, surface)) -> BaseCtorSurface.Heritable(canonKey, canonArgs, surface)
-            | ValueNone -> BaseCtorSurface.Unmodelled
+        | TyClass(baseKey, baseArgs) -> classCtorSurfaceOf ctx baseKey baseArgs
+        | TyConst(canonKey, canonArgs) -> heritableCtorSurfaceOf ctx canonKey canonArgs
         | _ -> BaseCtorSurface.Unmodelled
 
     /// Type the `inherit Base(args)` invocation against the constructor `args` selects on the
@@ -222,6 +252,23 @@ module internal UnificationClassCtors =
                     | ValueNone -> ()
 
                 | BaseCtorSurface.Unmodelled -> infer ctx argExpr |> ignore
+
+                | BaseCtorSurface.PlatformUnresolved(canonKey, typeId) ->
+                    ctx.Report(
+                        node.Tok,
+                        Kind.Message(
+                            sprintf
+                                "Cannot inherit from external base '%s': its representation '%s' did not resolve to a known external type (is a package dependency missing?)"
+                                canonKey.Name
+                                typeId.Value
+                        )
+                    )
+
+                    infer ctx argExpr |> ignore
+
+                | BaseCtorSurface.PlatformUnsupported(canonKey, target) ->
+                    ctx.Report(node.Tok, Kind.UnsupportedOnTarget(canonKey.Name, target))
+                    infer ctx argExpr |> ignore
             finally
                 exitLevel ctx
         | _ -> ()
