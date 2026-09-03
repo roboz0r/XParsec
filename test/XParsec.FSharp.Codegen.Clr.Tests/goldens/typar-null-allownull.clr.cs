@@ -19,7 +19,7 @@ using Vesper;
 [AllowNullLiteral]
 public class Node
 {
-	internal int v;
+	internal readonly int v;
 
 	public int V => v;
 

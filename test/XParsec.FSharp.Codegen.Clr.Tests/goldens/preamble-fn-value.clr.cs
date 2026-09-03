@@ -20,7 +20,7 @@ using Vesper;
 [assembly: AssemblyVersion("1.0.0.0")]
 public class Adder
 {
-	internal int k;
+	internal readonly int k;
 
 	internal readonly Fun<int, int> add;
 
@@ -37,7 +37,7 @@ public class Adder
 }
 public sealed class <closure>$0 : Fun<int, int>
 {
-	public Adder capture0;
+	private readonly Adder capture0;
 
 	public <closure>$0(Adder arg0)
 	{

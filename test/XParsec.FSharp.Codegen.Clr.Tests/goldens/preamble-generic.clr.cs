@@ -21,9 +21,9 @@ using Vesper;
 [assembly: AssemblyVersion("1.0.0.0")]
 public class Cell<T>
 {
-	internal T x;
+	internal readonly T x;
 
-	internal int n;
+	internal readonly int n;
 
 	internal readonly int k;
 
@@ -57,7 +57,7 @@ public class Cell<T>
 }
 public sealed class <closure>$0<T0> : Fun<ValueTuple, T0>
 {
-	public Cell<T0> capture0;
+	private readonly Cell<T0> capture0;
 
 	public <closure>$0(Cell<T0> arg0)
 	{

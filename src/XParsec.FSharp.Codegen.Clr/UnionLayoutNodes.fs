@@ -39,8 +39,7 @@ module internal UnionLayoutNodes =
                 {
                     Key = FieldKey.UnionCaseField(td.Key, c.Name, fi)
                     Name = name
-                    // Written only by the case's own `.ctor`, hence `initonly`.
-                    Attrs = FieldAttributes.Public ||| FieldAttributes.InitOnly
+                    Attrs = instanceFieldAttrs FieldReach.Public FieldWrites.ByCtor
                     Ty = fty
                     ClosureScope = ValueNone
                 }
@@ -80,15 +79,16 @@ module internal UnionLayoutNodes =
         | UnionNestedType.CaseData c -> [ for f in c.Fields -> FieldKey.UnionCaseDataField(td.Key, c.Case, f.Index) ]
         | UnionNestedType.CaseView v -> [ FieldKey.UnionCaseViewPayload(td.Key, v.Case.Name) ]
 
-    /// The attributes of every field of `t`: a view's wrapped `Payload` is
-    /// `private initonly`, written only by the view's own `.ctor`; a storage field is
-    /// `assembly`-visible, read directly by match arms in this assembly.
+    /// The attributes of every field of `t`: a view's wrapped `Payload` is reached only by the
+    /// view's own members; a storage field is read directly by match arms in this assembly.
     let private nestedFieldAttrs (t: UnionNestedType) : FieldAttributes =
         match t with
-        | UnionNestedType.CaseView _ -> FieldAttributes.Private ||| FieldAttributes.InitOnly
+        | UnionNestedType.CaseView _ -> instanceFieldAttrs FieldReach.OwnType FieldWrites.ByCtor
+        // A storage field stays writable pending an audit of its store sites, on the terms A1
+        // set for the ctor-param and capture fields.
         | UnionNestedType.Payload _
         | UnionNestedType.Overlay _
-        | UnionNestedType.CaseData _ -> compilerGeneratedStorage
+        | UnionNestedType.CaseData _ -> instanceFieldAttrs FieldReach.Assembly FieldWrites.Anywhere
 
     /// Where an owned type's `TypeDef` row sits: `Payload` and the views under the union,
     /// the overlay beside the union in its container, a case data struct under the overlay.
@@ -221,7 +221,7 @@ module internal UnionLayoutNodes =
                                     {
                                         Key = FieldKey.UnionSlot(td.Key, s.Key)
                                         Name = s.MetaName
-                                        Attrs = FieldAttributes.Public ||| FieldAttributes.InitOnly
+                                        Attrs = instanceFieldAttrs FieldReach.Public FieldWrites.ByCtor
                                         Ty = s.Ty
                                         ClosureScope = ValueNone
                                     }
@@ -232,7 +232,7 @@ module internal UnionLayoutNodes =
                                 {
                                     Key = FieldKey.UnionPayload td.Key
                                     Name = UnionPayloadType.payloadFieldName
-                                    Attrs = compilerGeneratedStorage ||| FieldAttributes.InitOnly
+                                    Attrs = instanceFieldAttrs FieldReach.Assembly FieldWrites.ByCtor
                                     Ty = UnionPayloadType.payloadTyDeclaring td.TypeKey td.TypeParams.Length
                                     ClosureScope = ValueNone
                                 }
@@ -250,7 +250,7 @@ module internal UnionLayoutNodes =
                                 {
                                     Key = FieldKey.UnionTag td.Key
                                     Name = "_tag"
-                                    Attrs = FieldAttributes.Private ||| FieldAttributes.InitOnly
+                                    Attrs = instanceFieldAttrs FieldReach.OwnType FieldWrites.ByCtor
                                     Ty = RuntimeNames.intTy
                                     ClosureScope = ValueNone
                                 }
@@ -260,7 +260,7 @@ module internal UnionLayoutNodes =
                             {
                                 Key = FieldKey.UnionCaseSingleton(td.Key, c.Name)
                                 Name = "_unique_" + c.Name
-                                Attrs = FieldAttributes.Private ||| FieldAttributes.Static ||| FieldAttributes.InitOnly
+                                Attrs = staticFieldAttrs FieldReach.OwnType FieldWrites.ByCtor
                                 Ty = selfTy
                                 ClosureScope = ValueNone
                             }

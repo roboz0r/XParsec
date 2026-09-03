@@ -17,7 +17,7 @@ using Vesper;
 [assembly: AssemblyVersion("1.0.0.0")]
 public class Boxed
 {
-	internal int n;
+	internal readonly int n;
 
 	internal readonly int m;
 

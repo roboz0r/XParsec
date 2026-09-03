@@ -241,7 +241,7 @@ module internal Layout =
                         {
                             Key = FieldKey.ModuleValue mv.SymbolKey
                             Name = mv.Name
-                            Attrs = FieldAttributes.Public ||| FieldAttributes.Static ||| FieldAttributes.InitOnly
+                            Attrs = staticFieldAttrs FieldReach.Public FieldWrites.ByCtor
                             Ty = mv.Ty
                             ClosureScope = ValueNone
                         }
@@ -394,7 +394,7 @@ module internal Layout =
                         {
                             Key = FieldKey.ModuleValue mv.SymbolKey
                             Name = mv.Name
-                            Attrs = FieldAttributes.Public ||| FieldAttributes.Static ||| FieldAttributes.InitOnly
+                            Attrs = staticFieldAttrs FieldReach.Public FieldWrites.ByCtor
                             Ty = mv.Ty
                             ClosureScope = ValueNone
                         }
@@ -402,7 +402,7 @@ module internal Layout =
                         {
                             Key = FieldKey.ModuleValue mv.SymbolKey
                             Name = mv.Name
-                            Attrs = FieldAttributes.Public ||| FieldAttributes.Static
+                            Attrs = staticFieldAttrs FieldReach.Public FieldWrites.Anywhere
                             Ty = mv.Ty
                             ClosureScope = ValueNone
                         }

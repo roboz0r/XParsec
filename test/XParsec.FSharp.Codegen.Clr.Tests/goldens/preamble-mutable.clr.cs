@@ -23,7 +23,7 @@ using Vesper;
 [assembly: AssemblyVersion("1.0.0.0")]
 public class Counter
 {
-	internal int step;
+	internal readonly int step;
 
 	internal int count;
 
@@ -44,7 +44,7 @@ public class Counter
 }
 public sealed class <closure>$0 : Fun<int, ValueTuple>
 {
-	public Counter capture0;
+	private readonly Counter capture0;
 
 	public <closure>$0(Counter arg0)
 	{

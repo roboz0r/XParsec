@@ -293,11 +293,6 @@ module internal LayoutNodes =
             Nested = []
         }
 
-    // Backing storage for ctor params and `let` bindings is `assembly`, like FSC: a
-    // lambda in a member body is lifted into a closure class nested in the enclosing
-    // MODULE, so `private` would fault its read at JIT with `FieldAccessException`.
-    let compilerGeneratedStorage = FieldAttributes.Assembly
-
     // ---- Per-kind node builders ------------------------------------------------------
 
     let buildInterfaceNodes (interfaces: (TastAccessor.TypeDecl * Frozen.TAbstractMethod list) list) : TypeNode list =
@@ -345,7 +340,9 @@ module internal LayoutNodes =
                             {
                                 Key = FieldKey.RecordField(td.Key, f.Name)
                                 Name = f.Name
-                                Attrs = FieldAttributes.Public
+                                // A2: a record field should be `initonly` and reached through
+                                // a property, so both bits here are provisional.
+                                Attrs = instanceFieldAttrs FieldReach.Public FieldWrites.Anywhere
                                 Ty = f.Type
                                 ClosureScope = ValueNone
                             }
@@ -374,7 +371,7 @@ module internal LayoutNodes =
                     (ownAndIfaceProperties td.Key rd.Members rd.Interfaces)
         ]
 
-    /// Per class: ctor-param backing fields, `val` fields (immutable ⇒ `initonly`),
+    /// Per class: ctor-param backing fields (`initonly`), `val` fields (immutable ⇒ `initonly`),
     /// then instance-`let` and `static let` storage. Methods: primary `.ctor`,
     /// [`.cctor`], [secondary `.ctor`s], own members, interface-impl members.
     let buildClassNodes (symbols: ICodegenSymbols) (classes: ClassDecl list) : TypeNode list =
@@ -388,7 +385,8 @@ module internal LayoutNodes =
                             {
                                 Key = FieldKey.ClassCtorParamField(td.Key, p.Name)
                                 Name = p.Name
-                                Attrs = compilerGeneratedStorage
+                                // A ctor parameter has no `mutable` form.
+                                Attrs = instanceFieldAttrs FieldReach.Assembly FieldWrites.ByCtor
                                 Ty = p.Type
                                 ClosureScope = ValueNone
                             }
@@ -396,26 +394,18 @@ module internal LayoutNodes =
                             {
                                 Key = FieldKey.ClassInstanceField(td.Key, f.Name)
                                 Name = f.Name
-                                Attrs =
-                                    if f.IsMutable then
-                                        FieldAttributes.Public
-                                    else
-                                        FieldAttributes.Public ||| FieldAttributes.InitOnly
+                                Attrs = instanceFieldAttrs FieldReach.Public (writesOf f.IsMutable)
                                 Ty = f.Type
                                 ClosureScope = ValueNone
                             }
-                        // An immutable instance `let` is written exactly once, by the
-                        // primary `.ctor`, which is what `initonly` permits, so a
-                        // `let mutable` is the only preamble bound variable that stays writable.
+                        // A preamble `let` is written by the initialiser its binding sits in —
+                        // the primary `.ctor` for an instance one, the `.cctor` for a
+                        // `static let` — so `mutable` is what decides `initonly` for both.
                         for l in TPreambleEntryG.lets cd.InstancePreamble ->
                             {
                                 Key = FieldKey.ClassLetField(td.Key, l.Name)
                                 Name = l.Name
-                                Attrs =
-                                    if l.IsMutable then
-                                        compilerGeneratedStorage
-                                    else
-                                        compilerGeneratedStorage ||| FieldAttributes.InitOnly
+                                Attrs = instanceFieldAttrs FieldReach.Assembly (writesOf l.IsMutable)
                                 Ty = l.Type
                                 ClosureScope = ValueNone
                             }
@@ -423,7 +413,7 @@ module internal LayoutNodes =
                             {
                                 Key = FieldKey.ClassStaticField(td.Key, sl.Name)
                                 Name = sl.Name
-                                Attrs = compilerGeneratedStorage ||| FieldAttributes.Static
+                                Attrs = staticFieldAttrs FieldReach.Assembly (writesOf sl.IsMutable)
                                 Ty = sl.Type
                                 ClosureScope = ValueNone
                             }
@@ -491,10 +481,7 @@ module internal LayoutNodes =
                             {
                                 Key = FieldKey.EnumValueField td.Key
                                 Name = "value__"
-                                Attrs =
-                                    FieldAttributes.Public
-                                    ||| FieldAttributes.SpecialName
-                                    ||| FieldAttributes.RTSpecialName
+                                Attrs = enumUnderlyingFieldAttrs
                                 Ty = FTConst(ed.Underlying, EqArray.empty)
                                 ClosureScope = ValueNone
                             }
@@ -502,13 +489,7 @@ module internal LayoutNodes =
                             {
                                 Key = FieldKey.EnumCaseField(td.Key, caseName)
                                 Name = caseName
-                                // A `public static literal` field typed as the enum
-                                // itself; `HasDefault` flags its `Constant` row.
-                                Attrs =
-                                    FieldAttributes.Public
-                                    ||| FieldAttributes.Static
-                                    ||| FieldAttributes.Literal
-                                    ||| FieldAttributes.HasDefault
+                                Attrs = enumLiteralFieldAttrs
                                 Ty = FTEnum td.TypeKey
                                 ClosureScope = ValueNone
                             }
@@ -540,9 +521,7 @@ module internal LayoutNodes =
                             {
                                 Key = FieldKey.EnumBackingField td.Key
                                 Name = "value"
-                                // Written once by the `.ctor`, which is what `initonly`
-                                // permits.
-                                Attrs = FieldAttributes.Public ||| FieldAttributes.InitOnly
+                                Attrs = instanceFieldAttrs FieldReach.Public FieldWrites.ByCtor
                                 Ty = fieldTy
                                 ClosureScope = ValueNone
                             }
@@ -550,10 +529,9 @@ module internal LayoutNodes =
                             {
                                 Key = FieldKey.EnumCaseField(td.Key, caseName)
                                 Name = caseName
-                                // `public static initonly E` — the case singletons,
-                                // `.cctor`-initialised (only a primitive field can be
-                                // `literal`).
-                                Attrs = FieldAttributes.Public ||| FieldAttributes.Static ||| FieldAttributes.InitOnly
+                                // The case singletons are `.cctor`-initialised: only a
+                                // primitive field can be `literal`.
+                                Attrs = staticFieldAttrs FieldReach.Public FieldWrites.ByCtor
                                 Ty = FTEnum td.TypeKey
                                 ClosureScope = ValueNone
                             }
@@ -591,7 +569,10 @@ module internal LayoutNodes =
                             {
                                 Key = FieldKey.ClosureCapture(c.Name, i)
                                 Name = sprintf "capture%d" i
-                                Attrs = FieldAttributes.Public
+                                // A capture is written by this closure's `.ctor` and read by
+                                // its `Invoke`. A captured `let mutable` arrives as a
+                                // `Vesper.Ref`, so the field holds the cell.
+                                Attrs = instanceFieldAttrs FieldReach.OwnType FieldWrites.ByCtor
                                 Ty = snd c.Captures.[i]
                                 ClosureScope = (if isGeneric then ValueSome c.DeclaringTypars else ValueNone)
                             }
@@ -606,7 +587,7 @@ module internal LayoutNodes =
                             {
                                 Key = FieldKey.ClosureCached c.Name
                                 Name = "instance"
-                                Attrs = FieldAttributes.Public ||| FieldAttributes.Static ||| FieldAttributes.InitOnly
+                                Attrs = staticFieldAttrs FieldReach.Public FieldWrites.ByCtor
                                 Ty = c.ResultTy
                                 ClosureScope = ValueNone
                             }

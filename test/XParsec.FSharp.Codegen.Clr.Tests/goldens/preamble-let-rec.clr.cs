@@ -21,7 +21,7 @@ using Vesper;
 [assembly: AssemblyVersion("1.0.0.0")]
 public class Factorial
 {
-	internal int n;
+	internal readonly int n;
 
 	internal readonly Fun<int, int> fact;
 
@@ -46,7 +46,7 @@ public class Factorial
 }
 public sealed class <closure>$0 : Fun<int, int>
 {
-	public Factorial capture0;
+	private readonly Factorial capture0;
 
 	public <closure>$0(Factorial arg0)
 	{

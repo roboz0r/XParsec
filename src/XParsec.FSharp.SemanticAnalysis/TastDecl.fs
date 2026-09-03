@@ -211,9 +211,10 @@ type TRecordG<'ty, 'id, 'body> =
         ValueKind: NominalValueKind
     }
 
-/// One `[static] let [mutable] x = <init>` of a class preamble: a private static field the
-/// `.cctor` initialises, or a private instance field the primary ctor does. One `let`, one
-/// field, so references to it are `FieldGet`/`FieldSet` on `this`, never a `TExpr.Let`.
+/// One `[static] let [mutable] x = <init>` of a class preamble, lowered to backing storage the
+/// class initialises: static storage for `static let`, instance storage otherwise. A backend
+/// picks its own visibility for it. One `let`, one field, so references to it are
+/// `FieldGet`/`FieldSet` on `this`, never a `TExpr.Let`.
 type TClassLetG<'ty, 'body> =
     {
         Name: string

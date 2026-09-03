@@ -169,6 +169,75 @@ module internal MethodAttrSets =
         | TMemberKind.Accessor(prop, TAccessorRole.Getter) -> AccessorNames.getterName prop
         | TMemberKind.Accessor(prop, TAccessorRole.Setter) -> AccessorNames.setterName prop
 
+/// Which types reach a field, and where its stores land. Every `FieldSlot` in the layout
+/// draws its `Attrs` from here, so the two facts are decided per storage kind in one place.
+[<AutoOpen>]
+module internal FieldAttrSets =
+
+    /// Which types reach a field.
+    [<RequireQualifiedAccess>]
+    type FieldReach =
+        /// The declaring type alone.
+        | OwnType
+        /// Every type in this assembly. Compiler-generated storage for a ctor parameter or a
+        /// `let` binding takes this, matching FSC: a lambda in a member body lifts into a
+        /// SIBLING closure type that reads the enclosing instance's storage directly, and
+        /// `private` would fault that read at JIT with `FieldAccessException`.
+        | Assembly
+        /// Every consumer. A `val` field, a record field, a union case field and a module
+        /// value are ABI, spelled by the source.
+        | Public
+
+    /// Where a field's stores land.
+    [<RequireQualifiedAccess>]
+    type FieldWrites =
+        /// Every store is inside a `.ctor` or `.cctor` of the declaring type, which is what
+        /// `initonly` permits.
+        | ByCtor
+        /// Some store is outside an initialiser: a `mutable` source binding, or storage the
+        /// entry point's `Main` fills.
+        | Anywhere
+
+    /// A `mutable` binding stores through `stfld`/`stsfld` from any method; an immutable one
+    /// is written only where it is initialised.
+    let writesOf (isMutable: bool) : FieldWrites =
+        if isMutable then
+            FieldWrites.Anywhere
+        else
+            FieldWrites.ByCtor
+
+    let private accessBits (reach: FieldReach) : FieldAttributes =
+        match reach with
+        | FieldReach.OwnType -> FieldAttributes.Private
+        | FieldReach.Assembly -> FieldAttributes.Assembly
+        | FieldReach.Public -> FieldAttributes.Public
+
+    let private initOnlyBit (writes: FieldWrites) : FieldAttributes =
+        match writes with
+        | FieldWrites.ByCtor -> FieldAttributes.InitOnly
+        | FieldWrites.Anywhere -> enum 0
+
+    let instanceFieldAttrs (reach: FieldReach) (writes: FieldWrites) : FieldAttributes =
+        accessBits reach ||| initOnlyBit writes
+
+    let staticFieldAttrs (reach: FieldReach) (writes: FieldWrites) : FieldAttributes =
+        accessBits reach ||| FieldAttributes.Static ||| initOnlyBit writes
+
+    /// A numeric enum's `value__`, the CLI's designated underlying-storage slot, which
+    /// `Enum.GetUnderlyingType` reads.
+    let enumUnderlyingFieldAttrs =
+        FieldAttributes.Public
+        ||| FieldAttributes.SpecialName
+        ||| FieldAttributes.RTSpecialName
+
+    /// A numeric enum case: metadata-only storage typed as the enum itself, holding its value
+    /// in the `Constant` row that `HasDefault` flags.
+    let enumLiteralFieldAttrs =
+        FieldAttributes.Public
+        ||| FieldAttributes.Static
+        ||| FieldAttributes.Literal
+        ||| FieldAttributes.HasDefault
+
 /// Identity of one `TypeDefinition` row in the layout.
 [<RequireQualifiedAccess>]
 type internal TypeSlotKey =

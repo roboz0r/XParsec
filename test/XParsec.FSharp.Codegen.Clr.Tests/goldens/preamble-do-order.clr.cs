@@ -22,7 +22,7 @@ using Vesper;
 [assembly: AssemblyVersion("1.0.0.0")]
 public class Ordered
 {
-	internal int n;
+	internal readonly int n;
 
 	internal readonly int a;
 

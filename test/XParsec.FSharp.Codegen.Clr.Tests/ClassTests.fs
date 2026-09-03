@@ -61,6 +61,10 @@ let monoTests =
                 let names = fields |> Array.map (fun f -> f.Name) |> Set.ofArray
                 Expect.equal names (Set.ofList [ "x"; "y" ]) "Point holds both ctor-param backing fields"
                 Expect.isTrue (fields |> Array.forall (fun f -> f.IsAssembly)) "both are `assembly`, not `private`"
+
+                Expect.isTrue
+                    (fields |> Array.forall (fun f -> f.IsInitOnly))
+                    "both are `initonly`: a ctor param is written once, by the ctor"
             }
 
             test "a class with `member this.M () = 1` emits an instance method that returns 1" {
@@ -574,6 +578,40 @@ let staticTests =
                 bump.Invoke(null, [| box 3 |]) |> ignore
                 bump.Invoke(null, [| box 4 |]) |> ignore
                 Expect.equal (getN.Invoke(null, [||]) :?> int) 7 "the shared static cell accumulates both writes"
+            }
+
+            // The two forms side by side, because `mutable` is the whole of what separates
+            // them: an immutable `static let` is stored only by the `.cctor`, so it carries
+            // `initonly`, and `buildStaticFieldSet`'s `stsfld` is reachable only for the other.
+            test "`static let` is `initonly` and `static let mutable` is writable" {
+                let artifact =
+                    compileSource
+                        "ClsStaticLetInitOnly"
+                        (String.concat
+                            "\n"
+                            [
+                                "type C() ="
+                                "    static let k = 7"
+                                "    static let mutable n = 0"
+                                "    static member Bump () = n <- n + k"
+                                "let c = C()"
+                            ])
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let ty = asm.GetType "C"
+
+                let fieldNamed name =
+                    ty.GetField(name, BindingFlags.NonPublic ||| BindingFlags.Static ||| BindingFlags.DeclaredOnly)
+
+                let k = fieldNamed "k"
+                let n = fieldNamed "n"
+                Expect.isNotNull k "C holds the `static let` backing field k"
+                Expect.isNotNull n "C holds the `static let mutable` backing field n"
+
+                Expect.isTrue k.IsInitOnly "an immutable `static let` is `initonly`"
+                Expect.isFalse n.IsInitOnly "a `static let mutable` stays writable"
+
+                Expect.isTrue (k.IsAssembly && n.IsAssembly) "both are `assembly`, reachable by a lifted closure"
             }
 
             // The field lives on the open generic `TypeDefinition`, one copy per closed

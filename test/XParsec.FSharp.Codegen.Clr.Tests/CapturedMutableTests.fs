@@ -674,4 +674,85 @@ let tests =
 
                     Expect.equal gpCount 1 (sprintf "%s declares exactly one generic parameter (got %d)" name gpCount)
             }
+
+            // A captured `let mutable` is the case that would need a writable capture field
+            // if the `Ref` promotion were absent: the closure rebinds `n`, and what the field
+            // holds is the cell.
+            test "Every closure capture field is `private initonly`" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type Adder(k: int) ="
+                            "    let add (x: int) = x + k"
+                            "    member this.Twice(n: int) = add (add n)"
+                            ""
+                            "let mkCounter z ="
+                            "    let mutable n = z"
+                            "    fun () ->"
+                            "        n <- n + 1"
+                            "        n"
+                            ""
+                            "let a = Adder(3)"
+                            "let c = mkCounter 10"
+                            "printfn \"%d\" (a.Twice 1)"
+                            "printfn \"%d\" (c ())"
+                            "printfn \"%d\" (c ())"
+                        ]
+
+                vesperCoreDll.Value |> ignore
+
+                let artifact = compileSource "CaptureInitOnly" src
+                let bytes = Codegen.toBytes artifact
+
+                let exitCode, output = runEntryPoint bytes
+                Expect.equal exitCode 0 (sprintf "Main returns 0 (output: %s)" output)
+
+                Expect.equal
+                    (output.Trim().Replace("\r\n", "\n"))
+                    "7\n11\n12"
+                    "the `this`-capturing closure and the shared `Ref` cell both behave"
+
+                use peReader = openPe bytes
+                let md = peReader.GetMetadataReader()
+
+                let captures =
+                    [
+                        for h in md.TypeDefinitions do
+                            let td = md.GetTypeDefinition h
+                            let tyName = md.GetString td.Name
+
+                            if tyName.StartsWith "<closure>$" then
+                                for fh in td.GetFields() do
+                                    let fd = md.GetFieldDefinition fh
+                                    let fieldName = md.GetString fd.Name
+
+                                    if fieldName.StartsWith "capture" then
+                                        tyName + "::" + fieldName, fd.Attributes
+                    ]
+
+                // Pinned as a set: a lowering change that stops emitting one of these closures
+                // must fail here rather than narrow the two assertions below to fewer fields.
+                Expect.equal
+                    (captures |> List.map fst |> Set.ofList)
+                    (Set.ofList [ "<closure>$0::capture0"; "<closure>$1::capture0" ])
+                    "`add` captures `this` and the `mkCounter` lambda captures the `Ref` cell"
+
+                let writable =
+                    captures
+                    |> List.filter (fun (_, attrs) -> not (attrs.HasFlag System.Reflection.FieldAttributes.InitOnly))
+
+                Expect.isEmpty
+                    writable
+                    (sprintf "every capture field is initonly (writable: %A)" (List.map fst writable))
+
+                let visible =
+                    captures
+                    |> List.filter (fun (_, attrs) ->
+                        (attrs &&& System.Reflection.FieldAttributes.FieldAccessMask)
+                        <> System.Reflection.FieldAttributes.Private
+                    )
+
+                Expect.isEmpty visible (sprintf "every capture field is private (visible: %A)" (List.map fst visible))
+            }
         ]

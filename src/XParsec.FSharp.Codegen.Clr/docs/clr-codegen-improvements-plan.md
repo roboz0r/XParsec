@@ -7,7 +7,7 @@ Line numbers are deliberately absent — they rot. Constructs and file names onl
 Raised by the decompiled-C# conformance goldens (`test/XParsec.FSharp.Codegen.Clr.Tests/goldens/*.clr.cs`),
 added when `ConformanceByteIdentityTests` gained a whole-module render beside its structural
 digest. Every finding below cites the golden that shows it, so each is reproducible by reading a
-committed file. C1 has landed; the rest is outstanding.
+committed file. A1 and C1 have landed; the rest is outstanding.
 
 **Part A** is ABI and metadata defects. **Part B** is IL quality. **Part C** is the harness.
 
@@ -19,7 +19,7 @@ written into IL wherever the CLI can express it.
 
 # Part A — ABI and metadata
 
-## A1. A ctor-param backing field is writable
+## A1. A ctor-param backing field is writable — DONE
 
 `preamble-do-order.clr.cs` renders `Ordered` as:
 
@@ -51,6 +51,41 @@ checking `EmitClosures` and `ClosureVerdictRewrite` for a store keyed on
 **Verify.** Extend the `ClassTests` assertion that already names both backing fields to require
 `IsInitOnly`, and re-render the goldens.
 
+**Landed.** `buildClassNodes` adds `FieldAttributes.InitOnly` to the ctor-param case. The only
+handles minted from `FieldKey.ClassCtorParamField` are the three in `NominalEmit` — the class's
+`Fields` lookup list, the primary ctor's `stfld` refs, and the secondary-ctor
+`ExplicitFieldInit` targets — so every store is inside a `.ctor`; `EmitClosures` and
+`ClosureVerdictRewrite` mint none. Seven `preamble-*` and `typar-null-allownull` goldens
+re-rendered to `internal readonly`, digests included, and the suite is green.
+
+A closure capture field took the same treatment and went further, to `private initonly`.
+`FieldKey.ClosureCapture` is minted once, in `PrepareClosures`, and reaches exactly two
+consumers: the `stfld` list of `buildChainedCtor` / `buildStructCtor`, and the `CaptureFields`
+dictionary whose only reader is `buildVarLoad`'s `ldarg.0; ldfld`. Both live on the closure
+type, so the field needs no visibility beyond it, and the `FieldAccessException` hazard behind
+`assembly` storage does not apply — that one is about a closure reading its *enclosing* class's
+storage.
+
+Both tightenings diverge from FSC, which emits a ctor-param backing field as writable
+`assembly` (`PrintfFormat::value` in FSharp.Core) and a capture as a writable `public` field
+(`QueryModule+restoreTupleProjections@353-1::v`).
+
+**Follow-on, also landed.** Reviewing the above surfaced a third case with the identical
+argument: an immutable class `static let` was emitted writable, because `buildClassNodes`
+dropped `sl.IsMutable` while the instance-`let` case four lines above consulted it. Its stores
+are the `.cctor` `PreambleStep.Store` in `NominalEmit` and `buildStaticFieldSet`'s `stsfld`,
+and the latter is reachable only for a binding the front end saw as `mutable`. `ClassTests`
+now pins the immutable and mutable forms against each other. No golden moved, because the
+conformance corpus spells `static let mutable` and never the immutable form.
+
+Nothing caught that omission, so the visibility and write-once bits moved out of the field
+literals and into `FieldAttrSets` in `LayoutModel`, beside the `MethodAttrSets` that already
+held the method-attribute vocabulary. Every `FieldSlot` in `LayoutNodes`, `Layout` and
+`UnionLayoutNodes` now draws `Attrs` from `instanceFieldAttrs` / `staticFieldAttrs` over a
+`FieldReach` and a `FieldWrites`, so a builder states both facts or fails to compile. The
+`compilerGeneratedStorage` binding named in the root cause above is gone; `FieldReach.Assembly`
+carries its rationale, adjacent to the `FieldReach.OwnType` case that a capture takes.
+
 ## A2. A record field emits as a public writable field
 
 `record-members.clr.cs`:
@@ -70,9 +105,10 @@ mutable fields, where the struct unions in the same golden set are `public reado
 getter, and a `mutable` record field as a `private` field with a public getter and setter. This
 is F#'s own record representation.
 
-**Root cause.** `buildRecordNodes` in `LayoutNodes` sets `FieldAttributes.Public` for every field
-with no reference to `f.IsMutable`, and emits no accessor rows; the struct-record path adds no
-`IsReadOnlyAttribute`.
+**Root cause.** `buildRecordNodes` in `LayoutNodes` gives every field
+`instanceFieldAttrs FieldReach.Public FieldWrites.Anywhere`, discarding `f.IsMutable`, and emits
+no accessor rows; the struct-record path adds no `IsReadOnlyAttribute`. Stage 3 below moves both
+bits to `FieldReach.OwnType` and `writesOf f.IsMutable`.
 
 **Fix, staged.** Each stage leaves the suite green on its own.
 
@@ -91,7 +127,7 @@ with no reference to `f.IsMutable`, and emits no accessor rows; the struct-recor
    declaring type*, so they keep direct field access. That exception is deliberate and wants a
    comment at the site: a private field is reachable from the type's own body and the accessor
    would only add a call.
-3. **Privatise.** `Private ||| InitOnly`, and `Private` alone for a `mutable` field.
+3. **Privatise.** `instanceFieldAttrs FieldReach.OwnType (writesOf f.IsMutable)`.
 4. **`readonly struct`.** A struct record whose every field is immutable emits
    `IsReadOnlyAttribute`, mirroring `UnionLayoutNodes`. With getters in place this also stops the
    defensive copy the JIT would otherwise make at each getter call on a non-`readonly` struct,
@@ -202,8 +238,84 @@ assembly's public surface under a name no source wrote.
   in the source names the value cannot be part of an intended ABI.
 - B1's substitution removes the binding here outright, since the argument is a `Var`.
 
-**Verify.** A test that no `TypeDef` exposes a `public` field whose name contains `$` would pin
-the first half across the whole conformance corpus.
+**Verify.** One corpus-wide field-visibility sweep, over every PE the conformance suite emits
+rather than over a hand-written source. It carries two assertions:
+
+1. No `TypeDef` exposes a `public` field whose name contains `$`. This pins the first half of
+   the fix above.
+2. Every field named `capture<i>` on a `<closure>$*` `TypeDef` is `private initonly`.
+
+The second assertion is not about splice residue; it belongs here because it needs the same
+harness. `LayoutNodes.buildClosureNodes` gives a capture `private initonly` on the strength of
+an invariant that spans the backend — `FieldKey.ClosureCapture` is minted once, in
+`PrepareClosures`, and the `CaptureFields` dictionary has one consumer, `buildVarLoad`, which
+emits `ldfld` and no store. A regression arrives as a NEW lowering that reads or writes a
+capture from another type, and the single-source test in `CapturedMutableTests` cannot see one:
+it compiles two fixed closures. A sweep over the corpus covers every closure shape the suite
+already exercises — generic, `Stack`-repr, cached, and closure-inside-closure.
+
+Where a test asserts over one program's captures, pin the expected set by name, so a lowering
+change that stops emitting a closure fails rather than silently narrowing the assertion to
+fewer fields.
+
+## A5. Every parameter is named `arg<i>`
+
+`preamble-fn-value.clr.cs`, for `let twice (f: int -> int) (x: int) = f (f x)`:
+
+```csharp
+public static int twice(Fun<int, int> arg0, int arg1)
+```
+
+They should read `f` and `x`. The same golden renders `Twice(int arg0)` for
+`member this.Twice(n: int)` and `<closure>$0(Adder arg0)` for the capture of `this`. A
+parameter name is ABI — a C# consumer writes `twice(f: g, x: 3)` — and it is what a debugger
+and a decompiler display.
+
+**Root cause.** `argNames` in `AssemblerScaffold` mints `arg0 … arg{n-1}` from a count. Six
+`Prepared.ParamNames` sites call it, and the closure `Invoke` writes the same `arg%d` inline;
+each passes a length where the source name is one dereference away.
+`TastPoolBuilder.boundVarNaming` answers `Source name` or `Minted slot` for a
+`BoundVarId`, which `residueEmission` in `EmitClosures` already reads, and every parameter
+model carries its `BoundVarId`. The JS backend names all of these from that same pool
+(`paramNameOf` in `JsFlatFns`, `boundVarNameOf` in `EmitJsMembers`), so the CLR backend is
+discarding an intermediate its sibling consumes.
+
+**Fix, staged by site.** Each stage is independent, and the first covers the golden above.
+
+1. A module function, in `Assembler`'s static-fn prep. `fn.Params.Flat` carries a
+   `StaticParam` per emitted slot, and one with `Pat = None` names from its `Slot`.
+2. A member and a secondary ctor, both in `NominalEmit`, whose `Params` are
+   `BoundVarId * FrozenType` pairs. The primary ctor and the record ctor already name from
+   `CtorParams` and from the field list.
+3. A closure's `.ctor` and `Invoke`, in `PrepareClosures` — `argNames` over the captures, and
+   an inline `arg%d` over `FunArity` beside it. A capture is a `BoundVarId`, so the ctor
+   parameter can carry the captured variable's name.
+4. A union factory, in `UnionEmit`: `argNames arity` sits beside the `ud.FieldNames c` the case
+   ctor already passes for the same vector.
+5. An abstract interface method, in `Assembler`'s interface prep. `Frozen.TAbstractMethod`
+   holds a `Signature` and no names, so this one needs the name carried through the freeze
+   first and is the only site that is not a codegen-only change.
+
+Stages 1 to 3 read the pool and want one helper beside `argNames`, taking the `BoundVarId` and
+the slot index, so the `Minted` fallback to `arg<i>` is written once. Stage 4 reads the case
+field names instead.
+
+**Decided.** A `Param` name is the source name verbatim, and a double-backtick binding
+contributes the name it spells, so ``` ``my param`` ``` emits as `my param`, space and all.
+Metadata permits any string there, and a `let` binding a double-backtick parameter compiled
+under `fsi` reflects its parameter as `my param`, so this is F# parity. It costs no work at
+this end: `GetIdentifierSpan` in `Lexing` strips the quoting at the token, so
+`BoundVarNaming.Source` already carries the bare name.
+
+Where the source supplies no name, the generated positional name stands. That is
+`BoundVarNaming.Minted`, which covers a destructuring parameter's synthetic slot, and it keeps
+`arg<i>`.
+
+**Risk.** `Param` row counts are unchanged, so handle prediction is untouched.
+
+**Verify.** The goldens re-render `twice(Fun<int, int> f, int x)`. Pin the `Param` rows rather
+than the rendering, through a `paramNamesOf` helper beside `methodAttrsOf` in
+`MetadataStructure`.
 
 ---
 
@@ -321,7 +433,7 @@ digest gate and the `expectNoFSharpCore` checks stay.
 
 # Sequencing
 
-A1 is a one-token change and lands first, alone.
+A1 has landed.
 
 A3 stage 1 widens a frozen type and its codec, so it wants a commit of its own before anything
 depends on it. A2 stage 1 and B2 both move assembler row counts and should not be in flight at
@@ -330,5 +442,9 @@ against one of them than against both.
 
 B1 lands whenever convenient; it removes bindings rather than rows, and A4's first half is
 independent of it.
+
+A5 touches no row count and no table, so it is free of the row-order contention above and can
+run beside any of them. Its stage 5 is the exception: it widens `Frozen.TAbstractMethod`, so
+it queues behind A3 stage 1 rather than racing another codec change.
 
 C1 has landed, so every re-render of the goldens below reads against resolved `Formatter` calls.
