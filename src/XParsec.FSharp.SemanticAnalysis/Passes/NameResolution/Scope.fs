@@ -71,6 +71,7 @@ module NameResolutionScope =
             | TypeDeclKind.Enum -> true
             | TypeDeclKind.Class
             | TypeDeclKind.Abbreviation
+            | TypeDeclKind.Measure
             | TypeDeclKind.IntrinsicBinding -> false
         | ResolvedTypeRef.External(_, shape) ->
             match shape with
@@ -233,33 +234,33 @@ module NameResolutionScope =
     /// (a claim in scope wins, else the external universe) and diagnose a SINGLE-SEGMENT one
     /// that resolves to neither (FS0039); a DOTTED name is judged where its path's scope is resolved.
     let classifyingTypeIter (ctx: PassContext) : CstTypeWalk.TypeIter =
-        { CstTypeWalk.identityTypeIter with
-            VisitType =
-                fun _ t ->
-                    if isMeasuredCarrier ctx t then
-                        false
-                    else
-                        match CstKeys.ofTypeRef t with
-                        | ValueSome typeRef ->
-                            match classifyTypeRef ctx typeRef with
-                            | TypeRefVerdict.UnknownType when
-                                typeRef.LongIdent.Idents.Length = 1
-                                // A target-optional primitive name is language-known: it
-                                // resolves to its key with no contract behind it, and
-                                // `PlatformTypes` reports the mention instead.
-                                && (RuntimeNames.tryTargetOptionalPrimitiveKey (ctx.NameOf typeRef.Site.Tok)).IsNone
-                                ->
-                                ctx.UndefinedType(
-                                    Site.ofTokenOr (Site.ofLongIdent typeRef.LongIdent) typeRef.Site.Tok,
-                                    ctx.NameOf typeRef.Site.Tok
-                                )
-                            | TypeRefVerdict.UnknownType
-                            | TypeRefVerdict.LocalType _
-                            | TypeRefVerdict.LocalTypeAtOtherArity _
-                            | TypeRefVerdict.ExternalType _ -> ()
-                        | ValueNone -> ()
+        let classify (typeRef: CstKeys.TypeRef) =
+            match classifyTypeRef ctx typeRef with
+            | TypeRefVerdict.UnknownType when
+                typeRef.LongIdent.Idents.Length = 1
+                // A target-optional primitive name is language-known: it resolves to its key
+                // with no contract behind it, and `PlatformTypes` reports the mention instead.
+                && (RuntimeNames.tryTargetOptionalPrimitiveKey (ctx.NameOf typeRef.Site.Tok)).IsNone
+                ->
+                ctx.UndefinedType(
+                    Site.ofTokenOr (Site.ofLongIdent typeRef.LongIdent) typeRef.Site.Tok,
+                    ctx.NameOf typeRef.Site.Tok
+                )
+            | TypeRefVerdict.UnknownType
+            | TypeRefVerdict.LocalType _
+            | TypeRefVerdict.LocalTypeAtOtherArity _
+            | TypeRefVerdict.ExternalType _ -> ()
 
-                        true
+        let visitType _ (t: Type<SyntaxToken>) =
+            match CstKeys.ofTypeRef t with
+            | ValueSome typeRef -> classify typeRef
+            | ValueNone -> ()
+
+            true
+
+        {
+            VisitType = visitType
+            VisitMeasureName = fun li -> classify (CstKeys.namedTypeRef li)
         }
 
     /// Resolve a discriminator in pattern position and stamp what it denotes at the pattern's

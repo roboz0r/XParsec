@@ -203,6 +203,11 @@ type AttributeVerdict =
     /// The unresolved diagnostic for the site has been reported.
     | Reported
 
+    member this.Key: TypeKey voption =
+        match this with
+        | AttributeVerdict.Resolved k -> ValueSome k
+        | AttributeVerdict.Reported -> ValueNone
+
 type PassContextResolution =
     {
         /// The `open`s written above the module element being analysed, auto-opens excluded.

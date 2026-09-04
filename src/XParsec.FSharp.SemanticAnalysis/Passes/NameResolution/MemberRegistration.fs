@@ -10,6 +10,7 @@ open UnificationTranslate
 open NameResolutionTypeRefStamp
 open NameResolutionScope
 open NameResolutionTypeRegistration
+open NameResolutionDeclRegistration
 
 // Registry stamping for class type definitions and union augmentation members, plus the
 // `type … and …` group registration algorithm. A class's declared STRUCTURE (ctor-param
@@ -808,6 +809,7 @@ module NameResolutionMemberRegistration =
             | ValueNone -> Seq.empty
         | TypeDeclKind.Enum
         | TypeDeclKind.Abbreviation
+        | TypeDeclKind.Measure
         | TypeDeclKind.IntrinsicBinding -> Seq.empty
 
     /// FS0954's other half: a cycle through STRUCT FIELDS. A value type stores its fields inline,
@@ -850,9 +852,10 @@ module NameResolutionMemberRegistration =
         | TypeDeclKind.Union, TypeDefn.Union(typeName = tn; cases = cases) -> registerUnionDecl ctx id tn cases
         | TypeDeclKind.Enum, TypeDefn.Enum(typeName = tn; cases = cases) -> registerEnumDecl ctx id tn cases
         | TypeDeclKind.Class, _ -> registerClassTypeDefn ctx id td
-        // The abbreviation ENTRY is filed ahead of every other kind's detail, so those two
-        // kinds have nothing left to do here.
+        // The abbreviation, measure and intrinsic-binding ENTRIES are filed ahead of every
+        // other kind's detail, so those three kinds have nothing left to do here.
         | TypeDeclKind.Abbreviation, _
+        | TypeDeclKind.Measure, _
         | TypeDeclKind.IntrinsicBinding, _
         | TypeDeclKind.Record, _
         | TypeDeclKind.Union, _
@@ -885,15 +888,19 @@ module NameResolutionMemberRegistration =
         for td in defs do
             classifyDeclaredTypes ctx td
 
-    /// File each alias and intrinsic-repr ENTRY, so any other kind's detail can reference it.
-    /// The claim classified an `(# … #)` RHS as `IntrinsicRepr` and any other as `Abbreviation`;
-    /// the RHS shape dispatches here by the same rule.
+    /// File each alias, measure and intrinsic-binding ENTRY, so any other kind's detail can
+    /// reference it. The claim's kind dispatches; the declaration shape supplies the body.
     let private registerGroupAbbrevEntries (ctx: PassContext) (claims: ClaimedTypeDefn seq) : unit =
         for claimed in claims do
-            match claimed.Defn with
-            | TypeDefn.Abbrev(typeName = tn; typ = Type.ILIntrinsic(kindTag = tag; instrParts = parts); extensions = ext) ->
+            match claimed.Identity.Kind, claimed.Defn with
+            | TypeDeclKind.Measure, TypeDefn.Abbrev(typeName = tn; typ = rhs) ->
+                registerMeasureDecl ctx claimed.Identity tn (ValueSome rhs)
+            | TypeDeclKind.Measure, TypeDefn.AbstractType(typeName = tn) ->
+                registerMeasureDecl ctx claimed.Identity tn ValueNone
+            | TypeDeclKind.IntrinsicBinding,
+              TypeDefn.Abbrev(typeName = tn; typ = Type.ILIntrinsic(kindTag = tag; instrParts = parts); extensions = ext) ->
                 registerIntrinsicBindingDecl ctx claimed.Identity tn tag parts ext.IsSome
-            | TypeDefn.Abbrev(typeName = tn; typ = rhs; extensions = ext) ->
+            | TypeDeclKind.Abbreviation, TypeDefn.Abbrev(typeName = tn; typ = rhs; extensions = ext) ->
                 registerAbbreviationDecl ctx claimed.Identity tn rhs ext.IsSome
             | _ -> ()
 
@@ -921,7 +928,7 @@ module NameResolutionMemberRegistration =
         for claimed in claims do
             if claimed.Identity.Kind = TypeDeclKind.Abbreviation then
                 match TypeRegistry.tryAbbrevByKey ctx.Types claimed.Identity.Key with
-                | ValueSome info -> forceFill ctx info
+                | ValueSome info -> forceFill ctx info |> ignore
                 | ValueNone -> ()
 
     /// Fill each class's `Base` slot, and return the group's classes.

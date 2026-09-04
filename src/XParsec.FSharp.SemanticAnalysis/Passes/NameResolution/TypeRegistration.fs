@@ -7,23 +7,11 @@ open XParsec.FSharp.SemanticAnalysis
 open NameResolutionTypeRefStamp
 open UnificationTranslate
 
-// The type-identity claim and registry stamping for record / union / enum / abbreviation
-// definitions. A definition's declared STRUCTURE resolves HERE, against the types claimed
-// ABOVE it plus its own `type … and …` group; member BODIES are typed later, in Unification.
+// The type-identity CLAIM of each definition, the typar model its header declares, and the
+// classification of every type name a module element writes. Each kind's registry entry is
+// built in `NameResolutionDeclRegistration`.
 
 module NameResolutionTypeRegistration =
-
-    /// `[<CustomEquality>]` / `[<CustomComparison>]` on a record or union is out of scope:
-    /// neither has an interface-impl side table to satisfy the `IEquatable<_>` /
-    /// `IComparable<_>` the verdict promises, so a `Custom` verdict is a diagnostic instead.
-    let private rejectCustomOnDataType
-        (ctx: PassContext)
-        (declTok: SyntaxToken)
-        (eq: EqualityVerdict)
-        (cmp: ComparisonVerdict)
-        : unit =
-        if eq = EqualityVerdict.Custom || cmp = ComparisonVerdict.Custom then
-            ctx.Report(declTok, Kind.CustomEqualityOnRecordOrUnion)
 
     /// A `Typar`'s source-text name; the leading `'`/`^` lives on a separate
     /// token. Anon (`_`) typars don't participate in scope.
@@ -224,25 +212,33 @@ module NameResolutionTypeRegistration =
                 )
             | _ -> ()
 
+    /// `[<Measure>]` on the declaration's own header, read at CLAIM time without a verdict;
+    /// `registerMeasureDecl` resolves the header's attributes for report.
+    let private isMeasureAttributed (ctx: PassContext) (tn: TypeName<SyntaxToken>) : bool =
+        ctx.HasAttribute(Attributes.attributesOfTypeName tn, RuntimeNames.measureAttributeKey)
+
     /// The name a type declaration CLAIMS, and the kind it claims it for. `Interface`,
-    /// `Delegate`, `TypeExtension` and `AbstractType` register nothing, so they claim nothing.
+    /// `Delegate`, `TypeExtension` and a bare `AbstractType` make no claim. `[<Measure>]`
+    /// claims a measure in either shape: the body-less `type m` (an `AbstractType`) and the
+    /// abbreviation `type v = m / s`.
     let private tryDeclaredTypeName
+        (ctx: PassContext)
         (td: TypeDefn<SyntaxToken>)
         : struct (TypeName<SyntaxToken> * TypeDeclKind) voption =
         match td with
         | TypeDefn.Record(typeName = tn) -> ValueSome(struct (tn, TypeDeclKind.Record))
         | TypeDefn.Union(typeName = tn) -> ValueSome(struct (tn, TypeDeclKind.Union))
         | TypeDefn.Enum(typeName = tn) -> ValueSome(struct (tn, TypeDeclKind.Enum))
-        | TypeDefn.Abbrev(typeName = tn; typ = rhs) ->
-            // An `(# … #)` RHS is a primitive BINDING, not a transparent alias: it lands in
-            // `IntrinsicBindings`, not `Abbreviation`. The claim it holds on its declared
-            // name is identical either way.
-            let kind =
-                match rhs with
-                | Type.ILIntrinsic _ -> TypeDeclKind.IntrinsicBinding
-                | _ -> TypeDeclKind.Abbreviation
-
-            ValueSome(struct (tn, kind))
+        | TypeDefn.AbstractType(typeName = tn) when isMeasureAttributed ctx tn ->
+            ValueSome(struct (tn, TypeDeclKind.Measure))
+        | TypeDefn.AbstractType _ -> ValueNone
+        // An `(# … #)` RHS is a primitive BINDING, not a transparent alias: it is filed in
+        // `IntrinsicBindings`, not `Abbreviation`. The claim it holds on its declared name is
+        // identical either way.
+        | TypeDefn.Abbrev(typeName = tn; typ = Type.ILIntrinsic _) ->
+            ValueSome(struct (tn, TypeDeclKind.IntrinsicBinding))
+        | TypeDefn.Abbrev(typeName = tn) when isMeasureAttributed ctx tn -> ValueSome(struct (tn, TypeDeclKind.Measure))
+        | TypeDefn.Abbrev(typeName = tn) -> ValueSome(struct (tn, TypeDeclKind.Abbreviation))
         | _ ->
             match TypeDefnPatterns.tryClassLikeDecl td with
             | ValueSome d -> ValueSome(struct (d.TypeName, TypeDeclKind.Class))
@@ -267,7 +263,7 @@ module NameResolutionTypeRegistration =
     /// Kind-agnostic (a record, a union and a class can each be a struct): a struct stores its
     /// fields inline, so a struct field is an IMMEDIATE containment edge, uncyclable (FS0954).
     let isValueTypeDefn (ctx: PassContext) (td: TypeDefn<SyntaxToken>) : bool =
-        match tryDeclaredTypeName td with
+        match tryDeclaredTypeName ctx td with
         | ValueSome(struct (tn, _)) -> isStructAttributed ctx tn || TypeDefnPatterns.isStructShape td
         | ValueNone -> false
 
@@ -278,7 +274,7 @@ module NameResolutionTypeRegistration =
         match m with
         | ModuleElem.Type defs ->
             for td in defs do
-                match tryDeclaredTypeName td with
+                match tryDeclaredTypeName ctx td with
                 | ValueSome(struct (tn, kind)) ->
                     match tryDeclaredSimpleName ctx tn with
                     | ValueSome name ->
@@ -288,6 +284,7 @@ module NameResolutionTypeRegistration =
                         | TypeDeclKind.Class -> TypeRegistry.noteNominalTypeName ctx.Types name
                         | TypeDeclKind.Enum
                         | TypeDeclKind.Abbreviation
+                        | TypeDeclKind.Measure
                         | TypeDeclKind.IntrinsicBinding -> ()
                     | ValueNone -> ()
                 | ValueNone -> ()
@@ -395,7 +392,7 @@ module NameResolutionTypeRegistration =
         (placement: ClaimPlacement)
         (td: TypeDefn<SyntaxToken>)
         : ClaimedTypeDefn voption =
-        match tryDeclaredTypeName td with
+        match tryDeclaredTypeName ctx td with
         | ValueNone -> ValueNone
         | ValueSome(tn, kind) ->
             match claimTypeName ctx c placement tn kind with
@@ -598,6 +595,7 @@ module NameResolutionTypeRegistration =
             | ValueNone -> ()
         | ValueSome TypeDeclKind.Enum
         | ValueSome TypeDeclKind.Abbreviation
+        | ValueSome TypeDeclKind.Measure
         | ValueSome TypeDeclKind.IntrinsicBinding
         | ValueNone -> ()
 
@@ -676,7 +674,7 @@ module NameResolutionTypeRegistration =
                 onPat p
 
         { CstWalk.identityExprWalker with
-            Visit = fun _ e -> CstWalk.iterExprEmbeddedTypes onType (CstTypeWalk.iterTypeMemberSig it) e
+            Visit = fun _ e -> CstWalk.iterExprEmbeddedTypes it e
             EnterFun =
                 fun env pats ->
                     onPats pats
@@ -761,340 +759,3 @@ module NameResolutionTypeRegistration =
 
         use _ = ctx.PushTyparScope(scope, true)
         f ()
-
-    /// File `v` at the FRONT of `index.[name]`'s bucket: the newest declaration wins the slot.
-    let private prependToIndex (index: Dictionary<string, EqArray<'T>>) (name: string) (v: 'T) : unit =
-        match index.TryGetValue name with
-        | true, existing ->
-            let buf = ResizeArray(existing.Length + 1)
-            buf.Add v
-
-            for i in existing do
-                buf.Add i
-
-            index.[name] <- EqArray.ofResizeArray buf
-        | false, _ -> index.[name] <- EqArray.singleton v
-
-    let registerRecordDecl
-        (ctx: PassContext)
-        (id: TypeIdentity)
-        (tn: TypeName<SyntaxToken>)
-        (fields: RecordFields<SyntaxToken>)
-        : unit =
-        let name = id.Name
-        let declSite = id.DeclSite
-        let typeParams = declaredTyparsOfTypeName ctx tn
-        let typarConstraints = typarConstraintsOfTypeName tn
-
-        let fieldInfos = ResizeArray<RecordFieldInfo>(fields.Length)
-
-        underTyparScope
-            ctx
-            typeParams
-            (fun () ->
-                match typarConstraints with
-                | ValueSome cs -> translateConstraints ctx cs
-                | ValueNone -> ()
-
-                for f in fields do
-                    let (RecordField(attributes = fAttrs; mutableToken = mt; ident = fid; typ = ft)) = f
-
-                    fieldInfos.Add(
-                        RecordFieldInfo(
-                            ctx.NameOf fid,
-                            translateType ctx ft,
-                            mt.IsSome,
-                            NodeKey.ofToken fid NodeKind.DeclType,
-                            AttributeFold.resolveAndBuild ctx AttrTarget.RecordField fAttrs
-                        )
-                    )
-            )
-
-        let fieldInfos = fieldInfos.ToArray()
-
-        let info =
-            RecordTypeInfo(name, typeParams, fieldInfos, id.DeclSite, typarConstraints, id.Key)
-
-        // `[<Struct>]` record ⇒ value type. `struct … end` is a shape of its own, never a
-        // record, so this is the whole verdict the group struct-field cycle check reaches.
-        let isStruct = isStructAttributed ctx tn
-        info.IsValueType <- isStruct
-
-        info.Attributes <-
-            Attributes.foldAndValidateTypeDefn
-                ctx
-                info.DefnKind
-                declSite.Tok
-                (ctx.ResolveAttributes(Attributes.attributesOfTypeName tn))
-
-        rejectCustomOnDataType ctx declSite.Tok info.EqualitySupport info.ComparisonSupport
-
-        TypeRegistry.registerRecord ctx.Types info
-
-        // Stamp the decl-site key so the type-decl emitter recovers this record by its
-        // arity-qualified `SymbolKey` rather than by the bare name.
-        ctx.Resolution.ResolvedType.Set(declSite.Key, info.TypeKey)
-
-        for fi in fieldInfos do
-            prependToIndex ctx.Types.FieldIndex fi.Name info
-
-    /// A union case's ctor name: `([])` → `Empty`, `(::)` → `Cons`, an ordinary case its
-    /// own text. A case with no name (`(*)`, range / active-pattern ops) yields `""`, which
-    /// `inspectCaseData` reads as "drop this case".
-    let private unionCaseName (ctx: PassContext) (ident: IdentOrOp<SyntaxToken>) : string =
-        match OperatorNames.unionCaseCtorName ctx.NameOf ident with
-        | ValueSome n -> n
-        | ValueNone -> ""
-
-    /// One union case's registrable shape: its ctor name plus, positionally, each field's source
-    /// name (`ValueNone` when unnamed) and written type. GADT-SYNTAX cases (FSharp.Core's list)
-    /// decompose here too, their return type read as the declaring union; true GADTs do not.
-    [<NoEquality; NoComparison>]
-    type private UnionCaseShape =
-        {
-            Name: string
-            FieldNames: string voption[]
-            FieldTypes: Type<SyntaxToken>[]
-        }
-
-    let private inspectCaseData (ctx: PassContext) (data: UnionTypeCaseData<SyntaxToken>) : UnionCaseShape voption =
-        let named (name: string) (fieldNames: string voption[]) (fieldTypes: Type<SyntaxToken>[]) =
-            if name.Length = 0 then
-                ValueNone
-            else
-                ValueSome
-                    {
-                        Name = name
-                        FieldNames = fieldNames
-                        FieldTypes = fieldTypes
-                    }
-
-        match data with
-        | UnionTypeCaseData.Nullary(name = ident)
-        | UnionTypeCaseData.GadtNullary(name = ident) -> named (unionCaseName ctx ident) [||] [||]
-        | UnionTypeCaseData.Nary(name = ident; fields = fields) ->
-            named
-                (unionCaseName ctx ident)
-                [|
-                    for f in fields ->
-                        match f with
-                        | UnionTypeField.Named(ident = id) -> ValueSome(ctx.NameOf id)
-                        | UnionTypeField.Unnamed _ -> ValueNone
-                |]
-                [|
-                    for f in fields ->
-                        match f with
-                        | UnionTypeField.Named(typ = t)
-                        | UnionTypeField.Unnamed(typ = t) -> t
-                |]
-        | UnionTypeCaseData.GadtNary(name = ident; sign = UncurriedSig(args = ArgsSpec(args = specs))) ->
-            named
-                (unionCaseName ctx ident)
-                [|
-                    for ArgSpec(name = nm) in specs ->
-                        match nm with
-                        | ValueSome(ArgNameSpec(ident = id)) -> ValueSome(ctx.NameOf id)
-                        | ValueNone -> ValueNone
-                |]
-                [| for ArgSpec(typ = t) in specs -> t |]
-
-    let registerUnionDecl
-        (ctx: PassContext)
-        (id: TypeIdentity)
-        (tn: TypeName<SyntaxToken>)
-        (cases: UnionTypeCases<SyntaxToken>)
-        : unit =
-        let name = id.Name
-        let declSite = id.DeclSite
-        let typeParams = declaredTyparsOfTypeName ctx tn
-        let typarConstraints = typarConstraintsOfTypeName tn
-        let caseInfos = ResizeArray<UnionCaseInfo>(cases.Length)
-
-        underTyparScope
-            ctx
-            typeParams
-            (fun () ->
-                match typarConstraints with
-                | ValueSome cs -> translateConstraints ctx cs
-                | ValueNone -> ()
-
-                for UnionTypeCase(attributes = caseAttrs; data = data) in cases do
-                    match inspectCaseData ctx data with
-                    | ValueSome shape ->
-                        let fieldTys = shape.FieldTypes |> Array.map (translateType ctx)
-
-                        // The case carries its union's own claim KEY, so "which union
-                        // declares this case" never re-resolves a name.
-                        caseInfos.Add(
-                            UnionCaseInfo(
-                                shape.Name,
-                                name,
-                                id.Key,
-                                fieldTys,
-                                shape.FieldNames,
-                                declSite.Key,
-                                AttributeFold.resolveAndBuild ctx AttrTarget.UnionCase caseAttrs
-                            )
-                        )
-                    | ValueNone -> ()
-            )
-
-        let caseInfos = caseInfos.ToArray()
-
-        let info =
-            UnionTypeInfo(name, typeParams, caseInfos, id.DeclSite, typarConstraints, id.Key)
-
-        // `[<Struct>]` union ⇒ value type. Unions have no `struct … end` form, so the
-        // attribute is the whole verdict.
-        info.IsValueType <- isStructAttributed ctx tn
-
-        info.Attributes <-
-            Attributes.foldAndValidateTypeDefn
-                ctx
-                info.DefnKind
-                declSite.Tok
-                (ctx.ResolveAttributes(Attributes.attributesOfTypeName tn))
-
-        rejectCustomOnDataType ctx declSite.Tok info.EqualitySupport info.ComparisonSupport
-
-        TypeRegistry.registerUnion ctx.Types info
-
-        // Record the decl-site identity so the type-decl emitter recovers the union by its
-        // arity-qualified key rather than re-deriving `(name, arity)`.
-        ctx.Resolution.ResolvedType.Set(declSite.Key, info.TypeKey)
-
-        for c in caseInfos do
-            prependToIndex ctx.Types.CtorIndex c.Name c
-
-    /// Register an enum's nominal identity and its case table, so a `(x: E)` annotation
-    /// resolves to `TyEnum Key` and a qualified `E.C1` can validate the case name. Enums are
-    /// non-generic and have no member side tables. The case values are resolved and their
-    /// rejections reported here, once; Elaborate and the `.fsi` publisher read the table.
-    let registerEnumDecl
-        (ctx: PassContext)
-        (id: TypeIdentity)
-        (tn: TypeName<SyntaxToken>)
-        (cases: EnumTypeCases<SyntaxToken>)
-        : unit =
-        let tattrs =
-            Attributes.foldAndValidateTypeDefn
-                ctx
-                TypeDefnKind.Enum
-                id.DeclSite.Tok
-                (ctx.ResolveAttributes(Attributes.attributesOfTypeName tn))
-
-        let declSite = id.DeclSite
-
-        let resolved =
-            EqArray.ofSeq (
-                seq {
-                    for EnumTypeCase(attributes = caseAttrs; ident = cid; constValue = v) in cases ->
-                        EnumCaseValues.resolveCase
-                            ctx.NameOf
-                            (fun t kind -> ctx.Report(t, kind))
-                            (AttributeFold.resolveAndBuild ctx AttrTarget.EnumCase caseAttrs)
-                            cid
-                            v
-                }
-            )
-
-        let info = EnumTypeInfo(id.Name, resolved, declSite.Key, id.Key, tattrs)
-        TypeRegistry.registerEnum ctx.Types info
-
-        // Record the decl-site identity so `Elaborate.tryEnumType`
-        // recovers the SAME key the annotation path resolves to.
-        ctx.Resolution.ResolvedType.Set(declSite.Key, info.TypeKey)
-
-    /// Register a `type X = (# … #)` primitive BINDING: it lands in `IntrinsicBindings` as
-    /// canon key → platform type id, so the name resolves to `TyConst key`. A `with member …`
-    /// augmentation registers the type as a member host as well, without withdrawing it
-    /// from `IntrinsicBindings`.
-    let registerIntrinsicBindingDecl
-        (ctx: PassContext)
-        (id: TypeIdentity)
-        (tn: TypeName<SyntaxToken>)
-        (tag: ExternKind<SyntaxToken> voption)
-        (instrParts: ImmutableArray<StringPart<SyntaxToken>>)
-        (hasAugmentation: bool)
-        : unit =
-        let name = id.Name
-        let typeId = PlatformTypeId(IntrinsicBindings.ilString ctx.NameOf instrParts)
-        // Filed on the KEY axis alone, so a consumer holding a resolved intrinsic key
-        // never has to project it back to a name. The `class` tag is stored on the same entry:
-        // heritability is a property of this binding.
-        ctx.Types.IntrinsicBindings.[TypeRegistry.intrinsicKeyOf ctx.Types name] <-
-            {
-                TypeId = typeId
-                Heritable =
-                    match tag with
-                    | ValueSome(ExternKind.Class _) -> true
-                    | ValueSome(ExternKind.Interface _)
-                    | ValueNone -> false
-            }
-
-        if hasAugmentation then
-            // The self-type key is the contract-sourced intrinsic identity, read through
-            // `intrinsicKeyOf` so it agrees with the abbrev's use-site key even when the
-            // declaring namespace is not `Vesper`. It also ADDRESSES the host table, so
-            // the lookup key and the self-type key are the same one value.
-            let selfKey = TypeRegistry.intrinsicKeyOf ctx.Types name
-            let typeParams = declaredTyparsOfTypeName ctx tn
-
-            ctx.Types.IntrinsicAbbrevHost.[selfKey] <-
-                IntrinsicAbbrevInfo(name, typeParams, id.DeclSite, id.Key, selfKey)
-
-        match tag with
-        // Untagged `(# "…" #)` is an opaque value repr, never a base; a `class`-tagged
-        // one already recorded `Heritable = true` above. Nothing extra either way.
-        | ValueNone
-        | ValueSome(ExternKind.Class _) -> ()
-        // `(# interface "…" #)` parses but cannot be inherited: an interface goes in
-        // `implements`, not `extends`, and has no base `.ctor` to chain to. Rejected
-        // here; its `Heritable` is `false`, so it never reaches codegen's base path.
-        | ValueSome(ExternKind.Interface _) ->
-            ctx.Report(
-                id.DeclSite.Tok,
-                Kind.NotYetSupported(
-                    sprintf
-                        "a heritable external interface base ('(# interface \"…\" #)') on type '%s'; only '(# class \"…\" #)' may be inherited"
-                        name
-                )
-            )
-
-    /// Register a `type X = …` transparent alias. Only the ENTRY registers; the RHS is forced
-    /// at GROUP CLOSE. An alias declares nothing of its own, so a `with member …`
-    /// augmentation is diagnosed and dropped.
-    let registerAbbreviationDecl
-        (ctx: PassContext)
-        (id: TypeIdentity)
-        (tn: TypeName<SyntaxToken>)
-        (rhs: Type<SyntaxToken>)
-        (hasAugmentation: bool)
-        : unit =
-        let name = id.Name
-        let typeParams = declaredTyparsOfTypeName ctx tn
-
-        // Every posture and `[<AllowNullLiteral>]` belongs on the type it abbreviates; an
-        // abbreviation stores no attributes of its own, so the fold's product is dropped.
-        Attributes.foldAndValidateTypeDefn
-            ctx
-            TypeDefnKind.Abbrev
-            id.DeclSite.Tok
-            (ctx.ResolveAttributes(Attributes.attributesOfTypeName tn))
-        |> ignore
-
-        if hasAugmentation then
-            ctx.Report(
-                id.DeclSite.Tok,
-                Kind.Message(
-                    sprintf
-                        "Type abbreviation '%s' cannot carry augmentation members: only an inline-IL abbreviation ('type %s = (# \"…\" #) with member …') may declare members"
-                        name
-                        name
-                )
-            )
-
-        let info =
-            AbbreviationInfo(name, typeParams, rhs, id.DeclSite, typarConstraintsOfTypeName tn, id.Key)
-
-        TypeRegistry.registerAbbrev ctx.Types info

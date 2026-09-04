@@ -253,9 +253,7 @@ module internal UnificationInferLiterals =
     /// container flexible for a later consumer to pin (`RegisterListLiteral`).
     let listLiteralTy (ctx: PassContext) (tok: SyntaxToken) (elemTy: SemType) : SemType =
         match TypeRegistry.tryAbbrevSpelling ctx.Types UseSite.unbounded RuntimeNames.vesperListAbbrevKey with
-        | ValueSome info ->
-            forceFill ctx info
-            expandAbbreviation ctx tok info (EqArray.singleton elemTy)
+        | ValueSome info -> expandAbbreviation ctx tok info (forceFill ctx info) (EqArray.singleton elemTy)
         | ValueNone ->
             let tv = freshTyVar ctx
 

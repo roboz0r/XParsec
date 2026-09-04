@@ -120,14 +120,14 @@ let tests =
                     "the DECLARATION's one typar keys the same, so a use site and a declaration agree"
             }
 
-            test "module full name renders the containment chain" {
+            test "module declared path renders the containment chain" {
                 Expect.equal
-                    (SymbolKeyOps.moduleFullName (SymbolKeyOps.moduleInNamespace "Vesper" "Unchecked"))
+                    (SymbolKeyOps.moduleInNamespace "Vesper" "Unchecked").DeclaredPath
                     "Vesper.Unchecked"
                     "namespace-qualified module"
 
                 Expect.equal
-                    (SymbolKeyOps.moduleFullName (SymbolKeyOps.moduleInNamespace "" "Util"))
+                    (SymbolKeyOps.moduleInNamespace "" "Util").DeclaredPath
                     "Util"
                     "a module in the global namespace"
             }
@@ -137,7 +137,7 @@ let tests =
 
                 let inner = SymbolKeyOps.moduleKeyOf (ModuleContainer.InModule outer) "Inner"
 
-                Expect.equal (SymbolKeyOps.moduleFullName inner) "Vesper.Outer.Inner" "the whole chain renders"
+                Expect.equal inner.DeclaredPath "Vesper.Outer.Inner" "the whole chain renders"
 
                 Expect.equal
                     (List.ofSeq inner.Namespace.Path.Underlying)
@@ -343,5 +343,26 @@ let localTypeContainment =
                         "M"
                         "the collision with `type M` suffixes the emitted class, which is published apart from the key"
                 | other -> failtestf "expected InModule, got %A" other
+            }
+
+            // `MeasureTerm` normalises by sorting its atoms, so the order on `TypeKey` must be
+            // total. The rendered path is not: namespace `A.B` + type `C` and namespace `A` +
+            // module `B` + type `C` both read `A.B.C`.
+            test "two keys with one declared path order apart, so a measure term normalises order-independently" {
+                let inNamespace = SymbolKeyOps.typeKeyOf "A.B" "C"
+
+                let inModule =
+                    SymbolKeyOps.typeKeyOfContainer
+                        (TypeContainer.InModule(SymbolKeyOps.moduleKeyOf (SymbolKeyOps.inNamespace "A") "B"))
+                        "C"
+                        0
+
+                Expect.equal inNamespace.DeclaredPath inModule.DeclaredPath "the two paths render alike"
+                Expect.notEqual (compare inNamespace inModule) 0 "the keys still order apart"
+
+                Expect.equal
+                    (MeasureTerm.OfList [ inNamespace, Rational.One; inModule, Rational.One ])
+                    (MeasureTerm.OfList [ inModule, Rational.One; inNamespace, Rational.One ])
+                    "one term whichever atom is listed first"
             }
         ]

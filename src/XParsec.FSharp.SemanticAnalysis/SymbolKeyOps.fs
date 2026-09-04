@@ -198,15 +198,6 @@ module SymbolKeyOps =
 
     // --- Modules ---------------------------------------------------------------------
 
-    /// The dotted path a module's source writes (`Vesper.Collections.List`): namespace path
-    /// plus the module chain.
-    let rec moduleFullName (m: ModuleKey) : string =
-        match m.Container with
-        | ModuleContainer.InNamespace ns ->
-            let d = ns.Dotted
-            if d = "" then m.Name else d + "." + m.Name
-        | ModuleContainer.InModule parent -> moduleFullName parent + "." + m.Name
-
     /// Containment is a `ModuleContainer` chain, never a dotted string: only the producer knows which
     /// segments are namespace and which are module.
     let moduleKeyOf (container: ModuleContainer) (name: string) : ModuleKey = { Container = container; Name = name }
@@ -236,7 +227,7 @@ module SymbolKeyOps =
     let containerFullName (h: ModuleContainer) : string =
         match h with
         | ModuleContainer.InNamespace ns -> ns.Dotted
-        | ModuleContainer.InModule m -> moduleFullName m
+        | ModuleContainer.InModule m -> m.DeclaredPath
 
     let typeContainerOf (h: ModuleContainer) : TypeContainer =
         match h with

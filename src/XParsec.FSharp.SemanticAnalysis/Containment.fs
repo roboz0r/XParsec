@@ -137,7 +137,7 @@ module Containment =
                         not (this.Types.Modules.ContainsKey md.Key)
                         && ModuleDeclarations.declaredEarlierInAssembly this.Resolver.Scope this.AssemblyName md.Key
                     then
-                        this.Report(md.Ident, Kind.DuplicateModule(SymbolKeyOps.moduleFullName md.Key))
+                        this.Report(md.Ident, Kind.DuplicateModule md.Key.DeclaredPath)
 
                     ModuleDeclarations.note this.Types md.Key md.Facts
                 | ValueNone -> ()

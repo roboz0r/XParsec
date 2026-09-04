@@ -476,7 +476,7 @@ type internal ClrEnv
                 failwithf
                     "ClrProvider: no referenced surface homed in %A declares module '%s', so the class it emits as is unknown."
                     origin.Home
-                    (SymbolKeyOps.moduleFullName m)
+                    m.DeclaredPath
 
         match m.Container with
         | ModuleContainer.InModule parent -> toEntity (ctx.TypeRef(externalModuleRef origin parent, "", metaName))

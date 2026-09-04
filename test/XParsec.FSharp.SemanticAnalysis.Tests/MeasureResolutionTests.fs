@@ -179,19 +179,19 @@ let x: S = 1.0<m>
 "
                     }
 
-                    // FS0039: "The type 'm' is not defined".
-                    ptest
-                        "an undeclared measure in a type is undefined (`m` is never looked up today, so nothing is reported)" {
+                    // FS0039: "The type 'm' is not defined". The annotation is the only
+                    // occurrence, because a second one is a second undefined name and reports
+                    // again; the literal has its own case below.
+                    test "an undeclared measure in a type is undefined" {
                         expectUserErrorReportedAlone
                             "The type 'm' is not defined"
                             "\
-let x: float<m> = 1.0<m>
+let x: float<m> = 1.0
 "
                     }
 
                     // FS0039 at the literal too: `1.0<m>` looks `m` up like any type name.
-                    ptest
-                        "an undeclared measure in a literal is undefined (`m` is never looked up today, so nothing is reported)" {
+                    test "an undeclared measure in a literal is undefined" {
                         expectUserErrorReportedAlone
                             "The type 'm' is not defined"
                             "\
@@ -200,12 +200,11 @@ let x = 1.0<m>
                     }
 
                     // FS0039: scoping is top-down, as for any type.
-                    ptest
-                        "a measure declared after its use is undefined (no scoping is applied today, so nothing is reported)" {
+                    test "a measure declared after its use is undefined" {
                         expectUserErrorReportedAlone
                             "The type 'm' is not defined"
                             "\
-let x: float<m> = 1.0<m>
+let x: float<m> = 1.0
 [<Measure>] type m
 "
                     }
@@ -214,8 +213,7 @@ let x: float<m> = 1.0<m>
                     // 'P.m'". Measures are identities, not spellings, so the two DECLARED
                     // PATHS are what the message must carry; a bare "Measure mismatch" would
                     // read the same whether or not the identities differ.
-                    ptest
-                        "two measures of one name in different modules are distinct (`MeasureTerm` keys on the spelling today, so the two compare equal)" {
+                    test "two measures of one name in different modules are distinct" {
                         let es =
                             semErrors
                                 "\
@@ -237,8 +235,7 @@ let c = a + b
                         expectErrorIn es "Q.m"
                     }
 
-                    ptest
-                        "a measure abbreviation expands to its term (the declaration registers nothing today, so <m/s> and <v> mismatch)" {
+                    test "a measure abbreviation expands to its term" {
                         expectClean
                             "\
 [<Measure>] type m
@@ -247,14 +244,35 @@ let c = a + b
 let x: float<v> = 1.0<m/s>
 "
                     }
+
+                    // The claim reads `[<Measure>]` before the group's later siblings are
+                    // claimed, so the reading must not record a verdict against them.
+                    test "a measure abbreviation may precede its base measure in one group" {
+                        expectClean
+                            "\
+[<Measure>] type v = m / s
+and [<Measure>] m
+and [<Measure>] s
+let x: float<v> = 1.0<m/s>
+"
+                    }
+
+                    // A dotted measure name resolves through its module, as a type name does.
+                    test "a measure qualified by its module resolves" {
+                        expectClean
+                            "\
+module M =
+    [<Measure>] type m
+let x: float<M.m> = 1.0<M.m>
+"
+                    }
                 ]
 
             testList
                 "the argument's KIND is checked against the parameter's"
                 [
                     // FS0704: "Expected type, not unit-of-measure".
-                    ptest
-                        "a measure argument on a type-kinded parameter is an error (no measure claim today, so FS0039 stands in for FS0704)" {
+                    test "a measure argument on a type-kinded parameter is an error" {
                         expectUserErrorReportedAlone
                             "Expected type, not unit-of-measure"
                             "\
@@ -265,8 +283,7 @@ let x: Box<m> = { V = 1 }
                     }
 
                     // FS0704 again: a measure claim in TYPE position.
-                    ptest
-                        "a measure in type position is an error (no measure claim today, so FS0039 stands in for FS0704)" {
+                    test "a measure in type position is an error" {
                         expectUserErrorReportedAlone
                             "Expected type, not unit-of-measure"
                             "\
@@ -276,8 +293,7 @@ let f (x: m) = x
                     }
 
                     // FS0705: "Expected unit-of-measure, not type".
-                    ptest
-                        "a type argument on a measure-kinded parameter is an error (no kind check today; the dimensionless message prints a record)" {
+                    test "a type argument on a measure-kinded parameter is an error" {
                         expectUserErrorReportedAlone
                             "Expected unit-of-measure, not type"
                             "\
@@ -286,8 +302,7 @@ let x: float<int> = 1.0
                     }
 
                     // FS0705: the name resolves to a record, so the kind check fails.
-                    ptest
-                        "a same-named record in the measure position is a type, not a measure (no kind check today; the dimensionless message prints a record)" {
+                    test "a same-named record in the measure position is a type, not a measure" {
                         expectUserErrorReportedAlone
                             "Expected unit-of-measure, not type"
                             "\

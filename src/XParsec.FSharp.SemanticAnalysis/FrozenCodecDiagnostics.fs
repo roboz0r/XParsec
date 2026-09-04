@@ -571,6 +571,8 @@ module FrozenCodecDiagnostics =
             w.Write element
             w.Write validOn
         | Kind.ReferenceEqualityOnStruct -> w.Write 55uy
+        | Kind.MeasureExpected -> w.Write 62uy
+        | Kind.TypeExpectedNotMeasure -> w.Write 63uy
 
     let private readKind (r: FrozenReader) : Kind =
         match r.ReadByte() with
@@ -708,6 +710,8 @@ module FrozenCodecDiagnostics =
             let noun = readMemberNoun r
             Kind.TraitAmbiguous(supportTys, noun, r.ReadString())
         | 57uy -> Kind.ConformanceFinding(readConformanceError r)
+        | 62uy -> Kind.MeasureExpected
+        | 63uy -> Kind.TypeExpectedNotMeasure
         | b -> failwithf "FrozenCodec: unknown Kind tag %d" b
 
     let writeDiagnostic (w: FrozenWriter) (d: XParsec.FSharp.SemanticAnalysis.Diagnostic) =

@@ -556,10 +556,10 @@ module internal ElaborateTypeDecls =
         | ValueNone -> None
         | ValueSome info ->
             match info.State with
-            | AbbreviationState.NotFilled
-            | AbbreviationState.InProgress
-            | AbbreviationState.Broken -> None
-            | AbbreviationState.Filled body ->
+            | FillState.NotFilled
+            | FillState.InProgress
+            | FillState.Broken -> None
+            | FillState.Filled body ->
                 Some(
                     mkTypeDecl
                         name

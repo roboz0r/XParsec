@@ -80,6 +80,17 @@ and ModuleKey =
 
     member this.Namespace: NamespaceKey = this.Container.Namespace
 
+    /// The dotted path a source writes to reach this module from the global namespace
+    /// (`Test.A.M`), the empty namespace contributing no segment.
+    member this.DeclaredPath: string =
+        match this.Container with
+        | ModuleContainer.InNamespace ns ->
+            if ns.Dotted = "" then
+                this.Name
+            else
+                ns.Dotted + "." + this.Name
+        | ModuleContainer.InModule parent -> parent.DeclaredPath + "." + this.Name
+
 /// A path in scope with no `open` written for it.
 [<RequireQualifiedAccess>]
 type ImplicitOpen =
@@ -142,6 +153,18 @@ and TypeKey =
         | TypeContainer.InNamespace ns -> ns
         | TypeContainer.InModule parent -> parent.Namespace
         | TypeContainer.InType outer -> outer.Namespace
+
+    /// The dotted path a source writes to reach this type from the global namespace
+    /// (`Test.A.M.T`), carrying no arity suffix.
+    member this.DeclaredPath: string =
+        match this.Container with
+        | TypeContainer.InNamespace ns ->
+            if ns.Dotted = "" then
+                this.Name
+            else
+                ns.Dotted + "." + this.Name
+        | TypeContainer.InModule m -> m.DeclaredPath + "." + this.Name
+        | TypeContainer.InType outer -> outer.DeclaredPath + "." + this.Name
 
 /// WHERE a candidate binding ENTERS the name environment: `Depth` enclosing `module`s, then
 /// `Offset` within that scope (a declaration's own position, or that of the `open` that

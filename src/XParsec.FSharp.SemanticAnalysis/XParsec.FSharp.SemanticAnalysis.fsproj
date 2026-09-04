@@ -151,6 +151,7 @@
     <Compile Include="Passes\Unification\Translate.fs" />
     <Compile Include="Passes\NameResolution\Scope.fs" />
     <Compile Include="Passes\NameResolution\TypeRegistration.fs" />
+    <Compile Include="Passes\NameResolution\DeclRegistration.fs" />
     <Compile Include="Passes\NameResolution\InheritParent.fs" />
     <Compile Include="Passes\NameResolution\MemberRegistration.fs" />
     <Compile Include="Passes\NameResolution.fs" />

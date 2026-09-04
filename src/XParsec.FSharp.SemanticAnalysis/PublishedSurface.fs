@@ -225,7 +225,7 @@ module PublishedSurface =
 
         // Ordinal order on the full name puts every module after the modules enclosing it.
         let modules =
-            ordered SymbolKeyOps.moduleFullName (seq { for KeyValue(k, v) in b.Modules -> k, v })
+            ordered (fun (m: ModuleKey) -> m.DeclaredPath) (seq { for KeyValue(k, v) in b.Modules -> k, v })
 
         {
             ShapesByKey = shapes
@@ -356,7 +356,7 @@ module PublishedSurface =
             match c with
             | ModuleContainer.InNamespace ns -> noteNamespace ns.Dotted
             | ModuleContainer.InModule m ->
-                if containers.TryAdd(SymbolKeyOps.moduleFullName m, c) then
+                if containers.TryAdd(m.DeclaredPath, c) then
                     noteContainer m.Container
 
         for e in surface.ShapesByKey do

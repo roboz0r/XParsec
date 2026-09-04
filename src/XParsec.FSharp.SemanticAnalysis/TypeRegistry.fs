@@ -17,6 +17,10 @@ type TypeDeclKind =
     /// A `type int = (# "System.Int32" #)` intrinsic binding. Its declared NAME is a
     /// name-table citizen like any other type's; its platform type id is not.
     | IntrinsicBinding
+    /// A `[<Measure>]` declaration, in either shape: the body-less `type m` and the
+    /// abbreviation `type v = m / s`. It claims its name like any other type, and a
+    /// reference to it is admitted only in measure position.
+    | Measure
 
 /// The positional facts of one declaration group: where its claims become visible, and where
 /// they enter the name environment within their depth. The two differ only under `rec`, which
@@ -85,6 +89,9 @@ type PassContextTypes =
         /// An alias body is forced by the first thing that references it, at the latest when its
         /// group closes. Expansion is eager: downstream sees the underlying type longhand.
         Abbreviation: KindRegistry<AbbreviationInfo>
+        /// A base measure carries no body; an abbreviation's term is forced by the first
+        /// measure that references it.
+        Measure: KindRegistry<MeasureInfo>
         /// Reverse index: ctor name → case-info entries, each tagged with its declaring union.
         /// Scoped reads only, because a case is visible exactly where its declaring union is.
         CtorIndex: Dictionary<string, EqArray<UnionCaseInfo>>
@@ -127,6 +134,7 @@ module PassContextTypes =
             Class = Dictionary<_, _>()
             Enum = Dictionary<_, _>()
             Abbreviation = Dictionary<_, _>()
+            Measure = Dictionary<_, _>()
             CtorIndex = Dictionary<_, _>()
             FieldIndex = Dictionary<_, _>()
             IntrinsicBindings = Dictionary<_, _>()
@@ -315,7 +323,7 @@ module TypeRegistry =
         match tryDict types.Abbreviation abbrevKey with
         | ValueSome info ->
             match info.State with
-            | AbbreviationState.Filled(TyKeyed(k, args)) when args.Length = info.TypeParams.Length ->
+            | FillState.Filled(TyKeyed(k, args)) when args.Length = info.TypeParams.Length ->
                 let own = HashSet<TyVarId>()
 
                 for tp in info.TypeParams do
@@ -573,6 +581,10 @@ module TypeRegistry =
     /// Resolve an abbreviation by its project-local `SymbolKey`.
     let tryAbbrevByKey (types: PassContextTypes) (key: TypeKey) : AbbreviationInfo voption =
         tryDict types.Abbreviation key
+
+    let registerMeasure (types: PassContextTypes) (info: MeasureInfo) : unit = types.Measure.[info.TypeKey] <- info
+
+    let tryMeasureByKey (types: PassContextTypes) (key: TypeKey) : MeasureInfo voption = tryDict types.Measure key
 
     /// Resolve an abbreviation by the `(name, arity)` a well-known identity SPELLS, rather
     /// than by that identity.

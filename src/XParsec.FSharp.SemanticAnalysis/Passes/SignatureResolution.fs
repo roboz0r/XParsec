@@ -4,6 +4,7 @@ open System.Collections.Generic
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open NameResolutionTypeRegistration
+open NameResolutionDeclRegistration
 open UnificationTranslate
 open SignatureResolutionContext
 open SignatureResolutionMembers
@@ -202,11 +203,10 @@ module SignatureResolution =
 
             let body =
                 match info.State with
-                | AbbreviationState.Filled ty -> freezeOver ctx env ty
-                | AbbreviationState.NotFilled
-                | AbbreviationState.InProgress
-                | AbbreviationState.Broken ->
-                    ExternalSignature.unfreezable (sprintf "abbreviation '%s' has no body" id.Name)
+                | FillState.Filled ty -> freezeOver ctx env ty
+                | FillState.NotFilled
+                | FillState.InProgress
+                | FillState.Broken -> ExternalSignature.unfreezable (sprintf "abbreviation '%s' has no body" id.Name)
 
             publishShape sctx id.Key (ExternalTypeShape.Abbrev(DeclaredTypar.kinds info.TypeParams, body))
 
@@ -628,7 +628,7 @@ module SignatureResolution =
             match decl with
             | SigDecl.Abbrev _ ->
                 match TypeRegistry.tryAbbrevByKey ctx.Types id.Key with
-                | ValueSome info -> forceFill ctx info
+                | ValueSome info -> forceFill ctx info |> ignore
                 | ValueNone -> ()
             | _ -> ()
 

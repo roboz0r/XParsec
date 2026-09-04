@@ -35,9 +35,9 @@ module NameResolutionTypeRefStamp =
             ctx.Resolution.TypeRefVerdicts.Set(typeRef.Site.Key, verdict)
             verdict
 
-    /// `float<kg>` is a measured carrier, not a generic type applied to a type argument.
-    /// Neither the carrier nor the measure is a type reference: no walk stamps a verdict at
-    /// either, and translation resolves the carrier by name at arity 0.
+    /// `float<kg>`: a numeric carrier name applied to one argument, matched by SPELLING.
+    /// Translation resolves the carrier by name at arity 0 and reads the argument as a
+    /// measure.
     let isMeasuredCarrier (ctx: PassContext) (t: Type<SyntaxToken>) : bool =
         match t with
         | Type.GenericType(longIdent = li; typeArgs = args) ->
@@ -48,17 +48,16 @@ module NameResolutionTypeRefStamp =
 
     /// A structural shape applies no type name, so it records no verdict.
     let stampTypeIter (ctx: PassContext) : CstTypeWalk.TypeIter =
-        { CstTypeWalk.identityTypeIter with
-            VisitType =
-                fun _ t ->
-                    if isMeasuredCarrier ctx t then
-                        false
-                    else
-                        match CstKeys.ofTypeRef t with
-                        | ValueSome typeRef -> classifyTypeRef ctx typeRef |> ignore
-                        | ValueNone -> ()
+        let visitType _ (t: Type<SyntaxToken>) =
+            match CstKeys.ofTypeRef t with
+            | ValueSome typeRef -> classifyTypeRef ctx typeRef |> ignore
+            | ValueNone -> ()
 
-                        true
+            true
+
+        {
+            VisitType = visitType
+            VisitMeasureName = fun li -> classifyTypeRef ctx (CstKeys.namedTypeRef li) |> ignore
         }
 
     let stampTypeRefs (ctx: PassContext) (ty: Type<SyntaxToken>) : unit =
@@ -89,4 +88,4 @@ module NameResolutionTypeRefStamp =
 
     /// Only what hangs off `e` itself; recursing into children is the walker's job.
     let stampExprEmbeddedTypes (ctx: PassContext) (e: Expr<SyntaxToken>) : unit =
-        CstWalk.iterExprEmbeddedTypes (stampTypeRefs ctx) (stampMemberSig ctx) e
+        CstWalk.iterExprEmbeddedTypes (stampTypeIter ctx) e

@@ -15,8 +15,11 @@ module internal RefEquality =
 /// An `ImmutableArray<'T>` with structural (value) equality: equal iff equal length and
 /// element-wise-equal contents, recursing into `'T`'s own equality. An uninitialised value
 /// reads as empty rather than throwing off the default `ImmutableArray`.
-[<Struct; IsReadOnly; CustomEquality; NoComparison>]
-type EqArray<'T> =
+///
+/// Comparable exactly when `'T` is, and then lexicographic under F# `compare`: element-wise
+/// over the shorter length, then by length, as a `list` orders.
+[<Struct; IsReadOnly; CustomEquality; CustomComparison>]
+type EqArray<[<ComparisonConditionalOn>] 'T> =
     val private items: ImmutableArray<'T>
 
     new(items: ImmutableArray<'T>) = { items = items }
@@ -58,6 +61,31 @@ type EqArray<'T> =
         match o with
         | :? EqArray<'T> as other -> (this :> IEquatable<EqArray<'T>>).Equals other
         | _ -> false
+
+    member private this.CompareWith(other: EqArray<'T>, comparer: IComparer) : int =
+        let a = this.Underlying
+        let b = other.Underlying
+        let n = min a.Length b.Length
+        let mutable i = 0
+        let mutable c = 0
+
+        while c = 0 && i < n do
+            c <- comparer.Compare(box a.[i], box b.[i])
+            i <- i + 1
+
+        if c <> 0 then c else compare a.Length b.Length
+
+    interface IComparable with
+        member this.CompareTo(o: obj) =
+            match o with
+            | :? EqArray<'T> as other -> this.CompareWith(other, LanguagePrimitives.GenericComparer)
+            | _ -> invalidArg "o" "EqArray compared with a value of another type."
+
+    interface IStructuralComparable with
+        member this.CompareTo(o: obj, comparer: IComparer) =
+            match o with
+            | :? EqArray<'T> as other -> this.CompareWith(other, comparer)
+            | _ -> invalidArg "o" "EqArray compared with a value of another type."
 
     override this.GetHashCode() =
         // Order-sensitive fold, consistent with the element-wise equality above.

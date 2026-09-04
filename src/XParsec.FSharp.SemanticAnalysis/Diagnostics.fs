@@ -420,8 +420,16 @@ type Kind =
     | DowncastUnrelated of source: string * target: string
 
     // ── Units of measure ───────────────────────────────────────────────────────
+    /// Each side is a `MeasureTerm` rendered by declared path (`M.kg`), so two same-named
+    /// measures read apart.
     | MeasureMismatch of left: string * right: string
     | DimensionlessMeasureMismatch of measure: string
+    /// A TYPE written where a measure is expected: an argument on a measure-kinded parameter
+    /// (`float<int>`), or a measure atom that resolves to a type.
+    | MeasureExpected
+    /// A MEASURE written where a type is expected: a measure claim in type position (`x: m`),
+    /// or a measure argument on a type-kinded parameter (`Box<m>`).
+    | TypeExpectedNotMeasure
 
     // ── Constructors and patterns ──────────────────────────────────────────────
     /// The head of an applied or dotted pattern (`Foo x`, `Bar.Baz`) is neither a union case
@@ -549,6 +557,8 @@ module Kind =
         // ── Measures reconcile through the type equation, which is where fsc reports them.
         | Kind.MeasureMismatch _
         | Kind.DimensionlessMeasureMismatch _ -> DiagCode.FSharp 1 // ErrorFromAddingTypeEquation
+        | Kind.TypeExpectedNotMeasure -> DiagCode.FSharp 704 // ExpectedTypeNotUnitOfMeasure
+        | Kind.MeasureExpected -> DiagCode.FSharp 705 // ExpectedUnitOfMeasureNotType
         | Kind.DowncastUnrelated _ -> DiagCode.FSharp 7 // InvalidRuntimeCoercion
         // ── The two "this coercion tells you nothing" warnings are one number in fsc.
         | Kind.RedundantDowncast _
@@ -667,6 +677,8 @@ module Kind =
             sprintf "Cannot downcast type '%s' to unrelated type '%s'" source target
         | Kind.MeasureMismatch(left, right) -> sprintf "Measure mismatch: <%s> vs <%s>" left right
         | Kind.DimensionlessMeasureMismatch measure -> sprintf "Measure mismatch: dimensionless vs <%s>" measure
+        | Kind.TypeExpectedNotMeasure -> "Expected type, not unit-of-measure"
+        | Kind.MeasureExpected -> "Expected unit-of-measure, not type"
         | Kind.UndefinedPatternDiscriminator name -> sprintf "The pattern discriminator '%s' is not defined" name
         | Kind.NullaryConstructorPattern(name, arity) ->
             sprintf "Constructor '%s' takes %d argument(s) but is used nullary in pattern position" name arity
@@ -790,6 +802,8 @@ module Kind =
         | Kind.DowncastUnrelated _
         | Kind.MeasureMismatch _
         | Kind.DimensionlessMeasureMismatch _
+        | Kind.MeasureExpected
+        | Kind.TypeExpectedNotMeasure
         | Kind.UndefinedPatternDiscriminator _
         | Kind.NullaryConstructorPattern _
         | Kind.AmbiguousConstructor _

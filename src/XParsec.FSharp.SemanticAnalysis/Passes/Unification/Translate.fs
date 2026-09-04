@@ -68,12 +68,74 @@ module internal UnificationTranslate =
             ctx.UndefinedType(Site.ofToken site.Tok, name)
             TyUnknown(UnknownReason.UndefinedName name)
 
-    /// Qualified measure names (`Microsoft.FSharp.SI.kg`) and measure typars (`'u`) yield an
-    /// empty term plus a diagnostic, so the rest of inference continues without measure noise.
-    let rec translateMeasure (ctx: PassContext) (measureTok: SyntaxToken) (m: Measure<SyntaxToken>) : MeasureTerm =
+    /// `decl`'s body, `ValueNone` once it is `Broken`. Idempotent: `decl` ends in a terminal
+    /// state. Re-entry while `translate` runs is a cycle, reported once at the declaration
+    /// and ending `Broken`.
+    let private fill (ctx: PassContext) (decl: FillableDecl<'Body>) (translate: unit -> 'Body) : 'Body voption =
+        match decl.State with
+        | FillState.Filled body -> ValueSome body
+        | FillState.Broken -> ValueNone
+        | FillState.InProgress ->
+            ctx.Report(decl.DeclSite.Tok, Kind.CyclicType(decl.Name, TypeCycle.Abbreviation))
+            decl.State <- FillState.Broken
+            ValueNone
+        | FillState.NotFilled ->
+            decl.State <- FillState.InProgress
+
+            try
+                let body = translate ()
+
+                match decl.State with
+                | FillState.InProgress ->
+                    decl.State <- FillState.Filled body
+                    ValueSome body
+                | _ -> ValueNone
+            finally
+                match decl.State with
+                | FillState.InProgress -> decl.State <- FillState.Broken
+                | _ -> ()
+
+    /// The term a `[<Measure>]` claim stands for: a base measure is its own atom, an
+    /// abbreviation expands to its body. A cycle among abbreviations is reported once and
+    /// leaves every claim on it dimensionless.
+    let rec private measureOfClaim (ctx: PassContext) (claim: TypeIdentity) : MeasureTerm =
+        let info =
+            match TypeRegistry.tryMeasureByKey ctx.Types claim.Key with
+            | ValueSome info -> info
+            | ValueNone -> failwithf "measure claim '%s' has no registry entry" claim.Name
+
+        match info.RhsCst with
+        | ValueNone -> MeasureTerm.atom claim.Key
+        | ValueSome rhs ->
+            match fill ctx info (fun () -> translateMeasure ctx info.DeclSite.Tok rhs) with
+            | ValueSome term -> term
+            | ValueNone -> MeasureTerm.empty
+
+    /// The term ONE measure atom contributes, read off the verdict NameResolution stamped at
+    /// its name. A claim of another kind is FS0705 and an undefined name is FS0039; either
+    /// way the atom contributes the empty term.
+    and private measureAtom (ctx: PassContext) (li: LongIdent<SyntaxToken>) : MeasureTerm =
+        let typeRef = CstKeys.namedTypeRef li
+        let tok = typeRef.Site.Tok
+
+        match NameResolutionTypeRefStamp.classifyTypeRef ctx typeRef with
+        | TypeRefVerdict.LocalType claim when claim.Kind = TypeDeclKind.Measure -> measureOfClaim ctx claim
+        | TypeRefVerdict.LocalType _
+        | TypeRefVerdict.ExternalType _ ->
+            ctx.Report(tok, Kind.MeasureExpected)
+            MeasureTerm.empty
+        // FS0033 was reported as the verdict was stamped.
+        | TypeRefVerdict.LocalTypeAtOtherArity _ -> MeasureTerm.empty
+        | TypeRefVerdict.UnknownType ->
+            ctx.UndefinedType(Site.ofTokenOr (Site.ofLongIdent li) tok, ctx.NameOf tok)
+            MeasureTerm.empty
+
+    /// Measure typars (`'u`) and wildcards yield an empty term plus a diagnostic, so the rest
+    /// of inference continues without measure noise.
+    and translateMeasure (ctx: PassContext) (measureTok: SyntaxToken) (m: Measure<SyntaxToken>) : MeasureTerm =
         match m with
         | Measure.One _ -> MeasureTerm.empty
-        | Measure.Named li when li.Idents.Length = 1 -> MeasureTerm.OfList [ ctx.NameOf li.Idents.[0], Rational.One ]
+        | Measure.Named li -> measureAtom ctx li
         | Measure.Power(inner, _, neg, expTok) ->
             let n = System.Numerics.BigInteger.Parse(ctx.NameOf expTok)
             let signed = if neg.IsSome then -n else n
@@ -91,9 +153,8 @@ module internal UnificationTranslate =
             (MeasureTerm.empty, elems)
             ||> Seq.fold (fun acc m -> MeasureTerm.mul acc (translateMeasure ctx measureTok m))
         | Measure.Anonymous _
-        | Measure.Typar _
-        | Measure.Named _ ->
-            ctx.Report(measureTok, Kind.NotYetSupported "measure typars / wildcards / qualified unit names")
+        | Measure.Typar _ ->
+            ctx.Report(measureTok, Kind.NotYetSupported "measure typars / wildcards")
 
             MeasureTerm.empty
 
@@ -209,13 +270,14 @@ module internal UnificationTranslate =
             NameResolutionContainers.Qualifier.Bare
             name
 
-    /// A `Broken` or not-yet-filled abbreviation yields a fresh TyVar rather than
-    /// cascading. Prototype-typar constraints are checked against the supplied args HERE:
-    /// an abbreviation has no fresh-instance step, and a Defer propagates to free arg TyVars.
+    /// `body` is the abbreviation's forced body; `ValueNone` (`Broken`) yields a fresh TyVar
+    /// rather than cascading. Prototype-typar constraints are checked against the supplied args
+    /// here, because an abbreviation has no fresh-instance step; a Defer propagates to free arg TyVars.
     let expandAbbreviation
         (ctx: PassContext)
         (tok: SyntaxToken)
         (info: AbbreviationInfo)
+        (body: SemType voption)
         (args: EqArray<SemType>)
         : SemType =
         let n = min (info.TypeParams.Length) args.Length
@@ -230,11 +292,9 @@ module internal UnificationTranslate =
                 | Violated -> reportConstraintViolation ctx tok c arg
                 | Defer -> propagateToFreeArgs ctx c arg
 
-        match info.State with
-        | AbbreviationState.Filled body -> instantiateMember ctx.Store (info.TypeParams, args) body
-        | AbbreviationState.NotFilled
-        | AbbreviationState.InProgress
-        | AbbreviationState.Broken -> TyVar(freshTyVar ctx)
+        match body with
+        | ValueSome body -> instantiateMember ctx.Store (info.TypeParams, args) body
+        | ValueNone -> TyVar(freshTyVar ctx)
 
     /// Resolves `'a` through `ctx.Resolution.TyparScope`; callers open a fresh scope per
     /// signature (binding or type defn) before walking. A generic named type written
@@ -276,21 +336,13 @@ module internal UnificationTranslate =
             translateTypeRef ctx (CstKeys.typeRefSite t) (ctx.WrittenTypeNameOf li).Written EqArray.empty
         | Type.GenericType(longIdent = li; typeArgs = args) when NameResolutionTypeRefStamp.isMeasuredCarrier ctx t ->
             // `float<m>` / `int<kg>` — the measure goes onto a fresh TyVar whose Link carries
-            // the carrier. The parser tags an arg `TypeArg.Measure` only where the measure
-            // grammar is unambiguous; bare `float<m>` lands as `TypeArg.Type (NamedType "m")`.
+            // the carrier.
             let carrierTok = li.Idents.[0]
 
             let measureFromTypeArg =
                 match args.[0] with
                 | TypeArg.Measure m -> ValueSome m
-                | TypeArg.Type(Type.NamedType nameLi) ->
-                    // Reinterpret a single-segment named type as a measure
-                    // atom; multi-segment qualifiers stay a real type.
-                    if nameLi.Idents.Length = 1 then
-                        ValueSome(Measure.Named nameLi)
-                    else
-                        ValueNone
-                | _ -> ValueNone
+                | TypeArg.Type t -> CstKeys.measureOfType t
 
             match measureFromTypeArg with
             | ValueSome m ->
@@ -371,8 +423,7 @@ module internal UnificationTranslate =
             match TypeRegistry.tryAbbrevByKey ctx.Types key with
             | ValueSome info ->
                 // Eager expansion: force the body, then substitute the use-site args.
-                forceFill ctx info
-                ValueSome(expandAbbreviation ctx site.Tok info args)
+                ValueSome(expandAbbreviation ctx site.Tok info (forceFill ctx info) args)
             | ValueNone -> ValueNone
         | TypeDeclKind.Record -> ValueSome(TyRecord(key, args))
         | TypeDeclKind.Union ->
@@ -383,6 +434,9 @@ module internal UnificationTranslate =
             ctx.Resolution.ResolvedType.Set(site.Key, key)
             ValueSome(TyEnum key)
         | TypeDeclKind.Class -> ValueSome(TyClass(key, args))
+        // A measure is not a type, so a reference in TYPE position is FS0704; the recovery
+        // type keeps the rest of inference off it.
+        | TypeDeclKind.Measure -> ValueSome(errorTy ctx site.Tok Kind.TypeExpectedNotMeasure)
 
     /// The `SemType` a WRITTEN type reference translates to: the verdict NameResolution stamped
     /// at `site`, applied to the written args. A claim at another arity already reported FS0033
@@ -504,38 +558,23 @@ module internal UnificationTranslate =
         for c in tcs.Constraints do
             translateConstraint ctx c
 
-    /// Idempotent: leaves the abbreviation in a terminal state. A recursive abbreviation is
-    /// diagnosed on re-entry and ends `Broken`.
-    and forceFill (ctx: PassContext) (info: AbbreviationInfo) : unit =
-        match info.State with
-        | AbbreviationState.Filled _
-        | AbbreviationState.Broken -> ()
-        | AbbreviationState.InProgress ->
-            ctx.Report(info.DeclSite.Tok, Kind.CyclicType(info.Name, TypeCycle.Abbreviation))
+    /// `fill` over the abbreviation's RHS, with its typars and constraints in scope.
+    and forceFill (ctx: PassContext) (info: AbbreviationInfo) : SemType voption =
+        fill
+            ctx
+            info
+            (fun () ->
+                let scope = Dictionary<string, TyVarId>(System.StringComparer.Ordinal)
 
-            info.State <- AbbreviationState.Broken
-        | AbbreviationState.NotFilled ->
-            info.State <- AbbreviationState.InProgress
-            let scope = Dictionary<string, TyVarId>(System.StringComparer.Ordinal)
+                for tp in info.TypeParams do
+                    if not (scope.ContainsKey tp.Name) then
+                        scope.[tp.Name] <- tp.TyVar
 
-            for tp in info.TypeParams do
-                if not (scope.ContainsKey tp.Name) then
-                    scope.[tp.Name] <- tp.TyVar
+                use _ = ctx.PushTyparScope(scope, true)
 
-            use _ = ctx.PushTyparScope(scope, true)
-
-            try
                 match info.TyparConstraints with
                 | ValueSome cs -> translateConstraints ctx cs
                 | ValueNone -> ()
 
-                let body = translateType ctx info.RhsCst
-
-                match info.State with
-                | AbbreviationState.InProgress -> info.State <- AbbreviationState.Filled body
-                | _ -> ()
-            finally
-
-                match info.State with
-                | AbbreviationState.InProgress -> info.State <- AbbreviationState.Broken
-                | _ -> ()
+                translateType ctx info.RhsCst
+            )

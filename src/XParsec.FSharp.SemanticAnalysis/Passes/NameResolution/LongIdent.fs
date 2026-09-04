@@ -320,6 +320,8 @@ module NameResolutionLongIdent =
                 | ValueNone -> ValueNone
             | TypeDeclKind.Abbreviation
             | TypeDeclKind.IntrinsicBinding -> staticMember ()
+            // A measure has no members, so a dotted name through one does not resolve.
+            | TypeDeclKind.Measure -> ValueNone
         | ResolvedTypeRef.External(key, shape) ->
             match shape with
             | ExternalTypeShape.Union {

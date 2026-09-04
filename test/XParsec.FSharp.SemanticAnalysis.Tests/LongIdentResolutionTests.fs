@@ -318,7 +318,7 @@ let private publishedModuleNames (file1: string) : (string * string) list =
     [
         for e in (publishedBy file1).Modules do
             match e.Value.Facts.CompiledName with
-            | ValueSome compiled -> SymbolKeyOps.moduleFullName e.Key, compiledNameText compiled
+            | ValueSome compiled -> e.Key.DeclaredPath, compiledNameText compiled
             | ValueNone -> ()
     ]
 

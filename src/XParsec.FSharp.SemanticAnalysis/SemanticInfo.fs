@@ -108,16 +108,17 @@ and [<Sealed>] FTDisjuncts private (disjuncts: EqSet<FrozenType>) =
 
     override _.GetHashCode() = hash disjuncts
 
-/// Abelian-group expression over named measure atoms. Always stored normalised: duplicates
-/// merged, zero exponents dropped, entries sorted, so equality is structural list equality.
+/// Abelian-group expression over measure atoms, each the declaring measure's `TypeKey`, so
+/// same-named measures in different modules stay distinct. Always stored normalised (duplicates
+/// merged, zero exponents dropped, entries sorted), so equality is structural list equality.
 [<Sealed>]
-type MeasureTerm private (exponents: (string * Rational) list) =
+type MeasureTerm private (exponents: (TypeKey * Rational) list) =
     member _.Exponents = exponents
     member _.IsDimensionless = List.isEmpty exponents
 
     static member Empty = MeasureTerm([])
 
-    static member OfList(raw: (string * Rational) list) : MeasureTerm =
+    static member OfList(raw: (TypeKey * Rational) list) : MeasureTerm =
         raw
         |> List.groupBy fst
         |> List.map (fun (n, xs) -> n, xs |> List.fold (fun acc (_, r) -> acc + r) Rational.Zero)
@@ -144,8 +145,11 @@ type MeasureTerm private (exponents: (string * Rational) list) =
                 |> List.filter (fun (_, e) -> e < Rational.Zero)
                 |> List.map (fun (n, e) -> n, -e)
 
-            let renderEntry (n, e: Rational) =
-                if e.IsOne then n else sprintf "%s^%O" n e
+            let renderEntry (k: TypeKey, e: Rational) =
+                if e.IsOne then
+                    k.DeclaredPath
+                else
+                    sprintf "%s^%O" k.DeclaredPath e
 
             let sb = System.Text.StringBuilder()
 
@@ -449,6 +453,10 @@ module BaseParent =
 
 module MeasureTerm =
     let empty = MeasureTerm.Empty
+
+    /// One base measure, to the first power.
+    let atom (key: TypeKey) : MeasureTerm =
+        MeasureTerm.OfList [ key, Rational.One ]
 
     let mul (a: MeasureTerm) (b: MeasureTerm) : MeasureTerm =
         MeasureTerm.OfList(a.Exponents @ b.Exponents)

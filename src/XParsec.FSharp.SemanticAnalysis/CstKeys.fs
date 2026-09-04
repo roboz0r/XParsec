@@ -313,17 +313,29 @@ module CstKeys =
             TyparArity: int
         }
 
+    /// The reference a bare or dotted NAME applies, at arity 0, whether written as a type
+    /// (`m` in `x: m`) or as a measure atom (`m` in `<m/s>`). Both key alike.
+    let namedTypeRef (li: LongIdent<SyntaxToken>) : TypeRef =
+        {
+            Site = NodeSite.ofToken NodeKind.TypeNamed li.Idents.[0]
+            LongIdent = li
+            TyparArity = 0
+        }
+
+    /// The measure a type written in MEASURE position denotes. The parser produces a lone
+    /// name (`float<m>`, `type v = m`) as `NamedType`, because the measure grammar is retried
+    /// only after an operator; a `MeasureType` is already a measure.
+    let measureOfType (ty: Type<SyntaxToken>) : Measure<SyntaxToken> voption =
+        match ty with
+        | Type.MeasureType m -> ValueSome m
+        | Type.NamedType li -> ValueSome(Measure.Named li)
+        | _ -> ValueNone
+
     /// Only `NamedType`, `GenericType` and `SuffixedType` name a type; the structural
     /// shapes (`FunctionType`, `TupleType`, `VarType`, …) apply none, so they yield `ValueNone`.
     let ofTypeRef (ty: Type<SyntaxToken>) : TypeRef voption =
         match ty with
-        | Type.NamedType li ->
-            ValueSome
-                {
-                    Site = NodeSite.ofToken NodeKind.TypeNamed li.Idents.[0]
-                    LongIdent = li
-                    TyparArity = 0
-                }
+        | Type.NamedType li -> ValueSome(namedTypeRef li)
         | Type.GenericType(longIdent = li; typeArgs = args) ->
             ValueSome
                 {

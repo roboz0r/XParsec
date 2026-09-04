@@ -266,19 +266,51 @@ Reddened nothing else. Thirteen `MeasureResolutionTests` cases pin both claims o
 numeric key, at arity 0 and at arity 1 over a measure parameter, read from the real
 Vesper.Core contract.
 
-**Step 4 — measure claims.** `TypeDeclKind.Measure`; registration of the two `[<Measure>]`
-declaration shapes (the body-less form is `TypeDefn.AbstractType`; confirm that
-`[<Measure>] type v = m / s` reaches `TypeDefn.Abbrev(typ = Type.MeasureType …)` through the
-retry at `TypeDefnParsing.fs:1397` before writing the arm); the `Measure.Named` stamp, which
-is a measure-term descent in `CstTypeWalk`, a `CstKeys` key for a measure name, a
-`Constant.MeasuredLiteral` visit in `Scope`, and a `classifyTypeRef` arm for the measure
-site; deletion of the two walk guards in `Scope.classifyingTypeIter` and
-`TypeRefStamp.stampTypeIter`, so `m` inside `float<m>` is stamped while the `Translate` gate
-still resolves the carrier; `translateMeasure` off the stamp; `MeasureTerm` over `TypeKey`
-and `Kind.MeasureMismatch` over two keys; `Kind.MeasureExpected` (FS0705) and
-`Kind.TypeExpectedNotMeasure` (FS0704) with their codec entries. Closes GAP 1 and 4, and the
-`Box<m>` and `x: m` rows of GAP 2. `MeasuresTests`' literal cases that write `1.0<m>` with no
-`m` declared redden, as predicted; each gains the declaration.
+**Step 4 — measure claims. LANDED.** `TypeDeclKind.Measure` claims both `[<Measure>]` shapes:
+the body-less `TypeDefn.AbstractType` and the abbreviation, whose `m / s` body does reach
+`TypeDefn.Abbrev(typ = Type.MeasureType …)` and whose single-name body (`type v = m`) reaches
+`Type.NamedType`, the measure retry never firing with no operator after the name.
+`MeasureInfo` holds the body and forces it on first reference, as `AbbreviationInfo` does.
+A measure ATOM applies the same `CstKeys.TypeRef` a bare type name does, so `float<m>`'s
+argument keys alike whether the parser spelled it `TypeArg.Type` or `TypeArg.Measure`;
+`CstTypeWalk.iterMeasure` and a `VisitMeasureName` hook carry both walks to it, and
+`iterExprEmbeddedTypes` presents `1.0<m>`'s annotation as the `Type.MeasureType` an
+abbreviation body writes, so one arm reaches both. `translateMeasure` reads that stamp.
+`MeasureTerm` keys on `TypeKey`; `Kind.MeasureExpected` (FS0705) and
+`Kind.TypeExpectedNotMeasure` (FS0704) joined it with their codec entries. `MeasuresTests`
+gained a three-measure prelude, as predicted.
+
+Nine `MeasureResolutionTests` cases went from `ptest` to green, two more than the step
+predicted: four of the five KIND rows, not just `Box<m>` and `x: m`. The `Translate` gate still
+reads `float<m>`'s single-segment argument as a measure atom, and the atom read is where a
+claim of another kind is caught, so `float<int>` and `float<m>` against `type m = { A: int }`
+report FS0705 without the typar-kind split step 5 adds. The four still `ptest` are step 5's
+(the local generic `float`, `string<m>`, `MyFloat<m>`) and step 6's (GAP 5). Four findings:
+
+- **A PARSER fix was needed.** `parseBody`'s peek after the type name
+  (`TypeDefnParsing.fs:1419`) was not optional, and it fails on a block-closing dedent, so a
+  body-less `type m` ENDING a module body failed as a module element: the body closed EMPTY
+  and the declaration re-parsed at file level. Two modules each holding only
+  `[<Measure>] type m` therefore both claimed under the enclosing NAMESPACE and collided with
+  "Duplicate type definition". The peek is now `opt`, and neither `with` nor `=` following is
+  the abstract form.
+- **FS0039 reports at EVERY undefined measure occurrence.** `dotnet fsi` aborts on the first
+  error, so its single-diagnostic output is no evidence of deduplication. Two step-1 fixtures
+  wrote the undefined name in both the annotation and the literal; each now writes it once,
+  and the literal keeps the case of its own.
+- **The measure diagnostics keep their `string` payloads, RENDERED from the terms.** Two keys
+  is the wrong shape — a mismatch is between two TERMS, and only the one-atom case is a pair
+  of keys — but carrying `MeasureTerm` costs more than the shape: `Kind` is deliberately
+  free of the file's type tables, which `FrozenCodecRoundTripTests`' "every Kind case
+  round-trips" asserts by reading every kind back against an EMPTY table, and an interned
+  `TypeKey` breaks that. `TypeKey.DeclaredPath` is the new rendering, so `MeasureTerm.ToString`
+  prints `P.m` against `Q.m` and the identity reaches the message without the key reaching the
+  blob.
+
+**Step 4a — A measure declared in another file or assembly is not published.** `ExternalTypeShape` has
+  no measure case, so a cross-unit `[<Measure>]` reads as undefined (FS0039). Nothing in the
+  tree declares one and no test covers it; publishing it is the same shape of work step 2 did
+  for `TyparKind`.
 
 **Step 5 — delete the special form.** The four names above, the guarded `GenericType` arm and
 its `TypeArg.Measure`-on-a-non-numeric-carrier sibling. The remaining `GenericType` arm reads
@@ -320,8 +352,8 @@ freezes to its carrier.
    generic measured functions stay `NotYetSupported` from `translateMeasure`, as now. This
    plan makes their later modelling a matter of `TyparKind.Measure` on a typar rather than a
    new mechanism, but does not do it.
-2. **Qualified measure names (`SI.kg`) stay `NotYetSupported`** through step 4, though the
-   stamp makes them a one-arm addition afterwards.
+2. **Qualified measure names (`SI.kg`) resolve off the stamp** since step 4: `Measure.Named`
+   reads its verdict whatever the segment count, and `MeasureResolutionTests` pins `M.m`.
 3. **`1.0<m>` requires a declared `m`.** Every `MeasuresTests` fixture that omits the
    declaration changes to include it. F# is strict here; the fixtures were pinning the
    unlooked-up name.
@@ -342,7 +374,7 @@ Before this document is deleted, each row is in code or in a test:
 - [x] Every key in `RuntimeNames.numericKeys` is claimed by `Vesper.Core` at arity 1 with a measure-kinded parameter, beside its arity-0 claim.
 - [x] A written name resolves per ARITY on both routes: `resolveType` for a type-position spelling, `typesIn` for a dotted one.
 - [x] `TyparKind` is on the typar model, on every generic `ExternalTypeShape` case, and in the contract. A shape published from a source `TypeName` reads its kinds from that name; only a surface with no `[<Measure>]` to read (CLR metadata, TypeScript, an intrinsic binding) uses `TyparKinds.typeOnly`.
-- [ ] `MeasureTerm` carries `TypeKey` and `Kind.MeasureMismatch` carries two keys; no `string` measure name survives past the parser.
-- [ ] `1.0<m>` and `float<m/s>` both stamp `m` through the classifying walk; `translateMeasure` reads only the stamp.
+- [x] `MeasureTerm` carries `TypeKey`; no `string` measure name survives past the parser, the measure diagnostics' rendered payloads excepted (see step 4).
+- [x] `1.0<m>` and `float<m/s>` both stamp `m` through the classifying walk; `translateMeasure` reads only the stamp.
 - [ ] `isMeasuredCarrier`, `resolveMeasureCarrier`, `isNumericCarrier`, `numericTypeNames` are deleted, and neither `classifyingTypeIter` nor `stampTypeIter` skips a shape.
 - [ ] `TypeRefStamp.fs`'s doc no longer describes a shape no walk stamps.

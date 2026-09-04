@@ -8,14 +8,38 @@ open XParsec.FSharp.Parser
 module CstTypeWalk =
 
     /// `VisitType` fires on every `Type` node before its children; returning `false`
-    /// skips the default child recursion.
+    /// skips the default child recursion. `VisitMeasureName` fires on every measure ATOM
+    /// (`m` in `<m/s>`), a type reference carried outside any `Type` node.
     [<NoEquality; NoComparison>]
     type TypeIter =
         {
             VisitType: TypeIter -> Type<SyntaxToken> -> bool
+            VisitMeasureName: LongIdent<SyntaxToken> -> unit
         }
 
-    let identityTypeIter: TypeIter = { VisitType = fun _ _ -> true }
+    let identityTypeIter: TypeIter =
+        {
+            VisitType = fun _ _ -> true
+            VisitMeasureName = ignore
+        }
+
+    /// Every name a measure term applies.
+    let rec iterMeasure (it: TypeIter) (m: Measure<SyntaxToken>) : unit =
+        match m with
+        | Measure.Named li -> it.VisitMeasureName li
+        | Measure.Power(inner, _, _, _)
+        | Measure.Reciprocal(_, inner)
+        | Measure.Paren(_, inner, _) -> iterMeasure it inner
+        | Measure.Product(l, _, r)
+        | Measure.Quotient(l, _, r) ->
+            iterMeasure it l
+            iterMeasure it r
+        | Measure.Juxtaposition(elems, _) ->
+            for e in elems do
+                iterMeasure it e
+        | Measure.One _
+        | Measure.Anonymous _
+        | Measure.Typar _ -> ()
 
     let rec iterType (it: TypeIter) (ty: Type<SyntaxToken>) : unit =
         if it.VisitType it ty then
@@ -39,8 +63,7 @@ module CstTypeWalk =
                 for a in args do
                     match a with
                     | TypeArg.Type at -> walk at
-                    // A measure arg carries no `Type` node.
-                    | TypeArg.Measure _ -> ()
+                    | TypeArg.Measure m -> iterMeasure it m
             | Type.WhenConstrainedType(typ = inner; constraints = cs) ->
                 walk inner
                 iterTypeConstraints it cs
@@ -50,11 +73,11 @@ module CstTypeWalk =
             | Type.AnonRecordType(fields = fs) ->
                 for AnonRecordField(typ = t) in fs do
                     walk t
+            | Type.MeasureType m -> iterMeasure it m
             // Leaves: no nested `Type`.
             | Type.VarType _
             | Type.NamedType _
             | Type.Null _
-            | Type.MeasureType _
             | Type.ILIntrinsic _
             | Type.Missing
             | Type.SkipsTokens _ -> ()
@@ -142,12 +165,10 @@ module CstTypeWalk =
     /// annotation, an auto-property's type, an abstract slot's signature and a `val` field's
     /// type. Argument annotations, and a secondary constructor's parameters, are
     /// pattern-embedded and go to `onPat`.
-    let iterMemberDefnSigTypes
-        (onType: Type<SyntaxToken> -> unit)
-        (onMemberSig: MemberSig<SyntaxToken> -> unit)
-        (onPat: Pat<SyntaxToken> -> unit)
-        (md: MemberDefn<SyntaxToken>)
-        : unit =
+    let iterMemberDefnSigTypes (it: TypeIter) (onPat: Pat<SyntaxToken> -> unit) (md: MemberDefn<SyntaxToken>) : unit =
+        let onType = iterType it
+        let onMemberSig = iterTypeMemberSig it
+
         let bindingSig (b: Binding<SyntaxToken>) =
             for ap in b.argumentPats do
                 onPat ap
@@ -178,8 +199,7 @@ module CstTypeWalk =
         : unit =
         let ty (t: Type<SyntaxToken>) = iterType it t
 
-        let memberDefn (md: MemberDefn<SyntaxToken>) =
-            iterMemberDefnSigTypes ty (iterTypeMemberSig it) onPat md
+        let memberDefn (md: MemberDefn<SyntaxToken>) = iterMemberDefnSigTypes it onPat md
 
         let element (el: TypeDefnElement<SyntaxToken>) =
             match el with

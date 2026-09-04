@@ -4,16 +4,30 @@ open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
+/// The `m`, `s` and `kg` declarations every fixture below references; `analyse` prepends it.
+let private unitsPrelude =
+    "[<Measure>] type m\n[<Measure>] type s\n[<Measure>] type kg\n"
+
 // Returns the `PassContext` too: the carrier and measure live on the per-file
 // `TypeStore`'s union-find state, not on the `TypeVar` node.
 let private analyse (input: string) =
-    let lexed, file = parseFile input
+    let lexed, file = parseFile (unitsPrelude + input)
     Pipeline.analyseSemWithContextFor testCompiling realProvider.Value (LexedFile.ofText lexed) file
 
+/// The types of the file's `let`s in source order; the measure prelude's declarations are
+/// not among them.
+let private letTypes (tast: TastFile) : SemType list =
+    [
+        for d in tast.Decls do
+            match d with
+            | TDecl.Let(_, _, _, ty) -> ty
+            | _ -> ()
+    ]
+
 let private declType (tast: TastFile) : SemType =
-    match tast.Decls with
-    | EqList [ TDecl.Let(_, _, _, ty) ] -> ty
-    | _ -> failwithf "expected single TDecl.Let, got %A" tast.Decls
+    match letTypes tast with
+    | [ ty ] -> ty
+    | other -> failwithf "expected a single let, got %A" other
 
 let private hasMeasureMismatch (tast: TastFile) =
     tast.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "Measure mismatch")
@@ -38,8 +52,10 @@ let private measuredOf (store: TypeStore) (ty: SemType) : SemType * MeasureTerm 
         carrier, units
     | _ -> failwithf "expected TyVar, got %A" ty
 
+/// The prelude carries no `namespace` or `module` header, so each measure keys under the
+/// global namespace at arity 0.
 let private measure (parts: (string * int) list) : MeasureTerm =
-    MeasureTerm.OfList [ for (n, e) in parts -> n, Rational.ofInt e ]
+    MeasureTerm.OfList [ for (n, e) in parts -> SymbolKeyOps.typeKeyOf "" n, Rational.ofInt e ]
 
 [<Tests>]
 let tests =
@@ -120,12 +136,12 @@ let tests =
                 let ctx, tast =
                     analyse "let speed (d : float<m>) (t : float<s>) = d / t\nlet v = speed 100.0<m> 5.0<s>"
 
-                match tast.Decls with
-                | EqList [ _; TDecl.Let(_, _, _, vTy) ] ->
+                match letTypes tast with
+                | [ _; vTy ] ->
                     let carrier, units = measuredOf ctx.Store vTy
                     Expect.equal carrier BuiltinTypes.tyFloat "v carrier float"
                     Expect.equal units (measure [ "m", 1; "s", -1 ]) "v : float<m/s>"
-                | other -> failwithf "expected two decls, got %A" other
+                | other -> failwithf "expected two lets, got %A" other
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }

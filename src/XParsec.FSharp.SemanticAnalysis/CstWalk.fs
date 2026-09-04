@@ -287,16 +287,18 @@ module CstWalk =
     /// Every `Type` (and member-signature) node syntactically embedded in ONE expression
     /// node: its OWN types only; child expressions are `iterExpr`'s job. Pattern
     /// annotations belong to the pattern walk; a binding contributes its return type.
-    let iterExprEmbeddedTypes
-        (onType: Type<SyntaxToken> -> unit)
-        (onMemberSig: MemberSig<SyntaxToken> -> unit)
-        (e: Expr<SyntaxToken>)
-        : unit =
+    let iterExprEmbeddedTypes (it: CstTypeWalk.TypeIter) (e: Expr<SyntaxToken>) : unit =
+        let onType = CstTypeWalk.iterType it
+        let onMemberSig = CstTypeWalk.iterTypeMemberSig it
+
         let memberDefnSigs (defns: ImmutableArray<MemberDefn<SyntaxToken>>) : unit =
             for d in defns do
-                CstTypeWalk.iterMemberDefnSigTypes onType onMemberSig ignore d
+                CstTypeWalk.iterMemberDefnSigTypes it ignore d
 
         match e with
+        // A measured literal's annotation (`1.0<m>`) is a measure position.
+        | Expr.Const(Constant.MeasuredLiteral(measure = m)) -> CstTypeWalk.iterMeasure it m
+
         // No directly-embedded `Type`.
         | Expr.Const _
         | Expr.EmptyBlock _

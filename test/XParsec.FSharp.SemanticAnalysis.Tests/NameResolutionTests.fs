@@ -507,6 +507,22 @@ let tests =
                 Expect.isFalse info.Declared.AllowNullLiteral "a user's own attribute is not the marker"
             }
 
+            // An abbreviation header's attributes are read at CLAIM time, for `[<Measure>]`,
+            // before the group's later siblings are claimed; that reading must leave no verdict
+            // behind, or the later sibling reports as unresolved.
+            test "an attribute type declared later in the same group resolves on a sibling's header" {
+                let ctx =
+                    analyse (
+                        "[<Mark>]\n"
+                        + "type A = int\n"
+                        + "and MarkAttribute() =\n"
+                        + "    inherit Attribute()"
+                    )
+
+                expectClass ctx "MarkAttribute" |> ignore
+                Expect.isEmpty ctx.Diagnostics "the later sibling resolves"
+            }
+
             test "a qualified [<AllowNullLiteral>] path that resolves to nothing stamps nothing" {
                 let ctx =
                     analyse "[<Microsoft.FSharp.Core.AllowNullLiteral>]\ntype C() = member this.M () = 1"

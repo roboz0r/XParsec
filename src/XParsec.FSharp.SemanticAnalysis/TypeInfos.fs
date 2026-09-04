@@ -358,16 +358,26 @@ type EnumTypeInfo(name: string, cases: EqArray<TEnumCase>, declKey: NodeKey, key
     member this.HasCase(n: string) =
         cases |> EqArray.exists (fun c -> c.Name = n)
 
+/// The body of a declaration translated on first reference.
 [<RequireQualifiedAccess>]
-type AbbreviationState =
+type FillState<'Body> =
     | NotFilled
     | InProgress
-    | Filled of body: SemType
-    /// Terminal without a body; each use site expands to a fresh type variable.
+    | Filled of body: 'Body
+    /// Terminal without a body, after the declaration's cycle was reported; each use site
+    /// recovers on its own.
     | Broken
 
-/// `State` advances lazily, so an abbrev can reference any other type declared in the same
-/// group, whatever the declaration order within the module.
+/// A declaration whose body is translated on first reference. `State` advances lazily, so
+/// the body can reference any other type declared in the same group, whatever the
+/// declaration order within the module.
+[<AbstractClass>]
+type FillableDecl<'Body>(name: string, declSite: NodeSite, key: TypeKey) =
+    member val Name = name
+    member val DeclSite = declSite
+    member val TypeKey: TypeKey = key
+    member val State: FillState<'Body> = FillState.NotFilled with get, set
+
 [<Sealed>]
 type AbbreviationInfo
     (
@@ -378,14 +388,18 @@ type AbbreviationInfo
         typarConstraints: TyparConstraints<SyntaxToken> voption,
         key: TypeKey
     ) =
-    member val Name = name
-    member val TypeKey: TypeKey = key
+    inherit FillableDecl<SemType>(name, declSite, key)
     member this.Key: SymbolKey = SymbolKey.Type this.TypeKey
     member val TypeParams = typeParams
     member val RhsCst = rhsCst
-    member val DeclSite = declSite
     member val TyparConstraints = typarConstraints
-    member val State: AbbreviationState = AbbreviationState.NotFilled with get, set
+
+/// A `[<Measure>]` declaration. A BASE measure (`type m`) has no `RhsCst` and is its own
+/// atom; an abbreviation (`type v = m / s`) expands to `RhsCst`, forced on first reference.
+[<Sealed>]
+type MeasureInfo(name: string, declSite: NodeSite, key: TypeKey, rhsCst: Measure<SyntaxToken> voption) =
+    inherit FillableDecl<MeasureTerm>(name, declSite, key)
+    member val RhsCst = rhsCst
 
 /// A primary- or secondary-constructor parameter. `Type` is always a `TyVar`, the
 /// parameter's binding-site inference cell, even when the parameter is annotated.
