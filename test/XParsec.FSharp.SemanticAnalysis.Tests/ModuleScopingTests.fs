@@ -4,24 +4,10 @@ open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
-let private analyse (input: string) =
-    let lexed, file = parseFile input
-    Pipeline.analyseSemFor testCompiling realProvider.Value (LexedFile.ofText lexed) file
-
-let private errors (tast: TastFile) =
-    [
-        for d in tast.Diagnostics do
-            if Diagnostic.isError d then
-                yield d.Message
-    ]
-
-let private expectClean (tast: TastFile) =
-    Expect.isEmpty (errors tast) (sprintf "expected no errors; diagnostics were %A" (errors tast))
-
 /// A bare name that reaches no declaration in scope must not resolve. Only the VERDICT is
 /// pinned, not the wording: F# reports these as FS0039 ("The type 'T' is not defined").
 let private expectRejected (source: string) =
-    let es = errors (analyse source)
+    let es = semErrors source
     Expect.isNonEmpty es "expected a diagnostic: the name does not resolve in scope here"
 
 /// Selected by the declaration's own HOLDER and its own ARITY: two sibling `T`s, or two `T`s
@@ -140,7 +126,7 @@ let tests =
 
             test "an `open` brings the sibling module's type into scope, and it binds to THAT type" {
                 let tast =
-                    analyse (
+                    analyseSem (
                         src
                             [
                                 "namespace N"
@@ -154,13 +140,13 @@ let tests =
                             ]
                     )
 
-                expectClean tast
+                expectCleanTast tast
                 Expect.equal (nominalKey (soleLetArg tast)) (typeDeclKeyIn tast "A" "T") "T bound to A's T"
             }
 
             test "a namespace-level type is visible inside a module of that namespace, with no `open`" {
                 let tast =
-                    analyse (
+                    analyseSem (
                         src
                             [
                                 "namespace N"
@@ -172,7 +158,7 @@ let tests =
                             ]
                     )
 
-                expectClean tast
+                expectCleanTast tast
 
                 Expect.equal
                     (nominalKey (soleLetArg tast))
@@ -185,7 +171,7 @@ let tests =
             // have bound to.
             test "a nested module's own type shadows the enclosing module's" {
                 let shadowed =
-                    analyse (
+                    analyseSem (
                         src
                             [
                                 "namespace N"
@@ -199,7 +185,7 @@ let tests =
                             ]
                     )
 
-                expectClean shadowed
+                expectCleanTast shadowed
 
                 Expect.equal
                     (nominalKey (soleLetArg shadowed))
@@ -207,7 +193,7 @@ let tests =
                     "the inner T shadows the outer one"
 
                 let unshadowed =
-                    analyse (
+                    analyseSem (
                         src
                             [
                                 "namespace N"
@@ -220,7 +206,7 @@ let tests =
                             ]
                     )
 
-                expectClean unshadowed
+                expectCleanTast unshadowed
 
                 Expect.equal
                     (nominalKey (soleLetArg unshadowed))
@@ -232,7 +218,7 @@ let tests =
             // thing added wins.
             test "an `open` beats an enclosing module's declaration" {
                 let tast =
-                    analyse (
+                    analyseSem (
                         src
                             [
                                 "namespace N"
@@ -249,7 +235,7 @@ let tests =
                             ]
                     )
 
-                expectClean tast
+                expectCleanTast tast
                 Expect.equal (nominalKey (soleLetArg tast)) (typeDeclKeyIn tast "A" "T") "the `open` outranks Outer's T"
             }
 
@@ -257,7 +243,7 @@ let tests =
             // shadowing is idiomatic F#, so there is no warning to emit — only a binding.
             test "the last of two `open`s wins" {
                 let tast =
-                    analyse (
+                    analyseSem (
                         src
                             [
                                 "namespace N"
@@ -275,7 +261,7 @@ let tests =
                             ]
                     )
 
-                expectClean tast
+                expectCleanTast tast
                 Expect.equal (nominalKey (soleLetArg tast)) (typeDeclKeyIn tast "B" "T") "the later `open B` wins"
             }
 
@@ -284,7 +270,7 @@ let tests =
             // fsi`: with `type T` then `open A`, `typeof<T>` is A's T.)
             test "in one scope, a declaration and an `open` are ordered by the text" {
                 let openThenDecl =
-                    analyse (
+                    analyseSem (
                         src
                             [
                                 "namespace N"
@@ -299,7 +285,7 @@ let tests =
                             ]
                     )
 
-                expectClean openThenDecl
+                expectCleanTast openThenDecl
 
                 Expect.equal
                     (nominalKey (soleLetArg openThenDecl))
@@ -307,7 +293,7 @@ let tests =
                     "the declaration is written after the `open`, so it wins"
 
                 let declThenOpen =
-                    analyse (
+                    analyseSem (
                         src
                             [
                                 "namespace N"
@@ -322,7 +308,7 @@ let tests =
                             ]
                     )
 
-                expectClean declThenOpen
+                expectCleanTast declThenOpen
 
                 Expect.equal
                     (nominalKey (soleLetArg declThenOpen))
@@ -341,7 +327,7 @@ let qualifiedTests =
         [
             test "a sibling module's type is reached by qualifying with its module" {
                 let tast =
-                    analyse (
+                    analyseSem (
                         src
                             [
                                 "namespace N"
@@ -355,7 +341,7 @@ let qualifiedTests =
                             ]
                     )
 
-                expectClean tast
+                expectCleanTast tast
 
                 Expect.equal
                     (nominalKey (soleLetArg tast))
@@ -365,7 +351,7 @@ let qualifiedTests =
 
             test "a fully-qualified path resolves to the type from anywhere in the file" {
                 let tast =
-                    analyse (
+                    analyseSem (
                         src
                             [
                                 "namespace N"
@@ -379,14 +365,14 @@ let qualifiedTests =
                             ]
                     )
 
-                expectClean tast
+                expectCleanTast tast
                 Expect.equal (nominalKey (soleLetArg tast)) (typeDeclKeyIn tast "A" "T") "N.A.T is A's T"
             }
 
             // `N` is not an ancestor scope of the use, so the path is resolved from the ROOT.
             test "a fully-qualified path resolves to the type from ANOTHER namespace" {
                 let tast =
-                    analyse (
+                    analyseSem (
                         src
                             [
                                 "namespace N"
@@ -404,13 +390,13 @@ let qualifiedTests =
                             ]
                     )
 
-                expectClean tast
+                expectCleanTast tast
                 Expect.equal (nominalKey (soleLetArg tast)) (typeDeclKeyIn tast "A" "T") "N.A.T is A's T"
             }
 
             test "a nested module's type is reached through the path to it" {
                 let tast =
-                    analyse (
+                    analyseSem (
                         src
                             [
                                 "namespace N"
@@ -427,7 +413,7 @@ let qualifiedTests =
                             ]
                     )
 
-                expectClean tast
+                expectCleanTast tast
 
                 // The path is walked from its ANCHOR, so the `B` in `A.B` is the one A holds —
                 // not the sibling module B, whose own `T` is a different type entirely.
@@ -454,8 +440,8 @@ let qualifiedTests =
                             "    let f (v: A.T<int>) = v"
                         ]
 
-                let tast = analyse source
-                expectClean tast
+                let tast = analyseSem source
+                expectCleanTast tast
 
                 Expect.equal
                     (nominalKey (soleLetArg tast))
@@ -469,7 +455,7 @@ let qualifiedTests =
 
                 // The same path at the OTHER arity resolves to the other type.
                 let nonGeneric =
-                    analyse (
+                    analyseSem (
                         src
                             [
                                 "namespace N"
@@ -484,7 +470,7 @@ let qualifiedTests =
                             ]
                     )
 
-                expectClean nonGeneric
+                expectCleanTast nonGeneric
 
                 Expect.equal
                     (nominalKey (soleLetArg nonGeneric))
@@ -496,7 +482,7 @@ let qualifiedTests =
             // it brings `N`'s own types into scope bare. (Probed against `dotnet fsi`.)
             test "an `open` qualifies a partial path" {
                 let tast =
-                    analyse (
+                    analyseSem (
                         src
                             [
                                 "namespace N"
@@ -515,7 +501,7 @@ let qualifiedTests =
                             ]
                     )
 
-                expectClean tast
+                expectCleanTast tast
 
                 // `M` also holds an `A.T` and is an ancestor scope of the use, so the `open N`
                 // — written deeper and later — must outrank it.
@@ -529,7 +515,7 @@ let qualifiedTests =
             // the nearest scope that can resolve the qualifier wins, here the enclosing namespace.
             test "a project-local qualified type beats an external type of the same spelling" {
                 let tast =
-                    analyse (
+                    analyseSem (
                         src
                             [
                                 "namespace N"
@@ -543,7 +529,7 @@ let qualifiedTests =
                             ]
                     )
 
-                expectClean tast
+                expectCleanTast tast
 
                 Expect.equal
                     (nominalKey (soleLetArg tast))
@@ -588,19 +574,17 @@ let qualifiedTests =
             // bad arity.
             test "a qualified name at the wrong arity reports the arity" {
                 let es =
-                    errors (
-                        analyse (
-                            src
-                                [
-                                    "namespace N"
-                                    ""
-                                    "module A ="
-                                    "    type T = { fromA: int }"
-                                    ""
-                                    "module B ="
-                                    "    let f (v: A.T<int>) = v"
-                                ]
-                        )
+                    semErrors (
+                        src
+                            [
+                                "namespace N"
+                                ""
+                                "module A ="
+                                "    type T = { fromA: int }"
+                                ""
+                                "module B ="
+                                "    let f (v: A.T<int>) = v"
+                            ]
                     )
 
                 Expect.isNonEmpty es "expected an arity diagnostic"

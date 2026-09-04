@@ -4,11 +4,7 @@ open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
-let private analyse (input: string) =
-    let lexed, file = parseFile input
-    Pipeline.analyseSemFor testCompiling realProvider.Value (LexedFile.ofText lexed) file
-
-/// `analyse`, naming the unit being compiled. The assembly name is in no `SymbolKey`; it
+/// `analyseSem`, naming the unit being compiled. The assembly name is in no `SymbolKey`; it
 /// identifies the UNIT, which is what the own-contract exemption below turns on.
 let private analyseAs (assemblyName: string) (input: string) =
     let lexed, file = parseFile input
@@ -22,25 +18,18 @@ let private analyseAs (assemblyName: string) (input: string) =
         (LexedFile.ofText lexed)
         file
 
-let private errors (tast: TastFile) =
-    [
-        for d in tast.Diagnostics do
-            if Diagnostic.isError d then
-                yield d.Message
-    ]
-
 let private has (tast: TastFile) (s: string) =
     tast.Diagnostics |> Seq.exists (fun d -> d.Message.Contains s)
 
 /// A duplicate is a plain user diagnostic, never the internal key-collision backstop: that
 /// backstop witnesses a mint that dropped part of `(container, name, arity)`.
 let private expectDuplicate (source: string) =
-    let tast = analyse source
+    let tast = analyseSem source
     Expect.isTrue (has tast "Duplicate type definition") "duplicate-type diagnostic emitted"
     Expect.isFalse (has tast "Internal error") "no internal SymbolKey-collision error"
 
 let private expectNoDuplicate (source: string) =
-    let tast = analyse source
+    let tast = analyseSem source
     Expect.isFalse (has tast "Duplicate type definition") "no duplicate-type diagnostic"
     Expect.isFalse (has tast "Internal error") "no internal SymbolKey-collision error"
 
@@ -110,15 +99,10 @@ let tests =
             yield
                 test "detail of a rejected duplicate does not leak onto the claim's owner" {
                     let tast =
-                        analyse
+                        analyseSem
                             "type Foo = { a: int }\ntype Foo = { a: int } with\n    member this.Bar() = 1\nlet f (v: Foo) = v.Bar()"
 
-                    let errors =
-                        [
-                            for d in tast.Diagnostics do
-                                if Diagnostic.isError d then
-                                    yield d.Message
-                        ]
+                    let errors = errorMessages tast.Diagnostics
 
                     Expect.isTrue
                         (errors |> List.exists (fun m -> m.Contains "Duplicate type definition"))
@@ -137,7 +121,7 @@ let tests =
                     // The `(Foo, 0)` claim decides, and the record holds it. The generic alias
                     // is a FUNCTION type, so were it picked instead, `v.X` could not type.
                     let tast =
-                        analyse "type Foo = { X: int }\ntype Foo<'a> = 'a -> 'a\nlet f (v: Foo) = v.X"
+                        analyseSem "type Foo = { X: int }\ntype Foo<'a> = 'a -> 'a\nlet f (v: Foo) = v.X"
 
                     Expect.isEmpty (tast.Diagnostics |> Diagnostic.errors) "bare `Foo` is the record, so `v.X` types"
                 }
@@ -150,7 +134,7 @@ let tests =
                     let src =
                         "namespace Vesper.Collections\n\ntype List<'T> =\n    | Nil\n    | Cons of 'T * List<'T>"
 
-                    let msgs = errors (analyseAs "MyApp" src)
+                    let msgs = errorMessages (analyseAs "MyApp" src).Diagnostics
 
                     let collision =
                         msgs
@@ -169,7 +153,7 @@ let tests =
                     let src =
                         "namespace Vesper.Collections\n\ntype List<'T> =\n    | Nil\n    | Cons of 'T * List<'T>"
 
-                    let msgs = errors (analyseAs "Vesper.List" src)
+                    let msgs = errorMessages (analyseAs "Vesper.List" src).Diagnostics
 
                     Expect.isFalse
                         (msgs
@@ -184,7 +168,7 @@ let tests =
                     let src =
                         "namespace N\n\nmodule A =\n    type T = { X: int }\n\nmodule B =\n    type T = { Y: int }"
 
-                    let msgs = errors (analyseAs "MyApp" src)
+                    let msgs = errorMessages (analyseAs "MyApp" src).Diagnostics
 
                     Expect.isFalse
                         (msgs |> List.exists (fun m -> m.Contains "Duplicate type definition: T"))

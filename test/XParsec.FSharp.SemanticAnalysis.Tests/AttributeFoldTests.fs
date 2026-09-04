@@ -472,9 +472,6 @@ let verdictViewTests =
 // of the element it is written on. A declaration without a reachable AttributeUsage passes
 // everywhere.
 
-let private errorMessages (pools: FrozenPools) : string list =
-    FrozenPools.blockingErrors pools |> List.map (fun d -> d.Message)
-
 [<Tests>]
 let targetTests =
     testList
@@ -502,7 +499,7 @@ let targetTests =
                             ]
                     )
 
-                match errorMessages pools with
+                match errorMessages (FrozenPools.blockingErrors pools) with
                 | [ onMethod; onLet ] ->
                     Expect.equal
                         onMethod
@@ -519,7 +516,7 @@ let targetTests =
             test "[<Global>] on a type errors: the contract declares Property ||| Field" {
                 let pools = freezeFor (src [ "[<Global>]"; "type G() ="; "    member this.X = 1" ])
 
-                match errorMessages pools with
+                match errorMessages (FrozenPools.blockingErrors pools) with
                 | [ msg ] ->
                     Expect.equal
                         msg
@@ -546,7 +543,9 @@ let targetTests =
                             ]
                     )
 
-                Expect.isEmpty (errorMessages pools) "no AttributeUsage defaults to AttributeTargets.All"
+                Expect.isEmpty
+                    (errorMessages (FrozenPools.blockingErrors pools))
+                    "no AttributeUsage defaults to AttributeTargets.All"
             }
 
             test "a Class ||| Struct mask passes on a class and a struct record, errors on an interface" {
@@ -572,7 +571,7 @@ let targetTests =
                             ]
                     )
 
-                match errorMessages pools with
+                match errorMessages (FrozenPools.blockingErrors pools) with
                 | [ msg ] ->
                     Expect.equal
                         msg
@@ -585,7 +584,7 @@ let targetTests =
                 let pools =
                     freezeFor (src [ "type K() ="; "    [<Sealed>]"; "    member this.M() = 1" ])
 
-                match errorMessages pools with
+                match errorMessages (FrozenPools.blockingErrors pools) with
                 | [ msg ] ->
                     Expect.equal
                         msg

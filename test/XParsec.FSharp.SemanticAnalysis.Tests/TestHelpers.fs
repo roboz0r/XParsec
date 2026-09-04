@@ -139,6 +139,62 @@ let testAsm = AssemblyName "TestAsm"
 /// `testAsm` as a compiling identity: `realProvider` is the clr contract stack.
 let testCompiling: CompilingAssembly = { Name = testAsm; Target = "clr" }
 
+/// The error-severity messages of `ds`, in report order. The one reader of severity for a
+/// suite that asserts on wording — a frozen `FrozenPools.blockingErrors` list and a
+/// `TastFile.Diagnostics` list both come through here.
+let errorMessages (ds: Diagnostic seq) : string list =
+    Diagnostic.errors ds |> List.map (fun d -> d.Message)
+
+/// Analyse `src` through NameResolution, Unification and Elaborate, stopping short of the
+/// freeze. `freezeFor` runs the whole front end.
+let analyseSem (src: string) : TastFile =
+    let lexed, file = parseFile src
+    Pipeline.analyseSemFor testCompiling realProvider.Value (LexedFile.ofText lexed) file
+
+let semErrors (src: string) : string list =
+    errorMessages (analyseSem src).Diagnostics
+
+let expectCleanTast (tast: TastFile) : unit =
+    let es = errorMessages tast.Diagnostics
+    Expect.isEmpty es (sprintf "expected no errors; diagnostics were %A" es)
+
+let expectClean (src: string) : unit = expectCleanTast (analyseSem src)
+
+/// Some message in `es` contains `needle`.
+let expectErrorIn (es: string list) (needle: string) : unit =
+    Expect.isTrue
+        (es |> List.exists (fun m -> m.Contains needle))
+        (sprintf "expected an error containing '%s'; diagnostics were %A" needle es)
+
+let expectError (needle: string) (src: string) : unit = expectErrorIn (semErrors src) needle
+
+/// `expectErrorIn`, and no `internal compiler error` stands beside the match: a name that
+/// fails to resolve reaches the freeze as a stray `TyVar` and trips the internal backstop.
+let expectUserErrorIn (es: string list) (needle: string) : unit =
+    expectErrorIn es needle
+    Expect.isFalse (es |> List.exists (fun m -> m.Contains "internal compiler error")) "no internal error"
+
+let expectUserError (needle: string) (src: string) : unit =
+    expectUserErrorIn (semErrors src) needle
+
+/// `expectUserError`, and `needle` matches exactly one diagnostic. Errors it does not match
+/// may stand beside it — `expectUserErrorReportedAlone` is the one that forbids them.
+let expectUserErrorReportedOnce (needle: string) (src: string) : unit =
+    let es = semErrors src
+    expectUserErrorIn es needle
+
+    Expect.equal
+        (es |> List.filter (fun m -> m.Contains needle) |> List.length)
+        1
+        (sprintf "'%s' reported once; diagnostics were %A" needle es)
+
+/// `expectUserError`, and the analysis reported exactly one error in total. Use it where F#
+/// reports one diagnostic and the noise beside ours is the finding.
+let expectUserErrorReportedAlone (needle: string) (src: string) : unit =
+    let es = semErrors src
+    expectUserErrorIn es needle
+    Expect.equal es.Length 1 (sprintf "'%s' reported alone; diagnostics were %A" needle es)
+
 /// Freeze `src` through the whole front end, returning the origin it was analysed FROM —
 /// what a consumer needs to read the frozen templates' positions. The origin is bucketed
 /// under `testAsm`, which the signature projection reads back as the home assembly.

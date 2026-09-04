@@ -71,11 +71,18 @@ The same probes through this compiler:
 | `[<Measure>] type v = m / s` | not probed; the declaration registers nothing | GAP 2 |
 
 `Codegen.Clr.Tests`, `Codegen.Js.Tests` and `Codegen.Conformance` hold no measured fixture, so
-a measured binding has never been run through `Freeze` in a test. `EngineCore.zonk`
-(`EngineCore.fs:22`) keeps a measure-bearing root as a `TyVar`, and `Freeze.freezeType`
-(`Freeze.fs:47`) deep-zonks through that same function before its `UnresolvedTyVars` backstop.
-So a measured root that is not scheme-bound reaches `Freeze` unlowered today. GAP 5: the freeze
-of a measured binding is an `InternalBreak`, not the carrier.
+a measured binding has never been run through `Freeze` in a test.
+`UnificationEngineCore.resolveStep` (`EngineCore.fs:16`) stops at a measure-bearing root, so
+`zonk` leaves it a `TyVar`, and `Freeze.freezeTy` (`Freeze.fs:33`) deep-zonks through that same
+function before mapping an unlinked root to `FTUnknown UnresolvedTypar`. GAP 5: `let x = 1.0<m>`
+freezes to `FTUnknown UnresolvedTypar` rather than to `float`.
+
+**The `UnresolvedTyVars` backstop does not fire on this**, which the step-1 test pins:
+`MeasureResolutionTests`' GAP 5 case asserts no blocking error and that assertion passes today.
+`ResolvedTypes.addFreeRoots` (`ResolvedTypes.fs:26`) follows `Link` unconditionally and so walks
+a measured root through to `float` and accumulates nothing, while `resolveStep` deliberately
+stops there. The two derivations of "resolved" disagree, and the backstop is blind to exactly
+the class of value `Freeze` cannot lower. Step 6 therefore cannot lean on it; see step 6.
 
 Three further facts the design depends on:
 
@@ -175,12 +182,20 @@ the two walk guards, and a walk that classifies `float` at arity 1 needs the ari
 exist. `TyparKind` (step 2) comes before the primitives because the `[<Measure>]` typar
 attribute must register as a kind before the primitives declare it.
 
-**Step 1 — pin the semantics.** A `MeasureResolutionTests.fs` beside `SameNameResolutionTests.fs`,
-one case per row of the two tables above, each quoting its F# verdict under its FS code,
-`ptest` where this compiler diverges, plus one full-pipeline case (`analyseFor`, through
-`Freeze`) for a measured `let` pinning GAP 5, plus one `.fsi`/`.fs` pair declaring a name at
-two arities, since signature-to-implementation matching of two claims under one name has not
-been exercised. The red surface is the deliverable; expect nine of fifteen red.
+**Step 1 — pin the semantics. LANDED.** `MeasureResolutionTests.fs` sits beside
+`SameNameResolutionTests.fs`, one case per row of the two tables above, each quoting its F#
+verdict under its FS code, `ptest` where this compiler diverges, plus one full-pipeline case
+(`analyseFor`, through `Freeze`) for a measured `let` pinning GAP 5, plus one `.fsi`/`.fs` pair
+declaring a name at two arities. The red surface is the deliverable: **13 of 16 are `ptest`**,
+each verified to fail when enabled. The nine first estimated here counted only the rows of
+"Where the compiler stands", which omits the `x: m` and `type m = { A: int }` rows of the rule
+table; those two, the GAP 5 pin, and one case added beyond both tables — an undeclared measure
+at the LITERAL (`let x = 1.0<m>`), which `fsc` reports as FS0039 exactly as it does in an
+annotation — make up the other four.
+
+The three green cases are load-bearing. The two-arity `.fsi` pair proves the claims stay
+distinct across the signature match: with `T` and `T<'a>` both published, a consumer writing
+`t.X` on a `T<int>` is refused with "Type 'Test.A.M+T\`1' has no field or member 'X'".
 
 **Step 2 — `TyparKind`.** The DU, the attribute read at `TypeRegistration.typarNamesOfTypeName`'s
 site (rename to carry the kind; `SignatureResolution.Members.fs:319` shares it), the
@@ -215,10 +230,14 @@ splits arguments by kind. Closes GAP 3 and the rest of GAP 2 except `string<m>`,
 needs an external nearest-arity leg in `resolveType`; add the leg here if it is a one-arm
 change, else leave the row `ptest` and record why.
 
-**Step 6 — freeze a measured root to its carrier.** `Freeze.freezeType` lowers a `TyVar` whose
-`Units` are set to its `Link` (GAP 5), and the step-1 full-pipeline pin goes green. The
-`InternalBreak.UnresolvedTyVars` backstop is then the check that no measured type reaches
-`Freeze` unlinked.
+**Step 6 — freeze a measured root to its carrier.** `Freeze.freezeTy` lowers a `TyVar` whose
+`Units` are set to its `Link` (GAP 5), and the step-1 full-pipeline pin goes green.
+
+`InternalBreak.UnresolvedTyVars` cannot serve as the check that no measured type reaches
+`Freeze` unlinked, because `addFreeRoots` follows `Link` past a measured root. Align the two
+readings here: `addFreeRoots` takes the same measure-aware step `resolveStep` takes, so a
+measured root that step 6 fails to lower is caught rather than walked through. Until then, the
+step-1 pin on the frozen TYPE is the only thing that would notice.
 
 **Step 7 — wording.** `Engine.fs`'s `Kind.Message(sprintf "Dimensionless %A used where <%O>
 expected" …)` becomes `Kind.DimensionlessMeasureMismatch`, which already exists two lines
@@ -261,6 +280,7 @@ Before this document is deleted, each row is in code or in a test:
 
 - [ ] Every table row above is a test in `MeasureResolutionTests.fs`, green, or `ptest` with the reason quoted in its name (`string<m>` is the one row allowed to stay `ptest`).
 - [ ] The full-pipeline measured `let` freezes to its carrier (GAP 5), green.
+- [ ] `ResolvedTypes.addFreeRoots` and `UnificationEngineCore.resolveStep` agree on whether a measure-bearing root is resolved, so the `UnresolvedTyVars` backstop covers a measured root.
 - [ ] `TyparKind` is on the typar model, on every generic `ExternalTypeShape` case, and in the contract; no consumer re-derives it from an attribute.
 - [ ] `MeasureTerm` carries `TypeKey` and `Kind.MeasureMismatch` carries two keys; no `string` measure name survives past the parser.
 - [ ] `1.0<m>` and `float<m/s>` both stamp `m` through the classifying walk; `translateMeasure` reads only the stamp.

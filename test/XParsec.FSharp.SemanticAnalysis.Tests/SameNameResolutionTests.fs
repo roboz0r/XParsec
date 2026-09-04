@@ -4,48 +4,6 @@ open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
-let private analyse (input: string) =
-    let lexed, file = parseFile input
-    Pipeline.analyseSemFor testCompiling realProvider.Value (LexedFile.ofText lexed) file
-
-let private errors (tast: TastFile) =
-    [
-        for d in tast.Diagnostics do
-            if Diagnostic.isError d then
-                yield d.Message
-    ]
-
-let private expectClean (source: string) =
-    let es = errors (analyse source)
-    Expect.isEmpty es (sprintf "expected no errors; diagnostics were %A" es)
-
-let private expectErrorIn (es: string list) (needle: string) =
-    Expect.isTrue
-        (es |> List.exists (fun m -> m.Contains needle))
-        (sprintf "expected an error containing '%s'; diagnostics were %A" needle es)
-
-let private expectError (needle: string) (source: string) =
-    expectErrorIn (errors (analyse source)) needle
-
-/// `expectErrorIn`, and the diagnostic must be a user-facing one: an unresolved name that
-/// reaches the freeze as a stray `TyVar` trips the internal backstop instead.
-let private expectUserErrorIn (es: string list) (needle: string) =
-    expectErrorIn es needle
-    Expect.isFalse (es |> List.exists (fun m -> m.Contains "internal compiler error")) "no internal error"
-
-let private expectUserError (needle: string) (source: string) =
-    expectUserErrorIn (errors (analyse source)) needle
-
-/// `expectUserError`, and exactly one diagnostic matches.
-let private expectOneUserError (needle: string) (source: string) =
-    let es = errors (analyse source)
-    expectUserErrorIn es needle
-
-    Expect.equal
-        (es |> List.filter (fun m -> m.Contains needle) |> List.length)
-        1
-        (sprintf "'%s' reported once; diagnostics were %A" needle es)
-
 // A type name is claimed at an ARITY: one module may hold `T` and `T<'a>` at once, and a bare
 // name reaches an outer arity-0 claim past a nearer generic one. Within one arity the max-rank
 // claim wins before its KIND is read, so a class shadows a same-arity record out of reach.
@@ -130,7 +88,7 @@ module N =
                     // FS0033: "The type 'T<_>' expects 1 type argument(s) but is given 0". The
                     // type argument is NOT inferred from the annotation's context.
                     test "a bare generic name in an annotation is an error" {
-                        expectOneUserError
+                        expectUserErrorReportedOnce
                             "expects 1 type argument"
                             "\
 module A =
@@ -147,7 +105,7 @@ module N =
                     // missing-argument error, not an ambiguity. F# reports the best-RANKED
                     // candidate `B.T<_,_>`, "expects 2"; this compiler reports the NEAREST arity.
                     test "two generic arities and no arity-0 claim reports the nearest arity" {
-                        expectOneUserError
+                        expectUserErrorReportedOnce
                             "expects 1 type argument"
                             "\
 module A =
@@ -168,7 +126,7 @@ module N =
                     // `B.T<_>`, "expects 1 type argument(s) but is given 4", whereas
                     // `A.T<_,_,_>` is one arity out and is the likelier intent.
                     test "a wrong written arity reports the nearest arity, not the nearest scope" {
-                        expectOneUserError
+                        expectUserErrorReportedOnce
                             "expects 3 type argument"
                             "\
 module A =
@@ -188,7 +146,7 @@ module N =
                     // FS0033 at a type ARGUMENT: no type position exempts a bare generic name,
                     // `inherit`, `typeof<>` and `interface ... with` included.
                     test "a bare generic name as a type argument is an error" {
-                        expectOneUserError
+                        expectUserErrorReportedOnce
                             "expects 1 type argument"
                             "\
 type C<'a>(x: 'a) =
@@ -201,7 +159,7 @@ let f (xs: C list) = List.length xs
                     // FS0033 in an `inherit` clause: the base's value arguments do NOT supply
                     // its type arguments.
                     test "a bare generic name in an `inherit` clause is an error" {
-                        expectOneUserError
+                        expectUserErrorReportedOnce
                             "expects 1 type argument"
                             "\
 type B<'a>(x: 'a) =
@@ -215,7 +173,7 @@ type D(y: int) =
                     // A WRITTEN arity that no claim on the name holds is the same FS0033, and
                     // both NameResolution and the type translation reach it.
                     test "a written arity no claim holds is reported once" {
-                        expectOneUserError
+                        expectUserErrorReportedOnce
                             "expects 2 type argument"
                             "\
 type T<'a, 'b> = { P: 'a; Q: 'b }
@@ -228,7 +186,7 @@ let f (t: T<int>) = t
                     // FS0033, never FS1124. F# reports the max-rank claim `B.T<_,_>`, "expects
                     // 2"; this compiler reports the nearest arity, `A.T<_>`.
                     test "an inherit clause under an arity disagreement reports FS0033, not an ambiguity" {
-                        expectOneUserError
+                        expectUserErrorReportedOnce
                             "expects 1 type argument"
                             "\
 module A =
@@ -289,7 +247,7 @@ let v = T(1)
                     // reports it alone, so the name recovers to the claim of nearest arity and
                     // the binding still types.
                     test "generic claims that disagree on arity report an ambiguity" {
-                        expectOneUserError
+                        expectUserErrorReportedOnce
                             "Multiple types"
                             "\
 module A =
@@ -311,7 +269,7 @@ module N =
                     // Two RECORDS at different arities are the same FS1124: the candidate set
                     // is every claim the position admits.
                     test "record claims that disagree on arity report an ambiguity" {
-                        expectOneUserError
+                        expectUserErrorReportedOnce
                             "Multiple types"
                             "\
 module A =
@@ -331,7 +289,7 @@ module N =
                     // The arity-0 record sits outside the candidate set, so it supplies no
                     // arity and the two classes still disagree. F# reports FS1124 here.
                     test "an arity-0 record leaves two disagreeing classes ambiguous" {
-                        expectOneUserError
+                        expectUserErrorReportedOnce
                             "Multiple types"
                             "\
 module A =
@@ -358,7 +316,7 @@ module N =
                     // FS1124. F# reports it before the member is searched, so a member only
                     // one candidate declares does not settle the ambiguity.
                     test "a qualified static member under an arity disagreement reports the ambiguity" {
-                        expectOneUserError
+                        expectUserErrorReportedOnce
                             "Multiple types"
                             "\
 module A =
@@ -379,7 +337,7 @@ module N =
                     }
 
                     test "a qualified access on records that disagree on arity reports the ambiguity" {
-                        expectOneUserError
+                        expectUserErrorReportedOnce
                             "Multiple types"
                             "\
 module A =
@@ -500,7 +458,7 @@ let f (u: U<int>) =
                 "a WRITTEN arity in EXPRESSION position is checked against the claim"
                 [
                     test "a ctor at a written arity no claim holds is an error" {
-                        expectOneUserError
+                        expectUserErrorReportedOnce
                             "expects 1 type argument"
                             "\
 type C<'a>(x: 'a) =
@@ -511,7 +469,7 @@ let c = C<int, string>(1)
                     }
 
                     test "a static member at a written arity no claim holds is an error" {
-                        expectOneUserError
+                        expectUserErrorReportedOnce
                             "expects 1 type argument"
                             "\
 type C<'a>() =
@@ -524,7 +482,7 @@ let x = C<int, string>.M
                     // FS0033: "The non-generic type 'E' does not expect any type arguments, but
                     // here is given 1 type argument(s)".
                     test "an enum qualifier at a written arity is an error" {
-                        expectOneUserError
+                        expectUserErrorReportedOnce
                             "expects 0 type argument"
                             "\
 type E =
@@ -536,7 +494,7 @@ let x = E<int>.A
 
                     // FS0033: "The type 'U<_>' expects 1 type argument(s) but is given 2".
                     test "a union-case qualifier at a written arity is an error" {
-                        expectOneUserError
+                        expectUserErrorReportedOnce
                             "expects 1 type argument"
                             "\
 type U<'a> =
@@ -556,7 +514,7 @@ let u = U<int>.Case 1
 "
                     }
 
-                    // `expectError` and not `expectOneUserError`: the folded `U.Nope 1` trips
+                    // `expectError` and not `expectUserErrorReportedOnce`: the folded `U.Nope 1` trips
                     // the freeze backstop too, the `NoCase` error type being a free `TyVar`
                     // the binding then carries.
                     test "a union-case miss through an instantiated qualifier is NoCase" {
@@ -573,7 +531,7 @@ let u = U<int>.Nope 1
                     // FS0033 alone, as F# reports it: an enum claims arity 0, and the written
                     // count is checked before the case name.
                     test "an enum-case miss at a written arity is the arity error alone" {
-                        expectOneUserError
+                        expectUserErrorReportedOnce
                             "expects 0 type argument"
                             "\
 type E =
@@ -585,7 +543,7 @@ let x = E<int>.Nope
 
                     // FS0039, reported once by NameResolution as the folded `C.Nope` is.
                     test "a class member miss through an instantiated qualifier is one NoMember" {
-                        expectOneUserError
+                        expectUserErrorReportedOnce
                             "has no value or member 'Nope'"
                             "\
 type C<'a>(x: 'a) =

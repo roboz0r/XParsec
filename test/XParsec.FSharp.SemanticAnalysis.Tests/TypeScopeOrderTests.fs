@@ -4,30 +4,8 @@ open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
-let private analyse (input: string) =
-    let lexed, file = parseFile input
-    Pipeline.analyseSemFor testCompiling realProvider.Value (LexedFile.ofText lexed) file
-
-let private errors (tast: TastFile) =
-    [
-        for d in tast.Diagnostics do
-            if Diagnostic.isError d then
-                yield d.Message
-    ]
-
-let private expectError (needle: string) (source: string) =
-    let es = errors (analyse source)
-
-    Expect.isTrue
-        (es |> List.exists (fun m -> m.Contains needle))
-        (sprintf "expected an error containing '%s'; diagnostics were %A" needle es)
-
-let private expectClean (source: string) =
-    let es = errors (analyse source)
-    Expect.isEmpty es (sprintf "expected no errors; diagnostics were %A" es)
-
 let private recordFieldType (source: string) (typeName: string) (fieldName: string) : SemType =
-    let tast = analyse source
+    let tast = analyseSem source
 
     let found =
         [
@@ -50,7 +28,7 @@ let private recordFieldType (source: string) (typeName: string) (fieldName: stri
 /// A member's type is INFERRED from its body, so its signature annotations must bind what
 /// they were classified as at registration, not what the registry says once the file is in.
 let private classMemberParamType (source: string) (typeName: string) (memberName: string) : SemType =
-    let tast = analyse source
+    let tast = analyseSem source
 
     let found =
         [
@@ -73,7 +51,7 @@ let private classMemberParamType (source: string) (typeName: string) (memberName
 /// A preamble bound variable carries no name of its own once it is a field, so a SHADOWING
 /// test gives the shadowing `let` a different type and reads back which one a member bound.
 let private classMemberReturnType (source: string) (typeName: string) (memberName: string) : SemType =
-    let tast = analyse source
+    let tast = analyseSem source
 
     let found =
         [
@@ -94,7 +72,7 @@ let private classMemberReturnType (source: string) (typeName: string) (memberNam
     | other -> failtestf "expected exactly one member '%s.%s', got %A" typeName memberName other
 
 let private soleModuleLetType (source: string) : SemType =
-    let tast = analyse source
+    let tast = analyseSem source
 
     let found =
         [
@@ -363,10 +341,8 @@ let tests =
             yield
                 test "a class with no primary constructor reports its instance preamble once" {
                     let es =
-                        errors (
-                            analyse
-                                "type C =\n    val x: int\n    let a = 1 + 1\n    do ignore 2\n    let b = 3\n    new() = { x = 0 }"
-                        )
+                        semErrors
+                            "type C =\n    val x: int\n    let a = 1 + 1\n    do ignore 2\n    let b = 3\n    new() = { x = 0 }"
                         |> List.filter (fun m -> m.Contains "primary constructor")
 
                     Expect.equal (List.length es) 1 (sprintf "one error for three offending entries, got %A" es)

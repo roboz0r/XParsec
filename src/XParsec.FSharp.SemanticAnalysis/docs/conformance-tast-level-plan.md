@@ -1,7 +1,8 @@
 # Conformance at the TAST level
 
 **Status: every stage has landed, and Gaps 1, 2 and 4 are closed. Gap 3 is closed for values
-and open for type declarations, behind the `ExternalTypeShape` reshape it names.** Conformance
+and open for type declarations, and Gap 5 is open; both wait on the same `ExternalTypeShape`
+reshape.** Conformance
 now runs down one route, `AssemblyAnalysis.conformSignature`, over the two analysed halves. The
 sections below are the plan as written, each stage carrying what it landed; the two routes and
 the CST rule set they describe are history.
@@ -354,6 +355,41 @@ and is serialised nowhere. (The premise recorded here that it was is wrong.)
 Acceptance evidence: `SignatureResolutionTests`' "The published shape states which family the
 declaration commits to" pins each family and the opaque non-commitment together; the existing
 `AnalysedConformance` kind-drift and opaque-type pairs stayed green.
+
+### Gap 5 — a type's BODY takes no conformance verdict. OPEN.
+
+(Filed 2026-09-03, off the review of the measure-resolution test landing.)
+
+`ConformanceSurface.checkTypes` takes two verdicts per published type: presence
+(`MissingInImpl`) and declared family (`TypeKindMismatch`). Its implementation-side input,
+`declaredTypes`, narrows each `TTypeDecl` to a `TypeKindFamily voption` and drops the body, so
+a record's fields, a union's cases, an enum's cases and every member signature are compared
+nowhere. Two halves that agree on the name and the family conform whatever they declare inside
+it.
+
+Probed on 2026-09-03. `fsc` against this compiler, on a `.fsi`/`.fs` pair:
+
+| written | `fsc` | this compiler |
+| --- | --- | --- |
+| `.fsi` `type T = { X: int }`, `.fs` `type T = { W: int }` | FS0313 "the field X was required by the signature but was not specified by the implementation" | silent |
+| `.fsi` `type T = { X: int }`, `.fs` `type T = { X: string }` | FS0193 "the module contains the field `X: string` but its signature specifies `X: int`" | silent |
+| `.fsi` `type T<'a> = { Y: 'a }`, `.fs` `type T<'a> = { Z: 'a }` | FS0313 | silent |
+| `.fsi` `type U = A \| B`, `.fs` `type U = A \| C` | FS0193 "requires a value `member U.IsB: bool`" | silent |
+
+A consumer resolves against the signature's shape, so it reads the field the `.fsi` declares
+and the implementation's own field is never reached. The divergence surfaces at emission or
+not at all.
+
+This gap differs in kind from Gaps 1–4, which were holes in the frozen record. The record is
+complete here — `ExternalTypeShape.Record`/`Union`/`Enum` carry their members on the signature
+side and `TTypeKindG` carries them on the implementation side. The narrowing is
+`declaredTypes`' alone, and it is the shape this repo treats as wrong by default: a stage that
+discards an intermediate its consumer needs.
+
+The check belongs beside `checkValues`, which already compares by resolved identity, and wants
+the same reshape Gap 3 is waiting on: `Record` / `Union` / `Enum` hold five positional fields
+each, and comparing them member-by-member reads far better off records than off tuples. Land
+the two together.
 
 ### Non-gaps, verified
 

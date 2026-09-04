@@ -4,25 +4,10 @@ open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
-let private analyse (input: string) =
-    let lexed, file = parseFile input
-    Pipeline.analyseSemFor testCompiling realProvider.Value (LexedFile.ofText lexed) file
-
-let private errors (tast: TastFile) =
-    [
-        for d in tast.Diagnostics do
-            if Diagnostic.isError d then
-                yield d.Message
-    ]
-
-let private expectClean (source: string) =
-    let es = errors (analyse source)
-    Expect.isEmpty es (sprintf "expected no errors; diagnostics were %A" es)
-
 /// A use ABOVE the declaration it names must not resolve. Only the VERDICT is pinned, not
 /// the wording: F# reports these as FS0039 ("not defined"), we word them our own way.
 let private expectRejected (source: string) =
-    let es = errors (analyse source)
+    let es = semErrors source
     Expect.isNonEmpty es "expected a diagnostic: the name is used above its declaration"
 
 let private soleModuleLetType (tast: TastFile) : SemType =
@@ -81,9 +66,10 @@ let tests =
         "FileOrderScoping"
         [
             test "a ctor call below the class's declaration resolves to it" {
-                let tast = analyse "type Foo(n: int) =\n    member this.N = n\nlet mk () = Foo(1)"
+                let tast =
+                    analyseSem "type Foo(n: int) =\n    member this.N = n\nlet mk () = Foo(1)"
 
-                Expect.isEmpty (errors tast) "no diagnostics"
+                Expect.isEmpty (errorMessages tast.Diagnostics) "no diagnostics"
 
                 Expect.equal
                     (nominalKey (soleModuleLetResult tast))
@@ -95,10 +81,10 @@ let tests =
             // member's own type rather than degenerating to a free TyVar.
             test "a static-member access below the class's declaration resolves to the member" {
                 let tast =
-                    analyse
+                    analyseSem
                         "type Payload = { v: int }\ntype Foo() =\n    static member Bar = { v = 1 }\nlet s () = Foo.Bar"
 
-                Expect.isEmpty (errors tast) "no diagnostics"
+                Expect.isEmpty (errorMessages tast.Diagnostics) "no diagnostics"
 
                 Expect.equal
                     (nominalKey (soleModuleLetResult tast))
@@ -141,11 +127,11 @@ let tests =
             // FS0026 warnings) and `f` is `'a -> int`, not `U -> int`. Probed with `f "s"` and `f 42`.
             test "a union case above its union's declaration is a variable pattern" {
                 let tast =
-                    analyse
+                    analyseSem
                         "let f x =\n    match x with\n    | Alpha -> 1\n    | Beta -> 2\ntype U =\n    | Alpha\n    | Beta"
 
                 Expect.isEmpty
-                    (errors tast)
+                    (errorMessages tast.Diagnostics)
                     "no diagnostics: an unrecognised ident in pattern position is a bound variable"
 
                 match soleModuleLetArg tast with
@@ -158,10 +144,10 @@ let tests =
             // arms are union-case patterns, so the argument is the union.
             test "a union case below its union's declaration is a case pattern" {
                 let tast =
-                    analyse
+                    analyseSem
                         "type U =\n    | Alpha\n    | Beta\nlet f x =\n    match x with\n    | Alpha -> 1\n    | Beta -> 2"
 
-                Expect.isEmpty (errors tast) "no diagnostics"
+                Expect.isEmpty (errorMessages tast.Diagnostics) "no diagnostics"
 
                 Expect.equal
                     (nominalKey (soleModuleLetArg tast))
