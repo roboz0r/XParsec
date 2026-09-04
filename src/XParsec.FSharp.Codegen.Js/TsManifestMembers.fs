@@ -185,7 +185,7 @@ module internal TsManifestMembers =
                 declared,
                 ExternalTypeShape.Class
                     {
-                        TyparArity = tp
+                        Typars = TyparKinds.typeOnly tp
                         Commitment = ClassCommitment.ofIsInterface isInterface
                         Members = mems
                         FrozenInterfaces = frozenInterfaces
@@ -211,7 +211,7 @@ module internal TsManifestMembers =
             // `type X = …` is a transparent abbreviation: a use of `name` expands to the
             // target's `FrozenType`. `mint`, not `declaredIdentity`, because an alias never
             // enters the ctx table, so it stays `FTConst` and expands through this `Abbrev`.
-            Some(mint nsPath name tp, ExternalTypeShape.Abbrev(tp, toFrozen ctx target))
+            Some(mint nsPath name tp, ExternalTypeShape.Abbrev(TyparKinds.typeOnly tp, toFrozen ctx target))
         | Schema.Export.Enum(name, members) ->
             // A computed (non-constant) member has no value to reference it by, so it
             // cannot be a case at all and is dropped.
@@ -285,7 +285,7 @@ module internal TsManifestMembers =
             declared,
             ExternalTypeShape.Class
                 {
-                    TyparArity = 0
+                    Typars = EqArray.empty
                     Commitment = ClassCommitment.Interface
                     Members = members
                     FrozenInterfaces = EqArray.empty
@@ -392,7 +392,7 @@ module internal TsManifestMembers =
             declared,
             ExternalTypeShape.Class
                 {
-                    TyparArity = 0
+                    Typars = EqArray.empty
                     Commitment = ClassCommitment.Class
                     Members = members
                     FrozenInterfaces = EqArray.empty

@@ -141,7 +141,7 @@ module PublishedSurfaceBuilder =
                         IsRequireQualifiedAccess = rqa
                     }
         | ExternalTypeShape.Record {
-                                       Arity = arity
+                                       Typars = typars
                                        Fields = fields
                                        RequiresQualifiedAccess = rqa
                                    } ->
@@ -149,7 +149,7 @@ module PublishedSurfaceBuilder =
                 surface
                 {
                     TypeKey = key
-                    TyparArity = arity
+                    TyparArity = typars.Length
                     FieldNames = fields |> EqArray.map (fun f -> f.Name)
                     IsRequireQualifiedAccess = rqa
                 }

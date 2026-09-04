@@ -235,6 +235,17 @@ module FrozenCodecPrimitives =
         | 1uy -> TyparAxis.Method
         | b -> failwithf "FrozenCodec: unknown TyparAxis tag %d" b
 
+    let writeTyparKind (w: FrozenWriter) (k: TyparKind) =
+        match k with
+        | TyparKind.Type -> w.Write 0uy
+        | TyparKind.Measure -> w.Write 1uy
+
+    let readTyparKind (r: FrozenReader) : TyparKind =
+        match r.ReadByte() with
+        | 0uy -> TyparKind.Type
+        | 1uy -> TyparKind.Measure
+        | b -> failwithf "FrozenCodec: unknown TyparKind tag %d" b
+
     let writeStringList (w: FrozenWriter) (xs: string list) =
         writeListWith w (fun w (s: string) -> w.Write s) xs
 

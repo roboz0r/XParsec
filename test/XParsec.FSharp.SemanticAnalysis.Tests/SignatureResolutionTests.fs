@@ -206,7 +206,7 @@ let tests =
                             SymbolKeyOps.typeKeyOfArity "Dep" "Widget" 1,
                             ExternalTypeShape.Union
                                 {
-                                    Arity = 1
+                                    Typars = TyparKinds.typeOnly 1
                                     Cases = EqArray.empty
                                     Interfaces = EqArray.empty
                                     Origin = SymbolOrigin.Empty
@@ -421,9 +421,9 @@ let tests =
                         "namespace App\n\nmodule M =\n    type Thing =\n        | Red = true\n        | Green = 1\n"
 
                 match shapeOf r "Thing" with
-                | ExternalTypeShape.Unmodelled(UnmodelledReason.ExtractionFailed reason, arity) ->
+                | ExternalTypeShape.Unmodelled(UnmodelledReason.ExtractionFailed reason, typars) ->
                     Expect.stringContains reason "Red" "the reason names the case that did not read"
-                    Expect.equal arity 0 "Unmodelled carries the declared arity"
+                    Expect.equal typars.Length 0 "Unmodelled carries the declared arity"
                 | other -> failtestf "expected an Unmodelled shape for the enum; got %A" other
             }
 
@@ -573,8 +573,8 @@ let tests =
                         "namespace App\n\nmodule M =\n    type Thing<'T> =\n        | ([]): Thing<'T>\n        | (::): Head: 'T * Tail: Thing<'T> -> Thing<'T>\n"
 
                 match shapeOf r "Thing`1" with
-                | ExternalTypeShape.Union { Arity = arity; Cases = cases } ->
-                    Expect.equal arity 1 "Union carries the declared arity"
+                | ExternalTypeShape.Union { Typars = typars; Cases = cases } ->
+                    Expect.equal typars.Length 1 "Union carries the declared arity"
                     Expect.equal cases.Length 2 "two cases published"
                     Expect.equal cases.[0].Name "Empty" "`([])` names the nullary case by its canonical ctor form"
                     Expect.equal cases.[0].FrozenFieldTypes.Length 0 "the nullary case has no fields"
@@ -622,8 +622,8 @@ let tests =
                         "namespace App\n\nmodule M =\n    type objnull = obj | null\n    val f: objnull -> int\n"
 
                 match shapeOf r "objnull" with
-                | ExternalTypeShape.Abbrev(arity, frozen) ->
-                    Expect.equal arity 0 "objnull is nullary"
+                | ExternalTypeShape.Abbrev(typars, frozen) ->
+                    Expect.equal typars.Length 0 "objnull is nullary"
 
                     match frozen with
                     | FTUnknown(UnknownReason.UnfreezableExternal what) ->
@@ -1190,7 +1190,11 @@ let tests =
 
                     shapes.[intKey] <-
                         ExternalTypeShape.Intrinsic(
-                            IntrinsicShape.Scalar(canon, 0, IntrinsicPlatform.Bound(PlatformTypeId "System.Int32"))
+                            IntrinsicShape.Scalar(
+                                canon,
+                                TyparKinds.typeOnly 0,
+                                IntrinsicPlatform.Bound(PlatformTypeId "System.Int32")
+                            )
                         )
 
                     ExternalSymbolProviders.ofKeyIndexedChannels

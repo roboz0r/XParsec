@@ -201,6 +201,44 @@ type TyparAxis =
     | Declaring
     | Method
 
+/// What a type parameter ranges over: a type, or a unit of measure (`[<Measure>] 'u`).
+[<RequireQualifiedAccess>]
+type TyparKind =
+    | Type
+    | Measure
+
+[<RequireQualifiedAccess>]
+module TyparKinds =
+
+    /// `n` type-kinded parameters. Valid only where the declaration form carries no
+    /// `[<Measure>]` to read: a CLR metadata row, a TypeScript declaration, an
+    /// inference-minted typar.
+    let typeOnly (n: int) : EqArray<TyparKind> =
+        match n with
+        | 0 -> EqArray.empty
+        | n -> EqArray.ofArray (Array.create n TyparKind.Type)
+
+/// A type parameter as a declaration binds it. `TyVar` is a prototype; every use site
+/// substitutes a fresh variable for it.
+type DeclaredTypar =
+    {
+        /// Source-text name, leading `'`/`^` included (`'a`).
+        Name: string
+        TyVar: TyVarId
+        Kind: TyparKind
+    }
+
+[<RequireQualifiedAccess>]
+module DeclaredTypar =
+
+    /// The prototype variables, in declaration order.
+    let protos (typars: EqArray<DeclaredTypar>) : EqArray<TyVarId> =
+        typars |> EqArray.map (fun t -> t.TyVar)
+
+    let names (typars: EqArray<DeclaredTypar>) : EqArray<string> = typars |> EqArray.map (fun t -> t.Name)
+
+    let kinds (typars: EqArray<DeclaredTypar>) : EqArray<TyparKind> = typars |> EqArray.map (fun t -> t.Kind)
+
 /// A generalized scheme bound INSIDE one frozen body, numbered densely within that body.
 /// OPAQUE and BODY-RELATIVE: it resolves against no file, pool or side table.
 [<Struct>]

@@ -197,12 +197,32 @@ The three green cases are load-bearing. The two-arity `.fsi` pair proves the cla
 distinct across the signature match: with `T` and `T<'a>` both published, a consumer writing
 `t.X` on a `T<int>` is refused with "Type 'Test.A.M+T\`1' has no field or member 'X'".
 
-**Step 2 — `TyparKind`.** The DU, the attribute read at `TypeRegistration.typarNamesOfTypeName`'s
-site (rename to carry the kind; `SignatureResolution.Members.fs:319` shares it), the
-`TypeParams` element, the kind array on every generic `ExternalTypeShape` case including
-`Abbrev`, the contract writer and reader (`FrozenCodecDecls.writeTypeDecl`), the codec
-version. No behaviour change: every existing typar is `Type`. Reddens nothing, or a
-frozen-blob-size fixture at most.
+**Step 2 — `TyparKind`. LANDED.** `TyparKind` and `DeclaredTypar` (name, prototype TyVar,
+kind) sit in `SemanticScalars.fs`. `DeclaredTypar` is the ONE shape a name-plus-prototype
+typar list takes, whichever axis it lands on: a type's `TypeParams`, a member's `SeedTypars` /
+`EffectiveMethodTypars`, `GeneralizedTypars`, and a binding's `Bindings.DeclaredTypars`.
+`declaredTyparsOfTypeName` reads `[<Measure>]` off each `TyparDefn` through
+`ctx.ResolveAttributes` against `RuntimeNames.measureAttributeKey` and mints the prototypes in
+one step; `typarKindsOfTypeName` is the kinds-only read, for a publisher whose form registers
+no typar list. `TTypeDeclG.TypeParams` is `EqArray<TTypeParam>` (name + kind) with its own
+codec pair. Each generic `ExternalTypeShape` case carries `EqArray<TyparKind>` in place of its
+arity, and `.TyparArity` derives from it, so the two cannot disagree. Reddened nothing; five
+`MeasureResolutionTests` cases pin the attribute read, the kind reaching the frozen contract,
+and the kind reaching the `extern` and opaque published shapes.
+
+Three findings against the step as written:
+
+- A MEMBER's or VALUE's own typars are type-kinded by construction, at `mkMethodTypars` and at
+  `Infer.fs`'s binding-typar read. A `[<Measure>]` method typar is measure-typar work, which
+  this plan excludes; those two sites are where it would be read.
+- `arityOfTypeName` runs while types are being CLAIMED, before the registry can resolve an
+  attribute, so it counts typar slots and the kind read is a separate function called at
+  registration or later.
+- There is no codec version to bump: the frozen blob carries no version stamp and no
+  `Vesper.*` package blob is stored, so every consumer rebuilds from source.
+
+`TyparKinds.typeOnly` remains for the surfaces with no `[<Measure>]` to read: a CLR metadata
+row, a TypeScript declaration, an intrinsic `(# … #)` binding's structural typars.
 
 **Step 3 — the arity-1 primitives in `Vesper.Core`.** `prim-types-float.fs`/`.fsi` and the
 integer and decimal files, one `type T<[<Measure>] 'Measure> = T` per numeric key, on both
@@ -281,7 +301,7 @@ Before this document is deleted, each row is in code or in a test:
 - [ ] Every table row above is a test in `MeasureResolutionTests.fs`, green, or `ptest` with the reason quoted in its name (`string<m>` is the one row allowed to stay `ptest`).
 - [ ] The full-pipeline measured `let` freezes to its carrier (GAP 5), green.
 - [ ] `ResolvedTypes.addFreeRoots` and `UnificationEngineCore.resolveStep` agree on whether a measure-bearing root is resolved, so the `UnresolvedTyVars` backstop covers a measured root.
-- [ ] `TyparKind` is on the typar model, on every generic `ExternalTypeShape` case, and in the contract; no consumer re-derives it from an attribute.
+- [x] `TyparKind` is on the typar model, on every generic `ExternalTypeShape` case, and in the contract. A shape published from a source `TypeName` reads its kinds from that name; only a surface with no `[<Measure>]` to read (CLR metadata, TypeScript, an intrinsic binding) uses `TyparKinds.typeOnly`.
 - [ ] `MeasureTerm` carries `TypeKey` and `Kind.MeasureMismatch` carries two keys; no `string` measure name survives past the parser.
 - [ ] `1.0<m>` and `float<m/s>` both stamp `m` through the classifying walk; `translateMeasure` reads only the stamp.
 - [ ] `isMeasuredCarrier`, `resolveMeasureCarrier`, `isNumericCarrier`, `numericTypeNames` are deleted, and neither `classifyingTypeIter` nor `stampTypeIter` skips a shape.

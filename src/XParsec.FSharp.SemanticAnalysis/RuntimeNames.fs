@@ -99,6 +99,7 @@ module RuntimeNames =
     let customComparisonAttributeKey: TypeKey = attributeKey "CustomComparison"
     let allowNullLiteralAttributeKey: TypeKey = attributeKey "AllowNullLiteral"
     let literalAttributeKey: TypeKey = attributeKey "Literal"
+    let measureAttributeKey: TypeKey = attributeKey "Measure"
     let globalAttributeKey: TypeKey = attributeKey "Global"
     let importAttributeKey: TypeKey = attributeKey "Import"
     let abstractClassAttributeKey: TypeKey = attributeKey "AbstractClass"

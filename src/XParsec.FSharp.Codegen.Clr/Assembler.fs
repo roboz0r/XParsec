@@ -586,7 +586,7 @@ type internal Assembler
             interfaces.[td.TypeKey] <-
                 {
                     Name = td.Name
-                    Typars = EqArray.toList td.TypeParams
+                    Typars = EqArray.toList (TTypeParam.names td.TypeParams)
                     Members = memberTable
                 }
 

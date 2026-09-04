@@ -17,12 +17,12 @@ module internal UnificationClassCtors =
 
     /// Rebuild a type definition's typar scope from the registry entry's `TypeParams`, so a
     /// field type containing `'name` resolves to the same root the registry already holds.
-    let scopeOfTypeParams (typeParams: EqArray<string * TyVarId>) : Dictionary<string, TyVarId> =
+    let scopeOfTypeParams (typeParams: EqArray<DeclaredTypar>) : Dictionary<string, TyVarId> =
         let d = Dictionary<string, TyVarId>(System.StringComparer.Ordinal)
 
-        for (n, tv) in typeParams do
-            if not (d.ContainsKey n) then
-                d.[n] <- tv
+        for tp in typeParams do
+            if not (d.ContainsKey tp.Name) then
+                d.[tp.Name] <- tp.TyVar
 
         d
 

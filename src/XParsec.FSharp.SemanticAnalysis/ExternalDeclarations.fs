@@ -150,7 +150,8 @@ type ExternalCaseShape =
 /// one did. `RequiresQualifiedAccess` forces a consumer to write `{ R.X = … }`.
 type ExternalRecordShape =
     {
-        Arity: int
+        /// Typar order matches source.
+        Typars: EqArray<TyparKind>
         /// Field order matches source.
         Fields: EqArray<ExternalFieldShape>
         Origin: SymbolOrigin
@@ -158,12 +159,15 @@ type ExternalRecordShape =
         RequiresQualifiedAccess: bool
     }
 
+    member this.TyparArity: int = this.Typars.Length
+
 /// The payload of `ExternalTypeShape.Union`. `Interfaces` are the union's directly-declared
 /// `interface <ty>` impls. `IsValueType` and `RequiresQualifiedAccess` carry the same
 /// declaration-side facts `ExternalRecordShape` does.
 type ExternalUnionShape =
     {
-        Arity: int
+        /// Typar order matches source.
+        Typars: EqArray<TyparKind>
         /// Case order matches source.
         Cases: EqArray<ExternalCaseShape>
         Interfaces: EqArray<FrozenNominal>
@@ -171,6 +175,8 @@ type ExternalUnionShape =
         IsValueType: bool
         RequiresQualifiedAccess: bool
     }
+
+    member this.TyparArity: int = this.Typars.Length
 
 /// An external enum case's compile-time value. No numeric WIDTH: a TS import has no width
 /// notion, so `IntVal` is always `int64`.
@@ -495,7 +501,8 @@ module ClassCommitment =
 /// `Signature` is written over the DECLARING type's typars.
 type ExternalClassShape =
     {
-        TyparArity: int
+        /// Typar order matches source.
+        Typars: EqArray<TyparKind>
         Commitment: ClassCommitment
         /// All public declared methods + properties whose signature maps; one whose
         /// parameter or return type does not (a pointer) is dropped, not faked.
@@ -511,12 +518,16 @@ type ExternalClassShape =
         Origin: SymbolOrigin
     }
 
+    member this.TyparArity: int = this.Typars.Length
+
     member this.IsInterface: bool = this.Commitment = ClassCommitment.Interface
 
-    /// A minimally-populated shape: name + arity + commitment only.
-    static member basic(arity: int, commitment: ClassCommitment, origin: SymbolOrigin) : ExternalClassShape =
+    /// A minimally-populated shape: name + typars + commitment only.
+    static member basic
+        (typars: EqArray<TyparKind>, commitment: ClassCommitment, origin: SymbolOrigin)
+        : ExternalClassShape =
         {
-            TyparArity = arity
+            Typars = typars
             Commitment = commitment
             Members = EqArray.empty
             FrozenInterfaces = EqArray.empty
@@ -543,13 +554,15 @@ type IntrinsicIdentity =
         /// The qualified `.fsi` name the type was declared under (`Vesper.int`), the same
         /// whichever backend compiles. Never a BCL name; `int` ≠ `float` here.
         Canon: TypeKey
-        /// Usually `0`, but the structural type constructors are intrinsics too
-        /// (`type 'T [] = (# "!0[]" #)` has arity 1; `byref`, nd-array).
-        TyparArity: int
+        /// Usually empty, but the structural type constructors are intrinsics too
+        /// (`type 'T [] = (# "!0[]" #)` has one type parameter; `byref`, nd-array).
+        Typars: EqArray<TyparKind>
         /// The per-target binding, or the target that binds none. Many-to-one, so it must
         /// never drive unification.
         Platform: IntrinsicPlatform
     }
+
+    member this.TyparArity: int = this.Typars.Length
 
 /// The declared SUPERTYPE surface a primitive carries: what a subtype walk off it can
 /// reach. Instance members (`exn.Message`) are NOT here, because they route through the
@@ -580,12 +593,12 @@ type IntrinsicShape =
         Class: IntrinsicClassSurface voption
     }
 
-    static member Scalar(canon: TypeKey, arity: int, platform: IntrinsicPlatform) : IntrinsicShape =
+    static member Scalar(canon: TypeKey, typars: EqArray<TyparKind>, platform: IntrinsicPlatform) : IntrinsicShape =
         {
             Id =
                 {
                     Canon = canon
-                    TyparArity = arity
+                    Typars = typars
                     Platform = platform
                 }
             Class = ValueNone
@@ -593,12 +606,14 @@ type IntrinsicShape =
 
     /// `type Attribute = extern class`: heritable, and declaring nothing else. `inherit
     /// Attribute()` in a later file has only this surface to read the heritability off.
-    static member HeritableClass(canon: TypeKey, arity: int, platform: IntrinsicPlatform) : IntrinsicShape =
+    static member HeritableClass
+        (canon: TypeKey, typars: EqArray<TyparKind>, platform: IntrinsicPlatform)
+        : IntrinsicShape =
         {
             Id =
                 {
                     Canon = canon
-                    TyparArity = arity
+                    Typars = typars
                     Platform = platform
                 }
             Class =
@@ -642,7 +657,8 @@ type IntrinsicInterfaceShape =
         /// The platform-INVARIANT `.fsi` identity (`Vesper.disposable`): the
         /// capability-matching key, NOT the value-resolution key.
         Canon: TypeKey
-        TyparArity: int
+        /// Typar order matches source.
+        Typars: EqArray<TyparKind>
         /// The `.fs` `(# … #)` binding: `"System.IDisposable"` on the CLR, the sentinel
         /// `"!Vesper.disposable"` on a target with no interfaces. A bare `PlatformTypeId`, not
         /// an `IntrinsicPlatform`: a capability is minted only where its `.fs` binds the id.
@@ -654,3 +670,5 @@ type IntrinsicInterfaceShape =
         Interfaces: EqArray<FrozenNominal>
         Origin: SymbolOrigin
     }
+
+    member this.TyparArity: int = this.Typars.Length

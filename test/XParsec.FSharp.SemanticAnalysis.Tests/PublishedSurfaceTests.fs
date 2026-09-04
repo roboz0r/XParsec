@@ -13,7 +13,9 @@ let private key (ns: string) (name: string) (arity: int) : TypeKey =
     SymbolKeyOps.typeKeyOfArity ns name arity
 
 let private shapeOf (arity: int) : ExternalTypeShape =
-    ExternalTypeShape.Class(ExternalClassShape.basic (arity, ClassCommitment.Class, SymbolOrigin.Empty))
+    ExternalTypeShape.Class(
+        ExternalClassShape.basic (TyparKinds.typeOnly arity, ClassCommitment.Class, SymbolOrigin.Empty)
+    )
 
 /// A builder holding three types and two union cases, filled in the order given, so the same
 /// content can be published in two different insertion orders.
@@ -113,7 +115,7 @@ let tests =
                 let union =
                     ExternalTypeShape.Union
                         {
-                            Arity = 1
+                            Typars = TyparKinds.typeOnly 1
                             Cases =
                                 EqArray.ofList
                                     [

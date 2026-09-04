@@ -117,7 +117,7 @@ let tests =
                 let store = provider :> IExternalSymbolStore
 
                 match store.TryLookupType(typeKeyOf frozen "Box") with
-                | ValueSome(ExternalTypeShape.Record r) when r.Arity = 1 ->
+                | ValueSome(ExternalTypeShape.Record r) when r.TyparArity = 1 ->
                     Expect.equal
                         (r.Fields |> EqArray.map (fun f -> f.Name))
                         (EqArray.ofSeq [ "value" ])
@@ -135,7 +135,7 @@ let tests =
                 | other -> failtestf "Point did not project as a Record: %A" other
 
                 match store.TryLookupType(typeKeyOf frozen "Opt") with
-                | ValueSome(ExternalTypeShape.Union u) when u.Arity = 1 ->
+                | ValueSome(ExternalTypeShape.Union u) when u.TyparArity = 1 ->
                     Expect.equal
                         (u.Cases |> EqArray.map (fun c -> c.Name))
                         (EqArray.ofSeq [ "Nope"; "Just" ])

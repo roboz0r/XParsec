@@ -74,7 +74,7 @@ module internal NominalEmit =
             asm.Records.[td.TypeKey] <-
                 {
                     Name = td.Name
-                    Typars = EqArray.toList td.TypeParams
+                    Typars = EqArray.toList (TTypeParam.names td.TypeParams)
                     Fields =
                         [
                             for f in rd.Fields ->
@@ -136,7 +136,7 @@ module internal NominalEmit =
             asm.Classes.[td.TypeKey] <-
                 {
                     Name = td.Name
-                    Typars = EqArray.toList td.TypeParams
+                    Typars = EqArray.toList (TTypeParam.names td.TypeParams)
                     Fields =
                         [
                             for p in ctorParams ->

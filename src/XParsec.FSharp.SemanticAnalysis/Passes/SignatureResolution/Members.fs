@@ -129,7 +129,7 @@ module SignatureResolutionMembers =
     let resolveMember
         (ctx: PassContext)
         (declKey: TypeKey)
-        (declTypars: EqArray<string * TyVarId>)
+        (declTypars: EqArray<DeclaredTypar>)
         (m: SigMember)
         : ExternalMember =
         classifyCurriedSigTypes ctx m.Signature
@@ -137,14 +137,14 @@ module SignatureResolutionMembers =
 
         let known =
             seq {
-                for (n, _) in declTypars -> n
+                for tp in declTypars -> tp.Name
                 yield! explicit
             }
 
         let implicit =
             implicitTyparNames ctx known m.TyparDefns (fun it -> CstTypeWalk.iterTypeCurriedSig it m.Signature)
 
-        let ownTypars = mkTypeParams ctx.Store (explicit @ implicit)
+        let ownTypars = mkMethodTypars ctx.Store (explicit @ implicit)
         let declArity = declTypars.Length
 
         let domains, ret =
@@ -182,7 +182,7 @@ module SignatureResolutionMembers =
     let resolveBodyMembers
         (sctx: SigCtx)
         (declKey: TypeKey)
-        (declTypars: EqArray<string * TyVarId>)
+        (declTypars: EqArray<DeclaredTypar>)
         (elems: TypeElementsSignature<SyntaxToken>)
         : ExternalMember list =
         let ctx = sctx.Pass
@@ -272,7 +272,7 @@ module SignatureResolutionMembers =
 
     let freezeInterfaces
         (sctx: SigCtx)
-        (declTypars: EqArray<string * TyVarId>)
+        (declTypars: EqArray<DeclaredTypar>)
         (types: (SyntaxToken * Type<SyntaxToken>) list)
         : EqArray<FrozenNominal> =
         let ctx = sctx.Pass
@@ -316,7 +316,7 @@ module SignatureResolutionMembers =
         (elems: TypeElementsSignature<SyntaxToken>)
         : BodiedSurface =
         let ctx = sctx.Pass
-        let typeParams = mkTypeParams ctx.Store (typarNamesOfTypeName ctx tn)
+        let typeParams = declaredTyparsOfTypeName ctx tn
         let members = resolveBodyMembers sctx id.Key typeParams elems
         let inherits = inheritClauseOf elems
 
@@ -348,7 +348,7 @@ module SignatureResolutionMembers =
                 EqArray.empty
                 (fun () ->
                     {
-                        TyparArity = typeParams.Length
+                        Typars = DeclaredTypar.kinds typeParams
                         Commitment = ClassCommitment.ofIsInterface isInterface
                         Members =
                             (if isInterface then

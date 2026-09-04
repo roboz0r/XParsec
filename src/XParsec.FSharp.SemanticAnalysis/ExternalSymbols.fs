@@ -10,11 +10,11 @@ open System.Collections.Generic
 [<RequireQualifiedAccess>]
 type ExternalTypeShape =
     /// `frozen` is the abbreviation body as a template, which a use site expands.
-    | Abbrev of arity: int * frozen: FrozenType
+    | Abbrev of typars: EqArray<TyparKind> * frozen: FrozenType
     | Record of shape: ExternalRecordShape
     | Union of shape: ExternalUnionShape
-    /// An external enum: named constant cases in source order. No `arity`, because enums are
-    /// never generic; the numeric / string / mixed variant is DERIVED from `cases`, never baked.
+    /// An external enum: named constant cases in source order. The numeric / string / mixed
+    /// variant is DERIVED from `cases`, never baked.
     | Enum of cases: EqArray<ExternalEnumCaseShape> * origin: SymbolOrigin
     | Class of shape: ExternalClassShape
     /// A referenced package's intrinsic-repr binding (`type exn = (# class
@@ -23,9 +23,9 @@ type ExternalTypeShape =
     /// A capability interface (`disposable`/`equatable`/`comparable`). CLR-only, because a JS
     /// capability is a plain canon-only interface `Class`.
     | IntrinsicInterface of shape: IntrinsicInterfaceShape
-    /// NAME + ARITY are registered, the body is not modelled. `reason` says which gap, so a
-    /// use site can report it rather than degrade silently.
-    | Unmodelled of reason: UnmodelledReason * arity: int
+    /// NAME + TYPE PARAMETERS are registered, the body is not modelled. `reason` says which
+    /// gap, so a use site can report it rather than degrade silently.
+    | Unmodelled of reason: UnmodelledReason * typars: EqArray<TyparKind>
 
     /// The nominal family the DECLARATION commits its name to, which a paired implementation
     /// must agree with. `ValueNone` where the declaration commits to none: an opaque
@@ -45,22 +45,26 @@ type ExternalTypeShape =
         | IntrinsicInterface _
         | Unmodelled _ -> ValueNone
 
-    member this.TyparArity: int =
+    /// Declared typars in source order.
+    member this.TyparKinds: EqArray<TyparKind> =
         match this with
-        | Class info -> info.TyparArity
-        | Intrinsic s -> s.Id.TyparArity
-        | IntrinsicInterface s -> s.TyparArity
-        | Enum _ -> 0 // enums are never generic
-        | Record r -> r.Arity
-        | Union u -> u.Arity
-        | Abbrev(arity = a)
-        | Unmodelled(arity = a) -> a
+        | Class info -> info.Typars
+        | Intrinsic s -> s.Id.Typars
+        | IntrinsicInterface s -> s.Typars
+        | Enum _ -> EqArray.empty // enums are never generic
+        | Record r -> r.Typars
+        | Union u -> u.Typars
+        | Abbrev(typars = ts)
+        | Unmodelled(typars = ts) -> ts
+
+    member this.TyparArity: int = this.TyparKinds.Length
 
     /// The type this abbreviation ALIASES: its body is a keyed type applied to the
     /// abbreviation's own type parameters, each exactly once (`Box<int>` is not an alias).
     member this.AliasedKey: TypeKey voption =
         match this with
-        | Abbrev(arity, FTKeyed(key, args)) when args.Length = arity ->
+        | Abbrev(typars, FTKeyed(key, args)) when args.Length = typars.Length ->
+            let arity = typars.Length
             let seen = Array.zeroCreate<bool> arity
 
             let isAlias =

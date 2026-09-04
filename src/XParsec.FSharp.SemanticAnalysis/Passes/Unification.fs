@@ -64,7 +64,7 @@ module Unification =
     /// method's — and a seed typar already linked to a concrete type is no longer one.
     let private canonicalMemberTypars
         (ctx: PassContext)
-        (declTypars: EqArray<string * TyVarId>)
+        (declTypars: EqArray<DeclaredTypar>)
         (mInfo: TypeMemberInfo)
         (memberTy: SemType)
         : GeneralizedTypars =
@@ -76,8 +76,8 @@ module Unification =
         // Zonked HERE because a class typar's root can move while a body types.
         let fixedRoots = HashSet<TyVarId>()
 
-        for (_, ptv) in declTypars do
-            match rootOf ptv with
+        for tp in declTypars do
+            match rootOf tp.TyVar with
             | ValueSome r -> fixedRoots.Add r.Id |> ignore
             | ValueNone -> ()
 
@@ -88,9 +88,9 @@ module Unification =
         let declared =
             seed
             |> List.truncate mInfo.DeclaredTyparCount
-            |> List.choose (fun (name, ptv) ->
-                match rootOf ptv with
-                | ValueSome r when (ctx.Store.Link r).IsNone -> Some(name, r.Id)
+            |> List.choose (fun tp ->
+                match rootOf tp.TyVar with
+                | ValueSome r when (ctx.Store.Link r).IsNone -> Some { tp with TyVar = r.Id }
                 | _ -> None
             )
 
@@ -99,11 +99,11 @@ module Unification =
         // only for an unregistered root.
         let knownNames = Dictionary<TyVarId, string>()
 
-        for (name, ptv) in seed do
-            match rootOf ptv with
+        for tp in seed do
+            match rootOf tp.TyVar with
             | ValueSome r ->
                 if not (knownNames.ContainsKey r.Id) then
-                    knownNames.[r.Id] <- name
+                    knownNames.[r.Id] <- tp.Name
             | ValueNone -> ()
 
         GeneralizedTypars.canonical ctx.Store declared fixedRoots knownNames (zonk ctx.Store memberTy)
@@ -138,7 +138,7 @@ module Unification =
     [<NoEquality; NoComparison>]
     type private TypeMembersFill =
         {
-            TypeParams: EqArray<string * TyVarId>
+            TypeParams: EqArray<DeclaredTypar>
             Members: TypeMemberInfo[]
             ThisKey: NodeKey
             MkSelfType: EqArray<SemType> -> SemType
@@ -151,7 +151,7 @@ module Unification =
     let private generaliseMemberTypars
         (ctx: PassContext)
         (outerLevel: int)
-        (classTypars: EqArray<string * TyVarId>)
+        (classTypars: EqArray<DeclaredTypar>)
         (mInfo: TypeMemberInfo)
         : unit =
         match mInfo.Type with
@@ -246,7 +246,7 @@ module Unification =
             // mentioning `'a` shares identity with them.
             let thisTv = ctx.NewTypeVar()
             ctx.Store.SetLevel(UnionFind.find ctx.Store thisTv, ctx.CurrentLevel)
-            let selfArgs = EqArray.ofSeq (seq { for (_, ptv) in fc.TypeParams -> TyVar ptv })
+            let selfArgs = EqArray.ofSeq (seq { for tp in fc.TypeParams -> TyVar tp.TyVar })
             ctx.Store.SetLink(UnionFind.find ctx.Store thisTv, ValueSome(fc.MkSelfType selfArgs))
             ctx.Bindings.TypeVar.Set(fc.ThisKey, thisTv)
 
@@ -270,8 +270,8 @@ module Unification =
                 | Some mInfo when not mInfo.SeedTypars.IsEmpty ->
                     let seed = Dictionary<string, TyVarId>(System.StringComparer.Ordinal)
 
-                    for (n, ptv) in mInfo.SeedTypars do
-                        seed.[n] <- ptv
+                    for tp in mInfo.SeedTypars do
+                        seed.[tp.Name] <- tp.TyVar
 
                     ctx.Resolution.BindingTyparSeed <- ValueSome seed
 
@@ -281,8 +281,8 @@ module Unification =
                     let memberEnclosing =
                         Dictionary<string, TyVarId>(classScope, System.StringComparer.Ordinal)
 
-                    for (n, ptv) in mInfo.SeedTypars do
-                        memberEnclosing.[n] <- ptv
+                    for tp in mInfo.SeedTypars do
+                        memberEnclosing.[tp.Name] <- tp.TyVar
 
                     ctx.Resolution.EnclosingTypars <- ValueSome memberEnclosing
                 | _ -> ()
@@ -333,8 +333,8 @@ module Unification =
                                         System.StringComparer.Ordinal
                                     )
 
-                                for (n, ptv) in mInfo.SeedTypars do
-                                    extended.[n] <- ptv
+                                for tp in mInfo.SeedTypars do
+                                    extended.[tp.Name] <- tp.TyVar
 
                                 extended
 
@@ -864,7 +864,7 @@ module Unification =
     /// and method-typar arity are an unreachable duplicate rather than a legal overload.
     /// `Show(int)` / `Show(string)` coexist; `M(int)` declared twice collides.
     let private checkDuplicateMembers (ctx: PassContext) : unit =
-        let checkHost (typeParams: EqArray<string * TyVarId>) (members: TypeMemberInfo[]) =
+        let checkHost (typeParams: EqArray<DeclaredTypar>) (members: TypeMemberInfo[]) =
             let seen = HashSet<_>(HashIdentity.Structural)
 
             for m in members do

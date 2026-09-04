@@ -209,7 +209,7 @@ module NameResolutionMemberRegistration =
             isStatic
             isOverride
             (mSite: NodeSite)
-            (seed: EqArray<string * TyVarId>)
+            (seed: EqArray<DeclaredTypar>)
             declaredCount
             : TypeMemberInfo =
             let tv = ctx.NewTypeVar()
@@ -237,7 +237,7 @@ module NameResolutionMemberRegistration =
 
             // The count marks the leading `explicit` prefix of the seed: only those are
             // "declared-first"; the implicit ones order by appearance per the F# rule.
-            let seed = mkTypeParams ctx.Store (explicit @ implicit)
+            let seed = mkMethodTypars ctx.Store (explicit @ implicit)
 
             addMember mName kind isStatic isOverride mSite seed (List.length explicit)
             |> ignore
@@ -260,7 +260,7 @@ module NameResolutionMemberRegistration =
 
         let registerAbstractSlot (mName: string) (mTok: SyntaxToken) tds isStatic kind =
             let explicit = memberTyparNames ctx tds
-            let seed = mkTypeParams ctx.Store explicit
+            let seed = mkMethodTypars ctx.Store explicit
             // An `abstract` signature is a slot declaration, never an override.
             addMember mName kind isStatic false (NodeSite.ofToken NodeKind.PatIdent mTok) seed (List.length explicit)
             |> ignore
@@ -497,8 +497,8 @@ module NameResolutionMemberRegistration =
             let tn, pc, asD, body = d.TypeName, d.PrimaryConstr, d.AsDefn, d.Body
             let name = id.Name
             let declKey = id.DeclSite.Key
-            let classTyparNames = typarNamesOfTypeName ctx tn
-            let typeParams = mkTypeParams ctx.Store classTyparNames
+            let typeParams = declaredTyparsOfTypeName ctx tn
+            let classTyparNames = EqArray.toList (DeclaredTypar.names typeParams)
 
             // One entry into the class typar scope, so a `'a` in a ctor param, a `val` field
             // or a secondary ctor's parameter all bind the same prototype TyVar.
@@ -726,8 +726,8 @@ module NameResolutionMemberRegistration =
     /// union or record; must run after the type itself is registered. The extraction is
     /// kind-agnostic, so only the write-back target differs and each arm sets its own `info`.
     let private registerNominalMember (ctx: PassContext) (id: TypeIdentity) (td: TypeDefn<SyntaxToken>) : unit =
-        let extract (typeParams: EqArray<string * TyVarId>) elems =
-            let typarNames = [ for (n, _) in typeParams -> n ]
+        let extract (typeParams: EqArray<DeclaredTypar>) elems =
+            let typarNames = EqArray.toList (DeclaredTypar.names typeParams)
 
             {|
                 Members = extractMembers ctx id.DeclSite.Tok typarNames elems

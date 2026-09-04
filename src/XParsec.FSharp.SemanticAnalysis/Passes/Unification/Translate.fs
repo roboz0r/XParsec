@@ -221,9 +221,8 @@ module internal UnificationTranslate =
         let n = min (info.TypeParams.Length) args.Length
 
         for i = 0 to n - 1 do
-            let (_, protoTv) = info.TypeParams.[i]
             let arg = args.[i]
-            let protoRoot = UnionFind.find ctx.Store protoTv
+            let protoRoot = UnionFind.find ctx.Store info.TypeParams.[i].TyVar
 
             for c in ctx.Store.Constraints.Items protoRoot do
                 match checkConstraint ctx c arg with
@@ -519,9 +518,9 @@ module internal UnificationTranslate =
             info.State <- AbbreviationState.InProgress
             let scope = Dictionary<string, TyVarId>(System.StringComparer.Ordinal)
 
-            for (n, tv) in info.TypeParams do
-                if not (scope.ContainsKey n) then
-                    scope.[n] <- tv
+            for tp in info.TypeParams do
+                if not (scope.ContainsKey tp.Name) then
+                    scope.[tp.Name] <- tp.TyVar
 
             use _ = ctx.PushTyparScope(scope, true)
 

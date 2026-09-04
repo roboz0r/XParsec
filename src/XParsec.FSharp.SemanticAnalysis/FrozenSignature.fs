@@ -181,7 +181,8 @@ module FrozenSignature =
             | ExportedTypeDecl td ->
                 let typeKey = td.TypeKey
                 let key = SymbolKey.Type typeKey
-                let arity = td.TypeParams.Length
+                let typars = TTypeParam.kinds td.TypeParams
+                let arity = typars.Length
                 let origin = originIn typeKey.Namespace
 
                 let register (shape: ExternalTypeShape) (members: ResizeArray<ExternalMember> voption) =
@@ -213,7 +214,7 @@ module FrozenSignature =
                     register
                         (ExternalTypeShape.Record
                             {
-                                Arity = arity
+                                Typars = typars
                                 Fields = fieldShapes
                                 Origin = origin
                                 IsValueType = valueKind.IsValueType
@@ -231,7 +232,7 @@ module FrozenSignature =
                     register
                         (ExternalTypeShape.Union
                             {
-                                Arity = arity
+                                Typars = typars
                                 Cases = caseShapes
                                 Interfaces = EqArray.empty
                                 Origin = origin
@@ -246,7 +247,7 @@ module FrozenSignature =
 
                     let shape: ExternalClassShape =
                         {
-                            TyparArity = arity
+                            Typars = typars
                             Commitment = ClassCommitment.Class
                             Members = EqArray.ofResizeArray members
                             // Neither clause is DROPPED: inference stamps one only once it
@@ -280,7 +281,7 @@ module FrozenSignature =
 
                     let shape: ExternalClassShape =
                         {
-                            TyparArity = arity
+                            Typars = typars
                             Commitment = ClassCommitment.Interface
                             Members = EqArray.ofResizeArray members
                             FrozenInterfaces = EqArray.empty
@@ -319,7 +320,7 @@ module FrozenSignature =
 
                 // The frozen RHS already carries the declaring typars on the `Declaring`
                 // axis, which is the axis a use site instantiates against.
-                | TTypeKindG.Abbrev body -> register (ExternalTypeShape.Abbrev(arity, body)) ValueNone
+                | TTypeKindG.Abbrev body -> register (ExternalTypeShape.Abbrev(typars, body)) ValueNone
 
             | _ -> ()
 
@@ -379,7 +380,9 @@ module FrozenSignature =
                             Id =
                                 {
                                     Canon = typeKey
-                                    TyparArity = typeKey.TyparArity
+                                    // An intrinsic BINDING is `type x = (# "…" #)`, whose typars
+                                    // are the structural constructors' (`'T []`, `byref`).
+                                    Typars = TyparKinds.typeOnly typeKey.TyparArity
                                     Platform = IntrinsicPlatform.Bound binding.TypeId
                                 }
                             Class =
@@ -393,7 +396,11 @@ module FrozenSignature =
                         }
                 else
                     ExternalTypeShape.Intrinsic(
-                        IntrinsicShape.Scalar(typeKey, typeKey.TyparArity, IntrinsicPlatform.Bound binding.TypeId)
+                        IntrinsicShape.Scalar(
+                            typeKey,
+                            TyparKinds.typeOnly typeKey.TyparArity,
+                            IntrinsicPlatform.Bound binding.TypeId
+                        )
                     )
 
             PublishedSurfaceBuilder.addType surface typeKey shape

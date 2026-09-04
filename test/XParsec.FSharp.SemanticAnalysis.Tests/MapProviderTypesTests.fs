@@ -53,7 +53,7 @@ let private typeByName (name: string) : ExternalTypeShape voption =
     | "Cls" ->
         ValueSome(
             ExternalTypeShape.Class
-                { ExternalClassShape.basic (0, ClassCommitment.Class, origin) with
+                { ExternalClassShape.basic (TyparKinds.typeOnly 0, ClassCommitment.Class, origin) with
                     Members = EqArray.singleton markerMember
                     FrozenInterfaces =
                         EqArray.singleton (
@@ -67,7 +67,7 @@ let private typeByName (name: string) : ExternalTypeShape voption =
         ValueSome(
             ExternalTypeShape.Record
                 {
-                    Arity = 1
+                    Typars = TyparKinds.typeOnly 1
                     Fields =
                         EqArray.singleton
                             {
@@ -84,7 +84,7 @@ let private typeByName (name: string) : ExternalTypeShape voption =
         ValueSome(
             ExternalTypeShape.Union
                 {
-                    Arity = 1
+                    Typars = TyparKinds.typeOnly 1
                     Cases = EqArray.singleton markerCase
                     Interfaces =
                         EqArray.singleton (
@@ -95,7 +95,7 @@ let private typeByName (name: string) : ExternalTypeShape voption =
                     RequiresQualifiedAccess = false
                 }
         )
-    | "Abb" -> ValueSome(ExternalTypeShape.Abbrev(1, marker))
+    | "Abb" -> ValueSome(ExternalTypeShape.Abbrev(TyparKinds.typeOnly 1, marker))
     | _ -> ValueNone
 
 let private memberByName (t: string) (m: string) : ExternalMember voption =

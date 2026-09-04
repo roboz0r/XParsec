@@ -153,7 +153,7 @@ type PassContextBindings =
         /// "Program" one) the emitted static method belongs to.
         ModuleMembers: Dictionary<BoundVarKey, ModuleBindingInfo>
         /// Keyed by the binding's pattern `NodeKey`, in SOURCE order, which is the method-typar order.
-        DeclaredTypars: SideTable<(string * TyVarId) list>
+        DeclaredTypars: SideTable<DeclaredTypar list>
         /// Top-level EXPORTED entities only, because a type MEMBER's accessibility is carried on
         /// the member. Un-thresholded: each export filter applies its own.
         Accessibility: Dictionary<SymbolKey, Accessibility>

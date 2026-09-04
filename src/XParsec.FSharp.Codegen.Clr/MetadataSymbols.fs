@@ -525,7 +525,7 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
 
                     let shape: ExternalClassShape =
                         {
-                            TyparArity = arity
+                            Typars = TyparKinds.typeOnly arity
                             Commitment = ClassCommitment.ofIsInterface t.IsInterface
                             Members = enumerateClassMembers t
                             FrozenInterfaces = buildClassInterfaces t

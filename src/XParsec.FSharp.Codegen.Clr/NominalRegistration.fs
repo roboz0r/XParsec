@@ -27,7 +27,7 @@ module internal NominalRegistration =
 
             if not td.TypeParams.IsEmpty then
                 let fields = caseFields ud c
-                provider.RegisterGenericClass(caseKey, td.TypeParams, List.length fields, fields)
+                provider.RegisterGenericClass(caseKey, TTypeParam.names td.TypeParams, List.length fields, fields)
 
     let private registerUnion (provider: ClrProvider) (handles: LayoutHandles) (ud: UnionDecl) : unit =
         let td = ud.Decl
@@ -41,7 +41,7 @@ module internal NominalRegistration =
 
         if not td.TypeParams.IsEmpty then
             let shape = [ for c in ud.Cases -> c.Name, caseFields ud c ]
-            provider.RegisterGenericUnion(td.TypeKey, td.TypeParams, shape, ud.ValueKind)
+            provider.RegisterGenericUnion(td.TypeKey, TTypeParam.names td.TypeParams, shape, ud.ValueKind)
 
     let private registerRecord (provider: ClrProvider) (handles: LayoutHandles) (rd: RecordDecl) : unit =
         let td = rd.Decl
@@ -52,7 +52,7 @@ module internal NominalRegistration =
 
         if not td.TypeParams.IsEmpty then
             let shape = [ for f in rd.Fields -> f.Name, f.Type ]
-            provider.RegisterGenericRecord(td.TypeKey, td.TypeParams, shape)
+            provider.RegisterGenericRecord(td.TypeKey, TTypeParam.names td.TypeParams, shape)
 
     let private registerClass (provider: ClrProvider) (handles: LayoutHandles) (cd: ClassDecl) : unit =
         let td = cd.Decl
@@ -73,7 +73,12 @@ module internal NominalRegistration =
                 @ [ for l in TPreambleEntryG.lets cd.InstancePreamble -> l.Name, l.Type ]
                 @ [ for sl in TPreambleEntryG.lets cd.StaticPreamble -> sl.Name, sl.Type ]
 
-            provider.RegisterGenericClass(td.TypeKey, td.TypeParams, List.length ctorParamFields, shape)
+            provider.RegisterGenericClass(
+                td.TypeKey,
+                TTypeParam.names td.TypeParams,
+                List.length ctorParamFields,
+                shape
+            )
 
     /// Every nominal, module function and generic closure one file declares.
     let apply (provider: ClrProvider) (handles: LayoutHandles) (file: FileLayout) : unit =
@@ -95,7 +100,7 @@ module internal NominalRegistration =
             provider.RegisterUserType(td.TypeKey, toEntity (handles.TypeDefOf(TypeSlotKey.Nominal td.Key)))
 
             if not td.TypeParams.IsEmpty then
-                provider.RegisterGenericClass(td.TypeKey, td.TypeParams, 0, [])
+                provider.RegisterGenericClass(td.TypeKey, TTypeParam.names td.TypeParams, 0, [])
 
         // Numeric enums (a `System.Enum` subclass) and string/mixed ones (a `[<Struct>]`
         // wrapper) are both project-local value types → `ELEMENT_TYPE_VALUETYPE`.

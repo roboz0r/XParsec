@@ -50,7 +50,7 @@ module JsNativeSymbols =
     let private errorShape: ExternalTypeShape =
         ExternalTypeShape.Class
             {
-                TyparArity = 0
+                Typars = EqArray.empty
                 Commitment = ClassCommitment.Class
                 Members = EqArray.ofSeq [ errorCtor; errorMessage ]
                 FrozenInterfaces = EqArray.empty

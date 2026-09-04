@@ -433,10 +433,31 @@ module FrozenCodecDecls =
             w.Write 5uy
             writeTypeRef w body
 
+    let private writeTypeParams (w: FrozenWriter) (ps: EqArray<TTypeParam>) =
+        writeEqArrayWith
+            w
+            (fun w (p: TTypeParam) ->
+                w.Write p.Name
+                writeTyparKind w p.Kind
+            )
+            ps
+
+    let private readTypeParams (r: FrozenReader) : EqArray<TTypeParam> =
+        EqArray.ofArray (
+            readArrayWith
+                r
+                (fun r ->
+                    let name = r.ReadString()
+                    let kind = readTyparKind r
+
+                    { Name = name; Kind = kind }: TTypeParam
+                )
+        )
+
     let writeTypeDecl (w: FrozenWriter) (td: PooledTypeDecl) =
         w.Write td.Name
         writeTypeKeyRef w td.TypeKey
-        writeStringArray w td.TypeParams
+        writeTypeParams w td.TypeParams
         writeTypeKind w td.Kind
         writeTAttributes w td.Attributes
 
@@ -542,7 +563,7 @@ module FrozenCodecDecls =
     let readTypeDecl (r: FrozenReader) : PooledTypeDecl =
         let name = r.ReadString()
         let typeKey = readTypeKeyRef r
-        let typeParams = readStringArray r
+        let typeParams = readTypeParams r
         let kind = readTypeKind r
         let attributes = readTAttributes r
 

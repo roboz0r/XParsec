@@ -127,7 +127,7 @@ module UnificationEngineCore =
     /// unsubstituted rather than silently pairing the wrong ones.
     let mkNamedTypeSubst
         (store: TypeStore)
-        (typeParams: EqArray<string * TyVarId>)
+        (typeParams: EqArray<DeclaredTypar>)
         (args: EqArray<SemType>)
         : Dictionary<TyVarId, SemType> =
         let subst = Dictionary<TyVarId, SemType>()
@@ -135,15 +135,15 @@ module UnificationEngineCore =
         if typeParams.Length = args.Length then
             let mutable i = 0
 
-            for (_, tp) in typeParams do
-                subst.[(UnionFind.find store tp).Id] <- args.[i]
+            for tp in typeParams do
+                subst.[(UnionFind.find store tp.TyVar).Id] <- args.[i]
                 i <- i + 1
 
         subst
 
     let instantiateMember
         (store: TypeStore)
-        (typeParams: EqArray<string * TyVarId>, args: EqArray<SemType>)
+        (typeParams: EqArray<DeclaredTypar>, args: EqArray<SemType>)
         (ty: SemType)
         : SemType =
         substituteWith store (mkNamedTypeSubst store typeParams args) ty
@@ -172,14 +172,14 @@ module UnificationEngineCore =
     /// member's OWN `methodTypars`, so one call site cannot ground the shared prototype.
     let instantiateMemberCall
         (ctx: PassContext)
-        (typeParams: EqArray<string * TyVarId>, args: EqArray<SemType>)
-        (methodTypars: EqArray<string * TyVarId>)
+        (typeParams: EqArray<DeclaredTypar>, args: EqArray<SemType>)
+        (methodTypars: EqArray<DeclaredTypar>)
         (ty: SemType)
         : SemType =
         let subst = mkNamedTypeSubst ctx.Store typeParams args
 
-        for (_, ptv) in methodTypars do
-            let root = UnionFind.find ctx.Store ptv
+        for tp in methodTypars do
+            let root = UnionFind.find ctx.Store tp.TyVar
 
             if (ctx.Store.Link root).IsNone && not (subst.ContainsKey root.Id) then
                 subst.[root.Id] <- TyVar(freshConstrainedTyVar ctx (ctx.Store.Constraints.Items root))
@@ -216,7 +216,7 @@ module UnificationEngineCore =
         {
             DeclKey: TypeKey
             DeclaringTy: SemType
-            TypeParams: EqArray<string * TyVarId>
+            TypeParams: EqArray<DeclaredTypar>
             Args: EqArray<SemType>
             /// Non-static, in declaration order; never empty.
             Candidates: TypeMemberInfo[]

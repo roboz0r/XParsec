@@ -900,7 +900,7 @@ let tests =
                     |> Option.defaultWith (fun () -> failwithf "expected a TDecl.Type, got %A" tast.Decls)
 
                 Expect.equal typeDecl.Name "Box" "type name"
-                Expect.equal (EqArray.toList typeDecl.TypeParams) [ "'a" ] "one declared typar"
+                Expect.equal (EqArray.toList (TTypeParam.names typeDecl.TypeParams)) [ "'a" ] "one declared typar"
 
                 match typeDecl.Kind with
                 | TTypeKind.Class c ->

@@ -56,7 +56,7 @@ type TypeMemberInfo
         isStatic: bool,
         ty: SemType,
         declSite: NodeSite,
-        seedTypars: EqArray<string * TyVarId>,
+        seedTypars: EqArray<DeclaredTypar>,
         declaredTyparCount: int
     ) =
     member val Name = name
@@ -69,7 +69,7 @@ type TypeMemberInfo
     member val Type = ty
     member val DeclSite = declSite
 
-    member _.SeedTypars: EqArray<string * TyVarId> = seedTypars
+    member _.SeedTypars: EqArray<DeclaredTypar> = seedTypars
 
     /// How many LEADING entries of `SeedTypars` are the member's explicitly-declared
     /// `<'C, …>` typars, in source order. The implicit ones behind them are not declared.
@@ -89,7 +89,7 @@ type TypeMemberInfo
 
     /// Falls back to the seed because a forward reference within a class can call a member
     /// before it is generalised.
-    member this.EffectiveMethodTypars: EqArray<string * TyVarId> =
+    member this.EffectiveMethodTypars: EqArray<DeclaredTypar> =
         match this.canonical with
         | ValueSome gt -> EqArray.ofArray (GeneralizedTypars.toArray gt)
         | ValueNone -> seedTypars
@@ -169,7 +169,7 @@ type IInterfaceImplHost =
     abstract member Key: SymbolKey
     abstract member TypeKey: TypeKey
     abstract member DeclSite: NodeSite
-    abstract member TypeParams: EqArray<string * TyVarId>
+    abstract member TypeParams: EqArray<DeclaredTypar>
     /// Source-text name bound to `this` inside member / impl bodies: `"this"` unless
     /// an `as`-bound variable renamed it.
     abstract member ThisName: string
@@ -188,7 +188,7 @@ type IInterfaceImplHost =
 type RecordTypeInfo
     (
         name: string,
-        typeParams: EqArray<string * TyVarId>,
+        typeParams: EqArray<DeclaredTypar>,
         fields: RecordFieldInfo[],
         declSite: NodeSite,
         typarConstraints: TyparConstraints<SyntaxToken> voption,
@@ -242,7 +242,7 @@ type RecordTypeInfo
 type UnionTypeInfo
     (
         name: string,
-        typeParams: EqArray<string * TyVarId>,
+        typeParams: EqArray<DeclaredTypar>,
         cases: UnionCaseInfo[],
         declSite: NodeSite,
         typarConstraints: TyparConstraints<SyntaxToken> voption,
@@ -297,7 +297,7 @@ type UnionTypeInfo
 /// identity: this is not a nominal registration.
 [<Sealed>]
 type IntrinsicAbbrevInfo
-    (name: string, typeParams: EqArray<string * TyVarId>, declSite: NodeSite, key: TypeKey, selfKey: TypeKey) =
+    (name: string, typeParams: EqArray<DeclaredTypar>, declSite: NodeSite, key: TypeKey, selfKey: TypeKey) =
     member val Name = name
     member val TypeKey: TypeKey = key
     member this.Key: SymbolKey = SymbolKey.Type this.TypeKey
@@ -372,7 +372,7 @@ type AbbreviationState =
 type AbbreviationInfo
     (
         name: string,
-        typeParams: EqArray<string * TyVarId>,
+        typeParams: EqArray<DeclaredTypar>,
         rhsCst: Type<SyntaxToken>,
         declSite: NodeSite,
         typarConstraints: TyparConstraints<SyntaxToken> voption,
@@ -457,7 +457,7 @@ type ClassSecondaryCtorInfo(declKey: NodeKey, parms: ClassCtorParamInfo[], body:
 type ClassTypeInfo
     (
         name: string,
-        typeParams: EqArray<string * TyVarId>,
+        typeParams: EqArray<DeclaredTypar>,
         ctorParams: ClassCtorParamInfo[],
         members: TypeMemberInfo[],
         declSite: NodeSite,

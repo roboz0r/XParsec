@@ -69,7 +69,6 @@ module SignatureResolution =
         | ValueNone -> ()
         | ValueSome info ->
             let env = typarEnv ctx (TyparOwner.Type info.TypeParams)
-            let arity = info.TypeParams.Length
 
             let fields =
                 EqArray.ofSeq
@@ -88,7 +87,7 @@ module SignatureResolution =
                 key
                 (ExternalTypeShape.Record
                     {
-                        Arity = arity
+                        Typars = DeclaredTypar.kinds info.TypeParams
                         Fields = fields
                         Origin = SymbolOrigin.Empty
                         IsValueType = info.IsValueType
@@ -112,7 +111,6 @@ module SignatureResolution =
         | ValueNone -> ()
         | ValueSome info ->
             let env = typarEnv ctx (TyparOwner.Type info.TypeParams)
-            let arity = info.TypeParams.Length
 
             let cases =
                 EqArray.ofSeq
@@ -143,7 +141,7 @@ module SignatureResolution =
                 key
                 (ExternalTypeShape.Union
                     {
-                        Arity = arity
+                        Typars = DeclaredTypar.kinds info.TypeParams
                         Cases = cases
                         Interfaces = interfaces
                         Origin = SymbolOrigin.Empty
@@ -187,7 +185,7 @@ module SignatureResolution =
                     id.Key
                     (ExternalTypeShape.Unmodelled(
                         UnmodelledReason.ExtractionFailed(sprintf "enum case '%s' has no constant value" name),
-                        0
+                        EqArray.empty
                     ))
             | ValueNone ->
                 publishShape sctx id.Key (ExternalTypeShape.Enum(EqArray.ofResizeArray shapes, SymbolOrigin.Empty))
@@ -210,13 +208,14 @@ module SignatureResolution =
                 | AbbreviationState.Broken ->
                     ExternalSignature.unfreezable (sprintf "abbreviation '%s' has no body" id.Name)
 
-            publishShape sctx id.Key (ExternalTypeShape.Abbrev(info.TypeParams.Length, body))
+            publishShape sctx id.Key (ExternalTypeShape.Abbrev(DeclaredTypar.kinds info.TypeParams, body))
 
     /// `type t = (# "…" #)` written in a SIGNATURE: the same primitive binding it is in an
     /// implementation, and registering its entry already filed the binding below.
     let private publishIntrinsicAbbrev
         (sctx: SigCtx)
         (id: TypeIdentity)
+        (tn: TypeName<SyntaxToken>)
         (kindTag: ExternKind<SyntaxToken> voption)
         : unit =
         let ctx = sctx.Pass
@@ -233,7 +232,11 @@ module SignatureResolution =
             | _ -> ExternForm.Opaque
 
         PublishedSurfaceBuilder.addExternForm sctx.Surface canon declared
-        publishShape sctx id.Key (ExternalTypeShape.Intrinsic(IntrinsicShape.Scalar(canon, id.TyparArity, platform)))
+
+        publishShape
+            sctx
+            id.Key
+            (ExternalTypeShape.Intrinsic(IntrinsicShape.Scalar(canon, typarKindsOfTypeName ctx tn, platform)))
 
     // --- `extern` -------------------------------------------------------------------------
 
@@ -325,13 +328,14 @@ module SignatureResolution =
     let private publishCapability
         (sctx: SigCtx)
         (id: TypeIdentity)
+        (typars: EqArray<TyparKind>)
         (platform: IntrinsicPlatform)
         (surface: BodiedSurface voption)
         : unit =
         let shape =
             match surface with
             | ValueSome s -> s.Shape
-            | ValueNone -> ExternalClassShape.basic (id.TyparArity, ClassCommitment.Interface, SymbolOrigin.Empty)
+            | ValueNone -> ExternalClassShape.basic (typars, ClassCommitment.Interface, SymbolOrigin.Empty)
 
         match platform with
         | IntrinsicPlatform.Bound typeId ->
@@ -341,7 +345,7 @@ module SignatureResolution =
                 (ExternalTypeShape.IntrinsicInterface
                     {
                         Canon = id.Key
-                        TyparArity = id.TyparArity
+                        Typars = shape.Typars
                         Platform = typeId
                         Members = shape.Members
                         Interfaces = shape.FrozenInterfaces
@@ -396,6 +400,7 @@ module SignatureResolution =
     let private publishExternPrimitive
         (sctx: SigCtx)
         (id: TypeIdentity)
+        (typars: EqArray<TyparKind>)
         (platform: IntrinsicPlatform)
         (classSurface: IntrinsicClassSurface voption)
         (members: seq<ExternalMember>)
@@ -408,7 +413,7 @@ module SignatureResolution =
                     Id =
                         {
                             Canon = TypeRegistry.intrinsicKeyOf sctx.Pass.Types id.Name
-                            TyparArity = id.TyparArity
+                            Typars = typars
                             Platform = platform
                         }
                     Class = classSurface
@@ -455,10 +460,16 @@ module SignatureResolution =
             | ValueSome s -> s.Members
             | ValueNone -> []
 
+        let typars =
+            match surface with
+            | ValueSome s -> s.Shape.Typars
+            | ValueNone -> typarKindsOfTypeName ctx tn
+
         match form with
-        | ExternForm.Capability -> publishCapability sctx id platform surface
-        | ExternForm.Heritable -> publishExternPrimitive sctx id platform (heritableSurface platform surface) members
-        | ExternForm.Opaque -> publishExternPrimitive sctx id platform (scalarSurface surface) members
+        | ExternForm.Capability -> publishCapability sctx id typars platform surface
+        | ExternForm.Heritable ->
+            publishExternPrimitive sctx id typars platform (heritableSurface platform surface) members
+        | ExternForm.Opaque -> publishExternPrimitive sctx id typars platform (scalarSurface surface) members
 
     // --- class-like ------------------------------------------------------------------------
 
@@ -488,12 +499,12 @@ module SignatureResolution =
 
     /// An opaque abstract type (`type T`) has no body shape. It resolves as a non-interface
     /// class, so codegen can mint a ref off the origin, and commits its name to no family.
-    let private publishOpaque (sctx: SigCtx) (id: TypeIdentity) : unit =
+    let private publishOpaque (sctx: SigCtx) (id: TypeIdentity) (tn: TypeName<SyntaxToken>) : unit =
         publishShape
             sctx
             id.Key
             (ExternalTypeShape.Class(
-                ExternalClassShape.basic (id.TyparArity, ClassCommitment.Opaque, SymbolOrigin.Empty)
+                ExternalClassShape.basic (typarKindsOfTypeName sctx.Pass tn, ClassCommitment.Opaque, SymbolOrigin.Empty)
             ))
 
     /// The unmodelled forms refused at their own declaration, matching the implementation
@@ -522,13 +533,13 @@ module SignatureResolution =
         let (TypeName(ident = nameLi)) = tn
 
         if nameLi.Idents.Length = 1 then
-            let arity = arityOfTypeName ctx tn
+            let typars = typarKindsOfTypeName ctx tn
             let name = ctx.NameOf nameLi.Idents.[0]
 
             let key =
-                SymbolKeyOps.typeKeyOfContainer (localTypeContainer ctx containment) name arity
+                SymbolKeyOps.typeKeyOfContainer (localTypeContainer ctx containment) name typars.Length
 
-            publishShape sctx key (ExternalTypeShape.Unmodelled(reason, arity))
+            publishShape sctx key (ExternalTypeShape.Unmodelled(reason, typars))
 
     /// The shape ONE claimed declaration publishes, once every declaration in its group has
     /// registered its detail: a field or case type may reference a sibling.
@@ -538,12 +549,12 @@ module SignatureResolution =
         | SigDecl.Union(extensions = ext) -> publishUnion sctx id ext
         | SigDecl.Enum _ -> publishEnum sctx id
         | SigDecl.Abbrev _ -> publishAbbrev sctx id
-        | SigDecl.IntrinsicAbbrev(kindTag = tag) -> publishIntrinsicAbbrev sctx id tag
+        | SigDecl.IntrinsicAbbrev(typeName = tn; kindTag = tag) -> publishIntrinsicAbbrev sctx id tn tag
         | SigDecl.Extern(typeName = tn; kindTag = kindTag; members = members) ->
             publishExtern sctx id tn kindTag members
         | SigDecl.ClassLike(typeName = tn; form = form; elements = elems) ->
             publishClassLike sctx id tn form (SigDecl.isInterfaceForm decl) elems
-        | SigDecl.Opaque _ -> publishOpaque sctx id
+        | SigDecl.Opaque tn -> publishOpaque sctx id tn
         // Claimed nothing, so it is not one of the identities this runs over; it published its
         // gap at claim time.
         | SigDecl.Delegate _
@@ -660,7 +671,7 @@ module SignatureResolution =
                 let implicit =
                     implicitTyparNames ctx explicit tds (fun it -> CstTypeWalk.iterTypeCurriedSig it csig)
 
-                let typeParams = mkTypeParams ctx.Store (explicit @ implicit)
+                let typeParams = mkMethodTypars ctx.Store (explicit @ implicit)
 
                 let domains, ret =
                     underTypars ctx EqArray.empty typeParams (fun () -> translateSigGroups ctx csig)

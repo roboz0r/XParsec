@@ -396,8 +396,8 @@ let testProviderResolves (path: string) =
                 // A generic alias (`Pair<A,B>`) resolves to an `Abbrev` whose arity equals
                 // its `typeParams`.
                 match ExternalSymbols.tryMetaType prov name with
-                | ValueSome(ExternalTypeShape.Abbrev(arity, _)) ->
-                    Expect.equal arity typeParams $"type alias '{name}' arity must equal its typeParams"
+                | ValueSome(ExternalTypeShape.Abbrev(typars, _)) ->
+                    Expect.equal typars.Length typeParams $"type alias '{name}' arity must equal its typeParams"
                 | _ -> ()
             | Schema.Export.Enum(name, _) ->
                 // The enum NAME resolves; its MEMBERS are stubbed on the provider, so only

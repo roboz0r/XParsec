@@ -111,12 +111,12 @@ module internal UnificationInferGeneralize =
     /// The order explicit type arguments are supplied in: declared typars in source order,
     /// then the scheme's remaining quantified roots by first appearance. Entries are
     /// union-find roots, so they index `Instantiation.Roots`.
-    let explicitTyparOrder (ctx: PassContext) (declared: (string * TyVarId) list) (scheme: TypeScheme) : TyVarId list =
+    let explicitTyparOrder (ctx: PassContext) (declared: DeclaredTypar list) (scheme: TypeScheme) : TyVarId list =
         let rootOf (tv: TyVarId) = (UnionFind.find ctx.Store tv).Id
         let quantified = HashSet<TyVarId>(scheme.Quantified |> Seq.map rootOf)
 
         let declaredQuantified =
-            declared |> List.filter (fun (_, tv) -> quantified.Contains(rootOf tv))
+            declared |> List.filter (fun tp -> quantified.Contains(rootOf tp.TyVar))
 
         GeneralizedTypars.canonical
             ctx.Store
@@ -125,7 +125,7 @@ module internal UnificationInferGeneralize =
             (Dictionary<TyVarId, string>() :> IReadOnlyDictionary<_, _>)
             scheme.Body
         |> GeneralizedTypars.toArray
-        |> Seq.map snd
+        |> Seq.map (fun tp -> tp.TyVar)
         |> Seq.filter quantified.Contains
         |> List.ofSeq
 

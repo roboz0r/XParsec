@@ -393,7 +393,7 @@ let interfaceTests =
                 | EqList [ TDecl.Type td ] ->
                     Expect.equal td.Name "Fun" "type name"
                     Expect.equal td.TypeKey.Namespace.Dotted "Vesper" "namespace"
-                    Expect.equal (EqArray.toList td.TypeParams) [ "'A"; "'B" ] "declared typars"
+                    Expect.equal (EqArray.toList (TTypeParam.names td.TypeParams)) [ "'A"; "'B" ] "declared typars"
 
                     match td.Kind with
                     | TTypeKind.Interface(EqList [ m ]) ->
@@ -420,7 +420,7 @@ let interfaceTests =
                 match tast.Decls with
                 | EqList [ TDecl.Type td ] ->
                     Expect.equal td.Name "Mapper" "type name"
-                    Expect.equal (EqArray.toList td.TypeParams) [ "'A" ] "declaring typar 'A only"
+                    Expect.equal (EqArray.toList (TTypeParam.names td.TypeParams)) [ "'A" ] "declaring typar 'A only"
 
                     match td.Kind with
                     | TTypeKind.Interface(EqList [ m ]) ->
@@ -583,7 +583,7 @@ let unionCaseSyntaxTests =
                 match union tast with
                 | [ (td, EqList [ empty; cons ]) ] ->
                     Expect.equal td.Name "List" "type name"
-                    Expect.equal (EqArray.toList td.TypeParams) [ "'T" ] "one declared typar"
+                    Expect.equal (EqArray.toList (TTypeParam.names td.TypeParams)) [ "'T" ] "one declared typar"
 
                     Expect.equal empty.Name "Empty" "`([])` is named Empty"
                     Expect.isTrue empty.Fields.IsEmpty "Empty is nullary"

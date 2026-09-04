@@ -168,7 +168,7 @@ module internal UnificationInferRecordAccess =
         (ctx: PassContext)
         (diagTok: SyntaxToken)
         (typeName: string)
-        (typeParams: EqArray<string * TyVarId>)
+        (typeParams: EqArray<DeclaredTypar>)
         (args: EqArray<SemType>)
         (members: TypeMemberInfo[])
         (memberName: string)

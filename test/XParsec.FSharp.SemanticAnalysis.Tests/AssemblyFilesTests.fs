@@ -1718,8 +1718,8 @@ module N =
                     "file 2 leaves no unresolved TyVar behind the abbreviation"
 
                 match ExternalSymbols.tryMetaType all.[0].View "Test.A.myalias" with
-                | ValueSome(ExternalTypeShape.Abbrev(arity, _)) ->
-                    Expect.equal arity 0 "`myalias` takes no type parameter"
+                | ValueSome(ExternalTypeShape.Abbrev(typars, _)) ->
+                    Expect.equal typars.Length 0 "`myalias` takes no type parameter"
                 | other -> failtestf "expected Test.A.myalias to publish as an abbreviation, got %A" other
             }
 
@@ -1752,8 +1752,8 @@ module N =
                     (sprintf "file 2 expands `pair<int>` to `int * int` (diagnostics: %A)" f2.Frozen.Residue.Diagnostics)
 
                 match ExternalSymbols.tryMetaType all.[0].View "Test.A.pair`1" with
-                | ValueSome(ExternalTypeShape.Abbrev(arity, _)) ->
-                    Expect.equal arity 1 "`pair` takes one type parameter"
+                | ValueSome(ExternalTypeShape.Abbrev(typars, _)) ->
+                    Expect.equal typars.Length 1 "`pair` takes one type parameter"
                 | other -> failtestf "expected Test.A.pair to publish as an abbreviation, got %A" other
             }
 

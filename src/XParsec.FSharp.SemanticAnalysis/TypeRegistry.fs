@@ -318,8 +318,8 @@ module TypeRegistry =
             | AbbreviationState.Filled(TyKeyed(k, args)) when args.Length = info.TypeParams.Length ->
                 let own = HashSet<TyVarId>()
 
-                for (_, tv) in info.TypeParams do
-                    own.Add tv |> ignore
+                for tp in info.TypeParams do
+                    own.Add tp.TyVar |> ignore
 
                 let isAlias =
                     args
@@ -599,13 +599,13 @@ module TypeRegistry =
     type NominalDecl =
         {
             TypeKey: TypeKey
-            TypeParams: EqArray<string * TyVarId>
+            TypeParams: EqArray<DeclaredTypar>
             Members: TypeMemberInfo[]
         }
 
     let private nominalDecl
         (typeKey: TypeKey)
-        (typeParams: EqArray<string * TyVarId>)
+        (typeParams: EqArray<DeclaredTypar>)
         (members: TypeMemberInfo[])
         : NominalDecl voption =
         ValueSome

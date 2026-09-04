@@ -308,7 +308,7 @@ let tests =
 
                 let info = expectRecord ctx "Box"
                 Expect.equal info.TypeParams.Length 1 "one typar"
-                Expect.equal (fst info.TypeParams.[0]) "'a" "name is 'a"
+                Expect.equal info.TypeParams.[0].Name "'a" "name is 'a"
             }
 
             test "generic record's field type shares typar identity" {
@@ -324,8 +324,7 @@ let tests =
                 Unification.run ctx file
 
                 let info = expectRecord ctx "Box"
-                let _, tparTv = info.TypeParams.[0]
-                let tparRoot = UnionFind.find ctx.Store tparTv
+                let tparRoot = UnionFind.find ctx.Store info.TypeParams.[0].TyVar
                 let fieldTy = Unification.zonk ctx.Store info.Fields.[0].Type
 
                 match fieldTy with
@@ -340,8 +339,8 @@ let tests =
 
                 let info = expectRecord ctx "Pair"
                 Expect.equal info.TypeParams.Length 2 "two typars"
-                Expect.equal (fst info.TypeParams.[0]) "'a" "first is 'a"
-                Expect.equal (fst info.TypeParams.[1]) "'b" "second is 'b"
+                Expect.equal info.TypeParams.[0].Name "'a" "first is 'a"
+                Expect.equal info.TypeParams.[1].Name "'b" "second is 'b"
             }
 
             test "generic union registers TypeParams" {
@@ -349,7 +348,7 @@ let tests =
 
                 let info = expectUnion ctx "Option"
                 Expect.equal info.TypeParams.Length 1 "one typar"
-                Expect.equal (fst info.TypeParams.[0]) "'a" "name is 'a"
+                Expect.equal info.TypeParams.[0].Name "'a" "name is 'a"
             }
 
             test "implicit free typar in type-def diagnoses" {
@@ -383,8 +382,8 @@ let tests =
                 match TypeRegistry.tryAbbrevArity ctx.Types UseSite.unbounded "Pair" 2 with
                 | ValueSome info ->
                     Expect.equal info.TypeParams.Length 2 "two typars"
-                    Expect.equal (fst info.TypeParams.[0]) "'a" "first is 'a"
-                    Expect.equal (fst info.TypeParams.[1]) "'b" "second is 'b"
+                    Expect.equal info.TypeParams.[0].Name "'a" "first is 'a"
+                    Expect.equal info.TypeParams.[1].Name "'b" "second is 'b"
                 | ValueNone -> failtest "abbreviation Pair not registered"
             }
 

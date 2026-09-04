@@ -349,6 +349,24 @@ type TTypeKindG<'ty, 'tok, 'id, 'body> =
     /// for this kind.
     | Abbrev of body: 'ty
 
+/// A declared type parameter as the frozen contract carries it.
+type TTypeParam =
+    {
+        /// Source-text name, leading `'`/`^` included (`'a`).
+        Name: string
+        Kind: TyparKind
+    }
+
+[<RequireQualifiedAccess>]
+module TTypeParam =
+
+    let ofDeclared (ts: EqArray<DeclaredTypar>) : EqArray<TTypeParam> =
+        ts |> EqArray.map (fun t -> { Name = t.Name; Kind = t.Kind })
+
+    let names (ps: EqArray<TTypeParam>) : EqArray<string> = ps |> EqArray.map (fun p -> p.Name)
+
+    let kinds (ps: EqArray<TTypeParam>) : EqArray<TyparKind> = ps |> EqArray.map (fun p -> p.Kind)
+
 /// `'body` abstracts how a member/preamble/ctor BODY is carried: either the expression tree
 /// itself (`TExprG<'ty,'tok,'id>`) or a dense id identifying that expression in a pool.
 type TTypeDeclG<'ty, 'tok, 'id, 'body> =
@@ -359,8 +377,8 @@ type TTypeDeclG<'ty, 'tok, 'id, 'body> =
         /// The type's stable nominal identity, carried into the backend so the emitted-type
         /// tables key off it instead of re-deriving a string.
         TypeKey: TypeKey
-        /// Declared type parameters in source order (e.g. `["'A"; "'B"]`).
-        TypeParams: EqArray<string>
+        /// Declared type parameters in source order.
+        TypeParams: EqArray<TTypeParam>
         Kind: TTypeKindG<'ty, 'tok, 'id, 'body>
         /// The declaration's attributes, resolved and constant-folded. The equality /
         /// comparison / qualified-access verdicts are views over this list.

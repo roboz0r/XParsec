@@ -49,6 +49,69 @@ let tests =
         "MeasureResolution"
         [
             testList
+                "a type parameter carries its kind"
+                [
+                    test "`[<Measure>]` on a typar registers it measure-kinded, a plain typar type-kinded" {
+                        let ctx, _ =
+                            analyseNameRes realProvider.Value "type Pair<[<Measure>] 'u, 'a> = { V: 'a }"
+
+                        let info = expectRecord ctx "Pair"
+
+                        Expect.equal
+                            [ for tp in info.TypeParams -> tp.Name, tp.Kind ]
+                            [ "'u", TyparKind.Measure; "'a", TyparKind.Type ]
+                            "the `[<Measure>]` attribute decides the kind"
+                    }
+
+                    test "a prefix typar (`'a Box`) is type-kinded" {
+                        let ctx, _ = analyseNameRes realProvider.Value "type 'a Box = { V: 'a }"
+                        let info = expectRecord ctx "Box"
+
+                        Expect.equal
+                            [ for tp in info.TypeParams -> tp.Name, tp.Kind ]
+                            [ "'a", TyparKind.Type ]
+                            "the prefix form has no attribute slot"
+                    }
+
+                    test "a declaration's kinds reach the frozen contract" {
+                        let frozen = freezeFor "type Pair<[<Measure>] 'u, 'a> = { V: 'a }\n"
+
+                        match (TastUnpool.ofPools frozen).Decls with
+                        | EqList [ TDeclG.Type td ] ->
+                            Expect.equal
+                                [ for p in td.TypeParams -> p.Name, p.Kind ]
+                                [ "'u", TyparKind.Measure; "'a", TyparKind.Type ]
+                                "the frozen declaration carries the kinds"
+                        | other -> failtestf "expected a single type declaration, got %A" other
+                    }
+
+                    // Both forms register no typar list, so their kinds are read off the `TypeName`.
+                    test "an `extern` declaration's kinds reach its published shape" {
+                        let r =
+                            SignatureResolutionTests.resolveFsi
+                                "M.fsi"
+                                "namespace Vesper\n\ntype carrier<[<Measure>] 'u> = extern\n"
+
+                        Expect.equal
+                            (EqArray.toList (SignatureResolutionTests.shapeOf r "carrier`1").TyparKinds)
+                            [ TyparKind.Measure ]
+                            "an extern primitive carries its declared kinds"
+                    }
+
+                    test "an opaque declaration's kinds reach its published shape" {
+                        let r =
+                            SignatureResolutionTests.resolveFsi
+                                "M.fsi"
+                                "namespace App\n\nmodule M =\n    type Carrier<[<Measure>] 'u>\n"
+
+                        Expect.equal
+                            (EqArray.toList (SignatureResolutionTests.shapeOf r "Carrier`1").TyparKinds)
+                            [ TyparKind.Measure ]
+                            "an opaque type carries its declared kinds"
+                    }
+                ]
+
+            testList
                 "the carrier resolves at arity 1 and the measure resolves as a type name"
                 [
                     test "every measured carrier accepts a declared measure" {

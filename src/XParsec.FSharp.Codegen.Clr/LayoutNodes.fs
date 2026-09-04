@@ -126,8 +126,8 @@ module internal LayoutNodes =
         }
 
     /// Metadata typar names: `'T` → `T`.
-    let private typarNames (typeParams: EqArray<string>) : string list =
-        [ for n in typeParams -> n.TrimStart('\'') ]
+    let private typarNames (typeParams: EqArray<TTypeParam>) : string list =
+        [ for p in typeParams -> p.Name.TrimStart('\'') ]
 
     /// An augmentation member's method row: an interface-impl member forces the
     /// virtual/new-slot/final attrs so the runtime binds it to the `InterfaceImpl`

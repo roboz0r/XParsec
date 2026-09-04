@@ -305,21 +305,19 @@ module UnificationInferOverload =
     /// (so the trial matcher binds them like external `openSignature`'s method vars).
     let userMemberParams
         (ctx: PassContext)
-        (typeParams: EqArray<string * TyVarId>)
+        (typeParams: EqArray<DeclaredTypar>)
         (args: EqArray<SemType>)
         (m: TypeMemberInfo)
         : SemType list =
         flatParamsOf ctx.Store (instantiateMemberCall ctx (typeParams, args) m.EffectiveMethodTypars m.Type)
 
-    /// Positional `TyVar root → axis index` map for a typar list, following any committed
-    /// `Link`. Used to freeze a member's parameter typars back to `FTTypar(axis, i)`.
-    let private frozenAxisEnv (store: TypeStore) (typars: EqArray<string * TyVarId>) : Dictionary<TyVarId, int> =
+    /// Positional `TyVar root → axis index` map for a typar list's PROTOTYPES, following any
+    /// committed `Link`. Used to freeze a member's parameter typars back to `FTTypar(axis, i)`.
+    let private frozenAxisEnv (store: TypeStore) (typars: EqArray<DeclaredTypar>) : Dictionary<TyVarId, int> =
         let d = Dictionary<TyVarId, int>()
 
         for i in 0 .. typars.Length - 1 do
-            let (_, ptv) = typars.[i]
-
-            match zonk store (TyVar ptv) with
+            match zonk store (TyVar typars.[i].TyVar) with
             | TyVar root ->
                 if not (d.ContainsKey root) then
                     d.[root] <- i
@@ -332,7 +330,7 @@ module UnificationInferOverload =
     /// structural, call-site-independent form an external member's argSig takes. `Show(int)` → `[int]`.
     let freezeUserMemberArgSig
         (store: TypeStore)
-        (declTypars: EqArray<string * TyVarId>)
+        (declTypars: EqArray<DeclaredTypar>)
         (m: TypeMemberInfo)
         : EqArray<FrozenType> =
         let declEnv = frozenAxisEnv store declTypars
@@ -365,7 +363,7 @@ module UnificationInferOverload =
     let frozenUserMemberKey
         (store: TypeStore)
         (declKey: TypeKey)
-        (declTypars: EqArray<string * TyVarId>)
+        (declTypars: EqArray<DeclaredTypar>)
         (m: TypeMemberInfo)
         : MemberKey =
         SymbolKeyOps.memberKeyOf
@@ -380,7 +378,7 @@ module UnificationInferOverload =
     /// overload (distinct param types / arity) mints a distinct key and coexists.
     let memberSignatureKey
         (store: TypeStore)
-        (declTypars: EqArray<string * TyVarId>)
+        (declTypars: EqArray<DeclaredTypar>)
         (m: TypeMemberInfo)
         : struct (string * bool * MemberKind * EqArray<FrozenType> * int) =
         struct (m.Name,
@@ -403,7 +401,7 @@ module UnificationInferOverload =
     /// `rankCandidates` over the value-parameter projection.
     let resolveMember
         (ctx: PassContext)
-        (typeParams: EqArray<string * TyVarId>)
+        (typeParams: EqArray<DeclaredTypar>)
         (args: EqArray<SemType>)
         (members: TypeMemberInfo[])
         (memberName: string)
@@ -604,7 +602,7 @@ module UnificationInferOverload =
         {
             DeclKey: TypeKey
             DeclaringTy: SemType
-            TypeParams: EqArray<string * TyVarId>
+            TypeParams: EqArray<DeclaredTypar>
             Member: TypeMemberInfo
             /// Instantiated for this call site.
             MemberTy: SemType

@@ -59,8 +59,8 @@ module internal ElaborateTypeDecls =
     /// The decl's freeze env: the declaring typars, extended in place with every generic
     /// method's own as the members elaborate. The cut from `TyVar` is deferred and applied to
     /// the whole decl at once.
-    let private mkDeclEnv (ctx: PassContext) (typeParams: EqArray<string * TyVarId>) : ResizeArray<TyVarId * SemType> =
-        ResizeArray(mkDeclTyparEnv ctx.Store typeParams)
+    let private mkDeclEnv (ctx: PassContext) (typeParams: EqArray<DeclaredTypar>) : ResizeArray<TyVarId * SemType> =
+        ResizeArray(mkDeclTyparEnv ctx.Store (DeclaredTypar.protos typeParams))
 
     /// What a host surfacer elaborates its members under: the decl's freeze env, its declaring
     /// typar names in declaration order, and its self-type.
@@ -76,12 +76,12 @@ module internal ElaborateTypeDecls =
     /// typars' `TyVar` roots.
     let private mkDeclScope
         (ctx: PassContext)
-        (typeParams: EqArray<string * TyVarId>)
+        (typeParams: EqArray<DeclaredTypar>)
         (mkSelfTy: EqArray<SemType> -> SemType)
         : DeclScope =
         {
             Env = mkDeclEnv ctx typeParams
-            DeclTypars = [ for (n, _) in typeParams -> n ]
+            DeclTypars = [ for tp in typeParams -> tp.Name ]
             SelfTy = mkSelfTy (declTyparArgs ctx.Store typeParams)
         }
 
@@ -97,7 +97,7 @@ module internal ElaborateTypeDecls =
         (name: string)
         (arity: int)
         (body: ObjectModelBody<SyntaxToken>)
-        : (EqArray<string> * EqArray<TAbstractMethod> * (TyVarId * SemType) list) option =
+        : (EqArray<DeclaredTypar> * EqArray<TAbstractMethod> * (TyVarId * SemType) list) option =
         let allAbstractMethods =
             not body.elements.IsEmpty
             && body.elements
@@ -144,12 +144,12 @@ module internal ElaborateTypeDecls =
                         }
                     )
 
-                Some(EqArray.ofSeq (seq { for (n, _) in info.TypeParams -> n }), methods, List.ofSeq env)
+                Some(info.TypeParams, methods, List.ofSeq env)
 
     let private mkTypeDecl
         (name: string)
         (key: TypeKey)
-        (typars: EqArray<string>)
+        (typars: EqArray<DeclaredTypar>)
         (attrs: TAttributes)
         (kind: TTypeKind)
         : TDecl =
@@ -157,7 +157,7 @@ module internal ElaborateTypeDecls =
             {
                 Name = name
                 TypeKey = key
-                TypeParams = typars
+                TypeParams = TTypeParam.ofDeclared typars
                 Kind = kind
                 Attributes = attrs
             }
@@ -187,7 +187,6 @@ module internal ElaborateTypeDecls =
                 mkDeclScope ctx info.TypeParams (fun args -> TyUnion(info.TypeKey, args))
 
             let env = scope.Env
-            let declTypars = scope.DeclTypars
             let elaborateOne = elaboratorOf scope
 
             let cases =
@@ -229,7 +228,7 @@ module internal ElaborateTypeDecls =
                 mkTypeDecl
                     name
                     info.TypeKey
-                    (EqArray.ofList declTypars)
+                    info.TypeParams
                     info.Attributes
                     (TTypeKind.Union
                         {
@@ -282,7 +281,7 @@ module internal ElaborateTypeDecls =
                 )
             | ValueNone -> ()
 
-            Some(mkTypeDecl name info.TypeKey (EqArray.ofList []) info.Attributes (TTypeKind.Enum tcases), [])
+            Some(mkTypeDecl name info.TypeKey EqArray.empty info.Attributes (TTypeKind.Enum tcases), [])
 
     /// Surface a `TypeDefn.Record` as a `TDecl.Type` from the resolved `RecordTypeInfo`.
     /// Field types are remapped through the declaring-type typars, as for a union.
@@ -307,7 +306,6 @@ module internal ElaborateTypeDecls =
                 mkDeclScope ctx info.TypeParams (fun args -> TyRecord(info.TypeKey, args))
 
             let env = scope.Env
-            let declTypars = scope.DeclTypars
             let elaborateOne = elaboratorOf scope
 
             let fields =
@@ -336,7 +334,7 @@ module internal ElaborateTypeDecls =
                 mkTypeDecl
                     name
                     info.TypeKey
-                    (EqArray.ofList declTypars)
+                    info.TypeParams
                     info.Attributes
                     (TTypeKind.Record
                         {
@@ -454,7 +452,6 @@ module internal ElaborateTypeDecls =
                 mkDeclScope ctx info.TypeParams (fun args -> TyClass(info.TypeKey, args))
 
             let env = scope.Env
-            let declTypars = scope.DeclTypars
             let selfTy = scope.SelfTy
             let elaborateOne = elaboratorOf scope
 
@@ -522,7 +519,7 @@ module internal ElaborateTypeDecls =
                 mkTypeDecl
                     name
                     info.TypeKey
-                    (EqArray.ofList declTypars)
+                    info.TypeParams
                     info.Attributes
                     (TTypeKind.Class
                         {
@@ -567,12 +564,12 @@ module internal ElaborateTypeDecls =
                     mkTypeDecl
                         name
                         info.TypeKey
-                        (EqArray.ofSeq (seq { for (n, _) in info.TypeParams -> n }))
+                        info.TypeParams
                         // A transparent alias carries no attributes of its own: every
                         // verdict is the body's.
                         EqArray.empty
                         (TTypeKind.Abbrev body),
-                    mkDeclTyparEnv ctx.Store info.TypeParams
+                    mkDeclTyparEnv ctx.Store (DeclaredTypar.protos info.TypeParams)
                 )
 
     /// An INTERNAL artifact for `type X = (# … #) with member …`, consumed only by
@@ -590,7 +587,6 @@ module internal ElaborateTypeDecls =
                 mkDeclScope ctx info.TypeParams (fun args -> TyConst(info.SelfKey, args))
 
             let env = scope.Env
-            let declTypars = scope.DeclTypars
             let elaborateOne = elaboratorOf scope
 
             let members, _ =
@@ -612,10 +608,7 @@ module internal ElaborateTypeDecls =
                     HasPrimaryCtor = false
                 }
 
-            Some(
-                mkTypeDecl name info.TypeKey (EqArray.ofList declTypars) EqArray.empty (TTypeKind.Class clsG),
-                List.ofSeq env
-            )
+            Some(mkTypeDecl name info.TypeKey info.TypeParams EqArray.empty (TTypeKind.Class clsG), List.ofSeq env)
 
     /// Surface an interface-shaped, union, record, or class `TypeDefn` as a `TDecl.Type`.
     let tryTypeDecl (ctx: PassContext) (td: TypeDefn<SyntaxToken>) : (TDecl * (TyVarId * SemType) list) option =

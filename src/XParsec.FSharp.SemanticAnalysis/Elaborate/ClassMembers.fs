@@ -110,7 +110,7 @@ module internal ElaborateClassMembers =
             // never holds a union-find carrier.
             let ofRoots (g: GeneralizedTypars) : EqArray<string * SemType> =
                 GeneralizedTypars.toArray g
-                |> Array.map (fun (name, root) -> name, TyVar root)
+                |> Array.map (fun tp -> tp.Name, TyVar tp.TyVar)
                 |> EqArray.ofArray
 
             // Match the exact overload by its registration `DeclKey` first: same-name

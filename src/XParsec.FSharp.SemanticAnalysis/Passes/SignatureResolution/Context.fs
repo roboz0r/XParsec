@@ -50,16 +50,14 @@ module SignatureResolutionContext =
 
     /// The declaring-axis env of a type's own typars: `'T` written anywhere in its structure
     /// freezes to `FTTypar(Declaring, i)` at its declared position.
-    let private declaringEnv (ctx: PassContext) (typeParams: EqArray<string * TyVarId>) =
-        ElaborateTypars.mkDeclTyparEnv ctx.Store typeParams
+    let private declaringEnv (ctx: PassContext) (typars: EqArray<DeclaredTypar>) =
+        ElaborateTypars.mkDeclTyparEnv ctx.Store (DeclaredTypar.protos typars)
 
     /// The method-axis env of a signature's own typars, `i` its declared position.
-    let private methodEnv (ctx: PassContext) (typeParams: EqArray<string * TyVarId>) : (TyVarId * SemType) list =
+    let private methodEnv (ctx: PassContext) (typars: EqArray<DeclaredTypar>) : (TyVarId * SemType) list =
         [
-            for i in 0 .. typeParams.Length - 1 do
-                let (_, ptv) = typeParams.[i]
-
-                match Unification.zonk ctx.Store (TyVar ptv) with
+            for i in 0 .. typars.Length - 1 do
+                match Unification.zonk ctx.Store (TyVar typars.[i].TyVar) with
                 | TyVar root -> yield (root, TyTypar(TyparAxis.Method, i))
                 | _ -> ()
         ]
@@ -69,13 +67,13 @@ module SignatureResolutionContext =
     type TyparOwner =
         /// A TYPE and everything its declared structure writes: fields, cases, base,
         /// interfaces, an abbreviation's body.
-        | Type of typars: EqArray<string * TyVarId>
+        | Type of typars: EqArray<DeclaredTypar>
         /// A MEMBER: its declaring type already owns the declaring axis, so the member's own
         /// typars take the method axis.
-        | Member of declaring: EqArray<string * TyVarId> * own: EqArray<string * TyVarId>
+        | Member of declaring: EqArray<DeclaredTypar> * own: EqArray<DeclaredTypar>
         /// A VALUE quantifies its own typars on the DECLARING axis: it has no declaring type
         /// for the other axis to belong to, and instantiating a symbol substitutes there.
-        | Value of typars: EqArray<string * TyVarId>
+        | Value of typars: EqArray<DeclaredTypar>
 
     let typarEnv (ctx: PassContext) (owner: TyparOwner) : (TyVarId * SemType) list =
         match owner with
@@ -170,18 +168,18 @@ module SignatureResolutionContext =
     /// signature writes was collected before entry, so one that still misses is undeclared.
     let underTypars
         (ctx: PassContext)
-        (outer: EqArray<string * TyVarId>)
-        (own: EqArray<string * TyVarId>)
+        (outer: EqArray<DeclaredTypar>)
+        (own: EqArray<DeclaredTypar>)
         (f: unit -> 'a)
         : 'a =
         let scope = Dictionary<string, TyVarId>(System.StringComparer.Ordinal)
 
-        for (n, tv) in outer do
-            scope.[n] <- tv
+        for tp in outer do
+            scope.[tp.Name] <- tp.TyVar
 
         // The signature's own `<'a>` shadows an enclosing typar of the same name.
-        for (n, tv) in own do
-            scope.[n] <- tv
+        for tp in own do
+            scope.[tp.Name] <- tp.TyVar
 
         use _ = ctx.PushTyparScope(scope, true)
         f ()
@@ -220,13 +218,13 @@ module SignatureResolutionContext =
     let publishedConstraints
         (ctx: PassContext)
         (env: (TyVarId * SemType) list)
-        (typeParams: EqArray<string * TyVarId>)
+        (typeParams: EqArray<DeclaredTypar>)
         (clauses: TyparConstraints<SyntaxToken> list)
         : ExternalConstraint list =
         let indexOf (t: Typar<SyntaxToken>) : int voption =
             match typarName ctx t with
             | ValueNone -> ValueNone
-            | ValueSome n -> typeParams |> EqArray.tryFindIndex (fun (name, _) -> name = n)
+            | ValueSome n -> typeParams |> EqArray.tryFindIndex (fun tp -> tp.Name = n)
 
         let target (t: Type<SyntaxToken>) : FrozenType =
             freezeOver ctx env (translateType ctx t)

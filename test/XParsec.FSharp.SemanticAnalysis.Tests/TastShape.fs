@@ -734,7 +734,7 @@ type private Renderer() =
 
             if not td.TypeParams.IsEmpty then
                 push "<"
-                push (String.concat ", " (EqArray.toList td.TypeParams))
+                push (String.concat ", " (EqArray.toList (TTypeParam.names td.TypeParams)))
                 push ">"
 
             match td.Kind with

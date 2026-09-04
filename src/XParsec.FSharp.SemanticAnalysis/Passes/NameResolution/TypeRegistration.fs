@@ -33,9 +33,13 @@ module NameResolutionTypeRegistration =
         | Typar.Static(ident = id) -> ValueSome(ctx.NameOf id)
         | Typar.Anon _ -> ValueNone
 
-    /// Declared typars for a `TypeName`, in source order: prefix typars (`'a Box`)
-    /// first, then suffix (`Box<'a, 'b>`). Skips anonymous typars.
-    let typarNamesOfTypeName (ctx: PassContext) (tn: TypeName<SyntaxToken>) : string list =
+    /// Declared typars for a `TypeName`, in source order: prefix typars (`'a Box`) first, then
+    /// suffix (`Box<'a, 'b>`), each with the attribute set written on it. Skips anonymous
+    /// typars. A prefix typar has no attribute slot in the grammar.
+    let private typarSlotsOfTypeName
+        (ctx: PassContext)
+        (tn: TypeName<SyntaxToken>)
+        : (string * Attributes<SyntaxToken> voption) list =
         let (TypeName(prefixTypars = pt; typarDefns = td)) = tn
 
         let prefix =
@@ -44,12 +48,12 @@ module NameResolutionTypeRegistration =
                 | ValueNone -> ()
                 | ValueSome(PrefixTypars.Single t) ->
                     match typarName ctx t with
-                    | ValueSome n -> yield n
+                    | ValueSome n -> yield n, ValueNone
                     | ValueNone -> ()
                 | ValueSome(PrefixTypars.Multiple(typars = ts)) ->
                     for t in ts do
                         match typarName ctx t with
-                        | ValueSome n -> yield n
+                        | ValueSome n -> yield n, ValueNone
                         | ValueNone -> ()
             ]
 
@@ -58,17 +62,30 @@ module NameResolutionTypeRegistration =
                 match td with
                 | ValueNone -> ()
                 | ValueSome(TyparDefns(defns = ds)) ->
-                    for TyparDefn(typar = t) in ds do
+                    for TyparDefn(attributes = attrs; typar = t) in ds do
                         match typarName ctx t with
-                        | ValueSome n -> yield n
+                        | ValueSome n -> yield n, attrs
                         | ValueNone -> ()
             ]
 
         prefix @ main
 
+    /// `Measure` where `[<Measure>]` is written on the slot. Resolves the attribute, so every
+    /// caller belongs at REGISTRATION or later; `arityOfTypeName` below is the claim-time reading.
+    let private kindOfSlot (ctx: PassContext) (attrs: Attributes<SyntaxToken> voption) : TyparKind =
+        if (ctx.ResolveAttributes attrs).Has RuntimeNames.measureAttributeKey then
+            TyparKind.Measure
+        else
+            TyparKind.Type
+
+    /// Each declared typar's kind, in source order. For the declaration forms that register
+    /// no typar list: `extern` and opaque.
+    let typarKindsOfTypeName (ctx: PassContext) (tn: TypeName<SyntaxToken>) : EqArray<TyparKind> =
+        EqArray.ofSeq (seq { for (_, attrs) in typarSlotsOfTypeName ctx tn -> kindOfSlot ctx attrs })
+
     /// The generic arity that keys this type in the registries (`0` for a non-generic name).
     let arityOfTypeName (ctx: PassContext) (tn: TypeName<SyntaxToken>) : int =
-        typarNamesOfTypeName ctx tn |> List.length
+        typarSlotsOfTypeName ctx tn |> List.length
 
     /// The `when 'a : …` clause on a `TypeName`, if any. Retained on the registry entry so a
     /// consumer re-entering the declaration's typar scope later need not re-walk the CST.
@@ -79,16 +96,37 @@ module NameResolutionTypeRegistration =
         | ValueSome(TyparDefns(constraints = ValueSome tc)) -> ValueSome tc
         | _ -> ValueNone
 
-    /// Mint a prototype TyVar per declared typar name. Stored on the registry
-    /// entry and substituted out at every use site, so two instantiations share
-    /// no variables.
-    let mkTypeParams (store: TypeStore) (names: string list) : EqArray<string * TyVarId> =
+    let private newTypar (store: TypeStore) : TyVarId =
+        let tv = store.NewTypeVar()
+        store.SetLevel(UnionFind.find store tv, 0)
+        tv
+
+    /// A type declaration's typars, each carrying its kind and a freshly minted prototype
+    /// TyVar. Stored on the registry entry.
+    let declaredTyparsOfTypeName (ctx: PassContext) (tn: TypeName<SyntaxToken>) : EqArray<DeclaredTypar> =
+        EqArray.ofSeq (
+            seq {
+                for (name, attrs) in typarSlotsOfTypeName ctx tn ->
+                    {
+                        Name = name
+                        TyVar = newTypar ctx.Store
+                        Kind = kindOfSlot ctx attrs
+                    }
+            }
+        )
+
+    /// Mint a prototype TyVar per name, for typars this pass reads by name alone: a MEMBER's
+    /// own `<'C>` and a VALUE signature's. `[<Measure>]` on one of those is not yet modelled,
+    /// so they are all type-kinded.
+    let mkMethodTypars (store: TypeStore) (names: string list) : EqArray<DeclaredTypar> =
         EqArray.ofSeq (
             seq {
                 for n in names ->
-                    let tv = store.NewTypeVar()
-                    store.SetLevel(UnionFind.find store tv, 0)
-                    n, tv
+                    {
+                        Name = n
+                        TyVar = newTypar store
+                        Kind = TyparKind.Type
+                    }
             }
         )
 
@@ -714,12 +752,12 @@ module NameResolutionTypeRegistration =
     /// Run `f` under a type declaration's typar scope, its prototype TyVars keyed by the
     /// source names its header declares, so a `'a` written in the declaration's structure
     /// resolves to the registry's TyVar, and an undeclared one is diagnosed, not minted.
-    let underTyparScope (ctx: PassContext) (typeParams: EqArray<string * TyVarId>) (f: unit -> 'a) : 'a =
+    let underTyparScope (ctx: PassContext) (typeParams: EqArray<DeclaredTypar>) (f: unit -> 'a) : 'a =
         let scope = Dictionary<string, TyVarId>(System.StringComparer.Ordinal)
 
-        for (n, tv) in typeParams do
-            if not (scope.ContainsKey n) then
-                scope.[n] <- tv
+        for tp in typeParams do
+            if not (scope.ContainsKey tp.Name) then
+                scope.[tp.Name] <- tp.TyVar
 
         use _ = ctx.PushTyparScope(scope, true)
         f ()
@@ -745,7 +783,7 @@ module NameResolutionTypeRegistration =
         : unit =
         let name = id.Name
         let declSite = id.DeclSite
-        let typeParams = mkTypeParams ctx.Store (typarNamesOfTypeName ctx tn)
+        let typeParams = declaredTyparsOfTypeName ctx tn
         let typarConstraints = typarConstraintsOfTypeName tn
 
         let fieldInfos = ResizeArray<RecordFieldInfo>(fields.Length)
@@ -868,7 +906,7 @@ module NameResolutionTypeRegistration =
         : unit =
         let name = id.Name
         let declSite = id.DeclSite
-        let typeParams = mkTypeParams ctx.Store (typarNamesOfTypeName ctx tn)
+        let typeParams = declaredTyparsOfTypeName ctx tn
         let typarConstraints = typarConstraintsOfTypeName tn
         let caseInfos = ResizeArray<UnionCaseInfo>(cases.Length)
 
@@ -1000,7 +1038,7 @@ module NameResolutionTypeRegistration =
             // declaring namespace is not `Vesper`. It also ADDRESSES the host table, so
             // the lookup key and the self-type key are the same one value.
             let selfKey = TypeRegistry.intrinsicKeyOf ctx.Types name
-            let typeParams = mkTypeParams ctx.Store (typarNamesOfTypeName ctx tn)
+            let typeParams = declaredTyparsOfTypeName ctx tn
 
             ctx.Types.IntrinsicAbbrevHost.[selfKey] <-
                 IntrinsicAbbrevInfo(name, typeParams, id.DeclSite, id.Key, selfKey)
@@ -1034,7 +1072,7 @@ module NameResolutionTypeRegistration =
         (hasAugmentation: bool)
         : unit =
         let name = id.Name
-        let typeParams = mkTypeParams ctx.Store (typarNamesOfTypeName ctx tn)
+        let typeParams = declaredTyparsOfTypeName ctx tn
 
         // Every posture and `[<AllowNullLiteral>]` belongs on the type it abbreviates; an
         // abbreviation stores no attributes of its own, so the fold's product is dropped.

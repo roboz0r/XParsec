@@ -32,12 +32,10 @@ module internal ElaborateTypars =
     /// Pair each declared typar's zonked root with `TyTypar(Declaring, i)`, `i` being its
     /// position in the declaration list. A typar pinned to a non-`TyVar` is dropped, but
     /// the index still counts it, so a surviving typar keeps its declared slot.
-    let mkDeclTyparEnv (store: TypeStore) (typeParams: EqArray<string * TyVarId>) : (TyVarId * SemType) list =
+    let mkDeclTyparEnv (store: TypeStore) (protos: EqArray<TyVarId>) : (TyVarId * SemType) list =
         [
-            for i in 0 .. typeParams.Length - 1 do
-                let (_, ptv) = typeParams.[i]
-
-                match Unification.zonk store (TyVar ptv) with
+            for i in 0 .. protos.Length - 1 do
+                match Unification.zonk store (TyVar protos.[i]) with
                 | TyVar root -> yield (root, TyTypar(TyparAxis.Declaring, i))
                 | _ -> ()
         ]
@@ -47,7 +45,7 @@ module internal ElaborateTypars =
     /// then the remaining free roots by first appearance, then the constraint-only typars.
     let mkMethodQuantEnv
         (store: TypeStore)
-        (declared: (string * TyVarId) list)
+        (declared: DeclaredTypar list)
         (declTy: SemType)
         : (TyVarId * SemType) list =
         // A declared typar that inference pinned to a concrete type (its root is `Link`ed)
@@ -55,7 +53,7 @@ module internal ElaborateTypars =
         // the `fixedRoots` set passed below is empty.
         let declaredFree =
             declared
-            |> List.filter (fun (_, tv) -> (store.Link(UnionFind.find store tv)).IsNone)
+            |> List.filter (fun tp -> (store.Link(UnionFind.find store tp.TyVar)).IsNone)
 
         let zonked = Unification.zonk store declTy
 
@@ -74,7 +72,9 @@ module internal ElaborateTypars =
                 zonked
 
         // The canonical roots seed the dependent-typar worklist below.
-        let acc = ResizeArray<TyVarId>(GeneralizedTypars.toArray gt |> Array.map snd)
+        let acc =
+            ResizeArray<TyVarId>(GeneralizedTypars.toArray gt |> Array.map (fun tp -> tp.TyVar))
+
         let seen = System.Collections.Generic.HashSet<TyVarId>()
 
         for r in acc do
@@ -119,8 +119,8 @@ module internal ElaborateTypars =
     /// The declaring-type typars as `SemType` args, for a member's `ThisTy` and the body's
     /// synthesised `this` self-type: each declared typar zonked to its root `TyVar`. They
     /// stay `TyVar`-shaped until `freezeTypars` remaps them to `TyTypar(Declaring, i)`.
-    let declTyparArgs (store: TypeStore) (typeParams: EqArray<string * TyVarId>) : EqArray<SemType> =
-        EqArray.ofSeq (seq { for (_, ptv) in typeParams -> Unification.zonk store (TyVar ptv) })
+    let declTyparArgs (store: TypeStore) (typeParams: EqArray<DeclaredTypar>) : EqArray<SemType> =
+        EqArray.ofSeq (seq { for tp in typeParams -> Unification.zonk store (TyVar tp.TyVar) })
 
     /// Elaborate one type member: stamp its `ThisTy` with the `TyVar`-rooted `selfTy` and
     /// surface its method-axis typar roots so the caller folds them into the decl's freeze
