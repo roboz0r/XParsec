@@ -13,6 +13,21 @@ module internal Layout =
     let rec private flattenKeys (n: TypeNode) : TypeSlotKey list =
         n.Slot.Key :: List.collect flattenKeys n.Nested
 
+    /// The `Field` row behind a module value.
+    let private moduleValueField (writes: FieldWrites) (mv: Emit.ModuleValue) : FieldSlot =
+        let reach =
+            match mv.Identity with
+            | EmitTypes.ValueIdentity.Declared -> FieldReach.Public
+            | EmitTypes.ValueIdentity.Residue -> FieldReach.Assembly
+
+        {
+            Key = FieldKey.ModuleValue mv.SymbolKey
+            Name = mv.Name
+            Attrs = staticFieldAttrs reach writes
+            Ty = mv.Ty
+            ClosureScope = ValueNone
+        }
+
     /// Build ONE file's contribution to the type HIERARCHY: its namespace-level nominals,
     /// then closures, then root-module classes, each carrying the types it holds and its
     /// child module classes. The shared `ClosureNamer` keeps closure names unique.
@@ -235,17 +250,7 @@ module internal Layout =
         let rec moduleClassNode (h: Emit.ModuleClassKey) : TypeNode =
             let values = ModuleClassPlan.moduleClassValues plan h
 
-            let fields =
-                [
-                    for mv in values ->
-                        {
-                            Key = FieldKey.ModuleValue mv.SymbolKey
-                            Name = mv.Name
-                            Attrs = staticFieldAttrs FieldReach.Public FieldWrites.ByCtor
-                            Ty = mv.Ty
-                            ClosureScope = ValueNone
-                        }
-                ]
+            let fields = List.map (moduleValueField FieldWrites.ByCtor) values
 
             let held =
                 nominalNodes
@@ -391,22 +396,8 @@ module internal Layout =
                 let plan = f.Plan
 
                 [
-                    for mv in plan.ProgramCctorValues ->
-                        {
-                            Key = FieldKey.ModuleValue mv.SymbolKey
-                            Name = mv.Name
-                            Attrs = staticFieldAttrs FieldReach.Public FieldWrites.ByCtor
-                            Ty = mv.Ty
-                            ClosureScope = ValueNone
-                        }
-                    for mv in plan.ProgramMainValues ->
-                        {
-                            Key = FieldKey.ModuleValue mv.SymbolKey
-                            Name = mv.Name
-                            Attrs = staticFieldAttrs FieldReach.Public FieldWrites.Anywhere
-                            Ty = mv.Ty
-                            ClosureScope = ValueNone
-                        }
+                    yield! List.map (moduleValueField FieldWrites.ByCtor) plan.ProgramCctorValues
+                    yield! List.map (moduleValueField FieldWrites.Anywhere) plan.ProgramMainValues
                 ]
 
         let hasProgramCctor =

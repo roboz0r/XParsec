@@ -143,7 +143,6 @@ module EmitClosures =
         acc
 
     /// What a top-level decl emits as: from a recorded identity, or minted as residue.
-    /// Only the first is a symbol a consumer could resolve.
     type Emission =
         {
             Name: string
@@ -151,6 +150,7 @@ module EmitClosures =
             /// no namespace-level member.
             ModuleClass: ModuleClassKey option
             SymbolKey: SymbolKey
+            Identity: ValueIdentity
         }
 
     /// Name and key come straight off the front end's recorded identity, filed for every
@@ -164,6 +164,7 @@ module EmitClosures =
                 | ValueSome m -> Some m
                 | ValueNone -> None
             SymbolKey = info.Key
+            Identity = ValueIdentity.Declared
         }
 
     /// Mints `<name>$<slot>` (`value$3` when no source names the variable) for a decl with no
@@ -183,6 +184,7 @@ module EmitClosures =
             Name = name
             ModuleClass = None
             SymbolKey = SymbolKeyOps.valueKey (ModuleContainer.InModule programClass) name
+            Identity = ValueIdentity.Residue
         }
 
     /// How EVERY top-level decl of a file emits. Decided over the whole list, because
@@ -247,8 +249,26 @@ module EmitClosures =
             | _ -> None
         )
 
+    /// The `ModuleValue` for a ground `let` stored on `moduleClass`.
+    let private moduleValue
+        (moduleClass: ModuleClassKey)
+        (k: BoundVarId)
+        (ty: FrozenType)
+        (init: TastAccessor.ExprId)
+        (em: Emission)
+        : ModuleValue =
+        {
+            Key = k
+            SymbolKey = em.SymbolKey
+            Name = em.Name
+            Identity = em.Identity
+            Ty = ty
+            Init = init
+            ModuleClass = moduleClass
+        }
+
     /// The **module values**: a non-inline `let name = <plain value>` on a NAMED module
-    /// whose type is fully ground. Each becomes a `public static` field initialised by
+    /// whose type is fully ground. Each becomes a `static` field initialised by
     /// the module class's `.cctor`; every reference is an `ldsfld`, never a local or a capture.
     let collectModuleValues
         (emissions: Dictionary<BoundVarId, Emission>)
@@ -262,16 +282,7 @@ module EmitClosures =
                 // Only a NAMED-module ground value is a field here.
                 match em.ModuleClass with
                 | None -> None
-                | Some moduleClass ->
-                    Some
-                        {
-                            Key = k
-                            SymbolKey = em.SymbolKey
-                            Name = em.Name
-                            Ty = ty
-                            Init = value
-                            ModuleClass = moduleClass
-                        }
+                | Some moduleClass -> Some(moduleValue moduleClass k ty value em)
             )
 
     /// No untyped position (`FTUnknown`) and no body-local typar (`FTLocalTypar`);
@@ -324,7 +335,7 @@ module EmitClosures =
             )
 
     /// The TOP-LEVEL ground values — those declared at file scope. Each becomes a
-    /// `public static` field on the anonymous "Program" class; whether it initialises in
+    /// `static` field on the anonymous "Program" class; whether it initialises in
     /// the `.cctor` or in `Main` is decided later.
     let collectProgramValues
         (emissions: Dictionary<BoundVarId, Emission>)
@@ -360,16 +371,7 @@ module EmitClosures =
                 // A named-module value (`module Foo`) takes the named-module path.
                 match em.ModuleClass with
                 | Some _ -> None
-                | None ->
-                    Some
-                        {
-                            Key = k
-                            SymbolKey = em.SymbolKey
-                            Name = em.Name
-                            Ty = ty
-                            Init = value
-                            ModuleClass = programClass
-                        }
+                | None -> Some(moduleValue programClass k ty value em)
             )
 
     /// A module value's initialiser runs in its module class's `.cctor`, where only other module

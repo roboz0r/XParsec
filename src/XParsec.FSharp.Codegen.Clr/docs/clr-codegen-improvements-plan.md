@@ -7,7 +7,7 @@ Line numbers are deliberately absent — they rot. Constructs and file names onl
 Raised by the decompiled-C# conformance goldens (`test/XParsec.FSharp.Codegen.Clr.Tests/goldens/*.clr.cs`),
 added when `ConformanceByteIdentityTests` gained a whole-module render beside its structural
 digest. Every finding below cites the golden that shows it, so each is reproducible by reading a
-committed file. A1, A2, A5, B1, B2 and C1 have landed; the rest is outstanding.
+committed file. A1, A2, A4, A5, B1, B2 and C1 have landed; the rest is outstanding.
 
 **Part A** is ABI and metadata defects. **Part B** is IL quality. **Part C** is the harness.
 
@@ -296,7 +296,7 @@ reflection. The `typar-*-violated.fs` programs already pin front-end rejection a
 their exact diagnostics. The goldens re-render into `where T0 : struct`, which is the readable
 check that stage 2 and 3 agree.
 
-## A4. An inline splice's temporary becomes a public static field
+## A4. An inline splice's temporary becomes a public static field — DONE
 
 `typar-struct.clr.cs`, from a source whose only statements are `ignore i` and `ignore b`:
 
@@ -339,6 +339,29 @@ already exercises — generic, `Stack`-repr, cached, and closure-inside-closure.
 Where a test asserts over one program's captures, pin the expected set by name, so a lowering
 change that stops emitting a closure fails rather than silently narrowing the assertion to
 fewer fields.
+
+**Landed.** `EmitTypes.ValueIdentity` states whether the source spells the name a top-level
+binding emits under. `EmitClosures.Emission` carries it — `Declared` from `declaredEmission`,
+`Residue` from `residueEmission` — and each `ModuleValue` takes it from its `Emission`, so a
+builder cannot mint storage without deciding. `Layout.moduleValueField` builds every module
+value's `Field` row — a named module class's, the Program class's `.cctor`-written and its
+`Main`-written — and maps the identity to a `FieldReach` there. Residue storage is therefore
+`assembly`, declared storage `public`.
+
+`FieldVisibilitySweepTests` compiles every CLR-gated corpus program once and reads back every
+`TypeDef`'s `Field` rows through `MetadataStructure.allFieldAttrs`. Both assertions above are
+there: no public field carries `$` in its name, and every `capture<i>` on a `<closure>$*` type
+is `private initonly`, with a non-empty check so the capture sweep cannot pass vacuously.
+
+No corpus program shadows a top-level binding, so the residue mint gets two sources of its own
+in the same file, one per storage kind: `let x = 1; let x = 2` pins `x$0` as
+`assembly static initonly` beside a public `x`, and the same shadowing after a top-level `do`
+pins the `Main`-written pair as plain `static`. The front end rejects `let x = 1` followed by
+`let x = x + 10` at file scope with "Unresolved identifier: x", so the rebinding cannot read
+what it shadows.
+
+No golden moved and no digest moved, which is the confirmation that the corpus emits no residue
+field today — B1 removed the ones `typar-struct` had.
 
 ## A5. Every parameter is named `arg<i>` — DONE
 
@@ -589,7 +612,8 @@ A3 stage 1 widens a frozen type and its codec, so it wants a commit of its own b
 depends on it.
 
 B1 has landed, and with it A4's second half. B2 has landed; it moved every golden's IL and no
-table row.
+table row. A4's first half has now landed too, moving no golden and no table row, so A3 is the
+only Part A entry left.
 
 A5 has landed in full. Its stage 5 widened `Frozen.TAbstractMethod` and moved the codec to
 format version 3, so A3 stage 1 now lands on top of that version rather than racing it.

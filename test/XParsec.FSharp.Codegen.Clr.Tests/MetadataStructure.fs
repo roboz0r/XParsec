@@ -444,21 +444,30 @@ let classLayoutRowCount (bytes: byte[]) : int =
     use pe = openPe bytes
     pe.GetMetadataReader().GetTableRowCount TableIndex.ClassLayout
 
-/// One type's `Field` rows in row order as `(name, attributes)`, by the `Ns.Outer+Inner`
-/// spelling. Raises when the assembly declares no such type.
-let fieldAttrsOf (bytes: byte[]) (typeName: string) : (string * FieldAttributes) list =
+/// Every `TypeDef` row's `Field` rows as `(type name, (field name, attributes) list)`, both
+/// in table order, by the `Ns.Outer+Inner` spelling.
+let allFieldAttrs (bytes: byte[]) : (string * (string * FieldAttributes) list) list =
     use pe = openPe bytes
     let md = pe.GetMetadataReader()
 
-    match md.TypeDefinitions |> Seq.tryFind (fun h -> nameOf md h = typeName) with
-    | None ->
-        failwithf "MetadataStructure: no type '%s' among %A" typeName [ for h in md.TypeDefinitions -> nameOf md h ]
-    | Some h ->
-        [
-            for fh in (md.GetTypeDefinition h).GetFields() ->
-                let fd = md.GetFieldDefinition fh
-                md.GetString fd.Name, fd.Attributes
-        ]
+    [
+        for h in md.TypeDefinitions ->
+            nameOf md h,
+            [
+                for fh in (md.GetTypeDefinition h).GetFields() ->
+                    let fd = md.GetFieldDefinition fh
+                    md.GetString fd.Name, fd.Attributes
+            ]
+    ]
+
+/// One type's `Field` rows in row order as `(name, attributes)`, by the `Ns.Outer+Inner`
+/// spelling. Raises when the assembly declares no such type.
+let fieldAttrsOf (bytes: byte[]) (typeName: string) : (string * FieldAttributes) list =
+    let types = allFieldAttrs bytes
+
+    match types |> List.tryFind (fun (n, _) -> n = typeName) with
+    | Some(_, fields) -> fields
+    | None -> failwithf "MetadataStructure: no type '%s' among %A" typeName (List.map fst types)
 
 /// One type's `Method` rows in row order as `(name, attributes)`, by the `Ns.Outer+Inner`
 /// spelling. Raises when the assembly declares no such type.

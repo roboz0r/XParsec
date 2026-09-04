@@ -107,6 +107,7 @@
     <Compile Include="CrossFileTests.fs" />
     <Compile Include="TypeAbbreviationTests.fs" />
     <Compile Include="SelfPackageIntrinsicsTests.fs" />
+    <Compile Include="FieldVisibilitySweepTests.fs" />
 
     <Compile Include="Program.fs" />
   </ItemGroup>

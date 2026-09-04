@@ -353,7 +353,15 @@ module EmitTypes =
             Constraints: FrozenConstraint list
         }
 
-    /// A module-level value (`let x = e` at module scope) lowered to a `public static`
+    /// Whether a top-level binding emits under its source name.
+    [<RequireQualifiedAccess>]
+    type ValueIdentity =
+        /// Named in source; its storage is public ABI.
+        | Declared
+        /// A `<name>$<slot>` mint standing in for a binding with no exportable identity.
+        | Residue
+
+    /// A module-level value (`let x = e` at module scope) lowered to a `static`
     /// field, whose module class's `.cctor` evaluates `Init` and `stsfld`s it. A value on a named
     /// module gets that module's class, a top-level one the anonymous "Program" class.
     type ModuleValue =
@@ -362,6 +370,8 @@ module EmitTypes =
             /// This value's stable handle key, on the same terms as `StaticFn.SymbolKey`.
             SymbolKey: SymbolKey
             Name: string
+            /// Decides the field's visibility: `Declared` is public, `Residue` assembly.
+            Identity: ValueIdentity
             Ty: FrozenType
             Init: TastAccessor.ExprId
             ModuleClass: ModuleClassKey
