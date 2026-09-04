@@ -182,7 +182,7 @@ let nestedEmission =
                         {
                             Type = "N.Outer+Inner+T"
                             Fields = [ "x" ]
-                            Methods = [ ".ctor"; "GetHashCode"; "Equals"; "Equals"; "Format" ]
+                            Methods = [ ".ctor"; "get_x"; "GetHashCode"; "Equals"; "Equals"; "Format" ]
                         }
                     ]
 

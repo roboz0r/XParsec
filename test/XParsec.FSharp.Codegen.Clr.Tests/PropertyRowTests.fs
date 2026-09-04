@@ -177,6 +177,84 @@ let tests =
                     "an abstract slot pair is one property; the abstract method is none"
             }
 
+            test "each record field emits a Property row over its backing storage" {
+                let bytes =
+                    bytesOf
+                        "PropRecordFields"
+                        [ "type R = { X: int; mutable Y: string }"; "let r = { X = 1; Y = \"a\" }" ]
+
+                Expect.equal
+                    (propertiesOf bytes "R")
+                    [
+                        "X", (ValueSome "get_X", ValueNone)
+                        "Y", (ValueSome "get_Y", ValueSome "set_Y")
+                    ]
+                    "an immutable field is get-only; a `mutable` one carries both halves"
+            }
+
+            // The accessors reach the storage the record's own `.ctor` filled, so the pair
+            // round-trips a value no literal wrote.
+            test "reflection binds a record field's accessors and they reach the storage" {
+                let bytes =
+                    bytesOf "PropRecordReflect" [ "type R = { X: int; mutable Y: int }"; "let r = { X = 1; Y = 2 }" ]
+
+                let asm = loadAssembly bytes
+                let ty = asm.GetType("R", throwOnError = true)
+                let x = ty.GetProperty "X"
+                let y = ty.GetProperty "Y"
+
+                Expect.isTrue x.CanRead "an immutable field reads"
+                Expect.isFalse x.CanWrite "an immutable field does not write"
+                Expect.isTrue y.CanWrite "a `mutable` field writes"
+
+                let instance = Activator.CreateInstance(ty, [| box 7; box 8 |])
+                Expect.equal (x.GetValue instance :?> int) 7 "the getter reads what the ctor stored"
+
+                y.SetValue(instance, box 21)
+                Expect.equal (y.GetValue instance :?> int) 21 "the setter writes the field the getter reads"
+            }
+
+            // A raw `FieldDefinition` token resolves to the wrong slot for a field at index
+            // >= 1 of a generic type, so the SECOND field is the one that pins the accessor's
+            // `MemberRef` on the open self-`TypeSpec`.
+            test "a generic record's accessors read the right slot" {
+                let bytes =
+                    bytesOf
+                        "PropGenericRecordReflect"
+                        [
+                            "type Box<'T> = { First: 'T; Second: 'T }"
+                            "let b = { First = 1; Second = 2 }"
+                        ]
+
+                let asm = loadAssembly bytes
+
+                let ty =
+                    (asm.GetType("Box`1", throwOnError = true)).MakeGenericType [| typeof<int> |]
+
+                let instance = Activator.CreateInstance(ty, [| box 7; box 8 |])
+
+                Expect.equal ((ty.GetProperty "First").GetValue instance :?> int) 7 "the first field's getter"
+                Expect.equal ((ty.GetProperty "Second").GetValue instance :?> int) 8 "the second field's getter"
+            }
+
+            test "a struct record's field getter reads through the byref this" {
+                let bytes =
+                    bytesOf
+                        "PropStructRecordReflect"
+                        [
+                            "[<Struct>]"
+                            "type P = { X: int; mutable Y: int }"
+                            "let p = { X = 1; Y = 2 }"
+                        ]
+
+                let asm = loadAssembly bytes
+                let ty = asm.GetType("P", throwOnError = true)
+                Expect.isTrue ty.IsValueType "P is a struct record"
+
+                let instance = Activator.CreateInstance(ty, [| box 7; box 8 |])
+                Expect.equal ((ty.GetProperty "X").GetValue instance :?> int) 7 "the getter reads through `ldarg.0`"
+            }
+
             test "a property with no accessors declared is no property row" {
                 let bytes =
                     bytesOf "PropNone" [ "type C(v: int) ="; "    member this.M() = v"; "let c = C(1)" ]

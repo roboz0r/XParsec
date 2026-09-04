@@ -31,11 +31,15 @@ public sealed class Vec : IEquatable<Vec>, IStructuralFormattable
 
 	public int Y;
 
+	public int X => this.X;
+
+	public int Y => this.Y;
+
 	public int Doubled
 	{
 		get
 		{
-			int x = X;
+			int x = this.X;
 			return x * 2;
 		}
 	}
@@ -48,15 +52,15 @@ public sealed class Vec : IEquatable<Vec>, IStructuralFormattable
 
 	public int Sum()
 	{
-		int x = X;
-		int y = Y;
+		int x = this.X;
+		int y = this.Y;
 		return x + y;
 	}
 
 	public int AddN(int arg0)
 	{
-		int x = X;
-		int y = Y;
+		int x = this.X;
+		int y = this.Y;
 		int num = x + y;
 		return num + arg0;
 	}
@@ -64,8 +68,8 @@ public sealed class Vec : IEquatable<Vec>, IStructuralFormattable
 	public override int GetHashCode()
 	{
 		HashCode hashCode = default(HashCode);
-		hashCode.Add(X);
-		hashCode.Add(Y);
+		hashCode.Add(this.X);
+		hashCode.Add(this.Y);
 		return hashCode.ToHashCode();
 	}
 
@@ -80,9 +84,9 @@ public sealed class Vec : IEquatable<Vec>, IStructuralFormattable
 
 	public bool Equals(Vec other)
 	{
-		if (other != null && X == other.X)
+		if (other != null && this.X == other.X)
 		{
-			return Y == other.Y;
+			return this.Y == other.Y;
 		}
 		return false;
 	}
@@ -91,9 +95,9 @@ public sealed class Vec : IEquatable<Vec>, IStructuralFormattable
 	{
 		sink.BeginRecord();
 		sink.Field("X");
-		sink.Child(X);
+		sink.Child(this.X);
 		sink.Field("Y");
-		sink.Child(Y);
+		sink.Child(this.Y);
 		sink.EndRecord();
 	}
 }

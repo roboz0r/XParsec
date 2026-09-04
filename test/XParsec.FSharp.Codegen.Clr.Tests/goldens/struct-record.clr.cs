@@ -33,6 +33,10 @@ public struct P : IEquatable<P>, IStructuralFormattable
 
 	public int Y;
 
+	public int X => this.X;
+
+	public int Y => this.Y;
+
 	public P(int X, int Y)
 	{
 		this.X = X;
@@ -42,8 +46,8 @@ public struct P : IEquatable<P>, IStructuralFormattable
 	public override int GetHashCode()
 	{
 		HashCode hashCode = default(HashCode);
-		hashCode.Add(X);
-		hashCode.Add(Y);
+		hashCode.Add(this.X);
+		hashCode.Add(this.Y);
 		return hashCode.ToHashCode();
 	}
 
@@ -60,9 +64,9 @@ public struct P : IEquatable<P>, IStructuralFormattable
 
 	public bool Equals(P other)
 	{
-		if (X == other.X)
+		if (this.X == other.X)
 		{
-			return Y == other.Y;
+			return this.Y == other.Y;
 		}
 		return false;
 	}
@@ -71,9 +75,9 @@ public struct P : IEquatable<P>, IStructuralFormattable
 	{
 		sink.BeginRecord();
 		sink.Field("X");
-		sink.Child(X);
+		sink.Child(this.X);
 		sink.Field("Y");
-		sink.Child(Y);
+		sink.Child(this.Y);
 		sink.EndRecord();
 	}
 }

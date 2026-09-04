@@ -382,6 +382,15 @@ module Emit =
         b.Add ILInstr.Ret
         b.Body
 
+    /// Build an instance setter over one field: `ldarg.0; ldarg.1; stfld; ret`.
+    let buildFieldSetter (field: EntityHandle) : ILBody =
+        let b = IlBuilder()
+        b.Add(ILInstr.Ldarg 0)
+        b.Add(ILInstr.Ldarg 1)
+        b.Add(ILInstr.Stfld field)
+        b.Add ILInstr.Ret
+        b.Body
+
     /// Build an instance getter over a field chain: `ldarg.0`, `ldfld` each field of the
     /// non-empty `path` in turn, then `castclass` to `castTo` where the chain ends on a slot
     /// stored erased to `object`.

@@ -193,7 +193,7 @@ let tests =
                         {
                             Type = "Point"
                             Fields = [ "X"; "Y" ]
-                            Methods = [ ".ctor"; "GetHashCode"; "Equals"; "Equals"; "Format" ]
+                            Methods = [ ".ctor"; "get_X"; "get_Y"; "GetHashCode"; "Equals"; "Equals"; "Format" ]
                         }
                         {
                             Type = "Counter"
@@ -222,7 +222,7 @@ let tests =
                         {
                             Type = "M+Tally"
                             Fields = [ "Hits" ]
-                            Methods = [ ".ctor"; "GetHashCode"; "Equals"; "Equals"; "Format" ]
+                            Methods = [ ".ctor"; "get_Hits"; "GetHashCode"; "Equals"; "Equals"; "Format" ]
                         }
                         // The anonymous module class, last, so `Main` (the final method row)
                         // falls inside its range. A top-level value's field carries its

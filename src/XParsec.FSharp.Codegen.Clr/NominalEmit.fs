@@ -162,7 +162,8 @@ module internal NominalEmit =
                     Interfaces = [ for (iface, _) in cd.Interfaces -> iface ]
                 }
 
-    /// The record `.ctor`: one parameter per field, stored in declaration order.
+    /// The record `.ctor`: one parameter per field, stored in declaration order, and the
+    /// accessor pair behind each field's property.
     let private prepareRecord
         (asm: Assembler)
         (td: TastAccessor.TypeDecl)
@@ -176,23 +177,25 @@ module internal NominalEmit =
                 for f in fields -> toEntity (asm.FieldDef(FieldKey.RecordField(td.Key, f.Name)))
             ]
 
-        // A raw `FieldDefinition` token in `stfld` resolves to the wrong slot for a
-        // field at index >= 1 of a generic type, so each generic store routes
-        // through the field's `MemberRef` on the open self-`TypeSpec` (`R\`1<!0>::Y`).
-        let ctorFieldRefs =
-            [
-                for i, f in List.indexed fields ->
-                    selfMemberRef asm td (UserMemberKind.RecordMember(RecordMember.Field f.Name)) fieldHandles.[i]
-            ]
+        // A raw `FieldDefinition` token in `ldfld` / `stfld` resolves to the wrong slot for
+        // a field at index >= 1 of a generic type, so the `.ctor` and the accessors alike
+        // reach a field through its `MemberRef` on the open self-`TypeSpec` (`R\`1<!0>::Y`).
+        let fieldRefs =
+            List.map2
+                (fun (f: Frozen.TRecordField) handle ->
+                    selfMemberRef asm td (UserMemberKind.RecordMember(RecordMember.Field f.Name)) handle
+                )
+                fields
+                fieldHandles
 
         // `System.ValueType` has no accessible ctor and value types do not chain,
         // so a struct record's `.ctor` only stores fields; a reference record
         // chains `Object::.ctor`.
         let ctorBody =
             if recordIsStruct then
-                Emit.buildStructCtor ctorFieldRefs
+                Emit.buildStructCtor fieldRefs
             else
-                Emit.buildChainedCtor provider.ObjectCtorRef [] ctorFieldRefs
+                Emit.buildChainedCtor provider.ObjectCtorRef [] fieldRefs
 
         let ctorMethodBody = bodyOf asm ctorBody
 
@@ -205,6 +208,28 @@ module internal NominalEmit =
                 MethodTypars = []
             }
         )
+
+        // A struct record's `ldarg.0` is a byref, which `ldfld` and `stfld` accept.
+        for (f, fieldRef) in List.zip fields fieldRefs do
+            for role in RecordFieldAccessors.rolesOf f do
+                let prepared: PreparedMethod =
+                    match role with
+                    | TAccessorRole.Getter ->
+                        {
+                            Signature = provider.InstanceMethodSignature([], f.Type)
+                            Body = bodyOf asm (Emit.buildFieldGetter fieldRef)
+                            ParamNames = []
+                            MethodTypars = []
+                        }
+                    | TAccessorRole.Setter ->
+                        {
+                            Signature = provider.InstanceMethodSignatureVoid [ f.Type ]
+                            Body = bodyOf asm (Emit.buildFieldSetter fieldRef)
+                            ParamNames = [ "value" ]
+                            MethodTypars = []
+                        }
+
+                asm.AddPrepared(MethodKey.RecordFieldAccessor(td.Key, f.Name, role), prepared)
 
     let private classBaseShapeOf (asm: Assembler) (td: TastAccessor.TypeDecl) (cd: ClassDecl) : BaseShape =
         let icodegen = asm.Icodegen

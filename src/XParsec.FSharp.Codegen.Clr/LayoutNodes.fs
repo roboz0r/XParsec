@@ -357,18 +357,43 @@ module internal LayoutNodes =
                                 Attrs = ctorAttrs
                             }
 
+                        for f in rd.Fields do
+                            for role in RecordFieldAccessors.rolesOf f ->
+                                {
+                                    Key = MethodKey.RecordFieldAccessor(td.Key, f.Name, role)
+                                    Name = TAccessorRole.methodName role f.Name
+                                    Attrs = synthAccessorAttrs
+                                }
+
                         yield! ownAndIfaceMemberRows td.Key rd.Members rd.Interfaces
 
                         yield! structuralRows concreteStructuralAttrs (StructuralMembers.ofRecord rd) td
                         yield! coSlotRows symbols td rd.Interfaces
                     ]
 
-                nominalNode
-                    (TypeSlotKind.Record rd.ValueKind)
-                    td
-                    fields
-                    methodRows
-                    (ownAndIfaceProperties td.Key rd.Members rd.Interfaces)
+                let properties =
+                    [
+                        for f in rd.Fields ->
+                            let half (role: TAccessorRole) : MethodKey voption =
+                                if List.contains role (RecordFieldAccessors.rolesOf f) then
+                                    ValueSome(MethodKey.RecordFieldAccessor(td.Key, f.Name, role))
+                                else
+                                    ValueNone
+
+                            {
+                                Key = PropertyKey.RecordField(td.Key, f.Name)
+                                Name = f.Name
+                                IsInstance = true
+                                IndexTys = []
+                                ValueTy = f.Type
+                                Getter = half TAccessorRole.Getter
+                                Setter = half TAccessorRole.Setter
+                            }
+
+                        yield! ownAndIfaceProperties td.Key rd.Members rd.Interfaces
+                    ]
+
+                nominalNode (TypeSlotKind.Record rd.ValueKind) td fields methodRows properties
         ]
 
     /// Per class: ctor-param backing fields (`initonly`), `val` fields (immutable ⇒ `initonly`),

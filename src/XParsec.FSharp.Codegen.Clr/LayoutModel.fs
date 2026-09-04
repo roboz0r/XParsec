@@ -59,9 +59,10 @@ module internal MethodAttrSets =
     // slot to dispatch through.
     let instanceMethodAttrs = MethodAttributes.Public ||| MethodAttributes.HideBySig
 
-    // A synthesised property getter (a union's `get_Tag`, a case view's field property):
-    // non-virtual, so a caller binds it by `call`. `SpecialName` marks it an accessor.
-    let getterAttrs = instanceMethodAttrs ||| MethodAttributes.SpecialName
+    // A synthesised property accessor (a union's `get_Tag`, a case view's field property,
+    // a record field's getter and setter): non-virtual, so a caller binds it by `call`.
+    // `SpecialName` marks it an accessor.
+    let synthAccessorAttrs = instanceMethodAttrs ||| MethodAttributes.SpecialName
 
     /// A method row bound to a `Property` row by `MethodSemantics` carries `SpecialName`,
     /// which is how a reflecting consumer tells an accessor from a method beside it.
@@ -166,8 +167,19 @@ module internal MethodAttrSets =
         match kind with
         | TMemberKind.Method -> name
         | TMemberKind.Property -> AccessorNames.getterName name
-        | TMemberKind.Accessor(prop, TAccessorRole.Getter) -> AccessorNames.getterName prop
-        | TMemberKind.Accessor(prop, TAccessorRole.Setter) -> AccessorNames.setterName prop
+        | TMemberKind.Accessor(prop, role) -> TAccessorRole.methodName role prop
+
+/// The accessor halves a record field declares.
+[<RequireQualifiedAccess>]
+module internal RecordFieldAccessors =
+
+    /// A getter always; a setter for a `mutable` field.
+    let rolesOf (f: Frozen.TRecordField) : TAccessorRole list =
+        [
+            TAccessorRole.Getter
+            if f.IsMutable then
+                TAccessorRole.Setter
+        ]
 
 /// Which types reach a field, and where its stores land. Every `FieldSlot` in the layout
 /// draws its `Attrs` from here, so the two facts are decided per storage kind in one place.
@@ -465,6 +477,9 @@ type internal MethodKey =
     /// `get_<Prop>` on a case view: the getter of the property reading one logical field
     /// through the wrapped `Payload`.
     | UnionCaseViewGetter of SymbolKey * case: string * index: int
+    /// `get_<Field>` / `set_<Field>` on a record: one row per role in
+    /// `RecordFieldAccessors.rolesOf` the field.
+    | RecordFieldAccessor of SymbolKey * field: string * TAccessorRole
     /// A hierarchy union case type's `.ctor(payload…)`, which chains the union's own
     /// `.ctor`, passing this case's tag where the base declares one.
     | UnionCaseCtor of SymbolKey * case: string
@@ -514,6 +529,9 @@ type internal PropertyKey =
     /// One logical case field's property on its `Payload_<Case>` view, whose getter is
     /// `MethodKey.UnionCaseViewGetter`.
     | UnionCaseViewField of SymbolKey * case: string * index: int
+    /// One record field's property, whose halves are the field's
+    /// `MethodKey.RecordFieldAccessor` rows.
+    | RecordField of SymbolKey * field: string
     /// A property a nominal type declares, keyed by the property's name and staticness,
     /// which both halves share. A static and an instance property of one name are two rows.
     | Declared of SymbolKey * prop: string * isStatic: bool

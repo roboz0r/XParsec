@@ -158,7 +158,7 @@ module internal UnionLayoutNodes =
                     {
                         Key = MethodKey.UnionCaseViewGetter(td.Key, caseName, f.Index)
                         Name = AccessorNames.getterName f.PropertyName
-                        Attrs = getterAttrs
+                        Attrs = synthAccessorAttrs
                     }
             ]
 
@@ -292,7 +292,7 @@ module internal UnionLayoutNodes =
                                 {
                                     Key = MethodKey.UnionGetTag td.Key
                                     Name = "get_Tag"
-                                    Attrs = getterAttrs
+                                    Attrs = synthAccessorAttrs
                                 }
 
                         for c in ud.Cases do

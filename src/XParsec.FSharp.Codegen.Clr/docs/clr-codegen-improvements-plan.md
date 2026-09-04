@@ -112,7 +112,7 @@ bits to `FieldReach.OwnType` and `writesOf f.IsMutable`.
 
 **Fix, staged.** Each stage leaves the suite green on its own.
 
-1. **Accessors, fields still public.** `buildRecordNodes` gains a `get_<Name>` method row and a
+1. **Accessors, fields still public — DONE.** `buildRecordNodes` gains a `get_<Name>` method row and a
    `Property` row per field, plus `set_<Name>` for a `mutable` one. Bodies in `NominalEmit`:
    `ldarg.0; ldfld; ret`, which is the same shape for a struct record, where `ldarg.0` is already
    the byref. The accessor-name minting is `AccessorNames`, and nominal types already carry
@@ -150,6 +150,30 @@ address is taken, so run the `Struct` and `StructSeq` suites, not only `Record`.
 assertions inverting to `GetProperties` is the deliverable, not a regression. The
 `{ p with Y = 99 }`, `c.Count <- 42` and record-pattern behavioural tests cover both sides of the
 mutable split and must stay green throughout.
+
+**Stage 1 landed.** `buildRecordNodes` emits a `get_<Name>` method row per field, a `set_<Name>`
+beside it for a `mutable` one, and a `Property` row binding the pair through `MethodSemantics`.
+`NominalEmit.prepareRecord` supplies the bodies from `Emit.buildFieldGetter` and the new
+`buildFieldSetter`, over the field refs the `.ctor` already mints, so a generic record's accessors
+reach the field through the `MemberRef` on the open self-`TypeSpec`. `getterAttrs` became
+`synthAccessorAttrs`, covering both halves.
+
+Handle prediction absorbed the new rows unchanged: `MetadataStructure.assertWellFormed` passed
+and every digest but the three records' held. Two pinned row lists gained their getters — `Point`
+and `M+Tally` in `MetadataStructureTests`, `N.Outer+Inner+T` in `LocalModuleTests` — and
+`record-members`, `struct-record` and `typar-struct-record` re-rendered. Those three now show
+`public int X;` beside `public int X => this.X;`, with `this.` disambiguating every field read: a
+field and a property may share a name in metadata, and C# cannot spell it. Stage 3 privatises the
+field and the rendering resolves.
+
+`PropertyRowTests` pins the rows and the binding: the row pair per field with the mutable split, a
+reflected round-trip through both halves, the second field of a generic record (the slot a raw
+`FieldDefinition` token resolves wrongly), and a struct record's getter over the byref `this`.
+
+One consequence to carry into stage 2: `MetadataSymbols.enumerateClassMembers` walks properties
+and public fields alike, so a record field imported from a referenced assembly now yields two
+`ExternalMember`s under one key. The property leads, which is the member stage 2 wants a consumer
+to bind; stage 3 drops the field from the public surface and with it the duplicate.
 
 ## A3. Typar constraints are never emitted
 
@@ -496,8 +520,8 @@ digest gate and the `expectNoFSharpCore` checks stay.
 A1 has landed.
 
 A3 stage 1 widens a frozen type and its codec, so it wants a commit of its own before anything
-depends on it. A2 stage 1 moves assembler row counts, so a failure in the handle predictions
-belongs to it alone.
+depends on it. A2 stage 1 has landed, and moved assembler row counts without disturbing the
+handle predictions, so the row-order ground is clear again for A2 stages 2 to 4.
 
 B1 has landed, and with it A4's second half. B2 has landed; it moved every golden's IL and no
 table row, so it left the row-order ground clear for A2.

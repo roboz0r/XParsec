@@ -125,6 +125,16 @@ type TAccessorRole =
     | Getter
     | Setter
 
+[<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
+[<RequireQualifiedAccess>]
+module TAccessorRole =
+
+    /// The accessor's `MethodDef` name over its property: `get_<prop>` / `set_<prop>`.
+    let methodName (role: TAccessorRole) (propName: string) : string =
+        match role with
+        | TAccessorRole.Getter -> AccessorNames.getterName propName
+        | TAccessorRole.Setter -> AccessorNames.setterName propName
+
 [<RequireQualifiedAccess>]
 type TMemberKind =
     | Method
