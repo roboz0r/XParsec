@@ -1032,6 +1032,19 @@ type internal Assembler
             | ValueNone -> ()
             | ValueSome encl -> ctx.AddNestedType(typeHandle, layoutHandles.TypeDefOf encl)
 
+        // `IsReadOnlyAttribute` for a value type whose every instance field is `initonly`.
+        // FSC stamps it only on an explicit `[<IsReadOnly>]`; Vesper infers it because a
+        // `readonly struct` spares the JIT a defensive copy at each getter call.
+        let readOnlyMarkerOf (node: TypeNode) (isValueType: bool) : SyntheticAttribute list =
+            let isInitOnlyOrStatic (f: FieldSlot) =
+                f.Attrs.HasFlag FieldAttributes.Static
+                || f.Attrs.HasFlag FieldAttributes.InitOnly
+
+            if isValueType && List.forall isInitOnlyOrStatic node.Fields then
+                [ SyntheticAttribute.IsReadOnly ]
+            else
+                []
+
         // Union, record, class and closure `TypeDefinition` rows share one recipe.
         // Walking the layout in order keeps the `InterfaceImpl` / `GenericParam` rows
         // ascending (sorted by `Class` / `TypeOrMethodDef`).
@@ -1109,14 +1122,10 @@ type internal Assembler
                 |> List.iteri (fun i n -> genericParams.Add(toEntity typeHandle, i, n))
 
             // Unions and records are always sealed; a class opts in via `[<Sealed>]` /
-            // `[<Struct>]`. A union or record opts into value-type emission via `[<Struct>]`.
-            // A struct union also carries `IsReadOnly`; a record may have `mutable` fields.
+            // `[<Struct>]`. A union or record opts into value-type emission via `[<Struct>]`,
+            // and is readonly when every instance field is `initonly`.
             | TypeSlotKind.Union(valueKind, regime) ->
-                let markers =
-                    if valueKind.IsValueType then
-                        [ SyntheticAttribute.IsReadOnly ]
-                    else
-                        []
+                let markers = readOnlyMarkerOf node valueKind.IsValueType
 
                 let attrs =
                     if UnionRegime.isHierarchy regime then
@@ -1142,11 +1151,15 @@ type internal Assembler
                     ctx.AddFieldLayout(fieldDefHandles.[f.Key], 0)
 
             // The union's public consumer surface: nested-public over `assembly`-visible
-            // storage, and `IsReadOnly` because its one field is `initonly`.
+            // storage.
             | TypeSlotKind.UnionCaseView ->
-                addUnionValueTypeRow node (classAttrsOf true true) [ SyntheticAttribute.IsReadOnly ]
+                addUnionValueTypeRow node (classAttrsOf true true) (readOnlyMarkerOf node true)
 
-            | TypeSlotKind.Record valueKind -> addNominalRow node (classAttrsOf true valueKind.IsValueType) []
+            | TypeSlotKind.Record valueKind ->
+                addNominalRow
+                    node
+                    (classAttrsOf true valueKind.IsValueType)
+                    (readOnlyMarkerOf node valueKind.IsValueType)
 
             | TypeSlotKind.Class(isSealed, valueKind) ->
                 let markers =

@@ -7,7 +7,7 @@ Line numbers are deliberately absent — they rot. Constructs and file names onl
 Raised by the decompiled-C# conformance goldens (`test/XParsec.FSharp.Codegen.Clr.Tests/goldens/*.clr.cs`),
 added when `ConformanceByteIdentityTests` gained a whole-module render beside its structural
 digest. Every finding below cites the golden that shows it, so each is reproducible by reading a
-committed file. A1, B1, B2 and C1 have landed; the rest is outstanding.
+committed file. A1, A2, B1, B2 and C1 have landed; the rest is outstanding.
 
 **Part A** is ABI and metadata defects. **Part B** is IL quality. **Part C** is the harness.
 
@@ -86,7 +86,7 @@ held the method-attribute vocabulary. Every `FieldSlot` in `LayoutNodes`, `Layou
 `compilerGeneratedStorage` binding named in the root cause above is gone; `FieldReach.Assembly`
 carries its rationale, adjacent to the `FieldReach.OwnType` case that a capture takes.
 
-## A2. A record field emits as a public writable field
+## A2. A record field emits as a public writable field — DONE
 
 `record-members.clr.cs`:
 
@@ -128,7 +128,7 @@ bits to `FieldReach.OwnType` and `writesOf f.IsMutable`.
    comment at the site: a private field is reachable from the type's own body and the accessor
    would only add a call.
 3. **Privatise — DONE.** `instanceFieldAttrs FieldReach.OwnType (writesOf f.IsMutable)`.
-4. **`readonly struct`.** A struct record whose every field is immutable emits
+4. **`readonly struct` — DONE.** A struct record whose every field is immutable emits
    `IsReadOnlyAttribute`, mirroring `UnionLayoutNodes`. With getters in place this also stops the
    defensive copy the JIT would otherwise make at each getter call on a non-`readonly` struct,
    which is the stage that pays for itself.
@@ -217,6 +217,18 @@ for the `RecordMember.Field` `MemberRef`. `FieldKey.RecordField` still keys on t
 `PropertyRowTests` pins the two `FieldAttributes` sets; the shape assertions in `RecordTests`,
 `StructTests`, `SelfHostTests` and the pinned row lists read the property or the suffixed
 backing field.
+
+**Stage 4 landed.** `Assembler.readOnlyMarkerOf` stamps `IsReadOnlyAttribute` on a value
+type whose every instance field is `initonly`, read off the `FieldSlot.Attrs` the layout
+already carries, so the record, struct union and case view arms share one rule and the layout
+model is unchanged. FSC infers no such attribute; the divergence is sited on the helper.
+`StructTests` pins the three answers — an all-immutable struct record, one with a `mutable`
+field, and a reference record — off one compile.
+
+`struct-record` and `typar-struct-record` re-rendered to `public readonly struct`, and their
+digests moved with the `IsReadOnlyAttribute` `TypeRef` and ctor `MemberRef` the fold walks.
+The IL did not move: `struct-record`'s `{ a with X = 10 }` still reads `ldsfld a` and calls
+`get_Y` on the spill, which ILSpy had been rendering as `a.Y` and now spells as the copy it is.
 
 ## A3. Typar constraints are never emitted
 
@@ -560,15 +572,15 @@ digest gate and the `expectNoFSharpCore` checks stay.
 
 # Sequencing
 
-A1 has landed.
+A1 and A2 have landed. A2 stage 1 moved assembler row counts without disturbing the handle
+predictions, and stages 2, 3 and 4 moved none, so the row-order ground is clear for whatever
+runs next.
 
 A3 stage 1 widens a frozen type and its codec, so it wants a commit of its own before anything
-depends on it. A2 stages 1, 2 and 3 have landed; stage 1 moved assembler row counts without
-disturbing the handle predictions, and stages 2 and 3 moved none, so the row-order ground is
-clear for A2 stage 4.
+depends on it.
 
 B1 has landed, and with it A4's second half. B2 has landed; it moved every golden's IL and no
-table row, so it left the row-order ground clear for A2.
+table row.
 
 A5 touches no row count and no table, so it is free of the row-order contention above and can
 run beside any of them. Its stage 5 is the exception: it widens `Frozen.TAbstractMethod`, so

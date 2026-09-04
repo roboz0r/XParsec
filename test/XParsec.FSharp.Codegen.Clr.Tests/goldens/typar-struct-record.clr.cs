@@ -16,7 +16,7 @@ using Vesper;
 
 [assembly: AssemblyVersion("1.0.0.0")]
 [Struct]
-public struct Point : IEquatable<Point>, IStructuralFormattable
+public readonly struct Point : IEquatable<Point>, IStructuralFormattable
 {
 	private readonly int X@;
 

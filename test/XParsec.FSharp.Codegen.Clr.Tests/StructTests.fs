@@ -37,6 +37,39 @@ let structTests =
                 Expect.equal names (Set.ofList [ "X"; "Y" ]) "both record fields are present"
             }
 
+            // Every store to an immutable record field lands in the `.ctor`, so the record
+            // emits as C#'s `readonly struct` and a consumer skips the defensive copy it
+            // would otherwise make at each getter call.
+            test "a `[<Struct>]` record is readonly exactly when it declares no `mutable` field" {
+                let artifact =
+                    compileSource
+                        "StructRecordReadOnly"
+                        (String.concat
+                            "\n"
+                            [
+                                "[<Struct>]"
+                                "type Ro = { X: int; Y: int }"
+                                "[<Struct>]"
+                                "type Rw = { A: int; mutable B: int }"
+                                "type Ref = { N: int }"
+                                "let ro = { X = 1; Y = 2 }"
+                                "let rw = { A = 1; B = 2 }"
+                                "let r = { N = 3 }"
+                            ])
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+
+                let isReadOnly (name: string) =
+                    asm.GetType(name, throwOnError = true).GetCustomAttributesData()
+                    |> Seq.exists (fun a ->
+                        a.AttributeType.FullName = "System.Runtime.CompilerServices.IsReadOnlyAttribute"
+                    )
+
+                Expect.isTrue (isReadOnly "Ro") "an all-immutable struct record carries IsReadOnlyAttribute"
+                Expect.isFalse (isReadOnly "Rw") "a `mutable` field writes outside the .ctor"
+                Expect.isFalse (isReadOnly "Ref") "a reference record is no value type"
+            }
+
             // The seven lines are `a.X`, `a.Y`, `a = b`, `a = c`, `hash a = hash b`,
             // then `{ a with X = 10 }`'s two fields.
             test "a `[<Struct>]` record constructs, field-reads, and compares structurally" {
