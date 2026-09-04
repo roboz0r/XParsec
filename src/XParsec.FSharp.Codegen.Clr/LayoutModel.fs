@@ -169,7 +169,15 @@ module internal MethodAttrSets =
         | TMemberKind.Property -> AccessorNames.getterName name
         | TMemberKind.Accessor(prop, role) -> TAccessorRole.methodName role prop
 
-/// The accessor halves a record field declares.
+/// The private backing field behind a record field's property.
+[<RequireQualifiedAccess>]
+module internal RecordBackingField =
+
+    /// The `Field` row name behind the property named `fieldName`: `X@` for `X`, matching
+    /// FSC.
+    let metaName (fieldName: string) : string = fieldName + "@"
+
+/// The accessors a record field declares.
 [<RequireQualifiedAccess>]
 module internal RecordFieldAccessors =
 
@@ -196,8 +204,8 @@ module internal FieldAttrSets =
         /// SIBLING closure type that reads the enclosing instance's storage directly, and
         /// `private` would fault that read at JIT with `FieldAccessException`.
         | Assembly
-        /// Every consumer. A `val` field, a record field, a union case field and a module
-        /// value are ABI, spelled by the source.
+        /// Every consumer. A `val` field, a union case field and a module value are ABI,
+        /// spelled by the source.
         | Public
 
     /// Where a field's stores land.
@@ -529,11 +537,11 @@ type internal PropertyKey =
     /// One logical case field's property on its `Payload_<Case>` view, whose getter is
     /// `MethodKey.UnionCaseViewGetter`.
     | UnionCaseViewField of SymbolKey * case: string * index: int
-    /// One record field's property, whose halves are the field's
+    /// One record field's property, whose accessors are the field's
     /// `MethodKey.RecordFieldAccessor` rows.
     | RecordField of SymbolKey * field: string
     /// A property a nominal type declares, keyed by the property's name and staticness,
-    /// which both halves share. A static and an instance property of one name are two rows.
+    /// which its accessors share. A static and an instance property of one name are two rows.
     | Declared of SymbolKey * prop: string * isStatic: bool
 
 /// One accessor, as the grouping into properties reads it.
@@ -552,7 +560,7 @@ type internal AccessorRow =
     }
 
 /// One `Property` row, with the accessor rows a `MethodSemantics` row binds to it. At least
-/// one half is always `ValueSome`.
+/// one of `Getter` and `Setter` is always `ValueSome`.
 type internal PropertySlot =
     {
         Key: PropertyKey
@@ -580,10 +588,10 @@ module internal PropertySlot =
             | ValueNone -> None
         )
         |> List.groupBy fst
-        |> List.map (fun ((prop, isStatic), halves) ->
+        |> List.map (fun ((prop, isStatic), accessors) ->
             let pick (wanted: TAccessorRole) : AccessorRow voption =
                 match
-                    halves
+                    accessors
                     |> List.tryPick (fun (_, (a, role)) -> if role = wanted then Some a else None)
                 with
                 | Some a -> ValueSome a
@@ -605,7 +613,7 @@ module internal PropertySlot =
             let indexTys, valueTy =
                 match getter, setterShape with
                 | ValueSome g, ValueSome(sIndex, sValue) ->
-                    // Unification has conformed the halves.
+                    // Unification has conformed the getter and setter.
                     if g.ParamTys <> sIndex || g.RetTy <> sValue then
                         failwithf "Layout: the getter and setter of property '%s' disagree on its type" prop
 

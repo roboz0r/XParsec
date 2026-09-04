@@ -31,10 +31,9 @@ let structTests =
                 Expect.isTrue ty.IsSealed "a value type is sealed"
                 Expect.equal ty.BaseType typeof<System.ValueType> "P extends System.ValueType"
 
-                let fields =
-                    ty.GetFields(BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly)
+                let names =
+                    ty.GetProperties declaredInstance |> Array.map (fun p -> p.Name) |> Set.ofArray
 
-                let names = fields |> Array.map (fun f -> f.Name) |> Set.ofArray
                 Expect.equal names (Set.ofList [ "X"; "Y" ]) "both record fields are present"
             }
 

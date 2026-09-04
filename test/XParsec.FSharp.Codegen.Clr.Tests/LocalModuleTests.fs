@@ -181,7 +181,7 @@ let nestedEmission =
                         }
                         {
                             Type = "N.Outer+Inner+T"
-                            Fields = [ "x" ]
+                            Fields = [ "x@" ]
                             Methods = [ ".ctor"; "get_x"; "GetHashCode"; "Equals"; "Equals"; "Format" ]
                         }
                     ]
@@ -251,8 +251,8 @@ let moduleIsPartOfTypeIdentity =
                         |> Array.map (fun f -> f.Name)
                         |> Array.toList
 
-                    Expect.equal (fields ta) [ "x" ] "A's T keeps its own field"
-                    Expect.equal (fields tb) [ "y" ] "B's T keeps its own field"
+                    Expect.equal (fields ta) [ "x@" ] "A's T keeps its own field"
+                    Expect.equal (fields tb) [ "y@" ] "B's T keeps its own field"
                 }
 
             // Acceptance IS the identity assertion here: were `B`'s `T` bound to `A`'s,

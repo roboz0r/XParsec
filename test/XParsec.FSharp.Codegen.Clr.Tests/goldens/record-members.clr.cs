@@ -27,13 +27,13 @@ using Vesper;
 [assembly: AssemblyVersion("1.0.0.0")]
 public sealed class Vec : IEquatable<Vec>, IStructuralFormattable
 {
-	public int X;
+	private readonly int X@;
 
-	public int Y;
+	private readonly int Y@;
 
-	public int X => this.X;
+	public int X => X@;
 
-	public int Y => this.Y;
+	public int Y => Y@;
 
 	public int Doubled
 	{
@@ -46,8 +46,8 @@ public sealed class Vec : IEquatable<Vec>, IStructuralFormattable
 
 	public Vec(int X, int Y)
 	{
-		this.X = X;
-		this.Y = Y;
+		X@ = X;
+		Y@ = Y;
 	}
 
 	public int Sum()
@@ -68,8 +68,8 @@ public sealed class Vec : IEquatable<Vec>, IStructuralFormattable
 	public override int GetHashCode()
 	{
 		HashCode hashCode = default(HashCode);
-		hashCode.Add(this.X);
-		hashCode.Add(this.Y);
+		hashCode.Add(X@);
+		hashCode.Add(Y@);
 		return hashCode.ToHashCode();
 	}
 
@@ -84,9 +84,9 @@ public sealed class Vec : IEquatable<Vec>, IStructuralFormattable
 
 	public bool Equals(Vec other)
 	{
-		if (other != null && this.X == other.X)
+		if (other != null && X@ == other.X@)
 		{
-			return this.Y == other.Y;
+			return Y@ == other.Y@;
 		}
 		return false;
 	}
@@ -95,9 +95,9 @@ public sealed class Vec : IEquatable<Vec>, IStructuralFormattable
 	{
 		sink.BeginRecord();
 		sink.Field("X");
-		sink.Child(this.X);
+		sink.Child(X@);
 		sink.Field("Y");
-		sink.Child(this.Y);
+		sink.Child(Y@);
 		sink.EndRecord();
 	}
 }

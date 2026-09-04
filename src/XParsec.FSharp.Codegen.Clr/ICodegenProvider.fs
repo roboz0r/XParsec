@@ -152,9 +152,9 @@ type ClosureMember =
 type RecordMember =
     /// The single instance `.ctor(field0, field1, …)`, fields in declaration order.
     | Ctor
-    /// The backing field named `fieldName`, the source field name preserved verbatim. Reached
-    /// directly only by the record's `.ctor`, its accessor bodies and its structural bodies;
-    /// every other consumer, the record's own members included, takes an accessor.
+    /// The backing field of the record field with source name `fieldName`.
+    /// Reached directly only by the record's `.ctor`, its accessor bodies and its structural
+    /// bodies; every other consumer, the record's own members included, takes an accessor.
     | Field of fieldName: string
     /// One accessor of the field named `fieldName`: `instance FieldTy get_<fieldName>()`, or
     /// `instance void set_<fieldName>(FieldTy)`, the latter declared for a `mutable` field only.

@@ -200,7 +200,7 @@ type MetadataContext() =
     member _.AddPropertyMap(declaringType: TypeDefinitionHandle, firstProperty: PropertyDefinitionHandle) : unit =
         mb.AddPropertyMap(declaringType, firstProperty)
 
-    /// Binds an accessor to the property it half-implements. SRM sorts the table by
+    /// Binds an accessor to the property it implements. SRM sorts the table by
     /// `Association`, so add order is free.
     member _.AddMethodSemantics
         (association: EntityHandle, semantics: MethodSemanticsAttributes, accessor: MethodDefinitionHandle)

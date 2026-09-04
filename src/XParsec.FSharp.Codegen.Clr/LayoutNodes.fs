@@ -339,10 +339,8 @@ module internal LayoutNodes =
                         for f in rd.Fields ->
                             {
                                 Key = FieldKey.RecordField(td.Key, f.Name)
-                                Name = f.Name
-                                // A2: a record field should be `initonly` and reached through
-                                // a property, so both bits here are provisional.
-                                Attrs = instanceFieldAttrs FieldReach.Public FieldWrites.Anywhere
+                                Name = RecordBackingField.metaName f.Name
+                                Attrs = instanceFieldAttrs FieldReach.OwnType (writesOf f.IsMutable)
                                 Ty = f.Type
                                 ClosureScope = ValueNone
                             }
@@ -374,7 +372,7 @@ module internal LayoutNodes =
                 let properties =
                     [
                         for f in rd.Fields ->
-                            let half (role: TAccessorRole) : MethodKey voption =
+                            let accessorOf (role: TAccessorRole) : MethodKey voption =
                                 if List.contains role (RecordFieldAccessors.rolesOf f) then
                                     ValueSome(MethodKey.RecordFieldAccessor(td.Key, f.Name, role))
                                 else
@@ -386,8 +384,8 @@ module internal LayoutNodes =
                                 IsInstance = true
                                 IndexTys = []
                                 ValueTy = f.Type
-                                Getter = half TAccessorRole.Getter
-                                Setter = half TAccessorRole.Setter
+                                Getter = accessorOf TAccessorRole.Getter
+                                Setter = accessorOf TAccessorRole.Setter
                             }
 
                         yield! ownAndIfaceProperties td.Key rd.Members rd.Interfaces

@@ -29,25 +29,25 @@ using Vesper;
 [Struct]
 public struct P : IEquatable<P>, IStructuralFormattable
 {
-	public int X;
+	private readonly int X@;
 
-	public int Y;
+	private readonly int Y@;
 
-	public int X => this.X;
+	public int X => X@;
 
-	public int Y => this.Y;
+	public int Y => Y@;
 
 	public P(int X, int Y)
 	{
-		this.X = X;
-		this.Y = Y;
+		X@ = X;
+		Y@ = Y;
 	}
 
 	public override int GetHashCode()
 	{
 		HashCode hashCode = default(HashCode);
-		hashCode.Add(this.X);
-		hashCode.Add(this.Y);
+		hashCode.Add(X@);
+		hashCode.Add(Y@);
 		return hashCode.ToHashCode();
 	}
 
@@ -64,9 +64,9 @@ public struct P : IEquatable<P>, IStructuralFormattable
 
 	public bool Equals(P other)
 	{
-		if (this.X == other.X)
+		if (X@ == other.X@)
 		{
-			return this.Y == other.Y;
+			return Y@ == other.Y@;
 		}
 		return false;
 	}
@@ -75,9 +75,9 @@ public struct P : IEquatable<P>, IStructuralFormattable
 	{
 		sink.BeginRecord();
 		sink.Field("X");
-		sink.Child(this.X);
+		sink.Child(X@);
 		sink.Field("Y");
-		sink.Child(this.Y);
+		sink.Child(Y@);
 		sink.EndRecord();
 	}
 }

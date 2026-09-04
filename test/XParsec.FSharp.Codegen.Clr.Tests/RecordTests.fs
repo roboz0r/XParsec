@@ -132,7 +132,7 @@ let monoTests =
                 Expect.equal (output.Trim()) "30" "TPat.Record bound both fields and summed them"
             }
 
-            test "an emitted record type has a public ctor + one public field per record field" {
+            test "an emitted record type has a public ctor + one public property per record field" {
                 let artifact =
                     compileSource
                         "RecMeta"
@@ -146,9 +146,13 @@ let monoTests =
                 Expect.equal ctors.Length 1 "Point declares one public ctor"
                 Expect.equal (ctors.[0].GetParameters().Length) 2 "Point ctor takes the two fields"
 
-                let fields = ty.GetFields(BindingFlags.Public ||| BindingFlags.Instance)
-                let names = fields |> Array.map (fun f -> f.Name) |> Set.ofArray
-                Expect.equal names (Set.ofList [ "X"; "Y" ]) "Point exposes both fields publicly"
+                let props = ty.GetProperties(BindingFlags.Public ||| BindingFlags.Instance)
+                let names = props |> Array.map (fun p -> p.Name) |> Set.ofArray
+                Expect.equal names (Set.ofList [ "X"; "Y" ]) "Point exposes both fields as properties"
+
+                Expect.isEmpty
+                    (ty.GetFields(BindingFlags.Public ||| BindingFlags.Instance))
+                    "the storage behind them is private"
             }
 
             test "a record's bytes do not pin FSharp.Core (BCL-only equality + IL)" {
@@ -385,10 +389,10 @@ let genericTests =
 
                 let instance = Activator.CreateInstance(pairInt, [| box 7; box 3 |])
 
-                Expect.equal (pairInt.GetField("First").GetValue instance :?> int) 7 "Pair.First = 7 (first field)"
+                Expect.equal (pairInt.GetProperty("First").GetValue instance :?> int) 7 "Pair.First = 7 (first field)"
 
                 Expect.equal
-                    (pairInt.GetField("Second").GetValue instance :?> int)
+                    (pairInt.GetProperty("Second").GetValue instance :?> int)
                     3
                     "Pair.Second = 3 (non-first field)"
             }

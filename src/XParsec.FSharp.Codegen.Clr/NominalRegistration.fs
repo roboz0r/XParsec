@@ -76,7 +76,16 @@ module internal NominalRegistration =
             provider.RegisterUserValueType td.TypeKey
 
         if not td.TypeParams.IsEmpty then
-            let shape = [ for f in rd.Fields -> f.Name, f.Type ]
+            let shape =
+                [
+                    for f in rd.Fields ->
+                        {
+                            Name = f.Name
+                            MetaName = RecordBackingField.metaName f.Name
+                            Ty = f.Type
+                        }
+                ]
+
             provider.RegisterGenericRecord(td.TypeKey, TTypeParam.names td.TypeParams, shape)
 
     let private registerClass (provider: ClrProvider) (handles: LayoutHandles) (cd: ClassDecl) : unit =

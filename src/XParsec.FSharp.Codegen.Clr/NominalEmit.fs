@@ -175,7 +175,7 @@ module internal NominalEmit =
                 }
 
     /// The record `.ctor`: one parameter per field, stored in declaration order, and the
-    /// accessor pair behind each field's property.
+    /// accessors behind each field's property.
     let private prepareRecord
         (asm: Assembler)
         (td: TastAccessor.TypeDecl)

@@ -51,11 +51,21 @@ type internal GenericUnionShape =
             this.Cases.Length
             (this.Cases |> EqArray.exists (fun c -> not c.Fields.IsEmpty))
 
-/// A *generic* user record: typar names + `(field name, declared type)` pairs.
+/// One field of a generic user record.
+type internal GenericRecordField =
+    {
+        /// The source name, carried by the property and its accessors.
+        Name: string
+        /// The `Field` row name of the private backing field.
+        MetaName: string
+        Ty: FrozenType
+    }
+
+/// A *generic* user record: typar names + fields in declaration order.
 type internal GenericRecordShape =
     {
         Typars: EqArray<string>
-        Fields: EqArray<string * FrozenType>
+        Fields: EqArray<GenericRecordField>
     }
 
 /// A *generic* user class. `Fields` is the FULL field shape in order: ctor-param backing

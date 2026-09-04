@@ -183,7 +183,7 @@ module EmitTypes =
                 this.Cases.Count
                 (this.Cases.Values |> Seq.exists (fun c -> not c.Fields.IsEmpty))
 
-    /// The accessor pair a record field declares: `get_<Field>` always, `set_<Field>` for a
+    /// The accessors a record field declares: `get_<Field>` always, `set_<Field>` for a
     /// `mutable` field.
     type RecordFieldAccessorRefs =
         {
@@ -220,7 +220,7 @@ module EmitTypes =
         }
 
     /// A record emitted into this assembly: a sealed class, one field per record field behind
-    /// an accessor pair, one ctor taking `Fields` in declaration order. `Typars` empty ⇒
+    /// its accessors, one ctor taking `Fields` in declaration order. `Typars` empty ⇒
     /// monomorphic (`Def`-token handles), non-empty ⇒ generic.
     type EmittedRecord =
         {

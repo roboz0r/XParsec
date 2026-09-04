@@ -192,6 +192,38 @@ let tests =
                     "an immutable field is get-only; a `mutable` one carries both halves"
             }
 
+            // The property is the field's whole public surface, and the storage behind it
+            // carries FSC's `@`-suffixed name. An immutable field is written by the `.ctor`
+            // alone — a literal is a `newobj` and `{ r with X = v }` rebuilds through the same
+            // ctor — so it takes `initonly` too.
+            test "a record field's storage is private, and initonly unless the field is `mutable`" {
+                let bytes =
+                    bytesOf
+                        "PropRecordFieldAttrs"
+                        [
+                            "type R = { X: int; mutable Y: string }"
+                            "[<Struct>]"
+                            "type S = { A: int; mutable B: int }"
+                            "let r = { X = 1; Y = \"a\" }"
+                            "let s = { A = 1; B = 2 }"
+                        ]
+
+                let immutable (name: string) =
+                    name, FieldAttributes.Private ||| FieldAttributes.InitOnly
+
+                let mutable' (name: string) = name, FieldAttributes.Private
+
+                Expect.equal
+                    (fieldAttrsOf bytes "R")
+                    [ immutable "X@"; mutable' "Y@" ]
+                    "an immutable field's storage keeps initonly; a `mutable` one drops it"
+
+                Expect.equal
+                    (fieldAttrsOf bytes "S")
+                    [ immutable "A@"; mutable' "B@" ]
+                    "a struct record's storage takes the same bits"
+            }
+
             // The accessors reach the storage the record's own `.ctor` filled, so the pair
             // round-trips a value no literal wrote.
             test "reflection binds a record field's accessors and they reach the storage" {

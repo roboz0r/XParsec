@@ -74,10 +74,16 @@ let tests =
                 Expect.equal typars.Length 1 "Ref`1 has one type parameter"
                 Expect.equal typars.[0].Name "T" "the type parameter is 'T"
 
-                let contents = refTy.GetField "contents"
-                Expect.isNotNull contents "Ref`1 has a `contents` field"
-                Expect.equal contents.FieldType typars.[0] "the field's declared type is 'T"
-                Expect.isFalse contents.IsInitOnly "the field is mutable"
+                let contents = refTy.GetProperty "contents"
+                Expect.isNotNull contents "Ref`1 has a `contents` property"
+                Expect.equal contents.PropertyType typars.[0] "the property's declared type is 'T"
+                Expect.isTrue contents.CanWrite "a `mutable` record field carries its setter"
+
+                let storage =
+                    refTy.GetField("contents@", BindingFlags.NonPublic ||| BindingFlags.Instance)
+
+                Expect.isNotNull storage "the property is backed by private storage"
+                Expect.isFalse storage.IsInitOnly "the storage is written outside the ctor"
 
                 let refs = asm.GetReferencedAssemblies() |> Array.map (fun a -> a.Name)
 

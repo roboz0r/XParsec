@@ -118,7 +118,7 @@ bits to `FieldReach.OwnType` and `writesOf f.IsMutable`.
    the byref. The accessor-name minting is `AccessorNames`, and nominal types already carry
    `Property` rows, so this stage adds no new machinery.
 2. **Route every consumer through the accessor — DONE.** `RecordMember.Field` in `ICodegenProvider`
-   currently means "the public field"; it becomes "the field's accessor pair", and each site
+   currently means "the public field"; it becomes "the field's accessors", and each site
    minting a `FieldDef`/`MemberRef` from it mints a method reference instead. The sites are the
    field-get path, the field-set path, `buildRecordClone` in `EmitConstruct` (which `ldfld`s each
    non-overridden field off the spilled source), and the record-pattern destructure in
@@ -127,7 +127,7 @@ bits to `FieldReach.OwnType` and `writesOf f.IsMutable`.
    declaring type*, so they keep direct field access. That exception is deliberate and wants a
    comment at the site: a private field is reachable from the type's own body and the accessor
    would only add a call.
-3. **Privatise.** `instanceFieldAttrs FieldReach.OwnType (writesOf f.IsMutable)`.
+3. **Privatise — DONE.** `instanceFieldAttrs FieldReach.OwnType (writesOf f.IsMutable)`.
 4. **`readonly struct`.** A struct record whose every field is immutable emits
    `IsReadOnlyAttribute`, mirroring `UnionLayoutNodes`. With getters in place this also stops the
    defensive copy the JIT would otherwise make at each getter call on a non-`readonly` struct,
@@ -208,6 +208,15 @@ body's member-bearing instructions to `(mnemonic, member name)` over the
 set, clone, pattern, the generic second-field `MemberRef`, the struct record's getter and clone
 with a runtime round-trip, and a promoted `let mutable` reaching `Vesper.Ref` through
 `get_contents`.
+
+**Stage 3 landed.** A record field's backing field is `private`, `initonly` unless `mutable`, and
+takes FSC's `X@` name from `RecordBackingField.metaName` in `LayoutModel`. The name is
+decided in the layout layer: `buildRecordNodes` writes the `FieldDef` row and
+`NominalRegistration` stores it as `GenericRecordField.MetaName`, which `ClrGenerics` reads back
+for the `RecordMember.Field` `MemberRef`. `FieldKey.RecordField` still keys on the source name.
+`PropertyRowTests` pins the two `FieldAttributes` sets; the shape assertions in `RecordTests`,
+`StructTests`, `SelfHostTests` and the pinned row lists read the property or the suffixed
+backing field.
 
 ## A3. Typar constraints are never emitted
 
@@ -554,9 +563,9 @@ digest gate and the `expectNoFSharpCore` checks stay.
 A1 has landed.
 
 A3 stage 1 widens a frozen type and its codec, so it wants a commit of its own before anything
-depends on it. A2 stages 1 and 2 have landed; stage 1 moved assembler row counts without
-disturbing the handle predictions and stage 2 moved none, so the row-order ground is clear
-for A2 stages 3 and 4.
+depends on it. A2 stages 1, 2 and 3 have landed; stage 1 moved assembler row counts without
+disturbing the handle predictions, and stages 2 and 3 moved none, so the row-order ground is
+clear for A2 stage 4.
 
 B1 has landed, and with it A4's second half. B2 has landed; it moved every golden's IL and no
 table row, so it left the row-order ground clear for A2.

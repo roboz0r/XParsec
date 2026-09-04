@@ -94,7 +94,9 @@ type ClrProvider
                 Home = home
             }
 
-    member _.RegisterGenericRecord(key: TypeKey, typars: EqArray<string>, fields: (string * FrozenType) list) : unit =
+    member internal _.RegisterGenericRecord
+        (key: TypeKey, typars: EqArray<string>, fields: GenericRecordField list)
+        : unit =
         env.GenericRecords.[key] <-
             {
                 Typars = typars

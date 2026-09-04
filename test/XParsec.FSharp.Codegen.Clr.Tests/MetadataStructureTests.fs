@@ -192,7 +192,9 @@ let tests =
                         }
                         {
                             Type = "Point"
-                            Fields = [ "X"; "Y" ]
+                            // A record field's storage carries the `@`-suffixed name; `X`
+                            // and `Y` are the properties over it.
+                            Fields = [ "X@"; "Y@" ]
                             Methods = [ ".ctor"; "get_X"; "get_Y"; "GetHashCode"; "Equals"; "Equals"; "Format" ]
                         }
                         {
@@ -221,7 +223,7 @@ let tests =
                         }
                         {
                             Type = "M+Tally"
-                            Fields = [ "Hits" ]
+                            Fields = [ "Hits@" ]
                             Methods = [ ".ctor"; "get_Hits"; "GetHashCode"; "Equals"; "Equals"; "Format" ]
                         }
                         // The anonymous module class, last, so `Main` (the final method row)

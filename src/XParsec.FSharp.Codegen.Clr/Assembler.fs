@@ -978,7 +978,7 @@ type internal Assembler
                 prepared.Count
                 layoutHandles.TotalMethods
 
-    /// Per row: the `Property` row, then a `MethodSemantics` row per half declared for it.
+    /// Per row: the `Property` row, then a `MethodSemantics` row per accessor declared for it.
     member this.WriteProperties() =
         for row in layout.Properties do
             let signature =
