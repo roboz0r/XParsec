@@ -22,7 +22,6 @@ public static class Program
 		formatter.AppendFormatted(1 / 0);
 		formatter.AppendLiteral("\n");
 		formatter.Flush();
-		ValueTuple valueTuple = default(ValueTuple);
 		return 0;
 	}
 }

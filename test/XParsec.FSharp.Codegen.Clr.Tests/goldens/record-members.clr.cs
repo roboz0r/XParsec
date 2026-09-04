@@ -112,22 +112,18 @@ public static class Program
 		formatter.AppendFormatted(v.Sum());
 		formatter.AppendLiteral("\n");
 		formatter.Flush();
-		ValueTuple valueTuple = default(ValueTuple);
 		Formatter formatter2 = new Formatter(0, 1, Console.Out);
 		formatter2.AppendFormatted(v.AddN(10));
 		formatter2.AppendLiteral("\n");
 		formatter2.Flush();
-		ValueTuple valueTuple2 = default(ValueTuple);
 		Formatter formatter3 = new Formatter(0, 1, Console.Out);
 		formatter3.AppendFormatted(v.Doubled);
 		formatter3.AppendLiteral("\n");
 		formatter3.Flush();
-		ValueTuple valueTuple3 = default(ValueTuple);
 		Formatter formatter4 = new Formatter(0, 1, Console.Out);
 		formatter4.AppendFormatted(v.X);
 		formatter4.AppendLiteral("\n");
 		formatter4.Flush();
-		ValueTuple valueTuple4 = default(ValueTuple);
 		return 0;
 	}
 }

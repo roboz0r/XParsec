@@ -14,7 +14,7 @@ open EmitDispatch
 /// generic operator opcodes) and the runtime type operators (`:>` / `:?>` / `:?`).
 module EmitIntrinsic =
 
-    let buildILIntrinsic (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
+    let buildILIntrinsic (recur: Recur) (pos: ExprPos) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         let operand = TastAccessor.exprILIntrinsicTypeOperand e
         let args = TastAccessor.exprChildren e
 
@@ -47,9 +47,8 @@ module EmitIntrinsic =
             | ValueNone -> failwith "Emit: 'stelem' without an element type operand"
 
             // `stelem` leaves nothing on the stack, but the store is a `unit`
-            // expression: a body that is a bare `arr.[i] <- v` must leave the unit
-            // value for `ret`.
-            EmitTypes.buildUnitValue env b
+            // expression, so a value-position consumer takes a reified `unit`.
+            ExprPos.reifyUnit env b pos
         | "ldobj" ->
             // `span.[i]` byref-return deref — the arg (a `call get_Item`) leaves a
             // managed pointer `T&`, then `ldobj <elem>` loads the pointed-to value.
@@ -130,11 +129,17 @@ module EmitIntrinsic =
                     | n -> failwithf "Emit: %d-ary inline-IL instruction '%s' is out of scope" n opCode
                 | ValueNone -> failwithf "Emit: unsupported inline-IL instruction '%s'" opCode
 
-    let buildStaticOptimization (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
+    let buildStaticOptimization
+        (recur: RecurAt)
+        (pos: ExprPos)
+        (env: EmitEnv)
+        (b: IlBuilder)
+        (e: TastAccessor.ExprId)
+        : unit =
         // Reaching codegen unresolved means the function was never inline-expanded
         // against a concrete operand type (used as a first-class value, or declared
         // without `inline`). F# falls back to the leading (dynamic) expression.
-        recur env b (TastAccessor.exprStaticOptimizationDefault e)
+        recur pos env b (TastAccessor.exprStaticOptimizationDefault e)
 
     let buildUpcast (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         // `e :> T`: a reference-type source is already usable as its base, so emit

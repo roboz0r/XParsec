@@ -13,22 +13,27 @@ open EmitDispatch
 /// `let` / `use` bindings and the source-level `try`/`finally`.
 module EmitBindings =
 
-    /// Emit a `try Body finally …` protected region, returning the body's value.
-    /// `leave` clears the evaluation stack, so the body's result is parked in a local
-    /// inside the `try` and reloaded after; `emitFinally` must leave the stack empty.
+    /// Emit a `try Body finally …` protected region. A value-position body's result is
+    /// parked in a local inside the `try` and reloaded after the `leave`, which clears the
+    /// evaluation stack; `emitFinally` must leave the stack empty.
     let private buildTryFinallyRegion
-        (recur: Recur)
+        (recur: RecurAt)
+        (pos: ExprPos)
         (env: EmitEnv)
         (b: IlBuilder)
         (body: TastAccessor.ExprId)
         (emitFinally: unit -> unit)
         : unit =
-        let resultSlot = b.Local(typeOfExpr body)
+        let resultSlot =
+            match pos with
+            | ExprPos.Value -> ValueSome(b.Local(typeOfExpr body))
+            | ExprPos.Statement -> ValueNone
+
         let endLabel = b.Label()
 
         b.Add ILInstr.Try
-        recur env b body
-        b.Add(ILInstr.Stloc resultSlot)
+        recur pos env b body
+        resultSlot |> ValueOption.iter (fun slot -> b.Add(ILInstr.Stloc slot))
         b.Add(ILInstr.Leave endLabel)
 
         b.Add ILInstr.BeginFinally
@@ -39,9 +44,9 @@ module EmitBindings =
 
         b.SetDepth 0
         b.Add(ILInstr.Mark endLabel)
-        b.Add(ILInstr.Ldloc resultSlot)
+        resultSlot |> ValueOption.iter (fun slot -> b.Add(ILInstr.Ldloc slot))
 
-    let buildLet (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
+    let buildLet (recur: RecurAt) (pos: ExprPos) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         let view = TastAccessor.exprLet e
 
         match TastAccessor.patBoundVar view.Pattern with
@@ -49,19 +54,19 @@ module EmitBindings =
             // A simple `let x = value in body` bound variable: park the value in `x`'s slot.
             let slot = b.Local(TastAccessor.patTy view.Pattern)
             env.Slots.[boundVar] <- slot
-            recur env b view.Value
+            recur ExprPos.Value env b view.Value
             b.Add(ILInstr.Stloc slot)
-            recur env b view.Body
+            recur pos env b view.Body
         | ValueNone ->
             // A destructuring `let a, b = (1, 2) in body`: park the scrutinee in a temp,
             // then `bindPattern` pulls each bound variable out of it before the body runs.
             let slot = b.Local(typeOfExpr view.Value)
-            recur env b view.Value
+            recur ExprPos.Value env b view.Value
             b.Add(ILInstr.Stloc slot)
             bindPattern env b slot view.Pattern
-            recur env b view.Body
+            recur pos env b view.Body
 
-    let buildUse (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
+    let buildUse (recur: RecurAt) (pos: ExprPos) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         let view = TastAccessor.exprUse e
         let pat = view.Pattern
 
@@ -89,15 +94,17 @@ module EmitBindings =
 
             let slot = b.Local varTy
             env.Slots.[boundVar] <- slot
-            recur env b view.Value
+            recur ExprPos.Value env b view.Value
             b.Add(ILInstr.Stloc slot)
 
             // `x.Dispose()` through the standard instance-call path, which resolves the
-            // member handle and emits the `callvirt`; its `Unit` result is popped.
+            // member handle and emits the `callvirt`. Statement position, so the call
+            // leaves the stack as it was.
             let emitLocalDispose (disposeKey: SymbolKey) =
                 let pool = view.Value.Pool
 
                 recur
+                    ExprPos.Statement
                     env
                     b
                     (TastAccessor.mintMethodCall
@@ -107,8 +114,6 @@ module EmitBindings =
                         [||]
                         (RuntimeNames.unitTy)
                         tok)
-
-                b.Add ILInstr.Pop
 
             // A keyed `Dispose` on an EXTERNAL type. Its real `void` return pushes
             // nothing, so this is an object-arg-only `callvirt` with no `pop`.
@@ -164,22 +169,19 @@ module EmitBindings =
                 b.SetDepth 0
                 b.Add(ILInstr.Mark skipLabel)
 
-            buildTryFinallyRegion recur env b view.Body emitDisposeFinally
+            buildTryFinallyRegion recur pos env b view.Body emitDisposeFinally
         | _ ->
             // A destructuring `use` is rejected up front by Validation ("Only simple
             // variable patterns can be bound in 'use' expressions"), since the bound
             // value is what gets disposed.
             failwithf "Emit: destructuring use-binding should have been rejected by Validation: %A" pat
 
-    let buildTryFinally (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
+    let buildTryFinally (recur: RecurAt) (pos: ExprPos) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         let view = TastAccessor.exprTryFinally e
 
-        // `Cleanup` types as unit and runs purely for effect, so discard whatever it
-        // leaves: the handler must end empty-stacked.
+        // `Cleanup` types as unit and runs purely for effect. The handler must end
+        // empty-stacked.
         let emitCleanupFinally () =
-            recur env b view.Cleanup
+            recur ExprPos.Statement env b view.Cleanup
 
-            while b.Depth > 0 do
-                b.Add ILInstr.Pop
-
-        buildTryFinallyRegion recur env b view.Body emitCleanupFinally
+        buildTryFinallyRegion recur pos env b view.Body emitCleanupFinally

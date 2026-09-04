@@ -6,7 +6,6 @@ let s = onlyRef "x"
 ignore s
 */
 
-using System;
 using System.Reflection;
 
 [assembly: AssemblyVersion("1.0.0.0")]
@@ -26,7 +25,6 @@ public static class Program
 
 	public static int Main(string[] args)
 	{
-		ValueTuple valueTuple = default(ValueTuple);
 		return 0;
 	}
 }

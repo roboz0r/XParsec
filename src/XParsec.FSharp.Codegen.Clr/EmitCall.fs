@@ -80,7 +80,7 @@ module EmitCall =
 
     /// Lower an `App` chain: dispatch on the applied function's shape, then apply any
     /// argument its own call did not consume through `Invoke`.
-    let buildAppCall (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
+    let buildAppCall (recur: Recur) (pos: ExprPos) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         let fn, appArgs = TastAccessor.collectAppChain [] e
 
         match fn with
@@ -125,7 +125,7 @@ module EmitCall =
                 // A `void` recipe (`Pushes = 0`) left nothing on the stack; reify a
                 // `unit` for the value-position consumer.
                 if recipe.Pushes = 0 then
-                    EmitTypes.buildUnitValue env b
+                    ExprPos.reifyUnit env b pos
 
                 let funcTy =
                     match List.tryLast leading with
@@ -193,7 +193,7 @@ module EmitCall =
 
             let result = CallResult.ofReturnsVoid sm.ReturnsVoid
             b.Add(ILInstr.Call(callHandle, List.length flatActualTys, result.Pushes))
-            CallResult.reify env b result
+            CallResult.reify env b pos result
 
             foldInvoke recur env b sm.ResultTy rest
 
@@ -256,7 +256,7 @@ module EmitCall =
             else
                 b.Add(ILInstr.Callvirt(handle, total, result.Pushes))
 
-            CallResult.reify env b result
+            CallResult.reify env b pos result
 
             foldInvoke recur env b resultTy plan.Residual
 

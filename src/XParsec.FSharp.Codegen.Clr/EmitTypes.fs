@@ -496,6 +496,42 @@ module EmitTypes =
         b.Add(ILInstr.Initobj(env.Provider.TypeToken(RuntimeNames.unitTy)))
         b.Add(ILInstr.Ldloc slot)
 
+    /// Whether an expression's own value is consumed.
+    [<RequireQualifiedAccess>]
+    type ExprPos =
+        /// The value is left on the stack for a consumer.
+        | Value
+        /// The expression runs for effect. Emission returns the operand stack to the depth
+        /// it had on entry.
+        | Statement
+
+        /// The operand-stack depth the expression adds.
+        member this.Pushes =
+            match this with
+            | ExprPos.Value -> 1
+            | ExprPos.Statement -> 0
+
+    [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
+    module ExprPos =
+
+        let ofReturnsVoid (returnsVoid: bool) : ExprPos =
+            if returnsVoid then ExprPos.Statement else ExprPos.Value
+
+        /// Emit the reified `unit` of a `unit`-typed construct in value position.
+        let reifyUnit (env: EmitEnv) (b: IlBuilder) (pos: ExprPos) : unit =
+            match pos with
+            | ExprPos.Value -> buildUnitValue env b
+            | ExprPos.Statement -> ()
+
+        /// Discard back to `baseDepth`, the depth recorded before the expression was
+        /// emitted. In value position the expression's result stands.
+        let discardTo (b: IlBuilder) (baseDepth: int) (pos: ExprPos) : unit =
+            match pos with
+            | ExprPos.Value -> ()
+            | ExprPos.Statement ->
+                while b.Depth > baseDepth do
+                    b.Add ILInstr.Pop
+
     /// What a call leaves on the stack.
     [<RequireQualifiedAccess>]
     type CallResult =
@@ -524,8 +560,8 @@ module EmitTypes =
         let ofReturnsVoid (returnsVoid: bool) : CallResult =
             if returnsVoid then CallResult.Void else CallResult.Value
 
-        /// Emit whatever the call did not push.
-        let reify (env: EmitEnv) (b: IlBuilder) (result: CallResult) : unit =
+        /// Emit whatever the call did not push, in value position.
+        let reify (env: EmitEnv) (b: IlBuilder) (pos: ExprPos) (result: CallResult) : unit =
             match result with
-            | CallResult.Void -> buildUnitValue env b
+            | CallResult.Void -> ExprPos.reifyUnit env b pos
             | CallResult.Value -> ()

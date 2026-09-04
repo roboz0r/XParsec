@@ -83,14 +83,12 @@ public static class Program
 		formatter.AppendFormatted(s.X());
 		formatter.AppendLiteral("\n");
 		formatter.Flush();
-		ValueTuple valueTuple = default(ValueTuple);
 		Formatter formatter2 = new Formatter(1, 2, Console.Out);
 		formatter2.AppendFormatted(i.K());
 		formatter2.AppendLiteral(" ");
 		formatter2.AppendFormatted(i.X());
 		formatter2.AppendLiteral("\n");
 		formatter2.Flush();
-		ValueTuple valueTuple2 = default(ValueTuple);
 		return 0;
 	}
 }

@@ -84,8 +84,6 @@ module EmitMember =
         | CallVia.Self, FTClass _ when not isStructSelf -> b.Add(ILInstr.Callvirt(handle, operands, result.Pushes))
         | _ -> b.Add(ILInstr.Call(handle, operands, result.Pushes))
 
-        CallResult.reify env b result
-
     /// A member access through an interface-constrained typar (`x : 'T when 'T :> IFace`). The
     /// object argument is an `FTTypar`, not a nominal, so the slot comes off the key's declaring
     /// interface, dispatched `constrained. <typar> callvirt`, so a struct typar goes by address
@@ -99,6 +97,7 @@ module EmitMember =
         (ifaceArgs: EqArray<FrozenType>)
         (args: EqArray<TastAccessor.ExprId>)
         (ty: FrozenType)
+        (result: CallResult)
         : unit =
         let objArgTy = typeOfExpr objArg
         // A member name carries no arity, so the display projection IS the emitted CLR name.
@@ -138,7 +137,6 @@ module EmitMember =
 
                 env.Provider.ExternalMemberRefOn(key, ifaceTy, false, false, memberTy)
 
-        let result = CallResult.ofReturnTy ty
         let operands = 1 + args.Length
 
         // `constrained.` needs a managed pointer for both struct and class typars.
@@ -150,8 +148,6 @@ module EmitMember =
         b.Add(ILInstr.Constrained(env.Provider.TypeToken objArgTy))
         b.Add(ILInstr.Callvirt(slotHandle, operands, result.Pushes))
 
-        CallResult.reify env b result
-
     let buildFieldGet (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         let view = TastAccessor.exprFieldGet e
         let objArg = view.ObjArg
@@ -161,7 +157,7 @@ module EmitMember =
         recur env b objArg
         b.Add(ILInstr.Ldfld handle)
 
-    let buildAssignment (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
+    let buildAssignment (recur: Recur) (pos: ExprPos) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         let view = TastAccessor.exprAssignment e
 
         match view.Lhs with
@@ -174,18 +170,17 @@ module EmitMember =
             | true, slot ->
                 recur env b value
                 b.Add(ILInstr.Stloc slot)
-                EmitTypes.buildUnitValue env b
+                ExprPos.reifyUnit env b pos
             | false, _ -> failwithf "Emit: assignment to a variable with no local slot: %O" binding
         | _ -> failwith "Emit: assignment lhs is not a mutable-local Var (front end should have rejected it)"
 
-    let buildFieldSet (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
+    let buildFieldSet (recur: Recur) (pos: ExprPos) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         let view = TastAccessor.exprFieldSet e
         let objArg = view.ObjArg
         let name = view.FieldName
         let value = view.Value
-        // `r.X <- v` on a `mutable` field. `stfld` consumes both pushes and leaves nothing, but
-        // a `FieldSet` is UNIT-TYPED and a `Sequential` middle item or a unit-returning body
-        // expects a value present, so reify `unit` to keep the IL verifier happy.
+        // `r.X <- v` on a `mutable` field. `stfld` consumes both pushes and leaves nothing,
+        // and a `FieldSet` is UNIT-TYPED, so a value-position consumer takes a reified `unit`.
         let handle = resolveRecordField env (nominalOfExpr objArg) name
         let objArgTy = typeOfExpr objArg
 
@@ -198,7 +193,7 @@ module EmitMember =
 
         recur env b value
         b.Add(ILInstr.Stfld handle)
-        EmitTypes.buildUnitValue env b
+        ExprPos.reifyUnit env b pos
 
     let buildPropertyGet (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         let view = TastAccessor.exprPropertyGet e
@@ -210,7 +205,7 @@ module EmitMember =
             // A property read through an interface-constrained typar (`this.Source.Current`)
             // is a 0-argument constrained access; the slot is the interface's `get_<name>`.
             let ty = TastAccessor.exprTy e
-            emitConstrainedInterfaceCall recur env b objArg key ifaceArgs EqArray.empty ty
+            emitConstrainedInterfaceCall recur env b objArg key ifaceArgs EqArray.empty ty CallResult.Value
         | via ->
             let objArgNominal = nominalOfExpr objArg
             // A property is never a generic method and takes no arguments, so the resolved
@@ -221,16 +216,17 @@ module EmitMember =
             // A property get is never `unit`-returning.
             emitInstanceMember recur env b via objArg objArgTy handle EqArray.empty CallResult.Value
 
-    let buildMethodCall (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
+    let buildMethodCall (recur: Recur) (pos: ExprPos) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         let view = TastAccessor.exprMethodCall e
         let objArg = view.ObjArg
         let key = view.Key
         // `MethodCallView.Args` is ONLY the args, whereas `exprChildren` merges the object arg in.
         let args = view.Args
         let ty = TastAccessor.exprTy e
+        let result = CallResult.ofReturnTy ty
 
         match view.Via with
-        | CallVia.Interface ifaceArgs -> emitConstrainedInterfaceCall recur env b objArg key ifaceArgs args ty
+        | CallVia.Interface ifaceArgs -> emitConstrainedInterfaceCall recur env b objArg key ifaceArgs args ty result
         | via ->
             let objArgNominal = nominalOfExpr objArg
             let argTys = [ for a in args -> typeOfExpr a ]
@@ -250,7 +246,9 @@ module EmitMember =
                     env.Provider.StaticFnMethodSpec(handle0, methodArgs)
 
             let objArgTy = FrozenNominal.ty objArgNominal
-            emitInstanceMember recur env b via objArg objArgTy handle args (CallResult.ofReturnTy ty)
+            emitInstanceMember recur env b via objArg objArgTy handle args result
+
+        CallResult.reify env b pos result
 
     let buildStaticPropertyGet (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         let key = TastAccessor.exprStaticPropertyGetKey e
@@ -270,7 +268,13 @@ module EmitMember =
         | ValueSome instr -> b.Add instr
         | ValueNone -> b.Add(ILInstr.Ldsfld(resolveStaticField env declKey name))
 
-    let buildStaticFieldSet (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
+    let buildStaticFieldSet
+        (recur: Recur)
+        (pos: ExprPos)
+        (env: EmitEnv)
+        (b: IlBuilder)
+        (e: TastAccessor.ExprId)
+        : unit =
         let view = TastAccessor.exprStaticFieldSet e
         let declKey = view.Key
         let name = view.FieldName
@@ -279,9 +283,15 @@ module EmitMember =
         // stack, but the write is UNIT-TYPED, so reify a unit value for the consumer.
         recur env b value
         b.Add(ILInstr.Stsfld(resolveStaticField env declKey name))
-        EmitTypes.buildUnitValue env b
+        ExprPos.reifyUnit env b pos
 
-    let buildStaticMethodCall (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
+    let buildStaticMethodCall
+        (recur: Recur)
+        (pos: ExprPos)
+        (env: EmitEnv)
+        (b: IlBuilder)
+        (e: TastAccessor.ExprId)
+        : unit =
         let key = TastAccessor.exprStaticMethodCallKey e
         // A `StaticMethodCall`'s arguments ARE its `exprChildren` (no object arg to merge).
         let args = TastAccessor.exprChildren e
@@ -318,7 +328,7 @@ module EmitMember =
         // determines the call result for the local and the external handle alike.
         let result = CallResult.ofReturnTy ty
         b.Add(ILInstr.Call(handle, args.Length, result.Pushes))
-        CallResult.reify env b result
+        CallResult.reify env b pos result
 
     let buildExternalMember (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         let view = TastAccessor.exprExternalMember e

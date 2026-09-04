@@ -145,17 +145,7 @@ module Emit =
             | None -> ()
         )
 
-        buildExpr env b fn.Body
-
-        // Every Vesper expression yields a value, so a `void` body leaves the
-        // `unit`-as-`ValueTuple` on the stack. Pop it before `ret`. A body that
-        // terminates (`raise`) already left depth 0.
-        if fn.ReturnsVoid then
-            match b.Depth with
-            | 0 -> ()
-            | 1 -> b.Add ILInstr.Pop
-            | n -> failwithf "void-returning static function body left %d values on the stack (expected 0 or 1)" n
-
+        buildExprAt (ExprPos.ofReturnsVoid fn.ReturnsVoid) env b fn.Body
         b.Add ILInstr.Ret
         b.Body
 
@@ -199,17 +189,7 @@ module Emit =
                 SelfValueType = selfValueTy
             }
 
-        buildExpr env b body
-
-        // A `void` method must `ret` empty-stacked, so pop the residual
-        // `unit`-as-`ValueTuple`. A body that terminates (`raise`) already left depth 0,
-        // and a `Pop` there would be unreachable, which the IL balance check rejects.
-        if voidReturn then
-            match b.Depth with
-            | 0 -> ()
-            | 1 -> b.Add ILInstr.Pop
-            | n -> failwithf "void-returning member body left %d values on the stack (expected 0 or 1)" n
-
+        buildExprAt (ExprPos.ofReturnsVoid voidReturn) env b body
         b.Add ILInstr.Ret
         b.Body
 
@@ -271,16 +251,6 @@ module Emit =
         b.Add ILInstr.Ret
         b.Body
 
-    /// Run a preamble `do` body for effect: every Vesper expression yields a value, so
-    /// pop the `unit` before the next step. A terminating body (`raise`) left depth 0.
-    let private buildForEffect (env: EmitEnv) (b: IlBuilder) (body: TastAccessor.ExprId) : unit =
-        buildExpr env b body
-
-        match b.Depth with
-        | 0 -> ()
-        | 1 -> b.Add ILInstr.Pop
-        | n -> failwithf "class-preamble `do` body left %d values on the stack (expected 0 or 1)" n
-
     /// Build a class primary `.ctor`: chain the base ctor (a value type chains none),
     /// store each ctor param into its backing field, then run the instance preamble.
     /// Base args read params as `ldarg.1…`; `this` is unusable until the chain returns.
@@ -326,7 +296,7 @@ module Emit =
                 b.Add(ILInstr.Ldarg 0)
                 buildExpr env b init
                 b.Add(ILInstr.Stfld field)
-            | PreambleStep.Run body -> buildForEffect env b body
+            | PreambleStep.Run body -> buildStatement env b body
 
         b.Add ILInstr.Ret
         b.Body
@@ -343,7 +313,7 @@ module Emit =
             | PreambleStep.Store(field, init) ->
                 buildExpr env b init
                 b.Add(ILInstr.Stsfld field)
-            | PreambleStep.Run body -> buildForEffect env b body
+            | PreambleStep.Run body -> buildStatement env b body
 
         b.Add ILInstr.Ret
         b.Body

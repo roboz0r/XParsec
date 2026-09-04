@@ -12,7 +12,11 @@ open EmitPattern
 
 module EmitExpr =
 
-    let rec buildExpr (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
+    /// Emit an expression at `pos`. An arm that does not take `pos` has its value discarded
+    /// here.
+    let rec buildExprAt (pos: ExprPos) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
+        let baseDepth = b.Depth
+
         match TastAccessor.exprKind e with
         | ExprShape.Unresolved -> failwith "Emit: an unresolved reference reached codegen"
         | ExprShape.Const ->
@@ -34,7 +38,7 @@ module EmitExpr =
                 b.Add(ILInstr.LdcI4(if flags < 0 then 1 else 0)) // sign (high bit of flags)
                 b.Add(ILInstr.LdcI4((flags >>> 16) &&& 0xFF)) // scale
                 b.Add(ILInstr.Newobj(env.Provider.DecimalCtor, 5))
-            | TConstValue.Unit -> EmitTypes.buildUnitValue env b
+            | TConstValue.Unit -> ExprPos.reifyUnit env b pos
 
         | ExprShape.Null -> b.Add ILInstr.Ldnull
 
@@ -59,17 +63,17 @@ module EmitExpr =
             else
                 buildVarLoad env b boundVar
 
-        | ExprShape.Let -> EmitBindings.buildLet buildExpr env b e
-        | ExprShape.Use -> EmitBindings.buildUse buildExpr env b e
-        | ExprShape.TryFinally -> EmitBindings.buildTryFinally buildExpr env b e
+        | ExprShape.Let -> EmitBindings.buildLet buildExprAt pos env b e
+        | ExprShape.Use -> EmitBindings.buildUse buildExprAt pos env b e
+        | ExprShape.TryFinally -> EmitBindings.buildTryFinally buildExprAt pos env b e
 
-        | ExprShape.ForIn -> EmitLoops.buildForIn buildExpr env b e
-        | ExprShape.ForTo -> EmitLoops.buildForTo buildExpr env b e
-        | ExprShape.While -> EmitLoops.buildWhile buildExpr env b e
+        | ExprShape.ForIn -> EmitLoops.buildForIn buildExprAt pos env b e
+        | ExprShape.ForTo -> EmitLoops.buildForTo buildExprAt pos env b e
+        | ExprShape.While -> EmitLoops.buildWhile buildExprAt pos env b e
 
-        | ExprShape.Sequential -> EmitMatch.buildSequential buildExpr env b e
-        | ExprShape.IfThenElse -> EmitMatch.buildIfThenElse buildExpr env b e
-        | ExprShape.Match -> EmitMatch.buildMatch buildExpr env b e
+        | ExprShape.Sequential -> EmitMatch.buildSequential buildExprAt pos env b e
+        | ExprShape.IfThenElse -> EmitMatch.buildIfThenElse buildExprAt pos env b e
+        | ExprShape.Match -> EmitMatch.buildMatch buildExprAt pos env b e
 
         | ExprShape.Lambda -> EmitConstruct.buildLambda env b e
         | ExprShape.New -> EmitConstruct.buildNew buildExpr env b e
@@ -79,29 +83,29 @@ module EmitExpr =
         | ExprShape.Tuple -> EmitConstruct.buildTuple buildExpr env b e
         | ExprShape.ArrayLit -> EmitConstruct.buildArrayLit buildExpr env b e
 
-        | ExprShape.App -> EmitCall.buildAppCall buildExpr env b e
+        | ExprShape.App -> EmitCall.buildAppCall buildExpr pos env b e
 
         // `Set.empty` compiles to `SetModule.Empty<'T>()`, so a bare external value takes the
         // same applied-function dispatch as an application, with no arguments.
-        | ExprShape.External -> EmitCall.buildAppCall buildExpr env b e
+        | ExprShape.External -> EmitCall.buildAppCall buildExpr pos env b e
 
         | ExprShape.FieldGet -> EmitMember.buildFieldGet buildExpr env b e
-        | ExprShape.Assignment -> EmitMember.buildAssignment buildExpr env b e
-        | ExprShape.FieldSet -> EmitMember.buildFieldSet buildExpr env b e
+        | ExprShape.Assignment -> EmitMember.buildAssignment buildExpr pos env b e
+        | ExprShape.FieldSet -> EmitMember.buildFieldSet buildExpr pos env b e
         | ExprShape.PropertyGet -> EmitMember.buildPropertyGet buildExpr env b e
-        | ExprShape.MethodCall -> EmitMember.buildMethodCall buildExpr env b e
+        | ExprShape.MethodCall -> EmitMember.buildMethodCall buildExpr pos env b e
         | ExprShape.StaticPropertyGet -> EmitMember.buildStaticPropertyGet env b e
         | ExprShape.StaticFieldGet -> EmitMember.buildStaticFieldGet env b e
-        | ExprShape.StaticFieldSet -> EmitMember.buildStaticFieldSet buildExpr env b e
-        | ExprShape.StaticMethodCall -> EmitMember.buildStaticMethodCall buildExpr env b e
+        | ExprShape.StaticFieldSet -> EmitMember.buildStaticFieldSet buildExpr pos env b e
+        | ExprShape.StaticMethodCall -> EmitMember.buildStaticMethodCall buildExpr pos env b e
         | ExprShape.ExternalMember -> EmitMember.buildExternalMember buildExpr env b e
 
         | ExprShape.Format ->
             let view = TastAccessor.exprFormat e
-            EmitFormat.buildFormat buildExpr env b view.Sink view.Segments
+            EmitFormat.buildFormat buildExpr pos env b view.Sink view.Segments
 
-        | ExprShape.ILIntrinsic -> EmitIntrinsic.buildILIntrinsic buildExpr env b e
-        | ExprShape.StaticOptimization -> EmitIntrinsic.buildStaticOptimization buildExpr env b e
+        | ExprShape.ILIntrinsic -> EmitIntrinsic.buildILIntrinsic buildExpr pos env b e
+        | ExprShape.StaticOptimization -> EmitIntrinsic.buildStaticOptimization buildExprAt pos env b e
         | ExprShape.Upcast -> EmitIntrinsic.buildUpcast buildExpr env b e
         | ExprShape.Downcast -> EmitIntrinsic.buildDowncast buildExpr env b e
         | ExprShape.TypeTest -> EmitIntrinsic.buildTypeTest buildExpr env b e
@@ -117,9 +121,11 @@ module EmitExpr =
         | ExprShape.CallerExpr -> TastLower.callerExprUnexpanded ()
         | ExprShape.TraitCall -> TastLower.traitCallUnresolved (TastAccessor.exprTraitCallMemberName e)
 
-    /// Emit an expression as a statement: evaluate it and discard any value.
-    let buildStatement (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
-        buildExpr env b e
+        ExprPos.discardTo b baseDepth pos
 
-        while b.Depth > 0 do
-            b.Add ILInstr.Pop
+    /// Emit an expression whose value a consumer takes.
+    and buildExpr (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit = buildExprAt ExprPos.Value env b e
+
+    /// Emit an expression for effect, leaving the operand stack as it was.
+    let buildStatement (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
+        buildExprAt ExprPos.Statement env b e

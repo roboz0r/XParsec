@@ -82,7 +82,6 @@ public static class Program
 
 	public static int Main(string[] args)
 	{
-		ValueTuple valueTuple = default(ValueTuple);
 		return 0;
 	}
 }

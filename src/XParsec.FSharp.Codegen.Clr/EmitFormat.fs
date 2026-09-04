@@ -7,6 +7,7 @@ open XParsec.FSharp.SemanticAnalysis.PrintfHoleForm
 open ClrHoleFormat
 open EmitTypes
 open EmitLower
+open EmitDispatch
 
 module EmitFormat =
     /// The opcode that truncates an `int32`-slot value to `k`'s own bits, `ValueNone` where
@@ -46,7 +47,8 @@ module EmitFormat =
     /// construct it in place, fold the segments left-to-right (each hole's arg
     /// evaluated at its position), then flush, or `ToStringAndClear` for `sprintf`.
     let buildFormat
-        (buildExpr: EmitEnv -> IlBuilder -> TastAccessor.ExprId -> unit)
+        (buildExpr: Recur)
+        (pos: ExprPos)
         (env: EmitEnv)
         (b: IlBuilder)
         (sink: TastAccessor.FormatSink)
@@ -323,7 +325,7 @@ module EmitFormat =
 
             b.Add(ILInstr.Ldloca slot)
             b.Add(ILInstr.Call(fh.Flush, 1, 0))
-            EmitTypes.buildUnitValue env b
+            ExprPos.reifyUnit env b pos
         | FormatSinkG.ToWriter(_, nl) ->
             if nl then
                 b.Add(ILInstr.Ldloca slot)
@@ -332,9 +334,9 @@ module EmitFormat =
 
             b.Add(ILInstr.Ldloca slot)
             b.Add(ILInstr.Call(fh.Flush, 1, 0))
-            EmitTypes.buildUnitValue env b
+            ExprPos.reifyUnit env b pos
         | FormatSinkG.ToBuilder _ ->
             // `bprintf` has no newline variant, so no trailing `\n`, just flush.
             b.Add(ILInstr.Ldloca slot)
             b.Add(ILInstr.Call(fh.Flush, 1, 0))
-            EmitTypes.buildUnitValue env b
+            ExprPos.reifyUnit env b pos

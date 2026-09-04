@@ -162,85 +162,119 @@ let peInterfaceImplCount (bytes: byte[]) : int =
     md.TypeDefinitions
     |> Seq.sumBy (fun h -> (md.GetTypeDefinition h).GetInterfaceImplementations().Count)
 
+/// The namespace-qualified name of a type-def.
+let private qualifiedTypeName (md: MetadataReader) (td: TypeDefinition) : string =
+    let name = md.GetString td.Name
+    let ns = md.GetString td.Namespace
+
+    if String.IsNullOrEmpty ns then
+        name
+    else
+        sprintf "%s.%s" ns name
+
+/// Every method on `declaringType` whose name satisfies `nameMatches`, in type-def then
+/// method-def order.
+let private methodDefsWhere
+    (md: MetadataReader)
+    (declaringType: string)
+    (nameMatches: string -> bool)
+    : MethodDefinition seq =
+    seq {
+        for tdh in md.TypeDefinitions do
+            let td = md.GetTypeDefinition tdh
+
+            if qualifiedTypeName md td = declaringType then
+                for mdh in td.GetMethods() do
+                    let m = md.GetMethodDefinition mdh
+
+                    if nameMatches (md.GetString m.Name) then
+                        yield m
+    }
+
+/// The FIRST method on `declaringType` whose name satisfies `nameMatches`; throws if none
+/// matches.
+let private methodDefWhere
+    (md: MetadataReader)
+    (declaringType: string)
+    (nameMatches: string -> bool)
+    : MethodDefinition =
+    match Seq.tryHead (methodDefsWhere md declaringType nameMatches) with
+    | Some m -> m
+    | None -> failwithf "PeInspection: no matching method on type '%s'" declaringType
+
+/// The method named `methodName` on `declaringType`; throws if not found.
+let private methodDefNamed (md: MetadataReader) (declaringType: string) (methodName: string) : MethodDefinition =
+    match Seq.tryHead (methodDefsWhere md declaringType ((=) methodName)) with
+    | Some m -> m
+    | None -> failwithf "PeInspection: no method '%s' on type '%s'" methodName declaringType
+
+/// Raw IL bytes of a method's body; `[||]` for a body-less method.
+let private methodIl (peReader: PEReader) (m: MethodDefinition) : byte[] =
+    if m.RelativeVirtualAddress = 0 then
+        [||]
+    else
+        let body = peReader.GetMethodBody m.RelativeVirtualAddress
+        let ilReader = body.GetILReader()
+        let buf = Array.zeroCreate ilReader.RemainingBytes
+        ilReader.ReadBytes(ilReader.RemainingBytes, buf, 0)
+        buf
+
 /// Raw IL bytes of the FIRST method on `declaringType` whose name satisfies `nameMatches`.
 /// `[||]` for a body-less method; throws if none matches.
 let peMethodIlWhere (bytes: byte[]) (declaringType: string) (nameMatches: string -> bool) : byte[] =
     use peReader = openPe bytes
     let md = peReader.GetMetadataReader()
-
-    let typeMatches (td: TypeDefinition) =
-        let name = md.GetString td.Name
-        let ns = md.GetString td.Namespace
-
-        let qualified =
-            if System.String.IsNullOrEmpty ns then
-                name
-            else
-                sprintf "%s.%s" ns name
-
-        qualified = declaringType
-
-    let methodHandle =
-        md.TypeDefinitions
-        |> Seq.tryPick (fun tdh ->
-            let td = md.GetTypeDefinition tdh
-
-            if typeMatches td then
-                td.GetMethods()
-                |> Seq.tryFind (fun mdh -> nameMatches (md.GetString(md.GetMethodDefinition(mdh).Name)))
-            else
-                None
-        )
-
-    match methodHandle with
-    | None -> failwithf "peMethodIlWhere: no matching method on type '%s'" declaringType
-    | Some mdh ->
-        let m = md.GetMethodDefinition mdh
-
-        if m.RelativeVirtualAddress = 0 then
-            [||]
-        else
-            let body = peReader.GetMethodBody m.RelativeVirtualAddress
-            let ilReader = body.GetILReader()
-            let buf = Array.zeroCreate ilReader.RemainingBytes
-            ilReader.ReadBytes(ilReader.RemainingBytes, buf, 0)
-            buf
+    methodIl peReader (methodDefWhere md declaringType nameMatches)
 
 /// `peMethodIlWhere` for EVERY matching method, in type-def then method-def order.
 let peMethodsIlWhere (bytes: byte[]) (declaringType: string) (nameMatches: string -> bool) : byte[][] =
     use peReader = openPe bytes
     let md = peReader.GetMetadataReader()
 
-    let typeMatches (td: TypeDefinition) =
-        let name = md.GetString td.Name
-        let ns = md.GetString td.Namespace
+    methodDefsWhere md declaringType nameMatches
+    |> Seq.map (methodIl peReader)
+    |> Seq.toArray
 
-        let qualified =
-            if System.String.IsNullOrEmpty ns then
-                name
-            else
-                sprintf "%s.%s" ns name
+/// Raw IL bytes of the method named `methodName` on `declaringType`, for asserting an
+/// opcode sequence. `[||]` for an abstract method (no body); throws if not found.
+let peMethodIl (bytes: byte[]) (declaringType: string) (methodName: string) : byte[] =
+    use peReader = openPe bytes
+    let md = peReader.GetMetadataReader()
+    methodIl peReader (methodDefNamed md declaringType methodName)
 
-        qualified = declaringType
+/// How many local slots the body of `methodName` on `declaringType` declares; `0` for a
+/// body-less method. Throws if not found.
+let peMethodLocalCount (bytes: byte[]) (declaringType: string) (methodName: string) : int =
+    use peReader = openPe bytes
+    let md = peReader.GetMetadataReader()
+    let m = methodDefNamed md declaringType methodName
 
-    [|
-        for tdh in md.TypeDefinitions do
-            let td = md.GetTypeDefinition tdh
+    if m.RelativeVirtualAddress = 0 then
+        0
+    else
+        let body = peReader.GetMethodBody m.RelativeVirtualAddress
 
-            if typeMatches td then
-                for mdh in td.GetMethods() do
-                    let m = md.GetMethodDefinition mdh
+        if body.LocalSignature.IsNil then
+            0
+        else
+            // A `LocalVarSig` blob is the `LOCAL_SIG` calling convention followed by the
+            // slot count, then one type per slot.
+            let localSig = md.GetStandaloneSignature body.LocalSignature
+            let mutable reader = md.GetBlobReader localSig.Signature
+            reader.ReadSignatureHeader() |> ignore
+            reader.ReadCompressedInteger()
 
-                    if nameMatches (md.GetString m.Name) then
-                        if m.RelativeVirtualAddress = 0 then
-                            yield [||]
-                        else
-                            let body = peReader.GetMethodBody m.RelativeVirtualAddress
-                            let ilReader = body.GetILReader()
-                            let buf = Array.zeroCreate ilReader.RemainingBytes
-                            ilReader.ReadBytes(ilReader.RemainingBytes, buf, 0)
-                            yield buf
-    |]
+/// The return type's `ELEMENT_TYPE_*` tag from a method's MethodDef signature blob. For a
+/// nominal return type that is the encoder's value-vs-class decision: `0x11`
+/// (ELEMENT_TYPE_VALUETYPE) vs `0x12` (ELEMENT_TYPE_CLASS). Throws if not found.
+let peMethodReturnElementType (bytes: byte[]) (declaringType: string) (methodName: string) : byte =
+    use peReader = openPe bytes
+    let md = peReader.GetMetadataReader()
+    let m = methodDefNamed md declaringType methodName
+    let mutable r = md.GetBlobReader m.Signature
+    r.ReadSignatureHeader() |> ignore // calling convention (HASTHIS etc.)
+    r.ReadCompressedInteger() |> ignore // parameter count
+    r.ReadByte() // return type's ELEMENT_TYPE_* tag
 
 /// Every static method on the anonymous "Program" class (where a binding that declares no
 /// module lands), minus the synthesised entry point; `[||]` if there is no Program class.
@@ -255,86 +289,6 @@ let programClassMethodsOf (asm: Assembly) : MethodInfo[] =
 /// `programClassMethodsOf` for a caller that reflects nothing else out of the PE.
 let programClassMethods (bytes: byte[]) : MethodInfo[] =
     programClassMethodsOf (loadAssembly bytes)
-
-/// Raw IL bytes of the method named `methodName` on `declaringType`, for asserting an
-/// opcode sequence. `[||]` for an abstract method (no body); throws if not found.
-let peMethodIl (bytes: byte[]) (declaringType: string) (methodName: string) : byte[] =
-    use peReader = openPe bytes
-    let md = peReader.GetMetadataReader()
-
-    let typeMatches (td: TypeDefinition) =
-        let name = md.GetString td.Name
-        let ns = md.GetString td.Namespace
-
-        let qualified =
-            if System.String.IsNullOrEmpty ns then
-                name
-            else
-                sprintf "%s.%s" ns name
-
-        qualified = declaringType
-
-    let methodHandle =
-        md.TypeDefinitions
-        |> Seq.tryPick (fun tdh ->
-            let td = md.GetTypeDefinition tdh
-
-            if typeMatches td then
-                td.GetMethods()
-                |> Seq.tryFind (fun mdh -> md.GetString(md.GetMethodDefinition(mdh).Name) = methodName)
-            else
-                None
-        )
-
-    match methodHandle with
-    | None -> failwithf "peMethodIl: no method '%s' on type '%s'" methodName declaringType
-    | Some mdh ->
-        let m = md.GetMethodDefinition mdh
-
-        if m.RelativeVirtualAddress = 0 then
-            [||]
-        else
-            let body = peReader.GetMethodBody m.RelativeVirtualAddress
-            let ilReader = body.GetILReader()
-            let buf = Array.zeroCreate ilReader.RemainingBytes
-            ilReader.ReadBytes(ilReader.RemainingBytes, buf, 0)
-            buf
-
-/// The return type's `ELEMENT_TYPE_*` tag from a method's MethodDef signature blob. For a
-/// nominal return type that is the encoder's value-vs-class decision: `0x11`
-/// (ELEMENT_TYPE_VALUETYPE) vs `0x12` (ELEMENT_TYPE_CLASS). Throws if not found.
-let peMethodReturnElementType (bytes: byte[]) (declaringType: string) (methodName: string) : byte =
-    use peReader = openPe bytes
-    let md = peReader.GetMetadataReader()
-
-    let qualifiedOf (td: TypeDefinition) =
-        let name = md.GetString td.Name
-        let ns = md.GetString td.Namespace
-
-        if System.String.IsNullOrEmpty ns then
-            name
-        else
-            sprintf "%s.%s" ns name
-
-    let methodHandle =
-        md.TypeDefinitions
-        |> Seq.tryPick (fun tdh ->
-            let td = md.GetTypeDefinition tdh
-
-            if qualifiedOf td = declaringType then
-                td.GetMethods()
-                |> Seq.tryFind (fun mdh -> md.GetString(md.GetMethodDefinition(mdh).Name) = methodName)
-            else
-                None
-        )
-
-    match methodHandle with
-    | None -> failwithf "peMethodReturnElementType: no method '%s' on type '%s'" methodName declaringType
-    | Some mdh ->
-        let mutable r = md.GetBlobReader((md.GetMethodDefinition mdh).Signature)
-        r.ReadSignatureHeader() |> ignore // calling convention (HASTHIS etc.)
-        r.ReadCompressedInteger() |> ignore // parameter count
-        r.ReadByte() // return type's ELEMENT_TYPE_* tag
 
 /// Format a PE byte array as a hex string (`"02 00 01 …"`), capped so a test
 /// failure message stays readable.

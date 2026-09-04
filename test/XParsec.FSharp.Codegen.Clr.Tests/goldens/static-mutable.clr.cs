@@ -32,7 +32,6 @@ public class Counter
 	{
 		int num = total;
 		total = num + arg0;
-		ValueTuple valueTuple = default(ValueTuple);
 	}
 
 	public int Get()
@@ -55,19 +54,15 @@ public static class Program
 	public static int Main(string[] args)
 	{
 		a.Add(3);
-		ValueTuple valueTuple = default(ValueTuple);
 		b.Add(4);
-		ValueTuple valueTuple2 = default(ValueTuple);
 		Formatter formatter = new Formatter(0, 1, Console.Out);
 		formatter.AppendFormatted(a.Get());
 		formatter.AppendLiteral("\n");
 		formatter.Flush();
-		ValueTuple valueTuple3 = default(ValueTuple);
 		Formatter formatter2 = new Formatter(0, 1, Console.Out);
 		formatter2.AppendFormatted(b.Get());
 		formatter2.AppendLiteral("\n");
 		formatter2.Flush();
-		ValueTuple valueTuple4 = default(ValueTuple);
 		return 0;
 	}
 }

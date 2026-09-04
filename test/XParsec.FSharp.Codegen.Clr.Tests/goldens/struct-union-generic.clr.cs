@@ -251,35 +251,29 @@ public static class Program
 		formatter.AppendFormatted(pick(a));
 		formatter.AppendLiteral("\n");
 		formatter.Flush();
-		ValueTuple valueTuple = default(ValueTuple);
 		Formatter formatter2 = new Formatter(0, 1, Console.Out);
 		formatter2.AppendFormatted(pick(b));
 		formatter2.AppendLiteral("\n");
 		formatter2.Flush();
-		ValueTuple valueTuple2 = default(ValueTuple);
 		Formatter formatter3 = new Formatter(0, 1, Console.Out);
 		G<int> y = G<int>.Val(3);
 		formatter3.AppendBool(EqualityComparer<G<int>>.Default.Equals(a, y), 0);
 		formatter3.AppendLiteral("\n");
 		formatter3.Flush();
-		ValueTuple valueTuple3 = default(ValueTuple);
 		Formatter formatter4 = new Formatter(0, 1, Console.Out);
 		formatter4.AppendBool(EqualityComparer<G<int>>.Default.Equals(a, b), 0);
 		formatter4.AppendLiteral("\n");
 		formatter4.Flush();
-		ValueTuple valueTuple4 = default(ValueTuple);
 		s = G<string>.Val("hi");
 		Formatter formatter5 = new Formatter(0, 1, Console.Out);
 		formatter5.AppendFormatted(text(s));
 		formatter5.AppendLiteral("\n");
 		formatter5.Flush();
-		ValueTuple valueTuple5 = default(ValueTuple);
 		Formatter formatter6 = new Formatter(0, 1, Console.Out);
 		G<string> y2 = G<string>.Val("hi");
 		formatter6.AppendBool(EqualityComparer<G<string>>.Default.Equals(s, y2), 0);
 		formatter6.AppendLiteral("\n");
 		formatter6.Flush();
-		ValueTuple valueTuple6 = default(ValueTuple);
 		return 0;
 	}
 }

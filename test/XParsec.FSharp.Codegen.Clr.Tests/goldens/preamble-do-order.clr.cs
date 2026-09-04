@@ -38,7 +38,6 @@ public class Ordered
 		formatter.AppendFormatted(a);
 		formatter.AppendLiteral("\n");
 		formatter.Flush();
-		ValueTuple valueTuple = default(ValueTuple);
 		int num2 = a;
 		b = num2 * 3;
 		Formatter formatter2 = new Formatter(7, 1, Console.Out);
@@ -46,7 +45,6 @@ public class Ordered
 		formatter2.AppendFormatted(b);
 		formatter2.AppendLiteral("\n");
 		formatter2.Flush();
-		ValueTuple valueTuple2 = default(ValueTuple);
 	}
 
 	public int B()
@@ -72,14 +70,12 @@ public static class Program
 		formatter.AppendFormatted(o1.B());
 		formatter.AppendLiteral("\n");
 		formatter.Flush();
-		ValueTuple valueTuple = default(ValueTuple);
 		o2 = new Ordered(5);
 		Formatter formatter2 = new Formatter(2, 1, Console.Out);
 		formatter2.AppendLiteral("b=");
 		formatter2.AppendFormatted(o2.B());
 		formatter2.AppendLiteral("\n");
 		formatter2.Flush();
-		ValueTuple valueTuple2 = default(ValueTuple);
 		return 0;
 	}
 }

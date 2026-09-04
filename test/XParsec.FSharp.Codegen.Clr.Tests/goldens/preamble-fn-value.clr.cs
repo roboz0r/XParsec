@@ -70,7 +70,6 @@ public static class Program
 		formatter.AppendFormatted(a.Twice(10));
 		formatter.AppendLiteral("\n");
 		formatter.Flush();
-		ValueTuple valueTuple = default(ValueTuple);
 		return 0;
 	}
 }

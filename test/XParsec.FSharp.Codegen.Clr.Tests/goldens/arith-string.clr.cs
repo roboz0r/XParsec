@@ -19,18 +19,15 @@ public static class Program
 		formatter.AppendFormatted("ab" + "cd");
 		formatter.AppendLiteral("\n");
 		formatter.Flush();
-		ValueTuple valueTuple = default(ValueTuple);
 		Formatter formatter2 = new Formatter(0, 1, Console.Out);
 		formatter2.AppendFormatted("" + "x");
 		formatter2.AppendLiteral("\n");
 		formatter2.Flush();
-		ValueTuple valueTuple2 = default(ValueTuple);
 		Formatter formatter3 = new Formatter(0, 1, Console.Out);
 		string text = "a" + "b";
 		formatter3.AppendFormatted(text + "c");
 		formatter3.AppendLiteral("\n");
 		formatter3.Flush();
-		ValueTuple valueTuple3 = default(ValueTuple);
 		return 0;
 	}
 }

@@ -7,7 +7,7 @@ Line numbers are deliberately absent — they rot. Constructs and file names onl
 Raised by the decompiled-C# conformance goldens (`test/XParsec.FSharp.Codegen.Clr.Tests/goldens/*.clr.cs`),
 added when `ConformanceByteIdentityTests` gained a whole-module render beside its structural
 digest. Every finding below cites the golden that shows it, so each is reproducible by reading a
-committed file. A1, B1 and C1 have landed; the rest is outstanding.
+committed file. A1, B1, B2 and C1 have landed; the rest is outstanding.
 
 **Part A** is ABI and metadata defects. **Part B** is IL quality. **Part C** is the harness.
 
@@ -391,7 +391,7 @@ assembly visibility for residue storage, as the only part of that entry still ou
 mutable one keeps its own. Each backend has a runtime test where a mutable local is passed to
 an inline function that returns a closure and is written after the call.
 
-## B2. A unit-valued call in statement position reifies `()`
+## B2. A unit-valued call in statement position reifies `()` — DONE
 
 Every `printfn` in every golden is followed by:
 
@@ -410,6 +410,33 @@ callers to audit are the `buildUnitValue` sites in `EmitCall`, `EmitFormat`, `Em
 
 **Payoff.** One local slot and three instructions per statement, and one line of noise per
 `printfn` out of every golden — which is what makes the remaining diff worth reading.
+
+**Landed.** `ExprPos` in `EmitTypes` carries the distinction and `EmitExpr.buildExprAt` is the
+one dispatcher over it. An arm that takes `pos` materialises its `unit` only where a consumer
+takes the value; every other arm's value goes to the trailing `ExprPos.discardTo`. Statement
+position therefore returns the operand stack to its entry depth, and that invariant is what lets
+a join emit its arms at the position it was itself given: `buildIfThenElse` hands both branches
+the same `pos`, and `buildMatch` marks its end label at `baseDepth + pos.Pushes`.
+
+`RecurAt` in `EmitDispatch` is the back-edge for an arm whose own position reaches a
+sub-expression — a `let` / `use` / `try`-`finally` body, a `Sequential`'s last item, a branch of
+a join, a `StaticOptimization`'s fallback. `Recur` still means value position, so an argument,
+a scrutinee and a guard are unchanged. The `unit` sites that now read `pos` are the ones named
+above plus `TConstValue.Unit` in `EmitExpr` itself.
+
+Six discards went with it: `buildSequential`'s non-last item, the three loop bodies,
+`buildUse`'s disposal call and `buildTryFinally`'s cleanup. A statement-position `try`/`finally`
+also stops parking its body's result, so `buildTryFinallyRegion` mints the result local only in
+value position. A `void` body in `Emit` (`buildStaticFn`, `buildMember`) emits at
+`ExprPos.ofReturnsVoid`, and a preamble `do` is a plain `buildStatement`; the per-site
+"values left on the stack" checks those sites used to carry are gone, since `discardTo` is the
+one place that keeps the depth invariant.
+
+44 conformance goldens re-rendered 253 lines lighter with no line added, and every `.clr.txt`
+digest moved. `StatementPositionTests` pins both sides: a `void` member whose body is `()` is a
+bare `ret` declaring no locals, a `void` body of unit-valued calls declares none either, and a
+`unit` filling a tuple slot is still materialised. The local count comes off the body's
+`LocalVarSig` through `PeInspection.peMethodLocalCount`.
 
 ---
 
@@ -469,11 +496,11 @@ digest gate and the `expectNoFSharpCore` checks stay.
 A1 has landed.
 
 A3 stage 1 widens a frozen type and its codec, so it wants a commit of its own before anything
-depends on it. A2 stage 1 and B2 both move assembler row counts and should not be in flight at
-the same time as each other, because a failure in the handle predictions is far easier to read
-against one of them than against both.
+depends on it. A2 stage 1 moves assembler row counts, so a failure in the handle predictions
+belongs to it alone.
 
-B1 has landed, and with it A4's second half.
+B1 has landed, and with it A4's second half. B2 has landed; it moved every golden's IL and no
+table row, so it left the row-order ground clear for A2.
 
 A5 touches no row count and no table, so it is free of the row-order contention above and can
 run beside any of them. Its stage 5 is the exception: it widens `Frozen.TAbstractMethod`, so

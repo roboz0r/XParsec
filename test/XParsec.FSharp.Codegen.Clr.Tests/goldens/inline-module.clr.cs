@@ -53,18 +53,15 @@ public static class Program
 		formatter.AppendFormatted(21 * 2);
 		formatter.AppendLiteral("\n");
 		formatter.Flush();
-		ValueTuple valueTuple = default(ValueTuple);
 		Formatter formatter2 = new Formatter(0, 1, Console.Out);
 		int num = 10 * 2;
 		formatter2.AppendFormatted(num * 2);
 		formatter2.AppendLiteral("\n");
 		formatter2.Flush();
-		ValueTuple valueTuple2 = default(ValueTuple);
 		Formatter formatter3 = new Formatter(0, 1, Console.Out);
 		formatter3.AppendFormatted(q(3));
 		formatter3.AppendLiteral("\n");
 		formatter3.Flush();
-		ValueTuple valueTuple3 = default(ValueTuple);
 		return 0;
 	}
 }

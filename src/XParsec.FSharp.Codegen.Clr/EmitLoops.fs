@@ -11,7 +11,7 @@ open EmitPattern
 open EmitDispatch
 
 /// Iteration constructs: `for x in src`, `for i = a to b`, `while`. Each is a unit
-/// expression leaving one reified `unit`.
+/// expression.
 module EmitLoops =
 
     /// How the `GetEnumerator` object argument is loaded and its call dispatched.
@@ -118,9 +118,10 @@ module EmitLoops =
 
     /// `let e = src.GetEnumerator()`, then `while e.MoveNext() do (bind e.Current →
     /// pat); body`, wrapped in `try … finally e.Dispose()` when `loop.Disposable`.
-    /// Leaves the reified `unit`.
+    /// Leaves the loop's `unit` result in value position.
     let private emitEnumeratorLoop
-        (recur: Recur)
+        (recur: RecurAt)
+        (pos: ExprPos)
         (env: EmitEnv)
         (b: IlBuilder)
         (loop: EnumeratorLoop)
@@ -147,14 +148,14 @@ module EmitLoops =
         let sourceTy = typeOfExpr source
 
         let spillSourceAddress () =
-            recur env b source
+            recur ExprPos.Value env b source
             let srcSlot = b.Local sourceTy
             b.Add(ILInstr.Stloc srcSlot)
             b.Add(ILInstr.Ldloca srcSlot)
 
         match loop.SourceDispatch with
         | SourceByValue ->
-            recur env b source
+            recur ExprPos.Value env b source
             b.Add(ILInstr.Callvirt(loop.GetEnumerator, 1, 1))
         | SourceByAddress ->
             spillSourceAddress ()
@@ -178,13 +179,12 @@ module EmitLoops =
         loadEnumObjArg ()
         callEnumMember loop.MoveNext
         b.Add(ILInstr.Brfalse loopEnd)
-        // `x = e.Current`, then the unit-typed body whose value is discarded.
+        // `x = e.Current`, then the body, which runs for effect.
         loadEnumObjArg ()
         callEnumMember loop.Current
         b.Add(ILInstr.Stloc xSlot)
         bindPattern env b xSlot pat
-        recur env b body
-        b.Add ILInstr.Pop
+        recur ExprPos.Statement env b body
         b.Add(ILInstr.Br loopStart)
         b.Add(ILInstr.Mark loopEnd)
 
@@ -219,10 +219,9 @@ module EmitLoops =
             // `E` is not `IDisposable`, so no `try … finally` region at all.
             b.Add(ILInstr.Mark endLabel)
 
-        // `for` is a unit expression, so leave the single reified `unit` value.
-        EmitTypes.buildUnitValue env b
+        ExprPos.reifyUnit env b pos
 
-    let buildForIn (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
+    let buildForIn (recur: RecurAt) (pos: ExprPos) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         let view = TastAccessor.exprForIn e
         let pat = view.Pat
         let source = view.Source
@@ -275,6 +274,7 @@ module EmitLoops =
 
             emitEnumeratorLoop
                 recur
+                pos
                 env
                 b
                 {
@@ -340,6 +340,7 @@ module EmitLoops =
             // An `IEnumerator<'T>` is always a reference and always `IDisposable`.
             emitEnumeratorLoop
                 recur
+                pos
                 env
                 b
                 {
@@ -356,7 +357,7 @@ module EmitLoops =
                 source
                 body
 
-    let buildForTo (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
+    let buildForTo (recur: RecurAt) (pos: ExprPos) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         let view = TastAccessor.exprForTo e
         let var = view.Var
         let startExpr = view.StartExpr
@@ -369,9 +370,9 @@ module EmitLoops =
         let limitSlot = b.Local RuntimeNames.intTy
         env.Slots.[var] <- iSlot
 
-        recur env b startExpr
+        recur ExprPos.Value env b startExpr
         b.Add(ILInstr.Stloc iSlot)
-        recur env b endExpr
+        recur ExprPos.Value env b endExpr
         b.Add(ILInstr.Stloc limitSlot)
 
         let loopBody = b.Label()
@@ -385,10 +386,7 @@ module EmitLoops =
         b.Add(ILInstr.Brtrue loopEnd)
 
         b.Add(ILInstr.Mark loopBody)
-        recur env b body
-
-        while b.Depth > baseDepth do
-            b.Add ILInstr.Pop
+        recur ExprPos.Statement env b body
 
         // `i = limit` → done (skips the increment that would overflow at MaxValue).
         b.Add(ILInstr.Ldloc iSlot)
@@ -401,28 +399,22 @@ module EmitLoops =
         b.Add(ILInstr.Br loopBody)
         b.SetDepth baseDepth
         b.Add(ILInstr.Mark loopEnd)
-        // `for` is a unit expression, so leave the single reified `unit` value.
-        EmitTypes.buildUnitValue env b
+        ExprPos.reifyUnit env b pos
 
-    let buildWhile (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
+    let buildWhile (recur: RecurAt) (pos: ExprPos) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         let view = TastAccessor.exprWhile e
         let cond = view.Cond
         let body = view.Body
-        // The body is a unit statement whose value is discarded each iteration, popped
-        // back to the loop-top base. The depth tracker is reset to that base before the
-        // exit label, so post-loop discards stay correct across the back-edge.
+        // The depth tracker is reset to the loop-top base before the exit label, so
+        // post-loop discards stay correct across the back-edge.
         let loopStart = b.Label()
         let loopEnd = b.Label()
         let baseDepth = b.Depth
         b.Add(ILInstr.Mark loopStart)
-        recur env b cond
+        recur ExprPos.Value env b cond
         b.Add(ILInstr.Brfalse loopEnd)
-        recur env b body
-
-        while b.Depth > baseDepth do
-            b.Add ILInstr.Pop
-
+        recur ExprPos.Statement env b body
         b.Add(ILInstr.Br loopStart)
         b.SetDepth baseDepth
         b.Add(ILInstr.Mark loopEnd)
-        EmitTypes.buildUnitValue env b
+        ExprPos.reifyUnit env b pos

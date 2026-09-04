@@ -24,37 +24,31 @@ public static class Program
 		formatter.AppendFormatted((int)b);
 		formatter.AppendLiteral("\n");
 		formatter.Flush();
-		ValueTuple valueTuple = default(ValueTuple);
 		Formatter formatter2 = new Formatter(0, 1, Console.Out);
 		byte b2 = (byte)44;
 		formatter2.AppendFormatted((int)b2);
 		formatter2.AppendLiteral("\n");
 		formatter2.Flush();
-		ValueTuple valueTuple2 = default(ValueTuple);
 		Formatter formatter3 = new Formatter(0, 1, Console.Out);
 		byte b3 = (byte)246;
 		formatter3.AppendFormatted((int)b3);
 		formatter3.AppendLiteral("\n");
 		formatter3.Flush();
-		ValueTuple valueTuple3 = default(ValueTuple);
 		Formatter formatter4 = new Formatter(0, 1, Console.Out);
 		byte b4 = (byte)144;
 		formatter4.AppendFormatted((int)b4);
 		formatter4.AppendLiteral("\n");
 		formatter4.Flush();
-		ValueTuple valueTuple4 = default(ValueTuple);
 		Formatter formatter5 = new Formatter(0, 1, Console.Out);
 		byte b5 = (byte)66;
 		formatter5.AppendFormatted((int)b5);
 		formatter5.AppendLiteral("\n");
 		formatter5.Flush();
-		ValueTuple valueTuple5 = default(ValueTuple);
 		Formatter formatter6 = new Formatter(0, 1, Console.Out);
 		byte b6 = (byte)4;
 		formatter6.AppendFormatted((int)b6);
 		formatter6.AppendLiteral("\n");
 		formatter6.Flush();
-		ValueTuple valueTuple6 = default(ValueTuple);
 		return 0;
 	}
 }
