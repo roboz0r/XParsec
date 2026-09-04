@@ -1,4 +1,4 @@
-module XParsec.FSharp.Codegen.Clr.Tests.PeInspection
+﻿module XParsec.FSharp.Codegen.Clr.Tests.PeInspection
 
 // Read the emitted PE through `System.Reflection.Metadata` (method/field tokens, the
 // AssemblyRef table, raw IL). The `pe*` readers work straight off the bytes; `loadAssembly`
@@ -8,6 +8,7 @@ open System
 open System.Reflection
 open System.Runtime.Loader
 open System.Reflection.Metadata
+open System.Reflection.Metadata.Ecma335
 open System.Reflection.PortableExecutable
 
 /// Load emitted PE bytes into a FRESH `AssemblyLoadContext`. Loading the same bytes twice
@@ -241,6 +242,83 @@ let peMethodIl (bytes: byte[]) (declaringType: string) (methodName: string) : by
     use peReader = openPe bytes
     let md = peReader.GetMetadataReader()
     methodIl peReader (methodDefNamed md declaringType methodName)
+
+/// Every CIL opcode by its encoding: the single byte for a one-byte opcode, `0xFExx` for a
+/// two-byte one.
+let private opCodeTable: Lazy<Collections.Generic.Dictionary<int, Emit.OpCode>> =
+    lazy
+        (let table = Collections.Generic.Dictionary<int, Emit.OpCode>()
+
+         for f in typeof<Emit.OpCodes>.GetFields(BindingFlags.Public ||| BindingFlags.Static) do
+             match f.GetValue null with
+             | :? Emit.OpCode as op -> table.[int (uint16 op.Value)] <- op
+             | _ -> ()
+
+         table)
+
+/// The name of the member a metadata token designates: a `MethodDef`, `FieldDef` or
+/// `MemberRef` row's own name, a `MethodSpec` through the method it instantiates.
+let rec private memberNameOfToken (md: MetadataReader) (token: int) : string =
+    let h = MetadataTokens.EntityHandle token
+    let row = MetadataTokens.GetRowNumber h
+
+    match h.Kind with
+    | HandleKind.MethodDefinition ->
+        md.GetString (md.GetMethodDefinition(MetadataTokens.MethodDefinitionHandle row)).Name
+    | HandleKind.FieldDefinition -> md.GetString (md.GetFieldDefinition(MetadataTokens.FieldDefinitionHandle row)).Name
+    | HandleKind.MemberReference -> md.GetString (md.GetMemberReference(MetadataTokens.MemberReferenceHandle row)).Name
+    | HandleKind.MethodSpecification ->
+        let spec = md.GetMethodSpecification(MetadataTokens.MethodSpecificationHandle row)
+        memberNameOfToken md (MetadataTokens.GetToken spec.Method)
+    | kind -> sprintf "<%A>" kind
+
+/// The member-bearing instructions of `methodName` on `declaringType`, in body order, as
+/// `(mnemonic, member name)`: every `call` / `callvirt` / `newobj` / `ldfld` / `stfld` /
+/// `ldflda` / `ldsfld` / `stsfld` / `ldftn` / `ldtoken` with the name of its operand. Throws
+/// if not found.
+let peMethodMemberOps (bytes: byte[]) (declaringType: string) (methodName: string) : (string * string) list =
+    use peReader = openPe bytes
+    let md = peReader.GetMetadataReader()
+    let il = methodIl peReader (methodDefNamed md declaringType methodName)
+    let table = opCodeTable.Value
+    let ops = ResizeArray<string * string>()
+    let mutable i = 0
+
+    while i < il.Length do
+        let code, width =
+            if il.[i] = 0xFEuy then
+                (0xFE00 ||| int il.[i + 1]), 2
+            else
+                int il.[i], 1
+
+        let op = table.[code]
+        i <- i + width
+
+        match op.OperandType with
+        | Emit.OperandType.InlineNone -> ()
+        | Emit.OperandType.ShortInlineBrTarget
+        | Emit.OperandType.ShortInlineI
+        | Emit.OperandType.ShortInlineVar -> i <- i + 1
+        | Emit.OperandType.InlineVar -> i <- i + 2
+        | Emit.OperandType.InlineI8
+        | Emit.OperandType.InlineR -> i <- i + 8
+        | Emit.OperandType.InlineSwitch ->
+            let count = BitConverter.ToInt32(il, i)
+            i <- i + 4 + 4 * count
+        | Emit.OperandType.InlineField
+        | Emit.OperandType.InlineMethod
+        | Emit.OperandType.InlineTok ->
+            ops.Add(op.Name, memberNameOfToken md (BitConverter.ToInt32(il, i)))
+            i <- i + 4
+        | Emit.OperandType.InlineBrTarget
+        | Emit.OperandType.InlineI
+        | Emit.OperandType.InlineString
+        | Emit.OperandType.InlineSig
+        | Emit.OperandType.InlineType
+        | Emit.OperandType.ShortInlineR -> i <- i + 4
+        | other -> failwithf "peMethodMemberOps: unhandled operand type %A" other
+
+    List.ofSeq ops
 
 /// How many local slots the body of `methodName` on `declaringType` declares; `0` for a
 /// body-less method. Throws if not found.

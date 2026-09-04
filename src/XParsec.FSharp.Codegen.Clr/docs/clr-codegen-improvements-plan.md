@@ -117,7 +117,7 @@ bits to `FieldReach.OwnType` and `writesOf f.IsMutable`.
    `ldarg.0; ldfld; ret`, which is the same shape for a struct record, where `ldarg.0` is already
    the byref. The accessor-name minting is `AccessorNames`, and nominal types already carry
    `Property` rows, so this stage adds no new machinery.
-2. **Route every consumer through the accessor.** `RecordMember.Field` in `ICodegenProvider`
+2. **Route every consumer through the accessor — DONE.** `RecordMember.Field` in `ICodegenProvider`
    currently means "the public field"; it becomes "the field's accessor pair", and each site
    minting a `FieldDef`/`MemberRef` from it mints a method reference instead. The sites are the
    field-get path, the field-set path, `buildRecordClone` in `EmitConstruct` (which `ldfld`s each
@@ -174,6 +174,40 @@ One consequence to carry into stage 2: `MetadataSymbols.enumerateClassMembers` w
 and public fields alike, so a record field imported from a referenced assembly now yields two
 `ExternalMember`s under one key. The property leads, which is the member stage 2 wants a consumer
 to bind; stage 3 drops the field from the public surface and with it the duplicate.
+
+**Stage 2 landed.** `RecordMember` kept `Field`, which the record's `.ctor`, accessor bodies
+and structural triple still mint, and gained `Accessor of fieldName * TAccessorRole`, the same
+`(name, role)` shape as `TMemberKind.Accessor` and `MethodKey.RecordFieldAccessor`.
+`ClrGenerics.genericRecordMemberRef` encodes it on the instantiated `TypeSpec` through
+`ClrEncoder.RecordAccessorSignature`, the one place that spells `instance FieldTy get_X()` and
+`instance void set_X(FieldTy)`; the declaring side in `NominalEmit` and the imported side in
+`ClrExternalMembers.externalRecordField` share it. `EmittedRecordField` in `EmitTypes` replaced
+the `(name, handle, type)` triple and carries the accessor `Def` pair beside the storage.
+
+A use site resolves one accessor by role, never the pair: `EmitResolve.recordFieldAccessor`
+re-mints the requested half, and `resolveRecordField` answers a `FieldAccess` for that role,
+`Storage` for a class field, `Accessor` for a record field, own or imported. A read therefore
+mints no `set_X` `MemberRef` row on a generic or referenced-package record, which
+`PropertyRowTests` pins. `Vesper.Ref` reaches `contents` through `get_contents` /
+`set_contents`.
+
+The four sites read `FieldAccess`: `buildFieldGet` and `buildFieldSet` in `EmitMember` `call`
+the half they asked for, `buildRecordClone` calls each un-overridden field's getter on the
+spilled source, and the record pattern in `EmitPattern` calls each named field's getter on the
+scrutinee through the `extractGetter` it shares with a union case's `Getter` reader. A struct
+record's getter takes the address, so those sites go through `EmitTypes.loadSlotAsThis` and
+`buildFieldGet` through `loadStructThisPtr`. `loadStructThisPtr` addresses a struct module
+value with `ldsflda` and a struct-typed class field with `ldflda` (the `ClassFieldGet` active
+pattern); a record field or property result is a copy with no location and spills, as F# does.
+`NominalShared.recordFieldRefs` keeps direct field access with the comment the entry asked for.
+
+`record-members` and `struct-record` re-rendered, the former to bare `X` where `this.X` had
+disambiguated a field read from the property. `PeInspection.peMethodMemberOps` decodes a
+body's member-bearing instructions to `(mnemonic, member name)` over the
+`System.Reflection.Emit.OpCodes` table, and `PropertyRowTests` pins each site through it: get,
+set, clone, pattern, the generic second-field `MemberRef`, the struct record's getter and clone
+with a runtime round-trip, and a promoted `let mutable` reaching `Vesper.Ref` through
+`get_contents`.
 
 ## A3. Typar constraints are never emitted
 
@@ -520,8 +554,9 @@ digest gate and the `expectNoFSharpCore` checks stay.
 A1 has landed.
 
 A3 stage 1 widens a frozen type and its codec, so it wants a commit of its own before anything
-depends on it. A2 stage 1 has landed, and moved assembler row counts without disturbing the
-handle predictions, so the row-order ground is clear again for A2 stages 2 to 4.
+depends on it. A2 stages 1 and 2 have landed; stage 1 moved assembler row counts without
+disturbing the handle predictions and stage 2 moved none, so the row-order ground is clear
+for A2 stages 3 and 4.
 
 B1 has landed, and with it A4's second half. B2 has landed; it moved every golden's IL and no
 table row, so it left the row-order ground clear for A2.

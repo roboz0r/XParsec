@@ -1,4 +1,4 @@
-namespace XParsec.FSharp.Codegen.Clr
+﻿namespace XParsec.FSharp.Codegen.Clr
 
 open System.Collections.Generic
 open System.Reflection.Metadata
@@ -108,10 +108,10 @@ module EmitConstruct =
 
             // A source-order initialiser list (`{ Y = …; X = … }`) pushes in the type's
             // DECLARATION order, which is the ctor's parameter layout.
-            for (fieldName, _, _) in r.Fields do
-                match Map.tryFind fieldName srcMap with
+            for f in r.Fields do
+                match Map.tryFind f.Name srcMap with
                 | Some e -> recur env b e
-                | None -> failwithf "Emit: record literal for '%A' is missing initialiser for field '%s'" key fieldName
+                | None -> failwithf "Emit: record literal for '%A' is missing initialiser for field '%s'" key f.Name
 
             let ctor =
                 memberRef env r.Typars key tyArgs (UserMemberKind.RecordMember RecordMember.Ctor) r.Ctor
@@ -137,7 +137,8 @@ module EmitConstruct =
         let overrides = cloneView.Overrides
 
         // `{ r with X = v }` — spill `r` to a local, then per declaration-order field push
-        // the override if there is one, else `ldloc; ldfld` the saved source, then `newobj`.
+        // the override if there is one, else `call` the getter on the saved source (its
+        // address for a struct record), then `newobj`.
         let nominal = nominalOfExpr e
         let key, tyArgs = keyAndTyArgs nominal
 
@@ -148,21 +149,13 @@ module EmitConstruct =
             recur env b source
             b.Add(ILInstr.Stloc srcSlot)
 
-            for (fieldName, handle, _) in r.Fields do
-                match Map.tryFind fieldName overrideMap with
+            for f in r.Fields do
+                match Map.tryFind f.Name overrideMap with
                 | Some e -> recur env b e
                 | None ->
-                    let fieldRef =
-                        memberRef
-                            env
-                            r.Typars
-                            key
-                            tyArgs
-                            (UserMemberKind.RecordMember(RecordMember.Field fieldName))
-                            handle
-
-                    b.Add(ILInstr.Ldloc srcSlot)
-                    b.Add(ILInstr.Ldfld fieldRef)
+                    let getter = recordFieldAccessor env r key tyArgs f TAccessorRole.Getter
+                    b.Add(loadSlotAsThis r.IsValueType srcSlot)
+                    b.Add(ILInstr.Call(getter, 1, 1))
 
             let ctor =
                 memberRef env r.Typars key tyArgs (UserMemberKind.RecordMember RecordMember.Ctor) r.Ctor

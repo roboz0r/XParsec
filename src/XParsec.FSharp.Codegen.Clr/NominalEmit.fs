@@ -1,4 +1,4 @@
-namespace XParsec.FSharp.Codegen.Clr
+﻿namespace XParsec.FSharp.Codegen.Clr
 
 open System.Collections.Generic
 open System.Reflection.Metadata
@@ -78,7 +78,19 @@ module internal NominalEmit =
                     Fields =
                         [
                             for f in rd.Fields ->
-                                f.Name, toEntity (asm.FieldDef(FieldKey.RecordField(td.Key, f.Name))), f.Type
+                                {
+                                    Name = f.Name
+                                    Field = toEntity (asm.FieldDef(FieldKey.RecordField(td.Key, f.Name)))
+                                    Ty = f.Type
+                                    Accessors =
+                                        EmitTypes.RecordFieldAccessorRefs.create
+                                            f.IsMutable
+                                            (fun role ->
+                                                toEntity (
+                                                    asm.MethodDef(MethodKey.RecordFieldAccessor(td.Key, f.Name, role))
+                                                )
+                                            )
+                                }
                         ]
                     IsValueType = rd.ValueKind.IsValueType
                     Ctor = toEntity (asm.MethodDef(MethodKey.NominalCtor td.Key))
@@ -212,22 +224,18 @@ module internal NominalEmit =
         // A struct record's `ldarg.0` is a byref, which `ldfld` and `stfld` accept.
         for (f, fieldRef) in List.zip fields fieldRefs do
             for role in RecordFieldAccessors.rolesOf f do
-                let prepared: PreparedMethod =
+                let body, paramNames =
                     match role with
-                    | TAccessorRole.Getter ->
-                        {
-                            Signature = provider.InstanceMethodSignature([], f.Type)
-                            Body = bodyOf asm (Emit.buildFieldGetter fieldRef)
-                            ParamNames = []
-                            MethodTypars = []
-                        }
-                    | TAccessorRole.Setter ->
-                        {
-                            Signature = provider.InstanceMethodSignatureVoid [ f.Type ]
-                            Body = bodyOf asm (Emit.buildFieldSetter fieldRef)
-                            ParamNames = [ "value" ]
-                            MethodTypars = []
-                        }
+                    | TAccessorRole.Getter -> Emit.buildFieldGetter fieldRef, []
+                    | TAccessorRole.Setter -> Emit.buildFieldSetter fieldRef, [ "value" ]
+
+                let prepared: PreparedMethod =
+                    {
+                        Signature = provider.RecordAccessorSignature(role, f.Type)
+                        Body = bodyOf asm body
+                        ParamNames = paramNames
+                        MethodTypars = []
+                    }
 
                 asm.AddPrepared(MethodKey.RecordFieldAccessor(td.Key, f.Name, role), prepared)
 

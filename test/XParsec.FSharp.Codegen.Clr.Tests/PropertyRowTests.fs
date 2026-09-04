@@ -1,4 +1,4 @@
-module XParsec.FSharp.Codegen.Clr.Tests.PropertyRowTests
+﻿module XParsec.FSharp.Codegen.Clr.Tests.PropertyRowTests
 
 open System
 open System.IO
@@ -340,6 +340,121 @@ let tests =
 
                 let instance = Activator.CreateInstance(ty, [| box 10 |])
                 Expect.equal (p.GetValue(instance, [| box 5 |]) :?> int) 15 "the indexed getter runs"
+            }
+
+            // A record field's storage is reached directly only by the record's own bodies.
+            // Every use site elsewhere binds the accessor pair.
+            test "a record field read and write outside the record call the accessors" {
+                let bytes =
+                    bytesOf
+                        "RecordAccessorConsumers"
+                        [
+                            "type R = { X: int; mutable Y: int }"
+                            "let getX (r: R) = r.X"
+                            "let setY (r: R) (v: int) = r.Y <- v"
+                            "let r = { X = 1; Y = 2 }"
+                        ]
+
+                Expect.equal (peMethodMemberOps bytes "Program" "getX") [ "call", "get_X" ] "`r.X` calls the getter"
+
+                Expect.equal
+                    (peMethodMemberOps bytes "Program" "setY")
+                    [ "call", "set_Y" ]
+                    "`r.Y <- v` calls the setter"
+            }
+
+            test "a record clone and a record pattern read the source through the getters" {
+                let bytes =
+                    bytesOf
+                        "RecordAccessorCloneAndPattern"
+                        [
+                            "type R = { X: int; Y: int }"
+                            "let withY (r: R) = { r with Y = 0 }"
+                            "let sum (r: R) ="
+                            "    match r with"
+                            "    | { X = x; Y = y } -> x + y"
+                            "let r = { X = 1; Y = 2 }"
+                        ]
+
+                Expect.equal
+                    (peMethodMemberOps bytes "Program" "withY")
+                    [ "call", "get_X"; "newobj", ".ctor" ]
+                    "the clone reads the un-overridden field through its getter"
+
+                // The trailing `newobj` is the match's fallthrough exception.
+                Expect.equal
+                    (peMethodMemberOps bytes "Program" "sum")
+                    [ "call", "get_X"; "call", "get_Y"; "newobj", ".ctor" ]
+                    "the pattern reads each named field through its getter"
+            }
+
+            test "a generic record's consumer calls the getter through a MemberRef on the instantiation" {
+                let bytes =
+                    bytesOf
+                        "RecordAccessorGenericConsumer"
+                        [
+                            "type Box<'T> = { First: 'T; mutable Second: 'T }"
+                            "let second (b: Box<int>) = b.Second"
+                            "let b = { First = 1; Second = 2 }"
+                        ]
+
+                Expect.equal
+                    (peMethodMemberOps bytes "Program" "second")
+                    [ "call", "get_Second" ]
+                    "the second field of a generic record binds its getter"
+
+                Expect.equal (memberRefRowCount bytes "get_Second") 1 "one MemberRef row on `Box<int>`"
+                Expect.equal (memberRefRowCount bytes "set_Second") 0 "a read mints no setter MemberRef"
+            }
+
+            test "a struct record's consumer calls the getter on the value's address" {
+                let bytes =
+                    bytesOf
+                        "RecordAccessorStructConsumer"
+                        [
+                            "[<Struct>]"
+                            "type P = { X: int; mutable Y: int }"
+                            "let getX (p: P) = p.X"
+                            "let withX (p: P) = { p with X = 9 }"
+                            "let p = { X = 1; Y = 2 }"
+                        ]
+
+                Expect.equal (peMethodMemberOps bytes "Program" "getX") [ "call", "get_X" ] "`p.X` calls the getter"
+
+                Expect.equal
+                    (peMethodMemberOps bytes "Program" "withX")
+                    [ "call", "get_Y"; "newobj", ".ctor" ]
+                    "the clone reads the copied field through its getter"
+
+                let asm = loadAssembly bytes
+                let program = asm.GetType("Program", throwOnError = true)
+                let ty = asm.GetType("P", throwOnError = true)
+                let instance = Activator.CreateInstance(ty, [| box 7; box 8 |])
+                Expect.equal (program.GetMethod("getX").Invoke(null, [| instance |]) :?> int) 7 "the getter reads X"
+
+                let cloned = program.GetMethod("withX").Invoke(null, [| instance |])
+                Expect.equal ((ty.GetProperty "X").GetValue cloned :?> int) 9 "the clone overrides X"
+                Expect.equal ((ty.GetProperty "Y").GetValue cloned :?> int) 8 "the clone copies Y"
+            }
+
+            // `Vesper.Ref<'T>` is a record in a referenced package, so a promoted `let
+            // mutable` reaches `contents` through the imported accessor `MemberRef`s.
+            test "a referenced-package record field binds the imported accessors" {
+                let bytes =
+                    bytesOf
+                        "RecordAccessorExternalConsumer"
+                        [
+                            "let useCounter (z: int) : int ="
+                            "    let mutable n = z"
+                            "    let bump (v: int) ="
+                            "        n <- n + v"
+                            "    bump 7"
+                            "    n"
+                        ]
+
+                let ops = peMethodMemberOps bytes "Program" "useCounter"
+                Expect.contains ops ("call", "get_contents") "the cell is read through `get_contents`"
+                Expect.isFalse (List.contains ("ldfld", "contents") ops) "the cell's field is not read directly"
             }
 
             // A compilation referencing the emitted DLL resolves the member as a property.

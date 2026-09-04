@@ -30,6 +30,9 @@ type ILInstr =
     | Stfld of EntityHandle
     /// `ldsfld` — load a static field (net +1). Class `static let` backing fields.
     | Ldsfld of EntityHandle
+    /// `ldsflda` — load a static field's address (net +1). The `this` of a mutating call on a
+    /// module value of value type.
+    | Ldsflda of EntityHandle
     /// `stsfld` — store a static field (net −1). Emitted in a synthesised
     /// `.cctor` to seed each `static let` field.
     | Stsfld of EntityHandle
@@ -141,7 +144,8 @@ module private InstrDelta =
         | ILInstr.Newarr _
         | ILInstr.Ldlen
         | ILInstr.Un _ -> 0
-        | ILInstr.Ldsfld _ -> 1
+        | ILInstr.Ldsfld _
+        | ILInstr.Ldsflda _ -> 1
         | ILInstr.Stsfld _ -> -1
         | ILInstr.Stfld _ -> -2
         | ILInstr.Initobj _ -> -1
@@ -238,7 +242,8 @@ module IlIr =
         | ILInstr.Ldlen
         | ILInstr.Ldobj _
         | ILInstr.Un _ -> 0
-        | ILInstr.Ldsfld _ -> 1
+        | ILInstr.Ldsfld _
+        | ILInstr.Ldsflda _ -> 1
         | ILInstr.Stsfld _ -> -1
         | ILInstr.Stfld _ -> -2
         | ILInstr.Initobj _ -> -1
@@ -434,6 +439,7 @@ module IlIr =
             | ILInstr.Ldflda f -> Cil.emitLdflda il f
             | ILInstr.Stfld f -> Cil.emitStfld il f
             | ILInstr.Ldsfld f -> Cil.emitLdsfld il f
+            | ILInstr.Ldsflda f -> Cil.emitLdsflda il f
             | ILInstr.Stsfld f -> Cil.emitStsfld il f
             | ILInstr.Isinst t -> Cil.emitIsinst il t
             | ILInstr.Castclass t -> Cil.emitCastclass il t

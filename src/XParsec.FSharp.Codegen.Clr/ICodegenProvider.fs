@@ -1,4 +1,4 @@
-namespace XParsec.FSharp.Codegen.Clr
+﻿namespace XParsec.FSharp.Codegen.Clr
 
 open System.Reflection.Metadata
 open XParsec.FSharp.SemanticAnalysis
@@ -152,8 +152,13 @@ type ClosureMember =
 type RecordMember =
     /// The single instance `.ctor(field0, field1, …)`, fields in declaration order.
     | Ctor
-    /// The public field named `fieldName`, the source field name preserved verbatim.
+    /// The backing field named `fieldName`, the source field name preserved verbatim. Reached
+    /// directly only by the record's `.ctor`, its accessor bodies and its structural bodies;
+    /// every other consumer, the record's own members included, takes an accessor.
     | Field of fieldName: string
+    /// One accessor of the field named `fieldName`: `instance FieldTy get_<fieldName>()`, or
+    /// `instance void set_<fieldName>(FieldTy)`, the latter declared for a `mutable` field only.
+    | Accessor of fieldName: string * role: TAccessorRole
 
 /// Which member of an emitted *generic* class a `MemberRef` identifies.
 [<RequireQualifiedAccess>]
@@ -364,22 +369,20 @@ type ICodegenProvider =
     /// `ValueNone` ⇒ the record is unknown here.
     abstract TryEmitRecordCons: key: TypeKey * tyArgs: FrozenType list * fieldNames: string list -> CtorRecipe voption
 
-    /// A `MemberRef` to one named field on a *referenced-assembly* record, instantiated at
-    /// `tyArgs`, plus the field's declared type after the record's typar substitution
-    /// (`'T` ⇒ `tyArgs.[i]`). `ValueNone` ⇒ unknown record, or unknown field on a known one.
+    /// The `MemberRef` of one accessor of one named field on a *referenced-assembly* record,
+    /// instantiated at `tyArgs`. `ValueNone` ⇒ unknown record, or unknown field on a known one.
+    /// A `Setter` on an immutable field throws.
     abstract TryResolveExternalRecordField:
-        key: TypeKey * tyArgs: FrozenType list * fieldName: string -> (EntityHandle * FrozenType) voption
+        key: TypeKey * tyArgs: FrozenType list * fieldName: string * role: TAccessorRole -> EntityHandle voption
 
     /// The test a match arm emits against a *referenced-package* union's scrutinee for
     /// `caseName`, instantiated at `tyArgs`. `ValueNone` ⇒ unknown union or case.
     abstract ExternalUnionCaseTest: key: TypeKey * tyArgs: FrozenType list * caseName: string -> UnionCaseTest voption
 
     /// The read path a `match … Some x` arm takes to field `fieldIndex` of `caseName` on a
-    /// referenced-package union instantiated at `tyArgs`, plus the field's substituted
-    /// declared type. `ValueNone` ⇒ unknown union/case/field.
+    /// referenced-package union instantiated at `tyArgs`. `ValueNone` ⇒ unknown union/case/field.
     abstract ExternalUnionCaseField:
-        key: TypeKey * tyArgs: FrozenType list * caseName: string * fieldIndex: int ->
-            (UnionCaseAccess * FrozenType) voption
+        key: TypeKey * tyArgs: FrozenType list * caseName: string * fieldIndex: int -> UnionCaseAccess voption
 
     /// The type token for one case of a referenced-package HIERARCHY union at `tyArgs`: the
     /// nested type its payload is declared on, which a cross-package `match` arm casts the

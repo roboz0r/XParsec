@@ -1,4 +1,4 @@
-namespace XParsec.FSharp.Codegen.Clr
+﻿namespace XParsec.FSharp.Codegen.Clr
 
 open System.Collections.Generic
 open System.Reflection.Metadata
@@ -368,15 +368,14 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
         | ValueNone -> ValueNone
         | ValueSome(tref, u) -> externalCaseParent key tref (UnionRegime.ofExternalShape u) args caseName
 
-    /// The read path a cross-package `match … Some x` takes to one case's payload field,
-    /// with the field's type after the use-site substitution. `ValueNone` ⇒ unknown
-    /// case/index.
+    /// The read path a cross-package `match … Some x` takes to one case's payload field.
+    /// `ValueNone` ⇒ unknown case/index.
     let externalUnionCaseField
         (key: TypeKey)
         (args: FrozenType list)
         (caseName: string)
         (fieldIndex: int)
-        : (UnionCaseAccess * FrozenType) voption =
+        : UnionCaseAccess voption =
         let arity = List.length args
 
         match externalUnionRef key arity with
@@ -408,8 +407,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                         encodeType (BlobEncoder(s).FieldSignature()) openFieldTy
                         UnionCaseAccess.Field [ toEntity (ctx.MemberRef(parent, fieldName, s)) ]
 
-                let substitutedTy = substituteDeclaring (List.toArray args) openFieldTy
-                ValueSome(access, substitutedTy)
+                ValueSome access
             | _ -> ValueNone
 
     /// Mint the `MemberRef` for a referenced-assembly class's ctor, instantiated at `tyArgs`. The
@@ -492,13 +490,14 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
 
                 ValueSome(toEntity (ctx.MemberRef(tref, ".ctor", s)))
 
-    /// Mint the `MemberRef` for one named field on a referenced-assembly record at `args`, with
-    /// its declared type after the use-site substitution, which a `FieldGet` encodes next.
+    /// Mint the `MemberRef` of one accessor of one named field on a referenced-assembly record
+    /// at `args`.
     let externalRecordField
         (key: TypeKey)
         (args: FrozenType list)
         (fieldName: string)
-        : (EntityHandle * FrozenType) voption =
+        (role: TAccessorRole)
+        : EntityHandle voption =
         let arity = List.length args
 
         match externalRecordRef key arity with
@@ -511,12 +510,18 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
 
                 let openFieldTy = field.Frozen
 
-                let s = BlobBuilder()
-                encodeType (BlobEncoder(s).FieldSignature()) openFieldTy
-                let handle = toEntity (ctx.MemberRef(parent, fieldName, s))
+                if role = TAccessorRole.Setter && not field.IsMutable then
+                    failwithf "ClrProvider: external record field '%s' on '%A' is immutable" fieldName key
 
-                let substitutedTy = substituteDeclaring (List.toArray args) openFieldTy
-                ValueSome(handle, substitutedTy)
+                ValueSome(
+                    toEntity (
+                        ctx.MemberRef(
+                            parent,
+                            TAccessorRole.methodName role fieldName,
+                            enc.RecordAccessorSignature(role, openFieldTy)
+                        )
+                    )
+                )
 
     /// The parameterless `.ctor()` `MemberRef` of a heritable FOREIGN base class
     /// (`System.Attribute`), minted directly off the `TypeRef`, because a base ctor is often
@@ -584,7 +589,8 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
 
     member _.ExternalAttributeCtor(key, argCount) = externalAttributeCtor key argCount
 
-    member _.ExternalRecordField(key, args, fieldName) = externalRecordField key args fieldName
+    member _.ExternalRecordField(key, args, fieldName, role) =
+        externalRecordField key args fieldName role
 
     /// `MethodSpec` instantiating a generic static method: `fold<int,int>` at a call site,
     /// `fold<!!0,!!1>` for a recursive self-call.

@@ -1,4 +1,4 @@
-namespace XParsec.FSharp.Codegen.Clr
+﻿namespace XParsec.FSharp.Codegen.Clr
 
 open System.Collections.Generic
 open System.Reflection.Metadata
@@ -183,14 +183,50 @@ module EmitTypes =
                 this.Cases.Count
                 (this.Cases.Values |> Seq.exists (fun c -> not c.Fields.IsEmpty))
 
-    /// A record emitted into this assembly: a sealed class, one public field per record
-    /// field, one ctor taking `Fields` in declaration order. `Typars` empty ⇒ monomorphic
-    /// (`Def`-token handles), non-empty ⇒ generic.
+    /// The accessor pair a record field declares: `get_<Field>` always, `set_<Field>` for a
+    /// `mutable` field.
+    type RecordFieldAccessorRefs =
+        {
+            Getter: EntityHandle
+            Setter: EntityHandle voption
+        }
+
+    module RecordFieldAccessorRefs =
+        let create (isMutable: bool) (mint: TAccessorRole -> EntityHandle) : RecordFieldAccessorRefs =
+            {
+                Getter = mint TAccessorRole.Getter
+                Setter =
+                    if isMutable then
+                        ValueSome(mint TAccessorRole.Setter)
+                    else
+                        ValueNone
+            }
+
+        /// The accessor in `role`, `ValueNone` for the setter of an immutable field.
+        let tryRole (role: TAccessorRole) (refs: RecordFieldAccessorRefs) : EntityHandle voption =
+            match role with
+            | TAccessorRole.Getter -> ValueSome refs.Getter
+            | TAccessorRole.Setter -> refs.Setter
+
+    /// One field of a record emitted into this assembly. `Field` and `Accessors` hold `Def`
+    /// tokens; a generic record's use site re-mints them as `MemberRef`s through
+    /// `RecordMember`.
+    type EmittedRecordField =
+        {
+            Name: string
+            Field: EntityHandle
+            Ty: FrozenType
+            Accessors: RecordFieldAccessorRefs
+        }
+
+    /// A record emitted into this assembly: a sealed class, one field per record field behind
+    /// an accessor pair, one ctor taking `Fields` in declaration order. `Typars` empty ⇒
+    /// monomorphic (`Def`-token handles), non-empty ⇒ generic.
     type EmittedRecord =
         {
             Name: string
             Typars: string list
-            Fields: (string * EntityHandle * FrozenType) list
+            Fields: EmittedRecordField list
             /// `true` for a `[<Struct>]` value-type record. Drives `isValueType`
             /// at use sites (box on `:>`, `unbox.any` on `:?>`), like the class flag.
             IsValueType: bool
@@ -198,6 +234,15 @@ module EmitTypes =
             /// Augmentation members, on the same terms as `EmittedUnion.Members`.
             Members: Dictionary<string, EqArray<EmittedMember>>
         }
+
+    /// The path a use site takes to a named field on a record or class object argument, for
+    /// one accessor role.
+    [<RequireQualifiedAccess>]
+    type FieldAccess =
+        /// A class field, reached directly: `ldfld` / `stfld` / `ldflda`.
+        | Storage of EntityHandle
+        /// A record field, reached through the accessor in the requested role.
+        | Accessor of EntityHandle
 
     /// A class emitted into this assembly. `Typars` empty ⇒ monomorphic; non-empty ⇒
     /// generic, and its members are reached by `MemberRef` rather than `Def` token.
@@ -413,6 +458,14 @@ module EmitTypes =
             /// class and resolved here by bound variable → field handle (`ldsfld`).
             ModuleValues: Dictionary<BoundVarId, EntityHandle>
         }
+
+    /// The load of local `slot` as the `this` of one of its type's own instance methods: a
+    /// value type is called on its address.
+    let loadSlotAsThis (isValueType: bool) (slot: int) : ILInstr =
+        if isValueType then
+            ILInstr.Ldloca slot
+        else
+            ILInstr.Ldloc slot
 
     /// A `Var` bound to an addressable local slot in `env` → its slot index. The shared
     /// "is this an addressable local?" test in front of struct object-arg addressing, the

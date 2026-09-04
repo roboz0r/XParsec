@@ -232,7 +232,7 @@ module EmitPattern =
             | ValueSome test ->
                 let fieldAccess i =
                     match env.Provider.ExternalUnionCaseField(key, tyArgs, caseName, i) with
-                    | ValueSome(access, _) -> access
+                    | ValueSome access -> access
                     | ValueNone -> failwithf "Emit: external union '%s' case '%s' has no field %d" qualName caseName i
 
                 {
@@ -263,18 +263,20 @@ module EmitPattern =
             b.Add(ILInstr.Stloc fldSlot)
             buildMatchTest env b fldSlot nextLabel subPat
 
-        // `ldfld` a field off the value `pushSource` leaves on the stack.
-        let extractFieldVia (pushSource: unit -> unit) (fieldRef: EntityHandle) =
+        // The scrutinee as the this pointer of one of its type's own instance methods:
+        // `get_Tag`, a `Get_<Case>_<i>` reader, a record field's getter.
+        let pushThis () =
+            b.Add(loadSlotAsThis (isValueType env (typeOfPat pat)) scrutSlot)
+
+        let extractGetter (getter: EntityHandle) =
             extractVia (fun () ->
-                pushSource ()
-                b.Add(ILInstr.Ldfld fieldRef)
+                pushThis ()
+                b.Add(ILInstr.Call(getter, 1, 1))
             )
 
-        let extractField = extractFieldVia (fun () -> b.Add(ILInstr.Ldloc scrutSlot))
-
         // A union case field by its read path: a field chain off the value `pushSource`
-        // leaves, or a getter called on the this pointer `pushThis` leaves.
-        let extractCaseField (pushSource: unit -> unit) (pushThis: unit -> unit) (access: UnionCaseAccess) =
+        // leaves, or a getter called on the this pointer.
+        let extractCaseField (pushSource: unit -> unit) (access: UnionCaseAccess) =
             let pushPath (path: EntityHandle list) =
                 pushSource ()
 
@@ -291,11 +293,7 @@ module EmitPattern =
                             b.Add(ILInstr.Castclass(env.Provider.TypeToken(typeOfPat subPat)))
                         )
                         subPat
-            | UnionCaseAccess.Getter getter ->
-                extractVia (fun () ->
-                    pushThis ()
-                    b.Add(ILInstr.Call(getter, 1, 1))
-                )
+            | UnionCaseAccess.Getter getter -> extractGetter getter
 
         match TastAccessor.patKind pat with
         | PatShape.Wildcard -> ()
@@ -394,16 +392,6 @@ module EmitPattern =
                         b.Add(ILInstr.Castclass token)
                     )
 
-            // The scrutinee as the this pointer of one of the union's own instance methods
-            // (`get_Tag`, a `Get_<Case>_<i>` reader): a value type is called on its address.
-            let pushThis () =
-                b.Add(
-                    if isValueType env (typeOfPat pat) then
-                        ILInstr.Ldloca scrutSlot
-                    else
-                        ILInstr.Ldloc scrutSlot
-                )
-
             match plan.Test with
             | UnionCaseTest.Irrefutable -> ()
             | UnionCaseTest.TagEquals t ->
@@ -436,7 +424,7 @@ module EmitPattern =
             |> Array.iteri (fun i subPat ->
                 match TastAccessor.patKind subPat with
                 | PatShape.Wildcard -> ()
-                | _ -> extractCaseField pushSource pushThis (plan.FieldAccess i) subPat
+                | _ -> extractCaseField pushSource (plan.FieldAccess i) subPat
             )
         | PatShape.Record ->
             let fields = TastAccessor.patRecordFields pat
@@ -451,18 +439,8 @@ module EmitPattern =
                     match TastAccessor.patKind subPat with
                     | PatShape.Wildcard -> ()
                     | _ ->
-                        match r.Fields |> List.tryFind (fun (n, _, _) -> n = fieldName) with
-                        | Some(_, handle, _) ->
-                            let fieldRef =
-                                memberRef
-                                    env
-                                    r.Typars
-                                    key
-                                    tyArgs
-                                    (UserMemberKind.RecordMember(RecordMember.Field fieldName))
-                                    handle
-
-                            extractField fieldRef subPat
+                        match r.Fields |> List.tryFind (fun f -> f.Name = fieldName) with
+                        | Some f -> extractGetter (recordFieldAccessor env r key tyArgs f TAccessorRole.Getter) subPat
                         | None -> failwithf "Emit: record '%A' has no field '%s'" key fieldName
             | false, _ -> failwithf "Emit: no emitted record for pattern on '%A'" key
         | PatShape.Tuple ->

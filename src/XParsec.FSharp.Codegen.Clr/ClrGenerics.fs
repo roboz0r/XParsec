@@ -1,4 +1,4 @@
-namespace XParsec.FSharp.Codegen.Clr
+﻿namespace XParsec.FSharp.Codegen.Clr
 
 open System.Reflection.Metadata
 open System.Reflection.Metadata.Ecma335
@@ -211,6 +211,12 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
 
         toEntity (ctx.TypeSpec tsB)
 
+    /// A generic record field's declared type, in the record's own `!i` markers.
+    let genericRecordFieldTy (key: TypeKey) (fieldName: string) : FrozenType =
+        match genericRecords.[key].Fields |> EqArray.tryFind (fun (n, _) -> n = fieldName) with
+        | ValueSome(_, declTy) -> declTy
+        | ValueNone -> failwithf "ClrProvider: generic record '%A' has no field '%s'" key fieldName
+
     let genericRecordMemberRef (key: TypeKey) (args: FrozenType list) (which: RecordMember) : EntityHandle =
         let fields = genericRecords.[key].Fields
         let parent = genericRecordTypeSpec key args
@@ -233,12 +239,14 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
 
             toEntity (ctx.MemberRef(parent, ".ctor", s))
         | RecordMember.Field fieldName ->
-            match fields |> EqArray.tryFind (fun (n, _) -> n = fieldName) with
-            | ValueSome(_, declTy) ->
-                let s = BlobBuilder()
-                encodeType (BlobEncoder(s).FieldSignature()) declTy
-                toEntity (ctx.MemberRef(parent, fieldName, s))
-            | ValueNone -> failwithf "ClrProvider: generic record '%A' has no field '%s'" key fieldName
+            let declTy = genericRecordFieldTy key fieldName
+            let s = BlobBuilder()
+            encodeType (BlobEncoder(s).FieldSignature()) declTy
+            toEntity (ctx.MemberRef(parent, fieldName, s))
+        | RecordMember.Accessor(fieldName, role) ->
+            let declTy = genericRecordFieldTy key fieldName
+            let name = TAccessorRole.methodName role fieldName
+            toEntity (ctx.MemberRef(parent, name, enc.RecordAccessorSignature(role, declTy)))
 
     /// The parent `TypeSpec` of a generic user type, whichever family declares it. Every
     /// family's registry is keyed by the nominal `TypeKey`, so the key alone picks the arm.

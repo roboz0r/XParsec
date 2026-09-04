@@ -355,29 +355,76 @@ module EmitResolve =
                 | false, _ -> failwithf "Emit: struct enum '%A' has no emitted case '%s'" declKey name
         | false, _ -> ValueNone
 
-    /// Resolve a field by name on a record / class object arg: the field's `Def` token for a
-    /// monomorphic type, a `MemberRef` on its instantiated `TypeSpec` for a generic
-    /// one (`Box<int>::Value`). A class reaches here via elaboration's `FieldGet(this, name)`.
-    let resolveRecordField (env: EmitEnv) (objArgTy: FrozenNominal) (fieldName: string) : EntityHandle =
+    /// A record field's accessor in `role` at a use site: the `Def` token for a monomorphic
+    /// record, a `MemberRef` on its instantiated `TypeSpec` for a generic one
+    /// (`Box<int>::get_Value`). Throws for the setter of an immutable field.
+    let recordFieldAccessor
+        (env: EmitEnv)
+        (r: EmittedRecord)
+        (key: TypeKey)
+        (tyArgs: FrozenType list)
+        (f: EmittedRecordField)
+        (role: TAccessorRole)
+        : EntityHandle =
+        match RecordFieldAccessorRefs.tryRole role f.Accessors with
+        | ValueSome monoHandle ->
+            memberRef
+                env
+                r.Typars
+                key
+                tyArgs
+                (UserMemberKind.RecordMember(RecordMember.Accessor(f.Name, role)))
+                monoHandle
+        | ValueNone -> failwithf "Emit: record field '%s' on '%A' is immutable" f.Name key
+
+    /// A class field by name on a class object arg, which elaboration reaches via
+    /// `FieldGet(this, name)`: its `Def` token for a monomorphic class, a `MemberRef` on its
+    /// instantiated `TypeSpec` for a generic one. `ValueNone` ⇒ not a class emitted here.
+    /// Throws when the class is emitted here and declares no such field, which analysis
+    /// rejects as `NoMember` before codegen runs.
+    let tryClassField (env: EmitEnv) (objArgTy: FrozenNominal) (fieldName: string) : EntityHandle voption =
+        let key, tyArgs = keyAndTyArgs objArgTy
+
+        match env.Classes.TryGetValue key with
+        | true, c ->
+            // Primary-ctor backing fields first, then explicit `val` instance fields.
+            match (c.Fields @ c.InstanceFields) |> List.tryFind (fun (n, _, _) -> n = fieldName) with
+            | Some(_, h, _) ->
+                ValueSome(memberRef env c.Typars key tyArgs (UserMemberKind.ClassMember(ClassMember.Field fieldName)) h)
+            | None -> failwithf "Emit: class '%A' has no field '%s'" key fieldName
+        | false, _ -> ValueNone
+
+    /// A `FieldGet` off a class object arg → the object arg and the class field's handle.
+    [<return: Struct>]
+    let (|ClassFieldGet|_|) (env: EmitEnv) (e: TastAccessor.ExprId) : (TastAccessor.ExprId * EntityHandle) voption =
+        match e with
+        | TastAccessor.EFieldGet fieldGet ->
+            match tryClassField env (nominalOfExpr fieldGet.ObjArg) fieldGet.FieldName with
+            | ValueSome h -> ValueSome(fieldGet.ObjArg, h)
+            | ValueNone -> ValueNone
+        | _ -> ValueNone
+
+    /// Resolve a field by name on a record / class object arg, for one accessor role: a
+    /// record field's accessor, own or imported, or a class field's storage.
+    let resolveRecordField
+        (env: EmitEnv)
+        (objArgTy: FrozenNominal)
+        (fieldName: string)
+        (role: TAccessorRole)
+        : FieldAccess =
         let key, tyArgs = keyAndTyArgs objArgTy
 
         match env.Records.TryGetValue key with
         | true, r ->
-            match r.Fields |> List.tryFind (fun (n, _, _) -> n = fieldName) with
-            | Some(_, h, _) ->
-                memberRef env r.Typars key tyArgs (UserMemberKind.RecordMember(RecordMember.Field fieldName)) h
+            match r.Fields |> List.tryFind (fun f -> f.Name = fieldName) with
+            | Some f -> FieldAccess.Accessor(recordFieldAccessor env r key tyArgs f role)
             | None -> failwithf "Emit: record '%A' has no field '%s'" key fieldName
         | false, _ ->
-            match env.Classes.TryGetValue key with
-            | true, c ->
-                // Primary-ctor backing fields first, then explicit `val` instance fields.
-                match (c.Fields @ c.InstanceFields) |> List.tryFind (fun (n, _, _) -> n = fieldName) with
-                | Some(_, h, _) ->
-                    memberRef env c.Typars key tyArgs (UserMemberKind.ClassMember(ClassMember.Field fieldName)) h
-                | None -> failwithf "Emit: class '%A' has no field '%s'" key fieldName
-            | false, _ ->
+            match tryClassField env objArgTy fieldName with
+            | ValueSome h -> FieldAccess.Storage h
+            | ValueNone ->
                 let qualName = SymbolKeyOps.typeMetaName key
 
-                match env.Provider.TryResolveExternalRecordField(key, tyArgs, fieldName) with
-                | ValueSome(handle, _) -> handle
+                match env.Provider.TryResolveExternalRecordField(key, tyArgs, fieldName, role) with
+                | ValueSome handle -> FieldAccess.Accessor handle
                 | ValueNone -> failwithf "Emit: no emitted type for field access on '%s'" qualName

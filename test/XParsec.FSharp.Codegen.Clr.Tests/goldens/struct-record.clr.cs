@@ -116,8 +116,7 @@ public static class Program
 		formatter4.AppendBool(EqualityComparer<P>.Default.Equals(a, c), 0);
 		formatter4.AppendLiteral("\n");
 		formatter4.Flush();
-		P p = a;
-		d = new P(10, p.Y);
+		d = new P(10, a.Y);
 		Formatter formatter5 = new Formatter(0, 1, Console.Out);
 		int x = d.X;
 		int y = d.Y;

@@ -1,4 +1,4 @@
-namespace XParsec.FSharp.Codegen.Clr
+﻿namespace XParsec.FSharp.Codegen.Clr
 
 open System.Reflection
 open System.Reflection.Metadata
@@ -135,6 +135,9 @@ type ClrProvider
 
     member _.InstanceMethodSignatureVoid(paramTys: FrozenType list) : BlobBuilder =
         enc.InstanceMethodSignatureVoid(paramTys)
+
+    member _.RecordAccessorSignature(role: TAccessorRole, fieldTy: FrozenType) : BlobBuilder =
+        enc.RecordAccessorSignature(role, fieldTy)
 
     member _.PropertySignature(isInstance: bool, indexTys: FrozenType list, valueTy: FrozenType) : BlobBuilder =
         enc.PropertySignature(isInstance, indexTys, valueTy)
@@ -400,8 +403,8 @@ type ClrProvider
 
                 ValueSome { Handle = handle; ArgCount = argCount }
 
-        member _.TryResolveExternalRecordField(key, tyArgs, fieldName) =
-            ext.ExternalRecordField(key, tyArgs, fieldName)
+        member _.TryResolveExternalRecordField(key, tyArgs, fieldName, role) =
+            ext.ExternalRecordField(key, tyArgs, fieldName, role)
 
         member _.ExternalUnionCaseTest(key, tyArgs, caseName) =
             // The cons-list is invisible to the generic external-union path, so match it
@@ -426,15 +429,11 @@ type ClrProvider
                     | [ e ] -> e
                     | other -> failwithf "ClrProvider: cons-list match expects one type argument, got %A" other
 
-                // Only `Cons` carries fields: field 0 is the head (`elem`), field 1 the tail
-                // (`List<elem>`), both on the `Cons` case type.
+                // Only `Cons` carries fields: field 0 is the head, field 1 the tail, both on
+                // the `Cons` case type.
                 match caseName, fieldIndex with
-                | "Cons", 0 -> ValueSome(UnionCaseAccess.Field [ recipes.EmitVesperListConsField(elem, 0) ], elem)
-                | "Cons", 1 ->
-                    ValueSome(
-                        UnionCaseAccess.Field [ recipes.EmitVesperListConsField(elem, 1) ],
-                        FTUnion(key, EqArray.ofList tyArgs)
-                    )
+                | "Cons", 0 -> ValueSome(UnionCaseAccess.Field [ recipes.EmitVesperListConsField(elem, 0) ])
+                | "Cons", 1 -> ValueSome(UnionCaseAccess.Field [ recipes.EmitVesperListConsField(elem, 1) ])
                 | _ -> ValueNone
             else
                 ext.ExternalUnionCaseField(key, tyArgs, caseName, fieldIndex)

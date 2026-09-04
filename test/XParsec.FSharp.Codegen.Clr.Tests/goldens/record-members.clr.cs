@@ -39,7 +39,7 @@ public sealed class Vec : IEquatable<Vec>, IStructuralFormattable
 	{
 		get
 		{
-			int x = this.X;
+			int x = X;
 			return x * 2;
 		}
 	}
@@ -52,15 +52,15 @@ public sealed class Vec : IEquatable<Vec>, IStructuralFormattable
 
 	public int Sum()
 	{
-		int x = this.X;
-		int y = this.Y;
+		int x = X;
+		int y = Y;
 		return x + y;
 	}
 
 	public int AddN(int arg0)
 	{
-		int x = this.X;
-		int y = this.Y;
+		int x = X;
+		int y = Y;
 		int num = x + y;
 		return num + arg0;
 	}

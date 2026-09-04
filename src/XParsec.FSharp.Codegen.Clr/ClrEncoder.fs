@@ -1,4 +1,4 @@
-namespace XParsec.FSharp.Codegen.Clr
+﻿namespace XParsec.FSharp.Codegen.Clr
 
 open System.Collections.Generic
 open System.Reflection.Metadata
@@ -563,6 +563,13 @@ type internal ClrEncoder(env: ClrEnv) =
             )
 
         s
+
+    /// A record field accessor's signature: `instance FieldTy get_X()` for a getter,
+    /// `instance void set_X(FieldTy)` for a setter.
+    member this.RecordAccessorSignature(role: TAccessorRole, fieldTy: FrozenType) : BlobBuilder =
+        match role with
+        | TAccessorRole.Getter -> this.InstanceMethodSignature([], fieldTy)
+        | TAccessorRole.Setter -> this.InstanceMethodSignatureVoid [ fieldTy ]
 
     /// A `Property` row's signature: the `PROPERTY` calling convention over the value type,
     /// preceded by an indexed property's index parameters. `isInstance` sets `HASTHIS`, which

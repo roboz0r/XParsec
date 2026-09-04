@@ -65,19 +65,20 @@ module internal NominalShared =
 
     /// A record's fields paired with their names, in declaration order: the walk every
     /// structural body over the record takes. Each call mints a generic record's
-    /// `MemberRef` rows afresh; call once and share the result across bodies.
+    /// `MemberRef` rows afresh; call once and share the result across bodies. Each `Path`
+    /// reaches the backing field directly.
     let recordFieldRefs (asm: Assembler) (td: TastAccessor.TypeDecl) : (string * EmitStructural.StructuralField) list =
         [
-            for (name, h, fty) in asm.Records.[td.TypeKey].Fields ->
-                name,
+            for f in asm.Records.[td.TypeKey].Fields ->
+                f.Name,
                 {
                     Path =
                         [
-                            selfMemberRef asm td (UserMemberKind.RecordMember(RecordMember.Field name)) h
+                            selfMemberRef asm td (UserMemberKind.RecordMember(RecordMember.Field f.Name)) f.Field
                         ]
-                    Ty = fty
+                    Ty = f.Ty
                     Cast = ValueNone
-                    Compare = asm.FieldCompareOf fty
+                    Compare = asm.FieldCompareOf f.Ty
                 }
         ]
 

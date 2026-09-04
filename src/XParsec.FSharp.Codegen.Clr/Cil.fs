@@ -1,4 +1,4 @@
-namespace XParsec.FSharp.Codegen.Clr
+﻿namespace XParsec.FSharp.Codegen.Clr
 
 open System.Reflection.Metadata
 open System.Reflection.Metadata.Ecma335
@@ -80,6 +80,11 @@ module Cil =
 
     let emitLdsfld (il: Il) (field: EntityHandle) : unit =
         il.Encoder.OpCode(ILOpCode.Ldsfld)
+        il.Encoder.Token(field)
+        il.Adjust 1
+
+    let emitLdsflda (il: Il) (field: EntityHandle) : unit =
+        il.Encoder.OpCode(ILOpCode.Ldsflda)
         il.Encoder.Token(field)
         il.Adjust 1
 

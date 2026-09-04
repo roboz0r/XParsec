@@ -15,7 +15,8 @@ module EmitMember =
 
     /// Load an unboxed value-type object argument as its `this` pointer, so a mutating call
     /// persists rather than mutating a copy: a slot-bound local is addressed in place
-    /// (`ldloca slot`), a struct `this` already IS a byref (`ldarg.0`), anything else spills.
+    /// (`ldloca slot`), a struct `this` already IS a byref (`ldarg.0`), a module value is its
+    /// static field's address (`ldsflda`), anything else spills.
     let rec private loadStructThisPtr
         (recur: Recur)
         (env: EmitEnv)
@@ -26,17 +27,11 @@ module EmitMember =
         match objArg with
         | LocalSlot env slot -> b.Add(ILInstr.Ldloca slot)
         | TastAccessor.EVar k when env.SelfKey = ValueSome k -> b.Add(ILInstr.Ldarg 0)
-        // A struct-typed FIELD object argument (`this.Source.MoveNext()`) is addressed with
-        // `ldflda`; the parent recurses when it is itself a struct (`this.a.b.M()`). A struct
-        // from a PROPERTY falls through to the spill because a getter yields a copy with no
-        // location.
-        | TastAccessor.EFieldGet fieldGet ->
-            let parent = fieldGet.ObjArg
-            let name = fieldGet.FieldName
-            let parentNominal = nominalOfExpr parent
-            let fldHandle = resolveRecordField env parentNominal name
-
-            let parentTy = FrozenNominal.ty parentNominal
+        | TastAccessor.EVar k when env.ModuleValues.ContainsKey k -> b.Add(ILInstr.Ldsflda env.ModuleValues.[k])
+        // A struct-typed CLASS FIELD object argument (`this.Source.MoveNext()`) is addressed
+        // with `ldflda`; the parent recurses when it is itself a struct (`this.a.b.M()`).
+        | ClassFieldGet env (parent, fldHandle) ->
+            let parentTy = typeOfExpr parent
 
             if isValueType env parentTy then
                 loadStructThisPtr recur env b parent parentTy
@@ -44,11 +39,23 @@ module EmitMember =
                 recur env b parent
 
             b.Add(ILInstr.Ldflda fldHandle)
+        // A struct from a record field or a PROPERTY is a getter's copy with no location, so
+        // it is spilled and addressed there, as F# does.
         | _ ->
             recur env b objArg
             let tmp = b.Local objArgTy
             b.Add(ILInstr.Stloc tmp)
             b.Add(ILInstr.Ldloca tmp)
+
+    /// Push the object argument of one of its own type's instance methods: a value type by
+    /// address, so a mutating call lands on the original; a class by value.
+    let private pushObjArgAsThis (recur: Recur) (env: EmitEnv) (b: IlBuilder) (objArg: TastAccessor.ExprId) : unit =
+        let objArgTy = typeOfExpr objArg
+
+        if isValueType env objArgTy then
+            loadStructThisPtr recur env b objArg objArgTy
+        else
+            recur env b objArg
 
     /// Emit an instance member access: load the object argument, push args, invoke `handle`. A
     /// `Self` object argument is `callvirt`ed for a class, addressed + `call`ed for a struct;
@@ -152,10 +159,15 @@ module EmitMember =
         let view = TastAccessor.exprFieldGet e
         let objArg = view.ObjArg
         let name = view.FieldName
-        // `r.X` — load the object argument and `ldfld` the field.
-        let handle = resolveRecordField env (nominalOfExpr objArg) name
-        recur env b objArg
-        b.Add(ILInstr.Ldfld handle)
+        // `r.X` — `ldfld` a class field off the object argument; `call` a record field's
+        // getter, whose `this` is the address of a struct record.
+        match resolveRecordField env (nominalOfExpr objArg) name TAccessorRole.Getter with
+        | FieldAccess.Storage handle ->
+            recur env b objArg
+            b.Add(ILInstr.Ldfld handle)
+        | FieldAccess.Accessor getter ->
+            pushObjArgAsThis recur env b objArg
+            b.Add(ILInstr.Call(getter, 1, 1))
 
     let buildAssignment (recur: Recur) (pos: ExprPos) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         let view = TastAccessor.exprAssignment e
@@ -179,20 +191,17 @@ module EmitMember =
         let objArg = view.ObjArg
         let name = view.FieldName
         let value = view.Value
-        // `r.X <- v` on a `mutable` field. `stfld` consumes both pushes and leaves nothing,
-        // and a `FieldSet` is UNIT-TYPED, so a value-position consumer takes a reified `unit`.
-        let handle = resolveRecordField env (nominalOfExpr objArg) name
-        let objArgTy = typeOfExpr objArg
-
-        // A value-type object argument is addressed in place (`this` is already the byref),
-        // so the store lands on the original rather than a value copy.
-        if isValueType env objArgTy then
-            loadStructThisPtr recur env b objArg objArgTy
-        else
-            recur env b objArg
-
+        // `r.X <- v` on a `mutable` field: `stfld` a class field, `call` a record field's
+        // setter. Either consumes both pushes and leaves nothing, and a `FieldSet` is
+        // UNIT-TYPED, so a value-position consumer takes a reified `unit`.
+        let access = resolveRecordField env (nominalOfExpr objArg) name TAccessorRole.Setter
+        pushObjArgAsThis recur env b objArg
         recur env b value
-        b.Add(ILInstr.Stfld handle)
+
+        match access with
+        | FieldAccess.Storage handle -> b.Add(ILInstr.Stfld handle)
+        | FieldAccess.Accessor setter -> b.Add(ILInstr.Call(setter, 2, 0))
+
         ExprPos.reifyUnit env b pos
 
     let buildPropertyGet (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
