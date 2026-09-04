@@ -153,8 +153,9 @@ module internal EmitStructural =
             WalkExit.Joins
 
     /// Cast the `object` arg (`ldarg.1`) to `Self` and return its load, branching to
-    /// `failLabel` on a non-`Self` arg (`null` included). On a value type (`isVt`)
-    /// `isinst` yields a BOXED reference, `unbox.any`-ed into a value-typed local.
+    /// `failLabel` on a non-`Self` arg (`null` included). A value type (`isVt`) tests with
+    /// `isinst` and then `unbox.any`s the arg in place, with no local; a reference type
+    /// keeps the `isinst` result in a `Self` local.
     let private castObjArgOrBranch
         (isVt: bool)
         (selfType: EntityHandle)
@@ -162,26 +163,23 @@ module internal EmitStructural =
         (b: IlBuilder)
         (failLabel: int)
         : IlBuilder -> unit =
-        let other = b.Local selfTy
-
         if isVt then
-            let boxed = b.Local(RuntimeNames.objTy)
             b.Add(ILInstr.Ldarg 1)
             b.Add(ILInstr.Isinst selfType)
-            b.Add(ILInstr.Stloc boxed)
-            b.Add(ILInstr.Ldloc boxed)
             b.Add(ILInstr.Brfalse failLabel)
-            b.Add(ILInstr.Ldloc boxed)
-            b.Add(ILInstr.UnboxAny selfType)
-            b.Add(ILInstr.Stloc other)
+
+            fun b ->
+                b.Add(ILInstr.Ldarg 1)
+                b.Add(ILInstr.UnboxAny selfType)
         else
+            let other = b.Local selfTy
             b.Add(ILInstr.Ldarg 1)
             b.Add(ILInstr.Isinst selfType)
             b.Add(ILInstr.Stloc other)
             b.Add(ILInstr.Ldloc other)
             b.Add(ILInstr.Brfalse failLabel)
 
-        fun b -> b.Add(ILInstr.Ldloc other)
+            fun b -> b.Add(ILInstr.Ldloc other)
 
     /// How an `object`-typed override reaches its typed counterpart: `Direct` where that is
     /// a concrete method, `Virtual` where a hierarchy union's base declares it abstract and

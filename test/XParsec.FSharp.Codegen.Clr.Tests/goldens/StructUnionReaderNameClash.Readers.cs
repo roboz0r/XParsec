@@ -120,11 +120,9 @@ public readonly struct Readers : IEquatable<Readers>, IStructuralFormattable
 
 	public override bool Equals(object obj)
 	{
-		object obj2 = ((obj is Readers) ? obj : null);
-		if (obj2 != null)
+		if (obj is Readers)
 		{
-			Readers other = (Readers)obj2;
-			return Equals(other);
+			return Equals((Readers)obj);
 		}
 		return false;
 	}

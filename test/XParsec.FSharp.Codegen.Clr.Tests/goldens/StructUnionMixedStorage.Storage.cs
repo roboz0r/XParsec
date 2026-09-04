@@ -271,11 +271,9 @@ public readonly struct Storage : IEquatable<Storage>, IStructuralFormattable
 
 	public override bool Equals(object obj)
 	{
-		object obj2 = ((obj is Storage) ? obj : null);
-		if (obj2 != null)
+		if (obj is Storage)
 		{
-			Storage other = (Storage)obj2;
-			return Equals(other);
+			return Equals((Storage)obj);
 		}
 		return false;
 	}

@@ -110,11 +110,9 @@ public readonly struct Mixed : IEquatable<Mixed>, IStructuralFormattable
 
 	public override bool Equals(object obj)
 	{
-		object obj2 = ((obj is Mixed) ? obj : null);
-		if (obj2 != null)
+		if (obj is Mixed)
 		{
-			Mixed other = (Mixed)obj2;
-			return Equals(other);
+			return Equals((Mixed)obj);
 		}
 		return false;
 	}

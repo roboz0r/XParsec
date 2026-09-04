@@ -121,11 +121,9 @@ public readonly struct GShape<T> : IEquatable<GShape<T>>, IStructuralFormattable
 
 	public override bool Equals(object obj)
 	{
-		object obj2 = ((obj is GShape<T>) ? obj : null);
-		if (obj2 != null)
+		if (obj is GShape<T>)
 		{
-			GShape<T> other = (GShape<T>)obj2;
-			return Equals(other);
+			return Equals((GShape<T>)obj);
 		}
 		return false;
 	}

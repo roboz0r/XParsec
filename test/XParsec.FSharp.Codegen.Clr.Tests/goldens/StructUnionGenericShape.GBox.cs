@@ -111,11 +111,9 @@ public readonly struct GBox<T> : IEquatable<GBox<T>>, IStructuralFormattable
 
 	public override bool Equals(object obj)
 	{
-		object obj2 = ((obj is GBox<T>) ? obj : null);
-		if (obj2 != null)
+		if (obj is GBox<T>)
 		{
-			GBox<T> other = (GBox<T>)obj2;
-			return Equals(other);
+			return Equals((GBox<T>)obj);
 		}
 		return false;
 	}

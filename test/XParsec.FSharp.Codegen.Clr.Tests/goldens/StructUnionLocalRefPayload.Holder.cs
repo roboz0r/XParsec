@@ -144,11 +144,9 @@ public readonly struct Holder<T> : IEquatable<Holder<T>>, IStructuralFormattable
 
 	public override bool Equals(object obj)
 	{
-		object obj2 = ((obj is Holder<T>) ? obj : null);
-		if (obj2 != null)
+		if (obj is Holder<T>)
 		{
-			Holder<T> other = (Holder<T>)obj2;
-			return Equals(other);
+			return Equals((Holder<T>)obj);
 		}
 		return false;
 	}

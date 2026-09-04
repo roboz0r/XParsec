@@ -227,11 +227,9 @@ public readonly struct External : IEquatable<External>, IStructuralFormattable
 
 	public override bool Equals(object obj)
 	{
-		object obj2 = ((obj is External) ? obj : null);
-		if (obj2 != null)
+		if (obj is External)
 		{
-			External other = (External)obj2;
-			return Equals(other);
+			return Equals((External)obj);
 		}
 		return false;
 	}

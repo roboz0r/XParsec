@@ -149,11 +149,9 @@ public readonly struct Shape : IEquatable<Shape>, IStructuralFormattable
 
 	public override bool Equals(object obj)
 	{
-		object obj2 = ((obj is Shape) ? obj : null);
-		if (obj2 != null)
+		if (obj is Shape)
 		{
-			Shape other = (Shape)obj2;
-			return Equals(other);
+			return Equals((Shape)obj);
 		}
 		return false;
 	}

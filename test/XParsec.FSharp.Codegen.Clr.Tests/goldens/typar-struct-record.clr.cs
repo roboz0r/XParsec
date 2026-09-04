@@ -42,11 +42,9 @@ public readonly struct Point : IEquatable<Point>, IStructuralFormattable
 
 	public override bool Equals(object obj)
 	{
-		object obj2 = ((obj is Point) ? obj : null);
-		if (obj2 != null)
+		if (obj is Point)
 		{
-			Point other = (Point)obj2;
-			return Equals(other);
+			return Equals((Point)obj);
 		}
 		return false;
 	}

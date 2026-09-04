@@ -139,11 +139,9 @@ public readonly struct G<T> : IEquatable<G<T>>, IStructuralFormattable
 
 	public override bool Equals(object obj)
 	{
-		object obj2 = ((obj is G<T>) ? obj : null);
-		if (obj2 != null)
+		if (obj is G<T>)
 		{
-			G<T> other = (G<T>)obj2;
-			return Equals(other);
+			return Equals((G<T>)obj);
 		}
 		return false;
 	}

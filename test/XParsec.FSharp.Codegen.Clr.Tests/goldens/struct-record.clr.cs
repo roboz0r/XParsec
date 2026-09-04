@@ -53,11 +53,9 @@ public readonly struct P : IEquatable<P>, IStructuralFormattable
 
 	public override bool Equals(object obj)
 	{
-		object obj2 = ((obj is P) ? obj : null);
-		if (obj2 != null)
+		if (obj is P)
 		{
-			P other = (P)obj2;
-			return Equals(other);
+			return Equals((P)obj);
 		}
 		return false;
 	}
