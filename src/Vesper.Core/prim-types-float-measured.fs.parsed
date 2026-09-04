@@ -1,0 +1,30 @@
+namespace      'namespace'       KWNamespace         tok=   0  pos=   0
+               'Vesper'          Identifier          tok=   2  pos=  10
+  TypeDefn.Abbrev:
+    TypeName   'float'           Identifier          tok=  12  pos= 110
+    TyparDefns:
+      <        '<'               op_LessThan         tok=  13  pos= 115
+      [<       '[<'              KWLAttrBracket      tok=  14  pos= 116
+      NamedType:
+        Ident  'Measure'         Identifier          tok=  15  pos= 118
+      >]       '>]'              KWRAttrBracket      tok=  16  pos= 125
+      Typar.Named:
+               ''Measure'        TypeParameter       tok=  18  pos= 128
+      >        '>'               op_GreaterThan      tok=  19  pos= 136
+    =          '='               OpEquality          tok=  21  pos= 138
+      NamedType:
+        Ident  'float'           Identifier          tok=  23  pos= 140
+  TypeDefn.Abbrev:
+    TypeName   'float32'         Identifier          tok=  30  pos= 185
+    TyparDefns:
+      <        '<'               op_LessThan         tok=  31  pos= 192
+      [<       '[<'              KWLAttrBracket      tok=  32  pos= 193
+      NamedType:
+        Ident  'Measure'         Identifier          tok=  33  pos= 195
+      >]       '>]'              KWRAttrBracket      tok=  34  pos= 202
+      Typar.Named:
+               ''Measure'        TypeParameter       tok=  36  pos= 205
+      >        '>'               op_GreaterThan      tok=  37  pos= 213
+    =          '='               OpEquality          tok=  39  pos= 215
+      NamedType:
+        Ident  'float32'         Identifier          tok=  41  pos= 217

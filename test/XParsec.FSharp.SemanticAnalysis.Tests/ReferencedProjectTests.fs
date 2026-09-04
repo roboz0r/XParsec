@@ -1192,6 +1192,10 @@ let tests =
                                             "prim-types-decimal.fsi"
                                             "prim-types-nativeint.fsi"
                                             "prim-types-nd-array.fsi"
+                                            "prim-types-decimal-measured.fsi"
+                                            "prim-types-decimal-measured.fs"
+                                            "prim-types-nativeint-measured.fsi"
+                                            "prim-types-nativeint-measured.fs"
                                             "fun-adapters.fsi"
                                             "fun-adapters.fs"
                                         ]

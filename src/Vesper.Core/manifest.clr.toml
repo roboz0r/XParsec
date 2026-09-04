@@ -34,6 +34,16 @@ files = [
     "prim-types-attr.clr.fs",
     "compiler-attributes.fsi",
     "compiler-attributes.fs",
+    # After `compiler-attributes`, which declares the `[<Measure>]` these write on a type
+    # parameter. Each claims a numeric primitive a second time, at arity 1.
+    "prim-types-int-measured.fsi",
+    "prim-types-int-measured.fs",
+    "prim-types-float-measured.fsi",
+    "prim-types-float-measured.fs",
+    "prim-types-decimal-measured.fsi",
+    "prim-types-decimal-measured.fs",
+    "prim-types-nativeint-measured.fsi",
+    "prim-types-nativeint-measured.fs",
     "compiler-markers.fsi",
     "compiler-markers.fs",
     "core-types.fsi",

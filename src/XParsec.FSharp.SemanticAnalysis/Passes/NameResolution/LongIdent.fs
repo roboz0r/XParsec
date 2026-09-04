@@ -197,19 +197,33 @@ module NameResolutionLongIdent =
                 for uc in (ctx.Resolver.Scope.UnionCasesNamed(c, name)).Underlying -> ResolvedUnionCase.External uc
             |]
 
+    /// Every claim on the type `name` declared directly in `c`, ASCENDING by arity. Resolution
+    /// is per ARITY: at an arity this file claims, this file's claim wins; at an arity it
+    /// leaves unclaimed, the referenced surfaces' claim stands.
     let private typesIn
         (ctx: PassContext)
         (useSite: UseSite)
         (c: ModuleContainer)
         (name: string)
         : ResolvedTypeRef list =
+        let external () =
+            (ctx.Resolver.Scope.TypesNamed(c, name)).Underlying
+
         match LocalScope.typesNamed ctx useSite c name with
-        | [] ->
+        | [] -> [ for struct (key, shape) in external () -> externalType ctx key shape ]
+        | claims ->
+            let claimedLocally = set [ for claim in claims -> claim.TyparArity ]
+
             [
-                for struct (key, shape) in (ctx.Resolver.Scope.TypesNamed(c, name)).Underlying ->
-                    externalType ctx key shape
+                for claim in claims do
+                    yield claim.TyparArity, localType ctx claim
+
+                for struct (key, shape) in external () do
+                    if not (claimedLocally.Contains key.TyparArity) then
+                        yield key.TyparArity, externalType ctx key shape
             ]
-        | claims -> List.map (localType ctx) claims
+            |> List.sortBy fst
+            |> List.map snd
 
     /// A union-case claim beside its declaring union's `[<RequireQualifiedAccess>]`.
     [<Struct; NoEquality; NoComparison>]
@@ -642,27 +656,26 @@ module NameResolutionLongIdent =
             | ValueNone -> unresolvedInEnv first 1
         | n -> firstOf (qualifiedReadings ctx useSite Position.Pattern names) (unresolvedInEnv first n)
 
-    /// A written type name at `arity`: a claim of this file in scope at the use site, at that
-    /// arity else at the nearest one, then the referenced contracts at exactly that arity. A
-    /// claim of this file at ANY arity settles the name: `LocalAtOtherArity` is that name, at
-    /// the wrong arity, and never an external namesake.
+    /// A written type name at `arity`: this file's claim at exactly that arity, then the
+    /// referenced contracts' at that arity, then this file's nearest arity as `LocalAtOtherArity`.
+    /// `int` inside `type int<[<Measure>] 'M> = int` reaches the contract's arity-0 claim.
     let resolveType (ctx: PassContext) (useSite: UseSite) (written: WrittenTypeName) (arity: int) : TypeNameResolution =
         match TypeRegistry.tryWrittenTypeClaim ctx.Types useSite written arity with
         | ValueSome claim -> TypeNameResolution.Type(ResolvedTypeRef.Local claim)
         | ValueNone ->
-            match TypeRegistry.tryWrittenTypeClaimNearestArity ctx.Types useSite written arity with
-            | ValueSome claim -> TypeNameResolution.LocalAtOtherArity claim
+            match
+                tryPickExternalWritten
+                    ctx
+                    useSite
+                    (WrittenArity.Exact arity)
+                    (fun key shape -> ValueSome(ResolvedTypeRef.External(key, shape)))
+                    (Qualifier.ofPath written.Path)
+                    written.Name
+            with
+            | ValueSome t -> TypeNameResolution.Type t
             | ValueNone ->
-                match
-                    tryPickExternalWritten
-                        ctx
-                        useSite
-                        (WrittenArity.Exact arity)
-                        (fun key shape -> ValueSome(ResolvedTypeRef.External(key, shape)))
-                        (Qualifier.ofPath written.Path)
-                        written.Name
-                with
-                | ValueSome t -> TypeNameResolution.Type t
+                match TypeRegistry.tryWrittenTypeClaimNearestArity ctx.Types useSite written arity with
+                | ValueSome claim -> TypeNameResolution.LocalAtOtherArity claim
                 | ValueNone ->
                     TypeNameResolution.Unresolved
                         {

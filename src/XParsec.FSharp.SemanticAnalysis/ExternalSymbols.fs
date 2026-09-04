@@ -188,8 +188,10 @@ module ScopeContents =
     let private caseIdentity (uc: ExternalUnionCase) = struct (uc.UnionKey, uc.Case.Name)
 
     /// The nearest-first composition: a container or value is the first source's that
-    /// declares it, and a type name is the first source's non-empty arity set. Union cases and
-    /// module declarations are the UNION across sources: a case name recurs across packages,
+    /// declares it, and a type name is the UNION of the sources' arity sets, the nearest
+    /// source winning each arity it declares: `float` at arity 0 and `float<'Measure>` at
+    /// arity 1 survive together out of different sources. Union cases and module
+    /// declarations are the UNION across sources: a case name recurs across packages,
     /// and the caller decides between the claims; a module PATH is declared by as many
     /// assemblies as write it, and `open` reaches every declaration. A case reached through
     /// two sources appears once.
@@ -226,14 +228,26 @@ module ScopeContents =
                         ]
 
                 member _.TypesNamed(c, name) =
-                    let mutable result = EqArray.empty
-                    let mutable i = 0
+                    let hits =
+                        [
+                            for s in sources do
+                                match s.TypesNamed(c, name) with
+                                | found when found.Length > 0 -> found
+                                | _ -> ()
+                        ]
 
-                    while result.Length = 0 && i < sources.Length do
-                        result <- sources.[i].TypesNamed(c, name)
-                        i <- i + 1
+                    match hits with
+                    | [] -> EqArray.empty
+                    | [ single ] -> single
+                    | _ ->
+                        let byArity = SortedDictionary<int, struct (TypeKey * ExternalTypeShape)>()
 
-                    result
+                        for found in hits do
+                            for struct (key, shape) in found.Underlying do
+                                if not (byArity.ContainsKey key.TyparArity) then
+                                    byArity.Add(key.TyparArity, struct (key, shape))
+
+                        EqArray.ofSeq byArity.Values
 
                 member _.DeclarationsOf m =
                     EqArray.ofSeq

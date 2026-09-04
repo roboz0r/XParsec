@@ -1,0 +1,18 @@
+namespace        'namespace'       KWNamespace         tok=   0  pos=   0
+                 'Vesper'          Identifier          tok=   2  pos=  10
+  Type:
+    type         'type'            KWType              tok=  24  pos= 513
+    TypeSig.Abbrev:
+      TypeName   'decimal'         Identifier          tok=  26  pos= 518
+      TyparDefns:
+        <        '<'               op_LessThan         tok=  27  pos= 525
+        [<       '[<'              KWLAttrBracket      tok=  28  pos= 526
+        NamedType:
+          Ident  'Measure'         Identifier          tok=  29  pos= 528
+        >]       '>]'              KWRAttrBracket      tok=  30  pos= 535
+        Typar.Named:
+                 ''Measure'        TypeParameter       tok=  32  pos= 538
+        >        '>'               op_GreaterThan      tok=  33  pos= 546
+      =          '='               OpEquality          tok=  35  pos= 548
+        NamedType:
+          Ident  'decimal'         Identifier          tok=  37  pos= 550

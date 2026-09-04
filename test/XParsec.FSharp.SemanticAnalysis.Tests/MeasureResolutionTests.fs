@@ -19,21 +19,51 @@ let private asm: CompilingAssembly =
         Target = "none"
     }
 
+let private analyseUnits (units: SourceUnit list) : AnalysedAssembly =
+    AnalysedAssembly.analyse
+        Pipeline.analyseFileFor
+        realProvider.Value
+        {
+            Assembly = asm
+            Units = List.map (AssemblyUnit.parse Set.empty) units
+        }
+
 /// The errors every unit of an assembly run surfaces, `.fsi` match findings included.
 let private assemblyErrors (units: SourceUnit list) : string list =
-    let analysed =
-        AnalysedAssembly.analyse
-            Pipeline.analyseFileFor
-            realProvider.Value
-            {
-                Assembly = asm
-                Units = List.map (AssemblyUnit.parse Set.empty) units
-            }
-
-    analysed.Units
+    (analyseUnits units).Units
     |> List.collect UnitOutcome.surfaced
     |> List.map (fun d -> d.Diagnostic)
     |> errorMessages
+
+/// The name and generic arity of the keyed type frozen for the single `let` in the last unit.
+let private lastLetTypeClaim (units: SourceUnit list) : string * int =
+    match List.last (analyseUnits units).Units with
+    | UnitOutcome.Failed _ -> failtest "the last unit did not analyse"
+    | UnitOutcome.Analysed u ->
+        let lets =
+            [
+                for d in (TastUnpool.ofPools u.File.Frozen).Decls do
+                    match d with
+                    | TDeclG.Let(ty = ty) -> ty
+                    | _ -> ()
+            ]
+
+        match lets with
+        | [ FTKeyed(key, _) ] -> key.Name, key.TyparArity
+        | [ other ] -> failtestf "expected the let to freeze to a keyed type, got %A" other
+        | other -> failtestf "expected a single let, got %A" other
+
+/// The referenced contracts' claims on `Vesper.<name>`, as (arity, typar kinds) ascending by arity.
+let private vesperTypeClaims (name: string) : (int * TyparKind list) list =
+    let scope = realProvider.Value.Scope
+
+    match scope.TryContainer "Vesper" with
+    | ValueNone -> failtest "the `Vesper` namespace is not published"
+    | ValueSome container ->
+        [
+            for struct (key, shape) in (scope.TypesNamed(container, name)).Underlying ->
+                key.TyparArity, EqArray.toList shape.TyparKinds
+        ]
 
 // A measured numeric type is not a special form. FSharp.Core claims each numeric primitive
 // at arity 0 and again at arity 1 with a MEASURE-kinded parameter, so `float<m>` is the
@@ -109,6 +139,21 @@ let tests =
                             [ TyparKind.Measure ]
                             "an opaque type carries its declared kinds"
                     }
+                ]
+
+            testList
+                "Vesper.Core claims each numeric carrier at two arities"
+                [
+                    // The arity-0 contract and `prim-types-*-measured` are different UNITS of
+                    // Vesper.Core, so a name's arities must survive the composition of the
+                    // units' published views.
+                    for key in RuntimeNames.numericKeys do
+                        test $"`{key.Name}` is claimed at arity 0 and at arity 1 over a measure" {
+                            Expect.equal
+                                (vesperTypeClaims key.Name)
+                                [ 0, []; 1, [ TyparKind.Measure ] ]
+                                "the measured claim sits beside the bare one"
+                        }
                 ]
 
             testList
@@ -365,6 +410,41 @@ module N =
                                 ]
 
                         Expect.isEmpty es (sprintf "expected no errors; diagnostics were %A" es)
+                    }
+
+                    // The dotted-name counterpart of `resolveType`'s per-arity rule, which is what
+                    // lets `prim-types-int-measured` sit in the namespace of the carrier it
+                    // re-claims. Both readings are error-free, so the frozen type separates them.
+                    test "a dotted name reaches the arity another unit claims, not this file's" {
+                        let producer =
+                            "\
+namespace Test.A
+
+type Tag =
+    | Item of int
+"
+
+                        let consumer =
+                            "\
+namespace Test.A
+
+type Tag<'a> =
+    | Item of 'a
+
+module N =
+    let x = Test.A.Tag.Item 1
+"
+
+                        let units =
+                            [
+                                SourceUnit.ofImplementation (SourceFile.ofText "file1.fs" producer)
+                                SourceUnit.ofImplementation (SourceFile.ofText "file2.fs" consumer)
+                            ]
+
+                        let es = assemblyErrors units
+                        Expect.isEmpty es (sprintf "expected no errors; diagnostics were %A" es)
+
+                        Expect.equal (lastLetTypeClaim units) ("Tag", 0) "`Item` is the arity-0 `Tag`'s case"
                     }
                 ]
         ]

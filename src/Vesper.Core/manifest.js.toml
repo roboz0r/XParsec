@@ -41,6 +41,13 @@ files = [
     "prim-types-attr.js.fs",
     "compiler-attributes.fsi",
     "compiler-attributes.fs",
+    # After `compiler-attributes`, which declares the `[<Measure>]` these write on a type
+    # parameter. Each claims a numeric primitive a second time, at arity 1. decimal and
+    # nativeint are absent for the same reason their arity-0 contracts are.
+    "prim-types-int-measured.fsi",
+    "prim-types-int-measured.fs",
+    "prim-types-float-measured.fsi",
+    "prim-types-float-measured.fs",
     "compiler-markers.fsi",
     "compiler-markers.fs",
     "core-types.fsi",

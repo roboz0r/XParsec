@@ -224,10 +224,47 @@ Three findings against the step as written:
 `TyparKinds.typeOnly` remains for the surfaces with no `[<Measure>]` to read: a CLR metadata
 row, a TypeScript declaration, an intrinsic `(# … #)` binding's structural typars.
 
-**Step 3 — the arity-1 primitives in `Vesper.Core`.** `prim-types-float.fs`/`.fsi` and the
-integer and decimal files, one `type T<[<Measure>] 'Measure> = T` per numeric key, on both
-targets. No compiler change. Reddens nothing on its own, because the spelling gate still
-intercepts `float<m>` ahead of resolution.
+**Step 3 — the arity-1 primitives in `Vesper.Core`. LANDED.** One
+`type T<[<Measure>] 'Measure> = T` per numeric key, verbatim from `FSharp.Core/prim-types`
+with its line references, across four `.fsi`/`.fs` pairs named for the arity-0 file each
+mirrors: `prim-types-int-measured`, `prim-types-float-measured` on both targets,
+`prim-types-decimal-measured` and `prim-types-nativeint-measured` on CLR alone, as their
+arity-0 contracts already are. FSharp.Core's `[<MeasureAnnotatedAbbreviation>]` has no Vesper
+counterpart; the parameter's kind carries that fact. The four aliases FSharp.Core also
+declares measured (`double`, `single`, `int8`, `uint8`, `int32`, `uint32<'M> = uint<'M>`) are
+measure-GENERIC abbreviations, which this plan excludes, so the port carries the thirteen
+canonical keys alone.
+
+Two facts the step as written did not anticipate, each a front-end gap it surfaced:
+
+- **The measured claims cannot sit in the file that declares the arity-0 carrier.**
+  `[<Measure>]` on a typar is resolved through `ctx.ResolveAttributes`, so
+  `MeasureAttribute` must precede the use; `compiler-attributes` comes after every
+  `prim-types-*` file, because the attribute classes need `int`, `string` and `Attribute`.
+  Hence the separate files, listed immediately after `compiler-attributes.fs`.
+- **THREE compiler changes were needed after all**, each making name resolution per-ARITY
+  where it was per-NAME:
+  - `ScopeContents.composite.TypesNamed` (`ExternalSymbols.fs:229`) took the first source's
+    non-empty arity set. Each unit of the compiling assembly is its own source, so
+    `prim-types-int-measured` shadowed `int` outright for every later file of Vesper.Core and
+    `IntrinsicSet` failed with "intrinsic 'int' is not resolvable". It now unions the sources'
+    arity sets, the nearest source winning each arity it declares, which is F#'s name env
+    keyed by demangled name AND arity.
+  - `resolveType` (`LongIdent.fs:645`) settled a name on a LOCAL claim at any arity before
+    consulting the contracts, so the RHS of `type int<[<Measure>] 'M> = int` read as the
+    arity-1 claim being declared: FS0033 plus "involves an immediate cyclic reference", on
+    every one of the thirteen. The external exact-arity leg now runs before the
+    nearest-arity local fallback, leaving `LocalAtOtherArity` — and `MyFloat<m>`'s FS0033 —
+    for a name no contract claims at the written arity.
+  - `typesIn` (`LongIdent.fs:200`), the DOTTED-name counterpart of `resolveType`, returned
+    this file's claims alone whenever it held any, at whatever arity, and in registry order
+    while its consumer takes the head expecting the narrowest. `Test.A.Tag.Item` in a unit
+    claiming `Tag<'a>` therefore reached the arity-1 case rather than the arity-0 one an
+    earlier unit published. It now merges the two sides per arity, ascending.
+
+Reddened nothing else. Thirteen `MeasureResolutionTests` cases pin both claims of each
+numeric key, at arity 0 and at arity 1 over a measure parameter, read from the real
+Vesper.Core contract.
 
 **Step 4 — measure claims.** `TypeDeclKind.Measure`; registration of the two `[<Measure>]`
 declaration shapes (the body-less form is `TypeDefn.AbstractType`; confirm that
@@ -268,10 +305,11 @@ away, so the record printout in the GAP 1 row is gone.
 Steps 1, 5, 6 and 7 are SemanticAnalysis-only. Step 4 adds two diagnostic kinds and one
 `TypeDeclKind` case, each with a codec entry. Step 2 is the one that changes what a referenced
 assembly publishes, so its blob and contract versions bump together and every stored
-`Vesper.*` package rebuilds. Step 3 is runtime-port-only and is the step most likely to
-surface a front-end gap, because the `[<Measure>]` attribute on a typar in a `.fsi` has never
-been through `SignatureResolution`, and a name claimed at two arities has never crossed the
-signature/implementation match.
+`Vesper.*` package rebuilds. Step 3 was expected to be runtime-port-only, and was the step
+most likely to surface a front-end gap: the `[<Measure>]` attribute on a typar in a `.fsi` had
+never been through `SignatureResolution`, and a name claimed at two arities had never crossed
+the signature/implementation match. The attribute went through clean; the two arities did not,
+and the two per-arity resolution fixes are recorded under the step.
 
 Neither backend reads a measure today, and after step 6 neither should: a measured `TyVar`
 freezes to its carrier.
@@ -301,6 +339,8 @@ Before this document is deleted, each row is in code or in a test:
 - [ ] Every table row above is a test in `MeasureResolutionTests.fs`, green, or `ptest` with the reason quoted in its name (`string<m>` is the one row allowed to stay `ptest`).
 - [ ] The full-pipeline measured `let` freezes to its carrier (GAP 5), green.
 - [ ] `ResolvedTypes.addFreeRoots` and `UnificationEngineCore.resolveStep` agree on whether a measure-bearing root is resolved, so the `UnresolvedTyVars` backstop covers a measured root.
+- [x] Every key in `RuntimeNames.numericKeys` is claimed by `Vesper.Core` at arity 1 with a measure-kinded parameter, beside its arity-0 claim.
+- [x] A written name resolves per ARITY on both routes: `resolveType` for a type-position spelling, `typesIn` for a dotted one.
 - [x] `TyparKind` is on the typar model, on every generic `ExternalTypeShape` case, and in the contract. A shape published from a source `TypeName` reads its kinds from that name; only a surface with no `[<Measure>]` to read (CLR metadata, TypeScript, an intrinsic binding) uses `TyparKinds.typeOnly`.
 - [ ] `MeasureTerm` carries `TypeKey` and `Kind.MeasureMismatch` carries two keys; no `string` measure name survives past the parser.
 - [ ] `1.0<m>` and `float<m/s>` both stamp `m` through the classifying walk; `translateMeasure` reads only the stamp.
