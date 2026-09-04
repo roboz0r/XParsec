@@ -1419,12 +1419,16 @@ module TypeDefn =
             let! asDefn = opt AsDefn.parse
 
             // 2. Check for TypeExtension ('with' without '=') vs regular definition ('=')
-            let! next2 = peekNextSyntaxToken
+            // The peek fails at end of input and on an offside token, which is how a
+            // block-closing dedent presents. Either way neither `with` nor `=` follows, so a
+            // body-less `type m` ENDING a module body is the abstract form like any other.
+            let! next2 = opt peekNextSyntaxToken
+            let nextTok = next2 |> ValueOption.map (fun t -> t.Token)
 
-            if next2.Token = Token.KWWith && primaryConstr.IsNone then
+            if nextTok = ValueSome Token.KWWith && primaryConstr.IsNone then
                 let! elements = TypeExtensionElements.parse
                 return TypeDefn.TypeExtension(typeName, elements)
-            elif next2.Token <> Token.OpEquality then
+            elif nextTok <> ValueSome Token.OpEquality then
                 // No '=' — abstract/opaque type (e.g., [<Measure>] type token)
                 return TypeDefn.AbstractType(typeName)
             else
