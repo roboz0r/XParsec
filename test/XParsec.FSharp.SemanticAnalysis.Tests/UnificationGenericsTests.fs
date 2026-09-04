@@ -307,6 +307,32 @@ let tests =
                 Expect.isEmpty (errors ctx) "no errors — `int T` is the modelled postfix form"
             }
 
+            // `translateType` is total over the CST's type shapes, and the ones with no model
+            // report instead of yielding a free TyVar. A free TyVar drops the annotation
+            // silently: `x + 1` below infers `x : int` and the program runs.
+            let unmodelledShape (label: string) (src: string) (feature: string) =
+                test (sprintf "%s reports the shape as unsupported" label) {
+                    let ctx = analyse src
+
+                    Expect.isTrue
+                        (ctx.Diagnostics
+                         |> Seq.exists (fun d ->
+                             match d.Kind with
+                             | Kind.NotYetSupported f -> f.Contains feature
+                             | _ -> false
+                         ))
+                        (sprintf
+                            "expected a NotYetSupported diagnostic naming '%s', got: %A"
+                            feature
+                            (ctx.Diagnostics |> Seq.map (fun d -> d.Message) |> List.ofSeq))
+                }
+
+            unmodelledShape "a struct tuple annotation" "let f (x: struct (int * int)) = x + 1" "struct tuple"
+
+            unmodelledShape "an anonymous record annotation" "let f (x: {| a: int |}) = x" "anonymous record"
+
+            unmodelledShape "a flexible type annotation" "let f (x: #System.IDisposable) = x" "flexible type"
+
             test "implicit free typar in abbreviation diagnoses" {
                 let ctx = analyse "type Bad = 'a"
 

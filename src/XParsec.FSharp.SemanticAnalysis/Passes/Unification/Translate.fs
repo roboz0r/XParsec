@@ -347,9 +347,25 @@ module internal UnificationTranslate =
             // for `a | b | c`. `mkUnion` flattens and dedups, collapses a singleton to its
             // one member, and leaves a set that compares equal in any member order.
             mkUnion [ translateType ctx l; translateType ctx r ]
-        | _ ->
-            // Shapes with no model, such as an anonymous record. A free TyVar lets
-            // unification pin it from context.
+        | Type.StructTupleType(structToken = tok) -> errorTy ctx tok (Kind.NotYetSupported "a struct tuple type")
+        | Type.AnonRecordType(lBraceBar = tok) -> errorTy ctx tok (Kind.NotYetSupported "an anonymous record type")
+        | Type.DottedType(dot = tok) -> errorTy ctx tok (Kind.NotYetSupported "a dotted type application")
+        | Type.AnonymousSubtype(hash = tok) -> errorTy ctx tok (Kind.NotYetSupported "a flexible type '#T'")
+        | Type.SubtypeConstraint(colonGreaterThan = tok) ->
+            errorTy ctx tok (Kind.NotYetSupported "a subtype constraint written as a type")
+        | Type.ILIntrinsic(lHashParen = tok) ->
+            // `(# "…" #)` is a type abbreviation's RHS, recognised by `TypeRegistration` and
+            // `IntrinsicBindings` before translation. Reaching here means it was written in an
+            // ordinary type position.
+            errorTy ctx tok (Kind.NotYetSupported "an inline-IL type outside a type abbreviation")
+        | Type.MeasureType _ ->
+            // A measure reaches a type through `float<kg>`, which arrives as `TypeArg.Measure`
+            // under `GenericType`. A bare `MeasureType` carries no token to report at.
+            TyVar(ctx.FreshTyVar())
+        | Type.Missing
+        | Type.SkipsTokens _ ->
+            // Parse-error recovery. The parse reported at this span already, so inference
+            // continues on a fresh TyVar rather than reporting a second time.
             TyVar(ctx.FreshTyVar())
 
     /// The `SemType` of the project-local type `claim` identifies, applied to `args`. A nominal is
