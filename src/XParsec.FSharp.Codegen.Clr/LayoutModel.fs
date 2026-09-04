@@ -8,6 +8,24 @@ open XParsec.FSharp.SemanticAnalysis
 
 // Every ranged-table row enumerated as data; handle = position in the layout.
 
+/// How a method's `Param` rows are named.
+[<AutoOpen>]
+module internal ParamNaming =
+
+    /// The positional `Param` name of slot `i`.
+    let argName (i: int) : string = sprintf "arg%d" i
+
+    /// The `Param` names of the bound variables at successive slots: the source identifier
+    /// verbatim, or `argName i` for a minted bound variable.
+    let paramNames (pool: PoolBuilder) (keys: BoundVarId seq) : string list =
+        keys
+        |> Seq.mapi (fun i k ->
+            match TastPoolBuilder.boundVarNaming pool k with
+            | BoundVarNaming.Source n -> n
+            | BoundVarNaming.Minted _ -> argName i
+        )
+        |> List.ofSeq
+
 /// How an abstract member's curried signature maps onto metadata parameters.
 [<AutoOpen>]
 module internal AbstractMemberShape =
@@ -25,18 +43,29 @@ module internal AbstractMemberShape =
         | FTUnit -> true
         | _ -> false
 
-    /// An abstract member's metadata parameter types: `abstract M : unit -> X` is a
-    /// *no-arg* method, so a sole leading `unit` argument is dropped.
-    let abstractMethodParamTys (m: Frozen.TAbstractMethod) : FrozenType list =
+    /// An abstract member's metadata parameters, in emitted slot order. A sole `unit`
+    /// argument yields no slots; a sole tupled domain (`abstract Invoke : 'A * 'B -> 'C`)
+    /// yields one slot per element. An unnamed slot takes `argName i`.
+    let abstractMethodParams (m: Frozen.TAbstractMethod) : (string * FrozenType) list =
         let paramTys, _ = uncurry m.Signature
+
+        let named (names: EqArray<string voption>) (i: int) (ty: FrozenType) =
+            match EqArray.tryItem i names with
+            | ValueSome(ValueSome n) -> n, ty
+            | ValueSome ValueNone
+            | ValueNone -> argName i, ty
 
         match paramTys with
         | [ single ] when isUnitTy single -> []
-        // `abstract Invoke : 'A * 'B -> 'C` has one tupled domain but emits as 2 params,
-        // as its conforming `member _.Invoke(a, b)` does; flatten so the runtime can bind
-        // the impl to the slot.
-        | [ FTTuple elems ] when elems.Length >= 2 -> EqArray.toList elems
-        | _ -> paramTys
+        | [ FTTuple elems ] when elems.Length >= 2 ->
+            let names =
+                if m.ParamNames.Length = elems.Length then
+                    m.ParamNames
+                else
+                    EqArray.empty
+
+            elems |> EqArray.mapi (named names) |> EqArray.toList
+        | _ -> paramTys |> List.mapi (named m.ParamNames)
 
 [<AutoOpen>]
 module internal MethodAttrSets =
@@ -727,6 +756,8 @@ type internal FileLayout =
         /// NODE, the id together with the pool that issued it, so an id from another
         /// file's pool misses instead of silently denoting a different node.
         FunVerdicts: IReadOnlyDictionary<TastAccessor.ExprId, FunVerdict>
+        /// The pool that issued the ids in `Lowered`, `Closures` and the nominal member bodies.
+        Pool: PoolBuilder
         /// Whether this file carries the entry point (`Main`): TRUE on the single entry
         /// file (an executable's last), FALSE on every other.
         EmitEntryPoint: bool

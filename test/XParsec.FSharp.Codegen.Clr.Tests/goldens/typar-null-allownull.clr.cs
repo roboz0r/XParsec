@@ -29,14 +29,14 @@ public class Node
 }
 public static class Program
 {
-	public static T0 onlyNull<T0>(T0 arg0)
+	public static T0 onlyNull<T0>(T0 x)
 	{
-		return arg0;
+		return x;
 	}
 
-	public static Node f(Node arg0)
+	public static Node f(Node n)
 	{
-		return onlyNull(arg0);
+		return onlyNull(n);
 	}
 
 	public static int Main(string[] args)

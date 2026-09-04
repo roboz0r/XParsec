@@ -57,10 +57,16 @@ type TypeMemberInfo
         ty: SemType,
         declSite: NodeSite,
         seedTypars: EqArray<DeclaredTypar>,
-        declaredTyparCount: int
+        declaredTyparCount: int,
+        argNames: EqArray<string voption>
     ) =
     member val Name = name
     member val Kind = kind
+
+    /// An abstract slot's argument names as the signature spells them, one per source
+    /// argument in source order, `ValueNone` for a bare type. Empty for a concrete member,
+    /// whose parameters carry their names on their bound variables.
+    member _.ArgNames: EqArray<string voption> = argNames
 
     /// `Kind` as resolution reads it.
     member val ClassKind = ClassMemberKind.ofMemberKind kind

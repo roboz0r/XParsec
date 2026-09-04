@@ -57,17 +57,17 @@ public readonly struct GBox<T> : IEquatable<GBox<T>>, IStructuralFormattable
 		this._payload = _payload;
 	}
 
-	public static GBox<T> Val(T arg0)
+	public static GBox<T> Val(T _v)
 	{
 		Payload payload = default(Payload);
-		payload._val0 = arg0;
+		payload._val0 = _v;
 		return new GBox<T>(0, payload);
 	}
 
-	public static GBox<T> Num(int arg0)
+	public static GBox<T> Num(int _n)
 	{
 		Payload payload = default(Payload);
-		payload._data.Num._n = arg0;
+		payload._data.Num._n = _n;
 		return new GBox<T>(1, payload);
 	}
 

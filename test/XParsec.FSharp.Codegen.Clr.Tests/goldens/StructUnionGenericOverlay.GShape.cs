@@ -59,18 +59,18 @@ public readonly struct GShape<T> : IEquatable<GShape<T>>, IStructuralFormattable
 		this._payload = _payload;
 	}
 
-	public static GShape<T> Val(T arg0)
+	public static GShape<T> Val(T _v)
 	{
 		Payload payload = default(Payload);
-		payload._val0 = arg0;
+		payload._val0 = _v;
 		return new GShape<T>(0, payload);
 	}
 
-	public static GShape<T> Pt(int arg0, int arg1)
+	public static GShape<T> Pt(int _x, int _y)
 	{
 		Payload payload = default(Payload);
-		payload._data.Pt._x = arg0;
-		payload._data.Pt._y = arg1;
+		payload._data.Pt._x = _x;
+		payload._data.Pt._y = _y;
 		return new GShape<T>(1, payload);
 	}
 

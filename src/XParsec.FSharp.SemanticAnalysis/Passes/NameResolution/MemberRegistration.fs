@@ -213,12 +213,13 @@ module NameResolutionMemberRegistration =
             (mSite: NodeSite)
             (seed: EqArray<DeclaredTypar>)
             declaredCount
+            (argNames: EqArray<string voption>)
             : TypeMemberInfo =
             let tv = ctx.NewTypeVar()
             ctx.Store.SetLevel(UnionFind.find ctx.Store tv, 0)
 
             let cmi =
-                TypeMemberInfo(mName, kind, isStatic, TyVar tv, mSite, seed, declaredCount)
+                TypeMemberInfo(mName, kind, isStatic, TyVar tv, mSite, seed, declaredCount, argNames)
 
             cmi.IsOverride <- isOverride
             memberInfos.Add cmi
@@ -241,7 +242,7 @@ module NameResolutionMemberRegistration =
             // "declared-first"; the implicit ones order by appearance per the F# rule.
             let seed = mkMethodTypars ctx.Store (explicit @ implicit)
 
-            addMember mName kind isStatic isOverride mSite seed (List.length explicit)
+            addMember mName kind isStatic isOverride mSite seed (List.length explicit) EqArray.empty
             |> ignore
 
         let registerNamed (b: Binding<SyntaxToken>) kind isStatic isOverride =
@@ -258,18 +259,39 @@ module NameResolutionMemberRegistration =
                 (NodeSite.ofToken NodeKind.PatIdent id)
                 EqArray.empty
                 0
+                EqArray.empty
             |> ignore
 
-        let registerAbstractSlot (mName: string) (mTok: SyntaxToken) tds isStatic kind =
+        // One entry per source argument, across every curried group in source order.
+        let sigArgNames (sigArgs: ImmutableArray<struct (ArgsSpec<SyntaxToken> * SyntaxToken)>) =
+            EqArray.ofSeq (
+                seq {
+                    for struct (ArgsSpec(args = args), _) in sigArgs do
+                        for ArgSpec(name = name) in args do
+                            match name with
+                            | ValueSome(ArgNameSpec(ident = id)) -> ValueSome(ctx.NameOf id)
+                            | ValueNone -> ValueNone
+                }
+            )
+
+        let registerAbstractSlot (mName: string) (mTok: SyntaxToken) tds isStatic kind argNames =
             let explicit = memberTyparNames ctx tds
             let seed = mkMethodTypars ctx.Store explicit
             // An `abstract` signature is a slot declaration, never an override.
-            addMember mName kind isStatic false (NodeSite.ofToken NodeKind.PatIdent mTok) seed (List.length explicit)
+            addMember
+                mName
+                kind
+                isStatic
+                false
+                (NodeSite.ofToken NodeKind.PatIdent mTok)
+                seed
+                (List.length explicit)
+                argNames
             |> ignore
 
-        let registerAbstractMethod idOrOp tds isStatic kind =
+        let registerAbstractMethod idOrOp tds isStatic kind sigArgs =
             match identOrOpNameTok ctx idOrOp with
-            | ValueSome(mName, mTok) -> registerAbstractSlot mName mTok tds isStatic kind
+            | ValueSome(mName, mTok) -> registerAbstractSlot mName mTok tds isStatic kind (sigArgNames sigArgs)
             | ValueNone -> ()
 
         // `abstract P: T with get, set` declares the same halves an impl-side
@@ -282,7 +304,7 @@ module NameResolutionMemberRegistration =
                 match halves.Getter with
                 | ValueSome tok ->
                     match sigArgs.Length with
-                    | 0 -> registerAbstractSlot propName tok tds isStatic TMemberKind.Property
+                    | 0 -> registerAbstractSlot propName tok tds isStatic TMemberKind.Property EqArray.empty
                     | _ ->
                         registerAbstractSlot
                             (AccessorNames.getterName propName)
@@ -290,6 +312,7 @@ module NameResolutionMemberRegistration =
                             tds
                             isStatic
                             (TMemberKind.Accessor(propName, TAccessorRole.Getter))
+                            (sigArgNames sigArgs)
                 | ValueNone -> ()
 
                 match halves.Setter with
@@ -300,6 +323,7 @@ module NameResolutionMemberRegistration =
                         tds
                         isStatic
                         (TMemberKind.Accessor(propName, TAccessorRole.Setter))
+                        (sigArgNames sigArgs)
                 | ValueNone -> ()
             | ValueNone -> ()
 
@@ -334,7 +358,7 @@ module NameResolutionMemberRegistration =
                         else
                             TMemberKind.Method
 
-                    registerAbstractMethod idOrOp tds isStatic kind
+                    registerAbstractMethod idOrOp tds isStatic kind sigArgs
                 | MethodOrPropDefn.PropertyWithGetSet(ident = propId; defns = defns) ->
                     PropertyAccessors.reportNonAccessors ctx propId defns
 

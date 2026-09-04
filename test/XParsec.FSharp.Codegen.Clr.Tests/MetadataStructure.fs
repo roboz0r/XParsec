@@ -476,6 +476,41 @@ let methodAttrsOf (bytes: byte[]) (typeName: string) : (string * MethodAttribute
                 md.GetString mdef.Name, mdef.Attributes
         ]
 
+/// One type's `Method` rows in row order as `(name, Param row names)`, by the
+/// `Ns.Outer+Inner` spelling. Raises when the assembly declares no such type.
+let paramNamesOf (bytes: byte[]) (typeName: string) : (string * string list) list =
+    use pe = openPe bytes
+    let md = pe.GetMetadataReader()
+
+    match md.TypeDefinitions |> Seq.tryFind (fun h -> nameOf md h = typeName) with
+    | None ->
+        failwithf "MetadataStructure: no type '%s' among %A" typeName [ for h in md.TypeDefinitions -> nameOf md h ]
+    | Some h ->
+        [
+            for mh in (md.GetTypeDefinition h).GetMethods() ->
+                let mdef = md.GetMethodDefinition mh
+
+                let names =
+                    [
+                        for ph in mdef.GetParameters() do
+                            let p = md.GetParameter ph
+                            // Sequence 0 is the return parameter's row.
+                            if p.SequenceNumber > 0 then
+                                md.GetString p.Name
+                    ]
+
+                md.GetString mdef.Name, names
+        ]
+
+/// The `Param` row names of the method `methodName` on `typeName`, the first row where the
+/// name is overloaded. Raises when the type declares no such method.
+let methodParamNamesOf (bytes: byte[]) (typeName: string) (methodName: string) : string list =
+    let methods = paramNamesOf bytes typeName
+
+    match methods |> List.tryFind (fun (n, _) -> n = methodName) with
+    | Some(_, ps) -> ps
+    | None -> failwithf "MetadataStructure: %s declares no %s among %A" typeName methodName (List.map fst methods)
+
 /// How many `MemberRef` rows carry `name`. The table is appended to rather than
 /// deduplicated, so a count above one is a member ref minted more than once.
 let memberRefRowCount (bytes: byte[]) (name: string) : int =

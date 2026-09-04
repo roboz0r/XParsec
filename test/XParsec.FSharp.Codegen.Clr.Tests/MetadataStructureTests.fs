@@ -149,6 +149,91 @@ let tests =
                 assertEntryPointOwner "representative" representativeBytes.Value "Program" "Main"
             }
 
+            test "a module function's Param rows carry the source names" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "let twice (f: int -> int) (x: int) = f (f x)"
+                            "let add (a: int, b: int) = a + b"
+                            "let quoted (``my param``: int) = ``my param`` + 1"
+                            "let dropped () (y: int) = y"
+                            "printfn \"%d\" (twice (fun n -> n + 1) 1 + add (2, 3) + quoted 4 + dropped () 9)"
+                        ]
+
+                let bytes = compileSource "MetaStructParamNames" src |> Codegen.toBytes
+                assertWellFormed "ParamNames" bytes
+                let namesOf = methodParamNamesOf bytes "Program"
+
+                Expect.equal (namesOf "twice") [ "f"; "x" ] "curried params take their source names"
+                Expect.equal (namesOf "add") [ "a"; "b" ] "tupled params take their source names"
+                Expect.equal (namesOf "quoted") [ "my param" ] "a double-backtick name is spelled verbatim"
+                Expect.equal (namesOf "dropped") [ "arg0"; "y" ] "a unit placeholder keeps the positional mint"
+            }
+
+            test "a member, secondary ctor, closure, union factory and abstract slot carry the source names" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type Adder(k: int) ="
+                            "    new(a: int, b: int) = Adder(a + b)"
+                            "    member this.Twice(n: int) = n + n + k"
+                            "    member this.Both(left: int, right: int) = left + right + k"
+                            "type Shape ="
+                            "    | Line of x: int * int"
+                            "type IOps ="
+                            "    abstract Combine: left: int -> right: int -> int"
+                            "    abstract Plain: int * int -> int"
+                            // Passed first-class, so the lambda is a closure capturing `k`.
+                            "let apply (f: int -> int -> int) = f 2 3"
+                            "let run (k: int) = apply (fun (x: int) (y: int) -> x + y + k)"
+                            "let a = Adder(1, 2)"
+                            "let s = Line(4, 5)"
+                            "printfn \"%d\" (a.Twice 3 + a.Both(1, 2) + run 1)"
+                        ]
+
+                let bytes = compileSource "MetaStructMemberParamNames" src |> Codegen.toBytes
+                assertWellFormed "MemberParamNames" bytes
+                let namesOf = methodParamNamesOf bytes
+
+                Expect.equal (namesOf "Adder" "Twice") [ "n" ] "a member names its parameter"
+                Expect.equal (namesOf "Adder" "Both") [ "left"; "right" ] "a tupled member names each parameter"
+
+                let ctors =
+                    paramNamesOf bytes "Adder"
+                    |> List.filter (fun (n, _) -> n = ".ctor")
+                    |> List.map snd
+
+                Expect.equal ctors [ [ "k" ]; [ "a"; "b" ] ] "both ctors name their parameters"
+
+                // The curried lambda lowers to one closure per level: the outer captures
+                // `k` and takes `x`, the inner captures `x` and `k` and takes `y`.
+                let closures =
+                    [
+                        for t in emittedTypes bytes do
+                            if t.Name.StartsWith "<closure>$" then
+                                t.Name, paramNamesOf bytes t.Name
+                    ]
+
+                Expect.equal
+                    closures
+                    [
+                        "<closure>$0", [ ".ctor", [ "x"; "k" ]; "Invoke", [ "y" ] ]
+                        "<closure>$1", [ ".ctor", [ "k" ]; "Invoke", [ "x" ] ]
+                    ]
+                    "a closure's ctor names its captures and Invoke its parameter"
+
+                Expect.equal (namesOf "Shape" "Line") [ "_x"; "item2" ] "a factory takes the case's field names"
+
+                Expect.equal (namesOf "IOps" "Combine") [ "left"; "right" ] "an abstract slot names its arguments"
+
+                Expect.equal
+                    (namesOf "IOps" "Plain")
+                    [ "arg0"; "arg1" ]
+                    "a bare-typed argument keeps the positional mint"
+            }
+
             // The pin that makes the structural checks non-vacuous: the ACTUAL rows of
             // every type in a known assembly.
             test "each type's field and method ranges hold ITS OWN rows" {

@@ -318,7 +318,7 @@ module internal LayoutNodes =
                                 Name = m.Name
                                 Kind = m.Kind
                                 IsStatic = m.IsStatic
-                                ParamTys = abstractMethodParamTys m
+                                ParamTys = List.map snd (abstractMethodParams m)
                                 RetTy = snd (uncurry m.Signature)
                             }
 

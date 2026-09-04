@@ -28,10 +28,10 @@ public class Counter
 {
 	internal static int total = 0;
 
-	public void Add(int arg0)
+	public void Add(int k)
 	{
 		int num = total;
-		total = num + arg0;
+		total = num + k;
 	}
 
 	public int Get()

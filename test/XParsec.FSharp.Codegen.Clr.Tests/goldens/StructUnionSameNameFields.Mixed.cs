@@ -56,17 +56,17 @@ public readonly struct Mixed : IEquatable<Mixed>, IStructuralFormattable
 		this._payload = _payload;
 	}
 
-	public static Mixed I(int arg0)
+	public static Mixed I(int _x)
 	{
 		Payload payload = default(Payload);
-		payload._data.I._x = arg0;
+		payload._data.I._x = _x;
 		return new Mixed(0, payload);
 	}
 
-	public static Mixed S(string arg0)
+	public static Mixed S(string _x)
 	{
 		Payload payload = default(Payload);
-		payload._ref0 = arg0;
+		payload._ref0 = _x;
 		return new Mixed(1, payload);
 	}
 

@@ -292,6 +292,7 @@ module TastConvert =
             Name = am.Name
             MethodTypeParams = am.MethodTypeParams
             Signature = f am.Signature
+            ParamNames = am.ParamNames
             Kind = am.Kind
             IsStatic = am.IsStatic
         }

@@ -341,6 +341,7 @@ type internal Assembler
             {
                 Provider = icodegen
                 Ctx = ctx
+                Pool = file.Pool
                 ClosureByNode = file.ClosureByNode
                 CtorHandleByNode = pre.CtorHandleByNode
                 CachedClosureFieldByNode = pre.CachedClosureFieldByNode
@@ -589,7 +590,8 @@ type internal Assembler
 
             methods
             |> List.iteri (fun i m ->
-                let paramTys = abstractMethodParamTys m
+                let slots = abstractMethodParams m
+                let paramTys = List.map snd slots
                 let _, retTy = uncurry m.Signature
 
                 let handle = toEntity (this.MethodDef(MethodKey.InterfaceMethod(td.Key, i)))
@@ -617,7 +619,7 @@ type internal Assembler
                     {
                         Signature = abstractMethodSignature provider m
                         Body = PreparedBody.Abstract
-                        ParamNames = argNames (List.length paramTys)
+                        ParamNames = List.map fst slots
                         MethodTypars = [ for n in m.MethodTypeParams -> n.TrimStart('\'') ]
                     }
                 )
@@ -748,17 +750,15 @@ type internal Assembler
                     {
                         Signature = provider.ClosureCtorSignature(List.map snd c.Captures)
                         Body = ctorMethodBody
-                        ParamNames = argNames (List.length c.Captures)
+                        ParamNames = paramNames f.EmitCtx.Pool (Seq.map fst c.Captures)
                         MethodTypars = []
                     }
                 )
 
-                // A flat closure's `Invoke` takes all `FunArity` params
-                // (`Invoke(arg0, …, arg{N-1}) : result`); arity 1 reduces to `Invoke(arg0)`.
                 let invokeSignature, invokeParamNames =
                     let paramTys = c.ParamTy :: (c.ExtraParams |> List.map (fun (_, ty, _) -> ty))
-                    let names = [ for i in 0 .. c.FunArity - 1 -> sprintf "arg%d" i ]
-                    provider.InvokeSignatureN(paramTys, c.ResultTy), names
+                    let paramKeys = c.ParamKey :: (c.ExtraParams |> List.map (fun (k, _, _) -> k))
+                    provider.InvokeSignatureN(paramTys, c.ResultTy), paramNames f.EmitCtx.Pool paramKeys
 
                 this.AddPrepared(
                     MethodKey.ClosureInvoke c.Name,
@@ -862,7 +862,7 @@ type internal Assembler
                 {
                     Signature = signature
                     Body = staticBody
-                    ParamNames = argNames fn.Params.FlatCount
+                    ParamNames = paramNames emitCtx.Pool (fn.Params.Flat |> Seq.map (fun p -> p.Slot))
                     MethodTypars = [ for i in 0 .. typarCount - 1 -> sprintf "T%d" i ]
                 }
             )

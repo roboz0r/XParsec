@@ -23,29 +23,29 @@ using Vesper;
 [assembly: AssemblyVersion("1.0.0.0")]
 public static class Program
 {
-	public static nint addN(nint arg0, nint arg1)
+	public static nint addN(nint a, nint b)
 	{
-		return arg0 + arg1;
+		return a + b;
 	}
 
-	public static nint subN(nint arg0, nint arg1)
+	public static nint subN(nint a, nint b)
 	{
-		return arg0 - arg1;
+		return a - b;
 	}
 
-	public static nint mulN(nint arg0, nint arg1)
+	public static nint mulN(nint a, nint b)
 	{
-		return arg0 * arg1;
+		return a * b;
 	}
 
-	public static nint divN(nint arg0, nint arg1)
+	public static nint divN(nint a, nint b)
 	{
-		return arg0 / arg1;
+		return a / b;
 	}
 
-	public static nint remN(nint arg0, nint arg1)
+	public static nint remN(nint a, nint b)
 	{
-		return arg0 % arg1;
+		return a % b;
 	}
 
 	public static int Main(string[] args)

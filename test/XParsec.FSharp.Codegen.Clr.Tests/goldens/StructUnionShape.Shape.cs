@@ -62,18 +62,18 @@ public readonly struct Shape : IEquatable<Shape>, IStructuralFormattable
 		return new Shape(0, default(Payload));
 	}
 
-	public static Shape Point(int arg0)
+	public static Shape Point(int _x)
 	{
 		Payload payload = default(Payload);
-		payload._data.Point._x = arg0;
+		payload._data.Point._x = _x;
 		return new Shape(1, payload);
 	}
 
-	public static Shape Pair(int arg0, int arg1)
+	public static Shape Pair(int _a, int _b)
 	{
 		Payload payload = default(Payload);
-		payload._data.Pair._a = arg0;
-		payload._data.Pair._b = arg1;
+		payload._data.Pair._a = _a;
+		payload._data.Pair._b = _b;
 		return new Shape(2, payload);
 	}
 

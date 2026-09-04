@@ -7,7 +7,7 @@ Line numbers are deliberately absent — they rot. Constructs and file names onl
 Raised by the decompiled-C# conformance goldens (`test/XParsec.FSharp.Codegen.Clr.Tests/goldens/*.clr.cs`),
 added when `ConformanceByteIdentityTests` gained a whole-module render beside its structural
 digest. Every finding below cites the golden that shows it, so each is reproducible by reading a
-committed file. A1, A2, B1, B2 and C1 have landed; the rest is outstanding.
+committed file. A1, A2, A5, B1, B2 and C1 have landed; the rest is outstanding.
 
 **Part A** is ABI and metadata defects. **Part B** is IL quality. **Part C** is the harness.
 
@@ -340,7 +340,7 @@ Where a test asserts over one program's captures, pin the expected set by name, 
 change that stops emitting a closure fails rather than silently narrowing the assertion to
 fewer fields.
 
-## A5. Every parameter is named `arg<i>`
+## A5. Every parameter is named `arg<i>` — DONE
 
 `preamble-fn-value.clr.cs`, for `let twice (f: int -> int) (x: int) = f (f x)`:
 
@@ -398,6 +398,15 @@ Where the source supplies no name, the generated positional name stands. That is
 **Verify.** The goldens re-render `twice(Fun<int, int> f, int x)`. Pin the `Param` rows rather
 than the rendering, through a `paramNamesOf` helper beside `methodAttrsOf` in
 `MetadataStructure`.
+
+**Landed.** `ParamNaming.paramNames` (in `LayoutModel`) reads `TastPoolBuilder.boundVarNaming`
+off `EmitContext.Pool` and falls back to `argName i`, the one spelling of the positional name.
+A module function, a member, a secondary ctor and a closure's `.ctor` / `Invoke` all take it
+over their bound-variable keys; a union factory takes `ud.FieldNames c`. An abstract slot's
+names travel from the front end on `TAbstractMethodG.ParamNames` (one `string voption` per
+source argument, `FrozenCodec.FormatVersion` 3), and `abstractMethodParams` pairs each
+metadata slot with its name and type in one place. `MetadataStructureTests` pins every site,
+and `MetadataStructure.paramNamesOf` / `methodParamNamesOf` read the `Param` rows back.
 
 ---
 
@@ -582,8 +591,7 @@ depends on it.
 B1 has landed, and with it A4's second half. B2 has landed; it moved every golden's IL and no
 table row.
 
-A5 touches no row count and no table, so it is free of the row-order contention above and can
-run beside any of them. Its stage 5 is the exception: it widens `Frozen.TAbstractMethod`, so
-it queues behind A3 stage 1 rather than racing another codec change.
+A5 has landed in full. Its stage 5 widened `Frozen.TAbstractMethod` and moved the codec to
+format version 3, so A3 stage 1 now lands on top of that version rather than racing it.
 
 C1 has landed, so every re-render of the goldens below reads against resolved `Formatter` calls.

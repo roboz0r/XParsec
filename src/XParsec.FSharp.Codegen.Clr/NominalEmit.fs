@@ -413,7 +413,7 @@ module internal NominalEmit =
                     {
                         Signature = asm.Provider.RecordCtorSignature paramTys
                         Body = scBody
-                        ParamNames = argNames sc.Params.Length
+                        ParamNames = paramNames emitCtx.Pool (sc.Params |> Seq.map (fst >> BoundVarKey.identity))
                         MethodTypars = []
                     }
                 )
@@ -586,7 +586,7 @@ module internal NominalEmit =
             {
                 Signature = signature
                 Body = memberBody
-                ParamNames = argNames mem.Params.Length
+                ParamNames = paramNames emitCtx.Pool (mem.Params |> Seq.map (fst >> BoundVarKey.identity))
                 // The metadata name drops the F# leading quote: `'T` → `T`.
                 MethodTypars = [ for (n, _) in methodTypars -> n.TrimStart('\'') ]
             }

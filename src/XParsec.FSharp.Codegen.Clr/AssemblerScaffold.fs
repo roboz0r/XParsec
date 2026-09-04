@@ -22,13 +22,10 @@ module internal AssemblerScaffold =
 
         sigB
 
-    let argNames (n: int) : string list =
-        [ for i in 0 .. n - 1 -> sprintf "arg%d" i ]
-
     /// `instance <ret> <name><'C…>(<params…>)` for an abstract interface method.
     let abstractMethodSignature (provider: ClrProvider) (m: Frozen.TAbstractMethod) : BlobBuilder =
         let _, retTy = uncurry m.Signature
-        let paramTys = abstractMethodParamTys m
+        let paramTys = List.map snd (abstractMethodParams m)
         let blob = BlobBuilder()
 
         BlobEncoder(blob)

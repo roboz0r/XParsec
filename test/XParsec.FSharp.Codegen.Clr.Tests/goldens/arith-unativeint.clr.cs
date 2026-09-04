@@ -21,29 +21,29 @@ using Vesper;
 [assembly: AssemblyVersion("1.0.0.0")]
 public static class Program
 {
-	public static nuint addN(nuint arg0, nuint arg1)
+	public static nuint addN(nuint a, nuint b)
 	{
-		return arg0 + arg1;
+		return a + b;
 	}
 
-	public static nuint subN(nuint arg0, nuint arg1)
+	public static nuint subN(nuint a, nuint b)
 	{
-		return arg0 - arg1;
+		return a - b;
 	}
 
-	public static nuint mulN(nuint arg0, nuint arg1)
+	public static nuint mulN(nuint a, nuint b)
 	{
-		return arg0 * arg1;
+		return a * b;
 	}
 
-	public static nuint divN(nuint arg0, nuint arg1)
+	public static nuint divN(nuint a, nuint b)
 	{
-		return arg0 / arg1;
+		return a / b;
 	}
 
-	public static nuint remN(nuint arg0, nuint arg1)
+	public static nuint remN(nuint a, nuint b)
 	{
-		return arg0 % arg1;
+		return a % b;
 	}
 
 	public static int Main(string[] args)

@@ -23,9 +23,9 @@ public static class Program
 		s = notNull("x");
 	}
 
-	public static T0 notNull<T0>(T0 arg0)
+	public static T0 notNull<T0>(T0 x)
 	{
-		return arg0;
+		return x;
 	}
 
 	public static int Main(string[] args)

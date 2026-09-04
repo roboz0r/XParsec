@@ -63,9 +63,9 @@ public sealed class Meters : IEquatable<Meters>, IStructuralFormattable
 		this.item = item;
 	}
 
-	public static Meters M(int arg0)
+	public static Meters M(int item)
 	{
-		return new Meters(arg0);
+		return new Meters(item);
 	}
 
 	public override int GetHashCode()
@@ -182,9 +182,9 @@ public abstract class Shape : IEquatable<Shape>, IStructuralFormattable
 		return _unique_Dot;
 	}
 
-	public static Shape Line(int arg0)
+	public static Shape Line(int _len)
 	{
-		return new Line(arg0);
+		return new Line(_len);
 	}
 
 	public abstract override int GetHashCode();
@@ -386,19 +386,19 @@ public abstract class Quad : IEquatable<Quad>, IStructuralFormattable
 		return _unique_Q0;
 	}
 
-	public static Quad Q1(int arg0)
+	public static Quad Q1(int item)
 	{
-		return new Q1(arg0);
+		return new Q1(item);
 	}
 
-	public static Quad Q2(int arg0, int arg1)
+	public static Quad Q2(int item1, int item2)
 	{
-		return new Q2(arg0, arg1);
+		return new Q2(item1, item2);
 	}
 
-	public static Quad Q3(int arg0, int arg1, int arg2)
+	public static Quad Q3(int item1, int item2, int item3)
 	{
-		return new Q3(arg0, arg1, arg2);
+		return new Q3(item1, item2, item3);
 	}
 
 	public abstract override int GetHashCode();
@@ -414,21 +414,21 @@ public abstract class Quad : IEquatable<Quad>, IStructuralFormattable
 }
 public static class Program
 {
-	public static int metersValue(Meters arg0)
+	public static int metersValue(Meters m)
 	{
-		return arg0.item;
+		return m.item;
 	}
 
-	public static int describeShape(Shape arg0)
+	public static int describeShape(Shape s)
 	{
 		int result;
-		if (arg0 is Shape.Dot)
+		if (s is Shape.Dot)
 		{
 			result = 0;
 		}
 		else
 		{
-			if (!(arg0 is Shape.Line { _len: var len }))
+			if (!(s is Shape.Line { _len: var len }))
 			{
 				throw new Exception("The match cases were incomplete");
 			}
@@ -437,36 +437,36 @@ public static class Program
 		return result;
 	}
 
-	public static int describeQuad(Quad arg0)
+	public static int describeQuad(Quad q)
 	{
 		int result;
-		if (arg0.Tag == 0)
+		if (q.Tag == 0)
 		{
 			result = 0;
 		}
-		else if (arg0.Tag == 1)
+		else if (q.Tag == 1)
 		{
-			Quad.Q1 q = (Quad.Q1)arg0;
-			int item = q.item;
+			Quad.Q1 q2 = (Quad.Q1)q;
+			int item = q2.item;
 			result = item;
 		}
-		else if (arg0.Tag == 2)
+		else if (q.Tag == 2)
 		{
-			Quad.Q2 q2 = (Quad.Q2)arg0;
-			int item2 = q2.item1;
-			int item3 = q2.item2;
+			Quad.Q2 q3 = (Quad.Q2)q;
+			int item2 = q3.item1;
+			int item3 = q3.item2;
 			result = item2 + item3;
 		}
 		else
 		{
-			if (arg0.Tag != 3)
+			if (q.Tag != 3)
 			{
 				throw new Exception("The match cases were incomplete");
 			}
-			Quad.Q3 q3 = (Quad.Q3)arg0;
-			int item4 = q3.item1;
-			int item5 = q3.item2;
-			int item6 = q3.item3;
+			Quad.Q3 q4 = (Quad.Q3)q;
+			int item4 = q4.item1;
+			int item5 = q4.item2;
+			int item6 = q4.item3;
 			int num = item4 + item5;
 			result = num + item6;
 		}

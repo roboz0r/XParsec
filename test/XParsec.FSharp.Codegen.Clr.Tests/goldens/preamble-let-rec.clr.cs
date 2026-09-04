@@ -39,9 +39,9 @@ public class Factorial
 		return value;
 	}
 
-	public int Of(int arg0)
+	public int Of(int k)
 	{
-		return fact.Invoke(arg0);
+		return fact.Invoke(k);
 	}
 }
 public sealed class <closure>$0 : Fun<int, int>
@@ -53,17 +53,17 @@ public sealed class <closure>$0 : Fun<int, int>
 		capture0 = arg0;
 	}
 
-	public int Invoke(int arg0)
+	public int Invoke(int k)
 	{
 		int result;
-		if (arg0 <= 1)
+		if (k <= 1)
 		{
 			result = 1;
 		}
 		else
 		{
-			int num = capture0.fact.Invoke(arg0 - 1);
-			result = arg0 * num;
+			int num = capture0.fact.Invoke(k - 1);
+			result = k * num;
 		}
 		return result;
 	}

@@ -57,12 +57,12 @@ public sealed class Vec : IEquatable<Vec>, IStructuralFormattable
 		return x + y;
 	}
 
-	public int AddN(int arg0)
+	public int AddN(int n)
 	{
 		int x = X;
 		int y = Y;
 		int num = x + y;
-		return num + arg0;
+		return num + n;
 	}
 
 	public override int GetHashCode()

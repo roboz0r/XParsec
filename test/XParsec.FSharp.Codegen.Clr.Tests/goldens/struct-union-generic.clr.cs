@@ -85,17 +85,17 @@ public readonly struct G<T> : IEquatable<G<T>>, IStructuralFormattable
 		this._payload = _payload;
 	}
 
-	public static G<T> Val(T arg0)
+	public static G<T> Val(T _v)
 	{
 		Payload payload = default(Payload);
-		payload._val0 = arg0;
+		payload._val0 = _v;
 		return new G<T>(0, payload);
 	}
 
-	public static G<T> Num(int arg0)
+	public static G<T> Num(int _n)
 	{
 		Payload payload = default(Payload);
-		payload._data.Num._n = arg0;
+		payload._data.Num._n = _n;
 		return new G<T>(1, payload);
 	}
 
@@ -202,39 +202,39 @@ public static class Program
 		b = G<int>.Num(4);
 	}
 
-	public static int pick(G<int> arg0)
+	public static int pick(G<int> g)
 	{
-		G<int> g = arg0;
+		G<int> g2 = g;
 		int result;
-		if (g.Tag == 0)
+		if (g2.Tag == 0)
 		{
-			int val = g._payload._val0;
+			int val = g2._payload._val0;
 			result = val;
 		}
 		else
 		{
-			if (g.Tag != 1)
+			if (g2.Tag != 1)
 			{
 				throw new Exception("The match cases were incomplete");
 			}
-			int n = g._payload._data.Num._n;
+			int n = g2._payload._data.Num._n;
 			result = n * 10;
 		}
 		return result;
 	}
 
-	public static string text(G<string> arg0)
+	public static string text(G<string> g)
 	{
-		G<string> g = arg0;
+		G<string> g2 = g;
 		object result;
-		if (g.Tag == 0)
+		if (g2.Tag == 0)
 		{
-			string val = g._payload._val0;
+			string val = g2._payload._val0;
 			result = val;
 		}
 		else
 		{
-			if (g.Tag != 1)
+			if (g2.Tag != 1)
 			{
 				throw new Exception("The match cases were incomplete");
 			}

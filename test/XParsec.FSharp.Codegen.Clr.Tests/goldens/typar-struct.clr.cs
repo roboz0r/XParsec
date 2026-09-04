@@ -21,12 +21,12 @@ public static class Program
 	static Program()
 	{
 		i = onlyStruct(42);
-		b = onlyStruct(arg0: true);
+		b = onlyStruct(x: true);
 	}
 
-	public static T0 onlyStruct<T0>(T0 arg0)
+	public static T0 onlyStruct<T0>(T0 x)
 	{
-		return arg0;
+		return x;
 	}
 
 	public static int Main(string[] args)

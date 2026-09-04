@@ -209,12 +209,12 @@ module FrozenCodecTypes =
         | b -> failwithf "FrozenCodec: unknown TConstValue tag %d" b
 
     let private writeTAttributeArg (w: FrozenWriter) (a: TAttributeArg) =
-        writeVOptionWith w (fun w (s: string) -> w.Write s) a.Name
+        writeStringVOption w a.Name
         writeTConstValue w a.Value
         writeVOptionWith w writeTypeKeyRef a.EnumKey
 
     let private readTAttributeArg (r: FrozenReader) : TAttributeArg =
-        let name = readVOptionWith r (fun r -> r.ReadString())
+        let name = readStringVOption r
         let value = readTConstValue r
         let enumKey = readVOptionWith r readTypeKeyRef
 
@@ -664,6 +664,7 @@ module FrozenCodecTypes =
         w.Write m.Name
         writeStringArray w m.MethodTypeParams
         writeTypeRef w m.Signature
+        writeEqArrayWith w writeStringVOption m.ParamNames
         writeTMemberKind w m.Kind
         w.Write m.IsStatic
 
@@ -671,6 +672,7 @@ module FrozenCodecTypes =
         let name = r.ReadString()
         let methodTypeParams = readStringArray r
         let signature = readTypeRef r
+        let paramNames = readEqArrayWith r readStringVOption
         let kind = readTMemberKind r
         let isStatic = r.ReadBoolean()
 
@@ -678,6 +680,7 @@ module FrozenCodecTypes =
             Name = name
             MethodTypeParams = methodTypeParams
             Signature = signature
+            ParamNames = paramNames
             Kind = kind
             IsStatic = isStatic
         }
@@ -688,7 +691,7 @@ module FrozenCodecTypes =
         writeEqArrayWith
             w
             (fun w (nameOpt: string voption, ty) ->
-                writeVOptionWith w (fun w (s: string) -> w.Write s) nameOpt
+                writeStringVOption w nameOpt
                 writeTypeRef w ty
             )
             c.Fields
@@ -703,7 +706,7 @@ module FrozenCodecTypes =
                 readArrayWith
                     r
                     (fun r ->
-                        let nameOpt = readVOptionWith r (fun r -> r.ReadString())
+                        let nameOpt = readStringVOption r
                         let ty = readTypeRef r
                         nameOpt, ty
                     )

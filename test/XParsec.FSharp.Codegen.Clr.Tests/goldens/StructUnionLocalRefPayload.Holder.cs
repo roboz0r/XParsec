@@ -69,24 +69,24 @@ public readonly struct Holder<T> : IEquatable<Holder<T>>, IStructuralFormattable
 		this._payload = _payload;
 	}
 
-	public static Holder<T> Val(T arg0)
+	public static Holder<T> Val(T _v)
 	{
 		Payload payload = default(Payload);
-		payload._val0 = arg0;
+		payload._val0 = _v;
 		return new Holder<T>(0, payload);
 	}
 
-	public static Holder<T> Text(string arg0)
+	public static Holder<T> Text(string _s)
 	{
 		Payload payload = default(Payload);
-		payload._ref0 = arg0;
+		payload._ref0 = _s;
 		return new Holder<T>(1, payload);
 	}
 
-	public static Holder<T> Rec(Node arg0)
+	public static Holder<T> Rec(Node _r)
 	{
 		Payload payload = default(Payload);
-		payload._ref0 = arg0;
+		payload._ref0 = _r;
 		return new Holder<T>(2, payload);
 	}
 

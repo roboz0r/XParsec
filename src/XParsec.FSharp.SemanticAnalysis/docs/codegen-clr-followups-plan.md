@@ -275,6 +275,20 @@ reference-shaped sequence. `EmitBindings.buildUse` `brfalse`s the loaded bound v
 `constrained.` plus an address, or a diagnostic. `clrRepr` distinguishes the case; neither site
 acts on it yet. A13 and A16 are the same family.
 
+## A19. `TypeMemberInfo.ArgNames` is meaningful for an abstract slot only
+
+`TypeMemberInfo` gained a ninth constructor argument, `argNames: EqArray<string voption>`,
+which carries an `abstract` signature's argument names to `TAbstractMethodG.ParamNames`. Two of
+`MemberRegistration.addMember`'s three call sites pass `EqArray.empty`, because a concrete
+member's parameters carry their names on their bound variables, and the field's doc has to say
+so. An empty vector standing in for "not an abstract slot" is the optional-field-as-kind shape.
+
+The fix is to register an abstract slot through its own record rather than the shared
+`TypeMemberInfo` bag: the slot's `Name`, `Kind`, `IsStatic`, typar seed and `ArgNames` as one
+value, consumed by `ElaborateTypeDecls.tryInterfaceMethods` directly. Concrete members then
+lose the argument and the doc clause with it. Sized as its own change, because
+`TypeMemberInfo` is read by resolution as well as elaboration and the split touches both.
+
 ---
 
 # Part B — prose that should be a type
@@ -743,3 +757,4 @@ Awaiting a decision rather than an implementation:
   with reverting `Emit.staticFnTypars` as the negative control.
 - **A8, A10, A11, A12, A16, A18, B8, B18, B21, B22** — each names a choice, not a defect with one
   right answer.
+- **A19** — a registration split with one right shape, queued as its own change.

@@ -58,18 +58,18 @@ public readonly struct Readers : IEquatable<Readers>, IStructuralFormattable
 		this._payload = _payload;
 	}
 
-	public static Readers X(int arg0, int arg1)
+	public static Readers X(int _a, int _b)
 	{
 		Payload payload = default(Payload);
-		payload._data.X._a = arg0;
-		payload._data.X._b = arg1;
+		payload._data.X._a = _a;
+		payload._data.X._b = _b;
 		return new Readers(0, payload);
 	}
 
-	public static Readers X_0(string arg0)
+	public static Readers X_0(string _c)
 	{
 		Payload payload = default(Payload);
-		payload._ref0 = arg0;
+		payload._ref0 = _c;
 		return new Readers(1, payload);
 	}
 

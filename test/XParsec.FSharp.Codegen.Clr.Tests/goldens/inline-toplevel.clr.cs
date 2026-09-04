@@ -38,14 +38,14 @@ public sealed class <closure>$0 : Fun<int, int>
 }
 public static class Program
 {
-	public static int @double(int arg0)
+	public static int @double(int x)
 	{
-		return arg0 * 2;
+		return x * 2;
 	}
 
-	public static T0 applySum<T0>(Fun<int, T0> arg0, int arg1, int arg2)
+	public static T0 applySum<T0>(Fun<int, T0> f, int x, int y)
 	{
-		return arg0.Invoke(arg1 + arg2);
+		return f.Invoke(x + y);
 	}
 
 	public static int d(int arg0)

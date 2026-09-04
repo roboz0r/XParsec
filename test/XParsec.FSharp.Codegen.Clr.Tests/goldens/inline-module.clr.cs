@@ -28,14 +28,14 @@ using Vesper;
 [assembly: AssemblyVersion("1.0.0.0")]
 public static class Scale
 {
-	public static int twice(int arg0)
+	public static int twice(int x)
 	{
-		return arg0 * 2;
+		return x * 2;
 	}
 
-	public static int quadruple(int arg0)
+	public static int quadruple(int x)
 	{
-		int num = arg0 * 2;
+		int num = x * 2;
 		return num * 2;
 	}
 }

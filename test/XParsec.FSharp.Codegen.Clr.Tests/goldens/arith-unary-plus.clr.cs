@@ -37,49 +37,49 @@ using Vesper;
 [assembly: AssemblyVersion("1.0.0.0")]
 public static class Program
 {
-	public static int plusI(int arg0)
+	public static int plusI(int x)
 	{
-		return arg0;
+		return x;
 	}
 
-	public static byte plusB(byte arg0)
+	public static byte plusB(byte x)
 	{
-		return arg0;
+		return x;
 	}
 
-	public static sbyte plusS(sbyte arg0)
+	public static sbyte plusS(sbyte x)
 	{
-		return arg0;
+		return x;
 	}
 
-	public static ushort plusH(ushort arg0)
+	public static ushort plusH(ushort x)
 	{
-		return arg0;
+		return x;
 	}
 
-	public static uint plusU(uint arg0)
+	public static uint plusU(uint x)
 	{
-		return arg0;
+		return x;
 	}
 
-	public static long plusL(long arg0)
+	public static long plusL(long x)
 	{
-		return arg0;
+		return x;
 	}
 
-	public static ulong plusW(ulong arg0)
+	public static ulong plusW(ulong x)
 	{
-		return arg0;
+		return x;
 	}
 
-	public static double plusF(double arg0)
+	public static double plusF(double x)
 	{
-		return arg0;
+		return x;
 	}
 
-	public static BigInteger plusG(BigInteger arg0)
+	public static BigInteger plusG(BigInteger x)
 	{
-		return arg0;
+		return x;
 	}
 
 	public static int Main(string[] args)

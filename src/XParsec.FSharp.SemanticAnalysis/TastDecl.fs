@@ -303,6 +303,9 @@ type TAbstractMethodG<'ty> =
         Name: string
         MethodTypeParams: EqArray<string>
         Signature: 'ty
+        /// The argument names the signature spells, one per source argument across every
+        /// curried group in source order; `ValueNone` for an argument written as a bare type.
+        ParamNames: EqArray<string voption>
         /// The same three forms a concrete member takes: `Property` for an arg-less member sig
         /// (`abstract member Current: int`, emitted as a `get_Current` slot), `Accessor` for one
         /// half of `abstract P: int with get, set`, and `Method` for a slot keeping its bare name.

@@ -395,6 +395,8 @@ module EmitTypes =
         {
             Provider: ICodegenProvider
             Ctx: MetadataContext
+            /// The pool that issued the ids in the bodies this context emits.
+            Pool: PoolBuilder
             ClosureByNode: Dictionary<TastAccessor.ExprId, Closure>
             CtorHandleByNode: Dictionary<TastAccessor.ExprId, EntityHandle>
             /// A cached closure singleton field: a `Lambda` node here `ldsfld`s its one

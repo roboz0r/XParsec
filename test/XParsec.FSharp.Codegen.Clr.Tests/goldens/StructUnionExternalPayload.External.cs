@@ -102,39 +102,39 @@ public readonly struct External : IEquatable<External>, IStructuralFormattable
 		this._payload = _payload;
 	}
 
-	public static External Scalars(int arg0, bool arg1)
+	public static External Scalars(int _x, bool _y)
 	{
 		Payload payload = default(Payload);
-		payload._data.Scalars._x = arg0;
-		payload._data.Scalars._y = arg1;
+		payload._data.Scalars._x = _x;
+		payload._data.Scalars._y = _y;
 		return new External(0, payload);
 	}
 
-	public static External Nested(Inner arg0)
+	public static External Nested(Inner _inner)
 	{
 		Payload payload = default(Payload);
-		payload._data.Nested._inner = arg0;
+		payload._data.Nested._inner = _inner;
 		return new External(1, payload);
 	}
 
-	public static External Text(string arg0)
+	public static External Text(string _s)
 	{
 		Payload payload = default(Payload);
-		payload._ref0 = arg0;
+		payload._ref0 = _s;
 		return new External(2, payload);
 	}
 
-	public static External Id(Guid arg0)
+	public static External Id(Guid _id)
 	{
 		Payload payload = default(Payload);
-		payload._val0 = arg0;
+		payload._val0 = _id;
 		return new External(3, payload);
 	}
 
-	public static External Stamp(DateTime arg0)
+	public static External Stamp(DateTime _at)
 	{
 		Payload payload = default(Payload);
-		payload._val1 = arg0;
+		payload._val1 = _at;
 		return new External(4, payload);
 	}
 

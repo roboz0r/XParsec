@@ -35,34 +35,34 @@ using Vesper;
 [assembly: AssemblyVersion("1.0.0.0")]
 public static class Program
 {
-	public static int negI(int arg0)
+	public static int negI(int x)
 	{
-		return -arg0;
+		return -x;
 	}
 
-	public static long negL(long arg0)
+	public static long negL(long x)
 	{
-		return -arg0;
+		return -x;
 	}
 
-	public static double negF(double arg0)
+	public static double negF(double x)
 	{
-		return 0.0 - arg0;
+		return 0.0 - x;
 	}
 
-	public static float negG(float arg0)
+	public static float negG(float x)
 	{
-		return 0f - arg0;
+		return 0f - x;
 	}
 
-	public static sbyte negS(sbyte arg0)
+	public static sbyte negS(sbyte x)
 	{
-		return (sbyte)(-arg0);
+		return (sbyte)(-x);
 	}
 
-	public static short negH(short arg0)
+	public static short negH(short x)
 	{
-		return (short)(-arg0);
+		return (short)(-x);
 	}
 
 	public static int Main(string[] args)

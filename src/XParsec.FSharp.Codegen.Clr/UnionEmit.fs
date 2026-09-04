@@ -468,7 +468,7 @@ module internal UnionEmit =
                 {
                     Signature = provider.StaticMethodSignature(paramTys, selfTy)
                     Body = factoryBody
-                    ParamNames = argNames arity
+                    ParamNames = ud.FieldNames c
                     MethodTypars = []
                 }
             )

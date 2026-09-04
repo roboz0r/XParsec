@@ -117,47 +117,47 @@ public readonly struct Storage : IEquatable<Storage>, IStructuralFormattable
 		this._payload = _payload;
 	}
 
-	public static Storage Scalars(int arg0, bool arg1)
+	public static Storage Scalars(int _x, bool _y)
 	{
 		Payload payload = default(Payload);
-		payload._data.Scalars._x = arg0;
-		payload._data.Scalars._y = arg1;
+		payload._data.Scalars._x = _x;
+		payload._data.Scalars._y = _y;
 		return new Storage(0, payload);
 	}
 
-	public static Storage Nested(Inner arg0)
+	public static Storage Nested(Inner _inner)
 	{
 		Payload payload = default(Payload);
-		payload._data.Nested._inner = arg0;
+		payload._data.Nested._inner = _inner;
 		return new Storage(1, payload);
 	}
 
-	public static Storage Text(string arg0)
+	public static Storage Text(string _s)
 	{
 		Payload payload = default(Payload);
-		payload._ref0 = arg0;
+		payload._ref0 = _s;
 		return new Storage(2, payload);
 	}
 
-	public static Storage Labelled(Tagged arg0)
+	public static Storage Labelled(Tagged _t)
 	{
 		Payload payload = default(Payload);
-		payload._val0 = arg0;
+		payload._val0 = _t;
 		return new Storage(3, payload);
 	}
 
-	public static Storage Id(Guid arg0)
+	public static Storage Id(Guid _id)
 	{
 		Payload payload = default(Payload);
-		payload._val1 = arg0;
+		payload._val1 = _id;
 		return new Storage(4, payload);
 	}
 
-	public static Storage Both(int arg0, string arg1)
+	public static Storage Both(int _k, string _name)
 	{
 		Payload payload = default(Payload);
-		payload._data.Both._k = arg0;
-		payload._ref0 = arg1;
+		payload._data.Both._k = _k;
+		payload._ref0 = _name;
 		return new Storage(5, payload);
 	}
 

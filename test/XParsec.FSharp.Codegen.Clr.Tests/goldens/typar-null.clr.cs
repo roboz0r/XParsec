@@ -11,14 +11,14 @@ using System.Reflection;
 [assembly: AssemblyVersion("1.0.0.0")]
 public static class Program
 {
-	public static T0 onlyNull<T0>(T0 arg0)
+	public static T0 onlyNull<T0>(T0 x)
 	{
-		return arg0;
+		return x;
 	}
 
-	public static string f(string arg0)
+	public static string f(string s)
 	{
-		return onlyNull(arg0);
+		return onlyNull(s);
 	}
 
 	public static int Main(string[] args)

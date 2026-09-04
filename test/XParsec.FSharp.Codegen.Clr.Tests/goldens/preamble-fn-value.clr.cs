@@ -30,9 +30,9 @@ public class Adder
 		add = new <closure>$0(this);
 	}
 
-	public int Twice(int arg0)
+	public int Twice(int n)
 	{
-		return Program.twice(add, arg0);
+		return Program.twice(add, n);
 	}
 }
 public sealed class <closure>$0 : Fun<int, int>
@@ -44,10 +44,10 @@ public sealed class <closure>$0 : Fun<int, int>
 		capture0 = arg0;
 	}
 
-	public int Invoke(int arg0)
+	public int Invoke(int x)
 	{
 		int k = capture0.k;
-		return arg0 + k;
+		return x + k;
 	}
 }
 public static class Program
@@ -59,9 +59,9 @@ public static class Program
 		a = new Adder(3);
 	}
 
-	public static int twice(Fun<int, int> arg0, int arg1)
+	public static int twice(Fun<int, int> f, int x)
 	{
-		return arg0.Invoke(arg0.Invoke(arg1));
+		return f.Invoke(f.Invoke(x));
 	}
 
 	public static int Main(string[] args)

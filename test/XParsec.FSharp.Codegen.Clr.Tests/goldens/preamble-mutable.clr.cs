@@ -36,9 +36,9 @@ public class Counter
 		bump = new <closure>$0(this);
 	}
 
-	public int Bump(int arg0)
+	public int Bump(int k)
 	{
-		ValueTuple valueTuple = bump.Invoke(arg0);
+		ValueTuple valueTuple = bump.Invoke(k);
 		return count;
 	}
 }
@@ -51,12 +51,12 @@ public sealed class <closure>$0 : Fun<int, ValueTuple>
 		capture0 = arg0;
 	}
 
-	public ValueTuple Invoke(int arg0)
+	public ValueTuple Invoke(int k)
 	{
 		Counter counter = capture0;
 		int count = capture0.count;
 		int step = capture0.step;
-		int num = arg0 * step;
+		int num = k * step;
 		counter.count = count + num;
 		return default(ValueTuple);
 	}

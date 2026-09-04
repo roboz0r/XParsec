@@ -313,6 +313,7 @@ module internal Layout =
             ClosureByNode = closureByNode
             Partitioned = partitioned
             FunVerdicts = funVerdicts
+            Pool = pool
             // Which file is the entry file is a whole-assembly decision; stamped below.
             EmitEntryPoint = false
         }

@@ -272,6 +272,12 @@ module FrozenCodecPrimitives =
     let readStringList (r: FrozenReader) : string list =
         readListWith r (fun r -> r.ReadString())
 
+    let writeStringVOption (w: FrozenWriter) (s: string voption) =
+        writeVOptionWith w (fun w (s: string) -> w.Write s) s
+
+    let readStringVOption (r: FrozenReader) : string voption =
+        readVOptionWith r (fun r -> r.ReadString())
+
     let writeStringArray (w: FrozenWriter) (xs: EqArray<string>) =
         writeEqArrayWith w (fun w (s: string) -> w.Write s) xs
 
