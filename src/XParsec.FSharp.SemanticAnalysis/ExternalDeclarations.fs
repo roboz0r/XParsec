@@ -29,8 +29,8 @@ exception BodylessExternalShape of compiledName: string * reason: UnmodelledReas
 /// over the symbol's own declaring typars.
 [<RequireQualifiedAccess>]
 type ExternalConstraint =
-    /// `when 'T : equality`.
-    | Trait of typarIndex: int * kind: SemanticConstraintKind
+    /// `when 'T : equality`, `when 'e :> <ty>` and every other bound with a metadata encoding.
+    | Bound of TyparConstraintG<FrozenType>
     /// `when (^T or ^U) : (static member (+) : ^T * ^U -> ^V)` — `typarIndices` is the
     /// trait's LHS; `memberName` is the compiled name (`op_Addition`).
     | MemberTrait of
@@ -41,8 +41,6 @@ type ExternalConstraint =
     /// `default ^T : <ty>` at generalisation. `target` is another typar
     /// (`default ^T3 : ^T1`) or a concrete shape (`default ^T1 : int`).
     | Default of typarIndex: int * target: FrozenType
-    /// `when 'e :> <ty>`.
-    | Coercion of typarIndex: int * target: FrozenType
 
 /// How a symbol's home module EXPORTS it, deciding the JS `import` statement shape.
 [<RequireQualifiedAccess>]

@@ -164,3 +164,5 @@ module EqSet =
 
     let fold (folder: 'State -> 'T -> 'State) (state: 'State) (xs: EqSet<'T>) : 'State =
         EqArray.fold folder state (asArray xs)
+
+    let map (mapping: 'T -> 'U) (xs: EqSet<'T>) : EqSet<'U> = ofSeq (Seq.map mapping xs.Underlying)

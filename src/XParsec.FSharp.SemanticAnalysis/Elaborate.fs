@@ -88,45 +88,21 @@ module Elaborate =
         | ValueSome scheme -> not (List.isEmpty scheme.Quantified)
         | ValueNone -> false
 
-    /// Each target is remapped through the SAME `quantEnv` the body freezes with, so its typar
-    /// leaves carry matching method indices; a constraint outside that env is dropped.
+    /// Records `boundVar`'s typar bounds, each `Coercion` target frozen over `quantEnv` with
+    /// typar leaves `FTTypar(Method, i)`.
     let private recordGenericFnScheme
         (ctx: PassContext)
-        (b: Binding<SyntaxToken>)
         (boundVar: BoundVarKey)
         (quantEnv: (TyVarId * SemType) list)
         : unit =
         if not (List.isEmpty quantEnv) then
-            match ctx.Bindings.Scheme.TryGetValue(CstKeys.ofBinding b) with
-            | ValueNone -> ()
-            | ValueSome scheme ->
-                let methodIndexOf (tv: TyVarId) : int option =
-                    match Unification.zonk ctx.Store (TyVar tv) with
-                    | TyVar root ->
-                        quantEnv
-                        |> List.tryPick (fun (r, target) ->
-                            match target with
-                            | TyTypar(TyparAxis.Method, i) when r = root -> Some i
-                            | _ -> None
-                        )
-                    | _ -> None
+            let freezeTarget (t: SemType) : FrozenType =
+                FrozenTypeBridge.freeze ctx.Store (remapDeclTypars ctx.Store quantEnv t)
 
-                let constraints =
-                    [
-                        for (tv, sc) in scheme.Constraints do
-                            match sc.Kind with
-                            | SemanticConstraintKind.Coercion target ->
-                                match methodIndexOf tv with
-                                | Some idx ->
-                                    let frozenTarget =
-                                        FrozenTypeBridge.freeze ctx.Store (remapDeclTypars ctx.Store quantEnv target)
+            let constraints =
+                boundsOfEnv ctx.Store quantEnv |> EqSet.map (TyparConstraint.map freezeTarget)
 
-                                    FrozenConstraint.Coercion(idx, frozenTarget)
-                                | None -> ()
-                            | _ -> ()
-                    ]
-
-                ctx.GenericFnSchemes.Set(boundVar, constraints)
+            ctx.GenericFnSchemes.Set(boundVar, constraints)
 
     /// The binding's exportable identity, keyed by the name its source writes and carrying
     /// `[<CompiledName>]`'s as the name it emits under (`Set.empty` ⇒ `SetModule.Empty`).
@@ -236,7 +212,7 @@ module Elaborate =
         // A bound-variable-less pattern has nowhere to file the typar-axis width.
         match boundVar with
         | ValueSome bk ->
-            recordGenericFnScheme ctx b bk quantEnv
+            recordGenericFnScheme ctx bk quantEnv
             ctx.Bindings.BindingTyparArities.[bk] <- List.length quantEnv
         | ValueNone -> ()
 

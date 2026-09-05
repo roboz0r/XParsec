@@ -21,12 +21,99 @@ type FunVerdict =
         ResultTyparPos: int voption
     }
 
-/// A project-local generalised binding's typar bound, frozen over the binding's METHOD
-/// typars: `target`'s typar leaves are `FTTypar(Method, idx)`.
+/// The kind of a bound on a typar.
 [<RequireQualifiedAccess>]
-type FrozenConstraint =
-    /// `when 'a :> <ty>`; `typarIndex` is on the method axis.
-    | Coercion of typarIndex: int * target: FrozenType
+type TyparConstraintKindG<'ty> =
+    /// `when 'a : equality`.
+    | Equality
+    /// `when 'a : comparison`.
+    | Comparison
+    /// `when 'a : struct`.
+    | Struct
+    /// `when 'a : not struct`.
+    | ReferenceType
+    /// `when 'a : null`.
+    | Nullness
+    /// `when 'a : not null`.
+    | NotNull
+    /// `when 'a :> <ty>`.
+    | Coercion of target: 'ty
+
+/// A typar bound on a generic declaration, declared or inferred. `TyparIndex` is on the
+/// owner's axis: the declaring axis for a type declaration's typars, the method axis for a
+/// binding's, a member's or an abstract slot's own typars.
+type TyparConstraintG<'ty> =
+    {
+        TyparIndex: int
+        Kind: TyparConstraintKindG<'ty>
+    }
+
+/// A typar bound with a frozen `Coercion` target, whose typar leaves are `FTTypar(axis, i)`.
+type FrozenConstraint = TyparConstraintG<FrozenType>
+
+module TyparConstraintKind =
+    let map (f: 'a -> 'b) (kind: TyparConstraintKindG<'a>) : TyparConstraintKindG<'b> =
+        match kind with
+        | TyparConstraintKindG.Equality -> TyparConstraintKindG.Equality
+        | TyparConstraintKindG.Comparison -> TyparConstraintKindG.Comparison
+        | TyparConstraintKindG.Struct -> TyparConstraintKindG.Struct
+        | TyparConstraintKindG.ReferenceType -> TyparConstraintKindG.ReferenceType
+        | TyparConstraintKindG.Nullness -> TyparConstraintKindG.Nullness
+        | TyparConstraintKindG.NotNull -> TyparConstraintKindG.NotNull
+        | TyparConstraintKindG.Coercion target -> TyparConstraintKindG.Coercion(f target)
+
+    /// The bound's kind, a `Coercion` target mapped through `target`. `ValueNone` for a
+    /// printf format family's `OneOf`, which is solved at the format literal and has no
+    /// spelling on a declared typar.
+    let ofSemantic (target: SemType -> 'ty) (kind: SemanticConstraintKind) : TyparConstraintKindG<'ty> voption =
+        match kind with
+        | SemanticConstraintKind.Equality -> ValueSome TyparConstraintKindG.Equality
+        | SemanticConstraintKind.Comparison -> ValueSome TyparConstraintKindG.Comparison
+        | SemanticConstraintKind.Struct -> ValueSome TyparConstraintKindG.Struct
+        | SemanticConstraintKind.ReferenceType -> ValueSome TyparConstraintKindG.ReferenceType
+        | SemanticConstraintKind.Nullness -> ValueSome TyparConstraintKindG.Nullness
+        | SemanticConstraintKind.NotNull -> ValueSome TyparConstraintKindG.NotNull
+        | SemanticConstraintKind.Coercion t -> ValueSome(TyparConstraintKindG.Coercion(target t))
+        | SemanticConstraintKind.OneOf _ -> ValueNone
+
+    /// The store's form of the bound, a `Coercion` target mapped through `target`.
+    let toSemantic (target: 'ty -> SemType) (kind: TyparConstraintKindG<'ty>) : SemanticConstraintKind =
+        match kind with
+        | TyparConstraintKindG.Equality -> SemanticConstraintKind.Equality
+        | TyparConstraintKindG.Comparison -> SemanticConstraintKind.Comparison
+        | TyparConstraintKindG.Struct -> SemanticConstraintKind.Struct
+        | TyparConstraintKindG.ReferenceType -> SemanticConstraintKind.ReferenceType
+        | TyparConstraintKindG.Nullness -> SemanticConstraintKind.Nullness
+        | TyparConstraintKindG.NotNull -> SemanticConstraintKind.NotNull
+        | TyparConstraintKindG.Coercion t -> SemanticConstraintKind.Coercion(target t)
+
+module TyparConstraint =
+    let map (f: 'a -> 'b) (c: TyparConstraintG<'a>) : TyparConstraintG<'b> =
+        {
+            TyparIndex = c.TyparIndex
+            Kind = TyparConstraintKind.map f c.Kind
+        }
+
+    /// The bound `kind` places on the typar at `typarIndex`; `ValueNone` for `OneOf`.
+    let ofSemantic
+        (typarIndex: int)
+        (target: SemType -> 'ty)
+        (kind: SemanticConstraintKind)
+        : TyparConstraintG<'ty> voption =
+        match TyparConstraintKind.ofSemantic target kind with
+        | ValueSome k -> ValueSome { TyparIndex = typarIndex; Kind = k }
+        | ValueNone -> ValueNone
+
+    /// The constrained typar's index and the supertype, for a `Coercion` bound only.
+    let tryCoercion (c: TyparConstraintG<'ty>) : (int * 'ty) voption =
+        match c.Kind with
+        | TyparConstraintKindG.Coercion target -> ValueSome(c.TyparIndex, target)
+        | TyparConstraintKindG.Equality
+        | TyparConstraintKindG.Comparison
+        | TyparConstraintKindG.Struct
+        | TyparConstraintKindG.ReferenceType
+        | TyparConstraintKindG.Nullness
+        | TyparConstraintKindG.NotNull -> ValueNone
 
 /// How codegen resolves the `GetEnumerator` handle of a `Pattern` for-in source.
 [<RequireQualifiedAccess>]

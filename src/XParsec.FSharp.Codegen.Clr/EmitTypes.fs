@@ -350,7 +350,7 @@ module EmitTypes =
             /// The binding's frozen typar bounds, method-axis-indexed templates over the
             /// method typars. Read by the call-site phantom-typar solve to recover a typar
             /// that no parameter or result mentions, like `fold`'s `'E`.
-            Constraints: FrozenConstraint list
+            Constraints: EqSet<FrozenConstraint>
         }
 
     /// Whether a top-level binding emits under its source name.
@@ -395,7 +395,7 @@ module EmitTypes =
             /// value-position consumer reifies a `unit` afterward.
             ReturnsVoid: bool
             /// The method's frozen typar bounds, mirroring `StaticFn.Constraints`.
-            Constraints: FrozenConstraint list
+            Constraints: EqSet<FrozenConstraint>
         }
 
     /// The run-wide registries every builder needs: the provider seam, the metadata writer,

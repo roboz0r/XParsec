@@ -107,6 +107,7 @@ let private pokeMemberWith (paramTy: FrozenType) (mkBody: BoundVarId -> Pooled.T
         Body = { Pool = pool; Id = body }
         ReturnTy = ftInt
         MethodTypeParams = EqArray.empty
+        MethodTyparConstraints = EqSet.empty
         Attributes = EqArray.empty
     }
 

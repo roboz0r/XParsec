@@ -330,7 +330,7 @@ module EmitClosures =
                         ResultTy = ty
                         ReturnsVoid = false
                         // A generic module VALUE carries no front-end scheme bounds.
-                        Constraints = []
+                        Constraints = EqSet.empty
                     }
             )
 
@@ -536,7 +536,7 @@ module EmitClosures =
     let collectStaticFns
         (emissions: Dictionary<BoundVarId, Emission>)
         // Per-binding frozen typar bounds from the front-end scheme; absent ⇒ no bounds.
-        (genericFnSchemes: Map<BoundVarId, FrozenConstraint list>)
+        (genericFnSchemes: Map<BoundVarId, EqSet<FrozenConstraint>>)
         (eligible: HashSet<BoundVarId>)
         (fns: CompiledFns.CompiledFn list)
         : StaticFn list =
@@ -548,7 +548,7 @@ module EmitClosures =
                     let constraints =
                         match Map.tryFind c.Key genericFnSchemes with
                         | Some cs -> cs
-                        | None -> []
+                        | None -> EqSet.empty
 
                     yield
                         {

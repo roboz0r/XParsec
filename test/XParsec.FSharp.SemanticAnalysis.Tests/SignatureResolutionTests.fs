@@ -893,7 +893,10 @@ let tests =
                     sym.Constraints
                     |> List.exists (fun c ->
                         match c with
-                        | ExternalConstraint.Trait(0, SemanticConstraintKind.Equality) -> true
+                        | ExternalConstraint.Bound {
+                                                       TyparIndex = 0
+                                                       Kind = TyparConstraintKindG.Equality
+                                                   } -> true
                         | _ -> false
                     )
 

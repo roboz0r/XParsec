@@ -311,8 +311,9 @@ module Unification =
                 | _ -> ()
 
             // An abstract slot has no body: its type is the declared signature, computed by
-            // `mkSigTy` under the slot's own typar scope.
-            let linkAbstractSlot (mTok: SyntaxToken) (mkSigTy: unit -> SemType) =
+            // `mkSigTy` under the slot's own typar scope, where the signature's `when`
+            // clauses attach to the slot's typars.
+            let linkAbstractSlot (mTok: SyntaxToken) (tds: TyparDefns<SyntaxToken> voption) (mkSigTy: unit -> SemType) =
                 let mKey = NodeKey.ofToken mTok NodeKind.PatIdent
 
                 match fc.Members |> Array.tryFind (fun mm -> mm.DeclSite.Key = mKey) with
@@ -339,6 +340,10 @@ module Unification =
                                 extended
 
                         use _ = ctx.PushTyparScope(memberScope, ctx.Resolution.TyparScopeStrict)
+
+                        match tds with
+                        | ValueSome(TyparDefns(constraints = ValueSome cs)) -> translateConstraints ctx cs
+                        | _ -> ()
 
                         let sigTy = mkSigTy ()
                         ctx.Store.SetLink(root, ValueSome sigTy)
@@ -388,22 +393,23 @@ module Unification =
                             exitLevel ctx
                     | MethodOrPropDefn.AbstractSignature sign when allowsAbstractSig fc.Host ->
                         match sign with
-                        | MemberSig.MethodOrPropSig(ident = idOrOp; sign = csig) ->
+                        | MemberSig.MethodOrPropSig(ident = idOrOp; typarDefns = tds; sign = csig) ->
                             match abstractSlotToken idOrOp with
-                            | ValueSome mTok -> linkAbstractSlot mTok (fun () -> curriedSigToSemType ctx csig)
+                            | ValueSome mTok -> linkAbstractSlot mTok tds (fun () -> curriedSigToSemType ctx csig)
                             | ValueNone -> ()
-                        | MemberSig.PropSig(sign = csig; getSet = getSet) ->
+                        | MemberSig.PropSig(typarDefns = tds; sign = csig; getSet = getSet) ->
                             let halves = AccessorNames.halvesOf ctx.NameOf getSet
                             let (CurriedSig(args = sigArgs)) = csig
 
                             match halves.Getter with
-                            | ValueSome tok -> linkAbstractSlot tok (fun () -> curriedSigToSemType ctx csig)
+                            | ValueSome tok -> linkAbstractSlot tok tds (fun () -> curriedSigToSemType ctx csig)
                             | ValueNone -> ()
 
                             match halves.Setter with
                             | ValueSome tok ->
                                 linkAbstractSlot
                                     tok
+                                    tds
                                     (fun () -> setterSemType sigArgs.Length (curriedSigToSemType ctx csig))
                             | ValueNone -> ()
                     | _ -> ()

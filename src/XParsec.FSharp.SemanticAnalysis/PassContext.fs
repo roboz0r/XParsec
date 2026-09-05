@@ -566,7 +566,7 @@ type PassContext(provider: IExternalSymbolProvider, file: LexedFile, assembly: C
     member val FunVerdicts = LambdaTable<FunVerdict>() with get
     /// A generalised binding's frozen typar bounds, minted with the body's method-axis indices
     /// so the bounds' typar leaves carry them.
-    member val GenericFnSchemes = BoundVarTable<FrozenConstraint list>() with get
+    member val GenericFnSchemes = BoundVarTable<EqSet<FrozenConstraint>>() with get
     /// How the SOURCE writes each bound variable this file introduces: the identifier and where.
     /// Recorded at the mint: once a body is copied elsewhere its tokens spell the CALL site.
     member val BoundVarNames = BoundVarTable<BoundVarIdent>() with get

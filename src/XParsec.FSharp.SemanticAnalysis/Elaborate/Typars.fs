@@ -40,6 +40,26 @@ module internal ElaborateTypars =
                 | _ -> ()
         ]
 
+    /// The bounds the store holds on `root`, indexed `i`; a `Coercion` target stays
+    /// `TyVar`-rooted for the deferred cut.
+    let private boundsAt (store: TypeStore) (i: int) (root: TyVarId) : TyparConstraintG<SemType> list =
+        [
+            for sc in store.Constraints.Items(UnionFind.find store root) do
+                match TyparConstraint.ofSemantic i id sc.Kind with
+                | ValueSome c -> c
+                | ValueNone -> ()
+        ]
+
+    /// The bounds on each typar of `env`, at the index its `TyTypar` marker carries.
+    let boundsOfEnv (store: TypeStore) (env: (TyVarId * SemType) list) : EqSet<TyparConstraintG<SemType>> =
+        EqSet.ofSeq
+            [
+                for (root, target) in env do
+                    match target with
+                    | TyTypar(_, i) -> yield! boundsAt store i root
+                    | _ -> ()
+            ]
+
     /// Quantify a module-`let`'s free type parameters into `TyTypar(Method, i)` in the F#
     /// canonical order: `declared` typars first in source order (`<'b,'a>` stays `'b,'a`),
     /// then the remaining free roots by first appearance, then the constraint-only typars.
@@ -141,11 +161,11 @@ module internal ElaborateTypars =
     /// (declaring axis) OR the member itself is generic (method axis); else leave it as is.
     let mkMemberElaborator
         (selfTy: SemType)
-        (declTypars: string list)
+        (declTypars: EqArray<string>)
         (env: ResizeArray<TyVarId * SemType>)
         : TTypeMember -> TTypeMember =
         fun m ->
-            if List.isEmpty declTypars && m.MethodTypeParams.Length = 0 then
+            if declTypars.Length = 0 && m.MethodTypeParams.Length = 0 then
                 m
             else
                 let m, methodMarkers = elaborateMember selfTy m

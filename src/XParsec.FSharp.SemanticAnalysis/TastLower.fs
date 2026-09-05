@@ -92,11 +92,19 @@ module TastLower =
     /// whose `ci` is already solved, `tryWitness` reads that type's actual impl of
     /// `target`'s interface, and `target`'s typars are recovered from the witness.
     let solvePhantomTypars
-        (constraints: FrozenConstraint list)
+        (constraints: EqSet<FrozenConstraint>)
         (tryWitness: FrozenType -> TypeKey -> EqArray<FrozenType> voption)
         (instArr: FrozenType voption[])
         : unit =
-        if not (List.isEmpty constraints) then
+        let coercions =
+            [
+                for c in constraints do
+                    match TyparConstraint.tryCoercion c with
+                    | ValueSome ct -> ct
+                    | ValueNone -> ()
+            ]
+
+        if not (List.isEmpty coercions) then
             // A witness OVERRIDES an already-recovered value at these indices: a typar in
             // both a bound and the result can be stale in the result occurrence, while the
             // witness reads it off the concrete impl.
@@ -107,40 +115,37 @@ module TastLower =
                 | FTTypar(TyparAxis.Method, i) -> boundMentioned.Add i |> ignore
                 | t -> FrozenType.iterChildren mention t
 
-            for c in constraints do
-                match c with
-                | FrozenConstraint.Coercion(_, target) -> mention target
+            for (_, target) in coercions do
+                mention target
 
             let mutable changed = true
 
             while changed do
                 changed <- false
 
-                for c in constraints do
-                    match c with
-                    | FrozenConstraint.Coercion(ci, target) ->
-                        if ci >= 0 && ci < instArr.Length then
-                            match instArr.[ci], target with
-                            | ValueSome instTy, FTClass(ifaceKey, _) ->
-                                match tryWitness instTy ifaceKey with
-                                | ValueSome witnessArgs ->
-                                    let holes =
-                                        matchInstantiationPartial
-                                            instArr.Length
-                                            [ target ]
-                                            [ FTClass(ifaceKey, witnessArgs) ]
+                for (ci, target) in coercions do
+                    if ci >= 0 && ci < instArr.Length then
+                        match instArr.[ci], target with
+                        | ValueSome instTy, FTClass(ifaceKey, _) ->
+                            match tryWitness instTy ifaceKey with
+                            | ValueSome witnessArgs ->
+                                let holes =
+                                    matchInstantiationPartial
+                                        instArr.Length
+                                        [ target ]
+                                        [ FTClass(ifaceKey, witnessArgs) ]
 
-                                    for j in 0 .. instArr.Length - 1 do
-                                        match holes.[j] with
-                                        | ValueSome t when
-                                            instArr.[j] <> ValueSome t
-                                            && (instArr.[j] = ValueNone || boundMentioned.Contains j)
-                                            ->
-                                            instArr.[j] <- ValueSome t
-                                            changed <- true
-                                        | _ -> ()
-                                | ValueNone -> ()
-                            | _ -> ()
+                                for j in 0 .. instArr.Length - 1 do
+                                    match holes.[j] with
+                                    | ValueSome t when
+                                        instArr.[j] <> ValueSome t
+                                        && (instArr.[j] = ValueNone || boundMentioned.Contains j)
+                                        ->
+                                        instArr.[j] <- ValueSome t
+                                        changed <- true
+                                    | _ -> ()
+                            | ValueNone -> ()
+                        | _ -> ()
 
     type ArgGroup = TastAccessor.ArgGroup
     type ValRepr = TastAccessor.ValRepr

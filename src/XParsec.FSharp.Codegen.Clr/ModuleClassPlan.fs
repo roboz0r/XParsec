@@ -72,7 +72,7 @@ module ModuleClassPlan =
         (moduleMembers: Map<BoundVarId, ModuleBindingInfo>)
         // Forwarded to populate `StaticFn.Constraints`, which drives the call-site
         // phantom-typar solve; the emitted arity is re-derived independently below.
-        (genericFnSchemes: Map<BoundVarId, FrozenConstraint list>)
+        (genericFnSchemes: Map<BoundVarId, EqSet<FrozenConstraint>>)
         (programClass: Emit.ModuleClassKey)
         (refStructKeys: HashSet<TypeKey>)
         (lowered0: TastAccessor.DeclId list)

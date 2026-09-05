@@ -194,6 +194,7 @@ module FrozenCodecDecls =
         writeExprPoolId w m.Body
         writeTypeRef w m.ReturnTy
         writeMethodTypeParams w m.MethodTypeParams
+        writeEqSetWith w writeFrozenConstraint m.MethodTyparConstraints
         writeTAttributes w m.Attributes
 
     // Each `interfaces` entry pairs a resolved interface type with its typed member
@@ -235,6 +236,7 @@ module FrozenCodecDecls =
         let body = readExprPoolId r
         let returnTy = readTypeRef r
         let methodTypeParams = readMethodTypeParams r
+        let methodTyparConstraints = readEqSetWith r readFrozenConstraint
         let attributes = readTAttributes r
 
         {
@@ -251,6 +253,7 @@ module FrozenCodecDecls =
             Body = body
             ReturnTy = returnTy
             MethodTypeParams = methodTypeParams
+            MethodTyparConstraints = methodTyparConstraints
             Attributes = attributes
         }
 
@@ -461,6 +464,7 @@ module FrozenCodecDecls =
         w.Write td.Name
         writeTypeKeyRef w td.TypeKey
         writeTypeParams w td.TypeParams
+        writeEqSetWith w writeFrozenConstraint td.TyparConstraints
         writeTypeKind w td.Kind
         writeTAttributes w td.Attributes
 
@@ -568,6 +572,7 @@ module FrozenCodecDecls =
         let name = r.ReadString()
         let typeKey = readTypeKeyRef r
         let typeParams = readTypeParams r
+        let typarConstraints = readEqSetWith r readFrozenConstraint
         let kind = readTypeKind r
         let attributes = readTAttributes r
 
@@ -575,6 +580,7 @@ module FrozenCodecDecls =
             Name = name
             TypeKey = typeKey
             TypeParams = typeParams
+            TyparConstraints = typarConstraints
             Kind = kind
             Attributes = attributes
         }

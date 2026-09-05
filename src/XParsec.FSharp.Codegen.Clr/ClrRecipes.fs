@@ -292,7 +292,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             let callHandleOf (callBase: EntityHandle) =
                 if methodTyparArity = 0 then
                     callBase
-                elif List.isEmpty openSig.Constraints then
+                elif openSig.Constraints.IsEmpty then
                     // Match the open template's `FTTypar(Method, i)` against the call's concrete
                     // type, recovering each method arg by index. No constraint typars here, so
                     // every method typar is signature-reachable.

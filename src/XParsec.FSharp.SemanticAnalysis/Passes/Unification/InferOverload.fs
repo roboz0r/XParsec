@@ -197,7 +197,7 @@ module UnificationInferOverload =
                         c.Params)
             )
 
-        // A generic candidate's OWN where-constraints (`ExternalConstraint.Trait`/`Coercion`)
+        // A generic candidate's OWN where-constraints (`ExternalConstraint.Bound`)
         // are NOT verified here: they are stamped on the fresh TyVars at the commit seam and
         // fire on the first `Link`, so a violated bound surfaces as a commit error instead.
         match filterTier false with

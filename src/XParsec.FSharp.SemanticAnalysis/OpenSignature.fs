@@ -10,7 +10,7 @@ module OpenSignature =
             /// occurs only in a `Coercion` bound (the enumerator `'E` in
             /// `'S :> IStructSeq<'T,'E>`), so it matches the producer's emitted arity.
             MethodTyparArity: int
-            Constraints: FrozenConstraint list
+            Constraints: EqSet<FrozenConstraint>
         }
 
     /// Projects a symbol's contract scheme onto the method axis, `Declaring i ↦ Method i`
@@ -19,12 +19,15 @@ module OpenSignature =
         let toMethodAxis = FrozenTypeBridge.reaxisTo TyparAxis.Method
 
         let constraints =
-            [
-                for c in sym.Constraints do
-                    match c with
-                    | ExternalConstraint.Coercion(i, target) -> FrozenConstraint.Coercion(i, toMethodAxis target)
-                    | _ -> ()
-            ]
+            EqSet.ofSeq
+                [
+                    for c in sym.Constraints do
+                        match c with
+                        | ExternalConstraint.Bound b -> TyparConstraint.map toMethodAxis b
+                        // Resolved during inference; neither has a metadata encoding.
+                        | ExternalConstraint.MemberTrait _
+                        | ExternalConstraint.Default _ -> ()
+                ]
 
         {
             Signature = toMethodAxis sym.Scheme

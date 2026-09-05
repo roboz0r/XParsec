@@ -357,21 +357,37 @@ module FrozenCodecTypes =
             ResultTyparPos = resultTyparPos
         }
 
-    /// A frozen typar bound. The `target` is written through `writeTypeRef`.
+    /// A frozen typar bound: the typar index, a kind tag, then a `Coercion`'s `target`
+    /// through `writeTypeRef`.
     let writeFrozenConstraint (w: FrozenWriter) (c: FrozenConstraint) =
-        match c with
-        | FrozenConstraint.Coercion(typarIndex, target) ->
+        w.Write c.TyparIndex
+
+        match c.Kind with
+        | TyparConstraintKindG.Coercion target ->
             w.Write 0uy
-            w.Write typarIndex
             writeTypeRef w target
+        | TyparConstraintKindG.Equality -> w.Write 1uy
+        | TyparConstraintKindG.Comparison -> w.Write 2uy
+        | TyparConstraintKindG.Struct -> w.Write 3uy
+        | TyparConstraintKindG.ReferenceType -> w.Write 4uy
+        | TyparConstraintKindG.Nullness -> w.Write 5uy
+        | TyparConstraintKindG.NotNull -> w.Write 6uy
 
     let readFrozenConstraint (r: FrozenReader) : FrozenConstraint =
-        match r.ReadByte() with
-        | 0uy ->
-            let typarIndex = r.ReadInt32()
-            let target = readTypeRef r
-            FrozenConstraint.Coercion(typarIndex, target)
-        | b -> failwithf "FrozenCodec: unknown FrozenConstraint tag %d" b
+        let typarIndex = r.ReadInt32()
+
+        let kind =
+            match r.ReadByte() with
+            | 0uy -> TyparConstraintKindG.Coercion(readTypeRef r)
+            | 1uy -> TyparConstraintKindG.Equality
+            | 2uy -> TyparConstraintKindG.Comparison
+            | 3uy -> TyparConstraintKindG.Struct
+            | 4uy -> TyparConstraintKindG.ReferenceType
+            | 5uy -> TyparConstraintKindG.Nullness
+            | 6uy -> TyparConstraintKindG.NotNull
+            | b -> failwithf "FrozenCodec: unknown FrozenConstraint tag %d" b
+
+        { TyparIndex = typarIndex; Kind = kind }
 
     let writeModuleBindingInfo (w: FrozenWriter) (m: ModuleBindingInfo) =
         writeSymbolRef w m.Key
@@ -663,6 +679,7 @@ module FrozenCodecTypes =
     let writeAbstractMethod (w: FrozenWriter) (m: Frozen.TAbstractMethod) =
         w.Write m.Name
         writeStringArray w m.MethodTypeParams
+        writeEqSetWith w writeFrozenConstraint m.MethodTyparConstraints
         writeTypeRef w m.Signature
         writeEqArrayWith w writeStringVOption m.ParamNames
         writeTMemberKind w m.Kind
@@ -671,6 +688,7 @@ module FrozenCodecTypes =
     let readAbstractMethod (r: FrozenReader) : Frozen.TAbstractMethod =
         let name = r.ReadString()
         let methodTypeParams = readStringArray r
+        let methodTyparConstraints = readEqSetWith r readFrozenConstraint
         let signature = readTypeRef r
         let paramNames = readEqArrayWith r readStringVOption
         let kind = readTMemberKind r
@@ -679,6 +697,7 @@ module FrozenCodecTypes =
         {
             Name = name
             MethodTypeParams = methodTypeParams
+            MethodTyparConstraints = methodTyparConstraints
             Signature = signature
             ParamNames = paramNames
             Kind = kind

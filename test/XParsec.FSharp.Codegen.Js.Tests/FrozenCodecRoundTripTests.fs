@@ -107,8 +107,9 @@ let private collect () : Collected =
 
         for KeyValue(_, constraints) in file.GenericFnSchemes do
             for c in constraints do
-                match c with
-                | FrozenConstraint.Coercion(_, target) -> visitFt target
+                match TyparConstraint.tryCoercion c with
+                | ValueSome(_, target) -> visitFt target
+                | ValueNone -> ()
 
         // No `BindingValReprs` pass: a binding's source arity is a PROJECTION of its lambda
         // chain derived off the columns, so every type and slot it references is already reached

@@ -471,9 +471,9 @@ type CodegenOpenSignature =
         /// The producer's SOURCE parameter grouping: the curried `Signature` alone can't
         /// tell a group `f (x,y)` from a tuple param `f (t:int*int)`.
         ValRepr: TastAccessor.ValRepr voption
-        /// The symbol's `when 'a :> <ty>` bounds over the method-typar axis, letting a
+        /// The symbol's typar bounds over the method-typar axis. A `Coercion` bound lets a
         /// phantom slot be recovered from the constrained source's interface witness.
-        Constraints: FrozenConstraint list
+        Constraints: EqSet<FrozenConstraint>
     }
 
 /// The CODEGEN-facing view: only what emission needs to mint references, never the
@@ -741,14 +741,14 @@ module ExternalSymbols =
             // so diagnostics attribute the constraint to the use site.
             for c in constraints do
                 match c with
-                | ExternalConstraint.Trait(i, kind) ->
+                | ExternalConstraint.Bound b ->
                     let cstr: SemanticConstraint =
                         {
-                            Kind = kind
+                            Kind = TyparConstraintKind.toSemantic (fun target -> inst target fresh) b.Kind
                             DeclKey = NodeKey.ofSource 0 NodeKind.Unknown
                         }
 
-                    store.Constraints.Prepend(UnionFind.find store freshTvs.[i], cstr)
+                    store.Constraints.Prepend(UnionFind.find store freshTvs.[b.TyparIndex], cstr)
                 | _ -> ()
 
             // Appended, not prepended: generalisation takes the first target in list order
@@ -772,18 +772,6 @@ module ExternalSymbols =
 
                     for i in idxs do
                         store.Srtp.Prepend(UnionFind.find store freshTvs.[i], sig_)
-                | _ -> ()
-
-            for c in constraints do
-                match c with
-                | ExternalConstraint.Coercion(i, target) ->
-                    let cstr: SemanticConstraint =
-                        {
-                            Kind = SemanticConstraintKind.Coercion(inst target fresh)
-                            DeclKey = NodeKey.ofSource 0 NodeKind.Unknown
-                        }
-
-                    store.Constraints.Prepend(UnionFind.find store freshTvs.[i], cstr)
                 | _ -> ()
 
             inst scheme fresh

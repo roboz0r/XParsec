@@ -149,7 +149,8 @@ module internal ElaborateMembers =
             /// `ValueNone` for a type with no `inherit`; a static member drops it regardless.
             BaseKey: BoundVarKey voption
             LowerBody: MemberSite -> Expr<SyntaxToken> -> TExpr
-            MethodTypeParams: MemberSite -> EqArray<string * SemType>
+            /// The member's own typars and the bounds on them, on the method axis.
+            MethodTypeParams: MemberSite -> EqArray<string * SemType> * EqSet<TyparConstraintG<SemType>>
         }
 
     /// Translate one member element into its `TTypeMember`s. The declaring type supplies
@@ -195,6 +196,12 @@ module internal ElaborateMembers =
                         IsStatic = isStatic
                     }
 
+                let methodTypeParams, methodTyparConstraints =
+                    match decl.Defn with
+                    // `ValueNone` is an auto-property; only a `Defn`-backed member can be generic.
+                    | ValueNone -> EqArray.empty, EqSet.empty
+                    | ValueSome _ -> declaring.MethodTypeParams site
+
                 {
                     Name = decl.Name
                     IsStatic = isStatic
@@ -211,11 +218,8 @@ module internal ElaborateMembers =
                         | ValueNone -> EqArray.empty
                     Body = declaring.LowerBody site decl.Body
                     ReturnTy = typeOfKey ctx (CstKeys.ofExpr decl.Body)
-                    MethodTypeParams =
-                        match decl.Defn with
-                        // An auto-property never carries its own generic params.
-                        | ValueNone -> EqArray.empty
-                        | ValueSome _ -> declaring.MethodTypeParams site
+                    MethodTypeParams = methodTypeParams
+                    MethodTyparConstraints = methodTyparConstraints
                     Attributes = attributes
                 }
             )
@@ -230,7 +234,7 @@ module internal ElaborateMembers =
             ThisTy = host.MkSelfType EqArray.empty
             BaseKey = ValueNone
             LowerBody = fun _ e -> translateExpr ctx e
-            MethodTypeParams = fun _ -> EqArray.empty
+            MethodTypeParams = fun _ -> EqArray.empty, EqSet.empty
         }
 
     /// Surface a union/record host's augmentation members and its resolved `interface …

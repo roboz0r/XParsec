@@ -234,6 +234,7 @@ module TastConvert =
             Body = fBody m.Body
             ReturnTy = fTy m.ReturnTy
             MethodTypeParams = EqArray.map (fun (n, ty) -> n, fTy ty) m.MethodTypeParams
+            MethodTyparConstraints = EqSet.map (TyparConstraint.map fTy) m.MethodTyparConstraints
             Attributes = m.Attributes
         }
 
@@ -291,6 +292,7 @@ module TastConvert =
         {
             Name = am.Name
             MethodTypeParams = am.MethodTypeParams
+            MethodTyparConstraints = EqSet.map (TyparConstraint.map f) am.MethodTyparConstraints
             Signature = f am.Signature
             ParamNames = am.ParamNames
             Kind = am.Kind
@@ -356,6 +358,7 @@ module TastConvert =
             Name = td.Name
             TypeKey = td.TypeKey
             TypeParams = td.TypeParams
+            TyparConstraints = EqSet.map (TyparConstraint.map m.Ty) td.TyparConstraints
             Kind = kind m td.Kind
             Attributes = td.Attributes
         }

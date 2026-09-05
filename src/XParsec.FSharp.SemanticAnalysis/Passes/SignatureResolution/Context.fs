@@ -230,25 +230,23 @@ module SignatureResolutionContext =
         let target (t: Type<SyntaxToken>) : FrozenType =
             freezeOver ctx env (translateType ctx t)
 
-        let trait' (t: Typar<SyntaxToken>) (kind: SemanticConstraintKind) =
+        let bound (t: Typar<SyntaxToken>) (kind: TyparConstraintKindG<FrozenType>) =
             match indexOf t with
-            | ValueSome i -> [ ExternalConstraint.Trait(i, kind) ]
+            | ValueSome i -> [ ExternalConstraint.Bound { TyparIndex = i; Kind = kind } ]
             | ValueNone -> []
 
         [
             for clause in clauses do
                 for c in clause.Constraints do
                     match c with
-                    | Constraint.Equality(typar = t) -> yield! trait' t SemanticConstraintKind.Equality
-                    | Constraint.Comparison(typar = t) -> yield! trait' t SemanticConstraintKind.Comparison
-                    | Constraint.Struct(typar = t) -> yield! trait' t SemanticConstraintKind.Struct
-                    | Constraint.ReferenceType(typar = t) -> yield! trait' t SemanticConstraintKind.ReferenceType
-                    | Constraint.Nullness(typar = t) -> yield! trait' t SemanticConstraintKind.Nullness
-                    | Constraint.NotNull(typar = t) -> yield! trait' t SemanticConstraintKind.NotNull
+                    | Constraint.Equality(typar = t) -> yield! bound t TyparConstraintKindG.Equality
+                    | Constraint.Comparison(typar = t) -> yield! bound t TyparConstraintKindG.Comparison
+                    | Constraint.Struct(typar = t) -> yield! bound t TyparConstraintKindG.Struct
+                    | Constraint.ReferenceType(typar = t) -> yield! bound t TyparConstraintKindG.ReferenceType
+                    | Constraint.Nullness(typar = t) -> yield! bound t TyparConstraintKindG.Nullness
+                    | Constraint.NotNull(typar = t) -> yield! bound t TyparConstraintKindG.NotNull
                     | Constraint.Coercion(typar = t; typ = tgt) ->
-                        match indexOf t with
-                        | ValueSome i -> yield ExternalConstraint.Coercion(i, target tgt)
-                        | ValueNone -> ()
+                        yield! bound t (TyparConstraintKindG.Coercion(target tgt))
                     | Constraint.Default(typar = t; typ = tgt) ->
                         match indexOf t with
                         | ValueSome i -> yield ExternalConstraint.Default(i, target tgt)

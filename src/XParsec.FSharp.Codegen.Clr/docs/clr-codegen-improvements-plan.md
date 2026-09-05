@@ -281,20 +281,65 @@ decompile of an `fsc` output is the oracle:
 
 **Fix, staged.**
 
-1. Widen `FrozenConstraint` to the kinds above, and carry them through `Freeze` and the pool
-   codecs. The codec change is a format change, so it lands alone.
-2. Flag bits on the existing `GenericParam` row: `struct`, `not struct`, `new()`. No new table.
-3. `GenericParamConstraint` rows, which needs the table added to the assembler with its row-order
+1. Widen `FrozenConstraint` to the kinds the front end already checks, and carry them through
+   `Freeze` and the pool codecs. The codec change is a format change, so it lands alone.
+2. Add `new()`, `unmanaged`, `enum<'u>`, `delegate<_,_>` and the SRTP member trait to
+   `SemanticConstraintKind` and `TyparConstraintKindG`, with the front-end check for each.
+   Today the CST models them and both `Translate.translateConstraints` and
+   `SignatureResolution.publishedConstraints` drop them, so no later stage can see them. Another format change, so it lands alone too.
+3. Flag bits on the existing `GenericParam` row: `struct`, `not struct`, `new()`. No new table.
+4. `GenericParamConstraint` rows, which needs the table added to the assembler with its row-order
    prediction — the same prefix-sum discipline as every other table here.
-4. Import the same constraints in `ExternalSymbols` so a foreign generic's constraint is
+5. Import the same constraints in `ExternalSymbols` so a foreign generic's constraint is
    enforced at our use sites.
-5. `unmanaged` and the nullability attributes, in that order, each with its own scope.
+6. `unmanaged` and the nullability attributes, in that order, each with its own scope.
 
 **Verify.** Assert `GenericParam` flags and `GenericParamConstraint` rows through the
 `MetadataStructure` helpers, per this project's `CLAUDE.md` preference for metadata over
 reflection. The `typar-*-violated.fs` programs already pin front-end rejection and must keep
 their exact diagnostics. The goldens re-render into `where T0 : struct`, which is the readable
-check that stage 2 and 3 agree.
+check that stage 3 and 4 agree.
+
+**Stage 1 landed.** A bound is `TyparConstraintG<'ty>` in `SideTypes`: a `TyparIndex` on the
+owner's axis and a `Kind`, where `TyparConstraintKindG<'ty>` is a DU over every kind the front
+end checks today: `Equality`, `Comparison`, `Struct`, `ReferenceType`, `Nullness`, `NotNull` and
+`Coercion of 'ty`. `FrozenConstraint` is the alias at `FrozenType`. `TyparConstraintKind.ofSemantic`
+and `toSemantic` are the two projections to and from `SemanticConstraintKind`; `OneOf` has no
+bound form. `ExternalConstraint.Bound` carries the same record for a published signature, so the
+former `Trait` and `Coercion` cases, and the `SemanticConstraintKind` a `Trait` smuggled, are
+gone.
+
+The bound is carried wherever a typar is declared, and every carrier reads it the same way:
+`ElaborateTypars.boundsOfEnv` reads the store at each root of a `(root, TyTypar(axis, i))` env,
+so the bound sits at the index the env already assigned. An inferred bound rides along with a
+declared one:
+
+- A module binding's, on `GenericFnSchemes`, off the binding's method quant env. `let f x y = x = y`
+  freezes `Equality` at index 0 with no `when` clause written.
+- A type declaration's, on the new `TTypeDeclG.TyparConstraints` (declaring axis), off the decl
+  env. A bound a member body infers onto a class typar lands here.
+- A member's, on `TTypeMemberG.MethodTyparConstraints` (method axis), off
+  `GeneralizedTypars.methodEnv` of its `CanonicalTypars`, beside `MethodTypeParams`.
+- An abstract slot's, on `TAbstractMethodG.MethodTyparConstraints`, the same way.
+  `Unification.linkAbstractSlot` now translates the signature's `when` clause under the slot's
+  typar scope, which it had skipped; without that the slot's bound never reached the store.
+
+The three decl fields are `'ty`-generic and go through the deferred `freezeTypars` cut with
+every other type under the declaration, mapped by `TastConvert`. Every bound collection,
+including `GenericFnSchemes` and `CodegenOpenSignature.Constraints`, is an `EqSet`: two
+declarations spelling the same bounds in a different order are equal, a repeated bound
+collapses, and stored order is source order, so the rows stage 4 emits stay deterministic.
+`FrozenCodec.FormatVersion` is 4: the constraint payload gained a kind tag, and the three decl
+payloads gained a constraint set. No store change was needed: `TypeStore.Constraints` already
+keys a bound by union-find root, joins the two sides' bounds on a var-var union, and discharges
+a bound when the root links to a concrete type, so a read at the root after inference is the
+propagated set.
+
+`FrozenConstraintTests` pins each kind on a binding, the inferred and call-propagated forms, a
+record's declared bound, a class typar's body-inferred bound, a member's declared and inferred
+bounds, an interface slot's bound, and the blob round trip of all of them. Stage 2, the kinds
+the front end does not yet check, and stages 3 to 6, the metadata emission and import, are
+unchanged.
 
 ## A4. An inline splice's temporary becomes a public static field — DONE
 
@@ -608,8 +653,8 @@ A1 and A2 have landed. A2 stage 1 moved assembler row counts without disturbing 
 predictions, and stages 2, 3 and 4 moved none, so the row-order ground is clear for whatever
 runs next.
 
-A3 stage 1 widens a frozen type and its codec, so it wants a commit of its own before anything
-depends on it.
+A3 stage 1 widened a frozen type and its codec, and has landed on its own. Stage 2 is the next
+format change, and stages 3 to 6 build on whatever version it leaves.
 
 B1 has landed, and with it A4's second half. B2 has landed; it moved every golden's IL and no
 table row. A4's first half has now landed too, moving no golden and no table row, so A3 is the

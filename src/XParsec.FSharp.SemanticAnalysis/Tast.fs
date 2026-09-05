@@ -78,7 +78,7 @@ type TastFileG<'ty, 'tok, 'id when 'id: comparison> =
         /// bound variable because a lambda EXPRESSION is not a definition site.
         FunVerdicts: Map<LambdaKey, FunVerdict>
         /// A project-local generalised binding's bound variable → its frozen typar bounds.
-        GenericFnSchemes: Map<BoundVarKeyG<'id>, FrozenConstraint list>
+        GenericFnSchemes: Map<BoundVarKeyG<'id>, EqSet<FrozenConstraint>>
         /// The file's INLINE VOCABULARY: every `let inline` binding and every
         /// nullary-intrinsic value alias (`let undefined = (# "undefined" #)`), as the
         /// UNEXPANDED body, a different tree from the decl of the same name. Empty pre-freeze.

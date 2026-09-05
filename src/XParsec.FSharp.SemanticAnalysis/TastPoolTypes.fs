@@ -202,7 +202,7 @@ type FrozenPools =
         /// rows may share a verdict, because every copy of a spliced inline body keeps the
         /// definition-site token the verdict was filed under.
         FunVerdicts: DenseTable<ExprPoolId, FunVerdict>
-        GenericFnSchemes: DenseTable<BoundVarId, FrozenConstraint list>
+        GenericFnSchemes: DenseTable<BoundVarId, EqSet<FrozenConstraint>>
         BindingValReprs: DenseTable<BoundVarId, PooledValRepr>
         /// A binding's typar-axis width. Most bound variables are parameters and locals,
         /// so most slots are `ValueNone`.
