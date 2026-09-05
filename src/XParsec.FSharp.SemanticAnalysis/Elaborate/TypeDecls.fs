@@ -544,33 +544,51 @@ module internal ElaborateTypeDecls =
                 List.ofSeq env
             )
 
-    /// Surface a transparent `type t = body` as a `TDecl.Type`. The RHS comes from the
-    /// registry entry the group close fills, so the decl and every use site expand the one
-    /// resolved body. `None` for a cyclic abbreviation, whose fill already reported.
-    let private tryAbbrevType
-        (ctx: PassContext)
-        (name: string)
-        (arity: int)
-        : (TDecl * (TyVarId * SemType) list) option =
-        match TypeRegistry.tryAbbrevByKey ctx.Types (ctx.DeclaredTypeKey(name, arity)) with
+    /// Surface a transparent `type t = body` as a `TDecl.Type` over the one resolved body
+    /// every use site expands. `None` for a broken alias, whose declaration already reported.
+    let private tryAbbrevType (ctx: PassContext) (claim: TypeIdentity) : (TDecl * (TyVarId * SemType) list) option =
+        let info = TypeRegistry.abbrevOfClaim ctx.Types claim
+
+        match info.TryFilled with
         | ValueNone -> None
-        | ValueSome info ->
-            match info.State with
-            | FillState.NotFilled
-            | FillState.InProgress
-            | FillState.Broken -> None
-            | FillState.Filled body ->
-                Some(
-                    mkTypeDecl
-                        name
-                        info.TypeKey
-                        info.TypeParams
-                        // A transparent alias carries no attributes of its own: every
-                        // verdict is the body's.
-                        EqArray.empty
-                        (TTypeKind.Abbrev body),
-                    mkDeclTyparEnv ctx.Store (DeclaredTypar.protos info.TypeParams)
-                )
+        | ValueSome body ->
+            Some(
+                mkTypeDecl
+                    claim.Name
+                    info.TypeKey
+                    info.TypeParams
+                    // A transparent alias carries no attributes of its own: every
+                    // verdict is the body's.
+                    EqArray.empty
+                    (TTypeKind.Abbrev body),
+                mkDeclTyparEnv ctx.Store (DeclaredTypar.protos info.TypeParams)
+            )
+
+    /// Surface a `[<Measure>]` declaration as a `TDecl.Type` carrying its term. `None` for a
+    /// broken measure, whose declaration already reported.
+    let private tryMeasureType (ctx: PassContext) (claim: TypeIdentity) : (TDecl * (TyVarId * SemType) list) option =
+        let info = TypeRegistry.measureOfClaim ctx.Types claim
+
+        match info.TryFilled with
+        | ValueNone -> None
+        | ValueSome term ->
+            Some(
+                mkTypeDecl
+                    claim.Name
+                    info.TypeKey
+                    EqArray.empty
+                    // A measure stores no attributes of its own.
+                    EqArray.empty
+                    (TTypeKind.Measure term),
+                []
+            )
+
+    /// The identity NameResolution claimed for the declaration `tn` in this file. `ValueNone`
+    /// for an unclaimed header, such as a dotted name.
+    let private claimOfTypeName (ctx: PassContext) (tn: TypeName<SyntaxToken>) : TypeIdentity voption =
+        TypeRegistry.tryIdentityByKey
+            ctx.Types
+            (ctx.DeclaredTypeKey(typeNameSimple ctx tn, NameResolutionTypeRegistration.arityOfTypeName ctx tn))
 
     /// An INTERNAL artifact for `type X = (# … #) with member …`, consumed only by
     /// member-inline lifting and NEVER emitted. Each member's `ThisTy` is the abbrev's
@@ -650,19 +668,34 @@ module internal ElaborateTypeDecls =
             tryRecordType ctx (typeNameSimple ctx tn) (typeNameDeclKey ctx tn) ext
         | TypeDefn.Enum(typeName = tn) -> tryEnumType ctx (typeNameSimple ctx tn) (typeNameDeclKey ctx tn)
         // A transparent alias surfaces its resolved RHS; an inline intrinsic-abbrev has a
-        // host in `IntrinsicAbbrevHost` and surfaces its members instead (lift-only).
+        // host in `IntrinsicAbbrevHost` and surfaces its members instead (lift-only); a
+        // `[<Measure>]` declaration surfaces its term.
         | TypeDefn.Abbrev(typeName = tn; extensions = ext) ->
-            let name = typeNameSimple ctx tn
-
-            match tryIntrinsicAbbrevType ctx name ext with
-            | Some result -> Some result
-            | None -> tryAbbrevType ctx name (NameResolutionTypeRegistration.arityOfTypeName ctx tn)
+            match claimOfTypeName ctx tn with
+            | ValueNone -> None
+            | ValueSome claim ->
+                match claim.Kind with
+                | TypeDeclKind.IntrinsicBinding -> tryIntrinsicAbbrevType ctx claim.Name ext
+                | TypeDeclKind.Abbreviation -> tryAbbrevType ctx claim
+                | TypeDeclKind.Measure -> tryMeasureType ctx claim
+                // An earlier declaration of the same name holds this claim; it reported the
+                // duplicate and surfaces the type.
+                | TypeDeclKind.Record
+                | TypeDeclKind.Union
+                | TypeDeclKind.Enum
+                | TypeDeclKind.Class -> None
+        // A body-less `type m` claims a name only under `[<Measure>]`; any other claim at its
+        // key is an earlier declaration's.
+        | TypeDefn.AbstractType(typeName = tn) ->
+            match claimOfTypeName ctx tn with
+            | ValueSome claim when claim.Kind = TypeDeclKind.Measure -> tryMeasureType ctx claim
+            | ValueSome _
+            | ValueNone -> None
         // `type S = struct … end` and `type D = delegate of …` are dropped silently: neither
         // declaration form is elaborated yet. An extension augments a type declared elsewhere,
         // and the remaining forms come from recovery.
         | TypeDefn.Struct _
         | TypeDefn.Delegate _
         | TypeDefn.TypeExtension _
-        | TypeDefn.AbstractType _
         | TypeDefn.Missing
         | TypeDefn.SkipsTokens _ -> None

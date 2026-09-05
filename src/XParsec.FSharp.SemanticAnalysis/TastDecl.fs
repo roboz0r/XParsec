@@ -348,6 +348,10 @@ type TTypeKindG<'ty, 'tok, 'id, 'body> =
     /// declaration's own typars, and a use of the name expands to it. A backend emits nothing
     /// for this kind.
     | Abbrev of body: 'ty
+    /// A `[<Measure>]` declaration. `term` is the measure it stands for, over base-measure
+    /// atoms: a base measure's own atom, or an abbreviation's expanded body. A backend emits
+    /// nothing for this kind.
+    | Measure of term: MeasureTerm
 
 /// A declared type parameter as the frozen contract carries it.
 type TTypeParam =
@@ -394,6 +398,7 @@ type TTypeDeclG<'ty, 'tok, 'id, 'body> =
         | TTypeKindG.Class c -> TypeDefnKind.ofClass c.ValueKind.IsValueType
         | TTypeKindG.Enum _ -> TypeDefnKind.Enum
         | TTypeKindG.Abbrev _ -> TypeDefnKind.Abbrev
+        | TTypeKindG.Measure _ -> TypeDefnKind.Measure
         | TTypeKindG.Interface _ -> TypeDefnKind.Interface
 
     /// `[<RequireQualifiedAccess>]`, type-level so it covers records AND unions: a bare
@@ -426,7 +431,8 @@ module TTypeKindG =
         | TTypeKindG.Record r -> r.Members
         | TTypeKindG.Interface _
         | TTypeKindG.Enum _
-        | TTypeKindG.Abbrev _ -> EqArray.empty
+        | TTypeKindG.Abbrev _
+        | TTypeKindG.Measure _ -> EqArray.empty
 
     /// The `interface IFace with member …` bodies a type kind carries, flattened across
     /// every implemented interface. With `members`, every member body under a type decl.
@@ -443,7 +449,8 @@ module TTypeKindG =
         | TTypeKindG.Record r -> flatten r.Interfaces
         | TTypeKindG.Interface _
         | TTypeKindG.Enum _
-        | TTypeKindG.Abbrev _ -> Seq.empty
+        | TTypeKindG.Abbrev _
+        | TTypeKindG.Measure _ -> Seq.empty
 
 /// One projection per way a definition site comes to exist: a pattern introduces it, an
 /// expression introduces it with no pattern behind it, a declaration MINTS it because no
@@ -562,7 +569,8 @@ module BoundVarKey =
             | TTypeKindG.Union _
             | TTypeKindG.Record _
             | TTypeKindG.Enum _
-            | TTypeKindG.Abbrev _ -> ()
+            | TTypeKindG.Abbrev _
+            | TTypeKindG.Measure _ -> ()
         }
 
     /// Widen to the tree's own identity axis, for a lookup driven by a REFERENCE: a

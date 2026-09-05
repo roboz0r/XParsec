@@ -42,6 +42,8 @@ type TypeDefnKind =
     | Enum
     /// A `type X = Y` alias.
     | Abbrev
+    /// A `[<Measure>]` declaration.
+    | Measure
     /// A `[<Struct>]` or byref-like class shape.
     | StructClass
     | RefClass
@@ -87,6 +89,7 @@ module TypeDefnKind =
         | TypeDefnKind.Record
         | TypeDefnKind.Union
         | TypeDefnKind.Abbrev
+        | TypeDefnKind.Measure
         | TypeDefnKind.RefClass
         | TypeDefnKind.Interface -> false
 
@@ -113,6 +116,7 @@ module AttributeVerdicts =
             TypeDefnKind.StructUnion
             TypeDefnKind.Enum
             TypeDefnKind.Abbrev
+            TypeDefnKind.Measure
             TypeDefnKind.StructClass
             TypeDefnKind.RefClass
             TypeDefnKind.Interface

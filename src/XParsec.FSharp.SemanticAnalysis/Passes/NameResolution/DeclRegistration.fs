@@ -371,13 +371,13 @@ module NameResolutionDeclRegistration =
         (tn: TypeName<SyntaxToken>)
         (rhs: Type<SyntaxToken> voption)
         : unit =
-        // A measure-GENERIC declaration (`type Area<[<Measure>] 'u>`) is claimed at its arity,
-        // so a bare reference to it is FS0033 rather than a wrong term.
-        if arityOfTypeName ctx tn > 0 then
-            ctx.Report(id.DeclSite.Tok, Kind.NotYetSupported "a measure declaration with type parameters")
-
-        // Reports an unresolved header attribute; a measure stores no attributes of its own.
-        ctx.ResolveAttributes(Attributes.attributesOfTypeName tn) |> ignore
+        // A measure stores no attributes of its own.
+        Attributes.foldAndValidateTypeDefn
+            ctx
+            TypeDefnKind.Measure
+            id.DeclSite.Tok
+            (ctx.ResolveAttributes(Attributes.attributesOfTypeName tn))
+        |> ignore
 
         let body =
             match rhs with
@@ -397,4 +397,12 @@ module NameResolutionDeclRegistration =
 
                     ValueNone
 
-        TypeRegistry.registerMeasure ctx.Types (MeasureInfo(id.Name, id.DeclSite, id.Key, body))
+        let info = MeasureInfo(id.Name, id.DeclSite, id.Key, body)
+
+        // A measure-GENERIC declaration (`type Area<[<Measure>] 'u>`) is claimed at its arity,
+        // so a bare reference to it is FS0033. Its entry is `Broken` from registration.
+        if arityOfTypeName ctx tn > 0 then
+            ctx.Report(id.DeclSite.Tok, Kind.NotYetSupported "a measure declaration with type parameters")
+            info.State <- FillState.Broken
+
+        TypeRegistry.registerMeasure ctx.Types info

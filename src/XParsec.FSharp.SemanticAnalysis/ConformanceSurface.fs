@@ -41,7 +41,8 @@ module ConformanceSurface =
                     | TTypeKindG.Enum _ -> ValueSome Conformance.TypeKindFamily.Enum
                     | TTypeKindG.Interface _ -> ValueSome Conformance.TypeKindFamily.Interface
                     | TTypeKindG.Class _ -> ValueSome Conformance.TypeKindFamily.Class
-                    | TTypeKindG.Abbrev _ -> ValueNone
+                    | TTypeKindG.Abbrev _
+                    | TTypeKindG.Measure _ -> ValueNone
             | _ -> ()
 
         for KeyValue(canon, _) in frozen.Residue.IntrinsicBindings do
@@ -85,6 +86,7 @@ module ConformanceSurface =
         // refused at its declaration (`NotYetSupported`), and either form reports at first USE.
         | ExternalTypeShape.Unmodelled _ -> false
         | ExternalTypeShape.Abbrev _
+        | ExternalTypeShape.Measure _
         | ExternalTypeShape.Record _
         | ExternalTypeShape.Union _
         | ExternalTypeShape.Enum _

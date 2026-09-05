@@ -586,6 +586,18 @@ module TypeRegistry =
 
     let tryMeasureByKey (types: PassContextTypes) (key: TypeKey) : MeasureInfo voption = tryDict types.Measure key
 
+    /// The entry an `Abbreviation` claim registered.
+    let abbrevOfClaim (types: PassContextTypes) (claim: TypeIdentity) : AbbreviationInfo =
+        match tryDict types.Abbreviation claim.Key with
+        | ValueSome info -> info
+        | ValueNone -> failwithf "abbreviation claim '%s' has no registry entry" claim.Name
+
+    /// The entry a `Measure` claim registered.
+    let measureOfClaim (types: PassContextTypes) (claim: TypeIdentity) : MeasureInfo =
+        match tryDict types.Measure claim.Key with
+        | ValueSome info -> info
+        | ValueNone -> failwithf "measure claim '%s' has no registry entry" claim.Name
+
     /// Resolve an abbreviation by the `(name, arity)` a well-known identity SPELLS, rather
     /// than by that identity.
     let tryAbbrevSpelling (types: PassContextTypes) (useSite: UseSite) (spelling: TypeKey) : AbbreviationInfo voption =

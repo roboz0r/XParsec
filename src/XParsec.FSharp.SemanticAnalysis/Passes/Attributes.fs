@@ -55,7 +55,9 @@ module Attributes =
         match kind with
         | TypeDefnKind.Interface -> AttrTarget.Interface
         | TypeDefnKind.Enum -> AttrTarget.Enum
-        | TypeDefnKind.Abbrev -> AttrTarget.Abbreviation
+        // fsc admits an attribute on a measure at every type kind, as on an alias.
+        | TypeDefnKind.Abbrev
+        | TypeDefnKind.Measure -> AttrTarget.Abbreviation
         | TypeDefnKind.StructRecord
         | TypeDefnKind.StructUnion
         | TypeDefnKind.StructClass -> AttrTarget.Struct

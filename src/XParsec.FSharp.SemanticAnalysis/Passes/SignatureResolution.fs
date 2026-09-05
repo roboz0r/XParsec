@@ -49,6 +49,7 @@ module SignatureResolution =
         // opaque signature registers nothing but its claim, a reference needing the identity
         // alone.
         | SigDecl.Abbrev _
+        | SigDecl.Measure _
         | SigDecl.IntrinsicAbbrev _
         | SigDecl.Extern _
         | SigDecl.ClassLike _
@@ -196,19 +197,21 @@ module SignatureResolution =
     let private publishAbbrev (sctx: SigCtx) (id: TypeIdentity) : unit =
         let ctx = sctx.Pass
 
-        match TypeRegistry.tryAbbrevByKey ctx.Types id.Key with
+        let info = TypeRegistry.abbrevOfClaim ctx.Types id
+        let env = typarEnv ctx (TyparOwner.Type info.TypeParams)
+
+        let body =
+            match info.TryFilled with
+            | ValueSome ty -> freezeOver ctx env ty
+            | ValueNone -> ExternalSignature.unfreezable (sprintf "abbreviation '%s' has no body" id.Name)
+
+        publishShape sctx id.Key (ExternalTypeShape.Abbrev(DeclaredTypar.kinds info.TypeParams, body))
+
+    /// A broken measure publishes nothing; its declaration already reported.
+    let private publishMeasure (sctx: SigCtx) (id: TypeIdentity) : unit =
+        match (TypeRegistry.measureOfClaim sctx.Pass.Types id).TryFilled with
+        | ValueSome term -> publishShape sctx id.Key (ExternalTypeShape.Measure term)
         | ValueNone -> ()
-        | ValueSome info ->
-            let env = typarEnv ctx (TyparOwner.Type info.TypeParams)
-
-            let body =
-                match info.State with
-                | FillState.Filled ty -> freezeOver ctx env ty
-                | FillState.NotFilled
-                | FillState.InProgress
-                | FillState.Broken -> ExternalSignature.unfreezable (sprintf "abbreviation '%s' has no body" id.Name)
-
-            publishShape sctx id.Key (ExternalTypeShape.Abbrev(DeclaredTypar.kinds info.TypeParams, body))
 
     /// `type t = (# "…" #)` written in a SIGNATURE: the same primitive binding it is in an
     /// implementation, and registering its entry already filed the binding below.
@@ -555,6 +558,7 @@ module SignatureResolution =
         | SigDecl.ClassLike(typeName = tn; form = form; elements = elems) ->
             publishClassLike sctx id tn form (SigDecl.isInterfaceForm decl) elems
         | SigDecl.Opaque tn -> publishOpaque sctx id tn
+        | SigDecl.Measure _ -> publishMeasure sctx id
         // Claimed nothing, so it is not one of the identities this runs over; it published its
         // gap at claim time.
         | SigDecl.Delegate _
@@ -610,6 +614,7 @@ module SignatureResolution =
                 registerAbbreviationDecl ctx id tn rhs ext.IsSome
             | SigDecl.IntrinsicAbbrev(typeName = tn; kindTag = tag; instrParts = parts; extensions = ext) ->
                 registerIntrinsicBindingDecl ctx id tn tag parts ext.IsSome
+            | SigDecl.Measure(typeName = tn; rhs = rhs) -> registerMeasureDecl ctx id tn rhs
             | SigDecl.Record _
             | SigDecl.Union _
             | SigDecl.Enum _
@@ -622,15 +627,7 @@ module SignatureResolution =
         for struct (id, decl) in claims do
             registerSigDetail sctx id decl
 
-        // Group close: force every alias body, so one nothing referenced is still filled and
-        // a cyclic pair among them diagnoses here.
-        for struct (id, decl) in claims do
-            match decl with
-            | SigDecl.Abbrev _ ->
-                match TypeRegistry.tryAbbrevByKey ctx.Types id.Key with
-                | ValueSome info -> forceFill ctx info |> ignore
-                | ValueNone -> ()
-            | _ -> ()
+        forceGroupBodies ctx (seq { for struct (id, _) in claims -> id })
 
         for struct (id, decl) in claims do
             publishType sctx id decl
@@ -718,8 +715,8 @@ module SignatureResolution =
 
     // --- the walk -------------------------------------------------------------------
 
-    let private declsOf (TypeSignatures(first = first; rest = rest)) : SigDecl list =
-        [ yield sigDeclOf first; for (_, ts) in rest -> sigDeclOf ts ]
+    let private declsOf (ctx: PassContext) (TypeSignatures(first = first; rest = rest)) : SigDecl list =
+        [ yield sigDeclOf ctx first; for (_, ts) in rest -> sigDeclOf ctx ts ]
 
     /// Resolve one `.fsi` against the provider `ctx` carries, and hand back the surface it
     /// publishes. Diagnostics land on `ctx`, anchored in the signature's own text.
@@ -742,7 +739,7 @@ module SignatureResolution =
         for w in walked do
             match w.Elem with
             | ModuleSignatureElement.Type(typeSigs = typeSigs) ->
-                for decl in declsOf typeSigs do
+                for decl in declsOf ctx typeSigs do
                     noteNominalSigTypeName ctx decl
             | _ -> ()
 
@@ -757,7 +754,7 @@ module SignatureResolution =
 
             match w.Elem with
             | ModuleSignatureElement.Type(typeToken = kw; typeSigs = typeSigs) ->
-                let decls = declsOf typeSigs
+                let decls = declsOf ctx typeSigs
 
                 let placement = sigGroupPlacement w.RecScopeOffset kw decls
                 registerSigGroup sctx w.Containment placement decls

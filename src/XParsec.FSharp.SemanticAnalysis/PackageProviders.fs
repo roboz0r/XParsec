@@ -77,6 +77,7 @@ module PackageProviders =
                 | ExternalTypeShape.Union _
                 | ExternalTypeShape.Enum _
                 | ExternalTypeShape.Abbrev _
+                | ExternalTypeShape.Measure _
                 | ExternalTypeShape.Unmodelled _ -> yield SymbolKeyOps.typeMetaName entry.Key
                 | ExternalTypeShape.Intrinsic _
                 | ExternalTypeShape.IntrinsicInterface _ -> ()

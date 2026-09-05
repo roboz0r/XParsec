@@ -921,16 +921,6 @@ module NameResolutionMemberRegistration =
         for td in defs do
             rejectDetachedTypeExtension ctx td
 
-    /// Force every alias body in the group, leaving each in a terminal state. `forceFill` is
-    /// idempotent, so this reaches exactly the aliases nothing referenced (a cyclic pair among
-    /// them diagnoses here).
-    let private forceGroupAbbrevBodies (ctx: PassContext) (claims: ClaimedTypeDefn seq) : unit =
-        for claimed in claims do
-            if claimed.Identity.Kind = TypeDeclKind.Abbreviation then
-                match TypeRegistry.tryAbbrevByKey ctx.Types claimed.Identity.Key with
-                | ValueSome info -> forceFill ctx info |> ignore
-                | ValueNone -> ()
-
     /// Fill each class's `Base` slot, and return the group's classes.
     /// Requires every claim in the group to have registered its detail, because a parent is
     /// resolved against the referent's detail rather than its identity.
@@ -961,7 +951,7 @@ module NameResolutionMemberRegistration =
         registerGroupDetail ctx claims
         validateGroupInterfaces ctx defs
         rejectGroupDetachedExtensions ctx defs
-        forceGroupAbbrevBodies ctx claims
+        forceGroupBodies ctx (claims |> Seq.map (fun cl -> cl.Identity))
         let classes = fillGroupBaseTypes ctx claims
         checkGroupInheritanceCycles ctx classes
         checkGroupStructFieldCycles ctx (claims |> Seq.filter (fun cl -> isValueTypeDefn ctx cl.Defn))

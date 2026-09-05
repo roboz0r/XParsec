@@ -22,7 +22,8 @@ module NameResolutionTypeRefStamp =
             let verdict =
                 match resolveType ctx (ctx.UseSiteAt typeRef.Site.Key) written typeRef.TyparArity with
                 | TypeNameResolution.Type(ResolvedTypeRef.Local claim) -> TypeRefVerdict.LocalType claim
-                | TypeNameResolution.Type(ResolvedTypeRef.External(key, _)) -> TypeRefVerdict.ExternalType key
+                | TypeNameResolution.Type(ResolvedTypeRef.External(key, shape)) ->
+                    TypeRefVerdict.ExternalType(key, shape)
                 | TypeNameResolution.LocalAtOtherArity claim ->
                     ctx.Report(
                         typeRef.Site.Tok,

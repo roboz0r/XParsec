@@ -364,8 +364,8 @@ type FillState<'Body> =
     | NotFilled
     | InProgress
     | Filled of body: 'Body
-    /// Terminal without a body, after the declaration's cycle was reported; each use site
-    /// recovers on its own.
+    /// Terminal without a body, after the declaration reported (a cycle, or a form this
+    /// compiler declines); each use site recovers on its own.
     | Broken
 
 /// A declaration whose body is translated on first reference. `State` advances lazily, so
@@ -377,6 +377,14 @@ type FillableDecl<'Body>(name: string, declSite: NodeSite, key: TypeKey) =
     member val DeclSite = declSite
     member val TypeKey: TypeKey = key
     member val State: FillState<'Body> = FillState.NotFilled with get, set
+
+    /// The body once `Filled`; `ValueNone` in every other state.
+    member this.TryFilled: 'Body voption =
+        match this.State with
+        | FillState.Filled body -> ValueSome body
+        | FillState.NotFilled
+        | FillState.InProgress
+        | FillState.Broken -> ValueNone
 
 [<Sealed>]
 type AbbreviationInfo

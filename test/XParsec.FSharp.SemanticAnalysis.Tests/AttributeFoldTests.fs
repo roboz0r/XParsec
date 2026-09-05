@@ -548,6 +548,38 @@ let targetTests =
                     "no AttributeUsage defaults to AttributeTargets.All"
             }
 
+            // fsc checks a measure declaration as it checks an alias: any type-kind target
+            // passes, and a non-type target errors with the alias's element list.
+            test "a Struct-only attribute passes on a measure, a Method-only one errors" {
+                let pools =
+                    freezeFor (
+                        src
+                            [
+                                "[<AttributeUsage(AttributeTargets.Struct)>]"
+                                "type StructOnlyAttribute() ="
+                                "    member this.M() = 1"
+                                ""
+                                "[<AttributeUsage(AttributeTargets.Method)>]"
+                                "type MethodOnlyAttribute() ="
+                                "    member this.M() = 1"
+                                ""
+                                "[<Measure; StructOnly>]"
+                                "type m"
+                                ""
+                                "[<Measure; MethodOnly>]"
+                                "type s = m"
+                            ]
+                    )
+
+                match errorMessages (FrozenPools.blockingErrors pools) with
+                | [ onMeasure ] ->
+                    Expect.equal
+                        onMeasure
+                        "This attribute cannot be applied to class, struct, enum, interface, delegate. Valid targets are: method"
+                        "fsc's element list for a measure"
+                | other -> failtestf "expected the Method-only error alone, got %A" other
+            }
+
             test "a Class ||| Struct mask passes on a class and a struct record, errors on an interface" {
                 let pools =
                     freezeFor (

@@ -321,6 +321,7 @@ module FrozenSignature =
                 // The frozen RHS already carries the declaring typars on the `Declaring`
                 // axis, which is the axis a use site instantiates against.
                 | TTypeKindG.Abbrev body -> register (ExternalTypeShape.Abbrev(typars, body)) ValueNone
+                | TTypeKindG.Measure term -> register (ExternalTypeShape.Measure term) ValueNone
 
             | _ -> ()
 

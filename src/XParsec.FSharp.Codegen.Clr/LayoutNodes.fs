@@ -113,7 +113,8 @@ module internal LayoutNodes =
                         }
                 // A transparent alias: every use site already expanded to the body, so no
                 // type is emitted for the name.
-                | TTypeKindG.Abbrev _ -> ()
+                | TTypeKindG.Abbrev _
+                | TTypeKindG.Measure _ -> ()
             | _ -> ()
 
         {

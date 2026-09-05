@@ -31,6 +31,26 @@ module FrozenCodecTypes =
 
     let readTypeKeyRef (r: FrozenReader) : TypeKey = r.Types.[readTypeKeyId r]
 
+    /// A measure term as its `(base-measure key, exponent)` pairs.
+    let writeMeasureTerm (w: FrozenWriter) (m: MeasureTerm) =
+        writeListWith
+            w
+            (fun w (key, exponent) ->
+                writeTypeKeyRef w key
+                writeRational w exponent
+            )
+            m.Exponents
+
+    let readMeasureTerm (r: FrozenReader) : MeasureTerm =
+        readListWith
+            r
+            (fun r ->
+                let key = readTypeKeyRef r
+                let exponent = readRational r
+                key, exponent
+            )
+        |> MeasureTerm.OfList
+
     let writeModuleRef (w: FrozenWriter) (m: ModuleKey) =
         writeModuleId w (w.Types.InternModule m)
 

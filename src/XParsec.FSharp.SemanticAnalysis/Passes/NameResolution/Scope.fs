@@ -82,6 +82,7 @@ module NameResolutionScope =
             | ExternalTypeShape.Intrinsic _
             | ExternalTypeShape.IntrinsicInterface _
             | ExternalTypeShape.Abbrev _
+            | ExternalTypeShape.Measure _
             | ExternalTypeShape.Unmodelled _ -> false
 
     /// The diagnostic a resolution in expression position owes. A `Ctor` is a value; any

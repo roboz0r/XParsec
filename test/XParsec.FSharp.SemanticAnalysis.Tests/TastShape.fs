@@ -879,6 +879,10 @@ type private Renderer() =
             | TTypeKind.Abbrev body ->
                 push " = "
                 push (tyStr body)
+            | TTypeKind.Measure term ->
+                push " = <"
+                push (string term)
+                push ">"
 
 let prettyExpr (e: TExpr) : string =
     let r = Renderer()

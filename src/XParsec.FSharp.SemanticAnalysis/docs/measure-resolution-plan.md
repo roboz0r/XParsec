@@ -307,10 +307,49 @@ report FS0705 without the typar-kind split step 5 adds. The four still `ptest` a
   prints `P.m` against `Q.m` and the identity reaches the message without the key reaching the
   blob.
 
-**Step 4a — A measure declared in another file or assembly is not published.** `ExternalTypeShape` has
-  no measure case, so a cross-unit `[<Measure>]` reads as undefined (FS0039). Nothing in the
-  tree declares one and no test covers it; publishing it is the same shape of work step 2 did
-  for `TyparKind`.
+**Step 4a — publish a measure across units and assemblies. LANDED.** A measure declaration
+is a `TDecl.Type` of kind `TTypeKindG.Measure term`, where `term` is the `MeasureTerm` the
+declaration stands for over base-measure atoms (a base measure its own atom, an abbreviation
+its translated body), so the codec (tag 6, `TypeKey` refs plus rationals as length-prefixed
+`bigint` bytes) and `FrozenSignature` carry it to `ExternalTypeShape.Measure term`. A `.fsi`
+reaches the same shape through `SigDecl.Measure`. Both `sigDeclOf` and the implementation's
+`tryDeclaredTypeName` read a `type t [= rhs]` header through one `declHeaderOf`, so the
+intrinsic-binding / measure / alias / opaque precedence lives once and `sigDeclOf` takes a
+`PassContext` for the attribute check.
+
+A measure is filled where an abbreviation is: one `forceGroupBodies` runs at group close in
+both `MemberRegistration` and `SignatureResolution`, dispatching on the claim's
+`TypeDeclKind`, and every later reader (`measureOfClaim`, Elaborate's `tryMeasureType`,
+`publishMeasure`) reads `FillableDecl.TryFilled`. A claim of kind `Abbreviation` or `Measure`
+always has its registry entry, so `TypeRegistry.abbrevOfClaim` / `measureOfClaim` fail fast
+on a miss. A cyclic measure is reported once at its declaration, contributes the empty term to
+a local reference, and surfaces and publishes nothing, as a cyclic alias does; a
+measure-generic declaration is reported `NotYetSupported` and its entry registered `Broken`,
+so it takes the same route. Elaborate dispatches the `Abbrev` and `AbstractType` arms on the
+`TypeIdentity` NameResolution claimed (`claimOfTypeName`), so each arm reads exactly one
+registry.
+
+`TypeRefVerdict.ExternalType` carries the provider's shape alongside the key, stamped from
+the `ResolvedTypeRef.External` NameResolution already held. `translateMeasure`'s atom read
+matches an external measure shape directly and reports FS0705 for any other external shape;
+`translateTypeRef` matches an external measure shape and reports FS0704, as
+`resolveClaimedType` does for a local one. The shape on the verdict also removed the
+re-lookups in `unresolvedRefTy` and the ctor path. `TypeDefnKind.Measure` joined the
+attribute-target model: fsc checks a measure's attributes as it checks an alias's, so its
+target is `Abbreviation`, and `registerMeasureDecl` folds and validates the header's
+attributes as `registerAbbreviationDecl` does (an `AttributeFoldTests` case pins it). The
+ctor path still reads a bare key from `Resolution.ResolvedType` and re-looks-up through
+`tryExternalTypeOfKey`; carrying the shape there is a follow-up.
+Seven `MeasureResolutionTests` cases pin the cross-unit `.fs` route, the `.fsi` route, both
+kind errors across units, same-named measures in two units, the codec round-trip and a
+synthetic referenced assembly. One finding:
+
+- **A second PARSER fix was needed.** The measure retry after `Type.parse` (dangling `/`,
+  `*`, `^`, or a leading `/`) lived inline in `TypeDefn.parseBody`'s abbreviation arm, and
+  `TypeSignature`'s abbreviation arm called `Type.parse` alone, so `[<Measure>] type v = m / s`
+  in a `.fsi` recovered with "Unexpected token(s) at the top level" while its `.fs` twin
+  parsed clean. The retry is now `TypeDefn.parseAbbrevRhs`, shared by both arms;
+  `sig_22_measure_abbreviation.fsi` pins the quotient, power and reciprocal bodies.
 
 **Step 5 — delete the special form.** The four names above, the guarded `GenericType` arm and
 its `TypeArg.Measure`-on-a-non-numeric-carrier sibling. The remaining `GenericType` arm reads

@@ -432,6 +432,9 @@ module FrozenCodecDecls =
         | TTypeKindG.Abbrev body ->
             w.Write 5uy
             writeTypeRef w body
+        | TTypeKindG.Measure term ->
+            w.Write 6uy
+            writeMeasureTerm w term
 
     let private writeTypeParams (w: FrozenWriter) (ps: EqArray<TTypeParam>) =
         writeEqArrayWith
@@ -558,6 +561,7 @@ module FrozenCodecDecls =
         | 3uy -> TTypeKindG.Class(readClass r)
         | 4uy -> TTypeKindG.Enum(EqArray.ofArray (readArrayWith r readEnumCase))
         | 5uy -> TTypeKindG.Abbrev(readTypeRef r)
+        | 6uy -> TTypeKindG.Measure(readMeasureTerm r)
         | b -> failwithf "FrozenCodec: unknown TTypeKind tag %d" b
 
     let readTypeDecl (r: FrozenReader) : PooledTypeDecl =

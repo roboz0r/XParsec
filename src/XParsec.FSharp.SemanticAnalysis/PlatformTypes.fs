@@ -131,6 +131,8 @@ module PlatformTypes =
         // An enum case value is an integer or string literal, never a typed term.
         | TTypeKindG.Enum _ -> ()
         | TTypeKindG.Abbrev body -> add body
+        // A measure term holds only base-measure keys and exponents.
+        | TTypeKindG.Measure _ -> ()
 
     let private walkDecl (ctx: PassContext) (d: TDecl) : unit =
         let acc = HashSet<Unsupported>()

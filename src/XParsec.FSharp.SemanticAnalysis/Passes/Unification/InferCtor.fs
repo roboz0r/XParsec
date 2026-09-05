@@ -145,10 +145,7 @@ module internal UnificationInferCtor =
                 match CstKeys.ofTypeRef t with
                 | ValueSome typeRef ->
                     match ctx.Resolution.TypeRefVerdicts.TryGetValue typeRef.Site.Key with
-                    | ValueSome(TypeRefVerdict.ExternalType symKey) ->
-                        match ctx.Provider.TryLookupType symKey with
-                        | ValueSome(ExternalTypeShape.Class _) -> ValueSome symKey
-                        | _ -> ValueNone
+                    | ValueSome(TypeRefVerdict.ExternalType(symKey, ExternalTypeShape.Class _)) -> ValueSome symKey
                     | _ -> ValueNone
                 | ValueNone -> ValueNone
 

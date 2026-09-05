@@ -47,10 +47,7 @@ module internal UnificationTranslate =
     let private unresolvedRefTy (ctx: PassContext) (site: NodeSite) (name: string) : SemType =
         let unmodelled =
             match ctx.Resolution.TypeRefVerdicts.TryGetValue site.Key with
-            | ValueSome(TypeRefVerdict.ExternalType symKey) ->
-                match ctx.Provider.TryLookupType symKey with
-                | ValueSome(ExternalTypeShape.Unmodelled(reason = r)) -> ValueSome r
-                | _ -> ValueNone
+            | ValueSome(TypeRefVerdict.ExternalType(_, ExternalTypeShape.Unmodelled(reason = r))) -> ValueSome r
             | _ -> ValueNone
 
         match unmodelled with
@@ -95,21 +92,24 @@ module internal UnificationTranslate =
                 | FillState.InProgress -> decl.State <- FillState.Broken
                 | _ -> ()
 
-    /// The term a `[<Measure>]` claim stands for: a base measure is its own atom, an
-    /// abbreviation expands to its body. A cycle among abbreviations is reported once and
-    /// leaves every claim on it dimensionless.
-    let rec private measureOfClaim (ctx: PassContext) (claim: TypeIdentity) : MeasureTerm =
-        let info =
-            match TypeRegistry.tryMeasureByKey ctx.Types claim.Key with
-            | ValueSome info -> info
-            | ValueNone -> failwithf "measure claim '%s' has no registry entry" claim.Name
+    /// `info`'s term over base-measure atoms, forced on first call: a base measure is its own
+    /// atom, an abbreviation is its translated body. `ValueNone` once a cycle among
+    /// abbreviations broke it; the cycle is reported once, at the declaration.
+    let rec forceMeasureFill (ctx: PassContext) (info: MeasureInfo) : MeasureTerm voption =
+        fill
+            ctx
+            info
+            (fun () ->
+                match info.RhsCst with
+                | ValueNone -> MeasureTerm.atom info.TypeKey
+                | ValueSome rhs -> translateMeasure ctx info.DeclSite.Tok rhs
+            )
 
-        match info.RhsCst with
-        | ValueNone -> MeasureTerm.atom claim.Key
-        | ValueSome rhs ->
-            match fill ctx info (fun () -> translateMeasure ctx info.DeclSite.Tok rhs) with
-            | ValueSome term -> term
-            | ValueNone -> MeasureTerm.empty
+    /// The term a local measure claim contributes; a broken claim contributes the empty term.
+    and private measureOfClaim (ctx: PassContext) (claim: TypeIdentity) : MeasureTerm =
+        match forceMeasureFill ctx (TypeRegistry.measureOfClaim ctx.Types claim) with
+        | ValueSome term -> term
+        | ValueNone -> MeasureTerm.empty
 
     /// The term ONE measure atom contributes, read off the verdict NameResolution stamped at
     /// its name. A claim of another kind is FS0705 and an undefined name is FS0039; either
@@ -120,6 +120,7 @@ module internal UnificationTranslate =
 
         match NameResolutionTypeRefStamp.classifyTypeRef ctx typeRef with
         | TypeRefVerdict.LocalType claim when claim.Kind = TypeDeclKind.Measure -> measureOfClaim ctx claim
+        | TypeRefVerdict.ExternalType(_, ExternalTypeShape.Measure term) -> term
         | TypeRefVerdict.LocalType _
         | TypeRefVerdict.ExternalType _ ->
             ctx.Report(tok, Kind.MeasureExpected)
@@ -179,16 +180,9 @@ module internal UnificationTranslate =
             failwithf
                 "NameResolution stamping gap: type reference '%s' carries no verdict, so a stamping walk missed this syntax position"
                 name
-        | ValueSome(TypeRefVerdict.ExternalType stamped) ->
-            match ctx.Provider.TryLookupType stamped with
-            | ValueNone ->
-                failwithf
-                    "External identity round-trip broken: type reference '%s' resolved to %s, but the store view cannot serve that key, so NameResolution's mint and the store disagree"
-                    name
-                    (SymbolKeyOps.typeMetaName stamped)
-            // Served, but the shape declined to build (no modelled body, or an arity the
-            // shape does not carry), so the use site reports it.
-            | ValueSome _ -> ()
+        // An external shape that declined to build (no modelled body, or an arity the shape
+        // does not carry) reports at the use site.
+        | ValueSome(TypeRefVerdict.ExternalType _)
         | ValueSome(TypeRefVerdict.LocalType _)
         | ValueSome(TypeRefVerdict.LocalTypeAtOtherArity _)
         | ValueSome TypeRefVerdict.UnknownType -> ()
@@ -230,15 +224,27 @@ module internal UnificationTranslate =
         // No modelled body, so no kind a *type annotation* can resolve to. Declining routes
         // the reference to `unresolvedRefTy`, which records the gap.
         | ExternalTypeShape.Unmodelled _ -> ValueNone
+        // A measure is not a type; `translateTypeRef` reports FS0704 at the reference.
+        | ExternalTypeShape.Measure _ -> ValueNone
 
-    /// Fetch + build from an already-resolved external type identity. An arity mismatch is
-    /// rejected: it is not this type.
+    /// Build from a resolved external identity and its shape. An arity mismatch is rejected:
+    /// it is not this type.
+    let private tryExternalTypeOfShape
+        (ctx: PassContext)
+        (symKey: TypeKey)
+        (shape: ExternalTypeShape)
+        (translatedArgs: EqArray<SemType>)
+        : SemType voption =
+        if shape.TyparArity = translatedArgs.Length then
+            buildExternalTy ctx symKey shape translatedArgs
+        else
+            ValueNone
+
+    /// Fetch + build from an already-resolved external type identity.
     let tryExternalTypeOfKey (ctx: PassContext) (symKey: TypeKey) (translatedArgs: EqArray<SemType>) : SemType voption =
-        let arity = translatedArgs.Length
-
         match ctx.Provider.TryLookupType symKey with
-        | ValueSome shape when shape.TyparArity = arity -> buildExternalTy ctx symKey shape translatedArgs
-        | _ -> ValueNone
+        | ValueSome shape -> tryExternalTypeOfShape ctx symKey shape translatedArgs
+        | ValueNone -> ValueNone
 
     /// The written type args fitted to `arity`: surplus args dropped, missing ones back-filled
     /// with fresh TyVars at the current level, left for the surrounding unification to pin.
@@ -460,8 +466,11 @@ module internal UnificationTranslate =
         | ValueSome(TypeRefVerdict.LocalType claim) -> ofClaim claim translatedArgs
         | ValueSome(TypeRefVerdict.LocalTypeAtOtherArity claim) ->
             ofClaim claim (fitArgs ctx claim.TyparArity translatedArgs)
-        | ValueSome(TypeRefVerdict.ExternalType key) ->
-            match tryExternalTypeOfKey ctx key translatedArgs with
+        // A measure is not a type, so a reference in TYPE position is FS0704.
+        | ValueSome(TypeRefVerdict.ExternalType(_, ExternalTypeShape.Measure _)) ->
+            errorTy ctx site.Tok Kind.TypeExpectedNotMeasure
+        | ValueSome(TypeRefVerdict.ExternalType(key, shape)) ->
+            match tryExternalTypeOfShape ctx key shape translatedArgs with
             | ValueSome ty -> ty
             | ValueNone -> unresolved ()
         | ValueSome TypeRefVerdict.UnknownType
@@ -578,3 +587,16 @@ module internal UnificationTranslate =
 
                 translateType ctx info.RhsCst
             )
+
+    /// Group close: force every alias and measure body among `claims` into a terminal state,
+    /// so an unreferenced body is filled and a cycle among them is reported.
+    let forceGroupBodies (ctx: PassContext) (claims: TypeIdentity seq) : unit =
+        for claim in claims do
+            match claim.Kind with
+            | TypeDeclKind.Abbreviation -> forceFill ctx (TypeRegistry.abbrevOfClaim ctx.Types claim) |> ignore
+            | TypeDeclKind.Measure -> forceMeasureFill ctx (TypeRegistry.measureOfClaim ctx.Types claim) |> ignore
+            | TypeDeclKind.Record
+            | TypeDeclKind.Union
+            | TypeDeclKind.Enum
+            | TypeDeclKind.Class
+            | TypeDeclKind.IntrinsicBinding -> ()

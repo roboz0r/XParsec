@@ -352,6 +352,8 @@ module NameResolutionLongIdent =
             | ExternalTypeShape.Intrinsic _
             | ExternalTypeShape.Abbrev _
             | ExternalTypeShape.Unmodelled _ -> staticMember ()
+            // A measure has no members, so a dotted name through one does not resolve.
+            | ExternalTypeShape.Measure _ -> ValueNone
 
     /// `name` inside the type of this file `claim`, in expression position: a union or enum
     /// case, a declared static member, else the miss within the type.

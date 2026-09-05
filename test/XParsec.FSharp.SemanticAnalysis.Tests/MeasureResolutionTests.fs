@@ -19,6 +19,10 @@ let private asm: CompilingAssembly =
         Target = "none"
     }
 
+/// An implementation-only unit of an assembly run.
+let private impl (fileName: string) (text: string) : SourceUnit =
+    SourceUnit.ofImplementation (SourceFile.ofText fileName text)
+
 let private analyseUnits (units: SourceUnit list) : AnalysedAssembly =
     AnalysedAssembly.analyse
         Pipeline.analyseFileFor
@@ -374,6 +378,212 @@ let x: MyFloat<m> = 1.0<m>
                 ]
 
             testList
+                "a measure declared in another unit or assembly is published"
+                [
+                    // A `[<Measure>]` declaration is a claim like any other, so a later unit
+                    // resolves it through the published surface: a base measure as its own
+                    // atom, an abbreviation as its expanded term.
+                    test "a measure declared in an earlier unit resolves in a later one" {
+                        let producer =
+                            "\
+namespace Test.A
+
+[<Measure>] type m
+[<Measure>] type s
+[<Measure>] type v = m / s
+"
+
+                        let consumer =
+                            "\
+namespace Test.B
+
+open Test.A
+
+module N =
+    let a: float<m> = 1.0<m>
+    let b: float<v> = 1.0<m/s>
+    let c: float<Test.A.m> = a
+"
+
+                        let units = [ impl "file1.fs" producer; impl "file2.fs" consumer ]
+
+                        let analysed = analyseUnits units
+
+                        let es =
+                            analysed.Units
+                            |> List.collect UnitOutcome.surfaced
+                            |> List.map (fun d -> d.Diagnostic)
+                            |> errorMessages
+
+                        Expect.isEmpty es (sprintf "expected no errors; diagnostics were %A" es)
+
+                        let published =
+                            match analysed.Units with
+                            | UnitOutcome.Analysed u :: _ -> u.Published
+                            | _ -> failtest "the producer did not analyse"
+
+                        let m = SymbolKeyOps.typeKeyOfArity "Test.A" "m" 0
+                        let s = SymbolKeyOps.typeKeyOfArity "Test.A" "s" 0
+                        let v = SymbolKeyOps.typeKeyOfArity "Test.A" "v" 0
+
+                        Expect.equal
+                            (published.TryLookupType m)
+                            (ValueSome(ExternalTypeShape.Measure(MeasureTerm.atom m)))
+                            "a base measure publishes as its own atom"
+
+                        Expect.equal
+                            (published.TryLookupType v)
+                            (ValueSome(
+                                ExternalTypeShape.Measure(MeasureTerm.div (MeasureTerm.atom m) (MeasureTerm.atom s))
+                            ))
+                            "a measure abbreviation publishes its expanded term"
+                    }
+
+                    test "a `.fsi` declaring measures publishes them and matches its implementation" {
+                        let signature =
+                            "\
+namespace Test.A
+
+[<Measure>] type m
+[<Measure>] type s
+[<Measure>] type v = m / s
+module M =
+    val speed: float<v>
+"
+
+                        let implementation =
+                            "\
+namespace Test.A
+
+[<Measure>] type m
+[<Measure>] type s
+[<Measure>] type v = m / s
+module M =
+    let speed: float<v> = 1.0<m/s>
+"
+
+                        let consumer =
+                            "\
+namespace Test.B
+
+open Test.A
+
+module N =
+    let x: float<m/s> = M.speed
+"
+
+                        let es =
+                            assemblyErrors
+                                [
+                                    SourceUnit.paired
+                                        (SourceFile.ofText "file1.fsi" signature)
+                                        (SourceFile.ofText "file1.fs" implementation)
+                                    impl "file2.fs" consumer
+                                ]
+
+                        Expect.isEmpty es (sprintf "expected no errors; diagnostics were %A" es)
+                    }
+
+                    // FS0704, as for a measure declared in the same file.
+                    test "a measure from another unit in type position is an error" {
+                        let es =
+                            assemblyErrors
+                                [
+                                    impl "file1.fs" "namespace Test.A\n\n[<Measure>] type m\n"
+                                    impl "file2.fs" "module Test.B\n\nlet f (x: Test.A.m) = x\n"
+                                ]
+
+                        expectUserErrorIn es "Expected type, not unit-of-measure"
+                        Expect.equal es.Length 1 (sprintf "reported alone; diagnostics were %A" es)
+                    }
+
+                    // FS0705, as for a type declared in the same file.
+                    test "a type from another unit in measure position is an error" {
+                        let es =
+                            assemblyErrors
+                                [
+                                    impl "file1.fs" "namespace Test.A\n\ntype R = { A: int }\n"
+                                    impl "file2.fs" "module Test.B\n\nlet x: float<Test.A.R> = 1.0\n"
+                                ]
+
+                        expectUserErrorIn es "Expected unit-of-measure, not type"
+                        Expect.equal es.Length 1 (sprintf "reported alone; diagnostics were %A" es)
+                    }
+
+                    test "two measures of one name in different units are distinct" {
+                        let es =
+                            assemblyErrors
+                                [
+                                    impl "file1.fs" "namespace Test.P\n\n[<Measure>] type m\n"
+                                    impl "file2.fs" "namespace Test.Q\n\n[<Measure>] type m\n"
+                                    impl
+                                        "file3.fs"
+                                        "module Test.R\n\nlet a = 1.0<Test.P.m>\nlet b = 1.0<Test.Q.m>\nlet c = a + b\n"
+                                ]
+
+                        expectUserErrorIn es "Measure mismatch"
+                        expectErrorIn es "P.m"
+                        expectErrorIn es "Q.m"
+                    }
+
+                    // The frozen blob is how a measure reaches a referencing assembly.
+                    test "a measure declaration round-trips through the frozen codec" {
+                        let frozen =
+                            freezeFor
+                                "namespace Test.A\n\n[<Measure>] type m\n[<Measure>] type s\n[<Measure>] type v = m / s\n"
+
+                        let es = errorMessages (FrozenPools.blockingErrors frozen)
+                        Expect.isEmpty es (sprintf "expected no errors; diagnostics were %A" es)
+
+                        let decoded = FrozenCodec.thaw (FrozenCodec.flatten frozen)
+                        Expect.equal (TastUnpool.ofPools decoded) (TastUnpool.ofPools frozen) "the tree round-trips"
+
+                        let m = SymbolKeyOps.typeKeyOfArity "Test.A" "m" 0
+                        let s = SymbolKeyOps.typeKeyOfArity "Test.A" "s" 0
+
+                        let terms =
+                            [
+                                for d in (TastUnpool.ofPools decoded).Decls do
+                                    match d with
+                                    | TDeclG.Type {
+                                                      Name = name
+                                                      Kind = TTypeKindG.Measure term
+                                                  } -> name, term
+                                    | _ -> ()
+                            ]
+
+                        Expect.equal
+                            terms
+                            [
+                                "m", MeasureTerm.atom m
+                                "s", MeasureTerm.atom s
+                                "v", MeasureTerm.div (MeasureTerm.atom m) (MeasureTerm.atom s)
+                            ]
+                            "each measure decl decodes to its term"
+                    }
+
+                    test "a measure published by a referenced assembly resolves" {
+                        let m = SymbolKeyOps.typeKeyOfArity "Units" "m" 0
+
+                        let provider =
+                            ExternalSymbolProviders.stack
+                                (ValueSome(SymbolHome.InAssembly(AssemblyName "Units")))
+                                []
+                                [
+                                    providerOfTypes [ m, ExternalTypeShape.Measure(MeasureTerm.atom m) ]
+                                    realProvider.Value
+                                ]
+
+                        let lexed, file = parseFile "let x: float<Units.m> = 1.0<Units.m>\n"
+
+                        let tast =
+                            Pipeline.analyseSemFor testCompiling provider (LexedFile.ofText lexed) file
+
+                        expectCleanTast tast
+                    }
+                ]
+
+            testList
                 "a name claimed at two arities crosses the signature match"
                 [
                     test "a `.fsi` declaring `T` and `T<'a>` matches its implementation" {
@@ -421,7 +631,7 @@ module N =
                                     SourceUnit.paired
                                         (SourceFile.ofText "file1.fsi" signature)
                                         (SourceFile.ofText "file1.fs" implementation)
-                                    SourceUnit.ofImplementation (SourceFile.ofText "file2.fs" consumer)
+                                    impl "file2.fs" consumer
                                 ]
 
                         Expect.isEmpty es (sprintf "expected no errors; diagnostics were %A" es)
@@ -450,11 +660,7 @@ module N =
     let x = Test.A.Tag.Item 1
 "
 
-                        let units =
-                            [
-                                SourceUnit.ofImplementation (SourceFile.ofText "file1.fs" producer)
-                                SourceUnit.ofImplementation (SourceFile.ofText "file2.fs" consumer)
-                            ]
+                        let units = [ impl "file1.fs" producer; impl "file2.fs" consumer ]
 
                         let es = assemblyErrors units
                         Expect.isEmpty es (sprintf "expected no errors; diagnostics were %A" es)

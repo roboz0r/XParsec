@@ -247,6 +247,7 @@ module ExternalSymbolProviders =
                 | ExternalTypeShape.IntrinsicInterface s ->
                     ExternalTypeShape.IntrinsicInterface { s with Origin = home s.Origin h }
                 | ExternalTypeShape.Abbrev _
+                | ExternalTypeShape.Measure _
                 // An intrinsic carries no `SymbolOrigin`: its identity is the canon.
                 | ExternalTypeShape.Intrinsic _
                 | ExternalTypeShape.Unmodelled _ -> shape
@@ -421,6 +422,7 @@ module ExternalSymbolProviders =
             // No members or fields to map. An `Abbrev` body inherits its USE SITE's variance,
             // which is unknowable here.
             | ExternalTypeShape.Abbrev _
+            | ExternalTypeShape.Measure _
             | ExternalTypeShape.Enum _
             | ExternalTypeShape.Intrinsic _
             | ExternalTypeShape.Unmodelled _ -> shape

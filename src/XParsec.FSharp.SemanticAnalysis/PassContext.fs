@@ -190,8 +190,9 @@ type TypeRefVerdict =
     /// arity. `claim.TyparArity` is the arity the name must be written at; FS0033 is reported
     /// as the verdict is stamped.
     | LocalTypeAtOtherArity of claim: TypeIdentity
-    /// Resolved to this key, at the type-arg arity written at the use site.
-    | ExternalType of key: TypeKey
+    /// Resolved to this key, at the type-arg arity written at the use site. `shape` is the
+    /// provider's shape for `key`.
+    | ExternalType of key: TypeKey * shape: ExternalTypeShape
     /// Nothing in scope at the use site, and no external type of that spelling.
     | UnknownType
 

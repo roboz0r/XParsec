@@ -47,6 +47,7 @@ type FrozenReader =
     member inline this.ReadBoolean() = this.In.ReadBoolean()
     member inline this.ReadChar() = this.In.ReadChar()
     member inline this.ReadString() = this.In.ReadString()
+    member inline this.ReadBytes(count: int) = this.In.ReadBytes count
 
 /// The bottom of the FROZEN binary codec: the seam above, the generic length- and
 /// tag-prefixed container conventions, and the value structs that carry no children. It
@@ -245,6 +246,25 @@ module FrozenCodecPrimitives =
         | 0uy -> TyparKind.Type
         | 1uy -> TyparKind.Measure
         | b -> failwithf "FrozenCodec: unknown TyparKind tag %d" b
+
+    /// A `bigint` as its length-prefixed little-endian two's-complement bytes.
+    let writeBigInteger (w: FrozenWriter) (n: System.Numerics.BigInteger) =
+        let bytes = n.ToByteArray()
+        w.Write bytes.Length
+        w.Write(bytes, 0, bytes.Length)
+
+    let readBigInteger (r: FrozenReader) : System.Numerics.BigInteger =
+        System.Numerics.BigInteger(r.ReadBytes(r.ReadInt32()))
+
+    /// A canonical rational as its numerator and denominator.
+    let writeRational (w: FrozenWriter) (q: Rational) =
+        writeBigInteger w q.Numerator
+        writeBigInteger w q.Denominator
+
+    let readRational (r: FrozenReader) : Rational =
+        let n = readBigInteger r
+        let d = readBigInteger r
+        Rational.create (n, d)
 
     let writeStringList (w: FrozenWriter) (xs: string list) =
         writeListWith w (fun w (s: string) -> w.Write s) xs

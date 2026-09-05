@@ -11,6 +11,8 @@ open System.Collections.Generic
 type ExternalTypeShape =
     /// `frozen` is the abbreviation body as a template, which a use site expands.
     | Abbrev of typars: EqArray<TyparKind> * frozen: FrozenType
+    /// A `[<Measure>]` declaration; `term` as `TTypeKindG.Measure` carries it.
+    | Measure of term: MeasureTerm
     | Record of shape: ExternalRecordShape
     | Union of shape: ExternalUnionShape
     /// An external enum: named constant cases in source order. The numeric / string / mixed
@@ -41,6 +43,7 @@ type ExternalTypeShape =
             | ClassCommitment.Interface -> ValueSome Conformance.TypeKindFamily.Interface
             | ClassCommitment.Opaque -> ValueNone
         | Abbrev _
+        | Measure _
         | Intrinsic _
         | IntrinsicInterface _
         | Unmodelled _ -> ValueNone
@@ -52,6 +55,7 @@ type ExternalTypeShape =
         | Intrinsic s -> s.Id.Typars
         | IntrinsicInterface s -> s.Typars
         | Enum _ -> EqArray.empty // enums are never generic
+        | Measure _ -> EqArray.empty // only a non-generic measure publishes
         | Record r -> r.Typars
         | Union u -> u.Typars
         | Abbrev(typars = ts)

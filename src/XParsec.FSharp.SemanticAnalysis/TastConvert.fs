@@ -332,6 +332,7 @@ module TastConvert =
         // case identifier's token is all the mapping can touch.
         | TTypeKindG.Enum cases -> TTypeKindG.Enum(EqArray.map (enumCase m.Tok) cases)
         | TTypeKindG.Abbrev body -> TTypeKindG.Abbrev(fTy body)
+        | TTypeKindG.Measure term -> TTypeKindG.Measure term
         | TTypeKindG.Class c ->
             TTypeKindG.Class
                 {

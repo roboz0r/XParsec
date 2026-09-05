@@ -158,6 +158,7 @@ module PublishedSurfaceBuilder =
         | ExternalTypeShape.Enum _
         | ExternalTypeShape.Intrinsic _
         | ExternalTypeShape.Abbrev _
+        | ExternalTypeShape.Measure _
         | ExternalTypeShape.Unmodelled _ -> ()
 
     /// `addTypeWith` for a type publishing no member.

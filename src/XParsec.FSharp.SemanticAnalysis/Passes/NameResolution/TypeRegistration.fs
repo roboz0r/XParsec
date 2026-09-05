@@ -189,6 +189,7 @@ module NameResolutionTypeRegistration =
         | ExternalTypeShape.Intrinsic _
         | ExternalTypeShape.IntrinsicInterface _
         | ExternalTypeShape.Abbrev _
+        | ExternalTypeShape.Measure _
         | ExternalTypeShape.Unmodelled _ -> ValueNone
 
     /// The CS0433 analogue: a `SymbolKey` carries no home assembly, so a declaration whose key a
@@ -217,6 +218,40 @@ module NameResolutionTypeRegistration =
     let private isMeasureAttributed (ctx: PassContext) (tn: TypeName<SyntaxToken>) : bool =
         ctx.HasAttribute(Attributes.attributesOfTypeName tn, RuntimeNames.measureAttributeKey)
 
+    /// What a `type t [= rhs]` header declares, read the same way from an implementation and
+    /// from a signature.
+    [<RequireQualifiedAccess>]
+    type private DeclHeader =
+        /// An `(# … #)` RHS.
+        | IntrinsicBinding of
+            kindTag: ExternKind<SyntaxToken> voption *
+            instrParts: ImmutableArray<StringPart<SyntaxToken>>
+        /// A `[<Measure>]` header; `rhs` is `ValueNone` for the body-less `type m`.
+        | Measure of rhs: Type<SyntaxToken> voption
+        | Abbreviation of rhs: Type<SyntaxToken>
+        /// A body-less `type t`.
+        | Opaque
+
+    let private declHeaderOf
+        (ctx: PassContext)
+        (tn: TypeName<SyntaxToken>)
+        (rhs: Type<SyntaxToken> voption)
+        : DeclHeader =
+        match rhs with
+        | ValueSome(Type.ILIntrinsic(kindTag = tag; instrParts = parts)) -> DeclHeader.IntrinsicBinding(tag, parts)
+        | _ when isMeasureAttributed ctx tn -> DeclHeader.Measure rhs
+        | ValueSome t -> DeclHeader.Abbreviation t
+        | ValueNone -> DeclHeader.Opaque
+
+    /// The kind a header claims its name for; an opaque `type t` in an implementation claims
+    /// none.
+    let private claimOfHeader (tn: TypeName<SyntaxToken>) (header: DeclHeader) =
+        match header with
+        | DeclHeader.IntrinsicBinding _ -> ValueSome(struct (tn, TypeDeclKind.IntrinsicBinding))
+        | DeclHeader.Measure _ -> ValueSome(struct (tn, TypeDeclKind.Measure))
+        | DeclHeader.Abbreviation _ -> ValueSome(struct (tn, TypeDeclKind.Abbreviation))
+        | DeclHeader.Opaque -> ValueNone
+
     /// The name a type declaration CLAIMS, and the kind it claims it for. `Interface`,
     /// `Delegate`, `TypeExtension` and a bare `AbstractType` make no claim. `[<Measure>]`
     /// claims a measure in either shape: the body-less `type m` (an `AbstractType`) and the
@@ -229,16 +264,8 @@ module NameResolutionTypeRegistration =
         | TypeDefn.Record(typeName = tn) -> ValueSome(struct (tn, TypeDeclKind.Record))
         | TypeDefn.Union(typeName = tn) -> ValueSome(struct (tn, TypeDeclKind.Union))
         | TypeDefn.Enum(typeName = tn) -> ValueSome(struct (tn, TypeDeclKind.Enum))
-        | TypeDefn.AbstractType(typeName = tn) when isMeasureAttributed ctx tn ->
-            ValueSome(struct (tn, TypeDeclKind.Measure))
-        | TypeDefn.AbstractType _ -> ValueNone
-        // An `(# … #)` RHS is a primitive BINDING, not a transparent alias: it is filed in
-        // `IntrinsicBindings`, not `Abbreviation`. The claim it holds on its declared name is
-        // identical either way.
-        | TypeDefn.Abbrev(typeName = tn; typ = Type.ILIntrinsic _) ->
-            ValueSome(struct (tn, TypeDeclKind.IntrinsicBinding))
-        | TypeDefn.Abbrev(typeName = tn) when isMeasureAttributed ctx tn -> ValueSome(struct (tn, TypeDeclKind.Measure))
-        | TypeDefn.Abbrev(typeName = tn) -> ValueSome(struct (tn, TypeDeclKind.Abbreviation))
+        | TypeDefn.AbstractType(typeName = tn) -> claimOfHeader tn (declHeaderOf ctx tn ValueNone)
+        | TypeDefn.Abbrev(typeName = tn; typ = rhs) -> claimOfHeader tn (declHeaderOf ctx tn (ValueSome rhs))
         | _ ->
             match TypeDefnPatterns.tryClassLikeDecl td with
             | ValueSome d -> ValueSome(struct (d.TypeName, TypeDeclKind.Class))
@@ -467,29 +494,40 @@ module NameResolutionTypeRegistration =
             elements: TypeElementsSignature<SyntaxToken>
         /// `type T`, with no body: opaque, and a reference to it needs the identity alone.
         | Opaque of typeName: TypeName<SyntaxToken>
+        /// A `[<Measure>]` declaration; `rhs` is `ValueNone` for the body-less form.
+        | Measure of typeName: TypeName<SyntaxToken> * rhs: Type<SyntaxToken> voption
         /// This compiler models no delegate, so it claims no type; its signature still writes
         /// type names that must resolve.
         | Delegate of typeName: TypeName<SyntaxToken> * signature: DelegateSig<SyntaxToken>
         /// An augmentation of a type declared elsewhere: it claims no name of its own.
         | TypeExtension of typeName: TypeName<SyntaxToken> * elements: TypeExtensionElementsSignature<SyntaxToken>
 
-    /// An `(# … #)` RHS reads as a primitive binding rather than an abbreviation, as the
-    /// implementation twin reads it.
-    let sigDeclOf (ts: TypeSignature<SyntaxToken>) : SigDecl =
+    /// A `type t [= rhs]` signature header. `ext` is the `with …` augmentation an
+    /// abbreviation form may carry.
+    let private sigDeclOfHeader
+        (ctx: PassContext)
+        (tn: TypeName<SyntaxToken>)
+        (rhs: Type<SyntaxToken> voption)
+        (ext: TypeExtensionElementsSignature<SyntaxToken> voption)
+        : SigDecl =
+        match declHeaderOf ctx tn rhs with
+        | DeclHeader.IntrinsicBinding(tag, parts) -> SigDecl.IntrinsicAbbrev(tn, tag, parts, ext)
+        | DeclHeader.Measure rhs -> SigDecl.Measure(tn, rhs)
+        | DeclHeader.Abbreviation rhs -> SigDecl.Abbrev(tn, rhs, ext)
+        | DeclHeader.Opaque -> SigDecl.Opaque tn
+
+    let sigDeclOf (ctx: PassContext) (ts: TypeSignature<SyntaxToken>) : SigDecl =
         match ts with
         | TypeSignature.Record(typeName = tn; fields = fs; extensions = ext) -> SigDecl.Record(tn, fs, ext)
         | TypeSignature.Union(typeName = tn; cases = cs; extensions = ext) -> SigDecl.Union(tn, cs, ext)
         | TypeSignature.Enum(typeName = tn; cases = cs) -> SigDecl.Enum(tn, cs)
-        | TypeSignature.Abbrev(typeName = tn; typ = rhs; extensions = ext) ->
-            match rhs with
-            | Type.ILIntrinsic(kindTag = tag; instrParts = parts) -> SigDecl.IntrinsicAbbrev(tn, tag, parts, ext)
-            | _ -> SigDecl.Abbrev(tn, rhs, ext)
+        | TypeSignature.AbstractType tn -> sigDeclOfHeader ctx tn ValueNone ValueNone
+        | TypeSignature.Abbrev(typeName = tn; typ = rhs; extensions = ext) -> sigDeclOfHeader ctx tn (ValueSome rhs) ext
         | TypeSignature.Extern(typeName = tn; kindTag = tag; members = ms) -> SigDecl.Extern(tn, tag, ms)
         | TypeSignature.Anon(typeName = tn; elements = els)
         | TypeSignature.Class(typeName = tn; elements = els) -> SigDecl.ClassLike(tn, SigClassForm.Bodied, els)
         | TypeSignature.Struct(typeName = tn; elements = els) -> SigDecl.ClassLike(tn, SigClassForm.Struct, els)
         | TypeSignature.Interface(typeName = tn; elements = els) -> SigDecl.ClassLike(tn, SigClassForm.Interface, els)
-        | TypeSignature.AbstractType tn -> SigDecl.Opaque tn
         | TypeSignature.Delegate(typeName = tn; signature = s) -> SigDecl.Delegate(tn, s)
         | TypeSignature.TypeExtension(typeName = tn; elements = els) -> SigDecl.TypeExtension(tn, els)
 
@@ -505,6 +543,7 @@ module NameResolutionTypeRegistration =
             | SigDecl.Extern(typeName = tn)
             | SigDecl.ClassLike(typeName = tn)
             | SigDecl.Opaque tn
+            | SigDecl.Measure(typeName = tn)
             | SigDecl.Delegate(typeName = tn)
             | SigDecl.TypeExtension(typeName = tn) -> tn
 
@@ -534,6 +573,7 @@ module NameResolutionTypeRegistration =
             | SigDecl.Extern _ -> ValueSome TypeDeclKind.IntrinsicBinding
             | SigDecl.ClassLike _
             | SigDecl.Opaque _ -> ValueSome TypeDeclKind.Class
+            | SigDecl.Measure _ -> ValueSome TypeDeclKind.Measure
             | SigDecl.Delegate _
             | SigDecl.TypeExtension _ -> ValueNone
 
@@ -551,7 +591,8 @@ module NameResolutionTypeRegistration =
             | SigDecl.IntrinsicAbbrev _
             | SigDecl.Extern _
             | SigDecl.ClassLike _
-            | SigDecl.Opaque _ -> ValueNone
+            | SigDecl.Opaque _
+            | SigDecl.Measure _ -> ValueNone
 
     let claimSigTypeIdentity
         (ctx: PassContext)
@@ -627,6 +668,7 @@ module NameResolutionTypeRegistration =
         | SigDecl.Abbrev(rhs = rhs; extensions = ext) ->
             CstTypeWalk.iterType it rhs
             extensions ext
+        | SigDecl.Measure(rhs = rhs) -> rhs |> ValueOption.iter (CstTypeWalk.iterType it)
         // An `(# … #)` RHS is an IL string: it writes no type name.
         | SigDecl.IntrinsicAbbrev(extensions = ext) -> extensions ext
         | SigDecl.Extern(members = members) -> extensions members
