@@ -276,10 +276,56 @@ type SemanticConstraintKind =
     | NotNull
     /// `when 'e :> exn` — `target` is the required supertype, checked by `subsumes`.
     | Coercion of target: SemType
+    /// `when 'a : (new : unit -> 'a)`: a public parameterless constructor. Every value type
+    /// has one.
+    | DefaultConstructor
+    /// `when 'a : unmanaged`: a fixed-width scalar, an enum, or a non-generic struct whose
+    /// every field is unmanaged.
+    | Unmanaged
+    /// `when 'a : enum<underlying>`: an enum type, whose underlying primitive is unified
+    /// with `underlying` when the typar grounds.
+    | Enum of underlying: SemType
+    /// `when 'a : delegate<args, ret>`: a delegate whose `Invoke` is `obj * args -> ret`.
+    | Delegate of args: SemType * ret: SemType
     /// The metavar ranges over a fixed set of arity-0 primitives, listed in the order a
     /// diagnostic lists them. Printf's flexible format families are its only source: `%d`
     /// accepts any integer type, `%f` any float type.
     | OneOf of choices: EqArray<TypeKey>
+
+[<RequireQualifiedAccess>]
+module SemanticConstraintKind =
+
+    let mapTypes (f: SemType -> SemType) (kind: SemanticConstraintKind) : SemanticConstraintKind =
+        match kind with
+        | SemanticConstraintKind.Coercion target -> SemanticConstraintKind.Coercion(f target)
+        | SemanticConstraintKind.Enum underlying -> SemanticConstraintKind.Enum(f underlying)
+        | SemanticConstraintKind.Delegate(args, ret) -> SemanticConstraintKind.Delegate(f args, f ret)
+        | SemanticConstraintKind.Equality
+        | SemanticConstraintKind.Comparison
+        | SemanticConstraintKind.Struct
+        | SemanticConstraintKind.ReferenceType
+        | SemanticConstraintKind.Nullness
+        | SemanticConstraintKind.NotNull
+        | SemanticConstraintKind.DefaultConstructor
+        | SemanticConstraintKind.Unmanaged
+        | SemanticConstraintKind.OneOf _ -> kind
+
+    let iterTypes (f: SemType -> unit) (kind: SemanticConstraintKind) : unit =
+        match kind with
+        | SemanticConstraintKind.Coercion target -> f target
+        | SemanticConstraintKind.Enum underlying -> f underlying
+        | SemanticConstraintKind.Delegate(args, ret) ->
+            f args
+            f ret
+        | SemanticConstraintKind.Equality
+        | SemanticConstraintKind.Comparison
+        | SemanticConstraintKind.Struct
+        | SemanticConstraintKind.ReferenceType
+        | SemanticConstraintKind.Nullness
+        | SemanticConstraintKind.NotNull
+        | SemanticConstraintKind.DefaultConstructor
+        | SemanticConstraintKind.Unmanaged
+        | SemanticConstraintKind.OneOf _ -> ()
 
 [<Struct>]
 type SemanticConstraint =

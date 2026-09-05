@@ -247,6 +247,12 @@ module SignatureResolutionContext =
                     | Constraint.NotNull(typar = t) -> yield! bound t TyparConstraintKindG.NotNull
                     | Constraint.Coercion(typar = t; typ = tgt) ->
                         yield! bound t (TyparConstraintKindG.Coercion(target tgt))
+                    | Constraint.DefaultConstructor(typar = t) -> yield! bound t TyparConstraintKindG.DefaultConstructor
+                    | Constraint.Unmanaged(typar = t) -> yield! bound t TyparConstraintKindG.Unmanaged
+                    | Constraint.Enum(typar = t; typ = underlying) ->
+                        yield! bound t (TyparConstraintKindG.Enum(target underlying))
+                    | Constraint.Delegate(typar = t; type1 = args; type2 = ret) ->
+                        yield! bound t (TyparConstraintKindG.Delegate(target args, target ret))
                     | Constraint.Default(typar = t; typ = tgt) ->
                         match indexOf t with
                         | ValueSome i -> yield ExternalConstraint.Default(i, target tgt)
@@ -285,9 +291,4 @@ module SignatureResolutionContext =
 
                             yield ExternalConstraint.MemberTrait(indices, memberName, argFts, target retTy)
                         | _ -> ()
-                    // Each has its own resolution phase, or no published form.
-                    | Constraint.DefaultConstructor _
-                    | Constraint.Enum _
-                    | Constraint.Unmanaged _
-                    | Constraint.Delegate _ -> ()
         ]

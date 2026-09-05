@@ -126,20 +126,8 @@ module TypeLayout =
     /// What a nominal's declaration asked for, from this compilation or from the unit that
     /// published it.
     let private declaredOf (ctx: PassContext) (key: TypeKey) : TypeLayout =
-        TypeRegistry.tryRecordByKey ctx.Types key
-        |> ValueOption.map (fun info -> info.IsValueType)
-        |> ValueOption.orElseWith (fun () ->
-            TypeRegistry.tryUnionByKey ctx.Types key
-            |> ValueOption.map (fun info -> info.IsValueType)
-        )
-        |> ValueOption.orElseWith (fun () ->
-            TypeRegistry.tryClassByKey ctx.Types key
-            |> ValueOption.map (fun info -> info.IsValueType)
-        )
-        |> ValueOption.orElseWith (fun () ->
-            ctx.Provider.TryLookupType key
-            |> ValueOption.bind ExternalSymbols.declaredValueType
-        )
+        NominalDecl.tryOfKey ctx key
+        |> ValueOption.map NominalDecl.isValueType
         |> ofSettled
 
     /// Nothing is emitted yet, so the target alone settles a key: every declaration, this

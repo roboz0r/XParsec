@@ -362,7 +362,7 @@ module CstWalk =
 
         | Expr.LetOrUse(bindings = bindings) ->
             for b in bindings do
-                CstTypeWalk.iterBindingReturnType onType b
+                CstTypeWalk.iterBindingSigTypes onType onMemberSig b
 
         // An SRTP member-trait invocation (`((^T): (static member …) args`).
         | Expr.StaticMemberInvocation(membersign = ms) -> onMemberSig ms

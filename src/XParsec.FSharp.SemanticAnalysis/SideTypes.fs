@@ -38,6 +38,14 @@ type TyparConstraintKindG<'ty> =
     | NotNull
     /// `when 'a :> <ty>`.
     | Coercion of target: 'ty
+    /// `when 'a : (new : unit -> 'a)`.
+    | DefaultConstructor
+    /// `when 'a : unmanaged`.
+    | Unmanaged
+    /// `when 'a : enum<underlying>`.
+    | Enum of underlying: 'ty
+    /// `when 'a : delegate<args, ret>`.
+    | Delegate of args: 'ty * ret: 'ty
 
 /// A typar bound on a generic declaration, declared or inferred. `TyparIndex` is on the
 /// owner's axis: the declaring axis for a type declaration's typars, the method axis for a
@@ -48,7 +56,7 @@ type TyparConstraintG<'ty> =
         Kind: TyparConstraintKindG<'ty>
     }
 
-/// A typar bound with a frozen `Coercion` target, whose typar leaves are `FTTypar(axis, i)`.
+/// A typar bound whose embedded types are frozen, with typar leaves `FTTypar(axis, i)`.
 type FrozenConstraint = TyparConstraintG<FrozenType>
 
 module TyparConstraintKind =
@@ -61,8 +69,12 @@ module TyparConstraintKind =
         | TyparConstraintKindG.Nullness -> TyparConstraintKindG.Nullness
         | TyparConstraintKindG.NotNull -> TyparConstraintKindG.NotNull
         | TyparConstraintKindG.Coercion target -> TyparConstraintKindG.Coercion(f target)
+        | TyparConstraintKindG.DefaultConstructor -> TyparConstraintKindG.DefaultConstructor
+        | TyparConstraintKindG.Unmanaged -> TyparConstraintKindG.Unmanaged
+        | TyparConstraintKindG.Enum underlying -> TyparConstraintKindG.Enum(f underlying)
+        | TyparConstraintKindG.Delegate(args, ret) -> TyparConstraintKindG.Delegate(f args, f ret)
 
-    /// The bound's kind, a `Coercion` target mapped through `target`. `ValueNone` for a
+    /// The bound's kind, every embedded type mapped through `target`. `ValueNone` for a
     /// printf format family's `OneOf`, which is solved at the format literal and has no
     /// spelling on a declared typar.
     let ofSemantic (target: SemType -> 'ty) (kind: SemanticConstraintKind) : TyparConstraintKindG<'ty> voption =
@@ -74,9 +86,13 @@ module TyparConstraintKind =
         | SemanticConstraintKind.Nullness -> ValueSome TyparConstraintKindG.Nullness
         | SemanticConstraintKind.NotNull -> ValueSome TyparConstraintKindG.NotNull
         | SemanticConstraintKind.Coercion t -> ValueSome(TyparConstraintKindG.Coercion(target t))
+        | SemanticConstraintKind.DefaultConstructor -> ValueSome TyparConstraintKindG.DefaultConstructor
+        | SemanticConstraintKind.Unmanaged -> ValueSome TyparConstraintKindG.Unmanaged
+        | SemanticConstraintKind.Enum u -> ValueSome(TyparConstraintKindG.Enum(target u))
+        | SemanticConstraintKind.Delegate(a, r) -> ValueSome(TyparConstraintKindG.Delegate(target a, target r))
         | SemanticConstraintKind.OneOf _ -> ValueNone
 
-    /// The store's form of the bound, a `Coercion` target mapped through `target`.
+    /// The store's form of the bound, every embedded type mapped through `target`.
     let toSemantic (target: 'ty -> SemType) (kind: TyparConstraintKindG<'ty>) : SemanticConstraintKind =
         match kind with
         | TyparConstraintKindG.Equality -> SemanticConstraintKind.Equality
@@ -86,6 +102,10 @@ module TyparConstraintKind =
         | TyparConstraintKindG.Nullness -> SemanticConstraintKind.Nullness
         | TyparConstraintKindG.NotNull -> SemanticConstraintKind.NotNull
         | TyparConstraintKindG.Coercion t -> SemanticConstraintKind.Coercion(target t)
+        | TyparConstraintKindG.DefaultConstructor -> SemanticConstraintKind.DefaultConstructor
+        | TyparConstraintKindG.Unmanaged -> SemanticConstraintKind.Unmanaged
+        | TyparConstraintKindG.Enum u -> SemanticConstraintKind.Enum(target u)
+        | TyparConstraintKindG.Delegate(a, r) -> SemanticConstraintKind.Delegate(target a, target r)
 
 module TyparConstraint =
     let map (f: 'a -> 'b) (c: TyparConstraintG<'a>) : TyparConstraintG<'b> =
@@ -113,7 +133,11 @@ module TyparConstraint =
         | TyparConstraintKindG.Struct
         | TyparConstraintKindG.ReferenceType
         | TyparConstraintKindG.Nullness
-        | TyparConstraintKindG.NotNull -> ValueNone
+        | TyparConstraintKindG.NotNull
+        | TyparConstraintKindG.DefaultConstructor
+        | TyparConstraintKindG.Unmanaged
+        | TyparConstraintKindG.Enum _
+        | TyparConstraintKindG.Delegate _ -> ValueNone
 
 /// How codegen resolves the `GetEnumerator` handle of a `Pattern` for-in source.
 [<RequireQualifiedAccess>]

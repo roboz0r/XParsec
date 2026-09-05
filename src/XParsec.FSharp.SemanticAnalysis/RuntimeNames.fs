@@ -428,6 +428,13 @@ module RuntimeNames =
     let referencePrimitiveKeys: TypeKey list =
         [ boolKey; charKey; stringKey; unitKey; objKey; voidptrKey; exnKey ]
 
+    /// The scalars laid out with no managed reference: the numerics, `bool`, `char` and
+    /// `voidptr`.
+    let unmanagedPrimitiveKeys: TypeKey list =
+        numericKeys @ [ boolKey; charKey; voidptrKey ]
+
+    let isUnmanagedPrimitiveKey: TypeKey -> bool = isKeyIn unmanagedPrimitiveKeys
+
     /// The `prim-types-min` contract's data types, which every target declares.
     let private minContractKeys: TypeKey list = [ intKey; boolKey; unitKey ]
 

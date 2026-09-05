@@ -437,3 +437,35 @@ diagnose = { clr = "does not support the 'not null' constraint", js = "does not 
 [[program]]
 path = "measures/float-erased.fs"
 run = ["clr", "js"]
+
+# ---------------------------------------------------------------------------------------
+# TYPAR CONSTRAINTS with a CLI encoding beyond a flag — `new`, `unmanaged` and `enum<_>`.
+#
+# Each verdict reads a layout somewhere: `new` holds at every value type and `unmanaged` at
+# a value type whose fields are scalars, a tuple included on the CLR, where it is a
+# `ValueTuple`. The accepted programs stay off a bare primitive under `new`, where the two
+# targets split as they do for `struct` above.
+[[program]]
+path = "constraints/typar-new.fs"
+accept = ["clr", "js"]
+
+[[program]]
+path = "constraints/typar-new-violated.fs"
+diagnose = { clr = "does not support the 'new' constraint", js = "does not support the 'new' constraint" }
+
+[[program]]
+path = "constraints/typar-unmanaged.fs"
+accept = ["clr"]
+diagnose = { js = "does not support the 'unmanaged' constraint" }
+
+[[program]]
+path = "constraints/typar-unmanaged-violated.fs"
+diagnose = { clr = "does not support the 'unmanaged' constraint", js = "does not support the 'unmanaged' constraint" }
+
+[[program]]
+path = "constraints/typar-enum.fs"
+accept = ["clr", "js"]
+
+[[program]]
+path = "constraints/typar-enum-violated.fs"
+diagnose = { clr = "does not support the 'enum<int>' constraint", js = "does not support the 'enum<int>' constraint" }

@@ -6,6 +6,7 @@ open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open UnificationEngineCore
+open UnificationConstraintCheck
 open UnificationEngine
 
 module internal UnificationTranslate =
@@ -537,6 +538,16 @@ module internal UnificationTranslate =
             | Typar.Static(ident = id) -> ValueSome id
             | Typar.Anon _ -> ValueNone
 
+        /// The root of a declared typar in the live scope; `ValueNone` for an anonymous or
+        /// undeclared one.
+        let rootOf (typar: Typar<SyntaxToken>) : Rep voption =
+            match typarTokenOf typar with
+            | ValueNone -> ValueNone
+            | ValueSome id ->
+                match ctx.Resolution.TyparScope.TryGetValue(ctx.NameOf id) with
+                | true, tv -> ValueSome(UnionFind.find ctx.Store tv)
+                | false, _ -> ValueNone
+
         let attach (typar: Typar<SyntaxToken>) (kind: SemanticConstraintKind) (declTok: SyntaxToken) : unit =
             match typarTokenOf typar with
             | ValueNone -> ()
@@ -576,14 +587,22 @@ module internal UnificationTranslate =
             // `'a :> SomeType`: resolve the target now, while the typar scope is live, and
             // stamp a Coercion constraint on the typar's TyVar. Checked later by subsumption.
             attach tp (SemanticConstraintKind.Coercion(translateType ctx target)) tok
+        | Constraint.DefaultConstructor(typar = tp; newToken = tok; resultTypar = result) ->
+            // The constructed type is the constrained typar itself; `attach` reports an
+            // undeclared one.
+            match rootOf tp, rootOf result with
+            | ValueSome constrained, ValueSome constructed when constrained.Id <> constructed.Id ->
+                ctx.Report(tok, Kind.NewConstraintResultType)
+            | ValueSome _, ValueNone -> ctx.Report(tok, Kind.NewConstraintResultType)
+            | _ -> attach tp SemanticConstraintKind.DefaultConstructor tok
+        | Constraint.Unmanaged(typar = tp; unmanagedToken = tok) -> attach tp SemanticConstraintKind.Unmanaged tok
+        | Constraint.Enum(typar = tp; enumToken = tok; typ = underlying) ->
+            attach tp (SemanticConstraintKind.Enum(translateType ctx underlying)) tok
+        | Constraint.Delegate(delegateToken = tok) -> ctx.Report(tok, Kind.NotYetSupported "a 'delegate' constraint")
         | Constraint.MemberTrait _
-        | Constraint.DefaultConstructor _
-        | Constraint.Enum _
-        | Constraint.Unmanaged _
-        | Constraint.Delegate _
         | Constraint.Default _ ->
-            // Each has its own resolution phase (SRTPs / IWSAMs / attribute pass), so the
-            // silent skip here is not a missing diagnostic.
+            // A member trait is solved through the SRTP channel. A `default` clause reaches
+            // `store.Defaults` only through an imported signature; a local one is dropped.
             ()
 
     /// The scope must already contain the constrained typars; callers seed it first.

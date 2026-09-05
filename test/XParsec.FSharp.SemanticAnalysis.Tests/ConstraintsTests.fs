@@ -306,3 +306,120 @@ let tests =
                 Expect.isFalse (hasMessage ctx "does not support") "no constraint diagnostic"
             }
         ]
+
+// `new`, `unmanaged`, `enum<_>` and `delegate<_,_>` on target-neutral shapes. A verdict that
+// reads a layout the target decides (`string` under `new`, a tuple under `unmanaged`) is
+// pinned by the conformance corpus instead.
+
+let private newFn = "let mk<'a when 'a : (new : unit -> 'a)> (x: 'a) = x\n"
+let private unmanagedFn = "let um<'a when 'a : unmanaged> (x: 'a) = x\n"
+let private enumFn = "let en<'a when 'a : enum<int>> (x: 'a) = x\n"
+let private delegateFn = "let dg<'a when 'a : delegate<int, int>> (x: 'a) = x\n"
+
+let private satisfied (name: string) (source: string) =
+    test name {
+        let ctx = analyseUnif source
+        Expect.isFalse (hasMessage ctx "does not support") "no constraint diagnostic"
+    }
+
+let private violated (name: string) (fragment: string) (source: string) =
+    test name {
+        let ctx = analyseUnif source
+
+        Expect.isTrue
+            (hasMessage ctx fragment)
+            (sprintf "expected a diagnostic containing %s, got %A" fragment [ for d in ctx.Diagnostics -> d.Message ])
+    }
+
+[<Tests>]
+let kindTests =
+    testList
+        "Constraint kinds"
+        [
+            satisfied
+                "new: a class with a parameterless primary ctor"
+                (newFn + "type C() = member _.X = 1\nlet _ = mk (C())")
+            satisfied
+                "new: a class with a parameterless secondary ctor"
+                (newFn
+                 + "type C(x: int) =\n    new() = C(0)\n    member _.X = x\nlet _ = mk (C())")
+            satisfied "new: a value type" (newFn + "let _ = mk 1")
+            satisfied "new: an enum" (newFn + "type E = | A = 1 | B = 2\nlet _ = mk E.A")
+            satisfied "new: obj" (newFn + "let _ = mk (obj())")
+            violated
+                "new: a class with only a parameterised ctor"
+                "'new' constraint"
+                (newFn + "type C(x: int) =\n    member _.X = x\nlet _ = mk (C(1))")
+            violated "new: a reference record" "'new' constraint" (newFn + "type R = { X: int }\nlet _ = mk { X = 1 }")
+            violated "new: a function" "'new' constraint" (newFn + "let _ = mk (fun (x: int) -> x)")
+            violated
+                "new: a result typar other than the constrained one is refused"
+                "'new' constraints must take one argument"
+                "let mk<'a, 'b when 'a : (new : unit -> 'b)> (x: 'a) = x"
+
+            satisfied "unmanaged: a numeric primitive" (unmanagedFn + "let _ = um 1")
+            satisfied "unmanaged: bool and char" (unmanagedFn + "let _ = um true\nlet _ = um 'c'")
+            satisfied "unmanaged: decimal" (unmanagedFn + "let _ = um 1.0m")
+            satisfied "unmanaged: an enum" (unmanagedFn + "type E = | A = 1 | B = 2\nlet _ = um E.A")
+            satisfied
+                "unmanaged: a struct record of scalars"
+                (unmanagedFn
+                 + "[<Struct>]\ntype P = { X: int; Y: int }\nlet _ = um { X = 1; Y = 2 }")
+            satisfied
+                "unmanaged: a struct union of scalars"
+                (unmanagedFn
+                 + "[<Struct>]\ntype U = | A of a: int | B of b: float\nlet _ = um (A 1)")
+            violated "unmanaged: string" "'unmanaged' constraint" (unmanagedFn + "let _ = um \"s\"")
+            violated "unmanaged: unit" "'unmanaged' constraint" (unmanagedFn + "let _ = um ()")
+            violated
+                "unmanaged: a reference record"
+                "'unmanaged' constraint"
+                (unmanagedFn + "type R = { X: int }\nlet _ = um { X = 1 }")
+            violated
+                "unmanaged: a struct record holding a reference"
+                "'unmanaged' constraint"
+                (unmanagedFn
+                 + "[<Struct>]\ntype Q = { X: int; S: string }\nlet _ = um { X = 1; S = \"s\" }")
+            violated
+                "unmanaged: a generic struct record, whatever its argument"
+                "'unmanaged' constraint"
+                (unmanagedFn + "[<Struct>]\ntype G<'t> = { V: 't }\nlet _ = um { V = 1 }")
+            violated "unmanaged: an array" "'unmanaged' constraint" (unmanagedFn + "let _ = um [| 1 |]")
+            violated "unmanaged: a function" "'unmanaged' constraint" (unmanagedFn + "let _ = um (fun (x: int) -> x)")
+
+            satisfied "enum<int>: an int enum" (enumFn + "type E = | A = 1 | B = 2\nlet _ = en E.A")
+            satisfied
+                "enum<int>: a member's clause"
+                "type H() =\n    member _.Pick<'b when 'b : enum<int>> (b: 'b) = b\ntype E = | A = 1 | B = 2\nlet _ = H().Pick E.A"
+            violated
+                "enum<int>: an int64 enum mismatches on the underlying type"
+                "Type mismatch"
+                (enumFn + "type L = | A = 1L | B = 2L\nlet _ = en L.A")
+            satisfied
+                "enum<string>: a string enum"
+                ("let es<'a when 'a : enum<string>> (x: 'a) = x\n"
+                 + "type S = | A = \"a\" | B = \"b\"\nlet _ = es S.A")
+            violated "enum<int>: int itself" "'enum<int>' constraint" (enumFn + "let _ = en 1")
+            violated "enum<int>: string" "'enum<int>' constraint" (enumFn + "let _ = en \"s\"")
+            violated
+                "enum<int>: a record"
+                "'enum<int>' constraint"
+                (enumFn + "type R = { X: int }\nlet _ = en { X = 1 }")
+            test "enum<'u>: the underlying type is inferred from the enum" {
+                let ctx =
+                    analyseUnif
+                        "let under<'a, 'u when 'a : enum<'u>> (x: 'a) (u: 'u) = u\ntype L = | A = 1L | B = 2L\nlet _ = under L.A 3L"
+
+                Expect.isFalse (hasMessage ctx "does not support") "no constraint diagnostic"
+                Expect.isFalse (hasMessage ctx "Type mismatch") "int64 is L's underlying type"
+            }
+            test "enum<'u>: a wrong underlying argument mismatches" {
+                let ctx =
+                    analyseUnif
+                        "let under<'a, 'u when 'a : enum<'u>> (x: 'a) (u: 'u) = u\ntype L = | A = 1L | B = 2L\nlet _ = under L.A 3"
+
+                Expect.isTrue (hasMessage ctx "Type mismatch") "int is not L's underlying type"
+            }
+
+            violated "delegate<int, int>: the clause is not yet supported" "'delegate' constraint" delegateFn
+        ]

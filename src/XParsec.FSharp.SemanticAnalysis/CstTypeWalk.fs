@@ -87,14 +87,22 @@ module CstTypeWalk =
             iterTypeConstraint it c
 
     and iterTypeConstraint (it: TypeIter) (c: Constraint<SyntaxToken>) : unit =
+        iterConstraintTypes (iterType it) (iterTypeMemberSig it) c
+
+    /// The types embedded in a `when` clause.
+    and iterConstraintTypes
+        (onType: Type<SyntaxToken> -> unit)
+        (onMemberSig: MemberSig<SyntaxToken> -> unit)
+        (c: Constraint<SyntaxToken>)
+        : unit =
         match c with
         | Constraint.Coercion(typ = t)
         | Constraint.Enum(typ = t)
-        | Constraint.Default(typ = t) -> iterType it t
+        | Constraint.Default(typ = t) -> onType t
         | Constraint.Delegate(type1 = t1; type2 = t2) ->
-            iterType it t1
-            iterType it t2
-        | Constraint.MemberTrait(membersign = ms) -> iterTypeMemberSig it ms
+            onType t1
+            onType t2
+        | Constraint.MemberTrait(membersign = ms) -> onMemberSig ms
         // Constraints with no embedded `Type`.
         | Constraint.Nullness _
         | Constraint.DefaultConstructor _
@@ -156,7 +164,19 @@ module CstTypeWalk =
         | ValueSome cs -> iterTypeConstraints it cs
         | ValueNone -> ()
 
-    let iterBindingReturnType (onType: Type<SyntaxToken> -> unit) (b: Binding<SyntaxToken>) : unit =
+    /// A binding's `when` clauses and return annotation. Argument annotations are
+    /// pattern-embedded.
+    let iterBindingSigTypes
+        (onType: Type<SyntaxToken> -> unit)
+        (onMemberSig: MemberSig<SyntaxToken> -> unit)
+        (b: Binding<SyntaxToken>)
+        : unit =
+        match b.typarDefns with
+        | ValueSome(TyparDefns(constraints = ValueSome cs)) ->
+            for c in cs.Constraints do
+                iterConstraintTypes onType onMemberSig c
+        | _ -> ()
+
         match b.returnType with
         | ValueSome(ReturnType(typ = t)) -> onType t
         | ValueNone -> ()
@@ -173,7 +193,7 @@ module CstTypeWalk =
             for ap in b.argumentPats do
                 onPat ap
 
-            iterBindingReturnType onType b
+            iterBindingSigTypes onType onMemberSig b
 
         match md with
         | MemberDefn.Member(defn = d) ->
@@ -216,12 +236,12 @@ module CstTypeWalk =
             | TypeDefnElement.Inherit(ClassInheritsDecl(typ = t)) -> onInherit t
 
         // A `[static] let` in a class preamble is a BODY, not declared structure, so only its
-        // return annotation is part of the type's surface.
+        // signature is part of the type's surface.
         let preamble (d: ClassFunctionOrValueDefn<SyntaxToken>) =
             match d with
             | ClassFunctionOrValueDefn.LetBindings(bindings = bs) ->
                 for b in bs do
-                    iterBindingReturnType ty b
+                    iterBindingSigTypes ty (iterTypeMemberSig it) b
             | ClassFunctionOrValueDefn.Do _ -> ()
 
         let body (b: ObjectModelBody<SyntaxToken>) =

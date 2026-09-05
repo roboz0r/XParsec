@@ -489,6 +489,7 @@ module FrozenCodecDiagnostics =
         | Kind.DuplicateMember name ->
             w.Write 32uy
             w.Write name
+        | Kind.NewConstraintResultType -> w.Write 65uy
         | Kind.UnionCaseFieldNameClash(name, clash) ->
             w.Write 64uy
             w.Write name
@@ -721,6 +722,7 @@ module FrozenCodecDiagnostics =
         | 57uy -> Kind.ConformanceFinding(readConformanceError r)
         | 62uy -> Kind.MeasureExpected
         | 63uy -> Kind.TypeExpectedNotMeasure
+        | 65uy -> Kind.NewConstraintResultType
         | 64uy ->
             let name = r.ReadString()
 

@@ -420,6 +420,8 @@ type Kind =
     | DuplicateModule of path: string
     | OperatorFormQualifiedName of firstSegment: string
     | ConstraintNotSupported of ty: string * constraintName: string
+    /// A `new` clause whose constructed type is other than the constrained typar.
+    | NewConstraintResultType
     /// A trait call in an inline body that no type in the support set satisfies.
     | TraitNotSupported of supportTys: EqArray<string> * noun: MemberNoun * name: string
     /// A trait call in an inline body that more than one type in the support set satisfies.
@@ -588,6 +590,7 @@ module Kind =
         | Kind.AllowNullLiteralOnWrongKind -> DiagCode.FSharp 934
         | Kind.ReferenceEqualityOnStruct -> DiagCode.FSharp 376
         | Kind.NotConstantExpression -> DiagCode.FSharp 267 // tcInvalidConstantExpression
+        | Kind.NewConstraintResultType -> DiagCode.FSharp 700 // tcNewConstraintMustTakeOneArg
         // fsc files this as a WARNING; here the mismatch is an error.
         | Kind.AttributeTargetInvalid _ -> DiagCode.FSharp 842 // tcAttributeIsNotValidForLanguageElement
         | Kind.MemberAndLocalBindingClash _ -> DiagCode.FSharp 905
@@ -669,6 +672,8 @@ module Kind =
             sprintf "Operator-form qualified names not yet resolved (starting at '%s')" firstSegment
         | Kind.ConstraintNotSupported(ty, constraintName) ->
             sprintf "The type '%s' does not support the '%s' constraint" ty constraintName
+        | Kind.NewConstraintResultType ->
+            "'new' constraints must take one argument of type 'unit' and return the constructed type"
         | Kind.TraitNotSupported(supportTys, noun, name) ->
             match supportTys.Length with
             | 1 -> sprintf "The type '%s' does not support the %s '%s'" supportTys.[0] (MemberNoun.word noun) name
@@ -813,6 +818,7 @@ module Kind =
         | Kind.OperatorFormQualifiedName _
         | Kind.Internal _
         | Kind.ConstraintNotSupported _
+        | Kind.NewConstraintResultType
         | Kind.TraitNotSupported _
         | Kind.TraitAmbiguous _
         | Kind.UpcastUnrelated _

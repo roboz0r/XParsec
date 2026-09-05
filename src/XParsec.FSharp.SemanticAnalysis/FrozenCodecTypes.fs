@@ -357,8 +357,8 @@ module FrozenCodecTypes =
             ResultTyparPos = resultTyparPos
         }
 
-    /// A frozen typar bound: the typar index, a kind tag, then a `Coercion`'s `target`
-    /// through `writeTypeRef`.
+    /// A frozen typar bound: the typar index, a kind tag, then each embedded type through
+    /// `writeTypeRef`.
     let writeFrozenConstraint (w: FrozenWriter) (c: FrozenConstraint) =
         w.Write c.TyparIndex
 
@@ -372,6 +372,15 @@ module FrozenCodecTypes =
         | TyparConstraintKindG.ReferenceType -> w.Write 4uy
         | TyparConstraintKindG.Nullness -> w.Write 5uy
         | TyparConstraintKindG.NotNull -> w.Write 6uy
+        | TyparConstraintKindG.DefaultConstructor -> w.Write 7uy
+        | TyparConstraintKindG.Unmanaged -> w.Write 8uy
+        | TyparConstraintKindG.Enum underlying ->
+            w.Write 9uy
+            writeTypeRef w underlying
+        | TyparConstraintKindG.Delegate(args, ret) ->
+            w.Write 10uy
+            writeTypeRef w args
+            writeTypeRef w ret
 
     let readFrozenConstraint (r: FrozenReader) : FrozenConstraint =
         let typarIndex = r.ReadInt32()
@@ -385,6 +394,13 @@ module FrozenCodecTypes =
             | 4uy -> TyparConstraintKindG.ReferenceType
             | 5uy -> TyparConstraintKindG.Nullness
             | 6uy -> TyparConstraintKindG.NotNull
+            | 7uy -> TyparConstraintKindG.DefaultConstructor
+            | 8uy -> TyparConstraintKindG.Unmanaged
+            | 9uy -> TyparConstraintKindG.Enum(readTypeRef r)
+            | 10uy ->
+                let args = readTypeRef r
+                let ret = readTypeRef r
+                TyparConstraintKindG.Delegate(args, ret)
             | b -> failwithf "FrozenCodec: unknown FrozenConstraint tag %d" b
 
         { TyparIndex = typarIndex; Kind = kind }

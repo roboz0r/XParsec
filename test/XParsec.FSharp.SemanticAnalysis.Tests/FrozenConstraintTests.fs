@@ -31,6 +31,9 @@ let nul<'a when 'a: null> (x: 'a) = x
 let notNul<'a when 'a: not null> (x: 'a) = x
 let coerce<'e when 'e :> exn> (x: 'e) = x
 let two<'a, 'b when 'a: struct and 'b: comparison> (x: 'a) (y: 'b) = y
+let newable<'a when 'a: (new: unit -> 'a)> (x: 'a) = x
+let unmanaged<'a when 'a: unmanaged> (x: 'a) = x
+let enumOf<'a when 'a: enum<int>> (x: 'a) = x
 let inferredEq x y = x = y
 let inferredCmp x y = x < y
 let viaCall x = inferredCmp x x
@@ -45,6 +48,10 @@ let private expected: (string * FrozenConstraint list) list =
         "nul", [ at 0 TyparConstraintKindG.Nullness ]
         "notNul", [ at 0 TyparConstraintKindG.NotNull ]
         "two", [ at 0 TyparConstraintKindG.Struct; at 1 TyparConstraintKindG.Comparison ]
+        "newable", [ at 0 TyparConstraintKindG.DefaultConstructor ]
+        "unmanaged", [ at 0 TyparConstraintKindG.Unmanaged ]
+        "enumOf", [ at 0 (TyparConstraintKindG.Enum RuntimeNames.intTy) ]
+        // No `delegate<_,_>` entry: `Translate` refuses the clause, so codec tag 10 is unpinned.
         // Inferred from the body rather than declared, and propagated through a call.
         "inferredEq", [ at 0 TyparConstraintKindG.Equality ]
         "inferredCmp", [ at 0 TyparConstraintKindG.Comparison ]

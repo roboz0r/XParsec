@@ -175,7 +175,7 @@ let tests =
 
                 Expect.equal
                     (checkConstraintKind ctx SemanticConstraintKind.Equality (mkUnion [ intTy; strTy ]))
-                    UnificationEngine.ConstraintOutcome.Satisfied
+                    UnificationConstraintCheck.ConstraintOutcome.Satisfied
                     "int | string supports equality (both disjuncts do)"
             }
 
@@ -186,7 +186,7 @@ let tests =
 
                 Expect.equal
                     (checkConstraintKind ctx SemanticConstraintKind.Equality (mkUnion [ intTy; TyFun(intTy, intTy) ]))
-                    UnificationEngine.ConstraintOutcome.Violated
+                    UnificationConstraintCheck.ConstraintOutcome.Violated
                     "int | (int -> int) — the function arm breaks equality"
             }
 
@@ -200,7 +200,7 @@ let tests =
                         ctx
                         SemanticConstraintKind.Equality
                         (mkUnion [ intTy; TyVar(ctx.Store.NewTypeVar()) ]))
-                    UnificationEngine.ConstraintOutcome.Defer
+                    UnificationConstraintCheck.ConstraintOutcome.Defer
                     "int | 'a — defers on the free disjunct"
             }
 
@@ -212,7 +212,7 @@ let tests =
 
                 Expect.equal
                     (checkConstraintKind ctx SemanticConstraintKind.Comparison (mkUnion [ intTy; strTy ]))
-                    UnificationEngine.ConstraintOutcome.Violated
+                    UnificationConstraintCheck.ConstraintOutcome.Violated
                     "int | string fails comparison even though int and string each support it"
             }
 

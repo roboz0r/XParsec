@@ -341,6 +341,97 @@ bounds, an interface slot's bound, and the blob round trip of all of them. Stage
 the front end does not yet check, and stages 3 to 6, the metadata emission and import, are
 unchanged.
 
+**Stage 2 landed.** `SemanticConstraintKind` and `TyparConstraintKindG` gained
+`DefaultConstructor`, `Unmanaged`, `Enum of underlying` and `Delegate of args * ret`.
+`Translate.translateConstraint` attaches each from its CST form, and
+`publishedConstraints` publishes each as a `Bound`. `FrozenCodec.FormatVersion` is 5: tags
+7 to 10, the last two carrying their embedded types through `writeTypeRef`.
+`SemanticConstraintKind.mapTypes` / `iterTypes` are the one walk over a kind's embedded
+types, and the four sites that had matched `Coercion` alone (dependent-typar collection in
+`ElaborateTypars` and `InferGeneralize`, and the instantiation substitution) read them.
+
+The verdicts, in `UnificationEngine.checkConstraint`, calibrated against `fsc`:
+
+- `new`: a value type, an enum, `obj` and `exn` hold; a reference class needs a
+  parameterless `.ctor` and must be neither abstract nor an interface, read off
+  `ClassTypeInfo` locally and off the published `.ctor` members for an import. A clause
+  whose result typar differs from the constrained one reports `fsc`'s FS0700 text.
+- `unmanaged`: a fixed-width scalar (`RuntimeNames.numericKeys`, `bool`, `char`,
+  `voidptr`), an enum, or a value-laid-out nominal or tuple whose every field is unmanaged.
+  A generic nominal is refused whatever its argument, as `fsc` refuses it. An external
+  value type publishes no fields and is accepted on its layout. On the CLR a tuple is a
+  `ValueTuple`, so `(1, 2)` holds there and the corpus pins it.
+- `enum<'u>`: the typar must ground to an enum; `dischargeConstraints` then unifies the
+  enum's underlying primitive with `'u`, so a width mismatch reports as a type mismatch,
+  which is also `fsc`'s answer. A string enum, this compiler's extension, has `string` as
+  its underlying type. An imported enum carries no width and is `int`.
+- `delegate<_,_>`: no delegate is modelled, so every modelled shape refuses it, and a type
+  registered under `UnmodelledReason.Delegate` defers. The `Invoke` signature check waits
+  on delegate modelling.
+
+The SRTP member trait stays on its own channel: `store.Srtp` carries a `MemberSignature`
+over a support set that a single-typar `TyparConstraintG` cannot spell, a non-`inline`
+binding with a trait is FS0670 in `fsc` so no frozen non-inline declaration can carry one,
+and an `inline` binding publishes it through `ExternalConstraint.MemberTrait` beside its
+`InlineBody`. It is therefore absent from `TyparConstraintKindG`, as is `Default`.
+
+Landing this surfaced a stamping gap: `NameResolution` recorded no `TypeRefVerdict` for a
+type written inside a binding's `when` clause, so `'a :> int` and `enum<int>` reported
+`int` as undefined while `exn` and `string` resolved by another path. `CstTypeWalk.
+iterBindingSigTypes` now walks the clauses beside the return annotation, and the module
+binding, class member, class `let` and expression `let` walkers all read it.
+
+`ConstraintsTests` pins each verdict on a local shape and a member's clause;
+`FrozenConstraintTests` pins the four frozen forms and their codec round trip. The corpus
+gained `typar-new`, `typar-unmanaged` and `typar-enum` with their `-violated` pair, so the
+layout-dependent answers (`string` under `new`, a tuple and a struct record under
+`unmanaged`) are pinned per target, and three CLR and two JS goldens were added.
+
+**Stage 2 review.** The landing was reviewed against the repo's structure rules and the
+following is owed before stage 3. Each item is a front-end change; only the enum width is a
+format change. Every item but the enum width has landed: `NominalDecl` is the one lookup,
+`UnificationConstraintCheck` holds the verdicts, `Kind.NewConstraintResultType` is FS0700,
+the `delegate` clause reports `NotYetSupported`, and `RuntimeNames.unmanagedPrimitiveKeys`
+is the scalar set. The diagnostics codec gained tag 59 for the new kind; a new tag reads
+every older blob unchanged, so the format version did not move. The comment sweep of that
+landing added the class-field item at the end of the list, which is still owed.
+
+- `UnificationEngine` grew past a thousand lines, and the three new verdicts each repeat
+  the local-registry-then-provider cascade that `admitsNull`, `TypeLayout.declaredOf` and
+  the `equality` / `comparison` field arms already perform. One nominal view over both
+  sources, answering fields with the type arguments substituted, declared layout,
+  interface / abstract, parameterless `.ctor` and enum underlying, replaces every cascade.
+  The verdicts move to a sibling file on top of it, and `nominalFieldTypes` with its
+  empty-argument thaw goes, since the field view substitutes as the `equality` arm does and
+  the generic-nominal refusal becomes a one-line policy in the `unmanaged` verdict.
+- An imported enum publishes `ExternalEnumCaseValue.IntVal of int64` with no width, so
+  `enumUnderlyingType` guesses `int` and an `int64` enum crossing an assembly boundary is
+  judged `enum<int>`. `ExternalTypeShape.Enum` carries the underlying `TypeKey`, written
+  from `TEnumCases.underlyingTypeKey` by `SignatureResolution` and `FrozenSignature` and
+  filled as `int` or `string` by the TS extractor. Format version 6, landing alone, ahead of
+  stage 5, which enforces the imported bound.
+- The `delegate<_,_>` verdict has no `Satisfied` arm and defers on an unmodelled delegate,
+  which is a silent accept. Until A6 stage 1 lands, `Translate` reports the clause as
+  unsupported. Tag 10 stays in the codec.
+- The FS0700 result-typar check reports through `Kind.Message` and compares typar names.
+  It gets a typed `Kind` case and compares resolved typars.
+- `unmanagedPrimitiveKeys` moves beside `numericKeys` in `RuntimeNames`.
+- `LocalNominal.fieldTypes` answers a class with `ClassTypeInfo.InstanceFields`, which
+  `MemberRegistration.extractInstanceFields` fills from `val` declarations alone. A captured
+  primary-ctor parameter and an instance `let` in the preamble are also instance fields (A1
+  emits both as backing fields), so a `[<Struct>]` class holding a reference through either
+  one satisfies `unmanaged`, and the `equality` field walk a struct class's `Structural`
+  verdict falls through to misses the same fields. `ClassTypeInfo` gains the two field kinds, or `fieldTypes` reads them off
+  `CtorParams` and the preamble beside `InstanceFields`; `ConstraintsTests` pins the two
+  refusals first. `PublishedNominal.fieldTypes` answers `ValueNone` for a class, so the
+  imported side is unaffected.
+
+One parity note to keep. `fsc` accepts `under L.A 3` for `'a : enum<'u>` on an `int64`
+enum, where this compiler reports a mismatch on `3`. Both solve `'u` to `int64`; `fsc` then
+widens the `int32` literal implicitly, a recent F# addition (safe widening of `int32` to
+`int64` and `float`) that this compiler does not implement. The constraint verdicts agree.
+The divergence belongs to implicit widening, not to A3.
+
 ## A4. An inline splice's temporary becomes a public static field — DONE
 
 `typar-struct.clr.cs`, from a source whose only statements are `ignore i` and `ignore b`:
@@ -475,6 +566,50 @@ names travel from the front end on `TAbstractMethodG.ParamNames` (one `string vo
 source argument, `FrozenCodec.FormatVersion` 3), and `abstractMethodParams` pairs each
 metadata slot with its name and type in one place. `MetadataStructureTests` pins every site,
 and `MetadataStructure.paramNamesOf` / `methodParamNamesOf` read the `Param` rows back.
+
+## A6. A delegate type is unmodelled
+
+No golden shows this, because no program in the corpus can declare or use a delegate: `type
+D = delegate of int -> int` registers under `UnmodelledReason.Delegate`, `SignatureResolution`
+publishes it as `ExternalTypeShape.Unmodelled`, and every use is a diagnostic. A3's
+`delegate<_,_>` bound therefore has no type it can hold at, and a foreign generic bounded by
+`System.Delegate` cannot be instantiated from this compiler.
+
+**Decided.** A delegate is a modelled type category on both targets: a sealed
+`MulticastDelegate` subclass on the CLR, a function value on JS.
+
+**What the model carries.** A delegate declaration is its `Invoke` signature: one uncurried
+argument group and a return type, over the declaration's typars. Construction is
+`D(fun x -> …)` or `D(f)` and takes any function of the `Invoke` shape; invocation is
+`d.Invoke(args)`. The front end types both against the signature alone, so the runtime
+`.ctor(object, native int)` and the `BeginInvoke` / `EndInvoke` pair are emission facts, not
+front-end ones.
+
+**Fix, staged.**
+
+1. Front end. `TypeRegistration` registers a `DelegateTypeInfo` with the `Invoke`
+   signature, and `UnmodelledReason.Delegate` goes. A delegate is a `TyClass` whose info is
+   the delegate's, so subsumption to `System.Delegate` and `MulticastDelegate` falls out of
+   the class `inherit` chain and every class-shaped verdict reads it without a new arm.
+   `Infer` types construction from a lambda or a function value and invocation through
+   `.Invoke`. `UnificationEngine.checkConstraint` then answers `delegate<args, ret>` by
+   unifying the `Invoke` signature with `args -> ret`, closing A3's review item. No format
+   change.
+2. Publication. `ExternalTypeShape.Delegate` with a frozen `Invoke` signature, through
+   `SignatureResolution`, `FrozenSignature` and the pool codecs, and the TS extractor maps a
+   function type alias to it. Format change, lands alone.
+3. CLR emission. A sealed class extending `MulticastDelegate`, with `runtime managed`
+   `.ctor`, `Invoke`, `BeginInvoke` and `EndInvoke` rows, calibrated against a decompiled
+   `fsc` output. Construction emits `ldftn` + `newobj`; invocation is a `callvirt` to
+   `Invoke`. A closure passed at construction is the existing closure class's `Invoke`.
+4. JS emission. Construction is the function value itself and `.Invoke` is a call, so a
+   delegate erases; the golden pins that no wrapper survives.
+
+**Verify.** `MetadataStructureTests` assert the four method rows and their `runtime managed`
+implementation flags. The corpus gains `delegates/declare-invoke.fs` accepted on both
+targets, `delegates/typar-delegate.fs` accepted on both once stage 1 lands, and a
+`-violated` pair where a class and a function of the wrong arity are refused under
+`delegate<_,_>`.
 
 ---
 
@@ -653,12 +788,28 @@ A1 and A2 have landed. A2 stage 1 moved assembler row counts without disturbing 
 predictions, and stages 2, 3 and 4 moved none, so the row-order ground is clear for whatever
 runs next.
 
-A3 stage 1 widened a frozen type and its codec, and has landed on its own. Stage 2 is the next
-format change, and stages 3 to 6 build on whatever version it leaves.
+A3 stages 1 and 2 each widened a frozen type and its codec, and each landed on its own; the
+codec is at format version 5. Stages 3 to 6 build on that version.
 
 B1 has landed, and with it A4's second half. B2 has landed; it moved every golden's IL and no
-table row. A4's first half has now landed too, moving no golden and no table row, so A3 is the
-only Part A entry left.
+table row. A4's first half has now landed too, moving no golden and no table row, so A3 and
+A6 are the Part A entries left.
+
+**The remaining order.** A format change lands alone, a metadata change lands after every
+codec change it could race, and an import stage lands after the shape it imports.
+
+1. A3 stage 2 review, the `UnificationEngine` restructuring. Landed: no format change and
+   no golden moved, and the front-end shape is settled before codegen reads it.
+2. The enum underlying type on `ExternalTypeShape.Enum`. Format version 6, alone.
+3. A3 stage 3, the `GenericParam` flag bits.
+4. A3 stage 4, the `GenericParamConstraint` rows. The `System.Delegate` row reads the kind
+   alone, so it does not wait on A6.
+5. A6 stage 1, the delegate front end, and with it A3's `delegate<_,_>` verdict.
+6. A6 stage 2, the published delegate shape. Format version 7, alone.
+7. A3 stage 5, import. It enforces an imported `enum<'u>` and `delegate<_,_>` bound at our
+   use sites, so it needs the width from step 2 and the shape from step 6.
+8. A6 stages 3 and 4, delegate emission on each target.
+9. A3 stage 6, `unmanaged` and the nullability attributes.
 
 A5 has landed in full. Its stage 5 widened `Frozen.TAbstractMethod` and moved the codec to
 format version 3, so A3 stage 1 now lands on top of that version rather than racing it.

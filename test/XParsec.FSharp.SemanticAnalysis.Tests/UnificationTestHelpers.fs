@@ -112,7 +112,7 @@ let checkConstraintKind ctx kind ty =
             DeclKey = NodeKey.ofSource 0 NodeKind.PatIdent
         }
 
-    UnificationEngine.checkConstraint ctx c ty
+    UnificationConstraintCheck.checkConstraint ctx c ty
 
 let hasUnionExhaustivenessWarning (ctx: PassContext) =
     ctx.Diagnostics

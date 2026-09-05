@@ -76,12 +76,10 @@ module NameResolutionTypeRefStamp =
 
         stampTypeRefs ctx ret
 
-    /// A binding's return-type annotation only; its pattern annotations are stamped at
-    /// every pattern-scope site instead.
+    /// A binding's `when` clauses and return-type annotation; its pattern annotations are
+    /// stamped at every pattern-scope site instead.
     let stampBindingSigTypes (ctx: PassContext) (b: Binding<SyntaxToken>) : unit =
-        match b.returnType with
-        | ValueSome(ReturnType(typ = t)) -> stampTypeRefs ctx t
-        | ValueNone -> ()
+        CstTypeWalk.iterBindingSigTypes (stampTypeRefs ctx) (stampMemberSig ctx) b
 
     /// Only what hangs off `e` itself; recursing into children is the walker's job.
     let stampExprEmbeddedTypes (ctx: PassContext) (e: Expr<SyntaxToken>) : unit =

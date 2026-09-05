@@ -7,6 +7,7 @@ open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open UnificationEngineCore
 open UnificationSubsume
+open UnificationConstraintCheck
 
 /// The MUTATING unifier: `unify`, its on-link discharges (deferred dot-accesses,
 /// typar constraints, SRTP bounds), and the argument / annotation coercion walkers.
@@ -95,36 +96,6 @@ module UnificationEngine =
                     memberLookup info.Members
                 )
             | ValueNone -> DotSource.UnknownType(name, NominalKind.Union)
-
-    /// `Defer` is the not-yet verdict: the target is still free (or
-    /// compound-with-free-args). It stays on the TyVar and re-fires on the next `Link`.
-    type ConstraintOutcome =
-        | Satisfied
-        | Violated
-        | Defer
-
-    /// `int` is equatable because `prim-types-min.fsi` declares `interface equatable<int>`.
-    let private primitiveDeclares
-        (ctx: PassContext)
-        (cap: RuntimeNames.CapabilityIdentity voption)
-        (key: TypeKey)
-        : bool =
-        match ctx.Provider.TryLookupType key with
-        | ValueSome(ExternalTypeShape.Intrinsic { Class = ValueSome surface }) ->
-            RuntimeNames.declaresCapability cap surface.Interfaces
-        | _ -> false
-
-    let private constraintKindName (k: SemanticConstraintKind) : string =
-        match k with
-        | SemanticConstraintKind.Equality -> "equality"
-        | SemanticConstraintKind.Comparison -> "comparison"
-        | SemanticConstraintKind.Struct -> "struct"
-        | SemanticConstraintKind.ReferenceType -> "not struct"
-        | SemanticConstraintKind.Nullness -> "null"
-        | SemanticConstraintKind.NotNull -> "not null"
-        | SemanticConstraintKind.Coercion target -> sprintf "subtype of %A" target
-        | SemanticConstraintKind.OneOf choices ->
-            "one of " + String.concat ", " [ for k in choices.Underlying -> k.Name ]
 
     let isObjType (t: SemType) : bool =
         match t with
@@ -241,248 +212,6 @@ module UnificationEngine =
                         Absorption.Accepts
                     else
                         Absorption.NotAbsorbing
-
-    /// `ValueSome true` = constraint holds; `ValueSome false` = violation;
-    /// `ValueNone` = undecided, fall through to structural / deferred handling.
-    let private primitiveSupports (ctx: PassContext) (kind: SemanticConstraintKind) (key: TypeKey) : bool voption =
-        // By KEY, not by name: a user type merely spelled `int` in its own namespace reaches
-        // no contract shape, so it declares no capability.
-        match kind with
-        // An undeclared capability defers rather than refusing: `decimal` on JS has no
-        // contract to reach, so it has said nothing, not "no".
-        | SemanticConstraintKind.Equality ->
-            if primitiveDeclares ctx ctx.CapabilityIds.Equatable key then
-                ValueSome true
-            else
-                ValueNone
-        | SemanticConstraintKind.Comparison ->
-            if primitiveDeclares ctx ctx.CapabilityIds.Comparable key then
-                ValueSome true
-            else
-                ValueNone
-        // Nullness is decided structurally and value-ness by the target, for primitives as
-        // much as for anything else, so neither reaches this table.
-        | SemanticConstraintKind.Struct
-        | SemanticConstraintKind.ReferenceType
-        | SemanticConstraintKind.Nullness
-        | SemanticConstraintKind.NotNull
-        | SemanticConstraintKind.Coercion _
-        // Membership is decided against the choice list by `checkConstraint`, which never
-        // reaches this table.
-        | SemanticConstraintKind.OneOf _ -> ValueNone
-
-    /// `Violated` is sticky (once any element fails, the whole compound fails);
-    /// `Defer` propagates when no element failed but at least one is still pending.
-    let private reduceOutcome (check: SemType -> ConstraintOutcome) (items: seq<SemType>) : ConstraintOutcome =
-        let mutable result = Satisfied
-
-        for item in items do
-            match result, check item with
-            | Violated, _ -> ()
-            | _, Violated -> result <- Violated
-            | Defer, _
-            | _, Defer -> result <- Defer
-            | Satisfied, Satisfied -> ()
-
-        result
-
-    /// The dual of `reduceOutcome`: `Satisfied` is sticky (one element proving it proves the
-    /// whole); `Defer` propagates when none proved it but at least one is still pending.
-    let private reduceAny (check: SemType -> ConstraintOutcome) (items: seq<SemType>) : ConstraintOutcome =
-        let mutable result = Violated
-
-        for item in items do
-            match result, check item with
-            | Satisfied, _ -> ()
-            | _, Satisfied -> result <- Satisfied
-            | Defer, _
-            | _, Defer -> result <- Defer
-            | Violated, Violated -> ()
-
-        result
-
-    let private negate (outcome: ConstraintOutcome) : ConstraintOutcome =
-        match outcome with
-        | Satisfied -> Violated
-        | Violated -> Satisfied
-        | Defer -> Defer
-
-    /// Does `null` inhabit this type? `null` is a union MEMBER, not a property of a type:
-    /// `objnull` is `obj | null` and admits it where bare `obj` does not. The CLR's
-    /// reference-null is erased at the ABI seam, so the verdict is the same on every target.
-    let rec private admitsNull (ctx: PassContext) (t: SemType) : ConstraintOutcome =
-        match resolveStep ctx.Store t with
-        // Not ground yet, so it states nothing either way: the next `Link` re-fires the check.
-        | TyVar _
-        | TyUnknown _
-        | TyTypar _
-        | TyCarrier -> Defer
-        | TyNull -> Satisfied
-        // ANY disjunct carrying `null` admits it, so one `null` disjunct decides the union and
-        // an ungrounded one defers. `never` has no disjunct to carry `null`.
-        | TyOr ds -> reduceAny (admitsNull ctx) (ds.Disjuncts.Underlying :> seq<SemType>)
-        // `[<AllowNullLiteral>]` is the class's own statement that `null` inhabits it, which is
-        // what makes `let empty: T = null` legal on such a class.
-        | TyClass(classKey, _) ->
-            match TypeRegistry.tryClassByKey ctx.Types classKey with
-            | ValueSome info ->
-                if info.Declared.AllowNullLiteral then
-                    Satisfied
-                else
-                    Violated
-            | ValueNone ->
-                match ctx.Provider.TryLookupType classKey with
-                | ValueSome(ExternalTypeShape.Class shape) ->
-                    if shape.Flags.Declared.AllowNullLiteral then
-                        Satisfied
-                    else
-                        Violated
-                // No class shape in hand, so refusing a legal `isNull` here would be a guess.
-                | _ -> Defer
-        // Every other ground shape (primitives, tuples, functions, records, unions, enums)
-        // carries no `null` member.
-        | _ -> Violated
-
-    /// The layout query as a constraint verdict. An unsettled layout is a `Defer`, never a
-    /// refusal: a compile composing no platform states nothing about either polarity.
-    let private valueLayoutOutcome (ctx: PassContext) (t: SemType) : ConstraintOutcome =
-        match TypeLayout.ofSemType ctx t with
-        | TypeLayout.Value -> Satisfied
-        | TypeLayout.Reference -> Violated
-        | TypeLayout.Unsettled -> Defer
-
-    /// Free TyVars return `Defer` so the next `Link` assignment re-fires the check; nested
-    /// compounds recurse compositionally.
-    let rec checkConstraint (ctx: PassContext) (c: SemanticConstraint) (t: SemType) : ConstraintOutcome =
-        // The type's stamped equality / comparison verdict overrides the field-walk: a
-        // `Custom` type is `Satisfied` by its own members, and its fields may individually
-        // lack equality.
-        let verdictOutcome
-            (eq: EqualityVerdict)
-            (cmp: ComparisonVerdict)
-            (fieldsOf: unit -> seq<SemType>)
-            : ConstraintOutcome =
-            match c.Kind, eq, cmp with
-            | SemanticConstraintKind.Equality, EqualityVerdict.NoEquality, _ -> Violated
-            | SemanticConstraintKind.Equality, (EqualityVerdict.Reference | EqualityVerdict.Custom), _ -> Satisfied
-            | SemanticConstraintKind.Comparison, _, ComparisonVerdict.NoComparison -> Violated
-            | SemanticConstraintKind.Comparison, _, ComparisonVerdict.Custom -> Satisfied
-            | _ -> reduceOutcome (checkConstraint ctx c) (fieldsOf ())
-
-        match c.Kind, resolveStep ctx.Store t with
-        | _, TyVar _ -> Defer
-        // An unresolved contract type supports no constraint, but the mismatch was
-        // already reported where it unified, so a second error would be a duplicate.
-        | _, TyUnknown _ -> Defer
-        | _, TyTypar _ -> Defer
-        // A carried type-level computation can decide no constraint until it grounds.
-        | _, (TyKeyOf _ | TyIndexedAccess _ | TyConditional _) -> Defer
-        | SemanticConstraintKind.Nullness, ty -> admitsNull ctx ty
-        | SemanticConstraintKind.NotNull, ty -> negate (admitsNull ctx ty)
-        // One query and its negation, over every shape a layout is decided for. A LITERAL is
-        // excluded so it widens to its base primitive first.
-        | SemanticConstraintKind.Struct,
-          ((TyConst _ | TyTuple _ | TyFun _ | TyRecord _ | TyUnion _ | TyClass _ | TyOr _ | TyEnum _) as ty) ->
-            valueLayoutOutcome ctx ty
-        | SemanticConstraintKind.ReferenceType,
-          ((TyConst _ | TyTuple _ | TyFun _ | TyRecord _ | TyUnion _ | TyClass _ | TyOr _ | TyEnum _) as ty) ->
-            negate (valueLayoutOutcome ctx ty)
-        // Equality on an enum is universal and comparison on one is out of scope, so
-        // neither is ever proved or refused here.
-        | _, TyEnum _ -> Defer
-        // A structural literal erases to its base primitive, so re-entering with it judges
-        // every kind, `Coercion` included, exactly as the base primitive would be.
-        | _, TyLiteral v -> checkConstraint ctx c (TyConst(RuntimeNames.literalBaseKey v, EqArray.empty))
-        | SemanticConstraintKind.OneOf choices, ty ->
-            match ty with
-            | TyConst(k, targs) when targs.IsEmpty && EqArray.exists (fun c -> c = k) choices -> Satisfied
-            | _ -> Violated
-        | SemanticConstraintKind.Coercion target, _ ->
-            // `'e :> exn`: `subsumes` walks user and BCL `inherit` chains, so a thrown
-            // `InvalidOperationException` reaches `exn`. Past the `TyVar _` guard above,
-            // `Unrelated` is a real violation, not "unknown yet".
-            match subsumes ctx t target with
-            | SubsumeOutcome.Equal
-            | SubsumeOutcome.Subtype -> Satisfied
-            | SubsumeOutcome.Unrelated -> Violated
-        | k, TyConst(nameKey, _) ->
-            match primitiveSupports ctx k nameKey with
-            | ValueSome true -> Satisfied
-            | ValueSome false -> Violated
-            | ValueNone -> Defer
-        | (SemanticConstraintKind.Equality | SemanticConstraintKind.Comparison), TyFun _ -> Violated
-        | (SemanticConstraintKind.Equality | SemanticConstraintKind.Comparison), TyTuple items ->
-            reduceOutcome (checkConstraint ctx c) (items.Underlying :> seq<SemType>)
-        | (SemanticConstraintKind.Equality | SemanticConstraintKind.Comparison), TyRecord(recKey, args) ->
-            match TypeRegistry.tryRecordByKey ctx.Types recKey with
-            | ValueSome info ->
-                verdictOutcome
-                    info.EqualitySupport
-                    info.ComparisonSupport
-                    (fun () ->
-                        let subst = mkNamedTypeSubst ctx.Store info.TypeParams args
-
-                        info.Fields |> Seq.map (fun f -> substituteWith ctx.Store subst f.Type)
-                    )
-            | ValueNone -> Defer
-        | (SemanticConstraintKind.Equality | SemanticConstraintKind.Comparison), TyUnion(unionKey, args) ->
-            match TypeRegistry.tryUnionByKey ctx.Types unionKey with
-            | ValueSome info ->
-                verdictOutcome
-                    info.EqualitySupport
-                    info.ComparisonSupport
-                    (fun () ->
-                        let subst = mkNamedTypeSubst ctx.Store info.TypeParams args
-                        let fields = ResizeArray<SemType>()
-
-                        for case in info.Cases do
-                            for field in case.Fields do
-                                fields.Add(substituteWith ctx.Store subst field)
-
-                        fields :> seq<SemType>
-                    )
-            | ValueNone -> Defer
-        | (SemanticConstraintKind.Equality | SemanticConstraintKind.Comparison), TyClass(classKey, args) ->
-            match TypeRegistry.tryClassByKey ctx.Types classKey with
-            | ValueSome info ->
-                verdictOutcome
-                    info.EqualitySupport
-                    info.ComparisonSupport
-                    (fun () ->
-                        let subst = mkNamedTypeSubst ctx.Store info.TypeParams args
-
-                        info.InstanceFields |> Seq.map (fun f -> substituteWith ctx.Store subst f.Type)
-                    )
-            | ValueNone -> Defer
-        | SemanticConstraintKind.Equality, TyOr ds ->
-            // EQUALITY iff EVERY disjunct has it: generic equality is total on the union's
-            // boxed repr, a cross-disjunct `=` returning `false` rather than throwing.
-            reduceOutcome (checkConstraint ctx c) (ds.Disjuncts.Underlying :> seq<SemType>)
-        | SemanticConstraintKind.Comparison, TyOr ds ->
-            // COMPARISON does NOT reduce disjunct-wise: `(1).CompareTo("a")` throws, so a
-            // heterogeneous union is non-comparable even when each disjunct is comparable.
-            if ds.Disjuncts.IsEmpty then Satisfied else Violated
-
-    let reportConstraintViolation
-        (ctx: PassContext)
-        (tok: SyntaxToken)
-        (c: SemanticConstraint)
-        (target: SemType)
-        : unit =
-        ctx.Report(tok, Kind.ConstraintNotSupported(shown ctx.Store target, constraintKindName c.Kind))
-
-    /// When a compound shape is partially resolved, the parent constraint is
-    /// satisfied iff every component supports it, so a still-free component
-    /// carries the same constraint forward.
-    let propagateToFreeArgs (ctx: PassContext) (c: SemanticConstraint) (t: SemType) : unit =
-        let rec walk t =
-            match resolveStep ctx.Store t with
-            | TyVar tv ->
-                let root = UnionFind.find ctx.Store tv
-                addConstraintByKind ctx.Store root.Id c
-            | t -> SemType.iterChildren walk t
-
-        walk t
 
     let rec unify (ctx: PassContext) (tok: SyntaxToken) (a: SemType) (b: SemType) =
         let a = resolveStep ctx.Store a
@@ -740,6 +469,14 @@ module UnificationEngine =
                     | ValueSome(struct (tname, targs)), TyFun(a, b) ->
                         match tryFunSlotPeel ctx.Store tname targs a b with
                         | ValueSome tys -> tys |> List.iteri (fun i s -> unify ctx tok s targs.[i])
+                        | ValueNone -> ()
+                    | _ -> ()
+                // `'a : enum<'u>` grounds `'u` from the enum the typar linked to.
+                | SemanticConstraintKind.Enum underlying ->
+                    match resolveStep ctx.Store linkTarget with
+                    | TyEnum key ->
+                        match enumUnderlyingType ctx key with
+                        | ValueSome enumUnderlying -> unify ctx tok enumUnderlying underlying
                         | ValueNone -> ()
                     | _ -> ()
                 | _ -> ()

@@ -100,17 +100,17 @@ module internal ElaborateTypars =
         for r in acc do
             seen.Add r |> ignore
 
-        // A `Coercion` bound may reference typars absent from the declared type: in
+        // A bound's embedded type may reference typars absent from the declared type: in
         // `let f (s: 'S when 'S :> IStructSeq<'T,'E>)`, `'E` is in no parameter/return position.
         // F# generalises those too, so fold the bounds in to a fixpoint (a bound may add more).
         let mutable depIdx = 0
 
         while depIdx < acc.Count do
             for c in store.Constraints.Items(UnionFind.find store acc.[depIdx]) do
-                match c.Kind with
-                | SemanticConstraintKind.Coercion target ->
-                    SemTypeWalk.collectLinkedRoots store acc seen (Unification.zonk store target)
-                | _ -> ()
+                c.Kind
+                |> SemanticConstraintKind.iterTypes (fun t ->
+                    SemTypeWalk.collectLinkedRoots store acc seen (Unification.zonk store t)
+                )
 
             depIdx <- depIdx + 1
 

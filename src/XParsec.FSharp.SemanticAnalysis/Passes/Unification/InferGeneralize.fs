@@ -57,13 +57,13 @@ module internal UnificationInferGeneralize =
         for q in scheme.Quantified do
             mint (UnionFind.find ctx.Store q).Id true
 
-        // A `Coercion` target may ALSO reference still-free roots that are NOT quantified at
-        // all, such as an outer-level placeholder that joined the bound when two roots unified. Left
-        // verbatim it is SHARED, so the first call's grounding leaks into every later one.
+        // A bound's embedded type may ALSO reference still-free roots that are NOT quantified
+        // at all, such as an outer-level placeholder that joined the bound when two roots unified.
+        // Left verbatim it is SHARED, so the first call's grounding leaks into every later one.
         for (_, c) in scheme.Constraints do
-            match c.Kind with
-            | SemanticConstraintKind.Coercion target ->
-                target
+            c.Kind
+            |> SemanticConstraintKind.iterTypes (fun t ->
+                t
                 |> zonk ctx.Store
                 |> iterTypeVarRoots
                     ctx.Store
@@ -71,7 +71,7 @@ module internal UnificationInferGeneralize =
                         if (ctx.Store.Link root).IsNone && not (roots.ContainsKey root.Id) then
                             mint root.Id false
                     )
-            | _ -> ()
+            )
 
         /// The `substituteWith` view of the entries `accept` admits.
         let substFor (accept: RootInstance -> bool) : Dictionary<TyVarId, SemType> =
@@ -91,12 +91,9 @@ module internal UnificationInferGeneralize =
             match roots.TryGetValue qRoot.Id with
             | true, inst when inst.Quantified ->
                 let c =
-                    match c.Kind with
-                    | SemanticConstraintKind.Coercion target ->
-                        { c with
-                            Kind = SemanticConstraintKind.Coercion(substituteWith ctx.Store constraintSubst target)
-                        }
-                    | _ -> c
+                    { c with
+                        Kind = SemanticConstraintKind.mapTypes (substituteWith ctx.Store constraintSubst) c.Kind
+                    }
 
                 addConstraintByKind ctx.Store inst.Fresh c
             | _ -> ()
@@ -323,9 +320,8 @@ module internal UnificationInferGeneralize =
 
         while i < quantified.Count do
             for c in store.Constraints.Items(UnionFind.find store quantified.[i]) do
-                match c.Kind with
-                | SemanticConstraintKind.Coercion target -> iterTypeVarRoots store addRoot (zonk store target)
-                | _ -> ()
+                c.Kind
+                |> SemanticConstraintKind.iterTypes (fun t -> iterTypeVarRoots store addRoot (zonk store t))
 
             i <- i + 1
 
