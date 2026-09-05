@@ -34,8 +34,9 @@ type TypeIdentity =
     {
         /// The short name as written (no arity suffix, because `Key.Name` carries that).
         Name: string
-        /// Part of the CLAIM: `Foo` and `` Foo`1 `` are distinct, and may be different kinds.
-        TyparArity: int
+        /// The kind of each declared type parameter, in declaration order. The arity is part of
+        /// the CLAIM: `Foo` and `` Foo`1 `` are distinct, and may be different kinds.
+        TyparKinds: EqArray<TyparKind>
         /// Part of the CLAIM: `N.A.T` and `N.B.T` are two types, not one name contested twice.
         /// Also its reach: a bare name resolves to it from inside, or via an `open`.
         Container: ModuleContainer
@@ -50,6 +51,8 @@ type TypeIdentity =
         /// `BindingRank.afterPrelude` under `rec`.
         EntersAt: int
     }
+
+    member this.TyparArity: int = this.TyparKinds.Length
 
 /// An ACCEPTED type declaration, paired with the CST it was claimed from. Every per-kind
 /// detail registrar is HANDED this identity rather than re-deriving name / arity / key.

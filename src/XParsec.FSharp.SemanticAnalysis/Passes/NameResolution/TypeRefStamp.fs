@@ -36,17 +36,6 @@ module NameResolutionTypeRefStamp =
             ctx.Resolution.TypeRefVerdicts.Set(typeRef.Site.Key, verdict)
             verdict
 
-    /// `float<kg>`: a numeric carrier name applied to one argument, matched by SPELLING.
-    /// Translation resolves the carrier by name at arity 0 and reads the argument as a
-    /// measure.
-    let isMeasuredCarrier (ctx: PassContext) (t: Type<SyntaxToken>) : bool =
-        match t with
-        | Type.GenericType(longIdent = li; typeArgs = args) ->
-            li.Idents.Length = 1
-            && args.Length = 1
-            && RuntimeNames.isNumericCarrier (ctx.NameOf li.Idents.[0])
-        | _ -> false
-
     /// A structural shape applies no type name, so it records no verdict.
     let stampTypeIter (ctx: PassContext) : CstTypeWalk.TypeIter =
         let visitType _ (t: Type<SyntaxToken>) =

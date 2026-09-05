@@ -120,18 +120,22 @@ let tests =
                 Expect.isTrue hasArity "arity-mismatch diagnostic emitted for the bare generic name"
             }
 
-            test "generic intrinsic written bare back-fills an element arg, not empty" {
-                // `Vec<'a>` written bare must still carry one back-filled TyVar: a niladic
-                // `TyConst(k, [])` has the wrong arity, so it fails every arg-count-matched
-                // unification and the array-element guard downstream.
+            test "generic intrinsic written bare recovers as a fresh type, not a niladic constant" {
+                // FS0033 is the diagnostic; the reference recovers as fsc's does, with a fresh
+                // type.
                 let ctx = analyse "type Vec<'a> = (# \"System.Int32\" #)\nlet f (v : Vec) = v"
                 // pat f at 40: 35-char type decl + "\n" + "let ".
                 let patKey = NodeKey.ofSource 40 NodeKind.PatIdent
 
                 match typeOf ctx patKey with
-                | TyFun(TyConst(_, args), _) ->
-                    Expect.equal args.Length 1 "bare generic intrinsic carries one back-filled arg, not []"
-                | other -> failtestf "expected TyFun over a TyConst, got %A" other
+                | TyFun(TyVar _, _) -> ()
+                | other -> failtestf "expected TyFun over a fresh TyVar, got %A" other
+
+                let hasArity =
+                    ctx.Diagnostics
+                    |> Seq.exists (fun d -> d.Message.Contains "expects 1 type argument(s) but got 0")
+
+                Expect.isTrue hasArity "arity-mismatch diagnostic emitted for the bare generic name"
             }
 
             test "arity-0 type given a type argument diagnoses yet still resolves to the local type" {

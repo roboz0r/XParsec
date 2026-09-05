@@ -58,16 +58,15 @@ module NameResolutionTypeRegistration =
 
         prefix @ main
 
-    /// `Measure` where `[<Measure>]` is written on the slot. Resolves the attribute, so every
-    /// caller belongs at REGISTRATION or later; `arityOfTypeName` below is the claim-time reading.
+    /// `Measure` where `[<Measure>]` is written on the slot. Reports no diagnostic; callable at
+    /// CLAIM time.
     let private kindOfSlot (ctx: PassContext) (attrs: Attributes<SyntaxToken> voption) : TyparKind =
-        if (ctx.ResolveAttributes attrs).Has RuntimeNames.measureAttributeKey then
+        if ctx.HasAttribute(attrs, RuntimeNames.measureAttributeKey) then
             TyparKind.Measure
         else
             TyparKind.Type
 
-    /// Each declared typar's kind, in source order. For the declaration forms that register
-    /// no typar list: `extern` and opaque.
+    /// Each declared typar's kind, in source order.
     let typarKindsOfTypeName (ctx: PassContext) (tn: TypeName<SyntaxToken>) : EqArray<TyparKind> =
         EqArray.ofSeq (seq { for (_, attrs) in typarSlotsOfTypeName ctx tn -> kindOfSlot ctx attrs })
 
@@ -90,16 +89,19 @@ module NameResolutionTypeRegistration =
         tv
 
     /// A type declaration's typars, each carrying its kind and a freshly minted prototype
-    /// TyVar. Stored on the registry entry.
+    /// TyVar. Stored on the registry entry. An unresolved attribute on a typar is reported here.
     let declaredTyparsOfTypeName (ctx: PassContext) (tn: TypeName<SyntaxToken>) : EqArray<DeclaredTypar> =
         EqArray.ofSeq (
             seq {
-                for (name, attrs) in typarSlotsOfTypeName ctx tn ->
-                    {
-                        Name = name
-                        TyVar = newTypar ctx.Store
-                        Kind = kindOfSlot ctx attrs
-                    }
+                for (name, attrs) in typarSlotsOfTypeName ctx tn do
+                    ctx.ResolveAttributes attrs |> ignore
+
+                    yield
+                        {
+                            Name = name
+                            TyVar = newTypar ctx.Store
+                            Kind = kindOfSlot ctx attrs
+                        }
             }
         )
 
@@ -368,10 +370,12 @@ module NameResolutionTypeRegistration =
 
             // An enum is non-generic: it claims its name at arity 0 whatever typars were
             // (illegally) written on it.
-            let arity =
+            let typarKinds =
                 match kind with
-                | TypeDeclKind.Enum -> 0
-                | _ -> arityOfTypeName ctx tn
+                | TypeDeclKind.Enum -> EqArray.empty
+                | _ -> typarKindsOfTypeName ctx tn
+
+            let arity = typarKinds.Length
 
             // The module chain that HOLDS the declaration is part of its claim, and the
             // container its key is minted from.
@@ -394,7 +398,7 @@ module NameResolutionTypeRegistration =
                 let identity =
                     {
                         Name = name
-                        TyparArity = arity
+                        TyparKinds = typarKinds
                         Container = container
                         Kind = kind
                         DeclSite = declSite

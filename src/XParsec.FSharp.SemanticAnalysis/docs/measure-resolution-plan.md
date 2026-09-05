@@ -351,12 +351,46 @@ synthetic referenced assembly. One finding:
   parsed clean. The retry is now `TypeDefn.parseAbbrevRhs`, shared by both arms;
   `sig_22_measure_abbreviation.fsi` pins the quotient, power and reciprocal bodies.
 
-**Step 5 — delete the special form.** The four names above, the guarded `GenericType` arm and
-its `TypeArg.Measure`-on-a-non-numeric-carrier sibling. The remaining `GenericType` arm reads
-the stamped verdict, takes the claim's typar kinds (local `TypeParams` or external shape), and
-splits arguments by kind. Closes GAP 3 and the rest of GAP 2 except `string<m>`, whose FS0033
-needs an external nearest-arity leg in `resolveType`; add the leg here if it is a one-arm
-change, else leave the row `ptest` and record why.
+**Step 5 — delete the special form. LANDED.** `isMeasuredCarrier`, `resolveMeasureCarrier`,
+`isNumericCarrier` and `numericTypeNames` are gone, with `fitArgs` and
+`tryResolveExternalType`, whose last caller was the carrier lookup. `translateTypeRef` takes
+the WRITTEN arguments, reads the stamped verdict once, and takes the typar kinds from it:
+`claim.TyparKinds` for a local claim and `shape.TyparKinds` for an external one. The kinds
+are minted with the claim (`TypeIdentity.TyparKinds`, read through `HasAttribute`, which is
+claim-safe), so a forward reference inside a `type … and …` group reads them before the
+declaration's own entry registers; `MeasureResolutionTests` pins that case. Each written
+argument is read by its parameter's kind (`readTypeArgs`): a type-kinded position takes
+`translateType`, a measure-kinded one `translateMeasure`,
+with a lone `NamedType` in a measure position read as `Measure.Named` through
+`CstKeys.measureOfType`. A measure in a type position is FS0704 at the measure's first token
+(`CstKeys.firstTokenOfMeasure`); a structural type in a measure position is FS0705. One
+measure-kinded argument makes the applied type a measured `TyVar` through `measuredTy`, the
+builder `InferLiterals.inferConst` now shares; several are `NotYetSupported`. Two
+`MeasureResolutionTests` cases went green (the local generic `float`, `MyFloat<m>`), closing
+GAP 3 and all of GAP 2 but `string<m>`. Four findings:
+
+- **The wrong-arity recovery is now fsc's: a fresh type.** `fitArgs` fitted the written
+  arguments to the claim's arity, so `MyFloat<m>` expanded to `float` and the measured
+  initialiser then reported a dimensionless mismatch beside FS0033. A `LocalTypeAtOtherArity`
+  reference now yields a fresh `TyVar` and its arguments are not read, on every route
+  (`GenericType`, bare `NamedType`, `SuffixedType`). `UnificationGenericsTests`' "written bare
+  back-fills an element arg" case pinned the back-fill; it now pins the fresh-type recovery
+  plus FS0033.
+- **`string<m>` stays `ptest`, and the stand-in changed.** The leg needs a case on both
+  `TypeNameResolution` and `TypeRefVerdict` and their match sites, which is more than one arm.
+  `string` is a target-optional primitive, so `translateTypeRef`'s `UnknownType` arm resolves
+  it by key at any arity and the argument `m` is read as a type: FS0704 now stands in for
+  FS0033 where FS0039 did. That arm's key lookup ignoring the written arguments is the wart to
+  remove when the leg lands.
+- **The target-optional fallback had been hiding a closed `Vesper`.** The step-4a
+  "published by a referenced assembly" case stacks a synthetic provider over the real one
+  with an EMPTY ambient list, which shadows the contract's implicit opens. `float` is
+  target-optional, so `resolveMeasureCarrier` minted its key regardless; the stamped route
+  finds no `float` at arity 1 with `Vesper` closed. The case now passes the real provider's
+  implicit opens through `collectImplicitOpens`.
+- **Neither walk skipped the shape any more.** Step 4's `VisitMeasureName` carried both
+  `classifyingTypeIter` and `stampTypeIter` to the argument, so the only remaining reader of
+  the spelling gate was the `Translate` arm.
 
 **Step 6 — freeze a measured root to its carrier.** `Freeze.freezeTy` lowers a `TyVar` whose
 `Units` are set to its `Link` (GAP 5), and the step-1 full-pipeline pin goes green.
@@ -415,5 +449,5 @@ Before this document is deleted, each row is in code or in a test:
 - [x] `TyparKind` is on the typar model, on every generic `ExternalTypeShape` case, and in the contract. A shape published from a source `TypeName` reads its kinds from that name; only a surface with no `[<Measure>]` to read (CLR metadata, TypeScript, an intrinsic binding) uses `TyparKinds.typeOnly`.
 - [x] `MeasureTerm` carries `TypeKey`; no `string` measure name survives past the parser, the measure diagnostics' rendered payloads excepted (see step 4).
 - [x] `1.0<m>` and `float<m/s>` both stamp `m` through the classifying walk; `translateMeasure` reads only the stamp.
-- [ ] `isMeasuredCarrier`, `resolveMeasureCarrier`, `isNumericCarrier`, `numericTypeNames` are deleted, and neither `classifyingTypeIter` nor `stampTypeIter` skips a shape.
-- [ ] `TypeRefStamp.fs`'s doc no longer describes a shape no walk stamps.
+- [x] `isMeasuredCarrier`, `resolveMeasureCarrier`, `isNumericCarrier`, `numericTypeNames` are deleted, and neither `classifyingTypeIter` nor `stampTypeIter` skips a shape.
+- [x] `TypeRefStamp.fs`'s doc no longer describes a shape no walk stamps.

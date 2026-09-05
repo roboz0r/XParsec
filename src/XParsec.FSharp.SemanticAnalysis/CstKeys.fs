@@ -20,6 +20,21 @@ module CstKeys =
         | LongIdentOrOp.Op op -> firstTokenOfIdentOrOp op
         | LongIdentOrOp.QualifiedOp(li, _, _) -> firstTokenOfLongIdent li
 
+    let rec firstTokenOfMeasure (m: Measure<SyntaxToken>) : SyntaxToken =
+        match m with
+        | Measure.Named li -> firstTokenOfLongIdent li
+        | Measure.One t
+        | Measure.Anonymous t -> t
+        | Measure.Typar(Typar.Anon t)
+        | Measure.Typar(Typar.Named(quote = t))
+        | Measure.Typar(Typar.Static(caret = t)) -> t
+        | Measure.Juxtaposition(elems, _) -> firstTokenOfMeasure elems.[0]
+        | Measure.Power(inner, _, _, _)
+        | Measure.Product(inner, _, _)
+        | Measure.Quotient(inner, _, _) -> firstTokenOfMeasure inner
+        | Measure.Reciprocal(t, _)
+        | Measure.Paren(t, _, _) -> t
+
     let firstTokenOfConstant (c: Constant<SyntaxToken>) : SyntaxToken =
         match c with
         | Constant.Literal t -> t

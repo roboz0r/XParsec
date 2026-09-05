@@ -315,10 +315,20 @@ let x: float<m> = 1.0
 "
                     }
 
+                    // The kinds are minted with the claim, so a reference resolves them before
+                    // the declaration's own entry registers.
+                    test "a forward reference within a `type … and …` group reads the claim's kinds" {
+                        expectClean
+                            "\
+[<Measure>] type m
+type A = { X: B<m> }
+and B<[<Measure>] 'u> = { V: int }
+"
+                    }
+
                     // FS0704: the local arity-1 claim outranks FSharp.Core's, and its
                     // parameter is a type.
-                    ptest
-                        "a local generic `float` outranks the measured primitive (the spelling gate ignores the local claim today, so nothing is reported)" {
+                    test "a local generic `float` outranks the measured primitive" {
                         expectUserErrorReportedAlone
                             "Expected type, not unit-of-measure"
                             "\
@@ -335,7 +345,7 @@ let x: float<m> = 1.0<m>
                     // FS0033: "The non-generic type 'string' does not expect any type
                     // arguments, but here is given 1 type argument(s)".
                     ptest
-                        "`string<m>` reports the arity (no external nearest-arity leg today, so FS0039 stands in for FS0033)" {
+                        "`string<m>` reports the arity (an external name at an unclaimed arity is `Unresolved`, and `string` is target-optional, so the carrier resolves by key and `m` is read as a type: FS0704 stands in for FS0033; the leg needs a case on both `TypeNameResolution` and `TypeRefVerdict`)" {
                         expectUserErrorReportedAlone
                             "expects 0 type argument"
                             "\
@@ -346,8 +356,7 @@ let x: string<m> = \"\"
 
                     // FS0033 alone: the abbreviation is claimed at arity 0 only, and the
                     // measure argument is not read past the arity check.
-                    ptest
-                        "an abbreviation of a carrier at arity 0 reports the arity alone (FS0039 and the dimensionless message stand beside it today)" {
+                    test "an abbreviation of a carrier at arity 0 reports the arity alone" {
                         expectUserErrorReportedAlone
                             "expects 0 type argument"
                             "\
@@ -562,13 +571,16 @@ module N =
                             "each measure decl decodes to its term"
                     }
 
+                    // The stack's ambient list SHADOWS the inner providers' implicit opens, so
+                    // the contract's own prelude is passed through: `float` at arity 1 is a
+                    // `Vesper` claim, and a `Vesper` left closed leaves it unresolved.
                     test "a measure published by a referenced assembly resolves" {
                         let m = SymbolKeyOps.typeKeyOfArity "Units" "m" 0
 
                         let provider =
                             ExternalSymbolProviders.stack
                                 (ValueSome(SymbolHome.InAssembly(AssemblyName "Units")))
-                                []
+                                (ExternalSymbolProviders.collectImplicitOpens [ realProvider.Value ])
                                 [
                                     providerOfTypes [ m, ExternalTypeShape.Measure(MeasureTerm.atom m) ]
                                     realProvider.Value

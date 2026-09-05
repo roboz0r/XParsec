@@ -445,26 +445,6 @@ module RuntimeNames =
         | Some k -> ValueSome k
         | None -> ValueNone
 
-    /// The ALIAS spellings of the numeric primitives: the ones with no key of their own
-    /// (`type int32 = int`, `type single = float32`). Only the NAME axis meets them, and
-    /// only before dealiasing.
-    let private numericAliasNames =
-        [ "int8"; "int32"; "uint"; "uint8"; "double"; "single" ]
-
-    /// The SOURCE SPELLINGS of the numeric primitives: each identity's own name plus the
-    /// aliases that dealias onto one. For a consumer that meets a spelling BEFORE any
-    /// identity exists for it, such as a measure carrier in a source-written annotation.
-    let numericTypeNames: Set<string> =
-        numericKeys
-        |> Seq.map (fun k -> k.Name)
-        |> Seq.append numericAliasNames
-        |> Set.ofSeq
-
-    /// Does `name` spell a numeric primitive that can carry a measure (`float<m>`, `int<kg>`)?
-    /// Matched on the spelling, before the name resolves to anything, so the aliases (`single`,
-    /// `double`) match as themselves.
-    let isNumericCarrier (name: string) : bool = numericTypeNames.Contains name
-
     /// NOT a `namespace Vesper` type: `null` is a keyword, so it has no declaring namespace
     /// and its identity is the bare name.
     let nullKey: TypeKey = opaqueKey nullTypeName

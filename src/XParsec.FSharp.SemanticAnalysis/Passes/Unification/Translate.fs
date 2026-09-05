@@ -246,35 +246,20 @@ module internal UnificationTranslate =
         | ValueSome shape -> tryExternalTypeOfShape ctx symKey shape translatedArgs
         | ValueNone -> ValueNone
 
-    /// The written type args fitted to `arity`: surplus args dropped, missing ones back-filled
-    /// with fresh TyVars at the current level, left for the surrounding unification to pin.
-    let private fitArgs (ctx: PassContext) (arity: int) (written: EqArray<SemType>) : EqArray<SemType> =
-        if written.Length = arity then
-            written
-        else
-            EqArray.init
-                arity
-                (fun i ->
-                    if i < written.Length then
-                        written.[i]
-                    else
-                        TyVar(freshTyVar ctx)
-                )
+    /// `carrier` measured by `units`: a TyVar whose `Link` is the carrier and whose `Units`
+    /// are the term, the representation shared by `1.0<m>` and `float<m>`.
+    let measuredTy (ctx: PassContext) (carrier: SemType) (units: MeasureTerm) : SemType =
+        let tv = freshTyVar ctx
+        let root = UnionFind.find ctx.Store tv
+        ctx.Store.SetLink(root, ValueSome carrier)
+        ctx.Store.SetUnits(root, ValueSome units)
+        TyVar tv
 
-    /// A type *spelling* resolved by name, for a reference that carries no stamped verdict.
-    let private tryResolveExternalType
-        (ctx: PassContext)
-        (useSite: UseSite)
-        (name: string)
-        (translatedArgs: EqArray<SemType>)
-        : SemType voption =
-        NameResolutionContainers.tryPickExternalWritten
-            ctx
-            useSite
-            (NameResolutionContainers.WrittenArity.Exact translatedArgs.Length)
-            (fun key shape -> buildExternalTy ctx key shape translatedArgs)
-            NameResolutionContainers.Qualifier.Bare
-            name
+    /// One written type argument read by the kind of the parameter it fills.
+    [<RequireQualifiedAccess; NoEquality; NoComparison>]
+    type private TypeArgRead =
+        | Type of SemType
+        | Measure of MeasureTerm
 
     /// `body` is the abbreviation's forced body; `ValueNone` (`Broken`) yields a fresh TyVar
     /// rather than cascading. Prototype-typar constraints are checked against the supplied args
@@ -339,43 +324,14 @@ module internal UnificationTranslate =
             ctx.MarkInferenceHole tv
             TyVar tv
         | Type.NamedType li ->
-            translateTypeRef ctx (CstKeys.typeRefSite t) (ctx.WrittenTypeNameOf li).Written EqArray.empty
-        | Type.GenericType(longIdent = li; typeArgs = args) when NameResolutionTypeRefStamp.isMeasuredCarrier ctx t ->
-            // `float<m>` / `int<kg>` — the measure goes onto a fresh TyVar whose Link carries
-            // the carrier.
-            let carrierTok = li.Idents.[0]
-
-            let measureFromTypeArg =
-                match args.[0] with
-                | TypeArg.Measure m -> ValueSome m
-                | TypeArg.Type t -> CstKeys.measureOfType t
-
-            match measureFromTypeArg with
-            | ValueSome m ->
-                let mt = translateMeasure ctx carrierTok m
-                let tv = freshTyVar ctx
-                ctx.Store.SetLink(UnionFind.find ctx.Store tv, ValueSome(resolveMeasureCarrier ctx carrierTok))
-                ctx.Store.SetUnits(UnionFind.find ctx.Store tv, ValueSome mt)
-                TyVar tv
-            | ValueNone -> TyVar(freshTyVar ctx)
+            translateTypeRef ctx (CstKeys.typeRefSite t) (ctx.WrittenTypeNameOf li).Written ImmutableArray.Empty
         | Type.GenericType(longIdent = li; typeArgs = args) ->
-            let translatedArgs =
-                EqArray.ofSeq (
-                    seq {
-                        for a in args ->
-                            match a with
-                            | TypeArg.Type t -> translateType ctx t
-                            // A measure-shaped arg on a non-numeric carrier has no model.
-                            | TypeArg.Measure _ -> TyVar(freshTyVar ctx)
-                    }
-                )
-
-            translateTypeRef ctx (CstKeys.typeRefSite t) (ctx.WrittenTypeNameOf li).Written translatedArgs
+            translateTypeRef ctx (CstKeys.typeRefSite t) (ctx.WrittenTypeNameOf li).Written args
         | Type.SuffixedType(baseType = baseTy; longIdent = li) when li.Idents.Length = 1 ->
             // Postfix generic syntax: `'T list` ≡ `list<'T>`. A multi-arg postfix form
             // (`(int, string) Map`) parses its base as a tuple and falls to the arity diagnostic.
             let site = CstKeys.typeRefSite t
-            translateTypeRef ctx site (ctx.NameOf site.Tok) (EqArray.singleton (translateType ctx baseTy))
+            translateTypeRef ctx site (ctx.NameOf site.Tok) (ImmutableArray.Create(TypeArg.Type baseTy))
         | Type.SuffixedType(longIdent = li) ->
             // Postfix application through a QUALIFIED name (`int A.T`). F# accepts it; this
             // compiler has no model for the shape, which the diagnostic says rather than
@@ -445,64 +401,124 @@ module internal UnificationTranslate =
         | TypeDeclKind.Measure -> ValueSome(errorTy ctx site.Tok Kind.TypeExpectedNotMeasure)
 
     /// The `SemType` a WRITTEN type reference translates to: the verdict NameResolution stamped
-    /// at `site`, applied to the written args. A claim at another arity already reported FS0033
-    /// as it was stamped, and its written args are fitted to the claim's arity.
+    /// at `site`, applied to the written `args`. A claim at another arity (FS0033, reported when
+    /// stamped) or an argument of the wrong kind recovers as a fresh type.
     and private translateTypeRef
         (ctx: PassContext)
         (site: NodeSite)
         (name: string)
-        (translatedArgs: EqArray<SemType>)
+        (args: ImmutableArray<TypeArg<SyntaxToken>>)
         : SemType =
         let unresolved () =
             assertVerdictServable ctx site name
             unresolvedRefTy ctx site name
 
-        let ofClaim (claim: TypeIdentity) (args: EqArray<SemType>) : SemType =
-            match resolveClaimedType ctx site claim args with
-            | ValueSome ty -> ty
-            | ValueNone -> unresolved ()
+        /// `build` applied to the type-kinded arguments, measured by the measure-kinded one.
+        let apply (kinds: EqArray<TyparKind>) (build: EqArray<SemType> -> SemType) : SemType =
+            match readTypeArgs ctx site.Tok kinds args with
+            | ValueNone -> TyVar(freshTyVar ctx)
+            | ValueSome reads ->
+                // A measure-kinded position holds a free placeholder; the measure lives on the
+                // wrapping measured TyVar.
+                let typeArgs =
+                    reads
+                    |> EqArray.map (fun read ->
+                        match read with
+                        | TypeArgRead.Type ty -> ty
+                        | TypeArgRead.Measure _ -> TyVar(freshTyVar ctx)
+                    )
+
+                let units =
+                    reads
+                    |> EqArray.toArray
+                    |> Array.choose (fun read ->
+                        match read with
+                        | TypeArgRead.Measure term -> Some term
+                        | TypeArgRead.Type _ -> None
+                    )
+
+                match units with
+                | [||] -> build typeArgs
+                | [| term |] -> measuredTy ctx (build typeArgs) term
+                | _ -> errorTy ctx site.Tok (Kind.NotYetSupported "a type with several measure parameters")
 
         match ctx.Resolution.TypeRefVerdicts.TryGetValue site.Key with
-        | ValueSome(TypeRefVerdict.LocalType claim) -> ofClaim claim translatedArgs
-        | ValueSome(TypeRefVerdict.LocalTypeAtOtherArity claim) ->
-            ofClaim claim (fitArgs ctx claim.TyparArity translatedArgs)
+        | ValueSome(TypeRefVerdict.LocalType claim) ->
+            apply
+                claim.TyparKinds
+                (fun typeArgs ->
+                    match resolveClaimedType ctx site claim typeArgs with
+                    | ValueSome ty -> ty
+                    | ValueNone -> unresolved ()
+                )
+        | ValueSome(TypeRefVerdict.LocalTypeAtOtherArity _) -> TyVar(freshTyVar ctx)
         // A measure is not a type, so a reference in TYPE position is FS0704.
         | ValueSome(TypeRefVerdict.ExternalType(_, ExternalTypeShape.Measure _)) ->
             errorTy ctx site.Tok Kind.TypeExpectedNotMeasure
         | ValueSome(TypeRefVerdict.ExternalType(key, shape)) ->
-            match tryExternalTypeOfShape ctx key shape translatedArgs with
-            | ValueSome ty -> ty
-            | ValueNone -> unresolved ()
+            apply
+                shape.TyparKinds
+                (fun typeArgs ->
+                    match tryExternalTypeOfShape ctx key shape typeArgs with
+                    | ValueSome ty -> ty
+                    | ValueNone -> unresolved ()
+                )
         | ValueSome TypeRefVerdict.UnknownType
         | ValueNone ->
             // A target-optional primitive (`nativeint`, `decimal`, `undefined`, …) resolves to
             // its language-known key even on a stack that declares no contract for it;
             // `PlatformTypes` then reports each mention as unsupported on the compiling target.
-            match RuntimeNames.tryTargetOptionalPrimitiveKey name with
-            | ValueSome key -> TyConst(key, EqArray.empty)
-            | ValueNone -> unresolved ()
+            apply
+                (TyparKinds.typeOnly args.Length)
+                (fun _ ->
+                    match RuntimeNames.tryTargetOptionalPrimitiveKey name with
+                    | ValueSome key -> TyConst(key, EqArray.empty)
+                    | ValueNone -> unresolved ()
+                )
 
-    /// The carrier of a measured type (`float` in `float<m>`), resolved BY NAME at arity 0
-    /// because the measure arg is not a type arg.
-    and private resolveMeasureCarrier (ctx: PassContext) (carrierTok: SyntaxToken) : SemType =
-        let name = ctx.NameOf carrierTok
-        let site = NodeSite.ofToken NodeKind.TypeNamed carrierTok
-        let useSite = ctx.UseSiteAt site.Key
+    /// The written `args` read by the kind of the parameter each fills, one of `kinds` per
+    /// argument. `ValueNone` after FS0704 (a measure filling a type parameter) or FS0705 (a
+    /// type filling a measure parameter), reported at the argument.
+    and private readTypeArgs
+        (ctx: PassContext)
+        (nameTok: SyntaxToken)
+        (kinds: EqArray<TyparKind>)
+        (args: ImmutableArray<TypeArg<SyntaxToken>>)
+        : EqArray<TypeArgRead> voption =
+        let readArg (kind: TyparKind) (arg: TypeArg<SyntaxToken>) : TypeArgRead voption =
+            match kind, arg with
+            | TyparKind.Type, TypeArg.Type argTy -> ValueSome(TypeArgRead.Type(translateType ctx argTy))
+            | TyparKind.Type, TypeArg.Measure m ->
+                ctx.Report(CstKeys.firstTokenOfMeasure m, Kind.TypeExpectedNotMeasure)
+                ValueNone
+            | TyparKind.Measure, TypeArg.Measure m -> ValueSome(TypeArgRead.Measure(translateMeasure ctx nameTok m))
+            | TyparKind.Measure, TypeArg.Type argTy ->
+                // The parser spells a lone name in measure position as a `NamedType`; only that
+                // shape has a measure reading.
+                match CstKeys.measureOfType argTy with
+                | ValueSome m -> ValueSome(TypeArgRead.Measure(translateMeasure ctx nameTok m))
+                | ValueNone ->
+                    let tok =
+                        match CstKeys.ofTypeRef argTy with
+                        | ValueSome typeRef -> typeRef.Site.Tok
+                        | ValueNone -> nameTok
 
-        let claimed =
-            match TypeRegistry.tryTypeClaim ctx.Types useSite name 0 with
-            | ValueSome claim -> resolveClaimedType ctx site claim EqArray.empty
-            | ValueNone -> ValueNone
+                    ctx.Report(tok, Kind.MeasureExpected)
+                    ValueNone
 
-        match claimed with
-        | ValueSome ty -> ty
-        | ValueNone ->
-            match tryResolveExternalType ctx useSite name EqArray.empty with
-            | ValueSome ty -> ty
-            | ValueNone ->
-                match RuntimeNames.tryTargetOptionalPrimitiveKey name with
-                | ValueSome key -> TyConst(key, EqArray.empty)
-                | ValueNone -> unresolvedRefTy ctx site name
+        if kinds.Length <> args.Length then
+            failwithf
+                "type reference '%s' resolved to %d parameters for %d written arguments"
+                (ctx.NameOf nameTok)
+                kinds.Length
+                args.Length
+
+        let reads = Array.init args.Length (fun i -> readArg kinds.[i] args.[i])
+
+        if reads |> Array.exists ValueOption.isNone then
+            ValueNone
+        else
+            ValueSome(EqArray.ofSeq (Seq.map ValueOption.get reads))
 
     /// Attach to the constrained typar's TyVar through the current
     /// `ctx.Resolution.TyparScope`.

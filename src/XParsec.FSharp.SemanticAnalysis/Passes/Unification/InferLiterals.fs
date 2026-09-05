@@ -64,13 +64,7 @@ module internal UnificationInferLiterals =
         match c with
         | Constant.Literal t -> literalCarrier ctx t
         | Constant.MeasuredLiteral(value = t; measure = m) ->
-            let carrier = literalCarrier ctx t
-            let mt = translateMeasure ctx t m
-            let tv = freshTyVar ctx
-            let root = UnionFind.find ctx.Store tv
-            ctx.Store.SetLink(root, ValueSome carrier)
-            ctx.Store.SetUnits(root, ValueSome mt)
-            TyVar tv
+            measuredTy ctx (literalCarrier ctx t) (translateMeasure ctx t m)
 
     /// Reads `Units` straight off the root, never through `resolveStep`,
     /// which would follow a measured TyVar through its `Link` to the bare
