@@ -61,7 +61,7 @@ let (|TyClass|_|) (t: SemType) =
     | _ -> None
 
 /// A ONE-argument-group `ExternalSignature` whose method typars are all unconstrained —
-/// reflection, `.fsi` and JS-native producers carry no keyof bound. Call it qualified from a
+/// reflection, `.fsi` and JS-native producers carry no keyof constraint. Call it qualified from a
 /// file that must not take this module's shadow `TyUnion`/`TyRecord`/`TyClass` constructors.
 let mkSignature
     (declaringTyparArity: int)

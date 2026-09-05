@@ -1009,7 +1009,7 @@ let structSeqTests =
 
             // The same source-lambda `ofArray |> map |> fold`, but the combinators are EXTERNAL:
             // the separately built `Vesper.Seq` package, not the inline fixture the tests
-            // above compile. `fold`'s enumerator typar `'E` appears only in its `'S` bound.
+            // above compile. `fold`'s enumerator typar `'E` appears only in its `'S` constraint.
             test "ofArray |> map |> fold from source lambdas against the external Vesper.Seq package (no box)" {
                 let src = dataSource "external-vesper-seq-pipeline"
                 let (exitCode, output), bytes = runPackagesInspect [ "Vesper.Seq" ] src

@@ -56,7 +56,7 @@ module internal ElaborateTypeDecls =
         else
             ValueNone
 
-    /// A decl's declared typars in declaration order and the bounds on them, on the
+    /// A decl's declared typars in declaration order and the constraints on them, on the
     /// declaring axis.
     type private DeclTypars =
         {
@@ -78,7 +78,7 @@ module internal ElaborateTypeDecls =
         : DeclTypars =
         {
             Params = TTypeParam.ofDeclared typeParams
-            Constraints = boundsOfEnv store env
+            Constraints = constraintsOfEnv store env
         }
 
     /// What a host surfacer elaborates its members under. `Env` starts as the declaring
@@ -171,7 +171,7 @@ module internal ElaborateTypeDecls =
                                         Name = m.Name
                                         MethodTypeParams = EqArray.ofArray (GeneralizedTypars.names m.CanonicalTypars)
                                         MethodTyparConstraints =
-                                            boundsOfEnv ctx.Store (GeneralizedTypars.methodEnv m.CanonicalTypars)
+                                            constraintsOfEnv ctx.Store (GeneralizedTypars.methodEnv m.CanonicalTypars)
                                         Signature = m.Type
                                         ParamNames = m.ArgNames
                                         Kind = m.Kind

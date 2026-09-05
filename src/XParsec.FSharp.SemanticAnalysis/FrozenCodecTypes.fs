@@ -357,7 +357,7 @@ module FrozenCodecTypes =
             ResultTyparPos = resultTyparPos
         }
 
-    /// A frozen typar bound: the typar index, a kind tag, then each embedded type through
+    /// A frozen typar constraint: the typar index, a kind tag, then each embedded type through
     /// `writeTypeRef`.
     let writeFrozenConstraint (w: FrozenWriter) (c: FrozenConstraint) =
         w.Write c.TyparIndex
@@ -404,6 +404,15 @@ module FrozenCodecTypes =
             | b -> failwithf "FrozenCodec: unknown FrozenConstraint tag %d" b
 
         { TyparIndex = typarIndex; Kind = kind }
+
+    /// A binding's scheme: the arity, then its constraints.
+    let writeGenericFnScheme (w: FrozenWriter) (s: GenericFnScheme) =
+        w.Write s.TyparArity
+        writeEqSetWith w writeFrozenConstraint s.Constraints
+
+    let readGenericFnScheme (r: FrozenReader) : GenericFnScheme =
+        let arity = r.ReadInt32()
+        GenericFnScheme.create arity (readEqSetWith r readFrozenConstraint)
 
     let writeModuleBindingInfo (w: FrozenWriter) (m: ModuleBindingInfo) =
         writeSymbolRef w m.Key

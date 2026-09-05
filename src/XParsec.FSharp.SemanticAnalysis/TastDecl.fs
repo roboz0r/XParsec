@@ -189,7 +189,7 @@ type TTypeMemberG<'ty, 'id, 'body> =
         /// the declaring type's `TypeParams`. Each entry pairs the source name with the
         /// typar's own type.
         MethodTypeParams: EqArray<string * 'ty>
-        /// The bounds on `MethodTypeParams`, declared or inferred, indexed on the method axis.
+        /// The constraints on `MethodTypeParams`, declared or inferred, indexed on the method axis.
         MethodTyparConstraints: EqSet<TyparConstraintG<'ty>>
         /// The member's attributes, resolved and constant-folded.
         Attributes: TAttributes
@@ -304,7 +304,7 @@ type TAbstractMethodG<'ty> =
     {
         Name: string
         MethodTypeParams: EqArray<string>
-        /// The bounds on `MethodTypeParams`, indexed on the method axis.
+        /// The constraints on `MethodTypeParams`, indexed on the method axis.
         MethodTyparConstraints: EqSet<TyparConstraintG<'ty>>
         Signature: 'ty
         /// The argument names the signature spells, one per source argument across every
@@ -397,7 +397,7 @@ type TTypeDeclG<'ty, 'tok, 'id, 'body> =
         TypeKey: TypeKey
         /// Declared type parameters in source order.
         TypeParams: EqArray<TTypeParam>
-        /// The bounds on `TypeParams`, declared or inferred from a member body, indexed on
+        /// The constraints on `TypeParams`, declared or inferred from a member body, indexed on
         /// the declaring axis.
         TyparConstraints: EqSet<TyparConstraintG<'ty>>
         Kind: TTypeKindG<'ty, 'tok, 'id, 'body>

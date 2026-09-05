@@ -621,10 +621,10 @@ printfn \"%d\" (g.GetVal())
                 Expect.equal actual "21" "cross-file interface member dispatch returns the value"
             }
 
-            test "two files run: file 2 calls a cross-file interface member through a typar bound" {
+            test "two files run: file 2 calls a cross-file interface member through a typar constraint" {
                 // The typar-constrained form: file 2's generic `callIt` calls `GetVal` off the
-                // `'T :> IGetVal` bound, instantiated at the cross-file interface, the SAME
-                // decurried slot as above, reached through the typar-bound resolution seam.
+                // `'T :> IGetVal` constraint, instantiated at the cross-file interface, the SAME
+                // decurried slot as above, reached through the typar-constraint resolution seam.
                 let file1 =
                     "\
 namespace CrossFile
@@ -663,7 +663,7 @@ printfn \"%d\" (callIt g)
                 let actual = output.Replace("\r", "").Trim()
 
                 Expect.equal exitCode 0 (sprintf "expected exit 0; stdout was %A" actual)
-                Expect.equal actual "13" "cross-file typar-bound interface dispatch returns the value"
+                Expect.equal actual "13" "cross-file typar-constraint interface dispatch returns the value"
             }
 
             // Codegen composes the per-file views nearest-first, matching analysis. That

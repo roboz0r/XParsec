@@ -316,11 +316,8 @@ type internal Assembler
                     Handle = toEntity (layoutHandles.MethodDefOf(MethodKey.StaticFn fn.SymbolKey))
                     Params = fn.Params |> CompiledFns.FlatParams.map (fun p -> p.Ty)
                     ResultTy = fn.ResultTy
-                    Typars = plan.StaticFnTypars.[fn.Key]
+                    Scheme = fn.Scheme
                     ReturnsVoid = fn.ReturnsVoid
-                    // The frozen typar bounds, from which the call site solves the
-                    // phantom method-typar slots no parameter or result mentions.
-                    Constraints = fn.Constraints
                 }
 
         // Module-value bindings resolve to their already-written field rows.
@@ -836,7 +833,7 @@ type internal Assembler
         let prepareStaticFn (fn: Emit.StaticFn) =
             // A generic static method's body / signature / locals embed
             // `FTTypar(Method, i)`, which the encoder maps to `!!i` without an ambient window.
-            let typarCount = staticMethods.[fn.Key].Typars
+            let typarCount = fn.Scheme.TyparArity
 
             // Retype the body so a reference to a verdict module value, or an inline
             // transformer call, dispatches on the `<closure>$` value-struct nominal
@@ -861,7 +858,7 @@ type internal Assembler
                     Signature = signature
                     Body = staticBody
                     ParamNames = paramNames emitCtx.Pool (fn.Params.Flat |> Seq.map (fun p -> p.Slot))
-                    MethodTypars = GenericParamRow.ofTypars (GenericParamRow.positionalNames typarCount) fn.Constraints
+                    MethodTypars = GenericParamRow.ofScheme fn.Scheme
                 }
             )
 

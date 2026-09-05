@@ -141,7 +141,7 @@ module UnificationEngineCore =
         substituteWith store (mkNamedTypeSubst store typeParams args) ty
 
     /// Prepend `c` unless a constraint of the same `Kind` is already on `tv`, so a use site
-    /// never accumulates duplicate SRTP / equality bounds.
+    /// never accumulates duplicate SRTP / equality constraints.
     let addConstraintByKind (store: TypeStore) (tv: TyVarId) (c: SemanticConstraint) : unit =
         let root = UnionFind.find store tv
 
@@ -150,7 +150,7 @@ module UnificationEngineCore =
 
     /// A member's type at a call site: the declaring-axis substitution (`typeParams ↦ args`)
     /// plus a fresh `TyVar` at the current level for each of the member's own `methodTypars`.
-    /// Each fresh typar carries the prototype's bounds over the instance's typars.
+    /// Each fresh typar carries the prototype's constraints over the instance's typars.
     let instantiateMemberCall
         (ctx: PassContext)
         (typeParams: EqArray<DeclaredTypar>, args: EqArray<SemType>)

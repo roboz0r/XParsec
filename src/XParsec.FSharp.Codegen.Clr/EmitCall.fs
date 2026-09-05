@@ -143,7 +143,7 @@ module EmitCall =
             let flatActualTys = flattenGroupPushes recur env b sm.Params.Groups leading
 
             let callHandle =
-                if sm.Typars = 0 then
+                if sm.Scheme.TyparArity = 0 then
                     sm.Handle
                 else
                     // The instantiation is recovered by matching declared types against
@@ -155,7 +155,7 @@ module EmitCall =
                         | [] -> sm.Params.Flat @ [ sm.ResultTy ], flatActualTys @ [ typeOfExpr e ]
                         | _ -> sm.Params.Flat, flatActualTys
 
-                    let instArr = matchInstantiationPartial sm.Typars defTys actualTys
+                    let instArr = matchInstantiationPartial sm.Scheme.TyparArity defTys actualTys
 
                     // A value-struct closure argument in a constrained `'TF :> Fun<_,_>`
                     // slot must instantiate `!TF` with the closure's own struct, not the
@@ -176,7 +176,7 @@ module EmitCall =
                     // A phantom typar — one appearing only in a constraint, like `fold`'s
                     // enumerator `'E` in `'S :> IStructSeq<'T,'E>` — survives matching as
                     // `ValueNone`; solve it from the constraint's interface witness.
-                    TastLower.solvePhantomTypars sm.Constraints (tryInterfaceWitness env) instArr
+                    TastLower.solvePhantomTypars sm.Scheme.Constraints (tryInterfaceWitness env) instArr
 
                     let inst =
                         [

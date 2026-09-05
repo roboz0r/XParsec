@@ -122,6 +122,8 @@ module TastPools =
     /// The SOURCE arity of every module binding, read off the columns just filled, so a
     /// tuple group's pattern IS the lambda parameter node it was peeled from, not a copy.
     let private bindingValReprs (pools: FrozenPools) : DenseTable<BoundVarId, PooledValRepr> =
+        let schemeOf = FrozenPools.schemes pools
+
         let unLambda (ExprPoolId i) =
             match pools.ExprPayloads.[i] with
             | ExprPayload.Lambda ->
@@ -160,7 +162,7 @@ module TastPools =
                             boundVar,
                             {
                                 // A plain value has no lambda groups: an empty-`Groups` entry.
-                                Typars = FrozenPools.typarArity pools boundVar
+                                Typars = (schemeOf boundVar).TyparArity
                                 Groups = groups
                                 ResultTy = pools.Types.[pools.ExprTys.[b]]
                             }
@@ -348,18 +350,6 @@ module TastPools =
                 | ValueNone -> None
             )
 
-        // A per-bound-variable SCALAR goes into a column instead: the producer's key is resolved here
-        // and then DROPPED, the fact landing at the bound variable's own slot. Projected like
-        // `remapSideTable`.
-        let boundVarColumn (m: Map<BoundVarKeyG<'id>, 'v>) : BoundVarColumn<'v> =
-            let col = Array.create boundVarNames.Count ValueNone
-
-            for KeyValue(k, v) in m do
-                match tryBoundVarIdOf k with
-                | ValueSome(BoundVarId i) -> col.[i] <- ValueSome v
-                | ValueNone -> ()
-
-            col
 
         let boundVarMutable = Array.zeroCreate boundVarNames.Count
 
@@ -406,7 +396,6 @@ module TastPools =
                 GenericFnSchemes = remapSideTable tryBoundVarIdOf file.GenericFnSchemes
                 // Derived below, off the pools themselves.
                 BindingValReprs = [||]
-                BindingTyparArities = boundVarColumn file.BindingTyparArities
             }
 
         { pools with

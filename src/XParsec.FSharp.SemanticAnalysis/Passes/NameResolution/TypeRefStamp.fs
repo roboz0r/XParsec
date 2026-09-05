@@ -64,7 +64,7 @@ module NameResolutionTypeRefStamp =
         CstTypeWalk.iterTypeMemberSig (stampTypeIter ctx) ms
 
     /// A type header's trailing constraints hang off `TypeName`, reached by no other stamper,
-    /// so a coercion bound there must be stamped here or codegen cannot lower its `.Invoke`.
+    /// so a coercion constraint there must be stamped here or codegen cannot lower its `.Invoke`.
     let stampTyparConstraints (ctx: PassContext) (cs: TyparConstraints<SyntaxToken>) : unit =
         CstTypeWalk.iterTypeConstraints (stampTypeIter ctx) cs
 

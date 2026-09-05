@@ -19,8 +19,8 @@ open UnificationInferDispatch
 open UnificationInferRecordAccess
 
 module internal UnificationInferExternalCall =
-
-    /// `ValueNone` when the bound doesn't evaluate to a ground union of string literals.
+    /// `ValueNone` when the bound does not evaluate to a ground union of string literals.
+    /// `ValueNone` when the constraint doesn't evaluate to a ground union of string literals.
     let private boundLiteralStrings (ctx: PassContext) (bound: SemType) : Set<string> voption =
         match tryLiteralStrings ctx.Store (evalTypeLevel ctx bound) with
         | ValueSome strings -> ValueSome(Set.ofList strings)
@@ -226,7 +226,7 @@ module internal UnificationInferExternalCall =
             else
                 let argTy = infer ctx argExpr
                 // With no declaring type arguments no candidate parameter can be a
-                // keyof-bounded method typar, so the constants seed the commit only.
+                // keyof-constrained method typar, so the constants seed the commit only.
                 let facts = constArgFacts ctx argExpr
 
                 match pickBestOverload ctx typeArgs candidates (argElemsOf ctx.Store argTy) with
@@ -277,7 +277,7 @@ module internal UnificationInferExternalCall =
                     let declArgs = EqArray.toArray typeArgs
                     let facts = constArgFacts ctx argExpr
                     // Refine BEFORE the pick, so a string constant both selects the
-                    // keyof-bounded typar overload and solves its freshened typar at commit.
+                    // keyof-constrained typar overload and solves its freshened typar at commit.
                     let argTy =
                         admitLiteralMethodTypars ctx (EqArray.toArray candidates) declArgs facts (infer ctx argExpr)
 

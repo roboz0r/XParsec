@@ -155,9 +155,8 @@ module internal Layout =
         let closures, closureByNode =
             Emit.discoverClosures
                 closureNamer
-                plan.StaticFnKeys
+                plan.StaticFnsByKey
                 plan.ModuleValueKeys
-                plan.StaticFnTypars
                 // Which source lambdas are value-structs, by node membership.
                 funVerdicts
                 closureReprs

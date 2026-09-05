@@ -40,9 +40,9 @@ module internal ElaborateTypars =
                 | _ -> ()
         ]
 
-    /// The bounds the store holds on `root`, indexed `i`; a `Coercion` target stays
+    /// The constraints the store holds on `root`, indexed `i`; a `Coercion` target stays
     /// `TyVar`-rooted for the deferred cut.
-    let private boundsAt (store: TypeStore) (i: int) (root: TyVarId) : TyparConstraintG<SemType> list =
+    let private constraintsAt (store: TypeStore) (i: int) (root: TyVarId) : TyparConstraintG<SemType> list =
         [
             for sc in store.Constraints.Items(UnionFind.find store root) do
                 match TyparConstraint.ofSemantic i id sc.Kind with
@@ -50,13 +50,13 @@ module internal ElaborateTypars =
                 | ValueNone -> ()
         ]
 
-    /// The bounds on each typar of `env`, at the index its `TyTypar` marker carries.
-    let boundsOfEnv (store: TypeStore) (env: (TyVarId * SemType) list) : EqSet<TyparConstraintG<SemType>> =
+    /// The constraints on each typar of `env`, at the index its `TyTypar` marker carries.
+    let constraintsOfEnv (store: TypeStore) (env: (TyVarId * SemType) list) : EqSet<TyparConstraintG<SemType>> =
         EqSet.ofSeq
             [
                 for (root, target) in env do
                     match target with
-                    | TyTypar(_, i) -> yield! boundsAt store i root
+                    | TyTypar(_, i) -> yield! constraintsAt store i root
                     | _ -> ()
             ]
 
@@ -100,9 +100,9 @@ module internal ElaborateTypars =
         for r in acc do
             seen.Add r |> ignore
 
-        // A bound's embedded type may reference typars absent from the declared type: in
+        // A constraint's embedded type may reference typars absent from the declared type: in
         // `let f (s: 'S when 'S :> IStructSeq<'T,'E>)`, `'E` is in no parameter/return position.
-        // F# generalises those too, so fold the bounds in to a fixpoint (a bound may add more).
+        // F# generalises those too, so fold the constraints in to a fixpoint (a constraint may add more).
         let mutable depIdx = 0
 
         while depIdx < acc.Count do

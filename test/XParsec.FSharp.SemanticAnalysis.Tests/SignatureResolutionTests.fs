@@ -894,10 +894,10 @@ let tests =
                     sym.Constraints
                     |> List.exists (fun c ->
                         match c with
-                        | ExternalConstraint.Bound {
-                                                       TyparIndex = 0
-                                                       Kind = TyparConstraintKindG.Equality
-                                                   } -> true
+                        | ExternalConstraint.Encodable {
+                                                           TyparIndex = 0
+                                                           Kind = TyparConstraintKindG.Equality
+                                                       } -> true
                         | _ -> false
                     )
 
@@ -917,7 +917,7 @@ let tests =
             test "SRTP member-trait clause is captured as a MemberTrait over the val's typars" {
                 // `when ^T : (static member (+) : ^T * ^T -> ^T)` captures as a `MemberTrait`:
                 // the COMPILED name (`op_Addition`) plus `FTTypar(Declaring, 0)` templates, not
-                // the source spelling. Instantiation substitutes them and stamps `SrtpBounds`.
+                // the source spelling. Instantiation substitutes them and stamps them on the `Srtp` table.
                 let r =
                     resolveFsi
                         "app.fsi"
@@ -953,11 +953,11 @@ let tests =
                 match ExternalSymbols.instantiateSymbol (MeasuredThaw.noneOver store) sym 0 with
                 | TyFun(TyVar a, TyFun(TyVar _, TyVar _)) ->
                     match store.Srtp.Live(UnionFind.find store a) with
-                    | [ bound ] ->
-                        Expect.equal bound.MemberName "op_Addition" "the stamped bound names the compiled member"
-                        Expect.equal bound.ArgTypes.Length 2 "the stamped bound keeps both args"
-                        Expect.isFalse (store.Srtp.IsSolved bound) "a freshly stamped bound is undischarged"
-                    | other -> failtestf "expected exactly one SrtpBound on the fresh TyVar; got %A" other
+                    | [ memberTrait ] ->
+                        Expect.equal memberTrait.MemberName "op_Addition" "the stamped trait names the compiled member"
+                        Expect.equal memberTrait.ArgTypes.Length 2 "the stamped trait keeps both args"
+                        Expect.isFalse (store.Srtp.IsSolved memberTrait) "a freshly stamped trait is undischarged"
+                    | other -> failtestf "expected exactly one SRTP trait on the fresh TyVar; got %A" other
                 | other -> failtestf "expected (^T -> ^T -> ^T) over a fresh TyVar; got %A" other
             }
 

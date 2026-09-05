@@ -197,9 +197,9 @@ module UnificationInferOverload =
                         c.Params)
             )
 
-        // A generic candidate's OWN where-constraints (`ExternalConstraint.Bound`)
+        // A generic candidate's OWN where-constraints (`ExternalConstraint.Encodable`)
         // are NOT verified here: they are stamped on the fresh TyVars at the commit seam and
-        // fire on the first `Link`, so a violated bound surfaces as a commit error instead.
+        // fire on the first `Link`, so a violated constraint surfaces as a commit error instead.
         match filterTier false with
         // Exact-match tier: a single structural survivor wins with no betterness reasoning
         // (`Show(int)` / `Show(string)` needs no specificity).

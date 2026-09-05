@@ -455,5 +455,4 @@ module TastConvert =
             FunVerdicts = tf.FunVerdicts
             GenericFnSchemes = tf.GenericFnSchemes
             Accessibility = tf.Accessibility
-            BindingTyparArities = tf.BindingTyparArities
         }

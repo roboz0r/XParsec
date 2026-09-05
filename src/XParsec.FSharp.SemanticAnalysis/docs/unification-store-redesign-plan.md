@@ -14,7 +14,7 @@ per-step landed/remaining status.
 - **Landed:** dense `TyVarId`; per-file `TypeStore` arena (union-find `parent`/`rank`,
   root-authoritative `level`/`link`/`units`, write-once `region`); the four deferred-constraint
   families as store side-tables (`Constraints`/`Defaults` grow-only lists; `Srtp`/`Pda`
-  = `BoundTable`, grow-only + reference-keyed `solved`); `migrateBounds` and
+  = `DischargeTable`, grow-only + reference-keyed `solved`); `migrateBounds` and
   `MemberSignature.Resolved` **deleted**.
 - **Handle collapse + `Rep` (follow-up, landed):** the sealed `TypeVar` class AND the id→handle
   `Node` array are **deleted** — `SemType.TyVar of TyVarId` carries the id directly, `find`/`union`
@@ -260,7 +260,7 @@ performance payoff and must be benchmark-gated — do them together.
 - **Reference-identity call sites** (formerly `HashIdentity.Reference`, e.g.
   `EngineCore.mkNamedTypeSubst`, `InferOverload.TrialBindings`) — **DONE:** all flipped to
   structural `TyVarId` keying when the handle collapsed; no metavar `HashIdentity.Reference`
-  remains (the one surviving reference-keyed set, `BoundTable.solved`, keys the obligation
+  remains (the one surviving reference-keyed set, `DischargeTable.solved`, keys the obligation
   *items*, not vars — intrinsic to the item and untouched).
 - **Caching is the sharp edge** — a stale cache entry is a correctness bug, so step 5 must be
   gated on both benchmarks (does it pay?) and invalidation tests (is it sound?). If a cache

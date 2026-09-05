@@ -255,7 +255,7 @@ and [<Sealed>] TyDisjuncts private (disjuncts: EqSet<SemType>) =
 
 /// Captured SRTP member-trait clause; `MemberName` is the compiled name (`"op_Addition"`,
 /// `"Zero"`). `SupportTys` is the declared `(^T1 or ^T2)` support set, instantiated for
-/// the use site; the bound stays undischarged until every element is pinned.
+/// the use site; the trait stays undischarged until every element is pinned.
 type MemberSignature =
     {
         MemberName: string

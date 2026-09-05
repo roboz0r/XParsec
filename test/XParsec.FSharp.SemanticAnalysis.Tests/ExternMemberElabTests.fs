@@ -118,7 +118,7 @@ let tests =
 
             // `widget` is not a numeric primitive, so operator-name synthesis declines it:
             // `a + b` can only resolve through the operator declared on the type.
-            test "an operator declared on an intrinsic satisfies the SRTP bound" {
+            test "an operator declared on an intrinsic satisfies the SRTP trait" {
                 let source =
                     "module Widgets\n\
                      \n\
@@ -149,7 +149,7 @@ let tests =
             }
 
             test "the trait-dispatched call site keys the member body the file collects" {
-                // The unifier satisfies the SRTP bound off `IntrinsicAbbrevHost`; the inline
+                // The unifier satisfies the SRTP trait off `IntrinsicAbbrevHost`; the inline
                 // trait dispatcher must mint the SAME key the member body is collected under,
                 // or the backend has no body to splice at the site.
                 let source =

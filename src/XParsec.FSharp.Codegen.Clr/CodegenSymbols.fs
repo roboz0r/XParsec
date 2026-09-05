@@ -77,10 +77,9 @@ module CodegenSymbols =
                             {
                                 Origin = sym.Origin
                                 Signature = os.Signature
-                                MethodTyparArity = os.MethodTyparArity
+                                Scheme = os.Scheme
                                 EmittedName = sym.EmittedName
                                 ValRepr = sym.ValRepr
-                                Constraints = os.Constraints
                             }
 
             member _.DeclarationsOf m = provider.Scope.DeclarationsOf m

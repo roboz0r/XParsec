@@ -35,7 +35,7 @@ module TastLower =
 
     /// As `matchInstantiation`, but leaves a `ValueNone` hole for a typar no
     /// parameter/result mentions, because a phantom constraint typar (`fold`'s enumerator `'E`)
-    /// is unrecoverable by param-matching and must be solved from its bounds.
+    /// is unrecoverable by param-matching and must be solved from its constraints.
     let matchInstantiationPartial
         (typarCount: int)
         (defTys: FrozenType list)
@@ -106,13 +106,13 @@ module TastLower =
 
         if not (List.isEmpty coercions) then
             // A witness OVERRIDES an already-recovered value at these indices: a typar in
-            // both a bound and the result can be stale in the result occurrence, while the
+            // both a constraint and the result can be stale in the result occurrence, while the
             // witness reads it off the concrete impl.
-            let boundMentioned = System.Collections.Generic.HashSet<int>()
+            let constraintMentioned = System.Collections.Generic.HashSet<int>()
 
             let rec mention (t: FrozenType) =
                 match t with
-                | FTTypar(TyparAxis.Method, i) -> boundMentioned.Add i |> ignore
+                | FTTypar(TyparAxis.Method, i) -> constraintMentioned.Add i |> ignore
                 | t -> FrozenType.iterChildren mention t
 
             for (_, target) in coercions do
@@ -139,7 +139,7 @@ module TastLower =
                                     match holes.[j] with
                                     | ValueSome t when
                                         instArr.[j] <> ValueSome t
-                                        && (instArr.[j] = ValueNone || boundMentioned.Contains j)
+                                        && (instArr.[j] = ValueNone || constraintMentioned.Contains j)
                                         ->
                                         instArr.[j] <- ValueSome t
                                         changed <- true

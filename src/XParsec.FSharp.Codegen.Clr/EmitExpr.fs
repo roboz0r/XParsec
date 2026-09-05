@@ -53,10 +53,10 @@ module EmitExpr =
                 let sm = env.StaticMethods.[boundVar]
 
                 let callHandle =
-                    if sm.Typars = 0 then
+                    if sm.Scheme.TyparArity = 0 then
                         sm.Handle
                     else
-                        let inst = matchInstantiation sm.Typars [ sm.ResultTy ] [ varTy ]
+                        let inst = matchInstantiation sm.Scheme.TyparArity [ sm.ResultTy ] [ varTy ]
                         env.Provider.StaticFnMethodSpec(sm.Handle, inst)
 
                 b.Add(ILInstr.Call(callHandle, 0, 1))

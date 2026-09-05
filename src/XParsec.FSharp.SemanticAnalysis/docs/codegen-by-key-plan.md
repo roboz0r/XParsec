@@ -32,8 +32,8 @@ is the signal to reconsider — not before.
 `TExpr.TraitCall` carries `supportTys: EqArray<'ty>` and `MemberSignature` carries the
 declared `(^T1 or ^T2)` support set. `UnificationTraitMembers.pick` is the one search over
 that set — host enumeration, read-only applicability, and the winning member with its
-declaration for the key mint. `Engine.trySolveSrtpBound` defers a bound while a support
-type is unpinned and picks through it at a forced sweep (`Engine.sweepSrtpBounds`, run per
+declaration for the key mint. `Engine.trySolveSrtpTrait` defers a bound while a support
+type is unpinned and picks through it at a forced sweep (`Engine.sweepSrtpTraits`, run per
 binding group and per bare module expression); `Inline.resolveTraitCall` picks through it
 at expansion, with a unique applicable host rewriting and several declining as
 `Kind.TraitAmbiguous`, F#'s FS0043. `int + Vector` resolves; `Vector + int` still
@@ -54,7 +54,7 @@ implementing the interface is one *source* of that member. (The shapes coincide:
 is the confirmation that the 3-typar signature was worth carrying.)
 
 - **Ground operand — falls out, in scope.** A ground SAIM-implementer reaches the existing
-  `TyClass` arm of `dischargeSrtpBounds` (`Engine.fs:1028`) and its static `op_Addition` is found
+  `TyClass` arm of `dischargeSrtpTraits` (`Engine.fs:1028`) and its static `op_Addition` is found
   like any other nominal's. Bounded extra work: an *explicit* static interface implementation
   is not a public member, so the lookup must also walk implemented interfaces' static abstract
   members and codegen must emit a **constrained** call (`constrained.` + `call`), not a direct

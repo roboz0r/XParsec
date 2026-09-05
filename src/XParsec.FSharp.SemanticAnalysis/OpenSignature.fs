@@ -6,11 +6,11 @@ module OpenSignature =
         {
             /// Curried `param -> … -> return`, method typars as `FTTypar(Method, i)`.
             Signature: FrozenType
-            /// The `MethodSpec` generic-parameter count. INCLUDES a phantom typar that
-            /// occurs only in a `Coercion` bound (the enumerator `'E` in
-            /// `'S :> IStructSeq<'T,'E>`), so it matches the producer's emitted arity.
-            MethodTyparArity: int
-            Constraints: EqSet<FrozenConstraint>
+            /// The `MethodSpec` generic-parameter count and the constraints over it. The
+            /// arity INCLUDES a phantom typar that occurs only in a `Coercion` constraint
+            /// (the enumerator `'E` in `'S :> IStructSeq<'T,'E>`), so it matches the
+            /// producer's emitted arity.
+            Scheme: GenericFnScheme
         }
 
     /// Projects a symbol's contract scheme onto the method axis, `Declaring i ↦ Method i`
@@ -23,7 +23,7 @@ module OpenSignature =
                 [
                     for c in sym.Constraints do
                         match c with
-                        | ExternalConstraint.Bound b -> TyparConstraint.map toMethodAxis b
+                        | ExternalConstraint.Encodable b -> TyparConstraint.map toMethodAxis b
                         // Resolved during inference; neither has a metadata encoding.
                         | ExternalConstraint.MemberTrait _
                         | ExternalConstraint.Default _ -> ()
@@ -31,6 +31,5 @@ module OpenSignature =
 
         {
             Signature = toMethodAxis sym.Scheme
-            MethodTyparArity = sym.TyparArity
-            Constraints = constraints
+            Scheme = GenericFnScheme.create sym.TyparArity constraints
         }

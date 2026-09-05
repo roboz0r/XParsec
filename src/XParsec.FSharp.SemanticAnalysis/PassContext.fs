@@ -159,7 +159,6 @@ type PassContextBindings =
         Accessibility: Dictionary<SymbolKey, Accessibility>
         /// The `[<Global>]` bindings: the value IS a target global, so no definition is emitted.
         GlobalValueKeys: HashSet<SymbolKey>
-        BindingTyparArities: Dictionary<BoundVarKey, int>
         /// In declaration order; a malformed `[<Import>]` is reported rather than recorded.
         Imports: ResizeArray<ImportObligation>
     }
@@ -175,7 +174,6 @@ module PassContextBindings =
             DeclaredTypars = SideTable<_>()
             Accessibility = Dictionary<_, _>()
             GlobalValueKeys = HashSet<_>()
-            BindingTyparArities = Dictionary<_, _>()
             Imports = ResizeArray<_>()
         }
 
@@ -562,11 +560,11 @@ type PassContext(provider: IExternalSymbolProvider, file: LexedFile, assembly: C
         walk ty
 
     /// A SOURCE-lambda argument's value-struct closure verdict, recorded when the lambda lands
-    /// on a typar parameter whose `:> Fun<'T,'U>` bound fires. No entry ⇒ an ordinary closure.
+    /// on a typar parameter whose `:> Fun<'T,'U>` constraint fires. No entry ⇒ an ordinary closure.
     member val FunVerdicts = LambdaTable<FunVerdict>() with get
-    /// A generalised binding's frozen typar bounds, minted with the body's method-axis indices
-    /// so the bounds' typar leaves carry them.
-    member val GenericFnSchemes = BoundVarTable<EqSet<FrozenConstraint>>() with get
+    /// A generalised binding's scheme, its constraints frozen over the body's method-axis
+    /// typar indices.
+    member val GenericFnSchemes = BoundVarTable<GenericFnScheme>() with get
     /// How the SOURCE writes each bound variable this file introduces: the identifier and where.
     /// Recorded at the mint: once a body is copied elsewhere its tokens spell the CALL site.
     member val BoundVarNames = BoundVarTable<BoundVarIdent>() with get

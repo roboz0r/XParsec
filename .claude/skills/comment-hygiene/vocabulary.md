@@ -227,6 +227,23 @@ Still open, deliberately: `ValRepr` / `ClosureRepr` / `RegionRepr` / `EmittedEnu
 their prose ("value repr", "IL repr") are the *value-representation* family — a different
 concept that a rename here must not conflate. Retire them on their own terms or not at all.
 
+## `bound`
+
+Retired as the F# word for a `when` clause: that is a **constraint** (`TyparConstraintG`,
+`GenericFnScheme.Constraints`, `MethodTyparConstraints`), and an SRTP member clause is a
+**trait** (`MemberTrait`, `sweepSrtpTraits`). Kept for the TypeScript upper bound, a single
+type per typar (`<Key extends keyof Events>`), which is `Schema.TypeParamBounds`,
+`ExternalSignature.MethodTypars`, `ExternalSignature.unbounded` and
+`instantiateSignatureBounds`. "Bound variable" (`BoundVar*`) is the pattern sense and is
+untouched.
+
+| sense | term |
+| --- | --- |
+| a `when 'T : …` clause | constraint |
+| a `when ^T : (member …)` clause | trait |
+| a TS `extends` type on a typar | bound |
+| a name a pattern introduces | bound variable |
+
 ## Naming a new operation
 
 Grep for what the sibling operation is already called before coining anything. Where one word

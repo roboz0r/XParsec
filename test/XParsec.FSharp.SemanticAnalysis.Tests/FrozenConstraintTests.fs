@@ -7,18 +7,20 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 // A generalised binding's `when` clauses reach the frozen pools as `FrozenConstraint`s over
 // the method axis, one per source constraint, and survive the blob codec.
 
-/// The frozen scheme of the module binding named `name`, in stored order.
-let private schemeOf (pools: FrozenPools) (name: string) : FrozenConstraint list =
+/// The scheme of the module binding named `name`; `None` for a binding absent from the table.
+let private tryFrozenSchemeOf (pools: FrozenPools) (name: string) : GenericFnScheme option =
     pools.GenericFnSchemes
-    |> Array.tryPick (fun (BoundVarId i, cs) ->
-        if pools.BoundVarNames.[i] = name then
-            Some(EqSet.toList cs)
-        else
-            None
-    )
+    |> Array.tryPick (fun (BoundVarId i, s) -> if pools.BoundVarNames.[i] = name then Some s else None)
+
+let private frozenSchemeOf (pools: FrozenPools) (name: string) : GenericFnScheme =
+    tryFrozenSchemeOf pools name
     |> Option.defaultWith (fun () -> failtestf "no frozen scheme for %s" name)
 
-/// The bound `kind` on the typar at `i`.
+/// The constraints of the module binding named `name`, in stored order.
+let private schemeOf (pools: FrozenPools) (name: string) : FrozenConstraint list =
+    EqSet.toList (frozenSchemeOf pools name).Constraints
+
+/// The constraint `kind` on the typar at `i`.
 let private at (i: int) (kind: TyparConstraintKindG<'ty>) : TyparConstraintG<'ty> = { TyparIndex = i; Kind = kind }
 
 let private source =
@@ -37,6 +39,7 @@ let enumOf<'a when 'a: enum<int>> (x: 'a) = x
 let inferredEq x y = x = y
 let inferredCmp x y = x < y
 let viaCall x = inferredCmp x x
+let mono (x: int) = x
 """
 
 let private expected: (string * FrozenConstraint list) list =
@@ -85,11 +88,43 @@ let tests =
                 let thawed = FrozenCodec.thaw (FrozenCodec.flatten pools)
 
                 for name in "coerce" :: List.map fst expected do
-                    Expect.equal (schemeOf thawed name) (schemeOf pools name) name
+                    Expect.equal (frozenSchemeOf thawed name) (frozenSchemeOf pools name) name
+            }
+
+            test "a scheme's arity is the binding's quantified typar count" {
+                let pools = freezeFor source
+                Expect.equal (frozenSchemeOf pools "eq").TyparArity 1 "eq"
+                Expect.equal (frozenSchemeOf pools "two").TyparArity 2 "two"
+                Expect.equal (frozenSchemeOf pools "inferredEq").TyparArity 1 "inferredEq"
+            }
+
+            test "a monomorphic binding has no scheme" {
+                let pools = freezeFor source
+                Expect.isNone (tryFrozenSchemeOf pools "mono") "mono"
+            }
+
+            test "a constraint on a typar at or past the arity is refused" {
+                Expect.throws
+                    (fun () ->
+                        GenericFnScheme.create 1 (EqSet.ofSeq [ at 1 TyparConstraintKindG.Equality ])
+                        |> ignore
+                    )
+                    "TyparIndex past the arity"
+            }
+
+            test "a constraint whose type references a method typar past the arity is refused" {
+                let target = FTTypar(TyparAxis.Method, 1)
+
+                Expect.throws
+                    (fun () ->
+                        GenericFnScheme.create 1 (EqSet.ofSeq [ at 0 (TyparConstraintKindG.Coercion target) ])
+                        |> ignore
+                    )
+                    "method typar referenced past the arity"
             }
         ]
 
-// A type declaration, a member and an abstract slot carry their own typars' bounds on the
+// A type declaration, a member and an abstract slot carry their own typars' constraints on the
 // declaration itself, on the declaring axis for the type and the method axis for the rest.
 
 let private declSource =
@@ -123,45 +158,45 @@ let declTests =
     testList
         "TyparConstraints on declarations"
         [
-            test "a record's declared bound is on the declaring axis" {
+            test "a record's declared constraint is on the declaring axis" {
                 let td = typeDeclOf (freezeFor declSource) "Box"
 
                 Expect.equal
                     (EqSet.toList td.TyparConstraints)
                     [ at 0 TyparConstraintKindG.Comparison ]
-                    "type-level bound"
+                    "type-level constraint"
             }
 
-            test "a bound inferred from a member body lands on the declaring typar" {
+            test "a constraint inferred from a member body lands on the declaring typar" {
                 let td = typeDeclOf (freezeFor declSource) "Holder"
 
                 Expect.equal
                     (EqSet.toList td.TyparConstraints)
                     [ at 0 TyparConstraintKindG.Equality ]
-                    "type-level bound"
+                    "type-level constraint"
 
-                Expect.isTrue (memberOf td "Same").MethodTyparConstraints.IsEmpty "no method-axis bound"
+                Expect.isTrue (memberOf td "Same").MethodTyparConstraints.IsEmpty "no method-axis constraint"
             }
 
-            test "a member's declared bound is on the method axis" {
+            test "a member's declared constraint is on the method axis" {
                 let td = typeDeclOf (freezeFor declSource) "Holder"
 
                 Expect.equal
                     (EqSet.toList (memberOf td "Pick").MethodTyparConstraints)
                     [ at 0 TyparConstraintKindG.Struct ]
-                    "method bound"
+                    "method constraint"
             }
 
-            test "a member's inferred bound is on the method axis" {
+            test "a member's inferred constraint is on the method axis" {
                 let td = typeDeclOf (freezeFor declSource) "Holder"
 
                 Expect.equal
                     (EqSet.toList (memberOf td "Less").MethodTyparConstraints)
                     [ at 0 TyparConstraintKindG.Comparison ]
-                    "method bound"
+                    "method constraint"
             }
 
-            test "an abstract slot's declared bound is on the method axis" {
+            test "an abstract slot's declared constraint is on the method axis" {
                 let td = typeDeclOf (freezeFor declSource) "IShape"
 
                 match td.Kind with
@@ -170,11 +205,11 @@ let declTests =
                         (EqArray.toList methods
                          |> List.map (fun m -> EqSet.toList m.MethodTyparConstraints))
                         [ [ at 0 TyparConstraintKindG.ReferenceType ] ]
-                        "slot bound"
+                        "slot constraint"
                 | _ -> failtest "IShape is not an interface"
             }
 
-            test "declaration bounds survive the blob codec" {
+            test "declaration constraints survive the blob codec" {
                 let pools = freezeFor declSource
                 let thawed = FrozenCodec.thaw (FrozenCodec.flatten pools)
 

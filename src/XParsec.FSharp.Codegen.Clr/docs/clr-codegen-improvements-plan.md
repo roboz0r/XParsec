@@ -31,13 +31,13 @@ No `where T0 : struct`. The same holds in `typar-not-struct`, `typar-null` and `
 
 ## Where it stands
 
-Stages 1 and 2 have landed. A bound is `TyparConstraintG<'ty>` in `SideTypes`: a `TyparIndex` on
+Stages 1 and 2 have landed. A constraint is `TyparConstraintG<'ty>` in `SideTypes`: a `TyparIndex` on
 the owner's axis and a `TyparConstraintKindG<'ty>` over `Equality`, `Comparison`, `Struct`,
 `ReferenceType`, `Nullness`, `NotNull`, `Coercion of 'ty`, `DefaultConstructor`, `Unmanaged`,
 `Enum of underlying` and `Delegate of args * ret`. It is carried as an `EqSet` on
 `GenericFnSchemes`, `TTypeDeclG.TyparConstraints`, `TTypeMemberG.MethodTyparConstraints`,
 `TAbstractMethodG.MethodTyparConstraints` and `CodegenOpenSignature.Constraints`. Stored order is
-source order, so the rows stage 4 emits are deterministic. `FrozenCodec.FormatVersion` is 5.
+source order, so the rows stage 5 emits are deterministic. `FrozenCodec.FormatVersion` is 6.
 
 The verdicts live in `UnificationConstraintCheck` over the `NominalDecl` view; the `delegate`
 clause reports `NotYetSupported` until A6 stage 1. The SRTP member trait and `Default` are
@@ -58,7 +58,7 @@ carries the underlying `TypeKey`, written from `TEnumCases.underlyingTypeKey` by
 manifest provider. `enumUnderlyingType`, `AttributeFold` and `Unmanagedness` read it.
 `ConstraintsTests` pins an imported `int64` enum under `enum<'u>`. No format bump: the shape
 is projected from the frozen `TTypeKindG.Enum` cases, whose `TConstValue` already carries the
-width, so the blob layout is unchanged and `FrozenCodec.FormatVersion` stays 5.
+width, so the blob layout was unchanged by it.
 
 ## Target encoding
 
@@ -83,7 +83,7 @@ it is committed to. `dotnet fsi` plus a decompile of an `fsc` output is the orac
 3. ~~**Flag bits on the existing `GenericParam` row**: `struct`, `not struct`, `new()`.~~
    Landed. `GenericParamRow` in `GenericParamRows` pairs a row's name with its
    `GenericParameterAttributes`, folded from the owner's constraint set through
-   `CliConstraintEncoding.ofKind`, the single classification of every bound kind into its CLI
+   `CliConstraintEncoding.ofKind`, the single classification of every constraint kind into its CLI
    encoding (flag bits, a `GenericParamConstraint` row, the unmanaged attribute, or none),
    which stage 4 extends by consuming the row cases;
    `PreparedMethod.MethodTypars` and `TypeSlot.Typars` carry it for every owner (module
@@ -92,27 +92,29 @@ it is committed to. `dotnet fsi` plus a decompile of an `fsc` output is the orac
    `MetadataStructure.typeGenericParamsOf` / `methodGenericParamsOf`, and the `typar-struct`,
    `typar-struct-record`, `typar-not-struct` and `typar-new` goldens render `where T0 : struct`,
    `where T0 : class` and `where T0 : new()`.
-4. **A closed scheme per generic function.** A function's scheme is one record of its typar
-   arity and its bounds, where every `TyparIndex` and every `FTTypar(Method, i)` inside a bound
-   is below the arity, checked by the constructor. Today the two halves are the separate side
-   tables `GenericFnSchemes` and `BindingTyparArities`, and the CLR backend ignores the second:
-   `Emit.staticFnTypars` re-derives arity as the maximum method index over params, result and
-   body. The record replaces both tables and the sweep, `Emit.StaticFn` carries it, and
-   `GenericParamRow.ofTypars` takes it in place of a name sequence and a bare `EqSet`. Its
-   guard on an out-of-range `TyparIndex` goes with the sweep.
+4. ~~**A closed scheme per generic function.**~~ Landed. `GenericFnScheme` in `SideTypes` is
+   the record of a binding's typar arity and its constraints; `GenericFnScheme.create` faults
+   on a `TyparIndex`, or an `FTTypar(Method, i)` referenced by a constraint's type, at or past
+   the arity. It is the sole value of
+   the `GenericFnSchemes` table, which replaces the `BindingTyparArities` column and the
+   `BoundVarColumn` machinery, and a binding absent from the table quantifies nothing.
+   `Emit.StaticFn.Scheme`, `Emit.StaticMethodRef.Scheme`, `OpenMethodSignature.Scheme` and
+   `CodegenOpenSignature.Scheme` carry it in place of a bare arity beside a bare constraint
+   set and the `staticFnTypars` body sweep, so an imported symbol's constraints pass the same
+   check as a local binding's; `GenericParamRow.ofScheme` reads its rows. Format version 6.
 
-   Prerequisite, landed with this plan revision: a nominal instantiation substitutes the
-   instance's args through each copied bound's target. `freshNamedInstance` and
-   `freshConstrainedTyVar` copied the prototype's bounds verbatim, so a caller's typar acquired
-   bounds over a foreign declaration's typars and `mkMethodQuantEnv`'s dependent-typar fixpoint
-   quantified them. `StructSeq.map` recorded ten bounds over ten method typars for a five-typar
+   Prerequisite, landed before it: a nominal instantiation substitutes the
+   instance's args through each copied constraint's target. `freshNamedInstance` and
+   `freshConstrainedTyVar` copied the prototype's constraints verbatim, so a caller's typar acquired
+   constraints over a foreign declaration's typars and `mkMethodQuantEnv`'s dependent-typar fixpoint
+   quantified them. `StructSeq.map` recorded ten constraints over ten method typars for a five-typar
    method. `ExternalSymbols` already substituted; the local paths now match it.
 
    Two parity gaps surfaced by the same `fsc` probe, deferred to stage 5 where they first change
    output: `fsc` orders typars by first appearance including the constraint clauses
    (`TFunc, T, U, S, E` for `map`, where this compiler gives `TFunc, S, E, T, U`), and two
    coercions on one typar to the same generic interface unify their arguments under FS0064
-   where `addConstraintByKind` only dedupes structurally equal bounds.
+   where `addConstraintByKind` only dedupes structurally equal constraints.
 5. **`GenericParamConstraint` rows.** No code in `src/` emits one. The table is added to the
    assembler with its row-order prediction, the same prefix-sum discipline as every other table
    here. The `System.Delegate` row reads the kind alone, so it does not wait on A6. The rows
@@ -120,7 +122,17 @@ it is committed to. `dotnet fsi` plus a decompile of an `fsc` output is the orac
 6. **Import.** `CodegenOpenSignature.Constraints` in `ExternalSymbols` carries every kind, but a
    foreign generic's constraint is not read off its metadata, so enforcement against a BCL or
    third-party generic is absent. Needs the enum width above and A6 stage 2 for the
-   `enum<'u>` and `delegate<_,_>` bounds.
+   `enum<'u>` and `delegate<_,_>` constraints.
+
+   The project-local half is a gap of the same shape and lands first: `FrozenSignature.addValue`
+   publishes a binding's `ExternalSymbol` with `[]` constraints, so a cross-file call to a
+   constrained generic is unenforced even though `GenericFnSchemes` holds the constraints
+   beside the arity it already reads. The published scheme is on the declaring axis
+   (`ConformanceTypars.toDeclaringAxis`) while the constraints are method-axis, so each
+   constraint's embedded type takes the same re-axising before it becomes an
+   `ExternalConstraint.Typar`. Verify with a two-file program whose second file violates the
+   first file's `'a : struct` constraint, refused with the diagnostic the single-file
+   `typar-*-violated.fs` programs pin.
 7. **`unmanaged` and the nullability attributes**, in that order, each with its own scope.
 
 **Verify.** Assert `GenericParam` flags and `GenericParamConstraint` rows through the
@@ -141,8 +153,8 @@ belongs to implicit widening, not to A3.
 No golden shows this, because no program in the corpus can declare or use a delegate:
 `type D = delegate of int -> int` registers under `UnmodelledReason.Delegate`,
 `SignatureResolution` publishes it as `ExternalTypeShape.Unmodelled`, and every use is a
-diagnostic. A3's `delegate<_,_>` bound therefore has no type it can hold at, and a foreign
-generic bounded by `System.Delegate` cannot be instantiated from this compiler.
+diagnostic. A3's `delegate<_,_>` constraint therefore has no type it can hold at, and a foreign
+generic constrained by `System.Delegate` cannot be instantiated from this compiler.
 
 **Decided.** A sealed `MulticastDelegate` subclass on the CLR, a function value on JS.
 
@@ -199,12 +211,11 @@ digest gate and the `expectNoFSharpCore` checks stay.
 # Sequencing
 
 A format change lands alone, a metadata change lands after every codec change it could race,
-and an import stage lands after the shape it imports. The codec is at format version 5.
+and an import stage lands after the shape it imports. The codec is at format version 6.
 
 1. ~~The enum underlying type on `ExternalTypeShape.Enum`.~~ Landed without a format bump.
 2. ~~A3 stage 3, the `GenericParam` flag bits.~~ Landed.
-3. A3 stage 4, the closed function scheme. It removes two frozen side tables, so it is a
-   format change and lands alone: format version 6.
+3. ~~A3 stage 4, the closed function scheme.~~ Landed as format version 6.
 4. A3 stage 5, the `GenericParamConstraint` rows.
 5. A6 stage 1, the delegate front end, and with it A3's `delegate<_,_>` verdict.
 6. A6 stage 2, the published delegate shape. Format version 7, alone.

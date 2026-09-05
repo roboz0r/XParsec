@@ -86,7 +86,7 @@ module internal UnificationInferApp =
                 applyOperatorScheme ctx node.Tok (ExternalSymbols.instantiateSymbol ctx sym ctx.CurrentLevel) argTys
             | None, ValueNone -> unresolvedOperator ctx node.Tok argTys name
 
-    /// Key each SOURCE lambda argument landing on a parameter bounded `:> Fun<a,b>` to that
+    /// Key each SOURCE lambda argument landing on a parameter constrained `:> Fun<a,b>` to that
     /// flat arity, which is what makes codegen emit a value-struct closure for it.
     let private recordFunArityVerdicts (ctx: PassContext) (args: ImmutableArray<Expr<SyntaxToken>>) (fnTy: SemType) =
         // Each verdict lambda paired with the typar `dom` it landed on. The result-typar
@@ -94,7 +94,7 @@ module internal UnificationInferApp =
         let lambdaSlots = ResizeArray<LambdaKey * SemType>()
 
         // `mapSeq (fun x -> x) src` walks `'TF -> Seq<'a> -> MapSeq<'a,'TF,'b>` to `MapSeq<…>`.
-        // `ValueNone` once a step is not a `TyFun`: the `:> Fun<a,b>` bound sits on a declared
+        // `ValueNone` once a step is not a `TyFun`: the `:> Fun<a,b>` constraint sits on a declared
         // parameter, and the chain's domains ARE the declared parameters.
         let rec walkFunChain i currTy =
             if i >= args.Length then
@@ -476,7 +476,7 @@ module internal UnificationInferApp =
             let argTys = [| for a in args -> infer ctx a |]
 
             // BEFORE the curried loop below links each domain to its function type, which
-            // erases the `:> Fun` bound the verdict is read from.
+            // erases the `:> Fun` constraint the verdict is read from.
             recordFunArityVerdicts ctx args fnTy
 
             tryFillOptionalCall ctx node.Tok fn args argTys

@@ -19,18 +19,6 @@ module DenseTable =
 
         d
 
-/// A per-bound-variable SCALAR in its stored form: one slot per bound variable of the bound-variable pool and in
-/// that same order, `ValueNone` where the bound variable carries no such fact.
-type BoundVarColumn<'v> = 'v voption[]
-
-[<RequireQualifiedAccess>]
-module BoundVarColumn =
-
-    /// An id PAST the column's end reads `ValueNone`: an overlay mints bound variable ids above the
-    /// base pool the column is aligned to, and a minted bound variable is no source binding.
-    let tryItem (col: BoundVarColumn<'v>) (BoundVarId i) : 'v voption =
-        if i < col.Length then col.[i] else ValueNone
-
 /// A CHILD-ID column: every slot's child ids concatenated into one flat `Ids` array, with
 /// `Start.[i] .. Start.[i+1]` delimiting slot `i`'s. `Start` is one longer than the pool it
 /// indexes, so the last slot needs no special case.
@@ -194,19 +182,15 @@ type FrozenPools =
         BoundVarMutable: bool[]
         /// The remainder of the file that has no pooled form, carried verbatim.
         Residue: FrozenFileResidue
-        /// The side tables that keep a KEY, re-keyed by `BoundVarId`. A value that is not a
-        /// scalar, such as a record or a list, stays here rather than becoming a `BoundVarColumn`.
+        /// The side tables that keep a KEY, re-keyed by `BoundVarId`.
         ModuleMembers: DenseTable<BoundVarId, ModuleBindingInfo>
         ClosureReprs: DenseTable<BoundVarId, ClosureRepr>
         /// Keyed by the lambda EXPRESSION: a lambda's dense id IS its `ExprPoolId`. Several
         /// rows may share a verdict, because every copy of a spliced inline body keeps the
         /// definition-site token the verdict was filed under.
         FunVerdicts: DenseTable<ExprPoolId, FunVerdict>
-        GenericFnSchemes: DenseTable<BoundVarId, EqSet<FrozenConstraint>>
+        GenericFnSchemes: DenseTable<BoundVarId, GenericFnScheme>
         BindingValReprs: DenseTable<BoundVarId, PooledValRepr>
-        /// A binding's typar-axis width. Most bound variables are parameters and locals,
-        /// so most slots are `ValueNone`.
-        BindingTyparArities: BoundVarColumn<int>
     }
 
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
@@ -249,7 +233,6 @@ module FrozenPools =
             FunVerdicts = [||]
             GenericFnSchemes = [||]
             BindingValReprs = [||]
-            BindingTyparArities = [||]
         }
 
     let boundVarNaming (pools: FrozenPools) (id: BoundVarId) : BoundVarNaming =
@@ -260,11 +243,15 @@ module FrozenPools =
         let (BoundVarId i) = id
         pools.BoundVarMutable.[i]
 
-    /// The typar-axis width recorded for `boundVar`. An empty slot is genuinely 0 rather than
-    /// a fallback: a bound variable with no recorded width quantifies nothing.
-    let typarArity (pools: FrozenPools) (boundVar: BoundVarId) : int =
-        BoundVarColumn.tryItem pools.BindingTyparArities boundVar
-        |> ValueOption.defaultValue 0
+    /// Each binding's scheme, indexed once over `GenericFnSchemes`. A binding absent from the
+    /// table is `GenericFnScheme.monomorphic`.
+    let schemes (pools: FrozenPools) : BoundVarId -> GenericFnScheme =
+        let schemes = DenseTable.index pools.GenericFnSchemes
+
+        fun boundVar ->
+            match schemes.TryGetValue boundVar with
+            | true, s -> s
+            | false, _ -> GenericFnScheme.monomorphic
 
     // Qualified for the same reason `FrozenFileResidue.Diagnostics` is: the opened
     // `XParsec.FSharp.Parser` declares its own `Diagnostic`, which the bare name binds to.

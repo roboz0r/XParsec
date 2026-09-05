@@ -44,14 +44,6 @@ module FrozenCodec =
         if col.Length <> poolSize then
             failwithf "FrozenCodec: %s holds %d slots but its pool holds %d" name col.Length poolSize
 
-    /// One optional value per bound variable slot, in bound-variable pool order. NO id is written,
-    /// because the slot's POSITION is the bound variable, so the wire carries a presence byte per slot.
-    let private writeBoundVarColumn (w: FrozenWriter) (writeVal: FrozenWriter -> 'v -> unit) (col: BoundVarColumn<'v>) =
-        writeArrayWith w (fun w v -> writeVOptionWith w writeVal v) col
-
-    let private readBoundVarColumn (r: FrozenReader) (readVal: FrozenReader -> 'v) : BoundVarColumn<'v> =
-        readArrayWith r (fun r -> readVOptionWith r readVal)
-
     /// A dense side table: the `(id, value)` pairs a keyed map was re-keyed to.
     let private writeDenseTable
         (w: FrozenWriter)
@@ -501,15 +493,13 @@ module FrozenCodec =
         writeDenseTable w writeBoundVarId writeClosureRepr p.ClosureReprs
         writeDenseTable w writeExprPoolId writeFunVerdict p.FunVerdicts
 
-        writeDenseTable w writeBoundVarId (fun w cs -> writeEqSetWith w writeFrozenConstraint cs) p.GenericFnSchemes
-
+        writeDenseTable w writeBoundVarId writeGenericFnScheme p.GenericFnSchemes
         writeDenseTable w writeBoundVarId writeValRepr p.BindingValReprs
-        writeBoundVarColumn w (fun w (i: int) -> w.Write i) p.BindingTyparArities
 
     /// The blob layout's version. Bump it with every change to a column, a payload or a
     /// table's encoding, so a blob of an older layout is refused rather than misread.
     [<Literal>]
-    let private FormatVersion = 5uy
+    let private FormatVersion = 6uy
 
     let private writePools (w: FrozenWriter) (p: FrozenPools) =
         w.Write FormatVersion
@@ -554,11 +544,8 @@ module FrozenCodec =
         let closureReprs = readDenseTable r readBoundVarId readClosureRepr
         let funVerdicts = readDenseTable r readExprPoolId readFunVerdict
 
-        let genericFnSchemes =
-            readDenseTable r readBoundVarId (fun r -> readEqSetWith r readFrozenConstraint)
-
+        let genericFnSchemes = readDenseTable r readBoundVarId readGenericFnScheme
         let bindingValReprs = readDenseTable r readBoundVarId readValRepr
-        let bindingTyparArities = readBoundVarColumn r (fun r -> r.ReadInt32())
 
         checkSlots "ExprChildren" exprPayloads.Length exprChildren
         checkSlots "ExprPatChildren" exprPayloads.Length exprPatChildren
@@ -601,7 +588,6 @@ module FrozenCodec =
             FunVerdicts = funVerdicts
             GenericFnSchemes = genericFnSchemes
             BindingValReprs = bindingValReprs
-            BindingTyparArities = bindingTyparArities
         }
 
     // ── the whole frozen file (top-level entry points) ──────────────────────

@@ -105,8 +105,8 @@ let private collect () : Collected =
         for k in file.Accessibility.Keys do
             visitSym k
 
-        for KeyValue(_, constraints) in file.GenericFnSchemes do
-            for c in constraints do
+        for KeyValue(_, scheme) in file.GenericFnSchemes do
+            for c in scheme.Constraints do
                 match TyparConstraint.tryCoercion c with
                 | ValueSome(_, target) -> visitFt target
                 | ValueNone -> ()

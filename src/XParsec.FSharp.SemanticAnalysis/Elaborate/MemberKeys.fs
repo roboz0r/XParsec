@@ -60,7 +60,7 @@ module LocalMemberKeys =
             | ValueNone -> ValueNone
 
         // The declaring type's own typars are the axis the signature freezes against.
-        // The intrinsic-abbrev arm reaches the member the unifier satisfied an SRTP bound
+        // The intrinsic-abbrev arm reaches the member the unifier satisfied an SRTP trait
         // with (`type X = (# … #) with static member (+) …`), which no provider carries
         // while the declaring file itself is being compiled.
         let local =

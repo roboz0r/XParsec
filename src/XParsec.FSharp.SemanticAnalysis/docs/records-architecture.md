@@ -115,7 +115,7 @@ Storage lives on `PassContextTypes` (`PassContext.fs`):
 The deferred-resolution channel for field access on a not-yet-pinned
 object argument. A `r.X` whose object argument types to a free TyVar parks a
 `DeferredMemberAccess` (member name, use-site key, result TyVar) under the
-root's representative id in the store's `Pda` table (a `BoundTable`, formerly
+root's representative id in the store's `Pda` table (a `DischargeTable`, formerly
 the on-node `TypeVar.PendingDotAccess` slot). When `unify` later links that
 root to a `TyRecord` (or `TyClass`), the live entries discharge and each access
 resolves; anything still pending at end of analysis is a Validation

@@ -35,10 +35,8 @@ type ModuleClassPlan =
         ProgramMainValues: Emit.ModuleValue list
         /// Top-level functions lowered to static methods, in declaration order.
         StaticFns: Emit.StaticFn list
-        StaticFnKeys: HashSet<BoundVarId>
-        /// Each static fn's method-axis typar count by binding key; a closure
-        /// walked from a generic static fn's body inherits this.
-        StaticFnTypars: Dictionary<BoundVarId, int>
+        /// `StaticFns` by binding key.
+        StaticFnsByKey: Dictionary<BoundVarId, Emit.StaticFn>
         /// Functions on the anonymous "Program" class: they follow the named module classes'
         /// methods, and `Main` follows them.
         ProgramFns: Emit.StaticFn list
@@ -70,9 +68,7 @@ module ModuleClassPlan =
     /// method / field emission orders.
     let create
         (moduleMembers: Map<BoundVarId, ModuleBindingInfo>)
-        // Forwarded to populate `StaticFn.Constraints`, which drives the call-site
-        // phantom-typar solve; the emitted arity is re-derived independently below.
-        (genericFnSchemes: Map<BoundVarId, EqSet<FrozenConstraint>>)
+        (genericFnSchemes: Map<BoundVarId, GenericFnScheme>)
         (programClass: Emit.ModuleClassKey)
         (refStructKeys: HashSet<TypeKey>)
         (lowered0: TastAccessor.DeclId list)
@@ -94,7 +90,7 @@ module ModuleClassPlan =
             for mv in Emit.collectProgramValues emissions programClass refStructKeys lowered0 do
                 s.Add mv.Key |> ignore
 
-            for fn in Emit.collectGenericModuleValues emissions lowered0 do
+            for fn in Emit.collectGenericModuleValues emissions genericFnSchemes lowered0 do
                 s.Add fn.Key |> ignore
 
             s
@@ -127,7 +123,8 @@ module ModuleClassPlan =
         // A *generic* module value (`let empty : SetTree<'T> = …`) cannot become a static
         // FIELD, because a non-generic module class has no type parameter to type it, so it
         // lowers to a zero-arg generic static METHOD; a reference `call`s its `MethodSpec`.
-        let genericModuleValues = Emit.collectGenericModuleValues emissions lowered
+        let genericModuleValues =
+            Emit.collectGenericModuleValues emissions genericFnSchemes lowered
 
         let genericModuleValueKeys =
             HashSet<BoundVarId>(genericModuleValues |> List.map (fun fn -> fn.Key))
@@ -143,8 +140,12 @@ module ModuleClassPlan =
         // uniformly. Appended last, so each lands after its module class's ordinary functions.
         let staticFns = collectedFns @ genericModuleValues
 
-        let staticFnKeys = HashSet<BoundVarId>(eligible)
-        staticFnKeys.UnionWith genericModuleValueKeys
+        let staticFnsByKey = Dictionary<BoundVarId, Emit.StaticFn>()
+
+        for fn in staticFns do
+            staticFnsByKey.[fn.Key] <- fn
+
+        let staticFnKeys = HashSet<BoundVarId>(staticFnsByKey.Keys)
 
         // Partition the top-level program values into the leading prefix (`.cctor`,
         // `initonly`) vs those following a top-level statement (`Main`, mutable): a value
@@ -187,14 +188,6 @@ module ModuleClassPlan =
         let cctorRefKeys = HashSet<BoundVarId>(moduleValueKeys)
         cctorRefKeys.UnionWith programValueKeys
         Emit.validateModuleValueInits cctorRefKeys staticFnKeys programCctorValues
-
-        // The emitted generic-method arity is the max `FTTypar(Method, i)` index over
-        // params + result + BODY. The body sweep catches a phantom constraint typar
-        // (`fold`'s enumerator `'E`) that params and result cannot see.
-        let staticFnTypars = Dictionary<BoundVarId, int>()
-
-        for fn in staticFns do
-            staticFnTypars.[fn.Key] <- Emit.staticFnTypars fn
 
         let namedClassGroups =
             staticFns
@@ -266,8 +259,7 @@ module ModuleClassPlan =
             ProgramCctorValues = programCctorValues
             ProgramMainValues = programMainValues
             StaticFns = staticFns
-            StaticFnKeys = staticFnKeys
-            StaticFnTypars = staticFnTypars
+            StaticFnsByKey = staticFnsByKey
             ProgramFns = programFns
             OrderedNamedClasses = orderedNamedClasses
             ValuesByClass = valuesByClassIndex

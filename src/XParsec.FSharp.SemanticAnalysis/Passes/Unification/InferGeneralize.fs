@@ -57,8 +57,8 @@ module internal UnificationInferGeneralize =
         for q in scheme.Quantified do
             mint (UnionFind.find ctx.Store q).Id true
 
-        // A bound's embedded type may ALSO reference still-free roots that are NOT quantified
-        // at all, such as an outer-level placeholder that joined the bound when two roots unified.
+        // A constraint's embedded type may ALSO reference still-free roots that are NOT quantified
+        // at all, such as an outer-level placeholder that joined the constraint when two roots unified.
         // Left verbatim it is SHARED, so the first call's grounding leaks into every later one.
         for (_, c) in scheme.Constraints do
             c.Kind
@@ -313,7 +313,7 @@ module internal UnificationInferGeneralize =
 
         zonkedTy |> iterTypeVarRoots store addRoot
 
-        // Dependent typars: a `Coercion` bound may reference *further* typars that appear ONLY in
+        // Dependent typars: a `Coercion` constraint may reference *further* typars that appear ONLY in
         // constraints (`'S :> IStructSeq<'T,'E>`, where `'E` is in no parameter/return position).
         // Un-quantified they leak as un-ground `TyVar`s, degraded at freeze to an `FTUnknown`.
         let mutable i = 0

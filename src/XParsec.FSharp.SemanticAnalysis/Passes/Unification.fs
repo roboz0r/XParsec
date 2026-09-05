@@ -29,8 +29,8 @@ module Unification =
         | ModuleElem.Expression e ->
             infer ctx e |> ignore
             // A bare expression has no generalisation point, so its deferred trait
-            // bounds settle here, as a binding group's do after `generalise`.
-            UnificationEngine.sweepSrtpBounds ctx (CstKeys.firstTokenOfExpr e)
+            // traits settle here, as a binding group's do after `generalise`.
+            UnificationEngine.sweepSrtpTraits ctx (CstKeys.firstTokenOfExpr e)
         | _ -> ()
 
     /// Fold a curried member signature into a `TyFun` chain (a multi-arg group `a * b` is

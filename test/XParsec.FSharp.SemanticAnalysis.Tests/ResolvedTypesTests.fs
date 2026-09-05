@@ -86,7 +86,6 @@ let tests =
                         FunVerdicts = Map.empty
                         GenericFnSchemes = Map.empty
                         Accessibility = EqDict.empty
-                        BindingTyparArities = Map.empty
                     }
 
                 let before = ctx.Diagnostics.Count
@@ -146,7 +145,6 @@ let tests =
                         FunVerdicts = Map.empty
                         GenericFnSchemes = Map.empty
                         Accessibility = EqDict.empty
-                        BindingTyparArities = Map.empty
                     }
 
                 let before = ctx.Diagnostics.Count

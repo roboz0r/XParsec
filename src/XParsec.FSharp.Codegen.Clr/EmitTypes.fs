@@ -347,10 +347,10 @@ module EmitTypes =
             /// CLR `void`, its body pops the trailing `unit`, and a value-position call
             /// reifies a `unit` after the `call`.
             ReturnsVoid: bool
-            /// The binding's frozen typar bounds, method-axis-indexed templates over the
-            /// method typars. Read by the call-site phantom-typar solve to recover a typar
-            /// that no parameter or result mentions, like `fold`'s `'E`.
-            Constraints: EqSet<FrozenConstraint>
+            /// The binding's scheme: the emitted method-typar count and the constraints the
+            /// call-site phantom-typar solve reads to recover a typar that no parameter or
+            /// result mentions, like `fold`'s `'E`.
+            Scheme: GenericFnScheme
         }
 
     /// Whether a top-level binding emits under its source name.
@@ -387,15 +387,14 @@ module EmitTypes =
             /// The source groups and the flat CLR parameter types, mirroring `StaticFn.Params`.
             Params: CompiledFns.FlatParams<FrozenType>
             ResultTy: FrozenType
-            /// `0` ⇒ monomorphic, a plain `call`. Otherwise the call site recovers the
-            /// instantiation by matching the flat parameter types, whose leaves are
-            /// `FTTypar(TyparAxis.Method, i)`, against the actual argument types.
-            Typars: int
+            /// An arity of `0` ⇒ monomorphic, a plain `call`. Otherwise the call site
+            /// recovers the instantiation by matching the flat parameter types, whose leaves
+            /// are `FTTypar(TyparAxis.Method, i)`, against the actual argument types, and
+            /// solves a phantom typar from the constraints.
+            Scheme: GenericFnScheme
             /// `true` ⇒ the method is CLR `void`: the `call` declares 0 results and a
             /// value-position consumer reifies a `unit` afterward.
             ReturnsVoid: bool
-            /// The method's frozen typar bounds, mirroring `StaticFn.Constraints`.
-            Constraints: EqSet<FrozenConstraint>
         }
 
     /// The run-wide registries every builder needs: the provider seam, the metadata writer,

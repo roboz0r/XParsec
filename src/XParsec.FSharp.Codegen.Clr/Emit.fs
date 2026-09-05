@@ -43,7 +43,6 @@ module Emit =
     let staticEligible = EmitClosures.staticEligible
     let bridgeStaticFnEscapes = EmitClosures.bridgeStaticFnEscapes
     let collectStaticFns = EmitClosures.collectStaticFns
-    let staticFnTypars = EmitClosures.staticFnTypars
     let discoverClosures = EmitClosures.discoverClosures
 
     /// Build the `Main` body from the lowered decls: each top-level `let` binds a

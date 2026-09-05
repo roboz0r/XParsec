@@ -294,11 +294,18 @@ module EmitClosures =
         | FTLocalTypar _ -> false
         | t -> FrozenType.forallChildren ftNoUnknown t
 
+    /// A binding absent from the front-end scheme table quantifies nothing.
+    let private schemeOf (genericFnSchemes: Map<BoundVarId, GenericFnScheme>) (k: BoundVarId) : GenericFnScheme =
+        match Map.tryFind k genericFnSchemes with
+        | Some s -> s
+        | None -> GenericFnScheme.monomorphic
+
     /// The GENERIC module-level values (`let empty : SetTree<'T> = …`). A module class has no
     /// type parameter to type a `SetTree<'T>` field, so each lowers to a zero-arg generic
     /// static method, an ordinary 0-param `StaticFn`. A reference `call`s its `MethodSpec`.
     let collectGenericModuleValues
         (emissions: Dictionary<BoundVarId, Emission>)
+        (genericFnSchemes: Map<BoundVarId, GenericFnScheme>)
         (decls: TastAccessor.DeclId list)
         : StaticFn list =
         // Open but encodable, and not itself a function type: a non-lambda
@@ -329,8 +336,7 @@ module EmitClosures =
                         Body = value
                         ResultTy = ty
                         ReturnsVoid = false
-                        // A generic module VALUE carries no front-end scheme bounds.
-                        Constraints = EqSet.empty
+                        Scheme = schemeOf genericFnSchemes k
                     }
             )
 
@@ -535,8 +541,7 @@ module EmitClosures =
     /// capture-demoted, or newly turned into a lambda by the escape bridging.
     let collectStaticFns
         (emissions: Dictionary<BoundVarId, Emission>)
-        // Per-binding frozen typar bounds from the front-end scheme; absent ⇒ no bounds.
-        (genericFnSchemes: Map<BoundVarId, EqSet<FrozenConstraint>>)
+        (genericFnSchemes: Map<BoundVarId, GenericFnScheme>)
         (eligible: HashSet<BoundVarId>)
         (fns: CompiledFns.CompiledFn list)
         : StaticFn list =
@@ -544,11 +549,6 @@ module EmitClosures =
             for c in fns do
                 if eligible.Contains c.Key then
                     let em = emissions.[c.Key]
-
-                    let constraints =
-                        match Map.tryFind c.Key genericFnSchemes with
-                        | Some cs -> cs
-                        | None -> EqSet.empty
 
                     yield
                         {
@@ -560,57 +560,9 @@ module EmitClosures =
                             Body = c.Body
                             ResultTy = c.ResultTy
                             ReturnsVoid = c.ReturnsVoid
-                            Constraints = constraints
+                            Scheme = schemeOf genericFnSchemes c.Key
                         }
         ]
-
-    /// `max i + 1` over every `FTTypar(Method, i)` in the params, result AND body. The body
-    /// is walked because `fold`'s enumerator `'E` occurs only in its `for-in` descriptor. Counting
-    /// occurrences drops an ERASED typar, whose slot would leave an unrecoverable arg.
-    let staticFnTypars (fn: StaticFn) : int =
-        let mutable maxIx = -1
-
-        // A `Declaring`-axis typar can't occur in a module-level static fn, so it falls
-        // through the child walk as a leaf.
-        let rec go (t: FrozenType) =
-            match t with
-            | FTTypar(TyparAxis.Method, i) ->
-                if i > maxIx then
-                    maxIx <- i
-            | t -> FrozenType.iterChildren go t
-
-        for p in fn.Params.Flat do
-            go p.Ty
-
-        go fn.ResultTy
-
-        // The only method indices param/result cannot see live in a `for-in` enumerator
-        // descriptor: its `ConstrainedInterface` ifaceArgs and the enumerator type itself.
-        let goEnum (en: Frozen.ForInEnumerator) =
-            match en with
-            | ForInEnumeratorG.Interface -> ()
-            | ForInEnumeratorG.Pattern p ->
-                go p.EnumeratorTy
-
-                match p.GetEnumerator with
-                | ForInGetEnumG.ConstrainedInterface(_, args) -> EqArray.iter go args
-                | _ -> ()
-
-                match p.Members with
-                | ForInEnumMembersG.ConstrainedInterface(_, args) -> EqArray.iter go args
-                | _ -> ()
-
-        let rec goExpr (e: TastAccessor.ExprId) =
-            go (TastAccessor.exprTy e)
-
-            match e with
-            | TastAccessor.EForIn fi -> goEnum fi.Enumerator
-            | _ -> ()
-
-            TastAccessor.iterChildren goExpr e
-
-        goExpr fn.Body
-        maxIx + 1
 
     /// A closure-discovery root from a type MEMBER body: the body plus the typars in scope at
     /// its construction site, which the closure re-projects onto its own class typars.
@@ -670,13 +622,12 @@ module EmitClosures =
             name
 
     /// Every `Lambda` in the lowered tree with its capture set, leaves-first: a closure comes
-    /// before any closure that constructs it. A `staticFnKeys` outer lambda is NOT a closure, so
-    /// only its body is walked; the closures found there inherit its typars.
+    /// before any closure that constructs it. A `staticFns` outer lambda is NOT a closure, so
+    /// only its body is walked; the closures found there inherit its scheme's typars.
     let discoverClosures
         (namer: ClosureNamer)
-        (staticFnKeys: HashSet<BoundVarId>)
+        (staticFns: IReadOnlyDictionary<BoundVarId, StaticFn>)
         (moduleValueKeys: HashSet<BoundVarId>)
-        (staticFnTypars: IReadOnlyDictionary<BoundVarId, int>)
         (funVerdicts: IReadOnlyDictionary<TastAccessor.ExprId, FunVerdict>)
         (closureReprs: Map<BoundVarId, ClosureRepr>)
         (decls: TastAccessor.DeclId list)
@@ -691,7 +642,7 @@ module EmitClosures =
 
         // A module-level value is an `ldsfld` and a static-method reference is a direct
         // `call`, so neither needs a capture.
-        let nonCaptured = HashSet<BoundVarId>(staticFnKeys)
+        let nonCaptured = HashSet<BoundVarId>(staticFns.Keys)
         nonCaptured.UnionWith moduleValueKeys
 
         // `1` by default, `2` for a flat `Fun`3` slot, and only for an ANONYMOUS
@@ -857,23 +808,18 @@ module EmitClosures =
                 | _ -> failwithf "Emit: closure parameter destructuring is out of scope: %A" pat
             | _ -> ()
 
-        let typarsForStaticFn (k: BoundVarId) : int =
-            match staticFnTypars.TryGetValue k with
-            | true, n -> n
-            | false, _ -> 0
-
         for d in decls do
             match d with
             | TastAccessor.DLet letd ->
                 match TastAccessor.patBoundVar letd.Pattern with
                 | ValueSome k ->
-                    if staticFnKeys.Contains k then
+                    match staticFns.TryGetValue k with
+                    | true, fn ->
                         // The outer lambda is not a closure, but its body may construct inner
                         // ones, which inherit the method's typars.
                         let _, body = peelLambda letd.Value
-                        go (typarsForStaticFn k) 0 ValueNone body
-                    else
-                        go 0 0 (ValueSome k) letd.Value
+                        go fn.Scheme.TyparArity 0 ValueNone body
+                    | false, _ -> go 0 0 (ValueSome k) letd.Value
                 | ValueNone -> go 0 0 ValueNone letd.Value
             | TastAccessor.DExpression(e, _) -> go 0 0 ValueNone e
             | _ -> ()

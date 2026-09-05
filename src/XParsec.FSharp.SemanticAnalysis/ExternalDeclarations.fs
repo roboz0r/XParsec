@@ -31,8 +31,8 @@ exception BodylessExternalShape of compiledName: string * reason: UnmodelledReas
 /// over the symbol's own declaring typars.
 [<RequireQualifiedAccess>]
 type ExternalConstraint =
-    /// `when 'T : equality`, `when 'e :> <ty>` and every other bound with a metadata encoding.
-    | Bound of TyparConstraintG<FrozenType>
+    /// `when 'T : equality`, `when 'e :> <ty>` and every other constraint with a metadata encoding.
+    | Encodable of TyparConstraintG<FrozenType>
     /// `when (^T or ^U) : (static member (+) : ^T * ^U -> ^V)` — `typarIndices` is the
     /// trait's LHS; `memberName` is the compiled name (`op_Addition`).
     | MemberTrait of
@@ -255,8 +255,8 @@ type ExternalSignature =
         }
 
     /// The .NET norm: ONE argument group, taking the tupled `parameters` whole, and no method
-    /// bounds. Every reflection, manifest and tupled-source producer mints this shape; a
-    /// bound-carrying producer builds the record explicitly instead.
+    /// constraints. Every reflection, manifest and tupled-source producer mints this shape; a
+    /// constraint-carrying producer builds the record explicitly instead.
     static member make
         (declaringTyparArity: int, methodTyparArity: int, parameters: FrozenType, return': FrozenType)
         : ExternalSignature =

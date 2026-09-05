@@ -88,21 +88,24 @@ module Elaborate =
         | ValueSome scheme -> not (List.isEmpty scheme.Quantified)
         | ValueNone -> false
 
-    /// Records `boundVar`'s typar bounds, each `Coercion` target frozen over `quantEnv` with
-    /// typar leaves `FTTypar(Method, i)`.
+    /// Records `boundVar`'s scheme: `quantEnv`'s length as the arity, and its constraints with
+    /// each embedded type frozen over `quantEnv`, its typars as `FTTypar(Method, i)`.
     let private recordGenericFnScheme
         (ctx: PassContext)
         (boundVar: BoundVarKey)
         (quantEnv: (TyVarId * SemType) list)
         : unit =
-        if not (List.isEmpty quantEnv) then
+        match quantEnv with
+        | [] -> ()
+        | _ ->
             let freezeTarget (t: SemType) : FrozenType =
                 FrozenTypeBridge.freeze ctx.Store (remapDeclTypars ctx.Store quantEnv t)
 
             let constraints =
-                boundsOfEnv ctx.Store quantEnv |> EqSet.map (TyparConstraint.map freezeTarget)
+                constraintsOfEnv ctx.Store quantEnv
+                |> EqSet.map (TyparConstraint.map freezeTarget)
 
-            ctx.GenericFnSchemes.Set(boundVar, constraints)
+            ctx.GenericFnSchemes.Set(boundVar, GenericFnScheme.create (List.length quantEnv) constraints)
 
     /// The binding's exportable identity, keyed by the name its source writes and carrying
     /// `[<CompiledName>]`'s as the name it emits under (`Set.empty` ⇒ `SetModule.Empty`).
@@ -209,11 +212,9 @@ module Elaborate =
         | TPat.NamedSimple(boundVarKey, _, _, _) -> recordInlineParamAttrs ctx b boundVarKey valT
         | _ -> ()
 
-        // A bound-variable-less pattern has nowhere to file the typar-axis width.
+        // A bound-variable-less pattern has nowhere to file the scheme.
         match boundVar with
-        | ValueSome bk ->
-            recordGenericFnScheme ctx bk quantEnv
-            ctx.Bindings.BindingTyparArities.[bk] <- List.length quantEnv
+        | ValueSome bk -> recordGenericFnScheme ctx bk quantEnv
         | ValueNone -> ()
 
         if elided then
@@ -340,5 +341,4 @@ module Elaborate =
             FunVerdicts = Map.empty
             GenericFnSchemes = emptyIfDegraded (ctx.GenericFnSchemes.AsDictionary())
             Accessibility = EqDict.ofSeq ctx.Bindings.Accessibility
-            BindingTyparArities = emptyIfDegraded ctx.Bindings.BindingTyparArities
         }

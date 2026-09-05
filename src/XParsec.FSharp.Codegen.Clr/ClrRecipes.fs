@@ -214,7 +214,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             // The open curried signature *template*: its method typars are already
             // `FTTypar(Method, i)` and its nominal type constructors kind-correct (`'T option` ⇒ `FTUnion`),
             // so it encodes and recovers against the producer's emitted signature unchanged.
-            let methodTyparArity = openSig.MethodTyparArity
+            let methodTyparArity = openSig.Scheme.TyparArity
 
             // Peel exactly `n` top-level `->` groups, one per SOURCE argument group. Unlike
             // `uncurryFrozen`, which peels every `->`, this stops at the source arity, so a
@@ -292,7 +292,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             let callHandleOf (callBase: EntityHandle) =
                 if methodTyparArity = 0 then
                     callBase
-                elif openSig.Constraints.IsEmpty then
+                elif openSig.Scheme.Constraints.IsEmpty then
                     // Match the open template's `FTTypar(Method, i)` against the call's concrete
                     // type, recovering each method arg by index. No constraint typars here, so
                     // every method typar is signature-reachable.
@@ -306,7 +306,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
                     let instArr =
                         TastLower.matchInstantiationPartial methodTyparArity [ openSig.Signature ] [ fnTy ]
 
-                    TastLower.solvePhantomTypars openSig.Constraints tryExternalInterfaceWitness instArr
+                    TastLower.solvePhantomTypars openSig.Scheme.Constraints tryExternalInterfaceWitness instArr
 
                     let methodArgs =
                         [

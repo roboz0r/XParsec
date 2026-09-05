@@ -41,7 +41,7 @@ module internal UnificationInferResolve =
             subst.[protoRoot.Id] <- asTy
             acc.Add asTy
 
-        // Each use site holds its own copy of the prototype's bounds, over the instance's
+        // Each use site holds its own copy of the prototype's constraints, over the instance's
         // typars: `MapSeq<S,E,F,T,U>`'s `F :> Fun<T,U>` becomes `F' :> Fun<T',U'>`.
         for tp in typeParams do
             let protoRoot = UnionFind.find ctx.Store tp.TyVar

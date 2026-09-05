@@ -187,7 +187,7 @@ let tests =
                 Expect.isTrue (hasMismatch tast) "second use at bool conflicts with int from first use"
             }
 
-            test "chained generic combinator with constraint-bound result typar" {
+            test "chained generic combinator with constrained result typar" {
                 // `wrap`'s constraint `'S :> ISeq<'T, 'E>` carries a phantom typar `'E`
                 // that also appears in its result, so chaining must freshen `'E` per call:
                 // if `wrap s0` grounds the shared `'E` to `ArrEnum<'T>`, `wrap s1` fails.

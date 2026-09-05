@@ -161,7 +161,7 @@ let enumValueCodecTests =
 //   • `keyof Events` / `keyof T`              → `TypeRef.KeyOf` (via `isIndexType()`).
 //   • `Events[Key]` / `T[keyof T]`            → `TypeRef.IndexedAccess`.
 //   • `undefined extends Events[Key] ? Key : never` → `TypeRef.Conditional`.
-//   • `Key extends keyof Events`              → the method typar's bound is stored on
+//   • `Key extends keyof Events`              → the method typar's constraint is stored on
 //     `Signature.TypeParamBounds`, carried rather than evaluated.
 [<Tests>]
 let mittDiagnosticsContract =

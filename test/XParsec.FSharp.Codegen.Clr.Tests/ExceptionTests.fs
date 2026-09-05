@@ -52,7 +52,7 @@ let tests =
             }
 
             test "raise of a derived exception (InvalidOperationException) throws the derived type" {
-                // The `'TException :> exn` bound admits a subtype, so the concrete
+                // The `'TException :> exn` constraint admits a subtype, so the concrete
                 // `InvalidOperationException` must survive to the throw rather than
                 // widening to `System.Exception`.
                 let ex =

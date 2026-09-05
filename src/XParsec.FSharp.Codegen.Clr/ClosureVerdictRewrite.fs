@@ -165,7 +165,7 @@ module internal ClosureVerdictRewrite =
 
         // The verdict of the lambda a single application feeds: walk this `App` chain's own
         // arguments for a value-struct closure node. A combinator takes at most one
-        // `Fun`2`/`Fun`3`-bounded lambda argument, so at most one verdict is found.
+        // `Fun`2`/`Fun`3`-constrained lambda argument, so at most one verdict is found.
         let appOwnVerdict (e: TastAccessor.ExprId) : struct (FrozenType * int) voption =
             let rec scan (e: TastAccessor.ExprId) : struct (FrozenType * int) voption =
                 match e with

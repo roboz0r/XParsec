@@ -308,6 +308,7 @@ module FrozenSignature =
 
         // Every binding fact below is read at the bound variable ID the decl's own pattern carries.
         let bindingValReprs = DenseTable.index frozen.BindingValReprs
+        let schemeOf = FrozenPools.schemes frozen
 
         let bindingValRepr (boundVar: BoundVarId) : TastAccessor.ValRepr voption =
             match bindingValReprs.TryGetValue boundVar with
@@ -319,7 +320,7 @@ module FrozenSignature =
             let scheme = ConformanceTypars.toDeclaringAxis ty
 
             let sym =
-                { ExternalSymbols.scheme info.Container info.Name scheme (FrozenPools.typarArity frozen boundVar) [] with
+                { ExternalSymbols.scheme info.Container info.Name scheme (schemeOf boundVar).TyparArity [] with
                     Origin = originIn info.Container.Namespace
                     CompiledName = info.CompiledName
                     ValRepr = bindingValRepr boundVar

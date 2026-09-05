@@ -84,7 +84,7 @@ type PayloadList<'T>(combine: 'T list -> 'T list -> 'T list) =
 /// A `PayloadList` plus a reference-keyed `solved` set: a discharged item is recorded, not
 /// removed. One shared item stamped on several typars discharges once, hence `'T : not struct`.
 [<Sealed>]
-type BoundTable<'T when 'T: not struct>(combine: 'T list -> 'T list -> 'T list) =
+type DischargeTable<'T when 'T: not struct>(combine: 'T list -> 'T list -> 'T list) =
     let items = PayloadList<'T>(combine)
 
     let solved = System.Collections.Generic.HashSet<'T>(HashIdentity.Reference)
@@ -103,13 +103,13 @@ type BoundTable<'T when 'T: not struct>(combine: 'T list -> 'T list -> 'T list) 
 
     /// Every live (unsolved) bound in the table, compacting as it reads: an entry whose
     /// bounds are all solved is dropped, so repeated sweeps stay proportional to the live
-    /// population. A shared bound stamped on several typars is returned once per carrier.
+    /// population. A shared item stamped on several typars is returned once per carrier.
     member _.LiveEntries() : 'T list =
         let acc = ResizeArray<'T>()
         let dead = ResizeArray<int>()
 
-        for (key, bounds) in items.Entries() do
-            match bounds |> List.filter (fun x -> not (solved.Contains x)) with
+        for (key, entries) in items.Entries() do
+            match entries |> List.filter (fun x -> not (solved.Contains x)) with
             | [] -> dead.Add key
             | live -> acc.AddRange live
 
@@ -214,8 +214,8 @@ type TypeStore() =
     member _.Region(tv: TyVarId) : RegionId = region.[int tv]
     member _.SetRegion(tv: TyVarId, r: RegionId) : unit = region.[int tv] <- r
 
-    /// SRTP member-trait bounds, keyed by representative.
-    member val Srtp = BoundTable<MemberSignature>(fun winner loser -> loser @ winner) with get
+    /// SRTP member traits, keyed by representative.
+    member val Srtp = DischargeTable<MemberSignature>(fun winner loser -> loser @ winner) with get
 
     /// Type-parameter constraints, keyed by representative. A `[<Struct>]`
     /// `SemanticConstraint` has no reference identity, so this family rewrites its
@@ -223,7 +223,7 @@ type TypeStore() =
     member val Constraints = PayloadList<SemanticConstraint>(PayloadJoin.constraintsByKind) with get
 
     /// Deferred dot-accesses parked on a still-free object argument, keyed by representative.
-    member val Pda = BoundTable<DeferredMemberAccess>(fun winner loser -> loser @ winner) with get
+    member val Pda = DischargeTable<DeferredMemberAccess>(fun winner loser -> loser @ winner) with get
 
     /// Default-constraint chains (`default ^T : …`), keyed by representative. A chain is
     /// consumed WHOLESALE, so this family clears per-tv through `Set`.

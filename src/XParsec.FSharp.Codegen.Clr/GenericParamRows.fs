@@ -4,7 +4,7 @@ open System.Reflection
 open System.Reflection.Metadata
 open XParsec.FSharp.SemanticAnalysis
 
-/// The CLI encoding of one typar bound.
+/// The CLI encoding of one typar constraint.
 [<RequireQualifiedAccess>]
 type internal CliConstraintEncoding<'ty> =
     /// Flag bits on the owner's `GenericParam` row.
@@ -42,7 +42,7 @@ module internal CliConstraintEncoding =
         | TyparConstraintKindG.Nullness
         | TyparConstraintKindG.NotNull -> CliConstraintEncoding.NoEncoding
 
-    /// The flag bits of the bound; `None` for every other encoding.
+    /// The flag bits of the constraint; `None` for every other encoding.
     let flags (kind: TyparConstraintKindG<'ty>) : GenericParameterAttributes =
         match ofKind kind with
         | CliConstraintEncoding.Flags attrs -> attrs
@@ -52,7 +52,7 @@ module internal CliConstraintEncoding =
         | CliConstraintEncoding.UnmanagedAttribute
         | CliConstraintEncoding.NoEncoding -> GenericParameterAttributes.None
 
-/// One `GenericParam` row: the metadata name and the flag bits of the typar's bounds.
+/// One `GenericParam` row: the metadata name and the flag bits of the typar's constraints.
 type internal GenericParamRow =
     {
         Name: string
@@ -81,6 +81,10 @@ module internal GenericParamRow =
     /// The positional typar names `T0 .. T(count-1)` of a synthesised owner, such as a
     /// closure class or a module function.
     let positionalNames (count: int) : string seq = Seq.init count (sprintf "T%d")
+
+    /// The rows of a module function's scheme, under positional names.
+    let ofScheme (scheme: GenericFnScheme) : GenericParamRow list =
+        ofTypars (positionalNames scheme.TyparArity) scheme.Constraints
 
 /// A `GenericParam` row bound to its owner, a `TypeDefinition` or `MethodDefinition`.
 type internal GenericParamEntry =

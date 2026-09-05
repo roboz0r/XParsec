@@ -118,23 +118,6 @@ let private checkIdResolution (pools: FrozenPools) (frozen: Pooled.TastFile) =
         for (id, _) in dense do
             Expect.isTrue (Set.contains (resolve id) sourceKeys) (name + " dense key resolves to a source key")
 
-    // A per-bound-variable COLUMN holds no key, so what is checked is the FILLED SLOTS: one per
-    // source entry, at the slot of the bound variable that entry named, and aligned to the pool.
-    let checkColumn (name: string) (col: BoundVarColumn<'v>) (sourceKeys: Set<BoundVarId>) =
-        Expect.equal col.Length pools.BoundVarNames.Length (name + " column is aligned with the bound variable pool")
-
-        let filled =
-            [|
-                for i in 0 .. col.Length - 1 do
-                    if col.[i].IsSome then
-                        yield BoundVarId i
-            |]
-
-        Expect.equal filled.Length sourceKeys.Count (name + " column covers the source map 1:1")
-
-        for k in filled do
-            Expect.isTrue (Set.contains k sourceKeys) (name + " filled slot is a source key's bound variable")
-
     // The source keys in the address space the resolvers use: a bound-variable-keyed table
     // is widened, `FunVerdicts` is already lambda-key-shaped.
     let keysOf (m: Map<'k, 'w>) =
@@ -146,7 +129,6 @@ let private checkIdResolution (pools: FrozenPools) (frozen: Pooled.TastFile) =
     checkTable "ClosureReprs" id pools.ClosureReprs (boundVarSource frozen.ClosureReprs)
     checkTable "FunVerdicts" (pooledLambdaKey pools) pools.FunVerdicts (keysOf frozen.FunVerdicts)
     checkTable "GenericFnSchemes" id pools.GenericFnSchemes (boundVarSource frozen.GenericFnSchemes)
-    checkColumn "BindingTyparArities" pools.BindingTyparArities (boundVarSource frozen.BindingTyparArities)
 
 /// A binding's recorded arity is READ OFF the pooled lambda chain, so every recorded `GTuple` must
 /// point to a pat some `Lambda` bears as its parameter — a re-pooled copy is structurally equal but a
@@ -649,7 +631,6 @@ let private lastBindingDropped () =
                 ModuleMembers = Map.remove boundVar frozen.ModuleMembers
                 ClosureReprs = Map.remove boundVar frozen.ClosureReprs
                 GenericFnSchemes = Map.remove boundVar frozen.GenericFnSchemes
-                BindingTyparArities = Map.remove boundVar frozen.BindingTyparArities
             }
     |}
 
@@ -679,25 +660,23 @@ let staleSideTableEntryTests =
                     "the stale entry adds no row"
             }
 
-            // The SAME dropped bound variable in a different table. `BindingTyparArities` reaches
-            // the pools as a `BoundVarColumn` — no key at all — so a stale entry has no slot to
-            // land in and is projected away the same way.
-            test "a retained BindingTyparArities entry is dropped" {
+            // The SAME dropped bound variable in a different table.
+            test "a retained GenericFnSchemes entry is dropped" {
                 let dropped = lastBindingDropped ()
 
                 let injected =
                     { dropped.Pruned with
-                        BindingTyparArities = Map.add dropped.BoundVar 0 dropped.Pruned.BindingTyparArities
+                        GenericFnSchemes =
+                            Map.add
+                                dropped.BoundVar
+                                (GenericFnScheme.create 1 EqSet.empty)
+                                dropped.Pruned.GenericFnSchemes
                     }
 
                 Expect.equal
-                    ((dropped.RePool injected).BindingTyparArities
-                     |> Array.filter ValueOption.isSome
-                     |> Array.length)
-                    ((dropped.RePool dropped.Pruned).BindingTyparArities
-                     |> Array.filter ValueOption.isSome
-                     |> Array.length)
-                    "the stale entry fills no slot"
+                    (dropped.RePool injected).GenericFnSchemes.Length
+                    (dropped.RePool dropped.Pruned).GenericFnSchemes.Length
+                    "the stale entry adds no row"
             }
 
             // `ChildColumn` is CSR: `Start` and `Ids` are two independently length-prefixed wire

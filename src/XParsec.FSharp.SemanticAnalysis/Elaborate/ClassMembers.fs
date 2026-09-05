@@ -107,12 +107,12 @@ module internal ElaborateClassMembers =
         let methodTypeParams (site: MemberSite) : EqArray<string * SemType> * EqSet<TyparConstraintG<SemType>> =
             // Materialise each root as a plain `TyVar root`, so the later cut flips it
             // to `TyTypar(Method, i)` like every other embedded type, and the tree field
-            // never holds a union-find carrier. The bounds read off the same roots.
+            // never holds a union-find carrier. The constraints read off the same roots.
             let ofRoots (g: GeneralizedTypars) : EqArray<string * SemType> * EqSet<TyparConstraintG<SemType>> =
                 GeneralizedTypars.toArray g
                 |> Array.map (fun tp -> tp.Name, TyVar tp.TyVar)
                 |> EqArray.ofArray,
-                boundsOfEnv ctx.Store (GeneralizedTypars.methodEnv g)
+                constraintsOfEnv ctx.Store (GeneralizedTypars.methodEnv g)
 
             // Match the exact overload by its registration `DeclKey` first: same-name
             // overloads share `Name`/`Kind`/`IsStatic`, so a name-only find would give

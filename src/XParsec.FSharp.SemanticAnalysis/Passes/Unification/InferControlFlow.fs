@@ -134,7 +134,7 @@ module internal UnificationInferControlFlow =
             | _ -> ValueNone
         | _ -> ValueNone
 
-    /// A `'T :> IFace<…>` bound whose target is a *project-local* interface. Resolved by key,
+    /// A `'T :> IFace<…>` constraint whose target is a *project-local* interface. Resolved by key,
     /// not bare name: `Fun` at arity 2 and at arity 3 are different interfaces sharing one name.
     [<return: Struct>]
     let private (|CoercedToLocalInterface|_|)
@@ -151,8 +151,8 @@ module internal UnificationInferControlFlow =
             | _ -> ValueNone
         | _ -> ValueNone
 
-    /// The first local-interface bound on `tv` that `pick` accepts. A typar may carry several
-    /// bounds, so a `ValueNone` from `pick` is a miss on that bound, not on the typar.
+    /// The first local-interface constraint on `tv` that `pick` accepts. A typar may carry several
+    /// constraints, so a `ValueNone` from `pick` is a miss on that constraint, not on the typar.
     let private tryPickCoercedInterface
         (ctx: PassContext)
         (tv: TyVarId)

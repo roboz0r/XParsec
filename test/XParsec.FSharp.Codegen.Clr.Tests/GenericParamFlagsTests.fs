@@ -36,9 +36,9 @@ let tests =
                     "struct ⇒ NotNullableValueType ||| DefaultConstructor"
             }
 
-            // The `MapSeq<...>(source, f)` call instantiates `MapSeq`'s bounds over `map`'s own
+            // The `MapSeq<...>(source, f)` call instantiates `MapSeq`'s constraints over `map`'s own
             // typars, so `map` quantifies exactly its five.
-            test "a module function bounded through a constrained nominal quantifies only its own typars" {
+            test "a module function constrained through a constrained nominal quantifies only its own typars" {
                 let bytes =
                     Codegen.toBytes (compileSource "GpStructSeqMap" (dataSource "StructSeqMultiMapChain"))
 
@@ -48,7 +48,25 @@ let tests =
                 Expect.all
                     rows
                     (fun (_, attrs) -> attrs = GenericParameterAttributes.None)
-                    "coercion bounds set no flag bits"
+                    "coercion constraints set no flag bits"
+            }
+
+            // A generic module VALUE lowers to a zero-arg generic static method, and its
+            // scheme reaches that method's rows like a function's.
+            test "`not struct` on a generic module value is the reference-type bit" {
+                let bytes =
+                    bytesOf
+                        "GpValueNotStruct"
+                        [
+                            "let nothing<'a when 'a: not struct> : 'a list = []"
+                            "let s : string list = nothing"
+                            "ignore s"
+                        ]
+
+                Expect.equal
+                    (methodGenericParamsOf bytes "Program" "nothing")
+                    [ "T0", referenceType ]
+                    "not struct ⇒ ReferenceType"
             }
 
             test "`not struct` on a module function is the reference-type bit" {
@@ -117,7 +135,7 @@ let tests =
                     "comparison"
             }
 
-            test "a type declaration's typar carries its bound" {
+            test "a type declaration's typar carries its constraint" {
                 let bytes =
                     bytesOf
                         "GpTypeDecl"
@@ -133,7 +151,7 @@ let tests =
                 Expect.equal (typeGenericParamsOf bytes "Ref`1") [ "a", referenceType ] "class typar"
             }
 
-            test "a union's case classes carry the declaring typar's bound" {
+            test "a union's case classes carry the declaring typar's constraint" {
                 let bytes =
                     bytesOf
                         "GpUnion"
@@ -152,7 +170,7 @@ let tests =
                     | rows -> Expect.equal rows [ "a", valueType ] (sprintf "%s typar" nested.Name)
             }
 
-            test "a member's own typar carries its bound" {
+            test "a member's own typar carries its constraint" {
                 let bytes =
                     bytesOf
                         "GpMember"
@@ -166,7 +184,7 @@ let tests =
                 Expect.equal (methodGenericParamsOf bytes "C" "Only") [ "a", valueType ] "member typar"
             }
 
-            test "an interface slot's own typar carries its bound" {
+            test "an interface slot's own typar carries its constraint" {
                 let bytes =
                     bytesOf "GpInterface" [ "type I ="; "    abstract Only<'a when 'a: struct> : 'a -> 'a" ]
 

@@ -77,8 +77,9 @@ type TastFileG<'ty, 'tok, 'id when 'id: comparison> =
         /// lambda absent here is an ordinary curried closure. Keyed by lambda and not by
         /// bound variable because a lambda EXPRESSION is not a definition site.
         FunVerdicts: Map<LambdaKey, FunVerdict>
-        /// A project-local generalised binding's bound variable → its frozen typar bounds.
-        GenericFnSchemes: Map<BoundVarKeyG<'id>, EqSet<FrozenConstraint>>
+        /// A project-local generalised binding's bound variable → its typar scheme. A
+        /// binding absent here quantifies nothing.
+        GenericFnSchemes: Map<BoundVarKeyG<'id>, GenericFnScheme>
         /// The file's INLINE VOCABULARY: every `let inline` binding and every
         /// nullary-intrinsic value alias (`let undefined = (# "undefined" #)`), as the
         /// UNEXPANDED body, a different tree from the decl of the same name. Empty pre-freeze.
@@ -90,8 +91,6 @@ type TastFileG<'ty, 'tok, 'id when 'id: comparison> =
         /// Declared accessibility of each top-level entity (type / module value / inline
         /// value); a key ABSENT here is `Public`. A type MEMBER's is stored on the member itself.
         Accessibility: EqDict<SymbolKey, Accessibility>
-        /// A module binding's typar count, keyed by the bound variable its pattern introduces.
-        BindingTyparArities: Map<BoundVarKeyG<'id>, int>
     }
 
 // Monomorphic `SemType` aliases, over the `NodeKey` identity axis.

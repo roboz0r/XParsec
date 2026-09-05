@@ -262,17 +262,16 @@ let tests =
                 let staticFns =
                     Emit.collectStaticFns emissions genericFnSchemes eligible (CompiledFns.gather lowered)
 
-                let typarsMap = Dictionary<BoundVarId, int>()
+                let staticFnsByKey = Dictionary<BoundVarId, Emit.StaticFn>()
 
                 for fn in staticFns do
-                    typarsMap.[fn.Key] <- Emit.staticFnTypars fn
+                    staticFnsByKey.[fn.Key] <- fn
 
                 let closures, _ =
                     Emit.discoverClosures
                         (Emit.ClosureNamer())
-                        eligible
+                        staticFnsByKey
                         moduleValueKeys
-                        typarsMap
                         funVerdicts
                         closureReprs
                         lowered

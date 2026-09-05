@@ -465,16 +465,16 @@ type CodegenOpenSignature =
     {
         Origin: SymbolOrigin
         Signature: FrozenType
-        MethodTyparArity: int
+        /// The emitted method-typar count and the constraints over the method-typar axis. A
+        /// `Coercion` constraint lets a phantom slot be recovered from the constrained
+        /// source's interface witness.
+        Scheme: GenericFnScheme
         /// The name the function emits under, already resolved against the declaring key's
         /// own short name.
         EmittedName: string
         /// The producer's SOURCE parameter grouping: the curried `Signature` alone can't
         /// tell a group `f (x,y)` from a tuple param `f (t:int*int)`.
         ValRepr: TastAccessor.ValRepr voption
-        /// The symbol's typar bounds over the method-typar axis. A `Coercion` bound lets a
-        /// phantom slot be recovered from the constrained source's interface witness.
-        Constraints: EqSet<FrozenConstraint>
     }
 
 /// The CODEGEN-facing view: only what emission needs to mint references, never the
@@ -662,7 +662,7 @@ module ExternalSymbols =
     let openSignature (thaw: IMeasuredThaw) (m: ExternalMember) (declaringArgs: SemType[]) : SemType =
         instantiateWith thaw (TyparInstantiation.openMethod declaringArgs) (ExternalSignature.openTemplate m.Signature)
 
-    /// A member's method-typar BOUNDS at a use site, one per method typar.
+    /// A member's method-typar upper BOUNDS at a use site, one per method typar: the TS `extends` type.
     /// `FTTypar(Declaring,i)` → `declaringArgs.[i]`; a `FTTypar(Method,j)` ref stays an
     /// inert marker.
     let instantiateSignatureBounds
@@ -742,7 +742,7 @@ module ExternalSymbols =
             // so diagnostics attribute the constraint to the use site.
             for c in constraints do
                 match c with
-                | ExternalConstraint.Bound b ->
+                | ExternalConstraint.Encodable b ->
                     let cstr: SemanticConstraint =
                         {
                             Kind = TyparConstraintKind.toSemantic (fun target -> inst target fresh) b.Kind

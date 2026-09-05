@@ -149,7 +149,7 @@ module internal ElaborateMembers =
             /// `ValueNone` for a type with no `inherit`; a static member drops it regardless.
             BaseKey: BoundVarKey voption
             LowerBody: MemberSite -> Expr<SyntaxToken> -> TExpr
-            /// The member's own typars and the bounds on them, on the method axis.
+            /// The member's own typars and the constraints on them, on the method axis.
             MethodTypeParams: MemberSite -> EqArray<string * SemType> * EqSet<TyparConstraintG<SemType>>
         }
 

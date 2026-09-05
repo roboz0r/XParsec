@@ -211,21 +211,11 @@ module TastUnpool =
     let private boundVarKeyedMap (resolve: BoundVarId -> 'k) (dense: (BoundVarId * 'v)[]) : Map<'k, 'v> =
         dense |> Array.map (fun (id, v) -> resolve id, v) |> Map.ofArray
 
-    /// The same unpool for a per-bound-variable COLUMN: the key is re-minted from the slot's own
-    /// position.
-    let private boundVarColumnMap (resolve: BoundVarId -> 'k) (col: BoundVarColumn<'v>) : Map<'k, 'v> =
-        Map.ofSeq
-            [
-                for i in 0 .. col.Length - 1 do
-                    match col.[i] with
-                    | ValueSome v -> yield resolve (BoundVarId i), v
-                    | ValueNone -> ()
-            ]
-
     /// The whole-file unpool, in the pool's OWN identity space: a rebuilt bound variable is named by
     /// the `BoundVarId` the columns address it with. The `Decls` are re-authored from the pool
     /// roots, the side tables re-keyed back through the bound variable/lambda id spaces, and the
-    /// `Residue` fields carried verbatim. Only the tests call it. The structural
+    /// `Residue` fields carried verbatim. `BindingValReprs` is dropped: it is a projection of
+    /// the lambda chain, re-derived on the way back in. Only the tests call it. The structural
     /// `ofPools (toPools f) = f` is what makes the columns' tree-sufficiency checkable.
     let ofPools (pools: FrozenPools) : Pooled.TastFile =
         // The bound variable ids back in the BOUND-VARIABLE key space by PROJECTION: as the trees below are
@@ -330,7 +320,4 @@ module TastUnpool =
             InlineBodies = inlineBodies
             Specializations = specializations
             Accessibility = pools.Residue.Accessibility
-            // No `BindingValReprs`: the DU does not carry one, because it is a PROJECTION of the
-            // lambda chain, re-derived off the columns on the way back in.
-            BindingTyparArities = boundVarColumnMap readmittedBoundVar pools.BindingTyparArities
         }

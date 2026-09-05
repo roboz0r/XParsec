@@ -10,11 +10,11 @@ open UnificationSubsume
 open UnificationConstraintCheck
 
 /// The MUTATING unifier: `unify`, its on-link discharges (deferred dot-accesses,
-/// typar constraints, SRTP bounds), and the argument / annotation coercion walkers.
+/// typar constraints, SRTP traits), and the argument / annotation coercion walkers.
 module UnificationEngine =
 
     /// The flat `FunN` arity a parameter slot constrains its argument to, or `ValueNone`
-    /// for a non-`Fun`-bounded parameter: `'TF :> Fun<a,b>` is arity 1, up through
+    /// for a non-`Fun`-constrained parameter: `'TF :> Fun<a,b>` is arity 1, up through
     /// `Fun<a,b,c,d,e>` arity 4.
     let funSlotArityOf (store: TypeStore) (param: SemType) : int voption =
         match resolveStep store param with
@@ -364,7 +364,7 @@ module UnificationEngine =
     and private dischargeAll (ctx: PassContext) (tok: SyntaxToken) (root: Rep) (t: SemType) : unit =
         dischargePendingDotAccess ctx root t
         dischargeConstraints ctx tok root t
-        dischargeSrtpBounds ctx tok root t
+        dischargeSrtpTraits ctx tok root t
 
     /// Resolve the dot-access constraints parked on a TyVar now its `Link` has settled.
     /// When the object argument is generic its arg list substitutes for the declared typars, so
@@ -442,7 +442,7 @@ module UnificationEngine =
                 | SemanticConstraintKind.Coercion target ->
                     let targetNominal = subtypeNominalOf ctx (zonk ctx.Store target)
 
-                    // Dependent-typar inference: a bound `'a :> IFace<'b>` whose target carries
+                    // Dependent-typar inference: a constraint `'a :> IFace<'b>` whose target carries
                     // free vars. Once `'a` grounds to a nominal implementing `IFace`, pin `'b`
                     // to the witnessed args, so `'S :> IStructSeq<'T,'E>` grounds its `'T` and `'E`.
                     match targetNominal with
@@ -490,28 +490,28 @@ module UnificationEngine =
 
             ctx.Store.Constraints.Set(root, List.rev remaining)
 
-    /// Commit the picked trait member: unify it against the bound's expected signature,
+    /// Commit the picked trait member: unify it against the trait's expected signature,
     /// in the same shape the read-only search matched it with.
     and private unifySrtpAgainst
         (ctx: PassContext)
         (tok: SyntaxToken)
         (candidate: SemType)
-        (bound: MemberSignature)
+        (memberTrait: MemberSignature)
         : unit =
         unify
             ctx
             tok
             candidate
-            (UnificationTraitMembers.expectedShape ctx.Store bound.ArgTypes bound.ReturnType candidate)
+            (UnificationTraitMembers.expectedShape ctx.Store memberTrait.ArgTypes memberTrait.ReturnType candidate)
 
-    /// Attempt one SRTP member-trait bound through the shared search. With `force = false`
-    /// an unpinned support type defers the bound: solving against the first-pinned host
+    /// Attempt one SRTP member trait through the shared search. With `force = false`
+    /// an unpinned support type defers the trait: solving against the first-pinned host
     /// would force the other operands to ITS signature, and `3 * v` would pin to `int`'s
     /// member before `Vec2`'s `int * Vec2` could win.
-    and private trySolveSrtpBound (ctx: PassContext) (tok: SyntaxToken) (b: MemberSignature) (force: bool) : unit =
+    and private trySolveSrtpTrait (ctx: PassContext) (tok: SyntaxToken) (b: MemberSignature) (force: bool) : unit =
         let supportTys = EqArray.toArray b.SupportTys
 
-        // A QUANTIFIED free support typar is a scheme's type parameter: the bound travels
+        // A QUANTIFIED free support typar is a scheme's type parameter: the trait travels
         // with the template and inline expansion dispatches it per use site, so a forced
         // attempt must not link it.
         let anyQuantifiedFree () =
@@ -534,27 +534,27 @@ module UnificationEngine =
                 ctx.Store.Srtp.Solve b
                 unifySrtpAgainst ctx tok c.Ty b
 
-    /// On-unified callback for SRTP member-trait bounds. The one `MemberSignature` is
+    /// On-unified callback for SRTP member traits. The one `MemberSignature` is
     /// shared by reference across every participating typar, so solving it through any
     /// of them makes the others skip it. `tok` is the user's call site.
-    and private dischargeSrtpBounds (ctx: PassContext) (tok: SyntaxToken) (root: Rep) (linkTarget: SemType) : unit =
-        let bounds = ctx.Store.Srtp.Live root
+    and private dischargeSrtpTraits (ctx: PassContext) (tok: SyntaxToken) (root: Rep) (linkTarget: SemType) : unit =
+        let traits = ctx.Store.Srtp.Live root
 
-        if List.isEmpty bounds then
+        if List.isEmpty traits then
             ()
         else
-            for b in bounds do
+            for b in traits do
                 // A sibling / reentrant discharge may have solved `b` since this snapshot.
                 if not (ctx.Store.Srtp.IsSolved b) then
-                    trySolveSrtpBound ctx tok b false
+                    trySolveSrtpTrait ctx tok b false
 
-    /// Force-attempt every live SRTP bound in the store; `tok` attributes any verdict.
-    /// The binding-boundary settling of SRTP bounds; the on-link discharge is only the
+    /// Force-attempt every live SRTP trait in the store; `tok` attributes any verdict.
+    /// The binding-boundary settling of SRTP traits; the on-link discharge is only the
     /// eager path.
-    let sweepSrtpBounds (ctx: PassContext) (tok: SyntaxToken) : unit =
+    let sweepSrtpTraits (ctx: PassContext) (tok: SyntaxToken) : unit =
         for b in ctx.Store.Srtp.LiveEntries() do
             if not (ctx.Store.Srtp.IsSolved b) then
-                trySolveSrtpBound ctx tok b true
+                trySolveSrtpTrait ctx tok b true
 
     /// Coerce `src` to the nominal target `tgt` as an implicit/`:>` upcast: when `src`
     /// (or a base / interface) instantiates `tgt`'s nominal, `unify` the witness's type

@@ -6,8 +6,8 @@ open XParsec.FSharp.SemanticAnalysis
 open UnificationEngineCore
 open UnificationSubsume
 
-/// The READ-ONLY constraint verdicts: whether a ground type satisfies a typar bound, and
-/// the propagation of a still-undecided bound onto a compound's free arguments.
+/// The READ-ONLY constraint verdicts: whether a ground type satisfies a typar constraint, and
+/// the propagation of a still-undecided constraint onto a compound's free arguments.
 module UnificationConstraintCheck =
 
     /// `Defer` is the not-yet verdict: the target is still free (or
@@ -276,7 +276,7 @@ module UnificationConstraintCheck =
         | SemanticConstraintKind.Enum _, TyEnum _ -> Satisfied
         | SemanticConstraintKind.Enum _, _ -> Violated
         // No modelled shape is a delegate, and `Translate` refuses the clause, so this arm
-        // only meets an imported bound.
+        // only meets an imported constraint.
         | SemanticConstraintKind.Delegate _, _ -> Violated
         // Equality on an enum is universal and comparison on one is out of scope, so
         // neither is ever proved or refused here.

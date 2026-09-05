@@ -21,7 +21,7 @@ type FunVerdict =
         ResultTyparPos: int voption
     }
 
-/// The kind of a bound on a typar.
+/// The kind of a constraint on a typar.
 [<RequireQualifiedAccess>]
 type TyparConstraintKindG<'ty> =
     /// `when 'a : equality`.
@@ -47,7 +47,7 @@ type TyparConstraintKindG<'ty> =
     /// `when 'a : delegate<args, ret>`.
     | Delegate of args: 'ty * ret: 'ty
 
-/// A typar bound on a generic declaration, declared or inferred. `TyparIndex` is on the
+/// A typar constraint on a generic declaration, declared or inferred. `TyparIndex` is on the
 /// owner's axis: the declaring axis for a type declaration's typars, the method axis for a
 /// binding's, a member's or an abstract slot's own typars.
 type TyparConstraintG<'ty> =
@@ -56,7 +56,7 @@ type TyparConstraintG<'ty> =
         Kind: TyparConstraintKindG<'ty>
     }
 
-/// A typar bound whose embedded types are frozen, with typar leaves `FTTypar(axis, i)`.
+/// A typar constraint whose embedded types are frozen, with typar leaves `FTTypar(axis, i)`.
 type FrozenConstraint = TyparConstraintG<FrozenType>
 
 module TyparConstraintKind =
@@ -74,7 +74,24 @@ module TyparConstraintKind =
         | TyparConstraintKindG.Enum underlying -> TyparConstraintKindG.Enum(f underlying)
         | TyparConstraintKindG.Delegate(args, ret) -> TyparConstraintKindG.Delegate(f args, f ret)
 
-    /// The bound's kind, every embedded type mapped through `target`. `ValueNone` for a
+    /// Applies `f` to each embedded type.
+    let iter (f: 'a -> unit) (kind: TyparConstraintKindG<'a>) : unit =
+        match kind with
+        | TyparConstraintKindG.Coercion target
+        | TyparConstraintKindG.Enum target -> f target
+        | TyparConstraintKindG.Delegate(args, ret) ->
+            f args
+            f ret
+        | TyparConstraintKindG.Equality
+        | TyparConstraintKindG.Comparison
+        | TyparConstraintKindG.Struct
+        | TyparConstraintKindG.ReferenceType
+        | TyparConstraintKindG.Nullness
+        | TyparConstraintKindG.NotNull
+        | TyparConstraintKindG.DefaultConstructor
+        | TyparConstraintKindG.Unmanaged -> ()
+
+    /// The constraint's kind, every embedded type mapped through `target`. `ValueNone` for a
     /// printf format family's `OneOf`, which is solved at the format literal and has no
     /// spelling on a declared typar.
     let ofSemantic (target: SemType -> 'ty) (kind: SemanticConstraintKind) : TyparConstraintKindG<'ty> voption =
@@ -92,7 +109,7 @@ module TyparConstraintKind =
         | SemanticConstraintKind.Delegate(a, r) -> ValueSome(TyparConstraintKindG.Delegate(target a, target r))
         | SemanticConstraintKind.OneOf _ -> ValueNone
 
-    /// The store's form of the bound, every embedded type mapped through `target`.
+    /// The store's form of the constraint, every embedded type mapped through `target`.
     let toSemantic (target: 'ty -> SemType) (kind: TyparConstraintKindG<'ty>) : SemanticConstraintKind =
         match kind with
         | TyparConstraintKindG.Equality -> SemanticConstraintKind.Equality
@@ -114,7 +131,7 @@ module TyparConstraint =
             Kind = TyparConstraintKind.map f c.Kind
         }
 
-    /// The bound `kind` places on the typar at `typarIndex`; `ValueNone` for `OneOf`.
+    /// The constraint `kind` places on the typar at `typarIndex`; `ValueNone` for `OneOf`.
     let ofSemantic
         (typarIndex: int)
         (target: SemType -> 'ty)
@@ -124,7 +141,7 @@ module TyparConstraint =
         | ValueSome k -> ValueSome { TyparIndex = typarIndex; Kind = k }
         | ValueNone -> ValueNone
 
-    /// The constrained typar's index and the supertype, for a `Coercion` bound only.
+    /// The constrained typar's index and the supertype, for a `Coercion` constraint only.
     let tryCoercion (c: TyparConstraintG<'ty>) : (int * 'ty) voption =
         match c.Kind with
         | TyparConstraintKindG.Coercion target -> ValueSome(c.TyparIndex, target)
@@ -138,6 +155,45 @@ module TyparConstraint =
         | TyparConstraintKindG.Unmanaged
         | TyparConstraintKindG.Enum _
         | TyparConstraintKindG.Delegate _ -> ValueNone
+
+/// A generalised binding's typar scheme: its method-axis arity and its constraints, in
+/// source order. Every constraint's `TyparIndex`, and every `FTTypar(Method, i)` referenced
+/// by a constraint's type, is below `TyparArity`.
+type GenericFnScheme =
+    private
+        {
+            arity: int
+            constraints: EqSet<FrozenConstraint>
+        }
+
+    member this.TyparArity = this.arity
+    member this.Constraints = this.constraints
+
+[<RequireQualifiedAccess>]
+module GenericFnScheme =
+
+    /// Faults on a constraint whose `TyparIndex`, or whose type references a method typar, at
+    /// or past `arity`.
+    let create (arity: int) (constraints: EqSet<FrozenConstraint>) : GenericFnScheme =
+        let rec checkType (t: FrozenType) =
+            match t with
+            | FTTypar(TyparAxis.Method, i) when i >= arity ->
+                failwithf "GenericFnScheme: constraint references method typar %d, arity %d" i arity
+            | t -> FrozenType.iterChildren checkType t
+
+        for c in constraints do
+            if c.TyparIndex >= arity then
+                failwithf "GenericFnScheme: constraint on typar %d, arity %d" c.TyparIndex arity
+
+            TyparConstraintKind.iter checkType c.Kind
+
+        {
+            arity = arity
+            constraints = constraints
+        }
+
+    /// The scheme of a binding that quantifies nothing.
+    let monomorphic: GenericFnScheme = { arity = 0; constraints = EqSet.empty }
 
 /// How codegen resolves the `GetEnumerator` handle of a `Pattern` for-in source.
 [<RequireQualifiedAccess>]
