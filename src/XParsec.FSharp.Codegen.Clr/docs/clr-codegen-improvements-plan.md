@@ -4,267 +4,65 @@ Working document. Ephemeral: delete it when the work lands.
 
 Line numbers are deliberately absent — they rot. Constructs and file names only.
 
-Raised by the decompiled-C# conformance goldens (`test/XParsec.FSharp.Codegen.Clr.Tests/goldens/*.clr.cs`),
-added when `ConformanceByteIdentityTests` gained a whole-module render beside its structural
-digest. Every finding below cites the golden that shows it, so each is reproducible by reading a
-committed file. A1, A2, A4, A5, B1, B2 and C1 have landed; the rest is outstanding.
+Raised by the decompiled-C# conformance goldens (`test/XParsec.FSharp.Codegen.Clr.Tests/goldens/*.clr.cs`).
+Landed and removed from this document: A1 (ctor-param backing field `initonly`, `FieldAttrSets`),
+A2 (record field as private backing field with accessors, `readonly struct`), A4 (residue field
+at assembly visibility, `FieldVisibilitySweepTests`), A5 (source parameter names,
+`ParamNaming.paramNames`), B1 (`InlineExpand.reduceLets`), B2 (`ExprPos`, statement-position
+`unit`) and C1 (`Decompile.ReferenceResolver`). Their history is in the git log.
 
-**Part A** is ABI and metadata defects. **Part B** is IL quality. **Part C** is the harness.
+What remains is A3 (typar constraints into IL), A6 (delegate types) and C2 (wider goldens).
 
-Two representation decisions are settled and drive A2 and A3: a record field emits as a private
-`initonly` field with a public getter, and a typar constraint is enforced across assemblies and
-written into IL wherever the CLI can express it.
+**Decided representations.** A record field emits as a private `initonly` field with a public
+getter. A typar constraint is enforced across assemblies and written into IL wherever the CLI can
+express it. A delegate is a modelled type category on both targets.
 
 ---
 
-# Part A — ABI and metadata
+# A3. Typar constraints are never emitted
 
-## A1. A ctor-param backing field is writable — DONE
-
-`preamble-do-order.clr.cs` renders `Ordered` as:
-
-```csharp
-internal int n;
-internal readonly int a;
-internal readonly int b;
-```
-
-`a` and `b` are the instance-`let` preamble bindings; `n` is the primary-ctor parameter. The
-`let`s are `initonly` and the ctor parameter is not.
-
-**Root cause.** `buildClassNodes` in `LayoutNodes` gives a ctor-param field bare
-`compilerGeneratedStorage`. The `val`-field and instance-`let` cases immediately below it add
-`FieldAttributes.InitOnly` when the binding is immutable, and the `let` case states the rule in a
-comment: written exactly once, by the primary `.ctor`, which is what `initonly` permits.
-
-**Fix.** Add `||| FieldAttributes.InitOnly` to the ctor-param case. A ctor parameter has no
-`mutable` form in the source language, so the case needs no condition.
-
-**Risk.** `initonly` permits a store from any instance `.ctor` of the declaring type, so
-secondary-ctor chaining is unaffected. Both write sites are already inside ctors: the primary
-ctor's field stores and the secondary-ctor field-init block, both in `NominalEmit`. Before
-landing, confirm the closure path only ever reads the field — a closure capturing a ctor
-parameter loads it, and a `let mutable` promotes to `Vesper.Ref` rather than writing back — by
-checking `EmitClosures` and `ClosureVerdictRewrite` for a store keyed on
-`FieldKey.ClassCtorParamField`.
-
-**Verify.** Extend the `ClassTests` assertion that already names both backing fields to require
-`IsInitOnly`, and re-render the goldens.
-
-**Landed.** `buildClassNodes` adds `FieldAttributes.InitOnly` to the ctor-param case. The only
-handles minted from `FieldKey.ClassCtorParamField` are the three in `NominalEmit` — the class's
-`Fields` lookup list, the primary ctor's `stfld` refs, and the secondary-ctor
-`ExplicitFieldInit` targets — so every store is inside a `.ctor`; `EmitClosures` and
-`ClosureVerdictRewrite` mint none. Seven `preamble-*` and `typar-null-allownull` goldens
-re-rendered to `internal readonly`, digests included, and the suite is green.
-
-A closure capture field took the same treatment and went further, to `private initonly`.
-`FieldKey.ClosureCapture` is minted once, in `PrepareClosures`, and reaches exactly two
-consumers: the `stfld` list of `buildChainedCtor` / `buildStructCtor`, and the `CaptureFields`
-dictionary whose only reader is `buildVarLoad`'s `ldarg.0; ldfld`. Both live on the closure
-type, so the field needs no visibility beyond it, and the `FieldAccessException` hazard behind
-`assembly` storage does not apply — that one is about a closure reading its *enclosing* class's
-storage.
-
-Both tightenings diverge from FSC, which emits a ctor-param backing field as writable
-`assembly` (`PrintfFormat::value` in FSharp.Core) and a capture as a writable `public` field
-(`QueryModule+restoreTupleProjections@353-1::v`).
-
-**Follow-on, also landed.** Reviewing the above surfaced a third case with the identical
-argument: an immutable class `static let` was emitted writable, because `buildClassNodes`
-dropped `sl.IsMutable` while the instance-`let` case four lines above consulted it. Its stores
-are the `.cctor` `PreambleStep.Store` in `NominalEmit` and `buildStaticFieldSet`'s `stsfld`,
-and the latter is reachable only for a binding the front end saw as `mutable`. `ClassTests`
-now pins the immutable and mutable forms against each other. No golden moved, because the
-conformance corpus spells `static let mutable` and never the immutable form.
-
-Nothing caught that omission, so the visibility and write-once bits moved out of the field
-literals and into `FieldAttrSets` in `LayoutModel`, beside the `MethodAttrSets` that already
-held the method-attribute vocabulary. Every `FieldSlot` in `LayoutNodes`, `Layout` and
-`UnionLayoutNodes` now draws `Attrs` from `instanceFieldAttrs` / `staticFieldAttrs` over a
-`FieldReach` and a `FieldWrites`, so a builder states both facts or fails to compile. The
-`compilerGeneratedStorage` binding named in the root cause above is gone; `FieldReach.Assembly`
-carries its rationale, adjacent to the `FieldReach.OwnType` case that a capture takes.
-
-## A2. A record field emits as a public writable field — DONE
-
-`record-members.clr.cs`:
-
-```csharp
-public sealed class Vec : IEquatable<Vec>, IStructuralFormattable
-{
-	public int X;
-	public int Y;
-```
-
-`struct-record.clr.cs` is the same shape one level worse — `public struct P` with two public
-mutable fields, where the struct unions in the same golden set are `public readonly struct` with
-`initonly` fields throughout.
-
-**Decided representation.** A record field emits as a `private initonly` field with a public
-getter, and a `mutable` record field as a `private` field with a public getter and setter. This
-is F#'s own record representation.
-
-**Root cause.** `buildRecordNodes` in `LayoutNodes` gives every field
-`instanceFieldAttrs FieldReach.Public FieldWrites.Anywhere`, discarding `f.IsMutable`, and emits
-no accessor rows; the struct-record path adds no `IsReadOnlyAttribute`. Stage 3 below moves both
-bits to `FieldReach.OwnType` and `writesOf f.IsMutable`.
-
-**Fix, staged.** Each stage leaves the suite green on its own.
-
-1. **Accessors, fields still public — DONE.** `buildRecordNodes` gains a `get_<Name>` method row and a
-   `Property` row per field, plus `set_<Name>` for a `mutable` one. Bodies in `NominalEmit`:
-   `ldarg.0; ldfld; ret`, which is the same shape for a struct record, where `ldarg.0` is already
-   the byref. The accessor-name minting is `AccessorNames`, and nominal types already carry
-   `Property` rows, so this stage adds no new machinery.
-2. **Route every consumer through the accessor — DONE.** `RecordMember.Field` in `ICodegenProvider`
-   currently means "the public field"; it becomes "the field's accessors", and each site
-   minting a `FieldDef`/`MemberRef` from it mints a method reference instead. The sites are the
-   field-get path, the field-set path, `buildRecordClone` in `EmitConstruct` (which `ldfld`s each
-   non-overridden field off the spilled source), and the record-pattern destructure in
-   `EmitPattern`.
-   The synthesised members — structural equality, hash and `Format` — are emitted *on the
-   declaring type*, so they keep direct field access. That exception is deliberate and wants a
-   comment at the site: a private field is reachable from the type's own body and the accessor
-   would only add a call.
-3. **Privatise — DONE.** `instanceFieldAttrs FieldReach.OwnType (writesOf f.IsMutable)`.
-4. **`readonly struct` — DONE.** A struct record whose every field is immutable emits
-   `IsReadOnlyAttribute`, mirroring `UnionLayoutNodes`. With getters in place this also stops the
-   defensive copy the JIT would otherwise make at each getter call on a non-`readonly` struct,
-   which is the stage that pays for itself.
-
-Every write to an immutable record field already happens in a ctor: a literal is `newobj`, and
-`{ r with X = v }` rebuilds through the ctor. So step 3 needs no new write-path work.
-
-**Scope boundary.** The *symbol* stays a record field. `RecordMember.Field` keeps its name and
-its key; only the CLR emission behind it changes, so SemanticAnalysis and the JS backend are
-untouched by this entry.
-
-**Risk.** The assembler predicts handles by prefix sum (see this project's `CLAUDE.md`), and
-step 1 adds two or three rows per field per record across `MethodDef`, `Property` and
-`MethodSemantics`. That is the failure mode to watch, and `MetadataStructure.assertWellFormed`
-plus the digest goldens are the guard. Step 4 changes how a struct record passes where its
-address is taken, so run the `Struct` and `StructSeq` suites, not only `Record`.
-
-**Verify.** `RecordTests` currently asserts over `GetFields(Public ||| Instance)`; those
-assertions inverting to `GetProperties` is the deliverable, not a regression. The
-`{ p with Y = 99 }`, `c.Count <- 42` and record-pattern behavioural tests cover both sides of the
-mutable split and must stay green throughout.
-
-**Stage 1 landed.** `buildRecordNodes` emits a `get_<Name>` method row per field, a `set_<Name>`
-beside it for a `mutable` one, and a `Property` row binding the pair through `MethodSemantics`.
-`NominalEmit.prepareRecord` supplies the bodies from `Emit.buildFieldGetter` and the new
-`buildFieldSetter`, over the field refs the `.ctor` already mints, so a generic record's accessors
-reach the field through the `MemberRef` on the open self-`TypeSpec`. `getterAttrs` became
-`synthAccessorAttrs`, covering both halves.
-
-Handle prediction absorbed the new rows unchanged: `MetadataStructure.assertWellFormed` passed
-and every digest but the three records' held. Two pinned row lists gained their getters — `Point`
-and `M+Tally` in `MetadataStructureTests`, `N.Outer+Inner+T` in `LocalModuleTests` — and
-`record-members`, `struct-record` and `typar-struct-record` re-rendered. Those three now show
-`public int X;` beside `public int X => this.X;`, with `this.` disambiguating every field read: a
-field and a property may share a name in metadata, and C# cannot spell it. Stage 3 privatises the
-field and the rendering resolves.
-
-`PropertyRowTests` pins the rows and the binding: the row pair per field with the mutable split, a
-reflected round-trip through both halves, the second field of a generic record (the slot a raw
-`FieldDefinition` token resolves wrongly), and a struct record's getter over the byref `this`.
-
-One consequence to carry into stage 2: `MetadataSymbols.enumerateClassMembers` walks properties
-and public fields alike, so a record field imported from a referenced assembly now yields two
-`ExternalMember`s under one key. The property leads, which is the member stage 2 wants a consumer
-to bind; stage 3 drops the field from the public surface and with it the duplicate.
-
-**Stage 2 landed.** `RecordMember` kept `Field`, which the record's `.ctor`, accessor bodies
-and structural triple still mint, and gained `Accessor of fieldName * TAccessorRole`, the same
-`(name, role)` shape as `TMemberKind.Accessor` and `MethodKey.RecordFieldAccessor`.
-`ClrGenerics.genericRecordMemberRef` encodes it on the instantiated `TypeSpec` through
-`ClrEncoder.RecordAccessorSignature`, the one place that spells `instance FieldTy get_X()` and
-`instance void set_X(FieldTy)`; the declaring side in `NominalEmit` and the imported side in
-`ClrExternalMembers.externalRecordField` share it. `EmittedRecordField` in `EmitTypes` replaced
-the `(name, handle, type)` triple and carries the accessor `Def` pair beside the field.
-
-A use site resolves one accessor by role, never the pair: `EmitResolve.recordFieldAccessor`
-re-mints the requested half, and `resolveRecordField` answers a `FieldAccess` for that role,
-`Direct` for a class field, `Accessor` for a record field, own or imported. A read therefore
-mints no `set_X` `MemberRef` row on a generic or referenced-package record, which
-`PropertyRowTests` pins. `Vesper.Ref` reaches `contents` through `get_contents` /
-`set_contents`.
-
-The four sites read `FieldAccess`: `buildFieldGet` and `buildFieldSet` in `EmitMember` `call`
-the half they asked for, `buildRecordClone` calls each un-overridden field's getter on the
-spilled source, and the record pattern in `EmitPattern` calls each named field's getter on the
-scrutinee through the `extractGetter` it shares with a union case's `Getter` reader. A struct
-record's getter takes the address, so those sites go through `EmitTypes.loadSlotAsThis` and
-`buildFieldGet` through `loadStructThisPtr`. `loadStructThisPtr` addresses a struct module
-value with `ldsflda` and a struct-typed class field with `ldflda` (the `ClassFieldGet` active
-pattern); a record field or property result is a copy with no location and spills, as F# does.
-`NominalShared.recordFieldRefs` keeps direct field access with the comment the entry asked for.
-
-`record-members` and `struct-record` re-rendered, the former to bare `X` where `this.X` had
-disambiguated a field read from the property. `PeInspection.peMethodMemberOps` decodes a
-body's member-bearing instructions to `(mnemonic, member name)` over the
-`System.Reflection.Emit.OpCodes` table, and `PropertyRowTests` pins each site through it: get,
-set, clone, pattern, the generic second-field `MemberRef`, the struct record's getter and clone
-with a runtime round-trip, and a promoted `let mutable` reaching `Vesper.Ref` through
-`get_contents`.
-
-**Stage 3 landed.** A record field's backing field is `private`, `initonly` unless `mutable`, and
-takes FSC's `X@` name from `RecordBackingField.metaName` in `LayoutModel`. The name is
-decided in the layout layer: `buildRecordNodes` writes the `FieldDef` row and
-`NominalRegistration` stores it as `GenericRecordField.MetaName`, which `ClrGenerics` reads back
-for the `RecordMember.Field` `MemberRef`. `FieldKey.RecordField` still keys on the source name.
-`PropertyRowTests` pins the two `FieldAttributes` sets; the shape assertions in `RecordTests`,
-`StructTests`, `SelfHostTests` and the pinned row lists read the property or the suffixed
-backing field.
-
-**Stage 4 landed.** `Assembler.readOnlyMarkerOf` stamps `IsReadOnlyAttribute` on a value
-type whose every instance field is `initonly`, read off the `FieldSlot.Attrs` the layout
-already carries, so the record, struct union and case view arms share one rule and the layout
-model is unchanged. FSC infers no such attribute; the divergence is sited on the helper.
-`StructTests` pins the three answers — an all-immutable struct record, one with a `mutable`
-field, and a reference record — off one compile.
-
-`struct-record` and `typar-struct-record` re-rendered to `public readonly struct`, and their
-digests moved with the `IsReadOnlyAttribute` `TypeRef` and ctor `MemberRef` the fold walks.
-The IL did not move: `struct-record`'s `{ a with X = 10 }` still reads `ldsfld a` and calls
-`get_Y` on the spill, which ILSpy had been rendering as `a.Y` and now spells as the copy it is.
-
-## A3. Typar constraints are never emitted
-
-`typar-struct.clr.cs`, for a program whose source reads `let onlyStruct<'a when 'a: struct> (x: 'a) = x`:
+`typar-struct.clr.cs`, for `let onlyStruct<'a when 'a: struct> (x: 'a) = x`:
 
 ```csharp
 public static T0 onlyStruct<T0>(T0 arg0)
 ```
 
-No `where T0 : struct`. The same holds in `typar-not-struct.clr.cs`, `typar-null.clr.cs` and
-`typar-not-null.clr.cs`.
+No `where T0 : struct`. The same holds in `typar-not-struct`, `typar-null` and `typar-not-null`.
 
-**Decided.** A constraint is enforced across assemblies and written into IL wherever the CLI has
-an encoding for it.
+## Where it stands
 
-**Root cause, and why this is not a codegen-only fix.** Three gaps stacked:
+Stages 1 and 2 have landed. A bound is `TyparConstraintG<'ty>` in `SideTypes`: a `TyparIndex` on
+the owner's axis and a `TyparConstraintKindG<'ty>` over `Equality`, `Comparison`, `Struct`,
+`ReferenceType`, `Nullness`, `NotNull`, `Coercion of 'ty`, `DefaultConstructor`, `Unmanaged`,
+`Enum of underlying` and `Delegate of args * ret`. It is carried as an `EqSet` on
+`GenericFnSchemes`, `TTypeDeclG.TyparConstraints`, `TTypeMemberG.MethodTyparConstraints`,
+`TAbstractMethodG.MethodTyparConstraints` and `CodegenOpenSignature.Constraints`. Stored order is
+source order, so the rows stage 4 emits are deterministic. `FrozenCodec.FormatVersion` is 5.
 
-1. `FrozenConstraint` in `SideTypes` has exactly one case — `Coercion`, `when 'a :> ty`. Every
-   other constraint the CST models (`Constraint.Struct`, `ReferenceType`, `DefaultConstructor`,
-   `Unmanaged`, `Nullness`, `NotNull`, `Equality`, `Comparison`, `Enum`, `Delegate`,
-   `MemberTrait` in `CstTypeWalk`) is checked during elaboration and then dropped. Codegen never
-   sees it. This is the discarded-intermediate shape the root `CLAUDE.md` warns about, and it is
-   the first thing to fix.
-2. `AddGenericParameter` in `Metadata` passes `GenericParameterAttributes.None`
-   unconditionally, and no code in `src/` emits a `GenericParamConstraint` row at all.
-3. `CodegenOpenSignature.Constraints` in `ExternalSymbols` is the same one-case list, so a
-   constraint on a *foreign* generic is not imported either. Enforcement against a BCL or
-   third-party generic is therefore absent in the other direction too.
+The verdicts live in `UnificationConstraintCheck` over the `NominalDecl` view; the `delegate`
+clause reports `NotYetSupported` until A6 stage 1. The SRTP member trait and `Default` are
+deliberately absent from `TyparConstraintKindG`: an `inline` binding publishes a trait through
+`ExternalConstraint.MemberTrait` beside its `InlineBody`, and a non-`inline` binding with a trait
+is FS0670.
 
-Constraints on our own packages do reach a downstream consumer today, through re-analysis of the
-`.fsi` rather than through metadata — `typar-null-allownull.fs` in the corpus pins that the
-`[<AllowNullLiteral>]` answer survives the freeze. IL encoding is what a foreign consumer needs.
+## Owed from the stage 2 review
 
-**Target encoding.** One row per source constraint, to be calibrated against what `fsc` emits for
-the same source before it is committed to — F# parity is the goal, and `dotnet fsi` plus a
-decompile of an `fsc` output is the oracle:
+`LocalNominal.fieldTypes` now answers a class with its primary-ctor parameters, `val` fields
+and instance preamble `let`s, so a `[<Struct>]` class holding a reference or a function through
+a ctor parameter is refused under `unmanaged` and `equality`, as `fsc` refuses it whether or
+not a member reads the parameter. `ConstraintsTests` pins both. One item is left:
+
+- **Enum underlying type across an assembly boundary.** An imported enum publishes
+  `ExternalEnumCaseValue.IntVal of int64` with no width, so `enumUnderlyingType` guesses `int`
+  and an `int64` enum is judged `enum<int>`. `ExternalTypeShape.Enum` gains the underlying
+  `TypeKey`, written from `TEnumCases.underlyingTypeKey` by `SignatureResolution` and
+  `FrozenSignature`, and filled as `int` or `string` by the TS extractor. Format version 6,
+  landing alone.
+
+## Target encoding
+
+One row per source constraint, calibrated against what `fsc` emits for the same source before
+it is committed to. `dotnet fsi` plus a decompile of an `fsc` output is the oracle.
 
 | Source constraint | CLI encoding |
 | --- | --- |
@@ -279,304 +77,42 @@ decompile of an `fsc` output is the oracle:
 | `'a : equality` / `comparison` | none — F# has no CLI encoding for these either |
 | SRTP member trait | none — an `inline` binding resolves it at the splice, so no generic parameter survives to carry it |
 
-**Fix, staged.**
+## Remaining stages
 
-1. Widen `FrozenConstraint` to the kinds the front end already checks, and carry them through
-   `Freeze` and the pool codecs. The codec change is a format change, so it lands alone.
-2. Add `new()`, `unmanaged`, `enum<'u>`, `delegate<_,_>` and the SRTP member trait to
-   `SemanticConstraintKind` and `TyparConstraintKindG`, with the front-end check for each.
-   Today the CST models them and both `Translate.translateConstraints` and
-   `SignatureResolution.publishedConstraints` drop them, so no later stage can see them. Another format change, so it lands alone too.
-3. Flag bits on the existing `GenericParam` row: `struct`, `not struct`, `new()`. No new table.
-4. `GenericParamConstraint` rows, which needs the table added to the assembler with its row-order
-   prediction — the same prefix-sum discipline as every other table here.
-5. Import the same constraints in `ExternalSymbols` so a foreign generic's constraint is
-   enforced at our use sites.
-6. `unmanaged` and the nullability attributes, in that order, each with its own scope.
+3. **Flag bits on the existing `GenericParam` row**: `struct`, `not struct`, `new()`.
+   `AddGenericParameter` in `Metadata` passes `GenericParameterAttributes.None` unconditionally
+   today. No new table.
+4. **`GenericParamConstraint` rows.** No code in `src/` emits one. The table is added to the
+   assembler with its row-order prediction, the same prefix-sum discipline as every other table
+   here. The `System.Delegate` row reads the kind alone, so it does not wait on A6.
+5. **Import.** `CodegenOpenSignature.Constraints` in `ExternalSymbols` carries every kind, but a
+   foreign generic's constraint is not read off its metadata, so enforcement against a BCL or
+   third-party generic is absent. Needs the enum width above and A6 stage 2 for the
+   `enum<'u>` and `delegate<_,_>` bounds.
+6. **`unmanaged` and the nullability attributes**, in that order, each with its own scope.
 
 **Verify.** Assert `GenericParam` flags and `GenericParamConstraint` rows through the
 `MetadataStructure` helpers, per this project's `CLAUDE.md` preference for metadata over
 reflection. The `typar-*-violated.fs` programs already pin front-end rejection and must keep
 their exact diagnostics. The goldens re-render into `where T0 : struct`, which is the readable
-check that stage 3 and 4 agree.
+check that stages 3 and 4 agree.
 
-**Stage 1 landed.** A bound is `TyparConstraintG<'ty>` in `SideTypes`: a `TyparIndex` on the
-owner's axis and a `Kind`, where `TyparConstraintKindG<'ty>` is a DU over every kind the front
-end checks today: `Equality`, `Comparison`, `Struct`, `ReferenceType`, `Nullness`, `NotNull` and
-`Coercion of 'ty`. `FrozenConstraint` is the alias at `FrozenType`. `TyparConstraintKind.ofSemantic`
-and `toSemantic` are the two projections to and from `SemanticConstraintKind`; `OneOf` has no
-bound form. `ExternalConstraint.Bound` carries the same record for a published signature, so the
-former `Trait` and `Coercion` cases, and the `SemanticConstraintKind` a `Trait` smuggled, are
-gone.
+**Parity note.** `fsc` accepts `under L.A 3` for `'a : enum<'u>` on an `int64` enum, where this
+compiler reports a mismatch on `3`. Both solve `'u` to `int64`; `fsc` then widens the `int32`
+literal implicitly, a recent F# addition that this compiler does not implement. The divergence
+belongs to implicit widening, not to A3.
 
-The bound is carried wherever a typar is declared, and every carrier reads it the same way:
-`ElaborateTypars.boundsOfEnv` reads the store at each root of a `(root, TyTypar(axis, i))` env,
-so the bound sits at the index the env already assigned. An inferred bound rides along with a
-declared one:
+---
 
-- A module binding's, on `GenericFnSchemes`, off the binding's method quant env. `let f x y = x = y`
-  freezes `Equality` at index 0 with no `when` clause written.
-- A type declaration's, on the new `TTypeDeclG.TyparConstraints` (declaring axis), off the decl
-  env. A bound a member body infers onto a class typar lands here.
-- A member's, on `TTypeMemberG.MethodTyparConstraints` (method axis), off
-  `GeneralizedTypars.methodEnv` of its `CanonicalTypars`, beside `MethodTypeParams`.
-- An abstract slot's, on `TAbstractMethodG.MethodTyparConstraints`, the same way.
-  `Unification.linkAbstractSlot` now translates the signature's `when` clause under the slot's
-  typar scope, which it had skipped; without that the slot's bound never reached the store.
+# A6. A delegate type is unmodelled
 
-The three decl fields are `'ty`-generic and go through the deferred `freezeTypars` cut with
-every other type under the declaration, mapped by `TastConvert`. Every bound collection,
-including `GenericFnSchemes` and `CodegenOpenSignature.Constraints`, is an `EqSet`: two
-declarations spelling the same bounds in a different order are equal, a repeated bound
-collapses, and stored order is source order, so the rows stage 4 emits stay deterministic.
-`FrozenCodec.FormatVersion` is 4: the constraint payload gained a kind tag, and the three decl
-payloads gained a constraint set. No store change was needed: `TypeStore.Constraints` already
-keys a bound by union-find root, joins the two sides' bounds on a var-var union, and discharges
-a bound when the root links to a concrete type, so a read at the root after inference is the
-propagated set.
+No golden shows this, because no program in the corpus can declare or use a delegate:
+`type D = delegate of int -> int` registers under `UnmodelledReason.Delegate`,
+`SignatureResolution` publishes it as `ExternalTypeShape.Unmodelled`, and every use is a
+diagnostic. A3's `delegate<_,_>` bound therefore has no type it can hold at, and a foreign
+generic bounded by `System.Delegate` cannot be instantiated from this compiler.
 
-`FrozenConstraintTests` pins each kind on a binding, the inferred and call-propagated forms, a
-record's declared bound, a class typar's body-inferred bound, a member's declared and inferred
-bounds, an interface slot's bound, and the blob round trip of all of them. Stage 2, the kinds
-the front end does not yet check, and stages 3 to 6, the metadata emission and import, are
-unchanged.
-
-**Stage 2 landed.** `SemanticConstraintKind` and `TyparConstraintKindG` gained
-`DefaultConstructor`, `Unmanaged`, `Enum of underlying` and `Delegate of args * ret`.
-`Translate.translateConstraint` attaches each from its CST form, and
-`publishedConstraints` publishes each as a `Bound`. `FrozenCodec.FormatVersion` is 5: tags
-7 to 10, the last two carrying their embedded types through `writeTypeRef`.
-`SemanticConstraintKind.mapTypes` / `iterTypes` are the one walk over a kind's embedded
-types, and the four sites that had matched `Coercion` alone (dependent-typar collection in
-`ElaborateTypars` and `InferGeneralize`, and the instantiation substitution) read them.
-
-The verdicts, in `UnificationEngine.checkConstraint`, calibrated against `fsc`:
-
-- `new`: a value type, an enum, `obj` and `exn` hold; a reference class needs a
-  parameterless `.ctor` and must be neither abstract nor an interface, read off
-  `ClassTypeInfo` locally and off the published `.ctor` members for an import. A clause
-  whose result typar differs from the constrained one reports `fsc`'s FS0700 text.
-- `unmanaged`: a fixed-width scalar (`RuntimeNames.numericKeys`, `bool`, `char`,
-  `voidptr`), an enum, or a value-laid-out nominal or tuple whose every field is unmanaged.
-  A generic nominal is refused whatever its argument, as `fsc` refuses it. An external
-  value type publishes no fields and is accepted on its layout. On the CLR a tuple is a
-  `ValueTuple`, so `(1, 2)` holds there and the corpus pins it.
-- `enum<'u>`: the typar must ground to an enum; `dischargeConstraints` then unifies the
-  enum's underlying primitive with `'u`, so a width mismatch reports as a type mismatch,
-  which is also `fsc`'s answer. A string enum, this compiler's extension, has `string` as
-  its underlying type. An imported enum carries no width and is `int`.
-- `delegate<_,_>`: no delegate is modelled, so every modelled shape refuses it, and a type
-  registered under `UnmodelledReason.Delegate` defers. The `Invoke` signature check waits
-  on delegate modelling.
-
-The SRTP member trait stays on its own channel: `store.Srtp` carries a `MemberSignature`
-over a support set that a single-typar `TyparConstraintG` cannot spell, a non-`inline`
-binding with a trait is FS0670 in `fsc` so no frozen non-inline declaration can carry one,
-and an `inline` binding publishes it through `ExternalConstraint.MemberTrait` beside its
-`InlineBody`. It is therefore absent from `TyparConstraintKindG`, as is `Default`.
-
-Landing this surfaced a stamping gap: `NameResolution` recorded no `TypeRefVerdict` for a
-type written inside a binding's `when` clause, so `'a :> int` and `enum<int>` reported
-`int` as undefined while `exn` and `string` resolved by another path. `CstTypeWalk.
-iterBindingSigTypes` now walks the clauses beside the return annotation, and the module
-binding, class member, class `let` and expression `let` walkers all read it.
-
-`ConstraintsTests` pins each verdict on a local shape and a member's clause;
-`FrozenConstraintTests` pins the four frozen forms and their codec round trip. The corpus
-gained `typar-new`, `typar-unmanaged` and `typar-enum` with their `-violated` pair, so the
-layout-dependent answers (`string` under `new`, a tuple and a struct record under
-`unmanaged`) are pinned per target, and three CLR and two JS goldens were added.
-
-**Stage 2 review.** The landing was reviewed against the repo's structure rules and the
-following is owed before stage 3. Each item is a front-end change; only the enum width is a
-format change. Every item but the enum width has landed: `NominalDecl` is the one lookup,
-`UnificationConstraintCheck` holds the verdicts, `Kind.NewConstraintResultType` is FS0700,
-the `delegate` clause reports `NotYetSupported`, and `RuntimeNames.unmanagedPrimitiveKeys`
-is the scalar set. The diagnostics codec gained tag 59 for the new kind; a new tag reads
-every older blob unchanged, so the format version did not move. The comment sweep of that
-landing added the class-field item at the end of the list, which is still owed.
-
-- `UnificationEngine` grew past a thousand lines, and the three new verdicts each repeat
-  the local-registry-then-provider cascade that `admitsNull`, `TypeLayout.declaredOf` and
-  the `equality` / `comparison` field arms already perform. One nominal view over both
-  sources, answering fields with the type arguments substituted, declared layout,
-  interface / abstract, parameterless `.ctor` and enum underlying, replaces every cascade.
-  The verdicts move to a sibling file on top of it, and `nominalFieldTypes` with its
-  empty-argument thaw goes, since the field view substitutes as the `equality` arm does and
-  the generic-nominal refusal becomes a one-line policy in the `unmanaged` verdict.
-- An imported enum publishes `ExternalEnumCaseValue.IntVal of int64` with no width, so
-  `enumUnderlyingType` guesses `int` and an `int64` enum crossing an assembly boundary is
-  judged `enum<int>`. `ExternalTypeShape.Enum` carries the underlying `TypeKey`, written
-  from `TEnumCases.underlyingTypeKey` by `SignatureResolution` and `FrozenSignature` and
-  filled as `int` or `string` by the TS extractor. Format version 6, landing alone, ahead of
-  stage 5, which enforces the imported bound.
-- The `delegate<_,_>` verdict has no `Satisfied` arm and defers on an unmodelled delegate,
-  which is a silent accept. Until A6 stage 1 lands, `Translate` reports the clause as
-  unsupported. Tag 10 stays in the codec.
-- The FS0700 result-typar check reports through `Kind.Message` and compares typar names.
-  It gets a typed `Kind` case and compares resolved typars.
-- `unmanagedPrimitiveKeys` moves beside `numericKeys` in `RuntimeNames`.
-- `LocalNominal.fieldTypes` answers a class with `ClassTypeInfo.InstanceFields`, which
-  `MemberRegistration.extractInstanceFields` fills from `val` declarations alone. A captured
-  primary-ctor parameter and an instance `let` in the preamble are also instance fields (A1
-  emits both as backing fields), so a `[<Struct>]` class holding a reference through either
-  one satisfies `unmanaged`, and the `equality` field walk a struct class's `Structural`
-  verdict falls through to misses the same fields. `ClassTypeInfo` gains the two field kinds, or `fieldTypes` reads them off
-  `CtorParams` and the preamble beside `InstanceFields`; `ConstraintsTests` pins the two
-  refusals first. `PublishedNominal.fieldTypes` answers `ValueNone` for a class, so the
-  imported side is unaffected.
-
-One parity note to keep. `fsc` accepts `under L.A 3` for `'a : enum<'u>` on an `int64`
-enum, where this compiler reports a mismatch on `3`. Both solve `'u` to `int64`; `fsc` then
-widens the `int32` literal implicitly, a recent F# addition (safe widening of `int32` to
-`int64` and `float`) that this compiler does not implement. The constraint verdicts agree.
-The divergence belongs to implicit widening, not to A3.
-
-## A4. An inline splice's temporary becomes a public static field — DONE
-
-`typar-struct.clr.cs`, from a source whose only statements are `ignore i` and `ignore b`:
-
-```csharp
-public static readonly int value$8;
-public static bool value$9;
-```
-
-**Root cause.** `Inline.betaReduce` lowers each inline application argument to a `TExpr.Let`
-(see B1). At top level a `let` with no exportable identity takes the residue mint from
-`residueEmission` in `EmitClosures` — `value$<slot>` — and top-level values emit as static
-fields on the `Program` class. So a temporary introduced by splicing `ignore` lands in the
-assembly's public surface under a name no source wrote.
-
-**Fix.** Two independent halves, either of which helps:
-
-- A residue field takes assembly visibility rather than `public`. A name minted because nothing
-  in the source names the value cannot be part of an intended ABI.
-- B1's substitution removes the binding here outright, since the argument is a `Var`. **Landed**:
-  `value$8` and `value$9` are gone from `typar-struct.clr.cs`, and the JS counterpart `const _s5`
-  from the six `typar-*` JS goldens. The visibility half above still stands on its own, covering
-  a residue whose argument is not atomic.
-
-**Verify.** One corpus-wide field-visibility sweep, over every PE the conformance suite emits
-rather than over a hand-written source. It carries two assertions:
-
-1. No `TypeDef` exposes a `public` field whose name contains `$`. This pins the first half of
-   the fix above.
-2. Every field named `capture<i>` on a `<closure>$*` `TypeDef` is `private initonly`.
-
-The second assertion is not about splice residue; it belongs here because it needs the same
-harness. `LayoutNodes.buildClosureNodes` gives a capture `private initonly` on the strength of
-an invariant that spans the backend — `FieldKey.ClosureCapture` is minted once, in
-`PrepareClosures`, and the `CaptureFields` dictionary has one consumer, `buildVarLoad`, which
-emits `ldfld` and no store. A regression arrives as a NEW lowering that reads or writes a
-capture from another type, and the single-source test in `CapturedMutableTests` cannot see one:
-it compiles two fixed closures. A sweep over the corpus covers every closure shape the suite
-already exercises — generic, `Stack`-repr, cached, and closure-inside-closure.
-
-Where a test asserts over one program's captures, pin the expected set by name, so a lowering
-change that stops emitting a closure fails rather than silently narrowing the assertion to
-fewer fields.
-
-**Landed.** `EmitTypes.ValueIdentity` states whether the source spells the name a top-level
-binding emits under. `EmitClosures.Emission` carries it — `Declared` from `declaredEmission`,
-`Residue` from `residueEmission` — and each `ModuleValue` takes it from its `Emission`, so a
-builder cannot mint a field without deciding. `Layout.moduleValueField` builds every module
-value's `Field` row — a named module class's, the Program class's `.cctor`-written and its
-`Main`-written — and maps the identity to a `FieldReach` there. A residue field is therefore
-`assembly`, a declared field `public`.
-
-`FieldVisibilitySweepTests` compiles every CLR-gated corpus program once and reads back every
-`TypeDef`'s `Field` rows through `MetadataStructure.allFieldAttrs`. Both assertions above are
-there: no public field carries `$` in its name, and every `capture<i>` on a `<closure>$*` type
-is `private initonly`, with a non-empty check so the capture sweep cannot pass vacuously.
-
-No corpus program shadows a top-level binding, so the residue mint gets two sources of its own
-in the same file, one per field kind: `let x = 1; let x = 2` pins `x$0` as
-`assembly static initonly` beside a public `x`, and the same shadowing after a top-level `do`
-pins the `Main`-written pair as plain `static`. The front end rejects `let x = 1` followed by
-`let x = x + 10` at file scope with "Unresolved identifier: x", so the rebinding cannot read
-what it shadows.
-
-No golden moved and no digest moved, which is the confirmation that the corpus emits no residue
-field today — B1 removed the ones `typar-struct` had.
-
-## A5. Every parameter is named `arg<i>` — DONE
-
-`preamble-fn-value.clr.cs`, for `let twice (f: int -> int) (x: int) = f (f x)`:
-
-```csharp
-public static int twice(Fun<int, int> arg0, int arg1)
-```
-
-They should read `f` and `x`. The same golden renders `Twice(int arg0)` for
-`member this.Twice(n: int)` and `<closure>$0(Adder arg0)` for the capture of `this`. A
-parameter name is ABI — a C# consumer writes `twice(f: g, x: 3)` — and it is what a debugger
-and a decompiler display.
-
-**Root cause.** `argNames` in `AssemblerScaffold` mints `arg0 … arg{n-1}` from a count. Six
-`Prepared.ParamNames` sites call it, and the closure `Invoke` writes the same `arg%d` inline;
-each passes a length where the source name is one dereference away.
-`TastPoolBuilder.boundVarNaming` answers `Source name` or `Minted slot` for a
-`BoundVarId`, which `residueEmission` in `EmitClosures` already reads, and every parameter
-model carries its `BoundVarId`. The JS backend names all of these from that same pool
-(`paramNameOf` in `JsFlatFns`, `boundVarNameOf` in `EmitJsMembers`), so the CLR backend is
-discarding an intermediate its sibling consumes.
-
-**Fix, staged by site.** Each stage is independent, and the first covers the golden above.
-
-1. A module function, in `Assembler`'s static-fn prep. `fn.Params.Flat` carries a
-   `StaticParam` per emitted slot, and one with `Pat = None` names from its `Slot`.
-2. A member and a secondary ctor, both in `NominalEmit`, whose `Params` are
-   `BoundVarId * FrozenType` pairs. The primary ctor and the record ctor already name from
-   `CtorParams` and from the field list.
-3. A closure's `.ctor` and `Invoke`, in `PrepareClosures` — `argNames` over the captures, and
-   an inline `arg%d` over `FunArity` beside it. A capture is a `BoundVarId`, so the ctor
-   parameter can carry the captured variable's name.
-4. A union factory, in `UnionEmit`: `argNames arity` sits beside the `ud.FieldNames c` the case
-   ctor already passes for the same vector.
-5. An abstract interface method, in `Assembler`'s interface prep. `Frozen.TAbstractMethod`
-   holds a `Signature` and no names, so this one needs the name carried through the freeze
-   first and is the only site that is not a codegen-only change.
-
-Stages 1 to 3 read the pool and want one helper beside `argNames`, taking the `BoundVarId` and
-the slot index, so the `Minted` fallback to `arg<i>` is written once. Stage 4 reads the case
-field names instead.
-
-**Decided.** A `Param` name is the source name verbatim, and a double-backtick binding
-contributes the name it spells, so ``` ``my param`` ``` emits as `my param`, space and all.
-Metadata permits any string there, and a `let` binding a double-backtick parameter compiled
-under `fsi` reflects its parameter as `my param`, so this is F# parity. It costs no work at
-this end: `GetIdentifierSpan` in `Lexing` strips the quoting at the token, so
-`BoundVarNaming.Source` already carries the bare name.
-
-Where the source supplies no name, the generated positional name stands. That is
-`BoundVarNaming.Minted`, which covers a destructuring parameter's synthetic slot, and it keeps
-`arg<i>`.
-
-**Risk.** `Param` row counts are unchanged, so handle prediction is untouched.
-
-**Verify.** The goldens re-render `twice(Fun<int, int> f, int x)`. Pin the `Param` rows rather
-than the rendering, through a `paramNamesOf` helper beside `methodAttrsOf` in
-`MetadataStructure`.
-
-**Landed.** `ParamNaming.paramNames` (in `LayoutModel`) reads `TastPoolBuilder.boundVarNaming`
-off `EmitContext.Pool` and falls back to `argName i`, the one spelling of the positional name.
-A module function, a member, a secondary ctor and a closure's `.ctor` / `Invoke` all take it
-over their bound-variable keys; a union factory takes `ud.FieldNames c`. An abstract slot's
-names travel from the front end on `TAbstractMethodG.ParamNames` (one `string voption` per
-source argument, `FrozenCodec.FormatVersion` 3), and `abstractMethodParams` pairs each
-metadata slot with its name and type in one place. `MetadataStructureTests` pins every site,
-and `MetadataStructure.paramNamesOf` / `methodParamNamesOf` read the `Param` rows back.
-
-## A6. A delegate type is unmodelled
-
-No golden shows this, because no program in the corpus can declare or use a delegate: `type
-D = delegate of int -> int` registers under `UnmodelledReason.Delegate`, `SignatureResolution`
-publishes it as `ExternalTypeShape.Unmodelled`, and every use is a diagnostic. A3's
-`delegate<_,_>` bound therefore has no type it can hold at, and a foreign generic bounded by
-`System.Delegate` cannot be instantiated from this compiler.
-
-**Decided.** A delegate is a modelled type category on both targets: a sealed
-`MulticastDelegate` subclass on the CLR, a function value on JS.
+**Decided.** A sealed `MulticastDelegate` subclass on the CLR, a function value on JS.
 
 **What the model carries.** A delegate declaration is its `Invoke` signature: one uncurried
 argument group and a return type, over the declaration's typars. Construction is
@@ -587,188 +123,34 @@ front-end ones.
 
 **Fix, staged.**
 
-1. Front end. `TypeRegistration` registers a `DelegateTypeInfo` with the `Invoke`
-   signature, and `UnmodelledReason.Delegate` goes. A delegate is a `TyClass` whose info is
-   the delegate's, so subsumption to `System.Delegate` and `MulticastDelegate` falls out of
-   the class `inherit` chain and every class-shaped verdict reads it without a new arm.
-   `Infer` types construction from a lambda or a function value and invocation through
-   `.Invoke`. `UnificationEngine.checkConstraint` then answers `delegate<args, ret>` by
-   unifying the `Invoke` signature with `args -> ret`, closing A3's review item. No format
-   change.
+1. Front end. `TypeRegistration` registers a `DelegateTypeInfo` with the `Invoke` signature,
+   and `UnmodelledReason.Delegate` goes. A delegate is a `TyClass` whose info is the delegate's,
+   so subsumption to `System.Delegate` and `MulticastDelegate` falls out of the class `inherit`
+   chain and every class-shaped verdict reads it without a new arm. `Infer` types construction
+   from a lambda or a function value and invocation through `.Invoke`.
+   `UnificationConstraintCheck` then answers `delegate<args, ret>` by unifying the `Invoke`
+   signature with `args -> ret`, closing A3's review item. No format change.
 2. Publication. `ExternalTypeShape.Delegate` with a frozen `Invoke` signature, through
    `SignatureResolution`, `FrozenSignature` and the pool codecs, and the TS extractor maps a
-   function type alias to it. Format change, lands alone.
-3. CLR emission. A sealed class extending `MulticastDelegate`, with `runtime managed`
-   `.ctor`, `Invoke`, `BeginInvoke` and `EndInvoke` rows, calibrated against a decompiled
-   `fsc` output. Construction emits `ldftn` + `newobj`; invocation is a `callvirt` to
-   `Invoke`. A closure passed at construction is the existing closure class's `Invoke`.
+   function type alias to it. Format version 7, landing alone.
+3. CLR emission. A sealed class extending `MulticastDelegate`, with `runtime managed` `.ctor`,
+   `Invoke`, `BeginInvoke` and `EndInvoke` rows, calibrated against a decompiled `fsc` output.
+   Construction emits `ldftn` + `newobj`; invocation is a `callvirt` to `Invoke`. A closure
+   passed at construction is the existing closure class's `Invoke`.
 4. JS emission. Construction is the function value itself and `.Invoke` is a call, so a
    delegate erases; the golden pins that no wrapper survives.
 
 **Verify.** `MetadataStructureTests` assert the four method rows and their `runtime managed`
-implementation flags. The corpus gains `delegates/declare-invoke.fs` accepted on both
-targets, `delegates/typar-delegate.fs` accepted on both once stage 1 lands, and a
-`-violated` pair where a class and a function of the wrong arity are refused under
-`delegate<_,_>`.
+implementation flags. The corpus gains `delegates/declare-invoke.fs` accepted on both targets,
+`delegates/typar-delegate.fs` accepted on both once stage 1 lands, and a `-violated` pair where
+a class and a function of the wrong arity are refused under `delegate<_,_>`.
 
 ---
 
-# Part B — IL quality
+# C2. Extending the decompiled goldens past the conformance corpus
 
-## B1. Every operand of an inlined operator is spilled twice — DONE
-
-`arith-int.clr.cs`, for `printfn "%d" (2 + 3)`:
-
-```csharp
-int num = 2;
-int num2 = 3;
-int num3 = num;
-int num4 = num2;
-((Formatter)(ref val)).AppendFormatted<int>(num3 + num4);
-```
-
-Four locals for two constants, and the same shape on every arithmetic line of every `arith-*`
-golden. `preamble-do-order.clr.cs` shows it over a field read: `let a = n + 1` spills `this.n`
-and `1`, then spills both copies again.
-
-**Root cause.** `Inline.betaReduce` lowers each argument of an inline application to a
-`TExpr.Let`, and `buildLet` in `EmitBindings` gives every `Let` a local and an `stloc`. The
-primitive operators inline through two levels — `Vesper.Core`'s `let inline (+)` in
-`ops-platform.clr.fs` delegates to a trait-resolved `static member`, itself spliced — so each
-operand collects one binding per level.
-
-**Fix.** Substitute in `betaReduce` rather than binding, when the argument is atomic:
-
-1. A literal, which is unconditionally safe.
-2. A `Var`, which is safe when the variable is not assigned between the binding and the use.
-   The `[<CallAtMostOnce>]` machinery beside it (`substituteVar`) is the existing precedent for
-   the substitution itself; the occurrence condition is what differs.
-3. A field read is the tempting third case and the one to leave alone until 1 and 2 land,
-   because it needs an effect ordering argument the first two do not.
-
-**Scope note.** RyuJIT already folds `stloc`/`ldloc` copy chains, so the payoff is IL size and
-reviewability, not throughput. Do not attach a performance claim to this without a benchmark.
-
-**Also check.** `betaReduce` lives in SemanticAnalysis, so the JS backend inherits the same
-bindings; confirm what its emitted JS does with them before choosing where the fix goes.
-
-**Landed.** Both `betaReduce`s bind every argument, as before: `Inline.betaReduce` pre-freeze
-for a call-site lambda fused into a template body, `InlineExpand.betaReduce` post-freeze for
-each `TExprG.InlineCall` edge. One pass, `InlineExpand.reduceLets`, then collapses every
-`let` in the expanded declarations whose bound variable is immutable and whose value is
-`substitutable` over the body: a `Const`; a `Var` referencing an immutable variable; or a
-`Var` referencing a local mutable variable that the body never assigns and that no lambda in
-the body would capture through the bound variable. A module-level mutable stays bound, being
-writable by any call. A field read stays bound. The binding snapshots a value where
-substitution would re-read it at each use, including inside a closure the body returns. The
-pass runs inside `InlineExpand.expand`, so both backends and every consumer of an expansion
-see the same trees under one rule.
-
-Mutability is a fact of the bound variable and lives on its definition site:
-`TPat.NamedSimple` and the pooled `PatPayload.NamedSimple` carry `isMutable`, set by
-`translateBindingPat` from the `let mutable` keyword and cleared by `RefCellPromotion` when
-the variable becomes a cell. The frozen pool projects it to the `BoundVarMutable` column,
-filled from the pattern payloads, so a `Var` can read it through
-`TastPoolBuilder.boundVarIsMutable`. A lambda parameter, a match binding and a `use` bind
-immutably. `JsEmitHelpers.reduceInlinableLet` builds on `InlineExpand.substitutable`,
-extending it through pure intrinsics and simple `let`s for the JS expression form.
-
-The JS goldens moved where a binding reached the module surface: the six `typar-*` programs
-lost the `const _s5 = s;` that `ignore`'s splice residue produced, which is A4's second half.
-`typar-struct.clr.cs` lost the `value$8` and `value$9` fields A4 names, leaving A4's first half,
-assembly visibility for residue fields, as the only part of that entry still outstanding.
-
-`InlineExpandTests` pins both halves post-freeze: an immutable operand spends no binding, a
-mutable one keeps its own. Each backend has a runtime test where a mutable local is passed to
-an inline function that returns a closure and is written after the call.
-
-## B2. A unit-valued call in statement position reifies `()` — DONE
-
-Every `printfn` in every golden is followed by:
-
-```csharp
-ValueTuple valueTuple = default(ValueTuple);
-```
-
-**Root cause.** `buildUnitValue` in `EmitTypes` allocates a local, `initobj`s it and pushes it
-whenever a call's `CallResult` is `Void`. In statement position the pushed value is then
-discarded.
-
-**Fix.** Distinguish value position from statement position on the path that reaches
-`CallResult.Void`, so a statement-position void call pushes nothing and needs no pop. The
-callers to audit are the `buildUnitValue` sites in `EmitCall`, `EmitFormat`, `EmitIntrinsic`,
-`EmitLoops` and `EmitMember`.
-
-**Payoff.** One local slot and three instructions per statement, and one line of noise per
-`printfn` out of every golden — which is what makes the remaining diff worth reading.
-
-**Landed.** `ExprPos` in `EmitTypes` carries the distinction and `EmitExpr.buildExprAt` is the
-one dispatcher over it. An arm that takes `pos` materialises its `unit` only where a consumer
-takes the value; every other arm's value goes to the trailing `ExprPos.discardTo`. Statement
-position therefore returns the operand stack to its entry depth, and that invariant is what lets
-a join emit its arms at the position it was itself given: `buildIfThenElse` hands both branches
-the same `pos`, and `buildMatch` marks its end label at `baseDepth + pos.Pushes`.
-
-`RecurAt` in `EmitDispatch` is the back-edge for an arm whose own position reaches a
-sub-expression — a `let` / `use` / `try`-`finally` body, a `Sequential`'s last item, a branch of
-a join, a `StaticOptimization`'s fallback. `Recur` still means value position, so an argument,
-a scrutinee and a guard are unchanged. The `unit` sites that now read `pos` are the ones named
-above plus `TConstValue.Unit` in `EmitExpr` itself.
-
-Six discards went with it: `buildSequential`'s non-last item, the three loop bodies,
-`buildUse`'s disposal call and `buildTryFinally`'s cleanup. A statement-position `try`/`finally`
-also stops parking its body's result, so `buildTryFinallyRegion` mints the result local only in
-value position. A `void` body in `Emit` (`buildStaticFn`, `buildMember`) emits at
-`ExprPos.ofReturnsVoid`, and a preamble `do` is a plain `buildStatement`; the per-site
-"values left on the stack" checks those sites used to carry are gone, since `discardTo` is the
-one place that keeps the depth invariant.
-
-44 conformance goldens re-rendered 253 lines lighter with no line added, and every `.clr.txt`
-digest moved. `StatementPositionTests` pins both sides: a `void` member whose body is `()` is a
-bare `ret` declaring no locals, a `void` body of unit-valued calls declares none either, and a
-`unit` filling a tuple slot is still materialised. The local count comes off the body's
-`LocalVarSig` through `PeInspection.peMethodLocalCount`.
-
----
-
-# Part C — harness
-
-## C1. `Formatter` renders as `((Formatter)(ref val))..ctor(...)` — a resolution artifact — DONE
-
-Read as C#, `preamble-do-order.clr.cs` looked like a constructor invoked on a cast address, which
-read as suspect IL. It was not.
-
-What the emitter writes is `ldloca slot; ldc; ldc; [sink]; call instance void Formatter::.ctor`
-(`buildFormat` in `EmitFormat`) — the same sequence C# itself emits for
-`Formatter val = new Formatter(...)`. The rendering degrades because `Vesper.Printf.dll` cannot
-be resolved: `decompilerOf` in the tests' `Decompile` seeded `UniversalAssemblyResolver` from
-`AppContext.BaseDirectory`, while the Vesper packages build into repo-root `tmp/pkg-Vesper.*`.
-With `Formatter` unresolved, ILSpy cannot know it is a value type and prints the raw address-call
-form. A struct defined in the program under test renders normally in the same corpus —
-`return new Shape(1, payload);` in `struct-union.clr.cs`.
-
-Two independent confirmations that the IL is valid: these conformance programs run and match
-their `.expected` output, and `MetadataStructure.assertWellFormed` passes over them.
-
-**Landed.** `Decompile.ReferenceResolver` answers a reference from
-`ProjectInfo.referenceSources`, which keys each `ProjectInfo.References` path by the assembly
-name read off the file, and delegates every other name to `UniversalAssemblyResolver`. The 47
-re-rendered goldens read `Formatter formatter = new Formatter(7, 1, Console.Out);
-formatter.AppendLiteral("ctor a=");` and lost 237 lines net. No `.clr.txt` digest moved, which
-is the check that only the rendering changed.
-
-Resolution also let ILSpy drop the now-implicit `(object)` on the `sink.Child` calls throughout
-the `StructUnion*` goldens, so the box per union child is visible only in the `.clr.txt` digest.
-
-`assertReferencesResolve` raises when any `AssemblyRef` the PE binds fails to resolve, so a
-future path or naming change fails the suite instead of silently re-rendering the goldens by
-name. Emptying the reference map turns 49 tests red, which is what pins it.
-
-## C2. Extending the decompiled goldens past the conformance corpus
-
-The conformance render cost nothing measurable (44 decompiles inside a suite that runs in two
-minutes either way), and it produced Part A on the first read. The next candidates, in order of
-value per unit of work:
+The conformance render cost nothing measurable and produced Part A on the first read. The next
+candidates, in order of value per unit of work:
 
 - `StructTests` and `StructSeqTests`, whose programs already live in `data/`, so a corpus entry
   and a type name are the only additions.
@@ -784,34 +166,15 @@ digest gate and the `expectNoFSharpCore` checks stay.
 
 # Sequencing
 
-A1 and A2 have landed. A2 stage 1 moved assembler row counts without disturbing the handle
-predictions, and stages 2, 3 and 4 moved none, so the row-order ground is clear for whatever
-runs next.
+A format change lands alone, a metadata change lands after every codec change it could race,
+and an import stage lands after the shape it imports. The codec is at format version 5.
 
-A3 stages 1 and 2 each widened a frozen type and its codec, and each landed on its own; the
-codec is at format version 5. Stages 3 to 6 build on that version.
-
-B1 has landed, and with it A4's second half. B2 has landed; it moved every golden's IL and no
-table row. A4's first half has now landed too, moving no golden and no table row, so A3 and
-A6 are the Part A entries left.
-
-**The remaining order.** A format change lands alone, a metadata change lands after every
-codec change it could race, and an import stage lands after the shape it imports.
-
-1. A3 stage 2 review, the `UnificationEngine` restructuring. Landed: no format change and
-   no golden moved, and the front-end shape is settled before codegen reads it.
-2. The enum underlying type on `ExternalTypeShape.Enum`. Format version 6, alone.
-3. A3 stage 3, the `GenericParam` flag bits.
-4. A3 stage 4, the `GenericParamConstraint` rows. The `System.Delegate` row reads the kind
-   alone, so it does not wait on A6.
-5. A6 stage 1, the delegate front end, and with it A3's `delegate<_,_>` verdict.
-6. A6 stage 2, the published delegate shape. Format version 7, alone.
-7. A3 stage 5, import. It enforces an imported `enum<'u>` and `delegate<_,_>` bound at our
-   use sites, so it needs the width from step 2 and the shape from step 6.
-8. A6 stages 3 and 4, delegate emission on each target.
-9. A3 stage 6, `unmanaged` and the nullability attributes.
-
-A5 has landed in full. Its stage 5 widened `Frozen.TAbstractMethod` and moved the codec to
-format version 3, so A3 stage 1 now lands on top of that version rather than racing it.
-
-C1 has landed, so every re-render of the goldens below reads against resolved `Formatter` calls.
+1. The enum underlying type on `ExternalTypeShape.Enum`. Format version 6, alone.
+2. A3 stage 3, the `GenericParam` flag bits.
+3. A3 stage 4, the `GenericParamConstraint` rows.
+4. A6 stage 1, the delegate front end, and with it A3's `delegate<_,_>` verdict.
+5. A6 stage 2, the published delegate shape. Format version 7, alone.
+6. A3 stage 5, import. It needs the width from step 1 and the shape from step 5.
+7. A6 stages 3 and 4, delegate emission on each target.
+8. A3 stage 6, `unmanaged` and the nullability attributes.
+9. C2, at any point, independent of the above.

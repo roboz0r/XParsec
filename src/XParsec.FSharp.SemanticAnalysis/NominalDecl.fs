@@ -44,7 +44,8 @@ module LocalNominal =
         | LocalNominal.Class info -> info.ComparisonSupport
 
     /// The instance field types at `args`: a record's fields, every case's fields of a
-    /// union, a class's `val` fields.
+    /// union, and a class's primary-ctor parameters, `val` fields and instance `let`
+    /// bindings, each of which the class carries as a field.
     let fieldTypes (store: TypeStore) (d: LocalNominal) (args: EqArray<SemType>) : SemType list =
         let at (typeParams: EqArray<string * TyVarId>) (tys: SemType seq) : SemType list =
             let subst = UnificationEngineCore.mkNamedTypeSubst store typeParams args
@@ -59,7 +60,14 @@ module LocalNominal =
                     for c in info.Cases do
                         yield! c.Fields
                 })
-        | LocalNominal.Class info -> at info.TypeParams (seq { for f in info.InstanceFields -> f.Type })
+        | LocalNominal.Class info ->
+            at
+                info.TypeParams
+                (seq {
+                    for p in info.CtorParams -> p.Type
+                    for f in info.InstanceFields -> f.Type
+                    for l in ClassPreamble.lets info.InstancePreamble -> l.Type
+                })
 
 [<RequireQualifiedAccess>]
 module PublishedNominal =

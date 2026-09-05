@@ -384,6 +384,36 @@ let kindTests =
                 "unmanaged: a generic struct record, whatever its argument"
                 "'unmanaged' constraint"
                 (unmanagedFn + "[<Struct>]\ntype G<'t> = { V: 't }\nlet _ = um { V = 1 }")
+            // A struct class carries every primary-ctor parameter as a field, read or not,
+            // beside its `val` fields; `fsc` refuses each of the shapes below.
+            satisfied
+                "unmanaged: a struct class of scalar ctor parameters"
+                (unmanagedFn
+                 + "[<Struct>]\ntype S(n: int, b: bool) =\n    member _.N = n\n    member _.B = b\nlet _ = um (S(1, true))")
+            violated
+                "unmanaged: a struct class holding a reference through a read ctor parameter"
+                "'unmanaged' constraint"
+                (unmanagedFn
+                 + "[<Struct>]\ntype S(o: obj, n: int) =\n    member _.O = o\n    member _.N = n\nlet _ = um (S(box 1, 2))")
+            violated
+                "unmanaged: a struct class holding a reference through an unread ctor parameter"
+                "'unmanaged' constraint"
+                (unmanagedFn
+                 + "[<Struct>]\ntype S(o: obj, n: int) =\n    member _.N = n\nlet _ = um (S(box 1, 2))")
+            violated
+                "unmanaged: a struct class holding a reference through a val field"
+                "'unmanaged' constraint"
+                (unmanagedFn
+                 + "[<Struct>]\ntype S =\n    val O: obj\n    val N: int\n    new(o, n) = { O = o; N = n }\nlet _ = um (S(box 1, 2))")
+            satisfied
+                "equality: a struct class holding obj through a ctor parameter"
+                ("let eq<'a when 'a : equality> (x: 'a) = x\n"
+                 + "[<Struct>]\ntype S(o: obj, n: int) =\n    member _.O = o\n    member _.N = n\nlet _ = eq (S(box 1, 2))")
+            violated
+                "equality: a struct class holding a function through a ctor parameter"
+                "equality"
+                ("let eq<'a when 'a : equality> (x: 'a) = x\n"
+                 + "[<Struct>]\ntype S(f: int -> int) =\n    member _.F = f\nlet _ = eq (S(id))")
             violated "unmanaged: an array" "'unmanaged' constraint" (unmanagedFn + "let _ = um [| 1 |]")
             violated "unmanaged: a function" "'unmanaged' constraint" (unmanagedFn + "let _ = um (fun (x: int) -> x)")
 
