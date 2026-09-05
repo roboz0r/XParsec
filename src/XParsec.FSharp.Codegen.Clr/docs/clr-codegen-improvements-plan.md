@@ -50,14 +50,15 @@ is FS0670.
 `LocalNominal.fieldTypes` now answers a class with its primary-ctor parameters, `val` fields
 and instance preamble `let`s, so a `[<Struct>]` class holding a reference or a function through
 a ctor parameter is refused under `unmanaged` and `equality`, as `fsc` refuses it whether or
-not a member reads the parameter. `ConstraintsTests` pins both. One item is left:
+not a member reads the parameter. `ConstraintsTests` pins both.
 
-- **Enum underlying type across an assembly boundary.** An imported enum publishes
-  `ExternalEnumCaseValue.IntVal of int64` with no width, so `enumUnderlyingType` guesses `int`
-  and an `int64` enum is judged `enum<int>`. `ExternalTypeShape.Enum` gains the underlying
-  `TypeKey`, written from `TEnumCases.underlyingTypeKey` by `SignatureResolution` and
-  `FrozenSignature`, and filled as `int` or `string` by the TS extractor. Format version 6,
-  landing alone.
+The enum underlying type across an assembly boundary has landed: `ExternalTypeShape.Enum`
+carries the underlying `TypeKey`, written from `TEnumCases.underlyingTypeKey` by
+`SignatureResolution` and `FrozenSignature`, and derived as `int`, `string` or `obj` by the TS
+manifest provider. `enumUnderlyingType`, `AttributeFold` and `Unmanagedness` read it.
+`ConstraintsTests` pins an imported `int64` enum under `enum<'u>`. No format bump: the shape
+is projected from the frozen `TTypeKindG.Enum` cases, whose `TConstValue` already carries the
+width, so the blob layout is unchanged and `FrozenCodec.FormatVersion` stays 5.
 
 ## Target encoding
 
@@ -132,7 +133,7 @@ front-end ones.
    signature with `args -> ret`, closing A3's review item. No format change.
 2. Publication. `ExternalTypeShape.Delegate` with a frozen `Invoke` signature, through
    `SignatureResolution`, `FrozenSignature` and the pool codecs, and the TS extractor maps a
-   function type alias to it. Format version 7, landing alone.
+   function type alias to it. Format version 6, landing alone.
 3. CLR emission. A sealed class extending `MulticastDelegate`, with `runtime managed` `.ctor`,
    `Invoke`, `BeginInvoke` and `EndInvoke` rows, calibrated against a decompiled `fsc` output.
    Construction emits `ldftn` + `newobj`; invocation is a `callvirt` to `Invoke`. A closure
@@ -169,11 +170,11 @@ digest gate and the `expectNoFSharpCore` checks stay.
 A format change lands alone, a metadata change lands after every codec change it could race,
 and an import stage lands after the shape it imports. The codec is at format version 5.
 
-1. The enum underlying type on `ExternalTypeShape.Enum`. Format version 6, alone.
+1. ~~The enum underlying type on `ExternalTypeShape.Enum`.~~ Landed without a format bump.
 2. A3 stage 3, the `GenericParam` flag bits.
 3. A3 stage 4, the `GenericParamConstraint` rows.
 4. A6 stage 1, the delegate front end, and with it A3's `delegate<_,_>` verdict.
-5. A6 stage 2, the published delegate shape. Format version 7, alone.
+5. A6 stage 2, the published delegate shape. Format version 6, alone.
 6. A3 stage 5, import. It needs the width from step 1 and the shape from step 5.
 7. A6 stages 3 and 4, delegate emission on each target.
 8. A3 stage 6, `unmanaged` and the nullability attributes.

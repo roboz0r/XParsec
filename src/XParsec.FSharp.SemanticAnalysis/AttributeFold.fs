@@ -136,10 +136,8 @@ module internal AttributeFold =
                             match cases |> EqArray.tryFind (fun c -> c.Name = caseName) with
                             | ValueSome case ->
                                 match case.Value with
-                                // An external enum carries no width, so the unsuffixed-`int`
-                                // kind stands in, as it does for a local enum's own default.
-                                | ExternalEnumCaseValue.IntVal v ->
-                                    ValueSome(ofLiteral key (TEnumLiteral.Int(TConstValue.Integral(IntKind.Int32, v))))
+                                | ExternalEnumCaseValue.IntVal(kind, v) ->
+                                    ValueSome(ofLiteral key (TEnumLiteral.Int(TConstValue.Integral(kind, v))))
                                 | ExternalEnumCaseValue.StringVal s -> ValueSome(ofLiteral key (TEnumLiteral.String s))
                             | ValueNone -> ValueNone
                         | _ -> ValueNone

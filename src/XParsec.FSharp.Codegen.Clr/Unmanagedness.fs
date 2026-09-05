@@ -39,19 +39,6 @@ module Unmanagedness =
         | ValueSome _
         | ValueNone -> ValueNone
 
-    /// A numeric enum is its underlying integer; a string or mixed enum is a struct wrapping
-    /// a reference.
-    let private ofEnumCases (cases: EqArray<ExternalEnumCaseShape>) : Unmanagedness =
-        let isNumeric (c: ExternalEnumCaseShape) =
-            match c.Value with
-            | ExternalEnumCaseValue.IntVal _ -> true
-            | ExternalEnumCaseValue.StringVal _ -> false
-
-        if EqArray.forall isNumeric cases then
-            Unmanagedness.Unmanaged
-        else
-            Unmanagedness.Managed
-
     /// A nominal instantiated at `args`, classified through its declared shape. `part`
     /// classifies an instantiated field type. A shape the provider cannot resolve or
     /// enumerate is `Undetermined` at `t`.
@@ -70,7 +57,8 @@ module Unmanagedness =
 
         match symbols.TryLookupType key with
         | ValueSome(ExternalTypeShape.Abbrev(_, body)) -> part (instantiate body)
-        | ValueSome(ExternalTypeShape.Enum(cases, _)) -> ofEnumCases cases
+        // An enum is a struct over its underlying primitive.
+        | ValueSome(ExternalTypeShape.Enum(underlying = underlying)) -> part (FTConst(underlying, EqArray.empty))
         | shape ->
             match symbols.IsValueType key, shape with
             | ValueSome false, _ -> Unmanagedness.Managed

@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.Codegen.Js
 
+open XParsec.FSharp.Lexer
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
 open Vesper.Ts.Manifest
@@ -225,7 +226,8 @@ module internal TsManifestMembers =
                         Some(
                             {
                                 Name = caseName
-                                Value = ExternalEnumCaseValue.IntVal n
+                                // A TS numeric member is `int`.
+                                Value = ExternalEnumCaseValue.IntVal(IntKind.Int32, n)
                             }
                             : ExternalEnumCaseShape
                         )
@@ -241,7 +243,17 @@ module internal TsManifestMembers =
                 )
                 |> EqArray.ofList
 
-            Some(mint nsPath name 0, ExternalTypeShape.Enum(cases, origin))
+            let isString (c: ExternalEnumCaseShape) =
+                match c.Value with
+                | ExternalEnumCaseValue.StringVal _ -> true
+                | ExternalEnumCaseValue.IntVal _ -> false
+
+            let underlying =
+                if EqArray.forall isString cases then RuntimeNames.stringKey
+                elif EqArray.exists isString cases then RuntimeNames.objKey
+                else RuntimeNames.intKey
+
+            Some(mint nsPath name 0, ExternalTypeShape.Enum(cases, underlying, origin))
         | _ -> None
 
     /// One ERASING nominal per distinct anonymous object shape reachable from the exports,

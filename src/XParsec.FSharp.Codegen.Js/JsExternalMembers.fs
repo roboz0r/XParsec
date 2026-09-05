@@ -58,7 +58,7 @@ module JsExternalMembers =
         match provider.TryLookupType key with
         | ValueSome(ExternalTypeShape.Union { Origin = o })
         | ValueSome(ExternalTypeShape.Record { Origin = o })
-        | ValueSome(ExternalTypeShape.Enum(_, o)) -> o.Home
+        | ValueSome(ExternalTypeShape.Enum(origin = o)) -> o.Home
         | ValueSome(ExternalTypeShape.Class shape) -> shape.Origin.Home
         | _ -> SymbolHome.Unstamped
         |> JsHome.ofOrigin (sprintf "%s (key %A)" what key)

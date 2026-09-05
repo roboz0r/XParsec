@@ -1,5 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+open XParsec.FSharp.Lexer
+
 // The PARTS an external declaration is made of: a symbol, a field / case / enum case, a
 // signature, a member, and the class or intrinsic surface a type carries.
 
@@ -176,11 +178,10 @@ type ExternalUnionShape =
 
     member this.TyparArity: int = this.Typars.Length
 
-/// An external enum case's compile-time value. No numeric WIDTH: a TS import has no width
-/// notion, so `IntVal` is always `int64`.
+/// An external enum case's compile-time value.
 [<RequireQualifiedAccess>]
 type ExternalEnumCaseValue =
-    | IntVal of int64
+    | IntVal of kind: IntKind * value: int64
     | StringVal of string
 
 /// Per-case shape inside an `ExternalTypeShape.Enum`: the identifier (the `C1` of `E.C1`)

@@ -222,8 +222,7 @@ module UnificationConstraintCheck =
         | TyFun _
         | TyOr _ -> Violated
 
-    /// The underlying primitive of an enum, local or imported. An imported enum carries no
-    /// numeric width, so a numeric one is `int`.
+    /// The underlying primitive of an enum, local or imported.
     let enumUnderlyingType (ctx: PassContext) (key: TypeKey) : SemType voption =
         let ofKey (k: TypeKey) = TyConst(k, EqArray.empty)
 
@@ -231,23 +230,7 @@ module UnificationConstraintCheck =
         | ValueSome info -> TEnumCases.underlyingTypeKey info.Cases |> ValueOption.map ofKey
         | ValueNone ->
             match ctx.Provider.TryLookupType key with
-            | ValueSome(ExternalTypeShape.Enum(cases, _)) ->
-                let allStrings =
-                    cases
-                    |> EqArray.forall (fun c ->
-                        match c.Value with
-                        | ExternalEnumCaseValue.StringVal _ -> true
-                        | ExternalEnumCaseValue.IntVal _ -> false
-                    )
-
-                ValueSome(
-                    ofKey (
-                        if allStrings then
-                            RuntimeNames.stringKey
-                        else
-                            RuntimeNames.intKey
-                    )
-                )
+            | ValueSome(ExternalTypeShape.Enum(underlying = underlying)) -> ValueSome(ofKey underlying)
             | _ -> ValueNone
 
     /// Free TyVars return `Defer` so the next `Link` assignment re-fires the check; nested

@@ -16,11 +16,12 @@ let private provider: IExternalSymbolProvider =
             |> List.mapi (fun i n ->
                 {
                     Name = n
-                    Value = ExternalEnumCaseValue.IntVal(int64 i)
+                    Value = ExternalEnumCaseValue.IntVal(IntKind.Int32, int64 i)
                 }
                 : ExternalEnumCaseShape
             )
             |> EqArray.ofList,
+            RuntimeNames.intKey,
             SymbolOrigin.Empty
         )
 

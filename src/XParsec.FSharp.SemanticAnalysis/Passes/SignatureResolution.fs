@@ -153,45 +153,10 @@ module SignatureResolution =
                     })
                 members
 
-    /// Publish the registered enum's case table. One rejected case (reported at registration)
-    /// downgrades the whole enum: a partial table would resolve `E.C1` for the survivors and
-    /// reject the rest as "no such case".
     let private publishEnum (sctx: SigCtx) (id: TypeIdentity) : unit =
-        let ctx = sctx.Pass
-
-        match TypeRegistry.tryEnumByKey ctx.Types id.Key with
+        match TypeRegistry.tryEnumByKey sctx.Pass.Types id.Key with
         | ValueNone -> ()
-        | ValueSome info ->
-            let shapes = ResizeArray<ExternalEnumCaseShape>(info.Cases.Length)
-            let mutable broken = ValueNone
-
-            for c in info.Cases do
-                match c.Value with
-                | ValueSome(TEnumLiteral.Int n) ->
-                    shapes.Add
-                        {
-                            Name = c.Name
-                            Value = ExternalEnumCaseValue.IntVal(snd (TEnumCases.integralValue n))
-                        }
-                | ValueSome(TEnumLiteral.String s) ->
-                    shapes.Add
-                        {
-                            Name = c.Name
-                            Value = ExternalEnumCaseValue.StringVal s
-                        }
-                | ValueNone -> broken <- ValueSome c.Name
-
-            match broken with
-            | ValueSome name ->
-                publishShape
-                    sctx
-                    id.Key
-                    (ExternalTypeShape.Unmodelled(
-                        UnmodelledReason.ExtractionFailed(sprintf "enum case '%s' has no constant value" name),
-                        EqArray.empty
-                    ))
-            | ValueNone ->
-                publishShape sctx id.Key (ExternalTypeShape.Enum(EqArray.ofResizeArray shapes, SymbolOrigin.Empty))
+        | ValueSome info -> publishShape sctx id.Key (ExternalEnumShape.ofCases info.Cases SymbolOrigin.Empty)
 
     // --- abbreviations --------------------------------------------------------------------
 

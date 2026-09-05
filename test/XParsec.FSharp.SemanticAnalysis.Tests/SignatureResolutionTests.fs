@@ -2,6 +2,7 @@ module XParsec.FSharp.SemanticAnalysis.Tests.SignatureResolutionTests
 
 open System.Collections.Generic
 open Expecto
+open XParsec.FSharp.Lexer
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Passes
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
@@ -398,11 +399,11 @@ let tests =
                 Expect.equal
                     [ for c in casesOf "Colour" -> c.Name, c.Value ]
                     [
-                        "Red", ExternalEnumCaseValue.IntVal -1L
-                        "Green", ExternalEnumCaseValue.IntVal 2L
-                        "Amber", ExternalEnumCaseValue.IntVal -3L
+                        "Red", ExternalEnumCaseValue.IntVal(IntKind.Int32, -1L)
+                        "Green", ExternalEnumCaseValue.IntVal(IntKind.Byte, 2L)
+                        "Amber", ExternalEnumCaseValue.IntVal(IntKind.Int32, -3L)
                     ]
-                    "numeric cases keep source order, and every width lands as int64"
+                    "numeric cases keep source order and each case's own kind"
 
                 Expect.equal
                     [ for c in casesOf "Verb" -> c.Name, c.Value ]

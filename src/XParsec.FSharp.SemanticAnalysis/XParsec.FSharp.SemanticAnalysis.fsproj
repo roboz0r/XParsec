@@ -102,6 +102,9 @@
          publishes it: the canon ↔ repr relation is a function of the declarations alone. -->
     <Compile Include="IntrinsicTypeMap.fs" />
     <Compile Include="ExternalSymbols.fs" />
+    <!-- After the shape it builds and the case table it reads; shared by the frozen-file
+         projection and the `.fsi` front end. -->
+    <Compile Include="ExternalEnumShape.fs" />
     <Compile Include="ExternalSymbolProviders.fs" />
     <!-- Ahead of both producers that fill it: the frozen-file projection and the `.fsi`
          front end, both further down. -->

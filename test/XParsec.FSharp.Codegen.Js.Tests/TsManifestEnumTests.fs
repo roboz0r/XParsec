@@ -61,19 +61,23 @@ let tests =
         [
             test "the provider maps a TS enum to ExternalTypeShape.Enum, members carried" {
                 match ExternalSymbols.tryMetaType paletteProvider "Color" with
-                | ValueSome(ExternalTypeShape.Enum(cases, _)) ->
+                | ValueSome(ExternalTypeShape.Enum(cases, underlying, _)) ->
                     Expect.equal
                         [ for c in cases -> c.Name ]
                         [ "Red"; "Green"; "Blue" ]
                         "the numeric enum's ordered case names survive the remap (no longer dropped)"
+
+                    Expect.equal underlying RuntimeNames.intKey "a numeric TS enum is int"
                 | other -> failtestf "expected Color to resolve to an Enum shape, got %A" other
 
                 match ExternalSymbols.tryMetaType paletteProvider "Dir" with
-                | ValueSome(ExternalTypeShape.Enum(cases, _)) ->
+                | ValueSome(ExternalTypeShape.Enum(cases, underlying, _)) ->
                     Expect.equal
                         [ for c in cases -> c.Value ]
                         [ ExternalEnumCaseValue.StringVal "up"; ExternalEnumCaseValue.StringVal "down" ]
                         "the string enum's values are tagged StringVal (variant recoverable on the consumer)"
+
+                    Expect.equal underlying RuntimeNames.stringKey "a string TS enum is string"
                 | other -> failtestf "expected Dir to resolve to an Enum shape, got %A" other
             }
 

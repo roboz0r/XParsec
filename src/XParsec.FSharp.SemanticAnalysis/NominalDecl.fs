@@ -47,7 +47,7 @@ module LocalNominal =
     /// union, and a class's primary-ctor parameters, `val` fields and instance `let`
     /// bindings, each of which the class carries as a field.
     let fieldTypes (store: TypeStore) (d: LocalNominal) (args: EqArray<SemType>) : SemType list =
-        let at (typeParams: EqArray<string * TyVarId>) (tys: SemType seq) : SemType list =
+        let at (typeParams: EqArray<DeclaredTypar>) (tys: SemType seq) : SemType list =
             let subst = UnificationEngineCore.mkNamedTypeSubst store typeParams args
             [ for t in tys -> UnificationEngineCore.substituteWith store subst t ]
 

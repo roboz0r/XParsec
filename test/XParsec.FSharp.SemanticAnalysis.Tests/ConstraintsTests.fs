@@ -1,6 +1,7 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.ConstraintsTests
 
 open Expecto
+open XParsec.FSharp.Lexer
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Passes
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
@@ -13,14 +14,19 @@ let private analyseNR (input: string) =
     NameResolution.run ctx file
     ctx
 
-let private analyseUnif (input: string) =
+/// NameResolution and Unification over the real contract stack plus `extras`, stand-in
+/// referenced assemblies.
+let private analyseUnifWith (extras: IExternalSymbolProvider list) (input: string) =
     let lexed, file = parseFile input
 
-    let ctx = PassContext(realProvider.Value, LexedFile.ofText lexed, testCompiling)
+    let provider = ExternalSymbolProviders.composite (extras @ [ realProvider.Value ])
+    let ctx = PassContext(provider, LexedFile.ofText lexed, testCompiling)
 
     NameResolution.run ctx file
     Unification.run ctx file
     ctx
+
+let private analyseUnif (input: string) = analyseUnifWith [] input
 
 let private analyseFull (input: string) =
     let lexed, file = parseFile input
@@ -32,6 +38,31 @@ let private analyseFull (input: string) =
 
 let private hasMessage (ctx: PassContext) (fragment: string) =
     ctx.Diagnostics |> Seq.exists (fun d -> d.Message.Contains fragment)
+
+/// A referenced assembly publishing the enum `qualifiedName` with cases `A = 1` and `B = 2`
+/// at `kind`, its namespace implicitly open.
+let private importedEnum (qualifiedName: string) (kind: IntKind) : IExternalSymbolProvider =
+    let ns = qualifiedName.Substring(0, qualifiedName.LastIndexOf '.')
+
+    let cases =
+        [ "A", 1L; "B", 2L ]
+        |> List.map (fun (n, v) ->
+            {
+                Name = n
+                Value = ExternalEnumCaseValue.IntVal(kind, v)
+            }
+            : ExternalEnumCaseShape
+        )
+        |> EqArray.ofList
+
+    providerOfSurface (fun b ->
+        PublishedSurfaceBuilder.addType
+            b
+            (SymbolKeyOps.qualifiedTypeKeyOf qualifiedName 0)
+            (ExternalTypeShape.Enum(cases, RuntimeNames.intKindKey kind, SymbolOrigin.Empty))
+
+        b.ImplicitOpens <- [ SymbolKeyOps.assemblyAutoOpen ns ]
+    )
 
 let private countMessage (ctx: PassContext) (fragment: string) =
     ctx.Diagnostics
@@ -449,6 +480,23 @@ let kindTests =
                         "let under<'a, 'u when 'a : enum<'u>> (x: 'a) (u: 'u) = u\ntype L = | A = 1L | B = 2L\nlet _ = under L.A 3"
 
                 Expect.isTrue (hasMessage ctx "Type mismatch") "int is not L's underlying type"
+            }
+            test "enum<'u>: an imported enum's underlying type is its published width" {
+                let ctx =
+                    analyseUnifWith
+                        [ importedEnum "Ext.Wide" IntKind.Int64 ]
+                        "let under<'a, 'u when 'a : enum<'u>> (x: 'a) (u: 'u) = u\nlet _ = under Wide.A 3L"
+
+                Expect.isFalse (hasMessage ctx "does not support") "no constraint diagnostic"
+                Expect.isFalse (hasMessage ctx "Type mismatch") "int64 is Wide's underlying type"
+            }
+            test "enum<'u>: an imported enum's published width rejects a narrower argument" {
+                let ctx =
+                    analyseUnifWith
+                        [ importedEnum "Ext.Wide" IntKind.Int64 ]
+                        "let under<'a, 'u when 'a : enum<'u>> (x: 'a) (u: 'u) = u\nlet _ = under Wide.A 3"
+
+                Expect.isTrue (hasMessage ctx "Type mismatch") "int is not Wide's underlying type"
             }
 
             violated "delegate<int, int>: the clause is not yet supported" "'delegate' constraint" delegateFn

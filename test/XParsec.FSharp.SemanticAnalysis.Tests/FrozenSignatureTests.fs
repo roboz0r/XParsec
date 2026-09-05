@@ -394,16 +394,22 @@ module M =
                 let store = FrozenSignature.toSignatures origin frozen :> IExternalSymbolStore
 
                 match store.TryLookupType(typeKeyOf frozen "Direction") with
-                | ValueSome(ExternalTypeShape.Enum(cases, origin)) ->
+                | ValueSome(ExternalTypeShape.Enum(cases, underlying, origin)) ->
                     Expect.equal
                         (cases |> EqArray.map (fun c -> c.Name))
                         (EqArray.ofSeq [ "Up"; "Down" ])
                         "case names in source order"
 
+                    Expect.equal underlying RuntimeNames.intKey "unsuffixed literals make an int enum"
+
                     Expect.equal
                         (cases |> EqArray.map (fun c -> c.Value))
-                        (EqArray.ofSeq [ ExternalEnumCaseValue.IntVal 0L; ExternalEnumCaseValue.IntVal 1L ])
-                        "case int64 values"
+                        (EqArray.ofSeq
+                            [
+                                ExternalEnumCaseValue.IntVal(IntKind.Int32, 0L)
+                                ExternalEnumCaseValue.IntVal(IntKind.Int32, 1L)
+                            ])
+                        "case values at the unsuffixed kind"
 
                     Expect.equal origin.Home.AssemblyOption (ValueSome testAsm) "Direction carries home-assembly origin"
                 | other -> failtestf "Direction did not project as an Enum: %A" other
@@ -424,12 +430,34 @@ module M =
                 let store = FrozenSignature.toSignatures origin frozen :> IExternalSymbolStore
 
                 match store.TryLookupType(typeKeyOf frozen "Mode") with
-                | ValueSome(ExternalTypeShape.Enum(cases, _)) ->
+                | ValueSome(ExternalTypeShape.Enum(cases, underlying, _)) ->
                     Expect.equal
                         (cases |> EqArray.map (fun c -> c.Value))
                         (EqArray.ofSeq [ ExternalEnumCaseValue.StringVal "on"; ExternalEnumCaseValue.StringVal "off" ])
                         "case string values"
+
+                    Expect.equal underlying RuntimeNames.stringKey "a string enum is string"
                 | other -> failtestf "Mode did not project as an Enum: %A" other
+            }
+
+            test "an int64 enum publishes its width as the underlying type" {
+                let src =
+                    "\
+namespace Test.En
+
+module M =
+    type Wide =
+        | A = 1L
+        | B = 2L
+"
+
+                let origin, frozen = freezeWithOrigin src
+                let store = FrozenSignature.toSignatures origin frozen :> IExternalSymbolStore
+
+                match store.TryLookupType(typeKeyOf frozen "Wide") with
+                | ValueSome(ExternalTypeShape.Enum(underlying = underlying)) ->
+                    Expect.equal underlying (RuntimeNames.intKindKey IntKind.Int64) "the explicit suffix is the width"
+                | other -> failtestf "Wide did not project as an Enum: %A" other
             }
 
             test "TryRecordsWithField reports a generic record's typar arity" {

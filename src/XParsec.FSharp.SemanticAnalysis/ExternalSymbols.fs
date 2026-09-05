@@ -15,9 +15,10 @@ type ExternalTypeShape =
     | Measure of term: MeasureTerm
     | Record of shape: ExternalRecordShape
     | Union of shape: ExternalUnionShape
-    /// An external enum: named constant cases in source order. The numeric / string / mixed
-    /// variant is DERIVED from `cases`, never baked.
-    | Enum of cases: EqArray<ExternalEnumCaseShape> * origin: SymbolOrigin
+    /// An external enum: named constant cases in source order, over the primitive
+    /// `underlying` (an integral kind, `string`, or `obj` for a mixed enum). No `arity`,
+    /// because enums are never generic.
+    | Enum of cases: EqArray<ExternalEnumCaseShape> * underlying: TypeKey * origin: SymbolOrigin
     | Class of shape: ExternalClassShape
     /// A referenced package's intrinsic-repr binding (`type exn = (# class
     /// "System.Exception" #)`): scalar (`int`) or heritable class (`obj`/`exn`).

@@ -293,30 +293,7 @@ module FrozenSignature =
 
                     register (ExternalTypeShape.Class shape) (ValueSome members)
 
-                | TTypeKindG.Enum cases ->
-                    // Project the closed case→literal table to the shape a later file resolves
-                    // `(x: E)` / `E.Ci` against; its nominal identity IS the registered `key`,
-                    // so no case index is needed. A case with no literal is DROPPED.
-                    let caseShapes =
-                        EqArray.ofSeq
-                            [
-                                for c in cases do
-                                    match c.Value with
-                                    | ValueSome(TEnumLiteral.Int v) ->
-                                        {
-                                            Name = c.Name
-                                            Value = ExternalEnumCaseValue.IntVal(snd (TEnumCases.integralValue v))
-                                        }
-                                        : ExternalEnumCaseShape
-                                    | ValueSome(TEnumLiteral.String s) ->
-                                        {
-                                            Name = c.Name
-                                            Value = ExternalEnumCaseValue.StringVal s
-                                        }
-                                    | ValueNone -> ()
-                            ]
-
-                    register (ExternalTypeShape.Enum(caseShapes, origin)) ValueNone
+                | TTypeKindG.Enum cases -> register (ExternalEnumShape.ofCases cases origin) ValueNone
 
                 // The frozen RHS already carries the declaring typars on the `Declaring`
                 // axis, which is the axis a use site instantiates against.
