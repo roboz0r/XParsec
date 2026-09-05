@@ -1294,6 +1294,42 @@ module TypeDefn =
     let private errSingleNullaryUnionCaseIsAbbrev: ErrorType<PositionedToken, ParseState> =
         Message "Single nullary union case is a type abbreviation"
 
+    /// The right-hand side of a type abbreviation, in an implementation or a signature: a
+    /// type, or a measure term where measure operators (`/`, `^`, `*`, a fused `^-`) follow
+    /// a type or a leading `/` (reciprocal) precedes one. A dangling `*` only appears when
+    /// tuple parsing partially succeeded then backtracked mid-element (`kg * (meter / ...)`),
+    /// since a completed tuple consumes the `*` separators.
+    let parseAbbrevRhs: Parser<Type<SyntaxToken>, _, _, _> =
+        choice
+            [
+                parser {
+                    let! tNormal = Type.parse
+                    // The peek fails at end of input and on an offside token, which is how
+                    // a block-closing dedent presents; either way no operator follows the
+                    // type.
+                    let! peekAfter = opt peekNextSyntaxToken
+                    let! state = getUserState
+
+                    match peekAfter with
+                    | ValueNone -> return tNormal
+                    | ValueSome peekAfter ->
+                        // The lexer merges `^-N` into a single custom operator at Append
+                        // precedence, so a leading caret is the signal too.
+                        let startsWithCaret = ParseState.tokenStringStartsWith "^" peekAfter state
+
+                        if
+                            peekAfter.Token = Token.OpDivision
+                            || peekAfter.Token = Token.OpConcatenate
+                            || peekAfter.Token = Token.OpMultiply
+                            || startsWithCaret
+                        then
+                            return! fail errRetryAsMeasureType
+                        else
+                            return tNormal
+                }
+                (Measure.parse |>> Type.MeasureType)
+            ]
+
     // Helper to detect specific type bodies based on lookahead or specific tokens
 
     let private pRecordField =
@@ -1356,46 +1392,11 @@ module TypeDefn =
                 let! endTok = nextSyntaxTokenVirtualIfNot Token.KWEnd
                 return TypeDefn.Anon(typeName, primaryConstr, asDefn, equals, beginTok, body, endTok)
             | ValueNone ->
-                // Abbreviation — try normal type parsing first. If it leaves dangling
-                // measure operators ('/', '^', or '*'), backtrack and try measure parsing.
-                // Leading '/' (reciprocal) also falls through here: normal Type.parse
-                // fails immediately and choice backtracks to the measure parser. A
-                // dangling '*' only appears when tuple parsing partially succeeded then
-                // backtracked mid-element (e.g. 'kg * (meter / ...)'), since a completed
-                // tuple consumes the '*' separators.
+                // Abbreviation.
                 let! anchor = peekNextSyntaxToken
 
                 let! t =
-                    choice
-                        [
-                            parser {
-                                let! tNormal = Type.parse
-                                // The peek fails at end of input and on an offside token,
-                                // which is how a block-closing dedent presents; either way
-                                // no operator follows the type.
-                                let! peekAfter = opt peekNextSyntaxToken
-                                let! state = getUserState
-
-                                match peekAfter with
-                                | ValueNone -> return tNormal
-                                | ValueSome peekAfter ->
-                                    // Also treat fused `^-` / `^+` operators (lexer merges
-                                    // `^-N` into a single custom operator at Append precedence)
-                                    // as a signal to retry as measure type.
-                                    let startsWithCaret = ParseState.tokenStringStartsWith "^" peekAfter state
-
-                                    if
-                                        peekAfter.Token = Token.OpDivision
-                                        || peekAfter.Token = Token.OpConcatenate
-                                        || peekAfter.Token = Token.OpMultiply
-                                        || startsWithCaret
-                                    then
-                                        return! fail errRetryAsMeasureType
-                                    else
-                                        return tNormal
-                            }
-                            (Measure.parse |>> Type.MeasureType)
-                        ]
+                    parseAbbrevRhs
                     |> recoverWith
                         StoppingTokens.afterTypeDefn
                         DiagnosticCode.MissingType

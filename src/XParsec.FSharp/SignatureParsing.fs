@@ -471,7 +471,7 @@ module TypeSignature =
                                         return TypeSignature.Union(typeName, equals, cases, ext)
                                 }
                                 parser {
-                                    let! t = Type.parse
+                                    let! t = TypeDefn.parseAbbrevRhs
                                     // An abbreviation's augmentation needs an explicit `with`:
                                     // `type Shown = int` followed by a bare `member` is invalid.
                                     let! ext = opt TypeExtensionElementsSignature.parse
