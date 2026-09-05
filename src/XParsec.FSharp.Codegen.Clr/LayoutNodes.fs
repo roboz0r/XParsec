@@ -395,7 +395,7 @@ module internal LayoutNodes =
         ]
 
     /// Per class: ctor-param backing fields (`initonly`), `val` fields (immutable ⇒ `initonly`),
-    /// then instance-`let` and `static let` storage. Methods: primary `.ctor`,
+    /// then instance-`let` and `static let` fields. Methods: primary `.ctor`,
     /// [`.cctor`], [secondary `.ctor`s], own members, interface-impl members.
     let buildClassNodes (symbols: ICodegenSymbols) (classes: ClassDecl list) : TypeNode list =
         [

@@ -48,7 +48,12 @@ module internal NominalRegistration =
 
             if t.IsGeneric && not td.TypeParams.IsEmpty then
                 let fields = t.Fields(td.TypeKey, td.TypeParams.Length)
-                let ctorParamCount = if t.HasCtor then List.length fields else 0
+
+                let ctorParamCount =
+                    match t with
+                    | UnionNestedType.View _ -> List.length fields
+                    | UnionNestedType.Payload _ -> 0
+
                 provider.RegisterGenericClass(typeKey, td.TypeParams, ctorParamCount, fields)
 
         match ud.Placements with

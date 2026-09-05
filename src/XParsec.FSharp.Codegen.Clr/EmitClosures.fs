@@ -189,7 +189,7 @@ module EmitClosures =
 
     /// How EVERY top-level decl of a file emits. Decided over the whole list, because
     /// shadowing is: `let x = 1` then `let x = x + 10` carries one identity, so only the LAST
-    /// takes it and the earlier ones, which still need storage, take the residue mint.
+    /// takes it and the earlier ones, which still need a field, take the residue mint.
     let emissions
         (moduleMembers: Map<BoundVarId, ModuleBindingInfo>)
         (programClass: ModuleClassKey)

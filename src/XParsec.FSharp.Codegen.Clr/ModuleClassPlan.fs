@@ -83,8 +83,8 @@ module ModuleClassPlan =
         let emissions = Emit.emissions moduleMembers programClass lowered0
 
         // Drives bridging: a value-use of a function that survives as a static method
-        // becomes a curried bridge; a capture-demoted one keeps its closure. The top-level
-        // *storage* set: an `ldsfld` / `call` target, never a capture.
+        // becomes a curried bridge; a capture-demoted one keeps its closure. The set of
+        // top-level fields and static methods: an `ldsfld` / `call` target, never a capture.
         let preResolvedTopLevel =
             let s = HashSet<BoundVarId>()
 
@@ -117,7 +117,7 @@ module ModuleClassPlan =
 
         // Top-level (implicit-"Program"-module) ground values: top-level `let`s in an
         // exe's last file, collected unclassified; the leading/trailing partition runs
-        // below, once `staticFnKeys` is known. Their keys are real storage, never captures.
+        // below, once `staticFnKeys` is known. Their keys are real fields, never captures.
         let programValues =
             Emit.collectProgramValues emissions programClass refStructKeys lowered
 

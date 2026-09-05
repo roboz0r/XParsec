@@ -240,7 +240,7 @@ module EmitTypes =
     [<RequireQualifiedAccess>]
     type FieldAccess =
         /// A class field, reached directly: `ldfld` / `stfld` / `ldflda`.
-        | Storage of EntityHandle
+        | Direct of EntityHandle
         /// A record field, reached through the accessor in the requested role.
         | Accessor of EntityHandle
 
@@ -356,7 +356,7 @@ module EmitTypes =
     /// Whether a top-level binding emits under its source name.
     [<RequireQualifiedAccess>]
     type ValueIdentity =
-        /// Named in source; its storage is public ABI.
+        /// Named in source; its field is public ABI.
         | Declared
         /// A `<name>$<slot>` mint standing in for a binding with no exportable identity.
         | Residue

@@ -162,7 +162,7 @@ module EmitMember =
         // `r.X` — `ldfld` a class field off the object argument; `call` a record field's
         // getter, whose `this` is the address of a struct record.
         match resolveRecordField env (nominalOfExpr objArg) name TAccessorRole.Getter with
-        | FieldAccess.Storage handle ->
+        | FieldAccess.Direct handle ->
             recur env b objArg
             b.Add(ILInstr.Ldfld handle)
         | FieldAccess.Accessor getter ->
@@ -199,7 +199,7 @@ module EmitMember =
         recur env b value
 
         match access with
-        | FieldAccess.Storage handle -> b.Add(ILInstr.Stfld handle)
+        | FieldAccess.Direct handle -> b.Add(ILInstr.Stfld handle)
         | FieldAccess.Accessor setter -> b.Add(ILInstr.Call(setter, 2, 0))
 
         ExprPos.reifyUnit env b pos

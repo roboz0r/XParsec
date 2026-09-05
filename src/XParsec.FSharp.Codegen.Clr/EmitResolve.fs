@@ -405,7 +405,7 @@ module EmitResolve =
         | _ -> ValueNone
 
     /// Resolve a field by name on a record / class object arg, for one accessor role: a
-    /// record field's accessor, own or imported, or a class field's storage.
+    /// record field's accessor, own or imported, or a class field's handle.
     let resolveRecordField
         (env: EmitEnv)
         (objArgTy: FrozenNominal)
@@ -421,7 +421,7 @@ module EmitResolve =
             | None -> failwithf "Emit: record '%A' has no field '%s'" key fieldName
         | false, _ ->
             match tryClassField env objArgTy fieldName with
-            | ValueSome h -> FieldAccess.Storage h
+            | ValueSome h -> FieldAccess.Direct h
             | ValueNone ->
                 let qualName = SymbolKeyOps.typeMetaName key
 

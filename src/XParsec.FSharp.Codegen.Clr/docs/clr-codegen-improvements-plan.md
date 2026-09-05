@@ -182,11 +182,11 @@ and structural triple still mint, and gained `Accessor of fieldName * TAccessorR
 `ClrEncoder.RecordAccessorSignature`, the one place that spells `instance FieldTy get_X()` and
 `instance void set_X(FieldTy)`; the declaring side in `NominalEmit` and the imported side in
 `ClrExternalMembers.externalRecordField` share it. `EmittedRecordField` in `EmitTypes` replaced
-the `(name, handle, type)` triple and carries the accessor `Def` pair beside the storage.
+the `(name, handle, type)` triple and carries the accessor `Def` pair beside the field.
 
 A use site resolves one accessor by role, never the pair: `EmitResolve.recordFieldAccessor`
 re-mints the requested half, and `resolveRecordField` answers a `FieldAccess` for that role,
-`Storage` for a class field, `Accessor` for a record field, own or imported. A read therefore
+`Direct` for a class field, `Accessor` for a record field, own or imported. A read therefore
 mints no `set_X` `MemberRef` row on a generic or referenced-package record, which
 `PropertyRowTests` pins. `Vesper.Ref` reaches `contents` through `get_contents` /
 `set_contents`.
@@ -313,7 +313,7 @@ assembly's public surface under a name no source wrote.
 
 **Fix.** Two independent halves, either of which helps:
 
-- Residue storage takes assembly visibility rather than `public`. A name minted because nothing
+- A residue field takes assembly visibility rather than `public`. A name minted because nothing
   in the source names the value cannot be part of an intended ABI.
 - B1's substitution removes the binding here outright, since the argument is a `Var`. **Landed**:
   `value$8` and `value$9` are gone from `typar-struct.clr.cs`, and the JS counterpart `const _s5`
@@ -343,10 +343,10 @@ fewer fields.
 **Landed.** `EmitTypes.ValueIdentity` states whether the source spells the name a top-level
 binding emits under. `EmitClosures.Emission` carries it — `Declared` from `declaredEmission`,
 `Residue` from `residueEmission` — and each `ModuleValue` takes it from its `Emission`, so a
-builder cannot mint storage without deciding. `Layout.moduleValueField` builds every module
+builder cannot mint a field without deciding. `Layout.moduleValueField` builds every module
 value's `Field` row — a named module class's, the Program class's `.cctor`-written and its
-`Main`-written — and maps the identity to a `FieldReach` there. Residue storage is therefore
-`assembly`, declared storage `public`.
+`Main`-written — and maps the identity to a `FieldReach` there. A residue field is therefore
+`assembly`, a declared field `public`.
 
 `FieldVisibilitySweepTests` compiles every CLR-gated corpus program once and reads back every
 `TypeDef`'s `Field` rows through `MetadataStructure.allFieldAttrs`. Both assertions above are
@@ -354,7 +354,7 @@ there: no public field carries `$` in its name, and every `capture<i>` on a `<cl
 is `private initonly`, with a non-empty check so the capture sweep cannot pass vacuously.
 
 No corpus program shadows a top-level binding, so the residue mint gets two sources of its own
-in the same file, one per storage kind: `let x = 1; let x = 2` pins `x$0` as
+in the same file, one per field kind: `let x = 1; let x = 2` pins `x$0` as
 `assembly static initonly` beside a public `x`, and the same shadowing after a top-level `do`
 pins the `Main`-written pair as plain `static`. The front end rejects `let x = 1` followed by
 `let x = x + 10` at file scope with "Unresolved identifier: x", so the rebinding cannot read
@@ -496,7 +496,7 @@ extending it through pure intrinsics and simple `let`s for the JS expression for
 The JS goldens moved where a binding reached the module surface: the six `typar-*` programs
 lost the `const _s5 = s;` that `ignore`'s splice residue produced, which is A4's second half.
 `typar-struct.clr.cs` lost the `value$8` and `value$9` fields A4 names, leaving A4's first half,
-assembly visibility for residue storage, as the only part of that entry still outstanding.
+assembly visibility for residue fields, as the only part of that entry still outstanding.
 
 `InlineExpandTests` pins both halves post-freeze: an immutable operand spends no binding, a
 mutable one keeps its own. Each backend has a runtime test where a mutable local is passed to

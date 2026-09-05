@@ -219,7 +219,7 @@ module internal RecordFieldAccessors =
         ]
 
 /// Which types reach a field, and where its stores land. Every `FieldSlot` in the layout
-/// draws its `Attrs` from here, so the two facts are decided per storage kind in one place.
+/// draws its `Attrs` from here, so the two facts are decided per field kind in one place.
 [<AutoOpen>]
 module internal FieldAttrSets =
 
@@ -228,9 +228,9 @@ module internal FieldAttrSets =
     type FieldReach =
         /// The declaring type alone.
         | OwnType
-        /// Every type in this assembly. Compiler-generated storage for a ctor parameter or a
+        /// Every type in this assembly. A compiler-generated field for a ctor parameter or a
         /// `let` binding takes this, matching FSC: a lambda in a member body lifts into a
-        /// SIBLING closure type that reads the enclosing instance's storage directly, and
+        /// SIBLING closure type that reads the enclosing instance's fields directly, and
         /// `private` would fault that read at JIT with `FieldAccessException`.
         | Assembly
         /// Every consumer. A `val` field, a union case field and a module value are ABI,
@@ -243,7 +243,7 @@ module internal FieldAttrSets =
         /// Every store is inside a `.ctor` or `.cctor` of the declaring type, which is what
         /// `initonly` permits.
         | ByCtor
-        /// Some store is outside an initialiser: a `mutable` source binding, or storage the
+        /// Some store is outside an initialiser: a `mutable` source binding, or a field the
         /// entry point's `Main` fills.
         | Anywhere
 
@@ -272,14 +272,14 @@ module internal FieldAttrSets =
     let staticFieldAttrs (reach: FieldReach) (writes: FieldWrites) : FieldAttributes =
         accessBits reach ||| FieldAttributes.Static ||| initOnlyBit writes
 
-    /// A numeric enum's `value__`, the CLI's designated underlying-storage slot, which
+    /// A numeric enum's `value__`, the CLI's designated underlying-value field, which
     /// `Enum.GetUnderlyingType` reads.
     let enumUnderlyingFieldAttrs =
         FieldAttributes.Public
         ||| FieldAttributes.SpecialName
         ||| FieldAttributes.RTSpecialName
 
-    /// A numeric enum case: metadata-only storage typed as the enum itself, holding its value
+    /// A numeric enum case: a metadata-only field typed as the enum itself, holding its value
     /// in the `Constant` row that `HasDefault` flags.
     let enumLiteralFieldAttrs =
         FieldAttributes.Public
@@ -359,17 +359,17 @@ module internal UnionNestedType =
     /// The layout slot of a type owned by union `key`.
     let slotKey (key: SymbolKey) (t: UnionNestedType) : TypeSlotKey =
         match t with
-        | UnionNestedType.Payload _ -> TypeSlotKey.UnionPayload key
-        | UnionNestedType.Overlay _ -> TypeSlotKey.UnionOverlay key
-        | UnionNestedType.CaseData c -> TypeSlotKey.UnionCaseData(key, c.Case)
-        | UnionNestedType.CaseView v -> TypeSlotKey.UnionCaseView(key, v.Case.Name)
+        | UnionNestedType.Payload(UnionPayloadStruct.Payload _) -> TypeSlotKey.UnionPayload key
+        | UnionNestedType.Payload(UnionPayloadStruct.Overlay _) -> TypeSlotKey.UnionOverlay key
+        | UnionNestedType.Payload(UnionPayloadStruct.CaseData c) -> TypeSlotKey.UnionCaseData(key, c.Case)
+        | UnionNestedType.View v -> TypeSlotKey.UnionCaseView(key, v.Case.Name)
 
     let slotKind (t: UnionNestedType) : TypeSlotKind =
         match t with
-        | UnionNestedType.Payload _ -> TypeSlotKind.UnionPayload
-        | UnionNestedType.Overlay _ -> TypeSlotKind.UnionOverlay
-        | UnionNestedType.CaseData _ -> TypeSlotKind.UnionCaseData
-        | UnionNestedType.CaseView _ -> TypeSlotKind.UnionCaseView
+        | UnionNestedType.Payload(UnionPayloadStruct.Payload _) -> TypeSlotKind.UnionPayload
+        | UnionNestedType.Payload(UnionPayloadStruct.Overlay _) -> TypeSlotKind.UnionOverlay
+        | UnionNestedType.Payload(UnionPayloadStruct.CaseData _) -> TypeSlotKind.UnionCaseData
+        | UnionNestedType.View _ -> TypeSlotKind.UnionCaseView
 
 /// Identity of one `Field` row in the layout.
 [<RequireQualifiedAccess>]
@@ -407,8 +407,7 @@ type internal FieldKey =
     | ClassLetField of SymbolKey * name: string
     /// A `static let` backing field.
     | ClassStaticField of SymbolKey * name: string
-    /// A numeric enum's special-name `value__` instance field (its underlying
-    /// integral storage).
+    /// A numeric enum's special-name `value__` instance field.
     | EnumValueField of SymbolKey
     /// A numeric enum's `static literal` case field (`E::A`); also a string/mixed
     /// enum's `public static initonly` case field (`.cctor`-initialised, holding the

@@ -1091,7 +1091,7 @@ type internal Assembler
 
         // A struct union's `Payload` and overlay types: `assembly`-visible value types,
         // read directly by match arms in this assembly.
-        let addUnionStorageRow (node: TypeNode) (attrs: TypeAttributes) =
+        let addUnionPayloadRow (node: TypeNode) (attrs: TypeAttributes) =
             addUnionValueTypeRow node (assemblyVisible attrs) []
 
         for node in layout.Types do
@@ -1140,18 +1140,18 @@ type internal Assembler
             | TypeSlotKind.UnionCase -> addNominalRow node (classAttrsOf true false) []
 
             | TypeSlotKind.UnionPayload
-            | TypeSlotKind.UnionCaseData -> addUnionStorageRow node (classAttrsOf true true)
+            | TypeSlotKind.UnionCaseData -> addUnionPayloadRow node (classAttrsOf true true)
 
             // Every case data struct sits at offset 0 of the overlay: one `FieldLayout` row
             // per field and no `ClassLayout` row, leaving every size to the loader.
             | TypeSlotKind.UnionOverlay ->
-                addUnionStorageRow node explicitLayoutStructAttrs
+                addUnionPayloadRow node explicitLayoutStructAttrs
 
                 for f in node.Fields do
                     ctx.AddFieldLayout(fieldDefHandles.[f.Key], 0)
 
             // The union's public consumer surface: nested-public over `assembly`-visible
-            // storage.
+            // payload types.
             | TypeSlotKind.UnionCaseView ->
                 addUnionValueTypeRow node (classAttrsOf true true) (readOnlyMarkerOf node true)
 

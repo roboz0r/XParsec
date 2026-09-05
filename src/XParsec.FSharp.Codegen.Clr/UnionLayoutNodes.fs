@@ -5,7 +5,7 @@ open XParsec.FSharp.SemanticAnalysis
 open LayoutNodes
 
 /// The `TypeNode`s of a union: the union itself, a hierarchy regime's case types, and a
-/// `StructTagged` regime's nested storage and view value types.
+/// `StructTagged` regime's nested payload and view value types.
 module internal UnionLayoutNodes =
 
     /// The row one structural slot takes on a hierarchy union's case type. The `Union`-typed
@@ -74,30 +74,31 @@ module internal UnionLayoutNodes =
     /// The `FieldKey` of each field of `t`, in the order of `UnionNestedType.Fields`.
     let private nestedFieldKeys (td: TastAccessor.TypeDecl) (t: UnionNestedType) : FieldKey list =
         match t with
-        | UnionNestedType.Payload slots -> [ for s in slots -> FieldKey.UnionSlot(td.Key, s.Key) ]
-        | UnionNestedType.Overlay cases -> [ for c in cases -> FieldKey.UnionOverlayCase(td.Key, c.Case) ]
-        | UnionNestedType.CaseData c -> [ for f in c.Fields -> FieldKey.UnionCaseDataField(td.Key, c.Case, f.Index) ]
-        | UnionNestedType.CaseView v -> [ FieldKey.UnionCaseViewPayload(td.Key, v.Case.Name) ]
+        | UnionNestedType.Payload(UnionPayloadStruct.Payload slots) ->
+            [ for s in slots -> FieldKey.UnionSlot(td.Key, s.Key) ]
+        | UnionNestedType.Payload(UnionPayloadStruct.Overlay cases) ->
+            [ for c in cases -> FieldKey.UnionOverlayCase(td.Key, c.Case) ]
+        | UnionNestedType.Payload(UnionPayloadStruct.CaseData c) ->
+            [ for f in c.Fields -> FieldKey.UnionCaseDataField(td.Key, c.Case, f.Index) ]
+        | UnionNestedType.View v -> [ FieldKey.UnionCaseViewPayload(td.Key, v.Case.Name) ]
 
     /// The attributes of every field of `t`: a view's wrapped `Payload` is reached only by the
-    /// view's own members; a storage field is read directly by match arms in this assembly.
+    /// view's own members; a payload field is read directly by match arms in this assembly.
     let private nestedFieldAttrs (t: UnionNestedType) : FieldAttributes =
         match t with
-        | UnionNestedType.CaseView _ -> instanceFieldAttrs FieldReach.OwnType FieldWrites.ByCtor
-        // A storage field stays writable pending an audit of its store sites, on the terms A1
+        | UnionNestedType.View _ -> instanceFieldAttrs FieldReach.OwnType FieldWrites.ByCtor
+        // A payload field stays writable pending an audit of its store sites, on the terms A1
         // set for the ctor-param and capture fields.
-        | UnionNestedType.Payload _
-        | UnionNestedType.Overlay _
-        | UnionNestedType.CaseData _ -> instanceFieldAttrs FieldReach.Assembly FieldWrites.Anywhere
+        | UnionNestedType.Payload _ -> instanceFieldAttrs FieldReach.Assembly FieldWrites.Anywhere
 
     /// Where an owned type's `TypeDef` row sits: `Payload` and the views under the union,
     /// the overlay beside the union in its container, a case data struct under the overlay.
     let private ownedPlacement (td: TastAccessor.TypeDecl) (t: UnionNestedType) : string * TypeSlotKey voption =
         match t with
-        | UnionNestedType.Payload _
-        | UnionNestedType.CaseView _ -> "", ValueSome(TypeSlotKey.Nominal td.Key)
-        | UnionNestedType.Overlay _ -> containerPlacement td
-        | UnionNestedType.CaseData _ -> "", ValueSome(TypeSlotKey.UnionOverlay td.Key)
+        | UnionNestedType.Payload(UnionPayloadStruct.Payload _)
+        | UnionNestedType.View _ -> "", ValueSome(TypeSlotKey.Nominal td.Key)
+        | UnionNestedType.Payload(UnionPayloadStruct.Overlay _) -> containerPlacement td
+        | UnionNestedType.Payload(UnionPayloadStruct.CaseData _) -> "", ValueSome(TypeSlotKey.UnionOverlay td.Key)
 
     /// The `TypeNode` of one value type a `StructTagged` union owns: its `Slot`, its
     /// fields, and the method and property rows it declares. Redeclares a generic union's
@@ -176,21 +177,22 @@ module internal UnionLayoutNodes =
                     }
             ]
 
-        ownedNode td (UnionNestedType.CaseView v) methods properties
+        ownedNode td (UnionNestedType.View v) methods properties
 
     /// The `TypeNode` of one value type a `StructTagged` union owns: a view declares its
-    /// `.ctor` and properties; a storage type declares fields alone.
+    /// `.ctor` and properties; a payload struct declares fields alone.
     let private unionOwnedNode (td: TastAccessor.TypeDecl) (t: UnionNestedType) : TypeNode =
         match t with
-        | UnionNestedType.CaseView v -> unionCaseViewNode td v
-        | UnionNestedType.Payload _
-        | UnionNestedType.Overlay _
-        | UnionNestedType.CaseData _ -> ownedNode td t [] []
+        | UnionNestedType.View v -> unionCaseViewNode td v
+        | UnionNestedType.Payload _ -> ownedNode td t [] []
 
     /// The overlay `TypeNode` with one `Data_<Case>` node nested in it per overlaid case.
     let private unionOverlayNode (td: TastAccessor.TypeDecl) (cases: UnionCaseData list) : TypeNode =
-        { unionOwnedNode td (UnionNestedType.Overlay cases) with
-            Nested = [ for c in cases -> unionOwnedNode td (UnionNestedType.CaseData c) ]
+        { unionOwnedNode td (UnionNestedType.Payload(UnionPayloadStruct.Overlay cases)) with
+            Nested =
+                [
+                    for c in cases -> unionOwnedNode td (UnionNestedType.Payload(UnionPayloadStruct.CaseData c))
+                ]
         }
 
     /// Per union: `_tag`, a singleton field per nullary case, a flat regime's payload
@@ -208,10 +210,10 @@ module internal UnionLayoutNodes =
                 let selfTy =
                     FTUnion(td.TypeKey, EqArray.ofList (declaringMarkers td.TypeParams.Length))
 
-                // A flat union's storage: `initonly` inline slots on its own `TypeDef`, or the
-                // one `_payload` field with the value types nested behind it. A hierarchy
-                // union declares each case's payload on the case's own nested `TypeDef`.
-                let storageFields, nested =
+                // A flat union's payload fields: `initonly` inline slots on its own `TypeDef`,
+                // or the one `_payload` field with the value types nested behind it. A
+                // hierarchy union declares each case's payload on the case's own nested `TypeDef`.
+                let payloadFields, nested =
                     match ud.Placements with
                     | ValueSome p ->
                         match p.Home with
@@ -265,7 +267,7 @@ module internal UnionLayoutNodes =
                                 ClosureScope = ValueNone
                             }
 
-                        yield! storageFields
+                        yield! payloadFields
                     ]
 
                 let methodRows =
