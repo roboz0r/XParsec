@@ -724,6 +724,26 @@ makes the contract explicit instead of positional.
 
 ---
 
+# Part C — extending the decompiled goldens past the conformance corpus
+
+Moved here from the deleted `clr-codegen-improvements-plan.md`, where it was C2.
+
+The conformance render (`test/XParsec.FSharp.Codegen.Clr.Tests/goldens/*.clr.cs`) cost nothing
+measurable and produced the emission findings now in the git log on the first read. The next candidates, in
+order of value per unit of work:
+
+- `StructTests` and `StructSeqTests`, whose programs already live in `data/`, so a corpus entry
+  and a type name are the only additions.
+- `ClassTests`, where roughly 60 tests assert metadata shape alongside a runtime `Invoke`, and
+  where near-identical programs are compiled two and three times over under different assembly
+  names to assert different facets of the same emission (see A49 for the record-suite twin).
+
+A golden replaces a shape assertion, never a behavioural one. It cannot see IL prefixes, opcode
+choice, local signatures, table row order, duplicate mints, or assembly references, so the
+digest gate and the `expectNoFSharpCore` checks stay.
+
+---
+
 # Verified during the sweep — no action
 
 - `Vesper.Fun`5<a,b,c,d,r>` is genuinely the widest declared arity: `prim-types-min.fsi`

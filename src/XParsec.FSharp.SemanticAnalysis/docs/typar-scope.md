@@ -181,26 +181,14 @@ This case is introduced by `measure-resolution-plan.md` step 6 and is inherited 
 
 ## Sequencing
 
-Typar-scope rewrites `SemanticInfo.fs`, `SideTypes.fs`, the frozen codecs and every backend's
-typar encoding, so it lands on a branch from `main` with nothing else open in
-SemanticAnalysis. It is a format bump and lands alone.
+The implementation steps are in `typar-scope-plan.md`, which interleaves the remaining
+typar-constraint emission and import stages with the model change. The ordering constraints
+are:
 
-1. `measure-resolution-plan.md` steps 5 to 7 finish and merge. Typar-scope reads their
-   outputs: `TyparKind`, `DeclaredTypar`, `MeasureTerm` keyed by `TypeKey`, `FTMeasure`.
-2. `clr-codegen-improvements-plan.md` A3 stage 5 and A6 stage 1 may land before or after;
-   neither touches a shape typar-scope removes. A3 stage 6 (import) waits: its planned
-   `toDeclaringAxis` re-axising of constraints is the substitution typar-scope deletes.
-3. A6 stage 2 is its own format bump and lands alone, before or after typar-scope, never
-   interleaved.
-4. Typar-scope, additively, each step green:
-   1. `MemberOrdinal` minted at member registration and `LocalBindingId` at generalisation.
-      No consumers.
-   2. `TyparList` beside `EqArray<TyparKind>`; readers swapped; the array and
-      `TyparKinds.typeOnly` deleted.
-   3. `TyparScope` and the `FTTypar` leaf, with `FTLocalTypar` folded in. The format bump.
-   4. Per-typar `ConstraintSet` and `FunctionScheme` with `Traits`; `TyparIndex` and
-      `GenericFnScheme` deleted.
-   5. `MeasureAtom.Typar`; measure typars gain a scope.
-   6. `TyparAxis`, `ConformanceTypars.normAxisTo`, `toDeclaringAxis` and `SchemeId` deleted;
-      the Extractor and Manifest diagnostic codes renamed.
-5. A3 stages 6 and 7 and A6 stages 3 and 4, on the new shapes.
+- `measure-resolution-plan.md` lands and merges first. Typar-scope reads its outputs:
+  `TyparKind`, `DeclaredTypar`, `MeasureTerm` keyed by `TypeKey`, `FTMeasure`.
+- Typar-scope rewrites `SemanticInfo.fs`, `SideTypes.fs`, the frozen codecs and every
+  backend's typar encoding, so it lands on a branch from `main` with nothing else open in
+  SemanticAnalysis.
+- Typar-scope is a format bump and lands alone. `delegates-plan.md` stage 2 is another; the
+  two never interleave, and the `delegate<_,_>` constraint import waits on it.
