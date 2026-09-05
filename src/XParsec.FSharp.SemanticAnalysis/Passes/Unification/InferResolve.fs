@@ -37,13 +37,26 @@ module internal UnificationInferResolve =
             let freshRoot = UnionFind.find ctx.Store fresh
             ctx.Store.SetLevel(freshRoot, ctx.CurrentLevel)
             let protoRoot = UnionFind.find ctx.Store tp.TyVar
-            // Copy prototype constraints onto the fresh instance so each use site
-            // re-evaluates satisfaction independently: `Set<int>` and `Set<int -> int>`
-            // each get their own copy of `'a : comparison`.
-            ctx.Store.Constraints.Set(freshRoot, ctx.Store.Constraints.Items protoRoot)
             let asTy = TyVar fresh
             subst.[protoRoot.Id] <- asTy
             acc.Add asTy
+
+        // Each use site holds its own copy of the prototype's bounds, over the instance's
+        // typars: `MapSeq<S,E,F,T,U>`'s `F :> Fun<T,U>` becomes `F' :> Fun<T',U'>`.
+        for tp in typeParams do
+            let protoRoot = UnionFind.find ctx.Store tp.TyVar
+
+            let copied =
+                ctx.Store.Constraints.Items protoRoot
+                |> List.map (fun c ->
+                    { c with
+                        Kind = SemanticConstraintKind.mapTypes (substituteWith ctx.Store subst) c.Kind
+                    }
+                )
+
+            match subst.[protoRoot.Id] with
+            | TyVar fresh -> ctx.Store.Constraints.Set(UnionFind.find ctx.Store fresh, copied)
+            | _ -> ()
 
         EqArray.ofResizeArray acc, subst
 

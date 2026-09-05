@@ -281,8 +281,10 @@ type MetadataContext() =
     /// `owner` is a `TypeDefinition` or `MethodDefinition`. SRM requires `GenericParam`
     /// rows globally sorted by `CodedIndex.TypeOrMethodDef(owner)` then `index`, and the
     /// two owner kinds interleave, so collect every row and sort before adding.
-    member _.AddGenericParameter(owner: EntityHandle, index: int, name: string) : GenericParameterHandle =
-        mb.AddGenericParameter(owner, GenericParameterAttributes.None, mb.GetOrAddString(name), index)
+    member _.AddGenericParameter
+        (owner: EntityHandle, index: int, name: string, attrs: GenericParameterAttributes)
+        : GenericParameterHandle =
+        mb.AddGenericParameter(owner, attrs, mb.GetOrAddString(name), index)
 
     member _.Serialize(entryPoint: MethodDefinitionHandle) : BlobBuilder =
         let header = PEHeaderBuilder(imageCharacteristics = Characteristics.ExecutableImage)

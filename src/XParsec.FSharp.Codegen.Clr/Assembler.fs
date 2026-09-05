@@ -486,7 +486,11 @@ type internal Assembler
     // `GenericParam` rows can't be added inline: SRM requires them globally sorted by
     // `CodedIndex.TypeOrMethodDef(owner)`, and a method owner can sort BEFORE its
     // declaring type. Collect them and emit sorted once every handle exists.
-    let genericParams = ResizeArray<EntityHandle * int * string>()
+    let genericParams = ResizeArray<GenericParamEntry>()
+
+    let addGenericParams (owner: EntityHandle) (rows: GenericParamRow list) =
+        rows
+        |> List.iteri (fun i row -> genericParams.Add { Owner = owner; Index = i; Row = row })
 
     // Everything else a `TypeDefinition` row needs comes from the layout.
     let typeRowExtras = Dictionary<TypeSlotKey, TypeRowExtras>()
@@ -620,7 +624,7 @@ type internal Assembler
                         Signature = abstractMethodSignature provider m
                         Body = PreparedBody.Abstract
                         ParamNames = List.map fst slots
-                        MethodTypars = [ for n in m.MethodTypeParams -> n.TrimStart('\'') ]
+                        MethodTypars = GenericParamRow.ofTypars m.MethodTypeParams m.MethodTyparConstraints
                     }
                 )
             )
@@ -802,12 +806,6 @@ type internal Assembler
 
                         provider.FlatFunInterfaceSpecN(tys)
 
-                if isGenericClosure then
-                    let closureHandle = toEntity (layoutHandles.TypeDefOf(TypeSlotKey.Closure c.Name))
-
-                    for i in 0 .. c.Typars - 1 do
-                        genericParams.Add(closureHandle, i, sprintf "T%d" i)
-
                 ifaceSpec
 
             let ifaceSpec =
@@ -863,7 +861,7 @@ type internal Assembler
                     Signature = signature
                     Body = staticBody
                     ParamNames = paramNames emitCtx.Pool (fn.Params.Flat |> Seq.map (fun p -> p.Slot))
-                    MethodTypars = [ for i in 0 .. typarCount - 1 -> sprintf "T%d" i ]
+                    MethodTypars = GenericParamRow.ofTypars (GenericParamRow.positionalNames typarCount) fn.Constraints
                 }
             )
 
@@ -969,8 +967,7 @@ type internal Assembler
             for a in MethodKey.syntheticAttributes row.Key do
                 addSyntheticAttribute (toEntity handle) a
 
-            p.MethodTypars
-            |> List.iteri (fun i n -> genericParams.Add(toEntity handle, i, n))
+            addGenericParams (toEntity handle) p.MethodTypars
 
         if prepared.Count <> layoutHandles.TotalMethods then
             failwithf
@@ -1075,8 +1072,7 @@ type internal Assembler
             for iface in extras.Interfaces do
                 ctx.AddInterfaceImplementation(typeHandle, iface)
 
-            slot.Typars
-            |> List.iteri (fun i n -> genericParams.Add(toEntity typeHandle, i, n))
+            addGenericParams (toEntity typeHandle) slot.Typars
 
         let addUnionValueTypeRow (node: TypeNode) (attrs: TypeAttributes) (markers: SyntheticAttribute list) =
             typeRowExtras.Add(
@@ -1118,8 +1114,7 @@ type internal Assembler
                 verifyTypeHandle slot typeHandle
                 addNesting node typeHandle
 
-                slot.Typars
-                |> List.iteri (fun i n -> genericParams.Add(toEntity typeHandle, i, n))
+                addGenericParams (toEntity typeHandle) slot.Typars
 
             // Unions and records are always sealed; a class opts in via `[<Sealed>]` /
             // `[<Struct>]`. A union or record opts into value-type emission via `[<Struct>]`,
@@ -1191,9 +1186,7 @@ type internal Assembler
             // Its `System.ValueType` base is stored in `TypeRowExtras`; never byref-like.
             | TypeSlotKind.StructEnum -> addNominalRow node structEnumAttrs []
 
-            // Each closure implements its `Vesper.Fun\`2<param, result>` interface. Its
-            // `GenericParam` rows were collected under the closure-typar ambient, so
-            // none are added here.
+            // Each closure implements its `Vesper.Fun\`2<param, result>` interface.
             | TypeSlotKind.Closure ->
                 let extras =
                     match typeRowExtras.TryGetValue slot.Key with
@@ -1221,6 +1214,8 @@ type internal Assembler
 
                 for iface in extras.Interfaces do
                     ctx.AddInterfaceImplementation(closureHandle, iface)
+
+                addGenericParams (toEntity closureHandle) slot.Typars
 
             // Named-module classes: one static class per `module Foo`, nested in its
             // parent's module class when the module nests. One owning module values takes its
@@ -1266,8 +1261,8 @@ type internal Assembler
         // Every handle now exists: add `GenericParam` rows in the order SRM
         // validates: by the owner's `TypeOrMethodDef` coded index, then index.
         genericParams
-        |> Seq.sortBy (fun (owner, index, _) -> (CodedIndex.TypeOrMethodDef owner, index))
-        |> Seq.iter (fun (owner, index, name) -> ctx.AddGenericParameter(owner, index, name) |> ignore)
+        |> Seq.sortBy (fun e -> (CodedIndex.TypeOrMethodDef e.Owner, e.Index))
+        |> Seq.iter (fun e -> ctx.AddGenericParameter(e.Owner, e.Index, e.Row.Name, e.Row.Attrs) |> ignore)
 
         let pe =
             if layout.EmitEntryPoint then

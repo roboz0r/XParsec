@@ -62,7 +62,7 @@ module internal UnionLayoutNodes =
                     Kind = TypeSlotKind.UnionCase
                     Namespace = ""
                     MetaName = c.Name
-                    Typars = typarNames td.TypeParams
+                    Typars = GenericParamRow.ofTypars (TTypeParam.names td.TypeParams) td.TyparConstraints
                 }
             Enclosing = ValueSome(TypeSlotKey.Nominal td.Key)
             Fields = fields
@@ -132,7 +132,11 @@ module internal UnionLayoutNodes =
                     Kind = UnionNestedType.slotKind t
                     Namespace = ns
                     MetaName = t.MetaName td.TypeKey
-                    Typars = if t.IsGeneric then typarNames td.TypeParams else []
+                    Typars =
+                        if t.IsGeneric then
+                            GenericParamRow.ofTypars (TTypeParam.names td.TypeParams) td.TyparConstraints
+                        else
+                            []
                 }
             Enclosing = enclosing
             Fields = fields

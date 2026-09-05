@@ -74,6 +74,34 @@ let private nameOf (md: MetadataReader) (h: TypeDefinitionHandle) : string =
 
     go h
 
+/// The `TypeDef` row of `typeName` by the `Ns.Outer+Inner` spelling. Raises when the
+/// assembly declares no such type.
+let private typeDefOf (md: MetadataReader) (typeName: string) : TypeDefinitionHandle =
+    match md.TypeDefinitions |> Seq.tryFind (fun h -> nameOf md h = typeName) with
+    | Some h -> h
+    | None ->
+        failwithf "MetadataStructure: no type '%s' among %A" typeName [ for h in md.TypeDefinitions -> nameOf md h ]
+
+/// The `MethodDef` rows of `typeName` in row order.
+let private methodDefsOf (md: MetadataReader) (typeName: string) : MethodDefinition list =
+    [
+        for mh in (md.GetTypeDefinition(typeDefOf md typeName)).GetMethods() -> md.GetMethodDefinition mh
+    ]
+
+/// The first `MethodDef` row named `methodName` on `typeName`. Raises when the type
+/// declares no such method.
+let private methodDefOf (md: MetadataReader) (typeName: string) (methodName: string) : MethodDefinition =
+    let methods = methodDefsOf md typeName
+
+    match methods |> List.tryFind (fun m -> md.GetString m.Name = methodName) with
+    | Some m -> m
+    | None ->
+        failwithf
+            "MetadataStructure: %s declares no %s among %A"
+            typeName
+            methodName
+            [ for m in methods -> md.GetString m.Name ]
+
 /// Every `TypeDef` row, in table order, with the field / method rows its range claims.
 let readTypes (md: MetadataReader) : EmittedType list =
     [
@@ -333,22 +361,19 @@ let propertiesOf (bytes: byte[]) (typeName: string) : (string * (string voption 
     use pe = openPe bytes
     let md = pe.GetMetadataReader()
 
-    match md.TypeDefinitions |> Seq.tryFind (fun h -> nameOf md h = typeName) with
-    | None -> failwithf "the assembly declares no type '%s'" typeName
-    | Some h ->
-        let nameOfAccessor (a: MethodDefinitionHandle) =
-            if a.IsNil then
-                ValueNone
-            else
-                ValueSome(md.GetString((md.GetMethodDefinition a).Name))
+    let nameOfAccessor (a: MethodDefinitionHandle) =
+        if a.IsNil then
+            ValueNone
+        else
+            ValueSome(md.GetString((md.GetMethodDefinition a).Name))
 
-        [
-            for p in (md.GetTypeDefinition h).GetProperties() do
-                let pd = md.GetPropertyDefinition p
-                let accessors = pd.GetAccessors()
+    [
+        for p in (md.GetTypeDefinition(typeDefOf md typeName)).GetProperties() do
+            let pd = md.GetPropertyDefinition p
+            let accessors = pd.GetAccessors()
 
-                md.GetString pd.Name, (nameOfAccessor accessors.Getter, nameOfAccessor accessors.Setter)
-        ]
+            md.GetString pd.Name, (nameOfAccessor accessors.Getter, nameOfAccessor accessors.Setter)
+    ]
 
 /// One type's `Field` row names in row order, by the `Ns.Outer+Inner` spelling.
 /// Raises when the assembly declares no such type.
@@ -475,15 +500,17 @@ let methodAttrsOf (bytes: byte[]) (typeName: string) : (string * MethodAttribute
     use pe = openPe bytes
     let md = pe.GetMetadataReader()
 
-    match md.TypeDefinitions |> Seq.tryFind (fun h -> nameOf md h = typeName) with
-    | None ->
-        failwithf "MetadataStructure: no type '%s' among %A" typeName [ for h in md.TypeDefinitions -> nameOf md h ]
-    | Some h ->
-        [
-            for mh in (md.GetTypeDefinition h).GetMethods() ->
-                let mdef = md.GetMethodDefinition mh
-                md.GetString mdef.Name, mdef.Attributes
-        ]
+    [ for m in methodDefsOf md typeName -> md.GetString m.Name, m.Attributes ]
+
+/// A method's `Param` row names. Sequence 0 is the return parameter's row and is skipped.
+let private paramNamesOfMethod (md: MetadataReader) (m: MethodDefinition) : string list =
+    [
+        for ph in m.GetParameters() do
+            let p = md.GetParameter ph
+
+            if p.SequenceNumber > 0 then
+                md.GetString p.Name
+    ]
 
 /// One type's `Method` rows in row order as `(name, Param row names)`, by the
 /// `Ns.Outer+Inner` spelling. Raises when the assembly declares no such type.
@@ -491,34 +518,42 @@ let paramNamesOf (bytes: byte[]) (typeName: string) : (string * string list) lis
     use pe = openPe bytes
     let md = pe.GetMetadataReader()
 
-    match md.TypeDefinitions |> Seq.tryFind (fun h -> nameOf md h = typeName) with
-    | None ->
-        failwithf "MetadataStructure: no type '%s' among %A" typeName [ for h in md.TypeDefinitions -> nameOf md h ]
-    | Some h ->
-        [
-            for mh in (md.GetTypeDefinition h).GetMethods() ->
-                let mdef = md.GetMethodDefinition mh
-
-                let names =
-                    [
-                        for ph in mdef.GetParameters() do
-                            let p = md.GetParameter ph
-                            // Sequence 0 is the return parameter's row.
-                            if p.SequenceNumber > 0 then
-                                md.GetString p.Name
-                    ]
-
-                md.GetString mdef.Name, names
-        ]
+    [
+        for m in methodDefsOf md typeName -> md.GetString m.Name, paramNamesOfMethod md m
+    ]
 
 /// The `Param` row names of the method `methodName` on `typeName`, the first row where the
 /// name is overloaded. Raises when the type declares no such method.
 let methodParamNamesOf (bytes: byte[]) (typeName: string) (methodName: string) : string list =
-    let methods = paramNamesOf bytes typeName
+    use pe = openPe bytes
+    let md = pe.GetMetadataReader()
+    paramNamesOfMethod md (methodDefOf md typeName methodName)
 
-    match methods |> List.tryFind (fun (n, _) -> n = methodName) with
-    | Some(_, ps) -> ps
-    | None -> failwithf "MetadataStructure: %s declares no %s among %A" typeName methodName (List.map fst methods)
+let private genericParamsOf (md: MetadataReader) (handles: GenericParameterHandleCollection) =
+    [
+        for gh in handles ->
+            let gp = md.GetGenericParameter gh
+            md.GetString gp.Name, gp.Attributes
+    ]
+
+/// The `GenericParam` rows of `typeName` in index order as `(name, attributes)`, by the
+/// `Ns.Outer+Inner` spelling. Raises when the assembly declares no such type.
+let typeGenericParamsOf (bytes: byte[]) (typeName: string) : (string * GenericParameterAttributes) list =
+    use pe = openPe bytes
+    let md = pe.GetMetadataReader()
+    genericParamsOf md ((md.GetTypeDefinition(typeDefOf md typeName)).GetGenericParameters())
+
+/// The `GenericParam` rows of the method `methodName` on `typeName` in index order as
+/// `(name, attributes)`, the first row where the name is overloaded. Raises when the type
+/// declares no such method.
+let methodGenericParamsOf
+    (bytes: byte[])
+    (typeName: string)
+    (methodName: string)
+    : (string * GenericParameterAttributes) list =
+    use pe = openPe bytes
+    let md = pe.GetMetadataReader()
+    genericParamsOf md ((methodDefOf md typeName methodName).GetGenericParameters())
 
 /// How many `MemberRef` rows carry `name`. The table is appended to rather than
 /// deduplicated, so a count above one is a member ref minted more than once.

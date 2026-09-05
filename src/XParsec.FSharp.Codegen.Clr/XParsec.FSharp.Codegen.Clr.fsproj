@@ -11,6 +11,7 @@
     <Compile Include="ClrSymbolProviders.fs" />
     <Compile Include="ProjectInfo.fs" />
     <Compile Include="TyparMarkers.fs" />
+    <Compile Include="GenericParamRows.fs" />
     <Compile Include="UnionRegime.fs" />
     <Compile Include="PlatformTypeIds.fs" />
     <Compile Include="Unmanagedness.fs" />

@@ -77,7 +77,7 @@ public static class Program
 		p = onlyStruct(new Point(1, 2));
 	}
 
-	public static T0 onlyStruct<T0>(T0 x)
+	public static T0 onlyStruct<T0>(T0 x) where T0 : struct
 	{
 		return x;
 	}

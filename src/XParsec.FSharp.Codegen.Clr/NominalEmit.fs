@@ -587,8 +587,7 @@ module internal NominalEmit =
                 Signature = signature
                 Body = memberBody
                 ParamNames = paramNames emitCtx.Pool (mem.Params |> Seq.map (fst >> BoundVarKey.identity))
-                // The metadata name drops the F# leading quote: `'T` → `T`.
-                MethodTypars = [ for (n, _) in methodTypars -> n.TrimStart('\'') ]
+                MethodTypars = GenericParamRow.ofTypars (Seq.map fst methodTypars) mem.MethodTyparConstraints
             }
         )
 

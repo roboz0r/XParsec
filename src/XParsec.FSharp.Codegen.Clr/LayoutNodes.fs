@@ -131,10 +131,6 @@ module internal LayoutNodes =
             StructEnums = List.ofSeq structEnums
         }
 
-    /// Metadata typar names: `'T` → `T`.
-    let typarNames (typeParams: EqArray<TTypeParam>) : string list =
-        [ for p in typeParams -> p.Name.TrimStart('\'') ]
-
     /// An augmentation member's method row: an interface-impl member forces the
     /// virtual/new-slot/final attrs so the runtime binds it to the `InterfaceImpl`
     /// row; a type's own member keeps its natural attrs.
@@ -284,7 +280,7 @@ module internal LayoutNodes =
                     Kind = kind
                     Namespace = ns
                     MetaName = SymbolKeyOps.arityName td.Name td.TypeParams.Length
-                    Typars = typarNames td.TypeParams
+                    Typars = GenericParamRow.ofTypars (TTypeParam.names td.TypeParams) td.TyparConstraints
                 }
             Enclosing = enclosing
             Fields = fields
@@ -645,7 +641,7 @@ module internal LayoutNodes =
                             Kind = TypeSlotKind.Closure
                             Namespace = ""
                             MetaName = SymbolKeyOps.arityName c.Name c.Typars
-                            Typars = [ for i in 0 .. c.Typars - 1 -> sprintf "T%d" i ]
+                            Typars = GenericParamRow.ofTypars (GenericParamRow.positionalNames c.Typars) EqSet.empty
                         }
                     Enclosing = ValueNone
                     Fields = fields

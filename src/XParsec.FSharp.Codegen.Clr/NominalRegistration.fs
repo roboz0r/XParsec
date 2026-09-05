@@ -54,7 +54,7 @@ module internal NominalRegistration =
                     | UnionNestedType.View _ -> List.length fields
                     | UnionNestedType.Payload _ -> 0
 
-                provider.RegisterGenericClass(typeKey, td.TypeParams, ctorParamCount, fields)
+                provider.RegisterGenericClass(typeKey, TTypeParam.names td.TypeParams, ctorParamCount, fields)
 
         match ud.Placements with
         | ValueSome p ->

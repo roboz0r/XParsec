@@ -108,6 +108,7 @@
     <Compile Include="TypeAbbreviationTests.fs" />
     <Compile Include="SelfPackageIntrinsicsTests.fs" />
     <Compile Include="FieldVisibilitySweepTests.fs" />
+    <Compile Include="GenericParamFlagsTests.fs" />
 
     <Compile Include="Program.fs" />
   </ItemGroup>

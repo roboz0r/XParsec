@@ -18,7 +18,7 @@ public static class Program
 		s = onlyRef("x");
 	}
 
-	public static T0 onlyRef<T0>(T0 x)
+	public static T0 onlyRef<T0>(T0 x) where T0 : class
 	{
 		return x;
 	}

@@ -148,20 +148,9 @@ module UnificationEngineCore =
         if not (store.Constraints.Items root |> List.exists (fun e -> e.Kind = c.Kind)) then
             store.Constraints.Prepend(root, c)
 
-    /// Mint a fresh instance TyVar at the current level carrying a deduped copy of
-    /// `constraints`, so a use site re-evaluates them against its own substitution.
-    let freshConstrainedTyVar (ctx: PassContext) (constraints: SemanticConstraint list) : TyVarId =
-        let fresh = ctx.NewTypeVar()
-        ctx.Store.SetLevel(UnionFind.find ctx.Store fresh, ctx.CurrentLevel)
-
-        for c in constraints do
-            addConstraintByKind ctx.Store fresh c
-
-        fresh
-
-    /// Instantiate a member's type for a CALL SITE: the declaring-axis substitution
-    /// (`typeParams ↦ args`) plus a fresh `TyVar` at the current level for each of the
-    /// member's OWN `methodTypars`, so one call site cannot ground the shared prototype.
+    /// A member's type at a call site: the declaring-axis substitution (`typeParams ↦ args`)
+    /// plus a fresh `TyVar` at the current level for each of the member's own `methodTypars`.
+    /// Each fresh typar carries the prototype's bounds over the instance's typars.
     let instantiateMemberCall
         (ctx: PassContext)
         (typeParams: EqArray<DeclaredTypar>, args: EqArray<SemType>)
@@ -169,12 +158,25 @@ module UnificationEngineCore =
         (ty: SemType)
         : SemType =
         let subst = mkNamedTypeSubst ctx.Store typeParams args
+        let minted = ResizeArray<Rep * TyVarId>()
 
         for tp in methodTypars do
             let root = UnionFind.find ctx.Store tp.TyVar
 
             if (ctx.Store.Link root).IsNone && not (subst.ContainsKey root.Id) then
-                subst.[root.Id] <- TyVar(freshConstrainedTyVar ctx (ctx.Store.Constraints.Items root))
+                let fresh = ctx.NewTypeVar()
+                ctx.Store.SetLevel(UnionFind.find ctx.Store fresh, ctx.CurrentLevel)
+                subst.[root.Id] <- TyVar fresh
+                minted.Add((root, fresh))
+
+        for (root, fresh) in minted do
+            for c in ctx.Store.Constraints.Items root do
+                addConstraintByKind
+                    ctx.Store
+                    fresh
+                    { c with
+                        Kind = SemanticConstraintKind.mapTypes (substituteWith ctx.Store subst) c.Kind
+                    }
 
         substituteWith ctx.Store subst ty
 

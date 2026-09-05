@@ -24,7 +24,7 @@ public static class Program
 		b = onlyStruct(x: true);
 	}
 
-	public static T0 onlyStruct<T0>(T0 x)
+	public static T0 onlyStruct<T0>(T0 x) where T0 : struct
 	{
 		return x;
 	}

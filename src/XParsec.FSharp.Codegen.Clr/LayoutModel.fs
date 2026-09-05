@@ -685,8 +685,7 @@ type internal PreparedMethod =
         Signature: BlobBuilder
         Body: PreparedBody
         ParamNames: string list
-        /// `GenericParam` rows owned by this method (metadata names, quote already dropped).
-        MethodTypars: string list
+        MethodTypars: GenericParamRow list
     }
 
 /// The Prepare-minted handles a `TypeDefinition` row needs at write time, keyed by
@@ -713,8 +712,7 @@ type internal TypeSlot =
         /// Metadata name, already arity-suffixed (`Map\`2`). ONE segment: the containment chain
         /// lives in `TypeNode.Enclosing` (a `NestedClass` row), never in the name.
         MetaName: string
-        /// Metadata-layer typar names (leading F# quote dropped).
-        Typars: string list
+        Typars: GenericParamRow list
     }
 
 /// One node of the emitted type HIERARCHY: a `TypeDefinition` row together with the

@@ -58,7 +58,7 @@ let private cyclicSymbols: ICodegenSymbols * FrozenType =
     let shape =
         ExternalTypeShape.Record
             {
-                Arity = 0
+                Typars = EqArray.empty
                 Fields =
                     EqArray.singleton
                         { ExternalFieldShape.create ("Again", false) with
@@ -78,7 +78,7 @@ let private cyclicSymbols: ICodegenSymbols * FrozenType =
             member _.TryLookupCtor(_, _, _) = ValueNone
             member _.TryRebaseCapabilityMember _ = ValueNone
             member _.TryLookupOpenSignature _ = ValueNone
-            member _.ModuleClassNameOf _ = ModuleClassName.Undeclared
+            member _.DeclarationsOf _ = EqArray.empty
             member _.TryPlatformTypeId _ = ValueNone
 
             member _.IsValueType k =

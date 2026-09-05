@@ -80,23 +80,54 @@ it is committed to. `dotnet fsi` plus a decompile of an `fsc` output is the orac
 
 ## Remaining stages
 
-3. **Flag bits on the existing `GenericParam` row**: `struct`, `not struct`, `new()`.
-   `AddGenericParameter` in `Metadata` passes `GenericParameterAttributes.None` unconditionally
-   today. No new table.
-4. **`GenericParamConstraint` rows.** No code in `src/` emits one. The table is added to the
+3. ~~**Flag bits on the existing `GenericParam` row**: `struct`, `not struct`, `new()`.~~
+   Landed. `GenericParamRow` in `GenericParamRows` pairs a row's name with its
+   `GenericParameterAttributes`, folded from the owner's constraint set through
+   `CliConstraintEncoding.ofKind`, the single classification of every bound kind into its CLI
+   encoding (flag bits, a `GenericParamConstraint` row, the unmanaged attribute, or none),
+   which stage 4 extends by consuming the row cases;
+   `PreparedMethod.MethodTypars` and `TypeSlot.Typars` carry it for every owner (module
+   function, type declaration and its union case types, member, interface slot), and
+   `AddGenericParameter` writes it. `GenericParamFlagsTests` asserts the bits per owner through
+   `MetadataStructure.typeGenericParamsOf` / `methodGenericParamsOf`, and the `typar-struct`,
+   `typar-struct-record`, `typar-not-struct` and `typar-new` goldens render `where T0 : struct`,
+   `where T0 : class` and `where T0 : new()`.
+4. **A closed scheme per generic function.** A function's scheme is one record of its typar
+   arity and its bounds, where every `TyparIndex` and every `FTTypar(Method, i)` inside a bound
+   is below the arity, checked by the constructor. Today the two halves are the separate side
+   tables `GenericFnSchemes` and `BindingTyparArities`, and the CLR backend ignores the second:
+   `Emit.staticFnTypars` re-derives arity as the maximum method index over params, result and
+   body. The record replaces both tables and the sweep, `Emit.StaticFn` carries it, and
+   `GenericParamRow.ofTypars` takes it in place of a name sequence and a bare `EqSet`. Its
+   guard on an out-of-range `TyparIndex` goes with the sweep.
+
+   Prerequisite, landed with this plan revision: a nominal instantiation substitutes the
+   instance's args through each copied bound's target. `freshNamedInstance` and
+   `freshConstrainedTyVar` copied the prototype's bounds verbatim, so a caller's typar acquired
+   bounds over a foreign declaration's typars and `mkMethodQuantEnv`'s dependent-typar fixpoint
+   quantified them. `StructSeq.map` recorded ten bounds over ten method typars for a five-typar
+   method. `ExternalSymbols` already substituted; the local paths now match it.
+
+   Two parity gaps surfaced by the same `fsc` probe, deferred to stage 5 where they first change
+   output: `fsc` orders typars by first appearance including the constraint clauses
+   (`TFunc, T, U, S, E` for `map`, where this compiler gives `TFunc, S, E, T, U`), and two
+   coercions on one typar to the same generic interface unify their arguments under FS0064
+   where `addConstraintByKind` only dedupes structurally equal bounds.
+5. **`GenericParamConstraint` rows.** No code in `src/` emits one. The table is added to the
    assembler with its row-order prediction, the same prefix-sum discipline as every other table
-   here. The `System.Delegate` row reads the kind alone, so it does not wait on A6.
-5. **Import.** `CodegenOpenSignature.Constraints` in `ExternalSymbols` carries every kind, but a
+   here. The `System.Delegate` row reads the kind alone, so it does not wait on A6. The rows
+   are read off the stage 4 scheme, so a row's typar index is in range by construction.
+6. **Import.** `CodegenOpenSignature.Constraints` in `ExternalSymbols` carries every kind, but a
    foreign generic's constraint is not read off its metadata, so enforcement against a BCL or
    third-party generic is absent. Needs the enum width above and A6 stage 2 for the
    `enum<'u>` and `delegate<_,_>` bounds.
-6. **`unmanaged` and the nullability attributes**, in that order, each with its own scope.
+7. **`unmanaged` and the nullability attributes**, in that order, each with its own scope.
 
 **Verify.** Assert `GenericParam` flags and `GenericParamConstraint` rows through the
 `MetadataStructure` helpers, per this project's `CLAUDE.md` preference for metadata over
 reflection. The `typar-*-violated.fs` programs already pin front-end rejection and must keep
 their exact diagnostics. The goldens re-render into `where T0 : struct`, which is the readable
-check that stages 3 and 4 agree.
+check that stages 3 and 5 agree.
 
 **Parity note.** `fsc` accepts `under L.A 3` for `'a : enum<'u>` on an `int64` enum, where this
 compiler reports a mismatch on `3`. Both solve `'u` to `int64`; `fsc` then widens the `int32`
@@ -133,7 +164,7 @@ front-end ones.
    signature with `args -> ret`, closing A3's review item. No format change.
 2. Publication. `ExternalTypeShape.Delegate` with a frozen `Invoke` signature, through
    `SignatureResolution`, `FrozenSignature` and the pool codecs, and the TS extractor maps a
-   function type alias to it. Format version 6, landing alone.
+   function type alias to it. Format version 7, landing alone.
 3. CLR emission. A sealed class extending `MulticastDelegate`, with `runtime managed` `.ctor`,
    `Invoke`, `BeginInvoke` and `EndInvoke` rows, calibrated against a decompiled `fsc` output.
    Construction emits `ldftn` + `newobj`; invocation is a `callvirt` to `Invoke`. A closure
@@ -171,11 +202,13 @@ A format change lands alone, a metadata change lands after every codec change it
 and an import stage lands after the shape it imports. The codec is at format version 5.
 
 1. ~~The enum underlying type on `ExternalTypeShape.Enum`.~~ Landed without a format bump.
-2. A3 stage 3, the `GenericParam` flag bits.
-3. A3 stage 4, the `GenericParamConstraint` rows.
-4. A6 stage 1, the delegate front end, and with it A3's `delegate<_,_>` verdict.
-5. A6 stage 2, the published delegate shape. Format version 6, alone.
-6. A3 stage 5, import. It needs the width from step 1 and the shape from step 5.
-7. A6 stages 3 and 4, delegate emission on each target.
-8. A3 stage 6, `unmanaged` and the nullability attributes.
-9. C2, at any point, independent of the above.
+2. ~~A3 stage 3, the `GenericParam` flag bits.~~ Landed.
+3. A3 stage 4, the closed function scheme. It removes two frozen side tables, so it is a
+   format change and lands alone: format version 6.
+4. A3 stage 5, the `GenericParamConstraint` rows.
+5. A6 stage 1, the delegate front end, and with it A3's `delegate<_,_>` verdict.
+6. A6 stage 2, the published delegate shape. Format version 7, alone.
+7. A3 stage 6, import. It needs the width from step 1 and the shape from step 6.
+8. A6 stages 3 and 4, delegate emission on each target.
+9. A3 stage 7, `unmanaged` and the nullability attributes.
+10. C2, at any point, independent of the above.
