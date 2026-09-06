@@ -517,15 +517,15 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
             (fun () ->
                 match resolveTypeLocked name with
                 | Some t ->
-                    let arity =
+                    let typars =
                         if t.IsGenericType then
-                            t.GetGenericArguments().Length
+                            TyparList.typeOnly (t.GetGenericArguments() |> Seq.map (fun p -> "'" + p.Name))
                         else
-                            0
+                            TyparList.empty
 
                     let shape: ExternalClassShape =
                         {
-                            Typars = TyparKinds.typeOnly arity
+                            Typars = typars
                             Commitment = ClassCommitment.ofIsInterface t.IsInterface
                             Members = enumerateClassMembers t
                             FrozenInterfaces = buildClassInterfaces t

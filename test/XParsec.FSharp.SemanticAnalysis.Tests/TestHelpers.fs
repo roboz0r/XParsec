@@ -266,7 +266,7 @@ let mkStaticProperty (decl: TypeKey) (name: string) (ret: FrozenType) : External
 let private unionShape (key: TypeKey) (cases: ExternalCaseShape list) (rqa: bool) : ExternalTypeShape =
     ExternalTypeShape.Union
         {
-            Typars = TyparKinds.typeOnly key.TyparArity
+            Typars = TyparList.positional key.TyparArity
             Cases = EqArray.ofList cases
             Interfaces = EqArray.empty
             Origin = SymbolOrigin.Empty
@@ -287,7 +287,7 @@ let publishRecord (b: PublishedSurfaceBuilder) (key: TypeKey) (fields: ExternalF
         key
         (ExternalTypeShape.Record
             {
-                Typars = TyparKinds.typeOnly key.TyparArity
+                Typars = TyparList.positional key.TyparArity
                 Fields = EqArray.ofList fields
                 Origin = SymbolOrigin.Empty
                 IsValueType = false
@@ -301,7 +301,7 @@ let publishClass (b: PublishedSurfaceBuilder) (key: TypeKey) (members: ExternalM
         b
         key
         (ExternalTypeShape.Class
-            { ExternalClassShape.basic (TyparKinds.typeOnly key.TyparArity, ClassCommitment.Class, SymbolOrigin.Empty) with
+            { ExternalClassShape.basic (TyparList.positional key.TyparArity, ClassCommitment.Class, SymbolOrigin.Empty) with
                 Members = EqArray.ofList members
             })
         members

@@ -66,9 +66,17 @@ module NameResolutionTypeRegistration =
         else
             TyparKind.Type
 
-    /// Each declared typar's kind, in source order.
-    let typarKindsOfTypeName (ctx: PassContext) (tn: TypeName<SyntaxToken>) : EqArray<TyparKind> =
-        EqArray.ofSeq (seq { for (_, attrs) in typarSlotsOfTypeName ctx tn -> kindOfSlot ctx attrs })
+    /// The declared typars, named and kinded, in source order.
+    let typarListOfTypeName (ctx: PassContext) (tn: TypeName<SyntaxToken>) : TyparList =
+        TyparList.ofSeq (
+            seq {
+                for (name, attrs) in typarSlotsOfTypeName ctx tn ->
+                    {
+                        TTypeParam.Name = name
+                        Kind = kindOfSlot ctx attrs
+                    }
+            }
+        )
 
     /// The generic arity that keys this type in the registries (`0` for a non-generic name).
     let arityOfTypeName (ctx: PassContext) (tn: TypeName<SyntaxToken>) : int =
@@ -370,12 +378,12 @@ module NameResolutionTypeRegistration =
 
             // An enum is non-generic: it claims its name at arity 0 whatever typars were
             // (illegally) written on it.
-            let typarKinds =
+            let typarList =
                 match kind with
-                | TypeDeclKind.Enum -> EqArray.empty
-                | _ -> typarKindsOfTypeName ctx tn
+                | TypeDeclKind.Enum -> TyparList.empty
+                | _ -> typarListOfTypeName ctx tn
 
-            let arity = typarKinds.Length
+            let arity = typarList.Length
 
             // The module chain that HOLDS the declaration is part of its claim, and the
             // container its key is minted from.
@@ -398,7 +406,7 @@ module NameResolutionTypeRegistration =
                 let identity =
                     {
                         Name = name
-                        TyparKinds = typarKinds
+                        Typars = typarList
                         Container = container
                         Kind = kind
                         DeclSite = declSite

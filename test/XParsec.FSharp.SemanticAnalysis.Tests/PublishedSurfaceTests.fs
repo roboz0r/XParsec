@@ -14,7 +14,7 @@ let private key (ns: string) (name: string) (arity: int) : TypeKey =
 
 let private shapeOf (arity: int) : ExternalTypeShape =
     ExternalTypeShape.Class(
-        ExternalClassShape.basic (TyparKinds.typeOnly arity, ClassCommitment.Class, SymbolOrigin.Empty)
+        ExternalClassShape.basic (TyparList.positional arity, ClassCommitment.Class, SymbolOrigin.Empty)
     )
 
 /// A builder holding three types and two union cases, filled in the order given, so the same
@@ -115,7 +115,7 @@ let tests =
                 let union =
                     ExternalTypeShape.Union
                         {
-                            Typars = TyparKinds.typeOnly 1
+                            Typars = TyparList.positional 1
                             Cases =
                                 EqArray.ofList
                                     [

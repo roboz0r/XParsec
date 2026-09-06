@@ -31,7 +31,7 @@ let private messages (ctx: PassContext) : string list =
     [ for d in ctx.Diagnostics -> d.Message ]
 
 let private delegateShape =
-    ExternalTypeShape.Unmodelled(UnmodelledReason.Delegate, EqArray.empty)
+    ExternalTypeShape.Unmodelled(UnmodelledReason.Delegate, TyparList.empty)
 
 [<Tests>]
 let tests =
@@ -83,7 +83,7 @@ let tests =
             // reports as a message carrying the extractor's own reason.
             test "an extraction failure reports the extractor's reason, not a feature gap" {
                 let shape =
-                    ExternalTypeShape.Unmodelled(UnmodelledReason.ExtractionFailed "unnamed case", EqArray.empty)
+                    ExternalTypeShape.Unmodelled(UnmodelledReason.ExtractionFailed "unnamed case", TyparList.empty)
 
                 let msgs = analyse shape "let f (w: Widget) = w" |> messages
 

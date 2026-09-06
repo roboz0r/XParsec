@@ -38,10 +38,10 @@ module ExternalEnumShape =
         | ValueSome name, _ ->
             ExternalTypeShape.Unmodelled(
                 UnmodelledReason.ExtractionFailed(sprintf "enum case '%s' has no constant value" name),
-                EqArray.empty
+                TyparList.empty
             )
         | ValueNone, ValueNone ->
-            ExternalTypeShape.Unmodelled(UnmodelledReason.ExtractionFailed "enum has no cases", EqArray.empty)
+            ExternalTypeShape.Unmodelled(UnmodelledReason.ExtractionFailed "enum has no cases", TyparList.empty)
         | ValueNone, ValueSome underlying ->
             ExternalTypeShape.Enum
                 {

@@ -24,7 +24,7 @@ type ExternalTypeShape =
     | IntrinsicInterface of shape: IntrinsicInterfaceShape
     /// NAME + TYPE PARAMETERS are registered, the body is not modelled. `reason` says which
     /// gap, so a use site can report it rather than degrade silently.
-    | Unmodelled of reason: UnmodelledReason * typars: EqArray<TyparKind>
+    | Unmodelled of reason: UnmodelledReason * typars: TyparList
 
     /// The nominal family the DECLARATION commits its name to, which a paired implementation
     /// must agree with. `ValueNone` where the declaration commits to none: an opaque
@@ -45,20 +45,19 @@ type ExternalTypeShape =
         | IntrinsicInterface _
         | Unmodelled _ -> ValueNone
 
-    /// Declared typars in source order.
-    member this.TyparKinds: EqArray<TyparKind> =
+    member this.Typars: TyparList =
         match this with
         | Class info -> info.Typars
         | Intrinsic s -> s.Id.Typars
         | IntrinsicInterface s -> s.Typars
-        | Enum _ -> EqArray.empty // enums are never generic
-        | Measure _ -> EqArray.empty // only a non-generic measure publishes
+        | Enum _ -> TyparList.empty // enums are never generic
+        | Measure _ -> TyparList.empty // only a non-generic measure publishes
         | Record r -> r.Typars
         | Union u -> u.Typars
         | Abbrev a -> a.Typars
         | Unmodelled(typars = ts) -> ts
 
-    member this.TyparArity: int = this.TyparKinds.Length
+    member this.TyparArity: int = this.Typars.Length
 
     /// The type this abbreviation ALIASES: its body is a keyed type applied to the
     /// abbreviation's own type parameters, each exactly once (`Box<int>` is not an alias).

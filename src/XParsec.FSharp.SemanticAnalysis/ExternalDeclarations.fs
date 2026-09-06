@@ -146,8 +146,7 @@ type ExternalCaseShape =
 /// one did. `RequiresQualifiedAccess` forces a consumer to write `{ R.X = … }`.
 type ExternalRecordShape =
     {
-        /// Typar order matches source.
-        Typars: EqArray<TyparKind>
+        Typars: TyparList
         /// Field order matches source.
         Fields: EqArray<ExternalFieldShape>
         Origin: SymbolOrigin
@@ -162,8 +161,7 @@ type ExternalRecordShape =
 /// declaration-side facts `ExternalRecordShape` does.
 type ExternalUnionShape =
     {
-        /// Typar order matches source.
-        Typars: EqArray<TyparKind>
+        Typars: TyparList
         /// Case order matches source.
         Cases: EqArray<ExternalCaseShape>
         Interfaces: EqArray<FrozenNominal>
@@ -177,8 +175,7 @@ type ExternalUnionShape =
 /// The payload of `ExternalTypeShape.Abbrev`: a transparent `type t<'a> = body`.
 type ExternalAbbrevShape =
     {
-        /// Typar order matches source.
-        Typars: EqArray<TyparKind>
+        Typars: TyparList
         /// The abbreviation body as a template over `FTTypar(Declaring, i)`, which a use site
         /// expands.
         Body: FrozenType
@@ -518,8 +515,7 @@ module ClassCommitment =
 /// `Signature` is written over the DECLARING type's typars.
 type ExternalClassShape =
     {
-        /// Typar order matches source.
-        Typars: EqArray<TyparKind>
+        Typars: TyparList
         Commitment: ClassCommitment
         /// All public declared methods + properties whose signature maps; one whose
         /// parameter or return type does not (a pointer) is dropped, not faked.
@@ -536,9 +532,7 @@ type ExternalClassShape =
     member this.IsInterface: bool = this.Commitment = ClassCommitment.Interface
 
     /// A minimally-populated shape: name + typars + commitment only.
-    static member basic
-        (typars: EqArray<TyparKind>, commitment: ClassCommitment, origin: SymbolOrigin)
-        : ExternalClassShape =
+    static member basic(typars: TyparList, commitment: ClassCommitment, origin: SymbolOrigin) : ExternalClassShape =
         {
             Typars = typars
             Commitment = commitment
@@ -568,7 +562,7 @@ type IntrinsicIdentity =
         Canon: TypeKey
         /// Usually empty, but the structural type constructors are intrinsics too
         /// (`type 'T [] = (# "!0[]" #)` has one type parameter; `byref`, nd-array).
-        Typars: EqArray<TyparKind>
+        Typars: TyparList
         /// The per-target binding, or the target that binds none. Many-to-one, so it must
         /// never drive unification.
         Platform: IntrinsicPlatform
@@ -605,7 +599,7 @@ type IntrinsicShape =
         Class: IntrinsicClassSurface voption
     }
 
-    static member Scalar(canon: TypeKey, typars: EqArray<TyparKind>, platform: IntrinsicPlatform) : IntrinsicShape =
+    static member Scalar(canon: TypeKey, typars: TyparList, platform: IntrinsicPlatform) : IntrinsicShape =
         {
             Id =
                 {
@@ -618,9 +612,7 @@ type IntrinsicShape =
 
     /// `type Attribute = extern class`: heritable, and declaring nothing else. `inherit
     /// Attribute()` in a later file has only this surface to read the heritability off.
-    static member HeritableClass
-        (canon: TypeKey, typars: EqArray<TyparKind>, platform: IntrinsicPlatform)
-        : IntrinsicShape =
+    static member HeritableClass(canon: TypeKey, typars: TyparList, platform: IntrinsicPlatform) : IntrinsicShape =
         {
             Id =
                 {
@@ -669,8 +661,7 @@ type IntrinsicInterfaceShape =
         /// The platform-INVARIANT `.fsi` identity (`Vesper.disposable`): the
         /// capability-matching key, NOT the value-resolution key.
         Canon: TypeKey
-        /// Typar order matches source.
-        Typars: EqArray<TyparKind>
+        Typars: TyparList
         /// The `.fs` `(# … #)` binding: `"System.IDisposable"` on the CLR, the sentinel
         /// `"!Vesper.disposable"` on a target with no interfaces. A bare `PlatformTypeId`, not
         /// an `IntrinsicPlatform`: a capability is minted only where its `.fs` binds the id.

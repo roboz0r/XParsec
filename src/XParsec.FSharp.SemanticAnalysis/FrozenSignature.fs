@@ -181,7 +181,7 @@ module FrozenSignature =
             | ExportedTypeDecl td ->
                 let typeKey = td.TypeKey
                 let key = SymbolKey.Type typeKey
-                let typars = TTypeParam.kinds td.TypeParams
+                let typars = TyparList.ofSeq td.TypeParams
                 let arity = typars.Length
                 let origin = originIn typeKey.Namespace
 
@@ -360,7 +360,7 @@ module FrozenSignature =
                                     Canon = typeKey
                                     // An intrinsic BINDING is `type x = (# "…" #)`, whose typars
                                     // are the structural constructors' (`'T []`, `byref`).
-                                    Typars = TyparKinds.typeOnly typeKey.TyparArity
+                                    Typars = TyparList.positional typeKey.TyparArity
                                     Platform = IntrinsicPlatform.Bound binding.TypeId
                                 }
                             Class =
@@ -376,7 +376,7 @@ module FrozenSignature =
                     ExternalTypeShape.Intrinsic(
                         IntrinsicShape.Scalar(
                             typeKey,
-                            TyparKinds.typeOnly typeKey.TyparArity,
+                            TyparList.positional typeKey.TyparArity,
                             IntrinsicPlatform.Bound binding.TypeId
                         )
                     )

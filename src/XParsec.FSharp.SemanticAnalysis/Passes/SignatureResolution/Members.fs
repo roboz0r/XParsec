@@ -350,7 +350,7 @@ module SignatureResolutionMembers =
                 EqArray.empty
                 (fun () ->
                     {
-                        Typars = DeclaredTypar.kinds typeParams
+                        Typars = TyparList.ofSeq (TTypeParam.ofDeclared typeParams)
                         Commitment = ClassCommitment.ofIsInterface isInterface
                         Members =
                             (if isInterface then

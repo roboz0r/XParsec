@@ -116,7 +116,7 @@ let private vesperTypeClaims (name: string) : (int * TyparKind list) list =
     | ValueSome container ->
         [
             for struct (key, shape) in (scope.TypesNamed(container, name)).Underlying ->
-                key.TyparArity, EqArray.toList shape.TyparKinds
+                key.TyparArity, EqArray.toList (TyparList.kinds shape.Typars)
         ]
 
 // A measured numeric type is not a special form. FSharp.Core claims each numeric primitive
@@ -177,8 +177,14 @@ let tests =
                                 "namespace Vesper\n\ntype carrier<[<Measure>] 'u> = extern\n"
 
                         Expect.equal
-                            (EqArray.toList (SignatureResolutionTests.shapeOf r "carrier`1").TyparKinds)
-                            [ TyparKind.Measure ]
+                            (SignatureResolutionTests.shapeOf r "carrier`1").Typars
+                            (TyparList.ofSeq
+                                [
+                                    {
+                                        TTypeParam.Name = "'u"
+                                        Kind = TyparKind.Measure
+                                    }
+                                ])
                             "an extern primitive carries its declared kinds"
                     }
 
@@ -189,8 +195,14 @@ let tests =
                                 "namespace App\n\nmodule M =\n    type Carrier<[<Measure>] 'u>\n"
 
                         Expect.equal
-                            (EqArray.toList (SignatureResolutionTests.shapeOf r "Carrier`1").TyparKinds)
-                            [ TyparKind.Measure ]
+                            (SignatureResolutionTests.shapeOf r "Carrier`1").Typars
+                            (TyparList.ofSeq
+                                [
+                                    {
+                                        TTypeParam.Name = "'u"
+                                        Kind = TyparKind.Measure
+                                    }
+                                ])
                             "an opaque type carries its declared kinds"
                     }
                 ]

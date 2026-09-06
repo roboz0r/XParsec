@@ -417,8 +417,8 @@ module internal UnificationTranslate =
             unresolvedRefTy ctx site name
 
         /// `build` applied to the type-kinded arguments, measured by the measure-kinded one.
-        let apply (kinds: EqArray<TyparKind>) (build: EqArray<SemType> -> SemType) : SemType =
-            match readTypeArgs ctx site.Tok kinds args with
+        let apply (typars: TyparList) (build: EqArray<SemType> -> SemType) : SemType =
+            match readTypeArgs ctx site.Tok typars args with
             | ValueNone -> TyVar(ctx.FreshTyVar())
             | ValueSome reads ->
                 // A measure-kinded position holds a free placeholder; the measure lives on the
@@ -448,7 +448,7 @@ module internal UnificationTranslate =
         match ctx.Resolution.TypeRefVerdicts.TryGetValue site.Key with
         | ValueSome(TypeRefVerdict.LocalType claim) ->
             apply
-                claim.TyparKinds
+                claim.Typars
                 (fun typeArgs ->
                     match resolveClaimedType ctx site claim typeArgs with
                     | ValueSome ty -> ty
@@ -461,7 +461,7 @@ module internal UnificationTranslate =
             errorTy ctx site.Tok Kind.TypeExpectedNotMeasure
         | ValueSome(TypeRefVerdict.ExternalType(key, shape)) ->
             apply
-                shape.TyparKinds
+                shape.Typars
                 (fun typeArgs ->
                     match tryExternalTypeOfShape ctx key shape typeArgs with
                     | ValueSome ty -> ty
@@ -470,28 +470,28 @@ module internal UnificationTranslate =
         | ValueSome TypeRefVerdict.UnknownType
         | ValueNone ->
             match RuntimeNames.tryTargetOptionalPrimitiveKey name with
-            | ValueNone -> apply (TyparKinds.typeOnly args.Length) (fun _ -> unresolved ())
+            | ValueNone -> apply (TyparList.positional args.Length) (fun _ -> unresolved ())
             // A target-optional primitive (`nativeint`, `decimal`, `undefined`, …) resolves to
             // its language-known key on a stack that declares no contract for it; `PlatformTypes`
             // then reports each mention as unsupported on the compiling target.
             | ValueSome key ->
-                let known = RuntimeNames.targetOptionalPrimitiveKinds key
+                let known = RuntimeNames.targetOptionalPrimitiveTypars key
                 let bare = TyConst(key, EqArray.empty)
 
-                match known |> List.tryFind (fun kinds -> kinds.Length = args.Length) with
-                | Some kinds -> apply kinds (fun _ -> bare)
+                match known |> List.tryFind (fun typars -> typars.Length = args.Length) with
+                | Some typars -> apply typars (fun _ -> bare)
                 | None ->
-                    let nearest = known |> List.minBy (fun kinds -> abs (kinds.Length - args.Length))
+                    let nearest = known |> List.minBy (fun typars -> abs (typars.Length - args.Length))
                     ctx.Report(site.Tok, Kind.TypeArgArity(name, nearest.Length, args.Length))
                     bare
 
-    /// The written `args` read by the kind of the parameter each fills, one of `kinds` per
+    /// The written `args` read by the kind of the parameter each fills, one of `typars` per
     /// argument. `ValueNone` after FS0704 (a measure filling a type parameter) or FS0705 (a
     /// type filling a measure parameter), reported at the argument.
     and private readTypeArgs
         (ctx: PassContext)
         (nameTok: SyntaxToken)
-        (kinds: EqArray<TyparKind>)
+        (typars: TyparList)
         (args: ImmutableArray<TypeArg<SyntaxToken>>)
         : EqArray<TypeArgRead> voption =
         let readArg (kind: TyparKind) (arg: TypeArg<SyntaxToken>) : TypeArgRead voption =
@@ -515,14 +515,14 @@ module internal UnificationTranslate =
                     ctx.Report(tok, Kind.MeasureExpected)
                     ValueNone
 
-        if kinds.Length <> args.Length then
+        if typars.Length <> args.Length then
             failwithf
                 "type reference '%s' resolved to %d parameters for %d written arguments"
                 (ctx.NameOf nameTok)
-                kinds.Length
+                typars.Length
                 args.Length
 
-        let reads = Array.init args.Length (fun i -> readArg kinds.[i] args.[i])
+        let reads = Array.init args.Length (fun i -> readArg typars.Order.[i].Kind args.[i])
 
         if reads |> Array.exists ValueOption.isNone then
             ValueNone

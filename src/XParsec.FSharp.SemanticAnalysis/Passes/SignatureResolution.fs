@@ -93,7 +93,7 @@ module SignatureResolution =
                 key
                 (ExternalTypeShape.Record
                     {
-                        Typars = DeclaredTypar.kinds info.TypeParams
+                        Typars = TyparList.ofSeq (TTypeParam.ofDeclared info.TypeParams)
                         Fields = fields
                         Origin = SymbolOrigin.Empty
                         IsValueType = info.IsValueType
@@ -149,7 +149,7 @@ module SignatureResolution =
                 key
                 (ExternalTypeShape.Union
                     {
-                        Typars = DeclaredTypar.kinds info.TypeParams
+                        Typars = TyparList.ofSeq (TTypeParam.ofDeclared info.TypeParams)
                         Cases = cases
                         Interfaces = interfaces
                         Origin = SymbolOrigin.Empty
@@ -185,7 +185,7 @@ module SignatureResolution =
             id.Key
             (ExternalTypeShape.Abbrev
                 {
-                    Typars = DeclaredTypar.kinds info.TypeParams
+                    Typars = TyparList.ofSeq (TTypeParam.ofDeclared info.TypeParams)
                     Body = body
                 })
 
@@ -223,7 +223,7 @@ module SignatureResolution =
         publishShape
             sctx
             id.Key
-            (ExternalTypeShape.Intrinsic(IntrinsicShape.Scalar(canon, typarKindsOfTypeName ctx tn, platform)))
+            (ExternalTypeShape.Intrinsic(IntrinsicShape.Scalar(canon, typarListOfTypeName ctx tn, platform)))
 
     // --- `extern` -------------------------------------------------------------------------
 
@@ -315,7 +315,7 @@ module SignatureResolution =
     let private publishCapability
         (sctx: SigCtx)
         (id: TypeIdentity)
-        (typars: EqArray<TyparKind>)
+        (typars: TyparList)
         (platform: IntrinsicPlatform)
         (surface: BodiedSurface voption)
         : unit =
@@ -387,7 +387,7 @@ module SignatureResolution =
     let private publishExternPrimitive
         (sctx: SigCtx)
         (id: TypeIdentity)
-        (typars: EqArray<TyparKind>)
+        (typars: TyparList)
         (platform: IntrinsicPlatform)
         (classSurface: IntrinsicClassSurface voption)
         (members: seq<ExternalMember>)
@@ -450,7 +450,7 @@ module SignatureResolution =
         let typars =
             match surface with
             | ValueSome s -> s.Shape.Typars
-            | ValueNone -> typarKindsOfTypeName ctx tn
+            | ValueNone -> typarListOfTypeName ctx tn
 
         match form with
         | ExternForm.Capability -> publishCapability sctx id typars platform surface
@@ -492,7 +492,7 @@ module SignatureResolution =
             sctx
             id.Key
             (ExternalTypeShape.Class(
-                ExternalClassShape.basic (typarKindsOfTypeName sctx.Pass tn, ClassCommitment.Opaque, SymbolOrigin.Empty)
+                ExternalClassShape.basic (typarListOfTypeName sctx.Pass tn, ClassCommitment.Opaque, SymbolOrigin.Empty)
             ))
 
     /// The unmodelled forms refused at their own declaration, matching the implementation
@@ -521,7 +521,7 @@ module SignatureResolution =
         let (TypeName(ident = nameLi)) = tn
 
         if nameLi.Idents.Length = 1 then
-            let typars = typarKindsOfTypeName ctx tn
+            let typars = typarListOfTypeName ctx tn
             let name = ctx.NameOf nameLi.Idents.[0]
 
             let key =

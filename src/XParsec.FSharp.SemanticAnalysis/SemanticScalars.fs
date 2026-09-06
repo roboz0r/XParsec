@@ -207,16 +207,118 @@ type TyparKind =
     | Type
     | Measure
 
-[<RequireQualifiedAccess>]
-module TyparKinds =
+/// A declared type parameter as the frozen contract carries it.
+type TTypeParam =
+    {
+        /// Source-text name, leading `'`/`^` included (`'a`).
+        Name: string
+        Kind: TyparKind
+    }
 
-    /// `n` type-kinded parameters. Valid only where the declaration form carries no
-    /// `[<Measure>]` to read: a CLR metadata row, a TypeScript declaration, an
-    /// inference-minted typar.
-    let typeOnly (n: int) : EqArray<TyparKind> =
+/// A type parameter's name.
+[<RequireQualifiedAccess>]
+type TyparName =
+    /// Source text, leading `'`/`^` included (`'a`).
+    | Written of string
+    /// The `i`th parameter of a declaration known only by arity: a TypeScript manifest export,
+    /// an intrinsic binding, an unresolved reference.
+    | Positional of int
+
+/// A type-kinded parameter.
+type TypeTypar = { Name: TyparName }
+
+/// A measure-kinded parameter (`[<Measure>] 'u`).
+type MeasureTypar = { Name: TyparName }
+
+/// One source-order position of a `TyparList`: an index into `Types` or into `Measures`.
+[<RequireQualifiedAccess>]
+type TyparSlot =
+    | Type of int
+    | Measure of int
+
+    member this.Kind: TyparKind =
+        match this with
+        | Type _ -> TyparKind.Type
+        | Measure _ -> TyparKind.Measure
+
+/// A declaration's type parameters, type-kinded and measure-kinded apart.
+type TyparList =
+    {
+        Types: EqArray<TypeTypar>
+        Measures: EqArray<MeasureTypar>
+        /// Source order, one slot per parameter.
+        Order: EqArray<TyparSlot>
+    }
+
+    /// The arity: one per parameter of either kind.
+    member this.Length: int = this.Order.Length
+
+    member this.IsEmpty: bool = this.Order.IsEmpty
+
+[<RequireQualifiedAccess>]
+module TyparList =
+
+    let empty: TyparList =
+        {
+            Types = EqArray.empty
+            Measures = EqArray.empty
+            Order = EqArray.empty
+        }
+
+    /// Each parameter's kind, in source order.
+    let kinds (typars: TyparList) : EqArray<TyparKind> =
+        typars.Order |> EqArray.map (fun s -> s.Kind)
+
+    /// The list over written parameters in source order.
+    let ofSeq (typars: seq<TTypeParam>) : TyparList =
+        let types = ResizeArray<TypeTypar>()
+        let measures = ResizeArray<MeasureTypar>()
+        let order = ResizeArray<TyparSlot>()
+
+        for p in typars do
+            match p.Kind with
+            | TyparKind.Type ->
+                order.Add(TyparSlot.Type types.Count)
+
+                types.Add
+                    {
+                        TypeTypar.Name = TyparName.Written p.Name
+                    }
+            | TyparKind.Measure ->
+                order.Add(TyparSlot.Measure measures.Count)
+
+                measures.Add
+                    {
+                        MeasureTypar.Name = TyparName.Written p.Name
+                    }
+
+        {
+            Types = EqArray.ofSeq types
+            Measures = EqArray.ofSeq measures
+            Order = EqArray.ofSeq order
+        }
+
+    /// Type-kinded parameters under the written names.
+    let typeOnly (names: seq<string>) : TyparList =
+        ofSeq (seq { for n in names -> { Name = n; Kind = TyparKind.Type } })
+
+    /// `n` type-kinded parameters, positionally named.
+    let positional (n: int) : TyparList =
         match n with
-        | 0 -> EqArray.empty
-        | n -> EqArray.ofArray (Array.create n TyparKind.Type)
+        | 0 -> empty
+        | n ->
+            {
+                Types =
+                    EqArray.init
+                        n
+                        (fun i ->
+                            {
+                                TypeTypar.Name = TyparName.Positional i
+                            }
+                        )
+                Measures = EqArray.empty
+                Order = EqArray.init n TyparSlot.Type
+            }
 
 /// A type parameter as a declaration binds it. `TyVar` is a prototype; every use site
 /// substitutes a fresh variable for it.
@@ -237,7 +339,13 @@ module DeclaredTypar =
 
     let names (typars: EqArray<DeclaredTypar>) : EqArray<string> = typars |> EqArray.map (fun t -> t.Name)
 
-    let kinds (typars: EqArray<DeclaredTypar>) : EqArray<TyparKind> = typars |> EqArray.map (fun t -> t.Kind)
+[<RequireQualifiedAccess>]
+module TTypeParam =
+
+    let ofDeclared (ts: EqArray<DeclaredTypar>) : EqArray<TTypeParam> =
+        ts |> EqArray.map (fun t -> { Name = t.Name; Kind = t.Kind })
+
+    let names (ps: EqArray<TTypeParam>) : EqArray<string> = ps |> EqArray.map (fun p -> p.Name)
 
 /// A generalized scheme bound INSIDE one frozen body, numbered densely within that body.
 /// OPAQUE and BODY-RELATIVE: it resolves against no file, pool or side table.

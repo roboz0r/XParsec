@@ -58,7 +58,7 @@ let private cyclicSymbols: ICodegenSymbols * FrozenType =
     let shape =
         ExternalTypeShape.Record
             {
-                Typars = EqArray.empty
+                Typars = TyparList.empty
                 Fields =
                     EqArray.singleton
                         { ExternalFieldShape.create ("Again", false) with

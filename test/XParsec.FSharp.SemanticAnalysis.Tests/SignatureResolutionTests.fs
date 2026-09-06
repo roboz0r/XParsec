@@ -207,7 +207,7 @@ let tests =
                             SymbolKeyOps.typeKeyOfArity "Dep" "Widget" 1,
                             ExternalTypeShape.Union
                                 {
-                                    Typars = TyparKinds.typeOnly 1
+                                    Typars = TyparList.positional 1
                                     Cases = EqArray.empty
                                     Interfaces = EqArray.empty
                                     Origin = SymbolOrigin.Empty
@@ -1203,7 +1203,7 @@ let tests =
                         ExternalTypeShape.Intrinsic(
                             IntrinsicShape.Scalar(
                                 canon,
-                                TyparKinds.typeOnly 0,
+                                TyparList.empty,
                                 IntrinsicPlatform.Bound(PlatformTypeId "System.Int32")
                             )
                         )

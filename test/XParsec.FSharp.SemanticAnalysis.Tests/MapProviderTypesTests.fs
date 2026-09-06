@@ -53,7 +53,7 @@ let private typeByName (name: string) : ExternalTypeShape voption =
     | "Cls" ->
         ValueSome(
             ExternalTypeShape.Class
-                { ExternalClassShape.basic (TyparKinds.typeOnly 0, ClassCommitment.Class, origin) with
+                { ExternalClassShape.basic (TyparList.empty, ClassCommitment.Class, origin) with
                     Members = EqArray.singleton markerMember
                     FrozenInterfaces =
                         EqArray.singleton (
@@ -67,7 +67,7 @@ let private typeByName (name: string) : ExternalTypeShape voption =
         ValueSome(
             ExternalTypeShape.Record
                 {
-                    Typars = TyparKinds.typeOnly 1
+                    Typars = TyparList.positional 1
                     Fields =
                         EqArray.singleton
                             {
@@ -84,7 +84,7 @@ let private typeByName (name: string) : ExternalTypeShape voption =
         ValueSome(
             ExternalTypeShape.Union
                 {
-                    Typars = TyparKinds.typeOnly 1
+                    Typars = TyparList.positional 1
                     Cases = EqArray.singleton markerCase
                     Interfaces =
                         EqArray.singleton (
@@ -99,7 +99,7 @@ let private typeByName (name: string) : ExternalTypeShape voption =
         ValueSome(
             ExternalTypeShape.Abbrev
                 {
-                    Typars = TyparKinds.typeOnly 1
+                    Typars = TyparList.positional 1
                     Body = marker
                 }
         )

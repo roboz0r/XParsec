@@ -35,6 +35,7 @@
     <Compile Include="UnificationOverloadsTests.fs" />
     <Compile Include="ElaborateTests.fs" />
     <Compile Include="EqSetTests.fs" />
+    <Compile Include="TyparListTests.fs" />
     <Compile Include="RecordFieldClassifierTests.fs" />
     <Compile Include="FrozenTypeTests.fs" />
     <Compile Include="FrozenTypeTableTests.fs" />

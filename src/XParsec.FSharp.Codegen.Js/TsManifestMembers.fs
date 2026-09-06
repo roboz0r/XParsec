@@ -186,7 +186,7 @@ module internal TsManifestMembers =
                 declared,
                 ExternalTypeShape.Class
                     {
-                        Typars = TyparKinds.typeOnly tp
+                        Typars = TyparList.positional tp
                         Commitment = ClassCommitment.ofIsInterface isInterface
                         Members = mems
                         FrozenInterfaces = frozenInterfaces
@@ -215,7 +215,7 @@ module internal TsManifestMembers =
                 mint nsPath name tp,
                 ExternalTypeShape.Abbrev
                     {
-                        Typars = TyparKinds.typeOnly tp
+                        Typars = TyparList.positional tp
                         Body = toFrozen ctx target
                     }
             )
@@ -311,7 +311,7 @@ module internal TsManifestMembers =
             declared,
             ExternalTypeShape.Class
                 {
-                    Typars = EqArray.empty
+                    Typars = TyparList.empty
                     Commitment = ClassCommitment.Interface
                     Members = members
                     FrozenInterfaces = EqArray.empty
@@ -417,7 +417,7 @@ module internal TsManifestMembers =
             declared,
             ExternalTypeShape.Class
                 {
-                    Typars = EqArray.empty
+                    Typars = TyparList.empty
                     Commitment = ClassCommitment.Class
                     Members = members
                     FrozenInterfaces = EqArray.empty

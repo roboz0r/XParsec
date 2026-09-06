@@ -367,24 +367,6 @@ type TTypeKindG<'ty, 'tok, 'id, 'body> =
     /// nothing for this kind.
     | Measure of term: MeasureTerm
 
-/// A declared type parameter as the frozen contract carries it.
-type TTypeParam =
-    {
-        /// Source-text name, leading `'`/`^` included (`'a`).
-        Name: string
-        Kind: TyparKind
-    }
-
-[<RequireQualifiedAccess>]
-module TTypeParam =
-
-    let ofDeclared (ts: EqArray<DeclaredTypar>) : EqArray<TTypeParam> =
-        ts |> EqArray.map (fun t -> { Name = t.Name; Kind = t.Kind })
-
-    let names (ps: EqArray<TTypeParam>) : EqArray<string> = ps |> EqArray.map (fun p -> p.Name)
-
-    let kinds (ps: EqArray<TTypeParam>) : EqArray<TyparKind> = ps |> EqArray.map (fun p -> p.Kind)
-
 /// `'body` abstracts how a member/preamble/ctor BODY is carried: either the expression tree
 /// itself (`TExprG<'ty,'tok,'id>`) or a dense id identifying that expression in a pool.
 type TTypeDeclG<'ty, 'tok, 'id, 'body> =

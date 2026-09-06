@@ -60,9 +60,7 @@ type private CountingProvider(name: string) =
 
             if key.Name = name then
                 ValueSome(
-                    ExternalTypeShape.Class(
-                        ExternalClassShape.basic (TyparKinds.typeOnly 0, ClassCommitment.Class, origin)
-                    )
+                    ExternalTypeShape.Class(ExternalClassShape.basic (TyparList.empty, ClassCommitment.Class, origin))
                 )
             else
                 ValueNone
