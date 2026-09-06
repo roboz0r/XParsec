@@ -10,7 +10,8 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 // Freeze publishes an inline binding as `FrozenType` under a `SymbolKey` minted from its
 // declaring module chain; the thaw mints one fresh cell per distinct frozen leaf. A body-local
-// leaf `FTLocalTypar(scheme, index)` is BODY-relative, so two files' `SchemeId`s may collide.
+// leaf `FTTypar(LocalFunction binding, index)` is FILE-relative, so two files'
+// `LocalBindingId`s may collide.
 
 let private frozenConstraintTypes (clauses: TStaticOptClauseG<FrozenType, 'tok, 'id> list) : FrozenType list =
     [
@@ -43,32 +44,33 @@ let private distinctLeaves
     List.iter walk tys
     List.ofSeq acc
 
-/// The distinct body-local leaves `FTLocalTypar(scheme, index)` of `tys`, in
+/// The distinct body-local leaves `FTTypar(LocalFunction binding, index)` of `tys`, in
 /// first-occurrence pre-order.
-let private localLeavesIn (tys: FrozenType list) : (SchemeId * int) list =
+let private localLeavesIn (tys: FrozenType list) : (LocalBindingId * int) list =
     distinctLeaves
         FrozenType.iterChildren
         (fun t ->
             match t with
-            | FTLocalTypar(scheme, i) -> ValueSome(scheme, i)
+            | FTTypar(TyparScope.LocalFunction binding, i) -> ValueSome(binding, i)
             | _ -> ValueNone
         )
         tys
 
+/// Whether `t` carries a typar of the binding's own scope, a body-local one excluded.
 let rec private hasFTTypar (t: FrozenType) : bool =
     match t with
+    | FTTypar(TyparScope.LocalFunction _, _) -> false
     | FTTypar _ -> true
     | t -> FrozenType.existsChild hasFTTypar t
 
-/// The distinct typar leaves of `tys`, quantified (`FTTypar`) or body-local
-/// (`FTLocalTypar`), in first-occurrence pre-order. The leaf value IS its identity.
+/// The distinct typar leaves of `tys`, quantified or body-local, in first-occurrence
+/// pre-order. The leaf value IS its identity.
 let private typarLeavesIn (tys: FrozenType list) : FrozenType list =
     distinctLeaves
         FrozenType.iterChildren
         (fun t ->
             match t with
-            | FTTypar _
-            | FTLocalTypar _ -> ValueSome t
+            | FTTypar _ -> ValueSome t
             | _ -> ValueNone
         )
         tys
@@ -185,12 +187,6 @@ let private kindOfUnit (ns: string) (moduleName: string) =
             "        when ^T : ^T    = 0"
         ]
 
-/// Re-express a published body's decl type as a symbol `Scheme`: a `let inline`'s own typars
-/// are carried on the METHOD axis, while an `ExternalSymbol.Scheme` bakes a free function's
-/// onto the DECLARING axis. Positional, so index order is preserved.
-let private asSymbolScheme (ft: FrozenType) : FrozenType =
-    FrozenTypeBridge.reaxisTo TyparAxis.Declaring ft
-
 /// The symbol's `TyparArity`: one past the highest typar index the template references.
 let rec private typarArity (ft: FrozenType) : int =
     match ft with
@@ -236,7 +232,9 @@ let private publishing (unitASource: string) : IExternalSymbolProvider =
                     | SymbolKey.Binding b -> b
                     | other -> failtestf "a published inline value is not a binding key: %A" other
 
-                let scheme = asSymbolScheme declTy
+                // A `let inline`'s decl type IS its symbol scheme: both are written under the
+                // binding's own scope.
+                let scheme = declTy
 
                 ExternalSymbols.scheme binding.Decl binding.Name scheme (typarArity scheme) []
                 |> PublishedSurfaceBuilder.addValue b
@@ -364,7 +362,12 @@ let tests =
                 Expect.equal frozenTys.Length 6 "every clause constraint survives the freeze conversion"
 
                 Expect.isTrue
-                    (frozenTys |> List.exists (fun t -> t = FTTypar(TyparAxis.Method, 0)))
+                    (frozenTys
+                     |> List.exists (fun t ->
+                         match t with
+                         | FTFunctionTypar 0 -> true
+                         | _ -> false
+                     ))
                     "the constraint's typar is a frozen leaf, not a copied SemType cell"
 
                 Expect.isEmpty
@@ -386,24 +389,24 @@ let tests =
                 // by an index that happens to differ.
                 let leaves = collectTys fDecl |> localLeavesIn
 
-                Expect.isNonEmpty leaves "the body-local schemes' own roots reach freeze as FTLocalTypar"
+                Expect.isNonEmpty leaves "the body-local schemes' own roots reach freeze as LocalFunction typars"
 
                 let schemes = leaves |> List.map fst |> List.distinct
 
                 Expect.equal
                     schemes.Length
                     2
-                    "two locally-generalized lets ⇒ leaves with two DISTINCT scheme ids (the old FTUnknown name conflated them)"
+                    "two locally-generalized lets ⇒ leaves with two DISTINCT binding ids (the old FTUnknown name conflated them)"
 
                 Expect.equal
                     leaves.Length
                     2
-                    "…and two distinct (scheme, index) pairs, because each local scheme quantifies exactly one typar here"
+                    "…and two distinct (binding, index) pairs, because each local scheme quantifies exactly one typar here"
 
                 // The USE-SITE instantiations (the four occurrences in `(g, g, h, h)`) ARE
                 // in `f`'s type, so they are mapped onto the ordinary declared axis and `f`'s
                 // own type carries no residue at all.
-                Expect.isTrue (hasFTTypar declTy) "f's own type names its use-site instantiations on the FTTypar axis"
+                Expect.isTrue (hasFTTypar declTy) "f's own type names its use-site instantiations under f's own scope"
 
                 Expect.isEmpty
                     (localLeavesIn [ declTy ])
@@ -432,13 +435,14 @@ let tests =
                 Expect.equal
                     twice
                     once
-                    "two freezes of the same source yield identical (scheme, index) leaves, in the same order"
+                    "two freezes of the same source yield identical (binding, index) leaves, in the same order"
             }
 
-            test "freeze/thaw: colliding scheme ids across two files do not conflate, because the leaf is body-relative" {
-                // A `SchemeId` is an ordinal minted per frozen body, so two files' ids collide
-                // freely. These are DIFFERENT programs, each with one local scheme, so both
-                // land on the SAME `SchemeId`.
+            test
+                "freeze/thaw: colliding binding ids across two files do not conflate, because the leaf is file-relative" {
+                // A `LocalBindingId` is minted per file in generalisation order, so two files'
+                // ids collide freely. These are DIFFERENT programs, each with one local scheme,
+                // so both land on the SAME `LocalBindingId`.
                 let declaring =
                     String.concat "\n" [ "let a () ="; "    let p = fun x -> x"; "    (p, p)" ]
 
@@ -458,12 +462,12 @@ let tests =
                 Expect.equal
                     (fst pLeaves.Head)
                     (fst cLeaves.Head)
-                    "the two files' local schemes collide on the same SchemeId (an id is body-relative by design)"
+                    "the two files' local schemes collide on the same LocalBindingId (an id is file-relative by design)"
 
                 Expect.equal
                     pLeaves.Head
                     cLeaves.Head
-                    "…so the two frozen leaves are structurally EQUAL across files. That is not a bug: a frozen typar leaf is only ever interpreted against the template carrying it, exactly as FTTypar(Declaring, 0) is."
+                    "…so the two frozen leaves are structurally EQUAL across files. That is not a bug: a local typar leaf is only ever interpreted against the template carrying it."
 
                 // A `TyVarId` indexes ONE store, so route the consumer's own inference AND
                 // both thaws through a SINGLE store: a leaf-keyed conflation then surfaces as

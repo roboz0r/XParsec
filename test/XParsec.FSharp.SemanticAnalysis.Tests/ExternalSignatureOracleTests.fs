@@ -4,8 +4,9 @@ open Expecto
 open XParsec.FSharp.SemanticAnalysis
 
 // Each case is a HAND-WRITTEN `FrozenType` template paired with the `SemType` it must
-// instantiate to on `groundArgs`. `instantiateDeclaring` maps `FTTypar(Declaring,i)` to
-// `declaringArgs.[i]`; `instantiateSignature` also freshens the method axis to `TyVar`s.
+// instantiate to on `groundArgs`. `instantiateDeclaring` maps `FTTypar(Type _, i)` to
+// `declaringArgs.[i]`; `instantiateSignature` also freshens the member's own typars to
+// `TyVar`s.
 
 /// Ground (`TyVar`-free, `TyTypar`-free) types for the declaring args, so `instantiate*`
 /// produces structurally-comparable `SemType`s — a `TyVar` would defeat `=`.
@@ -19,9 +20,16 @@ let private groundArgs: SemType[] =
 let private kRec = SymbolKeyOps.qualifiedTypeKeyOf "Test.Box" 1
 let private kUnion = SymbolKeyOps.qualifiedTypeKeyOf "Test.Option" 1
 
-/// The declaring-typar template `FTTypar(Declaring, i)`, which must instantiate to
+/// The scope the templates' typars are written under.
+let private oracleKey = SymbolKeyOps.qualifiedTypeKeyOf "Oracle.Decl" 1
+
+/// The declaring-typar template `FTTypar(Type _, i)`, which must instantiate to
 /// `groundArgs.[i]`.
-let private d (i: int) : FrozenType = FTTypar(TyparAxis.Declaring, i)
+let private d (i: int) : FrozenType = FTTypar(TyparScope.Type oracleKey, i)
+
+/// A member's own typar `i`.
+let private m (i: int) : FrozenType =
+    FTTypar(TyparScope.Member(oracleKey, MemberOrdinal 0), i)
 
 /// Name, declaring arity, template, and the `SemType` `instantiateDeclaring` must yield
 /// on `groundArgs`. None bake a method typar.
@@ -118,8 +126,8 @@ let tests =
                     TestHelpers.mkSignature
                         1
                         2
-                        (FTTuple(EqArray.ofList [ d 0; FTTypar(TyparAxis.Method, 0) ]))
-                        (FTTuple(EqArray.ofList [ FTTypar(TyparAxis.Method, 0); FTTypar(TyparAxis.Method, 1) ]))
+                        (FTTuple(EqArray.ofList [ d 0; m 0 ]))
+                        (FTTuple(EqArray.ofList [ m 0; m 1 ]))
 
                 let m: ExternalMember =
                     { TestHelpers.mkMember "genericMethod" with
@@ -280,11 +288,7 @@ let tests =
                         false
                         1
                         1
-                        (TestHelpers.mkSignature
-                            1
-                            1
-                            (FTTypar(TyparAxis.Method, 0))
-                            (FTTuple(EqArray.ofList [ d 0; FTTypar(TyparAxis.Method, 0) ])))
+                        (TestHelpers.mkSignature 1 1 (m 0) (FTTuple(EqArray.ofList [ d 0; m 0 ])))
                         None
                 ]
 

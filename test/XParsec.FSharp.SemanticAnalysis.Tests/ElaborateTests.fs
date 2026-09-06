@@ -14,6 +14,22 @@ let private declType (tast: TastFile) : SemType =
     | EqList [ TDecl.Let(m, _, _) ] -> m.Ty
     | _ -> failwithf "expected single TDecl.Let, got %A" tast.Decls
 
+
+/// The marker of `key`'s own typar `i`.
+let private declTypar (key: TypeKey) (i: int) : SemType = TyTypar(TyparScope.Type key, i)
+
+/// The marker of `m`'s own typar `i`, scoped by the class `m.ThisTy` names and `m.Ordinal`.
+let private memberTypar (m: TTypeMember) (i: int) : SemType =
+    match m.ThisTy with
+    | SemType.TyClass(key, _) -> TyTypar(TyparScope.Member(key, m.Ordinal), i)
+    | other -> failtestf "expected a class self type, got %A" other
+
+/// Asserts `actual` is a module function's own typar `index`, whatever its binding key.
+let private expectFunctionTypar (index: int) (actual: SemType) (msg: string) : unit =
+    match actual with
+    | TyTypar(TyparScope.ModuleFunction _, i) when i = index -> ()
+    | other -> failtestf "%s: expected a module function typar %d, got %A" msg index other
+
 [<Tests>]
 let tests =
     testList
@@ -436,7 +452,7 @@ let interfaceTests =
 
                         Expect.equal
                             m.Signature
-                            (TyFun(TyTypar(TyparAxis.Declaring, 0), TyTypar(TyparAxis.Declaring, 1)))
+                            (TyFun(declTypar td.TypeKey 0, declTypar td.TypeKey 1))
                             "Invoke signature"
                     | other -> failtestf "expected one interface method, got %A" other
                 | other -> failtestf "expected single TDecl.Type, got %A" other
@@ -444,7 +460,7 @@ let interfaceTests =
 
             // An abstract method may carry its OWN generic parameters (`abstract Map<'B> : 'A ->
             // 'B`). `'B` is not a free typar: it surfaces in `MethodTypeParams` and appears in
-            // the signature on the `Method` axis, distinct from the declaring type's `'A`.
+            // the signature under the member's scope, distinct from the declaring type's `'A`.
             test "generic abstract method surfaces its own typars distinct from the declaring type's" {
                 let tast =
                     analyse "namespace Vesper\n\ntype Mapper<'A> =\n    abstract member Map<'B> : arg: 'A -> 'B"
@@ -463,7 +479,7 @@ let interfaceTests =
 
                         Expect.equal
                             m.Signature
-                            (TyFun(TyTypar(TyparAxis.Declaring, 0), TyTypar(TyparAxis.Method, 0)))
+                            (TyFun(declTypar td.TypeKey 0, TyTypar(TyparScope.Member(td.TypeKey, MemberOrdinal 0), 0)))
                             "Map signature 'A -> 'B"
                     | other -> failtestf "expected one interface method, got %A" other
                 | other -> failtestf "expected single TDecl.Type, got %A" other
@@ -479,10 +495,10 @@ let interfaceTests =
 
                 match declType tast with
                 | TyFun(xTy, TyFun(yTy, TyTuple(EqList [ rx; ry ]))) ->
-                    Expect.equal xTy (TyTypar(TyparAxis.Method, 1)) "x : 'a is Method 1 (declared second)"
-                    Expect.equal yTy (TyTypar(TyparAxis.Method, 0)) "y : 'b is Method 0 (declared first)"
-                    Expect.equal rx (TyTypar(TyparAxis.Method, 1)) "tuple .0 is 'a (Method 1)"
-                    Expect.equal ry (TyTypar(TyparAxis.Method, 0)) "tuple .1 is 'b (Method 0)"
+                    expectFunctionTypar 1 xTy "x : 'a is typar 1 (declared second)"
+                    expectFunctionTypar 0 yTy "y : 'b is typar 0 (declared first)"
+                    expectFunctionTypar 1 rx "tuple .0 is 'a (typar 1)"
+                    expectFunctionTypar 0 ry "tuple .1 is 'b (typar 0)"
                 | other -> failtestf "expected 'a -> 'b -> ('a * 'b), got %A" other
             }
 
@@ -494,8 +510,8 @@ let interfaceTests =
 
                 match declType tast with
                 | TyFun(xTy, TyFun(yTy, _)) ->
-                    Expect.equal xTy (TyTypar(TyparAxis.Method, 0)) "x : 'a is Method 0"
-                    Expect.equal yTy (TyTypar(TyparAxis.Method, 1)) "y : 'b is Method 1"
+                    expectFunctionTypar 0 xTy "x : 'a is typar 0"
+                    expectFunctionTypar 1 yTy "y : 'b is typar 1"
                 | other -> failtestf "expected 'a -> 'b -> _, got %A" other
             }
         ]
@@ -534,14 +550,14 @@ let memberTyparOrderTests =
 
                 match EqArray.toList m.Params with
                 | [ (_, xTy); (_, yTy) ] ->
-                    Expect.equal xTy (TyTypar(TyparAxis.Method, 0)) "x (body-inferred) is Method 0"
-                    Expect.equal yTy (TyTypar(TyparAxis.Method, 1)) "y : 'a is Method 1"
+                    Expect.equal xTy (memberTypar m 0) "x (body-inferred) is typar 0"
+                    Expect.equal yTy (memberTypar m 1) "y : 'a is typar 1"
                 | other -> failtestf "expected two params, got %A" other
 
                 Expect.equal
                     m.ReturnTy
-                    (TyTuple(EqArray.ofList [ TyTypar(TyparAxis.Method, 0); TyTypar(TyparAxis.Method, 1) ]))
-                    "returns (x * y) = (Method 0 * Method 1)"
+                    (TyTuple(EqArray.ofList [ memberTypar m 0; memberTypar m 1 ]))
+                    "returns (x * y) = (typar 0 * typar 1)"
 
                 Expect.equal
                     [ for (n, _) in m.MethodTypeParams -> n ]
@@ -556,8 +572,8 @@ let memberTyparOrderTests =
 
                 match EqArray.toList m.Params with
                 | [ (_, xTy); (_, yTy) ] ->
-                    Expect.equal xTy (TyTypar(TyparAxis.Method, 0)) "x : 'a (declared) is Method 0"
-                    Expect.equal yTy (TyTypar(TyparAxis.Method, 1)) "y (body-inferred) is Method 1"
+                    Expect.equal xTy (memberTypar m 0) "x : 'a (declared) is typar 0"
+                    Expect.equal yTy (memberTypar m 1) "y (body-inferred) is typar 1"
                 | other -> failtestf "expected two params, got %A" other
 
                 Expect.equal
@@ -627,13 +643,10 @@ let unionCaseSyntaxTests =
                     match cons.Fields with
                     | EqList [ (hn, ht); (tn, tt) ] ->
                         Expect.equal hn (ValueSome "Head") "first field named Head"
-                        Expect.equal ht (TyTypar(TyparAxis.Declaring, 0)) "Head : 'T"
+                        Expect.equal ht (declTypar td.TypeKey 0) "Head : 'T"
                         Expect.equal tn (ValueSome "Tail") "second field named Tail"
 
-                        Expect.equal
-                            tt
-                            (TyUnion("List", EqArray.singleton (TyTypar(TyparAxis.Declaring, 0))))
-                            "Tail : List<'T>"
+                        Expect.equal tt (TyUnion("List", EqArray.singleton (declTypar td.TypeKey 0))) "Tail : List<'T>"
                     | other -> failtestf "expected two named Cons fields, got %A" other
                 | other -> failtestf "unexpected unions: %A" other
             }
@@ -679,11 +692,11 @@ let listAbbrevTests =
 
                     match cons.Fields with
                     | EqList [ (_, ht); (_, tt) ] ->
-                        Expect.equal ht (TyTypar(TyparAxis.Declaring, 0)) "Head : 'T"
+                        Expect.equal ht (declTypar td.TypeKey 0) "Head : 'T"
 
                         Expect.equal
                             tt
-                            (TyUnion("List", EqArray.singleton (TyTypar(TyparAxis.Declaring, 0))))
+                            (TyUnion("List", EqArray.singleton (declTypar td.TypeKey 0)))
                             "Tail : List<'T> via the abbrev"
                     | other -> failtestf "expected two Cons fields, got %A" other
                 | other -> failtestf "unexpected unions: %A" other

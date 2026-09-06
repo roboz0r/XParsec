@@ -220,6 +220,7 @@ module FrozenCodecDecls =
         writeMethodTypeParams w m.MethodTypeParams
         writeEqSetWith w writeFrozenConstraint m.MethodTyparConstraints
         writeTAttributes w m.Attributes
+        writeMemberOrdinal w m.Ordinal
 
     // Each `interfaces` entry pairs a resolved interface type with its typed member
     // bodies. Shared by the class / union / record arms.
@@ -262,9 +263,11 @@ module FrozenCodecDecls =
         let methodTypeParams = readMethodTypeParams r
         let methodTyparConstraints = readEqSetWith r readFrozenConstraint
         let attributes = readTAttributes r
+        let ordinal = readMemberOrdinal r
 
         {
             Name = name
+            Ordinal = ordinal
             IsStatic = isStatic
             Accessibility = accessibility
             IsInline = isInline

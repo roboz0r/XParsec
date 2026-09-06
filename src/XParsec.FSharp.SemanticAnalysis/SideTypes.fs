@@ -47,16 +47,16 @@ type TyparConstraintKindG<'ty> =
     /// `when 'a : delegate<args, ret>`.
     | Delegate of args: 'ty * ret: 'ty
 
-/// A typar constraint on a generic declaration, declared or inferred. `TyparIndex` is on the
-/// owner's axis: the declaring axis for a type declaration's typars, the method axis for a
-/// binding's, a member's or an abstract slot's own typars.
+/// A typar constraint on a generic declaration, declared or inferred. `TyparIndex` indexes
+/// the owner's own typars: a type declaration's, or a binding's, a member's or an abstract
+/// slot's.
 type TyparConstraintG<'ty> =
     {
         TyparIndex: int
         Kind: TyparConstraintKindG<'ty>
     }
 
-/// A typar constraint whose embedded types are frozen, with typar leaves `FTTypar(axis, i)`.
+/// A typar constraint whose embedded types are frozen, with typar leaves `FTTypar(scope, i)`.
 type FrozenConstraint = TyparConstraintG<FrozenType>
 
 module TyparConstraintKind =
@@ -156,9 +156,9 @@ module TyparConstraint =
         | TyparConstraintKindG.Enum _
         | TyparConstraintKindG.Delegate _ -> ValueNone
 
-/// A generalised binding's typar scheme: its method-axis arity and its constraints, in
-/// source order. Every constraint's `TyparIndex`, and every `FTTypar(Method, i)` referenced
-/// by a constraint's type, is below `TyparArity`.
+/// A generalised binding's typar scheme: its arity and its constraints, in source order.
+/// Every constraint's `TyparIndex`, and every function typar referenced by a constraint's
+/// type, is below `TyparArity`.
 type GenericFnScheme =
     private
         {
@@ -177,7 +177,7 @@ module GenericFnScheme =
     let create (arity: int) (constraints: EqSet<FrozenConstraint>) : GenericFnScheme =
         let rec checkType (t: FrozenType) =
             match t with
-            | FTTypar(TyparAxis.Method, i) when i >= arity ->
+            | FTFunctionTypar i when i >= arity ->
                 failwithf "GenericFnScheme: constraint references method typar %d, arity %d" i arity
             | t -> FrozenType.iterChildren checkType t
 

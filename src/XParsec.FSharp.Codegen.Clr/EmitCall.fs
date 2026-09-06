@@ -164,9 +164,7 @@ module EmitCall =
                     List.iter2
                         (fun (a: TastAccessor.AppliedArg) (_, slotTys) ->
                             match env.ClosureValueTypeByNode.TryGetValue a.Arg, slotTys with
-                            | (true, closureFt), [ FTTypar(TyparAxis.Method, idx) ] when
-                                idx >= 0 && idx < instArr.Length
-                                ->
+                            | (true, closureFt), [ FTFunctionTypar idx ] when idx >= 0 && idx < instArr.Length ->
                                 instArr.[idx] <- ValueSome closureFt
                             | _ -> ()
                         )

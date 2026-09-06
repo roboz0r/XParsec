@@ -109,7 +109,7 @@ type TEnumCaseG<'tok> =
     }
 
 /// One field of a `TTypeKind.Record`. `Type` carries the field's declared type, which for a generic
-/// record uses the declaring type's typar markers (`TyTypar(Declaring, i)`). `IsMutable` is the
+/// record uses the declaring type's typar markers (`TyTypar(Type _, i)`). `IsMutable` is the
 /// source-level `mutable` annotation.
 type TRecordFieldG<'ty> =
     {
@@ -168,6 +168,9 @@ module TMemberKind =
 type TTypeMemberG<'ty, 'id, 'body> =
     {
         Name: string
+        /// The member's position in its type's declaration order, the `ordinal` of its
+        /// `TyparScope.Member`.
+        Ordinal: MemberOrdinal
         IsStatic: bool
         Accessibility: Accessibility
         IsInline: bool
@@ -189,7 +192,7 @@ type TTypeMemberG<'ty, 'id, 'body> =
         /// the declaring type's `TypeParams`. Each entry pairs the source name with the
         /// typar's own type.
         MethodTypeParams: EqArray<string * 'ty>
-        /// The constraints on `MethodTypeParams`, declared or inferred, indexed on the method axis.
+        /// The constraints on `MethodTypeParams`, declared or inferred, indexed into it.
         MethodTyparConstraints: EqSet<TyparConstraintG<'ty>>
         /// The member's attributes, resolved and constant-folded.
         Attributes: TAttributes
@@ -298,13 +301,13 @@ type TBaseG<'ty, 'id, 'body> =
 
 /// `Signature` is the curried function type. `MethodTypeParams` are the method's own generic
 /// parameters in source order (`["'C"]` for `abstract Map<'C> : 'A -> 'C`): the names as written,
-/// whereas in `Signature` they appear as `TyTypar(Method, i)`, the declaring type's as
-/// `TyTypar(Declaring, i)`.
+/// whereas in `Signature` they appear as `TyTypar(Member(owner, ordinal), i)`, the declaring
+/// type's as `TyTypar(Type owner, i)`.
 type TAbstractMethodG<'ty> =
     {
         Name: string
         MethodTypeParams: EqArray<string>
-        /// The constraints on `MethodTypeParams`, indexed on the method axis.
+        /// The constraints on `MethodTypeParams`, indexed into it.
         MethodTyparConstraints: EqSet<TyparConstraintG<'ty>>
         Signature: 'ty
         /// The argument names the signature spells, one per source argument across every
@@ -379,8 +382,8 @@ type TTypeDeclG<'ty, 'tok, 'id, 'body> =
         TypeKey: TypeKey
         /// Declared type parameters in source order.
         TypeParams: EqArray<TTypeParam>
-        /// The constraints on `TypeParams`, declared or inferred from a member body, indexed on
-        /// the declaring axis.
+        /// The constraints on `TypeParams`, declared or inferred from a member body, indexed
+        /// into it.
         TyparConstraints: EqSet<TyparConstraintG<'ty>>
         Kind: TTypeKindG<'ty, 'tok, 'id, 'body>
         /// The declaration's attributes, resolved and constant-folded. The equality /

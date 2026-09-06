@@ -67,7 +67,8 @@ module UnificationSubsume =
 
     /// The ground type of member `name` on record / interface / class `t` (for `T[K]`), or
     /// `ValueNone` when `t` is not a known nominal or has no such member. A read-only fold
-    /// query: `openSignature` leaves method typars as `TyTypar(Method,j)`, minting no vars.
+    /// query: `openSignature` leaves a member's own typars as `TyTypar(Member _, j)`, minting
+    /// no vars.
     let private groundMemberType (ctx: PassContext) (t: SemType) (name: string) : SemType voption =
         match resolveStep ctx.Store t with
         | TyRecord(key, args) ->

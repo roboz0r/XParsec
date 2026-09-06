@@ -225,16 +225,9 @@ module FrozenCodecPrimitives =
     let writeAnchor (w: FrozenWriter) (a: Anchor) = w.Write(Anchor.toStored a)
     let readAnchor (r: FrozenReader) : Anchor = Anchor.ofStored (r.ReadInt32())
 
-    let writeTyparAxis (w: FrozenWriter) (a: TyparAxis) =
-        match a with
-        | TyparAxis.Declaring -> w.Write 0uy
-        | TyparAxis.Method -> w.Write 1uy
+    let writeMemberOrdinal (w: FrozenWriter) (MemberOrdinal ordinal) = w.Write ordinal
 
-    let readTyparAxis (r: FrozenReader) : TyparAxis =
-        match r.ReadByte() with
-        | 0uy -> TyparAxis.Declaring
-        | 1uy -> TyparAxis.Method
-        | b -> failwithf "FrozenCodec: unknown TyparAxis tag %d" b
+    let readMemberOrdinal (r: FrozenReader) : MemberOrdinal = MemberOrdinal(r.ReadInt32())
 
     let writeTyparKind (w: FrozenWriter) (k: TyparKind) =
         match k with

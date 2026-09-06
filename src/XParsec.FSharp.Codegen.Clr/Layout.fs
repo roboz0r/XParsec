@@ -180,21 +180,28 @@ module internal Layout =
                 let root
                     (td: TastAccessor.TypeDecl)
                     (methodTypars: int)
+                    (memberScope: TyparScope voption)
                     (body: TastAccessor.ExprId)
                     : EmitClosures.MemberClosureRoot =
                     {
                         DeclaringTypars = td.TypeParams.Length
                         MethodTypars = methodTypars
+                        Enclosing =
+                            {
+                                Type = ValueSome td.TypeKey
+                                Function = memberScope
+                            }
                         Body = body
                     }
 
                 let memberRoot (td: TastAccessor.TypeDecl) (m: TastAccessor.TypeMember) =
-                    root td m.MethodTypeParams.Length m.Body
+                    root td m.MethodTypeParams.Length (ValueSome(TyparScope.Member(td.TypeKey, m.Ordinal))) m.Body
 
+                // A preamble initialiser runs in the constructor, which has no typars of its own.
                 let preambleRoot (td: TastAccessor.TypeDecl) (entry: TastAccessor.PreambleEntry) =
                     match entry with
-                    | TPreambleEntryG.Let l -> root td 0 l.Init
-                    | TPreambleEntryG.Do e -> root td 0 e
+                    | TPreambleEntryG.Let l -> root td 0 ValueNone l.Init
+                    | TPreambleEntryG.Do e -> root td 0 ValueNone e
 
                 for ud in partitioned.Unions do
                     for m in ud.Members -> memberRoot ud.Decl m

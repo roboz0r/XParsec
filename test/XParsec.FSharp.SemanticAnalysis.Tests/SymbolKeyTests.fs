@@ -194,8 +194,8 @@ let tests =
 let memberKeyIdentity =
     let cKey = SymbolKeyOps.qualifiedTypeKeyOf "C" 1 // the OPEN `C<'T>`
     let ftInt: FrozenType = FTConst(RuntimeNames.intKey, EqArray.empty)
-    let declTypar: FrozenType = FTTypar(TyparAxis.Declaring, 0)
-    let methodTypar: FrozenType = FTTypar(TyparAxis.Method, 0)
+    let declTypar: FrozenType = FTTypar(TyparScope.Type cKey, 0)
+    let methodTypar: FrozenType = FTTypar(TyparScope.Member(cKey, MemberOrdinal 0), 0)
 
     let mk (argSig: FrozenType list) (methodTyparArity: int) : MemberKey =
         SymbolKeyOps.memberKeyOf cKey "M" (EqArray.ofList argSig) methodTyparArity MemberKind.Method
@@ -208,7 +208,7 @@ let memberKeyIdentity =
             }
 
             // On `C<'T>`, `M(x:'T)`, `M<'U>(x:'U)` and `M(x:int)` coexist as three overloads.
-            test "the FTTypar axis separates declaring / method / concrete param types" {
+            test "the FTTypar scope separates declaring / method / concrete param types" {
                 let mDecl = mk [ declTypar ] 0
                 let mMethod = mk [ methodTypar ] 1
                 let mConcrete = mk [ ftInt ] 0
@@ -217,7 +217,7 @@ let memberKeyIdentity =
                 Expect.notEqual mMethod mConcrete "method-typar arg <> concrete int arg"
             }
 
-            // A `'T`-typed param at a `C<int>` use site is STILL `FTTypar(Declaring, 0)`.
+            // A `'T`-typed param at a `C<int>` use site is STILL `FTTypar(Type C, 0)`.
             test "argSig is keyed on the OPEN declaring form, not an instantiation" {
                 Expect.equal
                     (mk [ declTypar ] 0)

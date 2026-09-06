@@ -74,7 +74,7 @@ module SignatureResolution =
         match TypeRegistry.tryRecordByKey ctx.Types key with
         | ValueNone -> ()
         | ValueSome info ->
-            let env = typarEnv ctx (TyparOwner.Type info.TypeParams)
+            let env = typarEnv ctx (TyparOwner.Type(key, info.TypeParams))
 
             let fields =
                 EqArray.ofSeq
@@ -118,7 +118,7 @@ module SignatureResolution =
         match TypeRegistry.tryUnionByKey ctx.Types key with
         | ValueNone -> ()
         | ValueSome info ->
-            let env = typarEnv ctx (TyparOwner.Type info.TypeParams)
+            let env = typarEnv ctx (TyparOwner.Type(key, info.TypeParams))
 
             let cases =
                 EqArray.ofSeq
@@ -140,7 +140,7 @@ module SignatureResolution =
             // A union's trailing `with interface <ty>` impls are carried on the shared
             // extension list; there is no union-specific parser field.
             let interfaces =
-                freezeInterfaces sctx info.TypeParams (interfaceSpecsOf extensionElems)
+                freezeInterfaces sctx key info.TypeParams (interfaceSpecsOf extensionElems)
 
             let members = resolveBodyMembers sctx key info.TypeParams extensionElems
 
@@ -173,7 +173,7 @@ module SignatureResolution =
         let ctx = sctx.Pass
 
         let info = TypeRegistry.abbrevOfClaim ctx.Types id
-        let env = typarEnv ctx (TyparOwner.Type info.TypeParams)
+        let env = typarEnv ctx (TyparOwner.Type(id.Key, info.TypeParams))
 
         let body =
             match info.TryFilled with
@@ -658,7 +658,9 @@ module SignatureResolution =
                 let domains, ret =
                     underTypars ctx EqArray.empty typeParams (fun () -> translateSigGroups ctx csig)
 
-                let env = typarEnv ctx (TyparOwner.Value typeParams)
+                let env =
+                    typarEnv ctx (TyparOwner.Value(SymbolKeyOps.bindingKeyOf decl name, typeParams))
+
                 let template = freezeOver ctx env (curriedFunTy domains ret)
 
                 let constraints =

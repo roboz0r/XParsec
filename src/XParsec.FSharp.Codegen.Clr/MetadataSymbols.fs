@@ -12,9 +12,32 @@ open XParsec.FSharp.SemanticAnalysis
 // signature templates via `System.Reflection.MetadataLoadContext`.
 
 /// `System.Type` → `FrozenType` template mapping, over the declaring type's generic
-/// parameters (`FTTypar(Declaring,i)`; method-owned ones as `FTTypar(Method,j)`).
+/// parameters (`FTTypar(Type _, i)`; method-owned ones as `FTTypar(Member _, j)`).
 /// A shape that doesn't map yields `None`.
 module private MetadataMapping =
+
+    /// The declaring type's `TypeKey`, built by recursion through `Type.DeclaringType`,
+    /// not by cutting `FullName` on `.` and `+`. `Type.Name` is the innermost METADATA
+    /// segment (bare name plus its own `` `N ``), which `typeKeyOfSegment` parses.
+    let rec declTypeKey (t: Type) : TypeKey =
+        let t =
+            if t.IsGenericType && not t.IsGenericTypeDefinition then
+                t.GetGenericTypeDefinition()
+            else
+                t
+
+        let container =
+            if t.IsNested then
+                TypeContainer.InType(declTypeKey t.DeclaringType)
+            else
+                let ns = if isNull t.Namespace then "" else t.Namespace
+                TypeContainer.InNamespace(SymbolKeyOps.namespaceKey ns)
+
+        SymbolKeyOps.typeKeyOfSegment container t.Name
+
+    /// A method's `MemberOrdinal`: its `MethodDef` row number, distinct within the assembly.
+    let methodOrdinal (m: MethodBase) : MemberOrdinal =
+        MemberOrdinal(m.MetadataToken &&& 0xFFFFFF)
 
     /// `intrinsics` reconciles a platform type id to its canon (`"System.Int32"` → `int`), so a
     /// BCL member's `System.Int32` parameter presents as `int` and is callable. A name it
@@ -38,9 +61,10 @@ module private MetadataMapping =
             let pos = t.GenericParameterPosition
 
             if isNull t.DeclaringMethod then
-                Some(FTTypar(TyparAxis.Declaring, pos))
+                Some(FTTypar(TyparScope.Type(declTypeKey t.DeclaringType), pos))
             else
-                Some(FTTypar(TyparAxis.Method, pos))
+                let m = t.DeclaringMethod
+                Some(FTTypar(TyparScope.Member(declTypeKey m.DeclaringType, methodOrdinal m), pos))
         elif t.IsGenericType then
             // Open generic has null `FullName`; this branch must precede the `FullName` match.
             let name = t.GetGenericTypeDefinition().FullName
@@ -81,7 +105,7 @@ module private MetadataMapping =
         else
             Some(paramTys |> Array.map Option.get, retTy.Value)
 
-    /// Method-axis generic-parameter count; `0` for a non-generic method.
+    /// The method's own generic-parameter count; `0` for a non-generic method.
     let methodTyparArityOf (m: MethodInfo) : int =
         if m.IsGenericMethodDefinition then
             m.GetGenericArguments().Length
@@ -213,24 +237,6 @@ module private MetadataMapping =
         : ExternalSignature =
         ExternalSignature.make (declaringTyparArity, methodTyparArity, parameters, ret)
 
-    /// The declaring type's `TypeKey`, built by recursion through `Type.DeclaringType`,
-    /// not by cutting `FullName` on `.` and `+`. `Type.Name` is the innermost METADATA
-    /// segment (bare name plus its own `` `N ``), which `typeKeyOfSegment` parses.
-    let rec declTypeKey (t: Type) : TypeKey =
-        let t =
-            if t.IsGenericType && not t.IsGenericTypeDefinition then
-                t.GetGenericTypeDefinition()
-            else
-                t
-
-        let container =
-            if t.IsNested then
-                TypeContainer.InType(declTypeKey t.DeclaringType)
-            else
-                let ns = if isNull t.Namespace then "" else t.Namespace
-                TypeContainer.InNamespace(SymbolKeyOps.namespaceKey ns)
-
-        SymbolKeyOps.typeKeyOfSegment container t.Name
 
 /// What one inheritance level has for a member name. A property or field `Owns` the name and
 /// hides every base member of it; methods are `Overloads` and combine with the levels below.
@@ -398,7 +404,7 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
         let origin = originOf t
         let declKey = MetadataMapping.declTypeKey t
         // The declaring type's typar count, the width of the signature
-        // template's declaring axis (`FTTypar(Declaring,i)`, `i < arity`).
+        // template's declaring slots (`FTTypar(Type _, i)`, `i < arity`).
         let arity =
             if t.IsGenericType then
                 t.GetGenericArguments().Length

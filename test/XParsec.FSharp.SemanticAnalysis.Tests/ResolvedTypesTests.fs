@@ -191,7 +191,7 @@ let tests =
 
             test "a clean file freezes no unresolved-typar sentinel" {
                 // The shape `freezeTy`'s doc once cited as a TOLERATED residual: `g` is
-                // generalised, so its root is quantified and reaches `FTLocalTypar`.
+                // generalised, so its root is quantified and reaches a `LocalFunction` typar.
                 let sentinels =
                     (freezeFor "let f () = let g = fun x -> x in (g, g)").Types.Rows.Types
                     |> Seq.filter (fun r ->

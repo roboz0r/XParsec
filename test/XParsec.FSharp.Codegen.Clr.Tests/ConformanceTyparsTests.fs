@@ -104,7 +104,7 @@ let tests =
 
                 let rec reverseTypars (t: FrozenType) : FrozenType =
                     match t with
-                    | FTTypar(axis, i) -> FTTypar(axis, add.TyparArity - 1 - i)
+                    | FTTypar(scope, i) -> FTTypar(scope, add.TyparArity - 1 - i)
                     | t -> FrozenType.mapChildren reverseTypars t
 
                 let reversed =

@@ -10,37 +10,34 @@ open XParsec.FSharp.SemanticAnalysis.Passes
 [<RequireQualifiedAccess>]
 module Freeze =
 
-    /// Attribute each typar root to the body-local scheme that quantified it, and to its index
-    /// there. A non-generalized binding (the value restriction) keeps residual roots but has
-    /// no scheme, so it contributes none.
-    let private schemeBoundVars (ctx: PassContext) : Dictionary<TyVarId, struct (SchemeId * int)> =
-        let map = Dictionary<TyVarId, struct (SchemeId * int)>()
+    /// Each quantified typar root mapped to its body-local binding's `LocalBindingId` and its
+    /// index there. A non-generalised binding (the value restriction) keeps residual roots but
+    /// has no scheme, so it contributes none.
+    let private schemeBoundVars (ctx: PassContext) : Dictionary<TyVarId, struct (LocalBindingId * int)> =
+        let map = Dictionary<TyVarId, struct (LocalBindingId * int)>()
 
-        ctx.Bindings.Scheme.AsDictionary()
-        |> Seq.sortBy (fun (KeyValue(boundVar, _)) -> boundVar.Raw)
-        |> Seq.iteri (fun schemeIndex (KeyValue(_, entry)) ->
+        for KeyValue(_, entry) in ctx.Bindings.Scheme.AsDictionary() do
             match entry.Scheme with
             | ValueSome scheme ->
                 scheme.Quantified
-                |> Seq.iteri (fun i tv -> map.[(UnionFind.find ctx.Store tv).Id] <- struct (SchemeId schemeIndex, i))
+                |> Seq.iteri (fun i tv -> map.[(UnionFind.find ctx.Store tv).Id] <- struct (entry.Id, i))
             | ValueNone -> ()
-        )
 
         map
 
     /// A measured root freezes to its carrier's arity-1 claim over the measure. A `TyVar` root
-    /// quantified by some scheme becomes that scheme's `FTLocalTypar`. An unquantified root
+    /// quantified by a scheme becomes that binding's `LocalFunction` typar; an unquantified one
     /// freezes to `FTUnknown UnresolvedTypar`, the recovery value after `ResolvedTypes` reports it.
     let private freezeTy
         (store: TypeStore)
-        (schemes: Dictionary<TyVarId, struct (SchemeId * int)>)
+        (schemes: Dictionary<TyVarId, struct (LocalBindingId * int)>)
         (t: SemType)
         : FrozenType =
         let onVar (tv: TyVarId) : FrozenType =
             // Key on the union-find ROOT: two `TyVar` nodes in the same class are
-            // the same typar and must land on the same `FTLocalTypar`.
+            // the same typar and must land on the same leaf.
             match schemes.TryGetValue((UnionFind.find store tv).Id) with
-            | true, struct (scheme, index) -> FTLocalTypar(scheme, index)
+            | true, struct (binding, index) -> FTTypar(TyparScope.LocalFunction binding, index)
             | _ -> FTUnknown UnknownReason.UnresolvedTypar
 
         FrozenTypeBridge.freezeWith store onVar t

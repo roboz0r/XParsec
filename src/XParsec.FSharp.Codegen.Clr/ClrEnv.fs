@@ -6,9 +6,9 @@ open System.Reflection.Metadata
 open System.Reflection.Metadata.Ecma335
 open XParsec.FSharp.SemanticAnalysis
 
-/// A generic closure's registry entry. Every `FrozenType` field embeds the ENCLOSING method's
-/// `FTTypar(Method, i)`; encoding under a closure-typar scope re-projects those onto the
-/// closure class's own `!i`.
+/// A generic closure's registry entry. Every `FrozenType` field embeds the ENCLOSING
+/// function's `FTTypar(scope, i)`; encoding under a closure-typar scope re-projects those
+/// onto the closure class's own `!i`.
 type internal GenericClosureShape =
     {
         TyparCount: int
@@ -22,7 +22,7 @@ type internal GenericClosureShape =
     }
 
 /// One case of a generic user union: `Fields` in declaration order, each a
-/// `(metadata field name, declared type)` pair whose typars are `FTTypar(Declaring, i)`.
+/// `(metadata field name, declared type)` pair whose typars are `FTTypar(Type _, i)`.
 type internal GenericUnionCase =
     {
         Name: string
@@ -617,9 +617,9 @@ type internal ClrEnv
             ValueSome(toEntity (ctx.TypeRef(externalAsmRef u.Origin.Home, key.Namespace.Dotted, simple)), u)
         | ValueNone -> ValueNone
 
-    // `ValueNone` ⇒ off: a `FTTypar(Method, i)` encodes to the method's own `!!i`. `ValueSome d`
+    // `ValueNone` ⇒ off: a function typar `i` encodes to the method's own `!!i`. `ValueSome d`
     // ⇒ inside a closure's own emission, where the enclosing class's typars hold the closure's
-    // first `d` slots, so `FTTypar(Method, j)` lands at `!(d + j)` (a static-fn closure has d = 0).
+    // first `d` slots, so a function typar `j` lands at `!(d + j)` (a static-fn closure has d = 0).
     let mutable closureTyparScope: int voption = ValueNone
 
     let rec uncurryTy (t: FrozenType) : FrozenType list * FrozenType =

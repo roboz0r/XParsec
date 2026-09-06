@@ -60,8 +60,8 @@ module Unification =
 
     /// The ABI order a member's own typars take, in canonical F# order: the explicitly-declared
     /// `<'C>` typars first (source order), then every remaining free root of `memberTy` by first
-    /// appearance. The declaring type's typars are FIXED — they are the type's axis, not the
-    /// method's — and a seed typar already linked to a concrete type is no longer one.
+    /// appearance. The declaring type's typars are FIXED, and a seed typar already linked to a
+    /// concrete type is no longer one.
     let private canonicalMemberTypars
         (ctx: PassContext)
         (declTypars: EqArray<DeclaredTypar>)
@@ -870,21 +870,21 @@ module Unification =
     /// and method-typar arity are an unreachable duplicate rather than a legal overload.
     /// `Show(int)` / `Show(string)` coexist; `M(int)` declared twice collides.
     let private checkDuplicateMembers (ctx: PassContext) : unit =
-        let checkHost (typeParams: EqArray<DeclaredTypar>) (members: TypeMemberInfo[]) =
+        let checkHost (declKey: TypeKey) (typeParams: EqArray<DeclaredTypar>) (members: TypeMemberInfo[]) =
             let seen = HashSet<_>(HashIdentity.Structural)
 
             for m in members do
-                if not (seen.Add(UnificationInferOverload.memberSignatureKey ctx.Store typeParams m)) then
+                if not (seen.Add(UnificationInferOverload.memberSignatureKey ctx.Store declKey typeParams m)) then
                     ctx.Report(m.DeclSite.Tok, Kind.DuplicateMember m.Name)
 
         for kv in ctx.Types.Class do
-            checkHost kv.Value.TypeParams kv.Value.Body.Members
+            checkHost kv.Value.TypeKey kv.Value.TypeParams kv.Value.Body.Members
 
         for kv in ctx.Types.Union do
-            checkHost kv.Value.TypeParams kv.Value.Members
+            checkHost kv.Value.TypeKey kv.Value.TypeParams kv.Value.Members
 
         for kv in ctx.Types.Record do
-            checkHost kv.Value.TypeParams kv.Value.Members
+            checkHost kv.Value.TypeKey kv.Value.TypeParams kv.Value.Members
 
     let run (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : unit =
         // Recompute the same per-element `OpenScope` NameResolution did, from the same empty seed.

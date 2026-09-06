@@ -113,7 +113,8 @@ let tests =
             }
 
             test "a constraint whose type references a method typar past the arity is refused" {
-                let target = FTTypar(TyparAxis.Method, 1)
+                let target =
+                    FTTypar(TyparScope.ModuleFunction(SymbolKeyOps.bindingKeyOf (SymbolKeyOps.inNamespace "") "f"), 1)
 
                 Expect.throws
                     (fun () ->

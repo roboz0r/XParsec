@@ -704,7 +704,7 @@ type internal Assembler
             )
 
     // A generic closure enters closure-typar mode around every signature/body build, so
-    // the enclosing method's `FTTypar(Method, i)` re-projects onto this class's `!i`.
+    // the enclosing function's `FTTypar(scope, i)` re-projects onto this class's `!i`.
     member this.PrepareClosures(f: FileEmit) =
         for c in f.Layout.Closures do
             let captureFields = Dictionary<BoundVarId, EntityHandle>()
@@ -712,7 +712,7 @@ type internal Assembler
             // This closure's self-instantiation over its OWN typars (`!0 … !{n-1}`), for
             // the capture-field `MemberRef`s on its self-`TypeSpec`. A closure typar is
             // its own declaring typar, so this encodes `!i` at any closure-scope offset.
-            let selfArgs = [ for i in 0 .. c.Typars - 1 -> FTTypar(TyparAxis.Declaring, i) ]
+            let selfArgs = [ for i in 0 .. c.Typars - 1 -> FTTypar(closureScope c.Name, i) ]
 
             // A `Stack` closure's ctor does NOT chain `System.Object::.ctor`, because
             // value types have none. A captureless one's ctor is a bare `ret`: construction is
@@ -832,7 +832,7 @@ type internal Assembler
 
         let prepareStaticFn (fn: Emit.StaticFn) =
             // A generic static method's body / signature / locals embed
-            // `FTTypar(Method, i)`, which the encoder maps to `!!i` without an ambient window.
+            // `FTTypar(ModuleFunction _, i)`, which the encoder maps to `!!i`.
             let typarCount = fn.Scheme.TyparArity
 
             // Retype the body so a reference to a verdict module value, or an inline

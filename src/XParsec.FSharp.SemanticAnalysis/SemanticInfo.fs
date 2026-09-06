@@ -55,8 +55,9 @@ type MeasureTerm private (exponents: (TypeKey * Rational) list) =
 
             sb.ToString()
 
-/// `ArgSig` is written in the declaring type's OPEN typars (`FTTypar(Declaring, i)`), never
+/// `ArgSig` is written in the declaring type's OPEN typars (`FTTypar(Type Decl, i)`), never
 /// an instantiation: a key minted at a `C<int>` use site equals one from the open declaration.
+/// The member's own typars are `FTTypar(Member(Decl, ordinal), j)`.
 type MemberKey =
     {
         Decl: TypeKey
@@ -106,12 +107,9 @@ and FrozenType =
     | FTKeyOf of ty: FrozenType
     | FTIndexedAccess of objTy: FrozenType * index: FrozenType
     | FTConditional of FTConditionalPayload
-    /// An open type parameter of the enclosing generic definition; `index` is its position in
-    /// that axis's typar list, which is the order `freeze` quantifies in.
-    | FTTypar of axis: TyparAxis * index: int
-    /// Typar #`index` of a body-local `let`'s OWN generalized scheme (`let g = fun x -> x`
-    /// inside a decl), not the enclosing method's. Equate only by the whole `(scheme, index)`.
-    | FTLocalTypar of scheme: SchemeId * index: int
+    /// An open type parameter: `index` is its position in `scope`'s type-kinded typars, the
+    /// order `freeze` quantifies in.
+    | FTTypar of scope: TyparScope * index: int
     /// A position that resolved to no type shape, carried so `freeze` is total. `reason`
     /// identifies the producer; only some of them report a diagnostic at the source.
     | FTUnknown of reason: UnknownReason
@@ -201,7 +199,7 @@ type SemType =
     | TyUnknown of reason: UnknownReason
     /// An elaborated open type parameter. `freeze` rewrites every surviving `TyVar` to one, so
     /// afterwards no `TyVar` remains in any TAST `.ty` field.
-    | TyTypar of axis: TyparAxis * index: int
+    | TyTypar of scope: TyparScope * index: int
 
     /// A one-disjunct set collapses to the bare disjunct; `MkUnion []` is `never` (bottom).
     static member MkUnion(disjuncts: SemType seq) : SemType =
@@ -252,6 +250,24 @@ and [<Sealed>] TyDisjuncts private (disjuncts: EqSet<SemType>) =
         | _ -> false
 
     override _.GetHashCode() = hash disjuncts
+
+[<AutoOpen>]
+module TyparLeafPatterns =
+
+    /// A member's or a module function's own typar at `index`: the leaf a call site
+    /// instantiates and the CLR encodes as `!!index`.
+    [<return: Struct>]
+    let (|FTFunctionTypar|_|) (t: FrozenType) : int voption =
+        match t with
+        | FTTypar(scope, index) when scope.IsFunction -> ValueSome index
+        | _ -> ValueNone
+
+    /// The inference-side form of `FTFunctionTypar`.
+    [<return: Struct>]
+    let (|TyFunctionTypar|_|) (t: SemType) : int voption =
+        match t with
+        | TyTypar(scope, index) when scope.IsFunction -> ValueSome index
+        | _ -> ValueNone
 
 /// Captured SRTP member-trait clause; `MemberName` is the compiled name (`"op_Addition"`,
 /// `"Zero"`). `SupportTys` is the declared `(^T1 or ^T2)` support set, instantiated for

@@ -566,8 +566,8 @@ let analysedConformanceTests =
         ]
 
 // ---- Semantic typar-order conformance ---------------------------------
-// The `.fs`-inferred scheme (`FTTypar(Method, i)`) vs the `.fsi`-declared one
-// (`FTTypar(Declaring, i)`): positional, so `=` fails on a typar-ORDER difference.
+// The `.fs`-inferred scheme vs the `.fsi`-declared one, both under the binding's
+// `ModuleFunction` scope: positional, so `=` fails on a typar-ORDER difference.
 
 let private vesperSrcDir = Path.Combine(__SOURCE_DIRECTORY__, "..", "..", "src")
 
@@ -608,30 +608,32 @@ let private frozenOf (src: string) : FrozenPools =
         (LexedFile.ofText lexed)
         file
 
+/// The binding `f` of the implicit namespace, the scope its typars are written under.
+let private fKey = SymbolKeyOps.bindingKeyOf (SymbolKeyOps.inNamespace "") "f"
+
+/// `f`'s typar `i`.
+let private fTypar (i: int) : FrozenType =
+    FTTypar(TyparScope.ModuleFunction fKey, i)
+
 /// `val f: 'a -> 'b -> 'b` — the `.fsi` appearance-order scheme (`'a` = index 0).
-let private fScheme: FrozenType =
-    FTFun(FTTypar(TyparAxis.Declaring, 0), FTFun(FTTypar(TyparAxis.Declaring, 1), FTTypar(TyparAxis.Declaring, 1)))
+let private fScheme: FrozenType = FTFun(fTypar 0, FTFun(fTypar 1, fTypar 1))
 
 [<Tests>]
 let typarConformanceTests =
     testList
         "TyparConformance"
         [
-            // ---- Kernel: axis-normalized structural equality ----
+            // ---- Kernel: structural equality under one scope ----
 
-            test "schemesAgree: same order across Declaring/Method axes → agree" {
-                let declared =
-                    FTFun(FTTypar(TyparAxis.Declaring, 0), FTTypar(TyparAxis.Declaring, 1))
-
-                let inferred = FTFun(FTTypar(TyparAxis.Method, 0), FTTypar(TyparAxis.Method, 1))
-                Expect.isTrue (ConformanceTypars.schemesAgree declared inferred) "axis differs, order agrees"
+            test "schemesAgree: same order → agree" {
+                let declared = FTFun(fTypar 0, fTypar 1)
+                let inferred = FTFun(fTypar 0, fTypar 1)
+                Expect.isTrue (ConformanceTypars.schemesAgree declared inferred) "order agrees"
             }
 
             test "schemesAgree: swapped typar order → disagree" {
-                let declared =
-                    FTFun(FTTypar(TyparAxis.Declaring, 0), FTTypar(TyparAxis.Declaring, 1))
-
-                let inferred = FTFun(FTTypar(TyparAxis.Method, 1), FTTypar(TyparAxis.Method, 0))
+                let declared = FTFun(fTypar 0, fTypar 1)
+                let inferred = FTFun(fTypar 1, fTypar 0)
                 Expect.isFalse (ConformanceTypars.schemesAgree declared inferred) "reversed order disagrees"
             }
 
@@ -705,10 +707,7 @@ let typarConformanceTests =
                             ExternalSymbols.scheme
                                 (SymbolKeyOps.inNamespace "")
                                 "f"
-                                (FTFun(
-                                    FTTypar(TyparAxis.Declaring, 0),
-                                    FTFun(FTTypar(TyparAxis.Declaring, 1), FTTypar(TyparAxis.Declaring, 0))
-                                ))
+                                (FTFun(fTypar 0, FTFun(fTypar 1, fTypar 0)))
                                 2
                                 []
                         ]
@@ -719,6 +718,78 @@ let typarConformanceTests =
                 let mismatches = ConformanceTypars.checkFile contract tast
                 Expect.equal (List.length mismatches) 1 "the folded body disagrees with the contract"
                 Expect.equal mismatches.Head.Name "f" "the mismatch names f"
+            }
+        ]
+
+// ---- Homing a published generic MEMBER onto the implementation ---------------
+// A signature file numbers its members independently of the implementation, so a published
+// generic member's own typars are re-scoped onto the conforming `.fs` member before emission.
+
+/// The `.fs` type `C` of the implicit namespace.
+let private cKey = SymbolKeyOps.qualifiedTypeKeyOf "C" 0
+
+/// The `.fsi`-published overload the stub serves: an instance method with
+/// `methodTyparArity` own typars over already member-scoped `parameters` / `ret`.
+let private mkMember
+    (name: string)
+    (methodTyparArity: int)
+    (parameters: FrozenType)
+    (ret: FrozenType)
+    : ExternalMember =
+    { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf cKey name EqArray.empty 0 MemberKind.Method) with
+        Signature = mkSignature 0 methodTyparArity parameters ret
+    }
+
+[<Tests>]
+let memberTyparHomingTests =
+    testList
+        "MemberTyparHoming"
+        [
+            test "homing re-scopes a published generic member onto the implementation's ordinal" {
+                let tast = frozenOf "type C() =\n    member this.M<'a>(x: 'a) = x"
+                Expect.isEmpty tast.Residue.Diagnostics "no diagnostics"
+
+                // The surface is keyed by the type's resolved identity, as a `.fsi`'s is.
+                let implKey =
+                    let pool = TastPoolBuilder.openOver tast
+
+                    TastAccessor.roots pool
+                    |> Seq.pick (fun d ->
+                        match TastAccessor.declKind d with
+                        | DeclShape.Type -> Some (TastAccessor.declType d).TypeKey
+                        | _ -> None
+                    )
+
+                let sigTypar (i: int) : FrozenType =
+                    FTTypar(TyparScope.Member(implKey, MemberOrdinal 0), i)
+
+                let implTypar (i: int) : FrozenType =
+                    FTTypar(TyparScope.Member(implKey, MemberOrdinal 1), i)
+
+                // Keyed as `resolveMember` keys a signature member: over its own arg sig.
+                let published =
+                    let m = mkMember "M" 1 (sigTypar 0) (sigTypar 0)
+
+                    { m with
+                        Key =
+                            SymbolKeyOps.memberKeyOf
+                                implKey
+                                "M"
+                                (ExternalSignature.argSigOf m.Signature)
+                                1
+                                MemberKind.Method
+                    }
+
+                let surface =
+                    PublishedSurface.build (fun b -> TestHelpers.publishClass b implKey [ published ])
+
+                let homed = ConformanceTypars.rescopeToImplementation surface tast
+
+                match (PublishedSurface.toProvider homed).TryLookupMembers(implKey, "M") with
+                | EqOne m ->
+                    Expect.equal m.Signature.Return (implTypar 0) "the template follows the implementation's ordinal"
+                    Expect.equal (EqArray.toList m.Key.ArgSig) [ implTypar 0 ] "the key follows it too"
+                | other -> failtestf "expected the one published M, got %A" [ for m in other -> m.Name ]
             }
         ]
 

@@ -97,8 +97,9 @@ let rec private tyName (t: SemType) : string =
         + " : "
         + tyName c.WhenFalse
     | TyUnknown reason -> "?" + reason.Render
-    | TyTypar(TyparAxis.Declaring, i) -> "!" + string i
-    | TyTypar(TyparAxis.Method, i) -> "!!" + string i
+    | TyTypar(TyparScope.Type _, i) -> "!" + string i
+    | TyTypar(TyparScope.LocalFunction _, i) -> "!local" + string i
+    | TyTypar(_, i) -> "!!" + string i
 
 let private (|InfixOp|_|) (e: TExpr) =
     match e with
@@ -743,8 +744,9 @@ type private Renderer() =
                     + " : "
                     + tyStr c.WhenFalse
                 | TyUnknown reason -> "?" + reason.Render
-                | TyTypar(TyparAxis.Declaring, i) -> "!" + string i
-                | TyTypar(TyparAxis.Method, i) -> "!!" + string i
+                | TyTypar(TyparScope.Type _, i) -> "!" + string i
+                | TyTypar(TyparScope.LocalFunction _, i) -> "!local" + string i
+                | TyTypar(_, i) -> "!!" + string i
 
             push "type "
 

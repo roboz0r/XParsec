@@ -64,10 +64,14 @@ let private collect () : Collected =
                 visitFt p.Extends
                 visitFt p.WhenTrue
                 visitFt p.WhenFalse
-            | FTTypar _ -> ()
-            // Its scheme id addresses nothing outside the body that carried it, so there is
-            // nothing here to collect into any of the key corpora.
-            | FTLocalTypar _ -> ()
+            // A scope's keys reach the wire through the key tables, so they join the corpora;
+            // a local binding id addresses nothing outside the file that carried it.
+            | FTTypar(scope, _) ->
+                match scope with
+                | TyparScope.Type key
+                | TyparScope.Member(key, _) -> tks.Add key |> ignore
+                | TyparScope.ModuleFunction key -> sks.Add(SymbolKey.Binding key) |> ignore
+                | TyparScope.LocalFunction _ -> ()
             | FTUnknown _ -> ()
             | FTMeasure units ->
                 for (atom, _) in units.Exponents do
@@ -258,9 +262,17 @@ let private collect () : Collected =
             FTKeyOf ftRecord
             FTIndexedAccess(ftRecord, ftLitStr)
             ftCond
-            FTTypar(TyparAxis.Declaring, 0)
-            FTTypar(TyparAxis.Method, 3)
-            FTLocalTypar(SchemeId 7, 2)
+            FTTypar(TyparScope.Type tkList, 0)
+            FTTypar(TyparScope.Member(tkList, MemberOrdinal 4), 3)
+            FTTypar(
+                TyparScope.ModuleFunction
+                    {
+                        Decl = ModuleContainer.InModule modKey
+                        Name = "map"
+                    },
+                1
+            )
+            FTTypar(TyparScope.LocalFunction(LocalBindingId 7), 2)
             // One per `UnknownReason` case: the row shape differs per case, so a missing
             // sample is a codec arm nothing round-trips.
             FTUnknown(UnknownReason.UndefinedName "Missing.Thing")

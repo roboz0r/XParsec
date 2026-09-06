@@ -560,7 +560,7 @@ module internal NominalEmit =
         let paramTys = [ for (_, t) in mem.Params -> t ]
 
         // A generic method needs the `GENERIC` calling-convention header count; its
-        // own typars appear as `FTTypar(Method, i)` nodes, encoded `!!i`.
+        // own typars appear as `FTTypar(Member _, i)` nodes, encoded `!!i`.
         let signature =
             try
                 if returnsVoid && isGenericMethod then
@@ -786,7 +786,7 @@ module internal NominalEmit =
         prepareCoSlots asm td members userInterfaces
 
         // One `InterfaceImpl` handle per implemented interface. A generic interface arg
-        // (`IEnumerable<'T>`) carries its `'T` as `FTTypar(Declaring, i)`, encoded `!i`.
+        // (`IEnumerable<'T>`) carries its `'T` as `FTTypar(Type _, i)`, encoded `!i`.
         let interfaces =
             [
                 if structural.Equality then

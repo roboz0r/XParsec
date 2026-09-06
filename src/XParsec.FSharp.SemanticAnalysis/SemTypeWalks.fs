@@ -44,9 +44,25 @@ module FrozenType =
         | FTEnum _
         | FTLiteral _
         | FTTypar _
-        | FTLocalTypar _
         | FTUnknown _
         | FTMeasure _ -> t
+
+    /// Every `FTTypar` leaf replaced by `f scope index`.
+    let rec mapTypars (f: TyparScope -> int -> FrozenType) (t: FrozenType) : FrozenType =
+        match t with
+        | FTTypar(scope, index) -> f scope index
+        | t -> mapChildren (mapTypars f) t
+
+    /// `t` with every member-scoped typar rewritten under `scope`, index kept: the form two
+    /// members' signatures compare α-equivalent in.
+    let rescopeMemberTypars (scope: TyparScope) (t: FrozenType) : FrozenType =
+        mapTypars
+            (fun s i ->
+                match s with
+                | TyparScope.Member _ -> FTTypar(scope, i)
+                | _ -> FTTypar(s, i)
+            )
+            t
 
     /// Variance-tracking rebuild. `tryReplace v node` is consulted FIRST at every node,
     /// interior ones included: `ValueSome replacement` replaces `node` at variance `v` and
@@ -73,7 +89,6 @@ module FrozenType =
             | FTEnum _
             | FTLiteral _
             | FTTypar _
-            | FTLocalTypar _
             | FTUnknown _
             | FTMeasure _ -> t
 
@@ -100,7 +115,6 @@ module FrozenType =
         | FTEnum _
         | FTLiteral _
         | FTTypar _
-        | FTLocalTypar _
         | FTUnknown _
         | FTMeasure _ -> ()
 
@@ -120,7 +134,6 @@ module FrozenType =
         | FTEnum _
         | FTLiteral _
         | FTTypar _
-        | FTLocalTypar _
         | FTUnknown _
         | FTMeasure _ -> true
 
@@ -148,13 +161,19 @@ module FrozenType =
             | _ -> failwithf "FrozenType.MeasuredNominal: a nominal applied to several measures: %A" t
         | _ -> ValueNone
 
-    /// True when `a` and `b` share the same outermost type constructor: same case, and
-    /// for a nominal the same `key`; child structure is ignored. An `FTTypar` is a
-    /// WILDCARD matching anything: an open template slot accepts any instantiated shape.
+    let private isLocalScope (scope: TyparScope) : bool =
+        match scope with
+        | TyparScope.LocalFunction _ -> true
+        | _ -> false
+
+    /// True when `a` and `b` share the same outermost type constructor: same case, and for a
+    /// nominal the same `key`; child structure is ignored. A type's, member's or module
+    /// function's typar is a WILDCARD matching anything; a local typar matches only itself.
     let private sameTyCtor (a: FrozenType) (b: FrozenType) : bool =
         match a, b with
-        | FTTypar _, _
-        | _, FTTypar _ -> true
+        | FTTypar(TyparScope.LocalFunction s1, i1), FTTypar(TyparScope.LocalFunction s2, i2) -> s1 = s2 && i1 = i2
+        | FTTypar(scope, _), _
+        | _, FTTypar(scope, _) -> not (isLocalScope scope)
         | FTConst(k1, _), FTConst(k2, _) -> k1 = k2
         | FTRecord(k1, _), FTRecord(k2, _)
         | FTUnion(k1, _), FTUnion(k2, _)
@@ -169,9 +188,6 @@ module FrozenType =
         | FTConditional _, FTConditional _ -> true
         | FTUnknown r1, FTUnknown r2 -> r1 = r2
         | FTMeasure m1, FTMeasure m2 -> m1 = m2
-        // NOT a wildcard like `FTTypar`: no argument vector instantiates a local typar,
-        // so it matches only the same `(scheme, index)` pair, not index alone.
-        | FTLocalTypar(s1, i1), FTLocalTypar(s2, i2) -> s1 = s2 && i1 = i2
         | _ -> false
 
     /// PAIRWISE descent: `f` on each corresponding child of `a` and `b`. A case, type
@@ -212,7 +228,7 @@ module FrozenType =
 
                 for i in 0 .. n - 1 do
                     match xs.[i] with
-                    | FTTypar _ -> wildcards.Add xs.[i]
+                    | FTTypar(scope, _) when not (isLocalScope scope) -> wildcards.Add xs.[i]
                     | x ->
                         let candidates =
                             [

@@ -1,34 +1,49 @@
 # Type parameter scopes
 
-*Decision record, agreed 2026-09-05. Durable: it describes the domain model the code is to
-match, and it is revised rather than deleted when the code lands. F# verdicts were probed
-with `dotnet fsi` on the same day.*
+*Decision record, agreed 2026-09-05, revised 2026-09-06. Durable: it describes the domain
+model the code is to match, and it is revised rather than deleted when the code lands. F#
+verdicts were probed with `dotnet fsi` on the same days.*
 
 This document retires the terms **declaring-axis** and **method-axis**, and the
 `TyparAxis = Declaring | Method` type at `SemanticScalars.fs`, in favour of **typar scope**.
 
 ## The model
 
-A type parameter belongs to exactly one scope. Scopes nest lexically, in the same way
-`SymbolKey` nests containment.
+A type parameter belongs to exactly one scope. A scope is a *kind* of declaration and the
+type it hangs off, which is what every consumer of a leaf reads: the CLR encoder chooses
+`!i` or `!!j` by it, the wildcard rules and the instantiation seams branch on it. A scope
+is not an identity. The identity of the declaration a typar belongs to lives on that
+declaration's row, keyed as every other row is.
 
 ```fsharp
 type TyparScope =
     /// A type declaration's own typars.
     | Type of TypeKey
-    /// A member's own typars. Always nested in a `Type` scope.
-    | Member of owner: TypeKey * member: MemberOrdinal
+    /// A member's own typars, nested in `owner`'s `Type` scope.
+    | Member of owner: TypeKey
     /// A module-level `let`, including a top-level `let` in the implicit program module.
     | ModuleFunction of BindingKey
     /// An optional extension member's own typars (`type List<'T> with member xs.F<'U>`
-    /// in another module or assembly). `extension` is the `type … with` block; `member`
-    /// is the member's position within it. The extended type's typars are `Type extended`
+    /// in another module or assembly). The extended type's typars are `Type extended`
     /// leaves.
-    | Extension of extended: TypeKey * extension: ExtensionKey * member: MemberOrdinal
-    /// A generalised body-local `let`. `parent` is `Member`, `ModuleFunction`,
-    /// `Extension` or `LocalFunction`, never `Type`.
-    | LocalFunction of parent: TyparScope * LocalBindingId
+    | Extension of extended: TypeKey * ExtensionKey
+    /// A generalised body-local `let`, by the identity minted when it generalised.
+    | LocalFunction of LocalBindingId
 ```
+
+`Extension` is not yet in code: it waits for `ExtensionKey` and the type extension design.
+
+Two of a leaf's consumers compare it for equality: the frozen tree's structural equality
+and the codec. Neither needs `Member` to distinguish two members of one type. A member's
+own typars never coexist un-instantiated with another member's in one tree: a served
+inline body is instantiated before the host is frozen, and the CLR reads a member's own
+typar as `!!j` whatever the member. A `Member` scope that carried the member's declaration
+index was tried (`MemberOrdinal`, 2026-09-06) and retired: a signature file numbers its
+members independently of its implementation, so every comparison had to erase the index
+again, and the homed signature had to be re-scoped onto the implementation's numbering.
+`MemberOrdinal` survives only as the registration index inside NameResolution.
+
+### Lexical ownership
 
 The nesting is fixed by the language, so the chains are short:
 
@@ -36,18 +51,57 @@ The nesting is fixed by the language, so the chains are short:
 - `Type > Extension > LocalFunction*`
 - `ModuleFunction > LocalFunction*`
 
+The chain is recorded as ownership on the row, not as a parent inside the leaf. A local
+function is private to the member or module function whose body declares it, and it leaves
+that body only as part of it, so its owner is fixed at generalisation and never changes:
+
+```fsharp
+[<RequireQualifiedAccess>]
+type LocalOwner =
+    | Member of MemberKey
+    | ModuleFunction of BindingKey
+    | Local of LocalBindingId
+
+/// Every generalised local of the file, by owner. Recorded when the local generalises,
+/// carried by `FrozenPools`.
+LocalOwners : LocalBindingId -> LocalOwner
+```
+
+`MemberKey` can key the owner because the key is on the row, not in the leaf: `ArgSig`
+embeds the member's own leaves, and a leaf embedding the key would be a cycle, which is
+what `MemberOrdinal` was minted to avoid. The table answers two questions. Walked upward,
+which typars are visible at a local: its owner's, its owner's owner's, up to the `Type`.
+Walked downward from a member, which locals it owns: the capture and escape analysis that
+decides how a local is lowered reads this direction.
+
 F# forbids a type definition nested in a type, and a module carries no typars, so `Type`
-never nests in anything with typars. A leaf referring to a `Type` scope is therefore only
-valid under a `Member` or `Extension` chain, and the scope type makes the invalid case
-unrepresentable.
+never nests in anything with typars, and a `Type` leaf is valid only under a `Member` or
+`Extension` chain. The leaf shape does not express this; the freeze walk does, because a
+module function's body is frozen under a scope stack with no `Type` entry. A test pins it
+on a module function with a local.
 
-### MemberOrdinal
+### Local functions
 
-`MemberKey.ArgSig` is written in open typars, and a generic member's own typars appear in
-its own signature, so a scope key embedding `MemberKey` would embed the leaf that references
-it. `MemberOrdinal` is the member's stable declaration index within its type. Declaration
-order is stable for source, CLR `MethodDef` rows and TypeScript manifest entries. The primary
-constructor is a member and takes an ordinal like any other.
+A body-local `let` is generalised at its own `let`. F# forbids explicit typars on a local
+(`let g<'a> (y: 'a) = y` is FS0665), so a local's polymorphism is always implicit, and an
+annotated `'a` on a local is a generalisable placeholder rather than a declaration. All of
+these are accepted by `fsc` and print a two-typed pair:
+
+```fsharp
+let inline f1 (x: int) = let g y = y in (g x, g "a")
+let inline f2 (x: int) = let g (y: 'a) : 'a = y in (g x, g "a")
+let inline f3 (x: 'b)  = let g y = (y, x) in (g 1, g "a")     // 'b captured, not generalised
+let f4 (x: int)        = let g y = y in (g x, g "a")
+```
+
+Two consequences for this compiler. A served inline body carries its locals frozen under
+`LocalFunction` leaves, and the host must generalise each one again rather than mint one
+inference cell per local typar for the whole body, or the second use fails to unify. And a
+backend with typed signatures cannot closure-convert a generic local into a class with a
+fixed `Invoke`, because the local's typar has no slot there. The CLR lifts such a local to
+a generic static method whose method typars are the local's own, which is what `fsc`
+emits. The corpus programs `locals/local-poly.fs` and `inline/inline-local-poly.fs` pin
+both, with the CLR pending on them.
 
 ### Leaves
 
@@ -129,32 +183,38 @@ type FunctionScheme =
 
 A `let` in a class body before the members is one of two things:
 
-- a local binding of the primary constructor, in a `LocalFunction` scope under the
-  constructor's `Member` scope, when nothing after the constructor references it;
+- a local binding of the primary constructor, a `LocalFunction` owned by the constructor's
+  `MemberKey`, when nothing after the constructor references it;
 - a `private member` in its own right, with its own `Member` scope, when another member
   references it.
 
 ## Extension members and interface implementations
 
-An intrinsic extension, declared in the extended type's own unit, is a true member and takes
-a `MemberOrdinal` in that type's declaration order. An optional extension has no slot in that
-order, so it is its own TAST node, a type extension. Each member of the `type … with` block
-is an `Extension` scope keyed by the block and the member's ordinal within it, mirroring
-`Member`. Its `'T` is the extended type's `Type` leaf. Lowering it to a
+An intrinsic extension, declared in the extended type's own unit, is a true member of that
+type. An optional extension is its own TAST node, a type extension. Each member of the
+`type … with` block has an `Extension` scope keyed by the block, mirroring `Member`, and
+its own `MemberKey` on its row. Its `'T` is the extended type's `Type` leaf. Lowering it to a
 static method on a non-generic class, with the extended type's typars and the member's own
 both lifted onto the method, is the CLR encoder's concern, as the closure flattening at
 `ClrEncoder.fs` is; a future backend may lower it differently.
 
 An explicit interface implementation (`interface IProcess with member _.Run<'T>()`) is a
-`Member` of the implementing type, with an ordinal in that type's declaration order. The
-interface's abstract slot is a separate `Member` of the interface; matching the two is
-conformance, not scoping.
+`Member` of the implementing type. The interface's abstract slot is a `Member` of the
+interface; matching the two is conformance, not scoping.
 
 ## What changes, by site
 
 - `TyparAxis` and both `FTTypar` axes: replaced by `TyparScope`. The Extractor and Manifest
   schema carry the old words in diagnostic codes (`method-axis-typar-erased`) and comments.
 - `FTLocalTypar` and `SchemeId`: folded into `FTTypar` with a `LocalFunction` scope.
+- `MemberOrdinal` outside NameResolution: `TTypeMemberG.Ordinal` becomes `Key: MemberKey`;
+  the codec field, `ClassMemberDeclaring.OrdinalOf`, `MetadataSymbols.methodOrdinal`, the
+  manifest translator's `InMember` and the `resolveMember` ordinal parameter are deleted,
+  with `ConformanceTypars.rescopeToImplementation`, `FrozenType.rescopeMemberTypars` and
+  `UnificationInferOverload.comparisonScope`.
+- `LocalOwners` on `FrozenPools`, written at generalisation.
+- `InlineThaw`: a served local is generalised again in the host, not instantiated once.
+- The CLR closure conversion: a generic local lifts to a generic static method.
 - `TyparConstraintG.TyparIndex` and the flat `EqSet<TyparConstraintG>` on decls
   (`TastDecl.fs` `MethodTyparConstraints`, `TyparConstraints`): replaced by per-typar
   `ConstraintSet`.
@@ -162,7 +222,9 @@ conformance, not scoping.
 - `MeasureTerm` atoms: `TypeKey` widens to `MeasureAtom`.
 - `ExternalConstraint`: `Encodable` and `Default` move into the typar's `ConstraintSet`,
   `MemberTrait` into `FunctionScheme.Traits`.
-- `ConformanceTypars.normAxisTo` and `toDeclaringAxis`: re-expressed as a scope substitution.
+- `ConformanceTypars.normAxisTo` and `toDeclaringAxis`: deleted. A `.fsi` scheme and its
+  `.fs` scheme are both written under the binding's `ModuleFunction` scope, so conformance
+  is equality.
 - `FrozenCodec` rows for typar axis and kind: re-encoded over the new shapes.
 
 ## Measure arguments

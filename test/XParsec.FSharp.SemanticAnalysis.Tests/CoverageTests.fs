@@ -907,10 +907,19 @@ let tests =
                 | TTypeKind.Class c ->
                     Expect.equal c.CtorParams.Length 1 "one ctor param"
                     Expect.equal (c.CtorParams.[0].Name) "value" "ctor param name"
-                    Expect.equal (c.CtorParams.[0].Type) (TyTypar(TyparAxis.Declaring, 0)) "ctor param type marker"
+
+                    Expect.equal
+                        (c.CtorParams.[0].Type)
+                        (TyTypar(TyparScope.Type typeDecl.TypeKey, 0))
+                        "ctor param type marker"
+
                     Expect.equal c.Members.Length 1 "one member"
                     Expect.equal (c.Members.[0].Name) "Value" "member name"
-                    Expect.equal (c.Members.[0].ReturnTy) (TyTypar(TyparAxis.Declaring, 0)) "member returns the typar"
+
+                    Expect.equal
+                        (c.Members.[0].ReturnTy)
+                        (TyTypar(TyparScope.Type typeDecl.TypeKey, 0))
+                        "member returns the typar"
                 | other -> failtestf "expected TTypeKind.Class, got %A" other
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics"

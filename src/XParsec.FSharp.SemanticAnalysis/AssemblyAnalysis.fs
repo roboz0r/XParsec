@@ -254,7 +254,10 @@ module AssemblyAnalysis =
     [<NoEquality; NoComparison>]
     type private ConformedSignature =
         {
-            /// The signature's surface, homed in the implementation file.
+            /// The signature's surface, its generic members scoped as the implementation
+            /// numbers them.
+            Surface: PublishedSurface
+            /// `Surface` as a provider, homed in the implementation file.
             Published: IExternalSymbolProvider
             Conformance: Diagnostic list
         }
@@ -279,8 +282,13 @@ module AssemblyAnalysis =
         // dropped for later files of this assembly while consumers of the published assembly
         // see them. Pinned pending under "an `[<AutoOpen>]` module behind a `.fsi`" in
         // `LongIdentResolutionTests.fs`.
+        let surface = ConformanceTypars.rescopeToImplementation r.Surface impl.Frozen
+
         let published =
-            ExternalSymbolProviders.stack (ValueSome(SymbolHome.InFile impl.Retained.Path)) [] [ r.Published ]
+            ExternalSymbolProviders.stack
+                (ValueSome(SymbolHome.InFile impl.Retained.Path))
+                []
+                [ PublishedSurface.toProvider surface ]
 
         let verdict (v: ConformanceVerdict) =
             Diagnostic.nowhere (Kind.Conformance(assembly.Name, v))
@@ -295,6 +303,7 @@ module AssemblyAnalysis =
             Conformance.implDeclPath implementation.Parsed.Lexed implementation.Parsed.Tree
 
         {
+            Surface = surface
             Published = published
             Conformance =
                 [
@@ -413,18 +422,18 @@ module AssemblyAnalysis =
                         let surface, published, signatureFile =
                             match resolvedSignature with
                             | ValueSome r ->
-                                let published, conformance =
+                                let surface, published, conformance =
                                     match publication with
                                     | Publication.InAssembly ->
                                         let conformed = conformSignature assembly.Name parsedUnit.Implementation impl r
 
-                                        conformed.Published, conformed.Conformance
+                                        conformed.Surface, conformed.Published, conformed.Conformance
                                     // Published bare, the caller stamping the assembly home
                                     // once. A reference was conformed when its own assembly was
                                     // compiled.
-                                    | Publication.AcrossAssemblies _ -> r.Published, []
+                                    | Publication.AcrossAssemblies _ -> r.Surface, r.Published, []
 
-                                r.Surface,
+                                surface,
                                 published,
                                 ValueSome
                                     {

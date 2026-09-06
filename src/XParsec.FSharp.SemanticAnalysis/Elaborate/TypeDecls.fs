@@ -56,8 +56,8 @@ module internal ElaborateTypeDecls =
         else
             ValueNone
 
-    /// A decl's declared typars in declaration order and the constraints on them, on the
-    /// declaring axis.
+    /// A decl's declared typars in declaration order and the constraints on them, indexed
+    /// into the typars.
     type private DeclTypars =
         {
             Params: EqArray<TTypeParam>
@@ -70,7 +70,7 @@ module internal ElaborateTypeDecls =
             Constraints = EqSet.empty
         }
 
-    /// The declared typars of a decl whose declaring-axis env is `env`.
+    /// The declared typars of a decl whose type-scope env is `env`.
     let private mkDeclTypars
         (store: TypeStore)
         (typeParams: EqArray<DeclaredTypar>)
@@ -87,6 +87,7 @@ module internal ElaborateTypeDecls =
     [<NoEquality; NoComparison>]
     type private DeclScope =
         {
+            Key: TypeKey
             Env: ResizeArray<TyVarId * SemType>
             Typars: DeclTypars
             SelfTy: SemType
@@ -96,12 +97,15 @@ module internal ElaborateTypeDecls =
     /// typars' `TyVar` roots.
     let private mkDeclScope
         (ctx: PassContext)
+        (key: TypeKey)
         (typeParams: EqArray<DeclaredTypar>)
         (mkSelfTy: EqArray<SemType> -> SemType)
         : DeclScope =
-        let env = mkDeclTyparEnv ctx.Store (DeclaredTypar.protos typeParams)
+        let env =
+            mkDeclTyparEnv ctx.Store (TyparScope.Type key) (DeclaredTypar.protos typeParams)
 
         {
+            Key = key
             Env = ResizeArray env
             Typars = mkDeclTypars ctx.Store typeParams env
             SelfTy = mkSelfTy (declTyparArgs ctx.Store typeParams)
@@ -110,7 +114,7 @@ module internal ElaborateTypeDecls =
     /// The member elaborator `scope` implies, which binds `this` to the decl's self-type and
     /// records each generic method's own typars into the freeze env.
     let private elaboratorOf (scope: DeclScope) : TTypeMember -> TTypeMember =
-        mkMemberElaborator scope.SelfTy (TTypeParam.names scope.Typars.Params) scope.Env
+        mkMemberElaborator scope.Key scope.SelfTy (TTypeParam.names scope.Typars.Params) scope.Env
 
     /// An interface-shaped object-model body: its declared typars, its abstract slots, and
     /// the freeze env covering both the declaring typars and every slot's own.
@@ -151,7 +155,9 @@ module internal ElaborateTypeDecls =
             | ValueSome info ->
                 // The member signatures were typed under the class's typar scope, so they
                 // share these prototype TyVars and the remap reaches every one.
-                let declEnv = mkDeclTyparEnv ctx.Store (DeclaredTypar.protos info.TypeParams)
+                let declEnv =
+                    mkDeclTyparEnv ctx.Store (TyparScope.Type info.TypeKey) (DeclaredTypar.protos info.TypeParams)
+
                 let env = ResizeArray declEnv
 
                 let methods =
@@ -164,14 +170,22 @@ module internal ElaborateTypeDecls =
                                 // A generic method's own typars join the env so the
                                 // backend encodes them against the METHOD, not the type.
                                 if GeneralizedTypars.count m.CanonicalTypars > 0 then
-                                    env.AddRange(GeneralizedTypars.methodEnv m.CanonicalTypars)
+                                    env.AddRange(
+                                        GeneralizedTypars.methodEnv
+                                            (TyparScope.Member(info.TypeKey, m.Ordinal))
+                                            m.CanonicalTypars
+                                    )
 
                                 yield
                                     {
                                         Name = m.Name
                                         MethodTypeParams = EqArray.ofArray (GeneralizedTypars.names m.CanonicalTypars)
                                         MethodTyparConstraints =
-                                            constraintsOfEnv ctx.Store (GeneralizedTypars.methodEnv m.CanonicalTypars)
+                                            constraintsOfEnv
+                                                ctx.Store
+                                                (GeneralizedTypars.methodEnv
+                                                    (TyparScope.Member(info.TypeKey, m.Ordinal))
+                                                    m.CanonicalTypars)
                                         Signature = m.Type
                                         ParamNames = m.ArgNames
                                         Kind = m.Kind
@@ -226,7 +240,7 @@ module internal ElaborateTypeDecls =
         | ValueNone -> None
         | ValueSome info ->
             let scope =
-                mkDeclScope ctx info.TypeParams (fun args -> TyUnion(info.TypeKey, args))
+                mkDeclScope ctx info.TypeKey info.TypeParams (fun args -> TyUnion(info.TypeKey, args))
 
             let env = scope.Env
             let elaborateOne = elaboratorOf scope
@@ -345,7 +359,7 @@ module internal ElaborateTypeDecls =
         | ValueNone -> None
         | ValueSome info ->
             let scope =
-                mkDeclScope ctx info.TypeParams (fun args -> TyRecord(info.TypeKey, args))
+                mkDeclScope ctx info.TypeKey info.TypeParams (fun args -> TyRecord(info.TypeKey, args))
 
             let env = scope.Env
             let elaborateOne = elaboratorOf scope
@@ -491,7 +505,7 @@ module internal ElaborateTypeDecls =
         | ValueNone -> None
         | ValueSome info ->
             let scope =
-                mkDeclScope ctx info.TypeParams (fun args -> TyClass(info.TypeKey, args))
+                mkDeclScope ctx info.TypeKey info.TypeParams (fun args -> TyClass(info.TypeKey, args))
 
             let env = scope.Env
             let selfTy = scope.SelfTy
@@ -594,7 +608,8 @@ module internal ElaborateTypeDecls =
         match info.TryFilled with
         | ValueNone -> None
         | ValueSome body ->
-            let env = mkDeclTyparEnv ctx.Store (DeclaredTypar.protos info.TypeParams)
+            let env =
+                mkDeclTyparEnv ctx.Store (TyparScope.Type info.TypeKey) (DeclaredTypar.protos info.TypeParams)
 
             Some(
                 mkTypeDecl
@@ -644,7 +659,7 @@ module internal ElaborateTypeDecls =
         | ValueNone -> None
         | ValueSome info ->
             let scope =
-                mkDeclScope ctx info.TypeParams (fun args -> TyConst(info.SelfKey, args))
+                mkDeclScope ctx info.TypeKey info.TypeParams (fun args -> TyConst(info.SelfKey, args))
 
             let env = scope.Env
             let elaborateOne = elaboratorOf scope

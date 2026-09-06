@@ -98,7 +98,27 @@ module internal TsManifestTranslate =
             /// The namespace a MOUNTED pack's exports register under (`Js` for an `es2015`
             /// home, `Node.Fs` for `node/fs`); `""` for a real flat package.
             MountPrefix: string
+            /// The scope a `TypeRef.Typar` resolves under: the declaration being translated.
+            /// `ValueNone` outside a declaration, where a typar is a corrupt manifest.
+            TyparScope: TyparScope voption
+            /// The scope a `TypeRef.MethodTypar` resolves under: the member being translated.
+            MethodTyparScope: TyparScope voption
         }
+
+        /// The context for translating the structure of a declaration with typar scope
+        /// `scope`: its members, heritage and body.
+        member ctx.InScope(scope: TyparScope) : TranslateCtx =
+            { ctx with
+                TyparScope = ValueSome scope
+                MethodTyparScope = ValueNone
+            }
+
+        /// The context for translating member `ordinal` of `declKey`: a `TypeRef.MethodTypar`
+        /// resolves under the member's scope.
+        member ctx.InMember(declKey: TypeKey, ordinal: MemberOrdinal) : TranslateCtx =
+            { ctx with
+                MethodTyparScope = ValueSome(TyparScope.Member(declKey, ordinal))
+            }
 
         /// The gate that turns a nominal `Named` into `FTClass`: only a declared class or
         /// interface hits. A primitive, a cross-package name and a `TypeAlias` stay `FTConst`.
@@ -135,6 +155,8 @@ module internal TsManifestTranslate =
             Refs = Map.ofList refs
             ModuleSpec = moduleSpec
             MountPrefix = mountPrefix
+            TyparScope = ValueNone
+            MethodTyparScope = ValueNone
         }
 
     /// Total for the exports the ctx was built from; a miss is a bug, not a data condition.
@@ -290,6 +312,12 @@ module internal TsManifestTranslate =
 
     // ─── TypeRef → FrozenType (member signature templates) ─────────────────
 
+    /// A typar reference outside any declaration that could bind it is a corrupt manifest.
+    let private scopeOf (what: string) (scope: TyparScope voption) : TyparScope =
+        match scope with
+        | ValueSome s -> s
+        | ValueNone -> failwithf "manifest %s type parameter referenced outside a declaration" what
+
     let rec toFrozen (ctx: TranslateCtx) (t: Schema.TypeRef) : FrozenType =
         let nominal name (args: FrozenType[]) =
             // An axis-declared canon, `Unsupported` included, mints its `Vesper` key, so a
@@ -338,8 +366,8 @@ module internal TsManifestTranslate =
         match t with
         | Schema.TypeRef.Named(name, []) -> nominal name [||]
         | Schema.TypeRef.Named(name, args) -> nominal name (List.map (toFrozen ctx) args |> Array.ofList)
-        | Schema.TypeRef.Typar i -> FTTypar(TyparAxis.Declaring, i)
-        | Schema.TypeRef.MethodTypar i -> FTTypar(TyparAxis.Method, i)
+        | Schema.TypeRef.Typar i -> FTTypar(scopeOf "type" ctx.TyparScope, i)
+        | Schema.TypeRef.MethodTypar i -> FTTypar(scopeOf "method" ctx.MethodTyparScope, i)
         | Schema.TypeRef.Fun(args, ret) ->
             List.foldBack (fun a acc -> FTFun(toFrozen ctx a, acc)) args (toFrozen ctx ret)
         | Schema.TypeRef.Tuple items -> FTTuple(EqArray.ofSeq (List.map (toFrozen ctx) items))

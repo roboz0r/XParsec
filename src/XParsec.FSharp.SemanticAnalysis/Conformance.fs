@@ -64,8 +64,8 @@ module Conformance =
                 (nested p.Extends)
                 (describeType p.WhenTrue)
                 (describeType p.WhenFalse)
+        | FTTypar(TyparScope.LocalFunction _, index) -> sprintf "'local%d" index
         | FTTypar(_, index) -> sprintf "'%d" index
-        | FTLocalTypar(_, index) -> sprintf "'local%d" index
         | FTUnknown reason -> reason.Render
         | FTMeasure units -> string units
 

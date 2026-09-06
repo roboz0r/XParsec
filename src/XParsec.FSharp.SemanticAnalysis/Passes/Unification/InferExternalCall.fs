@@ -63,7 +63,7 @@ module internal UnificationInferExternalCall =
                         candidates
                         |> Array.exists (fun m ->
                             match List.tryItem i (memberParamTypes ctx declArgs m) with
-                            | Some(TyTypar(TyparAxis.Method, j)) ->
+                            | Some(TyFunctionTypar j) ->
                                 match (ExternalSymbols.instantiateSignatureBounds ctx m declArgs).[j] with
                                 | ValueSome bound ->
                                     match boundLiteralStrings ctx bound with
@@ -88,7 +88,7 @@ module internal UnificationInferExternalCall =
 
         let rec walk t =
             match resolveStep store t with
-            | TyTypar(TyparAxis.Method, j) -> acc <- Set.add j acc
+            | TyFunctionTypar j -> acc <- Set.add j acc
             | t -> SemType.iterChildren walk t
 
         walk t
@@ -112,7 +112,7 @@ module internal UnificationInferExternalCall =
                 paramTys
                 |> Array.choose (
                     function
-                    | TyTypar(TyparAxis.Method, j) -> Some j
+                    | TyFunctionTypar j -> Some j
                     | _ -> None
                 )
                 |> Set.ofArray

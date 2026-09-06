@@ -467,7 +467,7 @@ module FrozenCodecTypes =
     let readParamAttrs (r: FrozenReader) : ParamAttrs = { CallAtMostOnce = r.ReadBoolean() }
 
     /// A member's own method typars: each entry is the source name plus the typar's frozen
-    /// type (`FTTypar(Method, i)`), and its POSITION is the ABI index.
+    /// type (`FTTypar(Member _, i)`), and its POSITION is the ABI index.
     let writeMethodTypeParams (w: FrozenWriter) (mtps: EqArray<string * FrozenType>) =
         writeEqArrayWith
             w

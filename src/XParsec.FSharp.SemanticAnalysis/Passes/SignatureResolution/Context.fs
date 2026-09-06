@@ -49,38 +49,38 @@ module SignatureResolutionContext =
             (fun _ -> FTUnknown UnknownReason.UnresolvedTypar)
             (ElaborateTypars.remapDeclTypars ctx.Store env ty)
 
-    /// The declaring-axis env of a type's own typars: `'T` written anywhere in its structure
-    /// freezes to `FTTypar(Declaring, i)` at its declared position.
-    let private declaringEnv (ctx: PassContext) (typars: EqArray<DeclaredTypar>) =
-        ElaborateTypars.mkDeclTyparEnv ctx.Store (DeclaredTypar.protos typars)
+    /// The env of a declaration's own typars under `scope`: a typar written anywhere in the
+    /// declaration's structure freezes to `FTTypar(scope, i)` at its declared position.
+    let private scopedEnv
+        (ctx: PassContext)
+        (scope: TyparScope)
+        (typars: EqArray<DeclaredTypar>)
+        : (TyVarId * SemType) list =
+        ElaborateTypars.mkDeclTyparEnv ctx.Store scope (DeclaredTypar.protos typars)
 
-    /// The method-axis env of a signature's own typars, `i` its declared position.
-    let private methodEnv (ctx: PassContext) (typars: EqArray<DeclaredTypar>) : (TyVarId * SemType) list =
-        [
-            for i in 0 .. typars.Length - 1 do
-                match Unification.zonk ctx.Store (TyVar typars.[i].TyVar) with
-                | TyVar root -> yield (root, TyTypar(TyparAxis.Method, i))
-                | _ -> ()
-        ]
-
-    /// WHAT is being frozen, which is what decides the AXIS each typar lands on.
+    /// WHAT is being frozen, which is what decides the SCOPE each typar lands on.
     [<RequireQualifiedAccess>]
     type TyparOwner =
         /// A TYPE and everything its declared structure writes: fields, cases, base,
         /// interfaces, an abbreviation's body.
-        | Type of typars: EqArray<DeclaredTypar>
-        /// A MEMBER: its declaring type already owns the declaring axis, so the member's own
-        /// typars take the method axis.
-        | Member of declaring: EqArray<DeclaredTypar> * own: EqArray<DeclaredTypar>
-        /// A VALUE quantifies its own typars on the DECLARING axis: it has no declaring type
-        /// for the other axis to belong to, and instantiating a symbol substitutes there.
-        | Value of typars: EqArray<DeclaredTypar>
+        | Type of key: TypeKey * typars: EqArray<DeclaredTypar>
+        /// A MEMBER: its declaring type's typars under the type's scope, its own under the
+        /// member's.
+        | Member of
+            key: TypeKey *
+            declaring: EqArray<DeclaredTypar> *
+            ordinal: MemberOrdinal *
+            own: EqArray<DeclaredTypar>
+        /// A VALUE quantifies its own typars under its binding's scope.
+        | Value of key: BindingKey * typars: EqArray<DeclaredTypar>
 
     let typarEnv (ctx: PassContext) (owner: TyparOwner) : (TyVarId * SemType) list =
         match owner with
-        | TyparOwner.Type typars
-        | TyparOwner.Value typars -> declaringEnv ctx typars
-        | TyparOwner.Member(declaring, own) -> declaringEnv ctx declaring @ methodEnv ctx own
+        | TyparOwner.Type(key, typars) -> scopedEnv ctx (TyparScope.Type key) typars
+        | TyparOwner.Value(key, typars) -> scopedEnv ctx (TyparScope.ModuleFunction key) typars
+        | TyparOwner.Member(key, declaring, ordinal, own) ->
+            scopedEnv ctx (TyparScope.Type key) declaring
+            @ scopedEnv ctx (TyparScope.Member(key, ordinal)) own
 
     // --- typar scopes ---------------------------------------------------------------
 

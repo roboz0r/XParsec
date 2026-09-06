@@ -6,6 +6,14 @@ open XParsec.FSharp.SemanticAnalysis.Passes
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 open XParsec.FSharp.SemanticAnalysis.Tests.UnificationTestHelpers
 
+/// A member's own typar `i`, under a scope the trial matcher reads by kind alone.
+let private methodTypar (i: int) : FrozenType =
+    FTTypar(TyparScope.Member(SymbolKeyOps.qualifiedTypeKeyOf "T" 0, MemberOrdinal 0), i)
+
+/// The declaring type's typar `i`.
+let private declTypar (i: int) : FrozenType =
+    FTTypar(TyparScope.Type(SymbolKeyOps.qualifiedTypeKeyOf "Box" 1), i)
+
 [<Tests>]
 let tests =
     testList
@@ -48,8 +56,7 @@ let tests =
                 let pick candidates args =
                     pickWith overloadCtx [||] candidates args
 
-                let shared =
-                    overloadMember [ FTTypar(TyparAxis.Method, 0); FTTypar(TyparAxis.Method, 0) ] 1
+                let shared = overloadMember [ methodTypar 0; methodTypar 0 ] 1
 
                 let concrete = overloadMember [ intFt; stringFt ] 0
 
@@ -125,8 +132,7 @@ let tests =
                 // exact tier selects by the SUBSTITUTED shape.
                 let overloadCtx = overloadCtx ()
 
-                let candidates =
-                    EqArray.ofSeq [ boxMember (FTTypar(TyparAxis.Declaring, 0)); boxMember stringFt ]
+                let candidates = EqArray.ofSeq [ boxMember (declTypar 0); boxMember stringFt ]
 
                 let typeArgs = [| BuiltinTypes.tyInt |]
 
@@ -156,7 +162,7 @@ let tests =
                 let pick candidates args =
                     pickWith overloadCtx [||] candidates args
 
-                let generic = overloadMember [ FTTypar(TyparAxis.Method, 0) ] 1
+                let generic = overloadMember [ methodTypar 0 ] 1
                 let concrete = overloadMember [ intFt ] 0
                 let candidates = EqArray.ofSeq [ generic; concrete ]
 

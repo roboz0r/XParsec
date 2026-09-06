@@ -8,7 +8,8 @@ open AssemblerScaffold
 /// record and class emission all reach for.
 module internal NominalShared =
 
-    let typarMarkersOf (td: TastAccessor.TypeDecl) : FrozenType list = declaringMarkers td.TypeParams.Length
+    let typarMarkersOf (td: TastAccessor.TypeDecl) : FrozenType list =
+        declaringMarkers td.TypeKey td.TypeParams.Length
 
     /// A reference to a member of `parent`, a type registered over `td`'s own typars: the
     /// type itself, or a case type or nested value type of a union. A generic `td` reaches

@@ -95,6 +95,7 @@ let private pokeMemberWith (paramTy: FrozenType) (mkBody: BoundVarId -> Pooled.T
 
     {
         Name = "Poke"
+        Ordinal = MemberOrdinal 0
         IsStatic = false
         Accessibility = Accessibility.Public
         IsInline = true

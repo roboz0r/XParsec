@@ -170,6 +170,35 @@ let inline twice (x: int) : int = addBase (addBase x)
                 Expect.contains names "addBase" (sprintf "addBase emitted under its own name; got %A" names)
             }
 
+            ptest "GAP: file 2 expands file 1's inline body whose LOCAL is used at two types" {
+                // The local `g` is generalised at its own `let` inside the template, so the
+                // thawed body must generalise it again in file 2: one cell per local typar
+                // pins `g` to `int` at the first use. F# accepts this program.
+                let file1 =
+                    "\
+namespace CrossFile
+
+module Lib =
+    let inline twoUses (x: int) =
+        let g y = y
+        (g x, g \"a\")
+"
+
+                let file2 =
+                    "\
+open CrossFile.Lib
+
+let n, s = twoUses 7
+printfn \"%d %s\" n s
+"
+
+                let bytes = compileTwoFiles "CrossFileInlineLocalPoly" file1 file2
+                let exitCode, output = runEntryPoint bytes
+                let actual = output.Replace("\r", "").Trim()
+                Expect.equal exitCode 0 (sprintf "expected exit 0; stdout was %A" actual)
+                Expect.equal actual "7 a" "the served local generalises again in the host"
+            }
+
             test "two files run: file 2 boxes a value into file 1's obj record field (cross-file box)" {
                 // `{ V = 7 }` type-checks into file 1's `V: obj` cross-file; codegen must then
                 // box it. A missing box is invalid IL that fails to load, so a clean unbox

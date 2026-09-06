@@ -10,21 +10,16 @@ namespace XParsec.FSharp.SemanticAnalysis
 
 module FrozenSignature =
 
-    /// Re-axis a binding's frozen `ValRepr` onto the `Declaring` axis its sibling scheme is
-    /// remapped to. The grouping is untouched, since only typar leaves move axis.
-    let private valReprToDeclaring
-        (source: PoolBuilder)
-        (pats: PoolBuilder)
-        (vr: PooledValRepr)
-        : TastAccessor.ValRepr =
-        // The re-axised copy is a DERIVED tree belonging to no file, so a tuple group's
-        // pattern is copied into the provider's own pool and a simple group's bound variable re-minted.
+    /// A binding's frozen `ValRepr` as the provider hands it out: a DERIVED tree belonging to
+    /// no file, so a tuple group's pattern is copied into the provider's own pool and a simple
+    /// group's bound variable re-minted.
+    let private valReprOf (source: PoolBuilder) (pats: PoolBuilder) (vr: PooledValRepr) : TastAccessor.ValRepr =
         TastConvert.valRepr
-            ConformanceTypars.toDeclaringAxis
-            (fun id ->
+            id
+            (fun patId ->
                 {
                     Pool = pats
-                    Id = TastPoolBuilder.copyPatTreeInto pats ConformanceTypars.toDeclaringAxis source id
+                    Id = TastPoolBuilder.copyPatTreeInto pats id source patId
                 }
             )
             (fun _ -> TastPoolBuilder.mintBoundVar pats)
@@ -51,7 +46,7 @@ module FrozenSignature =
 
         // --- member projection --------------------------------------------------------
         // A member's frozen `Params` / `ReturnTy` already carry the declaring type's typars as
-        // `FTTypar(Declaring,i)` and its own as `FTTypar(Method,j)`, the axis convention here.
+        // `FTTypar(Type _, i)` and its own as `FTTypar(Member _, j)`.
 
         /// A member with no argument group is a value member, so `Storage` reads off the
         /// signature rather than being passed alongside it and risking disagreement.
@@ -134,7 +129,7 @@ module FrozenSignature =
             let acc = ResizeArray<ExternalMember>()
 
             let selfTy =
-                FTClass(declKey, EqArray.ofSeq [ for i in 0 .. declArity - 1 -> FTTypar(TyparAxis.Declaring, i) ])
+                FTClass(declKey, EqArray.ofSeq [ for i in 0 .. declArity - 1 -> FTTypar(TyparScope.Type declKey, i) ])
 
             let addCtor (paramTys: EqArray<FrozenType>) =
                 let parameters = ExternalSignature.tupledParams paramTys
@@ -294,8 +289,8 @@ module FrozenSignature =
 
                 | TTypeKindG.Enum cases -> register (ExternalEnumShape.ofCases cases origin) ValueNone
 
-                // The frozen RHS already carries the declaring typars on the `Declaring`
-                // axis, which is the axis a use site instantiates against.
+                // The frozen RHS already carries the declaring typars under the type's
+                // scope, which a use site instantiates against.
                 | TTypeKindG.Abbrev body ->
                     register (ExternalTypeShape.Abbrev { Typars = typars; Body = body }) ValueNone
                 | TTypeKindG.Measure term -> register (ExternalTypeShape.Measure term) ValueNone
@@ -303,7 +298,7 @@ module FrozenSignature =
             | _ -> ()
 
         // --- module values + inline values --------------------------------------------
-        // A pool of this provider's own, for the re-axised tuple-group patterns it hands out.
+        // A pool of this provider's own, for the tuple-group patterns it hands out.
         let valReprPats = TastPoolBuilder.openEmpty ()
 
         // Every binding fact below is read at the bound variable ID the decl's own pattern carries.
@@ -313,14 +308,12 @@ module FrozenSignature =
         let bindingValRepr (boundVar: BoundVarId) : TastAccessor.ValRepr voption =
             match bindingValReprs.TryGetValue boundVar with
             // A value has no lambda groups, so it publishes no `ValRepr`.
-            | true, vr when not (List.isEmpty vr.Groups) -> ValueSome(valReprToDeclaring pool valReprPats vr)
+            | true, vr when not (List.isEmpty vr.Groups) -> ValueSome(valReprOf pool valReprPats vr)
             | _ -> ValueNone
 
         let addValue (info: ModuleBindingInfo) (boundVar: BoundVarId) (ty: FrozenType) =
-            let scheme = ConformanceTypars.toDeclaringAxis ty
-
             let sym =
-                { ExternalSymbols.scheme info.Container info.Name scheme (schemeOf boundVar).TyparArity [] with
+                { ExternalSymbols.scheme info.Container info.Name ty (schemeOf boundVar).TyparArity [] with
                     Origin = originIn info.Container.Namespace
                     CompiledName = info.CompiledName
                     ValRepr = bindingValRepr boundVar

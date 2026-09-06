@@ -99,7 +99,6 @@ module TypeLayout =
         | FTIndexedAccess _
         | FTConditional _ -> LayoutShape.Unevaluated
         | FTTypar _
-        | FTLocalTypar _
         | FTUnknown _
         // Argument position only, so never a value's own layout.
         | FTMeasure _ -> LayoutShape.Opaque

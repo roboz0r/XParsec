@@ -24,7 +24,7 @@ module UnificationInferOverload =
         )
 
     /// The trial substitution `matchTypes` accumulates for ONE candidate: the candidate's own
-    /// method typars keyed by Method-axis index (`M<'T>('T,'T)` opens to the same index at
+    /// method typars keyed by their index (`M<'T>('T,'T)` opens to the same index at
     /// every position), and caller-side free metavars keyed by union-find root id.
     type private TrialBindings =
         {
@@ -51,8 +51,8 @@ module UnificationInferOverload =
         match zonk store a, zonk store b with
         // A generic method's own typar binds to whatever it first meets and must AGREE at
         // every later occurrence, matched by index across argument positions.
-        | TyTypar(TyparAxis.Method, i), other
-        | other, TyTypar(TyparAxis.Method, i) -> matchMethodTypar store canon binds i other
+        | TyFunctionTypar i, other
+        | other, TyFunctionTypar i -> matchMethodTypar store canon binds i other
         // Applicability-OPAQUE, not bindable: their structural identity can't be decided until
         // a call site grounds them, so they stay "matches anything" and the commit seam decides.
         | TyCarrier, _
@@ -311,9 +311,9 @@ module UnificationInferOverload =
         : SemType list =
         flatParamsOf ctx.Store (instantiateMemberCall ctx (typeParams, args) m.EffectiveMethodTypars m.Type)
 
-    /// Positional `TyVar root → axis index` map for a typar list's PROTOTYPES, following any
-    /// committed `Link`. Used to freeze a member's parameter typars back to `FTTypar(axis, i)`.
-    let private frozenAxisEnv (store: TypeStore) (typars: EqArray<DeclaredTypar>) : Dictionary<TyVarId, int> =
+    /// Positional `TyVar root → index` map for a typar list's PROTOTYPES, following any
+    /// committed `Link`. Used to freeze a member's parameter typars back to `FTTypar(scope, i)`.
+    let private frozenScopeEnv (store: TypeStore) (typars: EqArray<DeclaredTypar>) : Dictionary<TyVarId, int> =
         let d = Dictionary<TyVarId, int>()
 
         for i in 0 .. typars.Length - 1 do
@@ -326,27 +326,30 @@ module UnificationInferOverload =
         d
 
     /// Freeze a user member's value-parameter `SemType`s into the declaring type's open typars
-    /// (`FTTypar(TyparAxis.Declaring, i)`) and its own method typars, yielding the same
-    /// structural, call-site-independent form an external member's argSig takes. `Show(int)` → `[int]`.
+    /// (`FTTypar(Type declKey, i)`) and its own (`FTTypar(Member(declKey, ordinal), j)`),
+    /// yielding the same structural, call-site-independent form an external member's argSig
+    /// takes. `Show(int)` → `[int]`.
     let freezeUserMemberArgSig
         (store: TypeStore)
+        (declKey: TypeKey)
         (declTypars: EqArray<DeclaredTypar>)
         (m: TypeMemberInfo)
         : EqArray<FrozenType> =
-        let declEnv = frozenAxisEnv store declTypars
-        let methodEnv = frozenAxisEnv store m.EffectiveMethodTypars
+        let declEnv = frozenScopeEnv store declTypars
+        let methodEnv = frozenScopeEnv store m.EffectiveMethodTypars
+        let ownScope = TyparScope.Member(declKey, m.Ordinal)
 
-        // A metavar on NEITHER axis: not generic in anything the key can denote. It goes into an
-        // argSig, which is a key, so every such position must freeze to the SAME value, or a
+        // A metavar in NEITHER scope: not generic in anything the key can denote. It goes into
+        // an argSig, which is a key, so every such position must freeze to the SAME value, or a
         // half-inferred signature mints a different key per inference run.
         let onVar (tv: TyVarId) : FrozenType =
             let root = UnionFind.find store tv
 
             match declEnv.TryGetValue root.Id with
-            | true, i -> FTTypar(TyparAxis.Declaring, i)
+            | true, i -> FTTypar(TyparScope.Type declKey, i)
             | _ ->
                 match methodEnv.TryGetValue root.Id with
-                | true, j -> FTTypar(TyparAxis.Method, j)
+                | true, j -> FTTypar(ownScope, j)
                 | _ -> FTUnknown UnknownReason.UnresolvedTypar
 
         EqArray.ofList
@@ -369,22 +372,30 @@ module UnificationInferOverload =
         SymbolKeyOps.memberKeyOf
             declKey
             m.Name
-            (freezeUserMemberArgSig store declTypars m)
+            (freezeUserMemberArgSig store declKey declTypars m)
             m.EffectiveMethodTypars.Length
             (memberKindOf m)
+
+    /// The scope two members' own typars are rewritten under before their signatures are
+    /// compared, so `M<'a>('a)` declared twice, or on a base and on its derived type, reads
+    /// as one signature. The ordinal is a place-holder the comparison never reads back.
+    let private comparisonScope (declKey: TypeKey) : TyparScope =
+        TyparScope.Member(declKey, MemberOrdinal 0)
 
     /// A member's overload-identity signature key for duplicate detection: name, static-ness,
     /// kind, frozen argSig and method-typar arity are the axes F#'s FS0438 collapses. A genuine
     /// overload (distinct param types / arity) mints a distinct key and coexists.
     let memberSignatureKey
         (store: TypeStore)
+        (declKey: TypeKey)
         (declTypars: EqArray<DeclaredTypar>)
         (m: TypeMemberInfo)
         : struct (string * bool * MemberKind * EqArray<FrozenType> * int) =
         struct (m.Name,
                 m.IsStatic,
                 memberKindOf m,
-                freezeUserMemberArgSig store declTypars m,
+                freezeUserMemberArgSig store declKey declTypars m
+                |> EqArray.map (FrozenType.rescopeMemberTypars (comparisonScope declKey)),
                 m.EffectiveMethodTypars.Length)
 
     /// The user-member resolution verdict. `NotOverloaded` (0/1 candidate) tells the caller
@@ -534,14 +545,20 @@ module UnificationInferOverload =
 
     /// A member's signature at ONE chain level, with that level's type arguments already
     /// applied: `Base<int>.get_Item : 'T -> _` and `Derived.get_Item : int -> _` both come
-    /// out `[int]`.
-    let private levelSignature (ctx: PassContext) (level: ChainLevel) (m: TypeMemberInfo) : LevelSignature =
+    /// out `[int]`. The member's own typars are written under `scope`, shared by every level,
+    /// so generic members compare by index.
+    let private levelSignature
+        (ctx: PassContext)
+        (scope: TyparScope)
+        (level: ChainLevel)
+        (m: TypeMemberInfo)
+        : LevelSignature =
         let store = ctx.Store
-        let methodEnv = frozenAxisEnv store m.EffectiveMethodTypars
+        let methodEnv = frozenScopeEnv store m.EffectiveMethodTypars
 
         let onVar (tv: TyVarId) : FrozenType =
             match methodEnv.TryGetValue (UnionFind.find store tv).Id with
-            | true, j -> FTTypar(TyparAxis.Method, j)
+            | true, j -> FTTypar(scope, j)
             | _ -> FTUnknown UnknownReason.UnresolvedTypar
 
         let atLevel = instantiateMember store (level.TypeParams, level.Args) m.Type
@@ -571,7 +588,9 @@ module UnificationInferOverload =
             // A single level hides nothing, and the signature projection is not free.
             | []
             | [ _ ] -> declared
-            | _ -> declared |> List.distinctBy (fun c -> levelSignature ctx c.Level c.Member)
+            | _ ->
+                let scope = comparisonScope (List.head levels).DeclKey
+                declared |> List.distinctBy (fun c -> levelSignature ctx scope c.Level c.Member)
 
         match candidates with
         | [] -> ChainPick.NotFound

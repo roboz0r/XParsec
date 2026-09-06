@@ -117,7 +117,7 @@ let tests =
                         prim RuntimeNames.exnKey
                         FTConst(RuntimeNames.arrayKey 1, EqArray.singleton (prim RuntimeNames.intKey))
                         FTFun(prim RuntimeNames.intKey, prim RuntimeNames.intKey)
-                        FTTypar(TyparAxis.Declaring, 0)
+                        FTTypar(TyparScope.Type(SymbolKeyOps.qualifiedTypeKeyOf "T" 1), 0)
                     ]
 
                 for t in managed do

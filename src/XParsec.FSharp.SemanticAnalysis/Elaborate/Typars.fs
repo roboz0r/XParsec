@@ -2,9 +2,9 @@ namespace XParsec.FSharp.SemanticAnalysis
 
 open XParsec.FSharp.SemanticAnalysis.Passes
 
-// The declaring / method typar envs a decl quantifies, and the `TyVar -> TyTypar` cut
-// deferred until the whole decl is surfaced, so a member signature, a local and a case
-// field all flip on the same indices.
+// The typar envs a decl quantifies, one per scope, and the `TyVar -> TyTypar` cut deferred
+// until the whole decl is surfaced, so a member signature, a local and a case field all flip
+// on the same indices.
 
 /// The typar roots a declaration quantifies, paired with their `TyTypar` targets.
 [<RequireQualifiedAccess>]
@@ -27,7 +27,7 @@ type DeclEnv =
 module internal ElaborateTypars =
 
     /// Rewrite open typars to their frozen `TyTypar` nodes: `env` pairs each typar's
-    /// zonked root with its target `TyTypar(axis, index)`. A `TyVar` whose root is not
+    /// zonked root with its target `TyTypar(scope, index)`. A `TyVar` whose root is not
     /// in `env` stays a `TyVar`, and degrades to `FTUnknown` at the freeze cut.
     let remapDeclTypars (store: TypeStore) (env: (TyVarId * SemType) list) (t: SemType) : SemType =
         let rec go t =
@@ -47,14 +47,14 @@ module internal ElaborateTypars =
             }
             e
 
-    /// Pair each declared typar's zonked root with `TyTypar(Declaring, i)`, `i` being its
+    /// Pair each declared typar's zonked root with `TyTypar(scope, i)`, `i` being its
     /// position in the declaration list. A typar pinned to a non-`TyVar` is dropped, but
     /// the index still counts it, so a surviving typar keeps its declared slot.
-    let mkDeclTyparEnv (store: TypeStore) (protos: EqArray<TyVarId>) : (TyVarId * SemType) list =
+    let mkDeclTyparEnv (store: TypeStore) (scope: TyparScope) (protos: EqArray<TyVarId>) : (TyVarId * SemType) list =
         [
             for i in 0 .. protos.Length - 1 do
                 match Unification.zonk store (TyVar protos.[i]) with
-                | TyVar root -> yield (root, TyTypar(TyparAxis.Declaring, i))
+                | TyVar root -> yield (root, TyTypar(scope, i))
                 | _ -> ()
         ]
 
@@ -78,11 +78,12 @@ module internal ElaborateTypars =
                     | _ -> ()
             ]
 
-    /// Quantify a module-`let`'s free type parameters into `TyTypar(Method, i)` in the F#
+    /// Quantify a module-`let`'s free type parameters into `TyTypar(scope, i)` in the F#
     /// canonical order: `declared` typars first in source order (`<'b,'a>` stays `'b,'a`),
     /// then the remaining free roots by first appearance, then the constraint-only typars.
     let mkMethodQuantEnv
         (store: TypeStore)
+        (scope: TyparScope)
         (declared: DeclaredTypar list)
         (declTy: SemType)
         : (TyVarId * SemType) list =
@@ -132,16 +133,16 @@ module internal ElaborateTypars =
 
             depIdx <- depIdx + 1
 
-        [ for i in 0 .. acc.Count - 1 -> acc.[i], TyTypar(TyparAxis.Method, i) ]
+        [ for i in 0 .. acc.Count - 1 -> acc.[i], TyTypar(scope, i) ]
 
-    /// The env's typar roots at the position a type argument for each is supplied: declaring
-    /// axis first, then method axis, each in index order. A consumer's thaw of a template
-    /// frozen with this env recovers this array as `InlineThaw.ThawedTemplate.Typars`.
+    /// The env's typar roots in type-argument order: the declaring type's first, then the
+    /// member's or module function's own, each by index. A thaw of a template frozen with this
+    /// env recovers the same order.
     let quantifiedRoots (env: (TyVarId * SemType) list) : TyVarId[] =
         let rank (target: SemType) : (int * int) voption =
             match target with
-            | TyTypar(TyparAxis.Declaring, i) -> ValueSome(0, i)
-            | TyTypar(TyparAxis.Method, j) -> ValueSome(1, j)
+            | TyTypar(TyparScope.Type _, i) -> ValueSome(0, i)
+            | TyFunctionTypar j -> ValueSome(1, j)
             | _ -> ValueNone
 
         env
@@ -156,28 +157,31 @@ module internal ElaborateTypars =
 
     /// The declaring-type typars as `SemType` args, for a member's `ThisTy` and the body's
     /// synthesised `this` self-type: each declared typar zonked to its root `TyVar`. They
-    /// stay `TyVar`-shaped until `freezeTypars` remaps them to `TyTypar(Declaring, i)`.
+    /// stay `TyVar`-shaped until `freezeTypars` remaps them to `TyTypar(Type _, i)`.
     let declTyparArgs (store: TypeStore) (typeParams: EqArray<DeclaredTypar>) : EqArray<SemType> =
         EqArray.ofSeq (seq { for tp in typeParams -> Unification.zonk store (TyVar tp.TyVar) })
 
-    /// Elaborate one type member: stamp its `ThisTy` with the `TyVar`-rooted `selfTy` and
-    /// surface its method-axis typar roots so the caller folds them into the decl's freeze
-    /// env. Signature / body / return types stay verbatim, because the cut is deferred.
-    let elaborateMember (selfTy: SemType) (m: TTypeMember) : TTypeMember * (TyVarId * SemType) list =
+    /// Elaborate one member of `declKey`: stamp `ThisTy` with the `TyVar`-rooted `selfTy` and
+    /// pair its own typar roots with markers under the member's scope, for the decl's freeze
+    /// env. Signature / body / return types stay verbatim until the deferred cut.
+    let elaborateMember (declKey: TypeKey) (selfTy: SemType) (m: TTypeMember) : TTypeMember * (TyVarId * SemType) list =
+        let scope = TyparScope.Member(declKey, m.Ordinal)
+
         let methodMarkers =
             [
                 for i in 0 .. m.MethodTypeParams.Length - 1 do
                     match snd m.MethodTypeParams.[i] with
-                    | TyVar root -> (root, TyTypar(TyparAxis.Method, i))
+                    | TyVar root -> (root, TyTypar(scope, i))
                     | _ -> ()
             ]
 
         { m with ThisTy = selfTy }, methodMarkers
 
-    /// The per-member elaborator each host surfacer folds over its members. Host elaborators
-    /// differ only in `selfTy`'s type constructor. Surface a member when the declaring type is generic
-    /// (declaring axis) OR the member itself is generic (method axis); else leave it as is.
+    /// The per-member elaborator each host surfacer folds over the members of `declKey`.
+    /// Host elaborators differ only in `selfTy`'s type constructor. Surface a member when
+    /// the declaring type is generic OR the member itself is generic; else leave it as is.
     let mkMemberElaborator
+        (declKey: TypeKey)
         (selfTy: SemType)
         (declTypars: EqArray<string>)
         (env: ResizeArray<TyVarId * SemType>)
@@ -186,7 +190,7 @@ module internal ElaborateTypars =
             if declTypars.Length = 0 && m.MethodTypeParams.Length = 0 then
                 m
             else
-                let m, methodMarkers = elaborateMember selfTy m
+                let m, methodMarkers = elaborateMember declKey selfTy m
                 env.AddRange methodMarkers
                 m
 

@@ -85,10 +85,9 @@ module internal GeneralizedTypars =
 
         GeneralizedTypars(result.ToArray())
 
-    let methodEnv (GeneralizedTypars roots) : (TyVarId * SemType) list =
-        [
-            for i in 0 .. roots.Length - 1 -> (roots.[i].TyVar, TyTypar(TyparAxis.Method, i))
-        ]
+    /// Each root paired with its `TyTypar` marker under `scope`, at its array position.
+    let methodEnv (scope: TyparScope) (GeneralizedTypars roots) : (TyVarId * SemType) list =
+        [ for i in 0 .. roots.Length - 1 -> (roots.[i].TyVar, TyTypar(scope, i)) ]
 
     /// ORDER-PRESERVING root refresh: `f` returns an entry's CURRENT union-find / link
     /// representative, or `ValueNone` if it pinned to a concrete type. Those entries are

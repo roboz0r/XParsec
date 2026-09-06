@@ -145,11 +145,11 @@ let tests =
 
             // The corpus above declares ZERO generic members, so it never populates a member's
             // `MethodTypeParams`. This case forces a non-empty carrier: it must be stored as
-            // `(name, FTTypar(Method, i))` and round-trip as plain data.
+            // `(name, FTTypar(Member _, i))` and round-trip as plain data.
             test "a generic member's MethodTypeParams is stored on the frozen tree as FTTypar and round-trips" {
                 let f = frozenOfJs "type C() =\n    member this.Id<'T> (x: 'T) : 'T = x\n"
 
-                let methodTypars =
+                let cKey, idMember =
                     (TastUnpool.ofPools f).Decls
                     |> EqArray.toList
                     |> List.tryPick (fun d ->
@@ -158,17 +158,20 @@ let tests =
                             TTypeKindG.members td.Kind
                             |> EqArray.toList
                             |> List.tryPick (fun (m: Pooled.TTypeMember) ->
-                                if m.Name = "Id" then Some m.MethodTypeParams else None
+                                if m.Name = "Id" then Some(td.TypeKey, m) else None
                             )
                         | _ -> None
                     )
                     |> Option.defaultWith (fun () -> failtest "no member `Id` in the frozen tree")
 
-                // Genuinely populated, not silently frozen empty.
+                // Genuinely populated, not silently frozen empty, and scoped by the member's
+                // ordinal: `1`, after the primary constructor.
+                Expect.equal idMember.Ordinal (MemberOrdinal 1) "Id follows the primary constructor"
+
                 Expect.equal
-                    (EqArray.toList methodTypars)
-                    [ "'T", FTTypar(TyparAxis.Method, 0) ]
-                    "member's own typar is stored as (name, FTTypar(Method, 0))"
+                    (EqArray.toList idMember.MethodTypeParams)
+                    [ "'T", FTTypar(TyparScope.Member(cKey, MemberOrdinal 1), 0) ]
+                    "member's own typar is stored as (name, FTTypar(Member(C, 1), 0))"
 
                 Expect.isTrue (survivesRoundTrip f) "generic-member file survived flatten/thaw structurally"
             }

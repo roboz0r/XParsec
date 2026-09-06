@@ -394,8 +394,8 @@ type ICodegenProvider =
     /// method's own typars (`!!i` via the ambient set), an external call concrete types.
     abstract StaticFnMethodSpec: handle: EntityHandle * instTypes: FrozenType list -> EntityHandle
 
-    /// Recover the declaring- and method-axis type arguments by structurally matching an
-    /// *open* signature (carrying `FTTypar(Declaring,i)` / `FTTypar(Method,i)` markers)
+    /// Recover the declaring type's and the member's own type arguments by structurally
+    /// matching an *open* signature (`FTTypar(Type _, i)` / `FTTypar(Member _, j)` markers)
     /// against its *instantiated* counterpart. Returns `(declaringArgs, methodArgs)`.
     abstract RecoverOpenTypars:
         declTyparArity: int * methodTyparArity: int * openT: FrozenType * instT: FrozenType ->

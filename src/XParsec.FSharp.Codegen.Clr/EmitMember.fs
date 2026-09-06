@@ -136,7 +136,7 @@ module EmitMember =
                     m.Handle
             | false, _ ->
                 // `memberTy` is the access's instantiated curried shape (`arg → … → ret`), so
-                // the method axis is recoverable from the provider's metadata; a property
+                // the member's own typars are recoverable from the provider's metadata; a property
                 // slot drops to its bare value type.
                 let ifaceTy = FTClass(ifaceKey, ifaceArgs)
 

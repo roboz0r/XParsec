@@ -194,13 +194,6 @@ type ComparisonVerdict =
     /// Default for unannotated records / unions.
     | NoComparison
 
-/// The axis a `FrozenType.FTTypar` indexes into: the declaring type's own generic
-/// parameters (`!i` in CLI metadata) versus a method's own (`!!i`).
-[<RequireQualifiedAccess>]
-type TyparAxis =
-    | Declaring
-    | Method
-
 /// What a type parameter ranges over: a type, or a unit of measure (`[<Measure>] 'u`).
 [<RequireQualifiedAccess>]
 type TyparKind =
@@ -347,15 +340,32 @@ module TTypeParam =
 
     let names (ps: EqArray<TTypeParam>) : EqArray<string> = ps |> EqArray.map (fun p -> p.Name)
 
-/// A generalized scheme bound INSIDE one frozen body, numbered densely within that body.
-/// OPAQUE and BODY-RELATIVE: it resolves against no file, pool or side table.
-[<Struct>]
-type SchemeId = | SchemeId of int
-
 /// A generalised binding's identity within its file, minted when the binding generalises
 /// and dense in generalisation order. Stable across re-generalisation of the same binding.
 [<Struct>]
 type LocalBindingId = | LocalBindingId of int
+
+/// The declaration a type parameter belongs to. A `TyTypar` / `FTTypar` leaf carries its
+/// scope and its index into the scope's `TyparList.Types`.
+[<RequireQualifiedAccess>]
+type TyparScope =
+    /// A type declaration's own typars: `!i` in CLI metadata.
+    | Type of TypeKey
+    /// A member's own typars, nested in the owner's `Type` scope: `!!j` in CLI metadata.
+    | Member of owner: TypeKey * ordinal: MemberOrdinal
+    /// A module-level `let`'s own typars, a top-level `let` of the implicit program module
+    /// included: `!!j` on the static method it compiles to.
+    | ModuleFunction of BindingKey
+    /// A generalised body-local `let`'s own typars. A CLI signature has no slot for one.
+    | LocalFunction of LocalBindingId
+
+    /// A member's or a module function's scope: the typars a call site instantiates.
+    member this.IsFunction: bool =
+        match this with
+        | Member _
+        | ModuleFunction _ -> true
+        | Type _
+        | LocalFunction _ -> false
 
 /// A dense index into `FrozenPools`' bound variable columns. A bound variable is a definition site the tree
 /// INTRODUCES: a `NamedSimple` pattern, a `ForTo` loop variable, a type's key slots.

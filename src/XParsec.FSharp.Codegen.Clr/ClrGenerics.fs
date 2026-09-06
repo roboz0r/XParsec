@@ -5,7 +5,7 @@ open System.Reflection.Metadata.Ecma335
 open XParsec.FSharp.SemanticAnalysis
 
 /// `TypeSpec` + `MemberRef` minting for generic user types emitted into this assembly: unions,
-/// records, classes and closures, whose declaring typars arrive as `FTTypar(Declaring, i)` nodes
+/// records, classes and closures, whose declaring typars arrive as `FTTypar(Type _, i)` nodes
 /// and encode as `!i` against the instantiated parent spec.
 type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
     let ctx = env.Ctx
@@ -102,7 +102,7 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
 
         // The union named from inside its own bodies: the type a factory returns and a
         // `_unique_<Case>` singleton is typed at.
-        let selfTy = FTUnion(key, EqArray.ofList (declaringMarkers shape.Typars.Length))
+        let selfTy = FTUnion(key, EqArray.ofList (declaringMarkers key shape.Typars.Length))
 
         // A flat regime's slots, and the `Payload` struct a `StructTagged` union nests, in
         // the same scope.
@@ -355,8 +355,8 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
                 toEntity (ctx.MemberRef(parent, "Invoke", s))
 
         // `parent` is minted under the caller's ambient closure scope; `mint` encodes against
-        // THIS closure's typars, so force its scope on: under it `FTTypar(Declaring, i)`
-        // encodes `!i` and `FTTypar(Method, j)` encodes `!(d + j)`.
+        // THIS closure's typars, so force its scope on: under it `FTTypar(Type _, i)`
+        // encodes `!i` and a function typar `j` encodes `!(d + j)`.
         env.WithClosureTyparScope(shape.DeclaringTypars, mint)
 
     member _.GenericUnionMemberRef(key, args, which) = genericUnionMemberRef key args which
@@ -374,8 +374,8 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
     /// The nominal `TypeKey` embeds the arity, so `Choice\`2`…`Choice\`7` stay distinct.
     member _.GenericUnionSelfSpec(key: TypeKey) : EntityHandle =
         let typars = genericUnions.[key].Typars
-        genericUnionTypeSpec key (declaringMarkers typars.Length)
+        genericUnionTypeSpec key (declaringMarkers key typars.Length)
 
     member _.GenericRecordSelfSpec(key: TypeKey) : EntityHandle =
         let typars = genericRecords.[key].Typars
-        genericRecordTypeSpec key (declaringMarkers typars.Length)
+        genericRecordTypeSpec key (declaringMarkers key typars.Length)

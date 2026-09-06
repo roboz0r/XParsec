@@ -276,13 +276,13 @@ module EmitClosures =
                 | EmitHome.Program _ -> None
             )
 
-    /// No untyped position (`FTUnknown`) and no body-local typar (`FTLocalTypar`);
+    /// No untyped position (`FTUnknown`) and no body-local typar (`FTTypar(LocalFunction _, _)`);
     /// neither is grounded, so neither encodes into a signature. A value carrying one is
     /// skipped, not an error, because `let f () = let g = fun x -> x in (g, g)` is a legal program.
     let rec private ftNoUnknown (t: FrozenType) : bool =
         match t with
         | FTUnknown _
-        | FTLocalTypar _ -> false
+        | FTTypar(TyparScope.LocalFunction _, _) -> false
         | t -> FrozenType.forallChildren ftNoUnknown t
 
     /// A binding absent from the front-end scheme table quantifies nothing.
@@ -565,6 +565,7 @@ module EmitClosures =
             /// The member's own method-typar count. These follow the class
             /// typars in the closure's typar list (offset `DeclaringTypars`).
             MethodTypars: int
+            Enclosing: EnclosingScopes
             Body: TastAccessor.ExprId
         }
 
@@ -650,7 +651,13 @@ module EmitClosures =
         // `currentTypars` is the typar count inherited from the enclosing method / closure, of
         // which `declaringOffset` leading slots are the enclosing class's (`0` for a static-fn
         // closure). `selfKey` is set on a `let f = …` value: its self-reference is `this`.
-        let rec go (currentTypars: int) (declaringOffset: int) (selfKey: BoundVarId voption) (e: TastAccessor.ExprId) =
+        let rec go
+            (enclosing: EnclosingScopes)
+            (currentTypars: int)
+            (declaringOffset: int)
+            (selfKey: BoundVarId voption)
+            (e: TastAccessor.ExprId)
+            =
             // A flat value-struct lambda of arity `2..4` peels its inner `Lambda` levels into
             // the SAME closure's extra params (one `Invoke(a,b,…)`), so those inner lambdas
             // are not independent closures. Recurse into the DEEPEST body instead.
@@ -673,14 +680,14 @@ module EmitClosures =
                     ValueNone
 
             (match flatInner with
-             | ValueSome inner -> go currentTypars declaringOffset ValueNone inner
+             | ValueSome inner -> go enclosing currentTypars declaringOffset ValueNone inner
              | ValueNone ->
                  match e with
                  // The bound variable anchors an inner closure to its name, scoped across the value.
                  | LetBoundLambda(k, value, body) ->
-                     go currentTypars declaringOffset (ValueSome k) value
-                     go currentTypars declaringOffset ValueNone body
-                 | _ -> iterChildren (go currentTypars declaringOffset ValueNone) e) // children (and inner lambdas) first → leaves-first
+                     go enclosing currentTypars declaringOffset (ValueSome k) value
+                     go enclosing currentTypars declaringOffset ValueNone body
+                 | _ -> iterChildren (go enclosing currentTypars declaringOffset ValueNone) e) // children (and inner lambdas) first → leaves-first
 
             let registerClosure
                 (p: BoundVarId)
@@ -766,6 +773,7 @@ module EmitClosures =
                         SelfKey = selfKey
                         Typars = currentTypars
                         DeclaringTypars = declaringOffset
+                        Enclosing = enclosing
                         Repr = repr
                         IsValueStruct = isValueStruct
                         FunArity = funArity
@@ -809,16 +817,25 @@ module EmitClosures =
                         // The outer lambda is not a closure, but its body may construct inner
                         // ones, which inherit the method's typars.
                         let _, body = peelLambda letd.Binding.Value
-                        go fn.Scheme.TyparArity 0 ValueNone body
-                    | false, _ -> go 0 0 (ValueSome k) letd.Binding.Value
-                | ValueNone -> go 0 0 ValueNone letd.Binding.Value
-            | TastAccessor.DExpression(e, _) -> go 0 0 ValueNone e
+
+                        let enclosing =
+                            match fn.SymbolKey with
+                            | SymbolKey.Binding key ->
+                                { EnclosingScopes.none with
+                                    Function = ValueSome(TyparScope.ModuleFunction key)
+                                }
+                            | _ -> EnclosingScopes.none
+
+                        go enclosing fn.Scheme.TyparArity 0 ValueNone body
+                    | false, _ -> go EnclosingScopes.none 0 0 (ValueSome k) letd.Binding.Value
+                | ValueNone -> go EnclosingScopes.none 0 0 ValueNone letd.Binding.Value
+            | TastAccessor.DExpression(e, _) -> go EnclosingScopes.none 0 0 ValueNone e
             | _ -> ()
 
         // A member body sees no `selfKey`: the member dispatches as a call, not a captured
         // value. Its closures' typar list is the declaring class typars (offset 0) followed
         // by the member's own method typars.
         for root in memberRoots do
-            go (root.DeclaringTypars + root.MethodTypars) root.DeclaringTypars ValueNone root.Body
+            go root.Enclosing (root.DeclaringTypars + root.MethodTypars) root.DeclaringTypars ValueNone root.Body
 
         [ for n in order -> lookup.[n] ], lookup

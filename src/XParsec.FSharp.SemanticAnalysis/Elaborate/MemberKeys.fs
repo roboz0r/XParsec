@@ -59,7 +59,7 @@ module LocalMemberKeys =
             | ValueSome em -> ValueSome(SymbolKey.Member em.Key)
             | ValueNone -> ValueNone
 
-        // The declaring type's own typars are the axis the signature freezes against.
+        // The declaring type's own typars are the scope the signature freezes against.
         // The intrinsic-abbrev arm reaches the member the unifier satisfied an SRTP trait
         // with (`type X = (# … #) with static member (+) …`), which no provider carries
         // while the declaring file itself is being compiled.

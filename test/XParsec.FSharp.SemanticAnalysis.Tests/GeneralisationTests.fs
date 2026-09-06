@@ -92,10 +92,13 @@ let tests =
                 // `myId : 'a -> 'a` as a one-typar FrozenType scheme. Local `f`
                 // aliases it; both schemes mint independent vars per use site.
                 let myIdSymbol: ExternalSymbol =
+                    let scope =
+                        TyparScope.ModuleFunction(SymbolKeyOps.bindingKeyOf (SymbolKeyOps.inNamespace "") "myId")
+
                     ExternalSymbols.scheme
                         (SymbolKeyOps.inNamespace "")
                         "myId"
-                        (FTFun(FTTypar(TyparAxis.Declaring, 0), FTTypar(TyparAxis.Declaring, 0)))
+                        (FTFun(FTTypar(scope, 0), FTTypar(scope, 0)))
                         1
                         []
 

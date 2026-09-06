@@ -148,7 +148,7 @@ module UnificationEngineCore =
         if not (store.Constraints.Items root |> List.exists (fun e -> e.Kind = c.Kind)) then
             store.Constraints.Prepend(root, c)
 
-    /// A member's type at a call site: the declaring-axis substitution (`typeParams ↦ args`)
+    /// A member's type at a call site: the declaring type's substitution (`typeParams ↦ args`)
     /// plus a fresh `TyVar` at the current level for each of the member's own `methodTypars`.
     /// Each fresh typar carries the prototype's constraints over the instance's typars.
     let instantiateMemberCall

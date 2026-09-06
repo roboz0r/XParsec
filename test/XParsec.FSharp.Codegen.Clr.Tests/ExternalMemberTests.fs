@@ -100,7 +100,7 @@ let private assertGetHashCodeFreezesCarryingItsKey (src: string) : unit =
 
             Expect.equal
                 (EqArray.toList argSig)
-                [ FrozenType.FTTypar(TyparAxis.Declaring, 0) ]
+                [ FTTypar(TyparScope.Type decl, 0) ]
                 "GetHashCode(T) argSig is the declaring typar"
         | other -> failtestf "unexpected GetHashCode key %A" other
 

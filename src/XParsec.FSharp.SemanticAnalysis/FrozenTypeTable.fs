@@ -124,6 +124,14 @@ type ConditionalRow =
 [<Struct>]
 type MeasureAtomRow = { Atom: TypeKeyId; Exponent: Rational }
 
+/// `TyparScope` with its keys interned.
+[<RequireQualifiedAccess>]
+type TyparScopeRow =
+    | Type of TypeKeyId
+    | Member of owner: TypeKeyId * ordinal: int
+    | ModuleFunction of BindingKeyId
+    | LocalFunction of int
+
 /// One `FrozenType` with every child replaced by the id it interned to. The row is its own
 /// INTERN KEY, because children being ids makes structural equality O(arity). `Or` holds an
 /// `EqSet` so `A|B` and `B|A` intern to one row, insertion order keeping the declared order.
@@ -141,8 +149,7 @@ type TypeRow =
     | KeyOf of ty: TypeId
     | IndexedAccess of objTy: TypeId * index: TypeId
     | Conditional of ConditionalRow
-    | Typar of axis: TyparAxis * index: int
-    | LocalTypar of scheme: SchemeId * index: int
+    | Typar of scope: TyparScopeRow * index: int
     | Unknown of reason: UnknownReasonRow
     /// The term's normalised atoms in `MeasureTerm.Exponents` order.
     | Measure of atoms: EqArray<MeasureAtomRow>
@@ -299,6 +306,13 @@ type FrozenTypeTableBuilder private (rows: FrozenTypeRows) =
         | LiteralConst.String s -> LiteralRow.String(str s)
         | LiteralConst.Int n -> LiteralRow.Int n
 
+    let typarScope (s: TyparScope) : TyparScopeRow =
+        match s with
+        | TyparScope.Type key -> TyparScopeRow.Type(typeKey key)
+        | TyparScope.Member(owner, MemberOrdinal ordinal) -> TyparScopeRow.Member(typeKey owner, ordinal)
+        | TyparScope.ModuleFunction key -> TyparScopeRow.ModuleFunction(bindingKey key)
+        | TyparScope.LocalFunction(LocalBindingId id) -> TyparScopeRow.LocalFunction id
+
     let unknownReason (r: UnknownReason) : UnknownReasonRow =
         match r with
         | UnknownReason.UndefinedName name -> UnknownReasonRow.UndefinedName(str name)
@@ -334,8 +348,7 @@ type FrozenTypeTableBuilder private (rows: FrozenTypeRows) =
                         WhenTrue = frozenType payload.WhenTrue
                         WhenFalse = frozenType payload.WhenFalse
                     }
-            | FTTypar(axis, index) -> TypeRow.Typar(axis, index)
-            | FTLocalTypar(scheme, index) -> TypeRow.LocalTypar(scheme, index)
+            | FTTypar(scope, index) -> TypeRow.Typar(typarScope scope, index)
             | FTUnknown reason -> TypeRow.Unknown(unknownReason reason)
             | FTMeasure units ->
                 TypeRow.Measure(
@@ -496,6 +509,13 @@ type FrozenTypeTable private (rows: FrozenTypeRows, view: FrozenType -> FrozenTy
         | MemberKindRow.InterfaceMethod iface -> MemberKind.InterfaceMethod(typeKey iface)
         | MemberKindRow.ExplicitInterfaceImpl iface -> MemberKind.ExplicitInterfaceImpl(typeKey iface)
 
+    let typarScope (s: TyparScopeRow) : TyparScope =
+        match s with
+        | TyparScopeRow.Type key -> TyparScope.Type(typeKey key)
+        | TyparScopeRow.Member(owner, ordinal) -> TyparScope.Member(typeKey owner, MemberOrdinal ordinal)
+        | TyparScopeRow.ModuleFunction key -> TyparScope.ModuleFunction(bindingKey key)
+        | TyparScopeRow.LocalFunction id -> TyparScope.LocalFunction(LocalBindingId id)
+
     let literal (v: LiteralRow) : LiteralConst =
         match v with
         | LiteralRow.String s -> LiteralConst.String(str s)
@@ -541,8 +561,7 @@ type FrozenTypeTable private (rows: FrozenTypeRows, view: FrozenType -> FrozenTy
                                 WhenTrue = frozenType row.WhenTrue
                                 WhenFalse = frozenType row.WhenFalse
                             }
-                    | TypeRow.Typar(axis, index) -> FTTypar(axis, index)
-                    | TypeRow.LocalTypar(scheme, index) -> FTLocalTypar(scheme, index)
+                    | TypeRow.Typar(scope, index) -> FTTypar(typarScope scope, index)
                     | TypeRow.Unknown reason -> FTUnknown(unknownReason reason)
                     | TypeRow.Measure atoms ->
                         FTMeasure(MeasureTerm.OfList [ for a in atoms -> typeKey a.Atom, a.Exponent ])

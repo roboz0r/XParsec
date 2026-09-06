@@ -125,11 +125,13 @@ module SignatureResolutionMembers =
             ValueNone
 
     /// One member as the declaring type's consumers see it: its signature over the declaring
-    /// typars (declaring axis) and its own (method axis).
+    /// typars, under the type's scope, and its own, under the member's. `ordinal` is the
+    /// member's position among the signature's members.
     let resolveMember
         (ctx: PassContext)
         (declKey: TypeKey)
         (declTypars: EqArray<DeclaredTypar>)
+        (ordinal: MemberOrdinal)
         (m: SigMember)
         : ExternalMember =
         classifyCurriedSigTypes ctx m.Signature
@@ -150,7 +152,7 @@ module SignatureResolutionMembers =
         let domains, ret =
             underTypars ctx declTypars ownTypars (fun () -> translateSigGroups ctx m.Signature)
 
-        let env = typarEnv ctx (TyparOwner.Member(declTypars, ownTypars))
+        let env = typarEnv ctx (TyparOwner.Member(declKey, declTypars, ordinal, ownTypars))
         let frozenDomains = freezeDomains ctx env domains
         let frozenRet = freezeOver ctx env ret
 
@@ -186,7 +188,7 @@ module SignatureResolutionMembers =
         (elems: TypeElementsSignature<SyntaxToken>)
         : ExternalMember list =
         let ctx = sctx.Pass
-        let env = typarEnv ctx (TyparOwner.Type declTypars)
+        let env = typarEnv ctx (TyparOwner.Type(declKey, declTypars))
         let declName = SymbolKeyOps.typeMetaName declKey
 
         let ctorOf (sign: UncurriedSig<SyntaxToken>) =
@@ -217,11 +219,14 @@ module SignatureResolutionMembers =
                 []
 
         [
-            for m in sigMembers ctx elems do
+            // Ordinals follow the signature's own member order, one per member as written.
+            for ordinal, m in List.indexed (sigMembers ctx elems) do
                 let named () =
                     sprintf "member '%s.%s'" declName m.Name
 
-                match tryResolve sctx named (fun () -> resolveMember ctx declKey declTypars m) with
+                match
+                    tryResolve sctx named (fun () -> resolveMember ctx declKey declTypars (MemberOrdinal ordinal) m)
+                with
                 | ValueSome published -> yield published
                 | ValueNone -> ()
 
@@ -272,11 +277,12 @@ module SignatureResolutionMembers =
 
     let freezeInterfaces
         (sctx: SigCtx)
+        (declKey: TypeKey)
         (declTypars: EqArray<DeclaredTypar>)
         (types: (SyntaxToken * Type<SyntaxToken>) list)
         : EqArray<FrozenNominal> =
         let ctx = sctx.Pass
-        let env = typarEnv ctx (TyparOwner.Type declTypars)
+        let env = typarEnv ctx (TyparOwner.Type(declKey, declTypars))
 
         // Translated UNDER the declaring typars, not merely frozen over them: `interface
         // seq<'T>` references `'T`, and one resolved outside their scope is a fresh variable that
@@ -297,7 +303,8 @@ module SignatureResolutionMembers =
 
     /// The surface a bodied signature publishes. `Shape.Members` is filled only for an
     /// INTERFACE, whose `interface … with` conformance check reads the shape directly; a shape's
-    /// templates instantiate on the DECLARING axis, where a nominal member's own typars are not.
+    /// templates instantiate over the declaring type's scope, where a nominal member's own
+    /// typars are not.
     [<NoEquality; NoComparison>]
     type BodiedSurface =
         {
@@ -357,7 +364,7 @@ module SignatureResolutionMembers =
                                  EqArray.ofList members
                              else
                                  EqArray.empty)
-                        FrozenInterfaces = freezeInterfaces sctx typeParams interfaceTypes
+                        FrozenInterfaces = freezeInterfaces sctx id.Key typeParams interfaceTypes
                         FrozenBaseType =
                             baseClause
                             |> ValueOption.bind (fun (ClassInheritsDecl(inheritToken = inhTok; typ = t)) ->
@@ -368,7 +375,7 @@ module SignatureResolutionMembers =
                                 |> BaseEligibility.admit ctx inhTok
                                 |> ValueOption.map (fun parent ->
                                     NominalG.map
-                                        (freezeOver ctx (typarEnv ctx (TyparOwner.Type typeParams)))
+                                        (freezeOver ctx (typarEnv ctx (TyparOwner.Type(id.Key, typeParams))))
                                         parent.Nominal
                                 )
                             )

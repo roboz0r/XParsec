@@ -44,7 +44,7 @@ module internal ElaboratePrintf =
         | TyRecord _
         | TyClass _ -> true
         // A polymorphic hole (`let f x = printfn "%A" x`) zonks to a still-free `TyVar`;
-        // freeze generalises it to `FTTypar(TyparAxis.Method, i)`, which the CLR encoder
+        // freeze generalises it to `FTTypar(ModuleFunction _, i)`, which the CLR encoder
         // maps to `!!i` and authors as the `AppendStructured<!!i>` type argument.
         | TyVar _ -> true
         // The residual shapes (`TyUnknown`, `TyOr`, `TyKeyOf`, `TyIndexedAccess`,

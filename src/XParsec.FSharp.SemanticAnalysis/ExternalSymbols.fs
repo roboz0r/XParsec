@@ -74,7 +74,7 @@ type ExternalTypeShape =
                 args
                 |> EqArray.forall (fun a ->
                     match a with
-                    | FTTypar(TyparAxis.Declaring, i) when i < arity && not seen.[i] ->
+                    | FTTypar(TyparScope.Type _, i) when i < arity && not seen.[i] ->
                         seen.[i] <- true
                         true
                     | _ -> false
@@ -462,12 +462,12 @@ module IExternalSymbolStoreExtensions =
 
 /// An external module-level function as the codegen boundary sees it: the curried
 /// `param -> … -> return` template with the function's own typars baked as
-/// `FTTypar(Method, i)`.
+/// `FTTypar(ModuleFunction _, i)`.
 type CodegenOpenSignature =
     {
         Origin: SymbolOrigin
         Signature: FrozenType
-        /// The emitted method-typar count and the constraints over the method-typar axis. A
+        /// The emitted method-typar count and the constraints over those typars. A
         /// `Coercion` constraint lets a phantom slot be recovered from the constrained
         /// source's interface witness.
         Scheme: GenericFnScheme
@@ -647,9 +647,9 @@ module ExternalSymbols =
             (TyparInstantiation.atCallSite thaw.Store level seed declaringArgs)
             (ExternalSignature.openTemplate m.Signature)
 
-    /// Instantiate a member's `Signature` at `level`: `FTTypar(Declaring,i) →
-    /// declaringArgs.[i]`, `FTTypar(Method,j) → fresh TyVar at level` (one per index, shared
-    /// across the argument groups and `Return`).
+    /// Instantiate a member's `Signature` at `level`: `FTTypar(Type _, i) →
+    /// declaringArgs.[i]`, `FTTypar(Member _, j) → fresh TyVar at level` (one per index,
+    /// shared across the argument groups and `Return`).
     let instantiateSignature
         (thaw: IMeasuredThaw)
         (m: ExternalMember)
@@ -659,13 +659,13 @@ module ExternalSymbols =
         instantiateSignatureWith thaw [] m declaringArgs level
 
     /// The OPEN instantiation of a member's `Signature`: declaring typars substituted from
-    /// `declaringArgs`, the member's own method typars left as `TyTypar(Method,j)` markers.
+    /// `declaringArgs`, the member's own typars left as `TyTypar(Member _, j)` markers.
     /// The applicability-filtering form, in which a generic method's marker stays a wildcard.
     let openSignature (thaw: IMeasuredThaw) (m: ExternalMember) (declaringArgs: SemType[]) : SemType =
         instantiateWith thaw (TyparInstantiation.openMethod declaringArgs) (ExternalSignature.openTemplate m.Signature)
 
     /// A member's method-typar upper BOUNDS at a use site, one per method typar: the TS `extends` type.
-    /// `FTTypar(Declaring,i)` → `declaringArgs.[i]`; a `FTTypar(Method,j)` ref stays an
+    /// `FTTypar(Type _, i)` → `declaringArgs.[i]`; a `FTTypar(Member _, j)` ref stays an
     /// inert marker.
     let instantiateSignatureBounds
         (thaw: IMeasuredThaw)
@@ -715,8 +715,8 @@ module ExternalSymbols =
         instantiateBaseTypeFrozen thaw shape.FrozenBaseType declaringArgs
 
     /// Instantiate a value/free-function symbol's `Scheme` at `level`: a fresh `TyVar` per
-    /// declaring typar, the `Constraints` stamped onto them, then the scheme instantiated
-    /// against that array.
+    /// typar of its `ModuleFunction` scope, the `Constraints` stamped onto them, then the
+    /// scheme instantiated against that array.
     let instantiateSymbol (thaw: IMeasuredThaw) (sym: ExternalSymbol) (level: int) : SemType =
         let store = thaw.Store
 

@@ -73,9 +73,10 @@ module EmitResolve =
                     argCount
                     argTypes
 
-    /// Recover a generic member's instantiation by structurally matching its declared
-    /// OPEN curried signature (declaring-/method-axis markers) against the call's
-    /// INSTANTIATED argument + result types: the parent `TypeSpec`'s args, then the `MethodSpec`'s.
+    /// Recover a generic member's instantiation by structurally matching its declared OPEN
+    /// curried signature (`FTTypar` markers of the type's and the member's scope) against the
+    /// call's INSTANTIATED argument + result types: the parent `TypeSpec`'s args, then the
+    /// `MethodSpec`'s.
     let recoverMemberInst
         (env: EmitEnv)
         (m: EmittedMember)
@@ -88,7 +89,7 @@ module EmitResolve =
         env.Provider.RecoverOpenTypars(declTyparArity, m.MethodTyparCount, openT, instT)
 
     /// Pick the interface template a project-local class implements matching `ifaceKey`,
-    /// instantiated at THIS object argument (`FTTypar(Declaring, i) := classArgs.[i]`).
+    /// instantiated at THIS object argument (`FTTypar(Type _, i) := classArgs.[i]`).
     /// Direct-declared interfaces only, not those of base classes or transitive interfaces.
     let tryInterfaceWitness (env: EmitEnv) (nominal: FrozenType) (ifaceKey: TypeKey) : EqArray<FrozenType> voption =
         match nominal with
@@ -119,19 +120,21 @@ module EmitResolve =
         | FTConditional _
         | FTMeasure _ ->
             failwithf "EmitResolve.tyCtorOf: unreachable carried type-level node reached the CLR backend: %A" t
+        // A body-local typar's identity is its `(binding, index)` pair, so it matches only
+        // itself. Unlike a type's or a function's typar, no overload can be generic in it.
+        | FTTypar(TyparScope.LocalFunction(LocalBindingId binding), i) -> "!local:" + string binding + ":" + string i
         | FTTypar _ -> "!typar"
         // No type, so nothing to match on: every untyped position ties with every other, and
         // with no real type. The `!` prefix keeps it out of the qualified-name space above.
         | FTUnknown _ -> "!unknown"
-        // A body-local typar's identity is its `(scheme, index)` pair, so it matches only
-        // itself. Unlike `FTTypar`, no overload can be generic in it.
-        | FTLocalTypar(SchemeId scheme, i) -> "!local:" + string scheme + ":" + string i
 
     /// Does a candidate's declared (open) parameter accept a call argument of type `arg`?
-    /// An `FTTypar` parameter is a generic hole and accepts anything; a concrete one matches
-    /// by TYPE CONSTRUCTOR only, so two overloads differing just in a generic argument tie.
+    /// A type's or a function's typar parameter is a generic hole and accepts anything; a
+    /// concrete one matches by TYPE CONSTRUCTOR only, so two overloads differing just in a
+    /// generic argument tie.
     let private paramAccepts (param: FrozenType) (arg: FrozenType) : bool =
         match param with
+        | FTTypar(TyparScope.LocalFunction _, _) -> tyCtorOf param = tyCtorOf arg
         | FTTypar _ -> true
         | _ -> tyCtorOf param = tyCtorOf arg
 

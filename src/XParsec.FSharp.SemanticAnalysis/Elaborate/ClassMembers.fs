@@ -101,36 +101,22 @@ module internal ElaborateClassMembers =
             else
                 rewriteFieldRefs instanceRewrite body
 
+        let members = hostMembers info.Body.Members info.Body.InterfaceImpls
+
         // The member's own generic parameters, recovered from the registered
         // `TypeMemberInfo.CanonicalTypars`. That order is PRESERVED, so the
-        // ABI index a frozen `TyTypar(Method, i)` marker carries stays valid.
+        // ABI index a frozen `TyTypar(Member _, i)` marker carries stays valid.
         let methodTypeParams (site: MemberSite) : EqArray<string * SemType> * EqSet<TyparConstraintG<SemType>> =
             // Materialise each root as a plain `TyVar root`, so the later cut flips it
-            // to `TyTypar(Method, i)` like every other embedded type, and the tree field
+            // to `TyTypar(Member _, i)` like every other embedded type, and the tree field
             // never holds a union-find carrier. The constraints read off the same roots.
-            let ofRoots (g: GeneralizedTypars) : EqArray<string * SemType> * EqSet<TyparConstraintG<SemType>> =
+            let ofRoots (scope: TyparScope) (g: GeneralizedTypars) =
                 GeneralizedTypars.toArray g
                 |> Array.map (fun tp -> tp.Name, TyVar tp.TyVar)
                 |> EqArray.ofArray,
-                constraintsOfEnv ctx.Store (GeneralizedTypars.methodEnv g)
+                constraintsOfEnv ctx.Store (GeneralizedTypars.methodEnv scope g)
 
-            // Match the exact overload by its registration `DeclKey` first: same-name
-            // overloads share `Name`/`Kind`/`IsStatic`, so a name-only find would give
-            // every one the FIRST overload's typars, dropping the others' own `'T`.
-            let byKey =
-                match site.DeclKey with
-                | ValueSome k -> info.Body.Members |> Array.tryFind (fun mi -> mi.DeclSite.Key = k)
-                | ValueNone -> None
-
-            match
-                byKey
-                |> Option.orElseWith (fun () ->
-                    info.Body.Members
-                    |> Array.tryFind (fun mi ->
-                        mi.Name = site.Name && mi.IsStatic = site.IsStatic && mi.Kind = site.Kind
-                    )
-                )
-            with
+            match memberInfoOf members site with
             | Some mi ->
                 // A root unioned away since generalise keys the body's frozen typar
                 // markers on its SURVIVOR; a root linked to a concrete type is no
@@ -141,7 +127,7 @@ module internal ElaborateClassMembers =
                     | TyVar r -> ValueSome r
                     | _ -> ValueNone
                 )
-                |> ofRoots
+                |> ofRoots (TyparScope.Member(info.TypeKey, mi.Ordinal))
             | None -> EqArray.empty, EqSet.empty
 
         {
@@ -156,6 +142,7 @@ module internal ElaborateClassMembers =
                     ValueNone
             LowerBody = lowerBody
             MethodTypeParams = methodTypeParams
+            OrdinalOf = ordinalOf members
         }
 
     /// Each `let`-preamble binding becomes a `TCtorLet`, and the final chain call's arguments

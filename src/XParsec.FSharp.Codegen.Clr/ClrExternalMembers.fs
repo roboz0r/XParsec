@@ -14,8 +14,8 @@ type internal ExternalMemberCacheKey =
     | On of key: SymbolKey * declTy: FrozenType * isProperty: bool * isStatic: bool * memberTy: FrozenType
     | Field of key: SymbolKey * declTy: FrozenType voption * memberTy: FrozenType
 
-/// One external member's CLR calling shape, over `FTTypar(Declaring, i)` /
-/// `FTTypar(Method, j)` markers.
+/// One external member's CLR calling shape, over `FTTypar(Type _, i)` /
+/// `FTTypar(Member _, j)` markers.
 type internal OpenMemberSignature =
     {
         TupledParameters: FrozenType
@@ -123,7 +123,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
         | ValueSome m -> m
         | ValueNone -> failwithf "ClrProvider: external member '%s.%s' did not resolve at emit" declFullName memberName
 
-    /// Mint the `MemberRef` for a `TExpr.ExternalMember`. Both typar axes' use-site
+    /// Mint the `MemberRef` for a `TExpr.ExternalMember`. Both scopes' use-site
     /// instantiations are recovered by matching the open signature against `memberTy`: the
     /// declaring args parameterise the parent `TypeSpec`, the method args the `MethodSpec`.
     let externalMemberRef (key: SymbolKey) (isProperty: bool) (isStatic: bool) (memberTy: FrozenType) : EntityHandle =
@@ -188,8 +188,8 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
             let chosen = lookupChosen declFullName memberName mk
             let sig_ = OpenMemberSignature.OfMember chosen
 
-            // Only the method axis is recovered here; declaring arity 0 leaves the template's
-            // `FTTypar(Declaring, i)` slots to encode as `!i` when the blob is minted.
+            // Only the member's own typars are recovered here; declaring arity 0 leaves the
+            // template's `FTTypar(Type _, i)` slots to encode as `!i` when the blob is minted.
             let _, methodArgs =
                 recoverOpenTypars 0 sig_.MethodTyparArity (ExternalSignature.openTemplate chosen.Signature) memberTy
 
@@ -286,11 +286,8 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
 
                 let paramTys = EqArray.toList case.FrozenFieldTypes
 
-                let retTy =
-                    FTUnion(
-                        SymbolKeyOps.qualifiedTypeKeyOf fullName arity,
-                        EqArray.ofArray [| for i in 0 .. arity - 1 -> FTTypar(TyparAxis.Declaring, i) |]
-                    )
+                let unionKey = SymbolKeyOps.qualifiedTypeKeyOf fullName arity
+                let retTy = FTUnion(unionKey, EqArray.ofList (declaringMarkers unionKey arity))
 
                 let s = BlobBuilder()
 

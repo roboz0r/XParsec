@@ -157,7 +157,7 @@ type ClrProvider
     member _.FlatFunInterfaceSpecN(tys: FrozenType list) : EntityHandle = recipes.FlatFunInterfaceSpecN(tys)
 
     /// A `TypeSpec`/`TypeRef` handle for an arbitrary external type. A user class's
-    /// `interface IEnumerable<'T>` carries its `'T` as `FTTypar(Declaring, i)`, which the
+    /// `interface IEnumerable<'T>` carries its `'T` as `FTTypar(Type _, i)`, which the
     /// encoder resolves to the declaring type's `!i`.
     member _.TypeSpecOf(ty: FrozenType) : EntityHandle = enc.TypeSpecOf ty
 
@@ -225,9 +225,9 @@ type ClrProvider
     member _.GenericClosureMemberRef(name: string, args: FrozenType list, which: ClosureMember) : EntityHandle =
         generics.GenericClosureMemberRef(name, args, which)
 
-    /// Run `f` — a generic closure's own ctor / `Invoke` / field / locals / member-ref emission
-    /// — with the enclosing method's `FTTypar(Method, i)`, which the closure body embeds,
-    /// re-projected onto the closure *class*'s `!(declaringTypars + i)` rather than `!!i`.
+    /// Run `f`, a generic closure's own ctor / `Invoke` / field / locals / member-ref emission,
+    /// with the enclosing function's typar `i`, which the closure body embeds, re-projected
+    /// onto the closure *class*'s `!(declaringTypars + i)` rather than `!!i`.
     member _.WithClosureTyparScope(declaringTypars: int, f: unit -> 'T) : 'T =
         env.WithClosureTyparScope(declaringTypars, f)
 

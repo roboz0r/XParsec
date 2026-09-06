@@ -8,6 +8,23 @@ open XParsec.FSharp.Codegen.Common
 
 module EmitTypes =
 
+    /// The scopes whose typars a closure lifts onto its own class: the enclosing type's take
+    /// the first `DeclaringTypars` slots, the enclosing member's or module function's the
+    /// rest. `ValueNone` where the enclosing declaration has none of that kind.
+    type EnclosingScopes =
+        {
+            Type: TypeKey voption
+            Function: TyparScope voption
+        }
+
+    [<RequireQualifiedAccess>]
+    module EnclosingScopes =
+        let none: EnclosingScopes =
+            {
+                Type = ValueNone
+                Function = ValueNone
+            }
+
     /// One synthesised closure class: a `System.Object` implementing
     /// `Vesper.Fun\`2<ParamTy, ResultTy>`. `Node`, its pool id, keys every `…ByNode` table.
     /// `Captures` order = field order = ctor-arg order = order pushed at construction.
@@ -34,9 +51,11 @@ module EmitTypes =
             /// `TypeSpec`.
             Typars: int
             /// How many of `Typars` are the enclosing class's (a member-body closure on a
-            /// generic class); `0` for a static-fn closure, all of whose typars are
-            /// method-axis. Splits the construction-site instantiation into the two axes.
+            /// generic class); `0` for a static-fn closure, all of whose typars are the
+            /// function's. Splits the construction-site instantiation into the two scopes.
             DeclaringTypars: int
+            /// The scopes the construction site writes the instantiation over.
+            Enclosing: EnclosingScopes
             /// The front-end verdict that a readonly-struct shape is ADMISSIBLE for this
             /// closure. Necessary but not sufficient: `IsValueStruct` is the codegen gate.
             Repr: ClosureRepr
@@ -277,7 +296,7 @@ module EmitTypes =
             /// the matching overload here.
             SecondaryCtors: (int * FrozenType list * EntityHandle) list
             /// The implemented interfaces, each written over THIS class's declaring typars
-            /// (arg leaves are `FTTypar(TyparAxis.Declaring, i)`), for instantiation at an
+            /// (arg leaves are `FTTypar(Type _, i)`), for instantiation at an
             /// object argument. Direct impls only, not a base's.
             Interfaces: FrozenNominal list
         }
@@ -399,7 +418,7 @@ module EmitTypes =
             ResultTy: FrozenType
             /// An arity of `0` ⇒ monomorphic, a plain `call`. Otherwise the call site
             /// recovers the instantiation by matching the flat parameter types, whose leaves
-            /// are `FTTypar(TyparAxis.Method, i)`, against the actual argument types, and
+            /// are `FTTypar(ModuleFunction _, i)`, against the actual argument types, and
             /// solves a phantom typar from the constraints.
             Scheme: GenericFnScheme
             /// `true` ⇒ the method is CLR `void`: the `call` declares 0 results and a

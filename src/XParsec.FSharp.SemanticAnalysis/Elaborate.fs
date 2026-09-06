@@ -90,7 +90,7 @@ module Elaborate =
         | ValueNone -> false
 
     /// Records `boundVar`'s scheme: `quantEnv`'s length as the arity, and its constraints with
-    /// each embedded type frozen over `quantEnv`, its typars as `FTTypar(Method, i)`.
+    /// each embedded type frozen over `quantEnv`, its typars as `FTTypar(ModuleFunction _, i)`.
     let private recordGenericFnScheme
         (ctx: PassContext)
         (boundVar: BoundVarKey)
@@ -144,12 +144,13 @@ module Elaborate =
             ValueSome info.Key
         | _ -> ValueNone
 
-    /// A function binding always quantifies, a value binding only when generalised AND its
-    /// free typars sit inside a type constructor: a bare free var would emit `ldnull : !!0`
-    /// over an unconstrained typar, which does not verify.
+    /// A function binding always quantifies; a value binding only when generalised AND its free
+    /// typars sit inside a type constructor, because a bare `ldnull : !!0` does not verify. A
+    /// keyless binding (`let (a, b) = …`) has no scope, so its free typars freeze to `FTUnknown`.
     let private moduleLetQuantEnv
         (ctx: PassContext)
         (b: Binding<SyntaxToken>)
+        (key: BindingKey voption)
         (declTy: SemType)
         : (TyVarId * SemType) list =
         let declaredTypars =
@@ -157,18 +158,24 @@ module Elaborate =
             | ValueSome ds -> ds
             | ValueNone -> []
 
-        // An inline binding is never emitted, so no emission gate applies: it is a TEMPLATE
-        // whose free typars must be named on a self-describing axis or freeze to `FTUnknown`.
-        if b.inlineToken.IsSome then
-            mkMethodQuantEnv ctx.Store declaredTypars declTy
-        else
-            match Unification.zonk ctx.Store declTy with
-            | TyFun _ -> mkMethodQuantEnv ctx.Store declaredTypars declTy
-            // A bare free var is value-restricted, so never a method typar.
-            | TyVar _
-            | TyTypar _ -> []
-            | _ when bindingWasGeneralised ctx b -> mkMethodQuantEnv ctx.Store declaredTypars declTy
-            | _ -> []
+        match key with
+        | ValueNone -> []
+        | ValueSome key ->
+            let quantify () =
+                mkMethodQuantEnv ctx.Store (TyparScope.ModuleFunction key) declaredTypars declTy
+
+            // An inline binding is never emitted, so no emission gate applies: it is a TEMPLATE
+            // whose free typars must be named under the binding's scope or freeze to `FTUnknown`.
+            if b.inlineToken.IsSome then
+                quantify ()
+            else
+                match Unification.zonk ctx.Store declTy with
+                | TyFun _ -> quantify ()
+                // A bare free var is value-restricted, so never a method typar.
+                | TyVar _
+                | TyTypar _ -> []
+                | _ when bindingWasGeneralised ctx b -> quantify ()
+                | _ -> []
 
     /// One module binding as a `let` member, paired with the typar env it freezes over.
     /// `ValueNone` for a format-literal alias, whose `New PrintfFormat` value is dead: it
@@ -186,7 +193,13 @@ module Elaborate =
         let boundVar = if elided then ValueNone else BoundVarKey.ofPat m.Pattern
 
         let declTy = m.Ty
-        let quantEnv = moduleLetQuantEnv ctx b declTy
+
+        // The scope the binding's own typars quantify under; `ValueNone` for a pattern binding.
+        let bindingKey =
+            MemberNames.ofBinding ctx b
+            |> ValueOption.map (fun named -> SymbolKeyOps.bindingKeyOf container named.Name)
+
+        let quantEnv = moduleLetQuantEnv ctx b bindingKey declTy
 
         let attrElement =
             let isFunctionShaped =

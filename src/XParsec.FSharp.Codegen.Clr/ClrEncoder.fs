@@ -78,9 +78,8 @@ type internal ClrEncoder(env: ClrEnv) =
             | ClassOrigin.Unresolved -> None
         | _ -> None
 
-    /// Encode a `FrozenType` into a metadata signature slot. Context-free: open typars are
-    /// self-describing `FTTypar(axis, i)` nodes resolved by index, so there is no ambient
-    /// typar window and no caller-supplied replacement hook.
+    /// Encode a `FrozenType` into a metadata signature slot. Context-free: an open typar is a
+    /// self-describing `FTTypar(scope, i)` node resolved by scope kind and index.
     let rec encodeType (te: SignatureTypeEncoder) (t: FrozenType) : unit =
         match t with
         // IL has no representation for a measure: `float<m>` encodes as `float`.
@@ -108,21 +107,22 @@ type internal ClrEncoder(env: ClrEnv) =
             failwithf
                 "ClrProvider: the untyped position %s reached signature encoding (the front end should have errored first)"
                 reason.Render
-        | FTLocalTypar(scheme, i) ->
+        | FTTypar(TyparScope.LocalFunction binding, i) ->
             // A typar of a body-local `let`'s own generalized scheme. It may reach the backend,
             // because it is phantom wherever a closure over it is `Vesper.Fun`-boxed, but not
-            // signature encoding: unlike an `FTTypar` it occupies no slot in any enclosing
-            // generic parameter list.
+            // signature encoding: unlike a type's or a function's typar it occupies no slot in
+            // any enclosing generic parameter list.
             failwithf
                 "ClrProvider: local typar #%d of body-local %O reached signature encoding, but it occupies no generic parameter slot, so it has no CLR representation (the emitting site should have declined or boxed it)"
                 i
-                scheme
-        // Declaring-axis → the enclosing type's `!i`; Method-axis → the method's own `!!i`.
-        | FTTypar(TyparAxis.Declaring, i) -> te.GenericTypeParameter i
-        | FTTypar(TyparAxis.Method, i) ->
+                binding
+        // A type's typar → the enclosing type's `!i`; a member's or a module function's →
+        // the method's own `!!i`.
+        | FTTypar(TyparScope.Type _, i) -> te.GenericTypeParameter i
+        | FTFunctionTypar i ->
             match env.ClosureTyparScope with
             // Inside a closure's own emission the enclosing class typars hold the first `d`
-            // slots, so a method-axis typar lands at `!(d + i)` (a static-fn closure: `d = 0`).
+            // slots, so a function typar lands at `!(d + i)` (a static-fn closure: `d = 0`).
             | ValueSome d -> te.GenericTypeParameter(d + i)
             | ValueNone -> te.GenericMethodTypeParameter i
         // A tuple is a member of the `System.ValueTuple` struct family, a `VALUETYPE` generic
@@ -230,10 +230,9 @@ type internal ClrEncoder(env: ClrEnv) =
             for a in args do
                 encodeType (g.AddArgument()) a
 
-    /// Fill both open-typar axes' slots by structurally matching a member's OPEN signature
-    /// template (carrying `FTTypar(axis, i)` nodes) against its INSTANTIATED, already-ground
-    /// use-site type. Index-keyed; first occurrence wins. A slot stays `ValueNone` when its
-    /// typar surfaces nowhere in the signature.
+    /// Fill the declaring type's and the member's own open-typar slots by structurally matching
+    /// a member's OPEN signature template against its INSTANTIATED use-site type. Index-keyed;
+    /// first occurrence wins. A slot stays `ValueNone` when its typar surfaces nowhere.
     let fillOpenTyparSlots
         (declTyparArity: int)
         (methodTyparArity: int)
@@ -245,14 +244,17 @@ type internal ClrEncoder(env: ClrEnv) =
 
         let rec go (d: FrozenType) (a: FrozenType) =
             match d with
-            | FTTypar(axis, i) ->
+            | FTTypar(scope, i) ->
                 let slot =
-                    match axis with
-                    | TyparAxis.Declaring -> decl
-                    | TyparAxis.Method -> meth
+                    match scope with
+                    | TyparScope.Type _ -> ValueSome decl
+                    | TyparScope.Member _
+                    | TyparScope.ModuleFunction _ -> ValueSome meth
+                    | TyparScope.LocalFunction _ -> ValueNone
 
-                if i >= 0 && i < slot.Length && slot.[i].IsNone then
-                    slot.[i] <- ValueSome a
+                match slot with
+                | ValueSome slot when i >= 0 && i < slot.Length && slot.[i].IsNone -> slot.[i] <- ValueSome a
+                | _ -> ()
             // Pairwise descent under a shared type constructor: a mismatch declines silently,
             // leaving the subtree's slots empty for the caller to detect.
             | d -> FrozenType.iterChildren2 go d a
@@ -260,8 +262,8 @@ type internal ClrEncoder(env: ClrEnv) =
         go openT instT
         decl, meth
 
-    /// Recover both open-typar axes; every slot must be filled, so an unrecoverable typar
-    /// throws. Returns `(declaringArgs, methodArgs)`.
+    /// Recover both open-typar slot arrays; every slot must be filled, so an unrecoverable
+    /// typar throws. Returns `(declaringArgs, methodArgs)`.
     let recoverOpenTypars
         (declTyparArity: int)
         (methodTyparArity: int)

@@ -78,9 +78,13 @@ let tests =
                                      true,
                                      _) ] ->
                     match clause.Constraints with
-                    | EqList [ TStaticOptConstraint.TyconEquals(TyTypar(axisA, iA), TyTypar(axisB, iB)) ] ->
-                        Expect.equal (axisA, iA) (axisB, iB) "both sides denote the same typar"
-                        Expect.equal axisA TyparAxis.Method "an inline binding's own typars sit on the method axis"
+                    | EqList [ TStaticOptConstraint.TyconEquals(TyTypar(scopeA, iA), TyTypar(scopeB, iB)) ] ->
+                        Expect.equal (scopeA, iA) (scopeB, iB) "both sides denote the same typar"
+
+                        match scopeA with
+                        | TyparScope.ModuleFunction key -> Expect.equal key.Name "kindOf" "the binding's own scope"
+                        | other ->
+                            failtestf "an inline binding's own typars sit under its ModuleFunction scope, got %A" other
                     | other -> failtestf "expected one self-referential TyconEquals, got %A" other
                 | _ -> failtestf "expected a single-clause static-opt, got %A" tast.Decls
             }

@@ -234,6 +234,7 @@ module TastConvert =
             IsStatic = m.IsStatic
             Accessibility = m.Accessibility
             IsInline = m.IsInline
+            Ordinal = m.Ordinal
             Kind = m.Kind
             IsOverride = m.IsOverride
             ThisKey = ValueOption.map slot m.ThisKey

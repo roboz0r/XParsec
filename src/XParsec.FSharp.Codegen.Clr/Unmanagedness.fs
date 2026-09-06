@@ -97,8 +97,7 @@ module Unmanagedness =
             | FTTuple items -> ofParts (Seq.map (classify symbols (t :: path)) items)
             | FTFun _
             | FTOr _
-            | FTTypar _
-            | FTLocalTypar _ -> Unmanagedness.Managed
+            | FTTypar _ -> Unmanagedness.Managed
             | FTKeyOf _
             | FTIndexedAccess _
             | FTConditional _

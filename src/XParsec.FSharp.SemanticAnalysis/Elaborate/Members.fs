@@ -149,9 +149,41 @@ module internal ElaborateMembers =
             /// `ValueNone` for a type with no `inherit`; a static member drops it regardless.
             BaseKey: BoundVarKey voption
             LowerBody: MemberSite -> Expr<SyntaxToken> -> TExpr
-            /// The member's own typars and the constraints on them, on the method axis.
+            /// The member's own typars and the constraints on them, indexed into the typars.
             MethodTypeParams: MemberSite -> EqArray<string * SemType> * EqSet<TyparConstraintG<SemType>>
+            /// The member's position in the declaring type's declaration order.
+            OrdinalOf: MemberSite -> MemberOrdinal
         }
+
+    /// The registered info of `site`: by its registration `DeclKey` where it has one, because
+    /// same-name overloads share `Name` / `Kind` / `IsStatic`; by those three otherwise.
+    let memberInfoOf (members: TypeMemberInfo seq) (site: MemberSite) : TypeMemberInfo option =
+        let byKey =
+            match site.DeclKey with
+            | ValueSome k -> members |> Seq.tryFind (fun mi -> mi.DeclSite.Key = k)
+            | ValueNone -> None
+
+        byKey
+        |> Option.orElseWith (fun () ->
+            members
+            |> Seq.tryFind (fun mi -> mi.Name = site.Name && mi.IsStatic = site.IsStatic && mi.Kind = site.Kind)
+        )
+
+    /// Every member a host registered, its `interface … with` impl members included.
+    let hostMembers (members: TypeMemberInfo[]) (impls: ClassInterfaceImplInfo[]) : TypeMemberInfo seq =
+        seq {
+            yield! members
+
+            for impl in impls do
+                yield! impl.Members
+        }
+
+    /// `site`'s ordinal off its registered info; a member the registration walk did not mint
+    /// is a bug.
+    let ordinalOf (members: TypeMemberInfo seq) (site: MemberSite) : MemberOrdinal =
+        match memberInfoOf members site with
+        | Some mi -> mi.Ordinal
+        | None -> failwithf "ElaborateMembers.ordinalOf: member '%s' was not registered" site.Name
 
     /// Translate one member element into its `TTypeMember`s. The declaring type supplies
     /// everything a class has and a union / record does not, so both hosts share this walk.
@@ -204,6 +236,7 @@ module internal ElaborateMembers =
 
                 {
                     Name = decl.Name
+                    Ordinal = declaring.OrdinalOf site
                     IsStatic = isStatic
                     Accessibility = autoPropertyAccess memberAccessibility decl.OwnAccess
                     IsInline = inlineTok.IsSome
@@ -235,6 +268,7 @@ module internal ElaborateMembers =
             BaseKey = ValueNone
             LowerBody = fun _ e -> translateExpr ctx e
             MethodTypeParams = fun _ -> EqArray.empty, EqSet.empty
+            OrdinalOf = ordinalOf (hostMembers host.Members host.InterfaceImpls)
         }
 
     /// Surface a union/record host's augmentation members and its resolved `interface …

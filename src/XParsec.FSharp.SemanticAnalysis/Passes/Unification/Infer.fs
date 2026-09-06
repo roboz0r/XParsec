@@ -324,8 +324,8 @@ module UnificationInfer =
                             let n = ctx.NameOf id
 
                             match ctx.Resolution.TyparScope.TryGetValue n with
-                            // A binding's own typars take the method axis, where `[<Measure>]`
-                            // is not yet modelled.
+                            // A binding's own typars are type-kinded: `[<Measure>]` on one is
+                            // not yet modelled.
                             | true, tv ->
                                 yield
                                     {

@@ -533,7 +533,7 @@ let tests =
                         Expect.equal iface.Args.Length 1 "IBox<'T> carries one type arg"
 
                         match iface.Args.[0] with
-                        | FTTypar(TyparAxis.Declaring, 0) -> ()
+                        | FTTypar(TyparScope.Type _, 0) -> ()
                         | other -> failtestf "the interface arg is the declaring typar 'T; got %A" other
                     | other -> failtestf "expected exactly one published interface (IBox); got %A" other
                 | other -> failtestf "expected a Class shape for the struct; got %A" other
@@ -558,7 +558,7 @@ let tests =
                         Expect.equal iface.Args.Length 1 "IBar<'T> carries one type arg"
 
                         match iface.Args.[0] with
-                        | FTTypar(TyparAxis.Declaring, 0) -> ()
+                        | FTTypar(TyparScope.Type _, 0) -> ()
                         | other -> failtestf "the interface arg is the declaring typar 'T; got %A" other
                     | other -> failtestf "expected exactly one published interface (IBar); got %A" other
                 | other -> failtestf "expected an Intrinsic shape carrying a class surface; got %A" other
@@ -916,7 +916,7 @@ let tests =
 
             test "SRTP member-trait clause is captured as a MemberTrait over the val's typars" {
                 // `when ^T : (static member (+) : ^T * ^T -> ^T)` captures as a `MemberTrait`:
-                // the COMPILED name (`op_Addition`) plus `FTTypar(Declaring, 0)` templates, not
+                // the COMPILED name (`op_Addition`) plus `FTTypar(ModuleFunction add, 0)` templates, not
                 // the source spelling. Instantiation substitutes them and stamps them on the `Srtp` table.
                 let r =
                     resolveFsi
@@ -939,12 +939,14 @@ let tests =
                     Expect.equal (EqArray.toList idxs) [ 0 ] "the trait is borne by the val's single typar slot"
                     Expect.equal name "op_Addition" "`(+)` is captured by its COMPILED name"
 
+                    let ownTypar = FTTypar(TyparScope.ModuleFunction sym.Key, 0)
+
                     Expect.equal
                         (EqArray.toList args)
-                        [ FTTypar(TyparAxis.Declaring, 0); FTTypar(TyparAxis.Declaring, 0) ]
-                        "the tupled trait args flatten to two templates over the declaring typar"
+                        [ ownTypar; ownTypar ]
+                        "the tupled trait args flatten to two templates over the val's own typar"
 
-                    Expect.equal ret (FTTypar(TyparAxis.Declaring, 0)) "the trait returns the declaring typar"
+                    Expect.equal ret ownTypar "the trait returns the val's own typar"
 
                 // The instantiated trait lands in the store's `Srtp` table under the fresh
                 // TyVar's representative id.
@@ -983,7 +985,10 @@ let tests =
                         intF
                         "the index survives into the signature"
 
-                    Expect.equal m.Signature.Return (FTTypar(TyparAxis.Declaring, 0)) "the getter returns the element"
+                    Expect.equal
+                        m.Signature.Return
+                        (FTTypar(TyparScope.Type m.Key.Decl, 0))
+                        "the getter returns the element"
                 | other -> failtestf "expected one member; got %A" [ for m in other -> m.Name ]
             }
 
@@ -1033,10 +1038,11 @@ let tests =
                         "namespace App\n\nmodule M =\n    type Box<'T> =\n        member Item: index: int -> 'T with get, set\n"
 
                 let intF = FTConst(RuntimeNames.intKey, EqArray.empty)
-                let elemF = FTTypar(TyparAxis.Declaring, 0)
 
                 match membersOf r "Box`1" with
                 | [ getter; setter ] ->
+                    let elemF = FTTypar(TyparScope.Type getter.Key.Decl, 0)
+
                     Expect.equal getter.Name "get_Item" "the getter half"
                     Expect.equal setter.Name "set_Item" "the setter half"
                     Expect.equal setter.Key.ArgSig (EqArray.ofList [ intF; elemF ]) "index then value"

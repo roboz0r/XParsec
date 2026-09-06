@@ -41,6 +41,10 @@ module TsManifestProvider =
         match ex with
         | Schema.Export.Function(name, signatures, import) ->
             let sg = singleSignature name signatures
+            let origin, decl = declaringContainer ctx nsPath
+            // The extractor writes a free function's own typars as `Typar`.
+            let ctx =
+                ctx.InScope(TyparScope.ModuleFunction(SymbolKeyOps.bindingKeyOf decl name))
 
             // Trailing optionals drop out of the curried signature: `mitt(all?)` freezes as
             // `unit -> ret`, and the JS-side default (`n = n || new Map`) supplies the arg.
@@ -54,8 +58,6 @@ module TsManifestProvider =
 
             let frozenTy =
                 List.foldBack (fun a acc -> FTFun(a, acc)) paramTypes (toFrozen ctx sg.Returns)
-
-            let origin, decl = declaringContainer ctx nsPath
 
             let sym =
                 ExternalSymbols.scheme decl name frozenTy sg.TypeParams []
@@ -184,6 +186,8 @@ module TsManifestProvider =
                 Dictionary<TypeKey, (FrozenType * FrozenType) list>(HashIdentity.Structural)
 
             for (key, index) in named @ structural do
+                let ctx = ctx.InScope(TyparScope.Type key)
+
                 byType.TryAdd(key, index |> List.map (fun (k, v) -> toFrozen ctx k, toFrozen ctx v))
                 |> ignore
 

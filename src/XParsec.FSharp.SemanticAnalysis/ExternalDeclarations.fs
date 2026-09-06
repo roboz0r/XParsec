@@ -80,7 +80,7 @@ module InlineBody =
 
 type ExternalSymbol =
     {
-        /// The symbol's type SCHEME over its own typars, baked as `FTTypar(Declaring,i)`.
+        /// The symbol's type SCHEME over its own typars, baked as `FTTypar(ModuleFunction _, i)`.
         Scheme: FrozenType
         TyparArity: int
         /// Stamped onto the fresh TyVars when the scheme is instantiated; callers don't apply
@@ -111,7 +111,7 @@ type ExternalFieldShape =
     {
         Name: string
         IsMutable: bool
-        /// The field type with the enclosing type's typars baked as `FTTypar(Declaring,i)`.
+        /// The field type with the enclosing type's typars baked as `FTTypar(Type _, i)`.
         Frozen: FrozenType
     }
 
@@ -129,7 +129,7 @@ type ExternalCaseShape =
     {
         Name: string
         FieldNames: EqArray<string voption>
-        /// The field types with the enclosing type's typars baked as `FTTypar(Declaring,i)`.
+        /// The field types with the enclosing type's typars baked as `FTTypar(Type _, i)`.
         FrozenFieldTypes: EqArray<FrozenType>
     }
 
@@ -235,8 +235,8 @@ type ExternalRecordCandidate =
         IsRequireQualifiedAccess: bool
     }
 
-/// A member's type as `FrozenType` templates, with open typars baked as `FTTypar(Declaring,i)`
-/// (the declaring type's) / `FTTypar(Method,j)` (its own).
+/// A member's type as `FrozenType` templates, with open typars baked as `FTTypar(Type _, i)`
+/// (the declaring type's) / `FTTypar(Member _, j)` (its own).
 type ExternalSignature =
     {
         DeclaringTyparArity: int

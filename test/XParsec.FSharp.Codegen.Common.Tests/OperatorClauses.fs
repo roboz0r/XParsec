@@ -98,6 +98,8 @@ module OperatorSurfaceParity =
                     | Obligation.Fault _
                     | Obligation.Accept -> Set.add backend run, diagnose
                     | Obligation.Diagnose _ -> run, Set.add backend diagnose
+                    // Owed later: contributes to neither side of the matrix yet.
+                    | Obligation.Pending _ -> run, diagnose
 
                 let run, diagnose =
                     p.Obligations |> Map.toList |> List.fold ofObligation (Set.empty, Set.empty)

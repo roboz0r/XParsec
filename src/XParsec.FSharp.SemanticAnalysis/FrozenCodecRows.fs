@@ -125,6 +125,33 @@ module FrozenCodecRows =
         let name = readStrId r
         { Decl = decl; Name = name }
 
+    let private writeTyparScopeRow (w: FrozenWriter) (s: TyparScopeRow) =
+        match s with
+        | TyparScopeRow.Type key ->
+            w.Write 0uy
+            writeTypeKeyId w key
+        | TyparScopeRow.Member(owner, ordinal) ->
+            w.Write 1uy
+            writeTypeKeyId w owner
+            w.Write ordinal
+        | TyparScopeRow.ModuleFunction key ->
+            w.Write 2uy
+            writeBindingKeyId w key
+        | TyparScopeRow.LocalFunction id ->
+            w.Write 3uy
+            w.Write id
+
+    let private readTyparScopeRow (r: FrozenReader) : TyparScopeRow =
+        match r.ReadByte() with
+        | 0uy -> TyparScopeRow.Type(readTypeKeyId r)
+        | 1uy ->
+            let owner = readTypeKeyId r
+            let ordinal = r.ReadInt32()
+            TyparScopeRow.Member(owner, ordinal)
+        | 2uy -> TyparScopeRow.ModuleFunction(readBindingKeyId r)
+        | 3uy -> TyparScopeRow.LocalFunction(r.ReadInt32())
+        | b -> failwithf "FrozenCodec: unknown TyparScopeRow tag %d" b
+
     let private writeMemberKindRow (w: FrozenWriter) (k: MemberKindRow) =
         match k with
         | MemberKindRow.Method -> w.Write 0uy
@@ -270,13 +297,9 @@ module FrozenCodecRows =
             writeTypeId w payload.Extends
             writeTypeId w payload.WhenTrue
             writeTypeId w payload.WhenFalse
-        | TypeRow.Typar(axis, index) ->
+        | TypeRow.Typar(scope, index) ->
             w.Write 12uy
-            writeTyparAxis w axis
-            w.Write index
-        | TypeRow.LocalTypar(SchemeId scheme, index) ->
-            w.Write 13uy
-            w.Write scheme
+            writeTyparScopeRow w scope
             w.Write index
         | TypeRow.Unknown reason ->
             w.Write 14uy
@@ -339,13 +362,9 @@ module FrozenCodecRows =
                     WhenFalse = whenFalse
                 }
         | 12uy ->
-            let axis = readTyparAxis r
+            let scope = readTyparScopeRow r
             let index = r.ReadInt32()
-            TypeRow.Typar(axis, index)
-        | 13uy ->
-            let scheme = r.ReadInt32()
-            let index = r.ReadInt32()
-            TypeRow.LocalTypar(SchemeId scheme, index)
+            TypeRow.Typar(scope, index)
         | 14uy -> TypeRow.Unknown(readUnknownReasonRow r)
         | 15uy ->
             TypeRow.Measure(

@@ -188,7 +188,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
 
     /// The seq-interface witness for a referenced-package nominal type: pick the shape's
     /// `FrozenInterfaces` template matching `ifaceKey` and instantiate it at this object arg
-    /// (`FTTypar(Declaring, i) := args.[i]`). Direct-declared interfaces only.
+    /// (`FTTypar(Type _, i) := args.[i]`). Direct-declared interfaces only.
     let tryExternalInterfaceWitness (objArgTy: FrozenType) (ifaceKey: TypeKey) : EqArray<FrozenType> voption =
         match objArgTy with
         | FTClass(rKey, rArgs)
@@ -211,9 +211,10 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
         | ValueSome openSig ->
             let name = openSig.EmittedName
 
-            // The open curried signature *template*: its method typars are already
-            // `FTTypar(Method, i)` and its nominal type constructors kind-correct (`'T option` ⇒ `FTUnion`),
-            // so it encodes and recovers against the producer's emitted signature unchanged.
+            // The open curried signature *template*: its typars are already
+            // `FTTypar(ModuleFunction _, i)` and its nominal type constructors kind-correct
+            // (`'T option` ⇒ `FTUnion`), so it encodes and recovers against the producer's
+            // emitted signature unchanged.
             let methodTyparArity = openSig.Scheme.TyparArity
 
             // Peel exactly `n` top-level `->` groups, one per SOURCE argument group. Unlike
@@ -293,7 +294,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
                 if methodTyparArity = 0 then
                     callBase
                 elif openSig.Scheme.Constraints.IsEmpty then
-                    // Match the open template's `FTTypar(Method, i)` against the call's concrete
+                    // Match the open template's function typars against the call's concrete
                     // type, recovering each method arg by index. No constraint typars here, so
                     // every method typar is signature-reachable.
                     let _, methodArgs = recoverOpenTypars 0 methodTyparArity openSig.Signature fnTy

@@ -45,9 +45,8 @@ module TastLower =
 
         let rec go (defT: FrozenType) (actT: FrozenType) =
             match defT, actT with
-            // `act` may itself be an `FTTypar(TyparAxis.Method, j)`: the enclosing
-            // context's own typar.
-            | FTTypar(TyparAxis.Method, i), act ->
+            // `act` may itself be a function typar: the enclosing context's own.
+            | FTFunctionTypar i, act ->
                 if i >= 0 && i < typarCount && result.[i].IsNone then
                     result.[i] <- ValueSome act
             | FTFun(a1, r1), FTFun(a2, r2) ->
@@ -112,7 +111,7 @@ module TastLower =
 
             let rec mention (t: FrozenType) =
                 match t with
-                | FTTypar(TyparAxis.Method, i) -> constraintMentioned.Add i |> ignore
+                | FTFunctionTypar i -> constraintMentioned.Add i |> ignore
                 | t -> FrozenType.iterChildren mention t
 
             for (_, target) in coercions do

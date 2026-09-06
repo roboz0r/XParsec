@@ -131,7 +131,8 @@ module EmitPattern =
     let clrRepr (env: EmitEnv) (ty: FrozenType) : ClrRepr =
         match ty, TypeLayout.resolve (oracle env) (TypeLayout.shapeOfFrozen ty) with
         | _, TypeLayout.Value -> ClrRepr.Value
-        // `FTLocalTypar` stays `Reference`: it has no CLR token to `box` against.
+        // A local typar stays `Reference`: it has no CLR token to `box` against.
+        | FTTypar(TyparScope.LocalFunction _, _), _ -> ClrRepr.Reference
         | FTTypar _, _ -> ClrRepr.Boxable ty
         | _, _ -> ClrRepr.Reference
 

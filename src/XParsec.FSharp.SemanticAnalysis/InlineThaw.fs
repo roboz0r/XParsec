@@ -11,9 +11,9 @@ module InlineThaw =
         {
             Decl: TDecl
             /// The fresh root each quantified typar thawed to, at the position a type argument
-            /// for it is supplied: declaring axis first, then method axis, each in index order.
-            /// A body-local scheme quantifies its own typars below the template, so it contributes
-            /// none.
+            /// for it is supplied: the declaring type's first, then the function's own, each in
+            /// index order. A body-local scheme quantifies its own typars below the template,
+            /// so it contributes none.
             Typars: TyVarId[]
         }
 
@@ -25,9 +25,9 @@ module InlineThaw =
         (path: AssemblyFilePath)
         (decl: Wire.TDecl)
         : ThawedTemplate =
-        // One root per distinct typar of the WHOLE decl, on any axis: two occurrences of one
+        // One root per distinct typar of the WHOLE decl, in any scope: two occurrences of one
         // typar must land on ONE cell, or a parameter's type and the uses of that parameter
-        // come apart. Slot `i` of an axis array holds typar `i`'s root.
+        // come apart. Slot `i` of a scope array holds typar `i`'s root.
         let store = thaw.Store
         let declaringRoots = ResizeArray<TyVarId voption>()
         let methodRoots = ResizeArray<TyVarId voption>()
@@ -46,18 +46,20 @@ module InlineThaw =
 
         let inst =
             { new ITyparInstantiation with
-                member _.Declaring i = mintAt declaringRoots i
-                member _.Method j = mintAt methodRoots j
+                member _.Typar(scope, index) =
+                    match scope with
+                    | TyparScope.Type _ -> mintAt declaringRoots index
+                    | TyparScope.Member _
+                    | TyparScope.ModuleFunction _ -> mintAt methodRoots index
+                    | TyparScope.LocalFunction binding ->
+                        let key = { Binding = binding; Index = index }
 
-                member _.Local(scheme, k) =
-                    let key = { Scheme = scheme; Index = k }
-
-                    match localRoots.TryGetValue key with
-                    | true, v -> TyVar v
-                    | _ ->
-                        let v = store.NewTypeVar()
-                        localRoots.[key] <- v
-                        TyVar v
+                        match localRoots.TryGetValue key with
+                        | true, v -> TyVar v
+                        | _ ->
+                            let v = store.NewTypeVar()
+                            localRoots.[key] <- v
+                            TyVar v
             }
 
         let thawed =

@@ -358,7 +358,7 @@ module internal UnificationInferResolve =
                 | _ -> EqArray.empty
 
             // Precompute the args array once (not per field): one fresh TyVar per declared
-            // typar slot, instantiating each field's `FTTypar(Declaring,i)` template.
+            // typar slot, instantiating each field's `FTTypar(Type _, i)` template.
             let args =
                 EqArray.ofArray [| for _ in 1 .. candidate.TyparArity -> TyVar(ctx.FreshTyVar()) |]
 

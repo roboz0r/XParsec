@@ -36,15 +36,100 @@ separate change.
    deleted. A CLR metadata row, a TypeScript declaration and an intrinsic binding build a
    `TyparList` with empty `Measures`.
 
-3. **`TyparScope` and the leaf.** `FTTypar of scope: TyparScope * index: int` and
+3. **`TyparScope` and the leaf.** Landed. `FTTypar of scope: TyparScope * index: int` and
    `TyTypar` likewise; `FTLocalTypar` folded in as a `LocalFunction` scope;
-   `FrozenTypeBridge.ITyparInstantiation` takes a scope. The format bump. `TyparAxis` stays
-   as a deleted-in-step-8 shim only if a reader cannot swap in this step.
+   `FrozenTypeBridge.ITyparInstantiation` takes a scope. Format version 7. `TyparAxis`,
+   `SchemeId`, `normAxisTo`, `toDeclaringAxis`, `reaxisTo` and `reaxisMethodTypars` are
+   deleted, with no shim. `Freeze.schemeBoundVars` reads the `LocalBindingId` recorded at
+   generalisation.
 
-   Requirement: `Freeze.schemeBoundVars` reads the `LocalBindingId` recorded at
-   generalisation and the sort-derived `SchemeId` is deleted in this step. Until then the
-   two are separate derivations of one identity in different orders (source position versus
-   generalisation order), and a consumer must take neither as the other.
+   What this step leaves out, and why:
+   - `TyparScope.Extension`: no `ExtensionKey` yet (step 1).
+   - A keyless module binding (`let (a, b) = …`) has no `ModuleFunction` scope, so its free
+     typars freeze to `FTUnknown UnresolvedTypar` instead of being quantified.
+
+   Landed with `Member of owner * MemberOrdinal`, which the review of 2026-09-06 found to
+   be an identity nothing reads: a `.fsi` and its `.fs` number their members independently
+   (`Vesper.Formatter` interleaves private members and extra constructors), so every
+   comparison erases the ordinal (`UnificationInferOverload.comparisonScope`,
+   `FrozenType.rescopeMemberTypars`) and the homed signature is re-scoped onto the
+   implementation's numbering (`ConformanceTypars.rescopeToImplementation`). Step 3a
+   removes it. Until then `TTypeMemberG.Ordinal`, the codec field,
+   `ClassMemberDeclaring.OrdinalOf`, `MetadataSymbols.methodOrdinal`, the manifest
+   translator's `InMember` and the `resolveMember` ordinal parameter carry it outward.
+
+3a. **`Member of owner: TypeKey`.** The ordinal leaves the scope and every site in the
+   list above is deleted; `checkMembers` compares by equality as `schemesAgree` does;
+   `TTypeMemberG.Ordinal` becomes `Key: MemberKey`. `MemberOrdinal` stays as the
+   registration index in `TypeBodyExtraction` and `TypeInfos`, where `PrimaryCtor` reads
+   it. The `MemberKey` doc at `SemanticInfo.fs` loses its ordering clause. Format bump.
+
+   Carried in the same diff, because each is a line or two once the ordinal is gone:
+   - `TyparScope.IsLocal` beside `IsFunction`, replacing `FrozenType.isLocalScope` and the
+     `LocalFunction` arms `EmitResolve.paramAccepts` and `EmitClosures.ftNoUnknown` spell
+     out; `paramAccepts` collapses to one typar arm and one constructor arm.
+   - The `sameTyCtor` doc comment at `SemTypeWalks.fs` moves back onto `sameTyCtor`; it
+     sits on `isLocalScope` today.
+   - `Elaborate.fs` reads `MemberNames.ofBinding` once: `exportedBindingInfo` returns the
+     `BindingKey` it already has the name for, and `moduleLetQuantEnv` takes it.
+   - `ConformanceTests.fs`'s `mAxis` helper is renamed; `axis` is retired vocabulary.
+
+3e. **Scope plumbing cleanups.** After 3a, sequenced there because each shrinks once the
+   ordinal is gone. Each deletes a runtime check or a duplicate type:
+   - `EmitTypes.EnclosingScopes` and `EmitConstruct.scopeOf`: the closure's lifted
+     instantiation (`FTTypar` list over the enclosing type's and function's scopes) is
+     built once at `EmitClosures.registerClosure`, where the counts and scopes are both
+     known, and stored on `ClosureClass`; the construction site reads it. The `voption`
+     pair and the failwith go. Step 3c later replaces the counts themselves with the
+     owner chain.
+   - `TsManifestTranslate.TranslateCtx`: `TyparScope` and `MethodTyparScope` become one
+     `Scope: TyparScope voption`. Under `Member owner`, `Typar i` resolves to
+     `Type owner` and `MethodTypar j` to the member; under `Type k`, `MethodTypar` is a
+     corrupt manifest. `InScope`'s reset and one `scopeOf` arm go.
+   - `SignatureResolutionContext.TyparOwner`: deleted. `typarEnv ctx owner` becomes
+     `scopedEnv ctx scope typars`, with a `memberEnv` for the declaring-plus-own
+     concatenation the `Member` case was.
+   - `FrozenTypeBridge.TyparInstantiation`: `declaringOnly`, `openMethod` and `atCallSite`
+     differ only in their `Type` and function arms, so one builder taking those two
+     functions replaces the three object expressions; `InlineThaw` is a fourth caller.
+   - A keyless module binding (`let (a, b) = …`, step 3's leftover) either gets a scope
+     or a diagnostic; today its free typars freeze to `FTUnknown` silently. `fsc` accepts
+     a generalisable tuple binding, so the answer is a scope, pinned by a test that
+     `let (f, g) = (id, id)` reaches the backend with both typars quantified.
+   - Stale names: The `MethodAxisGenericTests.fs` and
+     `MethodAxisSingleCandidateTests.fs` file names and the wire string
+     `method-axis-typar-erased` still carry the old word. Rename to method scope.
+
+3b. **`LocalOwners`.** `LocalOwner` and the `LocalBindingId -> LocalOwner` table on
+   `FrozenPools`, per the design doc's *Lexical ownership*. Written where the local
+   generalises: `Unification` is inside exactly one declaration at that moment, and the
+   scheme entry that already records `LocalBindingId` records the owner beside it, so
+   `Freeze` is a reader. A member's `MemberKey` is resolved by `LocalMemberKeys` before
+   the freeze, so the owner can carry it. The per-declaration freeze is no longer a
+   prerequisite. Pinned by a test that a module function's local is owned by its
+   `BindingKey`, a member's by its `MemberKey`, and a nested local by the outer local; and
+   by the codec round-trip.
+
+3c. **Generic locals on the CLR.** A local whose own typar survives generalisation is
+   lifted to a generic static method with the local's typars as method typars, as `fsc`
+   emits, instead of a closure class with a fixed `Invoke`. The lifted method's enclosing
+   typars are the owner chain from `LocalOwners`, which replaces the counts and scopes
+   `EmitTypes.ClosureClass` threads today (`Typars`, `DeclaringTypars`, `Enclosing`).
+   `ClrEncoder.encodeType`'s `LocalFunction` arm stops being reachable from a lifted
+   local's own signature; it stays for a `Vesper.Fun`-boxed value. Turns green:
+   `locals/local-poly` on the CLR (`pending` in the manifest), and the CLR half of the
+   same-file cases in `inline/inline-local-poly`.
+
+3d. **A served local generalises again.** `InlineThaw.bodyAtPath` mints one cell per
+   `(LocalBindingId, index)` for the whole body, so a served local used at two types
+   fails to unify. The thawed local is run through the host's ordinary generalisation
+   at its `let`, under the host's level discipline, so a typar the local captures from
+   the outer function (`f3` in the design doc) stays un-generalised. The re-generalised
+   local gets a host `LocalBindingId` and an owner entry in the host's `LocalOwners`.
+   Turns green: `inline/inline-local-poly` on the CLR, and `CrossFileTests`'s `ptest`
+   "file 2 expands file 1's inline body whose LOCAL is used at two types". JS is already
+   green on both programs because it erases types; the thaw defect is unobservable there
+   until a JS test reads the thawed scheme.
 
 4. **Per-typar `ConstraintSet` and `FunctionScheme`.** `TypeTypar.Constraints` holds the
    `TyparConstraintKindG` cases plus `Default`; `TyparConstraintG.TyparIndex` and the flat
@@ -99,10 +184,11 @@ separate change.
    `'a : struct` constraint, refused with the diagnostic the single-file `typar-*-violated.fs`
    programs pin.
 
-8. **Deletions.** `TyparAxis`, `ConformanceTypars.normAxisTo` and `toDeclaringAxis`
-   (re-expressed as a scope substitution where a caller survives), `SchemeId`,
-   `TyparInstantiation.toAxis`. The Extractor and Manifest schema diagnostic code
-   `method-axis-typar-erased` renamed, with its `Schema.DiagCode` case.
+8. **Deletions and the deferred parts of step 3.** `TyparScope.Extension` once
+   `ExtensionKey` exists. The Extractor and Manifest schema diagnostic code
+   `method-axis-typar-erased` renamed, with its `Schema.DiagCode` case. `TyparAxis`,
+   `normAxisTo`, `toDeclaringAxis` and `SchemeId` are already gone (step 3);
+   `MemberOrdinal` outside NameResolution goes in step 3a.
 
 9. **`unmanaged` and the nullability attributes**, in that order, each with its own scope.
 
@@ -124,10 +210,27 @@ divergence belongs to implicit widening, not to this plan.
 
 Before this document is deleted, each row is in code or in a test:
 
-- [ ] `TyparScope` is the only scope representation; `TyparAxis`, `FTLocalTypar` and
+- [x] `TyparScope` is the only scope representation; `TyparAxis`, `FTLocalTypar` and
       `SchemeId` are gone.
-- [ ] A `Type` leaf under a `ModuleFunction` chain is unrepresentable, pinned by a codec
-      round-trip test that a `Member` and an `Extension` chain pass.
+- [x] Every `TyparScope` case round-trips through the codec, pinned by
+      `FrozenCodecRoundTripTests`.
+- [ ] `TyparScope.Member` carries no ordinal; `rescopeToImplementation`,
+      `rescopeMemberTypars` and `comparisonScope` are gone, and `Vesper.Formatter` still
+      conforms in the CLR suite (step 3a).
+- [ ] `LocalOwners` records every generalised local's owner, pinned per owner kind and by
+      the codec round-trip (step 3b).
+- [ ] A `Type` leaf never freezes under a module function's body, pinned on a module
+      function with a local (step 3b).
+- [ ] `locals/local-poly` runs on the CLR (step 3c).
+- [ ] `inline/inline-local-poly` runs on the CLR and the `CrossFileTests` served-local
+      `ptest` is a `test` (step 3d).
+- [ ] `EnclosingScopes`, `TranslateCtx.MethodTyparScope` and `TyparOwner` are gone, and
+      no `scopeOf` failwith remains in `EmitConstruct` or `TsManifestTypes` (step 3e).
+- [ ] `let (f, g) = (id, id)` at module level quantifies both typars, pinned by a
+      program that calls `f 1` and `g "a"`; `fsc` accepts and generalises it (step 3e).
+- [x] A `.fsi`-declared generic member and its `.fs` implementation agree on scope once
+      homed, pinned by `ConformanceTests` (`MemberTyparConformance`) and by
+      `Vesper.Formatter` in the CLR suite. Re-pinned as plain equality in step 3a.
 - [ ] `TyparList.Order` is the only source of typar display and conformance order; the CLR
       encoder indexes `Types` alone, pinned by a `[<Measure>]`-bearing type's `GenericParam`
       row count.

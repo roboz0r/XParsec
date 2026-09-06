@@ -56,14 +56,19 @@ module internal TsManifestMembers =
             }
         )
 
+    /// `ordinal` is the member's position among its declaration's members, the scope its
+    /// own typars resolve under.
     let toExternalMembers
         (ctx: TranslateCtx)
         (declKey: TypeKey)
         (origin: SymbolOrigin)
         (declTyparArity: int)
         (isInterface: bool)
+        (ordinal: MemberOrdinal)
         (mem: Schema.Member)
         : ExternalMember list =
+        let ctx = ctx.InMember(declKey, ordinal)
+
         match mem.Kind with
         | Schema.MemberKind.Method when mem.Name = ".ctor" -> expandCtor ctx declKey origin declTyparArity mem
         | Schema.MemberKind.Property ->
@@ -161,10 +166,14 @@ module internal TsManifestMembers =
         let build name tp members heritage isInterface =
             let origin = originFor ctx nsPath
             let declared = declaredIdentity ctx nsPath name tp
+            let ctx = ctx.InScope(TyparScope.Type declared.Key)
 
             let mems =
                 members
-                |> List.collect (toExternalMembers ctx declared.Key origin tp isInterface)
+                |> List.indexed
+                |> List.collect (fun (ordinal, mem) ->
+                    toExternalMembers ctx declared.Key origin tp isInterface (MemberOrdinal ordinal) mem
+                )
                 |> EqArray.ofList
 
             let heritageInterfaces, frozenBaseType = classifyHeritage ctx heritage
@@ -211,8 +220,11 @@ module internal TsManifestMembers =
             // `type X = …` is a transparent abbreviation: a use of `name` expands to the
             // target's `FrozenType`. `mint`, not `declaredIdentity`, because an alias never
             // enters the ctx table, so it stays `FTConst` and expands through this `Abbrev`.
+            let minted = mint nsPath name tp
+            let ctx = ctx.InScope(TyparScope.Type minted.Key)
+
             Some(
-                mint nsPath name tp,
+                minted,
                 ExternalTypeShape.Abbrev
                     {
                         Typars = TyparList.positional tp
@@ -291,9 +303,12 @@ module internal TsManifestMembers =
                     Namespace = SymbolKeyOps.namespaceKey structuralHome
                 }
 
+            let ctx = ctx.InScope(TyparScope.Type declared.Key)
+
             let members =
                 fields
-                |> List.collect (fun (fname, fty) ->
+                |> List.indexed
+                |> List.collect (fun (ordinal, (fname, fty)) ->
                     let mem: Schema.Member =
                         {
                             Name = fname
@@ -304,7 +319,7 @@ module internal TsManifestMembers =
                             Optional = false
                         }
 
-                    toExternalMembers ctx declared.Key origin 0 true mem
+                    toExternalMembers ctx declared.Key origin 0 true (MemberOrdinal ordinal) mem
                 )
                 |> EqArray.ofList
 
@@ -394,10 +409,12 @@ module internal TsManifestMembers =
             // but is found by qualified name through the seam's lookups.
             let declared = mint nsPath simpleName 0
             let origin = originFor ctx nsPath
+            let ctx = ctx.InScope(TyparScope.Type declared.Key)
 
             let members =
                 fns
-                |> List.collect (fun fn ->
+                |> List.indexed
+                |> List.collect (fun (ordinal, fn) ->
                     // The member name stays the REAL export name: that is what the erase
                     // emits as the callee.
                     let mem: Schema.Member =
@@ -410,7 +427,13 @@ module internal TsManifestMembers =
                             Optional = false
                         }
 
-                    expandMethod ctx declared.Key origin 0 MemberKind.Method mem
+                    expandMethod
+                        (ctx.InMember(declared.Key, MemberOrdinal ordinal))
+                        declared.Key
+                        origin
+                        0
+                        MemberKind.Method
+                        mem
                 )
                 |> EqArray.ofList
 

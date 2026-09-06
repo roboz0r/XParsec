@@ -46,6 +46,9 @@ type Obligation =
     /// Compile it clean, and assert nothing further. For a subject no stdout can observe:
     /// `when 'a : struct` holding at `int` admits the call and yields no value to print.
     | Accept
+    /// Owed but unmet: the program runs as a `ptest` against `golden`, `reason` being what it
+    /// waits on, and is excluded from every sweep.
+    | Pending of reason: string * golden: string
 
 /// What one program pins about the (width × operator) → backend arithmetic-support matrix:
 /// the manifest's `width` / `operators` keys. A program about no single primitive
@@ -94,10 +97,9 @@ let private strings (t: TomlTable) (key: string) : string list =
     | Some(TomlValue.Array xs) -> xs |> List.choose asString
     | _ -> []
 
-/// The `diagnose = { js = "…" }` inline table: backend name -> required message
-/// fragment.
-let private diagnoseMap (t: TomlTable) : Map<string, string> =
-    match Map.tryFind "diagnose" t with
+/// A `key = { js = "…" }` inline table: backend name -> string.
+let private backendMap (key: string) (t: TomlTable) : Map<string, string> =
+    match Map.tryFind key t with
     | Some(TomlValue.InlineTable d)
     | Some(TomlValue.Table d) ->
         d
@@ -130,16 +132,28 @@ let private programOf (entry: TomlTable) : ConformanceProgram =
              | None when File.Exists goldenPath -> Obligation.Run(normalise (File.ReadAllText goldenPath))
              | None -> failwithf "conformance program %s has no `.expected` golden beside it" path)
 
+    let pending = backendMap "pending" entry
+
+    // A pending backend is owed the golden itself, so the program must carry one.
+    let owedGolden () =
+        match ran.Value with
+        | Obligation.Run golden -> golden
+        | _ -> failwithf "conformance program %s is pending on a backend but has no `.expected` golden to owe" path
+
     let obligations =
         Map.ofList
             [
                 for b in runners -> b, ran.Value
                 for b in accepters -> b, Obligation.Accept
-                for KeyValue(b, fragment) in diagnoseMap entry -> b, Obligation.Diagnose fragment
+                for KeyValue(b, fragment) in backendMap "diagnose" entry -> b, Obligation.Diagnose fragment
+                for KeyValue(b, reason) in pending -> b, Obligation.Pending(reason, owedGolden ())
             ]
 
     // A golden beside a program no backend runs to completion is stale: nothing compares it.
-    if File.Exists goldenPath && (faults.IsSome || runners.IsEmpty) then
+    if
+        File.Exists goldenPath
+        && (faults.IsSome || (runners.IsEmpty && pending.IsEmpty))
+    then
         failwithf "conformance program %s carries an `.expected` golden that no backend runs it against" path
 
     let covers =
@@ -201,6 +215,7 @@ let compiledBy (backend: string) : ConformanceProgram list =
         | Some(Obligation.Fault _)
         | Some Obligation.Accept -> true
         | Some(Obligation.Diagnose _)
+        | Some(Obligation.Pending _)
         | None -> false
     )
 
@@ -276,6 +291,21 @@ let conformanceTests (backend: Backend) : Test =
                                     p.Path
                                     message
                                     description)
+                    }
+
+                | Some(Obligation.Pending(reason, golden)) ->
+                    ptest (sprintf "%s (pending: %s)" p.Name reason) {
+                        match run () with
+                        | None -> skiptest (sprintf "%s runtime unavailable" backend.Name)
+                        | Some(RunOutcome.Faulted description) ->
+                            failtestf "%s: %s faulted:\n%s" backend.Name p.Path description
+                        | Some(RunOutcome.Completed(exitCode, output)) ->
+                            Expect.equal exitCode 0 (sprintf "%s exits 0 for %s" backend.Name p.Path)
+
+                            Expect.equal
+                                (normalise output)
+                                golden
+                                (sprintf "%s conforms to %s.expected" backend.Name p.Name)
                     }
 
                 | Some(Obligation.Diagnose fragment) ->

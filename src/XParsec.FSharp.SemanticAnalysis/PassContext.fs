@@ -576,8 +576,8 @@ type PassContext(provider: IExternalSymbolProvider, file: LexedFile, assembly: C
     /// A SOURCE-lambda argument's value-struct closure verdict, recorded when the lambda lands
     /// on a typar parameter whose `:> Fun<'T,'U>` constraint fires. No entry ⇒ an ordinary closure.
     member val FunVerdicts = LambdaTable<FunVerdict>() with get
-    /// A generalised binding's scheme, its constraints frozen over the body's method-axis
-    /// typar indices.
+    /// A generalised binding's scheme, its constraints frozen over the binding's own typar
+    /// indices.
     member val GenericFnSchemes = BoundVarTable<GenericFnScheme>() with get
     /// How the SOURCE writes each bound variable this file introduces: the identifier and where.
     /// Recorded at the mint: once a body is copied elsewhere its tokens spell the CALL site.

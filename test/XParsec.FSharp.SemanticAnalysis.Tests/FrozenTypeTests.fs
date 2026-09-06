@@ -3,7 +3,7 @@ module XParsec.FSharp.SemanticAnalysis.Tests.FrozenTypeTests
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 
-// The arena `ofFrozen` mints local-typar metavars through. No sample carries an `FTLocalTypar`,
+// The arena `ofFrozen` mints local-typar metavars through. No sample carries a local typar,
 // so it stays empty and only satisfies the seam.
 let private store = TypeStore()
 
@@ -11,9 +11,16 @@ let private store = TypeStore()
 // below, and `toFrozen >> ofFrozen = id` on its post-freeze `SemType` images. `TyVar` has no
 // `FrozenType` counterpart and is a hard error at the boundary.
 
-/// A deterministic, depth-bounded enumeration of `FrozenType` constructors, nested, over both
-/// `TyparAxis`es — but no `FTLocalTypar`, whose `ofFrozen` image is a `TyVar` that `toFrozen`
-/// then rejects.
+/// The scopes the samples' typars are written under.
+let private kScope = SymbolKeyOps.qualifiedTypeKeyOf "Test.Scope" 1
+let private d (i: int) : FrozenType = FTTypar(TyparScope.Type kScope, i)
+
+let private m (i: int) : FrozenType =
+    FTTypar(TyparScope.Member(kScope, MemberOrdinal 0), i)
+
+/// A deterministic, depth-bounded enumeration of `FrozenType` constructors, nested, over a
+/// type's and a member's scope, but no local typar, whose `ofFrozen` image is a `TyVar` that
+/// `toFrozen` then rejects.
 let private sampleFrozenTypes: FrozenType list =
     let kRec = SymbolKeyOps.qualifiedTypeKeyOf "Test.Box" 1
     let kUnion = SymbolKeyOps.qualifiedTypeKeyOf "Test.Option" 1
@@ -26,10 +33,10 @@ let private sampleFrozenTypes: FrozenType list =
         [
             FTConst(RuntimeNames.intKey, EqArray.empty)
             FTConst(RuntimeNames.stringKey, EqArray.empty)
-            FTTypar(TyparAxis.Declaring, 0)
-            FTTypar(TyparAxis.Declaring, 3)
-            FTTypar(TyparAxis.Method, 0)
-            FTTypar(TyparAxis.Method, 2)
+            d 0
+            d 3
+            m 0
+            m 2
             FTUnknown(UnknownReason.UndefinedName "Unresolved.Head")
             FTEnum kEnum
         ]
@@ -39,11 +46,11 @@ let private sampleFrozenTypes: FrozenType list =
     let branch1 =
         [
             FTConst(RuntimeNames.arrayKey 1, EqArray.singleton (FTConst(RuntimeNames.intKey, EqArray.empty)))
-            FTFun(FTConst(RuntimeNames.intKey, EqArray.empty), FTTypar(TyparAxis.Method, 0))
-            FTTuple(EqArray.ofList [ FTConst(RuntimeNames.intKey, EqArray.empty); FTTypar(TyparAxis.Declaring, 0) ])
-            FTRecord(kRec, EqArray.singleton (FTTypar(TyparAxis.Declaring, 0)))
+            FTFun(FTConst(RuntimeNames.intKey, EqArray.empty), m 0)
+            FTTuple(EqArray.ofList [ FTConst(RuntimeNames.intKey, EqArray.empty); d 0 ])
+            FTRecord(kRec, EqArray.singleton (d 0))
             FTUnion(kUnion, EqArray.singleton (FTConst(RuntimeNames.stringKey, EqArray.empty)))
-            FTClass(kClass, EqArray.ofList [ FTTypar(TyparAxis.Declaring, 0); FTTypar(TyparAxis.Declaring, 1) ])
+            FTClass(kClass, EqArray.ofList [ d 0; d 1 ])
             // Anonymous union through the smart constructor: `EqSet` disjuncts, set identity.
             FrozenType.MkUnion
                 [
@@ -57,13 +64,13 @@ let private sampleFrozenTypes: FrozenType list =
             FrozenType.MkUnion [ FTLiteral(LiteralConst.String "ping"); FTLiteral(LiteralConst.String "pong") ]
             // The type-level operators, with typar children: `keyof E`, `E[K]`, and
             // `undefined extends E[K] ? K : never`.
-            FTKeyOf(FTTypar(TyparAxis.Declaring, 0))
-            FTIndexedAccess(FTTypar(TyparAxis.Declaring, 0), FTTypar(TyparAxis.Method, 0))
+            FTKeyOf(d 0)
+            FTIndexedAccess(d 0, m 0)
             FTConditional
                 {
                     Check = FTConst(RuntimeNames.undefinedKey, EqArray.empty)
-                    Extends = FTIndexedAccess(FTTypar(TyparAxis.Declaring, 0), FTTypar(TyparAxis.Method, 0))
-                    WhenTrue = FTTypar(TyparAxis.Method, 0)
+                    Extends = FTIndexedAccess(d 0, m 0)
+                    WhenTrue = m 0
                     WhenFalse = FTConst(RuntimeNames.opaqueKey "never", EqArray.empty)
                 }
         ]
@@ -79,10 +86,7 @@ let private sampleFrozenTypes: FrozenType list =
                             FTConst(RuntimeNames.boolKey, EqArray.empty)
                         ]
                 ),
-                FTFun(
-                    FTRecord(kRec, EqArray.singleton (FTTypar(TyparAxis.Method, 0))),
-                    FTConst(RuntimeNames.unitKey, EqArray.empty)
-                )
+                FTFun(FTRecord(kRec, EqArray.singleton (m 0)), FTConst(RuntimeNames.unitKey, EqArray.empty))
             )
             // Generic intrinsic carrying a union carrying a class.
             FTConst(
@@ -355,7 +359,7 @@ let mapVariantTests =
                 for childless in
                     [
                         FTConst(RuntimeNames.intKey, EqArray.empty)
-                        FTTypar(TyparAxis.Method, 0)
+                        m 0
                         FTLiteral(LiteralConst.String "GET")
                         FTUnknown(UnknownReason.UndefinedName "X")
                         FTEnum(SymbolKeyOps.qualifiedTypeKeyOf "Test.Colour" 0)
@@ -392,7 +396,7 @@ let iterChildren2FTOrTests =
 
         let rec go (d: FrozenType) (a: FrozenType) =
             match d with
-            | FTTypar(TyparAxis.Method, i) -> recovered.[i] <- a
+            | FTFunctionTypar i -> recovered.[i] <- a
             | _ -> FrozenType.iterChildren2 go d a
 
         go openT instT
@@ -409,7 +413,7 @@ let iterChildren2FTOrTests =
                 let openOr =
                     FrozenType.MkUnion
                         [
-                            FTClass(kBox, EqArray.singleton (FTTypar(TyparAxis.Method, 0)))
+                            FTClass(kBox, EqArray.singleton (m 0))
                             FTConst(RuntimeNames.intKey, EqArray.empty)
                         ]
 
@@ -439,7 +443,7 @@ let iterChildren2FTOrTests =
                     FrozenType.MkUnion
                         [
                             FTConst(RuntimeNames.intKey, EqArray.empty)
-                            FTClass(kBox, EqArray.singleton (FTTypar(TyparAxis.Method, 0)))
+                            FTClass(kBox, EqArray.singleton (m 0))
                         ]
 
                 let instOr =

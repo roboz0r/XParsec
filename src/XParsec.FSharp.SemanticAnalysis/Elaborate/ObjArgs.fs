@@ -99,7 +99,7 @@ module internal ElaborateObjArgs =
                     | overloads ->
                         overloads
                         |> Array.tryFind (fun m ->
-                            UnificationInferOverload.freezeUserMemberArgSig ctx.Store decl.TypeParams m = mk.ArgSig
+                            UnificationInferOverload.freezeUserMemberArgSig ctx.Store decl.TypeKey decl.TypeParams m = mk.ArgSig
                         )
 
                 match chosen with

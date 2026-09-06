@@ -4,7 +4,8 @@ module OpenSignature =
 
     type OpenMethodSignature =
         {
-            /// Curried `param -> … -> return`, method typars as `FTTypar(Method, i)`.
+            /// Curried `param -> … -> return`, the function's own typars as
+            /// `FTTypar(ModuleFunction _, i)`.
             Signature: FrozenType
             /// The `MethodSpec` generic-parameter count and the constraints over it. The
             /// arity INCLUDES a phantom typar that occurs only in a `Coercion` constraint
@@ -13,23 +14,21 @@ module OpenSignature =
             Scheme: GenericFnScheme
         }
 
-    /// Projects a symbol's contract scheme onto the method axis, `Declaring i ↦ Method i`
-    /// POSITIONALLY, because the producer assigns its `!!i` slots in that same declared order.
+    /// A symbol's contract scheme with its encodable constraints. The scheme's typar index
+    /// is the producer's `!!i` slot, assigned in the same declared order.
     let ofSymbol (sym: ExternalSymbol) : OpenMethodSignature =
-        let toMethodAxis = FrozenTypeBridge.reaxisTo TyparAxis.Method
-
         let constraints =
             EqSet.ofSeq
                 [
                     for c in sym.Constraints do
                         match c with
-                        | ExternalConstraint.Encodable b -> TyparConstraint.map toMethodAxis b
+                        | ExternalConstraint.Encodable b -> b
                         // Resolved during inference; neither has a metadata encoding.
                         | ExternalConstraint.MemberTrait _
                         | ExternalConstraint.Default _ -> ()
                 ]
 
         {
-            Signature = toMethodAxis sym.Scheme
+            Signature = sym.Scheme
             Scheme = GenericFnScheme.create sym.TyparArity constraints
         }
