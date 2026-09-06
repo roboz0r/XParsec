@@ -601,9 +601,7 @@ module internal ElaborateTypeDecls =
                     claim.Name
                     info.TypeKey
                     (mkDeclTypars ctx.Store info.TypeParams env)
-                    // A transparent alias carries no attributes of its own: every
-                    // verdict is the body's.
-                    EqArray.empty
+                    info.Attributes
                     (TTypeKind.Abbrev body),
                 env
             )

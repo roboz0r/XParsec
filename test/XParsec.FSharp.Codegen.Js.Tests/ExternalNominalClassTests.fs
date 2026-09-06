@@ -212,7 +212,7 @@ let tests =
             test "NEGATIVE: a type-alias name stays a transparent Abbrev (never FTClass)" {
                 // The alias must resolve as `Abbrev` so its use sites expand to the target.
                 match ExternalSymbols.tryMetaType boxProviderRaw "Count" with
-                | ValueSome(ExternalTypeShape.Abbrev(typars, target)) ->
+                | ValueSome(ExternalTypeShape.Abbrev { Typars = typars; Body = target }) ->
                     Expect.equal typars.Length 0 "Count is non-generic"
 
                     match target with

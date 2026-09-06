@@ -132,7 +132,7 @@ module internal AttributeFold =
                     (WrittenArity.Exact 0)
                     (fun key shape ->
                         match shape with
-                        | ExternalTypeShape.Enum(cases = cases) ->
+                        | ExternalTypeShape.Enum { Cases = cases } ->
                             match cases |> EqArray.tryFind (fun c -> c.Name = caseName) with
                             | ValueSome case ->
                                 match case.Value with

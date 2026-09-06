@@ -9,16 +9,12 @@ open System.Collections.Generic
 /// Type-declaration shape carried by a by-name or by-key type lookup.
 [<RequireQualifiedAccess>]
 type ExternalTypeShape =
-    /// `frozen` is the abbreviation body as a template, which a use site expands.
-    | Abbrev of typars: EqArray<TyparKind> * frozen: FrozenType
+    | Abbrev of shape: ExternalAbbrevShape
     /// A `[<Measure>]` declaration; `term` as `TTypeKindG.Measure` carries it.
     | Measure of term: MeasureTerm
     | Record of shape: ExternalRecordShape
     | Union of shape: ExternalUnionShape
-    /// An external enum: named constant cases in source order, over the primitive
-    /// `underlying` (an integral kind, `string`, or `obj` for a mixed enum). No `arity`,
-    /// because enums are never generic.
-    | Enum of cases: EqArray<ExternalEnumCaseShape> * underlying: TypeKey * origin: SymbolOrigin
+    | Enum of shape: ExternalEnumShape
     | Class of shape: ExternalClassShape
     /// A referenced package's intrinsic-repr binding (`type exn = (# class
     /// "System.Exception" #)`): scalar (`int`) or heritable class (`obj`/`exn`).
@@ -59,7 +55,7 @@ type ExternalTypeShape =
         | Measure _ -> EqArray.empty // only a non-generic measure publishes
         | Record r -> r.Typars
         | Union u -> u.Typars
-        | Abbrev(typars = ts)
+        | Abbrev a -> a.Typars
         | Unmodelled(typars = ts) -> ts
 
     member this.TyparArity: int = this.TyparKinds.Length
@@ -68,7 +64,10 @@ type ExternalTypeShape =
     /// abbreviation's own type parameters, each exactly once (`Box<int>` is not an alias).
     member this.AliasedKey: TypeKey voption =
         match this with
-        | Abbrev(typars, FTKeyed(key, args)) when args.Length = typars.Length ->
+        | Abbrev {
+                     Typars = typars
+                     Body = FTKeyed(key, args)
+                 } when args.Length = typars.Length ->
             let arity = typars.Length
             let seen = Array.zeroCreate<bool> arity
 

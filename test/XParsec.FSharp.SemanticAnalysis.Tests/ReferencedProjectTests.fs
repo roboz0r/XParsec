@@ -268,7 +268,7 @@ let tests =
                 // `interface System.IDisposable` records the canonical key on JS.
                 let expectShimAbbrev (bcl: string) (canonQualified: string) =
                     match ExternalSymbols.tryMetaType provider bcl with
-                    | ValueSome(ExternalTypeShape.Abbrev(_, FTClass(key, _))) ->
+                    | ValueSome(ExternalTypeShape.Abbrev { Body = FTClass(key, _) }) ->
                         Expect.equal
                             (SymbolKeyOps.typeMetaName key)
                             canonQualified

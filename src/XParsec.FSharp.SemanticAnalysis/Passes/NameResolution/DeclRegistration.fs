@@ -211,14 +211,12 @@ module NameResolutionDeclRegistration =
         let name = id.Name
         let typeParams = declaredTyparsOfTypeName ctx tn
 
-        // Every posture and `[<AllowNullLiteral>]` belongs on the type it abbreviates; an
-        // abbreviation stores no attributes of its own, so the fold's product is dropped.
-        Attributes.foldAndValidateTypeDefn
-            ctx
-            TypeDefnKind.Abbrev
-            id.DeclSite.Tok
-            (ctx.ResolveAttributes(Attributes.attributesOfTypeName tn))
-        |> ignore
+        let attributes =
+            Attributes.foldAndValidateTypeDefn
+                ctx
+                TypeDefnKind.Abbrev
+                id.DeclSite.Tok
+                (ctx.ResolveAttributes(Attributes.attributesOfTypeName tn))
 
         if hasAugmentation then
             ctx.Report(
@@ -232,7 +230,7 @@ module NameResolutionDeclRegistration =
             )
 
         let info =
-            AbbreviationInfo(name, typeParams, rhs, id.DeclSite, typarConstraintsOfTypeName tn, id.Key)
+            AbbreviationInfo(name, typeParams, rhs, id.DeclSite, typarConstraintsOfTypeName tn, id.Key, attributes)
 
         TypeRegistry.registerAbbrev ctx.Types info
 

@@ -11,19 +11,21 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 /// `Other.Mode` (case `On`) does not, so `Mode` resolves only under `open Other`.
 let private provider: IExternalSymbolProvider =
     let enum names =
-        ExternalTypeShape.Enum(
-            names
-            |> List.mapi (fun i n ->
-                {
-                    Name = n
-                    Value = ExternalEnumCaseValue.IntVal(IntKind.Int32, int64 i)
-                }
-                : ExternalEnumCaseShape
-            )
-            |> EqArray.ofList,
-            RuntimeNames.intKey,
-            SymbolOrigin.Empty
-        )
+        ExternalTypeShape.Enum
+            {
+                Cases =
+                    names
+                    |> List.mapi (fun i n ->
+                        {
+                            Name = n
+                            Value = ExternalEnumCaseValue.IntVal(IntKind.Int32, int64 i)
+                        }
+                        : ExternalEnumCaseShape
+                    )
+                    |> EqArray.ofList
+                Underlying = RuntimeNames.intKey
+                Origin = SymbolOrigin.Empty
+            }
 
     providerOfSurface (fun b ->
         PublishedSurfaceBuilder.addType b (SymbolKeyOps.qualifiedTypeKeyOf "Tests.Direction" 0) (enum [ "Up"; "Down" ])

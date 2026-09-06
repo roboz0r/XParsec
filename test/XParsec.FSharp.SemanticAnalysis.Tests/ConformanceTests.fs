@@ -387,6 +387,74 @@ let analysedConformanceTests =
                     "F# takes the attribute from whichever half writes it"
             }
 
+            // ---- Attribute ARGUMENTS across a TYPE declaration pair (fsc's FS1200) ----
+
+            test "a type attribute written on both halves with differing arguments is reported, every kind" {
+                let decls =
+                    [
+                        "type R = { X: int }", "type R = { X: int }", "V.R"
+                        "type U = | A | B", "type U = | A | B", "V.U"
+                        "type E =\n    | A = 1\n    | B = 2", "type E =\n    | A = 1\n    | B = 2", "V.E"
+                        "type I =\n    abstract M: int", "type I =\n    abstract M: int", "V.I"
+                        "type C =\n    new: unit -> C\n    member P: int", "type C() =\n    member _.P = 1", "V.C"
+                        "type A = int", "type A = int", "V.A"
+                    ]
+
+                for sigDecl, implDecl, name in decls do
+                    let m =
+                        conformAnalysed
+                            ("namespace V\n\n[<Experimental(\"one\")>]\n" + sigDecl)
+                            ("namespace V\n\n[<Experimental(\"other\")>]\n" + implDecl)
+                        |> theOne (sprintf "finding for %s" sigDecl)
+
+                    Expect.stringContains m name "names the type declaration"
+                    Expect.stringContains m "ExperimentalAttribute" "names the attribute"
+                    Expect.stringContains m "the signature's (.fsi) arguments are the ones compiled" "which copy ships"
+            }
+
+            test "a type attribute divergence is a warning, not an error" {
+                Expect.isEmpty
+                    (pairErrors
+                        "namespace V\n\n[<Experimental(\"one\")>]\ntype R = { X: int }"
+                        "namespace V\n\n[<Experimental(\"other\")>]\ntype R = { X: int }")
+                    "fsc compiles the pair, so this compiler must too"
+            }
+
+            test "matching type attribute arguments conform, every kind" {
+                let decls =
+                    [
+                        "type R = { X: int }", "type R = { X: int }"
+                        "type U = | A | B", "type U = | A | B"
+                        "type E =\n    | A = 1\n    | B = 2", "type E =\n    | A = 1\n    | B = 2"
+                        "type I =\n    abstract M: int", "type I =\n    abstract M: int"
+                        "type C =\n    new: unit -> C\n    member P: int", "type C() =\n    member _.P = 1"
+                        "type A = int", "type A = int"
+                    ]
+
+                for sigDecl, implDecl in decls do
+                    Expect.isEmpty
+                        (conformAnalysed
+                            ("namespace V\n\n[<Experimental(\"same\")>]\n" + sigDecl)
+                            ("namespace V\n\n[<Experimental(\"same\")>]\n" + implDecl))
+                        (sprintf "the two halves write one attribute with one folded argument list: %s" sigDecl)
+            }
+
+            test "a type attribute on one half alone takes no verdict" {
+                Expect.isEmpty
+                    (conformAnalysed
+                        "namespace V\n\ntype R = { X: int }"
+                        "namespace V\n\n[<Experimental(\"only here\")>]\ntype R = { X: int }")
+                    "F# takes the attribute from whichever half writes it"
+            }
+
+            test "a type's posture attributes conform when both halves write them" {
+                Expect.isEmpty
+                    (conformAnalysed
+                        "namespace V\n\n[<RequireQualifiedAccess; Struct>]\ntype U = | A | B"
+                        "namespace V\n\n[<Struct; RequireQualifiedAccess>]\ntype U = | A | B")
+                    "argument-less attributes in either order carry one folded value each"
+            }
+
             // ---- `[<Import>]`, read by resolved identity ----
 
             test "an [<Import>] binding whose body is not nativeOnly is an error" {

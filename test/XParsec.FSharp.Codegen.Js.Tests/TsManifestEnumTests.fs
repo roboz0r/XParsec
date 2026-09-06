@@ -61,7 +61,10 @@ let tests =
         [
             test "the provider maps a TS enum to ExternalTypeShape.Enum, members carried" {
                 match ExternalSymbols.tryMetaType paletteProvider "Color" with
-                | ValueSome(ExternalTypeShape.Enum(cases, underlying, _)) ->
+                | ValueSome(ExternalTypeShape.Enum {
+                                                       Cases = cases
+                                                       Underlying = underlying
+                                                   }) ->
                     Expect.equal
                         [ for c in cases -> c.Name ]
                         [ "Red"; "Green"; "Blue" ]
@@ -71,7 +74,10 @@ let tests =
                 | other -> failtestf "expected Color to resolve to an Enum shape, got %A" other
 
                 match ExternalSymbols.tryMetaType paletteProvider "Dir" with
-                | ValueSome(ExternalTypeShape.Enum(cases, underlying, _)) ->
+                | ValueSome(ExternalTypeShape.Enum {
+                                                       Cases = cases
+                                                       Underlying = underlying
+                                                   }) ->
                     Expect.equal
                         [ for c in cases -> c.Value ]
                         [ ExternalEnumCaseValue.StringVal "up"; ExternalEnumCaseValue.StringVal "down" ]

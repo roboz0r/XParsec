@@ -187,7 +187,7 @@ module NameResolutionTypeRegistration =
         | ExternalTypeShape.Class info -> homeName info.Origin
         | ExternalTypeShape.Record { Origin = o }
         | ExternalTypeShape.Union { Origin = o }
-        | ExternalTypeShape.Enum(origin = o) -> homeName o
+        | ExternalTypeShape.Enum { Origin = o } -> homeName o
         | ExternalTypeShape.Intrinsic _
         | ExternalTypeShape.IntrinsicInterface _
         | ExternalTypeShape.Abbrev _

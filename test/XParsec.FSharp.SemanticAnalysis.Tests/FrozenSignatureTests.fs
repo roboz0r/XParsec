@@ -394,7 +394,11 @@ module M =
                 let store = FrozenSignature.toSignatures origin frozen :> IExternalSymbolStore
 
                 match store.TryLookupType(typeKeyOf frozen "Direction") with
-                | ValueSome(ExternalTypeShape.Enum(cases, underlying, origin)) ->
+                | ValueSome(ExternalTypeShape.Enum {
+                                                       Cases = cases
+                                                       Underlying = underlying
+                                                       Origin = origin
+                                                   }) ->
                     Expect.equal
                         (cases |> EqArray.map (fun c -> c.Name))
                         (EqArray.ofSeq [ "Up"; "Down" ])
@@ -430,7 +434,10 @@ module M =
                 let store = FrozenSignature.toSignatures origin frozen :> IExternalSymbolStore
 
                 match store.TryLookupType(typeKeyOf frozen "Mode") with
-                | ValueSome(ExternalTypeShape.Enum(cases, underlying, _)) ->
+                | ValueSome(ExternalTypeShape.Enum {
+                                                       Cases = cases
+                                                       Underlying = underlying
+                                                   }) ->
                     Expect.equal
                         (cases |> EqArray.map (fun c -> c.Value))
                         (EqArray.ofSeq [ ExternalEnumCaseValue.StringVal "on"; ExternalEnumCaseValue.StringVal "off" ])
@@ -455,7 +462,7 @@ module M =
                 let store = FrozenSignature.toSignatures origin frozen :> IExternalSymbolStore
 
                 match store.TryLookupType(typeKeyOf frozen "Wide") with
-                | ValueSome(ExternalTypeShape.Enum(underlying = underlying)) ->
+                | ValueSome(ExternalTypeShape.Enum { Underlying = underlying }) ->
                     Expect.equal underlying (RuntimeNames.intKindKey IntKind.Int64) "the explicit suffix is the width"
                 | other -> failtestf "Wide did not project as an Enum: %A" other
             }

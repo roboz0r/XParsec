@@ -178,6 +178,18 @@ type ExternalUnionShape =
 
     member this.TyparArity: int = this.Typars.Length
 
+/// The payload of `ExternalTypeShape.Abbrev`: a transparent `type t<'a> = body`.
+type ExternalAbbrevShape =
+    {
+        /// Typar order matches source.
+        Typars: EqArray<TyparKind>
+        /// The abbreviation body as a template over `FTTypar(Declaring, i)`, which a use site
+        /// expands.
+        Body: FrozenType
+    }
+
+    member this.TyparArity: int = this.Typars.Length
+
 /// An external enum case's compile-time value.
 [<RequireQualifiedAccess>]
 type ExternalEnumCaseValue =
@@ -190,6 +202,16 @@ type ExternalEnumCaseShape =
     {
         Name: string
         Value: ExternalEnumCaseValue
+    }
+
+/// The payload of `ExternalTypeShape.Enum`: named constant cases over the primitive
+/// `Underlying` (an integral kind, `string`, or `obj` for a mixed enum).
+type ExternalEnumShape =
+    {
+        /// Case order matches source.
+        Cases: EqArray<ExternalEnumCaseShape>
+        Underlying: TypeKey
+        Origin: SymbolOrigin
     }
 
 /// Result of a reverse union-case lookup: the declaring union's identity plus the matched

@@ -56,9 +56,9 @@ module Unmanagedness =
             templates |> Seq.map (instantiate >> part) |> ofParts
 
         match symbols.TryLookupType key with
-        | ValueSome(ExternalTypeShape.Abbrev(_, body)) -> part (instantiate body)
+        | ValueSome(ExternalTypeShape.Abbrev { Body = body }) -> part (instantiate body)
         // An enum is a struct over its underlying primitive.
-        | ValueSome(ExternalTypeShape.Enum(underlying = underlying)) -> part (FTConst(underlying, EqArray.empty))
+        | ValueSome(ExternalTypeShape.Enum { Underlying = underlying }) -> part (FTConst(underlying, EqArray.empty))
         | shape ->
             match symbols.IsValueType key, shape with
             | ValueSome false, _ -> Unmanagedness.Managed

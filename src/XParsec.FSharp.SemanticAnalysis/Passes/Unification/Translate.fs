@@ -215,7 +215,7 @@ module internal UnificationTranslate =
         // A transparent abbreviation dealiases to its body: `int32 = int` resolves to the
         // `int` key the IL encoder encodes, never a nominal `int32`. The frozen RHS is
         // already kind-correct; the type args substitute into it.
-        | ExternalTypeShape.Abbrev(_, frozen) ->
+        | ExternalTypeShape.Abbrev { Body = frozen } ->
             ValueSome(FrozenTypeBridge.instantiateDeclaring ctx frozen (translatedArgs.AsSpan().ToArray()))
         // No modelled body, so no kind a *type annotation* can resolve to. Declining routes
         // the reference to `unresolvedRefTy`, which records the gap.

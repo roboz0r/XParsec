@@ -1,8 +1,7 @@
 # Conformance at the TAST level
 
-**Status: every stage has landed, and Gaps 1, 2 and 4 are closed. Gap 3 is closed for values
-and open for type declarations, and Gap 5 is open; both wait on the same `ExternalTypeShape`
-reshape.** Conformance
+**Status: every stage has landed, and Gaps 1 to 4 are closed. Gap 5 is open; the
+`ExternalTypeShape` reshape it waited on landed with Gap 3.** Conformance
 now runs down one route, `AssemblyAnalysis.conformSignature`, over the two analysed halves. The
 sections below are the plan as written, each stage carrying what it landed; the two routes and
 the CST rule set they describe are history.
@@ -258,7 +257,7 @@ verdict.
 Acceptance evidence: two `AnalysedConformance` tests, one per shape, in
 `SemanticAnalysis.Tests/ConformanceTests.fs`.
 
-### Gap 3 — attribute arguments are compared nowhere. CLOSED for VALUES; open for types.
+### Gap 3 — attribute arguments are compared nowhere. CLOSED.
 
 (Relocated from the deleted fsi-front-end-plan, 2026-08-28.)
 
@@ -304,29 +303,54 @@ as a value while its `let f x = …` companion classifies as a function. The spl
 `ModuleBindingInfo` moved out of the `SideTypes.fs` grab-bag into its own file after
 `AttributeVerdicts.fs`, which is what makes `TAttributes` available to it.
 
-**What remains: type declarations.** A `TTypeDeclG` carries its attributes, so the
-implementation half is ready. The signature half is not: only `ExternalClassShape` carries
-`Attributes`, and `ExternalTypeShape`'s `Record` / `Union` / `Enum` / `Abbrev` cases carry
-none. The shape is the required home — `AttributeFold` reads an external attribute type's own
-`[<AttributeUsage>]` off `ExternalTypeShape.Class`, through the provider, which serves shapes
-rather than surfaces — and `Record` and `Union` already hold five positional fields each, so a
-sixth moves further from "a tuple of three or more becomes a record". Reshaping those four
-cases into records is the change this is waiting on; extending the check afterwards is one loop
-over `ShapesByKey` beside the one over `Symbols`, reusing `divergentAttributes`. Covering only
-class-like types in the meantime would report a divergence on a class and stay silent on the
-identical divergence on a record, so the check stays off types entirely until all four kinds can
-answer.
+**What landed, for type declarations (2026-09-05).** A type declaration's folded attributes
+travel on the surface, not the shape: `PublishedSurface.AttributesByKey` is a table beside
+`ShapesByKey`, filled through `PublishedSurfaceBuilder.addAttributes`. The shape was the wrong
+carrier, because the only reader of a record, union, enum or abbreviation's attributes is
+the `.fsi` ↔ `.fs` comparison, which reads through a surface; a shape served by a metadata or
+TS-manifest provider would have carried an `Attributes` field it could not fill, and empty
+would have meant two things. `ExternalClassShape.Attributes` stays, because `AttributeFold`
+reads an attribute type's `[<AttributeUsage>]` off a class shape through the provider; the
+class's attributes are filed on the table as well.
+
+`Enum` and `Abbrev` were the tuple cases of `ExternalTypeShape`, and are now
+`ExternalEnumShape` (`Cases`, `Underlying`, `Origin`) and `ExternalAbbrevShape` (`Typars`,
+`Body`). `Record` and `Union` were already records; the premise recorded here that they held
+five positional fields was stale. The projection module of the same name as the enum record
+carries `ModuleSuffix`, which the compiler requires across two files of one namespace.
+
+Both halves fill the table from the registry entry each already folded at registration:
+`SignatureResolution`'s `publishRecord`/`publishUnion`/`publishEnum`/`publishAbbrev`/
+`publishClassLike` for a `.fsi`, `FrozenSignature.toSurface`'s `register` from
+`TTypeDeclG.Attributes` for every kind of an unsigned `.fs`. The one producer that dropped its
+fold was the abbreviation: `DeclRegistration.registerAbbreviationDecl` validated the
+attributes and discarded them, and `ElaborateTypeDecls.tryAbbrevType` wrote `EqArray.empty`
+into the TAST. `AbbreviationInfo` now carries `Attributes`, and the TAST declaration carries
+them through the existing codec row. fsc honours an attribute on an alias (`[<Obsolete>] type
+A = int` warns FS0044 at a use), so the alias is a real position for the comparison.
+
+`ConformanceSurface.check` is the one entry point: it runs the private `checkTypes` and
+`checkValues`, which both return a `ConformanceFindings` (the former `ValueConformance`,
+renamed), and concatenates the two, types first. `checkTypes`' implementation-side table keeps
+the whole frozen `TypeDecl` per key instead of narrowing to a family, which is the
+intermediate Gap 5 needs as well; the family is derived where the kind verdict is taken. The
+divergence loop runs over `AttributesByKey` against `td.Attributes`, reusing
+`divergentAttributes`, and `conformSignature` reports each as `AttributeArgumentsDiffer`.
 
 `ExternalSymbol.Attributes` is authoritative only on a symbol reached through a
-`PublishedSurface`. A metadata or TS-manifest provider leaves it empty whatever the declaration
-wrote, so empty carries two readings on `IExternalSymbolProvider` and one on the surface. Sited
-on the field; splitting the record by producer is the fix, and it belongs with the reshape
-above rather than ahead of it.
+`PublishedSurface`. A metadata or TS-manifest provider leaves it empty whatever the
+declaration wrote, so empty carries two readings on `IExternalSymbolProvider` and one on the
+surface. Sited on the field; moving it to a surface table, as the type attributes now are, is
+the fix and stays open.
 
-Acceptance evidence: seven `AnalysedConformance` tests — a divergence reported and named, that
-finding carrying warning rather than error severity, `0x1` against `1` conforming, `1 ||| 2`
-against `2 ||| 1` conforming, named arguments conforming in either order, a named argument's
-value diverging, and an attribute on one half alone taking no verdict.
+Acceptance evidence: seven `AnalysedConformance` tests for values — a divergence reported and
+named, that finding carrying warning rather than error severity, `0x1` against `1` conforming,
+`1 ||| 2` against `2 ||| 1` conforming, named arguments conforming in either order, a named
+argument's value diverging, and an attribute on one half alone taking no verdict — and five for
+types: a divergence reported and named on each of record, union, enum, interface, class and
+abbreviation; the finding at warning severity; matching arguments conforming on each of the six
+kinds; an attribute on one half alone taking no verdict; and argument-less posture attributes
+conforming in either order.
 
 ### Gap 4 — the published shape cannot state opacity, so `DeclaredKinds` exists. CLOSED.
 
@@ -386,10 +410,10 @@ side and `TTypeKindG` carries them on the implementation side. The narrowing is
 `declaredTypes`' alone, and it is the shape this repo treats as wrong by default: a stage that
 discards an intermediate its consumer needs.
 
-The check belongs beside `checkValues`, which already compares by resolved identity, and wants
-the same reshape Gap 3 is waiting on: `Record` / `Union` / `Enum` hold five positional fields
-each, and comparing them member-by-member reads far better off records than off tuples. Land
-the two together.
+The check belongs beside `checkValues`, which already compares by resolved identity. The
+reshape it wanted landed with Gap 3: every shape is a record, and `checkTypes`' implementation
+table now holds the whole frozen `TypeDecl` per key, so the body is in hand and the check is
+one more comparison per entry.
 
 ### Non-gaps, verified
 
@@ -480,6 +504,14 @@ The gap closures after it touched, in landing order:
   `FrozenCodecDiagnostics.fs`, `ConformanceSurface.fs` and `AssemblyAnalysis.fs`. The frozen
   format gained a field on each module-binding row; the whole `Vesper.*` corpus recompiles on
   both backends, and no test went red.
+- Gap 3's type half touched `PublishedSurface.fs`, `ExternalDeclarations.fs`,
+  `ExternalSymbols.fs`, `ExternalEnumShape.fs`, `ExternalSymbolProviders.fs`,
+  `FrozenSignature.fs`, `Passes/SignatureResolution.fs`, `TypeInfos.fs`,
+  `Passes/NameResolution/DeclRegistration.fs`, `Elaborate/TypeDecls.fs`,
+  `ConformanceSurface.fs`, `AssemblyAnalysis.fs`, the nine `Enum`/`Abbrev` tuple-pattern sites
+  across `SemanticAnalysis`, `Codegen.Clr` and `Codegen.Js`, and the test pattern sites. The
+  codec is untouched: an abbreviation's attributes travel on the type-declaration row every
+  kind already wrote. No test went red, and the `Vesper.*` corpus recompiles on both backends.
 
 One behaviour tightened along the way: a module binding's attributes now go through
 `AttributeFold.build` rather than `enforceTargets` alone, so an attribute argument outside the

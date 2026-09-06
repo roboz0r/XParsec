@@ -9,10 +9,10 @@ open System.Collections.Generic
 // halves by the name each writes (FS0193); it is checked as its own agreement between the
 // paired declarations.
 
-/// The findings about a signature's VALUES. `Errors` is at error severity, `Divergent` at
-/// warning severity.
+/// The findings about one group of a signature's declarations. `Errors` is at error
+/// severity, `Divergent` at warning severity.
 [<NoComparison>]
-type ValueConformance =
+type ConformanceFindings =
     {
         Errors: Conformance.ConformanceError list
         Divergent: Conformance.AttributeDivergence list
@@ -20,12 +20,8 @@ type ValueConformance =
 
 module ConformanceSurface =
 
-    /// The type identities an implementation DECLARES: its frozen type declarations, plus the
-    /// canonical identities its `(# … #)` bindings claim. The value is the nominal family a
-    /// concrete declaration defines; an abbreviation and an intrinsic claim define none.
-    let private declaredTypes (frozen: FrozenPools) : Dictionary<TypeKey, Conformance.TypeKindFamily voption> =
-        let declared =
-            Dictionary<TypeKey, Conformance.TypeKindFamily voption>(HashIdentity.Structural)
+    let private declaredTypes (frozen: FrozenPools) : Dictionary<TypeKey, TastAccessor.TypeDecl> =
+        let declared = Dictionary<TypeKey, TastAccessor.TypeDecl>(HashIdentity.Structural)
 
         let pool = TastPoolBuilder.openOver frozen
 
@@ -33,23 +29,20 @@ module ConformanceSurface =
             match TastAccessor.declKind decl with
             | DeclShape.Type ->
                 let td = TastAccessor.declType decl
-
-                declared.[td.TypeKey] <-
-                    match td.Kind with
-                    | TTypeKindG.Record _ -> ValueSome Conformance.TypeKindFamily.Record
-                    | TTypeKindG.Union _ -> ValueSome Conformance.TypeKindFamily.Union
-                    | TTypeKindG.Enum _ -> ValueSome Conformance.TypeKindFamily.Enum
-                    | TTypeKindG.Interface _ -> ValueSome Conformance.TypeKindFamily.Interface
-                    | TTypeKindG.Class _ -> ValueSome Conformance.TypeKindFamily.Class
-                    | TTypeKindG.Abbrev _
-                    | TTypeKindG.Measure _ -> ValueNone
+                declared.[td.TypeKey] <- td
             | _ -> ()
 
-        for KeyValue(canon, _) in frozen.Residue.IntrinsicBindings do
-            if not (declared.ContainsKey canon) then
-                declared.[canon] <- ValueNone
-
         declared
+
+    let private definedFamily (td: TastAccessor.TypeDecl) : Conformance.TypeKindFamily voption =
+        match td.Kind with
+        | TTypeKindG.Record _ -> ValueSome Conformance.TypeKindFamily.Record
+        | TTypeKindG.Union _ -> ValueSome Conformance.TypeKindFamily.Union
+        | TTypeKindG.Enum _ -> ValueSome Conformance.TypeKindFamily.Enum
+        | TTypeKindG.Interface _ -> ValueSome Conformance.TypeKindFamily.Interface
+        | TTypeKindG.Class _ -> ValueSome Conformance.TypeKindFamily.Class
+        | TTypeKindG.Abbrev _
+        | TTypeKindG.Measure _ -> ValueNone
 
     /// The binding identities an implementation DEFINES, each with the declaration it was
     /// filed from. Only a pattern binding exactly one variable carries an identity.
@@ -91,50 +84,6 @@ module ConformanceSurface =
         | ExternalTypeShape.Union _
         | ExternalTypeShape.Enum _
         | ExternalTypeShape.Class _ -> not (declaredExterns.Contains entry.Key)
-
-    /// Type PRESENCE, the nominal-family agreement, and the `extern` ↔ `(# … #)` pairing with
-    /// its heritability. Findings come in that order, each group in key order.
-    let checkTypes (published: PublishedSurface) (frozen: FrozenPools) : Conformance.ConformanceError list =
-        let declared = declaredTypes frozen
-        let implBindings = frozen.Residue.IntrinsicBindings
-
-        let declaredExternKeys =
-            HashSet<TypeKey>(seq { for e in published.ExternForms -> e.Key }, HashIdentity.Structural)
-
-        let named (key: TypeKey) = SymbolKeyOps.typeMetaName key
-
-        [
-            for entry in published.ShapesByKey do
-                if
-                    demandsDeclaration declaredExternKeys entry
-                    && not (declared.ContainsKey entry.Key)
-                then
-                    yield Conformance.ConformanceError.MissingInImpl(named entry.Key)
-
-            // Only a key BOTH halves commit a family for takes a verdict: an absent
-            // declaration is reported above, and an abbreviation is transparent.
-            for entry in published.ShapesByKey do
-                match entry.Value.DeclaredFamily with
-                | ValueNone -> ()
-                | ValueSome family ->
-                    match declared.TryGetValue entry.Key with
-                    | true, ValueSome defined when defined <> family ->
-                        yield Conformance.ConformanceError.TypeKindMismatch(named entry.Key, family, defined)
-                    | _ -> ()
-
-            for entry in published.ExternForms do
-                match EqDict.tryFind entry.Key implBindings with
-                | ValueNone -> yield Conformance.ConformanceError.ExternWithoutIntrinsic(named entry.Key)
-                | ValueSome binding ->
-                    if binding.Heritable <> entry.Value.IsHeritable then
-                        yield Conformance.ConformanceError.HeritabilityMismatch(named entry.Key)
-
-            // A binding the contract never declares. A plain implementation type absent from the
-            // signature is hidden by F#, so only the intrinsic-binding case is reported.
-            for KeyValue(canon, _) in implBindings do
-                if not (declaredExternKeys.Contains canon) then
-                    yield Conformance.ConformanceError.IntrinsicWithoutExtern(named canon)
-        ]
 
     /// One occurrence's arguments in comparison form: the positional arguments in written
     /// order, then the named arguments by name. `[<Foo(1, Y = 2, X = 3)>]` and
@@ -183,44 +132,125 @@ module ConformanceSurface =
                         yield a.Key
         ]
 
-    /// Value PRESENCE (every symbol the signature publishes is met by an implementation binding
-    /// of the same identity), the EMITTED name both halves settled on, and the attribute
-    /// ARGUMENTS both halves wrote (fsc's FS1200). Findings come in key order, attributes in
-    /// the signature's order.
-    let checkValues (published: PublishedSurface) (frozen: FrozenPools) : ValueConformance =
-        let defined = definedValues frozen
-        let errors = ResizeArray<Conformance.ConformanceError>()
-        let divergent = ResizeArray<Conformance.AttributeDivergence>()
+    /// Each error group in key order; divergences in key order, attributes in the signature's
+    /// order. An attribute-argument divergence is fsc's FS1200.
+    let private checkTypes (published: PublishedSurface) (frozen: FrozenPools) : ConformanceFindings =
+        let declared = declaredTypes frozen
+        let implBindings = frozen.Residue.IntrinsicBindings
 
-        for entry in published.Symbols do
-            let declaration () =
-                SymbolKeyOps.qualifiedBindingName entry.Key
+        let declaredExternKeys =
+            HashSet<TypeKey>(seq { for e in published.ExternForms -> e.Key }, HashIdentity.Structural)
 
-            match defined.TryGetValue entry.Key with
-            | false, _ -> errors.Add(Conformance.ConformanceError.ValueMissingInImpl(declaration ()))
-            | true, impl ->
-                // A reference resolves through the SIGNATURE's surface while the
-                // implementation emits under its own declaration, so the two `[<CompiledName>]`
-                // readings are a pair that has to agree.
-                let declaredEmission = entry.Value.EmittedName
+        let named (key: TypeKey) = SymbolKeyOps.typeMetaName key
 
-                if impl.EmittedName <> declaredEmission then
-                    errors.Add(
-                        Conformance.ConformanceError.CompiledNameDiffers(
-                            declaration (),
-                            declaredEmission,
-                            impl.EmittedName
-                        )
-                    )
+        /// A type declaration or a `(# … #)` binding of the same canonical identity.
+        let implemented (key: TypeKey) =
+            declared.ContainsKey key || implBindings.ContainsKey key
 
-                for key in divergentAttributes entry.Value.Attributes impl.Attributes do
-                    divergent.Add
-                        {
-                            Declaration = declaration ()
-                            Attribute = SymbolKeyOps.typeMetaName key
-                        }
+        let errors =
+            [
+                for entry in published.ShapesByKey do
+                    if demandsDeclaration declaredExternKeys entry && not (implemented entry.Key) then
+                        yield Conformance.ConformanceError.MissingInImpl(named entry.Key)
+
+                // Only a key BOTH halves commit a family for takes a verdict.
+                for entry in published.ShapesByKey do
+                    match entry.Value.DeclaredFamily with
+                    | ValueNone -> ()
+                    | ValueSome family ->
+                        match declared.TryGetValue entry.Key with
+                        | true, td ->
+                            match definedFamily td with
+                            | ValueSome defined when defined <> family ->
+                                yield Conformance.ConformanceError.TypeKindMismatch(named entry.Key, family, defined)
+                            | _ -> ()
+                        | _ -> ()
+
+                for entry in published.ExternForms do
+                    match EqDict.tryFind entry.Key implBindings with
+                    | ValueNone -> yield Conformance.ConformanceError.ExternWithoutIntrinsic(named entry.Key)
+                    | ValueSome binding ->
+                        if binding.Heritable <> entry.Value.IsHeritable then
+                            yield Conformance.ConformanceError.HeritabilityMismatch(named entry.Key)
+
+                // A plain implementation type absent from the signature is hidden by F#, so only
+                // an intrinsic binding is reported.
+                for KeyValue(canon, _) in implBindings do
+                    if not (declaredExternKeys.Contains canon) then
+                        yield Conformance.ConformanceError.IntrinsicWithoutExtern(named canon)
+            ]
+
+        let divergent: Conformance.AttributeDivergence list =
+            [
+                for entry in published.AttributesByKey do
+                    match declared.TryGetValue entry.Key with
+                    | true, td ->
+                        for key in divergentAttributes entry.Value td.Attributes do
+                            yield
+                                {
+                                    Declaration = named entry.Key
+                                    Attribute = named key
+                                }
+                    | _ -> ()
+            ]
 
         {
-            Errors = List.ofSeq errors
-            Divergent = List.ofSeq divergent
+            Errors = errors
+            Divergent = divergent
+        }
+
+    /// Findings in key order, attributes in the signature's order. An attribute-argument
+    /// divergence is fsc's FS1200.
+    let private checkValues (published: PublishedSurface) (frozen: FrozenPools) : ConformanceFindings =
+        let defined = definedValues frozen
+
+        let named (key: BindingKey) = SymbolKeyOps.qualifiedBindingName key
+
+        let errors =
+            [
+                for entry in published.Symbols do
+                    match defined.TryGetValue entry.Key with
+                    | false, _ -> yield Conformance.ConformanceError.ValueMissingInImpl(named entry.Key)
+                    | true, impl ->
+                        // The signature's `[<CompiledName>]` is what a reference resolves through;
+                        // the implementation's is what emits.
+                        let declaredEmission = entry.Value.EmittedName
+
+                        if impl.EmittedName <> declaredEmission then
+                            yield
+                                Conformance.ConformanceError.CompiledNameDiffers(
+                                    named entry.Key,
+                                    declaredEmission,
+                                    impl.EmittedName
+                                )
+            ]
+
+        let divergent: Conformance.AttributeDivergence list =
+            [
+                for entry in published.Symbols do
+                    match defined.TryGetValue entry.Key with
+                    | true, impl ->
+                        for key in divergentAttributes entry.Value.Attributes impl.Attributes do
+                            yield
+                                {
+                                    Declaration = named entry.Key
+                                    Attribute = SymbolKeyOps.typeMetaName key
+                                }
+                    | _ -> ()
+            ]
+
+        {
+            Errors = errors
+            Divergent = divergent
+        }
+
+    /// Every finding over a signature's declarations, the type findings before the value
+    /// findings.
+    let check (published: PublishedSurface) (frozen: FrozenPools) : ConformanceFindings =
+        let types = checkTypes published frozen
+        let values = checkValues published frozen
+
+        {
+            Errors = [ yield! types.Errors; yield! values.Errors ]
+            Divergent = [ yield! types.Divergent; yield! values.Divergent ]
         }

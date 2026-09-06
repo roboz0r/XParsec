@@ -339,7 +339,7 @@ module NameResolutionLongIdent =
 
                     ValueSome(ResolvedItem.UnionCase(ResolvedUnionCase.External uc, false))
                 | ValueNone -> staticIf (declaresExternalStatic ctx key name)
-            | ExternalTypeShape.Enum(cases = cases) ->
+            | ExternalTypeShape.Enum { Cases = cases } ->
                 if cases |> EqArray.exists (fun c -> c.Name = name) then
                     ValueSome(ResolvedItem.EnumCase(t, name))
                 else

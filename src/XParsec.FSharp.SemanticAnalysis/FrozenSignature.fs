@@ -192,6 +192,7 @@ module FrozenSignature =
                         | ValueNone -> Seq.empty
 
                     PublishedSurfaceBuilder.addTypeWith surface typeKey shape members
+                    PublishedSurfaceBuilder.addAttributes surface typeKey td.Attributes
 
                 match td.Kind with
                 | TTypeKindG.Record {
@@ -297,7 +298,8 @@ module FrozenSignature =
 
                 // The frozen RHS already carries the declaring typars on the `Declaring`
                 // axis, which is the axis a use site instantiates against.
-                | TTypeKindG.Abbrev body -> register (ExternalTypeShape.Abbrev(typars, body)) ValueNone
+                | TTypeKindG.Abbrev body ->
+                    register (ExternalTypeShape.Abbrev { Typars = typars; Body = body }) ValueNone
                 | TTypeKindG.Measure term -> register (ExternalTypeShape.Measure term) ValueNone
 
             | _ -> ()

@@ -95,7 +95,14 @@ let private typeByName (name: string) : ExternalTypeShape voption =
                     RequiresQualifiedAccess = false
                 }
         )
-    | "Abb" -> ValueSome(ExternalTypeShape.Abbrev(TyparKinds.typeOnly 1, marker))
+    | "Abb" ->
+        ValueSome(
+            ExternalTypeShape.Abbrev
+                {
+                    Typars = TyparKinds.typeOnly 1
+                    Body = marker
+                }
+        )
     | _ -> ValueNone
 
 let private memberByName (t: string) (m: string) : ExternalMember voption =
@@ -293,7 +300,7 @@ let tests =
 
             test "an Abbrev body is NOT threaded (no intrinsic variance) — the marker survives" {
                 match shapeNamed "Abb" with
-                | ValueSome(ExternalTypeShape.Abbrev(_, body)) ->
+                | ValueSome(ExternalTypeShape.Abbrev { Body = body }) ->
                     Expect.equal body marker "the abbreviation body is left for its expansion seam"
                 | other -> failtestf "expected an Abbrev shape, got %A" other
             }

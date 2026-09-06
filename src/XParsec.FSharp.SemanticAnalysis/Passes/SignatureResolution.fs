@@ -34,6 +34,9 @@ module SignatureResolution =
     let private publishMembers (sctx: SigCtx) (key: TypeKey) (members: ExternalMember list) : unit =
         PublishedSurfaceBuilder.addMembers sctx.Surface key members
 
+    let private publishAttributes (sctx: SigCtx) (key: TypeKey) (attributes: TAttributes) : unit =
+        PublishedSurfaceBuilder.addAttributes sctx.Surface key attributes
+
     // --- registration -------------------------------------------------------------------
 
     /// A record / union / enum / abbreviation's DETAIL is registered through the entry points
@@ -97,6 +100,8 @@ module SignatureResolution =
                         RequiresQualifiedAccess = info.IsRequireQualifiedAccess
                     })
 
+            publishAttributes sctx key info.Attributes
+
             match extensions with
             | ValueSome(TypeExtensionElementsSignature(elements = elems)) ->
                 publishMembers sctx key (resolveBodyMembers sctx key info.TypeParams elems)
@@ -153,10 +158,14 @@ module SignatureResolution =
                     })
                 members
 
+            publishAttributes sctx key info.Attributes
+
     let private publishEnum (sctx: SigCtx) (id: TypeIdentity) : unit =
         match TypeRegistry.tryEnumByKey sctx.Pass.Types id.Key with
         | ValueNone -> ()
-        | ValueSome info -> publishShape sctx id.Key (ExternalEnumShape.ofCases info.Cases SymbolOrigin.Empty)
+        | ValueSome info ->
+            publishShape sctx id.Key (ExternalEnumShape.ofCases info.Cases SymbolOrigin.Empty)
+            publishAttributes sctx id.Key info.Attributes
 
     // --- abbreviations --------------------------------------------------------------------
 
@@ -171,7 +180,16 @@ module SignatureResolution =
             | ValueSome ty -> freezeOver ctx env ty
             | ValueNone -> ExternalSignature.unfreezable (sprintf "abbreviation '%s' has no body" id.Name)
 
-        publishShape sctx id.Key (ExternalTypeShape.Abbrev(DeclaredTypar.kinds info.TypeParams, body))
+        publishShape
+            sctx
+            id.Key
+            (ExternalTypeShape.Abbrev
+                {
+                    Typars = DeclaredTypar.kinds info.TypeParams
+                    Body = body
+                })
+
+        publishAttributes sctx id.Key info.Attributes
 
     /// A broken measure publishes nothing; its declaration already reported.
     let private publishMeasure (sctx: SigCtx) (id: TypeIdentity) : unit =
@@ -465,6 +483,7 @@ module SignatureResolution =
             | SigClassForm.Interface -> surface.Shape
 
         publishShapeWith sctx id.Key (ExternalTypeShape.Class shape) surface.Members
+        publishAttributes sctx id.Key shape.Attributes
 
     /// An opaque abstract type (`type T`) has no body shape. It resolves as a non-interface
     /// class, so codegen can mint a ref off the origin, and commits its name to no family.

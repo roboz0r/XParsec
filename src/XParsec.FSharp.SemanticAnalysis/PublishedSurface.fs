@@ -25,6 +25,8 @@ type ExternForm =
 type PublishedSurfaceBuilder =
     {
         ShapesByKey: Dictionary<TypeKey, ExternalTypeShape>
+        /// A type declaration's attributes, resolved and constant-folded, by identity.
+        AttributesByKey: Dictionary<TypeKey, TAttributes>
         /// Canonical intrinsic identity -> the representation form declared for it.
         ExternForms: Dictionary<TypeKey, ExternForm>
         /// A type's FULL member list, in DECLARATION order: the overload scan depends on it.
@@ -49,6 +51,7 @@ module PublishedSurfaceBuilder =
     let create () : PublishedSurfaceBuilder =
         {
             ShapesByKey = Dictionary()
+            AttributesByKey = Dictionary()
             ExternForms = Dictionary()
             MembersByKey = Dictionary()
             Modules = Dictionary(HashIdentity.Structural)
@@ -75,6 +78,9 @@ module PublishedSurfaceBuilder =
                 shape.TyparArity
 
         surface.ShapesByKey.[key] <- shape
+
+    let addAttributes (surface: PublishedSurfaceBuilder) (key: TypeKey) (attributes: TAttributes) : unit =
+        surface.AttributesByKey.[key] <- attributes
 
     /// Record that `canon`'s representation is the target's to supply, in the form `form`
     /// states. `canon` is the intrinsic identity a use site resolves the name to, which is
@@ -176,6 +182,8 @@ type SurfaceEntry<'K, 'V> = { Key: 'K; Value: 'V }
 type PublishedSurface =
     {
         ShapesByKey: EqArray<SurfaceEntry<TypeKey, ExternalTypeShape>>
+        /// A type declaration's attributes, resolved and constant-folded, by identity.
+        AttributesByKey: EqArray<SurfaceEntry<TypeKey, TAttributes>>
         /// Canonical intrinsic identity -> the representation form declared for it.
         ExternForms: EqArray<SurfaceEntry<TypeKey, ExternForm>>
         /// A type's FULL member list, in DECLARATION order: the overload scan depends on it.
@@ -230,6 +238,7 @@ module PublishedSurface =
 
         {
             ShapesByKey = shapes
+            AttributesByKey = byTypeKey b.AttributesByKey
             ExternForms = byTypeKey b.ExternForms
             MembersByKey =
                 b.MembersByKey

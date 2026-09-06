@@ -59,7 +59,12 @@ let private importedEnum (qualifiedName: string) (kind: IntKind) : IExternalSymb
         PublishedSurfaceBuilder.addType
             b
             (SymbolKeyOps.qualifiedTypeKeyOf qualifiedName 0)
-            (ExternalTypeShape.Enum(cases, RuntimeNames.intKindKey kind, SymbolOrigin.Empty))
+            (ExternalTypeShape.Enum
+                {
+                    Cases = cases
+                    Underlying = RuntimeNames.intKindKey kind
+                    Origin = SymbolOrigin.Empty
+                })
 
         b.ImplicitOpens <- [ SymbolKeyOps.assemblyAutoOpen ns ]
     )

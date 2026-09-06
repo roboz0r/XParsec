@@ -601,7 +601,7 @@ type PassContext(provider: IExternalSymbolProvider, file: LexedFile, assembly: C
 
         member this.Measured(key, units) =
             match provider.TryLookupType key with
-            | ValueSome(ExternalTypeShape.Abbrev(_, body)) ->
+            | ValueSome(ExternalTypeShape.Abbrev { Body = body }) ->
                 this.MeasuredTy(FrozenTypeBridge.instantiateDeclaring this body [||], units)
             | other ->
                 failwithf

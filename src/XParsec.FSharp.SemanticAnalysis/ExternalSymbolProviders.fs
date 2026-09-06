@@ -243,7 +243,7 @@ module ExternalSymbolProviders =
                         }
                 | ExternalTypeShape.Record r -> ExternalTypeShape.Record { r with Origin = home r.Origin h }
                 | ExternalTypeShape.Union u -> ExternalTypeShape.Union { u with Origin = home u.Origin h }
-                | ExternalTypeShape.Enum(cases, underlying, o) -> ExternalTypeShape.Enum(cases, underlying, home o h)
+                | ExternalTypeShape.Enum e -> ExternalTypeShape.Enum { e with Origin = home e.Origin h }
                 | ExternalTypeShape.IntrinsicInterface s ->
                     ExternalTypeShape.IntrinsicInterface { s with Origin = home s.Origin h }
                 | ExternalTypeShape.Abbrev _

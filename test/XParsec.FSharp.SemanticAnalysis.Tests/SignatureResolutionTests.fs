@@ -393,7 +393,7 @@ let tests =
 
                 let casesOf (suffix: string) : EqArray<ExternalEnumCaseShape> =
                     match shapeOf r suffix with
-                    | ExternalTypeShape.Enum(cases = cases) -> cases
+                    | ExternalTypeShape.Enum { Cases = cases } -> cases
                     | other -> failtestf "expected an Enum shape for '%s'; got %A" suffix other
 
                 Expect.equal
@@ -627,7 +627,7 @@ let tests =
                         "namespace App\n\nmodule M =\n    type objnull = obj | null\n    val f: objnull -> int\n"
 
                 match shapeOf r "objnull" with
-                | ExternalTypeShape.Abbrev(typars, frozen) ->
+                | ExternalTypeShape.Abbrev { Typars = typars; Body = frozen } ->
                     Expect.equal typars.Length 0 "objnull is nullary"
 
                     match frozen with

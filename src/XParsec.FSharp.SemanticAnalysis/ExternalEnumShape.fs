@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
 /// Projection of an elaborated enum's case table to its published `ExternalTypeShape`.
+[<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 module ExternalEnumShape =
     let private tryCase (c: TEnumCaseG<'tok>) : ExternalEnumCaseShape voption =
         match c.Value with
@@ -41,4 +42,10 @@ module ExternalEnumShape =
             )
         | ValueNone, ValueNone ->
             ExternalTypeShape.Unmodelled(UnmodelledReason.ExtractionFailed "enum has no cases", EqArray.empty)
-        | ValueNone, ValueSome underlying -> ExternalTypeShape.Enum(EqArray.ofResizeArray shapes, underlying, origin)
+        | ValueNone, ValueSome underlying ->
+            ExternalTypeShape.Enum
+                {
+                    Cases = EqArray.ofResizeArray shapes
+                    Underlying = underlying
+                    Origin = origin
+                }

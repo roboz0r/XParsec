@@ -212,7 +212,14 @@ module internal TsManifestMembers =
             // `type X = …` is a transparent abbreviation: a use of `name` expands to the
             // target's `FrozenType`. `mint`, not `declaredIdentity`, because an alias never
             // enters the ctx table, so it stays `FTConst` and expands through this `Abbrev`.
-            Some(mint nsPath name tp, ExternalTypeShape.Abbrev(TyparKinds.typeOnly tp, toFrozen ctx target))
+            Some(
+                mint nsPath name tp,
+                ExternalTypeShape.Abbrev
+                    {
+                        Typars = TyparKinds.typeOnly tp
+                        Body = toFrozen ctx target
+                    }
+            )
         | Schema.Export.Enum(name, members) ->
             // A computed (non-constant) member has no value to reference it by, so it
             // cannot be a case at all and is dropped.
@@ -253,7 +260,15 @@ module internal TsManifestMembers =
                 elif EqArray.exists isString cases then RuntimeNames.objKey
                 else RuntimeNames.intKey
 
-            Some(mint nsPath name 0, ExternalTypeShape.Enum(cases, underlying, origin))
+            Some(
+                mint nsPath name 0,
+                ExternalTypeShape.Enum
+                    {
+                        Cases = cases
+                        Underlying = underlying
+                        Origin = origin
+                    }
+            )
         | _ -> None
 
     /// One ERASING nominal per distinct anonymous object shape reachable from the exports,

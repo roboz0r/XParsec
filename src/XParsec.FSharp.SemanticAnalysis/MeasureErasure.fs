@@ -13,7 +13,7 @@ module MeasureErasure =
         (args: EqArray<FrozenType>)
         : FrozenType =
         match lookup key with
-        | ValueSome(ExternalTypeShape.Abbrev(_, body)) ->
+        | ValueSome(ExternalTypeShape.Abbrev { Body = body }) ->
             erase lookup (FrozenTypeBridge.substituteDeclaring (EqArray.toArray args) body)
         | other ->
             failwithf

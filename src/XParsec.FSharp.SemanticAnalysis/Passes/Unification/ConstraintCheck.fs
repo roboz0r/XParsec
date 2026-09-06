@@ -230,7 +230,7 @@ module UnificationConstraintCheck =
         | ValueSome info -> TEnumCases.underlyingTypeKey info.Cases |> ValueOption.map ofKey
         | ValueNone ->
             match ctx.Provider.TryLookupType key with
-            | ValueSome(ExternalTypeShape.Enum(underlying = underlying)) -> ValueSome(ofKey underlying)
+            | ValueSome(ExternalTypeShape.Enum { Underlying = underlying }) -> ValueSome(ofKey underlying)
             | _ -> ValueNone
 
     /// Free TyVars return `Defer` so the next `Link` assignment re-fires the check; nested

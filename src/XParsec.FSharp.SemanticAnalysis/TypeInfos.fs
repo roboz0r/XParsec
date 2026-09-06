@@ -400,13 +400,16 @@ type AbbreviationInfo
         rhsCst: Type<SyntaxToken>,
         declSite: NodeSite,
         typarConstraints: TyparConstraints<SyntaxToken> voption,
-        key: TypeKey
+        key: TypeKey,
+        attributes: TAttributes
     ) =
     inherit FillableDecl<SemType>(name, declSite, key)
     member this.Key: SymbolKey = SymbolKey.Type this.TypeKey
     member val TypeParams = typeParams
     member val RhsCst = rhsCst
     member val TyparConstraints = typarConstraints
+    /// The declaration's attributes, resolved and folded at registration.
+    member val Attributes: TAttributes = attributes
 
 /// A `[<Measure>]` declaration. A BASE measure (`type m`) has no `RhsCst` and is its own
 /// atom; an abbreviation (`type v = m / s`) expands to `RhsCst`, forced on first reference.
