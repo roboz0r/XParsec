@@ -375,6 +375,7 @@ module SignatureResolutionMembers =
                                 Declared =
                                     { DeclaredClassFlags.Default with
                                         IsSealed = decoded.IsSealed
+                                        IsAbstract = decoded.IsAbstract
                                         AllowNullLiteral = decoded.AllowNullLiteral
                                     }
                                 IsValueType = decoded.IsValueType

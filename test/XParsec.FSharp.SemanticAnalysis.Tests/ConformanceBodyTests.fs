@@ -222,6 +222,25 @@ let bodyConformanceTests =
                     "the implementation seals what the signature does not"
             }
 
+            test "abstract on one half alone" {
+                let m =
+                    conformV "[<AbstractClass>]\ntype C =\n    new: unit -> C" "type C() = class end"
+                    |> theOne "finding"
+
+                Expect.stringContains
+                    m
+                    "is 'abstract' in the signature"
+                    "the signature declares abstract what the implementation does not"
+            }
+
+            test "abstract on both halves conforms" {
+                Expect.isEmpty
+                    (conformV
+                        "[<AbstractClass>]\ntype C =\n    new: unit -> C"
+                        "[<AbstractClass>]\ntype C() = class end")
+                    "the flag agrees"
+            }
+
             test "an opaque signature type demands no body" {
                 Expect.isEmpty
                     (conformV "type T" "type T = { X: int }\n\ntype U = | A")

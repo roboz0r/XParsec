@@ -239,8 +239,8 @@ module ConformanceBodies =
                         interfaceNames defined
                     )
 
-            // `IsAbstract` is a constant on both halves; Gap 6 in `docs/conformance-tast-level-plan.md`.
             yield! shapeFlag typeName "sealed" declared.Flags.Declared.IsSealed defined.Flags.Declared.IsSealed
+            yield! shapeFlag typeName "abstract" declared.Flags.Declared.IsAbstract defined.Flags.Declared.IsAbstract
             yield! shapeFlag typeName "struct" declared.Flags.IsValueType defined.Flags.IsValueType
         ]
 

@@ -1,6 +1,6 @@
 # Conformance at the TAST level
 
-**Status: every stage has landed, Gaps 1 to 5 are closed, and Gap 6 is open.** Conformance
+**Status: every stage has landed and Gaps 1 to 6 are closed.** Conformance
 now runs down one route, `AssemblyAnalysis.conformSignature`, over the two analysed halves. The
 sections below are the plan as written, each stage carrying what it landed; the two routes and
 the CST rule set they describe are history.
@@ -469,17 +469,29 @@ reshape it wanted landed with Gap 3: every shape is a record, and `checkTypes`' 
 table now holds the whole frozen `TypeDecl` per key, so the body is in hand and the check is
 one more comparison per entry.
 
-### Gap 6 — `[<AbstractClass>]` reaches no declared flag, so abstractness is neither checked nor compared. OPEN.
+### Gap 6 — `[<AbstractClass>]` reaches no declared flag, so abstractness is neither checked nor compared. CLOSED (2026-09-06).
 
 (Filed 2026-09-05, off the Gap 5 landing.)
 
-`DeclaredClassFlags.IsAbstract` has one Vesper-side producer on each half, and both write a
-constant. `MemberRegistration.fs:614` sets `IsAbstract = false` for every implementation class,
-and `Members.bodiedClassSurface` (`Passes/SignatureResolution/Members.fs:376`) builds a
-signature class's flags from `AttributeDecode.decodeClassAttributes`, which decodes `Sealed`,
-`AllowNullLiteral` and `Struct` and has no field for `AbstractClass`.
-`RuntimeNames.abstractClassAttributeKey` exists and nothing reads it. The only producer that
-fills the flag is `Codegen.Clr/MetadataSymbols.fs:508`, from reflection.
+**What landed.** `AttributeDecode.ClassAttributeVerdict.IsAbstract` is decoded off
+`RuntimeNames.abstractClassAttributeKey`, and both Vesper-side producers of
+`DeclaredClassFlags` write it: `MemberRegistration` for an implementation class and
+`Members.bodiedClassSurface` for a signature class. `ConformanceBodies.checkClassShape`
+compares it as the `"abstract"` case of `ShapeFlagDiffers`. The flag already travelled whole
+through the TAST, the codec and `FrozenSignature.toSurface`, so no carrier changed.
+
+Acceptance evidence: `ConstraintsTests` "new: an abstract class with a parameterless ctor"
+refuses a Vesper `[<AbstractClass>]` under `'T : (new : unit -> 'T)`; `AnalysedBodyConformance`
+reports the attribute on one half alone and accepts it on both. The `Vesper.*` corpus stayed
+green on both backends.
+
+**As filed.** `DeclaredClassFlags.IsAbstract` had one Vesper-side producer on each half, and both
+wrote a constant. `MemberRegistration.fs:614` set `IsAbstract = false` for every implementation
+class, and `Members.bodiedClassSurface` (`Passes/SignatureResolution/Members.fs:376`) built a
+signature class's flags from `AttributeDecode.decodeClassAttributes`, which decoded `Sealed`,
+`AllowNullLiteral` and `Struct` and had no field for `AbstractClass`.
+`RuntimeNames.abstractClassAttributeKey` existed and nothing read it. The only producer that
+filled the flag was `Codegen.Clr/MetadataSymbols.fs:508`, from reflection.
 
 The flag has one consumer, the `'T : (new : unit -> 'T)` check in
 `Unification/ConstraintCheck.fs:214`, which refuses an abstract or interface type. A Vesper
@@ -499,13 +511,8 @@ class's `.ctor` from its surface would break the `inherit` path, so the flag sta
 
 fsc compares the flag: an `[<AbstractClass>]` on one half alone is FS0193 ("one is abstract").
 
-**Fix.** `AttributeDecode.decodeClassAttributes` gains `IsAbstract` off
-`abstractClassAttributeKey`; both producers above write it; `checkClassShape` adds the
-`"abstract"` case to `ShapeFlagDiffers`. Acceptance: a `ConstraintCheck` test refusing a
-Vesper abstract class under a `new` constraint, and an `AnalysedBodyConformance` pair with the
-attribute on one half alone. The corpus writes `AbstractClass` only on the
-`ModuleSuffix`-modules of `list.fsi` and `set.fsi`, which are modules rather than classes, so
-no corpus pair is expected to go red.
+The corpus writes `AbstractClass` only on the `ModuleSuffix`-modules of `list.fsi` and
+`set.fsi`, which are modules rather than classes, so no corpus pair went red.
 
 ### Non-gaps, verified
 
@@ -610,6 +617,9 @@ The gap closures after it touched, in landing order:
   and its regenerated `.mjs`, the codec round-trip fixture, and the Clr `ConformanceTyparsTests`
   assertion that called `checkMembers`. One corpus test went red, on `Vesper.List`, and it was
   a finding (above).
+- Gap 6 touched `AttributeDecode.fs`, `Passes/NameResolution/MemberRegistration.fs`,
+  `Passes/SignatureResolution/Members.fs`, `ConformanceBodies.fs`, `Conformance.fs`, and
+  added one `ConstraintsTests` and two `AnalysedBodyConformance` tests. No test went red.
 
 One behaviour tightened along the way: a module binding's attributes now go through
 `AttributeFold.build` rather than `enforceTargets` alone, so an attribute argument outside the

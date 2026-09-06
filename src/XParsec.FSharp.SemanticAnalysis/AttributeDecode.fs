@@ -65,6 +65,7 @@ module AttributeDecode =
     type ClassAttributeVerdict =
         {
             IsSealed: bool
+            IsAbstract: bool
             AllowNullLiteral: bool
             IsValueType: bool
             IsByRefLike: bool
@@ -73,6 +74,7 @@ module AttributeDecode =
         static member Default =
             {
                 IsSealed = false
+                IsAbstract = false
                 AllowNullLiteral = false
                 IsValueType = false
                 IsByRefLike = false
@@ -201,6 +203,7 @@ module AttributeDecode =
 
         {
             IsSealed = attrs.Has RuntimeNames.sealedAttributeKey
+            IsAbstract = attrs.Has RuntimeNames.abstractClassAttributeKey
             AllowNullLiteral = attrs.Has RuntimeNames.allowNullLiteralAttributeKey
             // `[<IsByRefLike>]` alone implies a value type. A bare `type X = struct … end`
             // carries no attribute, so this flag is not the only path to a value type.

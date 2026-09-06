@@ -145,8 +145,8 @@ module Conformance =
         | BaseTypeDiffers of typeName: string * declared: string * defined: string
         /// A class whose directly-declared interface set differs across the pair.
         | InterfacesDiffer of typeName: string * declared: string * defined: string
-        /// A declaration-shape flag (`sealed`, `struct`) written on one half alone
-        /// (FS0296/FS0297 for `sealed`).
+        /// A declaration-shape flag (`sealed`, `abstract`, `struct`) written on one half alone
+        /// (FS0296/FS0297 for `sealed`, FS0193 for `abstract`).
         | ShapeFlagDiffers of typeName: string * flag: string * declared: bool
 
     let describe (e: ConformanceError) : string =

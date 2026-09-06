@@ -386,6 +386,10 @@ let kindTests =
                 "new: a class with only a parameterised ctor"
                 "'new' constraint"
                 (newFn + "type C(x: int) =\n    member _.X = x\nlet _ = mk (C(1))")
+            violated
+                "new: an abstract class with a parameterless ctor"
+                "'new' constraint"
+                (newFn + "[<AbstractClass>]\ntype C() = class end\nlet f (c: C) = mk c")
             violated "new: a reference record" "'new' constraint" (newFn + "type R = { X: int }\nlet _ = mk { X = 1 }")
             violated "new: a function" "'new' constraint" (newFn + "let _ = mk (fun (x: int) -> x)")
             violated
