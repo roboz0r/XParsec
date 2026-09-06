@@ -29,6 +29,7 @@ let tests =
                     """printfn "%b" (2 >= 3)""", "false"
                     // char: `clt` over the char's int value
                     """printfn "%b" ('a' < 'b')""", "true"
+                    """printfn "%b" ('b' < 'a')""", "false"
                     """printfn "%b" ('b' = 'b')""", "true"
                     // float: IEEE `clt`/`cgt`
                     """printfn "%b" (1.5 < 2.5)""", "true"

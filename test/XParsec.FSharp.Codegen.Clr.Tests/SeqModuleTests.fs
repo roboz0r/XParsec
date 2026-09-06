@@ -3,6 +3,7 @@ module XParsec.FSharp.Codegen.Clr.Tests.SeqModuleTests
 open Expecto
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 open XParsec.FSharp.Codegen.Clr.Tests.PackageHarness
+open XParsec.FSharp.Codegen.Clr.Tests.ModuleSuiteHarness
 
 // `Vesper.Seq` over `seq<'T>` (= `IEnumerable<'T>`). Every function takes a real
 // `seq<'T>`, so these run driver programs rather than reflecting members out of
@@ -10,7 +11,6 @@ open XParsec.FSharp.Codegen.Clr.Tests.PackageHarness
 
 [<Tests>]
 let runtimeTests =
-    let prelude = "open Vesper.Collections\n"
     // `Range(start, count)` yields `start, start+1, …`: a BCL `IEnumerable<int>`.
     let range1to (n: int) =
         sprintf "(System.Linq.Enumerable.Range(1, %d))" n
@@ -22,7 +22,7 @@ let runtimeTests =
                 runsSeq
                     "6"
                     (prelude
-                     + sprintf "printfn \"%%d\" (Seq.fold (fun s -> fun x -> s + x) 0 %s)" (range1to 3))
+                     + sprintf "printfn \"%%d\" (Seq.fold (fun s x -> s + x) 0 %s)" (range1to 3))
             }
 
             // `s + 1` ignores the element values, so the total is the iteration count.
@@ -30,28 +30,28 @@ let runtimeTests =
                 runsSeq
                     "4"
                     (prelude
-                     + sprintf "printfn \"%%d\" (Seq.fold (fun s -> fun x -> s + 1) 0 %s)" (range1to 4))
+                     + sprintf "printfn \"%%d\" (Seq.fold (fun s x -> s + 1) 0 %s)" (range1to 4))
             }
 
             test "Seq.fold over the empty sequence returns the initial state" {
                 runsSeq
                     "42"
                     (prelude
-                     + "printfn \"%d\" (Seq.fold (fun s -> fun x -> s + x) 42 (System.Linq.Enumerable.Range(0, 0)))")
+                     + "printfn \"%d\" (Seq.fold (fun s x -> s + x) 42 (System.Linq.Enumerable.Range(0, 0)))")
             }
 
             test "Seq.reduce folds from the first element (1+2+3)" {
                 runsSeq
                     "6"
                     (prelude
-                     + sprintf "printfn \"%%d\" (Seq.reduce (fun a -> fun b -> a + b) %s)" (range1to 3))
+                     + sprintf "printfn \"%%d\" (Seq.reduce (fun a b -> a + b) %s)" (range1to 3))
             }
 
             test "Seq.reduce of a singleton is the element" {
                 runsSeq
                     "1"
                     (prelude
-                     + sprintf "printfn \"%%d\" (Seq.reduce (fun a -> fun b -> a + b) %s)" (range1to 1))
+                     + sprintf "printfn \"%%d\" (Seq.reduce (fun a b -> a + b) %s)" (range1to 1))
             }
 
             // `toArray` grows a doubling buffer, then copies it to an exactly-sized
@@ -73,16 +73,14 @@ let runtimeTests =
                 runsSeq
                     "3"
                     (prelude
-                     + sprintf "printfn \"%%d\" (Seq.fold (fun s -> fun x -> s + x) 0 (Seq.truncate 2 %s))" (range1to 5))
+                     + sprintf "printfn \"%%d\" (Seq.fold (fun s x -> s + x) 0 (Seq.truncate 2 %s))" (range1to 5))
             }
 
             test "Seq.truncate past the end yields the whole sequence" {
                 runsSeq
                     "6"
                     (prelude
-                     + sprintf
-                         "printfn \"%%d\" (Seq.fold (fun s -> fun x -> s + x) 0 (Seq.truncate 10 %s))"
-                         (range1to 3))
+                     + sprintf "printfn \"%%d\" (Seq.fold (fun s x -> s + x) 0 (Seq.truncate 10 %s))" (range1to 3))
             }
         ]
 
@@ -90,23 +88,15 @@ let runtimeTests =
 
 [<Tests>]
 let frontEndTests =
-    let prelude = "open Vesper.Collections\n"
-
     testList
         "SeqFrontEnd"
         [
-            test "Seq.fold with a curried folder type-checks" {
-                typeChecksSeq (
-                    prelude
-                    + "let sum (xs: seq<int>) : int = Seq.fold (fun s -> fun x -> s + x) 0 xs"
-                )
+            test "Seq.fold with a lambda folder type-checks" {
+                typeChecksSeq (prelude + "let sum (xs: seq<int>) : int = Seq.fold (fun s x -> s + x) 0 xs")
             }
 
             test "Seq.reduce type-checks" {
-                typeChecksSeq (
-                    prelude
-                    + "let total (xs: seq<int>) : int = Seq.reduce (fun a -> fun b -> a + b) xs"
-                )
+                typeChecksSeq (prelude + "let total (xs: seq<int>) : int = Seq.reduce (fun a b -> a + b) xs")
             }
 
             test "Seq.truncate type-checks (preserves the element type)" {

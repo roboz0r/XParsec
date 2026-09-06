@@ -5,6 +5,7 @@ open System.Reflection
 open Expecto
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 open XParsec.FSharp.Codegen.Clr.Tests.PackageHarness
+open XParsec.FSharp.Codegen.Clr.Tests.ModuleSuiteHarness
 
 // `Vesper.Choice` has no module and no instance members, so reflection reads the
 // discriminant through `get_Tag` and the payload through the `Get_<Case>_<i>` readers,
@@ -13,36 +14,33 @@ open XParsec.FSharp.Codegen.Clr.Tests.PackageHarness
 // Each case constrains one of the two parameters, so a standalone `Choice1Of2 5` is
 // `Choice<int, '_>`; every such value is annotated `: Choice<int, string>` to pin both.
 
-/// The built `Vesper.Choice.dll` (cached). Every type below is reflected from *this*
-/// assembly, so identities line up across `Invoke`s.
-let private choiceAsm: Lazy<Assembly> =
-    lazy (fst (buildPackage "Vesper.Choice").Value)
+let private choiceAsm = packageAssembly "Vesper.Choice"
 
 let private intTy = typeof<int>
 let private strTy = typeof<string>
 
 /// `Vesper.Choice`2` closed over <int, string>, the object-argument type for the case
 /// factories and field reads.
-let private choiceIntStr: Lazy<Type> =
-    lazy (choiceAsm.Value.GetType("Vesper.Choice`2").MakeGenericType(intTy, strTy))
+let private choiceIntStr = closedType choiceAsm "Vesper.Choice`2" [| intTy; strTy |]
 
 /// `Choice1Of2 (v: int) : Choice<int, string>` via the emitted static factory.
 let private c1IS (v: int) : obj =
-    choiceIntStr.Value.GetMethod("Choice1Of2").Invoke(null, [| box v |])
+    caseFactory choiceIntStr "Choice1Of2" [| box v |]
 
 /// `Choice2Of2 (v: string) : Choice<int, string>` via the emitted static factory.
 let private c2IS (v: string) : obj =
-    choiceIntStr.Value.GetMethod("Choice2Of2").Invoke(null, [| box v |])
+    caseFactory choiceIntStr "Choice2Of2" [| box v |]
 
-/// The discriminant (declaration order) off a Choice value, through the accessor that
-/// fronts the private `_tag`.
-let private tagOf (objArg: obj) : int =
-    choiceIntStr.Value.GetMethod("get_Tag").Invoke(objArg, [||]) :?> int
+/// The discriminant (declaration order) off a Choice value of `ty`, through the accessor
+/// that fronts the private `_tag`.
+let private tagOfOn (ty: Lazy<Type>) (objArg: obj) : int = asInt (instanceGet ty "get_Tag" objArg)
 
 /// Read a per-case payload through the union's payload ABI, the `Get_<Case>_<i>` reader.
 /// The physical slots behind it are shared between cases and are not addressable by case.
-let private payloadOf (name: string) (objArg: obj) : obj =
-    choiceIntStr.Value.GetMethod(name).Invoke(objArg, [||])
+let private payloadOfOn (ty: Lazy<Type>) (name: string) (objArg: obj) : obj = instanceGet ty name objArg
+
+let private tagOf = tagOfOn choiceIntStr
+let private payloadOf = payloadOfOn choiceIntStr
 
 [<Tests>]
 let tests =
@@ -78,18 +76,12 @@ let tests =
 let private boolTy = typeof<bool>
 
 /// `Vesper.Choice`3` closed over <int, string, bool>.
-let private choice3: Lazy<Type> =
-    lazy (choiceAsm.Value.GetType("Vesper.Choice`3").MakeGenericType(intTy, strTy, boolTy))
+let private choice3 =
+    closedType choiceAsm "Vesper.Choice`3" [| intTy; strTy; boolTy |]
 
 /// `Vesper.Choice`7` closed over seven `int`s; the arity, not the element types, is
 /// what is under test.
-let private choice7: Lazy<Type> =
-    lazy (choiceAsm.Value.GetType("Vesper.Choice`7").MakeGenericType(Array.create 7 intTy))
-
-let private tagOfOn (ty: Type) (objArg: obj) : int =
-    ty.GetMethod("get_Tag").Invoke(objArg, [||]) :?> int
-
-let private payloadOfOn (ty: Type) (name: string) (objArg: obj) : obj = ty.GetMethod(name).Invoke(objArg, [||])
+let private choice7 = closedType choiceAsm "Vesper.Choice`7" (Array.create 7 intTy)
 
 [<Tests>]
 let higherArity =
@@ -97,29 +89,29 @@ let higherArity =
         "ChoiceHigherArity"
         [
             test "Choice`3 constructs all three cases; tags 0/1/2" {
-                let c1 = choice3.Value.GetMethod("Choice1Of3").Invoke(null, [| box 5 |])
-                let c2 = choice3.Value.GetMethod("Choice2Of3").Invoke(null, [| box "hi" |])
-                let c3 = choice3.Value.GetMethod("Choice3Of3").Invoke(null, [| box true |])
-                Expect.equal (tagOfOn choice3.Value c1) 0 "Choice1Of3 is tag 0"
-                Expect.equal (tagOfOn choice3.Value c2) 1 "Choice2Of3 is tag 1"
-                Expect.equal (tagOfOn choice3.Value c3) 2 "Choice3Of3 is tag 2"
+                let c1 = caseFactory choice3 "Choice1Of3" [| box 5 |]
+                let c2 = caseFactory choice3 "Choice2Of3" [| box "hi" |]
+                let c3 = caseFactory choice3 "Choice3Of3" [| box true |]
+                Expect.equal (tagOfOn choice3 c1) 0 "Choice1Of3 is tag 0"
+                Expect.equal (tagOfOn choice3 c2) 1 "Choice2Of3 is tag 1"
+                Expect.equal (tagOfOn choice3 c3) 2 "Choice3Of3 is tag 2"
             }
 
             // The struct declares one reader per arm: `Get_Choice1Of3_0` … `Get_Choice3Of3_0`.
             test "Choice`3 payloads read back per case" {
-                let c1 = choice3.Value.GetMethod("Choice1Of3").Invoke(null, [| box 5 |])
-                let c3 = choice3.Value.GetMethod("Choice3Of3").Invoke(null, [| box true |])
-                Expect.equal (payloadOfOn choice3.Value "Get_Choice1Of3_0" c1 :?> int) 5 "Choice1Of3 carries 5"
-                Expect.equal (payloadOfOn choice3.Value "Get_Choice3Of3_0" c3 :?> bool) true "Choice3Of3 carries true"
+                let c1 = caseFactory choice3 "Choice1Of3" [| box 5 |]
+                let c3 = caseFactory choice3 "Choice3Of3" [| box true |]
+                Expect.equal (asInt (payloadOfOn choice3 "Get_Choice1Of3_0" c1)) 5 "Choice1Of3 carries 5"
+                Expect.equal (asBool (payloadOfOn choice3 "Get_Choice3Of3_0" c3)) true "Choice3Of3 carries true"
             }
 
             // The widest member of the family.
             test "Choice`7 emits; first/last cases tag 0/6" {
-                let first = choice7.Value.GetMethod("Choice1Of7").Invoke(null, [| box 1 |])
-                let last = choice7.Value.GetMethod("Choice7Of7").Invoke(null, [| box 7 |])
-                Expect.equal (tagOfOn choice7.Value first) 0 "Choice1Of7 is tag 0"
-                Expect.equal (tagOfOn choice7.Value last) 6 "Choice7Of7 is tag 6"
-                Expect.equal (payloadOfOn choice7.Value "Get_Choice7Of7_0" last :?> int) 7 "Choice7Of7 carries 7"
+                let first = caseFactory choice7 "Choice1Of7" [| box 1 |]
+                let last = caseFactory choice7 "Choice7Of7" [| box 7 |]
+                Expect.equal (tagOfOn choice7 first) 0 "Choice1Of7 is tag 0"
+                Expect.equal (tagOfOn choice7 last) 6 "Choice7Of7 is tag 6"
+                Expect.equal (asInt (payloadOfOn choice7 "Get_Choice7Of7_0" last)) 7 "Choice7Of7 carries 7"
             }
 
             test "Choice`2 and Choice`3 are distinct emitted types" {
@@ -250,5 +242,12 @@ let frontEndTests =
 
             test "Choice1Of7 types as the arity-7 overload" {
                 typeChecksChoice "let x : Choice<int, int, int, int, int, int, int> = Choice1Of7 5"
+            }
+
+            // `Choice2Of2` constructs a `Choice`2`, so an arity-3 annotation is a type mismatch.
+            test "Choice2Of2 annotated as Choice<int, string, bool> is rejected" {
+                failsWithChoice
+                    "Type mismatch: Vesper.Choice`2 vs Vesper.Choice`3"
+                    "let x : Choice<int, string, bool> = Choice2Of2 \"e\""
             }
         ]

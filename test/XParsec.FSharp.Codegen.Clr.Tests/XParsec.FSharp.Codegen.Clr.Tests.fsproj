@@ -40,6 +40,7 @@
     <Compile Include="IntrinsicShapeAssertions.fs" />
     <Compile Include="OpsPlatformClrTests.fs" />
     <Compile Include="LiteralTests.fs" />
+    <Compile Include="ModuleSuiteHarness.fs" />
     <Compile Include="ComparisonTests.fs" />
     <Compile Include="BindingTests.fs" />
     <Compile Include="ControlFlowTests.fs" />

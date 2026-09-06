@@ -3,11 +3,10 @@ module XParsec.FSharp.Codegen.Clr.Tests.SetModuleTests
 open Expecto
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 open XParsec.FSharp.Codegen.Clr.Tests.PackageHarness
+open XParsec.FSharp.Codegen.Clr.Tests.ModuleSuiteHarness
 
 [<Tests>]
 let tests =
-    let prelude = "open Vesper.Collections\n"
-
     testList
         "SetModule"
         [
@@ -19,7 +18,7 @@ let tests =
                      + "printfn \"%d\" (Set.count s)\n"
                      + "printfn \"%b\" (Set.contains 2 s)\n"
                      + "printfn \"%b\" (Set.contains 9 s)\n"
-                     + "printfn \"%d\" (Set.fold (fun acc -> fun x -> acc + x) 0 s)")
+                     + "printfn \"%d\" (Set.fold (fun acc x -> acc + x) 0 s)")
             }
 
             // The operands are nominal, so `+` matches no per-primitive static-opt clause
@@ -246,7 +245,7 @@ let tests =
                              + s123
                              + "let m = Set.map (fun x -> x * 2) s\n"
                              + "printfn \"%d\" (Set.count m)\n"
-                             + "printfn \"%d\" (Set.fold (fun acc -> fun x -> acc + x) 0 m)")
+                             + "printfn \"%d\" (Set.fold (fun acc x -> acc + x) 0 m)")
                     }
 
                     test "filter" {
@@ -256,7 +255,7 @@ let tests =
                              + s123
                              + "let f = Set.filter (fun x -> x % 2 = 0) s\n"
                              + "printfn \"%d\" (Set.count f)\n"
-                             + "printfn \"%d\" (Set.fold (fun acc -> fun x -> acc + x) 0 f)")
+                             + "printfn \"%d\" (Set.fold (fun acc x -> acc + x) 0 f)")
                     }
 
                     test "fold (sum) / foldBack (sum)" {
@@ -264,8 +263,8 @@ let tests =
                             [ "6"; "6" ]
                             (prelude
                              + s123
-                             + "printfn \"%d\" (Set.fold (fun acc -> fun x -> acc + x) 0 s)\n"
-                             + "printfn \"%d\" (Set.foldBack (fun x -> fun acc -> x + acc) s 0)")
+                             + "printfn \"%d\" (Set.fold (fun acc x -> acc + x) 0 s)\n"
+                             + "printfn \"%d\" (Set.foldBack (fun x acc -> x + acc) s 0)")
                     }
 
                     test "iter walks elements in order" {

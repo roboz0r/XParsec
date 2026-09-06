@@ -5,50 +5,27 @@ open System.Reflection
 open Expecto
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 open XParsec.FSharp.Codegen.Clr.Tests.PackageHarness
+open XParsec.FSharp.Codegen.Clr.Tests.ModuleSuiteHarness
 
-// Reflection over the built `Vesper.Option.dll`: values come from the union's emitted
-// static case factories, and results are asserted as BCL types. Combinators taking a
-// `Vesper.Fun` cannot be minted by reflection, so they run as driver programs below.
-
-/// The built `Vesper.Option.dll` (cached). Every type below is reflected from *this*
-/// assembly, so identities line up across `Invoke`s.
-let private optionAsm: Lazy<Assembly> =
-    lazy (fst (buildPackage "Vesper.Option").Value)
+let private optionAsm = packageAssembly "Vesper.Option"
 
 let private intTy = typeof<int>
 
 /// `Vesper.Option`1` closed over `int`, the object-argument type for the case factories
 /// and instance members.
-let private optionOfInt: Lazy<Type> =
-    lazy (optionAsm.Value.GetType("Vesper.Option`1").MakeGenericType(intTy))
+let private optionOfInt = closedType optionAsm "Vesper.Option`1" [| intTy |]
 
 /// `Some (v: int)` via the emitted static `Some` factory.
 let private someInt (v: int) : obj =
-    optionOfInt.Value.GetMethod("Some").Invoke(null, [| box v |])
+    caseFactory optionOfInt "Some" [| box v |]
 
 /// `None : int option` via the emitted static `None` factory.
-let private noneInt: Lazy<obj> =
-    lazy (optionOfInt.Value.GetMethod("None").Invoke(null, [||]))
+let private noneInt: Lazy<obj> = lazy (caseFactory optionOfInt "None" [||])
 
-/// Invoke a `Vesper.OptionModule` static, instantiating it at the given element
-/// type(s) when it is generic.
-let private callModule (name: string) (typeArgs: Type[]) (args: obj[]) : obj =
-    let m = optionAsm.Value.GetType("Vesper.OptionModule").GetMethod(name)
-
-    let m =
-        if m.IsGenericMethodDefinition then
-            m.MakeGenericMethod typeArgs
-        else
-            m
-
-    m.Invoke(null, args)
+let private callModule = callModule optionAsm "Vesper.OptionModule"
 
 /// Read an instance member (`get_Value` / `get_IsSome` / `get_IsNone`) off an option.
-let private instanceGet (name: string) (objArg: obj) : obj =
-    optionOfInt.Value.GetMethod(name).Invoke(objArg, [||])
-
-let private asBool (o: obj) : bool = o :?> bool
-let private asInt (o: obj) : int = o :?> int
+let private instanceGet = instanceGet optionOfInt
 
 [<Tests>]
 let tests =
@@ -104,14 +81,13 @@ let tests =
             }
 
             test "flatten: Some (Some 5) -> Some 5, None -> None" {
-                let optionOfOption =
-                    optionAsm.Value.GetType("Vesper.Option`1").MakeGenericType(optionOfInt.Value)
+                let optionOfOption = closedType optionAsm "Vesper.Option`1" [| optionOfInt.Value |]
 
-                let someSome = optionOfOption.GetMethod("Some").Invoke(null, [| someInt 5 |])
+                let someSome = caseFactory optionOfOption "Some" [| someInt 5 |]
                 let flattened = callModule "flatten" [| intTy |] [| someSome |]
                 Expect.equal (asInt (callModule "get" [| intTy |] [| flattened |])) 5 "flatten (Some (Some 5))"
 
-                let outerNone = optionOfOption.GetMethod("None").Invoke(null, [||])
+                let outerNone = caseFactory optionOfOption "None" [||]
                 let flatNone = callModule "flatten" [| intTy |] [| outerNone |]
                 Expect.isTrue (asBool (callModule "isNone" [| intTy |] [| flatNone |])) "flatten None is None"
             }
@@ -131,11 +107,6 @@ let tests =
                 Expect.isTrue (asBool (instanceGet "get_IsNone" noneInt.Value)) "None.IsNone"
                 Expect.equal (asInt (instanceGet "get_Value" (someInt 8))) 8 "(Some 8).Value"
             }
-
-            // `map`/`bind`/`fold`/… take a `Vesper.Fun`, which reflection cannot mint:
-            // closures are synthesised per call site, not exposed as a constructible
-            // delegate. The driver programs below build one naturally from a lambda.
-            test "higher-order combinators covered by OptionModuleCallRuntime" { () }
         ]
 
 // Analysis only, no codegen. Regression guarded: the `'T option` abbreviation dealiased
@@ -339,14 +310,13 @@ let optionModuleCallRuntime =
             }
 
             // `fold : ('State -> 'T -> 'State) -> 'State -> 'T option -> 'State`. Two method
-            // typars, so a multi-typar `MethodSpec`. The folder is curried
-            // (`fun s -> fun x -> …`): `translatePat` does not lower `fun s x -> …`.
+            // typars, so a multi-typar `MethodSpec`.
             test "Option.fold accumulates over Some, returns state on None" {
                 runsOptionLines
                     [ "13"; "3" ]
                     ("open Vesper\n"
-                     + "printfn \"%d\" (Option.fold (fun s -> fun x -> s + x) 3 (Some 10))\n"
-                     + "printfn \"%d\" (Option.fold (fun s -> fun x -> s + x) 3 (None: int option))")
+                     + "printfn \"%d\" (Option.fold (fun s x -> s + x) 3 (Some 10))\n"
+                     + "printfn \"%d\" (Option.fold (fun s x -> s + x) 3 (None: int option))")
             }
 
             // Both are `('T -> bool) -> 'T option -> bool`.
@@ -393,6 +363,6 @@ let optionModuleCallFrontEnd =
             }
 
             test "Option.fold type-checks (two method typars)" {
-                typeChecksOption "let f (o: int option) : int = Option.fold (fun s -> fun x -> s + x) 0 o"
+                typeChecksOption "let f (o: int option) : int = Option.fold (fun s x -> s + x) 0 o"
             }
         ]

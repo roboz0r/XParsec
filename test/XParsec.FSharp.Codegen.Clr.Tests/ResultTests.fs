@@ -5,18 +5,13 @@ open System.Reflection
 open Expecto
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 open XParsec.FSharp.Codegen.Clr.Tests.PackageHarness
-
-// Reflection over the built `Vesper.Result.dll` for the pure-data surface; driver
-// programs for the combinators, whose `Vesper.Fun` argument a lambda builds naturally.
+open XParsec.FSharp.Codegen.Clr.Tests.ModuleSuiteHarness
 
 // `Ok` / `Error` each constrain one of the two parameters, so a standalone `Ok 5` is
 // `Result<int, '_>`; every such value is annotated `: Result<int, string>` to pin both.
 // `Result` has no instance members: results read back through a module call or `match`.
 
-/// The built `Vesper.Result.dll` (cached). Every type below is reflected from *this*
-/// assembly, so identities line up across `Invoke`s.
-let private resultAsm: Lazy<Assembly> =
-    lazy (fst (buildPackage "Vesper.Result").Value)
+let private resultAsm = packageAssembly "Vesper.Result"
 
 let private intTy = typeof<int>
 let private strTy = typeof<string>
@@ -24,32 +19,17 @@ let private strTy = typeof<string>
 /// `Vesper.Result`2` closed over <int, string>, the object-argument type for the case
 /// factories. The contract's `[<CompiledName("FSharpResult`2")>]` is not applied to the
 /// emitted type name, so the metadata name stays `Result`2`.
-let private resultIntStr: Lazy<Type> =
-    lazy (resultAsm.Value.GetType("Vesper.Result`2").MakeGenericType(intTy, strTy))
+let private resultIntStr = closedType resultAsm "Vesper.Result`2" [| intTy; strTy |]
 
 /// `Ok (v: int) : Result<int, string>` via the emitted static `Ok` factory.
 let private okIS (v: int) : obj =
-    resultIntStr.Value.GetMethod("Ok").Invoke(null, [| box v |])
+    caseFactory resultIntStr "Ok" [| box v |]
 
 /// `Error (e: string) : Result<int, string>` via the emitted static `Error` factory.
 let private errIS (e: string) : obj =
-    resultIntStr.Value.GetMethod("Error").Invoke(null, [| box e |])
+    caseFactory resultIntStr "Error" [| box e |]
 
-/// Invoke a `Vesper.ResultModule` static, instantiating it at the given type
-/// argument(s) when it is generic.
-let private callModule (name: string) (typeArgs: Type[]) (args: obj[]) : obj =
-    let m = resultAsm.Value.GetType("Vesper.ResultModule").GetMethod(name)
-
-    let m =
-        if m.IsGenericMethodDefinition then
-            m.MakeGenericMethod typeArgs
-        else
-            m
-
-    m.Invoke(null, args)
-
-let private asBool (o: obj) : bool = o :?> bool
-let private asInt (o: obj) : int = o :?> int
+let private callModule = callModule resultAsm "Vesper.ResultModule"
 
 let private isTy = [| intTy; strTy |]
 
@@ -82,10 +62,6 @@ let tests =
                 Expect.equal (asInt (callModule "defaultValue" isTy [| box 99; errIS "e" |])) 99 "default on Error"
                 Expect.equal (asInt (callModule "defaultValue" isTy [| box 99; okIS 3 |])) 3 "value on Ok"
             }
-
-            // `map`/`mapError`/`bind`/`fold`/… take a `Vesper.Fun` reflection cannot mint;
-            // the driver programs below build one from a lambda.
-            test "higher-order combinators covered by ResultModuleCallRuntime" { () }
         ]
 
 // Construction + pattern matching of `Result`'s cases across the package boundary
@@ -187,13 +163,12 @@ let moduleCallRuntime =
             }
 
             // `fold : ('State -> 'T -> 'State) -> 'State -> Result<'T,'TError> -> 'State`.
-            // The folder is curried: `translatePat` does not lower `fun s x -> …`.
             test "Result.fold accumulates over Ok, returns state on Error" {
                 runsResultLines
                     [ "13"; "3" ]
                     ("open Vesper\n"
-                     + "printfn \"%d\" (Result.fold (fun s -> fun x -> s + x) 3 (Ok 10: Result<int, string>))\n"
-                     + "printfn \"%d\" (Result.fold (fun s -> fun x -> s + x) 3 (Error \"e\": Result<int, string>))")
+                     + "printfn \"%d\" (Result.fold (fun s x -> s + x) 3 (Ok 10: Result<int, string>))\n"
+                     + "printfn \"%d\" (Result.fold (fun s x -> s + x) 3 (Error \"e\": Result<int, string>))")
             }
 
             // `foldBack : ('T -> 'State -> 'State) -> Result<'T,'TError> -> 'State -> 'State`.
@@ -202,8 +177,8 @@ let moduleCallRuntime =
                 runsResultLines
                     [ "13"; "3" ]
                     ("open Vesper\n"
-                     + "printfn \"%d\" (Result.foldBack (fun x -> fun s -> s + x) (Ok 10: Result<int, string>) 3)\n"
-                     + "printfn \"%d\" (Result.foldBack (fun x -> fun s -> s + x) (Error \"e\": Result<int, string>) 3)")
+                     + "printfn \"%d\" (Result.foldBack (fun x s -> s + x) (Ok 10: Result<int, string>) 3)\n"
+                     + "printfn \"%d\" (Result.foldBack (fun x s -> s + x) (Error \"e\": Result<int, string>) 3)")
             }
 
             // `('T -> bool) -> Result<'T,'TError> -> bool`. On `Error`, `exists` is false
@@ -220,12 +195,12 @@ let moduleCallRuntime =
 
             // `defaultWith : ('TError -> 'T) -> Result<'T,'TError> -> 'T`. The recovery
             // function is applied to the error value.
-            test "Result.defaultWith runs the recovery only on Error" {
+            test "Result.defaultWith applies the recovery to the Error payload" {
                 runsResultLines
-                    [ "5"; "-1" ]
+                    [ "5"; "-21" ]
                     ("open Vesper\n"
-                     + "printfn \"%d\" (Result.defaultWith (fun e -> -1) (Ok 5: Result<int, string>))\n"
-                     + "printfn \"%d\" (Result.defaultWith (fun e -> -1) (Error \"e\": Result<int, string>))")
+                     + "printfn \"%d\" (Result.defaultWith (fun e -> -e) (Ok 5: Result<int, int>))\n"
+                     + "printfn \"%d\" (Result.defaultWith (fun e -> -e) (Error 21: Result<int, int>))")
             }
 
             // `iter : ('T -> unit) -> Result<'T,'TError> -> unit`. The action is observed by
@@ -278,8 +253,8 @@ let frontEndTests =
                 typeChecksResult "let f (r: Result<int, string>) : Result<int, int> = Result.mapError (fun e -> 0) r"
             }
 
-            test "Result.fold type-checks (curried folder)" {
-                typeChecksResult "let f (r: Result<int, string>) : int = Result.fold (fun s -> fun x -> s + x) 0 r"
+            test "Result.fold type-checks (two-argument folder)" {
+                typeChecksResult "let f (r: Result<int, string>) : int = Result.fold (fun s x -> s + x) 0 r"
             }
 
             // A qualified reference to a non-existent module member is an unresolved-member

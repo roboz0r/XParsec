@@ -5,28 +5,21 @@ open System.Reflection
 open Expecto
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 open XParsec.FSharp.Codegen.Clr.Tests.PackageHarness
+open XParsec.FSharp.Codegen.Clr.Tests.ModuleSuiteHarness
 
 // `Vesper.Array` is the first generic intrinsic (`'T[]`) to emit end-to-end. Its whole
 // surface is built from counted index loops, indexed read (`arr.[i]` → `ldelem`) and
 // write (`arr.[i] <- v` → `stelem`), `.Length` (`ldlen`), and `Vesper.Fun` application.
 
 // Every array here is built with `zeroCreate` / `init` / `create`, never an `[| … |]`
-// literal, which would route through FSharp.Core. Folders and mappers are curried
-// (`fun s -> fun x -> …`): `translatePat` does not lower `fun s x -> …`.
+// literal, which would route through FSharp.Core.
 
-/// The built `Vesper.Array.dll` (cached). The module's `ModuleSuffix` repr gives it the
-/// compiled class name `Vesper.Collections.ArrayModule`.
-let private arrayAsm: Lazy<Assembly> =
-    lazy (fst (buildPackage "Vesper.Array").Value)
+let private arrayAsm = packageAssembly "Vesper.Array"
 
-/// `Array.zeroCreate<int> count` via the emitted generic static method.
+/// `Array.zeroCreate<int> count` via the emitted generic static method. The module's
+/// `ModuleSuffix` repr gives it the compiled class name `Vesper.Collections.ArrayModule`.
 let private zeroCreateInt (count: int) : int[] =
-    arrayAsm.Value
-        .GetType("Vesper.Collections.ArrayModule")
-        .GetMethod("zeroCreate")
-        .MakeGenericMethod(typeof<int>)
-        .Invoke(null, [| box count |])
-    :?> int[]
+    callModule arrayAsm "Vesper.Collections.ArrayModule" "zeroCreate" [| typeof<int> |] [| box count |] :?> int[]
 
 [<Tests>]
 let tests =
@@ -44,10 +37,6 @@ let tests =
                 let xs = zeroCreateInt 0
                 Expect.equal xs.Length 0 "length is 0"
             }
-
-            // `fold`'s `folder` is a `Vesper.Fun` reflection cannot mint; the driver
-            // programs below build one from a lambda.
-            test "fold covered by ArrayModuleRuntime (Vesper.Fun via driver)" { () }
         ]
 
 [<Tests>]
@@ -61,7 +50,7 @@ let runtimeTests =
                     "5"
                     ("open Vesper.Collections\n"
                      + "let xs : int[] = Array.zeroCreate 5\n"
-                     + "printfn \"%d\" (Array.fold (fun s -> fun x -> s + 1) 0 xs)")
+                     + "printfn \"%d\" (Array.fold (fun s x -> s + 1) 0 xs)")
             }
 
             // Summing shows the folder receives element values (`array.[i]` → `ldelem`).
@@ -69,7 +58,7 @@ let runtimeTests =
                 runsArray
                     "0"
                     ("open Vesper.Collections\n"
-                     + "printfn \"%d\" (Array.fold (fun s -> fun x -> s + x) 0 (Array.zeroCreate 3))")
+                     + "printfn \"%d\" (Array.fold (fun s x -> s + x) 0 (Array.zeroCreate 3))")
             }
 
             // Zero iterations, so the seed is returned untouched.
@@ -77,7 +66,7 @@ let runtimeTests =
                 runsArray
                     "42"
                     ("open Vesper.Collections\n"
-                     + "printfn \"%d\" (Array.fold (fun s -> fun x -> s + x) 42 (Array.zeroCreate 0))")
+                     + "printfn \"%d\" (Array.fold (fun s x -> s + x) 42 (Array.zeroCreate 0))")
             }
 
             // `arr.Length` lowers to `ldlen; conv.i4`.
@@ -124,10 +113,8 @@ let runtimeTests =
 
 [<Tests>]
 let surfaceTests =
-    let prelude = "open Vesper.Collections\n"
     // Sums an `int[]`, so a row can assert its contents as one scalar.
-    let sumDecl =
-        "let sum (a: int[]) : int = Array.fold (fun s -> fun x -> s + x) 0 a\n"
+    let sumDecl = "let sum (a: int[]) : int = Array.fold (fun s x -> s + x) 0 a\n"
 
     testList
         "ArrayModuleSurface"
@@ -218,13 +205,14 @@ let surfaceTests =
                      + "printfn \"%d\" (sum (Array.map (fun x -> x + 10) (Array.init 3 (fun i -> i))))")
             }
 
-            test "mapi feeds the index to the function" {
-                // Discarding the element and keeping the index gives `[| 0; 1; 2 |]`, so 3.
+            test "mapi pairs each element with its index" {
+                // `[| 10; 11; 12 |]` with each element scaled by its index is
+                // `[| 0; 11; 24 |]`, so 35; swapping the arguments gives 0 + 1 + 4.
                 runsArray
-                    "3"
+                    "35"
                     (prelude
                      + sumDecl
-                     + "printfn \"%d\" (sum (Array.mapi (fun i -> fun x -> i) (Array.init 3 (fun i -> i))))")
+                     + "printfn \"%d\" (sum (Array.mapi (fun i x -> i * x) (Array.init 3 (fun i -> i + 10))))")
             }
 
             test "iter visits every element in order" {
@@ -234,11 +222,11 @@ let surfaceTests =
             }
 
             test "iteri pairs each element with its index" {
-                // The index, not the element, is printed at each slot.
+                // Index and element print together, so `[| 10; 11; 12 |]` gives `0:10` …
                 runsArrayLines
-                    [ "0"; "1"; "2" ]
+                    [ "0:10"; "1:11"; "2:12" ]
                     (prelude
-                     + "Array.iteri (fun i -> fun x -> printfn \"%d\" i) (Array.init 3 (fun i -> i))")
+                     + "Array.iteri (fun i x -> printfn \"%d:%d\" i x) (Array.init 3 (fun i -> i + 10))")
             }
 
             test "foldBack threads right-to-left" {
@@ -246,7 +234,7 @@ let surfaceTests =
                 runsArray
                     "2"
                     (prelude
-                     + "printfn \"%d\" (Array.foldBack (fun x -> fun acc -> x - acc) (Array.init 3 (fun i -> i + 1)) 0)")
+                     + "printfn \"%d\" (Array.foldBack (fun x acc -> x - acc) (Array.init 3 (fun i -> i + 1)) 0)")
             }
         ]
 
@@ -262,9 +250,9 @@ let frontEndTests =
                 typeChecksArray "open Vesper.Collections\nlet mk (n: int) : int[] = Array.zeroCreate n"
             }
 
-            test "Array.fold with a curried lambda type-checks" {
+            test "Array.fold with a lambda folder type-checks" {
                 typeChecksArray
-                    "open Vesper.Collections\nlet sum (xs: int[]) : int = Array.fold (fun s -> fun x -> s + x) 0 xs"
+                    "open Vesper.Collections\nlet sum (xs: int[]) : int = Array.fold (fun s x -> s + x) 0 xs"
             }
 
             test "array .Length / indexed lookup type-check" {

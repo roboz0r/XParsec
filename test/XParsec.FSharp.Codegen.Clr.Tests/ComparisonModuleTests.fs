@@ -26,6 +26,8 @@ let primitiveTests =
                     """printfn "%b" (1uy >= 2uy)""", "false"
 
                     // char: `clt`/`cgt` over the char's int value
+                    """printfn "%b" ('a' < 'b')""", "true"
+                    """printfn "%b" ('b' < 'a')""", "false"
                     """printfn "%b" ('a' > 'b')""", "false"
                     """printfn "%b" ('b' > 'a')""", "true"
                     """printfn "%b" ('a' <= 'a')""", "true"
@@ -47,6 +49,7 @@ let primitiveTests =
                     """printfn "%b" (1.5f < 2.5f)""", "true"
                     """printfn "%b" (2.5f < 1.5f)""", "false"
                     """printfn "%b" (2.5f > 1.5f)""", "true"
+                    """printfn "%b" (1.5f > 2.5f)""", "false"
                     """printfn "%b" (2.5f <= 2.5f)""", "true"
                     """printfn "%b" (2.5f <= 1.5f)""", "false"
                     """printfn "%b" (2.5f >= 2.5f)""", "true"

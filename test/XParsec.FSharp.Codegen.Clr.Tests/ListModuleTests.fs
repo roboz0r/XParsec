@@ -5,40 +5,33 @@ open System.Reflection
 open Expecto
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 open XParsec.FSharp.Codegen.Clr.Tests.PackageHarness
+open XParsec.FSharp.Codegen.Clr.Tests.ModuleSuiteHarness
 
 // `list.fs`'s `[]`/`::` operator cases compile to FSharpList's shape: `[]` → a static
 // `Empty` factory, `(::)` → a static `Cons` factory plus `Cons_0`/`Cons_1` payload
 // fields. The surface under test is `IsEmpty`/`Head`/`Tail` and the module functions.
 
-// Reflection covers the pure-data surface; `fold` is exercised by driver programs, since its
-// `folder` is a `Vesper.Fun` reflection cannot mint. `Vesper.List` is in
-// `defaultPackages` + `withCore`, so the plain `runs` helper already has it in scope.
+// `Vesper.List` is in `defaultPackages` + `withCore`, so the plain `runs` helper already
+// has it in scope.
 
-/// The built `Vesper.List.dll` (cached). The package is named `Vesper.List` but
-/// contributes `List` into `Vesper.Collections`, so the type is
-/// `Vesper.Collections.List`1`.
-let private listAsm: Lazy<Assembly> = lazy (fst (buildPackage "Vesper.List").Value)
+/// The package is named `Vesper.List` but contributes `List` into `Vesper.Collections`,
+/// so the type is `Vesper.Collections.List`1`.
+let private listAsm = packageAssembly "Vesper.List"
 
 let private intTy = typeof<int>
 
 /// `Vesper.Collections.List`1` closed over `int`.
-let private listOfInt: Lazy<Type> =
-    lazy (listAsm.Value.GetType("Vesper.Collections.List`1").MakeGenericType(intTy))
+let private listOfInt = closedType listAsm "Vesper.Collections.List`1" [| intTy |]
 
 /// `[] : int list` via the emitted static nullary case factory (`[]` → `Empty`).
-let private nilInt: Lazy<obj> =
-    lazy (listOfInt.Value.GetMethod("Empty").Invoke(null, [||]))
+let private nilInt: Lazy<obj> = lazy (caseFactory listOfInt "Empty" [||])
 
 /// `Cons (h, t) : int list` via the emitted static binary case factory.
 let private consInt (h: int) (t: obj) : obj =
-    listOfInt.Value.GetMethod("Cons").Invoke(null, [| box h; t |])
+    caseFactory listOfInt "Cons" [| box h; t |]
 
 /// Read an instance member (`get_IsEmpty` / `get_Head` / `get_Tail`) off a list.
-let private instanceGet (name: string) (objArg: obj) : obj =
-    listOfInt.Value.GetMethod(name).Invoke(objArg, [||])
-
-let private asBool (o: obj) : bool = o :?> bool
-let private asInt (o: obj) : int = o :?> int
+let private instanceGet = instanceGet listOfInt
 
 [<Tests>]
 let tests =
@@ -95,15 +88,9 @@ let tests =
                 | Some ex -> Expect.stringContains ex.Message "list was empty" "Tail Nil message"
                 | None -> failtest "expected Tail on Nil to raise"
             }
-
-            // `fold`'s `folder` is a `Vesper.Fun` reflection cannot mint; the driver
-            // programs below build one from a lambda.
-            test "fold covered by ListModuleRuntime (Vesper.Fun via driver)" { () }
         ]
 
 // `[…]` literals bind to the cons-list by arity: a nullary terminator and a binary cons.
-// Folders are curried (`fun s -> fun x -> …`) because `translatePat` does not lower the
-// multi-arg `fun s x -> …` form.
 
 [<Tests>]
 let runtimeTests =
@@ -115,13 +102,13 @@ let runtimeTests =
 
             // A lambda folder, so a synthesised `Vesper.Fun` rather than an eta-reified
             // operator section.
-            test "List.fold with a curried lambda folder" {
-                runs "6" "printfn \"%d\" (List.fold (fun s -> fun x -> s + x) 0 [1; 2; 3])"
+            test "List.fold with a lambda folder" {
+                runs "6" "printfn \"%d\" (List.fold (fun s x -> s + x) 0 [1; 2; 3])"
             }
 
             // The empty literal drives the nullary case factory.
             test "List.fold over [] returns the initial state" {
-                runs "42" "printfn \"%d\" (List.fold (fun s -> fun x -> s + x) 42 [])"
+                runs "42" "printfn \"%d\" (List.fold (fun s x -> s + x) 42 [])"
             }
         ]
 
@@ -240,8 +227,8 @@ let frontEndTests =
                 typeChecks "let sum (xs: int list) : int = List.fold (+) 0 xs"
             }
 
-            test "List.fold with a curried lambda type-checks" {
-                typeChecks "let sum (xs: int list) : int = List.fold (fun s -> fun x -> s + x) 0 xs"
+            test "List.fold with a lambda folder type-checks" {
+                typeChecks "let sum (xs: int list) : int = List.fold (fun s x -> s + x) 0 xs"
             }
 
             test "List.map / filter / append / rev / length type-check" {
