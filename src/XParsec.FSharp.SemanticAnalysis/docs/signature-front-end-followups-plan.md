@@ -5,8 +5,8 @@ Working document. Ephemeral: delete it when the items land.
 The `.fsi` front end (one resolver driving both grammars, `PublishedSurface` filled by both
 producers, the package caller a per-file fold) landed 2026-08-17 and its plan doc is deleted.
 These are the follow-ups that outlived it and had no other pending home. Siblings that did:
-attribute-argument conformance is in
-[conformance-tast-level-plan](conformance-tast-level-plan.md) Gap 3, the bodied-signature
+attribute-argument conformance landed as `ConformanceSurface.checkTypes` / `checkValues`, the
+bodied-signature
 `inherit` crash is in [inherit-interface-plan](inherit-interface-plan.md), the two
 dependency-closure contract drops are in [vesper-follow-ups-plan](vesper-follow-ups-plan.md)
 B5, and the weakened later-file resolution test is
@@ -26,9 +26,10 @@ drops privates without recording the verdict — so a public-only filter needs a
 survive onto the tables first. The exposure is theoretical for now: no contract under
 `src/Vesper.*` declares an `internal` member.
 
-The conformance side is settled separately:
-[conformance-tast-level-plan](conformance-tast-level-plan.md) §"Non-gaps" records that a
-`let private` matching a `val` is the accessibility check's job, not conformance's.
+The conformance side is settled separately: a private implementation declaration behind a
+public signature declaration is reported as missing by `ConformanceSurface`, because the
+unsigned surface omits it (fsc's FS0034). Carrying accessibility onto the surface is this
+item's job alone.
 
 ## 2. `module A.B.C` as a whole FILE loses its module
 
