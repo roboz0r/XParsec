@@ -56,7 +56,6 @@ module JsNativeSymbols =
                 FrozenInterfaces = EqArray.empty
                 FrozenBaseType = ValueNone
                 Flags = ExternalClassFlags.Default
-                Attributes = EqArray.empty
                 Origin = errorOrigin
             }
 

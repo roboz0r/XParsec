@@ -35,7 +35,7 @@ module SignatureResolution =
         PublishedSurfaceBuilder.addMembers sctx.Surface key members
 
     let private publishAttributes (sctx: SigCtx) (key: TypeKey) (attributes: TAttributes) : unit =
-        PublishedSurfaceBuilder.addAttributes sctx.Surface key attributes
+        PublishedSurfaceBuilder.addAttributes sctx.Surface (SymbolKey.Type key) attributes
 
     // --- registration -------------------------------------------------------------------
 
@@ -483,7 +483,7 @@ module SignatureResolution =
             | SigClassForm.Interface -> surface.Shape
 
         publishShapeWith sctx id.Key (ExternalTypeShape.Class shape) surface.Members
-        publishAttributes sctx id.Key shape.Attributes
+        publishAttributes sctx id.Key surface.Attributes
 
     /// An opaque abstract type (`type T`) has no body shape. It resolves as a non-interface
     /// class, so codegen can mint a ref off the origin, and commits its name to no family.
@@ -693,10 +693,14 @@ module SignatureResolution =
                     { ExternalSymbols.scheme decl name template typeParams.Length constraints with
                         CompiledName = AttributeDecode.compiledNameOf ctx.NameOf name resolvedAttrs
                         ValRepr = valRepr
-                        Attributes = AttributeFold.build ctx attrElement resolvedAttrs
                     }
 
                 PublishedSurfaceBuilder.addValue sctx.Surface sym
+
+                PublishedSurfaceBuilder.addAttributes
+                    sctx.Surface
+                    (SymbolKey.Binding sym.Key)
+                    (AttributeFold.build ctx attrElement resolvedAttrs)
 
     // --- the walk -------------------------------------------------------------------
 

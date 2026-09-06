@@ -531,7 +531,6 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
                             FrozenInterfaces = buildClassInterfaces t
                             FrozenBaseType = buildClassBaseType t
                             Flags = decodeClassFlags t
-                            Attributes = EqArray.empty
                             Origin = originOf t
                         }
 
@@ -756,6 +755,12 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
     interface IExternalSymbolStore with
         // The caches address a reflection name, so a key is rendered before the read.
         member _.TryLookupType(key: TypeKey) = lookupTypeByKey key
+
+        // GAP: no `CustomAttribute` row is decoded into `TAttributes`, so each attribute
+        // needed off a referenced declaration gets its own flag, the way `hasAllowNullLiteral`
+        // does. Pinned by MetadataSymbolsTests, "GAP: a referenced type's CustomAttribute
+        // rows reach TryLookupAttributes".
+        member _.TryLookupAttributes _ = EqArray.empty
 
         member this.TryLookupMembers(key, memberName) =
             this.LookupMembersByName(

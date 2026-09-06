@@ -303,6 +303,8 @@ module SignatureResolutionMembers =
         {
             Shape: ExternalClassShape
             Members: ExternalMember list
+            /// The declaration's attributes, resolved and constant-folded.
+            Attributes: TAttributes
         }
 
     /// The class surface a bodied signature declares: its members, its `new` constructors, its
@@ -380,9 +382,12 @@ module SignatureResolutionMembers =
                                     }
                                 IsValueType = decoded.IsValueType
                             }
-                        Attributes = foldedAttrs
                         Origin = SymbolOrigin.Empty
                     }
                 )
 
-        { Shape = shape; Members = members }
+        {
+            Shape = shape
+            Members = members
+            Attributes = foldedAttrs
+        }

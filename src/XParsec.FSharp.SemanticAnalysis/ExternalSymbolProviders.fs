@@ -33,6 +33,8 @@ module ExternalSymbolProviders =
     type KeyIndexedChannels =
         {
             ShapesByKey: IReadOnlyDictionary<TypeKey, ExternalTypeShape>
+            /// A type or value declaration's attributes, resolved and constant-folded.
+            AttributesByKey: IReadOnlyDictionary<SymbolKey, TAttributes>
             /// A type's FULL member list, in DECLARATION order, because the by-name overload
             /// scan and the by-key selection both depend on that order.
             MembersByKey: IReadOnlyDictionary<TypeKey, EqArray<ExternalMember>>
@@ -53,6 +55,7 @@ module ExternalSymbolProviders =
             {
                 Scope = ScopeContents.empty
                 ShapesByKey = Dictionary() :> IReadOnlyDictionary<_, _>
+                AttributesByKey = Dictionary() :> IReadOnlyDictionary<_, _>
                 MembersByKey = Dictionary() :> IReadOnlyDictionary<_, _>
                 IndexSignaturesByKey = Dictionary() :> IReadOnlyDictionary<_, _>
                 SymbolsByKey = Dictionary() :> IReadOnlyDictionary<_, _>
@@ -85,6 +88,11 @@ module ExternalSymbolProviders =
                   match channels.ShapesByKey.TryGetValue key with
                   | true, shape -> ValueSome shape
                   | _ -> ValueNone
+
+              member _.TryLookupAttributes key =
+                  match channels.AttributesByKey.TryGetValue key with
+                  | true, attrs -> attrs
+                  | _ -> EqArray.empty
 
               member _.TryLookupMembers(key, memberName) =
                   membersNamed
@@ -138,6 +146,9 @@ module ExternalSymbolProviders =
         abstract TryLookupType: key: TypeKey -> ExternalTypeShape voption
         default _.TryLookupType key = inner.TryLookupType key
 
+        abstract TryLookupAttributes: key: SymbolKey -> TAttributes
+        default _.TryLookupAttributes key = inner.TryLookupAttributes key
+
         abstract TryLookupMembers: key: TypeKey * memberName: string -> EqArray<ExternalMember>
         default _.TryLookupMembers(key, memberName) = inner.TryLookupMembers(key, memberName)
 
@@ -165,6 +176,7 @@ module ExternalSymbolProviders =
 
         interface IExternalSymbolStore with
             member this.TryLookupType(key: TypeKey) = this.TryLookupType key
+            member this.TryLookupAttributes(key: SymbolKey) = this.TryLookupAttributes key
             member this.TryLookupMembers(key, memberName) = this.TryLookupMembers(key, memberName)
             member this.TryLookupMemberByKey(key: MemberKey) = this.TryLookupMemberByKey key
             member this.TryLookupIndexSignature(key: TypeKey) = this.TryLookupIndexSignature key
@@ -286,6 +298,18 @@ module ExternalSymbolProviders =
           interface IExternalSymbolStore with
               member _.TryLookupType(key: TypeKey) =
                   firstHit (fun s -> s.TryLookupType key) |> ValueOption.map (stampHit key)
+
+              // A declaration's attributes live in one assembly, so the first source with an
+              // entry wins the whole list.
+              member _.TryLookupAttributes key =
+                  let mutable result = EqArray.empty
+                  let mutable i = 0
+
+                  while result.IsEmpty && i < providers.Length do
+                      result <- providers.[i].TryLookupAttributes key
+                      i <- i + 1
+
+                  result
 
               // A type's members live in one assembly, so a later source never *adds*
               // overloads and the first source that knows the type wins the whole set.
@@ -496,6 +520,7 @@ module ExternalSymbolProviders =
     /// composed stack, whose fall-through and rewrites would otherwise re-run per call.
     let memoize (inner: IExternalSymbolProvider) : IExternalSymbolProvider =
         let typesByKey = ConcurrentDictionary<TypeKey, ExternalTypeShape voption>()
+        let attributesByKey = ConcurrentDictionary<SymbolKey, TAttributes>()
 
         let memberSets =
             ConcurrentDictionary<struct (TypeKey * string), EqArray<ExternalMember>>()
@@ -534,6 +559,9 @@ module ExternalSymbolProviders =
 
             override _.TryLookupType key =
                 typesByKey.GetOrAdd(key, (fun k -> inner.TryLookupType k))
+
+            override _.TryLookupAttributes key =
+                attributesByKey.GetOrAdd(key, (fun k -> inner.TryLookupAttributes k))
 
             override _.TryLookupMembers(key, memberName) =
                 memberSets.GetOrAdd(struct (key, memberName), (fun (struct (k, m)) -> inner.TryLookupMembers(k, m)))

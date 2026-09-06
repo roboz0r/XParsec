@@ -200,7 +200,6 @@ module internal TsManifestMembers =
                                 // A global pack's types emit as bare names, with no `import`.
                                 Global = isGlobal
                             }
-                        Attributes = EqArray.empty
                         Origin = origin
                     }
             )
@@ -323,7 +322,6 @@ module internal TsManifestMembers =
                             // No home module to import: the shape itself emits nothing.
                             Global = true
                         }
-                    Attributes = EqArray.empty
                     Origin = origin
                 }
         )
@@ -433,7 +431,6 @@ module internal TsManifestMembers =
                             // `util.format` (Namespace).
                             ImportForm = groupImportForm
                         }
-                    Attributes = EqArray.empty
                     Origin = origin
                 }
         )

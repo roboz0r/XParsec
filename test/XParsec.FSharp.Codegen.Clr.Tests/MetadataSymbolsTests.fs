@@ -393,4 +393,18 @@ let tests =
 
                 Expect.isNonEmpty withCore.ImplicitOpens "FSharp.Core's assembly-level AutoOpen rows are published"
             }
+
+            // `System.AttributeTargets` carries one `CustomAttribute` row, `[<Flags>]`. This
+            // layer decodes none, so every attribute question about a referenced declaration
+            // needs its own flag, the way `hasAllowNullLiteral` reads `[<AllowNullLiteral>]`.
+            ptest "GAP: a referenced type's CustomAttribute rows reach TryLookupAttributes" {
+                let key = SymbolKeyOps.qualifiedTypeKeyOf "System.AttributeTargets" 0
+
+                let names =
+                    provider.TryLookupAttributes(SymbolKey.Type key)
+                    |> EqArray.map (fun a -> SymbolKeyOps.typeMetaName a.Key)
+                    |> Set.ofSeq
+
+                Expect.equal names (Set.ofList [ "System.FlagsAttribute" ]) "the enum's [<Flags>] row is decoded"
+            }
         ]

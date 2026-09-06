@@ -100,10 +100,6 @@ type ExternalSymbol =
         ImportForm: ImportForm
         /// The symbol's splice TEMPLATE: a `val inline` whose home file published its body.
         InlineBody: InlineBody voption
-        /// The declaration's attributes, resolved and constant-folded. Populated only by a
-        /// Vesper `.fsi` or a frozen `.fs`, so read it through `PublishedSurface`; a metadata
-        /// or TS-manifest provider leaves it empty whatever the declaration wrote.
-        Attributes: TAttributes
     }
 
     /// The short name the declaration emits under.
@@ -532,10 +528,6 @@ type ExternalClassShape =
         /// The declared base type; `ValueNone` for an interface and for `System.Object`.
         FrozenBaseType: FrozenNominal voption
         Flags: ExternalClassFlags
-        /// The declaration's attributes, resolved and constant-folded. Empty from a producer
-        /// reading compiled metadata, which carries no Vesper attribute rows. An attribute
-        /// type's own `[<AttributeUsage>]` mask is read off this.
-        Attributes: TAttributes
         Origin: SymbolOrigin
     }
 
@@ -554,7 +546,6 @@ type ExternalClassShape =
             FrozenInterfaces = EqArray.empty
             FrozenBaseType = ValueNone
             Flags = ExternalClassFlags.Default
-            Attributes = EqArray.empty
             Origin = origin
         }
 

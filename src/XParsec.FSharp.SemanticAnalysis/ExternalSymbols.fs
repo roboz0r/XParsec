@@ -409,6 +409,10 @@ type IExternalSymbolStore =
     /// shape the provider doesn't model.
     abstract TryLookupType: key: TypeKey -> ExternalTypeShape voption
 
+    /// A type or value declaration's attributes, resolved and constant-folded. Empty from
+    /// providers that don't model attributes.
+    abstract TryLookupAttributes: key: SymbolKey -> TAttributes
+
     /// ALL overloads of a member by name: the candidate set the application-site overload
     /// resolver picks from. Empty from providers that don't model members.
     abstract TryLookupMembers: key: TypeKey * memberName: string -> EqArray<ExternalMember>
@@ -789,7 +793,6 @@ module ExternalSymbols =
             ValRepr = ValueNone
             ImportForm = ImportForm.Named
             InlineBody = ValueNone
-            Attributes = EqArray.empty
         }
 
     /// A monomorphic symbol from a closed `FrozenType` scheme. `decl` is a module chain, or

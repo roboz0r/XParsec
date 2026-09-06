@@ -214,10 +214,7 @@ module internal AttributeFold =
         let declAttrs =
             match TypeRegistry.tryClassByKey ctx.Types attrKey with
             | ValueSome info -> info.Attributes
-            | ValueNone ->
-                match ctx.Provider.TryLookupType attrKey with
-                | ValueSome(ExternalTypeShape.Class shape) -> shape.Attributes
-                | _ -> EqArray.empty
+            | ValueNone -> ctx.Provider.TryLookupAttributes(SymbolKey.Type attrKey)
 
         match
             declAttrs

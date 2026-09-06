@@ -1,7 +1,7 @@
 # Conformance at the TAST level
 
-**Status: the redesign has landed. Two follow-ups remain, scoped below, and the doc is deleted
-when they land.** `.fsi` ↔ `.fs` conformance runs down one route,
+**Status: the redesign has landed. One follow-up remains, scoped below, and the doc is deleted
+when it lands.** `.fsi` ↔ `.fs` conformance runs down one route,
 `AssemblyAnalysis.conformSignature`, over the two analysed halves, each as the surface it
 publishes. The code and its tests are the record of what landed; the "What landed" section is
 the map to them, kept only until the open items close.
@@ -16,8 +16,9 @@ namespaces and every later finding would be about the wrong companion.
 
 | Verdict | Where | Test list |
 |---|---|---|
-| Type presence, `extern` ↔ repr pairing, nominal family, attribute arguments (FS1200, warning) | `ConformanceSurface.checkTypes` | `AnalysedConformance` in `SemanticAnalysis.Tests/ConformanceTests.fs` |
-| Value presence, `[<CompiledName>]`, attribute arguments | `ConformanceSurface.checkValues` | same |
+| Type presence, `extern` ↔ repr pairing, nominal family | `ConformanceSurface.checkTypes` | `AnalysedConformance` in `SemanticAnalysis.Tests/ConformanceTests.fs` |
+| Value presence, `[<CompiledName>]` | `ConformanceSurface.checkValues` | same |
+| Attribute arguments on a type or value declaration (FS1200, warning) | `ConformanceSurface.checkAttributes` | same |
 | Record fields, union cases, enum cases, abbreviation body, members, class base, interfaces, `sealed` / `abstract` / `struct` | `ConformanceBodies.check` | `AnalysedBodyConformance` in `ConformanceBodyTests.fs` |
 | Module-value typar order | `ConformanceTypars.checkFile` | `ConformanceTyparsTests.fs` |
 | `[<Import>]` well-formedness, selector vs emitted name, `nativeOnly` body | `Attributes.declareImportBinding`, during elaboration | `ConformanceTests.fs` |
@@ -41,34 +42,13 @@ Facts the code carries that a reader may otherwise re-derive:
   verdicts a compile takes. `RuntimeModules.unsupported` is the CLR's.
 - **A `delegate` declaration is refused at its declaration** on both halves, and takes no
   pairing verdict.
+- **Attributes are a surface table, not a shape field.** `PublishedSurface.AttributesByKey` is
+  keyed by `SymbolKey` over type and value declarations alike, and only a Vesper source
+  producer writes it. A consumer pass reads a referenced declaration's attributes through
+  `IExternalSymbolStore.TryLookupAttributes`, which is empty from compiled metadata and a TS
+  manifest.
 
 ## Open items
-
-### O1 — `ExternalSymbol.Attributes` moves to a surface table
-
-`ExternalSymbol.Attributes` (`ExternalDeclarations.fs:106`) is filled by two producers,
-`SignatureResolution.registerValSig` for a `.fsi` and `FrozenSignature.toSurface` for an
-unsigned `.fs`, and left empty by every `IExternalSymbolProvider` (`MetadataSymbols.fs:534`,
-`JsNativeSymbols.fs:59`, `TsManifestMembers.fs:203/326/436`) whatever the declaration wrote.
-Empty therefore carries two readings on the provider and one on the surface, and the field's
-doc comment is the only thing separating them. The type attributes already took the fix:
-`PublishedSurface.AttributesByKey` is a table beside `ShapesByKey`, and the shape carries no
-attributes field.
-
-Steps, one commit:
-
-1. `PublishedSurface` gains `SymbolAttributesByKey: EqArray<SurfaceEntry<BindingKey, TAttributes>>`,
-   with `PublishedSurfaceBuilder.addSymbolAttributes` beside `addAttributes`.
-2. `registerValSig` (`Passes/SignatureResolution.fs:696`) and `toSurface`
-   (`FrozenSignature.fs:329`) write the table instead of the field.
-3. `ConformanceSurface.checkValues` (`ConformanceSurface.fs:192`) reads both tables through
-   `PublishedSurface.index`, as `checkTypes` reads `AttributesByKey`.
-4. Delete `ExternalSymbol.Attributes` and the five provider sites that fill it with
-   `EqArray.empty`. The compiler finds every other site.
-
-Acceptance: the seven value-attribute tests in `AnalysedConformance` stay green, and the
-`ExternalSymbol` doc comment's "read it through `PublishedSurface`" hedge is gone with the
-field.
 
 ### O2 — `Vesper.List.GetSlice` is declared, undefined, and unpublished
 
@@ -111,7 +91,8 @@ suites, and `MemberMissingInImpl` reports `GetSlice` if the transliteration is r
 
 ## Before this doc is deleted
 
-- [ ] O1 landed; the `ExternalSymbol.Attributes` field and its doc comment are gone.
+- [x] O1 landed; type and value attributes publish through `PublishedSurface.AttributesByKey`,
+      and the `ExternalSymbol.Attributes` and `ExternalClassShape.Attributes` fields are gone.
 - [ ] O2 landed; `Vesper.List` publishes `GetSlice` on both targets.
 - [x] No other doc, source or test comment cites this doc. `signature-front-end-followups-plan.md`'s
       two citations were replaced with the facts when this doc was rewritten.

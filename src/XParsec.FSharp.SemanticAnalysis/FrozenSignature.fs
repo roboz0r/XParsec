@@ -192,7 +192,7 @@ module FrozenSignature =
                         | ValueNone -> Seq.empty
 
                     PublishedSurfaceBuilder.addTypeWith surface typeKey shape members
-                    PublishedSurfaceBuilder.addAttributes surface typeKey td.Attributes
+                    PublishedSurfaceBuilder.addAttributes surface key td.Attributes
 
                 match td.Kind with
                 | TTypeKindG.Record {
@@ -266,7 +266,6 @@ module FrozenSignature =
                                     Declared = c.Declared
                                     IsValueType = c.ValueKind.IsValueType
                                 }
-                            Attributes = td.Attributes
                             Origin = origin
                         }
 
@@ -288,7 +287,6 @@ module FrozenSignature =
                             FrozenInterfaces = EqArray.empty
                             FrozenBaseType = ValueNone
                             Flags = ExternalClassFlags.Default
-                            Attributes = td.Attributes
                             Origin = origin
                         }
 
@@ -326,10 +324,10 @@ module FrozenSignature =
                     Origin = originIn info.Container.Namespace
                     CompiledName = info.CompiledName
                     ValRepr = bindingValRepr boundVar
-                    Attributes = info.Attributes
                 }
 
             PublishedSurfaceBuilder.addValue surface sym
+            PublishedSurfaceBuilder.addAttributes surface info.Key info.Attributes
 
         // EVERY module binding is a `Decls` entry, `inline` ones included, and its identity is in
         // `ModuleMembers`, a TOP-LEVEL binding's too, keyed in the file's namespace so it

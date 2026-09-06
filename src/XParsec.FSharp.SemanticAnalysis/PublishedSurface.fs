@@ -25,8 +25,9 @@ type ExternForm =
 type PublishedSurfaceBuilder =
     {
         ShapesByKey: Dictionary<TypeKey, ExternalTypeShape>
-        /// A type declaration's attributes, resolved and constant-folded, by identity.
-        AttributesByKey: Dictionary<TypeKey, TAttributes>
+        /// A type or value declaration's attributes, resolved and constant-folded, by
+        /// identity.
+        AttributesByKey: Dictionary<SymbolKey, TAttributes>
         /// Canonical intrinsic identity -> the representation form declared for it.
         ExternForms: Dictionary<TypeKey, ExternForm>
         /// A type's FULL member list, in DECLARATION order: the overload scan depends on it.
@@ -51,7 +52,7 @@ module PublishedSurfaceBuilder =
     let create () : PublishedSurfaceBuilder =
         {
             ShapesByKey = Dictionary()
-            AttributesByKey = Dictionary()
+            AttributesByKey = Dictionary(HashIdentity.Structural)
             ExternForms = Dictionary()
             MembersByKey = Dictionary()
             Modules = Dictionary(HashIdentity.Structural)
@@ -79,7 +80,7 @@ module PublishedSurfaceBuilder =
 
         surface.ShapesByKey.[key] <- shape
 
-    let addAttributes (surface: PublishedSurfaceBuilder) (key: TypeKey) (attributes: TAttributes) : unit =
+    let addAttributes (surface: PublishedSurfaceBuilder) (key: SymbolKey) (attributes: TAttributes) : unit =
         surface.AttributesByKey.[key] <- attributes
 
     /// Record that `canon`'s representation is the target's to supply, in the form `form`
@@ -182,8 +183,9 @@ type SurfaceEntry<'K, 'V> = { Key: 'K; Value: 'V }
 type PublishedSurface =
     {
         ShapesByKey: EqArray<SurfaceEntry<TypeKey, ExternalTypeShape>>
-        /// A type declaration's attributes, resolved and constant-folded, by identity.
-        AttributesByKey: EqArray<SurfaceEntry<TypeKey, TAttributes>>
+        /// A type or value declaration's attributes, resolved and constant-folded, by
+        /// identity.
+        AttributesByKey: EqArray<SurfaceEntry<SymbolKey, TAttributes>>
         /// Canonical intrinsic identity -> the representation form declared for it.
         ExternForms: EqArray<SurfaceEntry<TypeKey, ExternForm>>
         /// A type's FULL member list, in DECLARATION order: the overload scan depends on it.
@@ -225,7 +227,11 @@ module PublishedSurface =
     let private byTypeKey (d: Dictionary<TypeKey, 'V>) : EqArray<SurfaceEntry<TypeKey, 'V>> =
         ordered SymbolKeyOps.typeMetaName (seq { for KeyValue(k, v) in d -> k, v })
 
-    let private bindingName (k: BindingKey) : string = SymbolKeyOps.qualifiedBindingName k
+    let private bySymbolKey (d: Dictionary<SymbolKey, 'V>) : EqArray<SurfaceEntry<SymbolKey, 'V>> =
+        ordered SymbolKeyOps.qualifiedName (seq { for KeyValue(k, v) in d -> k, v })
+
+    let private byBindingKey (d: Dictionary<BindingKey, 'V>) : EqArray<SurfaceEntry<BindingKey, 'V>> =
+        ordered SymbolKeyOps.qualifiedBindingName (seq { for KeyValue(k, v) in d -> k, v })
 
     /// Copy the builder's tables into the value. A producer that keeps writing to the builder
     /// afterwards no longer changes what it published.
@@ -238,7 +244,7 @@ module PublishedSurface =
 
         {
             ShapesByKey = shapes
-            AttributesByKey = byTypeKey b.AttributesByKey
+            AttributesByKey = bySymbolKey b.AttributesByKey
             ExternForms = byTypeKey b.ExternForms
             MembersByKey =
                 b.MembersByKey
@@ -250,7 +256,7 @@ module PublishedSurface =
                 b.RecordFields
                 |> Seq.map (fun (KeyValue(k, cs)) -> k, EqArray.ofResizeArray cs)
                 |> ordered id
-            Symbols = ordered bindingName (seq { for KeyValue(k, v) in b.Symbols -> k, v })
+            Symbols = byBindingKey b.Symbols
             Intrinsics =
                 IntrinsicTypeMap.ofSeq (
                     seq {
@@ -420,6 +426,7 @@ module PublishedSurface =
             { ExternalSymbolProviders.KeyIndexedChannels.empty with
                 Scope = scopeOf surface
                 ShapesByKey = keyIndex surface.ShapesByKey
+                AttributesByKey = index surface.AttributesByKey HashIdentity.Structural
                 MembersByKey = keyIndex surface.MembersByKey
                 SymbolsByKey = index surface.Symbols HashIdentity.Structural
                 TryRecordsWithField =

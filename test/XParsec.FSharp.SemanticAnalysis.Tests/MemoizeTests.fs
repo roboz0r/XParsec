@@ -67,6 +67,7 @@ type private CountingProvider(name: string) =
             else
                 ValueNone
 
+        member _.TryLookupAttributes _ = EqArray.empty
         member _.TryLookupMembers(_, _) = EqArray.empty
 
         // A miss, but a counted one: at-most-once is observable on this channel too.
