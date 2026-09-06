@@ -150,9 +150,9 @@ let tests =
                         (LexedFile.ofText lexed)
                         file
 
-                let analysisErrors = tast.Residue.Diagnostics |> Diagnostic.errors
-
-                Expect.isEmpty analysisErrors (sprintf "Vesper.Printf impl analyses cleanly; got %A" analysisErrors)
+                Expect.isEmpty
+                    tast.Residue.Diagnostics
+                    (sprintf "Vesper.Printf impl analyses cleanly; got %A" tast.Residue.Diagnostics)
 
                 let contract =
                     ClrSymbolProviders.buildContract [ vesperCorePackage; vesperListPackage; vesperPrintfPackage ]

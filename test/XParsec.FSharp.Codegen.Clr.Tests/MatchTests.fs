@@ -31,12 +31,9 @@ let tests =
                     "printfn \"%d\" (match 'x' with | '-' | '+' | ' ' -> 1 | _ -> 0)", "0"
                     "printfn \"%d\" (match 2 with | 1 | 2 -> 10 | _ -> 0)", "10"
                     "printfn \"%d\" (match 9 with | 1 | 2 -> 10 | _ -> 0)", "0"
-                    du
-                    + "\nlet r = match Pair(3, 4) with | Dot -> 0 | Pair(a, b) -> a + b\nprintfn \"%d\" r",
-                    "7"
-                    du
-                    + "\nlet r = match Dot with | Dot -> 0 | Pair(a, b) -> a + b\nprintfn \"%d\" r",
-                    "0"
+                    // A DU match inline in argument position.
+                    du + "\nprintfn \"%d\" (match Pair(3, 4) with | Dot -> 0 | Pair(a, b) -> a + b)", "7"
+                    du + "\nprintfn \"%d\" (match Dot with | Dot -> 0 | Pair(a, b) -> a + b)", "0"
                     // `:? T as x` on a value type: isinst, then unbox.any binds the
                     // unboxed int; a miss falls through to the wildcard.
                     "let o = (42 :> obj)\nlet r = match o with | :? int as n -> n | _ -> 0\nprintfn \"%d\" r", "42"

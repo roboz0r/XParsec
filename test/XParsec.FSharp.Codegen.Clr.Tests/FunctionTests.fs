@@ -371,4 +371,15 @@ let tests =
                     let doNothing = moduleStaticMethod bytes "M" "doNothing"
                     Expect.equal doNothing.ReturnType typeof<System.Void> "doNothing is CLR void"
                 }
+
+            // ---- generic arity and partial application --------------------
+            yield
+                test "a 3-argument generic function applied at int prints 5" {
+                    runs "5" "let sub3 a b c = a - b - c\nprintfn \"%d\" (sub3 10 3 2)"
+                }
+
+            yield
+                test "partial application of a user 2-argument function prints 42" {
+                    runs "42" "let add a b = a + b\nlet inc = add 1\nprintfn \"%d\" (inc 41)"
+                }
         ]

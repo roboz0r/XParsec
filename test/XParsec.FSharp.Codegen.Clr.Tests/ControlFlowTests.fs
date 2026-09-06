@@ -43,4 +43,26 @@ let tests =
                 test "for-in over Enumerable.Range prints the elements in order" {
                     runsLines [ "1"; "2"; "3" ] "for x in System.Linq.Enumerable.Range(1, 3) do\n    printfn \"%d\" x"
                 }
+
+            yield
+                test "for..to runs the body once per bound, inclusive, in order" {
+                    runsLines [ "1"; "2"; "3" ] "for i = 1 to 3 do\n    printfn \"%d\" i"
+                }
+
+            yield
+                test "for..to with an empty range runs the body zero times" {
+                    runsLines [ "after" ] "for i = 3 to 1 do\n    printfn \"%d\" i\nprintfn \"after\""
+                }
+
+            yield
+                test "while loops until the mutable condition turns false" {
+                    runsLines
+                        [ "1"; "2"; "3" ]
+                        "let count () =\n    let mutable i = 1\n    while i <= 3 do\n        printfn \"%d\" i\n        i <- i + 1\ncount ()"
+                }
+
+            yield
+                test "while with an initially false condition runs the body zero times" {
+                    runsLines [ "after" ] "while false do\n    printfn \"never\"\nprintfn \"after\""
+                }
         ]

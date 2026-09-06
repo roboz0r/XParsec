@@ -13,32 +13,34 @@ let tests =
     testList
         "Diagnostics"
         [
-            for fragment, src in
+            for name, fragment, src in
                 [
-                    // an unbound name
-                    "Unresolved identifier", "printfn \"%d\" missing"
-                    // a string against the %d hole's integer family
-                    "one of int", "printfn \"%d\" \"hi\""
-                    // assigning a string to an int-bound value
-                    "Type mismatch", "let x : int = \"hi\"\nprintfn \"%d\" x"
-                    // assigning to an immutable record field
-                    "Cannot assign to immutable field", "type R = { x: int }\nlet r = { x = 1 }\nr.x <- 2"
-                    // `use` over a type that does not implement `disposable`
-                    // (`System.IDisposable`)
+                    "an unbound name is rejected", "Unresolved identifier", "printfn \"%d\" missing"
+                    "a string against the %d hole's integer family is rejected", "one of int", "printfn \"%d\" \"hi\""
+                    "a string bound to an int-annotated value is rejected",
+                    "Type mismatch",
+                    "let x : int = \"hi\"\nprintfn \"%d\" x"
+                    "assignment to an immutable record field is rejected",
+                    "Cannot assign to immutable field",
+                    "type R = { x: int }\nlet r = { x = 1 }\nr.x <- 2"
+                    // `disposable` is `System.IDisposable`
+                    "`use` over a type that does not implement `disposable` is rejected",
                     "implement 'disposable'",
                     "type R() =\n    member this.value = 1\nlet run () =\n    use r = R()\n    ()\nrun ()"
-                    // a destructuring `use`: the disposed thing is the bound value, so
-                    // only a simple variable pattern is legal there
-                    "simple variable patterns", "let run () =\n    use a, b = (1, 2)\n    ()\nrun ()"
-                    // a [<CallAtMostOnce>] parameter used twice: at-most-once evaluation
-                    // is only guaranteed for a single, non-repeated use
+                    // the disposed thing is the bound value, so only a simple variable
+                    // pattern is legal there
+                    "a destructuring `use` pattern is rejected",
+                    "simple variable patterns",
+                    "let run () =\n    use a, b = (1, 2)\n    ()\nrun ()"
+                    // at-most-once evaluation is only guaranteed for a single, non-repeated use
+                    "a [<CallAtMostOnce>] parameter used twice is rejected",
                     "used at most once",
                     "let inline twice (a: bool) ([<CallAtMostOnce>] b: bool) : bool = if a then b else b\nprintfn \"%b\" (twice true true)"
-                    // the same attribute on a NON-inline function: it only means anything
-                    // for the splice the inliner performs
+                    // the attribute only means anything for the splice the inliner performs
+                    "[<CallAtMostOnce>] on a non-inline function's parameter is rejected",
                     "only valid on a parameter of an 'inline' function",
                     "let notInline (a: bool) ([<CallAtMostOnce>] b: bool) : bool = if a then b else false\nprintfn \"%b\" (notInline true true)"
-                ] -> test src { failsWith fragment src }
+                ] -> test name { failsWith fragment src }
 
             // `BitArray` implements only the non-generic `IEnumerable`.
             yield

@@ -43,20 +43,11 @@ let tests =
             test "CLR target: canon is the `.fsi` name, platform is the BCL repr" {
                 let clr = ClrSymbolProviders.buildContract [ vesperCorePackage ]
 
-                match ExternalSymbols.tryMetaType clr "Vesper.int" with
-                | ValueSome(ExternalTypeShape.Intrinsic {
-                                                            Id = {
-                                                                     Canon = canon
-                                                                     Platform = IntrinsicPlatform.Bound platform
-                                                                 }
-                                                        }) ->
-                    Expect.equal canon (RuntimeNames.intKey) "int canon on CLR is the `.fsi` name"
-                    Expect.equal platform (PlatformTypeId "System.Int32") "int platform name on CLR is the BCL type"
+                let canon, platform = IntrinsicShapeAssertions.assertVesperIntIsBclInt32 clr
 
-                    Expect.notEqual
-                        canon.Name
-                        platform.Value
-                        "the two names diverge on CLR too (identity ≠ platform type id)"
-                | other -> failtestf "expected Vesper.int as an Intrinsic shape, got %A" other
+                Expect.notEqual
+                    canon.Name
+                    platform.Value
+                    "the two names diverge on CLR too (identity is not the platform type id)"
             }
         ]

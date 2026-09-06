@@ -22,7 +22,7 @@ let tests =
 
             test "Vesper.Array builds BCL-only" { buildsBclOnly "Vesper.Array" }
 
-            test "Vesper.Seq builds BCL-only" { buildsBclOnly "Vesper.Seq" }
+            // Vesper.Seq is covered by `PackageBuildTests`, which also loads its public types.
 
             test "Vesper.Set builds BCL-only" { buildsBclOnly "Vesper.Set" }
 

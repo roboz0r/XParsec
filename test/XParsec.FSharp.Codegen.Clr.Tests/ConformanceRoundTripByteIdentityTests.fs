@@ -36,7 +36,7 @@ let tests =
                     Expect.equal
                         (digest arts.PoolRoundTripped)
                         directDigest
-                        "toPools (ofPools frozen) emits a structurally identical assembly"
+                        "rePool frozen (ofPools frozen) emits a structurally identical assembly"
                 }
 
             test "the gated corpus is non-empty" { Expect.isGreaterThan (List.length gated) 0 "CLR-gated programs" }

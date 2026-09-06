@@ -128,7 +128,7 @@ let readTypes (md: MetadataReader) : EmittedType list =
 /// The ranges must consecutively cover rows `1..total`.
 // `owner` is indexed by row id (1-based), so overlap and gap are both lookups.
 let private assertTableRanges (label: string) (table: string) (total: int) (ranges: (string * int list) list) =
-    let owner = Array.create (total + 1) ""
+    let owner: string voption[] = Array.create (total + 1) ValueNone
     let mutable cursor = 1
 
     for typeName, rows in ranges do
@@ -152,10 +152,10 @@ let private assertTableRanges (label: string) (table: string) (total: int) (rang
             if row < 1 || row > total then
                 failwithf "%s: %s row %d claimed by '%s' is outside the table (1..%d)" label table row typeName total
 
-            if owner.[row] <> "" then
-                failwithf "%s: %s row %d is claimed by both '%s' and '%s'" label table row owner.[row] typeName
-
-            owner.[row] <- typeName
+            match owner.[row] with
+            | ValueSome prior ->
+                failwithf "%s: %s row %d is claimed by both '%s' and '%s'" label table row prior typeName
+            | ValueNone -> owner.[row] <- ValueSome typeName
         )
 
         cursor <- cursor + List.length rows
@@ -164,7 +164,7 @@ let private assertTableRanges (label: string) (table: string) (total: int) (rang
         failwithf "%s: the TypeDef rows claim %d %s rows but the table has %d" label (cursor - 1) table total
 
     for row in 1..total do
-        if owner.[row] = "" then
+        if owner.[row].IsNone then
             failwithf "%s: %s row %d is claimed by no TypeDef" label table row
 
 let private assertRangePartition (label: string) (md: MetadataReader) =
@@ -575,14 +575,22 @@ let assertWellFormedFile (label: string) (path: string) : unit =
 /// The rows in each named type's range are EXACTLY these, in order; types not named are
 /// not checked. Names are the teeth: permute the emitted field rows against the type
 /// rows and every count, range and total still agrees; only the names move.
+/// Raises when two `TypeDef` rows render to the same name, since a nested-flagged type
+/// with no `NestedClass` row renders without its `Outer+` prefix and would otherwise
+/// shadow the row the expectation targets.
 let assertTypeMembersMetadata (label: string) (md: MetadataReader) (expected: ExpectedType list) : unit =
     let actual = readTypes md
 
     for e in expected do
-        match actual |> List.tryFind (fun t -> t.Name = e.Type) with
-        | None ->
-            failwithf "%s: no TypeDef named '%s'; the PE has %A" label e.Type (actual |> List.map (fun t -> t.Name))
-        | Some t ->
+        match actual |> List.filter (fun t -> t.Name = e.Type) with
+        | [] -> failwithf "%s: no TypeDef named '%s'; the PE has %A" label e.Type (actual |> List.map (fun t -> t.Name))
+        | _ :: _ :: _ as dupes ->
+            failwithf
+                "%s: TypeDef rows %A all render as '%s', so the expectation is ambiguous"
+                label
+                (dupes |> List.map (fun t -> t.Row))
+                e.Type
+        | [ t ] ->
             if t.Fields <> e.Fields then
                 failwithf "%s: '%s' claims field rows %A but should claim %A" label e.Type t.Fields e.Fields
 

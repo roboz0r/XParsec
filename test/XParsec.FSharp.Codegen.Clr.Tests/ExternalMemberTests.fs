@@ -39,235 +39,140 @@ let private declAssembly (provider: IExternalSymbolProvider) (decl: TypeKey) : A
     | ValueNone ->
         failtestf "the declaring type %s did not resolve through the provider" (SymbolKeyOps.typeMetaName decl)
 
+let private eqComparerKey =
+    SymbolKeyOps.typeKeyOfArity "System.Collections.Generic" "EqualityComparer" 1
+
+/// The `let`-bound value of `tast`, whichever declaration position an `open` leaves it in.
+let private letValue (tast: TastFile) : TExpr option =
+    EqArray.toList tast.Decls
+    |> List.tryPick (
+        function
+        | TDecl.Let(value = v) -> Some v
+        | _ -> None
+    )
+
+/// `src` binds `EqualityComparer<int>.Default.GetHashCode 5` to a `let`, spelled fully
+/// qualified or as the short name under `open`. The binding type-checks, its
+/// `App(ExternalMember GetHashCode, 5)` zonks to `int -> int` applied at `int`, and both
+/// the `GetHashCode` and `Default` accesses carry the provider's resolved member keys.
+let private assertGetHashCodeFreezesCarryingItsKey (src: string) : unit =
+    // Vesper.Core supplies the `type int = (# "System.Int32" #)` relationship the
+    // metadata reader canonicalizes `GetHashCode`'s `System.Int32` return through.
+    let provider = ClrSymbolProviders.buildContract [ vesperCorePackage ]
+    let ctx, tast = analyseWithCtx provider src
+
+    Expect.isEmpty (errors tast) "no type errors through the metadata-backed provider"
+
+    // `GetHashCode 5` is `App(ExternalMember(GetHashCode), 5)`; the GetHashCode
+    // access's object argument is the `Default` static access.
+    match letValue tast with
+    | Some(TExpr.App(TExpr.ExternalMember(ValueSome inner, ghKey, "GetHashCode", MemberStorage.Method, _, ghTy, _),
+                     TExpr.Const(TConstValue.Integral(IntKind.Int32, 5L), _, _),
+                     resultTy,
+                     _)) ->
+        match Unification.zonk ctx.Store ghTy with
+        | TyFun(TyConst(k1, _), TyConst(k2, _)) when
+            SymbolKeyOps.typeSimpleName k1 = DisplayName "int"
+            && SymbolKeyOps.typeSimpleName k2 = DisplayName "int"
+            ->
+            ()
+        | other -> failtestf "GetHashCode should be typed int -> int, got %A" other
+
+        match Unification.zonk ctx.Store resultTy with
+        | TyConst(key, _) when SymbolKeyOps.typeSimpleName key = DisplayName "int" -> ()
+        | other -> failtestf "the application should be typed int, got %A" other
+
+        match ghKey with
+        | SymbolKey.Member {
+                               Decl = decl
+                               Name = "GetHashCode"
+                               ArgSig = argSig
+                               Kind = MemberKind.Method
+                           } ->
+            Expect.isSome (declAssembly provider decl) "GetHashCode's declaring type is homed in the defining assembly"
+
+            Expect.equal decl eqComparerKey "GetHashCode declaring type"
+
+            Expect.equal
+                (SymbolKeyOps.typeSegmentName decl)
+                "EqualityComparer`1"
+                "the arity is spelled only when the metadata name is RENDERED"
+
+            Expect.equal
+                (EqArray.toList argSig)
+                [ FrozenType.FTTypar(TyparAxis.Declaring, 0) ]
+                "GetHashCode(T) argSig is the declaring typar"
+        | other -> failtestf "unexpected GetHashCode key %A" other
+
+        match inner with
+        | TExpr.ExternalMember(ValueNone, defKey, "Default", MemberStorage.Property, _, defTy, _) ->
+            match Unification.zonk ctx.Store defTy with
+            | TyClass(name, args) when
+                args.Length = 1
+                && (
+                    match args.[0] with
+                    | TyConst(key, _) -> SymbolKeyOps.typeSimpleName key = DisplayName "int"
+                    | _ -> false
+                )
+                ->
+                Expect.equal name eqComparer "Default : EqualityComparer<int>"
+            | other -> failtestf "Default should be typed EqualityComparer<int>, got %A" other
+
+            match defKey with
+            | SymbolKey.Member {
+                                   Decl = decl
+                                   Name = "Default"
+                                   ArgSig = argSig
+                                   Kind = MemberKind.Property
+                               } ->
+                Expect.equal decl eqComparerKey "Default declaring type"
+                Expect.isTrue argSig.IsEmpty "Default is a property: empty argSig"
+            | other -> failtestf "unexpected Default key %A" other
+        | other -> failtestf "expected a static `Default` ExternalMember object argument, got %A" other
+    | other -> failtestf "expected App(ExternalMember GetHashCode, 5), got %A" other
+
+/// `src` binds an application of `EqualityComparer<int>.Default.GetHashCode` to a `let`.
+/// The key frozen on the `GetHashCode` access equals the key the provider resolves for
+/// that member directly: elaboration stamps the resolver's verdict rather than
+/// re-deriving a key.
+let private assertFrozenKeyIsProvidersKey (src: string) : unit =
+    let provider = ClrSymbolProviders.buildContract [ vesperCorePackage ]
+
+    let expected =
+        match provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKeyOf eqComparer 0, "GetHashCode") with
+        | ValueSome m -> SymbolKey.Member m.Key
+        | ValueNone -> failtest "provider did not resolve GetHashCode"
+
+    let frozen =
+        match letValue (analyseWith provider src) with
+        | Some(TExpr.App(TExpr.ExternalMember(key = k), _, _, _)) -> k
+        | other -> failtestf "expected App(ExternalMember …), got %A" other
+
+    Expect.equal frozen expected "frozen key = provider's resolved key"
+
 [<Tests>]
 let tests =
     testList
         "ExternalMember"
         [
             test "EqualityComparer<int>.Default.GetHashCode 5 type-checks + freezes carrying its key" {
-                // Vesper.Core supplies the `type int = (# "System.Int32" #)` relationship the
-                // metadata reader canonicalizes `GetHashCode`'s `System.Int32` return through.
-                let provider = ClrSymbolProviders.buildContract [ vesperCorePackage ]
-
-                let ctx, tast =
-                    analyseWithCtx
-                        provider
-                        "let h = System.Collections.Generic.EqualityComparer<int>.Default.GetHashCode 5"
-
-                Expect.isEmpty (errors tast) "no type errors through the metadata-backed provider"
-
-                // `GetHashCode 5` is `App(ExternalMember(GetHashCode), 5)`; the
-                // GetHashCode access's object argument is the `Default` static access.
-                let value =
-                    match tast.Decls with
-                    | EqList [ TDecl.Let(value = v) ] -> v
-                    | _ -> failtestf "expected a single let binding, got %A" tast.Decls
-
-                match value with
-                | TExpr.App(TExpr.ExternalMember(ValueSome inner, ghKey, "GetHashCode", MemberStorage.Method, _, ghTy, _),
-                            TExpr.Const(TConstValue.Integral(IntKind.Int32, 5L), _, _),
-                            resultTy,
-                            _) ->
-                    match Unification.zonk ctx.Store ghTy with
-                    | TyFun(TyConst(k1, _), TyConst(k2, _)) when
-                        SymbolKeyOps.typeSimpleName k1 = DisplayName "int"
-                        && SymbolKeyOps.typeSimpleName k2 = DisplayName "int"
-                        ->
-                        ()
-                    | other -> failtestf "GetHashCode should be typed int -> int, got %A" other
-
-                    match Unification.zonk ctx.Store resultTy with
-                    | TyConst(key, _) when SymbolKeyOps.typeSimpleName key = DisplayName "int" -> ()
-                    | other -> failtestf "the application should be typed int, got %A" other
-
-                    match ghKey with
-                    | SymbolKey.Member {
-                                           Decl = decl
-                                           Name = "GetHashCode"
-                                           ArgSig = argSig
-                                           Kind = MemberKind.Method
-                                       } ->
-                        Expect.isSome
-                            (declAssembly provider decl)
-                            "GetHashCode's declaring type is homed in the defining assembly"
-
-                        Expect.equal
-                            decl
-                            (SymbolKeyOps.typeKeyOfArity "System.Collections.Generic" "EqualityComparer" 1)
-                            "GetHashCode declaring type"
-
-                        Expect.equal
-                            (SymbolKeyOps.typeSegmentName decl)
-                            "EqualityComparer`1"
-                            "the arity is spelled only when the metadata name is RENDERED"
-
-                        Expect.equal
-                            (EqArray.toList argSig)
-                            [ FrozenType.FTTypar(TyparAxis.Declaring, 0) ]
-                            "GetHashCode(T) argSig is the declaring typar"
-                    | other -> failtestf "unexpected GetHashCode key %A" other
-
-                    match inner with
-                    | TExpr.ExternalMember(ValueNone, defKey, "Default", MemberStorage.Property, _, defTy, _) ->
-                        match Unification.zonk ctx.Store defTy with
-                        | TyClass(name, args) when
-                            args.Length = 1
-                            && (
-                                match args.[0] with
-                                | TyConst(key, _) -> SymbolKeyOps.typeSimpleName key = DisplayName "int"
-                                | _ -> false
-                            )
-                            ->
-                            Expect.equal name eqComparer "Default : EqualityComparer<int>"
-                        | other -> failtestf "Default should be typed EqualityComparer<int>, got %A" other
-
-                        match defKey with
-                        | SymbolKey.Member {
-                                               Decl = decl
-                                               Name = "Default"
-                                               ArgSig = argSig
-                                               Kind = MemberKind.Property
-                                           } ->
-                            Expect.equal
-                                decl
-                                (SymbolKeyOps.typeKeyOfArity "System.Collections.Generic" "EqualityComparer" 1)
-                                "Default declaring type"
-
-                            Expect.isTrue argSig.IsEmpty "Default is a property: empty argSig"
-                        | other -> failtestf "unexpected Default key %A" other
-                    | other -> failtestf "expected a static `Default` ExternalMember object argument, got %A" other
-                | other -> failtestf "expected App(ExternalMember GetHashCode, 5), got %A" other
+                assertGetHashCodeFreezesCarryingItsKey
+                    "let h = System.Collections.Generic.EqualityComparer<int>.Default.GetHashCode 5"
             }
 
             test "the frozen key matches the provider's own resolved member key" {
-                // The interned key must equal what the provider resolves directly:
-                // elaboration stamps the resolver's verdict rather than re-deriving a key.
-                let provider = ClrSymbolProviders.buildContract [ vesperCorePackage ]
-
-                let expected =
-                    match provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKeyOf eqComparer 0, "GetHashCode") with
-                    | ValueSome m -> SymbolKey.Member m.Key
-                    | ValueNone -> failtest "provider did not resolve GetHashCode"
-
-                let ctx, tast =
-                    analyseWithCtx
-                        provider
-                        "let h = System.Collections.Generic.EqualityComparer<int>.Default.GetHashCode 5"
-
-                let frozen =
-                    match tast.Decls with
-                    | EqList [ TDecl.Let(value = TExpr.App(TExpr.ExternalMember(key = k), _, _, _)) ] -> k
-                    | _ -> failtestf "expected App(ExternalMember …), got %A" tast.Decls
-
-                Expect.equal frozen expected "frozen key = provider's resolved key"
+                assertFrozenKeyIsProvidersKey
+                    "let h = System.Collections.Generic.EqualityComparer<int>.Default.GetHashCode 5"
             }
 
             test "short name under `open` type-checks + freezes carrying its key" {
-                let provider = ClrSymbolProviders.buildContract [ vesperCorePackage ]
-
-                let ctx, tast =
-                    analyseWithCtx
-                        provider
-                        "open System.Collections.Generic\nlet h = EqualityComparer<int>.Default.GetHashCode 5"
-
-                Expect.isEmpty (errors tast) "no type errors for the short-name form under its open"
-
-                let value =
-                    tast.Decls
-                    |> EqArray.tryFind (
-                        function
-                        | TDecl.Let _ -> true
-                        | _ -> false
-                    )
-                    |> ValueOption.map (
-                        function
-                        | TDecl.Let(value = v) -> v
-                        | _ -> failwith "unreachable"
-                    )
-
-                match value with
-                | ValueSome(TExpr.App(TExpr.ExternalMember(ValueSome inner,
-                                                           ghKey,
-                                                           "GetHashCode",
-                                                           MemberStorage.Method,
-                                                           _,
-                                                           ghTy,
-                                                           _),
-                                      TExpr.Const(TConstValue.Integral(IntKind.Int32, 5L), _, _),
-                                      resultTy,
-                                      _)) ->
-                    match Unification.zonk ctx.Store ghTy with
-                    | TyFun(TyConst(k1, _), TyConst(k2, _)) when
-                        SymbolKeyOps.typeSimpleName k1 = DisplayName "int"
-                        && SymbolKeyOps.typeSimpleName k2 = DisplayName "int"
-                        ->
-                        ()
-                    | other -> failtestf "GetHashCode should be typed int -> int, got %A" other
-
-                    match Unification.zonk ctx.Store resultTy with
-                    | TyConst(key, _) when SymbolKeyOps.typeSimpleName key = DisplayName "int" -> ()
-                    | other -> failtestf "the application should be typed int, got %A" other
-
-                    match ghKey with
-                    | SymbolKey.Member {
-                                           Decl = decl
-                                           Name = "GetHashCode"
-                                           ArgSig = argSig
-                                           Kind = MemberKind.Method
-                                       } ->
-                        Expect.isSome
-                            (declAssembly provider decl)
-                            "GetHashCode's declaring type is homed in the defining assembly"
-
-                        Expect.equal
-                            decl
-                            (SymbolKeyOps.typeKeyOfArity "System.Collections.Generic" "EqualityComparer" 1)
-                            "GetHashCode declaring type"
-
-                        Expect.equal
-                            (SymbolKeyOps.typeSegmentName decl)
-                            "EqualityComparer`1"
-                            "the arity is spelled only when the metadata name is RENDERED"
-
-                        Expect.equal
-                            (EqArray.toList argSig)
-                            [ FrozenType.FTTypar(TyparAxis.Declaring, 0) ]
-                            "GetHashCode(T) argSig is the declaring typar"
-                    | other -> failtestf "unexpected GetHashCode key %A" other
-
-                    match inner with
-                    | TExpr.ExternalMember(ValueNone, _, "Default", MemberStorage.Property, _, _, _) -> ()
-                    | other -> failtestf "expected a static `Default` ExternalMember object argument, got %A" other
-                | other -> failtestf "expected App(ExternalMember GetHashCode, 5), got %A" other
+                assertGetHashCodeFreezesCarryingItsKey
+                    "open System.Collections.Generic\nlet h = EqualityComparer<int>.Default.GetHashCode 5"
             }
 
             test "short-name key equals the fully-qualified form's resolved key" {
-                let provider = ClrSymbolProviders.buildContract [ vesperCorePackage ]
-
-                let expected =
-                    match provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKeyOf eqComparer 0, "GetHashCode") with
-                    | ValueSome m -> SymbolKey.Member m.Key
-                    | ValueNone -> failtest "provider did not resolve GetHashCode"
-
-                let ctx, tast =
-                    analyseWithCtx
-                        provider
-                        "open System.Collections.Generic\nlet h = EqualityComparer<int>.Default.GetHashCode 5"
-
-                let frozen =
-                    tast.Decls
-                    |> EqArray.tryFind (
-                        function
-                        | TDecl.Let(value = TExpr.App(TExpr.ExternalMember _, _, _, _)) -> true
-                        | _ -> false
-                    )
-                    |> ValueOption.map (
-                        function
-                        | TDecl.Let(value = TExpr.App(TExpr.ExternalMember(key = k), _, _, _)) -> k
-                        | _ -> failwith "unreachable"
-                    )
-
-                Expect.equal frozen (ValueSome expected) "frozen key (short name) = provider's resolved key"
+                assertFrozenKeyIsProvidersKey
+                    "open System.Collections.Generic\nlet h = EqualityComparer<int>.Default.GetHashCode 5"
             }
 
             // Both member refs are minted from the interned key on one

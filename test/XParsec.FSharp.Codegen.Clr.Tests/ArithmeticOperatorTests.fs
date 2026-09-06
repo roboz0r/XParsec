@@ -164,12 +164,12 @@ let tests =
                         (sprintf "%s body sourced from ops-platform.clr.fs" name)
 
                 // Binary ops abstract twice, `~-` / `~+` once, so strip lambdas to reach
-                // the trait call. The static-opt arm catches a body that regains a
-                // `when ^T : …` wrapper, which would give the operator a non-trait base.
+                // the trait call. Every arithmetic body in `ops-platform.clr.fs` is a bare
+                // trait call, so a `when ^T : …` wrapper (`StaticOptimization`) is a failure
+                // reported by the `other` arm below.
                 let rec traitBase (e: Wire.TExpr) : Wire.TExpr =
                     match e with
                     | TExprG.Lambda(_, b, _, _) -> traitBase b
-                    | TExprG.StaticOptimization(_, b, _, _) -> traitBase b
                     | e -> e
 
                 for name in arithmeticOps do

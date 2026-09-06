@@ -44,14 +44,15 @@ let tests =
                                                   _),
                                      true,
                                      _) ] when SymbolKeyOps.typeSimpleName key = DisplayName "int" ->
-                    Expect.equal clauses.Length 3 "three when-clauses, in source order"
-
-                    if clauses.Length > 0 && clauses.[0].Constraints.Length = 1 then
-                        match clauses.[0].Body with
-                        | TExpr.Const(TConstValue.Integral(IntKind.Int32, 1L), _, _) -> ()
-                        | other -> failtestf "unexpected first clause body: %A" other
-                    else
-                        failtestf "unexpected first clause: %A" clauses.[0]
+                    match clauses with
+                    | EqList [ {
+                                   Constraints = EqList [ _ ]
+                                   Body = TExpr.Const(TConstValue.Integral(IntKind.Int32, 1L), _, _)
+                               }
+                               _
+                               _ ] -> ()
+                    | EqList [ first; _; _ ] -> failtestf "unexpected first clause: %A" first
+                    | EqList other -> failtestf "expected three when-clauses in source order, got %A" other
                 | _ -> failtestf "expected a static-opt inline binding, got %A" tast.Decls
             }
 
