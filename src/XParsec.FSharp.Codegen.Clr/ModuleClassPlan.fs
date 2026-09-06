@@ -87,7 +87,7 @@ module ModuleClassPlan =
             for mv in Emit.collectModuleValues emissions lowered0 do
                 s.Add mv.Key |> ignore
 
-            for mv in Emit.collectProgramValues emissions programClass refStructKeys lowered0 do
+            for mv in Emit.collectProgramValues emissions refStructKeys lowered0 do
                 s.Add mv.Key |> ignore
 
             for fn in Emit.collectGenericModuleValues emissions genericFnSchemes lowered0 do
@@ -114,8 +114,7 @@ module ModuleClassPlan =
         // Top-level (implicit-"Program"-module) ground values: top-level `let`s in an
         // exe's last file, collected unclassified; the leading/trailing partition runs
         // below, once `staticFnKeys` is known. Their keys are real fields, never captures.
-        let programValues =
-            Emit.collectProgramValues emissions programClass refStructKeys lowered
+        let programValues = Emit.collectProgramValues emissions refStructKeys lowered
 
         let programValueKeys =
             HashSet<BoundVarId>(programValues |> List.map (fun mv -> mv.Key))
@@ -192,14 +191,20 @@ module ModuleClassPlan =
         let namedClassGroups =
             staticFns
             |> List.choose (fun fn ->
-                match fn.ModuleClass with
-                | Some h -> Some(h, fn)
-                | None -> None
+                match fn.Home with
+                | EmitTypes.EmitHome.Named h -> Some(h, fn)
+                | EmitTypes.EmitHome.Program _ -> None
             )
             |> List.groupBy fst
             |> List.map (fun (h, pairs) -> h, List.map snd pairs)
 
-        let programFns = staticFns |> List.filter (fun fn -> fn.ModuleClass.IsNone)
+        let programFns =
+            staticFns
+            |> List.filter (fun fn ->
+                match fn.Home with
+                | EmitTypes.EmitHome.Program _ -> true
+                | EmitTypes.EmitHome.Named _ -> false
+            )
 
         let valuesByClass = moduleValues |> List.groupBy (fun mv -> mv.ModuleClass)
 

@@ -316,6 +316,27 @@ module EmitTypes =
     /// the module-class tree and its `NestedClass` rows are read off.
     type ModuleClassKey = ModuleKey
 
+    /// The class a top-level binding's member is emitted on.
+    [<RequireQualifiedAccess>]
+    type EmitHome =
+        /// The class of the declaring `module Foo = …`.
+        | Named of ModuleClassKey
+        /// The anonymous "Program" class, which holds every binding declared at file scope.
+        | Program of ModuleClassKey
+
+        member this.Class: ModuleClassKey =
+            match this with
+            | Named c
+            | Program c -> c
+
+    /// Where a top-level binding's emitted name comes from.
+    [<RequireQualifiedAccess>]
+    type EmittedNaming =
+        /// The source name; the member is public ABI.
+        | Source
+        /// A compiler-minted `<name>$<slot>`; the member is assembly-visible.
+        | Minted
+
     /// One flattened parameter of a `StaticFn`. A simple bound variable's `Slot` key resolves
     /// directly to the parameter's `ldarg` index; a `fun (a, b) -> …` destructuring
     /// parameter carries `Pat = Some …` and a synthetic `Slot` spilled to a local first.
@@ -332,10 +353,8 @@ module EmitTypes =
             /// identity, so a cross-file call re-homes here; others carry an unspellable mint.
             SymbolKey: SymbolKey
             Name: string
-            /// `Some k` when from a named `module Foo = …`: emits as a public
-            /// static method on the `Foo` module class. `None` ⇒ the anonymous "Program"
-            /// module class.
-            ModuleClass: ModuleClassKey option
+            Home: EmitHome
+            Naming: EmittedNaming
             /// The SOURCE groups and the flat, tuple-expanded, lone-unit-erased parameters
             /// they expand to: one CLR `ldarg` slot per flat parameter. The flat signature
             /// cannot tell tupled `f(int,int)` from one `(int*int)` param, which is why the
@@ -353,14 +372,6 @@ module EmitTypes =
             Scheme: GenericFnScheme
         }
 
-    /// Whether a top-level binding emits under its source name.
-    [<RequireQualifiedAccess>]
-    type ValueIdentity =
-        /// Named in source; its field is public ABI.
-        | Declared
-        /// A `<name>$<slot>` mint standing in for a binding with no exportable identity.
-        | Residue
-
     /// A module-level value (`let x = e` at module scope) lowered to a `static`
     /// field, whose module class's `.cctor` evaluates `Init` and `stsfld`s it. A value on a named
     /// module gets that module's class, a top-level one the anonymous "Program" class.
@@ -370,8 +381,7 @@ module EmitTypes =
             /// This value's stable handle key, on the same terms as `StaticFn.SymbolKey`.
             SymbolKey: SymbolKey
             Name: string
-            /// Decides the field's visibility: `Declared` is public, `Residue` assembly.
-            Identity: ValueIdentity
+            Naming: EmittedNaming
             Ty: FrozenType
             Init: TastAccessor.ExprId
             ModuleClass: ModuleClassKey

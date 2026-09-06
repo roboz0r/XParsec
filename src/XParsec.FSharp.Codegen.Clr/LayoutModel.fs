@@ -84,6 +84,11 @@ module internal MethodAttrSets =
 
     let staticMethodAttrs = staticFactoryAttrs
 
+    /// A static method under a compiler-minted name.
+    let assemblyStaticMethodAttrs =
+        (staticMethodAttrs &&& ~~~MethodAttributes.MemberAccessMask)
+        ||| MethodAttributes.Assembly
+
     // Non-virtual, which is what makes `call` bind: an augmentation member declares no
     // slot to dispatch through.
     let instanceMethodAttrs = MethodAttributes.Public ||| MethodAttributes.HideBySig

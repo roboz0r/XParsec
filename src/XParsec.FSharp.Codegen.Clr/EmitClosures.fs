@@ -142,35 +142,33 @@ module EmitClosures =
         walkFreeRefs bound (fun key _ -> acc.Add key |> ignore) body
         acc
 
-    /// What a top-level decl emits as: from a recorded identity, or minted as residue.
+    /// The name, home class and handle key a top-level decl emits under.
     type Emission =
         {
             Name: string
-            /// `None` ⇒ the anonymous "Program" class, which the CLR needs because it has
-            /// no namespace-level member.
-            ModuleClass: ModuleClassKey option
+            Home: EmitHome
             SymbolKey: SymbolKey
-            Identity: ValueIdentity
+            Naming: EmittedNaming
         }
 
-    /// Name and key come straight off the front end's recorded identity, filed for every
-    /// module-level `let` with a simple bound variable. A top-level binding's identity belongs
-    /// to its file's NAMESPACE, which no CLR type corresponds to, so it emits on the Program class.
-    let private declaredEmission (info: ModuleBindingInfo) : Emission =
+    let private homeOf (programClass: ModuleClassKey) (info: ModuleBindingInfo) : EmitHome =
+        match info.DeclaringModule with
+        | ValueSome m -> EmitHome.Named m
+        | ValueNone -> EmitHome.Program programClass
+
+    /// The emission under the front end's recorded identity: the source (or `[<CompiledName>]`)
+    /// name and the identity's own key.
+    let private sourceNamedEmission (programClass: ModuleClassKey) (info: ModuleBindingInfo) : Emission =
         {
             Name = info.EmittedName
-            ModuleClass =
-                match info.DeclaringModule with
-                | ValueSome m -> Some m
-                | ValueNone -> None
+            Home = homeOf programClass info
             SymbolKey = info.Key
-            Identity = ValueIdentity.Declared
+            Naming = EmittedNaming.Source
         }
 
-    /// Mints `<name>$<slot>` (`value$3` when no source names the variable) for a decl with no
-    /// exportable identity: a `let` lowered out of the entry expression (a value written after
-    /// a top-level `do`), or one a LATER binding in the same module class re-binds.
-    let private residueEmission (programClass: ModuleClassKey) (pool: PoolBuilder) (k: BoundVarId) : Emission =
+    /// The emission of a decl with no exportable identity: `<name>$<slot>` (`value$3` for a
+    /// variable without a source name) on `home`.
+    let private mintedEmission (home: EmitHome) (pool: PoolBuilder) (k: BoundVarId) : Emission =
         let (BoundVarId slot) = k
 
         let source =
@@ -182,14 +180,14 @@ module EmitClosures =
 
         {
             Name = name
-            ModuleClass = None
-            SymbolKey = SymbolKeyOps.valueKey (ModuleContainer.InModule programClass) name
-            Identity = ValueIdentity.Residue
+            Home = home
+            SymbolKey = SymbolKeyOps.valueKey (ModuleContainer.InModule home.Class) name
+            Naming = EmittedNaming.Minted
         }
 
-    /// How EVERY top-level decl of a file emits. Decided over the whole list, because
-    /// shadowing is: `let x = 1` then `let x = x + 10` carries one identity, so only the LAST
-    /// takes it and the earlier ones, which still need a field, take the residue mint.
+    /// The emission of every top-level `let` with a simple pattern. Of the bindings sharing
+    /// one identity, the LAST emits under its source name and the earlier ones are minted
+    /// on the same class. A `let` with no recorded identity is minted on the Program class.
     let emissions
         (moduleMembers: Map<BoundVarId, ModuleBindingInfo>)
         (programClass: ModuleClassKey)
@@ -220,8 +218,9 @@ module EmitClosures =
         for (k, pool) in bound do
             result.[k] <-
                 match Map.tryFind k moduleMembers with
-                | Some info when owner.[info.Key] = k -> declaredEmission info
-                | _ -> residueEmission programClass pool k
+                | Some info when owner.[info.Key] = k -> sourceNamedEmission programClass info
+                | Some info -> mintedEmission (homeOf programClass info) pool k
+                | None -> mintedEmission (EmitHome.Program programClass) pool k
 
         result
 
@@ -249,22 +248,15 @@ module EmitClosures =
             | _ -> None
         )
 
-    /// The `ModuleValue` for a ground `let` stored on `moduleClass`.
-    let private moduleValue
-        (moduleClass: ModuleClassKey)
-        (k: BoundVarId)
-        (ty: FrozenType)
-        (init: TastAccessor.ExprId)
-        (em: Emission)
-        : ModuleValue =
+    let private moduleValue (k: BoundVarId) (ty: FrozenType) (init: TastAccessor.ExprId) (em: Emission) : ModuleValue =
         {
             Key = k
             SymbolKey = em.SymbolKey
             Name = em.Name
-            Identity = em.Identity
+            Naming = em.Naming
             Ty = ty
             Init = init
-            ModuleClass = moduleClass
+            ModuleClass = em.Home.Class
         }
 
     /// The **module values**: a non-inline `let name = <plain value>` on a NAMED module
@@ -279,10 +271,9 @@ module EmitClosures =
             emissions
             ftIsGround
             (fun k ty value em ->
-                // Only a NAMED-module ground value is a field here.
-                match em.ModuleClass with
-                | None -> None
-                | Some moduleClass -> Some(moduleValue moduleClass k ty value em)
+                match em.Home with
+                | EmitHome.Named _ -> Some(moduleValue k ty value em)
+                | EmitHome.Program _ -> None
             )
 
     /// No untyped position (`FTUnknown`) and no body-local typar (`FTLocalTypar`);
@@ -329,7 +320,8 @@ module EmitClosures =
                         Key = k
                         SymbolKey = em.SymbolKey
                         Name = em.Name
-                        ModuleClass = em.ModuleClass
+                        Home = em.Home
+                        Naming = em.Naming
                         // A generic module VALUE reaches codegen as a bare `Var`, so it has
                         // no source groups and never returns `void`.
                         Params = CompiledFns.FlatParams.ofSegments []
@@ -340,12 +332,11 @@ module EmitClosures =
                     }
             )
 
-    /// The TOP-LEVEL ground values — those declared at file scope. Each becomes a
-    /// `static` field on the anonymous "Program" class; whether it initialises in
-    /// the `.cctor` or in `Main` is decided later.
+    /// The ground values homed on the anonymous "Program" class: every file-scope `let`, and
+    /// any `let` with no recorded identity. Each becomes a `static` field; whether it
+    /// initialises in the `.cctor` or in `Main` is decided later.
     let collectProgramValues
         (emissions: Dictionary<BoundVarId, Emission>)
-        (programClass: ModuleClassKey)
         // Every `[<Struct; IsByRefLike>]` type declared in this assembly. Lowering strips
         // type decls, so the caller computes this from the unlowered decls.
         (refStructKeys: HashSet<TypeKey>)
@@ -374,10 +365,9 @@ module EmitClosures =
             emissions
             tyOk
             (fun k ty value em ->
-                // A named-module value (`module Foo`) takes the named-module path.
-                match em.ModuleClass with
-                | Some _ -> None
-                | None -> Some(moduleValue programClass k ty value em)
+                match em.Home with
+                | EmitHome.Program _ -> Some(moduleValue k ty value em)
+                | EmitHome.Named _ -> None
             )
 
     /// A module value's initialiser runs in its module class's `.cctor`, where only other module
@@ -555,7 +545,8 @@ module EmitClosures =
                             Key = c.Key
                             SymbolKey = em.SymbolKey
                             Name = em.Name
-                            ModuleClass = em.ModuleClass
+                            Home = em.Home
+                            Naming = em.Naming
                             Params = c.Params
                             Body = c.Body
                             ResultTy = c.ResultTy

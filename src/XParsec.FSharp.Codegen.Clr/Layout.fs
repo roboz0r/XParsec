@@ -16,9 +16,9 @@ module internal Layout =
     /// The `Field` row behind a module value.
     let private moduleValueField (writes: FieldWrites) (mv: Emit.ModuleValue) : FieldSlot =
         let reach =
-            match mv.Identity with
-            | EmitTypes.ValueIdentity.Declared -> FieldReach.Public
-            | EmitTypes.ValueIdentity.Residue -> FieldReach.Assembly
+            match mv.Naming with
+            | EmitTypes.EmittedNaming.Source -> FieldReach.Public
+            | EmitTypes.EmittedNaming.Minted -> FieldReach.Assembly
 
         {
             Key = FieldKey.ModuleValue mv.SymbolKey
@@ -26,6 +26,17 @@ module internal Layout =
             Attrs = staticFieldAttrs reach writes
             Ty = mv.Ty
             ClosureScope = ValueNone
+        }
+
+    /// The `MethodDef` row behind a static-method function.
+    let private staticFnRow (fn: Emit.StaticFn) : MethodRow =
+        {
+            Key = MethodKey.StaticFn fn.SymbolKey
+            Name = fn.Name
+            Attrs =
+                match fn.Naming with
+                | EmitTypes.EmittedNaming.Source -> staticMethodAttrs
+                | EmitTypes.EmittedNaming.Minted -> assemblyStaticMethodAttrs
         }
 
     /// Build ONE file's contribution to the type HIERARCHY: its namespace-level nominals,
@@ -225,13 +236,8 @@ module internal Layout =
                         }
 
                 for fn in plan.StaticFns do
-                    if fn.ModuleClass = Some h then
-                        yield
-                            {
-                                Key = MethodKey.StaticFn fn.SymbolKey
-                                Name = fn.Name
-                                Attrs = staticMethodAttrs
-                            }
+                    if fn.Home = EmitTypes.EmitHome.Named h then
+                        yield staticFnRow fn
             ]
 
         // The class name a module emits as: the compiled name the residue declares for it,
@@ -418,12 +424,7 @@ module internal Layout =
                                 "Layout.combine: top-level binding %s is declared by more than one file, and two files declaring the same namespace cannot both hold a binding of that name (F# would distinguish them by an implicit module named after each file)"
                                 (SymbolKeyOps.qualifiedName fn.SymbolKey)
 
-                        yield
-                            {
-                                Key = MethodKey.StaticFn fn.SymbolKey
-                                Name = fn.Name
-                                Attrs = staticMethodAttrs
-                            }
+                        yield staticFnRow fn
             ]
 
         // The Program class exists only if it would hold something: `Main`, a top-level
