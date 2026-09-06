@@ -46,24 +46,14 @@ let tests =
                             TargetFramework = Some "net8.0"
                         }
 
-                let source =
-                    oneSource inputs.Project.AssemblyName "System.Console.WriteLine \"hello\""
+                let src = "System.Console.WriteLine \"hello\""
 
                 let artifact =
-                    match ClrDriver.compile inputs source with
+                    match ClrDriver.compile inputs (oneSource inputs.Project.AssemblyName src) with
                     | Ok a -> a
                     | Error ds -> failtestf "driver compile failed:\n%s" (AssemblyFiles.AnchoredDiagnostic.renderAll ds)
 
-                Codegen.materialiseApp artifact
-
-                let dllPath =
-                    match artifact.OutputPath with
-                    | Some p -> p
-                    | None -> failtest "expected an OutputPath"
-
-                let exitCode, output = runOnDisk dllPath
-                Expect.equal exitCode 0 (sprintf "dotnet exits 0 (output was: %s)" output)
-                Expect.equal (output.Trim()) "hello" "the ref-pack app prints hello"
+                let dllPath = ranOnDisk artifact "hello" src
 
                 let refs = assemblyRefNames dllPath
 

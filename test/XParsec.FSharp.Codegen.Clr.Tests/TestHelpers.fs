@@ -106,8 +106,8 @@ let iterFileExprs (it: TastWalk.Iter) (tast: TastFile) : unit =
 /// than being analysed as though it had been written that way.
 let parseFile (input: string) : Lexed * ImplementationFile<SyntaxToken> =
     match ParseChain.parseUnrecovered Set.empty input with
-    | Result.Error ds -> failwithf "parse failed: %A" (ds |> List.map (fun d -> d.Message))
-    | Result.Ok parsed -> parsed.Lexed, parsed.Tree
+    | Error ds -> failwithf "parse failed: %A" (ds |> List.map (fun d -> d.Message))
+    | Ok parsed -> parsed.Lexed, parsed.Tree
 
 /// `<repo-root>/tmp/<name>`, created, where the repo root is the directory holding
 /// `claude_tools.cmd`. Artifacts stay inspectable rather than landing in the OS temp dir.
@@ -412,6 +412,12 @@ let rec buildPackage (package: string) : Lazy<Assembly * ClrArtifact> =
                      asm, artifact)
     )
 
+/// The on-disk DLL `buildPackage` produced for `package`, building it on first use.
+let packageOutputPath (package: string) : string =
+    match ((buildPackage package).Value |> snd).OutputPath with
+    | Some p -> p
+    | None -> failwithf "buildPackage %s produced no OutputPath" package
+
 /// The Vesper-compiled `Vesper.Printf.dll` loaded into the *Default* `AssemblyLoadContext`
 /// as the only copy there, so a fresh-ALC driver resolves it by fall-through, onto the
 /// `vesperCoreDll` / `vesperListDll` copies forced first.
@@ -420,10 +426,7 @@ let vesperPrintfDll: Lazy<string> =
         (vesperCoreDll.Value |> ignore
          vesperListDll.Value |> ignore
 
-         let path =
-             match ((buildPackage "Vesper.Printf").Value |> snd).OutputPath with
-             | Some p -> p
-             | None -> failwith "buildPackage Vesper.Printf produced no OutputPath"
+         let path = packageOutputPath "Vesper.Printf"
 
          AssemblyLoadContext.Default.LoadFromAssemblyPath path |> ignore
          path)
@@ -671,6 +674,34 @@ let runLoadedEntryPoint (asm: Assembly) : int * string =
 let runEntryPoint (bytes: byte[]) : int * string =
     runLoadedEntryPoint (loadAssembly bytes)
 
+/// The reduction applied to captured stdout before an equality assertion. CRs are
+/// removed under every rule.
+type StdoutTrim =
+    /// `Trim()`: surrounding whitespace is discarded.
+    | Whole
+    /// Trailing newlines only: leading and embedded alignment spaces survive, as a `%5d`
+    /// right-justify ("   42") or a `%A` indent requires.
+    | TrailingNewlines
+
+let private trimStdout (trim: StdoutTrim) (output: string) : string =
+    let text = output.Replace("\r", "")
+
+    match trim with
+    | Whole -> text.Trim()
+    | TrailingNewlines -> text.TrimEnd '\n'
+
+/// Assert that a run exited 0 and that its stdout, reduced by `trim`, equals `expected`.
+/// `src` goes into the failure message.
+let expectRan (trim: StdoutTrim) (expected: string) (src: string) (run: int * string) : unit =
+    let exitCode, output = run
+    let actual = trimStdout trim output
+
+    if exitCode <> 0 then
+        failwithf "expected exit 0 but got %d for:\n%s\n--- stdout ---\n%s" exitCode src actual
+
+    if actual <> expected then
+        failwithf "expected %A but got %A for:\n%s" expected actual src
+
 /// The emitted PE binds no `FSharp.Core`, asserted on its `AssemblyRef` table — the
 /// artefact itself, not a use-set the emitter maintains alongside it.
 let expectNoFSharpCore (artifact: ClrArtifact) (context: string) : unit =
@@ -678,16 +709,41 @@ let expectNoFSharpCore (artifact: ClrArtifact) (context: string) : unit =
         (List.contains "FSharp.Core" artifact.ReferencedAssemblies)
         (sprintf "%s: no FSharp.Core AssemblyRef (refs: %A)" context artifact.ReferencedAssemblies)
 
+/// The emitted PE carries no `AssemblyRef` to its own name `asmName`. A cross-file
+/// reference that failed to re-home to its local definition emits a self-`AssemblyRef`,
+/// which faults the loader.
+let expectNoSelfAssemblyRef (asmName: string) (bytes: byte[]) : unit =
+    let refs = peAssemblyRefs bytes
+
+    Expect.isFalse
+        (refs |> List.contains asmName)
+        (sprintf "the emitted PE must not reference its own assembly '%s'; refs = %A" asmName refs)
+
+/// Materialise `artifact` as a `dotnet <dll>` bundle, run it under the host, and assert exit
+/// 0 and that trimmed stdout equals `expected`. Returns the bundle's DLL path for a caller
+/// inspecting what was written beside it.
+let ranOnDisk (artifact: ClrArtifact) (expected: string) (src: string) : string =
+    Codegen.materialiseApp artifact
+
+    let dllPath =
+        match artifact.OutputPath with
+        | Some p -> p
+        | None -> failwithf "%s: the artifact carries no OutputPath; build it through ProjectInfo.app" src
+
+    runOnDisk dllPath |> expectRan Whole expected src
+    dllPath
+
+/// Compile `src` as the app `project`, then `ranOnDisk`.
+let runsOnDisk (project: ProjectInfo) (expected: string) (src: string) : string =
+    ranOnDisk (compileSourceTo project src) expected src
+
 // ---- ALC-separable `Vesper.Printf` (choose the runtime handler) --------------
 // A driver PE loads into a collectible ALC whose `Load` returns a CHOSEN `Vesper.Printf`;
 // everything else falls to Default, so driver and handler meet on ONE `Vesper.Core`.
 
 /// Path to the `buildPackage`-produced `Vesper.Printf.dll`; the call also builds its
 /// `Vesper.Core` / `Vesper.List` / `Vesper.Comparison` deps into `packageAlc`.
-let private vesperPrintfPath () : string =
-    match ((buildPackage "Vesper.Printf").Value |> snd).OutputPath with
-    | Some p -> p
-    | None -> failwith "buildPackage Vesper.Printf produced no OutputPath"
+let private vesperPrintfPath () : string = packageOutputPath "Vesper.Printf"
 
 /// A collectible ALC resolving `Vesper.Printf` to a chosen on-disk DLL, delegating
 /// everything else to Default. Loaded from a byte COPY, not a file handle, so the DLL
@@ -711,43 +767,50 @@ let withPrintfAlc (run: AssemblyLoadContext -> 'a) : 'a =
     finally
         alc.Unload()
 
-/// Uniquifies a per-call driver assembly name (Expecto runs in parallel).
-let private diffDriverCounter = ref 0
-
-/// Compile a bare driver program and run its entry point inside `alc`, returning exit code
-/// + stdout. The driver's `Vesper.Printf` reference binds to whatever `alc` resolves.
-let runDriverInAlc (alc: AssemblyLoadContext) (src: string) : int * string =
-    let n = Threading.Interlocked.Increment diffDriverCounter
-    let artifact = compileSource (sprintf "DiffDriver%d" n) src
+/// Compile `src` as the driver assembly `name` and run its entry point inside `alc`,
+/// returning exit code + stdout. The driver's `Vesper.Printf` reference binds to whatever
+/// `alc` resolves.
+let runNamedDriverInAlc (alc: AssemblyLoadContext) (name: string) (src: string) : int * string =
+    let artifact = compileSource name src
     use ms = new IO.MemoryStream(Codegen.toBytes artifact)
     let asm = alc.LoadFromStream ms
     runLoadedEntryPoint asm
 
-/// Run `src` through the Vesper-compiled printf handler in a dedicated ALC and
-/// return its (CRLF-normalised, trailing-newline-trimmed) stdout, asserting exit 0.
-let runsPrintf (src: string) : string =
-    withPrintfAlc (fun alc ->
-        let exitCode, output = runDriverInAlc alc src
-        // CR + trailing newlines only, not all whitespace: a `%5d` right-justify
-        // ("   42") carries meaningful LEADING spaces and a `%A` group carries indent.
-        let actual = output.Replace("\r", "").TrimEnd('\n')
+/// Uniquifies a per-call driver assembly name (Expecto runs in parallel).
+let private diffDriverCounter = ref 0
 
-        if exitCode <> 0 then
-            failwithf "expected exit 0 but got %d for:\n%s\n--- stdout ---\n%s" exitCode src actual
+/// `runNamedDriverInAlc` under a generated `DiffDriver<n>` name.
+let runDriverInAlc (alc: AssemblyLoadContext) (src: string) : int * string =
+    let n = Threading.Interlocked.Increment diffDriverCounter
+    runNamedDriverInAlc alc (sprintf "DiffDriver%d" n) src
 
-        actual
-    )
+/// Compile `src` as the driver assembly `name`, run it against the Vesper-compiled
+/// `Vesper.Printf` in a fresh ALC, and assert exit 0 and that stdout, reduced by `trim`,
+/// equals `expected`.
+let printsUnder (trim: StdoutTrim) (name: string) (expected: string) (src: string) : unit =
+    withPrintfAlc (fun alc -> runNamedDriverInAlc alc name src)
+    |> expectRan trim expected src
 
-/// `runsPrintf` plus an equality assertion against the structural spec oracle.
+/// `printsUnder TrailingNewlines` for the structural spec oracle, under a generated
+/// driver name.
 let runsEq (expected: string) (src: string) : unit =
-    let actual = runsPrintf src
-
-    if actual <> expected then
-        failwithf "expected %A but the handler produced %A for:\n%s" expected actual src
+    withPrintfAlc (fun alc -> runDriverInAlc alc src)
+    |> expectRan TrailingNewlines expected src
 
 // ---- Drive the `%A` golden oracle on the VESPER engine -----------------------
 // `StructuralPrinter` is reflected out of the `buildPackage` `Vesper.Printf.dll`, in an ALC
 // with no `Load` override, so it and the test's fixtures share the Default `Vesper.Core`.
+
+/// `asm`'s `Vesper.StructuralPrinter::Print(obj, int, int)`, or a test failure labelled
+/// `label`.
+let private structuralPrintMethodOf (label: string) (asm: Assembly) : MethodInfo =
+    let sp = asm.GetType("Vesper.StructuralPrinter", true)
+    let m = sp.GetMethod("Print", [| typeof<obj>; typeof<int>; typeof<int> |])
+
+    if isNull m then
+        failwithf "%s: no Vesper.StructuralPrinter.Print(obj, int, int)" label
+
+    m
 
 /// The Vesper-compiled `StructuralPrinter::Print(obj, int, int)`, bound once and loaded
 /// into its own ALC.
@@ -765,13 +828,7 @@ let private vesperStructuralPrintMethod: Lazy<MethodInfo> =
              use ms = new IO.MemoryStream(IO.File.ReadAllBytes path)
              alc.LoadFromStream ms
 
-         let sp = asm.GetType("Vesper.StructuralPrinter", true)
-         let m = sp.GetMethod("Print", [| typeof<obj>; typeof<int>; typeof<int> |])
-
-         if isNull m then
-             failwith "Vesper.StructuralPrinter has no Print(obj, int, int)"
-
-         m)
+         structuralPrintMethodOf "Vesper.Printf" asm)
 
 /// Render `value` through the Vesper-compiled `StructuralPrinter` with an explicit
 /// column budget and PrintSize node budget (the `%.NA` mode).
@@ -783,21 +840,19 @@ let structuralPrintSized (value: obj) (widthBudget: int) (sizeBudget: int) : str
 let structuralPrint (value: obj) (widthBudget: int) : string =
     structuralPrintSized value widthBudget 10000
 
-/// Compile a standalone `%A` engine source (defining `Vesper.StructuralPrinter`) and bind
-/// its `Print(obj, int, int)` as a `Func` delegate, so calls run emitted IL, not
-/// reflection. Its own non-collectible ALC; `Vesper.Core` / `Vesper.List` come from Default.
-let compileStructuralEngine (asmName: string) (source: string) : Func<obj, int, int, string> =
+/// Compile `source` as the library `asmName` against the Core / List / Comparison
+/// contracts, materialise it under `tmp/selfhost-<asmName>/`, and load it into its own
+/// non-collectible ALC. `Vesper.Core` / `Vesper.List` resolve to the Default copies, so
+/// the assembly's `%A` interfaces meet the engine's sink on ONE `Vesper.Core`.
+let compileSelfHostAssembly (asmName: string) (source: string) : Assembly =
     vesperCoreDll.Value |> ignore
     vesperListDll.Value |> ignore
 
     let deps = [ "Vesper.Core"; "Vesper.List"; "Vesper.Comparison" ]
-
-    let depDlls =
-        deps |> List.choose (fun d -> ((buildPackage d).Value |> snd).OutputPath)
-
+    let depDlls = deps |> List.map packageOutputPath
     let provider = ClrSymbolProviders.buildContract (deps |> List.map srcPackage)
 
-    let outDir = tmpDir (sprintf "engine-%s" asmName)
+    let outDir = tmpDir (sprintf "selfhost-%s" asmName)
     let outPath = IO.Path.Combine(outDir, asmName + ".dll")
 
     let project =
@@ -810,53 +865,25 @@ let compileStructuralEngine (asmName: string) (source: string) : Func<obj, int, 
     Codegen.materialise artifact
 
     let alc =
-        AssemblyLoadContext(sprintf "xparsec-engine-%s" asmName, isCollectible = false)
-
-    let asm =
-        use ms = new IO.MemoryStream(IO.File.ReadAllBytes outPath)
-        alc.LoadFromStream ms
-
-    let sp = asm.GetType("Vesper.StructuralPrinter", true)
-    let m = sp.GetMethod("Print", [| typeof<obj>; typeof<int>; typeof<int> |])
-
-    if isNull m then
-        failwithf "compileStructuralEngine %s: no Vesper.StructuralPrinter.Print(obj, int, int)" asmName
-
-    m.CreateDelegate(typeof<Func<obj, int, int, string>>) :?> Func<obj, int, int, string>
-
-/// Compile a `<None Include>` Vesper source file (`fileName` relative to this test project)
-/// against the Core / List / Comparison contracts and load it into its own ALC, so a
-/// fixture value's `%A` interfaces meet the engine's sink on the ONE Default `Vesper.Core`.
-let compileFixtureFile (asmName: string) (fileName: string) : Assembly =
-    vesperCoreDll.Value |> ignore
-    vesperListDll.Value |> ignore
-
-    let deps = [ "Vesper.Core"; "Vesper.List"; "Vesper.Comparison" ]
-
-    let depDlls =
-        deps |> List.choose (fun d -> ((buildPackage d).Value |> snd).OutputPath)
-
-    let provider = ClrSymbolProviders.buildContract (deps |> List.map srcPackage)
-
-    let outDir = tmpDir (sprintf "fixture-%s" asmName)
-    let outPath = IO.Path.Combine(outDir, asmName + ".dll")
-
-    let project =
-        { ProjectInfo.library asmName with
-            OutputPath = Some outPath
-            References = depDlls
-        }
-
-    let source = IO.File.ReadAllText(IO.Path.Combine(__SOURCE_DIRECTORY__, fileName))
-
-    let artifact = compileAgainst provider project source
-    Codegen.materialise artifact
-
-    let alc =
-        AssemblyLoadContext(sprintf "xparsec-fixture-%s" asmName, isCollectible = false)
+        AssemblyLoadContext(sprintf "xparsec-selfhost-%s" asmName, isCollectible = false)
 
     use ms = new IO.MemoryStream(IO.File.ReadAllBytes outPath)
     alc.LoadFromStream ms
+
+/// Compile a standalone `%A` engine source (defining `Vesper.StructuralPrinter`) through
+/// `compileSelfHostAssembly` and bind its `Print(obj, int, int)` as a `Func` delegate, so
+/// calls run emitted IL, not reflection.
+let compileStructuralEngine (asmName: string) (source: string) : Func<obj, int, int, string> =
+    let m =
+        compileSelfHostAssembly asmName source
+        |> structuralPrintMethodOf (sprintf "compileStructuralEngine %s" asmName)
+
+    m.CreateDelegate(typeof<Func<obj, int, int, string>>) :?> Func<obj, int, int, string>
+
+/// `compileSelfHostAssembly` over a `<None Include>` Vesper source file, `fileName`
+/// relative to this test project.
+let compileFixtureFile (asmName: string) (fileName: string) : Assembly =
+    compileSelfHostAssembly asmName (IO.File.ReadAllText(IO.Path.Combine(__SOURCE_DIRECTORY__, fileName)))
 
 // ---- Layer 1 behavioral corpus helpers --------------------------------------
 // "run this source, get this stdout, exit 0". Every failure message carries `src`, and
@@ -865,14 +892,7 @@ let compileFixtureFile (asmName: string) (fileName: string) : Assembly =
 /// Run `artifact` in-process and assert exit 0 and that trimmed, CRLF-normalised stdout
 /// equals `expected`. `src` goes into the failure message.
 let private ranPrinting (artifact: ClrArtifact) (expected: string) (src: string) : unit =
-    let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
-    let actual = output.Replace("\r", "").Trim()
-
-    if exitCode <> 0 then
-        failwithf "expected exit 0 but got %d for:\n%s\n--- stdout ---\n%s" exitCode src actual
-
-    if actual <> expected then
-        failwithf "expected %A but got %A for:\n%s" expected actual src
+    runEntryPoint (Codegen.toBytes artifact) |> expectRan Whole expected src
 
 /// Compile `src` as a bare program, run it in-process, and assert exit 0 and
 /// that trimmed, CRLF-normalised stdout equals `expected`.

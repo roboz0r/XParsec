@@ -82,17 +82,14 @@ let private soleDecl (src: string) : TDecl =
     | EqList [ d ] -> d
     | _ -> failtestf "expected one decl for %s, got: %A" src tast.Decls
 
-let private runPrints (name: string) (src: string) (expected: string) =
-    let exitCode, output = withPrintfAlc (fun alc -> runDriverInAlc alc src)
-    Expect.equal exitCode 0 (sprintf "Main returns 0 for: %s" src)
-    Expect.equal (output.Trim()) expected (sprintf "%s prints %s" src expected)
+/// `src` compiled as the driver `name` prints `expected`, whitespace-trimmed.
+let private runPrints (name: string) (src: string) (expected: string) : unit = printsUnder Whole name expected src
 
-/// Trims only the trailing newline, so leading / embedded alignment spaces survive.
-/// `expected` comes from the test process's own `sprintf`, so parity is byte-for-byte.
-let private runParity (name: string) (src: string) (expected: string) =
-    let exitCode, output = withPrintfAlc (fun alc -> runDriverInAlc alc src)
-    Expect.equal exitCode 0 (sprintf "Main returns 0 for: %s" src)
-    Expect.equal (output.TrimEnd('\r', '\n')) expected (sprintf "%s == F# parity" src)
+/// `src` compiled as the driver `name` prints `expected` byte-for-byte up to the trailing
+/// newline, so leading / embedded alignment spaces survive. `expected` comes from the test
+/// process's own `sprintf`.
+let private runParity (name: string) (src: string) (expected: string) : unit =
+    printsUnder TrailingNewlines name expected src
 
 /// The deepest exception the driver's entry point throws, with its `ParamName`. The
 /// asserting run helpers turn a throw into a test failure, so a test that must OBSERVE
@@ -737,11 +734,7 @@ let tests =
             }
 
             test "`printfn \"%5d\"` right-justifies in a width-5 field" {
-                let exitCode, output =
-                    withPrintfAlc (fun alc -> runDriverInAlc alc "printfn \"%5d\" 42")
-
-                Expect.equal exitCode 0 "Main returns 0"
-                Expect.equal (output.TrimEnd()) "   42" "right-justified in a width-5 field (3 leading spaces)"
+                runParity "PHpRightJustify" "printfn \"%5d\" 42" "   42"
             }
 
             test "`printfn \"100%%\"` prints a literal percent" { runPrints "PHpPercent" "printfn \"100%%\"" "100%" }

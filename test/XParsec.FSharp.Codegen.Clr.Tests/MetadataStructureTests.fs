@@ -642,9 +642,7 @@ let tests =
                     "Vesper.Set"
                 ] do
                 test (sprintf "the emitted %s package is well-formed" package) {
-                    match ((buildPackage package).Value |> snd).OutputPath with
-                    | Some path -> assertWellFormedFile package path
-                    | None -> failwithf "buildPackage %s produced no OutputPath" package
+                    assertWellFormedFile package (packageOutputPath package)
                 }
 
             // ---- Teeth ----------------------------------------------------------

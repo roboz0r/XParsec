@@ -9,7 +9,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.PeInspection
 
 // A compilation is an ordered SEQUENCE of frozen files emitted into ONE assembly: two files
 // compiled together and RUN. A cross-file reference that failed to re-home to a LOCAL
-// definition would emit a self-`AssemblyRef`, so the loader faults and `peAssemblyRefs` sees it.
+// definition would emit a self-`AssemblyRef`, which `expectNoSelfAssemblyRef` asserts against.
 
 /// Compile a multi-file assembly through the production driver seam: each unit analysed against
 /// the composed prior views, `views ++ external` composed, ONE PE emitted. Returns its bytes.
@@ -62,11 +62,7 @@ printfn \"%d\" (s + e)
                 let asmName = "CrossFileRun"
                 let bytes = compileTwoFiles asmName file1 file2
 
-                let refs = peAssemblyRefs bytes
-
-                Expect.isFalse
-                    (refs |> List.contains asmName)
-                    (sprintf "the emitted PE must not reference its own assembly '%s'; refs = %A" asmName refs)
+                expectNoSelfAssemblyRef asmName bytes
 
                 // s = add 7 5 = 12; e = identity 12 = 12; total = 24.
                 let exitCode, output = runEntryPoint bytes
@@ -123,11 +119,7 @@ printfn \"%d\" (twice 11 + addBase 1)
                             SourceUnit.ofImplementation (SourceFile.ofText "file2.fs" file2)
                         ]
 
-                let refs = peAssemblyRefs bytes
-
-                Expect.isFalse
-                    (refs |> List.contains asmName)
-                    (sprintf "the emitted PE must not reference its own assembly '%s'; refs = %A" asmName refs)
+                expectNoSelfAssemblyRef asmName bytes
 
                 // `twice 11` = addBase (addBase 11) = 31, plus `addBase 1` = 11 ⇒ 42.
                 let exitCode, output = runEntryPoint bytes
@@ -163,11 +155,7 @@ let inline twice (x: int) : int = addBase (addBase x)
                 let asmName = "CrossFileTopLevel"
                 let bytes = compileTwoFiles asmName file1 file2
 
-                let refs = peAssemblyRefs bytes
-
-                Expect.isFalse
-                    (refs |> List.contains asmName)
-                    (sprintf "the emitted PE must not reference its own assembly '%s'; refs = %A" asmName refs)
+                expectNoSelfAssemblyRef asmName bytes
 
                 // `twice 11` = addBase (addBase 11) = 31, plus `addBase 1` = 11 ⇒ 42.
                 let exitCode, output = runEntryPoint bytes
@@ -267,11 +255,7 @@ printfn \"%d\" r.X
                 let asmName = "CrossFileFieldRead"
                 let bytes = compileTwoFiles asmName file1 file2
 
-                let refs = peAssemblyRefs bytes
-
-                Expect.isFalse
-                    (refs |> List.contains asmName)
-                    (sprintf "the emitted PE must not reference its own assembly '%s'; refs = %A" asmName refs)
+                expectNoSelfAssemblyRef asmName bytes
 
                 let exitCode, output = runEntryPoint bytes
                 let actual = output.Replace("\r", "").Trim()
@@ -304,17 +288,49 @@ printfn \"%d\" (r.X + r.Y)
                 let asmName = "CrossFileRecordCons"
                 let bytes = compileTwoFiles asmName file1 file2
 
-                let refs = peAssemblyRefs bytes
-
-                Expect.isFalse
-                    (refs |> List.contains asmName)
-                    (sprintf "the emitted PE must not reference its own assembly '%s'; refs = %A" asmName refs)
+                expectNoSelfAssemblyRef asmName bytes
 
                 let exitCode, output = runEntryPoint bytes
                 let actual = output.Replace("\r", "").Trim()
 
                 Expect.equal exitCode 0 (sprintf "expected exit 0; stdout was %A" actual)
                 Expect.equal actual "42" "cross-file record construction builds and reads the record"
+            }
+
+            test "two files run: file 2 CONSTRUCTS a namespace-level union case declared in file 1" {
+                // File 2 BUILDS file 1's union with bare case applications, a nullary and a
+                // two-field case, and matches them back apart.
+                let file1 =
+                    "\
+namespace CrossFile
+
+type Shape =
+    | Empty
+    | Rect of int * int
+"
+
+                let file2 =
+                    "\
+open CrossFile
+
+let area (s: Shape) =
+    match s with
+    | Empty -> 0
+    | Rect(w, h) -> w * h
+
+printfn \"%d\" (area (Rect(6, 7)) + area Empty)
+"
+
+                let asmName = "CrossFileUnionCons"
+                let bytes = compileTwoFiles asmName file1 file2
+
+                expectNoSelfAssemblyRef asmName bytes
+
+                let exitCode, output = runEntryPoint bytes
+                let actual = output.Replace("\r", "").Trim()
+
+                Expect.equal exitCode 0 (sprintf "expected exit 0; stdout was %A" actual)
+                Expect.equal actual "42" "cross-file union construction builds and matches the cases"
             }
 
             // A module-held UNION reached across a file boundary, which is the `InModule`
@@ -342,11 +358,7 @@ printfn \"%d\" (match s with | Sq n -> n | Tri n -> n)
                 let asmName = "CrossFileUnionInModule"
                 let bytes = compileTwoFiles asmName file1 file2
 
-                let refs = peAssemblyRefs bytes
-
-                Expect.isFalse
-                    (refs |> List.contains asmName)
-                    (sprintf "the emitted PE must not reference its own assembly '%s'; refs = %A" asmName refs)
+                expectNoSelfAssemblyRef asmName bytes
 
                 let exitCode, output = runEntryPoint bytes
                 let actual = output.Replace("\r", "").Trim()
@@ -382,11 +394,7 @@ printfn \"%d\" (a.Raw + b.Raw)
                 let asmName = "CrossFileCtorOverload"
                 let bytes = compileTwoFiles asmName file1 file2
 
-                let refs = peAssemblyRefs bytes
-
-                Expect.isFalse
-                    (refs |> List.contains asmName)
-                    (sprintf "the emitted PE must not reference its own assembly '%s'; refs = %A" asmName refs)
+                expectNoSelfAssemblyRef asmName bytes
 
                 let exitCode, output = runEntryPoint bytes
                 let actual = output.Replace("\r", "").Trim()
@@ -486,11 +494,7 @@ printfn \"%d\" (s.Raw + d.Raw)
                 let asmName = "CrossFileCtor"
                 let bytes = compileTwoFiles asmName file1 file2
 
-                let refs = peAssemblyRefs bytes
-
-                Expect.isFalse
-                    (refs |> List.contains asmName)
-                    (sprintf "the emitted PE must not reference its own assembly '%s'; refs = %A" asmName refs)
+                expectNoSelfAssemblyRef asmName bytes
 
                 let exitCode, output = runEntryPoint bytes
                 let actual = output.Replace("\r", "").Trim()
@@ -520,11 +524,7 @@ printfn \"%d\" b.Value
                 let asmName = "CrossFileGenericCtor"
                 let bytes = compileTwoFiles asmName file1 file2
 
-                let refs = peAssemblyRefs bytes
-
-                Expect.isFalse
-                    (refs |> List.contains asmName)
-                    (sprintf "the emitted PE must not reference its own assembly '%s'; refs = %A" asmName refs)
+                expectNoSelfAssemblyRef asmName bytes
 
                 let exitCode, output = runEntryPoint bytes
                 let actual = output.Replace("\r", "").Trim()
@@ -561,11 +561,7 @@ printfn \"%d\" (c.Radius + c.Raw)
                 let asmName = "CrossFileInherit"
                 let bytes = compileTwoFiles asmName file1 file2
 
-                let refs = peAssemblyRefs bytes
-
-                Expect.isFalse
-                    (refs |> List.contains asmName)
-                    (sprintf "the emitted PE must not reference its own assembly '%s'; refs = %A" asmName refs)
+                expectNoSelfAssemblyRef asmName bytes
 
                 let exitCode, output = runEntryPoint bytes
                 let actual = output.Replace("\r", "").Trim()
@@ -608,11 +604,7 @@ printfn \"%d\" (g.GetVal())
                 let asmName = "CrossFileInterfaceCall"
                 let bytes = compileTwoFiles asmName file1 file2
 
-                let refs = peAssemblyRefs bytes
-
-                Expect.isFalse
-                    (refs |> List.contains asmName)
-                    (sprintf "the emitted PE must not reference its own assembly '%s'; refs = %A" asmName refs)
+                expectNoSelfAssemblyRef asmName bytes
 
                 let exitCode, output = runEntryPoint bytes
                 let actual = output.Replace("\r", "").Trim()
@@ -653,11 +645,7 @@ printfn \"%d\" (callIt g)
                 let asmName = "CrossFileInterfaceTyparCall"
                 let bytes = compileTwoFiles asmName file1 file2
 
-                let refs = peAssemblyRefs bytes
-
-                Expect.isFalse
-                    (refs |> List.contains asmName)
-                    (sprintf "the emitted PE must not reference its own assembly '%s'; refs = %A" asmName refs)
+                expectNoSelfAssemblyRef asmName bytes
 
                 let exitCode, output = runEntryPoint bytes
                 let actual = output.Replace("\r", "").Trim()
@@ -743,11 +731,7 @@ printfn \"%d\" (v + 1 + CrossFile.Lib.v)
 
                 let asmName = "CrossFileValue"
                 let bytes = compileTwoFiles asmName file1 file2
-                let refs = peAssemblyRefs bytes
-
-                Expect.isFalse
-                    (refs |> List.contains asmName)
-                    (sprintf "the emitted PE must not reference its own assembly '%s'; refs = %A" asmName refs)
+                expectNoSelfAssemblyRef asmName bytes
 
                 let exitCode, output = runEntryPoint bytes
                 Expect.equal exitCode 0 (sprintf "expected exit 0; stdout was %A" output)
@@ -813,11 +797,7 @@ printfn \"%d\" (a (Color.Green 3) + a Color.Red)
 
                 let asmName = "CrossFileTypeCase"
                 let bytes = compileTwoFiles asmName file1 file2
-                let refs = peAssemblyRefs bytes
-
-                Expect.isFalse
-                    (refs |> List.contains asmName)
-                    (sprintf "the emitted PE must not reference its own assembly '%s'; refs = %A" asmName refs)
+                expectNoSelfAssemblyRef asmName bytes
 
                 let exitCode, output = runEntryPoint bytes
                 Expect.equal exitCode 0 (sprintf "expected exit 0; stdout was %A" output)

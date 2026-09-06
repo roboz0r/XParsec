@@ -87,15 +87,8 @@ let tests =
                 if IO.File.Exists coreDst then
                     IO.File.Delete coreDst
 
-                let artifact = compileSourceTo project "printfn \"%d\" 42"
-                Codegen.materialiseApp artifact
+                runsOnDisk project "42" "printfn \"%d\" 42" |> ignore
 
-                let dllPath = IO.Path.Combine(outDir, "XParsecNoCoreApp.dll")
-                Expect.isTrue (IO.File.Exists dllPath) "PE written"
                 Expect.isFalse (IO.File.Exists coreDst) "FSharp.Core.dll NOT copied, because there is no dependency"
-
-                let exitCode, output = runOnDisk dllPath
-                Expect.equal exitCode 0 (sprintf "dotnet exits 0 (output was: %s)" output)
-                Expect.equal (output.Trim()) "42" "the standalone app runs and prints 42 without FSharp.Core present"
             }
         ]

@@ -47,11 +47,8 @@ let private driverCounter = ref 0
 let compilePackages (packages: string list) (src: string) : ClrArtifact =
     let allPackages = transitivePackages (defaultPackageNames @ packages)
 
-    let depDlls =
-        allPackages |> List.choose (fun p -> ((buildPackage p).Value |> snd).OutputPath)
-
+    let depDlls = allPackages |> List.map packageOutputPath
     let provider = ClrSymbolProviders.buildContract (allPackages |> List.map srcPackage)
-
     let n = System.Threading.Interlocked.Increment driverCounter
 
     let project =
@@ -66,12 +63,9 @@ let compilePackages (packages: string list) (src: string) : ClrArtifact =
 /// implements a DIFFERENT `Vesper.Core` identity than its own package types.
 let private packageAlcPrintf: Lazy<unit> =
     lazy
-        (let path =
-            match ((buildPackage "Vesper.Printf").Value |> snd).OutputPath with
-            | Some p -> p
-            | None -> failwith "buildPackage Vesper.Printf produced no OutputPath"
+        (use ms =
+            new IO.MemoryStream(IO.File.ReadAllBytes(packageOutputPath "Vesper.Printf"))
 
-         use ms = new IO.MemoryStream(IO.File.ReadAllBytes path)
          packageAlc.Register("Vesper.Printf", packageAlc.LoadFromStream ms))
 
 /// Compile `src` against `packages` and run its entry point inside `packageAlc`, so driver,
@@ -91,14 +85,7 @@ let runPackages (packages: string list) (src: string) : int * string = runPackag
 /// Compile + run `src` against `packages`; assert exit 0 and trimmed, CRLF-normalised
 /// stdout equals `expected`.
 let runsPackages (packages: string list) (expected: string) (src: string) : unit =
-    let exitCode, output = runPackages packages src
-    let actual = output.Replace("\r", "").Trim()
-
-    if exitCode <> 0 then
-        failwithf "expected exit 0 but got %d for:\n%s\n--- stdout ---\n%s" exitCode src actual
-
-    if actual <> expected then
-        failwithf "expected %A but got %A for:\n%s" expected actual src
+    runPackages packages src |> expectRan Whole expected src
 
 /// `runsPackages` for a multi-line expected block (joined with "\n").
 let runsPackagesLines (packages: string list) (expected: string list) (src: string) : unit =

@@ -43,14 +43,7 @@ let tests =
                 let src =
                     "let rec sumTo n =\n    match n with\n    | 0 -> 0\n    | _ -> n + sumTo (n - 1)\nprintfn \"%d\" (sumTo 5)"
 
-                let artifact = compileSourceTo project src
-                Codegen.materialiseApp artifact
-
-                let dllPath = IO.Path.Combine(outDir, "XParsecStaticApp.dll")
-                let exitCode, output = runOnDisk dllPath
-
-                Expect.equal exitCode 0 (sprintf "dotnet exits 0 (output was: %s)" output)
-                Expect.equal (output.Trim()) "15" "the recursive static method runs as a real assembly"
+                runsOnDisk project "15" src |> ignore
             }
 
             test "`materialiseApp` emits a `dotnet <dll>`-runnable bundle that prints a `%A` list" {
@@ -59,19 +52,12 @@ let tests =
                 // `RuntimeFormatState` implements the Core-owned `IFormatSink`.
                 let project = withCore (ProjectInfo.app "XParsecListApp" outDir)
 
-                let artifact = compileSourceTo project "printfn \"%A\" [1; 2; 3]"
-                Codegen.materialiseApp artifact
+                let dllPath = runsOnDisk project "[1; 2; 3]" "printfn \"%A\" [1; 2; 3]"
 
-                let dllPath = IO.Path.Combine(outDir, "XParsecListApp.dll")
-                Expect.isTrue (IO.File.Exists dllPath) "PE written"
+                Expect.equal dllPath (IO.Path.Combine(outDir, "XParsecListApp.dll")) "the PE lands in the app directory"
 
                 Expect.isTrue
                     (IO.File.Exists(IO.Path.Combine(outDir, "XParsecListApp.runtimeconfig.json")))
                     "runtimeconfig.json written"
-
-                let exitCode, output = runOnDisk dllPath
-                Expect.equal exitCode 0 (sprintf "dotnet exits 0 (output was: %s)" output)
-
-                Expect.equal (output.Trim()) "[1; 2; 3]" "the standalone app prints the list"
             }
         ]
