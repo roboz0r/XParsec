@@ -5,14 +5,14 @@ export class BoxedItems {
   }
   *[Symbol.iterator]() {
     const _s0 = this;
-    const _e85 = _s0;
-    while (_e85.MoveNext()) {
-      yield _e85.Current();
+    const _e119 = _s0;
+    while (_e119.MoveNext()) {
+      yield _e119.Current();
     }
   }
   Current() {
     const _s0 = this;
-    return ((_s70) => _s70)(_s0.inner.Current());
+    return ((_s89) => _s89)(_s0.inner.Current());
   }
   MoveNext() {
     const _s0 = this;
@@ -29,24 +29,24 @@ export class ListEnumerator {
     this.started = false;
   }
   Current() {
-    const _s7 = this;
-    return List__get_Head(_s7.cursor);
+    const _s15 = this;
+    return List__get_Head(_s15.cursor);
   }
   MoveNext() {
-    const _s7 = this;
-    return (_s7.started ? ((_m86) => {
-      if ((_m86.tag === 0)) {
+    const _s15 = this;
+    return (_s15.started ? ((_m120) => {
+      if ((_m120.tag === 0)) {
         return false;
       }
-      if ((_m86.tag === 1)) {
-        const t = _m86.Tail;
-        return ((_s7.cursor = t), ((_s77) => (!(_s77)))(List__get_IsEmpty(_s7.cursor)));
+      if ((_m120.tag === 1)) {
+        const t = _m120.Tail;
+        return ((_s15.cursor = t), ((_s111) => (!(_s111)))(List__get_IsEmpty(_s15.cursor)));
       }
       throw new Error("The match cases were incomplete");
-    })(_s7.cursor) : ((_s7.started = true), ((_s78) => (!(_s78)))(List__get_IsEmpty(_s7.cursor))));
+    })(_s15.cursor) : ((_s15.started = true), ((_s112) => (!(_s112)))(List__get_IsEmpty(_s15.cursor))));
   }
   [Symbol.dispose]() {
-    const _s7 = this;
+    const _s15 = this;
     return undefined;
   }
 }
@@ -62,9 +62,9 @@ export class List {
   }
   *[Symbol.iterator]() {
     const _s2 = this;
-    const _e87 = new ListEnumerator(_s2);
-    while (_e87.MoveNext()) {
-      yield _e87.Current();
+    const _e121 = new ListEnumerator(_s2);
+    while (_e121.MoveNext()) {
+      yield _e121.Current();
     }
   }
   Format(sink) {
@@ -84,135 +84,147 @@ export class List_Cons extends List {
     this.Tail = Tail;
   }
 }
-export const List__get_Length = (_s2) => ((_m88) => {
-  if ((_m88.tag === 0)) {
+export const List__get_Length = (_s2) => ((_m122) => {
+  if ((_m122.tag === 0)) {
     return 0;
   }
-  if ((_m88.tag === 1)) {
-    const t = _m88.Tail;
-    return ((_s72) => (((1) + (_s72)) | 0))(List__get_Length(t));
+  if ((_m122.tag === 1)) {
+    const t = _m122.Tail;
+    return ((_s91) => (((1) + (_s91)) | 0))(List__get_Length(t));
   }
   throw new Error("The match cases were incomplete");
 })(_s2);
-export const List__get_IsEmpty = (_s2) => ((_m89) => {
-  if ((_m89.tag === 0)) {
+export const List__get_IsEmpty = (_s2) => ((_m123) => {
+  if ((_m123.tag === 0)) {
     return true;
   }
-  if ((_m89.tag === 1)) {
+  if ((_m123.tag === 1)) {
     return false;
   }
   throw new Error("The match cases were incomplete");
 })(_s2);
-export const List__get_Head = (_s2) => ((_m90) => {
-  if ((_m90.tag === 0)) {
+export const List__get_Head = (_s2) => ((_m124) => {
+  if ((_m124.tag === 0)) {
     return ((() => { throw new Error(("The input list was empty.")); })());
   }
-  if ((_m90.tag === 1)) {
-    const h = _m90.Head;
+  if ((_m124.tag === 1)) {
+    const h = _m124.Head;
     return h;
   }
   throw new Error("The match cases were incomplete");
 })(_s2);
-export const List__get_Tail = (_s2) => ((_m91) => {
-  if ((_m91.tag === 0)) {
+export const List__get_Tail = (_s2) => ((_m125) => {
+  if ((_m125.tag === 0)) {
     return ((() => { throw new Error(("The input list was empty.")); })());
   }
-  if ((_m91.tag === 1)) {
-    const t = _m91.Tail;
+  if ((_m125.tag === 1)) {
+    const t = _m125.Tail;
     return t;
   }
   throw new Error("The match cases were incomplete");
 })(_s2);
-export const fold = (folder, state, list) => ((_m92) => {
-  if ((_m92.tag === 0)) {
+export const List__get_Item = (_s2) => (index) => ((nth) => nth(_s2)(index))((l) => (n) => ((_m126) => {
+  if ((_m126.tag === 0)) {
+    return ((() => { throw new Error(("The index was outside the range of elements in the list.")); })());
+  }
+  if ((_m126.tag === 1)) {
+    const h = _m126.Head;
+    const t = _m126.Tail;
+    return (((n) === (0)) ? h : nth(t)((((n) - (1)) | 0)));
+  }
+  throw new Error("The match cases were incomplete");
+})(l));
+export const List__GetReverseIndex = (_s2) => (_rank) => (offset) => ((_s107) => (((_s107) - (1)) | 0))(((_s103) => (((_s103) - (offset)) | 0))(List__get_Length(_s2)));
+export const fold = (folder, state, list) => ((_m127) => {
+  if ((_m127.tag === 0)) {
     return state;
   }
-  if ((_m92.tag === 1)) {
-    const h = _m92.Head;
-    const t = _m92.Tail;
+  if ((_m127.tag === 1)) {
+    const h = _m127.Head;
+    const t = _m127.Tail;
     return fold(folder, folder(state)(h), t);
   }
   throw new Error("The match cases were incomplete");
 })(list);
-export const isEmpty = (list) => ((_m93) => {
-  if ((_m93.tag === 0)) {
+export const isEmpty = (list) => ((_m128) => {
+  if ((_m128.tag === 0)) {
     return true;
   }
-  if ((_m93.tag === 1)) {
+  if ((_m128.tag === 1)) {
     return false;
   }
   throw new Error("The match cases were incomplete");
 })(list);
-export const length = (list) => ((_m94) => {
-  if ((_m94.tag === 0)) {
+export const length = (list) => ((_m129) => {
+  if ((_m129.tag === 0)) {
     return 0;
   }
-  if ((_m94.tag === 1)) {
-    const t = _m94.Tail;
-    return ((_s80) => (((1) + (_s80)) | 0))(length(t));
+  if ((_m129.tag === 1)) {
+    const t = _m129.Tail;
+    return ((_s114) => (((1) + (_s114)) | 0))(length(t));
   }
   throw new Error("The match cases were incomplete");
 })(list);
-export const head = (list) => ((_m95) => {
-  if ((_m95.tag === 0)) {
+export const head = (list) => ((_m130) => {
+  if ((_m130.tag === 0)) {
     return ((() => { throw new Error(("The input list was empty.")); })());
   }
-  if ((_m95.tag === 1)) {
-    const h = _m95.Head;
+  if ((_m130.tag === 1)) {
+    const h = _m130.Head;
     return h;
   }
   throw new Error("The match cases were incomplete");
 })(list);
-export const tail = (list) => ((_m96) => {
-  if ((_m96.tag === 0)) {
+export const tail = (list) => ((_m131) => {
+  if ((_m131.tag === 0)) {
     return ((() => { throw new Error(("The input list was empty.")); })());
   }
-  if ((_m96.tag === 1)) {
-    const t = _m96.Tail;
+  if ((_m131.tag === 1)) {
+    const t = _m131.Tail;
     return t;
   }
   throw new Error("The match cases were incomplete");
 })(list);
-export const map = (mapping, list) => ((_m97) => {
-  if ((_m97.tag === 0)) {
+export const map = (mapping, list) => ((_m132) => {
+  if ((_m132.tag === 0)) {
     return new List_Empty();
   }
-  if ((_m97.tag === 1)) {
-    const h = _m97.Head;
-    const t = _m97.Tail;
+  if ((_m132.tag === 1)) {
+    const h = _m132.Head;
+    const t = _m132.Tail;
     return new List_Cons(mapping(h), map(mapping, t));
   }
   throw new Error("The match cases were incomplete");
 })(list);
-export const filter = (predicate, list) => ((_m98) => {
-  if ((_m98.tag === 0)) {
+export const filter = (predicate, list) => ((_m133) => {
+  if ((_m133.tag === 0)) {
     return new List_Empty();
   }
-  if ((_m98.tag === 1)) {
-    const h = _m98.Head;
-    const t = _m98.Tail;
+  if ((_m133.tag === 1)) {
+    const h = _m133.Head;
+    const t = _m133.Tail;
     return (predicate(h) ? new List_Cons(h, filter(predicate, t)) : filter(predicate, t));
   }
   throw new Error("The match cases were incomplete");
 })(list);
-export const append = (list1, list2) => ((_m99) => {
-  if ((_m99.tag === 0)) {
+export const append = (list1, list2) => ((_m134) => {
+  if ((_m134.tag === 0)) {
     return list2;
   }
-  if ((_m99.tag === 1)) {
-    const h = _m99.Head;
-    const t = _m99.Tail;
+  if ((_m134.tag === 1)) {
+    const h = _m134.Head;
+    const t = _m134.Tail;
     return new List_Cons(h, append(t, list2));
   }
   throw new Error("The match cases were incomplete");
 })(list1);
-export const rev = (list) => ((_m100) => {
-  if ((_m100.tag === 0)) {
+export const rev = (list) => ((_m135) => {
+  if ((_m135.tag === 0)) {
     return new List_Empty();
   }
-  if ((_m100.tag === 1)) {
-    const h = _m100.Head;
-    const t = _m100.Tail;
+  if ((_m135.tag === 1)) {
+    const h = _m135.Head;
+    const t = _m135.Tail;
     return append(rev(t), new List_Cons(h, new List_Empty()));
   }
   throw new Error("The match cases were incomplete");

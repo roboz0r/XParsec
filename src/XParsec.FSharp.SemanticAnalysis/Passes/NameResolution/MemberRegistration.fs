@@ -611,6 +611,7 @@ module NameResolutionMemberRegistration =
             info.Declared <-
                 {
                     IsSealed = classAttrs.IsSealed
+                    // `[<AbstractClass>]` is not decoded; Gap 6 in `docs/conformance-tast-level-plan.md`.
                     IsAbstract = false
                     AllowNullLiteral = AttributeVerdicts.allowNullLiteral info.DefnKind tattrs
                 }

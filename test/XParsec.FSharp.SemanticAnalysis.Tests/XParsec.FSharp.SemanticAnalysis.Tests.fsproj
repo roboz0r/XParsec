@@ -63,6 +63,7 @@
     <Compile Include="PrintfTests.fs" />
     <Compile Include="TypeProvenanceTests.fs" />
     <Compile Include="ConformanceTests.fs" />
+    <Compile Include="ConformanceBodyTests.fs" />
     <Compile Include="EnumTests.fs" />
     <Compile Include="ConstFoldTests.fs" />
     <Compile Include="ExternMemberElabTests.fs" />

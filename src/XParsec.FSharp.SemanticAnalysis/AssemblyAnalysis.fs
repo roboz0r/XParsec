@@ -259,9 +259,9 @@ module AssemblyAnalysis =
             Conformance: Diagnostic list
         }
 
-    /// Home a resolved signature in its implementation and check the pair over the two ANALYSED
-    /// halves: type and value presence, the `extern` ↔ repr pairing, and typar ORDER, each by
-    /// resolved identity. The module-decl pairing alone stays SYNTACTIC.
+    /// Home a resolved signature in its implementation and check the pair by resolved identity:
+    /// type and value presence, the `extern` ↔ repr pairing, type bodies, and module-value typar
+    /// ORDER. The module-decl pairing alone stays SYNTACTIC.
     ///
     /// This is the only site that homes a signature for an assembly it is compiled in, so the
     /// verdict is taken on every pair that reaches a later file's scope.
@@ -309,7 +309,10 @@ module AssemblyAnalysis =
                                 )
                             )
 
-                    let findings = ConformanceSurface.check r.Surface impl.Frozen
+                    let implemented = FrozenSignature.toSurface impl.Retained impl.Frozen
+
+                    let findings =
+                        ConformanceSurface.check r.Surface implemented impl.Frozen.Residue.IntrinsicBindings
 
                     for e in findings.Errors do
                         yield unimplemented (Conformance.describe e)
@@ -319,9 +322,6 @@ module AssemblyAnalysis =
 
                     for m in ConformanceTypars.checkFile published impl.Frozen do
                         yield unimplemented (ConformanceTypars.describe m)
-
-                    for m in ConformanceTypars.checkMembers published impl.Frozen do
-                        yield unimplemented (ConformanceTypars.describeMember m)
                 ]
         }
 

@@ -183,6 +183,73 @@ module FrozenCodecDiagnostics =
             w.Write name
             w.Write declared
             w.Write defined
+        | Conformance.ConformanceError.FieldMissingInImpl(typeName, field) ->
+            w.Write 15uy
+            w.Write typeName
+            w.Write field
+        | Conformance.ConformanceError.FieldMissingInSig(typeName, field) ->
+            w.Write 16uy
+            w.Write typeName
+            w.Write field
+        | Conformance.ConformanceError.FieldDiffers(typeName, field, declared, defined) ->
+            w.Write 17uy
+            w.Write typeName
+            w.Write field
+            w.Write declared
+            w.Write defined
+        | Conformance.ConformanceError.FieldOrderDiffers typeName ->
+            w.Write 18uy
+            w.Write typeName
+        | Conformance.ConformanceError.UnionCaseCountDiffers(typeName, declared, defined) ->
+            w.Write 19uy
+            w.Write typeName
+            w.Write declared
+            w.Write defined
+        | Conformance.ConformanceError.UnionCaseDiffers(typeName, index, declared, defined) ->
+            w.Write 20uy
+            w.Write typeName
+            w.Write index
+            w.Write declared
+            w.Write defined
+        | Conformance.ConformanceError.EnumCaseMissingInImpl(typeName, case) ->
+            w.Write 21uy
+            w.Write typeName
+            w.Write case
+        | Conformance.ConformanceError.EnumCaseMissingInSig(typeName, case) ->
+            w.Write 22uy
+            w.Write typeName
+            w.Write case
+        | Conformance.ConformanceError.EnumCaseValueDiffers(typeName, case, declared, defined) ->
+            w.Write 23uy
+            w.Write typeName
+            w.Write case
+            w.Write declared
+            w.Write defined
+        | Conformance.ConformanceError.AbbreviationDiffers(typeName, declared, defined) ->
+            w.Write 24uy
+            w.Write typeName
+            w.Write declared
+            w.Write defined
+        | Conformance.ConformanceError.MemberMissingInImpl(typeName, memberName, declared) ->
+            w.Write 25uy
+            w.Write typeName
+            w.Write memberName
+            w.Write declared
+        | Conformance.ConformanceError.BaseTypeDiffers(typeName, declared, defined) ->
+            w.Write 26uy
+            w.Write typeName
+            w.Write declared
+            w.Write defined
+        | Conformance.ConformanceError.InterfacesDiffer(typeName, declared, defined) ->
+            w.Write 27uy
+            w.Write typeName
+            w.Write declared
+            w.Write defined
+        | Conformance.ConformanceError.ShapeFlagDiffers(typeName, flag, declared) ->
+            w.Write 28uy
+            w.Write typeName
+            w.Write flag
+            w.Write declared
 
     let private readConformanceError (r: FrozenReader) : Conformance.ConformanceError =
         match r.ReadByte() with
@@ -216,6 +283,58 @@ module FrozenCodecDiagnostics =
             let name = r.ReadString()
             let declared = r.ReadString()
             Conformance.ConformanceError.CompiledNameDiffers(name, declared, r.ReadString())
+        | 15uy ->
+            let typeName = r.ReadString()
+            Conformance.ConformanceError.FieldMissingInImpl(typeName, r.ReadString())
+        | 16uy ->
+            let typeName = r.ReadString()
+            Conformance.ConformanceError.FieldMissingInSig(typeName, r.ReadString())
+        | 17uy ->
+            let typeName = r.ReadString()
+            let field = r.ReadString()
+            let declared = r.ReadString()
+            Conformance.ConformanceError.FieldDiffers(typeName, field, declared, r.ReadString())
+        | 18uy -> Conformance.ConformanceError.FieldOrderDiffers(r.ReadString())
+        | 19uy ->
+            let typeName = r.ReadString()
+            let declared = r.ReadInt32()
+            Conformance.ConformanceError.UnionCaseCountDiffers(typeName, declared, r.ReadInt32())
+        | 20uy ->
+            let typeName = r.ReadString()
+            let index = r.ReadInt32()
+            let declared = r.ReadString()
+            Conformance.ConformanceError.UnionCaseDiffers(typeName, index, declared, r.ReadString())
+        | 21uy ->
+            let typeName = r.ReadString()
+            Conformance.ConformanceError.EnumCaseMissingInImpl(typeName, r.ReadString())
+        | 22uy ->
+            let typeName = r.ReadString()
+            Conformance.ConformanceError.EnumCaseMissingInSig(typeName, r.ReadString())
+        | 23uy ->
+            let typeName = r.ReadString()
+            let case = r.ReadString()
+            let declared = r.ReadString()
+            Conformance.ConformanceError.EnumCaseValueDiffers(typeName, case, declared, r.ReadString())
+        | 24uy ->
+            let typeName = r.ReadString()
+            let declared = r.ReadString()
+            Conformance.ConformanceError.AbbreviationDiffers(typeName, declared, r.ReadString())
+        | 25uy ->
+            let typeName = r.ReadString()
+            let memberName = r.ReadString()
+            Conformance.ConformanceError.MemberMissingInImpl(typeName, memberName, r.ReadString())
+        | 26uy ->
+            let typeName = r.ReadString()
+            let declared = r.ReadString()
+            Conformance.ConformanceError.BaseTypeDiffers(typeName, declared, r.ReadString())
+        | 27uy ->
+            let typeName = r.ReadString()
+            let declared = r.ReadString()
+            Conformance.ConformanceError.InterfacesDiffer(typeName, declared, r.ReadString())
+        | 28uy ->
+            let typeName = r.ReadString()
+            let flag = r.ReadString()
+            Conformance.ConformanceError.ShapeFlagDiffers(typeName, flag, r.ReadBoolean())
         | b -> failwithf "FrozenCodec: unknown ConformanceError tag %d" b
 
     /// A `uint16`-backed enum, written as its own representation INCLUDING the flag bits; a

@@ -2,12 +2,9 @@ namespace XParsec.FSharp.SemanticAnalysis
 
 open System.Collections.Generic
 
-// `.fsi` ↔ `.fs` conformance over the two ANALYSED halves: the surface a signature publishes
-// against the declarations its implementation froze, compared by resolved identity. A
-// `ModuleSuffix` module and a shadowed attribute are settled by that resolution before any
-// comparison here. A `[<CompiledName>]` is off the identity axis, because fsc pairs the
-// halves by the name each writes (FS0193); it is checked as its own agreement between the
-// paired declarations.
+// `.fsi` ↔ `.fs` conformance over the two ANALYSED halves, compared by resolved identity: the
+// signature's surface against the one the implementation would publish unsigned. A
+// `[<CompiledName>]` is checked as its own agreement between the paired declarations (FS0193).
 
 /// The findings about one group of a signature's declarations. `Errors` is at error
 /// severity, `Divergent` at warning severity.
@@ -19,49 +16,6 @@ type ConformanceFindings =
     }
 
 module ConformanceSurface =
-
-    let private declaredTypes (frozen: FrozenPools) : Dictionary<TypeKey, TastAccessor.TypeDecl> =
-        let declared = Dictionary<TypeKey, TastAccessor.TypeDecl>(HashIdentity.Structural)
-
-        let pool = TastPoolBuilder.openOver frozen
-
-        for decl in TastAccessor.roots pool do
-            match TastAccessor.declKind decl with
-            | DeclShape.Type ->
-                let td = TastAccessor.declType decl
-                declared.[td.TypeKey] <- td
-            | _ -> ()
-
-        declared
-
-    let private definedFamily (td: TastAccessor.TypeDecl) : Conformance.TypeKindFamily voption =
-        match td.Kind with
-        | TTypeKindG.Record _ -> ValueSome Conformance.TypeKindFamily.Record
-        | TTypeKindG.Union _ -> ValueSome Conformance.TypeKindFamily.Union
-        | TTypeKindG.Enum _ -> ValueSome Conformance.TypeKindFamily.Enum
-        | TTypeKindG.Interface _ -> ValueSome Conformance.TypeKindFamily.Interface
-        | TTypeKindG.Class _ -> ValueSome Conformance.TypeKindFamily.Class
-        | TTypeKindG.Abbrev _
-        | TTypeKindG.Measure _ -> ValueNone
-
-    /// The binding identities an implementation DEFINES, each with the declaration it was
-    /// filed from. Only a pattern binding exactly one variable carries an identity.
-    let private definedValues (frozen: FrozenPools) : Dictionary<BindingKey, ModuleBindingInfo> =
-        let defined = Dictionary<BindingKey, ModuleBindingInfo>(HashIdentity.Structural)
-        let pool = TastPoolBuilder.openOver frozen
-        let moduleMembers = DenseTable.index frozen.ModuleMembers
-
-        for decl in TastAccessor.roots pool do
-            match decl with
-            | TastAccessor.DLet {
-                                    Pattern = TastAccessor.PNamed boundVar
-                                } ->
-                match moduleMembers.TryGetValue boundVar with
-                | true, info -> defined.[info.BindingKey] <- info
-                | _ -> ()
-            | _ -> ()
-
-        defined
 
     /// Does the signature's shape for this key oblige the implementation to declare a type of
     /// the same identity?
@@ -133,10 +87,15 @@ module ConformanceSurface =
         ]
 
     /// Each error group in key order; divergences in key order, attributes in the signature's
-    /// order. An attribute-argument divergence is fsc's FS1200.
-    let private checkTypes (published: PublishedSurface) (frozen: FrozenPools) : ConformanceFindings =
-        let declared = declaredTypes frozen
-        let implBindings = frozen.Residue.IntrinsicBindings
+    /// order. An attribute-argument divergence is fsc's FS1200. `implBindings` is the
+    /// implementation's `(# … #)` bindings, which publish under the `extern` family alone.
+    let private checkTypes
+        (published: PublishedSurface)
+        (implemented: PublishedSurface)
+        (implBindings: EqDict<TypeKey, IntrinsicBindingInfo>)
+        : ConformanceFindings =
+        let implShapes = PublishedSurface.keyIndex implemented.ShapesByKey
+        let implAttributes = PublishedSurface.keyIndex implemented.AttributesByKey
 
         let declaredExternKeys =
             HashSet<TypeKey>(seq { for e in published.ExternForms -> e.Key }, HashIdentity.Structural)
@@ -144,13 +103,13 @@ module ConformanceSurface =
         let named (key: TypeKey) = SymbolKeyOps.typeMetaName key
 
         /// A type declaration or a `(# … #)` binding of the same canonical identity.
-        let implemented (key: TypeKey) =
-            declared.ContainsKey key || implBindings.ContainsKey key
+        let isImplemented (key: TypeKey) =
+            implShapes.ContainsKey key || implBindings.ContainsKey key
 
         let errors =
             [
                 for entry in published.ShapesByKey do
-                    if demandsDeclaration declaredExternKeys entry && not (implemented entry.Key) then
+                    if demandsDeclaration declaredExternKeys entry && not (isImplemented entry.Key) then
                         yield Conformance.ConformanceError.MissingInImpl(named entry.Key)
 
                 // Only a key BOTH halves commit a family for takes a verdict.
@@ -158,9 +117,9 @@ module ConformanceSurface =
                     match entry.Value.DeclaredFamily with
                     | ValueNone -> ()
                     | ValueSome family ->
-                        match declared.TryGetValue entry.Key with
-                        | true, td ->
-                            match definedFamily td with
+                        match implShapes.TryGetValue entry.Key with
+                        | true, shape ->
+                            match shape.DeclaredFamily with
                             | ValueSome defined when defined <> family ->
                                 yield Conformance.ConformanceError.TypeKindMismatch(named entry.Key, family, defined)
                             | _ -> ()
@@ -183,9 +142,9 @@ module ConformanceSurface =
         let divergent: Conformance.AttributeDivergence list =
             [
                 for entry in published.AttributesByKey do
-                    match declared.TryGetValue entry.Key with
-                    | true, td ->
-                        for key in divergentAttributes entry.Value td.Attributes do
+                    match implAttributes.TryGetValue entry.Key with
+                    | true, defined ->
+                        for key in divergentAttributes entry.Value defined do
                             yield
                                 {
                                     Declaration = named entry.Key
@@ -201,8 +160,8 @@ module ConformanceSurface =
 
     /// Findings in key order, attributes in the signature's order. An attribute-argument
     /// divergence is fsc's FS1200.
-    let private checkValues (published: PublishedSurface) (frozen: FrozenPools) : ConformanceFindings =
-        let defined = definedValues frozen
+    let private checkValues (published: PublishedSurface) (implemented: PublishedSurface) : ConformanceFindings =
+        let defined = PublishedSurface.index implemented.Symbols HashIdentity.Structural
 
         let named (key: BindingKey) = SymbolKeyOps.qualifiedBindingName key
 
@@ -244,13 +203,19 @@ module ConformanceSurface =
             Divergent = divergent
         }
 
-    /// Every finding over a signature's declarations, the type findings before the value
-    /// findings.
-    let check (published: PublishedSurface) (frozen: FrozenPools) : ConformanceFindings =
-        let types = checkTypes published frozen
-        let values = checkValues published frozen
+    /// Every finding over a signature's declarations: the type findings, then the type-body
+    /// findings, then the value findings. `implemented` is the surface the implementation
+    /// would publish unsigned; `implBindings` is its `(# … #)` bindings.
+    let check
+        (published: PublishedSurface)
+        (implemented: PublishedSurface)
+        (implBindings: EqDict<TypeKey, IntrinsicBindingInfo>)
+        : ConformanceFindings =
+        let types = checkTypes published implemented implBindings
+        let bodies = ConformanceBodies.check published implemented
+        let values = checkValues published implemented
 
         {
-            Errors = [ yield! types.Errors; yield! values.Errors ]
+            Errors = [ yield! types.Errors; yield! bodies; yield! values.Errors ]
             Divergent = [ yield! types.Divergent; yield! values.Divergent ]
         }

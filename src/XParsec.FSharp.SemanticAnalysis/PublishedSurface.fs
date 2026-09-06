@@ -285,7 +285,7 @@ module PublishedSurface =
 
     /// The lookup index over one published table. Derived on demand, never part of the value,
     /// because a `Dictionary` compares by reference.
-    let private index (entries: EqArray<SurfaceEntry<'K, 'V>>) (comparer: IEqualityComparer<'K>) =
+    let index (entries: EqArray<SurfaceEntry<'K, 'V>>) (comparer: IEqualityComparer<'K>) =
         let d = Dictionary<'K, 'V>(entries.Length, comparer)
 
         for e in entries do
@@ -296,7 +296,8 @@ module PublishedSurface =
     let private nameIndex (entries: EqArray<SurfaceEntry<string, 'V>>) =
         index entries (StringComparer.Ordinal :> IEqualityComparer<string>)
 
-    let private keyIndex (entries: EqArray<SurfaceEntry<TypeKey, 'V>>) = index entries HashIdentity.Structural
+    /// `index` over a type-keyed table.
+    let keyIndex (entries: EqArray<SurfaceEntry<TypeKey, 'V>>) = index entries HashIdentity.Structural
 
     /// A scope's contents derived from the published tables: every symbol, case and type is
     /// filed under the container its key declares, so a segment-by-segment read of `A.M.x`

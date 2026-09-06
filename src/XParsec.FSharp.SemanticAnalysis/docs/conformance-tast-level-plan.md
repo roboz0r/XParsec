@@ -1,7 +1,6 @@
 # Conformance at the TAST level
 
-**Status: every stage has landed, and Gaps 1 to 4 are closed. Gap 5 is open; the
-`ExternalTypeShape` reshape it waited on landed with Gap 3.** Conformance
+**Status: every stage has landed, Gaps 1 to 5 are closed, and Gap 6 is open.** Conformance
 now runs down one route, `AssemblyAnalysis.conformSignature`, over the two analysed halves. The
 sections below are the plan as written, each stage carrying what it landed; the two routes and
 the CST rule set they describe are history.
@@ -35,7 +34,7 @@ The costs that remain, on the manifest route only:
 | Type presence (`MissingInImpl`) | `summariseSig`/`summariseImpl`, name strings | `ConformanceSurface.checkTypes`, by `TypeKey`. Delegates are refused at their declaration — Gap 2 |
 | `extern`/repr pairing, heritability | CST species off `TypeSignature`/`TypeDefn` | `PublishedSurface.DeclaredReprs` against `Residue.IntrinsicReprKeys` |
 | Value presence (`checkValuePresence`) | identifier text | `ConformanceSurface.checkValues`, by `BindingKey` |
-| Typar count/order | not checked — nothing frozen to compare | `ConformanceTypars.checkFile`/`checkMembers` |
+| Typar count/order | not checked — nothing frozen to compare | `ConformanceTypars.checkFile` for module values; a member's scheme is part of its body verdict (Gap 5) |
 | `[<Import>]` well-formedness, selector vs emitted name | `summariseImports`, last-segment match | `Attributes.declareImportBinding`, keyed on `RuntimeNames.importAttributeKey` |
 | `jsNative` body | `Conformance.isJsNativeBody` | the same reader, called during elaboration. Both retire for the `nativeOnly` sentinel — Stage 2a.1 |
 | Module decl path | `sigDeclPath`/`implDeclPath` | the same two, called from `conformSignature` |
@@ -380,9 +379,64 @@ Acceptance evidence: `SignatureResolutionTests`' "The published shape states whi
 declaration commits to" pins each family and the opaque non-commitment together; the existing
 `AnalysedConformance` kind-drift and opaque-type pairs stayed green.
 
-### Gap 5 — a type's BODY takes no conformance verdict. OPEN.
+### Gap 5 — a type's BODY takes no conformance verdict. CLOSED (2026-09-05).
 
 (Filed 2026-09-03, off the review of the measure-resolution test landing.)
+
+**What landed.** `ConformanceSurface.check` compares the two halves as the surfaces each
+publishes: the signature's against the one the implementation would publish unsigned
+(`FrozenSignature.toSurface` over the frozen pools, built by `conformSignature`). Type and
+value presence, family and attribute agreement read both surfaces; the `extern` ↔ repr pairing
+alone reads the implementation's `IntrinsicBindings` residue beside them. `ConformanceBodies.check`
+compares shape against shape for every key both halves publish under one family. This is
+surface-to-surface rather than the TAST-side comparison sketched below, because a member's
+projection to an `ExternalMember` already exists once, in `toSurface`; comparing the TAST
+directly would have written it a second time. A member compares as a `MemberShape`, the
+five-field key (name, staticness, value-member-ness, own-typar count, folded signature) both an
+`ExternalMember` and a union case reduce to.
+
+A private implementation type or value behind a public signature declaration now reports as
+missing, because the unsigned surface omits it; fsc rejects the same pair on accessibility.
+
+Per family, matching fsc's `SignatureConformance`:
+
+- **Record**: fields by name in both directions (`FieldMissingInImpl`, `FieldMissingInSig`,
+  both FS0313), a matched field's type and mutability (`FieldDiffers`, FS0193), and the
+  written order once the names agree (`FieldOrderDiffers`). `[<Struct>]` on one half alone
+  is `ShapeFlagDiffers`.
+- **Union**: cases positionally, because the index is the runtime tag
+  (`UnionCaseCountDiffers`, then `UnionCaseDiffers` on name, field names or field types).
+- **Enum**: cases by name in both directions, and a matched case's value.
+- **Abbreviation**: the bodies (`AbbreviationDiffers`).
+- **Members**, on record, union, class and interface: every declared member must be matched
+  by a defined member of the same name, staticness, kind, own-typar count and folded
+  signature (`MemberMissingInImpl`, FS0193); an implementation-only member is hidden. This
+  subsumes `ConformanceTypars.checkMembers`, which reported only a generic member's order
+  and only when a same-arity overload existed, and it is deleted with its tests. A union
+  case also satisfies the static member its constructor compiles to: `list.fsi`'s
+  `static member Cons` and `static member Empty` are the `::` and `[]` cases, exactly as
+  FSharp.Core's `FSharpList` carries `Cons` and `get_Empty` as `CompilationMapping(UnionCase)`
+  methods with no member behind them.
+- **Class**: base type, directly-declared interface set, `sealed` and `struct`
+  (`BaseTypeDiffers`, `InterfacesDiffer`, `ShapeFlagDiffers`). An opaque `type T` demands
+  no body.
+
+Every new `ConformanceError` case carries rendered text rather than a `FrozenType`, on the
+`CompiledNameDiffers` precedent, so the codec gained fifteen rows (tags 15 to 28) and no type
+writer. The round-trip fixture carries one value per case.
+
+**Corpus finding.** The check turned `Vesper.List` red: `list.fsi` declares `Item` and
+`GetReverseIndex` and `list.fs` defined neither, so a consumer resolving through the
+signature would have reached emission before learning so. Both are now transliterated from
+FSharp.Core's `prim-types.fs`; `Item` omits the negative-index guard because `<` on `int` is
+outside the package's dependency set. `GetSlice` is still undefined and takes no verdict,
+because `int option` does not resolve in the signature and the member never publishes.
+`Vesper.List.mjs` is regenerated for the two members.
+
+Acceptance evidence: `AnalysedBodyConformance` in `SemanticAnalysis.Tests/ConformanceBodyTests.fs`,
+twenty-six tests, one or two per verdict above plus the conforming pair for each family, the
+generic member typar-order pair previously pinned against a hand-built provider, and the
+case-constructor rule in both directions.
 
 `ConformanceSurface.checkTypes` takes two verdicts per published type: presence
 (`MissingInImpl`) and declared family (`TypeKindMismatch`). Its implementation-side input,
@@ -414,6 +468,44 @@ The check belongs beside `checkValues`, which already compares by resolved ident
 reshape it wanted landed with Gap 3: every shape is a record, and `checkTypes`' implementation
 table now holds the whole frozen `TypeDecl` per key, so the body is in hand and the check is
 one more comparison per entry.
+
+### Gap 6 — `[<AbstractClass>]` reaches no declared flag, so abstractness is neither checked nor compared. OPEN.
+
+(Filed 2026-09-05, off the Gap 5 landing.)
+
+`DeclaredClassFlags.IsAbstract` has one Vesper-side producer on each half, and both write a
+constant. `MemberRegistration.fs:614` sets `IsAbstract = false` for every implementation class,
+and `Members.bodiedClassSurface` (`Passes/SignatureResolution/Members.fs:376`) builds a
+signature class's flags from `AttributeDecode.decodeClassAttributes`, which decodes `Sealed`,
+`AllowNullLiteral` and `Struct` and has no field for `AbstractClass`.
+`RuntimeNames.abstractClassAttributeKey` exists and nothing reads it. The only producer that
+fills the flag is `Codegen.Clr/MetadataSymbols.fs:508`, from reflection.
+
+The flag has one consumer, the `'T : (new : unit -> 'T)` check in
+`Unification/ConstraintCheck.fs:214`, which refuses an abstract or interface type. A Vesper
+`[<AbstractClass>]` therefore satisfies the `new` constraint whatever it declares, while a
+metadata-read abstract class is refused. Gap 5's `checkClassShape` compares `sealed` and
+`struct` and skips `abstract` for this reason: comparing a constant `false` on the signature
+against a constant `false` on the implementation would report nothing, and fixing one half
+alone would report every abstract pair.
+
+The `new` constraint is already affirmed positively, through `NominalDecl.hasParameterlessCtor`
+reading a declared `.ctor` off the class; abstractness is a second condition fsc applies on
+top of it, because an abstract class may declare a parameterless constructor (a subclass's
+`inherit` call needs it published). Probed 2026-09-06: `[<AbstractClass>] type Abs() = class
+end` under `'T : (new : unit -> 'T)` is FS0001 "requires that the type 'Abs' be non-abstract",
+with the constructor present. Folding the two into one predicate by withholding an abstract
+class's `.ctor` from its surface would break the `inherit` path, so the flag stays the carrier.
+
+fsc compares the flag: an `[<AbstractClass>]` on one half alone is FS0193 ("one is abstract").
+
+**Fix.** `AttributeDecode.decodeClassAttributes` gains `IsAbstract` off
+`abstractClassAttributeKey`; both producers above write it; `checkClassShape` adds the
+`"abstract"` case to `ShapeFlagDiffers`. Acceptance: a `ConstraintCheck` test refusing a
+Vesper abstract class under a `new` constraint, and an `AnalysedBodyConformance` pair with the
+attribute on one half alone. The corpus writes `AbstractClass` only on the
+`ModuleSuffix`-modules of `list.fsi` and `set.fsi`, which are modules rather than classes, so
+no corpus pair is expected to go red.
 
 ### Non-gaps, verified
 
@@ -513,6 +605,12 @@ The gap closures after it touched, in landing order:
   codec is untouched: an abbreviation's attributes travel on the type-declaration row every
   kind already wrote. No test went red, and the `Vesper.*` corpus recompiles on both backends.
 
+- Gap 5 touched `Conformance.fs`, `ConformanceSurface.fs`, `ConformanceTypars.fs` (deletion
+  of `checkMembers`), `FrozenCodecDiagnostics.fs`, `AssemblyAnalysis.fs`, `Vesper.List/list.fs`
+  and its regenerated `.mjs`, the codec round-trip fixture, and the Clr `ConformanceTyparsTests`
+  assertion that called `checkMembers`. One corpus test went red, on `Vesper.List`, and it was
+  a finding (above).
+
 One behaviour tightened along the way: a module binding's attributes now go through
 `AttributeFold.build` rather than `enforceTargets` alone, so an attribute argument outside the
 constant domain is diagnosed at a `let` where it previously passed. The corpus writes only
@@ -522,7 +620,8 @@ constant arguments there, so nothing went red.
 
 `semantic-analysis-followups-plan-2.md:243` states that nothing under `src/` calls the
 conformance gate, and that `ConformanceTypars.checkFile`/`checkMembers` are "tests only". That
-is stale: `AssemblyAnalysis.conformSignature` calls both on the live in-assembly path, and their
-diagnostics reach the compilation. `ConformancePass.checkManifest`/`enforce` were tests-only and
+is stale: `AssemblyAnalysis.conformSignature` called both on the live in-assembly path, and their
+diagnostics reach the compilation (`checkMembers` is since deleted, folded into Gap 5's body
+check). `ConformancePass.checkManifest`/`enforce` were tests-only and
 are now deleted with the rest of the CST route, so the in-assembly route is the driver gate and
 the only one. That section now carries the resolution.

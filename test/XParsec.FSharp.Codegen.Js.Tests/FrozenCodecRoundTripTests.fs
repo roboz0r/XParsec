@@ -484,6 +484,21 @@ let tests =
                         Conformance.ConformanceError.ImportAssetNotListed("served", "./Other.mjs")
                         Conformance.ConformanceError.ImportUnsupportedTarget "served"
                         Conformance.ConformanceError.ImportMissingExport("served", "served", "Asset.mjs")
+                        Conformance.ConformanceError.CompiledNameDiffers("v", "V", "W")
+                        Conformance.ConformanceError.FieldMissingInImpl("V.T", "X")
+                        Conformance.ConformanceError.FieldMissingInSig("V.T", "W")
+                        Conformance.ConformanceError.FieldDiffers("V.T", "X", "X: int", "X: string")
+                        Conformance.ConformanceError.FieldOrderDiffers "V.T"
+                        Conformance.ConformanceError.UnionCaseCountDiffers("V.U", 2, 3)
+                        Conformance.ConformanceError.UnionCaseDiffers("V.U", 1, "B", "C")
+                        Conformance.ConformanceError.EnumCaseMissingInImpl("V.E", "B")
+                        Conformance.ConformanceError.EnumCaseMissingInSig("V.E", "C")
+                        Conformance.ConformanceError.EnumCaseValueDiffers("V.E", "B", "2 (I32)", "3 (I32)")
+                        Conformance.ConformanceError.AbbreviationDiffers("V.alias", "int", "string")
+                        Conformance.ConformanceError.MemberMissingInImpl("V.C", "M", "member M: int -> int")
+                        Conformance.ConformanceError.BaseTypeDiffers("V.C", "obj", "V.B")
+                        Conformance.ConformanceError.InterfacesDiffer("V.C", "V.I", "")
+                        Conformance.ConformanceError.ShapeFlagDiffers("V.C", "sealed", true)
                     ]
 
                 let kinds =

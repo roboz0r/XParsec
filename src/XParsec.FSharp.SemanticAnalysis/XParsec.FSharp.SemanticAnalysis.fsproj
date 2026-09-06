@@ -121,6 +121,7 @@
     <Compile Include="ConformanceTypars.fs" />
     <!-- Beside the typar half it runs with: both compare a resolved signature surface
          against the implementation's frozen declarations. -->
+    <Compile Include="ConformanceBodies.fs" />
     <Compile Include="ConformanceSurface.fs" />
     <Compile Include="FrozenSignature.fs" />
     <Compile Include="InlineBodies.fs" />

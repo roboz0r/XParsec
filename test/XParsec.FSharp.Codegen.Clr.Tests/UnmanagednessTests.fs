@@ -33,7 +33,7 @@ let private render (u: Unmanagedness) : string =
     match u with
     | Unmanagedness.Unmanaged -> "Unmanaged"
     | Unmanagedness.Managed -> "Managed"
-    | Unmanagedness.Undetermined blocker -> sprintf "Undetermined(%s)" (ConformanceTypars.describeType blocker)
+    | Unmanagedness.Undetermined blocker -> sprintf "Undetermined(%s)" (Conformance.describeType blocker)
 
 /// One census line per case field of `unionName`.
 let private census (symbols: ICodegenSymbols) (decls: TastAccessor.DeclId list) (unionName: string) : string list =
@@ -124,7 +124,7 @@ let tests =
                     Expect.equal
                         (Unmanagedness.ofFrozen core.Value t)
                         Unmanagedness.Managed
-                        (ConformanceTypars.describeType t)
+                        (Conformance.describeType t)
             }
 
             // The provider enumerates no fields for `System.Numerics.BigInteger`.

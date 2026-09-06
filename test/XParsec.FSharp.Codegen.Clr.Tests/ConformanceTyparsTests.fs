@@ -167,11 +167,5 @@ let tests =
                     (sprintf
                         "every AppendFormatted overload carries its own typar (MethodTyparArity = 1); got %A"
                         (appendFormatted |> EqArray.map (fun m -> m.Signature.MethodTyparArity)))
-
-                let memberMismatches = ConformanceTypars.checkMembers contract tast
-
-                Expect.isEmpty
-                    memberMismatches
-                    (sprintf "formatter.clr.fs members conform to formatter.fsi; got %A" memberMismatches)
             }
         ]

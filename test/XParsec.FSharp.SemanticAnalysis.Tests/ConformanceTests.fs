@@ -35,7 +35,7 @@ let private analysedDiagnostics
     )
 
 /// Every conformance verdict the in-assembly route reports for one `.fsi` / `.fs` pair.
-let private conformAnalysed (sigSrc: string) (implSrc: string) : string list =
+let conformAnalysed (sigSrc: string) (implSrc: string) : string list =
     [
         AssemblyFiles.SourceUnit.paired
             (AssemblyFiles.SourceFile.ofText "pair.fsi" sigSrc)
@@ -70,7 +70,7 @@ let private analysedErrors (implSrc: string) : string list =
     |> List.filter (fun a -> a.Diagnostic.Severity = Severity.Error)
     |> List.map (fun a -> a.Diagnostic.Message)
 
-let private theOne (what: string) (msgs: string list) : string =
+let theOne (what: string) (msgs: string list) : string =
     match msgs with
     | [ m ] -> m
     | other -> failtestf "expected exactly one %s, got %A" what other
@@ -153,6 +153,17 @@ let analysedConformanceTests =
 
                 Expect.stringContains m "V.Bar" "names the union owing a definition"
                 Expect.stringContains m "not defined in the implementation" "the FS0240 analogue"
+            }
+
+            test "a private implementation type behind a public signature declaration is missing" {
+                // fsc's FS0034: the accessibility in the signature exceeds the implementation's.
+                // The unsigned surface omits the private type, so presence reports it.
+                let m =
+                    conformAnalysed "namespace V\n\ntype Bar = | BarCase" "namespace V\n\ntype private Bar = | BarCase"
+                    |> theOne "finding"
+
+                Expect.stringContains m "V.Bar" "names the type the signature publishes"
+                Expect.stringContains m "not defined in the implementation" "the private type is not published"
             }
 
             test "a type defined in the .fs and absent from the .fsi is hidden, not drift" {
@@ -708,74 +719,6 @@ let typarConformanceTests =
                 let mismatches = ConformanceTypars.checkFile contract tast
                 Expect.equal (List.length mismatches) 1 "the folded body disagrees with the contract"
                 Expect.equal mismatches.Head.Name "f" "the mismatch names f"
-            }
-        ]
-
-// ---- Semantic typar-order conformance for type MEMBERS ----------------------
-// A generic `.fs` member (`member M<'a,'b>(x,y) = …`) vs the published overload set.
-// Both sides write `FTTypar(Declaring,_)`/`FTTypar(Method,_)`, so `=` needs no collapse.
-
-let private mAxis (i: int) : FrozenType = FTTypar(TyparAxis.Method, i)
-
-/// The `.fsi`-published overload the stub serves: an instance method with
-/// `methodTyparArity` own typars over already method-axised `parameters` / `ret`.
-let private mkMember
-    (name: string)
-    (methodTyparArity: int)
-    (parameters: FrozenType)
-    (ret: FrozenType)
-    : ExternalMember =
-    { ExternalMember.OfKey(
-          SymbolKeyOps.memberKeyOf (SymbolKeyOps.qualifiedTypeKeyOf "C" 0) name EqArray.empty 0 MemberKind.Method
-      ) with
-        Signature = mkSignature 0 methodTyparArity parameters ret
-    }
-
-/// A contract provider publishing exactly `overloads`, keyed by member name only:
-/// the stub serves whatever qualified name the `.fs` type resolves under.
-let private memberContractProvider (overloads: ExternalMember list) : IExternalSymbolProvider =
-    TestHelpers.membersProvider (fun _ name -> overloads |> List.filter (fun m -> m.Name = name) |> EqArray.ofList)
-
-[<Tests>]
-let memberTyparConformanceTests =
-    testList
-        "MemberTyparConformance"
-        [
-            test "generic member conforming to its published overload → no mismatch" {
-                // `member this.M<'a>(x: 'a) = x` — one method typar, signature `'a -> 'a`
-                // (`M0 -> M0`). The published overload says the same, so it conforms.
-                let tast = frozenOf "type C() =\n    member this.M<'a>(x: 'a) = x"
-                Expect.isEmpty tast.Residue.Diagnostics "no diagnostics"
-
-                let contract = memberContractProvider [ mkMember "M" 1 (mAxis 0) (mAxis 0) ]
-                Expect.isEmpty (ConformanceTypars.checkMembers contract tast) "identity generic member conforms"
-            }
-
-            test "published `<'b,'a>` reorder vs `.fs` `<'a,'b>` → MemberMismatch" {
-                // `.fs` declares `<'a,'b>`: `x:'a` = Method 0, `y:'b` = Method 1, so the
-                // inferred signature is `(M0 * M1) -> M0`. The published overload is the
-                // REVERSED `<'b,'a>` numbering, `(M1 * M0) -> M1`.
-                let tast = frozenOf "type C() =\n    member this.M<'a,'b>(x: 'a, y: 'b) = x"
-                Expect.isEmpty tast.Residue.Diagnostics "no diagnostics"
-
-                let swapped =
-                    mkMember "M" 2 (FTTuple(EqArray.ofList [ mAxis 1; mAxis 0 ])) (mAxis 1)
-
-                let mismatches =
-                    ConformanceTypars.checkMembers (memberContractProvider [ swapped ]) tast
-
-                Expect.equal (List.length mismatches) 1 "one member typar-order mismatch"
-                Expect.equal mismatches.Head.MemberName "M" "the mismatch names M"
-                Expect.equal mismatches.Head.MethodTyparArity 2 "carries the method arity"
-            }
-
-            test "a member the contract does not publish is skipped (presence is a separate check)" {
-                // No published overload of matching arity → no typar-order verdict to make.
-                let tast = frozenOf "type C() =\n    member this.M<'a,'b>(x: 'a, y: 'b) = x"
-
-                Expect.isEmpty
-                    (ConformanceTypars.checkMembers (memberContractProvider []) tast)
-                    "unpublished member skipped"
             }
         ]
 

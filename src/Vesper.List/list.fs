@@ -40,6 +40,23 @@ type List<'T> =
         | [] -> failwith "The input list was empty."
         | _ :: t -> t
 
+    // `list.fsi`'s `static member Empty` and `static member Cons` are satisfied by the `[]` and
+    // `::` cases above, as in FSharp.Core.
+
+    // FSharp.Core/prim-types.fs, `List<'T>` augmentation: `Item`, with `PrivateListHelpers.nth`
+    // inlined and its negative-index guard omitted; a negative index fails as an empty list.
+    member this.Item
+        with get (index: int) : 'T =
+            let rec nth (l: 'T list) (n: int) : 'T =
+                match l with
+                | [] -> failwith "The index was outside the range of elements in the list."
+                | h :: t -> if n = 0 then h else nth t (n - 1)
+
+            nth this index
+
+    // FSharp.Core/prim-types.fs, `List<'T>` augmentation: `GetReverseIndex`
+    member this.GetReverseIndex(_rank: int, offset: int) : int = this.Length - offset - 1
+
     interface seq<'T> with
         member this.GetEnumerator() = (new ListEnumerator<'T>(this) :> enumerator<'T>)
 

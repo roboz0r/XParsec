@@ -13,7 +13,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 /// `<slot> : <stored type>` per physical slot, in field-row order.
 let private slotLines (p: FlatUnionPlacements) : string list =
     [
-        for s in p.Slots -> sprintf "%s: %s" s.MetaName (ConformanceTypars.describeType s.Ty)
+        for s in p.Slots -> sprintf "%s: %s" s.MetaName (Conformance.describeType s.Ty)
     ]
 
 /// `<Case>.<i> -> <slot>` per logical field, with the `castclass` target of an erased read,
@@ -25,7 +25,7 @@ let private placementLines (p: FlatUnionPlacements) : string list =
                 match f.Access with
                 | UnionFieldAccess.Direct s -> sprintf "%s.%d -> %s" f.Case f.Index s.MetaName
                 | UnionFieldAccess.Erased(s, declared) ->
-                    sprintf "%s.%d -> %s as %s" f.Case f.Index s.MetaName (ConformanceTypars.describeType declared)
+                    sprintf "%s.%d -> %s as %s" f.Case f.Index s.MetaName (Conformance.describeType declared)
                 | UnionFieldAccess.Overlaid o ->
                     sprintf "%s.%d -> _data.%s.%s" f.Case f.Index (UnionPayloadType.caseDataName o.Case) o.MetaName
     ]

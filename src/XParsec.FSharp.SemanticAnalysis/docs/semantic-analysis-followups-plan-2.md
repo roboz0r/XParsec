@@ -263,7 +263,7 @@ different decision, not this one.
 path or include filter, `checkManifest` and `enforce` are called only from
 `test/XParsec.FSharp.SemanticAnalysis.Tests/ConformanceTests.fs:296` and
 `test/XParsec.FSharp.Codegen.Clr.Tests/TestHelpers.fs:358`; nothing under `src/` calls either. The
-same holds for `ConformanceTypars.checkFile` and `checkMembers` (tests only —
+same holds for `ConformanceTypars.checkFile` and `checkMembers` (the latter since deleted; tests only —
 `ConformanceTests.fs:848`, `:936`, `ConformanceTyparsTests.fs:49`, `:102`); of that module only
 `toDeclaringAxis` has a production caller, in `FrozenSignature.fs`. So the `.fsi`/`.fs`
 conformance verdicts are enforced by the test suite, not by the compiler driver. That may well be
