@@ -134,7 +134,7 @@ module InlineExpand =
         | _ -> TastAccessor.existsChild (assigns boundVar) e
 
     /// Whether `e` contains a reference to `boundVar`.
-    let rec private references (boundVar: BoundVarId) (e: TastAccessor.ExprId) : bool =
+    let rec references (boundVar: BoundVarId) (e: TastAccessor.ExprId) : bool =
         match e with
         | TastAccessor.EVar b -> b = boundVar
         | _ -> TastAccessor.existsChild (references boundVar) e

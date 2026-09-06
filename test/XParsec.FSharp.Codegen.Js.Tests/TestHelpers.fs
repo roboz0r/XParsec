@@ -253,6 +253,10 @@ let emitJsLibrary (input: string) : string =
 let coreDepsJsContract: Lazy<PackageProviders.AnalysedManifest> =
     lazy JsNativeSymbols.jsNativeContract [ vesperCorePackage ]
 
+/// Deps-only JS contract for `Vesper.List`'s impl: `Vesper.Option` for `GetSlice`'s bounds.
+let listDepsJsContract: Lazy<PackageProviders.AnalysedManifest> =
+    lazy JsNativeSymbols.jsNativeContract [ vesperCorePackage; srcPackage "Vesper.Option" ]
+
 /// As `coreDepsJsContract`, plus `Vesper.Array`'s OWN manifest, because `array.fs` splices
 /// `NewArray` out of the per-target `array-prelude.js.fs`. Safe only because `Vesper.Array`
 /// declares no in-file types; one that does (`Vesper.List`) takes the deps-only contract above.

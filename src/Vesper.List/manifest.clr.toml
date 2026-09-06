@@ -2,9 +2,8 @@
 name = "Vesper.List"
 description = "The immutable cons-list type and the List module."
 
-# Tracks what `list.fs` needs to BUILD, not every type the contract names: `GetSlice`
-# in `list.fsi` names `int option` but has no impl here.
-depends-on = ["../Vesper.Core"]
+# `Vesper.Option` for `GetSlice`, whose bounds are `int option`.
+depends-on = ["../Vesper.Core", "../Vesper.Option"]
 
 # The verbatim `[]`/`::` cons-list, no inline IL and no BCL name, so the js manifest names
 # the same body. `seq<'T>` is a capability, so `interface seq<'T>` needs no per-target impl

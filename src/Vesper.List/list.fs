@@ -1,5 +1,8 @@
 namespace Vesper.Collections
 
+open Vesper
+open Vesper.IntComparison
+
 type BoxedItems<'T> =
     val inner: enumerator<'T>
 
@@ -53,6 +56,34 @@ type List<'T> =
                 | h :: t -> if n = 0 then h else nth t (n - 1)
 
             nth this index
+
+    // FSharp.Core/prim-types.fs, `List<'T>` augmentation: `GetSlice`, with
+    // `PrivateListHelpers.sliceTake` and `sliceSkip` inlined. Both bounds are indices, not
+    // counts, and both saturate: an index past the end yields the shorter list.
+    member this.GetSlice(startIndex: int option, endIndex: int option) : 'T list =
+        let rec sliceSkip (n: int) (l: 'T list) : 'T list =
+            if n <= 0 then
+                l
+            else
+                match l with
+                | [] -> []
+                | _ :: t -> sliceSkip (n - 1) t
+
+        let rec sliceTake (n: int) (l: 'T list) : 'T list =
+            if n < 0 then
+                []
+            else
+                match l with
+                | [] -> []
+                | h :: t -> h :: sliceTake (n - 1) t
+
+        match startIndex, endIndex with
+        | None, None -> this
+        | Some i, None -> sliceSkip i this
+        | None, Some j -> sliceTake j this
+        | Some i, Some j ->
+            let start = if i < 0 then 0 else i
+            sliceTake (j - start) (sliceSkip start this)
 
     // FSharp.Core/prim-types.fs, `List<'T>` augmentation: `GetReverseIndex`
     member this.GetReverseIndex(_rank: int, offset: int) : int = this.Length - offset - 1

@@ -130,13 +130,11 @@ program calling `Seq.fold` would not resolve at all. Adding it is probably one l
 left alone because it widens the fixture every JS test resolves against, which deserves its
 own check rather than a drive-by.
 
-### 3.3 Contract-only members with no way to implement them
+### 3.3 Contract-only members with no way to implement them — FIXED
 
-`list.fsi` declares `Item`, `Empty`, `Cons`, `GetSlice`, `GetReverseIndex`, and none has a
-body on *either* target. `Item` is the interesting one: it is an INDEXED property, and
-nothing in the front end can define one — `get_Item` is resolved only on external object arguments,
-there is no `IsIndexed` on the member node, and no Vesper source anywhere declares one. This
-is a front-end gap, not library work, and conformance does not see it (§4.5).
+`list.fsi`'s `Item`, `Empty`, `Cons`, `GetSlice` and `GetReverseIndex` all have bodies on
+both targets: `Empty` and `Cons` are the `[]` and `::` cases, and the other three are
+transliterated in `list.fs`. The indexed property `Item` defines and resolves.
 
 ---
 

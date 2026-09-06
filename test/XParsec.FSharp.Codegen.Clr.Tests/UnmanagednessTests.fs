@@ -250,7 +250,7 @@ printfn "%d" (match z with | Z n -> n | _ -> 0)
             test "a referenced package's struct union classifies at its instantiation" {
                 let symbols, decls =
                     analysedSymbols
-                        (defaultPackages @ [ srcPackage "Vesper.Option" ])
+                        defaultPackages
                         "ExternalShapes"
                         """
 [<Struct>]

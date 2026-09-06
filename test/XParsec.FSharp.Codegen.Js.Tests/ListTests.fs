@@ -8,7 +8,7 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 let private generated: Lazy<string> =
     lazy
         compileLibrary
-            coreDepsJsContract.Value
+            listDepsJsContract.Value
             "Vesper.List"
             "list.fs"
             (IO.File.ReadAllText(srcFile "Vesper.List" "list.fs"))
@@ -186,6 +186,44 @@ let tests =
                         (sprintf "exports the %s accessor" name)
             }
 
+            // `GetSlice` takes `int option` bounds, so the module resolves `Vesper.Option`.
+            // The option value rides inline as `{ tag, Value }`, so the driver builds one
+            // rather than importing the case classes.
+            test "GetSlice slices by index under Node, saturating at both ends" {
+                let driver =
+                    String.concat
+                        "\n"
+                        [
+                            "import { List_Cons, List_Empty, List__GetSlice, length, head } from \"./Vesper.List/index.mjs\";"
+                            "const some = (v) => ({ tag: 1, Value: v });"
+                            "const none = { tag: 0 };"
+                            "const consAll = (a) => a.reduceRight((t, h) => new List_Cons(h, t), new List_Empty());"
+                            "const xs = consAll([0, 1, 2, 3, 4]);"
+                            "const slice = (i, j) => List__GetSlice(xs)(i)(j);"
+                            "console.log(length(slice(some(1), some(3))), head(slice(some(1), some(3))));"
+                            "console.log(length(slice(some(2), none)), head(slice(some(2), none)));"
+                            "console.log(length(slice(none, some(1))), length(slice(none, none)));"
+                            "console.log(length(slice(some(2), some(99))), length(slice(some(9), none)));"
+                            "console.log(length(slice(some(3), some(1))), length(slice(some(-2), some(1))));"
+                        ]
+
+                match
+                    runNodeFiles
+                        "list-getslice-node"
+                        ([ "driver.mjs", driver ]
+                         @ packageFiles "Vesper.List" [ "Vesper.List.mjs", generated.Value ])
+                with
+                | None -> skiptest "node is not installed"
+                | Some(code, out) ->
+                    Expect.equal code 0 (sprintf "driver exited non-zero: %s" out)
+
+                    // The same slices `fsi` takes of `[0; 1; 2; 3; 4]`.
+                    Expect.equal
+                        out
+                        (String.concat "\n" [ "3 1"; "3 2"; "2 5"; "3 0"; "0 2" ])
+                        "both-bound, start-only, end-only, whole, saturated and empty slices"
+            }
+
             test "the enumerator's own `new(s) = { … }` is the emitted constructor" {
                 // The ctor takes ONE parameter and sets `started` itself, so the single call
                 // site `new ListEnumerator(<list>)` leaves it a real `false`, not `undefined`.
@@ -269,12 +307,15 @@ let tests =
                     String.concat
                         "\n"
                         [
-                            "import { List_Cons, List_Empty, ListEnumerator, List__get_Length, List__get_IsEmpty, List__get_Head, List__get_Tail, ofSeq, toSeq, length, head } from \"./Vesper.List/index.mjs\";"
+                            "import { List_Cons, List_Empty, ListEnumerator, List__get_Length, List__get_IsEmpty, List__get_Head, List__get_Tail, List__get_Item, ofSeq, toSeq, length, head } from \"./Vesper.List/index.mjs\";"
                             "const xs = new List_Cons(1, new List_Cons(2, new List_Cons(3, new List_Empty())));"
                             "console.log(List__get_Length(xs));"
                             "console.log(List__get_IsEmpty(xs), List__get_IsEmpty(new List_Empty()));"
                             "console.log(List__get_Head(xs));"
                             "console.log(List__get_Head(List__get_Tail(xs)));"
+                            // `Item`'s `let rec nth` is a recursive local, so it reaches its
+                            // own name only through the block-bodied lowering.
+                            "console.log(List__get_Item(xs)(0), List__get_Item(xs)(2));"
                             "const e = new ListEnumerator(xs);"
                             "console.log(e.started === false);"
                             "const walked = []; while (e.MoveNext()) walked.push(e.Current());"
@@ -296,7 +337,7 @@ let tests =
 
                     Expect.equal
                         out
-                        (String.concat "\n" [ "3"; "false true"; "1"; "2"; "true"; "1,2,3"; "1,2,3"; "3 4" ])
-                        "Length/IsEmpty/Head/Tail, the cursor walk, iteration and ofSeq/toSeq"
+                        (String.concat "\n" [ "3"; "false true"; "1"; "2"; "1 3"; "true"; "1,2,3"; "1,2,3"; "3 4" ])
+                        "Length/IsEmpty/Head/Tail/Item, the cursor walk, iteration and ofSeq/toSeq"
             }
         ]

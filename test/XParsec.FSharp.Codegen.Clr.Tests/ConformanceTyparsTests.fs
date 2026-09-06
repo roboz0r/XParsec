@@ -19,10 +19,13 @@ let tests =
         "ConformanceTypars.Clr"
         [
             test "Vesper.List: list.fs generic module functions conform to list.fsi typar order" {
-                // Analysis sees the DEPENDENCY contract only (Core): the package is here
-                // defining the types its own manifest publishes.
+                // Analysis sees the DEPENDENCY contract only (Core and Option): the package
+                // is here defining the types its own manifest publishes.
                 let src = File.ReadAllText(vesperListSource "list.fs")
-                let analysisProvider = ClrSymbolProviders.buildContract [ vesperCorePackage ]
+
+                let analysisProvider =
+                    ClrSymbolProviders.buildContract [ vesperCorePackage; vesperOptionPackage ]
+
                 let lexed, file = parseFile src
 
                 let tast =
@@ -40,7 +43,7 @@ let tests =
                 // The contract DOES cover what `list.fsi` declares, so each module function
                 // resolves to the declared scheme its inferred one is checked against.
                 let contract =
-                    ClrSymbolProviders.buildContract [ vesperCorePackage; vesperListPackage ]
+                    ClrSymbolProviders.buildContract [ vesperCorePackage; vesperOptionPackage; vesperListPackage ]
 
                 let mismatches = ConformanceTypars.checkFile contract tast
 

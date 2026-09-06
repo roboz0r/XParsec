@@ -143,6 +143,8 @@ let srcPackage (pkg: string) : string =
 
 let vesperCorePackage: string = srcPackage "Vesper.Core"
 
+let vesperOptionPackage: string = srcPackage "Vesper.Option"
+
 /// The last segment of a `depends-on` path (`"../Vesper.Core"` ⇒ `"Vesper.Core"`), which is how
 /// this harness keys packages under `src/`.
 let dependencyName (entry: string) : string =
@@ -245,9 +247,30 @@ let vesperCoreDll: Lazy<string> =
          AssemblyLoadContext.Default.LoadFromAssemblyPath corePath |> ignore
          corePath)
 
+/// Compile `src/Vesper.Option/option.fs` (the `Vesper.Option\`1` struct union plus
+/// `OptionModule`), load it into the *Default* `AssemblyLoadContext`, and return its path.
+let vesperOptionDll: Lazy<string> =
+    lazy
+        (let outDir = tmpDir "vesper-option"
+         let optionPath = IO.Path.Combine(outDir, "Vesper.Option.dll")
+
+         let project =
+             { ProjectInfo.library "Vesper.Option" with
+                 OutputPath = Some optionPath
+                 References = [ vesperCoreDll.Value ]
+             }
+
+         let src = IO.File.ReadAllText(IO.Path.Combine(vesperOptionPackage, "option.fs"))
+         let provider = ClrSymbolProviders.buildContract [ vesperCorePackage ]
+         let artifact = compileAgainst provider project src
+         Codegen.materialise artifact
+         AssemblyLoadContext.Default.LoadFromAssemblyPath optionPath |> ignore
+         optionPath)
+
 /// Compile `src/Vesper.List/list.fs` (the `Vesper.Collections.List\`1` cons-list plus
 /// `ListModule::fold`), load it into the *Default* `AssemblyLoadContext`, and return its
-/// path. `fold`'s folder is a `Vesper.Fun`, so it references `Vesper.Core` and nothing else.
+/// path. `fold`'s folder is a `Vesper.Fun`, so it references `Vesper.Core`; `GetSlice`'s
+/// bounds are `int option`, so it references `Vesper.Option` too.
 let vesperListDll: Lazy<string> =
     lazy
         (let outDir = tmpDir "vesper-list"
@@ -256,14 +279,16 @@ let vesperListDll: Lazy<string> =
          let project =
              { ProjectInfo.library "Vesper.List" with
                  OutputPath = Some listPath
-                 References = [ vesperCoreDll.Value ]
+                 References = [ vesperCoreDll.Value; vesperOptionDll.Value ]
              }
 
          let src = IO.File.ReadAllText(vesperListSource "list.fs")
          // A `[1; 2; 3]` consumer literal binds to this list by ARITY (nullary terminator
          // + binary cons), not by case name. `list.fs` calls `failwith`, an inline operator
          // in the Vesper.Core contract, so that contract must be in the stack to inline it.
-         let provider = ClrSymbolProviders.buildContract [ vesperCorePackage ]
+         let provider =
+             ClrSymbolProviders.buildContract [ vesperCorePackage; vesperOptionPackage ]
+
          let artifact = compileAgainst provider project src
          Codegen.materialise artifact
          AssemblyLoadContext.Default.LoadFromAssemblyPath listPath |> ignore
@@ -282,6 +307,7 @@ let vesperPrintfPackage: string = srcPackage "Vesper.Printf"
 let defaultPackages: string list =
     [
         vesperCorePackage
+        vesperOptionPackage
         vesperListPackage
         vesperComparisonPackage
         vesperPrintfPackage
@@ -431,9 +457,9 @@ let vesperPrintfDll: Lazy<string> =
          AssemblyLoadContext.Default.LoadFromAssemblyPath path |> ignore
          path)
 
-/// Add `Vesper.Core.dll` / `Vesper.List.dll` / `Vesper.Printf.dll` to `References` so a
-/// program's function values, list literals and `printf` calls resolve, but not when the
-/// project IS that package. An unused reference emits no `AssemblyRef`.
+/// Add `Vesper.Core.dll` / `Vesper.Option.dll` / `Vesper.List.dll` / `Vesper.Printf.dll` to
+/// `References` so a program's function values, list literals and `printf` calls resolve, but
+/// not when the project IS that package. An unused reference emits no `AssemblyRef`.
 let withCore (project: ProjectInfo) : ProjectInfo =
     let ensure (asmName: string) (dll: Lazy<string>) (refs: string list) =
         if
@@ -448,6 +474,7 @@ let withCore (project: ProjectInfo) : ProjectInfo =
         References =
             project.References
             |> ensure "Vesper.Core" vesperCoreDll
+            |> ensure "Vesper.Option" vesperOptionDll
             |> ensure "Vesper.List" vesperListDll
             |> ensure "Vesper.Printf" vesperPrintfDll
     }

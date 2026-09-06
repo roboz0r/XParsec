@@ -104,6 +104,25 @@ module EmitJs =
                 let l = TastAccessor.exprLet e
 
                 match l.Pattern with
+                // A `let rec` whose value calls itself binds as a `const` in a block body,
+                // which the value's own closure captures. An IIFE parameter is out of scope
+                // in the argument that fills it.
+                | TastAccessor.PNamed k when InlineExpand.references k l.Value ->
+                    JsExpr.Call(
+                        JsExpr.Arrow(
+                            [],
+                            JsFnBody.Block(
+                                [
+                                    localBinding ctx.Pool k (emitBound ctx k l.Value)
+                                    JsStatement.Return(buildExpr ctx l.Body)
+                                ]
+                            ),
+                            ValueNone
+                        ),
+                        [],
+                        loc
+                    )
+
                 // JS has no let-expression, so a non-pure (or mutable) `let` lowers to an IIFE
                 // `((x) => <body>)(<value>)`: evaluated once, and reassignable as the parameter.
                 | TastAccessor.PNamedNaming naming ->

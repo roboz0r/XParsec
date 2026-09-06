@@ -33,6 +33,22 @@ let private consInt (h: int) (t: obj) : obj =
 /// Read an instance member (`get_IsEmpty` / `get_Head` / `get_Tail`) off a list.
 let private instanceGet = instanceGet listOfInt
 
+/// `[a; b; …] : int list`, right-folded onto `[]`.
+let private listOf (xs: int list) : obj = List.foldBack consInt xs nilInt.Value
+
+/// `Vesper.Option`1` closed over `int`, `GetSlice`'s bound type.
+let private optionOfInt =
+    closedType (packageAssembly "Vesper.Option") "Vesper.Option`1" [| intTy |]
+
+let private someInt (v: int) : obj =
+    caseFactory optionOfInt "Some" [| box v |]
+
+let private noneInt: Lazy<obj> = lazy (caseFactory optionOfInt "None" [||])
+
+/// `xs.GetSlice(startIndex, endIndex)`.
+let private getSlice (xs: obj) (startIndex: obj) (endIndex: obj) : obj =
+    listOfInt.Value.GetMethod("GetSlice").Invoke(xs, [| startIndex; endIndex |])
+
 [<Tests>]
 let tests =
     testList
@@ -87,6 +103,32 @@ let tests =
                 match inner with
                 | Some ex -> Expect.stringContains ex.Message "list was empty" "Tail Nil message"
                 | None -> failtest "expected Tail on Nil to raise"
+            }
+
+            // `GetSlice` is the one member whose bounds come from another package
+            // (`int option`), and the reason `Vesper.List` depends on `Vesper.Option`. Both
+            // bounds are INDICES and both saturate; a start after the end index gives `[]`.
+            // The expected slices are `fsi`'s for the same bounds over `[0; 1; 2; 3; 4]`.
+            test "GetSlice slices by index, saturating at both ends" {
+                let xs = listOf [ 0; 1; 2; 3; 4 ]
+
+                let sliced (startIndex: obj) (endIndex: obj) : int list =
+                    let rec walk (l: obj) =
+                        if asBool (instanceGet "get_IsEmpty" l) then
+                            []
+                        else
+                            asInt (instanceGet "get_Head" l) :: walk (instanceGet "get_Tail" l)
+
+                    walk (getSlice xs startIndex endIndex)
+
+                Expect.equal (sliced (someInt 1) (someInt 3)) [ 1; 2; 3 ] "both bounds inside"
+                Expect.equal (sliced (someInt 2) noneInt.Value) [ 2; 3; 4 ] "start only"
+                Expect.equal (sliced noneInt.Value (someInt 1)) [ 0; 1 ] "end only"
+                Expect.equal (sliced noneInt.Value noneInt.Value) [ 0; 1; 2; 3; 4 ] "neither bound"
+                Expect.equal (sliced (someInt 2) (someInt 99)) [ 2; 3; 4 ] "end index past the last"
+                Expect.equal (sliced (someInt 9) noneInt.Value) [] "start past the last"
+                Expect.equal (sliced (someInt 3) (someInt 1)) [] "start after the end index"
+                Expect.equal (sliced (someInt -2) (someInt 1)) [ 0; 1 ] "a negative start reads as 0"
             }
         ]
 
@@ -159,6 +201,7 @@ let growRuntime =
 
             // `rev [1; 2; 3]` is `[3; 2; 1]`, whose head is 3.
             test "List.rev reverses the order" { runs "3" "printfn \"%d\" (List.head (List.rev [1; 2; 3]))" }
+
         ]
 
 // `match xs with [] -> … | h :: t -> …` against the referenced `Vesper.List` cons-union,
