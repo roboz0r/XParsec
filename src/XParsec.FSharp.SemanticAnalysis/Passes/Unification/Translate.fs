@@ -119,7 +119,8 @@ module internal UnificationTranslate =
             ctx.Report(tok, Kind.MeasureExpected)
             MeasureTerm.empty
         // FS0033 was reported as the verdict was stamped.
-        | TypeRefVerdict.LocalTypeAtOtherArity _ -> MeasureTerm.empty
+        | TypeRefVerdict.LocalTypeAtOtherArity _
+        | TypeRefVerdict.ExternalTypeAtOtherArity _ -> MeasureTerm.empty
         | TypeRefVerdict.UnknownType ->
             ctx.UndefinedType(Site.ofTokenOr (Site.ofLongIdent li) tok, ctx.NameOf tok)
             MeasureTerm.empty
@@ -178,6 +179,7 @@ module internal UnificationTranslate =
         | ValueSome(TypeRefVerdict.ExternalType _)
         | ValueSome(TypeRefVerdict.LocalType _)
         | ValueSome(TypeRefVerdict.LocalTypeAtOtherArity _)
+        | ValueSome(TypeRefVerdict.ExternalTypeAtOtherArity _)
         | ValueSome TypeRefVerdict.UnknownType -> ()
 #else
         ignore ctx
@@ -435,7 +437,8 @@ module internal UnificationTranslate =
                     | ValueSome ty -> ty
                     | ValueNone -> unresolved ()
                 )
-        | ValueSome(TypeRefVerdict.LocalTypeAtOtherArity _) -> TyVar(ctx.FreshTyVar())
+        | ValueSome(TypeRefVerdict.LocalTypeAtOtherArity _)
+        | ValueSome(TypeRefVerdict.ExternalTypeAtOtherArity _) -> TyVar(ctx.FreshTyVar())
         // A measure is not a type, so a reference in TYPE position is FS0704.
         | ValueSome(TypeRefVerdict.ExternalType(_, ExternalTypeShape.Measure _)) ->
             errorTy ctx site.Tok Kind.TypeExpectedNotMeasure
@@ -449,16 +452,23 @@ module internal UnificationTranslate =
                 )
         | ValueSome TypeRefVerdict.UnknownType
         | ValueNone ->
+            match RuntimeNames.tryTargetOptionalPrimitiveKey name with
+            | ValueNone -> apply (TyparKinds.typeOnly args.Length) (fun _ -> unresolved ())
             // A target-optional primitive (`nativeint`, `decimal`, `undefined`, …) resolves to
-            // its language-known key even on a stack that declares no contract for it;
-            // `PlatformTypes` then reports each mention as unsupported on the compiling target.
-            apply
-                (TyparKinds.typeOnly args.Length)
-                (fun _ ->
-                    match RuntimeNames.tryTargetOptionalPrimitiveKey name with
-                    | ValueSome key -> TyConst(key, EqArray.empty)
-                    | ValueNone -> unresolved ()
-                )
+            // its language-known key on a stack that declares no contract for it, at each
+            // arity the language knows it at; `PlatformTypes` then reports each mention as
+            // unsupported on the compiling target. Any other written count is FS0033 against
+            // the nearest known arity, and the bare mention still reaches `PlatformTypes`.
+            | ValueSome key ->
+                let known = RuntimeNames.targetOptionalPrimitiveKinds key
+                let bare = TyConst(key, EqArray.empty)
+
+                match known |> List.tryFind (fun kinds -> kinds.Length = args.Length) with
+                | Some kinds -> apply kinds (fun _ -> bare)
+                | None ->
+                    let nearest = known |> List.minBy (fun kinds -> abs (kinds.Length - args.Length))
+                    ctx.Report(site.Tok, Kind.TypeArgArity(name, nearest.Length, args.Length))
+                    bare
 
     /// The written `args` read by the kind of the parameter each fills, one of `kinds` per
     /// argument. `ValueNone` after FS0704 (a measure filling a type parameter) or FS0705 (a

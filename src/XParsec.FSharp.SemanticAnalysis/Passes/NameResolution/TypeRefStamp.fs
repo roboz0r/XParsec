@@ -31,6 +31,13 @@ module NameResolutionTypeRefStamp =
                     )
 
                     TypeRefVerdict.LocalTypeAtOtherArity claim
+                | TypeNameResolution.ExternalAtOtherArity(key, shape) ->
+                    ctx.Report(
+                        typeRef.Site.Tok,
+                        Kind.TypeArgArity(written.Written, shape.TyparArity, typeRef.TyparArity)
+                    )
+
+                    TypeRefVerdict.ExternalTypeAtOtherArity(key, shape)
                 | TypeNameResolution.Unresolved _ -> TypeRefVerdict.UnknownType
 
             ctx.Resolution.TypeRefVerdicts.Set(typeRef.Site.Key, verdict)

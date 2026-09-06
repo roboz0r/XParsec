@@ -73,6 +73,22 @@ module M =
 
     SourceUnit.paired (SourceFile.ofText "file1.fsi" signature) (SourceFile.ofText "file1.fs" implementation)
 
+/// The real `Vesper.Core` contract for the JS target, which declares no `decimal`.
+let private jsCoreProvider: Lazy<IExternalSymbolProvider> =
+    lazy
+        ([ srcManifest "js" "Vesper.Core" ]
+         |> PackageProviders.composeContract PackageProviders.noPlatformMetadata
+         |> fun composed -> composed.Provider)
+
+/// The error messages of `src` analysed for the JS target over `jsCoreProvider`.
+let private jsErrors (src: string) : string list =
+    let lexed, file = parseFile src
+
+    let tast =
+        Pipeline.analyseSemFor { Name = testAsm; Target = "js" } jsCoreProvider.Value (LexedFile.ofText lexed) file
+
+    errorMessages tast.Diagnostics
+
 /// The name and generic arity of the keyed type frozen for the single `let` in the last unit.
 let private lastLetTypeClaim (units: SourceUnit list) : string * int =
     match List.last (analyseUnits units).Units with
@@ -378,8 +394,7 @@ let x: float<m> = 1.0<m>
                 [
                     // FS0033: "The non-generic type 'string' does not expect any type
                     // arguments, but here is given 1 type argument(s)".
-                    ptest
-                        "`string<m>` reports the arity (an external name at an unclaimed arity is `Unresolved`, and `string` is target-optional, so the carrier resolves by key and `m` is read as a type: FS0704 stands in for FS0033; the leg needs a case on both `TypeNameResolution` and `TypeRefVerdict`)" {
+                    test "`string<m>` reports the arity alone" {
                         expectUserErrorReportedAlone
                             "expects 0 type argument"
                             "\
@@ -398,6 +413,59 @@ let x: string<m> = \"\"
 type MyFloat = float
 let x: MyFloat<m> = 1.0<m>
 "
+                    }
+                ]
+
+            // A target-optional primitive the compiling target declares no contract for
+            // resolves to its language-known key at the arities the language knows it at, and
+            // `PlatformTypes` reports the mention. `decimal` is CLR-only, so the JS contract
+            // is the real stack with the carrier absent.
+            testList
+                "a carrier the target lacks"
+                [
+                    test "`decimal<m>` on a target without `decimal` is unsupported alone" {
+                        Expect.equal
+                            (jsErrors "[<Measure>] type m\nlet f (x: decimal<m>) = x\n")
+                            [ "decimal is not supported on the js target" ]
+                            "the platform error, and the measured spelling is accepted"
+                    }
+
+                    // FS0033 against the nearest language-known arity, beside the platform error.
+                    test "`decimal<m, s>` on a target without `decimal` reports the arity and the platform" {
+                        Expect.equal
+                            (List.sort (
+                                jsErrors "[<Measure>] type m\n[<Measure>] type s\nlet f (x: decimal<m, s>) = x\n"
+                            ))
+                            [
+                                "Type 'decimal' expects 1 type argument(s) but got 2"
+                                "decimal is not supported on the js target"
+                            ]
+                            "both errors, nothing else"
+                    }
+
+                    // `string` is language-known at arity 0 alone, so `string<m>` is FS0033 on
+                    // every target; on one that lacks `string` the platform error stands beside it.
+                    test "`string<m>` on a target without `string` reports the arity and the platform" {
+                        let m = SymbolKeyOps.typeKeyOfArity "Units" "m" 0
+
+                        let provider =
+                            ExternalSymbolProviders.stack
+                                (ValueSome(SymbolHome.InAssembly(AssemblyName "Units")))
+                                []
+                                [ providerOfTypes [ m, ExternalTypeShape.Measure(MeasureTerm.atom m) ] ]
+
+                        let lexed, file = parseFile "let f (x: string<Units.m>) = x\n"
+
+                        let tast =
+                            Pipeline.analyseSemFor testCompiling provider (LexedFile.ofText lexed) file
+
+                        Expect.equal
+                            (List.sort (errorMessages tast.Diagnostics))
+                            [
+                                "Type 'string' expects 0 type argument(s) but got 1"
+                                "string is not supported on the clr target"
+                            ]
+                            "both errors, nothing else"
                     }
                 ]
 

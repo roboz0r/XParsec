@@ -445,6 +445,14 @@ module RuntimeNames =
         | Some k -> ValueSome k
         | None -> ValueNone
 
+    /// The typar kinds a target-optional primitive is language-known at, ascending by arity: a
+    /// numeric primitive at arity 0 and at arity 1 over a measure, every other at arity 0 alone.
+    let targetOptionalPrimitiveKinds (key: TypeKey) : EqArray<TyparKind> list =
+        if isKeyIn numericKeys key then
+            [ EqArray.empty; EqArray.ofList [ TyparKind.Measure ] ]
+        else
+            [ EqArray.empty ]
+
     /// NOT a `namespace Vesper` type: `null` is a keyword, so it has no declaring namespace
     /// and its identity is the bare name.
     let nullKey: TypeKey = opaqueKey nullTypeName

@@ -193,6 +193,10 @@ type TypeRefVerdict =
     /// Resolved to this key, at the type-arg arity written at the use site. `shape` is the
     /// provider's shape for `key`.
     | ExternalType of key: TypeKey * shape: ExternalTypeShape
+    /// Published by a referenced contract under the written name, at a different arity.
+    /// `shape.TyparArity` is the arity the name must be written at; FS0033 is reported as the
+    /// verdict is stamped.
+    | ExternalTypeAtOtherArity of key: TypeKey * shape: ExternalTypeShape
     /// Nothing in scope at the use site, and no external type of that spelling.
     | UnknownType
 

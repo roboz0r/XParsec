@@ -68,6 +68,9 @@ type TypeNameResolution =
     /// A type declared in this file, in scope under the written name but claiming a different
     /// arity (FS0033). `claim.TyparArity` is the arity the name must be written at.
     | LocalAtOtherArity of claim: TypeIdentity
+    /// A type published by a referenced contract under the written name, claiming a
+    /// different arity (FS0033). `shape.TyparArity` is the arity the name must be written at.
+    | ExternalAtOtherArity of key: TypeKey * shape: ExternalTypeShape
     | Unresolved of UnresolvedName
 
 /// What a written name denotes at its use site, in the position it is written in.

@@ -661,28 +661,39 @@ module NameResolutionLongIdent =
         | n -> firstOf (qualifiedReadings ctx useSite Position.Pattern names) (unresolvedInEnv first n)
 
     /// A written type name at `arity`: this file's claim at exactly that arity, then the
-    /// referenced contracts' at that arity, then this file's nearest arity as `LocalAtOtherArity`.
+    /// referenced contracts' at that arity, then this file's nearest arity as
+    /// `LocalAtOtherArity`, then the contracts' narrowest arity as `ExternalAtOtherArity`.
     /// `int` inside `type int<[<Measure>] 'M> = int` reaches the contract's arity-0 claim.
     let resolveType (ctx: PassContext) (useSite: UseSite) (written: WrittenTypeName) (arity: int) : TypeNameResolution =
+        let external (writtenArity: WrittenArity) (pick: TypeKey -> ExternalTypeShape -> TypeNameResolution) =
+            tryPickExternalWritten
+                ctx
+                useSite
+                writtenArity
+                (fun key shape -> ValueSome(pick key shape))
+                (Qualifier.ofPath written.Path)
+                written.Name
+
         match TypeRegistry.tryWrittenTypeClaim ctx.Types useSite written arity with
         | ValueSome claim -> TypeNameResolution.Type(ResolvedTypeRef.Local claim)
         | ValueNone ->
             match
-                tryPickExternalWritten
-                    ctx
-                    useSite
+                external
                     (WrittenArity.Exact arity)
-                    (fun key shape -> ValueSome(ResolvedTypeRef.External(key, shape)))
-                    (Qualifier.ofPath written.Path)
-                    written.Name
+                    (fun key shape -> TypeNameResolution.Type(ResolvedTypeRef.External(key, shape)))
             with
-            | ValueSome t -> TypeNameResolution.Type t
+            | ValueSome t -> t
             | ValueNone ->
                 match TypeRegistry.tryWrittenTypeClaimNearestArity ctx.Types useSite written arity with
                 | ValueSome claim -> TypeNameResolution.LocalAtOtherArity claim
                 | ValueNone ->
-                    TypeNameResolution.Unresolved
-                        {
-                            Segment = written.Name
-                            Within = ResolutionScope.Environment
-                        }
+                    match
+                        external WrittenArity.Any (fun key shape -> TypeNameResolution.ExternalAtOtherArity(key, shape))
+                    with
+                    | ValueSome t -> t
+                    | ValueNone ->
+                        TypeNameResolution.Unresolved
+                            {
+                                Segment = written.Name
+                                Within = ResolutionScope.Environment
+                            }

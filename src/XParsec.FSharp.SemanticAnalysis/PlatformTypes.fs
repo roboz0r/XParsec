@@ -36,8 +36,9 @@ module PlatformTypes =
             ValueSome ctx.Target
         | ValueNone -> ValueNone
 
-    /// Accumulate every nominal in `t` the target has no representation for. Zonks first, so
-    /// a `TyVar` already linked to a concrete shape is judged by that shape.
+    /// Accumulate every nominal in `t` the target has no representation for. Zonks first, with
+    /// measures erased, so a `TyVar` already linked to a concrete shape is judged by that shape
+    /// and a measured root by its carrier.
     let private addUnsupported (ctx: PassContext) (acc: HashSet<Unsupported>) (t: SemType) : unit =
         let rec go ty =
             match ty with
@@ -50,7 +51,7 @@ module PlatformTypes =
                     go a
             | ty -> SemType.iterChildren go ty
 
-        go (Unification.zonk ctx.Store t)
+        go (UnionFind.zonkErased ctx.Store t)
 
     /// Visit every expression / pattern type, plus a `Format` hole's side type, which the
     /// default walker doesn't surface.

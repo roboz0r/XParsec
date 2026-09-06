@@ -596,7 +596,7 @@ module UnificationEngine =
             else
                 match ctx.Store.Units root, other with
                 | ValueSome m, TyConst _ when not m.IsDimensionless ->
-                    ctx.Report(tok, Kind.Message(sprintf "Dimensionless %A used where <%O> expected" other m))
+                    ctx.Report(tok, Kind.DimensionlessMeasureMismatch(string m))
                 | _ -> ()
 
                 ctx.Store.SetLink(root, ValueSome other)

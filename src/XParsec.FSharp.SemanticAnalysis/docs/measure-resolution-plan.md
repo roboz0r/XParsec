@@ -428,9 +428,28 @@ program on both backends. Three findings:
   grounds the body's `^T` as `float` and selects its `when ^T : float` clause. The
   conformance program computes `d / t`.
 
-**Step 7 — wording.** `Engine.fs`'s `Kind.Message(sprintf "Dimensionless %A used where <%O>
+**Step 7 — wording. LANDED.** `Engine.fs`'s `Kind.Message(sprintf "Dimensionless %A used where <%O>
 expected" …)` becomes `Kind.DimensionlessMeasureMismatch`, which already exists two lines
 away, so the record printout in the GAP 1 row is gone.
+
+**Step 8 — `string<m>` reports the arity, and a carrier the target lacks reports both.
+LANDED.** `resolveType` gained the external nearest-arity leg: after the local nearest
+arity, the contracts' narrowest claim on the name is `TypeNameResolution.ExternalAtOtherArity`,
+stamped as `TypeRefVerdict.ExternalTypeAtOtherArity` with FS0033 against the shape's arity,
+and read as a fresh type wherever `LocalTypeAtOtherArity` is. `string<m>` on a target that
+declares `string` is therefore FS0033 alone, and the row is green. The `UnknownType` fallback
+in `translateTypeRef` now fires only for a name no contract claims at ANY arity, which for a
+target-optional primitive is the target lacking it. That arm reads the written arguments by
+the arities the LANGUAGE knows the primitive at (`RuntimeNames.targetOptionalPrimitiveKinds`:
+a numeric key at 0 and at 1 over a measure, every other at 0), so `decimal<m>` on JS is
+accepted and reported "not supported on the js target" alone, while `decimal<m, s>` on JS and
+`string<m>` on a stack without `string` report FS0033 against the nearest known arity beside
+the platform error. One finding:
+
+- **`PlatformTypes` read a measured root through `zonk`, which stops at it**, so a
+  measured mention of a carrier the target lacks was invisible to the platform check. It
+  reads through `zonkErased` now, as `ResolvedTypes.addFreeRoots` does; the negative control
+  (plain `zonk` restored) fails exactly the `decimal<m>` case.
 
 ## Scope and risk
 
@@ -462,13 +481,13 @@ freezes to its carrier.
    `RuntimeNames.numericKeys` already lists exactly those thirteen, so the port carries all of
    them rather than the float/decimal subset older FSharp.Core shipped.
 5. **`string<m>` may stay `ptest`** after step 5 if the external nearest-arity leg is more
-   than a one-arm change.
+   than a one-arm change. Step 8 landed the leg; the row is green.
 
 ## Migration checklist
 
 Before this document is deleted, each row is in code or in a test:
 
-- [ ] Every table row above is a test in `MeasureResolutionTests.fs`, green, or `ptest` with the reason quoted in its name (`string<m>` is the one row allowed to stay `ptest`).
+- [x] Every table row above is a test in `MeasureResolutionTests.fs`, green (`string<m>` included, since step 8).
 - [x] The full-pipeline measured `let` freezes to `float<m>`, the carrier's arity-1 claim over an `FTMeasure` (GAP 5), green.
 - [x] `ResolvedTypes.addFreeRoots` reads a measure-bearing root through `zonkErased`, so it is resolved exactly when its carrier is, which is the reading `freezeWith` takes; the `UnresolvedTyVars` backstop covers a measured root.
 - [x] A measured value published across units thaws back to its measure in a consumer, on the `.fs` and the `.fsi` route.

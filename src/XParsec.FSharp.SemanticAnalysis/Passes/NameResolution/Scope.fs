@@ -250,7 +250,8 @@ module NameResolutionScope =
             | TypeRefVerdict.UnknownType
             | TypeRefVerdict.LocalType _
             | TypeRefVerdict.LocalTypeAtOtherArity _
-            | TypeRefVerdict.ExternalType _ -> ()
+            | TypeRefVerdict.ExternalType _
+            | TypeRefVerdict.ExternalTypeAtOtherArity _ -> ()
 
         let visitType _ (t: Type<SyntaxToken>) =
             match CstKeys.ofTypeRef t with
@@ -445,6 +446,7 @@ module NameResolutionScope =
                 ctx.Resolution.Resolved.Set(key, ResolvedItem.Type t)
                 ctx.Resolution.ResolvedType.Set(key, typeKey)
                 ValueNone
+            | TypeNameResolution.ExternalAtOtherArity _
             | TypeNameResolution.Unresolved _ -> ValueNone
         | ValueNone -> ValueNone
 
