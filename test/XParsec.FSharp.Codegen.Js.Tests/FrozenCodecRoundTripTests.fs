@@ -69,6 +69,9 @@ let private collect () : Collected =
             // nothing here to collect into any of the key corpora.
             | FTLocalTypar _ -> ()
             | FTUnknown _ -> ()
+            | FTMeasure units ->
+                for (atom, _) in units.Exponents do
+                    visitTypeKey atom
 
     and visitTypeKey (tk: TypeKey) =
         sks.Add(SymbolKey.Type tk) |> ignore
@@ -267,6 +270,14 @@ let private collect () : Collected =
             FTUnknown UnknownReason.Deferred
             FTUnknown UnknownReason.ArityMismatch
             FTUnknown UnknownReason.NoValueType
+            // A measured nominal, the one position an `FTMeasure` takes: the carrier's arity-1
+            // claim applied to the term, whose atoms are keys of their own.
+            FTConst(
+                FrozenTypeBridge.measuredClaimKey tkInt,
+                EqArray.singleton (
+                    FTMeasure(MeasureTerm.OfList [ tkInMod, Rational.ofInt 1; tkNested, Rational.ofInt -1 ])
+                )
+            )
             // Deeply nested: functions, tuples, sets and computations composed together.
             FTFun(
                 FTTuple(EqArray.ofList [ ftCond; ftArray ]),

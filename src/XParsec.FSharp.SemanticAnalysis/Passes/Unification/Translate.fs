@@ -16,16 +16,9 @@ module internal UnificationTranslate =
     let exitLevel (ctx: PassContext) : unit =
         ctx.CurrentLevel <- ctx.CurrentLevel - 1
 
-    /// Fresh unkeyed TypeVar: an intermediate "result" var, tied to no CST node.
-    let freshTyVar (ctx: PassContext) : TyVarId =
-        let tv = ctx.NewTypeVar()
-        ctx.Store.SetLevel(UnionFind.find ctx.Store tv, ctx.CurrentLevel)
-        tv
-
     /// Overwrites any prior entry; get-or-allocate callers must use `tvOf`.
     let freshTv (ctx: PassContext) (key: NodeKey) : TyVarId =
-        let tv = ctx.NewTypeVar()
-        ctx.Store.SetLevel(UnionFind.find ctx.Store tv, ctx.CurrentLevel)
+        let tv = ctx.FreshTyVar()
         ctx.Bindings.TypeVar.Set(key, tv)
         tv
 
@@ -39,7 +32,7 @@ module internal UnificationTranslate =
     /// Recover with a fresh TyVar, so a broken subtree still yields a type.
     let errorTy (ctx: PassContext) (tok: SyntaxToken) (kind: Kind) : SemType =
         ctx.Report(tok, kind)
-        TyVar(freshTyVar ctx)
+        TyVar(ctx.FreshTyVar())
 
     /// The last resort for a WRITTEN reference no claim of this file holds and no external shape built.
     /// The spelling either resolves to an external type the contract registered without a body,
@@ -220,7 +213,7 @@ module internal UnificationTranslate =
         // `int` key the IL encoder encodes, never a nominal `int32`. The frozen RHS is
         // already kind-correct; the type args substitute into it.
         | ExternalTypeShape.Abbrev(_, frozen) ->
-            ValueSome(FrozenTypeBridge.instantiateDeclaring frozen (translatedArgs.AsSpan().ToArray()))
+            ValueSome(FrozenTypeBridge.instantiateDeclaring ctx frozen (translatedArgs.AsSpan().ToArray()))
         // No modelled body, so no kind a *type annotation* can resolve to. Declining routes
         // the reference to `unresolvedRefTy`, which records the gap.
         | ExternalTypeShape.Unmodelled _ -> ValueNone
@@ -245,15 +238,6 @@ module internal UnificationTranslate =
         match ctx.Provider.TryLookupType symKey with
         | ValueSome shape -> tryExternalTypeOfShape ctx symKey shape translatedArgs
         | ValueNone -> ValueNone
-
-    /// `carrier` measured by `units`: a TyVar whose `Link` is the carrier and whose `Units`
-    /// are the term, the representation shared by `1.0<m>` and `float<m>`.
-    let measuredTy (ctx: PassContext) (carrier: SemType) (units: MeasureTerm) : SemType =
-        let tv = freshTyVar ctx
-        let root = UnionFind.find ctx.Store tv
-        ctx.Store.SetLink(root, ValueSome carrier)
-        ctx.Store.SetUnits(root, ValueSome units)
-        TyVar tv
 
     /// One written type argument read by the kind of the parameter it fills.
     [<RequireQualifiedAccess; NoEquality; NoComparison>]
@@ -285,7 +269,7 @@ module internal UnificationTranslate =
 
         match body with
         | ValueSome body -> instantiateMember ctx.Store (info.TypeParams, args) body
-        | ValueNone -> TyVar(freshTyVar ctx)
+        | ValueNone -> TyVar(ctx.FreshTyVar())
 
     /// Resolves `'a` through `ctx.Resolution.TyparScope`; callers open a fresh scope per
     /// signature (binding or type defn) before walking. A generic named type written
@@ -313,12 +297,12 @@ module internal UnificationTranslate =
                         )
                     )
 
-                let tv = freshTyVar ctx
+                let tv = ctx.FreshTyVar()
                 ctx.Resolution.TyparScope.[name] <- tv
                 TyVar tv
         | Type.VarType(Typar.Anon _) ->
             // `_` typar — always fresh, never stored; distinct per occurrence.
-            let tv = freshTyVar ctx
+            let tv = ctx.FreshTyVar()
             // `_` is the one INFERRED position inside a written type (`Box<_>`): mark it so a
             // consumer of the annotation tells the hole from written structure or a named `'a`.
             ctx.MarkInferenceHole tv
@@ -364,7 +348,7 @@ module internal UnificationTranslate =
         | _ ->
             // Shapes with no model, such as an anonymous record. A free TyVar lets
             // unification pin it from context.
-            TyVar(freshTyVar ctx)
+            TyVar(ctx.FreshTyVar())
 
     /// The `SemType` of the project-local type `claim` identifies, applied to `args`. A nominal is
     /// built from the claim's `TypeKey` alone, so `type A = { x: B } and B = { y: A }`
@@ -416,7 +400,7 @@ module internal UnificationTranslate =
         /// `build` applied to the type-kinded arguments, measured by the measure-kinded one.
         let apply (kinds: EqArray<TyparKind>) (build: EqArray<SemType> -> SemType) : SemType =
             match readTypeArgs ctx site.Tok kinds args with
-            | ValueNone -> TyVar(freshTyVar ctx)
+            | ValueNone -> TyVar(ctx.FreshTyVar())
             | ValueSome reads ->
                 // A measure-kinded position holds a free placeholder; the measure lives on the
                 // wrapping measured TyVar.
@@ -425,7 +409,7 @@ module internal UnificationTranslate =
                     |> EqArray.map (fun read ->
                         match read with
                         | TypeArgRead.Type ty -> ty
-                        | TypeArgRead.Measure _ -> TyVar(freshTyVar ctx)
+                        | TypeArgRead.Measure _ -> TyVar(ctx.FreshTyVar())
                     )
 
                 let units =
@@ -439,7 +423,7 @@ module internal UnificationTranslate =
 
                 match units with
                 | [||] -> build typeArgs
-                | [| term |] -> measuredTy ctx (build typeArgs) term
+                | [| term |] -> ctx.MeasuredTy(build typeArgs, term)
                 | _ -> errorTy ctx site.Tok (Kind.NotYetSupported "a type with several measure parameters")
 
         match ctx.Resolution.TypeRefVerdicts.TryGetValue site.Key with
@@ -451,7 +435,7 @@ module internal UnificationTranslate =
                     | ValueSome ty -> ty
                     | ValueNone -> unresolved ()
                 )
-        | ValueSome(TypeRefVerdict.LocalTypeAtOtherArity _) -> TyVar(freshTyVar ctx)
+        | ValueSome(TypeRefVerdict.LocalTypeAtOtherArity _) -> TyVar(ctx.FreshTyVar())
         // A measure is not a type, so a reference in TYPE position is FS0704.
         | ValueSome(TypeRefVerdict.ExternalType(_, ExternalTypeShape.Measure _)) ->
             errorTy ctx site.Tok Kind.TypeExpectedNotMeasure

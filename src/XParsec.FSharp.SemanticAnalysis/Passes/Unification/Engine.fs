@@ -196,7 +196,7 @@ module UnificationEngine =
                                 // A `number` member resolves as `float`, so an `int` record
                                 // field satisfies it as a repr-sibling, not by `subsumes`.
                                 let expectedTy =
-                                    ExternalSymbols.instantiateSignature ctx.Store m declArgs ctx.CurrentLevel
+                                    ExternalSymbols.instantiateSignature ctx m declArgs ctx.CurrentLevel
 
                                 subsumes ctx argTy expectedTy <> SubsumeOutcome.Unrelated
                                 || reprSiblings ctx argTy expectedTy
@@ -683,7 +683,7 @@ module UnificationEngine =
                 for d in pending do
                     match ctx.Provider.TryLookupMember(lookupKey, d.MemberName) with
                     | ValueSome m when not m.IsStatic ->
-                        let memberSig = ExternalSymbols.openSignature m argArr
+                        let memberSig = ExternalSymbols.openSignature ctx m argArr
 
                         ctx.Resolution.ExternalAccess.Set(d.Use.Key, ResolvedExternalMember.OfMember(m, memberSig))
 

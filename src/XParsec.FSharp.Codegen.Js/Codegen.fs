@@ -92,7 +92,9 @@ module Codegen =
                     }
             | None -> ValueNone
 
-        let pool = TastPoolBuilder.openOver tast
+        // JS has no representation for a measure, so the file's types are read erased.
+        let pool =
+            TastPoolBuilder.openOver (MeasureErasure.pools contract.Provider.TryLookupType tast)
 
         let imports = JsImports.createIn project.Package runtimeAssets
 

@@ -83,6 +83,8 @@ type internal ClrEncoder(env: ClrEnv) =
     /// typar window and no caller-supplied replacement hook.
     let rec encodeType (te: SignatureTypeEncoder) (t: FrozenType) : unit =
         match t with
+        // IL has no representation for a measure: `float<m>` encodes as `float`.
+        | FrozenType.MeasuredNominal _ -> encodeType te (MeasureErasure.erase env.LookupTypeByKey t)
         // `obj` → `ELEMENT_TYPE_OBJECT`, not `class System.Object`. A BCL interface method
         // declared `CompareTo(object)` is encoded with the primitive token, and implicit override
         // binding is by signature-BLOB match, so an implementing member must match the encoding.

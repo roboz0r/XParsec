@@ -115,6 +115,13 @@ let private samples: FrozenType list =
         FTLocalTypar(SchemeId 0, 0)
         FTLocalTypar(SchemeId 1, 2)
         FTUnknown(UnknownReason.UndefinedName "Unresolved.Head")
+        // A measured nominal: the measure is a leaf in argument position, its atoms keyed.
+        FTConst(
+            FrozenTypeBridge.measuredClaimKey RuntimeNames.floatKey,
+            EqArray.singleton (
+                FTMeasure(MeasureTerm.OfList [ nestedKey, Rational.ofInt 1; colourKey, Rational.ofInt -2 ])
+            )
+        )
     ]
 
 /// The keys interned in their own right — an `FTConst` type constructor is not the only way
@@ -162,6 +169,7 @@ let private rowTag (row: TypeRow) : string =
     | TypeRow.Typar _ -> "Typar"
     | TypeRow.LocalTypar _ -> "LocalTypar"
     | TypeRow.Unknown _ -> "Unknown"
+    | TypeRow.Measure _ -> "Measure"
 
 [<Tests>]
 let tests =
@@ -341,6 +349,7 @@ let tests =
                             "Typar"
                             "LocalTypar"
                             "Unknown"
+                            "Measure"
                         ]
 
                 Expect.equal (Set.difference expected produced) Set.empty "every row case is exercised"

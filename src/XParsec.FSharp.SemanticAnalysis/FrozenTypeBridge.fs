@@ -2,10 +2,18 @@ namespace XParsec.FSharp.SemanticAnalysis
 
 open System.Collections.Generic
 
-/// `SemType` ↔ `FrozenType`. `TyVar` is the sole `SemType` case with no frozen
-/// counterpart, because that split is the point of `FrozenType`.
+/// `SemType` ↔ `FrozenType`. `TyVar` is the sole `SemType` case with no frozen counterpart:
+/// a measure-bearing `TyVar` freezes to its carrier's arity-1 claim over an `FTMeasure`, and
+/// thaws back through `IMeasuredThaw`.
 [<AutoOpen>]
 module FrozenTypeBridge =
+
+    /// The thaw of a frozen measured nominal `FTConst(key, [FTMeasure units])` into `Store`:
+    /// a measured `TyVar` whose `Link` is the arity-1 abbreviation `key` expanded and whose
+    /// `Units` is the term.
+    type IMeasuredThaw =
+        abstract Store: TypeStore
+        abstract Measured: key: TypeKey * units: MeasureTerm -> SemType
 
     /// The assignment of types to a template's open typars. One value per instantiation
     /// event: templates instantiated through one value agree at every typar index.
@@ -13,6 +21,25 @@ module FrozenTypeBridge =
         abstract Declaring: i: int -> SemType
         abstract Method: j: int -> SemType
         abstract Local: scheme: SchemeId * k: int -> SemType
+
+    [<RequireQualifiedAccess>]
+    module MeasuredThaw =
+        /// The thaw for a surface without measured types: a CLR metadata row, a TypeScript
+        /// declaration, a hand-built template. `Measured` throws.
+        let noneOver (store: TypeStore) : IMeasuredThaw =
+            { new IMeasuredThaw with
+                member _.Store = store
+
+                member _.Measured(key, units) =
+                    failwithf
+                        "MeasuredThaw.noneOver: the measured type %s<%O> reached a surface that carries no measure"
+                        key.DeclaredPath
+                        units
+            }
+
+    /// The arity-1 claim measuring `carrier`: `Vesper.float`1` for `Vesper.float`. Each
+    /// measurable primitive is declared at arity 0 and, under the same name, at arity 1.
+    let measuredClaimKey (carrier: TypeKey) : TypeKey = { carrier with TyparArity = 1 }
 
     let rec toFrozenWith (onVar: TyVarId -> FrozenType) (ty: SemType) : FrozenType =
         let go = toFrozenWith onVar
@@ -47,11 +74,36 @@ module FrozenTypeBridge =
     let toFrozen (ty: SemType) : FrozenType =
         toFrozenWith (fun tv -> failwithf "FrozenType.toFrozen: cannot freeze SemType: %A" (TyVar tv)) ty
 
-    let rec instantiateWith (inst: ITyparInstantiation) (template: FrozenType) : SemType =
-        let go = instantiateWith inst
+    /// Freeze after a deep zonk. A measure-bearing root freezes to its carrier's arity-1
+    /// claim over the term; `onVar` freezes every root still unlinked after the zonk.
+    let freezeWith (store: TypeStore) (onVar: TyVarId -> FrozenType) (ty: SemType) : FrozenType =
+        let onRoot (tv: TyVarId) : FrozenType =
+            let root = UnionFind.find store tv
+
+            match store.Units root, store.Link root with
+            | ValueSome units, ValueSome carrier ->
+                match UnionFind.zonk store carrier with
+                | TyConst(key, EqEmpty) -> FTConst(measuredClaimKey key, EqArray.singleton (FTMeasure units))
+                // The recovery type of a reported reference, already diagnosed at the source.
+                | TyUnknown reason -> FTUnknown reason
+                | other ->
+                    failwithf "FrozenTypeBridge.freezeWith: a measure <%O> over a non-primitive carrier %A" units other
+            | _ -> onVar tv
+
+        UnionFind.zonk store ty |> toFrozenWith onRoot
+
+    /// `freezeWith` refusing an unlinked root.
+    let freeze (store: TypeStore) (ty: SemType) : FrozenType =
+        freezeWith store (fun tv -> failwithf "FrozenType.freeze: cannot freeze SemType: %A" (TyVar tv)) ty
+
+    /// `template` thawed: `thaw` serves a measured nominal, `inst` every open typar.
+    let rec instantiateWith (thaw: IMeasuredThaw) (inst: ITyparInstantiation) (template: FrozenType) : SemType =
+        let go = instantiateWith thaw inst
 
         match template with
+        | FrozenType.MeasuredNominal(key, units) -> thaw.Measured(key, units)
         | FTConst(key, args) -> TyConst(key, EqArray.map go args)
+        | FTMeasure units -> failwithf "FrozenTypeBridge: the measure <%O> reached type position" units
         | FTFun(arg, result) -> TyFun(go arg, go result)
         | FTTuple items -> TyTuple(EqArray.map go items)
         | FTRecord(key, args) -> TyRecord(key, EqArray.map go args)
@@ -84,10 +136,11 @@ module FrozenTypeBridge =
     /// The identity instantiation: each DECLARED placeholder maps back to its own
     /// `TyTypar` marker. `FTLocalTypar` has no marker to map to, so it MINTS a fresh
     /// `TyVar`, memoised per `(scheme, k)` so repeated occurrences share one cell.
-    let ofFrozen (store: TypeStore) (ft: FrozenType) : SemType =
+    let ofFrozen (thaw: IMeasuredThaw) (ft: FrozenType) : SemType =
         let localCache = Dictionary<LocalTyparKey, SemType>()
 
         instantiateWith
+            thaw
             { new ITyparInstantiation with
                 member _.Declaring i = TyTypar(TyparAxis.Declaring, i)
                 member _.Method j = TyTypar(TyparAxis.Method, j)
@@ -98,7 +151,7 @@ module FrozenTypeBridge =
                     match localCache.TryGetValue key with
                     | true, v -> v
                     | _ ->
-                        let v = TyVar(store.NewTypeVar())
+                        let v = TyVar(thaw.Store.NewTypeVar())
                         localCache.[key] <- v
                         v
             }
@@ -138,14 +191,6 @@ module FrozenTypeBridge =
                 member _.Method j =
                     failwithf "TyparInstantiation.declaringOnly: unexpected method typar %d in a type-shape template" j
 
-                member _.Local(scheme, k) = localTyparInTemplate scheme k
-            }
-
-        /// Every open typar, either axis, becomes a marker on `axis`, index preserved.
-        let toAxis (axis: TyparAxis) : ITyparInstantiation =
-            { new ITyparInstantiation with
-                member _.Declaring i = TyTypar(axis, i)
-                member _.Method j = TyTypar(axis, j)
                 member _.Local(scheme, k) = localTyparInTemplate scheme k
             }
 
@@ -202,8 +247,20 @@ module FrozenTypeBridge =
                 member _.Local(scheme, k) = localTyparInTemplate scheme k
             }
 
-    let instantiateDeclaring (template: FrozenType) (declaringArgs: SemType[]) : SemType =
-        instantiateWith (TyparInstantiation.declaringOnly declaringArgs) template
+    let instantiateDeclaring (thaw: IMeasuredThaw) (template: FrozenType) (declaringArgs: SemType[]) : SemType =
+        instantiateWith thaw (TyparInstantiation.declaringOnly declaringArgs) template
+
+    /// Every open typar, either axis, becomes a marker on `axis`, index preserved. A measured
+    /// argument passes through untouched.
+    let rec reaxisTo (axis: TyparAxis) (template: FrozenType) : FrozenType =
+        match template with
+        | FTTypar(_, i) -> FTTypar(axis, i)
+        | FTLocalTypar(scheme, k) ->
+            failwithf
+                "FrozenTypeBridge.reaxisTo: unexpected body-local typar %d of scheme %O in a signature template"
+                k
+                scheme
+        | t -> FrozenType.mapChildren (reaxisTo axis) t
 
     /// Contract extraction bakes EVERY typar on the `Declaring` axis, numbering the
     /// declaring type's own first, so a typar the member INTRODUCES (`<'a>`, or an

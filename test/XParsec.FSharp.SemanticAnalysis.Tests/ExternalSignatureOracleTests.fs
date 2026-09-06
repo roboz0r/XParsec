@@ -85,7 +85,10 @@ let tests =
             test "instantiateDeclaring template args ≡ hand-written expected (no method axis)" {
                 for name, arity, template, expected in declaringTemplates do
                     let args = argsForArity arity
-                    let viaTemplate = instantiateDeclaring template args
+
+                    let viaTemplate =
+                        instantiateDeclaring (MeasuredThaw.noneOver (TypeStore())) template args
+
                     Expect.equal viaTemplate expected (sprintf "instantiateDeclaring for '%s'" name)
             }
 
@@ -95,7 +98,11 @@ let tests =
                 for name, arity, template, _ in declaringTemplates do
                     let frozenArgs = argsForArity arity |> Array.map toFrozen
                     let viaSubstitute = substituteDeclaring frozenArgs template
-                    let viaInstantiate = toFrozen (instantiateDeclaring template (argsForArity arity))
+
+                    let viaInstantiate =
+                        toFrozen (
+                            instantiateDeclaring (MeasuredThaw.noneOver (TypeStore())) template (argsForArity arity)
+                        )
 
                     Expect.equal
                         viaSubstitute
@@ -122,7 +129,8 @@ let tests =
                 let level = 7
                 let store = TypeStore()
 
-                let result = ExternalSymbols.instantiateSignature store m (argsForArity 1) level
+                let result =
+                    ExternalSymbols.instantiateSignature (MeasuredThaw.noneOver store) m (argsForArity 1) level
 
                 match result with
                 | TyFun(TyTuple ins, TyTuple outs) ->
@@ -178,14 +186,14 @@ let tests =
                     match expected with
                     | Some exp ->
                         Expect.equal
-                            (ExternalSymbols.instantiateSignature (TypeStore()) m args 0)
+                            (ExternalSymbols.instantiateSignature (MeasuredThaw.noneOver (TypeStore())) m args 0)
                             exp
                             "instantiateSignature ≡ expected"
                     | None ->
                         Expect.equal m.Signature.DeclaringTyparArity declTyparArity "declaring arity preserved"
                         Expect.equal m.Signature.MethodTyparArity methodTyparArity "method arity preserved"
 
-                        match ExternalSymbols.instantiateSignature (TypeStore()) m args 0 with
+                        match ExternalSymbols.instantiateSignature (MeasuredThaw.noneOver (TypeStore())) m args 0 with
                         | TyFun _ -> ()
                         | other -> failtestf "expected a TyFun member signature, got %A" other
                 }

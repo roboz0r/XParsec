@@ -136,7 +136,7 @@ module UnificationTraitMembers =
                 |> Array.map (fun m ->
                     {
                         HostTy = hostTy
-                        Ty = ExternalSymbols.openSignature m (EqArray.toArray args)
+                        Ty = ExternalSymbols.openSignature ctx m (EqArray.toArray args)
                         DeclArgs = declArgs
                         Source = TraitMemberSource.External m
                     }

@@ -100,7 +100,9 @@ module TypeLayout =
         | FTConditional _ -> LayoutShape.Unevaluated
         | FTTypar _
         | FTLocalTypar _
-        | FTUnknown _ -> LayoutShape.Opaque
+        | FTUnknown _
+        // Argument position only, so never a value's own layout.
+        | FTMeasure _ -> LayoutShape.Opaque
 
     /// What is settled leads what was asked for: `[<Struct>]` is the request, the target is
     /// what it gets. A tuple resolves through the nominal it becomes, asked for like any

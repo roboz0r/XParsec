@@ -16,21 +16,18 @@ module OpenSignature =
     /// Projects a symbol's contract scheme onto the method axis, `Declaring i ↦ Method i`
     /// POSITIONALLY, because the producer assigns its `!!i` slots in that same declared order.
     let ofSymbol (sym: ExternalSymbol) : OpenMethodSignature =
-        let toMethodAxis = TyparInstantiation.toAxis TyparAxis.Method
-        let openSig = FrozenTypeBridge.instantiateWith toMethodAxis sym.Scheme
+        let toMethodAxis = FrozenTypeBridge.reaxisTo TyparAxis.Method
 
         let constraints =
             [
                 for c in sym.Constraints do
                     match c with
-                    | ExternalConstraint.Coercion(i, target) ->
-                        let openTarget = FrozenTypeBridge.instantiateWith toMethodAxis target
-                        FrozenConstraint.Coercion(i, toFrozen openTarget)
+                    | ExternalConstraint.Coercion(i, target) -> FrozenConstraint.Coercion(i, toMethodAxis target)
                     | _ -> ()
             ]
 
         {
-            Signature = toFrozen openSig
+            Signature = toMethodAxis sym.Scheme
             MethodTyparArity = sym.TyparArity
             Constraints = constraints
         }

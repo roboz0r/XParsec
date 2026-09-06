@@ -20,7 +20,7 @@ module InlineThaw =
     /// Tokens stay the DECLARING file's, read out of `path`'s retained text, so a node still
     /// spells where it was written.
     let bodyAtPath
-        (store: TypeStore)
+        (thaw: IMeasuredThaw)
         (retained: LexedFiles)
         (path: AssemblyFilePath)
         (decl: Wire.TDecl)
@@ -28,6 +28,7 @@ module InlineThaw =
         // One root per distinct typar of the WHOLE decl, on any axis: two occurrences of one
         // typar must land on ONE cell, or a parameter's type and the uses of that parameter
         // come apart. Slot `i` of an axis array holds typar `i`'s root.
+        let store = thaw.Store
         let declaringRoots = ResizeArray<TyVarId voption>()
         let methodRoots = ResizeArray<TyVarId voption>()
         let localRoots = Dictionary<LocalTyparKey, TyVarId>()
@@ -60,7 +61,7 @@ module InlineThaw =
             }
 
         let thawed =
-            TastConvert.decl (FrozenTypeBridge.instantiateWith inst) (LexedFiles.tokenAt retained path) decl
+            TastConvert.decl (FrozenTypeBridge.instantiateWith thaw inst) (LexedFiles.tokenAt retained path) decl
 
         {
             Decl = thawed

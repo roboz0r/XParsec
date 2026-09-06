@@ -41,15 +41,7 @@ module UnificationEngineCore =
             |> mkUnion
         | resolved -> SemType.mapChildren (stripReferenceNull store) resolved
 
-    /// Fully resolve a SemType: walk all TyVar chains AND recurse into compound shapes. A
-    /// measure-bearing TyVar survives as a TyVar, so a consumer can still read the measure.
-    let rec zonk (store: TypeStore) (t: SemType) : SemType =
-        match t with
-        | TyVar _ ->
-            match UnionFind.zonkShallow store t with
-            | TyVar _ as v -> v
-            | resolved -> zonk store resolved
-        | t -> SemType.mapChildren (zonk store) t
+    let zonk = UnionFind.zonk
 
     let argElemsOf (store: TypeStore) (argTy: SemType) : SemType list =
         match zonk store argTy with
@@ -525,11 +517,11 @@ module UnificationEngineCore =
         | ValueNone ->
             match ctx.Provider.TryLookupType key with
             | ValueSome(ExternalTypeShape.Class shape) ->
-                ExternalSymbols.instantiateBaseType shape (args.AsSpan().ToArray())
+                ExternalSymbols.instantiateBaseType ctx shape (args.AsSpan().ToArray())
             // A primitive's declared `inherit` parent, so the subtype walk continues
             // `exn → obj → ⊥` off the contract chain. Only a heritable primitive declares one.
             | ValueSome(ExternalTypeShape.Intrinsic { Class = ValueSome surface }) ->
-                ExternalSymbols.instantiateBaseTypeFrozen surface.BaseType (args.AsSpan().ToArray())
+                ExternalSymbols.instantiateBaseTypeFrozen ctx surface.BaseType (args.AsSpan().ToArray())
             | _ -> ValueNone
 
     // The interfaces a nominal declares, as instantiated nominal `SemType`s. The metadata
@@ -557,17 +549,17 @@ module UnificationEngineCore =
         | ValueNone ->
             match ctx.Provider.TryLookupType key with
             | ValueSome(ExternalTypeShape.Class shape) ->
-                ExternalSymbols.instantiateInterfaces shape (args.AsSpan().ToArray())
+                ExternalSymbols.instantiateInterfaces ctx shape (args.AsSpan().ToArray())
                 |> Array.toList
             // A primitive's declared interfaces (`'T[]` is a `seq<'T>`), so the walk crosses
             // off the contract chain as `subtypeParentOf` does for its base.
             | ValueSome(ExternalTypeShape.Intrinsic { Class = ValueSome surface }) ->
-                ExternalSymbols.instantiateInterfacesOf surface.Interfaces (args.AsSpan().ToArray())
+                ExternalSymbols.instantiateInterfacesOf ctx surface.Interfaces (args.AsSpan().ToArray())
                 |> Array.toList
             // A capability's own `inherit` chain (`enumerator : disposable`), so `e.Dispose()`
             // resolves off the contract rather than off whatever the platform spelling names.
             | ValueSome(ExternalTypeShape.IntrinsicInterface iface) ->
-                ExternalSymbols.instantiateInterfacesOf iface.Interfaces (args.AsSpan().ToArray())
+                ExternalSymbols.instantiateInterfacesOf ctx iface.Interfaces (args.AsSpan().ToArray())
                 |> Array.toList
             | _ -> []
 

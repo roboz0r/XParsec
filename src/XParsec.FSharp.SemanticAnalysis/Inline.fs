@@ -337,7 +337,9 @@ module Inline =
             let result = Array.create roots.Length ValueNone
 
             let rec go (defT: SemType) (actT: SemType) =
-                match Unification.zonk store defT, Unification.zonk store actT with
+                // The actual reads erased: a body splices over the CARRIER of a measured
+                // operand, so `float<m>` grounds `^T` as `float` and selects its clause.
+                match Unification.zonk store defT, UnionFind.zonkErased store actT with
                 | TyVar tv, act ->
                     let r = UnionFind.find store tv
 

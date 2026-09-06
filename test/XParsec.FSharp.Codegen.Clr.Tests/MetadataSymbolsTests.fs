@@ -71,7 +71,10 @@ let tests =
                 match typeShape "System.Collections.Generic.List`1" with
                 | ValueSome(ExternalTypeShape.Class info) ->
                     let impls =
-                        ExternalSymbols.instantiateInterfaces info [| TyConst(RuntimeNames.intKey, EqArray.empty) |]
+                        ExternalSymbols.instantiateInterfaces
+                            (MeasuredThaw.noneOver (TypeStore()))
+                            info
+                            [| TyConst(RuntimeNames.intKey, EqArray.empty) |]
                         |> Array.choose (fun ty ->
                             match RuntimeNames.interfaceNominal ty with
                             | ValueSome(struct (k, _)) -> Some(SymbolKeyOps.typeMetaName k)
@@ -88,7 +91,7 @@ let tests =
             test "the Class shape carries the declared base type (or ValueNone on an interface)" {
                 match typeShape "System.IO.StringWriter" with
                 | ValueSome(ExternalTypeShape.Class info) ->
-                    match ExternalSymbols.instantiateBaseType info [||] with
+                    match ExternalSymbols.instantiateBaseType (MeasuredThaw.noneOver (TypeStore())) info [||] with
                     | ValueSome(TyClass(k, args)) when
                         SymbolKeyOps.typeMetaName k = "System.IO.TextWriter" && args.IsEmpty
                         ->
@@ -132,7 +135,7 @@ let tests =
                     // Instantiated at `'T = int`: `EqualityComparer<int>`.
                     match
                         ExternalSymbols.instantiateSignature
-                            (TypeStore())
+                            (MeasuredThaw.noneOver (TypeStore()))
                             m
                             [| TyConst(RuntimeNames.intKey, EqArray.empty) |]
                             0
@@ -159,7 +162,7 @@ let tests =
                     // Instantiated at `'T = int`: `int -> int`.
                     match
                         ExternalSymbols.instantiateSignature
-                            (TypeStore())
+                            (MeasuredThaw.noneOver (TypeStore()))
                             m
                             [| TyConst(RuntimeNames.intKey, EqArray.empty) |]
                             0
@@ -181,7 +184,7 @@ let tests =
                     Expect.equal m.Storage MemberStorage.Field "Empty is a field"
                     Expect.isTrue m.IsStatic "Empty is static"
 
-                    match ExternalSymbols.instantiateSignature (TypeStore()) m [||] 0 with
+                    match ExternalSymbols.instantiateSignature (MeasuredThaw.noneOver (TypeStore())) m [||] 0 with
                     | TyConst(key, _) when SymbolKeyOps.typeSimpleName key = DisplayName "string" -> ()
                     | other -> failtestf "Empty should be typed string, got %A" other
                 | ValueNone -> failtest "String.Empty did not resolve as a field"
@@ -200,7 +203,7 @@ let tests =
                         SymbolKeyOps.qualifiedTypeKeyOf "System.Collections.Generic.IEnumerable`1" 1
 
                     match
-                        ExternalSymbols.instantiateInterfaces info intArg
+                        ExternalSymbols.instantiateInterfaces (MeasuredThaw.noneOver (TypeStore())) info intArg
                         |> Array.tryPick (fun ty ->
                             match RuntimeNames.interfaceNominal ty with
                             | ValueSome(struct (k, args)) when k = enumerableKey -> Some args
@@ -217,14 +220,15 @@ let tests =
                     // Base type: `List<'T> : Object` surfaces as the canon `obj` identity
                     // (`TyConst`), not a BCL-nominal `TyClass`, because the reader
                     // canonicalizes the subtype roots.
-                    match ExternalSymbols.instantiateBaseType info intArg with
+                    match ExternalSymbols.instantiateBaseType (MeasuredThaw.noneOver (TypeStore())) info intArg with
                     | ValueSome(TyConst(k, _)) ->
                         Expect.equal (SymbolKeyOps.typeMetaName k) "Vesper.obj" "List bases on the canon obj root"
                     | other -> failtestf "expected List base = canon obj, got %A" other
 
                     // The declaring typar resolves and any method typar freshens.
                     for m in info.Members do
-                        ExternalSymbols.instantiateSignature (TypeStore()) m intArg 0 |> ignore
+                        ExternalSymbols.instantiateSignature (MeasuredThaw.noneOver (TypeStore())) m intArg 0
+                        |> ignore
                 | other -> failtestf "expected List`1 as a Class shape, got %A" other
             }
 

@@ -34,8 +34,8 @@ module internal UnificationInferCtor =
 
         match pickBestOverload ctx typeArgs ctors (argElemsOf ctx.Store argTy) with
         | ValueSome chosen ->
-            let ctorSig = ExternalSymbols.openSignature chosen typeArgs
-            let resultTy = TyVar(freshTyVar ctx)
+            let ctorSig = ExternalSymbols.openSignature ctx chosen typeArgs
+            let resultTy = TyVar(ctx.FreshTyVar())
             unify ctx (CstKeys.firstTokenOfExpr argExpr) ctorSig (TyFun(argTy, resultTy))
             ValueSome chosen
         | ValueNone ->
@@ -80,8 +80,8 @@ module internal UnificationInferCtor =
                 // Record the chosen ctor's identity so codegen's `TExpr.New` emission
                 // selects this exact same-arity overload by key rather than re-picking.
                 ctx.Resolution.ExternalCtor.Set(node.Key, SymbolKey.Member chosen.Key)
-                let ctorSig = ExternalSymbols.openSignature chosen typeArgs
-                let resultTy = TyVar(freshTyVar ctx)
+                let ctorSig = ExternalSymbols.openSignature ctx chosen typeArgs
+                let resultTy = TyVar(ctx.FreshTyVar())
                 // Unify the ctor SIGNATURE (grounding each parameter) but leave `resultTy`
                 // free: the ctor `TyClass` from the `new T<args>` annotation is the
                 // AUTHORITY, and a no-arg overload may hardcode `any` type args that clash.
@@ -135,7 +135,7 @@ module internal UnificationInferCtor =
                     ctx.Report(node.Tok, Kind.UnknownNominalType(NominalKind.Class, SymbolKeyOps.typeMetaName clsKey))
 
                     infer ctx argExpr |> ignore
-                    TyVar(freshTyVar ctx)
+                    TyVar(ctx.FreshTyVar())
         // A heritable primitive typed by its canon (`new exn "boom"`).
         | TyConst(canonKey, tyArgs) ->
             // A written PLATFORM spelling (`new System.Exception(msg, inner)`) canonicalizes to
@@ -172,11 +172,11 @@ module internal UnificationInferCtor =
                 | ValueNone ->
                     ctx.Report(node.Tok, Kind.NewRequiresClassType)
                     infer ctx argExpr |> ignore
-                    TyVar(freshTyVar ctx)
+                    TyVar(ctx.FreshTyVar())
         | _ ->
             ctx.Report(node.Tok, Kind.NewRequiresClassType)
             infer ctx argExpr |> ignore
-            TyVar(freshTyVar ctx)
+            TyVar(ctx.FreshTyVar())
 
     /// The `new`-less constructor-as-function sugar: `InvalidOperationException "x"`,
     /// `ArgumentException(message, name)`. The applied function must resolve to an external class (via

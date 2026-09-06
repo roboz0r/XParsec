@@ -26,7 +26,7 @@ module internal UnificationInferIdentExpr =
         | ValueSome rb -> ValueSome(instantiateBinding ctx rb)
         | ValueNone ->
             match ctx.Resolution.ExternalSymbolStamp.TryGetValue key with
-            | ValueSome sym -> ValueSome(ExternalSymbols.instantiateSymbol ctx.Store sym ctx.CurrentLevel)
+            | ValueSome sym -> ValueSome(ExternalSymbols.instantiateSymbol ctx sym ctx.CurrentLevel)
             | ValueNone -> ValueNone
 
     let inferIdentDefault (ctx: PassContext) (e: Expr<SyntaxToken>) (node: NodeSite) : SemType =
@@ -52,7 +52,7 @@ module internal UnificationInferIdentExpr =
                     | ValueSome i -> ctorType ctx i
                     // NameResolution reported the ambiguity; the use types as a fresh variable.
                     | ValueNone when ResolvedStamps.isAmbiguousCase ctx.Resolution.Resolved node.Key ->
-                        TyVar(freshTyVar ctx)
+                        TyVar(ctx.FreshTyVar())
                     | ValueNone ->
                         // External union case ctor (`Some` / `None` from a referenced
                         // package): typed as `field… -> TyUnion(union, …)`, so the
@@ -85,7 +85,7 @@ module internal UnificationInferIdentExpr =
                                 ctx
                                 node.Tok
                                 (Kind.NoMember(miss.Qualifier, MemberNoun.ValueOrMember, miss.MemberName))
-                        | ValueNone -> TyVar(freshTyVar ctx)
+                        | ValueNone -> TyVar(ctx.FreshTyVar())
 
     let inferIdent (ctx: PassContext) (e: Expr<SyntaxToken>) (node: NodeSite) : SemType =
         match e with
@@ -102,7 +102,7 @@ module internal UnificationInferIdentExpr =
                         ctx
                         node.Tok
                         (Kind.Message(sprintf "Operator '%s' is not available from the symbol provider" name))
-            | ValueNone -> TyVar(freshTyVar ctx)
+            | ValueNone -> TyVar(ctx.FreshTyVar())
         // A multi-segment LongIdent anchored on a local binding is a record-field access
         // chain (`r.X.Y`): the parser carries these inside one `Expr.LongIdentOrOp`.
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when

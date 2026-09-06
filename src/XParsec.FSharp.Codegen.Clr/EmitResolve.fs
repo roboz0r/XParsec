@@ -116,7 +116,8 @@ module EmitResolve =
         | FTLiteral v -> SymbolKeyOps.typeMetaName (RuntimeNames.literalBaseKey v)
         | FTKeyOf _
         | FTIndexedAccess _
-        | FTConditional _ ->
+        | FTConditional _
+        | FTMeasure _ ->
             failwithf "EmitResolve.tyCtorOf: unreachable carried type-level node reached the CLR backend: %A" t
         | FTTypar _ -> "!typar"
         // No type, so nothing to match on: every untyped position ties with every other, and

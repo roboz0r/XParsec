@@ -133,7 +133,8 @@ module internal ElaborateObjArgs =
                 match ctx.Provider.TryLookupType key with
                 | ValueSome(ExternalTypeShape.Record { Fields = fieldShapes }) ->
                     match fieldShapes |> EqArray.tryFind (fun f -> f.Name = fieldName) with
-                    | ValueSome f -> ValueSome(FrozenTypeBridge.instantiateDeclaring f.Frozen (args.AsSpan().ToArray()))
+                    | ValueSome f ->
+                        ValueSome(FrozenTypeBridge.instantiateDeclaring ctx f.Frozen (args.AsSpan().ToArray()))
                     | ValueNone -> ValueNone
                 | _ -> ValueNone
             | _ -> ValueNone
@@ -156,7 +157,7 @@ module internal ElaborateObjArgs =
                 let declaringArgs = args.AsSpan().ToArray()
 
                 [
-                    for ft in c.FrozenFieldTypes -> FrozenTypeBridge.instantiateDeclaring ft declaringArgs
+                    for ft in c.FrozenFieldTypes -> FrozenTypeBridge.instantiateDeclaring ctx ft declaringArgs
                 ]
             | ValueNone -> noSuchCase ()
         | _ -> []

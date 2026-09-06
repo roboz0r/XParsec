@@ -432,7 +432,7 @@ module Unification =
                 for mInfo in impl.Members do
                     match required |> EqArray.tryFind (fun em -> em.Name = mInfo.Name) with
                     | ValueSome em ->
-                        let expected = ExternalSymbols.openSignature em argArr
+                        let expected = ExternalSymbols.openSignature ctx em argArr
                         // `obj | null` and `obj` are the same slot, so erase reference
                         // nullability on BOTH sides: `CompareTo(that: objnull)` satisfies
                         // an `IComparable.CompareTo(obj)` slot.

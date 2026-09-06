@@ -49,6 +49,7 @@ module ConformanceTypars =
         | FTTypar(_, index) -> sprintf "'%d" index
         | FTLocalTypar(_, index) -> sprintf "'local%d" index
         | FTUnknown reason -> reason.Render
+        | FTMeasure units -> string units
 
     /// A binding whose `.fs`-inferred generic scheme disagrees with its `.fsi`-declared
     /// one: a different typar COUNT or a different typar ORDER.

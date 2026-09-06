@@ -62,9 +62,9 @@ module internal UnificationInferExternalCall =
                     let admits =
                         candidates
                         |> Array.exists (fun m ->
-                            match List.tryItem i (memberParamTypes ctx.Store declArgs m) with
+                            match List.tryItem i (memberParamTypes ctx declArgs m) with
                             | Some(TyTypar(TyparAxis.Method, j)) ->
-                                match (ExternalSymbols.instantiateSignatureBounds m declArgs).[j] with
+                                match (ExternalSymbols.instantiateSignatureBounds ctx m declArgs).[j] with
                                 | ValueSome bound ->
                                     match boundLiteralStrings ctx bound with
                                     | ValueSome set -> Set.contains s set
@@ -103,7 +103,7 @@ module internal UnificationInferExternalCall =
         (declArgs: SemType[])
         (facts: ConstArgFacts)
         : (int * SemType) list =
-        let paramTys = memberParamTypes ctx.Store declArgs chosen |> List.toArray
+        let paramTys = memberParamTypes ctx declArgs chosen |> List.toArray
 
         if facts.Length <> paramTys.Length then
             []
@@ -117,7 +117,7 @@ module internal UnificationInferExternalCall =
                 )
                 |> Set.ofArray
 
-            let bounds = ExternalSymbols.instantiateSignatureBounds chosen declArgs
+            let bounds = ExternalSymbols.instantiateSignatureBounds ctx chosen declArgs
             let seed = System.Collections.Generic.Dictionary<int, SemType>()
 
             for i in 0 .. facts.Length - 1 do
@@ -184,7 +184,7 @@ module internal UnificationInferExternalCall =
 
         let memberSig =
             ExternalSymbols.instantiateSignatureWith
-                ctx.Store
+                ctx
                 (methodTyparConstantSeed ctx chosen declArgs facts)
                 chosen
                 declArgs
@@ -193,7 +193,7 @@ module internal UnificationInferExternalCall =
         ctx.Resolution.ExternalAccess.Set(fnKey, ResolvedExternalMember.OfMember(chosen, memberSig))
 
         ctx.Store.SetLink(UnionFind.find ctx.Store (freshTv ctx fnKey), ValueSome memberSig)
-        let resultTy = TyVar(freshTyVar ctx)
+        let resultTy = TyVar(ctx.FreshTyVar())
 
         // An `obj` parameter absorbs a typar / value-type argument via the implicit box
         // without grounding the typar; a base / interface parameter accepts the concrete
@@ -355,7 +355,7 @@ module internal UnificationInferExternalCall =
                     let memberFunTy =
                         instantiateMemberCall ctx (typeParams, args) chosen.EffectiveMethodTypars chosen.Type
 
-                    let resultTy = TyVar(freshTyVar ctx)
+                    let resultTy = TyVar(ctx.FreshTyVar())
                     commitAppliedCoerce ctx node.Tok (TyFun(argTy, resultTy)) memberFunTy
 
                     // `localHost` looks at the object argument's OWN declaration, never up an
@@ -414,7 +414,7 @@ module internal UnificationInferExternalCall =
                                 | TyTuple elems -> elems |> EqArray.truncate suppliedCount |> EqArray.toList
                                 | single -> [ single ]
 
-                            let resultTy = TyVar(freshTyVar ctx)
+                            let resultTy = TyVar(ctx.FreshTyVar())
 
                             unifyAppliedSig
                                 ctx

@@ -286,7 +286,7 @@ let tests =
                 let frozen = frozenLetTy (freezeDecls "let f (x: int | string) : int | string = x")
 
                 Expect.equal
-                    (toFrozen (ofFrozen (TypeStore()) frozen))
+                    (toFrozen (ofFrozen (MeasuredThaw.noneOver (TypeStore())) frozen))
                     frozen
                     "ofFrozen >> toFrozen = id on the frozen signature"
             }

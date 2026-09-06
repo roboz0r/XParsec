@@ -223,7 +223,7 @@ let tests =
                         "namespace App\n\nopen Dep\n\nmodule M =\n    val qualified: Dep.Widget<int> -> int\n    val viaOpen: Widget<int> -> int\n"
 
                 let instOf (suffix: string) : SemType =
-                    ExternalSymbols.instantiateSymbol (TypeStore()) (symbolOf r suffix) 0
+                    ExternalSymbols.instantiateSymbol (MeasuredThaw.noneOver (TypeStore())) (symbolOf r suffix) 0
 
                 let assertWidgetIntToInt (label: string) (ty: SemType) =
                     match ty with
@@ -250,7 +250,9 @@ let tests =
                     (r.Messages |> List.exists (fun m -> m.Contains "Thing"))
                     (sprintf "the unresolved name is reported; got %A" r.Messages)
 
-                match ExternalSymbols.instantiateSymbol (TypeStore()) (symbolOf r "broken") 0 with
+                match
+                    ExternalSymbols.instantiateSymbol (MeasuredThaw.noneOver (TypeStore())) (symbolOf r "broken") 0
+                with
                 | TyFun(TyUnknown(UnknownReason.UndefinedName name), TyConst(k, _)) when
                     SymbolKeyOps.typeSimpleName k = DisplayName "int"
                     ->
@@ -480,7 +482,9 @@ let tests =
                         "app.fsi"
                         "namespace App\n\nmodule M =\n    type Colour =\n        | Red = 0\n        | Green = 1\n\n    val paint: Colour -> int\n"
 
-                match ExternalSymbols.instantiateSymbol (TypeStore()) (symbolOf r "paint") 0 with
+                match
+                    ExternalSymbols.instantiateSymbol (MeasuredThaw.noneOver (TypeStore())) (symbolOf r "paint") 0
+                with
                 | TyFun(TyEnum key, TyConst(intKey, _)) ->
                     Expect.equal key.Name "Colour" "the param is the enum's own nominal"
                     Expect.equal (SymbolKeyOps.typeSimpleName intKey) (DisplayName "int") "the return type still bakes"
@@ -897,7 +901,7 @@ let tests =
 
                 let store = TypeStore()
 
-                match ExternalSymbols.instantiateSymbol store sym 0 with
+                match ExternalSymbols.instantiateSymbol (MeasuredThaw.noneOver store) sym 0 with
                 | TyFun(TyVar a, TyFun(TyVar _, TyConst(k, _))) when SymbolKeyOps.typeSimpleName k = DisplayName "bool" ->
                     Expect.isTrue
                         (store.Constraints.Items(UnionFind.find store a)
@@ -942,7 +946,7 @@ let tests =
                 // TyVar's representative id.
                 let store = TypeStore()
 
-                match ExternalSymbols.instantiateSymbol store sym 0 with
+                match ExternalSymbols.instantiateSymbol (MeasuredThaw.noneOver store) sym 0 with
                 | TyFun(TyVar a, TyFun(TyVar _, TyVar _)) ->
                     match store.Srtp.Live(UnionFind.find store a) with
                     | [ bound ] ->
@@ -1079,12 +1083,12 @@ let tests =
                         "and to the same .NET parameter slot"
 
                     Expect.equal
-                        (ExternalSymbols.instantiateSignature (TypeStore()) c [||] 0)
+                        (ExternalSymbols.instantiateSignature (MeasuredThaw.noneOver (TypeStore())) c [||] 0)
                         (TyFun(intTy, TyFun(intTy, intTy)))
                         "the curried one is applied a group at a time"
 
                     Expect.equal
-                        (ExternalSymbols.instantiateSignature (TypeStore()) t [||] 0)
+                        (ExternalSymbols.instantiateSignature (MeasuredThaw.noneOver (TypeStore())) t [||] 0)
                         (TyFun(TyTuple(EqArray.ofList [ intTy; intTy ]), intTy))
                         "the tupled one takes one tuple"
                 | c, t ->
@@ -1146,7 +1150,10 @@ let tests =
                 let elem = TyConst(RuntimeNames.intKey, EqArray.empty)
 
                 let instantiated =
-                    ExternalSymbols.instantiateInterfacesOf surface.Interfaces [| elem |]
+                    ExternalSymbols.instantiateInterfacesOf
+                        (MeasuredThaw.noneOver (TypeStore()))
+                        surface.Interfaces
+                        [| elem |]
 
                 let carriesSeqOfInt =
                     instantiated

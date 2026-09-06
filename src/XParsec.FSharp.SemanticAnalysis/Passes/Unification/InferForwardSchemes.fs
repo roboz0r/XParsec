@@ -37,8 +37,8 @@ module internal UnificationInferForwardSchemes =
                             | ValueSome seed ->
                                 match seed.TryGetValue n with
                                 | true, proto -> proto
-                                | _ -> freshTyVar ctx
-                            | ValueNone -> freshTyVar ctx
+                                | _ -> ctx.FreshTyVar()
+                            | ValueNone -> ctx.FreshTyVar()
 
                         ctx.Resolution.TyparScope.[n] <- tv
                 | Typar.Anon _ -> ()
@@ -78,13 +78,13 @@ module internal UnificationInferForwardSchemes =
                             for p in b.argumentPats ->
                                 match tryArgAnnotation p with
                                 | ValueSome t -> translateType ctx t
-                                | ValueNone -> TyVar(freshTyVar ctx)
+                                | ValueNone -> TyVar(ctx.FreshTyVar())
                         ]
 
                     let retTy =
                         match b.returnType with
                         | ValueSome(ReturnType(typ = t)) -> translateType ctx t
-                        | ValueNone -> TyVar(freshTyVar ctx)
+                        | ValueNone -> TyVar(ctx.FreshTyVar())
 
                     let fnTy = List.foldBack (fun a r -> TyFun(a, r)) argTypes retTy
                     exitLevel ctx

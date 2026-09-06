@@ -574,6 +574,39 @@ type PassContext(provider: IExternalSymbolProvider, file: LexedFile, assembly: C
 
     member this.NewTypeVar() : TyVarId = this.Store.NewTypeVar()
 
+    /// A fresh unkeyed metavar at the current level: an intermediate result, tied to no CST
+    /// node.
+    member this.FreshTyVar() : TyVarId =
+        let tv = this.NewTypeVar()
+        this.Store.SetLevel(UnionFind.find this.Store tv, this.CurrentLevel)
+        tv
+
+    /// `carrier` measured by `units`: a fresh metavar whose `Link` is the carrier and whose
+    /// `Units` are the term, the one representation of `1.0<m>`, `float<m>` and a thawed
+    /// measured nominal.
+    member this.MeasuredTy(carrier: SemType, units: MeasureTerm) : SemType =
+        let tv = this.FreshTyVar()
+        let root = UnionFind.find this.Store tv
+        this.Store.SetLink(root, ValueSome carrier)
+        this.Store.SetUnits(root, ValueSome units)
+        TyVar tv
+
+    /// The thaw of a frozen measured nominal: `key` is the arity-1 abbreviation of a referenced
+    /// contract (`Vesper.float`1`), whose body is the bare carrier and so instantiates over no
+    /// arguments.
+    interface IMeasuredThaw with
+        member this.Store = this.Store
+
+        member this.Measured(key, units) =
+            match provider.TryLookupType key with
+            | ValueSome(ExternalTypeShape.Abbrev(_, body)) ->
+                this.MeasuredTy(FrozenTypeBridge.instantiateDeclaring this body [||], units)
+            | other ->
+                failwithf
+                    "PassContext.Measured: the measured claim %s is not an abbreviation the referenced contracts publish: %A"
+                    key.DeclaredPath
+                    other
+
     /// Mint a bound-variable key for a synthesised node. It has no source position, so one
     /// construct may mint several, and stays unnamed, so a backend names it after its slot.
     member _.NewSynthBoundVar() : NodeKey =

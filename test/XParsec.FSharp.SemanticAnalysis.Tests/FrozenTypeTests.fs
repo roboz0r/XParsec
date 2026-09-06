@@ -114,14 +114,21 @@ let tests =
         [
             test "ofFrozen >> toFrozen = id on every FrozenType shape" {
                 for ft in sampleFrozenTypes do
-                    Expect.equal (toFrozen (ofFrozen store ft)) ft (sprintf "round-trips: %A" ft)
+                    Expect.equal
+                        (toFrozen (ofFrozen (MeasuredThaw.noneOver store) ft))
+                        ft
+                        (sprintf "round-trips: %A" ft)
             }
 
             test "toFrozen >> ofFrozen = id on the post-freeze SemType subset" {
                 // Each `ofFrozen ft` represents the post-freeze subset: no `TyVar`.
                 for ft in sampleFrozenTypes do
-                    let ty = ofFrozen store ft
-                    Expect.equal (ofFrozen store (toFrozen ty)) ty (sprintf "round-trips: %A" ty)
+                    let ty = ofFrozen (MeasuredThaw.noneOver store) ft
+
+                    Expect.equal
+                        (ofFrozen (MeasuredThaw.noneOver store) (toFrozen ty))
+                        ty
+                        (sprintf "round-trips: %A" ty)
             }
 
             test "every post-freeze SemType case is covered by the sample" {
@@ -143,7 +150,10 @@ let tests =
                     | TyConditional _ -> "TyConditional"
                     | TyVar _ -> "TyVar"
 
-                let seen = sampleFrozenTypes |> List.map (ofFrozen store >> tag) |> Set.ofList
+                let seen =
+                    sampleFrozenTypes
+                    |> List.map (ofFrozen (MeasuredThaw.noneOver store) >> tag)
+                    |> Set.ofList
 
                 for expected in
                     [

@@ -59,14 +59,14 @@ module UnificationInfer =
         let externalInterfaces () : SemType[] =
             match ctx.Provider.TryLookupType declKey with
             | ValueSome(ExternalTypeShape.Class shape) ->
-                ExternalSymbols.instantiateInterfaces shape (args.AsSpan().ToArray())
+                ExternalSymbols.instantiateInterfaces ctx shape (args.AsSpan().ToArray())
             | ValueSome(ExternalTypeShape.Union { Interfaces = ifaces }) ->
-                ExternalSymbols.instantiateInterfacesOf ifaces (args.AsSpan().ToArray())
+                ExternalSymbols.instantiateInterfacesOf ctx ifaces (args.AsSpan().ToArray())
             // A capability interface that inherits another (`enumerator : disposable`) makes
             // `use e` on an abstract `enumerator<'T>` disposable, matching the BCL's
             // `IEnumerator<'T> : IDisposable`.
             | ValueSome(ExternalTypeShape.IntrinsicInterface iface) ->
-                ExternalSymbols.instantiateInterfacesOf iface.Interfaces (args.AsSpan().ToArray())
+                ExternalSymbols.instantiateInterfacesOf ctx iface.Interfaces (args.AsSpan().ToArray())
             | _ -> [||]
 
         let viaInterface =
@@ -225,7 +225,7 @@ module UnificationInfer =
                 // No reference-type bound yet, so a free var lets the context pin it. An
                 // `obj`-typed context ABSORBS rather than pins, so register the var to settle
                 // after the walk.
-                let tv = freshTyVar ctx
+                let tv = ctx.FreshTyVar()
                 ctx.RegisterNullLiteral(tv, node.Tok)
                 TyVar tv
             | Expr.Record(fieldInitializers = inits) -> inferRecord infer ctx node inits

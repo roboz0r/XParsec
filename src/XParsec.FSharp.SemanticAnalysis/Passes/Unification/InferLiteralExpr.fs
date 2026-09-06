@@ -42,7 +42,7 @@ module internal UnificationInferLiteralExpr =
         (body: Expr<SyntaxToken>)
         (isArray: bool)
         : SemType =
-        let elemTy = TyVar(freshTyVar ctx)
+        let elemTy = TyVar(ctx.FreshTyVar())
 
         let items =
             match body with
@@ -60,7 +60,7 @@ module internal UnificationInferLiteralExpr =
 
     /// Element type stays free so context can pin it (`let xs : int list = []`).
     let emptyListLikeLiteral (ctx: PassContext) (tok: SyntaxToken) (isArray: bool) : SemType =
-        let elemTy = TyVar(freshTyVar ctx)
+        let elemTy = TyVar(ctx.FreshTyVar())
 
         if isArray then
             TyConst(RuntimeNames.arrayKey 1, EqArray.singleton elemTy)

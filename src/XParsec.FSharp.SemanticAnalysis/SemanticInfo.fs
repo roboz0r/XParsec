@@ -1,5 +1,60 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+/// Abelian-group expression over measure atoms, each the declaring measure's `TypeKey`, so
+/// same-named measures in different modules stay distinct. Always stored normalised (duplicates
+/// merged, zero exponents dropped, entries sorted), so equality is structural list equality.
+[<Sealed>]
+type MeasureTerm private (exponents: (TypeKey * Rational) list) =
+    member _.Exponents = exponents
+    member _.IsDimensionless = List.isEmpty exponents
+
+    static member Empty = MeasureTerm([])
+
+    static member OfList(raw: (TypeKey * Rational) list) : MeasureTerm =
+        raw
+        |> List.groupBy fst
+        |> List.map (fun (n, xs) -> n, xs |> List.fold (fun acc (_, r) -> acc + r) Rational.Zero)
+        |> List.filter (fun (_, e) -> not e.IsZero)
+        |> List.sortBy fst
+        |> fun normalised -> MeasureTerm(normalised)
+
+    override this.Equals(other) =
+        match other with
+        | :? MeasureTerm as other -> this.Exponents = other.Exponents
+        | _ -> false
+
+    override this.GetHashCode() = hash exponents
+
+    override this.ToString() =
+        if List.isEmpty exponents then
+            "1"
+        else
+            // `<m s^-1>` renders as `m/s`, `<m s>` as `m s`.
+            let positives = exponents |> List.filter (fun (_, e) -> e > Rational.Zero)
+
+            let negatives =
+                exponents
+                |> List.filter (fun (_, e) -> e < Rational.Zero)
+                |> List.map (fun (n, e) -> n, -e)
+
+            let renderEntry (k: TypeKey, e: Rational) =
+                if e.IsOne then
+                    k.DeclaredPath
+                else
+                    sprintf "%s^%O" k.DeclaredPath e
+
+            let sb = System.Text.StringBuilder()
+
+            let renderList xs =
+                xs |> List.map renderEntry |> String.concat " "
+
+            match positives, negatives with
+            | [], ns -> sb.Append("1/").Append(renderList ns) |> ignore
+            | ps, [] -> sb.Append(renderList ps) |> ignore
+            | ps, ns -> sb.Append(renderList ps).Append("/").Append(renderList ns) |> ignore
+
+            sb.ToString()
+
 /// `ArgSig` is written in the declaring type's OPEN typars (`FTTypar(Declaring, i)`), never
 /// an instantiation: a key minted at a `C<int>` use site equals one from the open declaration.
 type MemberKey =
@@ -60,6 +115,10 @@ and FrozenType =
     /// A position that resolved to no type shape, carried so `freeze` is total. `reason`
     /// identifies the producer; only some of them report a diagnostic at the source.
     | FTUnknown of reason: UnknownReason
+    /// A measure filling a MEASURE-KINDED type parameter: `float<m>` is
+    /// `FTConst(Vesper.float`1, [FTMeasure m])`, the arity-1 claim of the carrier applied to
+    /// the term. Argument position only; a measure in type position is FS0704 at the front end.
+    | FTMeasure of units: MeasureTerm
 
     /// A one-disjunct set collapses to the bare disjunct; `MkUnion []` is `never` (bottom).
     static member MkUnion(disjuncts: FrozenType seq) : FrozenType =
@@ -107,61 +166,6 @@ and [<Sealed>] FTDisjuncts private (disjuncts: EqSet<FrozenType>) =
         | _ -> false
 
     override _.GetHashCode() = hash disjuncts
-
-/// Abelian-group expression over measure atoms, each the declaring measure's `TypeKey`, so
-/// same-named measures in different modules stay distinct. Always stored normalised (duplicates
-/// merged, zero exponents dropped, entries sorted), so equality is structural list equality.
-[<Sealed>]
-type MeasureTerm private (exponents: (TypeKey * Rational) list) =
-    member _.Exponents = exponents
-    member _.IsDimensionless = List.isEmpty exponents
-
-    static member Empty = MeasureTerm([])
-
-    static member OfList(raw: (TypeKey * Rational) list) : MeasureTerm =
-        raw
-        |> List.groupBy fst
-        |> List.map (fun (n, xs) -> n, xs |> List.fold (fun acc (_, r) -> acc + r) Rational.Zero)
-        |> List.filter (fun (_, e) -> not e.IsZero)
-        |> List.sortBy fst
-        |> fun normalised -> MeasureTerm(normalised)
-
-    override this.Equals(other) =
-        match other with
-        | :? MeasureTerm as other -> this.Exponents = other.Exponents
-        | _ -> false
-
-    override this.GetHashCode() = hash exponents
-
-    override this.ToString() =
-        if List.isEmpty exponents then
-            "1"
-        else
-            // `<m s^-1>` renders as `m/s`, `<m s>` as `m s`.
-            let positives = exponents |> List.filter (fun (_, e) -> e > Rational.Zero)
-
-            let negatives =
-                exponents
-                |> List.filter (fun (_, e) -> e < Rational.Zero)
-                |> List.map (fun (n, e) -> n, -e)
-
-            let renderEntry (k: TypeKey, e: Rational) =
-                if e.IsOne then
-                    k.DeclaredPath
-                else
-                    sprintf "%s^%O" k.DeclaredPath e
-
-            let sb = System.Text.StringBuilder()
-
-            let renderList xs =
-                xs |> List.map renderEntry |> String.concat " "
-
-            match positives, negatives with
-            | [], ns -> sb.Append("1/").Append(renderList ns) |> ignore
-            | ps, [] -> sb.Append(renderList ps) |> ignore
-            | ps, ns -> sb.Append(renderList ps).Append("/").Append(renderList ns) |> ignore
-
-            sb.ToString()
 
 /// The mutable inference type IR. Every `TyVar` is a dense `TyVarId` index into the
 /// per-file `TypeStore` union-find graph.

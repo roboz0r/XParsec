@@ -431,3 +431,9 @@ accept = ["clr", "js"]
 [[program]]
 path = "constraints/typar-not-null-allownull.fs"
 diagnose = { clr = "does not support the 'not null' constraint", js = "does not support the 'not null' constraint" }
+
+# A measure is a front-end fact: every backend erases `float<m>` to `float`, so the measured
+# program prints as its carrier would.
+[[program]]
+path = "measures/float-erased.fs"
+run = ["clr", "js"]

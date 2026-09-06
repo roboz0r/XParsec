@@ -44,7 +44,8 @@ module SignatureResolutionContext =
     /// `TyVar` that no typar env names is a hole the signature left open and no consumer can
     /// fill, so it degrades to an unresolved-typar marker rather than faulting the file.
     let freezeOver (ctx: PassContext) (env: (TyVarId * SemType) list) (ty: SemType) : FrozenType =
-        FrozenTypeBridge.toFrozenWith
+        FrozenTypeBridge.freezeWith
+            ctx.Store
             (fun _ -> FTUnknown UnknownReason.UnresolvedTypar)
             (ElaborateTypars.remapDeclTypars ctx.Store env ty)
 

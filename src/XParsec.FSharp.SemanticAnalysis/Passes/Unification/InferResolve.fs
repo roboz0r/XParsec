@@ -99,7 +99,7 @@ module internal UnificationInferResolve =
     let classCtorAsFunction (ctx: PassContext) (useSite: UseSite) (name: string) : SemType =
         match tryClassCtorAsFunction ctx useSite name with
         | ValueSome t -> t
-        | ValueNone -> TyVar(freshTyVar ctx)
+        | ValueNone -> TyVar(ctx.FreshTyVar())
 
     /// The declaring union's type arguments, instantiated fresh so two independent uses of
     /// `Some` don't share a `'a`, and the function-shaped type of a DU ctor reference.
@@ -122,9 +122,9 @@ module internal UnificationInferResolve =
     /// declaring union's typars fresh (one TyVar per declared arity). The union is the
     /// pattern's own type; the field types are what its sub-patterns unify against.
     let externalCasePattern (ctx: PassContext) (uc: ExternalUnionCase) : SemType * SemType[] =
-        let freshArgs = Array.init uc.UnionKey.TyparArity (fun _ -> TyVar(freshTyVar ctx))
+        let freshArgs = Array.init uc.UnionKey.TyparArity (fun _ -> TyVar(ctx.FreshTyVar()))
         let unionTy = TyUnion(uc.UnionKey, EqArray.ofArray freshArgs)
-        let fields = ExternalSymbols.instantiateCaseFieldTypes uc.Case freshArgs
+        let fields = ExternalSymbols.instantiateCaseFieldTypes ctx uc.Case freshArgs
         unionTy, fields
 
     /// The external (referenced-package) case ctor's function/value type
@@ -347,13 +347,13 @@ module internal UnificationInferResolve =
             // Precompute the args array once (not per field): one fresh TyVar per declared
             // typar slot, instantiating each field's `FTTypar(Declaring,i)` template.
             let args =
-                EqArray.ofArray [| for _ in 1 .. candidate.TyparArity -> TyVar(freshTyVar ctx) |]
+                EqArray.ofArray [| for _ in 1 .. candidate.TyparArity -> TyVar(ctx.FreshTyVar()) |]
 
             let argsArr = args.AsSpan().ToArray()
 
             let fieldTypeOf (name: string) =
                 match fieldShapes |> EqArray.tryFind (fun f -> f.Name = name) with
-                | ValueSome f -> ValueSome(FrozenTypeBridge.instantiateDeclaring f.Frozen argsArr)
+                | ValueSome f -> ValueSome(FrozenTypeBridge.instantiateDeclaring ctx f.Frozen argsArr)
                 | ValueNone -> ValueNone
 
             struct (key, args, fieldTypeOf)
@@ -421,12 +421,12 @@ module internal UnificationInferResolve =
 
         let declaringArgs =
             match typeArgs with
-            | [] -> Array.init declTypeKey.TyparArity (fun _ -> TyVar(freshTyVar ctx))
+            | [] -> Array.init declTypeKey.TyparArity (fun _ -> TyVar(ctx.FreshTyVar()))
             | written -> List.toArray written
 
         match ctx.Provider.TryLookupMember(declTypeKey, memberName) with
         | ValueSome m ->
-            let memberSig = ExternalSymbols.openSignature m declaringArgs
+            let memberSig = ExternalSymbols.openSignature ctx m declaringArgs
 
             ctx.Resolution.ExternalAccess.Set(key, ResolvedExternalMember.OfMember(m, memberSig))
 

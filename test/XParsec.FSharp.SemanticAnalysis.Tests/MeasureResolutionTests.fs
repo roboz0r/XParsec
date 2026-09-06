@@ -6,11 +6,19 @@ open XParsec.FSharp.SemanticAnalysis.AssemblyFiles
 open XParsec.FSharp.SemanticAnalysis.AssemblyAnalysis
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
-/// The frozen type of the file's only `let`, which more than one `let` fails rather than picks
-/// between.
+/// The frozen type of the file's one `let`, beside any type declarations.
 let private soleFrozenLetType (frozen: FrozenPools) : FrozenType =
-    match (TastUnpool.ofPools frozen).Decls with
-    | EqList [ TDeclG.Let(ty = ty) ] -> ty
+    let lets =
+        (TastUnpool.ofPools frozen).Decls
+        |> Seq.choose (
+            function
+            | TDeclG.Let(ty = ty) -> Some ty
+            | _ -> None
+        )
+        |> List.ofSeq
+
+    match lets with
+    | [ ty ] -> ty
     | other -> failtestf "expected a single let, got %A" other
 
 let private asm: CompilingAssembly =
@@ -38,6 +46,32 @@ let private assemblyErrors (units: SourceUnit list) : string list =
     |> List.collect UnitOutcome.surfaced
     |> List.map (fun d -> d.Diagnostic)
     |> errorMessages
+
+/// A `.fsi`/`.fs` pair declaring three measures and `val speed: float<v>`.
+let private measuredSignaturePair: SourceUnit =
+    let signature =
+        "\
+namespace Test.A
+
+[<Measure>] type m
+[<Measure>] type s
+[<Measure>] type v = m / s
+module M =
+    val speed: float<v>
+"
+
+    let implementation =
+        "\
+namespace Test.A
+
+[<Measure>] type m
+[<Measure>] type s
+[<Measure>] type v = m / s
+module M =
+    let speed: float<v> = 1.0<m/s>
+"
+
+    SourceUnit.paired (SourceFile.ofText "file1.fsi" signature) (SourceFile.ofText "file1.fs" implementation)
 
 /// The name and generic arity of the keyed type frozen for the single `let` in the last unit.
 let private lastLetTypeClaim (units: SourceUnit list) : string * int =
@@ -370,19 +404,39 @@ let x: MyFloat<m> = 1.0<m>
             testList
                 "a measured root freezes to its carrier"
                 [
-                    // The `UnresolvedTyVars` backstop does not fire here: `addFreeRoots`
-                    // follows the measured root's `Link` through to `float` while `zonk`
-                    // stops at it, so the empty error list below passes today and the
-                    // frozen type is the only thing that notices.
-                    ptest "a measured let freezes to `float` (freezes to FTUnknown UnresolvedTypar today)" {
+                    // F#'s own representation: the carrier's arity-1 claim applied to the
+                    // measure, which each backend erases to the abbreviation's expansion.
+                    test "a measured let freezes to `float<m>`, the arity-1 claim over the measure" {
                         let frozen = freezeFor "[<Measure>] type m\nlet x = 1.0<m>\n"
                         let es = errorMessages (FrozenPools.blockingErrors frozen)
                         Expect.isEmpty es (sprintf "expected no errors; diagnostics were %A" es)
 
                         Expect.equal
                             (soleFrozenLetType frozen)
-                            (FTConst(RuntimeNames.floatKey, EqArray.empty))
-                            "the frozen type is the carrier"
+                            (FTConst(
+                                FrozenTypeBridge.measuredClaimKey RuntimeNames.floatKey,
+                                EqArray.singleton (FTMeasure(MeasureTerm.atom (SymbolKeyOps.typeKeyOf "" "m")))
+                            ))
+                            "the frozen type is the measured carrier"
+                    }
+
+                    // The provider's operator is the node's `IntrinsicKey` on the measured
+                    // path too, so Elaborate finds the callee whose spliced body operates on
+                    // the erased carrier.
+                    test "measured arithmetic elaborates to a resolved operator call" {
+                        let frozen = freezeFor "[<Measure>] type m\nlet x = 2.0<m> * 3.0<m>\n"
+                        let es = errorMessages (FrozenPools.blockingErrors frozen)
+                        Expect.isEmpty es (sprintf "expected no errors; diagnostics were %A" es)
+
+                        let unresolved =
+                            frozen.ExprPayloads
+                            |> Array.exists (
+                                function
+                                | ExprPayload.Unresolved -> true
+                                | _ -> false
+                            )
+
+                        Expect.isFalse unresolved "every node of the frozen tree is resolved"
                     }
                 ]
 
@@ -449,28 +503,13 @@ module N =
                     }
 
                     test "a `.fsi` declaring measures publishes them and matches its implementation" {
-                        let signature =
-                            "\
-namespace Test.A
+                        let es = assemblyErrors [ measuredSignaturePair ]
+                        Expect.isEmpty es (sprintf "expected no errors; diagnostics were %A" es)
+                    }
 
-[<Measure>] type m
-[<Measure>] type s
-[<Measure>] type v = m / s
-module M =
-    val speed: float<v>
-"
-
-                        let implementation =
-                            "\
-namespace Test.A
-
-[<Measure>] type m
-[<Measure>] type s
-[<Measure>] type v = m / s
-module M =
-    let speed: float<v> = 1.0<m/s>
-"
-
+                    // The published type of `speed` is its frozen type, so the consumer thaws
+                    // the measured claim back to `float<m/s>` and its annotation agrees.
+                    test "a consumer annotates a published measured value with its measure" {
                         let consumer =
                             "\
 namespace Test.B
@@ -481,15 +520,7 @@ module N =
     let x: float<m/s> = M.speed
 "
 
-                        let es =
-                            assemblyErrors
-                                [
-                                    SourceUnit.paired
-                                        (SourceFile.ofText "file1.fsi" signature)
-                                        (SourceFile.ofText "file1.fs" implementation)
-                                    impl "file2.fs" consumer
-                                ]
-
+                        let es = assemblyErrors [ measuredSignaturePair; impl "file2.fs" consumer ]
                         Expect.isEmpty es (sprintf "expected no errors; diagnostics were %A" es)
                     }
 

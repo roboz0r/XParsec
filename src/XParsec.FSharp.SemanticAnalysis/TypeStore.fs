@@ -303,3 +303,25 @@ module UnionFind =
             | ValueSome target when (store.Units root).IsNone -> zonkShallow store target
             | _ -> TyVar root.Id
         | _ -> t
+
+    /// Fully resolve a SemType: walk all TyVar chains AND recurse into compound shapes. A
+    /// measure-bearing TyVar survives as a TyVar, so a consumer can still read the measure.
+    let rec zonk (store: TypeStore) (t: SemType) : SemType =
+        match t with
+        | TyVar _ ->
+            match zonkShallow store t with
+            | TyVar _ as v -> v
+            | resolved -> zonk store resolved
+        | t -> SemType.mapChildren (zonk store) t
+
+    /// `zonk` with measures erased: a measure-bearing root lowers to its carrier, so `1.0<m>`
+    /// resolves to `float`. Only a genuinely unlinked root survives as a `TyVar`.
+    let rec zonkErased (store: TypeStore) (t: SemType) : SemType =
+        match t with
+        | TyVar tv ->
+            let root = find store tv
+
+            match store.Link root with
+            | ValueSome target -> zonkErased store target
+            | ValueNone -> TyVar root.Id
+        | t -> SemType.mapChildren (zonkErased store) t

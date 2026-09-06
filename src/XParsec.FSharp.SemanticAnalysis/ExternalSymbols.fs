@@ -633,65 +633,92 @@ module ExternalSymbols =
     /// type) instead of fresh; the rest freshen normally. A typar in no bare parameter
     /// position is unsolvable by unification alone.
     let instantiateSignatureWith
-        (store: TypeStore)
+        (thaw: IMeasuredThaw)
         (seed: (int * SemType) list)
         (m: ExternalMember)
         (declaringArgs: SemType[])
         (level: int)
         : SemType =
         instantiateWith
-            (TyparInstantiation.atCallSite store level seed declaringArgs)
+            thaw
+            (TyparInstantiation.atCallSite thaw.Store level seed declaringArgs)
             (ExternalSignature.openTemplate m.Signature)
 
     /// Instantiate a member's `Signature` at `level`: `FTTypar(Declaring,i) →
     /// declaringArgs.[i]`, `FTTypar(Method,j) → fresh TyVar at level` (one per index, shared
     /// across the argument groups and `Return`).
-    let instantiateSignature (store: TypeStore) (m: ExternalMember) (declaringArgs: SemType[]) (level: int) : SemType =
-        instantiateSignatureWith store [] m declaringArgs level
+    let instantiateSignature
+        (thaw: IMeasuredThaw)
+        (m: ExternalMember)
+        (declaringArgs: SemType[])
+        (level: int)
+        : SemType =
+        instantiateSignatureWith thaw [] m declaringArgs level
 
     /// The OPEN instantiation of a member's `Signature`: declaring typars substituted from
     /// `declaringArgs`, the member's own method typars left as `TyTypar(Method,j)` markers.
     /// The applicability-filtering form, in which a generic method's marker stays a wildcard.
-    let openSignature (m: ExternalMember) (declaringArgs: SemType[]) : SemType =
-        instantiateWith (TyparInstantiation.openMethod declaringArgs) (ExternalSignature.openTemplate m.Signature)
+    let openSignature (thaw: IMeasuredThaw) (m: ExternalMember) (declaringArgs: SemType[]) : SemType =
+        instantiateWith thaw (TyparInstantiation.openMethod declaringArgs) (ExternalSignature.openTemplate m.Signature)
 
     /// A member's method-typar BOUNDS at a use site, one per method typar.
     /// `FTTypar(Declaring,i)` → `declaringArgs.[i]`; a `FTTypar(Method,j)` ref stays an
     /// inert marker.
-    let instantiateSignatureBounds (m: ExternalMember) (declaringArgs: SemType[]) : EqArray<SemType voption> =
+    let instantiateSignatureBounds
+        (thaw: IMeasuredThaw)
+        (m: ExternalMember)
+        (declaringArgs: SemType[])
+        : EqArray<SemType voption> =
         let inst = TyparInstantiation.openMethod declaringArgs
 
-        m.Signature.MethodTypars |> EqArray.map (ValueOption.map (instantiateWith inst))
+        m.Signature.MethodTypars
+        |> EqArray.map (ValueOption.map (instantiateWith thaw inst))
 
-    let instantiateFieldType (f: ExternalFieldShape) (declaringArgs: SemType[]) : SemType =
-        instantiateDeclaring f.Frozen declaringArgs
+    let instantiateFieldType (thaw: IMeasuredThaw) (f: ExternalFieldShape) (declaringArgs: SemType[]) : SemType =
+        instantiateDeclaring thaw f.Frozen declaringArgs
 
-    let instantiateCaseFieldTypes (c: ExternalCaseShape) (declaringArgs: SemType[]) : SemType[] =
+    let instantiateCaseFieldTypes (thaw: IMeasuredThaw) (c: ExternalCaseShape) (declaringArgs: SemType[]) : SemType[] =
         let fts = c.FrozenFieldTypes
-        Array.init fts.Length (fun i -> instantiateDeclaring fts.[i] declaringArgs)
+        Array.init fts.Length (fun i -> instantiateDeclaring thaw fts.[i] declaringArgs)
 
     /// Instantiate a class's `FrozenInterfaces`, or a union's declared `interface <ty>` impls,
     /// at a use site.
-    let instantiateInterfacesOf (interfaces: EqArray<FrozenNominal>) (declaringArgs: SemType[]) : SemType[] =
-        Array.init interfaces.Length (fun i -> instantiateDeclaring (FrozenNominal.ty interfaces.[i]) declaringArgs)
+    let instantiateInterfacesOf
+        (thaw: IMeasuredThaw)
+        (interfaces: EqArray<FrozenNominal>)
+        (declaringArgs: SemType[])
+        : SemType[] =
+        Array.init
+            interfaces.Length
+            (fun i -> instantiateDeclaring thaw (FrozenNominal.ty interfaces.[i]) declaringArgs)
 
-    let instantiateInterfaces (shape: ExternalClassShape) (declaringArgs: SemType[]) : SemType[] =
-        instantiateInterfacesOf shape.FrozenInterfaces declaringArgs
+    let instantiateInterfaces (thaw: IMeasuredThaw) (shape: ExternalClassShape) (declaringArgs: SemType[]) : SemType[] =
+        instantiateInterfacesOf thaw shape.FrozenInterfaces declaringArgs
 
     /// Shared by a class shape and a heritable primitive's class surface.
-    let instantiateBaseTypeFrozen (baseType: FrozenNominal voption) (declaringArgs: SemType[]) : SemType voption =
+    let instantiateBaseTypeFrozen
+        (thaw: IMeasuredThaw)
+        (baseType: FrozenNominal voption)
+        (declaringArgs: SemType[])
+        : SemType voption =
         baseType
-        |> ValueOption.map (fun b -> instantiateDeclaring (FrozenNominal.ty b) declaringArgs)
+        |> ValueOption.map (fun b -> instantiateDeclaring thaw (FrozenNominal.ty b) declaringArgs)
 
-    let instantiateBaseType (shape: ExternalClassShape) (declaringArgs: SemType[]) : SemType voption =
-        instantiateBaseTypeFrozen shape.FrozenBaseType declaringArgs
+    let instantiateBaseType
+        (thaw: IMeasuredThaw)
+        (shape: ExternalClassShape)
+        (declaringArgs: SemType[])
+        : SemType voption =
+        instantiateBaseTypeFrozen thaw shape.FrozenBaseType declaringArgs
 
     /// Instantiate a value/free-function symbol's `Scheme` at `level`: a fresh `TyVar` per
     /// declaring typar, the `Constraints` stamped onto them, then the scheme instantiated
     /// against that array.
-    let instantiateSymbol (store: TypeStore) (sym: ExternalSymbol) (level: int) : SemType =
+    let instantiateSymbol (thaw: IMeasuredThaw) (sym: ExternalSymbol) (level: int) : SemType =
+        let store = thaw.Store
+
         let inst ft fresh =
-            FrozenTypeBridge.instantiateDeclaring ft fresh
+            FrozenTypeBridge.instantiateDeclaring thaw ft fresh
 
         let scheme = sym.Scheme
         let constraints = sym.Constraints

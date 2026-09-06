@@ -56,13 +56,14 @@ module internal UnificationInferApp =
         (scheme: SemType)
         (argTys: SemType list)
         : SemType =
-        let resultTy = TyVar(freshTyVar ctx)
+        let resultTy = TyVar(ctx.FreshTyVar())
         unify ctx tok scheme (List.foldBack (fun argTy acc -> TyFun(argTy, acc)) argTys resultTy)
         resultTy
 
     /// Type an operator application once the special forms (`::`, `&`) are peeled. A `let`
     /// binding stamped at the node shadows both measured arithmetic and the provider symbol.
-    /// A provider hit stamps `IntrinsicKey`, which splices the contract's `let inline` body.
+    /// A provider hit stamps `IntrinsicKey`, which splices the contract's `let inline` body
+    /// over the erased carrier; measured arithmetic types the node itself and keeps the stamp.
     let private inferOperatorApp
         (ctx: PassContext)
         (node: NodeSite)
@@ -73,19 +74,17 @@ module internal UnificationInferApp =
         match ctx.Bindings.Binding.TryGetValue node.Key with
         | ValueSome rb -> applyOperatorScheme ctx node.Tok (instantiateBinding ctx rb) argTys
         | ValueNone ->
-            match tryMeasured () with
-            | Some resultTy -> resultTy
-            | None ->
-                match ctx.Resolution.ExternalSymbolStamp.TryGetValue node.Key with
-                | ValueSome sym ->
-                    ctx.Resolution.IntrinsicKey.Set(node.Key, sym.Key)
+            let stamped = ctx.Resolution.ExternalSymbolStamp.TryGetValue node.Key
 
-                    applyOperatorScheme
-                        ctx
-                        node.Tok
-                        (ExternalSymbols.instantiateSymbol ctx.Store sym ctx.CurrentLevel)
-                        argTys
-                | ValueNone -> unresolvedOperator ctx node.Tok argTys name
+            match stamped with
+            | ValueSome sym -> ctx.Resolution.IntrinsicKey.Set(node.Key, sym.Key)
+            | ValueNone -> ()
+
+            match tryMeasured (), stamped with
+            | Some resultTy, _ -> resultTy
+            | None, ValueSome sym ->
+                applyOperatorScheme ctx node.Tok (ExternalSymbols.instantiateSymbol ctx sym ctx.CurrentLevel) argTys
+            | None, ValueNone -> unresolvedOperator ctx node.Tok argTys name
 
     /// Key each SOURCE lambda argument landing on a parameter bounded `:> Fun<a,b>` to that
     /// flat arity, which is what makes codegen emit a value-struct closure for it.
@@ -298,7 +297,7 @@ module internal UnificationInferApp =
                                     unify ctx node.Tok argTy dom
                                     currTy <- cod
                                 | _ ->
-                                    let resultTy = TyVar(freshTyVar ctx)
+                                    let resultTy = TyVar(ctx.FreshTyVar())
                                     unify ctx node.Tok currTy (TyFun(argTy, resultTy))
                                     currTy <- resultTy
 
@@ -454,7 +453,7 @@ module internal UnificationInferApp =
 
                     currTy <- cod
                 | _ ->
-                    let resultTy = TyVar(freshTyVar ctx)
+                    let resultTy = TyVar(ctx.FreshTyVar())
                     unify ctx node.Tok currTy (TyFun(argTy, resultTy))
                     currTy <- resultTy
 
@@ -549,7 +548,7 @@ module internal UnificationInferApp =
                     [ leftTy; rightTy ]
             | ValueNone ->
                 // Not a compiled-named operator, so leave the result free.
-                TyVar(freshTyVar ctx)
+                TyVar(ctx.FreshTyVar())
 
     /// `x?name` — the dynamic-access operator (F# spec 6.4.5: `x ? ident` desugars to `(?)
     /// x "ident"`), unified against `x -> string -> ^TResult`. Its `target: dynamic`
@@ -562,13 +561,13 @@ module internal UnificationInferApp =
             // Thread the resolved `op_Dynamic` identity to the `External` node minted at this
             // same key, so the `$0[$1]` body splices by KEY.
             ctx.Resolution.IntrinsicKey.Set(node.Key, sym.Key)
-            let resultVar = freshTyVar ctx
+            let resultVar = ctx.FreshTyVar()
             let resultTy = TyVar resultVar
 
             unify
                 ctx
                 node.Tok
-                (ExternalSymbols.instantiateSymbol ctx.Store sym ctx.CurrentLevel)
+                (ExternalSymbols.instantiateSymbol ctx sym ctx.CurrentLevel)
                 (TyFun(objArgTy, TyFun(ctx.Intrinsics.String, resultTy)))
 
             // Record for the post-settle escape sweep: a context that pins `resultVar` to a
@@ -599,7 +598,7 @@ module internal UnificationInferApp =
             unify
                 ctx
                 node.Tok
-                (ExternalSymbols.instantiateSymbol ctx.Store sym ctx.CurrentLevel)
+                (ExternalSymbols.instantiateSymbol ctx sym ctx.CurrentLevel)
                 (TyFun(objArgTy, TyFun(ctx.Intrinsics.String, TyFun(valueTy, ctx.Intrinsics.Unit))))
 
             ctx.Intrinsics.Unit
@@ -616,4 +615,4 @@ module internal UnificationInferApp =
             // parameter (`Int32.TryParse(string, int&)`); addressability is checked at codegen.
             TyConst(RuntimeNames.byrefKey, EqArray.singleton operandTy)
         | ValueSome name -> inferOperatorApp ctx node name (fun () -> None) [ operandTy ]
-        | ValueNone -> TyVar(freshTyVar ctx)
+        | ValueNone -> TyVar(ctx.FreshTyVar())

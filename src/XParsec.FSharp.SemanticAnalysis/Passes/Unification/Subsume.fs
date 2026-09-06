@@ -80,7 +80,7 @@ module UnificationSubsume =
         | TyClass(key, args) when (TypeRegistry.tryClassByKey ctx.Types key).IsNone ->
             match ctx.Provider.TryLookupMember(key, name) with
             | ValueSome m when m.IsValueMember && not m.IsStatic ->
-                ValueSome(ExternalSymbols.openSignature m (EqArray.toArray args))
+                ValueSome(ExternalSymbols.openSignature ctx m (EqArray.toArray args))
             | _ -> ValueNone
         | _ -> ValueNone
 

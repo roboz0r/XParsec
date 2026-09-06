@@ -100,7 +100,7 @@ let private sourceOf (src: string) : LexedFile =
 /// the declaring file's tokens.
 let private thawFrom (store: TypeStore) (src: string) (decl: Wire.TDecl) : TDecl =
     let source = sourceOf src
-    (InlineThaw.bodyAtPath store (LexedFiles.ofSeq [ source ]) source.Path decl).Decl
+    (InlineThaw.bodyAtPath (MeasuredThaw.noneOver store) (LexedFiles.ofSeq [ source ]) source.Path decl).Decl
 
 /// The frozen `let` decl of a single-binding program, unpooled as a provider serves a body
 /// (`declTree`), the form `thawFrom` takes.
@@ -167,8 +167,7 @@ let private kindOfUnit (ns: string) (moduleName: string) =
 /// are carried on the METHOD axis, while an `ExternalSymbol.Scheme` bakes a free function's
 /// onto the DECLARING axis. Positional, so index order is preserved.
 let private asSymbolScheme (ft: FrozenType) : FrozenType =
-    FrozenTypeBridge.instantiateWith (TyparInstantiation.toAxis TyparAxis.Declaring) ft
-    |> toFrozen
+    FrozenTypeBridge.reaxisTo TyparAxis.Declaring ft
 
 /// The symbol's `TyparArity`: one past the highest typar index the template references.
 let rec private typarArity (ft: FrozenType) : int =

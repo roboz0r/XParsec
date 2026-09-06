@@ -117,7 +117,7 @@ let parseRecoveredFile (input: string) : Lexed * ImplementationFile<SyntaxToken>
 /// Thaw a WIRE inline body against the file it was published from: the body carries the
 /// declaring file's own token indices, and only that file can resolve them.
 let thawPublished (store: TypeStore) (source: LexedFile) (decl: Wire.TDecl) : InlineThaw.ThawedTemplate =
-    InlineThaw.bodyAtPath store (LexedFiles.ofSeq [ source ]) source.Path decl
+    InlineThaw.bodyAtPath (MeasuredThaw.noneOver store) (LexedFiles.ofSeq [ source ]) source.Path decl
 
 let thawPublishedDecl (store: TypeStore) (source: LexedFile) (decl: Wire.TDecl) : TDecl =
     (thawPublished store source decl).Decl

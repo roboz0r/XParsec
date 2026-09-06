@@ -10,6 +10,8 @@ module Codegen =
         (project: ProjectInfo)
         (tasts: FrozenPools list)
         : ClrArtifact =
+        // IL has no representation for a measure, so every file's types are read erased.
+        let tasts = tasts |> List.map (MeasureErasure.pools symbols.TryLookupType)
         let asm = Assembler(symbols, project, tasts, referenceAssemblies)
 
         // Bind, per file: pre-fill the registries with layout-derived handles, so a prepared

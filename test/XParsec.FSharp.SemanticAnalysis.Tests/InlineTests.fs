@@ -127,7 +127,7 @@ let tests =
                 let sources = LexedFiles.ofSeq [ source ]
 
                 let atOrigin =
-                    (InlineThaw.bodyAtPath (TypeStore()) sources source.Path body).Decl
+                    (InlineThaw.bodyAtPath (MeasuredThaw.noneOver (TypeStore())) sources source.Path body).Decl
                     |> positions
                     |> tokenIndices
 
@@ -149,7 +149,11 @@ let tests =
 
                 Expect.throwsC
                     (fun () ->
-                        InlineThaw.bodyAtPath (TypeStore()) LexedFiles.empty anchoredAgainst body
+                        InlineThaw.bodyAtPath
+                            (MeasuredThaw.noneOver (TypeStore()))
+                            LexedFiles.empty
+                            anchoredAgainst
+                            body
                         |> ignore
                     )
                     (fun e ->

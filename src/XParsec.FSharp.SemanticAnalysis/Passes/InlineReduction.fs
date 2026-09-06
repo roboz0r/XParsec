@@ -391,7 +391,7 @@ module InlineReduction =
         ExternalSymbolProviders.tryInlineBody ctx.Provider key
         |> ValueOption.map (fun ib ->
             let sources = SpecTable.retain ib.File specs
-            let thawed = InlineThaw.bodyAtPath ctx.Store sources ib.File.Path ib.Decl
+            let thawed = InlineThaw.bodyAtPath ctx sources ib.File.Path ib.Decl
 
             {
                 Key = key

@@ -45,7 +45,8 @@ module FrozenType =
         | FTLiteral _
         | FTTypar _
         | FTLocalTypar _
-        | FTUnknown _ -> t
+        | FTUnknown _
+        | FTMeasure _ -> t
 
     /// Variance-tracking rebuild. `tryReplace v node` is consulted FIRST at every node,
     /// interior ones included: `ValueSome replacement` replaces `node` at variance `v` and
@@ -73,7 +74,8 @@ module FrozenType =
             | FTLiteral _
             | FTTypar _
             | FTLocalTypar _
-            | FTUnknown _ -> t
+            | FTUnknown _
+            | FTMeasure _ -> t
 
     let iterChildren (f: FrozenType -> unit) (t: FrozenType) : unit =
         match t with
@@ -99,7 +101,8 @@ module FrozenType =
         | FTLiteral _
         | FTTypar _
         | FTLocalTypar _
-        | FTUnknown _ -> ()
+        | FTUnknown _
+        | FTMeasure _ -> ()
 
     /// `p` holds for EVERY direct child (vacuously true at a leaf). Short-circuits.
     let forallChildren (p: FrozenType -> bool) (t: FrozenType) : bool =
@@ -118,11 +121,32 @@ module FrozenType =
         | FTLiteral _
         | FTTypar _
         | FTLocalTypar _
-        | FTUnknown _ -> true
+        | FTUnknown _
+        | FTMeasure _ -> true
 
     /// `p` holds for SOME direct child (vacuously false at a leaf). Short-circuits.
     let existsChild (p: FrozenType -> bool) (t: FrozenType) : bool =
         not (forallChildren (fun c -> not (p c)) t)
+
+    /// A measured nominal: the arity-1 claim `key` applied to the one measure `units`
+    /// (`float<m>` is `FTConst(Vesper.float`1, [FTMeasure m])`).
+    let (|MeasuredNominal|_|) (t: FrozenType) : struct (TypeKey * MeasureTerm) voption =
+        match t with
+        | FTConst(key, args) ->
+            let measures =
+                args
+                |> EqArray.toArray
+                |> Array.choose (
+                    function
+                    | FTMeasure units -> Some units
+                    | _ -> None
+                )
+
+            match measures with
+            | [||] -> ValueNone
+            | [| units |] -> ValueSome(struct (key, units))
+            | _ -> failwithf "FrozenType.MeasuredNominal: a nominal applied to several measures: %A" t
+        | _ -> ValueNone
 
     /// True when `a` and `b` share the same outermost type constructor: same case, and
     /// for a nominal the same `key`; child structure is ignored. An `FTTypar` is a
@@ -144,6 +168,7 @@ module FrozenType =
         | FTIndexedAccess _, FTIndexedAccess _ -> true
         | FTConditional _, FTConditional _ -> true
         | FTUnknown r1, FTUnknown r2 -> r1 = r2
+        | FTMeasure m1, FTMeasure m2 -> m1 = m2
         // NOT a wildcard like `FTTypar`: no argument vector instantiates a local typar,
         // so it matches only the same `(scheme, index)` pair, not index alone.
         | FTLocalTypar(s1, i1), FTLocalTypar(s2, i2) -> s1 = s2 && i1 = i2

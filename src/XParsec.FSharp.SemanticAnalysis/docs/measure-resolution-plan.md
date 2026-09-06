@@ -171,9 +171,14 @@ Two alternatives, rejected:
 - *Keep the spelling gate and route only the carrier through the stamped verdict at arity 0.*
   Closes nothing but the by-name lookup; GAP 1, 2 and 4 stay, and GAP 3 is only half closed
   because the gate still fires before the local arity-1 claim is consulted.
-- *A `SemType`/`FrozenType` case for a measured type.* The project rule prefers a real named
-  type plus recognisers over a new DU case with unifier behaviour; the measured `TyVar` is
-  already that named type.
+- *A `SemType` case for a measured type.* The project rule prefers a real named type plus
+  recognisers over a new DU case with unifier behaviour; the measured `TyVar` is already that
+  named type. The frozen side differs: step 6 added `FTMeasure` to `FrozenType` as an
+  ARGUMENT-ONLY leaf, because the frozen tree is the published contract and must spell
+  `float<m>` as F# does. `FrozenType.MeasuredNominal` is the one recogniser of that shape.
+  Whether a dedicated `FTMeasured of carrier * units` case should replace the argument form,
+  deleting the position guards, is open until measure typars (`float<'u>`) decide whether a
+  measure argument can be a typar.
 
 ## Staged plan
 
@@ -392,14 +397,36 @@ GAP 3 and all of GAP 2 but `string<m>`. Four findings:
   `classifyingTypeIter` and `stampTypeIter` to the argument, so the only remaining reader of
   the spelling gate was the `Translate` arm.
 
-**Step 6 — freeze a measured root to its carrier.** `Freeze.freezeTy` lowers a `TyVar` whose
-`Units` are set to its `Link` (GAP 5), and the step-1 full-pipeline pin goes green.
+**Step 6 — freeze a measured root as F# represents it. LANDED, redesigned.** The step as
+written lowered a measured root to its carrier at `Freeze`; a first cut did so and reddened
+nothing, but erasure is a codegen concern, and the frozen tree is also the published
+contract, so a cross-unit `float<v>` would have published as `float` and a consumer's
+measured annotation would have been a false dimensionless mismatch. The frozen form is now
+F#'s own: `FTMeasure of MeasureTerm` joins `FrozenType` as an ARGUMENT-ONLY leaf, and a
+measured root freezes to `FTConst(Vesper.float`1, [FTMeasure m])`, the carrier's arity-1
+claim applied to the term (`FrozenTypeBridge.freezeWith`, shared by `Freeze`, the two member
+argSig freezes and the `.fsi` route's `freezeOver`). The table row (`TypeRow.Measure`, codec
+tag 15) keys the atoms, so `P.m` and `Q.m` stay distinct across the blob. Thaw expands the
+claim through the referenced contracts: `IMeasuredThaw`, which `PassContext` implements and
+every `ITyparInstantiation` carries, mints the measured `TyVar` over the abbreviation's
+expansion, so a consumer of a published measured value reads `float<m/s>` again. Erasure is
+one arm per backend: `MeasureErasure.pools` reads a file's type table through a view that
+expands each measured nominal, at each backend's entry, and the CLR encoder erases a type it
+reads off a provider shape. Green: the step-1 pin (now expecting the measured form), the
+cross-unit consumer, the codec round-trips, and a `measures/float-erased` conformance
+program on both backends. Three findings:
 
-`InternalBreak.UnresolvedTyVars` cannot serve as the check that no measured type reaches
-`Freeze` unlinked, because `addFreeRoots` follows `Link` past a measured root. Align the two
-readings here: `addFreeRoots` takes the same measure-aware step `resolveStep` takes, so a
-measured root that step 6 fails to lower is caught rather than walked through. Until then, the
-step-1 pin on the frozen TYPE is the only thing that would notice.
+- **`ResolvedTypes.addFreeRoots` reads through `zonkErased`**, `zonk` with measures erased,
+  now in `UnionFind` beside `zonk`. A measured root is resolved exactly when its carrier is,
+  which is the reading `freezeWith` takes.
+- **`OpenSignature.ofSymbol` no longer thaws.** It projected a scheme onto the method axis
+  by thawing and refreezing, which a measured type cannot survive without a store;
+  `FrozenTypeBridge.reaxisTo` re-axises in `FrozenType`.
+- **Measured arithmetic splices the carrier's operator.** `InferApp.inferOperatorApp` stamps
+  the provider's operator as the node's `IntrinsicKey` on the measured path too, and
+  `Inline.deriveInlineTypeArgs` reads each actual operand through `zonkErased`, so `float<m>`
+  grounds the body's `^T` as `float` and selects its `when ^T : float` clause. The
+  conformance program computes `d / t`.
 
 **Step 7 — wording.** `Engine.fs`'s `Kind.Message(sprintf "Dimensionless %A used where <%O>
 expected" …)` becomes `Kind.DimensionlessMeasureMismatch`, which already exists two lines
@@ -442,8 +469,11 @@ freezes to its carrier.
 Before this document is deleted, each row is in code or in a test:
 
 - [ ] Every table row above is a test in `MeasureResolutionTests.fs`, green, or `ptest` with the reason quoted in its name (`string<m>` is the one row allowed to stay `ptest`).
-- [ ] The full-pipeline measured `let` freezes to its carrier (GAP 5), green.
-- [ ] `ResolvedTypes.addFreeRoots` and `UnificationEngineCore.resolveStep` agree on whether a measure-bearing root is resolved, so the `UnresolvedTyVars` backstop covers a measured root.
+- [x] The full-pipeline measured `let` freezes to `float<m>`, the carrier's arity-1 claim over an `FTMeasure` (GAP 5), green.
+- [x] `ResolvedTypes.addFreeRoots` reads a measure-bearing root through `zonkErased`, so it is resolved exactly when its carrier is, which is the reading `freezeWith` takes; the `UnresolvedTyVars` backstop covers a measured root.
+- [x] A measured value published across units thaws back to its measure in a consumer, on the `.fs` and the `.fsi` route.
+- [x] Each backend erases a measured nominal to its abbreviation's expansion at its entry, and a measured program runs on both (`measures/float-erased`).
+- [x] Measured arithmetic elaborates to a resolved operator call and runs on both backends (`measures/float-erased` divides).
 - [x] Every key in `RuntimeNames.numericKeys` is claimed by `Vesper.Core` at arity 1 with a measure-kinded parameter, beside its arity-0 claim.
 - [x] A written name resolves per ARITY on both routes: `resolveType` for a type-position spelling, `typesIn` for a dotted one.
 - [x] `TyparKind` is on the typar model, on every generic `ExternalTypeShape` case, and in the contract. A shape published from a source `TypeName` reads its kinds from that name; only a surface with no `[<Measure>]` to read (CLR metadata, TypeScript, an intrinsic binding) uses `TyparKinds.typeOnly`.

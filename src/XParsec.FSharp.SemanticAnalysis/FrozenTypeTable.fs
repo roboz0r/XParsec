@@ -121,6 +121,9 @@ type ConditionalRow =
         WhenFalse: TypeId
     }
 
+[<Struct>]
+type MeasureAtomRow = { Atom: TypeKeyId; Exponent: Rational }
+
 /// One `FrozenType` with every child replaced by the id it interned to. The row is its own
 /// INTERN KEY, because children being ids makes structural equality O(arity). `Or` holds an
 /// `EqSet` so `A|B` and `B|A` intern to one row, insertion order keeping the declared order.
@@ -141,6 +144,8 @@ type TypeRow =
     | Typar of axis: TyparAxis * index: int
     | LocalTypar of scheme: SchemeId * index: int
     | Unknown of reason: UnknownReasonRow
+    /// The term's normalised atoms in `MeasureTerm.Exponents` order.
+    | Measure of atoms: EqArray<MeasureAtomRow>
 
 /// Two entries drawn from one declaring file carry the same pair and intern to one row.
 type FilePathRow = { Assembly: StrId; Relative: StrId }
@@ -332,6 +337,17 @@ type FrozenTypeTableBuilder private (rows: FrozenTypeRows) =
             | FTTypar(axis, index) -> TypeRow.Typar(axis, index)
             | FTLocalTypar(scheme, index) -> TypeRow.LocalTypar(scheme, index)
             | FTUnknown reason -> TypeRow.Unknown(unknownReason reason)
+            | FTMeasure units ->
+                TypeRow.Measure(
+                    EqArray.ofList
+                        [
+                            for (atom, exponent) in units.Exponents ->
+                                {
+                                    Atom = typeKey atom
+                                    Exponent = exponent
+                                }
+                        ]
+                )
         )
 
     let memberKey (m: MemberKey) : MemberKeyId =
@@ -391,7 +407,7 @@ type FrozenTypeTableBuilder private (rows: FrozenTypeRows) =
 /// `FrozenType` / `SymbolKey` the DU declares. One row materialises to ONE object, shared by
 /// every id that resolves to it, so a type is allocated once per DISTINCT type.
 [<Sealed>]
-type FrozenTypeTable private (rows: FrozenTypeRows) =
+type FrozenTypeTable private (rows: FrozenTypeRows, view: FrozenType -> FrozenType) =
     let namespaceCache: NamespaceKey[] = Array.zeroCreate rows.Namespaces.Length
     let moduleCache: ModuleKey[] = Array.zeroCreate rows.Modules.Length
     let typeKeyCache: TypeKey[] = Array.zeroCreate rows.TypeKeys.Length
@@ -504,29 +520,34 @@ type FrozenTypeTable private (rows: FrozenTypeRows) =
             typeCache
             i
             (fun () ->
-                match rows.Types.[i] with
-                | TypeRow.Const(key, xs) -> FTConst(typeKey key, args xs)
-                | TypeRow.Fun(arg, result) -> FTFun(frozenType arg, frozenType result)
-                | TypeRow.Tuple items -> FTTuple(args items)
-                | TypeRow.Record(key, xs) -> FTRecord(typeKey key, args xs)
-                | TypeRow.Union(key, xs) -> FTUnion(typeKey key, args xs)
-                | TypeRow.Class(key, xs) -> FTClass(typeKey key, args xs)
-                | TypeRow.Enum key -> FTEnum(typeKey key)
-                | TypeRow.Or ds -> FTOr(FTDisjuncts.OfSeq(seq { for d in ds -> frozenType d }))
-                | TypeRow.Literal value -> FTLiteral(literal value)
-                | TypeRow.KeyOf ty -> FTKeyOf(frozenType ty)
-                | TypeRow.IndexedAccess(objTy, index) -> FTIndexedAccess(frozenType objTy, frozenType index)
-                | TypeRow.Conditional row ->
-                    FTConditional
-                        {
-                            Check = frozenType row.Check
-                            Extends = frozenType row.Extends
-                            WhenTrue = frozenType row.WhenTrue
-                            WhenFalse = frozenType row.WhenFalse
-                        }
-                | TypeRow.Typar(axis, index) -> FTTypar(axis, index)
-                | TypeRow.LocalTypar(scheme, index) -> FTLocalTypar(scheme, index)
-                | TypeRow.Unknown reason -> FTUnknown(unknownReason reason)
+                let stored =
+                    match rows.Types.[i] with
+                    | TypeRow.Const(key, xs) -> FTConst(typeKey key, args xs)
+                    | TypeRow.Fun(arg, result) -> FTFun(frozenType arg, frozenType result)
+                    | TypeRow.Tuple items -> FTTuple(args items)
+                    | TypeRow.Record(key, xs) -> FTRecord(typeKey key, args xs)
+                    | TypeRow.Union(key, xs) -> FTUnion(typeKey key, args xs)
+                    | TypeRow.Class(key, xs) -> FTClass(typeKey key, args xs)
+                    | TypeRow.Enum key -> FTEnum(typeKey key)
+                    | TypeRow.Or ds -> FTOr(FTDisjuncts.OfSeq(seq { for d in ds -> frozenType d }))
+                    | TypeRow.Literal value -> FTLiteral(literal value)
+                    | TypeRow.KeyOf ty -> FTKeyOf(frozenType ty)
+                    | TypeRow.IndexedAccess(objTy, index) -> FTIndexedAccess(frozenType objTy, frozenType index)
+                    | TypeRow.Conditional row ->
+                        FTConditional
+                            {
+                                Check = frozenType row.Check
+                                Extends = frozenType row.Extends
+                                WhenTrue = frozenType row.WhenTrue
+                                WhenFalse = frozenType row.WhenFalse
+                            }
+                    | TypeRow.Typar(axis, index) -> FTTypar(axis, index)
+                    | TypeRow.LocalTypar(scheme, index) -> FTLocalTypar(scheme, index)
+                    | TypeRow.Unknown reason -> FTUnknown(unknownReason reason)
+                    | TypeRow.Measure atoms ->
+                        FTMeasure(MeasureTerm.OfList [ for a in atoms -> typeKey a.Atom, a.Exponent ])
+
+                view stored
             )
 
     let memberKey (MemberKeyId i) : MemberKey =
@@ -579,8 +600,13 @@ type FrozenTypeTable private (rows: FrozenTypeRows) =
     member _.Item
         with get (id: FilePathId): AssemblyFilePath = filePath id
 
-    static member OfRows(rows: FrozenTypeRows) : FrozenTypeTable = FrozenTypeTable(rows)
+    static member OfRows(rows: FrozenTypeRows) : FrozenTypeTable = FrozenTypeTable(rows, id)
+
+    /// The same rows read through `view`, applied once per node over already-viewed children,
+    /// member-key argument signatures included. `Rows` stays the stored form.
+    static member OfRowsWith(rows: FrozenTypeRows, view: FrozenType -> FrozenType) : FrozenTypeTable =
+        FrozenTypeTable(rows, view)
 
     /// The tables of a file that interned nothing, an overlay pool's for one, since it
     /// does not own a frozen file's types.
-    static member Empty: FrozenTypeTable = FrozenTypeTable(FrozenTypeRows.empty)
+    static member Empty: FrozenTypeTable = FrozenTypeTable(FrozenTypeRows.empty, id)

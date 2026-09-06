@@ -97,7 +97,7 @@ module internal UnificationInferRecordAccess =
             for _, _, e in pairs do
                 infer ctx e |> ignore
 
-            TyVar(freshTyVar ctx)
+            TyVar(ctx.FreshTyVar())
         | ValueSome r ->
             // A field is an assignment target, so each initialiser COERCES into the field
             // type (`unifyArg`, argument position) rather than unifying symmetrically: a
@@ -159,7 +159,7 @@ module internal UnificationInferRecordAccess =
             for FieldInitializer(expr = e) in inits do
                 infer ctx e |> ignore
 
-            TyVar(freshTyVar ctx)
+            TyVar(ctx.FreshTyVar())
 
     /// An instance member on a project-local class/union/record, instantiated at the
     /// object argument's `args`. A name that exists but is STATIC gets an "access it via
@@ -222,7 +222,7 @@ module internal UnificationInferRecordAccess =
                             match ctx.Provider.TryLookupMember(ifaceKey, memberName) with
                             | ValueSome m when not m.IsStatic ->
                                 ctx.Resolution.TyparInterfaceCall.Set(diagKey, (ifaceKey, ifaceArgs))
-                                ValueSome(ExternalSymbols.openSignature m (ifaceArgs.AsSpan().ToArray()))
+                                ValueSome(ExternalSymbols.openSignature ctx m (ifaceArgs.AsSpan().ToArray()))
                             | _ -> scan rest
                     | _ -> scan rest
                 | _ -> scan rest
@@ -239,7 +239,7 @@ module internal UnificationInferRecordAccess =
         // INHERITED one). Method typars freshen per site, because `openSignature` shares them across sites.
         let commitExternalMember (m: ExternalMember) (memberArgs: EqArray<SemType>) : SemType =
             let memberSig =
-                ExternalSymbols.instantiateSignature ctx.Store m (memberArgs.AsSpan().ToArray()) ctx.CurrentLevel
+                ExternalSymbols.instantiateSignature ctx m (memberArgs.AsSpan().ToArray()) ctx.CurrentLevel
 
             ctx.Resolution.ExternalAccess.Set(access.Key, ResolvedExternalMember.OfMember(m, memberSig))
 
@@ -266,7 +266,7 @@ module internal UnificationInferRecordAccess =
                         // A field read must NOT stamp `ExternalAccess`: Elaborate tries the
                         // stamped-member arm BEFORE the dot-lookup arm, so a stamped field
                         // lowers to a property call instead of `TExpr.FieldGet` / `ldfld`.
-                        FrozenTypeBridge.instantiateDeclaring fieldShape.Frozen (args.AsSpan().ToArray())
+                        FrozenTypeBridge.instantiateDeclaring ctx fieldShape.Frozen (args.AsSpan().ToArray())
                     | ValueNone ->
                         // An external record also carries augmentation members. This IS a
                         // member, so stamping `ExternalAccess` is correct here.
@@ -376,7 +376,7 @@ module internal UnificationInferRecordAccess =
             match tryTyparInterfaceMember ctx access.Key root memberName with
             | ValueSome ty -> ty
             | ValueNone ->
-                let resultTv = freshTyVar ctx
+                let resultTv = ctx.FreshTyVar()
 
                 let access =
                     {
@@ -392,7 +392,7 @@ module internal UnificationInferRecordAccess =
         // canonical BCL name. Single-pick: an arg-overloaded name needs the arg-aware path.
         | IntrinsicBclMember ctx memberName (declKey, args, m) ->
             if not m.IsStatic then
-                let memberSig = ExternalSymbols.openSignature m (args.AsSpan().ToArray())
+                let memberSig = ExternalSymbols.openSignature ctx m (args.AsSpan().ToArray())
 
                 ctx.Resolution.ExternalAccess.Set(access.Key, ResolvedExternalMember.OfMember(m, memberSig))
 
@@ -432,7 +432,7 @@ module internal UnificationInferRecordAccess =
         let resolveExternalIndexer (declKey: TypeKey) (clsArgs: SemType[]) : SemType voption =
             match ctx.Provider.TryLookupMember(declKey, AccessorNames.itemGetter) with
             | ValueSome m when not m.IsStatic ->
-                let memberSig = ExternalSymbols.openSignature m clsArgs
+                let memberSig = ExternalSymbols.openSignature ctx m clsArgs
                 ctx.Resolution.ExternalAccess.Set(node.Key, indexerAccess m memberSig)
 
                 // The accessor is `idx -> ret`, and `ret` is by-ref (`Span<char>.get_Item :
@@ -442,7 +442,7 @@ module internal UnificationInferRecordAccess =
                     | TyFun(_, TyByref _) -> true
                     | _ -> false
 
-                let resultTy = TyVar(freshTyVar ctx)
+                let resultTy = TyVar(ctx.FreshTyVar())
 
                 let rhsRet =
                     if retIsByref then
@@ -466,8 +466,8 @@ module internal UnificationInferRecordAccess =
                 let instantiated =
                     entries
                     |> List.map (fun (kF, vF) ->
-                        FrozenTypeBridge.instantiateDeclaring kF clsArgs,
-                        FrozenTypeBridge.instantiateDeclaring vF clsArgs
+                        FrozenTypeBridge.instantiateDeclaring ctx kF clsArgs,
+                        FrozenTypeBridge.instantiateDeclaring ctx vF clsArgs
                     )
 
                 // Select the entry whose key type matches the index expression's type. A
@@ -496,12 +496,12 @@ module internal UnificationInferRecordAccess =
                     // Thread the resolved `GetIndex` identity through so the `$0[$1]` body
                     // splices by KEY, under this same `IndexedLookup` node key.
                     ctx.Resolution.IntrinsicKey.Set(node.Key, sym.Key)
-                    let resultTy = TyVar(freshTyVar ctx)
+                    let resultTy = TyVar(ctx.FreshTyVar())
 
                     unify
                         ctx
                         node.Tok
-                        (ExternalSymbols.instantiateSymbol ctx.Store sym ctx.CurrentLevel)
+                        (ExternalSymbols.instantiateSymbol ctx sym ctx.CurrentLevel)
                         (TyFun(objArgTy, TyFun(idxTy, resultTy)))
 
                     // Pin `'K`/`'V` (which the generic scheme leaves free) to the declared
@@ -517,7 +517,7 @@ module internal UnificationInferRecordAccess =
         // argument's own from an inherited one by looking at the object argument's type.
         match pickInstanceMember ctx objArgTy AccessorNames.itemGetter [ idxTy ] with
         | InstanceMemberPick.Resolved accessor ->
-            let resultTy = TyVar(freshTyVar ctx)
+            let resultTy = TyVar(ctx.FreshTyVar())
             unify ctx node.Tok accessor.MemberTy (TyFun(idxTy, resultTy))
             stampInstanceMember ctx node.Key accessor
             ValueSome resultTy
@@ -563,7 +563,7 @@ module internal UnificationInferRecordAccess =
         let resolveExternalIndexer (declKey: TypeKey) (clsArgs: SemType[]) : unit voption =
             match ctx.Provider.TryLookupMember(declKey, AccessorNames.itemSetter) with
             | ValueSome m when not m.IsStatic ->
-                let memberSig = ExternalSymbols.openSignature m clsArgs
+                let memberSig = ExternalSymbols.openSignature ctx m clsArgs
                 ctx.Resolution.ExternalAccess.Set(node.Key, indexerAccess m memberSig)
                 let args = TyTuple(EqArray.ofArray [| idxTy; valueTy |])
                 unify ctx node.Tok memberSig (TyFun(args, ctx.Intrinsics.Unit))
@@ -612,7 +612,7 @@ module internal UnificationInferRecordAccess =
         let anchorTy =
             match ctx.Bindings.Binding.TryGetValue anchorKey with
             | ValueSome rb -> instantiateBinding ctx rb
-            | ValueNone -> TyVar(freshTyVar ctx)
+            | ValueNone -> TyVar(ctx.FreshTyVar())
 
         let mutable currTy = anchorTy
 

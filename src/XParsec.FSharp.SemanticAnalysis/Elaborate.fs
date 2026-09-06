@@ -118,7 +118,9 @@ module Elaborate =
                             | SemanticConstraintKind.Coercion target ->
                                 match methodIndexOf tv with
                                 | Some idx ->
-                                    let frozenTarget = toFrozen (remapDeclTypars ctx.Store quantEnv target)
+                                    let frozenTarget =
+                                        FrozenTypeBridge.freeze ctx.Store (remapDeclTypars ctx.Store quantEnv target)
+
                                     FrozenConstraint.Coercion(idx, frozenTarget)
                                 | None -> ()
                             | _ -> ()

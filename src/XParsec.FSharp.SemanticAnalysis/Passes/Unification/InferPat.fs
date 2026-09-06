@@ -147,7 +147,7 @@ module internal UnificationInferPat =
                 | Pat.Elems(pats = pats) -> List.ofSeq pats
                 | single -> [ single ]
 
-            let elemTy = TyVar(freshTyVar ctx)
+            let elemTy = TyVar(ctx.FreshTyVar())
 
             for e in elems do
                 let eTy = inferPat ctx e
@@ -210,7 +210,7 @@ module internal UnificationInferPat =
         | Pat.EmptyBlock(lParen = ParenKind.List _) ->
             // `[]` pattern: a list whose element type is left free for the
             // scrutinee to pin (`match xs with [] -> …`).
-            let elemTy = TyVar(freshTyVar ctx)
+            let elemTy = TyVar(ctx.FreshTyVar())
             let listTy = listLiteralTy ctx tok elemTy
             let nodeTv = freshTv ctx key
             ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, ValueSome listTy)

@@ -103,7 +103,7 @@ let tests =
 
                 match ScopeContents.tryValueAt cached.Scope "known" with
                 | ValueSome s ->
-                    match ExternalSymbols.instantiateSymbol (TypeStore()) s 0 with
+                    match ExternalSymbols.instantiateSymbol (MeasuredThaw.noneOver (TypeStore())) s 0 with
                     | TyConst(key, _) ->
                         Expect.equal
                             (SymbolKeyOps.typeSimpleName key)

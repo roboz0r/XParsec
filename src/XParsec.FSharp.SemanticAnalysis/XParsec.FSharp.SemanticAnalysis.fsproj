@@ -108,6 +108,7 @@
     <!-- After the symbol data model it projects, and independent of everything below: an
          open method signature is a function of an `ExternalSymbol` alone. -->
     <Compile Include="OpenSignature.fs" />
+    <Compile Include="MeasureErasure.fs" />
     <Compile Include="BuiltinTypes.fs" />
     <Compile Include="SourceFileKind.fs" />
     <Compile Include="SourceUnit.fs" />

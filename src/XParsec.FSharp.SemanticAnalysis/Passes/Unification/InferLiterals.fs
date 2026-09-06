@@ -64,7 +64,7 @@ module internal UnificationInferLiterals =
         match c with
         | Constant.Literal t -> literalCarrier ctx t
         | Constant.MeasuredLiteral(value = t; measure = m) ->
-            measuredTy ctx (literalCarrier ctx t) (translateMeasure ctx t m)
+            ctx.MeasuredTy(literalCarrier ctx t, translateMeasure ctx t m)
 
     /// Reads `Units` straight off the root, never through `resolveStep`,
     /// which would follow a measured TyVar through its `Link` to the bare
@@ -85,13 +85,6 @@ module internal UnificationInferLiterals =
             | ValueSome link -> link
             | ValueNone -> TyVar root.Id
         | other -> other
-
-    let freshTyVarWith (ctx: PassContext) (carrier: SemType) (units: MeasureTerm voption) : TyVarId =
-        let tv = freshTyVar ctx
-        let root = UnionFind.find ctx.Store tv
-        ctx.Store.SetLink(root, ValueSome carrier)
-        ctx.Store.SetUnits(root, units)
-        tv
 
     let isComparisonOp (name: string) : bool =
         match name with
@@ -126,25 +119,24 @@ module internal UnificationInferLiterals =
 
             match name, leftUnits, rightUnits with
             | (OperatorData.OpAddition | OperatorData.OpSubtraction), ValueSome m1, ValueSome m2 when m1.Equals m2 ->
-                Some(TyVar(freshTyVarWith ctx carrier (ValueSome m1)))
+                Some(ctx.MeasuredTy(carrier, m1))
             | (OperatorData.OpAddition | OperatorData.OpSubtraction), ValueSome m1, ValueSome m2 ->
                 ctx.Report(tok, Kind.MeasureMismatch(string m1, string m2))
 
-                Some(TyVar(freshTyVarWith ctx carrier (ValueSome m1)))
+                Some(ctx.MeasuredTy(carrier, m1))
             | (OperatorData.OpAddition | OperatorData.OpSubtraction), ValueSome m, ValueNone
             | (OperatorData.OpAddition | OperatorData.OpSubtraction), ValueNone, ValueSome m ->
                 ctx.Report(tok, Kind.DimensionlessMeasureMismatch(string m))
 
-                Some(TyVar(freshTyVarWith ctx carrier (ValueSome m)))
+                Some(ctx.MeasuredTy(carrier, m))
             | OperatorData.OpMultiply, ValueSome m1, ValueSome m2 ->
-                Some(TyVar(freshTyVarWith ctx carrier (ValueSome(MeasureTerm.mul m1 m2))))
+                Some(ctx.MeasuredTy(carrier, MeasureTerm.mul m1 m2))
             | OperatorData.OpMultiply, ValueSome m, ValueNone
-            | OperatorData.OpMultiply, ValueNone, ValueSome m -> Some(TyVar(freshTyVarWith ctx carrier (ValueSome m)))
+            | OperatorData.OpMultiply, ValueNone, ValueSome m -> Some(ctx.MeasuredTy(carrier, m))
             | OperatorData.OpDivision, ValueSome m1, ValueSome m2 ->
-                Some(TyVar(freshTyVarWith ctx carrier (ValueSome(MeasureTerm.div m1 m2))))
-            | OperatorData.OpDivision, ValueSome m, ValueNone -> Some(TyVar(freshTyVarWith ctx carrier (ValueSome m)))
-            | OperatorData.OpDivision, ValueNone, ValueSome m ->
-                Some(TyVar(freshTyVarWith ctx carrier (ValueSome(MeasureTerm.inv m))))
+                Some(ctx.MeasuredTy(carrier, MeasureTerm.div m1 m2))
+            | OperatorData.OpDivision, ValueSome m, ValueNone -> Some(ctx.MeasuredTy(carrier, m))
+            | OperatorData.OpDivision, ValueNone, ValueSome m -> Some(ctx.MeasuredTy(carrier, MeasureTerm.inv m))
             | name, ValueSome m1, ValueSome m2 when isComparisonOp name && m1.Equals m2 -> Some ctx.Intrinsics.Bool
             | name, ValueSome m1, ValueSome m2 when isComparisonOp name ->
                 ctx.Report(tok, Kind.MeasureMismatch(string m1, string m2))
@@ -187,7 +179,7 @@ module internal UnificationInferLiterals =
     /// types its specifier accepts as a `OneOf` constraint, plus the one it settles on where
     /// nothing else pins it: `%d` takes any integer, and `printfn "%d"` alone is `int -> unit`.
     let freshHoleTy (ctx: PassContext) (declKey: NodeKey) (h: PrintfSpec.FormatHoleTy) : SemType =
-        let tv = freshTyVar ctx
+        let tv = ctx.FreshTyVar()
         let root = UnionFind.find ctx.Store tv
 
         let family (keys: EqArray<TypeKey>) =
@@ -249,7 +241,7 @@ module internal UnificationInferLiterals =
         match TypeRegistry.tryAbbrevSpelling ctx.Types UseSite.unbounded RuntimeNames.vesperListAbbrevKey with
         | ValueSome info -> expandAbbreviation ctx tok info (forceFill ctx info) (EqArray.singleton elemTy)
         | ValueNone ->
-            let tv = freshTyVar ctx
+            let tv = ctx.FreshTyVar()
 
             ctx.RegisterListLiteral((UnionFind.find ctx.Store tv).Id, elemTy, tok)
             TyVar tv

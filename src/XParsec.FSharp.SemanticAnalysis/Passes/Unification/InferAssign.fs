@@ -26,7 +26,7 @@ module internal UnificationInferAssign =
         (objArgTy: SemType)
         (propName: string)
         : SemType voption =
-        let valueSlot = TyVar(freshTyVar ctx)
+        let valueSlot = TyVar(ctx.FreshTyVar())
 
         match pickInstanceMember ctx objArgTy (AccessorNames.setterName propName) [ valueSlot ] with
         | InstanceMemberPick.Resolved setter ->
@@ -113,7 +113,7 @@ module internal UnificationInferAssign =
 
             match tryResolveIndexedGet ctx access objArgTy idxTy with
             | ValueSome elemTy -> linkLhs elemTy
-            | ValueNone -> linkLhs (TyVar(freshTyVar ctx))
+            | ValueNone -> linkLhs (TyVar(ctx.FreshTyVar()))
         // The dispatcher routes an unparenthesised `x?n <- v` to `inferDynamicSet` before
         // reaching here, so a dynamic LHS only ever arrives wrapped, as a read.
         | AssignTarget.Dynamic _

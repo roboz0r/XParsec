@@ -9,8 +9,9 @@ open XParsec.FSharp.Parser
 
 module ResolvedTypes =
 
-    /// Walk `t` adding to `acc` any free TyVar root (one whose `Link` is `ValueNone`) that is
-    /// not in `allowed`.
+    /// Walk `t` adding to `acc` any free TyVar root not in `allowed`. A root is free exactly
+    /// when `Freeze` would lower it to `FTUnknown UnresolvedTypar`; a measured root is
+    /// resolved when its carrier is.
     let private addFreeRoots
         (store: TypeStore)
         (allowed: HashSet<TyVarId>)
@@ -19,17 +20,12 @@ module ResolvedTypes =
         : unit =
         let rec go t =
             match t with
-            | TyVar tv ->
-                let root = UnionFind.find store tv
-
-                match store.Link root with
-                | ValueSome target -> go target
-                | ValueNone ->
-                    if not (allowed.Contains root.Id) then
-                        acc.Add(root.Id) |> ignore
+            | TyVar root ->
+                if not (allowed.Contains root) then
+                    acc.Add root |> ignore
             | t -> SemType.iterChildren go t
 
-        go t
+        go (UnionFind.zonkErased store t)
 
     /// Add the quantified roots of every scheme this binding pattern binds (each
     /// `NamedSimple`, at any nesting) to `allowed`, returning the newly-added ones for the

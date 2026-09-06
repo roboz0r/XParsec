@@ -281,6 +281,16 @@ module FrozenCodecRows =
         | TypeRow.Unknown reason ->
             w.Write 14uy
             writeUnknownReasonRow w reason
+        | TypeRow.Measure atoms ->
+            w.Write 15uy
+
+            writeEqArrayWith
+                w
+                (fun w (a: MeasureAtomRow) ->
+                    writeTypeKeyId w a.Atom
+                    writeRational w a.Exponent
+                )
+                atoms
 
     // Rebuilt case for case with NO normalisation, because the stored row is already the canonical
     // one the freeze interned. `Or` in particular keeps the stored member sequence verbatim.
@@ -337,6 +347,17 @@ module FrozenCodecRows =
             let index = r.ReadInt32()
             TypeRow.LocalTypar(SchemeId scheme, index)
         | 14uy -> TypeRow.Unknown(readUnknownReasonRow r)
+        | 15uy ->
+            TypeRow.Measure(
+                readEqArrayWith
+                    r
+                    (fun r ->
+                        let atom = readTypeKeyId r
+                        let exponent = readRational r
+
+                        { Atom = atom; Exponent = exponent }
+                    )
+            )
         | b -> failwithf "FrozenCodec: unknown TypeRow tag %d" b
 
     let private writeFilePathRow (w: FrozenWriter) (row: FilePathRow) =

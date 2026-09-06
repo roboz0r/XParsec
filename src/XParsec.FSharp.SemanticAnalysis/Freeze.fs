@@ -25,11 +25,9 @@ module Freeze =
 
         map
 
-    /// A `TyVar` root quantified by some scheme becomes that scheme's `FTLocalTypar`. An
-    /// unquantified root freezes to `FTUnknown UnresolvedTypar`, which `ResolvedTypes.run` has
-    /// already reported as `InternalBreak.UnresolvedTyVars` against the decl holding it, so the
-    /// sentinel is a recovery value that keeps `freeze` total past that error.
-    /// `ResolvedTypesTests` pins the two together.
+    /// A measured root freezes to its carrier's arity-1 claim over the measure. A `TyVar` root
+    /// quantified by some scheme becomes that scheme's `FTLocalTypar`. An unquantified root
+    /// freezes to `FTUnknown UnresolvedTypar`, the recovery value after `ResolvedTypes` reports it.
     let private freezeTy
         (store: TypeStore)
         (schemes: Dictionary<TyVarId, struct (SchemeId * int)>)
@@ -42,9 +40,7 @@ module Freeze =
             | true, struct (scheme, index) -> FTLocalTypar(scheme, index)
             | _ -> FTUnknown UnknownReason.UnresolvedTypar
 
-        // Deep-`zonk` first: elaboration leaves fields holding a `TyVar` root linked to a
-        // concrete type, so only a genuinely UNLINKED root reaches `onVar`.
-        Unification.zonk store t |> FrozenTypeBridge.toFrozenWith onVar
+        FrozenTypeBridge.freezeWith store onVar t
 
     /// Is a use of this decl spliced rather than called? Two shapes: an explicit `let inline`,
     /// and a `let` value whose body is a single zero-operand intrinsic (`let emptyDocs =

@@ -113,7 +113,7 @@ module UnificationInferOverload =
     /// One entry per DECLARED parameter: the instantiated signature peeled one `->` per argument
     /// group, each domain untupled to its width. The width comes from the FROZEN group, which
     /// is what tells a flattened 2-param group from a genuine single tuple param.
-    let memberParamTypes (store: TypeStore) (typeArgs: SemType[]) (m: ExternalMember) : SemType list =
+    let memberParamTypes (ctx: PassContext) (typeArgs: SemType[]) (m: ExternalMember) : SemType list =
         let widths = ExternalSignature.argGroupWidths m.Signature
 
         let rec peel (i: int) (ty: SemType) : SemType list =
@@ -131,7 +131,7 @@ module UnificationInferOverload =
                     here @ peel (i + 1) rest
                 | _ -> []
 
-        peel 0 (zonk store (ExternalSymbols.openSignature m typeArgs))
+        peel 0 (zonk ctx.Store (ExternalSymbols.openSignature ctx m typeArgs))
 
     /// Lift a boolean "at least as good" predicate to a three-way comparison: `+1` when `x`
     /// one-directionally dominates `y`, `-1` when `y` dominates `x`, `0` when they are
@@ -259,7 +259,7 @@ module UnificationInferOverload =
             let rcs =
                 EqArray.toArray candidates
                 |> Array.choose (fun m ->
-                    let ps = memberParamTypes ctx.Store typeArgs m
+                    let ps = memberParamTypes ctx typeArgs m
 
                     if m.Key.ArgSig.Length = arity && List.length ps = arity then
                         Some
@@ -351,7 +351,7 @@ module UnificationInferOverload =
 
         EqArray.ofList
             [
-                for p in flatParamsOf store (zonk store m.Type) -> FrozenTypeBridge.toFrozenWith onVar (zonk store p)
+                for p in flatParamsOf store (zonk store m.Type) -> FrozenTypeBridge.freezeWith store onVar p
             ]
 
     /// The kind-mapped `MemberKind` of a member (methods dispatch, properties store).
@@ -550,8 +550,7 @@ module UnificationInferOverload =
             ArgSig =
                 EqArray.ofList
                     [
-                        for p in flatParamsOf store (zonk store atLevel) ->
-                            FrozenTypeBridge.toFrozenWith onVar (zonk store p)
+                        for p in flatParamsOf store (zonk store atLevel) -> FrozenTypeBridge.freezeWith store onVar p
                     ]
             MethodTyparArity = m.EffectiveMethodTypars.Length
             Kind = memberKindOf m

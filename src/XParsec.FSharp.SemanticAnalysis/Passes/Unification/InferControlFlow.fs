@@ -48,18 +48,18 @@ module internal UnificationInferControlFlow =
 
         match moveNext, current with
         | ValueSome mn, ValueSome cur ->
-            match ExternalSymbols.openSignature mn enumArgs with
+            match ExternalSymbols.openSignature ctx mn enumArgs with
             | TyFun(_, TyBool) ->
                 // The `finally` exists only when `E : IDisposable`, and disposal always
                 // goes through the `System.IDisposable::Dispose` interface slot, so a
                 // bool is enough here, no member key.
                 let disposable =
-                    ExternalSymbols.instantiateInterfaces enumShape enumArgs
+                    ExternalSymbols.instantiateInterfaces ctx enumShape enumArgs
                     |> RuntimeNames.carriesCapability ctx.CapabilityIds.Disposable
 
                 ValueSome
                     {
-                        ElemTy = ExternalSymbols.openSignature cur enumArgs
+                        ElemTy = ExternalSymbols.openSignature ctx cur enumArgs
                         Members = ForInEnumMembers.External(SymbolKey.Member mn.Key, SymbolKey.Member cur.Key)
                         IsValueType = enumShape.Flags.IsValueType
                         Disposable = disposable
@@ -365,7 +365,7 @@ module internal UnificationInferControlFlow =
         | ValueSome ge ->
             // `GetEnumerator` reads as `unit → E`; `E` carries the enumerator type's own
             // instantiation (`List<'T>.Enumerator` over the source's `'T`).
-            match ExternalSymbols.openSignature ge srcArgs with
+            match ExternalSymbols.openSignature ctx ge srcArgs with
             | TyFun(_, (TyClass(enumKey, enumArgsEq) as enumTy)) ->
                 match ctx.Provider.TryLookupType enumKey with
                 | ValueSome(ExternalTypeShape.Class enumShape) ->
@@ -573,7 +573,7 @@ module internal UnificationInferControlFlow =
                 match tryDuckTypedEnumerator ctx shape argArr with
                 | ValueSome r -> ValueSome r
                 | ValueNone ->
-                    match pickEnumerableElem ctx (ExternalSymbols.instantiateInterfaces shape argArr) with
+                    match pickEnumerableElem ctx (ExternalSymbols.instantiateInterfaces ctx shape argArr) with
                     | Some elem -> ValueSome(elem, ForInEnumeratorG.Interface)
                     | None -> ValueNone
             // A project-local source is invisible to the external provider; fall back to
@@ -590,7 +590,7 @@ module internal UnificationInferControlFlow =
             | ValueSome(ExternalTypeShape.Union { Interfaces = interfaces }) ->
                 let argArr = args.AsSpan().ToArray()
 
-                match pickEnumerableElem ctx (ExternalSymbols.instantiateInterfacesOf interfaces argArr) with
+                match pickEnumerableElem ctx (ExternalSymbols.instantiateInterfacesOf ctx interfaces argArr) with
                 | Some elem -> ValueSome(elem, ForInEnumeratorG.Interface)
                 | None -> ValueNone
             | _ -> ValueNone
@@ -601,7 +601,9 @@ module internal UnificationInferControlFlow =
             | ValueSome(ExternalTypeShape.Intrinsic { Class = ValueSome surface }) ->
                 let argArr = args.AsSpan().ToArray()
 
-                match pickEnumerableElem ctx (ExternalSymbols.instantiateInterfacesOf surface.Interfaces argArr) with
+                match
+                    pickEnumerableElem ctx (ExternalSymbols.instantiateInterfacesOf ctx surface.Interfaces argArr)
+                with
                 | Some elem -> ValueSome(elem, ForInEnumeratorG.Interface)
                 | None -> ValueNone
             | _ -> ValueNone
@@ -696,7 +698,7 @@ module internal UnificationInferControlFlow =
         (rules: ImmutableArray<Rule<SyntaxToken>>)
         : SemType =
         let scrutineeTy = infer ctx scrutinee
-        let resultTy = TyVar(freshTyVar ctx)
+        let resultTy = TyVar(ctx.FreshTyVar())
         inferRules infer ctx tok scrutineeTy resultTy rules
         resultTy
 
@@ -708,8 +710,8 @@ module internal UnificationInferControlFlow =
         : SemType =
         // `function …` ~ `fun x -> match x with …`: the synthesised parameter's TypeVar
         // IS the scrutinee's, so every arm's pattern unifies with it.
-        let paramTy = TyVar(freshTyVar ctx)
-        let resultTy = TyVar(freshTyVar ctx)
+        let paramTy = TyVar(ctx.FreshTyVar())
+        let resultTy = TyVar(ctx.FreshTyVar())
         inferRules infer ctx tok paramTy resultTy rules
         TyFun(paramTy, resultTy)
 

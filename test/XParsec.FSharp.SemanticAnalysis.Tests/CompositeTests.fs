@@ -54,7 +54,7 @@ let private tagged (name: string) (tag: string) : IExternalSymbolProvider =
 let private valueTag (provider: IExternalSymbolProvider) (name: string) : string voption =
     match ScopeContents.tryValueAt provider.Scope name with
     | ValueSome sym ->
-        match ExternalSymbols.instantiateSymbol (TypeStore()) sym 0 with
+        match ExternalSymbols.instantiateSymbol (MeasuredThaw.noneOver (TypeStore())) sym 0 with
         | TyConst(key, _) ->
             let (DisplayName name) = SymbolKeyOps.typeSimpleName key
             ValueSome name

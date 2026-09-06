@@ -60,7 +60,7 @@ let boxMember (paramFt: FrozenType) : ExternalMember =
     }
 
 let chosenParamsWith (typeArgs: SemType[]) (m: ExternalMember) : SemType list =
-    UnificationInferOverload.memberParamTypes (TypeStore()) typeArgs m
+    UnificationInferOverload.memberParamTypes (analyse "") typeArgs m
 
 let pickWith
     (ctx: PassContext)
@@ -71,7 +71,7 @@ let pickWith
     UnificationInferOverload.pickBestOverload ctx typeArgs candidates args
 
 let chosenParams (m: ExternalMember) : SemType list =
-    UnificationInferOverload.memberParamTypes (TypeStore()) [||] m
+    UnificationInferOverload.memberParamTypes (analyse "") [||] m
 
 let grandBaseTy = TyClass("GrandBase", EqArray.empty)
 let baseTy = TyClass("Base", EqArray.empty)
