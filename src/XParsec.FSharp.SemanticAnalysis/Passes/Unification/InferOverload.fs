@@ -471,7 +471,7 @@ module UnificationInferOverload =
                 if info.HasPrimaryCtor then
                     yield! ofArity [ for p in info.CtorParams -> p.Type ] LocalCtorPick.Primary
 
-                for sc in info.SecondaryCtors do
+                for sc in info.Body.SecondaryCtors do
                     yield! ofArity [ for p in sc.Params -> p.Type ] LocalCtorPick.Secondary
             ]
 

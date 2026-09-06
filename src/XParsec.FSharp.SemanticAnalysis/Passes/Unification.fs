@@ -478,7 +478,7 @@ module Unification =
     /// `bool Equals<M0>(!!0)`. A base class declaring the name owns the slot; where none
     /// does, the slot is `System.Object`'s.
     let private checkOverrideConformance (ctx: PassContext) (info: ClassTypeInfo) : unit =
-        for mInfo in info.Members do
+        for mInfo in info.Body.Members do
             if mInfo.IsOverride && mInfo.ClassKind = ClassMemberKind.Method then
                 let expected =
                     match tryBaseSlotType ctx info mInfo.Name with
@@ -667,7 +667,7 @@ module Unification =
                             ctx
                             {
                                 TypeParams = info.TypeParams
-                                Members = info.Members
+                                Members = info.Body.Members
                                 ThisKey = BoundVarKey.identity info.ThisKey
                                 MkSelfType = fun args -> TyClass(info.TypeKey, args)
                                 PrelinkExtras = prelinkExtras
@@ -878,7 +878,7 @@ module Unification =
                     ctx.Report(m.DeclSite.Tok, Kind.DuplicateMember m.Name)
 
         for kv in ctx.Types.Class do
-            checkHost kv.Value.TypeParams kv.Value.Members
+            checkHost kv.Value.TypeParams kv.Value.Body.Members
 
         for kv in ctx.Types.Union do
             checkHost kv.Value.TypeParams kv.Value.Members

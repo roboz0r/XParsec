@@ -438,7 +438,7 @@ let tests =
 
                 let d = expectClass ctx "D"
 
-                match d.Members |> Array.tryFind (fun m -> m.Name = "Store") with
+                match d.Body.Members |> Array.tryFind (fun m -> m.Name = "Store") with
                 | Some m ->
                     Expect.equal
                         (Unification.zonk ctx.Store m.Type)
@@ -454,7 +454,7 @@ let tests =
 
                 let d = expectClass ctx "D"
 
-                match d.Members |> Array.tryFind (fun m -> m.Name = "Equals") with
+                match d.Body.Members |> Array.tryFind (fun m -> m.Name = "Equals") with
                 | Some m ->
                     Expect.equal
                         (Unification.zonk ctx.Store m.Type)

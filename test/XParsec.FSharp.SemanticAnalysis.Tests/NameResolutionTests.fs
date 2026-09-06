@@ -460,18 +460,18 @@ let tests =
                 let info = expectClass ctx "C"
                 Expect.equal info.CtorParams.Length 1 "one ctor param"
                 Expect.equal info.CtorParams.[0].Name "x" "ctor param named x"
-                Expect.equal info.Members.Length 1 "one member"
-                Expect.equal info.Members.[0].Name "X" "member named X"
-                Expect.equal info.Members.[0].Kind TMemberKind.Property "member is a property"
+                Expect.equal info.Body.Members.Length 1 "one member"
+                Expect.equal info.Body.Members.[0].Name "X" "member named X"
+                Expect.equal info.Body.Members.[0].Kind TMemberKind.Property "member is a property"
             }
 
             test "static member registers with IsStatic = true" {
                 let ctx = analyse "type C() =\n    static member M () = 1"
 
                 let info = expectClass ctx "C"
-                Expect.equal info.Members.Length 1 "one member"
-                Expect.isTrue info.Members.[0].IsStatic "M is static"
-                Expect.equal info.Members.[0].Name "M" "member named M"
+                Expect.equal info.Body.Members.Length 1 "one member"
+                Expect.isTrue info.Body.Members.[0].IsStatic "M is static"
+                Expect.equal info.Body.Members.[0].Name "M" "member named M"
             }
 
             test "[<Sealed>] stamps ClassTypeInfo.IsSealed" {
@@ -666,15 +666,15 @@ let tests =
                         "type B() =\n    member this.M () = 1\ntype D() =\n    inherit B()\n    override this.M () = 2"
 
                 let info = expectClass ctx "D"
-                Expect.equal info.Members.Length 1 "one member on D"
-                Expect.isTrue info.Members.[0].IsOverride "override flag set"
+                Expect.equal info.Body.Members.Length 1 "one member on D"
+                Expect.isTrue info.Body.Members.[0].IsOverride "override flag set"
             }
 
             test "plain member leaves IsOverride false" {
                 let ctx = analyse "type C() =\n    member this.M () = 1"
 
                 let info = expectClass ctx "C"
-                Expect.isFalse info.Members.[0].IsOverride "plain member is not an override"
+                Expect.isFalse info.Body.Members.[0].IsOverride "plain member is not an override"
             }
 
             // --- explicit `with get` / `set` accessors --------------------------
@@ -684,10 +684,10 @@ let tests =
                     analyse "type C() =\n    member this.P with get () = 1 and set (v: int) = ()"
 
                 let info = expectClass ctx "C"
-                Expect.equal info.Members.Length 2 "one member per accessor"
+                Expect.equal info.Body.Members.Length 2 "one member per accessor"
 
                 let byName n =
-                    info.Members |> Array.find (fun m -> m.Name = n)
+                    info.Body.Members |> Array.find (fun m -> m.Name = n)
 
                 Expect.equal (byName "P").Kind TMemberKind.Property "a parameterless getter stays a property"
 
@@ -715,11 +715,11 @@ let tests =
                 let ctx = analyse "type C() =\n    member this.Item with get (i: int) = i"
 
                 let info = expectClass ctx "C"
-                Expect.equal info.Members.Length 1 "one member"
-                Expect.equal info.Members.[0].Name "get_Item" "an index makes the getter a method"
+                Expect.equal info.Body.Members.Length 1 "one member"
+                Expect.equal info.Body.Members.[0].Name "get_Item" "an index makes the getter a method"
 
                 Expect.equal
-                    info.Members.[0].Kind
+                    info.Body.Members.[0].Kind
                     (TMemberKind.Accessor("Item", TAccessorRole.Getter))
                     "an indexed getter still names the property it reads"
 
@@ -732,9 +732,9 @@ let tests =
                 let ctx = analyse "type C() =\n    abstract P: int with get"
 
                 let info = expectClass ctx "C"
-                Expect.equal info.Members.Length 1 "one slot"
-                Expect.equal info.Members.[0].Name "P" "a parameterless getter is the property itself"
-                Expect.equal info.Members.[0].Kind TMemberKind.Property "registered as a property"
+                Expect.equal info.Body.Members.Length 1 "one slot"
+                Expect.equal info.Body.Members.[0].Name "P" "a parameterless getter is the property itself"
+                Expect.equal info.Body.Members.[0].Kind TMemberKind.Property "registered as a property"
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
 
@@ -742,11 +742,11 @@ let tests =
                 let ctx = analyse "type C() =\n    abstract Item: int -> string with get"
 
                 let info = expectClass ctx "C"
-                Expect.equal info.Members.Length 1 "one slot"
-                Expect.equal info.Members.[0].Name "get_Item" "an index makes the getter a method"
+                Expect.equal info.Body.Members.Length 1 "one slot"
+                Expect.equal info.Body.Members.[0].Name "get_Item" "an index makes the getter a method"
 
                 Expect.equal
-                    info.Members.[0].Kind
+                    info.Body.Members.[0].Kind
                     (TMemberKind.Accessor("Item", TAccessorRole.Getter))
                     "an abstract indexed getter names its property too"
 
@@ -757,10 +757,10 @@ let tests =
                 let ctx = analyse "type C() =\n    abstract P: int with get, set"
 
                 let info = expectClass ctx "C"
-                Expect.equal info.Members.Length 2 "one slot per accessor"
+                Expect.equal info.Body.Members.Length 2 "one slot per accessor"
 
                 let byName n =
-                    info.Members |> Array.find (fun m -> m.Name = n)
+                    info.Body.Members |> Array.find (fun m -> m.Name = n)
 
                 Expect.equal (byName "P").Kind TMemberKind.Property "the getter half"
 
@@ -781,11 +781,11 @@ let tests =
                 let ctx = analyse "type C() =\n    abstract P: int with set"
 
                 let info = expectClass ctx "C"
-                Expect.equal info.Members.Length 1 "one slot"
-                Expect.equal info.Members.[0].Name "set_P" "no getter is declared, so none is registered"
+                Expect.equal info.Body.Members.Length 1 "one slot"
+                Expect.equal info.Body.Members.[0].Name "set_P" "no getter is declared, so none is registered"
 
                 Expect.equal
-                    info.Members.[0].Kind
+                    info.Body.Members.[0].Kind
                     (TMemberKind.Accessor("P", TAccessorRole.Setter))
                     "a lone setter still names its property"
 
@@ -844,7 +844,7 @@ let tests =
 
                 let info = expectClass ctx "ICounter"
 
-                match info.Members |> Seq.tryFind (fun m -> m.Name = "Next") with
+                match info.Body.Members |> Seq.tryFind (fun m -> m.Name = "Next") with
                 | Some m -> Expect.isTrue m.IsStatic "the slot registers with its staticness"
                 | None -> failtest "static abstract slot not registered"
             }

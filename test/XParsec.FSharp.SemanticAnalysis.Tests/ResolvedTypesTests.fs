@@ -120,7 +120,7 @@ let tests =
                                          _) ] -> k
                     | _ -> failwithf "expected single NamedSimple decl, got %A" tast.Decls
 
-                let scheme = ctx.Bindings.Scheme.TryGetValue idKey
+                let scheme = ctx.TryScheme idKey
 
                 let quantTv =
                     match scheme with

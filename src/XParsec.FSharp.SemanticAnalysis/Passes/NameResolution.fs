@@ -363,11 +363,11 @@ module NameResolution =
                                 | ValueSome _ -> ValueSome(BoundVarKey.identity info.BaseKey)
                                 | ValueNone -> ValueNone
                             CtorParams = info.CtorParams
-                            InstanceFields = info.InstanceFields
-                            Members = info.Members
+                            InstanceFields = info.Body.InstanceFields
+                            Members = info.Body.Members
                             StaticPreamble = info.StaticPreamble
                             InstancePreamble = info.InstancePreamble
-                            SecondaryCtors = info.SecondaryCtors
+                            SecondaryCtors = info.Body.SecondaryCtors
                             InheritsExpr =
                                 // Walk the base-ctor args only when the parent resolved.
                                 match info.Base, body.inherits with

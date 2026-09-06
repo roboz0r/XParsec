@@ -141,12 +141,20 @@ module ResolvedStampPatterns =
         : 'V voption =
         project stamps key
 
+/// A generalised binding's identity and current scheme. `Scheme` is `ValueNone` while a
+/// `let rec` member stands retracted for its group's body typing.
+type BindingScheme =
+    {
+        Id: LocalBindingId
+        Scheme: TypeScheme voption
+    }
+
 type PassContextBindings =
     {
         Binding: SideTable<ResolvedBinding>
-        /// Keyed by the binding's pattern `NodeKey`. Present only for a single-name or
-        /// operator name that generalises; destructuring patterns and lambda parameters get none.
-        Scheme: SideTable<TypeScheme>
+        /// Keyed by the binding's pattern `NodeKey`. Present only for a generalised
+        /// single-name or operator-name binding.
+        Scheme: SideTable<BindingScheme>
         TypeVar: SideTable<TyVarId>
         Escape: SideTable<EscapeState>
         /// Bindings inside a named `module Foo = …`: which declaring module (not the anonymous
@@ -378,6 +386,7 @@ type PassContext(provider: IExternalSymbolProvider, file: LexedFile, assembly: C
     let types = PassContextTypes.empty ()
 
     let mutable synthBoundVars = 0
+    let mutable localBindings = 0
 
     // Fully qualified: a bare `Diagnostic` here would resolve to the parser's. Swappable so
     // `Collecting` can divert a scope's output.
@@ -620,6 +629,32 @@ type PassContext(provider: IExternalSymbolProvider, file: LexedFile, assembly: C
         let k = NodeKey.ofSyntheticCounter synthBoundVars NodeKind.SynthElaborateBoundVar
         synthBoundVars <- synthBoundVars + 1
         k
+
+    /// Record the scheme a binding generalised to, keyed by its pattern. The binding's
+    /// `LocalBindingId` is minted on its first scheme; a re-generalisation keeps it.
+    member this.RecordScheme(key: NodeKey, scheme: TypeScheme) : unit =
+        let id =
+            match this.Bindings.Scheme.TryGetValue key with
+            | ValueSome existing -> existing.Id
+            | ValueNone ->
+                let id = LocalBindingId localBindings
+                localBindings <- localBindings + 1
+                id
+
+        this.Bindings.Scheme.Set(key, { Id = id; Scheme = ValueSome scheme })
+
+    /// Withdraw a binding's scheme, keeping its `LocalBindingId` for the re-generalisation
+    /// that follows. A binding with no scheme is unaffected.
+    member this.RetractScheme(key: NodeKey) : unit =
+        match this.Bindings.Scheme.TryGetValue key with
+        | ValueSome existing -> this.Bindings.Scheme.Set(key, { existing with Scheme = ValueNone })
+        | ValueNone -> ()
+
+    /// The scheme a binding currently generalises to, keyed by its pattern.
+    member this.TryScheme(key: NodeKey) : TypeScheme voption =
+        match this.Bindings.Scheme.TryGetValue key with
+        | ValueSome { Scheme = scheme } -> scheme
+        | ValueNone -> ValueNone
 
     /// Current let-depth (Rémy's levels): push on entering a binding group's RHSes, pop after
     /// typing them. Generalisation quantifies the TyVars above the pre-push value.

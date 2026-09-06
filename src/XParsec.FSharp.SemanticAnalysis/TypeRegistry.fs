@@ -645,7 +645,7 @@ module TypeRegistry =
     /// Resolve a class / union / record by its project-local `TypeKey`, whichever kind holds it.
     let tryNominalByKey (types: PassContextTypes) (key: TypeKey) : NominalDecl voption =
         match tryClassByKey types key with
-        | ValueSome info -> nominalDecl info.TypeKey info.TypeParams info.Members
+        | ValueSome info -> nominalDecl info.TypeKey info.TypeParams info.Body.Members
         | ValueNone ->
             match tryUnionByKey types key with
             | ValueSome info -> nominalDecl info.TypeKey info.TypeParams info.Members
@@ -658,7 +658,7 @@ module TypeRegistry =
     /// resolves.
     let tryNominal (types: PassContextTypes) (useSite: UseSite) (name: string) : NominalDecl voption =
         match tryClass types useSite name with
-        | ValueSome info -> nominalDecl info.TypeKey info.TypeParams info.Members
+        | ValueSome info -> nominalDecl info.TypeKey info.TypeParams info.Body.Members
         | ValueNone ->
             match tryUnionBare types useSite name with
             | ValueSome info -> nominalDecl info.TypeKey info.TypeParams info.Members

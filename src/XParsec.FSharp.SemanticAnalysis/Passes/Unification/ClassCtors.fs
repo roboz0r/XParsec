@@ -79,7 +79,7 @@ module internal UnificationClassCtors =
     /// Type every secondary ctor of a class under its typar scope: seed the param
     /// binding-site TyVars, then infer each body.
     let fillSecondaryCtors (ctx: PassContext) (info: ClassTypeInfo) : unit =
-        if info.SecondaryCtors.Length > 0 then
+        if info.Body.SecondaryCtors.Length > 0 then
             let savedEnclosing = ctx.Resolution.EnclosingTypars
             let classScope = scopeOfTypeParams info.TypeParams
             use _ = ctx.PushTyparScope(classScope, true)
@@ -99,11 +99,11 @@ module internal UnificationClassCtors =
                     Map.ofSeq (
                         seq {
                             for p in info.CtorParams -> p.Name, p.Type
-                            for f in info.InstanceFields -> f.Name, f.Type
+                            for f in info.Body.InstanceFields -> f.Name, f.Type
                         }
                     )
 
-                for sc in info.SecondaryCtors do
+                for sc in info.Body.SecondaryCtors do
                     for p in sc.Params do
                         match p.Type with
                         | TyVar tv -> ctx.Bindings.TypeVar.Set(BoundVarKey.identity p.DeclSite.BoundVar, tv)

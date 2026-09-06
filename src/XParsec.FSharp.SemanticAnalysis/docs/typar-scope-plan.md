@@ -27,8 +27,9 @@ lands beside the old behind a central alias, readers swap, the old one is delete
 separate change.
 
 1. **`MemberOrdinal` and `LocalBindingId`.** Minted at member registration and at
-   generalisation respectively, stored on the member and binding tables. No consumers. An
-   optional extension's members take an `ExtensionKey` plus an ordinal within the block.
+   generalisation respectively, stored on the member and binding tables. No consumers.
+   `ExtensionKey` waits for the type extension design; the front end rejects a detached
+   `type … with` block, so there is nothing to key.
 
 2. **`TyparList`.** `{ Types; Measures; Order }` beside `EqArray<TyparKind>`; every reader of
    the kind array and of `TyparKinds.typeOnly` swaps to it; the array and the helper are
@@ -39,6 +40,11 @@ separate change.
    `TyTypar` likewise; `FTLocalTypar` folded in as a `LocalFunction` scope;
    `FrozenTypeBridge.ITyparInstantiation` takes a scope. The format bump. `TyparAxis` stays
    as a deleted-in-step-8 shim only if a reader cannot swap in this step.
+
+   Requirement: `Freeze.schemeBoundVars` reads the `LocalBindingId` recorded at
+   generalisation and the sort-derived `SchemeId` is deleted in this step. Until then the
+   two are separate derivations of one identity in different orders (source position versus
+   generalisation order), and a consumer must take neither as the other.
 
 4. **Per-typar `ConstraintSet` and `FunctionScheme`.** `TypeTypar.Constraints` holds the
    `TyparConstraintKindG` cases plus `Default`; `TyparConstraintG.TyparIndex` and the flat

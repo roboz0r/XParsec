@@ -290,7 +290,7 @@ let tests =
                 let ctx = analyse "type C() =\n    member this.P with get () = 1"
 
                 let info = expectClass ctx "C"
-                let m = info.Members |> Array.find (fun mm -> mm.Name = "P")
+                let m = info.Body.Members |> Array.find (fun mm -> mm.Name = "P")
 
                 Expect.equal (typeOf ctx m.DeclSite.Key) (TyConst(RuntimeNames.intKey, EqArray.empty)) "P : int"
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
@@ -300,7 +300,7 @@ let tests =
                 let ctx = analyse "type C() =\n    member this.Item with get (i: int) = i"
 
                 let info = expectClass ctx "C"
-                let m = info.Members |> Array.find (fun mm -> mm.Name = "get_Item")
+                let m = info.Body.Members |> Array.find (fun mm -> mm.Name = "get_Item")
                 let intTy = TyConst(RuntimeNames.intKey, EqArray.empty)
 
                 Expect.equal (typeOf ctx m.DeclSite.Key) (TyFun(intTy, intTy)) "get_Item : int -> int"
@@ -314,7 +314,7 @@ let tests =
 
                 // A slot has no body binding, so its type is read off the registry entry.
                 let slotTy n =
-                    Unification.zonk ctx.Store (info.Members |> Array.find (fun mm -> mm.Name = n)).Type
+                    Unification.zonk ctx.Store (info.Body.Members |> Array.find (fun mm -> mm.Name = n)).Type
 
                 let intTy = TyConst(RuntimeNames.intKey, EqArray.empty)
                 let unitTy = TyConst(RuntimeNames.unitKey, EqArray.empty)
@@ -331,7 +331,7 @@ let tests =
 
                 // A slot has no body binding, so its type is read off the registry entry.
                 let slotTy n =
-                    Unification.zonk ctx.Store (info.Members |> Array.find (fun mm -> mm.Name = n)).Type
+                    Unification.zonk ctx.Store (info.Body.Members |> Array.find (fun mm -> mm.Name = n)).Type
 
                 let intTy = TyConst(RuntimeNames.intKey, EqArray.empty)
                 let stringTy = TyConst(RuntimeNames.stringKey, EqArray.empty)

@@ -244,6 +244,11 @@ module DeclaredTypar =
 [<Struct>]
 type SchemeId = | SchemeId of int
 
+/// A generalised binding's identity within its file, minted when the binding generalises
+/// and dense in generalisation order. Stable across re-generalisation of the same binding.
+[<Struct>]
+type LocalBindingId = | LocalBindingId of int
+
 /// A dense index into `FrozenPools`' bound variable columns. A bound variable is a definition site the tree
 /// INTRODUCES: a `NamedSimple` pattern, a `ForTo` loop variable, a type's key slots.
 [<Struct>]

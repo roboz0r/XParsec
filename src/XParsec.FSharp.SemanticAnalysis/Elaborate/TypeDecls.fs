@@ -160,7 +160,7 @@ module internal ElaborateTypeDecls =
                             // Abstract methods and abstract PROPERTIES both become slots;
                             // `abstract member Current : int` emits as a `get_Current`
                             // getter, which a property impl binds to.
-                            for m in info.Members do
+                            for m in info.Body.Members do
                                 // A generic method's own typars join the env so the
                                 // backend encodes them against the METHOD, not the type.
                                 if GeneralizedTypars.count m.CanonicalTypars > 0 then
@@ -416,7 +416,7 @@ module internal ElaborateTypeDecls =
         : EqArray<SemType * EqArray<TTypeMember>> =
         EqArray.ofSeq (
             seq {
-                for impl in info.InterfaceImpls do
+                for impl in info.Body.InterfaceImpls do
                     match InterfaceImplResolution.tryIface impl.Resolution with
                     | ValueSome ifaceTy -> yield (ifaceTy, elaborateClassElements ctx info elaborateOne impl.Elements)
                     | ValueNone -> ()
@@ -516,7 +516,7 @@ module internal ElaborateTypeDecls =
             let instanceFields =
                 EqArray.ofSeq (
                     seq {
-                        for fld in info.InstanceFields ->
+                        for fld in info.Body.InstanceFields ->
                             {
                                 Name = fld.Name
                                 Type = fld.Type
@@ -543,7 +543,7 @@ module internal ElaborateTypeDecls =
                     info.InstancePreamble
 
             let secondaryCtors =
-                EqArray.ofSeq (seq { for sc in info.SecondaryCtors -> translateSecondaryCtor ctx info.Name sc })
+                EqArray.ofSeq (seq { for sc in info.Body.SecondaryCtors -> translateSecondaryCtor ctx info.Name sc })
 
             // The parent's resolved `TyClass` carries THIS class's declaring typars as
             // roots, so a generic parent encodes against this class's own generic

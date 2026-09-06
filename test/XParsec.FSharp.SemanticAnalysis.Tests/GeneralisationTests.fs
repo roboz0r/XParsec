@@ -192,7 +192,7 @@ let tests =
                 let ctx, _ = analyseWithCtx "let mutable id = fun x -> x"
                 let idKey = NodeKey.ofSource 12 NodeKind.PatIdent
 
-                Expect.isTrue (ctx.Bindings.Scheme.TryGetValue idKey = ValueNone) "no scheme entry for mutable binding"
+                Expect.isTrue (ctx.TryScheme idKey = ValueNone) "no scheme entry for mutable binding"
             }
 
             test "mutable binding is monomorphic across two use sites" {

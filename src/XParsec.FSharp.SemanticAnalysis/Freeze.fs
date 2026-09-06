@@ -18,9 +18,12 @@ module Freeze =
 
         ctx.Bindings.Scheme.AsDictionary()
         |> Seq.sortBy (fun (KeyValue(boundVar, _)) -> boundVar.Raw)
-        |> Seq.iteri (fun schemeIndex (KeyValue(_, scheme)) ->
-            scheme.Quantified
-            |> Seq.iteri (fun i tv -> map.[(UnionFind.find ctx.Store tv).Id] <- struct (SchemeId schemeIndex, i))
+        |> Seq.iteri (fun schemeIndex (KeyValue(_, entry)) ->
+            match entry.Scheme with
+            | ValueSome scheme ->
+                scheme.Quantified
+                |> Seq.iteri (fun i tv -> map.[(UnionFind.find ctx.Store tv).Id] <- struct (SchemeId schemeIndex, i))
+            | ValueNone -> ()
         )
 
         map

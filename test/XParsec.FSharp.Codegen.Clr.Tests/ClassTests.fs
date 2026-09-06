@@ -1646,8 +1646,8 @@ let interfaceImplTests =
 
                 match TypeRegistry.tryClass ctx.Types UseSite.unbounded "C" with
                 | ValueSome info ->
-                    Expect.equal info.InterfaceImpls.Length 1 "one interface impl registered on C"
-                    let impl = info.InterfaceImpls.[0]
+                    Expect.equal info.Body.InterfaceImpls.Length 1 "one interface impl registered on C"
+                    let impl = info.Body.InterfaceImpls.[0]
 
                     match impl.Resolution with
                     | InterfaceImplResolution.Resolved(key, _) ->
@@ -1929,10 +1929,10 @@ let interfaceImplTests =
 
                 match TypeRegistry.tryClass ctx.Types UseSite.unbounded "C" with
                 | ValueSome info ->
-                    Expect.equal info.InterfaceImpls.Length 2 "two interface impls registered on C"
+                    Expect.equal info.Body.InterfaceImpls.Length 2 "two interface impls registered on C"
 
                     Expect.isTrue
-                        (info.InterfaceImpls
+                        (info.Body.InterfaceImpls
                          |> Array.forall (fun impl ->
                              match impl.Resolution with
                              | InterfaceImplResolution.Resolved _ -> true
@@ -1975,9 +1975,9 @@ let interfaceImplTests =
 
                 match TypeRegistry.tryClass ctx.Types UseSite.unbounded "Box" with
                 | ValueSome info ->
-                    Expect.equal info.InterfaceImpls.Length 1 "one interface impl registered on Box"
+                    Expect.equal info.Body.InterfaceImpls.Length 1 "one interface impl registered on Box"
 
-                    match info.InterfaceImpls.[0].Resolution with
+                    match info.Body.InterfaceImpls.[0].Resolution with
                     | InterfaceImplResolution.Resolved(key, _) ->
                         Expect.stringContains (SymbolKeyOps.typeMetaName key) "IBox" "impl resolved to IBox"
                     | other -> failtestf "interface impl did not resolve to IBox: %A" other

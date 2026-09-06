@@ -57,7 +57,7 @@ module internal UnificationInferTypeOps =
                 |> ValueOption.map (fun rb -> rb.BindingSite)
 
             let schemeTarget =
-                match bindingSite |> ValueOption.bind ctx.Bindings.Scheme.TryGetValue with
+                match bindingSite |> ValueOption.bind ctx.TryScheme with
                 | ValueNone -> ValueNone
                 | ValueSome scheme ->
                     let declared =

@@ -129,8 +129,11 @@ module Validation =
         let quantified = System.Collections.Generic.HashSet<TyVarId>()
 
         for kv in ctx.Bindings.Scheme.AsDictionary() do
-            for q in kv.Value.Quantified do
-                quantified.Add((UnionFind.find ctx.Store q).Id) |> ignore
+            match kv.Value.Scheme with
+            | ValueSome scheme ->
+                for q in scheme.Quantified do
+                    quantified.Add((UnionFind.find ctx.Store q).Id) |> ignore
+            | ValueNone -> ()
 
         // The table holds one self-entry per binding AND one per use site, so the
         // `kv.Key = rb.BindingSite` filter is what stops this firing once per use.

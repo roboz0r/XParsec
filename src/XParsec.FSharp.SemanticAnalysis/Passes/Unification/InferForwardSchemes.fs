@@ -63,7 +63,7 @@ module internal UnificationInferForwardSchemes =
             if shouldGeneralise b && not b.argumentPats.IsEmpty then
                 let key = CstKeys.ofPat b.pattern
 
-                if (ctx.Bindings.Scheme.TryGetValue key).IsNone then
+                if (ctx.TryScheme key).IsNone then
                     use _ =
                         ctx.PushTyparScope(Dictionary<string, TyVarId>(System.StringComparer.Ordinal), false)
 
@@ -89,4 +89,4 @@ module internal UnificationInferForwardSchemes =
                     let fnTy = List.foldBack (fun a r -> TyFun(a, r)) argTypes retTy
                     exitLevel ctx
                     let scheme = generalise ctx.Store (zonk ctx.Store fnTy) outerLevel
-                    ctx.Bindings.Scheme.Set(key, scheme)
+                    ctx.RecordScheme(key, scheme)

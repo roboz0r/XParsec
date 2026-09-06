@@ -12,429 +12,13 @@ open NameResolutionScope
 open NameResolutionTypeRegistration
 open NameResolutionDeclRegistration
 open NameResolutionUnionRegistration
+open NameResolutionTypeBodyExtraction
 
 // Registry stamping for class type definitions and union augmentation members, plus the
 // `type … and …` group registration algorithm. A class's declared STRUCTURE (ctor-param
 // annotations, `val` field types, `inherit` parent) resolves here, in the scope it is written.
 
 module NameResolutionMemberRegistration =
-
-    /// Constructor parameter info from a parameter *pattern* (a primary or a `new(...)`
-    /// ctor's). Only simple patterns are accepted (`x`, `(x: T)`, tuples of those, `()` for
-    /// none); anything else diagnoses. An annotation is linked to the param's TyVar here.
-    let private ctorParamsOfPat (ctx: PassContext) (declTok: SyntaxToken) (p: Pat<SyntaxToken>) : ClassCtorParamInfo[] =
-        let results = ResizeArray<ClassCtorParamInfo>()
-
-        // The parameter's binding site is the pattern's own, the key a member body's
-        // reference to the parameter resolves through.
-        let addParam (p: Pat<SyntaxToken>) (annotation: Type<SyntaxToken> voption) =
-            match BoundVarKey.siteOfCstPat p with
-            | ValueNone -> () // unreachable: every arm below hands a (wrapped) `NamedSimple`
-            | ValueSome site ->
-                ctx.SetBoundVarName(site.BoundVar, site.Tok)
-                let tv = ctx.NewTypeVar()
-                ctx.Store.SetLevel(UnionFind.find ctx.Store tv, 0)
-
-                match annotation with
-                | ValueSome t -> ctx.Store.SetLink(UnionFind.find ctx.Store tv, ValueSome(translateType ctx t))
-                | ValueNone -> ()
-
-                results.Add(ClassCtorParamInfo(ctx.NameOf site.Tok, TyVar tv, site))
-
-        let rec walk (p: Pat<SyntaxToken>) =
-            match p with
-            | Pat.EmptyBlock _ -> () // `new()` / `C()` — no parameters
-            | Pat.NamedSimple _ -> addParam p ValueNone
-            | Pat.Typed(pat = Pat.NamedSimple _; typ = t) -> addParam p (ValueSome t)
-            | Pat.EnclosedBlock(pat = inner) -> walk inner
-            | Pat.Tuple(patterns = pats) ->
-                for sub in pats do
-                    walk sub
-            | _ ->
-                // Point at the offending sub-pattern when it has a token; else the
-                // declaration's own.
-                let patTok =
-                    try
-                        CstKeys.firstTokenOfPat p
-                    with _ ->
-                        declTok
-
-                ctx.Report(
-                    patTok,
-                    Kind.NotYetSupported
-                        "a constructor argument pattern other than a simple identifier (with optional type annotation)"
-                )
-
-        walk p
-        results.ToArray()
-
-    let private extractCtorParams
-        (ctx: PassContext)
-        (declTok: SyntaxToken)
-        (pcOpt: PrimaryConstrArgs<SyntaxToken> voption)
-        : ClassCtorParamInfo[] =
-        match pcOpt with
-        | ValueNone -> [||]
-        | ValueSome(PrimaryConstrArgs(pat = ValueNone)) -> [||]
-        | ValueSome(PrimaryConstrArgs(pat = ValueSome p)) -> ctorParamsOfPat ctx declTok p
-
-    /// `ClassSecondaryCtorInfo` for a class body's `new(...)` overloads. Each is keyed from
-    /// its own `new` token, so two overloads do not collide.
-    let private extractSecondaryCtors
-        (ctx: PassContext)
-        (elements: TypeDefnElement<SyntaxToken> seq)
-        : ClassSecondaryCtorInfo[] =
-        let acc = ResizeArray<ClassSecondaryCtorInfo>()
-
-        for el in elements do
-            match el with
-            | TypeDefnElement.Member(MemberDefn.AdditionalConstructor(newToken = nt; pat = pat; body = body)) ->
-                let ctorKey = NodeKey.ofToken nt NodeKind.PatIdent
-                let parms = ctorParamsOfPat ctx nt pat
-                acc.Add(ClassSecondaryCtorInfo(ctorKey, parms, body))
-            | _ -> ()
-
-        acc.ToArray()
-
-    let private identOrOpNameTok (ctx: PassContext) (id: IdentOrOp<SyntaxToken>) : (string * SyntaxToken) voption =
-        match id with
-        | IdentOrOp.Ident t -> ValueSome(ctx.NameOf t, t)
-        | IdentOrOp.ParenOp(opName = OpName.SymbolicOp op) -> ValueSome(ctx.NameOf op, op)
-        | _ -> ValueNone
-
-    /// `<'C, …>` after the member name — a member's own declared typars, in
-    /// source order. Skips anonymous typars.
-    let private memberTyparNames (ctx: PassContext) (tds: TyparDefns<SyntaxToken> voption) : string list =
-        match tds with
-        | ValueNone -> []
-        | ValueSome(TyparDefns(defns = ds)) ->
-            [
-                for TyparDefn(typar = t) in ds do
-                    match typarName ctx t with
-                    | ValueSome n -> yield n
-                    | ValueNone -> ()
-            ]
-
-    /// Free typar names in a member's *signature* (argument annotations then return type,
-    /// source order) that are neither an enclosing-type typar nor one of the member's own
-    /// `<'C>`: F# generalises these as method generic params (`member s.Map f : Set<'U>`).
-    let private implicitMemberTypars
-        (ctx: PassContext)
-        (classTypars: string list)
-        (b: Binding<SyntaxToken>)
-        : string list =
-        let known =
-            System.Collections.Generic.HashSet<string>(System.StringComparer.Ordinal)
-
-        for n in classTypars do
-            known.Add n |> ignore
-
-        for n in memberTyparNames ctx b.typarDefns do
-            known.Add n |> ignore
-
-        let seen = System.Collections.Generic.HashSet<string>(System.StringComparer.Ordinal)
-        let acc = ResizeArray<string>()
-
-        let addTypar (t: Typar<SyntaxToken>) =
-            match typarName ctx t with
-            | ValueSome n ->
-                if not (known.Contains n) && seen.Add n then
-                    acc.Add n
-            | ValueNone -> ()
-
-        // `VarType` and a `SubtypeConstraint`'s constrained typar are the only two type forms
-        // that bear one. A `when`-clause's constraint types are NOT descended: an implicit
-        // method typar is drawn from the signature's arg/return SHAPE, not a constraint target.
-        let typarIter: CstTypeWalk.TypeIter =
-            { CstTypeWalk.identityTypeIter with
-                VisitType =
-                    fun it t ->
-                        match t with
-                        | Type.VarType tp ->
-                            addTypar tp
-                            true
-                        | Type.SubtypeConstraint(typar = tp) ->
-                            addTypar tp
-                            true
-                        | Type.WhenConstrainedType(typ = inner) ->
-                            // `false` suppresses the default recursion into the constraints.
-                            CstTypeWalk.iterType it inner
-                            false
-                        | _ -> true
-            }
-
-        let walkTy (t: Type<SyntaxToken>) = CstTypeWalk.iterType typarIter t
-
-        // Only a `(p : T)` annotation contributes a signature type; an unannotated
-        // bound variable carries no typar.
-        let rec walkPat (p: Pat<SyntaxToken>) =
-            match p with
-            | Pat.Typed(pat = inner; typ = t) ->
-                walkTy t
-                walkPat inner
-            | Pat.EnclosedBlock(pat = inner)
-            | Pat.Attributed(pat = inner)
-            | Pat.Optional(pat = inner)
-            | Pat.As(pat = inner) -> walkPat inner
-            | Pat.Tuple(patterns = ps)
-            | Pat.StructTuple(patterns = ps)
-            | Pat.Elems(pats = ps) ->
-                for sub in ps do
-                    walkPat sub
-            | _ -> ()
-
-        for ap in b.argumentPats do
-            walkPat ap
-
-        match b.returnType with
-        | ValueSome(ReturnType(typ = t)) -> walkTy t
-        | ValueNone -> ()
-
-        List.ofSeq acc
-
-    /// `TypeMemberInfo` placeholders for a type body's / augmentation's member elements.
-    /// Shared by class registration and union augmentation. An unsupported element kind
-    /// emits a diagnostic at `declTok`.
-    let extractMembers
-        (ctx: PassContext)
-        (declTok: SyntaxToken)
-        (classTypars: string list)
-        (elements: TypeDefnElement<SyntaxToken> seq)
-        : TypeMemberInfo[] =
-        let memberInfos = ResizeArray<TypeMemberInfo>()
-
-        let diagnose (kind: Kind) = ctx.Report(declTok, kind)
-
-        let addMember
-            mName
-            kind
-            isStatic
-            isOverride
-            (mSite: NodeSite)
-            (seed: EqArray<DeclaredTypar>)
-            declaredCount
-            (argNames: EqArray<string voption>)
-            : TypeMemberInfo =
-            let tv = ctx.NewTypeVar()
-            ctx.Store.SetLevel(UnionFind.find ctx.Store tv, 0)
-
-            let cmi =
-                TypeMemberInfo(mName, kind, isStatic, TyVar tv, mSite, seed, declaredCount, argNames)
-
-            cmi.IsOverride <- isOverride
-            memberInfos.Add cmi
-            cmi
-
-        // The name and site are supplied because a `with get`/`set` accessor registers under
-        // an accessor name (`set_P`), not the one its own pattern spells.
-        let registerBinding mName (mSite: NodeSite) (b: Binding<SyntaxToken>) kind isStatic isOverride =
-            // A generic method's own `<'C>` typars (`member this.Map<'C> …`), then its
-            // *implicit* ones, a `'U` appearing only in a param/return annotation. Both get
-            // prototype TyVars; a property takes no implicit ones.
-            let explicit = memberTyparNames ctx b.typarDefns
-
-            let implicit =
-                match ClassMemberKind.ofMemberKind kind with
-                | ClassMemberKind.Method -> implicitMemberTypars ctx classTypars b
-                | _ -> []
-
-            // The count marks the leading `explicit` prefix of the seed: only those are
-            // "declared-first"; the implicit ones order by appearance per the F# rule.
-            let seed = mkMethodTypars ctx.Store (explicit @ implicit)
-
-            addMember mName kind isStatic isOverride mSite seed (List.length explicit) EqArray.empty
-            |> ignore
-
-        let registerNamed (b: Binding<SyntaxToken>) kind isStatic isOverride =
-            match MemberNames.ofBinding ctx b with
-            | ValueSome m -> registerBinding m.Name m.Site b kind isStatic isOverride
-            | ValueNone -> ()
-
-        let registerAutoProperty id isStatic isOverride =
-            addMember
-                (ctx.NameOf id)
-                TMemberKind.Property
-                isStatic
-                isOverride
-                (NodeSite.ofToken NodeKind.PatIdent id)
-                EqArray.empty
-                0
-                EqArray.empty
-            |> ignore
-
-        // One entry per source argument, across every curried group in source order.
-        let sigArgNames (sigArgs: ImmutableArray<struct (ArgsSpec<SyntaxToken> * SyntaxToken)>) =
-            EqArray.ofSeq (
-                seq {
-                    for struct (ArgsSpec(args = args), _) in sigArgs do
-                        for ArgSpec(name = name) in args do
-                            match name with
-                            | ValueSome(ArgNameSpec(ident = id)) -> ValueSome(ctx.NameOf id)
-                            | ValueNone -> ValueNone
-                }
-            )
-
-        let registerAbstractSlot (mName: string) (mTok: SyntaxToken) tds isStatic kind argNames =
-            let explicit = memberTyparNames ctx tds
-            let seed = mkMethodTypars ctx.Store explicit
-            // An `abstract` signature is a slot declaration, never an override.
-            addMember
-                mName
-                kind
-                isStatic
-                false
-                (NodeSite.ofToken NodeKind.PatIdent mTok)
-                seed
-                (List.length explicit)
-                argNames
-            |> ignore
-
-        let registerAbstractMethod idOrOp tds isStatic kind sigArgs =
-            match identOrOpNameTok ctx idOrOp with
-            | ValueSome(mName, mTok) -> registerAbstractSlot mName mTok tds isStatic kind (sigArgNames sigArgs)
-            | ValueNone -> ()
-
-        // `abstract P: T with get, set` declares the same halves an impl-side
-        // `with get … and set …` does, each keyed on its own `get` / `set` token.
-        let registerAbstractProperty idOrOp tds isStatic (sigArgs: ImmutableArray<_>) getSet =
-            match identOrOpNameTok ctx idOrOp with
-            | ValueSome(propName, _) ->
-                let halves = AccessorNames.halvesOf ctx.NameOf getSet
-
-                match halves.Getter with
-                | ValueSome tok ->
-                    match sigArgs.Length with
-                    | 0 -> registerAbstractSlot propName tok tds isStatic TMemberKind.Property EqArray.empty
-                    | _ ->
-                        registerAbstractSlot
-                            (AccessorNames.getterName propName)
-                            tok
-                            tds
-                            isStatic
-                            (TMemberKind.Accessor(propName, TAccessorRole.Getter))
-                            (sigArgNames sigArgs)
-                | ValueNone -> ()
-
-                match halves.Setter with
-                | ValueSome tok ->
-                    registerAbstractSlot
-                        (AccessorNames.setterName propName)
-                        tok
-                        tds
-                        isStatic
-                        (TMemberKind.Accessor(propName, TAccessorRole.Setter))
-                        (sigArgNames sigArgs)
-                | ValueNone -> ()
-            | ValueNone -> ()
-
-        for el in elements do
-            match el with
-            | TypeDefnElement.Member(MemberDefn.Member(staticToken = s; keyword = kw; defn = d)) ->
-                let isStatic = s.IsSome
-
-                match kw with
-                | MemberKeyword.Abstract(abstractToken = abstractTok) when isStatic ->
-                    ctx.Report(abstractTok, Kind.NotYetSupported "static abstract member")
-                | _ -> ()
-
-                let isOverride =
-                    match kw with
-                    | MemberKeyword.Override _
-                    | MemberKeyword.Default _ -> true
-                    | MemberKeyword.Member _
-                    | MemberKeyword.Abstract _ -> false
-
-                match d with
-                | MethodOrPropDefn.Method(defn = b) -> registerNamed b TMemberKind.Method isStatic isOverride
-                | MethodOrPropDefn.Property(defn = b) -> registerNamed b TMemberKind.Property isStatic isOverride
-                | MethodOrPropDefn.AutoProperty(ident = id) -> registerAutoProperty id isStatic isOverride
-                | MethodOrPropDefn.AbstractSignature(MemberSig.MethodOrPropSig(
-                    ident = idOrOp; typarDefns = tds; sign = CurriedSig(args = sigArgs))) ->
-                    // An arg-less signature (`abstract member Current : int`, no `->`)
-                    // is an abstract *property*; a curried/function signature is a method.
-                    let kind =
-                        if sigArgs.IsEmpty then
-                            TMemberKind.Property
-                        else
-                            TMemberKind.Method
-
-                    registerAbstractMethod idOrOp tds isStatic kind sigArgs
-                | MethodOrPropDefn.PropertyWithGetSet(ident = propId; defns = defns) ->
-                    PropertyAccessors.reportNonAccessors ctx propId defns
-
-                    for a in PropertyAccessors.accessors ctx propId defns do
-                        registerBinding a.Name a.Site a.Defn a.Kind isStatic isOverride
-                | MethodOrPropDefn.AbstractSignature(MemberSig.PropSig(
-                    ident = idOrOp; typarDefns = tds; sign = CurriedSig(args = sigArgs); getSet = getSet)) ->
-                    registerAbstractProperty idOrOp tds isStatic sigArgs getSet
-            | TypeDefnElement.Member(MemberDefn.Value _) ->
-                // `val [mutable] x: T` fields are not members; `extractInstanceFields` has them.
-                ()
-            | TypeDefnElement.Member(MemberDefn.AdditionalConstructor _) ->
-                // Secondary ctors are not members; `extractSecondaryCtors` has them.
-                ()
-            | TypeDefnElement.InterfaceImpl _ ->
-                // `interface IFace with member …` blocks are not part of the class's own
-                // member set; `extractInterfaceImpls` collects them.
-                ()
-            | TypeDefnElement.InterfaceSpec _ ->
-                // A bare `interface IFace` spec carries no member bodies to register.
-                ()
-            | TypeDefnElement.Inherit _ -> diagnose (Kind.NotYetSupported "inheritance")
-
-        memberInfos.ToArray()
-
-    /// Collect the `interface IFace with member …` blocks declared in a class body. Each
-    /// interface member is re-wrapped as a `TypeDefnElement.Member` so the ordinary member
-    /// machinery consumes it. The interface *type* is kept as raw CST, resolved later.
-    let private extractInterfaceImpls
-        (ctx: PassContext)
-        (classTypars: string list)
-        (elements: TypeDefnElement<SyntaxToken> seq)
-        : ClassInterfaceImplInfo[] =
-        let acc = ResizeArray<ClassInterfaceImplInfo>()
-
-        for el in elements do
-            match el with
-            | TypeDefnElement.InterfaceImpl(InterfaceImpl.InterfaceImpl(
-                interfaceToken = ifaceTok; typ = ifaceTyp; objectMembers = objMembersOpt)) ->
-                let ifaceSite = NodeSite.ofToken NodeKind.TypeNamed ifaceTok
-
-                let memberEls: TypeDefnElements<SyntaxToken> =
-                    match objMembersOpt with
-                    | ValueSome(ObjectMembers(memberDefns = mds)) ->
-                        ImmutableArray.CreateRange(seq { for md in mds -> TypeDefnElement.Member md })
-                    | ValueNone -> ImmutableArray.Empty
-
-                let members = extractMembers ctx ifaceTok classTypars memberEls
-                acc.Add(ClassInterfaceImplInfo(ifaceTyp, members, memberEls, ifaceSite))
-            | _ -> ()
-
-        acc.ToArray()
-
-    /// Collect `val [mutable] x: T` explicit instance fields declared in a class / struct
-    /// body. A `val` field is always annotated, so its type resolves outright, under the
-    /// class's typar scope. F# accepts no `static val` here, so a `staticToken` is ignored.
-    let private extractInstanceFields
-        (ctx: PassContext)
-        (elements: TypeDefnElement<SyntaxToken> seq)
-        : ClassFieldInfo[] =
-        let acc = ResizeArray<ClassFieldInfo>()
-
-        for el in elements do
-            match el with
-            | TypeDefnElement.Member(MemberDefn.Value(mutableToken = mut; ident = id; typ = t)) ->
-                acc.Add(
-                    ClassFieldInfo(
-                        ctx.NameOf id,
-                        translateType ctx t,
-                        mut.IsSome,
-                        NodeSite.ofToken NodeKind.DeclLetBinding id
-                    )
-                )
-            | _ -> ()
-
-        acc.ToArray()
 
     /// `ClassPreambleEntry` placeholders for a class body's `[static] let` / `[static] do`
     /// preamble, split into the STATIC sequence (the `.cctor`'s body) and the INSTANCE one
@@ -528,20 +112,19 @@ module NameResolutionMemberRegistration =
 
             // One entry into the class typar scope, so a `'a` in a ctor param, a `val` field
             // or a secondary ctor's parameter all bind the same prototype TyVar.
-            let structure =
+            let struct (ctorParams, members) =
                 underTyparScope
                     ctx
                     typeParams
                     (fun () ->
-                        {|
-                            CtorParams = extractCtorParams ctx id.DeclSite.Tok pc
-                            SecondaryCtors = extractSecondaryCtors ctx body.elements
-                            InstanceFields = extractInstanceFields ctx body.elements
-                        |}
+                        struct (extractCtorParams ctx id.DeclSite.Tok pc,
+                                extractTypeBody
+                                    ctx
+                                    id.DeclSite.Tok
+                                    classTyparNames
+                                    (TypeBodyHost.Class pc.IsSome)
+                                    body.elements)
                     )
-
-            let memberInfos =
-                ResizeArray<TypeMemberInfo>(extractMembers ctx id.DeclSite.Tok classTyparNames body.elements)
 
             let thisName =
                 match asD with
@@ -550,12 +133,6 @@ module NameResolutionMemberRegistration =
 
             let thisKey = BoundVarKey.ofDeclaredThis declKey
             let baseKey = BoundVarKey.ofDeclaredBase declKey
-
-            let members = memberInfos.ToArray()
-
-            // No `PrimaryConstrArgs` ⇒ the `val`-field form (`type T = val …; new(…) = …`):
-            // the secondary ctors are the only ctors it has.
-            let hasPrimaryCtor = pc.IsSome
 
             // The SHAPE attributes, matched by short name because the `.fsi` extractor decodes
             // the same ones with no resolver. `AllowNullLiteral` is on the decoded record too,
@@ -568,27 +145,13 @@ module NameResolutionMemberRegistration =
             let isValueType = classAttrs.IsValueType || TypeDefnPatterns.isStructShape td
 
             let struct (staticPreamble, instancePreamble) =
-                extractPreamble ctx id.DeclSite.Tok hasPrimaryCtor isValueType body.classPreamble
+                extractPreamble ctx id.DeclSite.Tok members.PrimaryCtor.IsSome isValueType body.classPreamble
 
             let info =
-                ClassTypeInfo(
-                    name,
-                    typeParams,
-                    structure.CtorParams,
-                    members,
-                    id.DeclSite,
-                    thisName,
-                    thisKey,
-                    baseKey,
-                    id.Key
-                )
+                ClassTypeInfo(name, typeParams, ctorParams, members, id.DeclSite, thisName, thisKey, baseKey, id.Key)
 
             info.StaticPreamble <- staticPreamble
             info.InstancePreamble <- instancePreamble
-            info.SecondaryCtors <- structure.SecondaryCtors
-            info.HasPrimaryCtor <- hasPrimaryCtor
-
-            info.InterfaceImpls <- extractInterfaceImpls ctx classTyparNames body.elements
             // Retained raw: a member body re-enters the class typar scope later and needs
             // `when 'S :> IFace` to resolve an access on a constrained class typar.
             info.TyparConstraints <- NameResolutionTypeRegistration.typarConstraintsOfTypeName tn
@@ -599,7 +162,6 @@ module NameResolutionMemberRegistration =
             info.IsInterface <- TypeDefnPatterns.isInterfaceShape td
             // `[<IsByRefLike>]` ⇒ a byref-like (`ref struct`) value type.
             info.IsByRefLike <- classAttrs.IsByRefLike
-            info.InstanceFields <- structure.InstanceFields
 
             // The all-abstract form (`type IFoo = abstract M: int`) declares an INTERFACE and
             // is judged as one, though it registers a `ClassTypeInfo` all the same.
@@ -739,45 +301,32 @@ module NameResolutionMemberRegistration =
             | TypeDefnElement.InterfaceSpec _
             | TypeDefnElement.Inherit _ -> ()
 
-    /// Report each `new(…)` written in a union or record augmentation. Only a class body
-    /// carries a primary constructor for one to chain to, which is fsc's FS0871.
-    let private rejectAugmentationConstructors (ctx: PassContext) (elems: TypeDefnElement<SyntaxToken> seq) : unit =
-        for el in elems do
-            match el with
-            | TypeDefnElement.Member(MemberDefn.AdditionalConstructor(newToken = newTok)) ->
-                ctx.Report(newTok, Kind.Message "Constructors cannot be defined for this type")
-            | _ -> ()
-
     /// Stamp augmentation members + `interface … with` impls onto an already-registered
     /// union or record; must run after the type itself is registered. The extraction is
     /// kind-agnostic, so only the write-back target differs and each arm sets its own `info`.
     let private registerNominalMember (ctx: PassContext) (id: TypeIdentity) (td: TypeDefn<SyntaxToken>) : unit =
-        let extract (typeParams: EqArray<DeclaredTypar>) elems =
+        let extract (typeParams: EqArray<DeclaredTypar>) elems : TypeBodyMembers =
             let typarNames = EqArray.toList (DeclaredTypar.names typeParams)
 
-            {|
-                Members = extractMembers ctx id.DeclSite.Tok typarNames elems
-                InterfaceImpls = extractInterfaceImpls ctx typarNames elems
-            |}
+            underTyparScope
+                ctx
+                typeParams
+                (fun () -> extractTypeBody ctx id.DeclSite.Tok typarNames TypeBodyHost.Augmentation elems)
 
         match td with
         | TypeDefn.Union(extensions = ValueSome(TypeExtensionElements(elements = elems))) ->
-            rejectAugmentationConstructors ctx elems
-
             match TypeRegistry.tryUnionByKey ctx.Types id.Key with
             | ValueSome info ->
-                let x = extract info.TypeParams elems
-                info.Members <- x.Members
-                info.InterfaceImpls <- x.InterfaceImpls
+                let body = extract info.TypeParams elems
+                info.Members <- body.Members
+                info.InterfaceImpls <- body.InterfaceImpls
             | ValueNone -> ()
         | TypeDefn.Record(extensions = ValueSome(TypeExtensionElements(elements = elems))) ->
-            rejectAugmentationConstructors ctx elems
-
             match TypeRegistry.tryRecordByKey ctx.Types id.Key with
             | ValueSome info ->
-                let x = extract info.TypeParams elems
-                info.Members <- x.Members
-                info.InterfaceImpls <- x.InterfaceImpls
+                let body = extract info.TypeParams elems
+                info.Members <- body.Members
+                info.InterfaceImpls <- body.InterfaceImpls
             | ValueNone -> ()
         // An inline intrinsic-abbrev host (`type X = (# … #) with member …`): stamp its
         // augmentation members as the union/record arms do. The host is filed under the
@@ -786,11 +335,11 @@ module NameResolutionMemberRegistration =
             match TypeRegistry.tryIntrinsicAbbrevHostByCanon ctx.Types id.Name with
             | ValueSome info ->
                 requireInlineMembers ctx id.Name elems
-                let x = extract info.TypeParams elems
+                let body = extract info.TypeParams elems
                 // `interface … with` on an intrinsic host is diagnosed by
                 // `requireInlineMembers`, never stamped: the host has no representation
                 // to carry the interface slots.
-                info.Members <- x.Members
+                info.Members <- body.Members
             | ValueNone -> ()
         | _ -> ()
 
@@ -828,7 +377,7 @@ module NameResolutionMemberRegistration =
             match TypeRegistry.tryClassByKey ctx.Types key with
             | ValueSome info ->
                 seq {
-                    for f in info.InstanceFields -> f.Type
+                    for f in info.Body.InstanceFields -> f.Type
                     for p in info.CtorParams -> p.Type
                 }
             | ValueNone -> Seq.empty

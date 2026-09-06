@@ -109,7 +109,7 @@ module UnificationInfer =
         match TypeRegistry.tryClassByKey ctx.Types clsKey with
         | ValueSome info when info.IsByRefLike ->
             let hasDispose =
-                info.Members
+                info.Body.Members
                 |> Array.exists (fun m -> m.Name = "Dispose" && not m.IsStatic && m.ClassKind = ClassMemberKind.Method)
 
             if hasDispose then
@@ -451,7 +451,7 @@ module UnificationInfer =
                     // now-linked list element generalises.
                     prepareListLiterals ctx zonked outerLevel
                     let scheme = generalise ctx.Store (zonk ctx.Store zonked) outerLevel
-                    ctx.Bindings.Scheme.Set(key, scheme)
+                    ctx.RecordScheme(key, scheme)
 
         // Defaulting inside `generalise` grounds support typars without firing the
         // on-unified callback, and a value-restricted binding never generalises at all,

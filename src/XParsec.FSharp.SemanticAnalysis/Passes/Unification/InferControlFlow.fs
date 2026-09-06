@@ -98,11 +98,11 @@ module internal UnificationInferControlFlow =
             zonk ctx.Store (instantiateMember ctx.Store (enumInfo.TypeParams, enumArgs) t)
 
         let moveNext =
-            enumInfo.Members
+            enumInfo.Body.Members
             |> Array.tryFind (fun m -> m.Name = "MoveNext" && not m.IsStatic && m.ClassKind = ClassMemberKind.Method)
 
         let current =
-            enumInfo.Members
+            enumInfo.Body.Members
             |> Array.tryFind (fun m -> m.Name = "Current" && not m.IsStatic && m.ClassKind = ClassMemberKind.Property)
 
         match moveNext, current with
@@ -113,7 +113,7 @@ module internal UnificationInferControlFlow =
                 // disposed at all, matching fsc: a probe confirmed F# runs no pattern-based
                 // disposal on a byref-like enumerator (C#'s foreach does).
                 let disposable =
-                    enumInfo.InterfaceImpls
+                    enumInfo.Body.InterfaceImpls
                     |> Array.exists (fun impl ->
                         match InterfaceImplResolution.tryIface impl.Resolution with
                         | ValueSome resolved ->
@@ -398,7 +398,7 @@ module internal UnificationInferControlFlow =
         match TypeRegistry.tryClassByKey ctx.Types nameKey with
         | ValueSome info ->
             match
-                info.Members
+                info.Body.Members
                 |> Array.tryFind (fun m ->
                     m.Name = "GetEnumerator"
                     && not m.IsStatic

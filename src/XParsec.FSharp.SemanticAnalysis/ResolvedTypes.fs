@@ -35,7 +35,7 @@ module ResolvedTypes =
         let added = ResizeArray<TyVarId>()
 
         for key in TastWalk.boundVarsOfTPat binding do
-            match ctx.Bindings.Scheme.TryGetValue key with
+            match ctx.TryScheme key with
             | ValueSome scheme ->
                 for tv in scheme.Quantified do
                     let root = UnionFind.find ctx.Store tv

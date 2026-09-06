@@ -58,10 +58,12 @@ type TypeMemberInfo
         declSite: NodeSite,
         seedTypars: EqArray<DeclaredTypar>,
         declaredTyparCount: int,
-        argNames: EqArray<string voption>
+        argNames: EqArray<string voption>,
+        ordinal: MemberOrdinal
     ) =
     member val Name = name
     member val Kind = kind
+    member val Ordinal: MemberOrdinal = ordinal
 
     /// An abstract slot's argument names as the signature spells them, one per source
     /// argument in source order, `ValueNone` for a bare type. Empty for a concrete member,
@@ -476,13 +478,31 @@ type ClassInherit =
         CtorArgs: Expr<SyntaxToken> voption
     }
 
-/// A secondary constructor (`new(args) = SelfType(primaryArgs)`). `DeclKey` is synthetic,
-/// minted from the `new` token so each overload is distinct.
+/// A secondary constructor (`new(args) = SelfType(primaryArgs)`). `DeclSite` is the `new`
+/// token.
 [<Sealed>]
-type ClassSecondaryCtorInfo(declKey: NodeKey, parms: ClassCtorParamInfo[], body: AdditionalConstrExpr<SyntaxToken>) =
-    member val DeclKey = declKey
+type ClassSecondaryCtorInfo
+    (declSite: NodeSite, parms: ClassCtorParamInfo[], body: AdditionalConstrExpr<SyntaxToken>, ordinal: MemberOrdinal) =
+    member val DeclSite = declSite
     member val Params = parms
     member val Body = body
+    member val Ordinal: MemberOrdinal = ordinal
+
+/// The declarations of one type body or augmentation. Every ordinal-bearing declaration (the
+/// primary constructor, a `new`, a member, each accessor half, an interface impl's member)
+/// holds the `MemberOrdinal` of its position in source order.
+type TypeBodyMembers =
+    {
+        /// `ValueSome` for `type T(args) =` / `type T() =`; `ValueNone` for the `val`-field
+        /// form (`type T = val …; new(…) =`) whose only ctors are secondaries, and for an
+        /// augmentation.
+        PrimaryCtor: MemberOrdinal voption
+        SecondaryCtors: ClassSecondaryCtorInfo[]
+        /// `val [mutable] x: T` explicit fields.
+        InstanceFields: ClassFieldInfo[]
+        Members: TypeMemberInfo[]
+        InterfaceImpls: ClassInterfaceImplInfo[]
+    }
 
 [<Sealed>]
 type ClassTypeInfo
@@ -490,7 +510,7 @@ type ClassTypeInfo
         name: string,
         typeParams: EqArray<DeclaredTypar>,
         ctorParams: ClassCtorParamInfo[],
-        members: TypeMemberInfo[],
+        body: TypeBodyMembers,
         declSite: NodeSite,
         thisName: string,
         thisKey: BoundVarKey,
@@ -502,7 +522,7 @@ type ClassTypeInfo
     member this.Key: SymbolKey = SymbolKey.Type this.TypeKey
     member val TypeParams = typeParams
     member val CtorParams = ctorParams
-    member val Members = members
+    member val Body: TypeBodyMembers = body
     member val DeclSite = declSite
     member val ThisName = thisName
     member val ThisKey = thisKey
@@ -517,12 +537,7 @@ type ClassTypeInfo
     /// Instance `let` / `do` in declaration order: the END of the primary ctor, run after
     /// the base-ctor call. A class with no primary ctor cannot have one.
     member val InstancePreamble: ClassPreambleEntry[] = [||] with get, set
-    member val SecondaryCtors: ClassSecondaryCtorInfo[] = [||] with get, set
-    /// True when the class declares a *primary* constructor (`type T(args) =` / `type T() =`);
-    /// false for the `val`-field form (`type T = val …; new(…) =`) whose only ctors are
-    /// secondaries.
-    member val HasPrimaryCtor: bool = true with get, set
-    member val InterfaceImpls: ClassInterfaceImplInfo[] = [||] with get, set
+    member this.HasPrimaryCtor: bool = this.Body.PrimaryCtor.IsSome
     member val TyparConstraints: TyparConstraints<SyntaxToken> voption = ValueNone with get, set
     /// `[<Struct>]`, or the `type X = struct … end` shape.
     member val IsValueType: bool = false with get, set
@@ -531,7 +546,6 @@ type ClassTypeInfo
     member val IsInterface: bool = false with get, set
     /// `[<IsByRefLike>]` — a byref-like (`ref struct`) value type; implies `IsValueType`.
     member val IsByRefLike: bool = false with get, set
-    member val InstanceFields: ClassFieldInfo[] = [||] with get, set
     /// The declaration's attributes, resolved and folded at registration.
     member val Attributes: TAttributes = EqArray.empty with get, set
 
@@ -554,8 +568,8 @@ type ClassTypeInfo
         member this.TypeParams = this.TypeParams
         member this.ThisName = this.ThisName
         member this.ThisKey = this.ThisKey
-        member this.InterfaceImpls = this.InterfaceImpls
-        member this.Members = this.Members
+        member this.InterfaceImpls = this.Body.InterfaceImpls
+        member this.Members = this.Body.Members
         member this.EqualitySupport = this.EqualitySupport
         member this.ComparisonSupport = this.ComparisonSupport
         member this.MkSelfType args = TyClass(this.TypeKey, args)

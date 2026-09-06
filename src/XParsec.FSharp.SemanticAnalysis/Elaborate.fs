@@ -85,7 +85,7 @@ module Elaborate =
     /// A *value* binding's free typars are method typars only where the generaliser
     /// quantified them: `let empty: SetTree<'T> = null` has a scheme, `let n = null` does not.
     let private bindingWasGeneralised (ctx: PassContext) (b: Binding<SyntaxToken>) : bool =
-        match ctx.Bindings.Scheme.TryGetValue(CstKeys.ofBinding b) with
+        match ctx.TryScheme(CstKeys.ofBinding b) with
         | ValueSome scheme -> not (List.isEmpty scheme.Quantified)
         | ValueNone -> false
 

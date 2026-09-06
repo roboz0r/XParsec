@@ -232,7 +232,10 @@ module UnificationEngineCore =
             if seen.Add clsKey then
                 match TypeRegistry.tryClassByKey ctx.Types clsKey with
                 | ValueSome info ->
-                    match info.Members |> Array.filter (fun m -> m.Name = memberName && not m.IsStatic) with
+                    match
+                        info.Body.Members
+                        |> Array.filter (fun m -> m.Name = memberName && not m.IsStatic)
+                    with
                     | [||] -> ()
                     | candidates ->
                         levels.Add
@@ -324,7 +327,7 @@ module UnificationEngineCore =
         (args: EqArray<SemType>)
         (memberName: string)
         : SemType voption =
-        match info.InstanceFields |> Array.tryFind (fun f -> f.Name = memberName) with
+        match info.Body.InstanceFields |> Array.tryFind (fun f -> f.Name = memberName) with
         | Some fld -> ValueSome(instantiateMember ctx.Store (info.TypeParams, args) fld.Type)
         | None -> ValueNone
 

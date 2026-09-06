@@ -300,7 +300,7 @@ module internal UnificationInferRecordAccess =
             let noSuchMember () : SemType =
                 match localInfo with
                 | ValueSome info ->
-                    resolveLocalInstanceMember ctx memberTok clsSimple info.TypeParams args info.Members memberName
+                    resolveLocalInstanceMember ctx memberTok clsSimple info.TypeParams args info.Body.Members memberName
                 | ValueNone ->
                     // An object argument typed as a CAPABILITY (`enumerator<'T>`, `seq<'T>`) is an
                     // `IntrinsicInterface`: it identifies a platform type but carries no member

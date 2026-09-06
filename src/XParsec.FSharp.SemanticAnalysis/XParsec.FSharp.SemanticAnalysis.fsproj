@@ -165,6 +165,7 @@
     <Compile Include="Passes\NameResolution\DeclRegistration.fs" />
     <Compile Include="Passes\NameResolution\UnionRegistration.fs" />
     <Compile Include="Passes\NameResolution\InheritParent.fs" />
+    <Compile Include="Passes\NameResolution\TypeBodyExtraction.fs" />
     <Compile Include="Passes\NameResolution\MemberRegistration.fs" />
     <Compile Include="Passes\NameResolution.fs" />
     <Compile Include="Passes\Unification\RecursionComponents.fs" />

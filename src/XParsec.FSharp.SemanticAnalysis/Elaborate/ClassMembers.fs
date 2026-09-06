@@ -119,13 +119,13 @@ module internal ElaborateClassMembers =
             // every one the FIRST overload's typars, dropping the others' own `'T`.
             let byKey =
                 match site.DeclKey with
-                | ValueSome k -> info.Members |> Array.tryFind (fun mi -> mi.DeclSite.Key = k)
+                | ValueSome k -> info.Body.Members |> Array.tryFind (fun mi -> mi.DeclSite.Key = k)
                 | ValueNone -> None
 
             match
                 byKey
                 |> Option.orElseWith (fun () ->
-                    info.Members
+                    info.Body.Members
                     |> Array.tryFind (fun mi ->
                         mi.Name = site.Name && mi.IsStatic = site.IsStatic && mi.Kind = site.Kind
                     )

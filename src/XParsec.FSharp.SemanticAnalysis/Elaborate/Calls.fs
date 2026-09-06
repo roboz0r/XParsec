@@ -302,7 +302,7 @@ module internal ElaborateCalls =
                     // the chain's FINAL type, typing `this.stack.IsEmpty`'s object argument `bool`.
                     let fieldTy =
                         Seq.append
-                            (info.InstanceFields |> Seq.map (fun f -> f.Name, f.Type))
+                            (info.Body.InstanceFields |> Seq.map (fun f -> f.Name, f.Type))
                             (info.CtorParams |> Seq.map (fun p -> p.Name, p.Type))
                         |> Seq.tryPick (fun (n, t) ->
                             if n = segName then
@@ -313,7 +313,7 @@ module internal ElaborateCalls =
 
                     match fieldTy with
                     | Some _ -> fieldTy
-                    | None -> memberTy (info.TypeParams, args) info.Members
+                    | None -> memberTy (info.TypeParams, args) info.Body.Members
                 | ValueNone -> None
             | _ -> None
 
@@ -346,7 +346,7 @@ module internal ElaborateCalls =
         match Unification.zonk ctx.Store objArgTy with
         | TyClass(clsKey, args) ->
             match TypeRegistry.tryClassByKey ctx.Types clsKey with
-            | ValueSome info when isMember info.Members ->
+            | ValueSome info when isMember info.Body.Members ->
                 let key = LocalSymbolKey.ofProperty info.TypeKey segName
                 TExpr.PropertyGet(objArg, key, viaOfObjArg ctx objArg, stepTy, tok)
             | _ ->

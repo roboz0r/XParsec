@@ -131,14 +131,13 @@ module internal UnificationInferGeneralize =
     /// bodies type, which is what forbids polymorphic recursion: the annotation-derived
     /// forward scheme `UnificationInferForwardSchemes` seeded would otherwise admit it. The
     /// group's own generalisation writes the slot again once the bodies have typed.
-    let barPolymorphicRecursion (ctx: PassContext) (bindingSite: NodeKey) : unit =
-        ctx.Bindings.Scheme.Remove bindingSite
+    let barPolymorphicRecursion (ctx: PassContext) (bindingSite: NodeKey) : unit = ctx.RetractScheme bindingSite
 
     /// Resolve a bound name to its type: instantiate its generalised scheme if one was
     /// written, else take the monomorphic binding-site TyVar (a sibling in the same
     /// `let rec` group, not yet generalised, which is what forbids polymorphic recursion).
     let instantiateBinding (ctx: PassContext) (rb: ResolvedBinding) : SemType =
-        match ctx.Bindings.Scheme.TryGetValue rb.BindingSite with
+        match ctx.TryScheme rb.BindingSite with
         | ValueSome scheme -> instantiate ctx scheme
         | ValueNone -> TyVar(tvOf ctx rb.BindingSite)
 

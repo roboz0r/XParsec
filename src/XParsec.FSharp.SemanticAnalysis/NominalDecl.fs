@@ -65,7 +65,7 @@ module LocalNominal =
                 info.TypeParams
                 (seq {
                     for p in info.CtorParams -> p.Type
-                    for f in info.InstanceFields -> f.Type
+                    for f in info.Body.InstanceFields -> f.Type
                     for l in ClassPreamble.lets info.InstancePreamble -> l.Type
                 })
 
@@ -152,7 +152,7 @@ module NominalDecl =
         match d with
         | NominalDecl.Local(LocalNominal.Class info) ->
             (info.HasPrimaryCtor && info.CtorParams.Length = 0)
-            || info.SecondaryCtors |> Array.exists (fun c -> c.Params.Length = 0)
+            || info.Body.SecondaryCtors |> Array.exists (fun c -> c.Params.Length = 0)
         | NominalDecl.Published(PublishedNominal.Class shape) ->
             shape.Members
             |> EqArray.exists (fun m ->
