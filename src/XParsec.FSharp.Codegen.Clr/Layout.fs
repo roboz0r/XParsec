@@ -7,47 +7,27 @@ open System.Reflection.Metadata.Ecma335
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
 
-module internal Layout =
+/// One file's declarations lowered for emission, with the tables closure discovery and
+/// body emission read them through.
+type FilePlan =
+    {
+        /// The pool that issued the ids in `Decls` and `Plan.Lowered`.
+        Pool: PoolBuilder
+        /// The declarations after inline expansion, `type` decls included.
+        Decls: TastAccessor.DeclId list
+        ClosureReprs: Map<BoundVarId, ClosureRepr>
+        /// This file's source-lambda value-struct closure verdicts, keyed by the lambda
+        /// NODE, the id together with the pool that issued it, so an id from another
+        /// file's pool misses instead of silently denoting a different node.
+        FunVerdicts: IReadOnlyDictionary<TastAccessor.ExprId, FunVerdict>
+        Plan: ModuleClassPlan
+    }
 
-    /// A node's own slot key followed by every key nested beneath it, pre-order.
-    let rec private flattenKeys (n: TypeNode) : TypeSlotKey list =
-        n.Slot.Key :: List.collect flattenKeys n.Nested
+module FilePlan =
 
-    /// The `Field` row behind a module value.
-    let private moduleValueField (writes: FieldWrites) (mv: Emit.ModuleValue) : FieldSlot =
-        let reach =
-            match mv.Naming with
-            | EmitTypes.EmittedNaming.Source -> FieldReach.Public
-            | EmitTypes.EmittedNaming.Minted -> FieldReach.Assembly
-
-        {
-            Key = FieldKey.ModuleValue mv.SymbolKey
-            Name = mv.Name
-            Attrs = staticFieldAttrs reach writes
-            Ty = mv.Ty
-            ClosureScope = ValueNone
-        }
-
-    /// The `MethodDef` row behind a static-method function.
-    let private staticFnRow (fn: Emit.StaticFn) : MethodRow =
-        {
-            Key = MethodKey.StaticFn fn.SymbolKey
-            Name = fn.Name
-            Attrs =
-                match fn.Naming with
-                | EmitTypes.EmittedNaming.Source -> staticMethodAttrs
-                | EmitTypes.EmittedNaming.Minted -> assemblyStaticMethodAttrs
-        }
-
-    /// Build ONE file's contribution to the type HIERARCHY: its namespace-level nominals,
-    /// then closures, then root-module classes, each carrying the types it holds and its
-    /// child module classes. The shared `ClosureNamer` keeps closure names unique.
-    let buildFile
-        (closureNamer: Emit.ClosureNamer)
-        (symbols: ICodegenSymbols)
-        (project: ProjectInfo)
-        (pools: FrozenPools)
-        : FileLayout =
+    /// Open the file's frozen pool, expand inline calls, lower the declarations and
+    /// classify the top-level bindings into the `ModuleClassPlan`.
+    let create (project: ProjectInfo) (pools: FrozenPools) : FilePlan =
         // An append-only overlay over the file's frozen trees: every node this emission
         // derives is appended, and every id the frozen pool handed out keeps denoting the
         // same node, so derived nodes can be minted mid-emit rather than in one batch.
@@ -114,6 +94,77 @@ module internal Layout =
         let plan =
             ModuleClassPlan.create moduleMembers genericFnSchemes programClass refStructKeys lowered0
 
+        {
+            Pool = pool
+            Decls = decls
+            ClosureReprs = closureReprs
+            FunVerdicts = funVerdicts
+            Plan = plan
+        }
+
+    /// The closures of the plan's lowered decls and of `memberRoots`, leaves-first, with
+    /// their by-node index. The shared `ClosureNamer` keeps closure names unique across files.
+    let discoverClosures
+        (closureNamer: Emit.ClosureNamer)
+        (file: FilePlan)
+        (memberRoots: EmitClosures.MemberClosureRoot list)
+        : Emit.Closure list * Dictionary<TastAccessor.ExprId, Emit.Closure> =
+        Emit.discoverClosures
+            closureNamer
+            file.Plan.StaticFnsByKey
+            file.Plan.ModuleValueKeys
+            // Which source lambdas are value-structs, by node membership.
+            file.FunVerdicts
+            file.ClosureReprs
+            file.Plan.Lowered
+            memberRoots
+
+module internal Layout =
+
+    /// A node's own slot key followed by every key nested beneath it, pre-order.
+    let rec private flattenKeys (n: TypeNode) : TypeSlotKey list =
+        n.Slot.Key :: List.collect flattenKeys n.Nested
+
+    /// The `Field` row behind a module value.
+    let private moduleValueField (writes: FieldWrites) (mv: Emit.ModuleValue) : FieldSlot =
+        let reach =
+            match mv.Naming with
+            | EmitTypes.EmittedNaming.Source -> FieldReach.Public
+            | EmitTypes.EmittedNaming.Minted -> FieldReach.Assembly
+
+        {
+            Key = FieldKey.ModuleValue mv.SymbolKey
+            Name = mv.Name
+            Attrs = staticFieldAttrs reach writes
+            Ty = mv.Ty
+            ClosureScope = ValueNone
+        }
+
+    /// The `MethodDef` row behind a static-method function.
+    let private staticFnRow (fn: Emit.StaticFn) : MethodRow =
+        {
+            Key = MethodKey.StaticFn fn.SymbolKey
+            Name = fn.Name
+            Attrs =
+                match fn.Naming with
+                | EmitTypes.EmittedNaming.Source -> staticMethodAttrs
+                | EmitTypes.EmittedNaming.Minted -> assemblyStaticMethodAttrs
+        }
+
+    /// Build ONE file's contribution to the type HIERARCHY: its namespace-level nominals,
+    /// then closures, then root-module classes, each carrying the types it holds and its
+    /// child module classes. The shared `ClosureNamer` keeps closure names unique.
+    let buildFile
+        (closureNamer: Emit.ClosureNamer)
+        (symbols: ICodegenSymbols)
+        (project: ProjectInfo)
+        (pools: FrozenPools)
+        : FileLayout =
+        let file = FilePlan.create project pools
+        let pool = file.Pool
+        let decls = file.Decls
+        let funVerdicts = file.FunVerdicts
+        let plan = file.Plan
         let lowered = plan.Lowered
 
         // Member bodies never pass through lowering because it drops every `type` decl.
@@ -164,15 +215,7 @@ module internal Layout =
             ]
 
         let closures, closureByNode =
-            Emit.discoverClosures
-                closureNamer
-                plan.StaticFnsByKey
-                plan.ModuleValueKeys
-                // Which source lambdas are value-structs, by node membership.
-                funVerdicts
-                closureReprs
-                lowered
-                memberRoots
+            FilePlan.discoverClosures closureNamer file memberRoots
 
         // Each type's node carries its own field and method rows, so the rows the writer
         // walks ARE the rows its range claims: both are `List.collect`s over the same

@@ -21,30 +21,11 @@ let tests =
                     "let n = 10\nlet g = fun x -> x + n\nprintfn \"%d\" (g 41)", "51"
                     // an inline lambda applied directly in argument position
                     "printfn \"%d\" ((fun x -> x + 1) 5)", "6"
-                    // a returned (generic) closure capturing its argument
-                    "let mkConst x =\n    let f = fun () -> x\n    f\nlet always10 = mkConst 10\nprintfn \"%d\" (always10 ())",
+                    // a returned (generic) closure capturing its argument (`data/MkConst.fs`)
+                    dataSource "MkConst"
+                    + "\nlet always10 = mkConst 10\nprintfn \"%d\" (always10 ())",
                     "10"
                 ] -> test src { runs expected src }
-
-            // the `let mutable` cell is promoted to a `Vesper.Ref` the closure and the frame share
-            yield
-                test "captured mutable counter: three invocations share the cell" {
-                    runsLines
-                        [ "1"; "2"; "3" ]
-                        (String.concat
-                            "\n"
-                            [
-                                "let mkCounter () ="
-                                "    let mutable n = 0"
-                                "    fun () ->"
-                                "        n <- n + 1"
-                                "        n"
-                                "let c = mkCounter ()"
-                                "printfn \"%d\" (c ())"
-                                "printfn \"%d\" (c ())"
-                                "printfn \"%d\" (c ())"
-                            ])
-                }
 
             // Closure discovery walks class member bodies, not just top-level decls.
             yield

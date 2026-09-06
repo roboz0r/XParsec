@@ -1,5 +1,6 @@
 module XParsec.FSharp.Codegen.Clr.Tests.InlineFreezeThawTests
 
+open System.Collections.Generic
 open Expecto
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
@@ -22,37 +23,67 @@ let private frozenConstraintTypes (clauses: TStaticOptClauseG<FrozenType, 'tok, 
                 | TStaticOptConstraintG.IsStruct tp -> yield tp
     ]
 
-let rec private localLeavesIn (t: FrozenType) : (SchemeId * int) list =
-    match t with
-    | FTLocalTypar(scheme, i) -> [ scheme, i ]
-    | t ->
-        let acc = ResizeArray<SchemeId * int>()
-        FrozenType.iterChildren (fun c -> acc.AddRange(localLeavesIn c)) t
-        List.ofSeq acc
+/// The distinct leaves of `tys`, in first-occurrence pre-order. `leaf` selects a leaf's
+/// identity, and an interior node is descended through `iterChildren`.
+let private distinctLeaves
+    (iterChildren: ('ty -> unit) -> 'ty -> unit)
+    (leaf: 'ty -> 'leaf voption)
+    (tys: 'ty list)
+    : 'leaf list =
+    let seen = HashSet<'leaf>()
+    let acc = ResizeArray<'leaf>()
+
+    let rec walk (t: 'ty) =
+        match leaf t with
+        | ValueSome l ->
+            if seen.Add l then
+                acc.Add l
+        | ValueNone -> iterChildren walk t
+
+    List.iter walk tys
+    List.ofSeq acc
+
+/// The distinct body-local leaves `FTLocalTypar(scheme, index)` of `tys`, in
+/// first-occurrence pre-order.
+let private localLeavesIn (tys: FrozenType list) : (SchemeId * int) list =
+    distinctLeaves
+        FrozenType.iterChildren
+        (fun t ->
+            match t with
+            | FTLocalTypar(scheme, i) -> ValueSome(scheme, i)
+            | _ -> ValueNone
+        )
+        tys
 
 let rec private hasFTTypar (t: FrozenType) : bool =
     match t with
     | FTTypar _ -> true
     | t -> FrozenType.existsChild hasFTTypar t
 
-/// Every typar leaf, quantified (`FTTypar`) or body-local (`FTLocalTypar`), in pre-order.
-/// The leaf value IS its identity.
-let rec private typarLeavesIn (t: FrozenType) : FrozenType list =
-    match t with
-    | FTTypar _
-    | FTLocalTypar _ -> [ t ]
-    | t ->
-        let acc = ResizeArray<FrozenType>()
-        FrozenType.iterChildren (fun c -> acc.AddRange(typarLeavesIn c)) t
-        List.ofSeq acc
+/// The distinct typar leaves of `tys`, quantified (`FTTypar`) or body-local
+/// (`FTLocalTypar`), in first-occurrence pre-order. The leaf value IS its identity.
+let private typarLeavesIn (tys: FrozenType list) : FrozenType list =
+    distinctLeaves
+        FrozenType.iterChildren
+        (fun t ->
+            match t with
+            | FTTypar _
+            | FTLocalTypar _ -> ValueSome t
+            | _ -> ValueNone
+        )
+        tys
 
-let rec private semRootsOf (store: TypeStore) (t: SemType) : TyVarId list =
-    match t with
-    | TyVar tv -> [ (UnionFind.find store tv).Id ]
-    | t ->
-        let acc = ResizeArray<TyVarId>()
-        SemType.iterChildren (fun c -> acc.AddRange(semRootsOf store c)) t
-        List.ofSeq acc
+/// The distinct union-find roots of the `TyVar` leaves of `tys`, in first-occurrence
+/// pre-order.
+let private semRootsOf (store: TypeStore) (tys: SemType list) : TyVarId list =
+    distinctLeaves
+        SemType.iterChildren
+        (fun t ->
+            match t with
+            | TyVar tv -> ValueSome (UnionFind.find store tv).Id
+            | _ -> ValueNone
+        )
+        tys
 
 /// Every `.ty` slot of a decl, via the `TastConvert` functor.
 let private collectTys (d: TDeclG<'ty, 'tok, 'id>) : 'ty list =
@@ -69,19 +100,10 @@ let private collectTys (d: TDeclG<'ty, 'tok, 'id>) : 'ty list =
 
     List.ofSeq acc
 
-let private distinctCells (tvs: TyVarId list) : TyVarId list =
-    let acc = ResizeArray<TyVarId>()
-
-    for tv in tvs do
-        if not (acc |> Seq.exists (fun seen -> seen = tv)) then
-            acc.Add tv
-
-    List.ofSeq acc
-
 /// The thaw's contract in one number: it must mint exactly this many cells, one per distinct
 /// leaf, shared across every occurrence of that leaf.
 let private distinctLeafCount (d: TDeclG<FrozenType, 'tok, 'id>) : int =
-    collectTys d |> List.collect typarLeavesIn |> List.distinct |> List.length
+    collectTys d |> typarLeavesIn |> List.length
 
 let private freezePools (src: string) : FrozenPools =
     let ctx, tast = analyseWithCtx src
@@ -343,7 +365,7 @@ let tests =
                     "the constraint's typar is a frozen leaf, not a copied SemType cell"
 
                 Expect.isEmpty
-                    (frozenTys |> List.collect localLeavesIn)
+                    (localLeavesIn frozenTys)
                     "the binding's own typar is QUANTIFIED (FTTypar), never mistaken for a body-local residue"
             }
 
@@ -359,7 +381,7 @@ let tests =
                 // `g`'s `'x` and `h`'s `'y` are each bound by their OWN local scheme, so
                 // neither occurs in `f`'s type, and they are distinguished by SCHEME, not
                 // by an index that happens to differ.
-                let leaves = collectTys fDecl |> List.collect localLeavesIn
+                let leaves = collectTys fDecl |> localLeavesIn
 
                 Expect.isNonEmpty leaves "the body-local schemes' own roots reach freeze as FTLocalTypar"
 
@@ -371,7 +393,7 @@ let tests =
                     "two locally-generalized lets ⇒ leaves with two DISTINCT scheme ids (the old FTUnknown name conflated them)"
 
                 Expect.equal
-                    (leaves |> List.distinct |> List.length)
+                    leaves.Length
                     2
                     "…and two distinct (scheme, index) pairs, because each local scheme quantifies exactly one typar here"
 
@@ -381,18 +403,14 @@ let tests =
                 Expect.isTrue (hasFTTypar declTy) "f's own type names its use-site instantiations on the FTTypar axis"
 
                 Expect.isEmpty
-                    (localLeavesIn declTy)
+                    (localLeavesIn [ declTy ])
                     "f's own type carries no local-typar residue, which is exactly why mkMethodQuantEnv cannot map it"
 
                 // The thaw mints on all three axes, so the expected count is every leaf the
                 // frozen decl carries, not just the local ones.
                 let store = TypeStore()
 
-                let cells =
-                    thawFrom store twoLocalSchemes fDecl
-                    |> collectTys
-                    |> List.collect (semRootsOf store)
-                    |> distinctCells
+                let cells = thawFrom store twoLocalSchemes fDecl |> collectTys |> semRootsOf store
 
                 Expect.equal
                     cells.Length
@@ -403,10 +421,8 @@ let tests =
             test "freeze: the same source freezes local-typar leaves to the same (scheme, index)s" {
                 // Serializing a frozen body and re-reading it makes index stability rest on
                 // the freeze walk order. Nothing but this test enforces that order.
-                let once = frozenLetDecl twoLocalSchemes |> collectTys |> List.collect localLeavesIn
-
-                let twice =
-                    frozenLetDecl twoLocalSchemes |> collectTys |> List.collect localLeavesIn
+                let once = frozenLetDecl twoLocalSchemes |> collectTys |> localLeavesIn
+                let twice = frozenLetDecl twoLocalSchemes |> collectTys |> localLeavesIn
 
                 Expect.isNonEmpty once "the fixture actually produces local typars"
 
@@ -429,8 +445,8 @@ let tests =
                 let pDecl = frozenLetDecl declaring
                 let cDecl = frozenLetDecl consumer
 
-                let pLeaves = collectTys pDecl |> List.collect localLeavesIn |> List.distinct
-                let cLeaves = collectTys cDecl |> List.collect localLeavesIn |> List.distinct
+                let pLeaves = collectTys pDecl |> localLeavesIn
+                let cLeaves = collectTys cDecl |> localLeavesIn
 
                 Expect.equal pLeaves.Length 1 "the declaring file has one local scheme"
                 Expect.equal cLeaves.Length 1 "the consumer file has one local scheme"
@@ -454,25 +470,13 @@ let tests =
 
                 // The consumer's own live inference cells, before anything is thawed into it.
                 let consumerOwnCells =
-                    tast.Decls
-                    |> EqArray.toList
-                    |> List.collect collectTys
-                    |> List.collect (semRootsOf store)
-                    |> distinctCells
+                    tast.Decls |> EqArray.toList |> List.collect collectTys |> semRootsOf store
 
-                let pCells =
-                    thawFrom store declaring pDecl
-                    |> collectTys
-                    |> List.collect (semRootsOf store)
-                    |> distinctCells
+                let pCells = thawFrom store declaring pDecl |> collectTys |> semRootsOf store
+                let cCells = thawFrom store consumer cDecl |> collectTys |> semRootsOf store
 
-                let cCells =
-                    thawFrom store consumer cDecl
-                    |> collectTys
-                    |> List.collect (semRootsOf store)
-                    |> distinctCells
-
-                let disjointFrom (xs: TyVarId list) (ys: TyVarId list) =
+                // The cells of `ys` that are also cells of `xs`.
+                let overlapWith (xs: TyVarId list) (ys: TyVarId list) =
                     ys |> List.filter (fun y -> xs |> List.exists (fun x -> x = y))
 
                 Expect.equal
@@ -486,11 +490,11 @@ let tests =
                     "the consumer body thaws to exactly one fresh cell per distinct leaf"
 
                 Expect.isEmpty
-                    (disjointFrom pCells cCells)
+                    (overlapWith pCells cCells)
                     "the colliding scheme id does NOT conflate the two files' local typars, because each thaw mints its own cells"
 
                 Expect.isEmpty
-                    (disjointFrom consumerOwnCells pCells)
+                    (overlapWith consumerOwnCells pCells)
                     "the declaring file's thawed cells are fresh: none is a cell of the consumer's own inference state, colliding id notwithstanding"
             }
 
