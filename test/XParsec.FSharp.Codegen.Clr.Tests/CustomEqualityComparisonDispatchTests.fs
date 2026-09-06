@@ -1,12 +1,11 @@
 module XParsec.FSharp.Codegen.Clr.Tests.CustomEqualityComparisonDispatchTests
 
-open System
-open System.Reflection
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 open XParsec.FSharp.Codegen.Clr.Tests.PeInspection
+open XParsec.FSharp.Codegen.Clr.Tests.ReflectionHarness
 
 // `=` / `<` lower to `EqualityComparer<^T>.Default.Equals` /
 // `Comparer<^T>.Default.Compare`, which dispatch to a `[<CustomEquality>]` /
@@ -14,23 +13,6 @@ open XParsec.FSharp.Codegen.Clr.Tests.PeInspection
 
 [<Tests>]
 let tests =
-    let declaredInstance =
-        BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly
-
-    let implementsIEquatable (ty: Type) =
-        let iface = typedefof<IEquatable<_>>.MakeGenericType ty
-        iface.IsAssignableFrom ty
-
-    let implementsIComparable (ty: Type) =
-        let iface = typedefof<IComparable<_>>.MakeGenericType ty
-        iface.IsAssignableFrom ty
-
-    let typedEquals (ty: Type) =
-        ty.GetMethod("Equals", declaredInstance, null, [| ty |], null)
-
-    let typedCompareTo (ty: Type) =
-        ty.GetMethod("CompareTo", declaredInstance, null, [| ty |], null)
-
     testList
         "custom dispatch (CLR backend)"
         [
@@ -39,8 +21,7 @@ let tests =
                 // encoder reconciles it to the platform `System.IEquatable<Tagged>`,
                 // which is what `EqualityComparer<Tagged>.Default` dispatches through.
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "[<CustomEquality; NoComparison>]"
                             "type Tagged(id: int, payload: int) ="
@@ -73,8 +54,7 @@ let tests =
                 // `Tagged(1, 20)` are neither reference-equal nor structurally equal,
                 // so `a = b` printing `true` can only come from the user's member.
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "[<CustomEquality; NoComparison>]"
                             "type Tagged(id: int, payload: int) ="
@@ -114,8 +94,7 @@ let tests =
                 // The custom `CompareTo` sorts by id DESCENDING, so `Ranked(1) <
                 // Ranked(2)` is false where any natural ordering would give true.
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "[<CustomEquality; CustomComparison>]"
                             "type Ranked(id: int) ="
@@ -160,8 +139,7 @@ let tests =
                 // `Equals(Tagged)`, so the absence of synthesis is asserted on the
                 // comparison pair: this class has no `CompareTo` member at all.
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "[<CustomEquality; NoComparison>]"
                             "type Tagged(id: int, payload: int) ="

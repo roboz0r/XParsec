@@ -1,41 +1,24 @@
 module XParsec.FSharp.Codegen.Clr.Tests.EqualityAttributeTests
 
 open System
-open System.Reflection
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 open XParsec.FSharp.Codegen.Clr.Tests.PeInspection
+open XParsec.FSharp.Codegen.Clr.Tests.ReflectionHarness
 
 // The equality-triple emission gate on a record / union is the type's decoded
 // attribute verdict. One test per verdict path, decl side and `=` use-site side.
 
 [<Tests>]
 let tests =
-    let declaredInstance =
-        BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly
-
-    let equalsObj (ty: Type) =
-        ty.GetMethod("Equals", declaredInstance, null, [| typeof<obj> |], null)
-
-    let typedEquals (ty: Type) =
-        ty.GetMethod("Equals", declaredInstance, null, [| ty |], null)
-
-    let getHash (ty: Type) =
-        ty.GetMethod("GetHashCode", declaredInstance, null, [||], null)
-
-    let implementsIEquatable (ty: Type) =
-        let iface = typedefof<IEquatable<_>>.MakeGenericType ty
-        iface.IsAssignableFrom ty
-
     testList
         "Equality verdicts"
         [
             test "[<StructuralEquality>] on a mutable record emits the triple + IEquatable<Self>" {
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "[<StructuralEquality>]"
                             "type Counter = { mutable Count: int }"
@@ -64,8 +47,7 @@ let tests =
 
             test "[<ReferenceEquality>] on an immutable record skips the triple (reference identity)" {
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "[<ReferenceEquality>]"
                             "type Point = { X: int; Y: int }"
@@ -84,7 +66,7 @@ let tests =
 
             test "[<NoEquality>] on a record skips the triple AND diagnoses use-sites of `=`" {
                 let src =
-                    String.concat "\n" [ "[<NoEquality>]"; "type Sealed = { X: int }"; "let s = { X = 0 }" ]
+                    lines [ "[<NoEquality>]"; "type Sealed = { X: int }"; "let s = { X = 0 }" ]
 
                 let artifact = compileSource "EqAttrNoEq" src
 
@@ -99,8 +81,7 @@ let tests =
                 // A use site of `=` is what makes the equality typar-constraint check
                 // see the `NoEquality` verdict and diagnose.
                 let useSrc =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "[<NoEquality>]"
                             "type Sealed = { X: int }"
@@ -119,8 +100,7 @@ let tests =
             }
 
             test "default verdict for a union is unchanged (triple emitted)" {
-                let src =
-                    String.concat "\n" [ "type Tag ="; "    | A"; "    | B of int"; "let t = A" ]
+                let src = lines [ "type Tag ="; "    | A"; "    | B of int"; "let t = A" ]
 
                 let artifact = compileSource "EqAttrUnionDefault" src
                 let asm = loadAssembly (Codegen.toBytes artifact)
@@ -134,7 +114,7 @@ let tests =
 
             test "[<NoEquality>] on a union skips the triple AND diagnoses use-sites of `=`" {
                 let src =
-                    String.concat "\n" [ "[<NoEquality>]"; "type Tag ="; "    | A"; "    | B of int"; "let t = A" ]
+                    lines [ "[<NoEquality>]"; "type Tag ="; "    | A"; "    | B of int"; "let t = A" ]
 
                 let artifact = compileSource "EqAttrUnionNoEq" src
 
@@ -147,7 +127,7 @@ let tests =
                 Expect.isFalse (implementsIEquatable ty) "Tag does NOT declare IEquatable<Tag>"
 
                 let useSrc =
-                    String.concat "\n" [ "[<NoEquality>]"; "type Tag ="; "    | A"; "    | B of int"; "let r = A = A" ]
+                    lines [ "[<NoEquality>]"; "type Tag ="; "    | A"; "    | B of int"; "let r = A = A" ]
 
                 let diagnostics = diagnoseSourceErrors "EqAttrUnionNoEqUse" useSrc
 
@@ -161,7 +141,7 @@ let tests =
             test "the decoder accepts the `Attribute` suffix" {
                 // The `Attribute` suffix is optional in F#, so both spellings decode alike.
                 let src =
-                    String.concat "\n" [ "[<NoEqualityAttribute>]"; "type Sealed = { X: int }"; "let s = { X = 0 }" ]
+                    lines [ "[<NoEqualityAttribute>]"; "type Sealed = { X: int }"; "let s = { X = 0 }" ]
 
                 let artifact = compileSource "EqAttrSuffix" src
                 let asm = loadAssembly (Codegen.toBytes artifact)
@@ -174,8 +154,7 @@ let tests =
                 // The marker type is `Vesper.ReferenceEqualityAttribute`, so the
                 // qualified spelling reaches the same identity as the bare one.
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "[<Vesper.ReferenceEquality>]"
                             "type Point = { X: int }"
@@ -195,8 +174,7 @@ let tests =
                 // to nothing and the record keeps its default structural equality
                 // instead of taking the meaning of a name with the same final segment.
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "[<Microsoft.FSharp.Core.ReferenceEquality>]"
                             "type Point = { X: int }"
@@ -212,8 +190,7 @@ let tests =
 
             test "[<CustomEquality>] class WITH IEquatable<Self> ⇒ no diagnostic" {
                 let classSrc =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "[<CustomEquality; NoComparison>]"
                             "type ById(id: int) ="
@@ -231,8 +208,7 @@ let tests =
 
             test "[<CustomEquality>] class WITHOUT IEquatable<Self> ⇒ must-implement error" {
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "[<CustomEquality; NoComparison>]"
                             "type ById(id: int) ="
@@ -255,8 +231,7 @@ let tests =
             // under both its bare name and its ``name`N`` arity-key, doubling every error.
             test "[<CustomEquality>] generic class WITHOUT IEquatable<Self> ⇒ exactly one error of each kind" {
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "[<CustomEquality; NoComparison>]"
                             "type ById<'a>(id: 'a) ="
@@ -278,8 +253,7 @@ let tests =
 
             test "[<CustomComparison>] without [<CustomEquality>] ⇒ coherence error" {
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "[<CustomComparison>]"
                             "type ById(id: int) ="
@@ -298,8 +272,7 @@ let tests =
             }
 
             test "[<CustomEquality>] on a record ⇒ wrap-in-a-class scope error" {
-                let src =
-                    String.concat "\n" [ "[<CustomEquality; NoComparison>]"; "type R = { x: int }" ]
+                let src = lines [ "[<CustomEquality; NoComparison>]"; "type R = { x: int }" ]
 
                 let diagnostics = diagnoseSourceErrors "EqAttrCustomRecordScope" src
 
@@ -310,8 +283,7 @@ let tests =
 
             test "[<CustomEquality>] class supports `=` at a use site (no constraint diagnostic)" {
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "[<CustomEquality; NoComparison>]"
                             "type ById(id: int) ="
@@ -332,8 +304,7 @@ let tests =
 
             test "[<NoEquality>] class at a `=` use site is rejected" {
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "[<NoEquality; NoComparison>]"
                             "type Opaque(id: int) ="

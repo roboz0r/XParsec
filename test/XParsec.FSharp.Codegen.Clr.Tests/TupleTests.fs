@@ -10,6 +10,7 @@ open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 open XParsec.FSharp.Codegen.Clr.Tests.PeInspection
+open XParsec.FSharp.Codegen.Clr.Tests.ReflectionHarness
 
 /// `int` → `System.Int32` and `string` → `System.String`: the element reprs the
 /// tuple encodings below need, with no assembly emitted around them.
@@ -180,15 +181,11 @@ let constructTests =
         ]
 
 /// Tuple destructuring, through both the irrefutable `let` path and the match
-/// compiler. Each program is a one-arg static function returning an int, so the
-/// invoke result is the sum of whatever the pattern's bound variables took.
+/// compiler. Each program is `let f (z: int) = …` returning an int, so the invoke
+/// result is the sum of whatever the pattern's bound variables took.
 [<Tests>]
 let destructureTests =
-    let invokeIntFn (source: string) (arg: int) : int =
-        let artifact = compileSource "TupleStep4" source
-        let m = programClassMethods (Codegen.toBytes artifact) |> Array.head
-
-        m.Invoke(null, [| box arg |]) :?> int
+    let invokeIntFn = invokeIntFn "TupleStep4" "f"
 
     testList
         "Tuple representation: destructure a tuple"
@@ -238,14 +235,11 @@ let destructureTests =
         ]
 
 /// `fun (a, b) -> …`: the closure's `Invoke` takes ONE argument, the `ValueTuple`n`,
-/// and binds the elements out of it before running the body.
+/// and binds the elements out of it before running the body. Each program is
+/// `let f (z: int) = …` returning an int.
 [<Tests>]
 let lambdaParamTests =
-    let invokeIntFn (source: string) (arg: int) : int =
-        let artifact = compileSource "TupleStep5" source
-        let m = programClassMethods (Codegen.toBytes artifact) |> Array.head
-
-        m.Invoke(null, [| box arg |]) :?> int
+    let invokeIntFn = invokeIntFn "TupleStep5" "f"
 
     testList
         "Tuple representation: tuple lambda parameter"

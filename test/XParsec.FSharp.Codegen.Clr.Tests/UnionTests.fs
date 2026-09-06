@@ -6,8 +6,7 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 open XParsec.FSharp.Codegen.Clr.Tests.PeInspection
-
-let private lines xs = String.concat "\n" xs
+open XParsec.FSharp.Codegen.Clr.Tests.ReflectionHarness
 
 let private unionSrc =
     "type Lst =\n    | Nil\n    | Cons of int * Lst\nlet head =\n    match Cons(7, Nil) with\n    | Nil -> 0\n    | Cons(h, _) -> h\nprintfn \"%d\" head"
@@ -579,8 +578,7 @@ let tests =
                 let src =
                     lines
                         [
-                            "type IRank ="
-                            "    abstract member Rank : unit -> int"
+                            iRankDecl
                             "type V ="
                             "    | Lo"
                             "    | Hi of int"
@@ -599,8 +597,7 @@ let tests =
                 let asm = loadAssembly bytes
                 let ty = asm.GetType "V"
                 Expect.isNotNull ty "the assembly contains the union type V"
-                let ifaceNames = ty.GetInterfaces() |> Array.map (fun i -> i.Name) |> Set.ofArray
-                Expect.isTrue (ifaceNames.Contains "IRank") "V reflects as implementing the user IRank"
+                expectInterface ty "IRank"
 
                 let exitCode, output = runEntryPoint bytes
                 Expect.equal exitCode 0 "Main returns 0"
@@ -620,8 +617,7 @@ let tests =
                 let src =
                     lines
                         [
-                            "type IRank ="
-                            "    abstract member Rank : unit -> int"
+                            iRankDecl
                             "type V ="
                             "    | Lo"
                             "    | Hi of int"
@@ -641,12 +637,8 @@ let tests =
                 let ty = asm.GetType "V"
                 Expect.isNotNull ty "the assembly contains the union type V"
 
-                let ifaceNames = ty.GetInterfaces() |> Array.map (fun i -> i.Name) |> Set.ofArray
-                Expect.isTrue (ifaceNames.Contains "IRank") "V reflects as implementing the user IRank"
-
-                Expect.isTrue
-                    (ifaceNames.Contains "IEquatable`1")
-                    "V reflects as implementing the synthesised IEquatable<V>"
+                expectInterface ty "IRank"
+                expectInterface ty "IEquatable`1"
 
                 let exitCode, output = runEntryPoint bytes
                 Expect.equal exitCode 0 "Main returns 0"

@@ -5,8 +5,7 @@ open XParsec.FSharp.Lexer
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
-
-let private lines xs = String.concat "\n" xs
+open XParsec.FSharp.Codegen.Clr.Tests.ReflectionHarness
 
 [<Tests>]
 let tests =
@@ -97,7 +96,7 @@ let tests =
                 let lexed, file = parseFile src
 
                 Pipeline.analyseSemFor testCompiling provider (LexedFile.ofText lexed) file
-                |> fun tast -> tast.Diagnostics |> Diagnostic.errors
+                |> errors
 
             let expectMissingListDep (src: string) =
                 match analyseWithoutList src with

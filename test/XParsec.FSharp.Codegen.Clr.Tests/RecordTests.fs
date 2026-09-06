@@ -7,19 +7,24 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 open XParsec.FSharp.Codegen.Clr.Tests.PeInspection
+open XParsec.FSharp.Codegen.Clr.Tests.ReflectionHarness
+
+/// An all-immutable two-field record, for every metadata facet asserted on one.
+let private point =
+    sharedType "RecPoint" "Point" (lines [ "type Point = { X: int; Y: int }"; "let p = { X = 0; Y = 0 }" ])
+
+/// A generic record whose lone field is the declaring typar.
+let private box1 =
+    sharedType "RecBox" "Box`1" (lines [ "type Box<'T> = { Value: 'T }"; "let b = { Value = 0 }" ])
 
 [<Tests>]
 let monoTests =
-    let declaredInstance =
-        BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly
-
     testList
         "RecordMono"
         [
             test "a record literal constructs + a field-get reads its value (prints 7)" {
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "type Point = { X: int; Y: int }"
                             "let p = { X = 7; Y = 9 }"
@@ -36,8 +41,7 @@ let monoTests =
                 // `{ V = 7 }` into `V: obj` must emit a `box`, and `b.V :?> int` an
                 // `unbox.any`. A missing box is invalid IL that fails to load.
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "type Box = { V: obj }"
                             "let b = { V = 7 }"
@@ -55,8 +59,7 @@ let monoTests =
             // types under one source name; the field set picks which one a literal builds.
             test "two arity-overloaded records coexist; each constructs + field-reads (prints 20 / 39)" {
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "type Point<'X, 'Y> = { X: 'X; Y: 'Y }"
                             "type Point<'X, 'Y, 'Z> = { X: 'X; Y: 'Y; Z: 'Z }"
@@ -78,8 +81,7 @@ let monoTests =
 
             test "field-set on a mutable field updates in place (prints 42)" {
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "type Counter = { mutable Count: int }"
                             "let c = { Count = 0 }"
@@ -95,8 +97,7 @@ let monoTests =
 
             test "record-clone overrides one field + copies the rest (prints 99)" {
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "type Point = { X: int; Y: int }"
                             "let p = { X = 1; Y = 2 }"
@@ -109,16 +110,15 @@ let monoTests =
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
 
-                let lines = output.Split([| '\n'; '\r' |], StringSplitOptions.RemoveEmptyEntries)
+                let outLines = output.Split([| '\n'; '\r' |], StringSplitOptions.RemoveEmptyEntries)
 
-                Expect.equal lines.[0] "99" "Y was overridden"
-                Expect.equal lines.[1] "1" "X was copied from source"
+                Expect.equal outLines.[0] "99" "Y was overridden"
+                Expect.equal outLines.[1] "1" "X was copied from source"
             }
 
             test "record pattern destructures named fields (prints 30)" {
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "type Point = { X: int; Y: int }"
                             "let p = { X = 10; Y = 20 }"
@@ -133,14 +133,7 @@ let monoTests =
             }
 
             test "an emitted record type has a public ctor + one public property per record field" {
-                let artifact =
-                    compileSource
-                        "RecMeta"
-                        (String.concat "\n" [ "type Point = { X: int; Y: int }"; "let p = { X = 0; Y = 0 }" ])
-
-                let asm = loadAssembly (Codegen.toBytes artifact)
-                let ty = asm.GetType "Point"
-                Expect.isNotNull ty "the assembly contains the record type Point"
+                let ty = point.Type.Value
 
                 let ctors = ty.GetConstructors(BindingFlags.Public ||| BindingFlags.Instance)
                 Expect.equal ctors.Length 1 "Point declares one public ctor"
@@ -156,48 +149,24 @@ let monoTests =
             }
 
             test "a record's bytes do not pin FSharp.Core (BCL-only equality + IL)" {
-                let artifact =
-                    compileSource
-                        "RecNoDep"
-                        (String.concat "\n" [ "type Point = { X: int; Y: int }"; "let p = { X = 0; Y = 0 }" ])
-
-                expectNoFSharpCore artifact "record emission only references the BCL"
+                expectNoFSharpCore point.Artifact.Value "record emission only references the BCL"
             }
 
             test "an all-immutable record emits the structural-equality triple + IEquatable<Self>" {
-                let artifact =
-                    compileSource
-                        "RecEqMeta"
-                        (String.concat "\n" [ "type Point = { X: int; Y: int }"; "let p = { X = 0; Y = 0 }" ])
+                let ty = point.Type.Value
 
-                let asm = loadAssembly (Codegen.toBytes artifact)
-                let ty = asm.GetType "Point"
+                Expect.isNotNull (equalsObj ty) "Equals(object) override emitted"
+                Expect.isNotNull (typedEquals ty) "typed Equals(Point) emitted"
+                Expect.isNotNull (getHash ty) "GetHashCode() override emitted"
 
-                let equalsObj =
-                    ty.GetMethod("Equals", declaredInstance, null, [| typeof<obj> |], null)
+                Expect.isTrue (equalsObj ty).IsVirtual "Equals(object) is virtual"
+                Expect.isTrue (getHash ty).IsVirtual "GetHashCode() is virtual"
 
-                let equalsTyped = ty.GetMethod("Equals", declaredInstance, null, [| ty |], null)
-                let getHash = ty.GetMethod("GetHashCode", declaredInstance, null, [||], null)
-
-                Expect.isNotNull equalsObj "Equals(object) override emitted"
-                Expect.isNotNull equalsTyped "typed Equals(Point) emitted"
-                Expect.isNotNull getHash "GetHashCode() override emitted"
-
-                Expect.isTrue equalsObj.IsVirtual "Equals(object) is virtual"
-                Expect.isTrue getHash.IsVirtual "GetHashCode() is virtual"
-
-                let iface = typedefof<IEquatable<_>>.MakeGenericType ty
-                Expect.isTrue (iface.IsAssignableFrom ty) "Point implements IEquatable<Point>"
+                Expect.isTrue (implementsIEquatable ty) "Point implements IEquatable<Point>"
             }
 
             test "two records with equal fields compare equal + hash equal" {
-                let artifact =
-                    compileSource
-                        "RecEqValue"
-                        (String.concat "\n" [ "type Point = { X: int; Y: int }"; "let p = { X = 0; Y = 0 }" ])
-
-                let asm = loadAssembly (Codegen.toBytes artifact)
-                let ty = asm.GetType "Point"
+                let ty = point.Type.Value
 
                 let mk x y =
                     Activator.CreateInstance(ty, [| box (x: int); box (y: int) |])
@@ -206,11 +175,9 @@ let monoTests =
                 let p2 = mk 3 4
                 let p3 = mk 3 5
 
-                let equalsObj =
-                    ty.GetMethod("Equals", declaredInstance, null, [| typeof<obj> |], null)
-
-                let typedEquals = ty.GetMethod("Equals", declaredInstance, null, [| ty |], null)
-                let hash = ty.GetMethod("GetHashCode", declaredInstance, null, [||], null)
+                let equalsObj = equalsObj ty
+                let typedEquals = typedEquals ty
+                let hash = getHash ty
 
                 Expect.isTrue (equalsObj.Invoke(p1, [| p2 |]) :?> bool) "equal fields ⇒ Equals(object) true"
                 Expect.isTrue (typedEquals.Invoke(p1, [| p2 |]) :?> bool) "equal fields ⇒ typed Equals true"
@@ -224,22 +191,16 @@ let monoTests =
                 let artifact =
                     compileSource
                         "RecEqMut"
-                        (String.concat "\n" [ "type Counter = { mutable Count: int }"; "let c = { Count = 0 }" ])
+                        (lines [ "type Counter = { mutable Count: int }"; "let c = { Count = 0 }" ])
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "Counter"
 
-                let equalsObj =
-                    ty.GetMethod("Equals", declaredInstance, null, [| typeof<obj> |], null)
+                let equalsObj = equalsObj ty
 
                 Expect.isNotNull equalsObj "Equals(object) override on the record itself"
-
-                Expect.isNotNull
-                    (ty.GetMethod("GetHashCode", declaredInstance, null, [||], null))
-                    "GetHashCode override on the record itself"
-
-                let iface = typedefof<IEquatable<_>>.MakeGenericType ty
-                Expect.isTrue (iface.IsAssignableFrom ty) "Counter declares IEquatable<Counter>"
+                Expect.isNotNull (getHash ty) "GetHashCode override on the record itself"
+                Expect.isTrue (implementsIEquatable ty) "Counter declares IEquatable<Counter>"
 
                 let mk (n: int) =
                     ty.GetConstructor([| typeof<int> |]).Invoke [| n |]
@@ -251,46 +212,22 @@ let monoTests =
 
 [<Tests>]
 let genericTests =
-    let declaredInstance =
-        BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly
-
     testList
         "RecordGeneric"
         [
             test "a generic record `Box<'T>` is emitted as a generic TypeDefinition" {
-                let artifact =
-                    compileSource
-                        "RecGenMeta"
-                        (String.concat "\n" [ "type Box<'T> = { Value: 'T }"; "let b = { Value = 0 }" ])
-
-                let asm = loadAssembly (Codegen.toBytes artifact)
-                let boxTy = asm.GetType "Box`1"
-                Expect.isNotNull boxTy "Box`1 emitted"
+                let boxTy = box1.Type.Value
                 Expect.isTrue boxTy.IsGenericTypeDefinition "Box`1 is a generic type definition"
 
                 let boxInt = boxTy.MakeGenericType typeof<int>
 
-                Expect.isNotNull
-                    (boxInt.GetMethod("Equals", declaredInstance, null, [| typeof<obj> |], null))
-                    "Box<int>::Equals(object) reachable"
-
-                Expect.isNotNull
-                    (boxInt.GetMethod("Equals", declaredInstance, null, [| boxInt |], null))
-                    "Box<int>::Equals(Box<int>) reachable"
-
-                let iface = typedefof<IEquatable<_>>.MakeGenericType boxInt
-                Expect.isTrue (iface.IsAssignableFrom boxInt) "Box<int> implements IEquatable<Box<int>>"
+                Expect.isNotNull (equalsObj boxInt) "Box<int>::Equals(object) reachable"
+                Expect.isNotNull (typedEquals boxInt) "Box<int>::Equals(Box<int>) reachable"
+                Expect.isTrue (implementsIEquatable boxInt) "Box<int> implements IEquatable<Box<int>>"
             }
 
             test "Box<int> compares structurally through `EqualityComparer<!0>` (the typar-typed field)" {
-                let artifact =
-                    compileSource
-                        "RecGenIntEq"
-                        (String.concat "\n" [ "type Box<'T> = { Value: 'T }"; "let b = { Value = 0 }" ])
-
-                let asm = loadAssembly (Codegen.toBytes artifact)
-                let boxTy = asm.GetType "Box`1"
-                let boxInt = boxTy.MakeGenericType typeof<int>
+                let boxInt = box1.Type.Value.MakeGenericType typeof<int>
 
                 let mkInt (v: int) =
                     Activator.CreateInstance(boxInt, [| box v |])
@@ -299,10 +236,8 @@ let genericTests =
                 let bi3b = mkInt 3
                 let bi5 = mkInt 5
 
-                let typedEquals =
-                    boxInt.GetMethod("Equals", declaredInstance, null, [| boxInt |], null)
-
-                let hash = boxInt.GetMethod("GetHashCode", declaredInstance, null, [||], null)
+                let typedEquals = typedEquals boxInt
+                let hash = getHash boxInt
 
                 Expect.isTrue
                     (typedEquals.Invoke(bi3a, [| bi3b |]) :?> bool)
@@ -317,14 +252,7 @@ let genericTests =
             }
 
             test "Box<string> uses the same emitted members (the `!0` encoding works for any element)" {
-                let artifact =
-                    compileSource
-                        "RecGenStrEq"
-                        (String.concat "\n" [ "type Box<'T> = { Value: 'T }"; "let b = { Value = 0 }" ])
-
-                let asm = loadAssembly (Codegen.toBytes artifact)
-                let boxTy = asm.GetType "Box`1"
-                let boxStr = boxTy.MakeGenericType typeof<string>
+                let boxStr = box1.Type.Value.MakeGenericType typeof<string>
 
                 let mkStr (v: string) =
                     Activator.CreateInstance(boxStr, [| box v |])
@@ -333,10 +261,8 @@ let genericTests =
                 let bs' = mkStr "hi"
                 let bs2 = mkStr "yo"
 
-                let typedEquals =
-                    boxStr.GetMethod("Equals", declaredInstance, null, [| boxStr |], null)
-
-                let hash = boxStr.GetMethod("GetHashCode", declaredInstance, null, [||], null)
+                let typedEquals = typedEquals boxStr
+                let hash = getHash boxStr
 
                 Expect.isTrue (typedEquals.Invoke(bs, [| bs' |]) :?> bool) "Box \"hi\" = Box \"hi\""
                 Expect.isFalse (typedEquals.Invoke(bs, [| bs2 |]) :?> bool) "Box \"hi\" <> Box \"yo\""
@@ -348,21 +274,14 @@ let genericTests =
             }
 
             test "Equals(object) on Box<int> rejects null and a different instantiation" {
-                let artifact =
-                    compileSource
-                        "RecGenIsinst"
-                        (String.concat "\n" [ "type Box<'T> = { Value: 'T }"; "let b = { Value = 0 }" ])
-
-                let asm = loadAssembly (Codegen.toBytes artifact)
-                let boxTy = asm.GetType "Box`1"
+                let boxTy = box1.Type.Value
                 let boxInt = boxTy.MakeGenericType typeof<int>
                 let boxStr = boxTy.MakeGenericType typeof<string>
 
                 let bi3 = Activator.CreateInstance(boxInt, [| box 3 |])
                 let bs3 = Activator.CreateInstance(boxStr, [| box "3" |])
 
-                let equalsObj =
-                    boxInt.GetMethod("Equals", declaredInstance, null, [| typeof<obj> |], null)
+                let equalsObj = equalsObj boxInt
 
                 Expect.isFalse (equalsObj.Invoke(bi3, [| null |]) :?> bool) "Box<int> 3 <> null"
 
@@ -377,8 +296,7 @@ let genericTests =
                 let artifact =
                     compileSource
                         "RecGenTwoField"
-                        (String.concat
-                            "\n"
+                        (lines
                             [
                                 "type Pair<'a> = { First: 'a; Second: int }"
                                 "let p = { First = 0; Second = 0 }"
@@ -407,11 +325,9 @@ let interfaceImplTests =
             // wires the slot wrongly faults here rather than compiling clean.
             test "a record implementing a local interface dispatches through the interface slot (prints 7)" {
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
-                            "type IRank ="
-                            "    abstract member Rank : unit -> int"
+                            iRankDecl
                             "type R ="
                             "    { N: int }"
                             "    interface IRank with"
@@ -427,8 +343,7 @@ let interfaceImplTests =
                 let asm = loadAssembly bytes
                 let ty = asm.GetType "R"
                 Expect.isNotNull ty "the assembly contains the record type R"
-                let ifaceNames = ty.GetInterfaces() |> Array.map (fun i -> i.Name) |> Set.ofArray
-                Expect.isTrue (ifaceNames.Contains "IRank") "R reflects as implementing the user IRank"
+                expectInterface ty "IRank"
 
                 let exitCode, output = runEntryPoint bytes
                 Expect.equal exitCode 0 "Main returns 0"
@@ -439,11 +354,9 @@ let interfaceImplTests =
             // synthesised one must land on the same type without colliding slots.
             test "a record's user interface coexists with its synthesised IEquatable (no slot collision)" {
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
-                            "type IRank ="
-                            "    abstract member Rank : unit -> int"
+                            iRankDecl
                             "type R ="
                             "    { N: int }"
                             "    interface IRank with"
@@ -462,12 +375,8 @@ let interfaceImplTests =
                 let ty = asm.GetType "R"
                 Expect.isNotNull ty "the assembly contains the record type R"
 
-                let ifaceNames = ty.GetInterfaces() |> Array.map (fun i -> i.Name) |> Set.ofArray
-                Expect.isTrue (ifaceNames.Contains "IRank") "R reflects as implementing the user IRank"
-
-                Expect.isTrue
-                    (ifaceNames.Contains "IEquatable`1")
-                    "R reflects as implementing the synthesised IEquatable<R>"
+                expectInterface ty "IRank"
+                expectInterface ty "IEquatable`1"
 
                 let exitCode, output = runEntryPoint bytes
                 Expect.equal exitCode 0 "Main returns 0"
@@ -487,8 +396,7 @@ let interfaceImplTests =
             test
                 "a generic record implementing the seq capability iterates through the synthesised IEnumerable co-slots" {
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "open Vesper.Collections"
                             "[<Struct>]"
@@ -559,8 +467,7 @@ let interfaceImplTests =
             // `interface seq<'T>` already publishes `IEnumerable<'T>`, so authoring that
             // interface too would emit one slot twice and fail to load at the consumer.
             let collisionSrc (iface: string) (getEnumerator: string) =
-                String.concat
-                    "\n"
+                lines
                     [
                         "open Vesper.Collections"
                         "type Bag<'T> ="
@@ -578,7 +485,7 @@ let interfaceImplTests =
                 let _, tast =
                     Pipeline.analyseSemWithContextFor testCompiling provider (LexedFile.ofText lexed) file
 
-                tast.Diagnostics |> Diagnostic.errors
+                errors tast
 
             test "implementing the seq capability and its generic BCL interface is a diagnostic" {
                 let errors =
@@ -615,8 +522,7 @@ let interfaceImplTests =
             // slot, and no co-slot synthesises it. The two names differ only by arity.
             test "implementing the comparable capability and the non-generic IComparable is allowed" {
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "type Money ="
                             "    { Cents: int }"
@@ -641,8 +547,7 @@ let instanceMemberTests =
         [
             test "a record instance method call resolves to the member (prints 7)" {
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "type Vec ="
                             "    { X: int; Y: int }"
@@ -659,8 +564,7 @@ let instanceMemberTests =
 
             test "a record instance method with an argument resolves + passes the arg (prints 17)" {
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "type Vec ="
                             "    { X: int; Y: int }"
@@ -679,8 +583,7 @@ let instanceMemberTests =
             // field read cannot produce the expected output by accident.
             test "a record instance property resolves to the member, not a field (prints 6)" {
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "type Vec ="
                             "    { X: int; Y: int }"
@@ -698,8 +601,7 @@ let instanceMemberTests =
             // The field-vs-member decision is made per access, not per type.
             test "a field read and a member read coexist on one record (prints 3 then 6)" {
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "type Vec ="
                             "    { X: int; Y: int }"

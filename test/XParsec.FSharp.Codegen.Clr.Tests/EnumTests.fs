@@ -6,6 +6,7 @@ open Expecto
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 open XParsec.FSharp.Codegen.Clr.Tests.PeInspection
+open XParsec.FSharp.Codegen.Clr.Tests.ReflectionHarness
 
 // A numeric enum emits a `System.Enum` subclass with one `static literal` field
 // per case; a string or mixed enum emits a `[<Struct>]` wrapper instead.
@@ -19,7 +20,7 @@ let enumTests =
                 let artifact =
                     compileSource
                         "EnumIntShape"
-                        (String.concat "\n" [ "type Color = | Red = 0 | Green = 1 | Blue = 2"; "let c = Color.Green" ])
+                        (lines [ "type Color = | Red = 0 | Green = 1 | Blue = 2"; "let c = Color.Green" ])
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "Color"
@@ -39,9 +40,7 @@ let enumTests =
 
             test "an authored byte-width enum emits System.Byte as its underlying type" {
                 let artifact =
-                    compileSource
-                        "EnumByteShape"
-                        (String.concat "\n" [ "type Flags = | A = 1uy | B = 2uy"; "let f = Flags.B" ])
+                    compileSource "EnumByteShape" (lines [ "type Flags = | A = 1uy | B = 2uy"; "let f = Flags.B" ])
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "Flags"
@@ -57,8 +56,7 @@ let enumTests =
             test "match on the matching case returns its arm (E.A)" {
                 runs
                     "1"
-                    (String.concat
-                        "\n"
+                    (lines
                         [
                             "type E = | A = 1 | B = 2"
                             "let r = match E.A with | E.A -> 1 | E.B -> 2 | _ -> 0"
@@ -69,8 +67,7 @@ let enumTests =
             test "match falls through to the second case (E.B), proving its underlying value (2)" {
                 runs
                     "2"
-                    (String.concat
-                        "\n"
+                    (lines
                         [
                             "type E = | A = 1 | B = 2"
                             "let r = match E.B with | E.A -> 1 | E.B -> 2 | _ -> 0"
@@ -81,8 +78,7 @@ let enumTests =
             test "enum value equality (=) compares the underlying integers" {
                 runsLines
                     [ "eq"; "ne" ]
-                    (String.concat
-                        "\n"
+                    (lines
                         [
                             "type E = | A = 1 | B = 2"
                             "let x = E.A"
@@ -94,8 +90,7 @@ let enumTests =
             test "an enum-typed function parameter branches on its cases at runtime" {
                 runsLines
                     [ "10"; "20"; "0" ]
-                    (String.concat
-                        "\n"
+                    (lines
                         [
                             "type E = | A = 1 | B = 2 | C = 3"
                             "let describe (e: E) ="
@@ -114,9 +109,7 @@ let enumTests =
             // the wrapped string reading back is what proves the cctor ran.
             test "a string enum emits a static-initonly struct field, cctor-initialised, readable" {
                 let artifact =
-                    compileSource
-                        "StringEnumSeq"
-                        (String.concat "\n" [ "type Dir = | Up = \"up\" | Down = \"down\""; "let x = 1" ])
+                    compileSource "StringEnumSeq" (lines [ "type Dir = | Up = \"up\" | Down = \"down\""; "let x = 1" ])
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "Dir"
@@ -142,8 +135,7 @@ let enumTests =
             test "a string enum case round-trips its string through a match" {
                 runs
                     "up"
-                    (String.concat
-                        "\n"
+                    (lines
                         [
                             "type Dir = | Up = \"up\" | Down = \"down\""
                             "let render (d: Dir) ="
@@ -158,8 +150,7 @@ let enumTests =
             test "a string enum match distinguishes the cases at runtime" {
                 runsLines
                     [ "U"; "D"; "U" ]
-                    (String.concat
-                        "\n"
+                    (lines
                         [
                             "type Dir = | Up = \"up\" | Down = \"down\""
                             "let tag (d: Dir) ="
@@ -177,8 +168,7 @@ let enumTests =
             test "string enum equality compares the wrapped string (= and the unequal case)" {
                 runsLines
                     [ "eq"; "ne" ]
-                    (String.concat
-                        "\n"
+                    (lines
                         [
                             "type Dir = | Up = \"up\" | Down = \"down\""
                             "let x = Dir.Up"
@@ -191,7 +181,7 @@ let enumTests =
                 let artifact =
                     compileSource
                         "StringEnumIsValue"
-                        (String.concat "\n" [ "type Dir = | Up = \"up\" | Down = \"down\""; "let d = Dir.Up" ])
+                        (lines [ "type Dir = | Up = \"up\" | Down = \"down\""; "let d = Dir.Up" ])
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "Dir"
@@ -204,8 +194,7 @@ let enumTests =
                 runsLinesWarning
                     "mixes integer and string case values"
                     [ "isA"; "isB"; "isA" ]
-                    (String.concat
-                        "\n"
+                    (lines
                         [
                             "type M = | A = 1 | B = \"x\""
                             "let tag (m: M) ="
@@ -224,8 +213,7 @@ let enumTests =
                 runsLinesWarning
                     "mixes integer and string case values"
                     [ "eq"; "ne" ]
-                    (String.concat
-                        "\n"
+                    (lines
                         [
                             "type M = | A = 1 | B = \"x\""
                             "let x = M.A"
@@ -239,7 +227,7 @@ let enumTests =
                     compileSourceWarning
                         "mixes integer and string case values"
                         "MixedEnumSeq"
-                        (String.concat "\n" [ "type M = | A = 1 | B = \"x\""; "let m = M.A" ])
+                        (lines [ "type M = | A = 1 | B = \"x\""; "let m = M.A" ])
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "M"

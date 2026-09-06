@@ -7,42 +7,27 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 open XParsec.FSharp.Codegen.Clr.Tests.PeInspection
+open XParsec.FSharp.Codegen.Clr.Tests.ReflectionHarness
 
 // A monomorphic user DU gets `Equals(object)` / `GetHashCode()` overrides walking
 // each case's fields through `EqualityComparer<F>.Default` / `System.HashCode`.
 // Emission does not depend on a `=` use site, so these invoke the members directly.
 
+let private eqTyped (ty: Type) (a: obj) (b: obj) : bool =
+    (typedEquals ty).Invoke(a, [| b |]) :?> bool
+
+let private eq (ty: Type) (a: obj) (b: obj) : bool =
+    (equalsObj ty).Invoke(a, [| b |]) :?> bool
+
+let private hash (ty: Type) (a: obj) : int = (getHash ty).Invoke(a, [||]) :?> int
+
 [<Tests>]
 let tests =
-    let declaredInstance =
-        BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly
-
-    let factory (ty: Type) (name: string) =
-        ty.GetMethod(name, BindingFlags.Public ||| BindingFlags.Static)
-
-    let equalsMethod (ty: Type) =
-        ty.GetMethod("Equals", declaredInstance, null, [| typeof<obj> |], null)
-
-    let hashMethod (ty: Type) =
-        ty.GetMethod("GetHashCode", declaredInstance, null, [||], null)
-
-    let typedEqualsMethod (ty: Type) =
-        ty.GetMethod("Equals", declaredInstance, null, [| ty |], null)
-
-    let eqTyped (ty: Type) (a: obj) (b: obj) : bool =
-        (typedEqualsMethod ty).Invoke(a, [| b |]) :?> bool
-
-    let eq (ty: Type) (a: obj) (b: obj) : bool =
-        (equalsMethod ty).Invoke(a, [| b |]) :?> bool
-
-    let hash (ty: Type) (a: obj) : int = (hashMethod ty).Invoke(a, [||]) :?> int
-
     // Every field shape the walk must cover: two single-`int` cases (so a tag
     // mismatch with an equal payload is the only difference), a two-field case,
     // and a nullary case.
     let shapeSrc =
-        String.concat
-            "\n"
+        lines
             [
                 "type Shape ="
                 "    | Circle of int"
@@ -54,7 +39,7 @@ let tests =
     // A self-recursive DU, so a field of the union's own type drives the
     // `EqualityComparer<Tree>.Default` recursion into the nested override.
     let treeSrc =
-        String.concat "\n" [ "type Tree ="; "    | Leaf of int"; "    | Branch of Tree * Tree" ]
+        lines [ "type Tree ="; "    | Leaf of int"; "    | Branch of Tree * Tree" ]
 
     testList
         "StructuralEquality"
@@ -65,10 +50,10 @@ let tests =
                 let ty = asm.GetType "Shape"
                 Expect.isNotNull ty "the assembly contains the union type Shape"
 
-                Expect.isNotNull (equalsMethod ty) "Shape declares its own Equals(object) override"
-                Expect.isNotNull (hashMethod ty) "Shape declares its own GetHashCode() override"
-                Expect.isTrue (equalsMethod ty).IsVirtual "Equals is virtual (overrides Object.Equals)"
-                Expect.isTrue (hashMethod ty).IsVirtual "GetHashCode is virtual (overrides Object.GetHashCode)"
+                Expect.isNotNull (equalsObj ty) "Shape declares its own Equals(object) override"
+                Expect.isNotNull (getHash ty) "Shape declares its own GetHashCode() override"
+                Expect.isTrue (equalsObj ty).IsVirtual "Equals is virtual (overrides Object.Equals)"
+                Expect.isTrue (getHash ty).IsVirtual "GetHashCode is virtual (overrides Object.GetHashCode)"
             }
 
             test "DU equality does not pin an FSharp.Core dependency" {
@@ -158,7 +143,7 @@ let tests =
                 // routes to it; the `EqualityComparer<Tree>.Default` recursion goes
                 // through the typed `IEquatable<Tree>::Equals` instead.
                 Expect.equal
-                    ((equalsMethod ty).GetBaseDefinition().DeclaringType)
+                    ((equalsObj ty).GetBaseDefinition().DeclaringType)
                     typeof<obj>
                     "Equals(object) overrides Object.Equals (reuses its slot), not a new virtual slot"
 
@@ -181,7 +166,7 @@ let tests =
                 let iface = typedefof<IEquatable<_>>.MakeGenericType ty
                 Expect.isTrue (iface.IsAssignableFrom ty) "Shape implements IEquatable<Shape>"
 
-                let typed = typedEqualsMethod ty
+                let typed = typedEquals ty
                 Expect.isNotNull typed "Shape declares a typed Equals(Shape)"
                 Expect.isTrue typed.IsVirtual "the typed Equals(Shape) is virtual (implements the interface slot)"
 
@@ -272,37 +257,13 @@ let tests =
 // `HashCode.Add<!0>` for a typar-typed field, `IEquatable<Box<!0>>` as the interface.
 [<Tests>]
 let genericTests =
-    let declaredInstance =
-        BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly
-
-    let factory (ty: Type) (name: string) =
-        ty.GetMethod(name, BindingFlags.Public ||| BindingFlags.Static)
-
-    let equalsObjMethod (ty: Type) =
-        ty.GetMethod("Equals", declaredInstance, null, [| typeof<obj> |], null)
-
-    let typedEqualsMethod (ty: Type) =
-        ty.GetMethod("Equals", declaredInstance, null, [| ty |], null)
-
-    let hashMethod (ty: Type) =
-        ty.GetMethod("GetHashCode", declaredInstance, null, [||], null)
-
-    let eq (ty: Type) (a: obj) (b: obj) : bool =
-        (equalsObjMethod ty).Invoke(a, [| b |]) :?> bool
-
-    let eqTyped (ty: Type) (a: obj) (b: obj) : bool =
-        (typedEqualsMethod ty).Invoke(a, [| b |]) :?> bool
-
-    let hash (ty: Type) (a: obj) : int = (hashMethod ty).Invoke(a, [||]) :?> int
-
     // A single-field generic DU whose field *is* the declaring typar `'T`, so the
     // generated triple compares and hashes it through `EqualityComparer<!0>`.
-    let boxSrc = String.concat "\n" [ "type Box<'T> ="; "    | Box of 'T" ]
+    let boxSrc = lines [ "type Box<'T> ="; "    | Box of 'T" ]
 
     // A self-recursive generic DU (the canonical cons-list): the `Cons` tail field
     // is `Lst<'T>`, so the structural recursion runs through `EqualityComparer<Lst<!0>>`.
-    let lstSrc =
-        String.concat "\n" [ "type Lst<'T> ="; "    | Nil"; "    | Cons of 'T * Lst<'T>" ]
+    let lstSrc = lines [ "type Lst<'T> ="; "    | Nil"; "    | Cons of 'T * Lst<'T>" ]
 
     testList
         "GenericStructuralEquality"
@@ -315,17 +276,17 @@ let genericTests =
                 Expect.isTrue boxTy.IsGenericTypeDefinition "Box`1 is a generic type definition"
 
                 let boxInt = boxTy.MakeGenericType typeof<int>
-                Expect.isNotNull (equalsObjMethod boxInt) "Box<int> declares its own Equals(object) override"
-                Expect.isNotNull (hashMethod boxInt) "Box<int> declares its own GetHashCode() override"
-                Expect.isNotNull (typedEqualsMethod boxInt) "Box<int> declares a typed Equals(Box<int>)"
+                Expect.isNotNull (equalsObj boxInt) "Box<int> declares its own Equals(object) override"
+                Expect.isNotNull (getHash boxInt) "Box<int> declares its own GetHashCode() override"
+                Expect.isNotNull (typedEquals boxInt) "Box<int> declares a typed Equals(Box<int>)"
 
-                Expect.isTrue (equalsObjMethod boxInt).IsVirtual "Equals(object) is virtual"
-                Expect.isTrue (hashMethod boxInt).IsVirtual "GetHashCode() is virtual"
+                Expect.isTrue (equalsObj boxInt).IsVirtual "Equals(object) is virtual"
+                Expect.isTrue (getHash boxInt).IsVirtual "GetHashCode() is virtual"
 
                 // The override reuses Object's slot (no new vtable slot), so a boxed
                 // `.Equals(obj)` and the comparer's nested-DU path both find it.
                 Expect.equal
-                    ((equalsObjMethod boxInt).GetBaseDefinition().DeclaringType)
+                    ((equalsObj boxInt).GetBaseDefinition().DeclaringType)
                     typeof<obj>
                     "Equals(object) overrides Object.Equals (reuses its slot)"
 
@@ -430,8 +391,7 @@ let genericTests =
                 // `EqualityComparer<Box<int>>.Default`. The union implements
                 // `IEquatable<Box<int>>`, so two distinct-but-equal `Box 1` compare true.
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "type Box<'T> ="
                             "    | Box of 'T"

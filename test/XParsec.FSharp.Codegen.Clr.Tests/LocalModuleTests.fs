@@ -5,6 +5,7 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 open XParsec.FSharp.Codegen.Clr.Tests.PeInspection
+open XParsec.FSharp.Codegen.Clr.Tests.ReflectionHarness
 
 /// The source analyses with no errors. Acceptance alone cannot tell two same-named types
 /// apart, so every caller pairs this with an assertion on the resolved identity.
@@ -30,8 +31,7 @@ let tests =
             test "a module body calls a sibling module's let-bound function (A.f)" {
                 runsLines
                     [ "11" ]
-                    (String.concat
-                        "\n"
+                    (lines
                         [
                             "module A ="
                             "    let f x = x + 1"
@@ -44,8 +44,7 @@ let tests =
             test "a class member body calls a local module's function (mirrors Set→SetTree)" {
                 runsLines
                     [ "7" ]
-                    (String.concat
-                        "\n"
+                    (lines
                         [
                             "module Tree ="
                             "    let twice x = x + x"
@@ -61,8 +60,7 @@ let tests =
             test "a struct nested in a module calls a let-bound module sibling unqualified" {
                 runsLines
                     [ "42" ]
-                    (String.concat
-                        "\n"
+                    (lines
                         [
                             "module M ="
                             "    let secret () = 42"
@@ -80,8 +78,7 @@ let tests =
             test "a nested struct's secondary-ctor field-init calls a module sibling (SetIterator shape)" {
                 runsLines
                     [ "10" ]
-                    (String.concat
-                        "\n"
+                    (lines
                         [
                             "module M ="
                             "    let seed (x: int) = x + x"
@@ -103,8 +100,7 @@ let tests =
 /// `module M` collides with `type M`, so the module class takes the `Module` suffix; and
 /// `M` holds only a type, no `let`, so its class exists solely to hold that type.
 let private moduleHeldType =
-    String.concat
-        "\n"
+    lines
         [
             "namespace N"
             ""
@@ -149,8 +145,7 @@ let nestedEmission =
             // even when it holds nothing of its own.
             test "a nested module's module class nests in its parent's, ancestors included" {
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "namespace N"
                             ""
@@ -198,10 +193,10 @@ let nestedEmission =
 /// `namespace N` over two sibling modules `A` and `B`, each declaring its own `type T`;
 /// `inA` / `inB` are the module bodies, indented in.
 let private siblingModuleTypes (inA: string list) (inB: string list) : string =
-    let body (m: string) (lines: string list) =
-        (sprintf "module %s =" m) :: (lines |> List.map (fun l -> "    " + l))
+    let body (m: string) (members: string list) =
+        (sprintf "module %s =" m) :: (members |> List.map (fun l -> "    " + l))
 
-    String.concat "\n" ([ "namespace N"; "" ] @ body "A" inA @ [ "" ] @ body "B" inB)
+    lines ([ "namespace N"; "" ] @ body "A" inA @ [ "" ] @ body "B" inB)
 
 /// `N.A.T = { x: int }` and `N.B.T = { y: int }`: same name, disjoint field sets, so a
 /// conflation cannot hide.
@@ -286,9 +281,8 @@ let moduleIsPartOfTypeIdentity =
             yield
                 test "a body outside A constructs A.T by its qualified name" {
                     let src =
-                        String.concat
-                            "\n"
-                            ([
+                        lines (
+                            [
                                 "namespace N"
                                 ""
                                 "module A ="
@@ -303,7 +297,8 @@ let moduleIsPartOfTypeIdentity =
                                 // Both the annotation and the construction name A's T.
                                 "    let make (n: int) : A.T = A.T(n)"
                                 "    let read (v: A.T) = v.N"
-                            ])
+                            ]
+                        )
 
                     let artifact = compileSource "QualifiedModuleTypeCtor" src
                     let bytes = Codegen.toBytes artifact
