@@ -4,7 +4,7 @@ open System
 open System.Collections.Generic
 
 // `.fsi` ↔ `.fs` conformance of type BODIES: a signature's body for a key against the body the
-// implementation would publish unsigned under the same key. Field, case and member types on
+// implementation would publish signatureless under the same key. Field, case and member types on
 // both halves are templates over `FTTypar(Declaring, i)`, compared by structural equality.
 
 module ConformanceBodies =

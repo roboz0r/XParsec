@@ -244,6 +244,19 @@ untouched.
 | a TS `extends` type on a typar | bound |
 | a name a pattern introduces | bound variable |
 
+## `unsigned`
+
+Kept for the integer sense — an unsigned width, `%u`, `AppendUnsigned`, `Cgt_un` — and for the
+cryptographic sense. Retired for "an implementation file with no signature file", which is
+**signatureless** (a signatureless file, the signatureless surface, the surface an
+implementation would publish signatureless).
+
+| sense | term |
+| --- | --- |
+| an implementation file with no paired `.fsi` | signatureless |
+| the surface such a file publishes | the signatureless surface |
+| an integer width without a sign bit | unsigned |
+
 ## Naming a new operation
 
 Grep for what the sibling operation is already called before coining anything. Where one word

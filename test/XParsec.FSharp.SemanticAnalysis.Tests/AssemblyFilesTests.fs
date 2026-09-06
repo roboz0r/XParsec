@@ -1203,7 +1203,7 @@ module B =
             test "file 2 constructs a published record from its FIELD NAMES alone" {
                 // No type named: the field set is all the literal carries, so it resolves
                 // through the field-reverse index the signature publishes, scope-gated by
-                // the `open` — the same channel an unsigned file's own view publishes.
+                // the `open` — the same channel a signatureless file's own view publishes.
                 let file2 =
                     "\
 namespace Test.B

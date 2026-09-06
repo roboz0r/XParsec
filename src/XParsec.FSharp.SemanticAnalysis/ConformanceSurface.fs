@@ -3,7 +3,7 @@ namespace XParsec.FSharp.SemanticAnalysis
 open System.Collections.Generic
 
 // `.fsi` ↔ `.fs` conformance over the two ANALYSED halves, compared by resolved identity: the
-// signature's surface against the one the implementation would publish unsigned. A
+// signature's surface against the one the implementation would publish signatureless. A
 // `[<CompiledName>]` is checked as its own agreement between the paired declarations (FS0193).
 
 /// Every finding from one signature/implementation comparison. `Errors` is at error
@@ -186,7 +186,7 @@ module ConformanceSurface =
         ]
 
     /// Every finding over a signature's declarations. `implemented` is the surface the
-    /// implementation would publish unsigned; `implBindings` is its `(# … #)` bindings.
+    /// implementation would publish signatureless; `implBindings` is its `(# … #)` bindings.
     let check
         (published: PublishedSurface)
         (implemented: PublishedSurface)

@@ -9,8 +9,8 @@ the map to them, kept only until the open items close.
 ## What landed
 
 `conformSignature` compares the signature's `PublishedSurface` against the surface the
-implementation would publish unsigned (`FrozenSignature.toSurface` over the frozen pools), by
-resolved identity. The module-decl pairing alone stays syntactic (`Conformance.sigDeclPath` /
+implementation would publish signatureless (`FrozenSignature.toSurface` over the frozen pools),
+by resolved identity. The module-decl pairing alone stays syntactic (`Conformance.sigDeclPath` /
 `implDeclPath`), because two halves resolved under different headers publish into different
 namespaces and every later finding would be about the wrong companion.
 
@@ -32,7 +32,7 @@ Facts the code carries that a reader may otherwise re-derive:
   implementation-only member is hidden, not drift.
 - **Union cases compare positionally**, because the index is the runtime tag.
 - **A private implementation declaration behind a public signature declaration reports as
-  missing**, because the unsigned surface omits it. fsc rejects the same pair as FS0034.
+  missing**, because the signatureless surface omits it. fsc rejects the same pair as FS0034.
 - **Every `ConformanceError` case carries rendered text**, never a `FrozenType`, so the
   diagnostic codec has one row per case and no type writer.
 - **`ClassCommitment`** is three-valued (`Class` / `Interface` / `Opaque`); an opaque `type T`

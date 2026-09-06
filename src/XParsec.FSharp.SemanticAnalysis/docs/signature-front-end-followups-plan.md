@@ -28,7 +28,7 @@ survive onto the tables first. The exposure is theoretical for now: no contract 
 
 The conformance side is settled separately: a private implementation declaration behind a
 public signature declaration is reported as missing by `ConformanceSurface`, because the
-unsigned surface omits it (fsc's FS0034). Carrying accessibility onto the surface is this
+signatureless surface omits it (fsc's FS0034). Carrying accessibility onto the surface is this
 item's job alone.
 
 ## 2. `module A.B.C` as a whole FILE loses its module

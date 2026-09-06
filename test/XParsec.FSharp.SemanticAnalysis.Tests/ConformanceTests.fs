@@ -157,7 +157,7 @@ let analysedConformanceTests =
 
             test "a private implementation type behind a public signature declaration is missing" {
                 // fsc's FS0034: the accessibility in the signature exceeds the implementation's.
-                // The unsigned surface omits the private type, so presence reports it.
+                // The signatureless surface omits the private type, so presence reports it.
                 let m =
                     conformAnalysed "namespace V\n\ntype Bar = | BarCase" "namespace V\n\ntype private Bar = | BarCase"
                     |> theOne "finding"
