@@ -72,14 +72,11 @@ let forInTests =
                 Expect.equal exitCode 0 "Main returns 0"
                 Expect.equal (output.Replace("\r", "").Trim()) "1\n2\n3" "iterates the struct enumerator in order"
 
-                // The interface (boxing) path never emits `constrained.` (0xFE 0x16), so
+                // The interface (boxing) path never emits `constrained.`, so
                 // its presence is what distinguishes the two walks.
                 let il = peMethodIl bytes "Program" "Main"
 
-                let hasConstrained =
-                    il
-                    |> Array.windowed 2
-                    |> Array.exists (fun w -> w.[0] = 0xFEuy && w.[1] = 0x16uy)
+                let hasConstrained = ilHasConstrainedPrefix il
 
                 Expect.isTrue hasConstrained "Main IL contains a `constrained.` prefix (non-boxing struct enumerator)"
             }
@@ -280,13 +277,10 @@ let forInTests =
 
                 // `MoveNext` / `Current` are non-virtual, so they take a direct `call` on
                 // the address. This enumerator is not `IDisposable`, so a `constrained.`
-                // (0xFE 0x16) anywhere in `Main` could only be a member call.
+                // anywhere in `Main` could only be a member call.
                 let il = peMethodIl bytes "Program" "Main"
 
-                let hasConstrained =
-                    il
-                    |> Array.windowed 2
-                    |> Array.exists (fun w -> w.[0] = 0xFEuy && w.[1] = 0x16uy)
+                let hasConstrained = ilHasConstrainedPrefix il
 
                 Expect.isFalse
                     hasConstrained

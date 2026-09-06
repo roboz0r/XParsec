@@ -568,8 +568,8 @@ let staticTests =
 
                 let bytes = Codegen.toBytes artifact
                 let bumpIl = peMethodIl bytes "C" "Bump"
-                Expect.isTrue (Array.contains 0x80uy bumpIl) "the write to `static let mutable` emits `stsfld` (0x80)"
-                Expect.isTrue (Array.contains 0x7Euy bumpIl) "the read of `n` in `n + k` emits `ldsfld` (0x7E)"
+                Expect.isTrue (ilHasOp IlOp.Stsfld bumpIl) "the write to `static let mutable` emits `stsfld`"
+                Expect.isTrue (ilHasOp IlOp.Ldsfld bumpIl) "the read of `n` in `n + k` emits `ldsfld`"
 
                 let asm = loadAssembly bytes
                 let ty = asm.GetType "C"
@@ -777,8 +777,11 @@ let staticTests =
                         | _ -> ()
                     | _ -> ()
 
-                Expect.isTrue (staticCalls > 0) "`Box<'T>.Make x` (in Remake) lowered to a TExpr.StaticMethodCall"
-                Expect.isTrue (staticGets > 0) "`Box<'T>.Tag` (in MakeTagged) lowered to a TExpr.StaticPropertyGet"
+                Expect.isTrue
+                    (staticCalls > 0)
+                    "`Box<'T>.Origin ()` (in ReadOrigin) lowered to a TExpr.StaticMethodCall"
+
+                Expect.isTrue (staticGets > 0) "`Box<'T>.Tag` (in ReadTag) lowered to a TExpr.StaticPropertyGet"
             }
 
             // `Describe : 'T -> int` hides the declaring instantiation in its return, so
@@ -2176,7 +2179,7 @@ let interfaceImplCodegenTests =
                 let bytes = Codegen.toBytes artifact
 
                 Expect.equal
-                    (peInterfaceImplCount bytes)
+                    (peInterfaceImplCount bytes "C")
                     2
                     "C carries two InterfaceImpl rows (IEnumerable<int> + IEnumerable)"
 
@@ -2224,7 +2227,7 @@ let interfaceImplCodegenTests =
                 let bytes = Codegen.toBytes artifact
 
                 Expect.equal
-                    (peInterfaceImplCount bytes)
+                    (peInterfaceImplCount bytes "C`1")
                     2
                     "C<'T> carries two InterfaceImpl rows (IEnumerable<'T> + IEnumerable)"
 
@@ -2342,12 +2345,10 @@ let interfaceImplCodegenTests =
 
                 Expect.isTrue getValue.ReturnType.IsGenericParameter "get_Value returns the class typar, not obj"
 
-                // The implied box is materialised: `box !0` (0x8C) before the call.
+                // The implied box is materialised: `box !0` before the call.
                 let il = peMethodIl bytes "Holder`1" "HashVia"
 
-                Expect.isTrue
-                    (il |> Array.contains 0x8Cuy)
-                    "HashVia emits a box (0x8C) for the 'T argument passed to the obj parameter"
+                Expect.isTrue (ilHasBox il) "HashVia emits a box for the 'T argument passed to the obj parameter"
             }
 
             // The same box on the project-local path: `this.M(5)` has to push a boxed
@@ -2366,7 +2367,7 @@ let interfaceImplCodegenTests =
                 let bytes = Codegen.toBytes artifact
                 let il = peMethodIl bytes "C" "Probe"
 
-                Expect.isTrue (il |> Array.contains 0x8Cuy) "Probe boxes (0x8C) the int arg passed to the obj parameter"
+                Expect.isTrue (ilHasBox il) "Probe boxes the int arg passed to the obj parameter"
 
                 let asm = loadAssembly bytes
                 let ty = asm.GetType("C", throwOnError = true)
@@ -2492,11 +2493,11 @@ let interfaceImplCodegenTests =
                     "`C.P <- 4` runs the setter's `w + 1`, and `C.P` reads 5 back"
 
                 // `P` is a declared property, so `C` has no field of that name to write:
-                // an `stsfld` (0x80) here would be a write to storage that never exists.
+                // an `stsfld` here would be a write to storage that never exists.
                 let roundTrip = peMethodIl bytes "C" "RoundTrip"
 
                 Expect.isFalse
-                    (roundTrip |> Array.contains 0x80uy)
+                    (ilHasOp IlOp.Stsfld roundTrip)
                     "RoundTrip writes through set_P rather than emitting stsfld"
             }
 

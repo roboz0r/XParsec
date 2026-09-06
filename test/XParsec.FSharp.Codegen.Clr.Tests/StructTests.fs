@@ -195,9 +195,7 @@ let structTests =
                 let bytes = Codegen.toBytes artifact
 
                 for fn in [ "unitAsObj"; "tupleAsObj"; "enumAsObj" ] do
-                    Expect.isTrue
-                        (peMethodIl bytes "Program" fn |> Array.contains 0x8Cuy)
-                        (sprintf "%s IL contains a `box` (0x8C)" fn)
+                    Expect.isTrue (ilHasBox (peMethodIl bytes "Program" fn)) (sprintf "%s IL contains a `box`" fn)
 
                 let program = (loadAssembly bytes).GetType "Program"
 
@@ -686,8 +684,7 @@ let structTests =
             }
 
             // A group is all-flat iff `col + flatWidth inner <= width` (`width = 0` ⇒
-            // always flat), never half-broken. The fragment's `L`-prefixed cases
-            // (`LDoc`/`LText`/…) dodge the `Vesper.Doc`/`DocGroup` names in scope.
+            // always flat), never half-broken.
             test "Doc layout core: flatWidth + Render (flat / never-break / broken)" {
                 runsDataLines
                     [

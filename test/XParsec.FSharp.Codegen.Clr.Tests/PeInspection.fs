@@ -24,18 +24,24 @@ let loadAssembly (bytes: byte[]) : Assembly =
 let openPe (bytes: byte[]) : PEReader =
     new PEReader(System.Collections.Immutable.ImmutableArray.Create<byte>(bytes))
 
+/// `Namespace.Name`, or `Name` alone for the empty namespace.
+let private qualifiedName (ns: string) (name: string) : string =
+    if String.IsNullOrEmpty ns then
+        name
+    else
+        sprintf "%s.%s" ns name
+
+/// The namespace-qualified name of a type-def, so a NESTED type appears as `Inner` rather
+/// than `Outer+Inner`.
+let private qualifiedTypeName (md: MetadataReader) (td: TypeDefinition) : string =
+    qualifiedName (md.GetString td.Namespace) (md.GetString td.Name)
+
 /// The base-type full name of the FIRST type-def whose simple name satisfies `nameMatches`,
 /// resolving the handle through a `TypeReference` or a sibling `TypeDefinition`.
 /// `System.ValueType` vs `System.Object` distinguishes a struct closure from a heap one.
 let peTypeBaseTypeName (bytes: byte[]) (nameMatches: string -> bool) : string voption =
     use peReader = openPe bytes
     let md = peReader.GetMetadataReader()
-
-    let nameOf (ns: string) (n: string) =
-        if System.String.IsNullOrEmpty ns then
-            n
-        else
-            sprintf "%s.%s" ns n
 
     md.TypeDefinitions
     |> Seq.tryPick (fun tdh ->
@@ -50,39 +56,59 @@ let peTypeBaseTypeName (bytes: byte[]) (nameMatches: string -> bool) : string vo
                 match bt.Kind with
                 | HandleKind.TypeReference ->
                     let r = md.GetTypeReference(TypeReferenceHandle.op_Explicit bt)
-                    Some(ValueSome(nameOf (md.GetString r.Namespace) (md.GetString r.Name)))
+                    Some(ValueSome(qualifiedName (md.GetString r.Namespace) (md.GetString r.Name)))
                 | HandleKind.TypeDefinition ->
                     let d = md.GetTypeDefinition(TypeDefinitionHandle.op_Explicit bt)
-                    Some(ValueSome(nameOf (md.GetString d.Namespace) (md.GetString d.Name)))
+                    Some(ValueSome(qualifiedTypeName md d))
                 | _ -> Some ValueNone
         else
             None
     )
     |> Option.defaultValue ValueNone
 
+/// Every `<closure>$…` type-def in the PE, in type-def order.
+let private closureTypeDefs (md: MetadataReader) : TypeDefinition seq =
+    md.TypeDefinitions
+    |> Seq.map md.GetTypeDefinition
+    |> Seq.filter (fun td -> (md.GetString td.Name).StartsWith "<closure>$")
+
 /// The base-type SIMPLE name (`ValueType` / `Object`) of EVERY `<closure>$…` type-def in
 /// the PE, one entry per closure, so a test can assert all closures are value types.
-/// `<none>` when the base handle is not a `TypeReference`.
+/// Throws if a closure's base handle is not a `TypeReference`.
 let peClosureBaseTypeNames (bytes: byte[]) : string list =
     use peReader = openPe bytes
     let md = peReader.GetMetadataReader()
 
-    md.TypeDefinitions
-    |> Seq.choose (fun tdh ->
-        let td = md.GetTypeDefinition tdh
-
-        if (md.GetString td.Name).StartsWith "<closure>$" then
+    [
+        for td in closureTypeDefs md do
             match td.BaseType.Kind with
             | HandleKind.TypeReference ->
-                Some(md.GetString (md.GetTypeReference(TypeReferenceHandle.op_Explicit td.BaseType)).Name)
-            | _ -> Some "<none>"
-        else
-            None
-    )
-    |> Seq.toList
+                md.GetString (md.GetTypeReference(TypeReferenceHandle.op_Explicit td.BaseType)).Name
+            | kind ->
+                failwithf
+                    "PeInspection: closure '%s' has a %A base handle; expected a TypeReference"
+                    (md.GetString td.Name)
+                    kind
+    ]
+
+/// The name of every `<closure>$…` type-def carrying a `.cctor`, in type-def order: the
+/// closures given a cached singleton.
+let peClosureCctors (bytes: byte[]) : string list =
+    use peReader = openPe bytes
+    let md = peReader.GetMetadataReader()
+
+    [
+        for td in closureTypeDefs md do
+            let hasCctor =
+                td.GetMethods()
+                |> Seq.exists (fun mdh -> md.GetString (md.GetMethodDefinition mdh).Name = ".cctor")
+
+            if hasCctor then
+                md.GetString td.Name
+    ]
 
 /// Every method-def outside `<Module>` as `(declaringType, methodName)`, the declaring type
-/// spelled `Namespace.Name`, so a NESTED type appears as `Inner` rather than `Outer+Inner`.
+/// spelled `Namespace.Name`.
 let peMethodNames (bytes: byte[]) : (string * string) list =
     use peReader = openPe bytes
     let md = peReader.GetMetadataReader()
@@ -90,16 +116,9 @@ let peMethodNames (bytes: byte[]) : (string * string) list =
     [
         for tdHandle in md.TypeDefinitions do
             let td = md.GetTypeDefinition tdHandle
-            let typeName = md.GetString td.Name
 
-            if typeName <> "<Module>" then
-                let ns = md.GetString td.Namespace
-
-                let qualified =
-                    if System.String.IsNullOrEmpty ns then
-                        typeName
-                    else
-                        sprintf "%s.%s" ns typeName
+            if md.GetString td.Name <> "<Module>" then
+                let qualified = qualifiedTypeName md td
 
                 for mdh in td.GetMethods() do
                     let m = md.GetMethodDefinition mdh
@@ -114,15 +133,9 @@ let peTypeDefNames (bytes: byte[]) : string list =
     [
         for tdHandle in md.TypeDefinitions do
             let td = md.GetTypeDefinition tdHandle
-            let typeName = md.GetString td.Name
 
-            if typeName <> "<Module>" then
-                let ns = md.GetString td.Namespace
-
-                if System.String.IsNullOrEmpty ns then
-                    yield typeName
-                else
-                    yield sprintf "%s.%s" ns typeName
+            if md.GetString td.Name <> "<Module>" then
+                yield qualifiedTypeName md td
     ]
 
 /// Every TypeRef in the PE by namespace-qualified name: the external types the emitted
@@ -134,13 +147,7 @@ let peTypeRefNames (bytes: byte[]) : string list =
     [
         for trHandle in md.TypeReferences do
             let tr = md.GetTypeReference trHandle
-            let ns = md.GetString tr.Namespace
-            let name = md.GetString tr.Name
-
-            if System.String.IsNullOrEmpty ns then
-                yield name
-            else
-                yield sprintf "%s.%s" ns name
+            yield qualifiedName (md.GetString tr.Namespace) (md.GetString tr.Name)
     ]
 
 /// Every AssemblyRef name in the PE: the dependency surface the loader resolves.
@@ -154,24 +161,21 @@ let peAssemblyRefs (bytes: byte[]) : string list =
             md.GetString r.Name
     ]
 
-/// Total `InterfaceImpl` rows across every type-def: one per `: IFace` entry actually emitted,
-/// so an inherited interface is excluded where `Type.GetInterfaces` would fold it in.
-let peInterfaceImplCount (bytes: byte[]) : int =
+/// The `InterfaceImpl` rows of the type-def named `declaringType`: one per `: IFace` entry
+/// actually emitted, so an inherited interface is excluded where `Type.GetInterfaces` would
+/// fold it in. Throws if the type is not found.
+let peInterfaceImplCount (bytes: byte[]) (declaringType: string) : int =
     use peReader = openPe bytes
     let md = peReader.GetMetadataReader()
 
-    md.TypeDefinitions
-    |> Seq.sumBy (fun h -> (md.GetTypeDefinition h).GetInterfaceImplementations().Count)
+    let found =
+        md.TypeDefinitions
+        |> Seq.map md.GetTypeDefinition
+        |> Seq.tryFind (fun td -> qualifiedTypeName md td = declaringType)
 
-/// The namespace-qualified name of a type-def.
-let private qualifiedTypeName (md: MetadataReader) (td: TypeDefinition) : string =
-    let name = md.GetString td.Name
-    let ns = md.GetString td.Namespace
-
-    if String.IsNullOrEmpty ns then
-        name
-    else
-        sprintf "%s.%s" ns name
+    match found with
+    | Some td -> td.GetInterfaceImplementations().Count
+    | None -> failwithf "PeInspection: no type-def '%s'" declaringType
 
 /// Every method on `declaringType` whose name satisfies `nameMatches`, in type-def then
 /// method-def order.
@@ -256,6 +260,77 @@ let private opCodeTable: Lazy<Collections.Generic.Dictionary<int, Emit.OpCode>> 
 
          table)
 
+/// One decoded instruction of an IL body: its opcode and the offset of its operand (the
+/// offset of the next instruction for an operand-less opcode).
+[<Struct>]
+type IlInstruction = { Op: Emit.OpCode; OperandOffset: int }
+
+/// The instructions of a raw IL body in order. Throws on an operand type the walk does not
+/// size.
+let ilInstructions (il: byte[]) : IlInstruction list =
+    let table = opCodeTable.Value
+    let ops = ResizeArray<IlInstruction>()
+    let mutable i = 0
+
+    while i < il.Length do
+        let code, width =
+            if il.[i] = 0xFEuy then
+                (0xFE00 ||| int il.[i + 1]), 2
+            else
+                int il.[i], 1
+
+        let op = table.[code]
+        i <- i + width
+        ops.Add { Op = op; OperandOffset = i }
+
+        match op.OperandType with
+        | Emit.OperandType.InlineNone -> ()
+        | Emit.OperandType.ShortInlineBrTarget
+        | Emit.OperandType.ShortInlineI
+        | Emit.OperandType.ShortInlineVar -> i <- i + 1
+        | Emit.OperandType.InlineVar -> i <- i + 2
+        | Emit.OperandType.InlineI8
+        | Emit.OperandType.InlineR -> i <- i + 8
+        | Emit.OperandType.InlineSwitch ->
+            let count = BitConverter.ToInt32(il, i)
+            i <- i + 4 + 4 * count
+        | Emit.OperandType.InlineField
+        | Emit.OperandType.InlineMethod
+        | Emit.OperandType.InlineTok
+        | Emit.OperandType.InlineBrTarget
+        | Emit.OperandType.InlineI
+        | Emit.OperandType.InlineString
+        | Emit.OperandType.InlineSig
+        | Emit.OperandType.InlineType
+        | Emit.OperandType.ShortInlineR -> i <- i + 4
+        | other -> failwithf "ilInstructions: unhandled operand type %A" other
+
+    List.ofSeq ops
+
+/// The opcodes a test asserts on, by name.
+module IlOp =
+    let Call = Emit.OpCodes.Call
+    let Newobj = Emit.OpCodes.Newobj
+    let Ldsfld = Emit.OpCodes.Ldsfld
+    let Stsfld = Emit.OpCodes.Stsfld
+    let Box = Emit.OpCodes.Box
+    let Constrained = Emit.OpCodes.Constrained
+
+/// How many instructions of `il` carry opcode `op`.
+let ilCountOp (op: Emit.OpCode) (il: byte[]) : int =
+    ilInstructions il |> List.sumBy (fun i -> if i.Op = op then 1 else 0)
+
+/// Whether any instruction of `il` carries opcode `op`.
+let ilHasOp (op: Emit.OpCode) (il: byte[]) : bool =
+    ilInstructions il |> List.exists (fun i -> i.Op = op)
+
+/// Whether `il` dispatches through a `constrained.` prefix: a typar-receiver member call
+/// addressing a struct with no box.
+let ilHasConstrainedPrefix (il: byte[]) : bool = ilHasOp IlOp.Constrained il
+
+/// Whether `il` contains a `box`.
+let ilHasBox (il: byte[]) : bool = ilHasOp IlOp.Box il
+
 /// The name of the member a metadata token designates: a `MethodDef`, `FieldDef` or
 /// `MemberRef` row's own name, a `MethodSpec` through the method it instantiates.
 let rec private memberNameOfToken (md: MetadataReader) (token: int) : string =
@@ -280,45 +355,16 @@ let peMethodMemberOps (bytes: byte[]) (declaringType: string) (methodName: strin
     use peReader = openPe bytes
     let md = peReader.GetMetadataReader()
     let il = methodIl peReader (methodDefNamed md declaringType methodName)
-    let table = opCodeTable.Value
-    let ops = ResizeArray<string * string>()
-    let mutable i = 0
 
-    while i < il.Length do
-        let code, width =
-            if il.[i] = 0xFEuy then
-                (0xFE00 ||| int il.[i + 1]), 2
-            else
-                int il.[i], 1
-
-        let op = table.[code]
-        i <- i + width
-
-        match op.OperandType with
-        | Emit.OperandType.InlineNone -> ()
-        | Emit.OperandType.ShortInlineBrTarget
-        | Emit.OperandType.ShortInlineI
-        | Emit.OperandType.ShortInlineVar -> i <- i + 1
-        | Emit.OperandType.InlineVar -> i <- i + 2
-        | Emit.OperandType.InlineI8
-        | Emit.OperandType.InlineR -> i <- i + 8
-        | Emit.OperandType.InlineSwitch ->
-            let count = BitConverter.ToInt32(il, i)
-            i <- i + 4 + 4 * count
-        | Emit.OperandType.InlineField
-        | Emit.OperandType.InlineMethod
-        | Emit.OperandType.InlineTok ->
-            ops.Add(op.Name, memberNameOfToken md (BitConverter.ToInt32(il, i)))
-            i <- i + 4
-        | Emit.OperandType.InlineBrTarget
-        | Emit.OperandType.InlineI
-        | Emit.OperandType.InlineString
-        | Emit.OperandType.InlineSig
-        | Emit.OperandType.InlineType
-        | Emit.OperandType.ShortInlineR -> i <- i + 4
-        | other -> failwithf "peMethodMemberOps: unhandled operand type %A" other
-
-    List.ofSeq ops
+    [
+        for i in ilInstructions il do
+            match i.Op.OperandType with
+            | Emit.OperandType.InlineField
+            | Emit.OperandType.InlineMethod
+            | Emit.OperandType.InlineTok ->
+                yield i.Op.Name, memberNameOfToken md (BitConverter.ToInt32(il, i.OperandOffset))
+            | _ -> ()
+    ]
 
 /// How many local slots the body of `methodName` on `declaringType` declares; `0` for a
 /// body-less method. Throws if not found.

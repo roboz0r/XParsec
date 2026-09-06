@@ -1,3 +1,5 @@
+// The `L` prefix keeps these cases distinct from the external `Vesper.Doc` / `Vesper.DocGroup`
+// in scope in the default test stack.
 type LDoc =
     | LText of string
     | LLine of string
