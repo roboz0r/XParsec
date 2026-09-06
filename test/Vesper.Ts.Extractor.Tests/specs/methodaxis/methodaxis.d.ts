@@ -3,7 +3,7 @@
 // `MethodTypar 0`, the method `TypeParams` COUNT (1) is emitted, and the golden carries
 // ZERO diagnostics (no erasure). The provider rehydrates it as `FTTypar(Method, 0)`,
 // which it freshens per call site. (Before Phase 3.5 the single-axis `Typar` could not
-// carry a method reference, so `U` was erased to `obj` + a `method-axis-typar-erased`
+// carry a method reference, so `U` was erased to `obj` + a `method-scope-typar-erased`
 // Warning; that degrade is gone now that the method axis exists.)
 
 export interface Mapper {

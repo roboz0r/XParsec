@@ -14,10 +14,10 @@ let named (n: string) : Schema.TypeRef = Schema.TypeRef.Named(n, [])
 /// A named generic type applied to `args` (`Emitter<Events>`).
 let namedG (n: string) (args: Schema.TypeRef list) : Schema.TypeRef = Schema.TypeRef.Named(n, args)
 
-/// A declaring-axis open type parameter (the enclosing type's `i`-th typar).
+/// A type-scope open type parameter (the enclosing type's `i`-th typar).
 let typar (i: int) : Schema.TypeRef = Schema.TypeRef.Typar i
 
-/// A method-axis open type parameter (a generic MEMBER's own `i`-th typar).
+/// A method-scope open type parameter (a generic MEMBER's own `i`-th typar).
 let methodTypar (i: int) : Schema.TypeRef = Schema.TypeRef.MethodTypar i
 
 /// A curried function type (`int -> unit`).

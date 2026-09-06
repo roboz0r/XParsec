@@ -51,8 +51,8 @@
     <Compile Include="EnumTests.fs" />
     <Compile Include="NullUndefinedTests.fs" />
     <Compile Include="DynamicTypeTests.fs" />
-    <Compile Include="MethodAxisGenericTests.fs" />
-    <Compile Include="MethodAxisSingleCandidateTests.fs" />
+    <Compile Include="MethodScopeGenericTests.fs" />
+    <Compile Include="MethodScopeSingleCandidateTests.fs" />
     <Compile Include="ExternalNominalClassTests.fs" />
     <Compile Include="ExternalHeritageTests.fs" />
     <Compile Include="LiteralUnionTests.fs" />

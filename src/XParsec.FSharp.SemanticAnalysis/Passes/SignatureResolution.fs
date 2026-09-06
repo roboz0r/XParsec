@@ -74,7 +74,7 @@ module SignatureResolution =
         match TypeRegistry.tryRecordByKey ctx.Types key with
         | ValueNone -> ()
         | ValueSome info ->
-            let env = typarEnv ctx (TyparOwner.Type(key, info.TypeParams))
+            let env = scopedEnv ctx (TyparScope.Type key) info.TypeParams
 
             let fields =
                 EqArray.ofSeq
@@ -118,7 +118,7 @@ module SignatureResolution =
         match TypeRegistry.tryUnionByKey ctx.Types key with
         | ValueNone -> ()
         | ValueSome info ->
-            let env = typarEnv ctx (TyparOwner.Type(key, info.TypeParams))
+            let env = scopedEnv ctx (TyparScope.Type key) info.TypeParams
 
             let cases =
                 EqArray.ofSeq
@@ -173,7 +173,7 @@ module SignatureResolution =
         let ctx = sctx.Pass
 
         let info = TypeRegistry.abbrevOfClaim ctx.Types id
-        let env = typarEnv ctx (TyparOwner.Type(id.Key, info.TypeParams))
+        let env = scopedEnv ctx (TyparScope.Type id.Key) info.TypeParams
 
         let body =
             match info.TryFilled with
@@ -659,7 +659,7 @@ module SignatureResolution =
                     underTypars ctx EqArray.empty typeParams (fun () -> translateSigGroups ctx csig)
 
                 let env =
-                    typarEnv ctx (TyparOwner.Value(SymbolKeyOps.bindingKeyOf decl name, typeParams))
+                    scopedEnv ctx (TyparScope.ModuleFunction(SymbolKeyOps.bindingKeyOf decl name)) typeParams
 
                 let template = freezeOver ctx env (curriedFunTy domains ret)
 

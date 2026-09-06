@@ -408,7 +408,7 @@ spelled as signatures.
   `structural-printer.js.fs`). Not a defect — the alias derives from the declaring module,
   not the package — but it is why the assertion message has to spell out "(Printf owns `%A`)"
   to stop the pin reading as a typo.
-- `MethodAxisSingleCandidateTests.fs` annotates `echoProvider : IExternalSymbolProvider`
+- `MethodScopeSingleCandidateTests.fs` annotates `echoProvider : IExternalSymbolProvider`
   redundantly with `contractTs`'s return type.
 - `ExternMemberInlineTests.fs` used a box-drawing rule (`─── … ───`) as a section divider; no
   other file in the suite does. Replaced with an ordinary comment. If section dividers are

@@ -205,7 +205,7 @@ let mittDiagnosticsContract =
 //   • recursion-depth-exceeded — the self-recursive `Awaited<T>` conditional (and the
 //     `infer`-introduced pieces it expands into) recurses unbounded; `mapType` degrades
 //     the subtree to `obj` at the depth bound so `Promise` still extracts as a class.
-//   • method-axis-typar-erased — a type parameter bound by NEITHER axis: `infer` typars
+//   • method-scope-typar-erased — a type parameter bound by NEITHER scope: `infer` typars
 //     inside conditional types and the apply/bind/call typars on `CallableFunction`/
 //     `NewableFunction` that TS does not surface on the tracked axes → erased to `obj`.
 //   • intersection-erased — only a NON-object intersection, which has no merged member
@@ -224,7 +224,7 @@ let es2015BurndownContract =
     let committedRanking =
         [
             "recursion-depth-exceeded", 15
-            "method-axis-typar-erased", 14
+            "method-scope-typar-erased", 14
             "structural-object-stubbed", 14
             "intersection-erased", 2
         ]

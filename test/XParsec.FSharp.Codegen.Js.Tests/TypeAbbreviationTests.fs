@@ -58,10 +58,9 @@ let tests =
             for p in TypeAbbreviationFixtures.programs do
                 test p.Description { expectOutput ("js-" + p.Name) p.Source p.Expected }
 
-            // Control for the generic fixture, with no abbreviation: the JS emitter refuses a
-            // top-level tuple-pattern binding as an unsupported declaration, so the fixture
-            // destructures inside a function.
-            ptest "GAP: a top-level tuple-pattern binding is `EmitJs: unsupported declaration` (prints 40)" {
+            // Control for the generic fixture, with no abbreviation: a top-level tuple-pattern
+            // binding destructures at module scope.
+            test "a top-level tuple-pattern binding destructures at module scope (prints 40)" {
                 expectOutput
                     "js-toplevel-tuple-pattern"
                     (String.concat "\n" [ "let (u, v) = (20, 10)"; "printfn \"%d\" (u + v * 2)" ])

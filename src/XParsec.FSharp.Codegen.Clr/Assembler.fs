@@ -114,10 +114,10 @@ type internal Assembler
     let enums = Dictionary<TypeKey, Emit.EmittedEnum>()
     let interfaces = Dictionary<TypeKey, Emit.EmittedInterface>()
 
-    // A module value's verdict-rewritten field-slot type, keyed by the same `SymbolKey`
+    // A module value's verdict-rewritten field-slot type, keyed by the same `BindingKey`
     // `FieldKey.ModuleValue` carries. This is the one per-file datum the shared field pass
     // needs, as a lookup, so the pass itself stays a plain walk of `layout.Fields`.
-    let moduleValueSlotType = Dictionary<SymbolKey, FrozenType>()
+    let moduleValueSlotType = Dictionary<BindingKey, FrozenType>()
 
     // Per file, BEFORE the shared field pass: register this file's nominals with the
     // provider, mint its value-struct closure types, and build its closure-verdict
@@ -210,7 +210,7 @@ type internal Assembler
         // Surface this file's slot types into the shared lookup the field pass reads. A
         // non-verdict binding maps to its declared type unchanged.
         for mv in plan.AllModuleValues do
-            moduleValueSlotType.[mv.SymbolKey] <- verdict.ModuleValueSlotType mv.Key mv.Ty
+            moduleValueSlotType.[mv.BindingKey] <- verdict.ModuleValueSlotType mv.Key mv.Ty
 
         {
             Layout = file
@@ -267,7 +267,7 @@ type internal Assembler
             // instead of an `AssemblyRef`-scoped member ref, as `RegisterLocalModuleFn` does
             // for a function. Keyed by the `SymbolKey` a reference spells.
             match fs.Key with
-            | FieldKey.ModuleValue mvKey -> provider.RegisterLocalModuleValue(mvKey, toEntity h)
+            | FieldKey.ModuleValue mvKey -> provider.RegisterLocalModuleValue(SymbolKey.Binding mvKey, toEntity h)
             | _ -> ()
 
             // A numeric enum case field: attach its `Constant` row now, in field
@@ -313,7 +313,7 @@ type internal Assembler
         for fn in plan.StaticFns do
             staticMethods.[fn.Key] <-
                 {
-                    Handle = toEntity (layoutHandles.MethodDefOf(MethodKey.StaticFn fn.SymbolKey))
+                    Handle = toEntity (layoutHandles.MethodDefOf(MethodKey.StaticFn fn.BindingKey))
                     Params = fn.Params |> CompiledFns.FlatParams.map (fun p -> p.Ty)
                     ResultTy = fn.ResultTy
                     Scheme = fn.Scheme
@@ -324,7 +324,7 @@ type internal Assembler
         let moduleValueFields = Dictionary<BoundVarId, EntityHandle>()
 
         for mv in plan.AllModuleValues do
-            moduleValueFields.[mv.Key] <- toEntity fieldDefHandles.[FieldKey.ModuleValue mv.SymbolKey]
+            moduleValueFields.[mv.Key] <- toEntity fieldDefHandles.[FieldKey.ModuleValue mv.BindingKey]
 
         // The trailing top-level values: their field is stored by `Main` (`stsfld`), not
         // a `.cctor`. Same handles as above, split out so the store can be emitted for
@@ -853,7 +853,7 @@ type internal Assembler
                 | false, true -> provider.GenericMethodOnTypeSignatureVoid(typarCount, paramTys, false)
 
             this.AddPrepared(
-                MethodKey.StaticFn fn.SymbolKey,
+                MethodKey.StaticFn fn.BindingKey,
                 {
                     Signature = signature
                     Body = staticBody

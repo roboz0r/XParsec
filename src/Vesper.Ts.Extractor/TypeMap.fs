@@ -22,7 +22,7 @@ let typarSymbols (tps: Ts.Type seq) : Ts.Symbol list =
     )
     |> List.ofSeq
 
-/// Declaring-axis typars in declaration order — a class/interface DECLARED type is an
+/// Type-scope typars in declaration order — a class/interface DECLARED type is an
 /// `InterfaceType` at runtime, which is where `typeParameters` lives.
 let declaredTypars (declared: Ts.Type) : Ts.Symbol list =
     match (unbox<Ts.InterfaceType> declared).typeParameters with
@@ -173,8 +173,8 @@ and private mapTypeInner (ctx: MapCtx) (t: Ts.Type) : Schema.TypeRef =
     let printed = checker.typeToString t
 
     // Before the printed-name match below: a typar prints as its bare name (`T`), which
-    // would otherwise look nominal. Declaring axis first, matching F# scoping — a name in
-    // both axes binds to the declaring slot.
+    // would otherwise look nominal. Type scope first, matching F# scoping: a name in both
+    // scopes binds to the type-scope slot.
     if t.isTypeParameter () then
         match lookupTypar ctx.DeclaringEnv t with
         | Some i -> Schema.TypeRef.Typar i
@@ -186,11 +186,11 @@ and private mapTypeInner (ctx: MapCtx) (t: Ts.Type) : Schema.TypeRef =
 
                 emitWarning
                     ctx
-                    Schema.DiagCode.MethodAxisTyparErased
+                    Schema.DiagCode.MethodScopeTyparErased
                     printed
                     span
                     (sprintf
-                        "type parameter '%s' is bound by neither the declaring nor the method axis; erased to obj"
+                        "type parameter '%s' is bound by neither the type nor the method scope; erased to obj"
                         printed)
 
                 Schema.TypeRef.Named("obj", [])
@@ -350,21 +350,21 @@ let mapParam (ctx: MapCtx) (p: Ts.Symbol) : Schema.Param =
         Rest = paramDecl.dotDotDotToken.IsSome
     }
 
-/// WHICH kind of signature is being mapped — which axis its own typars occupy, and
+/// WHICH kind of signature is being mapped: which scope its own typars occupy, and
 /// whether their bounds are extracted.
 [<RequireQualifiedAccess>]
-type SigAxis =
-    /// Own typars sit on the METHOD axis, and their authored constraints
+type SigScope =
+    /// Own typars sit in the METHOD scope, and their authored constraints
     /// (`<Key extends keyof Events>`) are carried onto `TypeParamBounds` unevaluated.
     | MemberMethod
-    /// No declaring type, so own typars take the DECLARING index space; no bounds.
+    /// No declaring type, so own typars take the TYPE-scope index space; no bounds.
     | FreeFunction
     /// Own typars split by ORIGIN: TS makes a real generic class's construct signatures
-    /// generic over the CLASS typars, already on the declaring axis, while `interface
-    /// FooCtor { new <T>(v: T): Foo<T> }` introduces fresh ones for the method axis.
+    /// generic over the CLASS typars, already in the type scope, while `interface
+    /// FooCtor { new <T>(v: T): Foo<T> }` introduces fresh ones for the method scope.
     | Ctor
 
-let mapSignature (ctx: MapCtx) (axis: SigAxis) (sg: Ts.Signature) : Schema.Signature =
+let mapSignature (ctx: MapCtx) (scope: SigScope) (sg: Ts.Signature) : Schema.Signature =
     let ownTypars =
         sg.getTypeParameters () |> Option.map List.ofSeq |> Option.defaultValue []
 
@@ -386,12 +386,12 @@ let mapSignature (ctx: MapCtx) (axis: SigAxis) (sg: Ts.Signature) : Schema.Signa
         | None -> None
 
     let bodyCtx, typeParams, bounds =
-        match axis with
-        | SigAxis.MemberMethod ->
+        match scope with
+        | SigScope.MemberMethod ->
             let bodyCtx = { ctx with MethodEnv = ownTyparSyms () }
 
             bodyCtx, List.length ownTypars, ownTypars |> List.map (boundOf bodyCtx)
-        | SigAxis.FreeFunction ->
+        | SigScope.FreeFunction ->
             let bodyCtx =
                 { ctx with
                     DeclaringEnv = ownTyparSyms ()
@@ -399,10 +399,10 @@ let mapSignature (ctx: MapCtx) (axis: SigAxis) (sg: Ts.Signature) : Schema.Signa
                 }
 
             bodyCtx, List.length ownTypars, ownTypars |> List.map (fun _ -> None)
-        | SigAxis.Ctor ->
+        | SigScope.Ctor ->
             // Seeding the method env lets a FRESH construct-sig typar resolve to
-            // `MethodTypar i`, while declaring-first resolution keeps a real class's on
-            // `Typar`. Method arity counts only typars the declaring axis does not bind.
+            // `MethodTypar i`, while type-scope-first resolution keeps a real class's on
+            // `Typar`. Method arity counts only typars the type scope does not bind.
             let ownSyms = ownTyparSyms ()
 
             let freshCount =

@@ -23,10 +23,10 @@ type TypeRef =
     /// FRONT-END identity (`int`, `string`, `bool`, `unit`) — never a BCL or JS repr;
     /// the provider maps it to the platform type id.
     | Named of name: string * args: TypeRef list
-    /// Open type parameter, declaring-axis index (the enclosing class / interface /
+    /// Open type parameter, type-scope index (the enclosing class / interface /
     /// alias / free-function's own typars).
     | Typar of index: int
-    /// Open type parameter, METHOD-axis index — a generic MEMBER's OWN type parameter
+    /// Open type parameter, METHOD-scope index — a generic MEMBER's OWN type parameter
     /// (`map<U>(x: U)` → `U` is `MethodTypar 0`). Only a member-of-a-type carries this;
     /// a free function's own typars are carried on `Typar`.
     | MethodTypar of index: int
@@ -73,7 +73,7 @@ type Param =
 
 type Signature =
     {
-        /// Count of the member's OWN generic type parameters (method axis).
+        /// Count of the member's OWN generic type parameters (method scope).
         TypeParams: int
         /// Per-method-typar upper bound: index `i` is the `i`-th own type parameter's
         /// constraint (`<Key extends keyof Events>` → the `keyof Events` `TypeRef`),
@@ -178,8 +178,8 @@ type Span = { File: string; Start: int; End: int }
 /// `Dynamic`, boolean literal → `bool`, and non-integer numeric literal → `float`.
 [<RequireQualifiedAccess>]
 type DiagCode =
-    /// A type parameter bound by NEITHER the declaring nor the method axis, erased to `obj`.
-    | MethodAxisTyparErased
+    /// A type parameter bound by NEITHER the type nor the method scope, erased to `obj`.
+    | MethodScopeTyparErased
     /// An anonymous structural object replaced by a content-hashed stub.
     | StructuralObjectStubbed
     /// get/set accessor with differing types, narrowed to the getter's.
@@ -213,7 +213,7 @@ type DiagCode =
     /// The wire spelling (kebab-case, stable across schema versions).
     member this.Wire: string =
         match this with
-        | MethodAxisTyparErased -> "method-axis-typar-erased"
+        | MethodScopeTyparErased -> "method-scope-typar-erased"
         | StructuralObjectStubbed -> "structural-object-stubbed"
         | AsymmetricAccessorNarrowed -> "asymmetric-accessor-narrowed"
         | MergedNamespaceDropped -> "merged-namespace-dropped"
@@ -227,7 +227,7 @@ type DiagCode =
 
     static member OfWire(s: string) : DiagCode =
         match s with
-        | "method-axis-typar-erased" -> MethodAxisTyparErased
+        | "method-scope-typar-erased" -> MethodScopeTyparErased
         | "structural-object-stubbed" -> StructuralObjectStubbed
         | "asymmetric-accessor-narrowed" -> AsymmetricAccessorNarrowed
         | "merged-namespace-dropped" -> MergedNamespaceDropped

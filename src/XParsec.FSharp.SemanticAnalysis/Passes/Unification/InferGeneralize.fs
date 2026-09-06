@@ -348,20 +348,22 @@ module internal UnificationInferGeneralize =
         | Expr.TypeAnnotation(expr = inner) -> isExpansive inner
         | _ -> false
 
-    /// Single-name `let` generalises unless the binding is `mutable`. A mutable binding stays
-    /// monomorphic: every use unifies against the binding's own TyVar, so a free TyVar can
-    /// still be pinned by a later use or assignment, without a polymorphic scheme.
-    let shouldGeneralise (b: Binding<SyntaxToken>) : bool =
-        if b.mutableToken.IsSome then
-            false
-        // A parameterless binding with an expansive RHS is value-restricted; only function
-        // bindings and non-expansive values generalise.
-        elif b.argumentPats.IsEmpty && isExpansive b.expr then
-            false
-        else
-            match b.pattern with
-            | Pat.NamedSimple _ -> true
-            // An operator-named binding (`let inline (=) …`) is a single-name
-            // function; generalise it like any other function value.
-            | Pat.Op _ -> true
-            | _ -> false
+    /// The pattern nodes a `let` binds, each the key of its own scheme entry: the one node of
+    /// a simple or operator-named binding, else every name the pattern binds.
+    let boundKeys (ctx: PassContext) (b: Binding<SyntaxToken>) : NodeKey list =
+        match b.pattern with
+        | Pat.NamedSimple _
+        | Pat.Op _ -> [ CstKeys.ofPat b.pattern ]
+        | p -> NameResolutionScope.bindingsOfPat ctx p |> List.map snd
+
+    /// Whether a `let` generalises. A `mutable` binding stays monomorphic, so a later use or
+    /// assignment can still pin its one shared TyVar. A parameterless binding with an
+    /// expansive RHS is value-restricted.
+    let generalises (b: Binding<SyntaxToken>) : bool =
+        b.mutableToken.IsNone
+        && (not b.argumentPats.IsEmpty || not (isExpansive b.expr))
+
+    /// The pattern nodes a generalising `let` generalises, each on its own:
+    /// `let (f, g) = (id, id)` gives `f` and `g` independent schemes, as `fsc` does.
+    let generalisedKeys (ctx: PassContext) (b: Binding<SyntaxToken>) : NodeKey list =
+        if generalises b then boundKeys ctx b else []

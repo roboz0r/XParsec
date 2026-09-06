@@ -147,7 +147,7 @@ module EmitClosures =
         {
             Name: string
             Home: EmitHome
-            SymbolKey: SymbolKey
+            BindingKey: BindingKey
             Naming: EmittedNaming
         }
 
@@ -162,7 +162,7 @@ module EmitClosures =
         {
             Name = info.EmittedName
             Home = homeOf programClass info
-            SymbolKey = info.Key
+            BindingKey = info.BindingKey
             Naming = EmittedNaming.Source
         }
 
@@ -181,7 +181,7 @@ module EmitClosures =
         {
             Name = name
             Home = home
-            SymbolKey = SymbolKeyOps.valueKey (ModuleContainer.InModule home.Class) name
+            BindingKey = SymbolKeyOps.bindingKeyOf (ModuleContainer.InModule home.Class) name
             Naming = EmittedNaming.Minted
         }
 
@@ -251,7 +251,7 @@ module EmitClosures =
     let private moduleValue (k: BoundVarId) (ty: FrozenType) (init: TastAccessor.ExprId) (em: Emission) : ModuleValue =
         {
             Key = k
-            SymbolKey = em.SymbolKey
+            BindingKey = em.BindingKey
             Name = em.Name
             Naming = em.Naming
             Ty = ty
@@ -318,7 +318,7 @@ module EmitClosures =
                 Some
                     {
                         Key = k
-                        SymbolKey = em.SymbolKey
+                        BindingKey = em.BindingKey
                         Name = em.Name
                         Home = em.Home
                         Naming = em.Naming
@@ -543,7 +543,7 @@ module EmitClosures =
                     yield
                         {
                             Key = c.Key
-                            SymbolKey = em.SymbolKey
+                            BindingKey = em.BindingKey
                             Name = em.Name
                             Home = em.Home
                             Naming = em.Naming
@@ -559,13 +559,7 @@ module EmitClosures =
     /// its construction site, which the closure re-projects onto its own class typars.
     type MemberClosureRoot =
         {
-            /// The declaring type's typar count, which is the closure's declaring-typar
-            /// offset: its first slots are the class typars.
-            DeclaringTypars: int
-            /// The member's own method-typar count. These follow the class
-            /// typars in the closure's typar list (offset `DeclaringTypars`).
-            MethodTypars: int
-            Enclosing: EnclosingScopes
+            Enclosing: EnclosingTypars
             Body: TastAccessor.ExprId
         }
 
@@ -648,16 +642,11 @@ module EmitClosures =
             else
                 1
 
-        // `currentTypars` is the typar count inherited from the enclosing method / closure, of
-        // which `declaringOffset` leading slots are the enclosing class's (`0` for a static-fn
-        // closure). `selfKey` is set on a `let f = …` value: its self-reference is `this`.
-        let rec go
-            (enclosing: EnclosingScopes)
-            (currentTypars: int)
-            (declaringOffset: int)
-            (selfKey: BoundVarId voption)
-            (e: TastAccessor.ExprId)
-            =
+        // `enclosing` is the instantiation inherited from the enclosing method / closure.
+        // `selfKey` is set on a `let f = …` value: its self-reference is `this`.
+        let rec go (enclosing: EnclosingTypars) (selfKey: BoundVarId voption) (e: TastAccessor.ExprId) =
+            let currentTypars = enclosing.Count
+
             // A flat value-struct lambda of arity `2..4` peels its inner `Lambda` levels into
             // the SAME closure's extra params (one `Invoke(a,b,…)`), so those inner lambdas
             // are not independent closures. Recurse into the DEEPEST body instead.
@@ -680,14 +669,14 @@ module EmitClosures =
                     ValueNone
 
             (match flatInner with
-             | ValueSome inner -> go enclosing currentTypars declaringOffset ValueNone inner
+             | ValueSome inner -> go enclosing ValueNone inner
              | ValueNone ->
                  match e with
                  // The bound variable anchors an inner closure to its name, scoped across the value.
                  | LetBoundLambda(k, value, body) ->
-                     go enclosing currentTypars declaringOffset (ValueSome k) value
-                     go enclosing currentTypars declaringOffset ValueNone body
-                 | _ -> iterChildren (go enclosing currentTypars declaringOffset ValueNone) e) // children (and inner lambdas) first → leaves-first
+                     go enclosing (ValueSome k) value
+                     go enclosing ValueNone body
+                 | _ -> iterChildren (go enclosing ValueNone) e) // children (and inner lambdas) first → leaves-first
 
             let registerClosure
                 (p: BoundVarId)
@@ -771,8 +760,6 @@ module EmitClosures =
                         Body = body
                         Captures = captures
                         SelfKey = selfKey
-                        Typars = currentTypars
-                        DeclaringTypars = declaringOffset
                         Enclosing = enclosing
                         Repr = repr
                         IsValueStruct = isValueStruct
@@ -818,24 +805,15 @@ module EmitClosures =
                         // ones, which inherit the method's typars.
                         let _, body = peelLambda letd.Binding.Value
 
-                        let enclosing =
-                            match fn.SymbolKey with
-                            | SymbolKey.Binding key ->
-                                { EnclosingScopes.none with
-                                    Function = ValueSome(TyparScope.ModuleFunction key)
-                                }
-                            | _ -> EnclosingScopes.none
-
-                        go enclosing fn.Scheme.TyparArity 0 ValueNone body
-                    | false, _ -> go EnclosingScopes.none 0 0 (ValueSome k) letd.Binding.Value
-                | ValueNone -> go EnclosingScopes.none 0 0 ValueNone letd.Binding.Value
-            | TastAccessor.DExpression(e, _) -> go EnclosingScopes.none 0 0 ValueNone e
+                        go (EnclosingTypars.ofFunction fn.BindingKey fn.Scheme.TyparArity) ValueNone body
+                    | false, _ -> go EnclosingTypars.none (ValueSome k) letd.Binding.Value
+                | ValueNone -> go EnclosingTypars.none ValueNone letd.Binding.Value
+            | TastAccessor.DExpression(e, _) -> go EnclosingTypars.none ValueNone e
             | _ -> ()
 
         // A member body sees no `selfKey`: the member dispatches as a call, not a captured
-        // value. Its closures' typar list is the declaring class typars (offset 0) followed
-        // by the member's own method typars.
+        // value.
         for root in memberRoots do
-            go root.Enclosing (root.DeclaringTypars + root.MethodTypars) root.DeclaringTypars ValueNone root.Body
+            go root.Enclosing ValueNone root.Body
 
         [ for n in order -> lookup.[n] ], lookup

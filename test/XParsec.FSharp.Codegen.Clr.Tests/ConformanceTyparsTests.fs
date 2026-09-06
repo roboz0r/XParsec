@@ -11,7 +11,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 // Typar-order conformance against a contract EXTRACTED from a real `.fsi`, the half a
 // stub provider cannot reach: a declared scheme's positional typars land on the
-// `Declaring` axis and an inferred scheme's on `Method`, and the two must line up.
+// `Type` scope and an inferred scheme's on `Member`, and the two must line up.
 
 [<Tests>]
 let tests =

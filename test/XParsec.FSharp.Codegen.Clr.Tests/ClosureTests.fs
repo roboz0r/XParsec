@@ -62,7 +62,7 @@ let tests =
                             ])
                 }
 
-            // The closure captures `v: 'T` from the class typar (declaring axis) and
+            // The closure captures `v: 'T` from the class typar (type scope) and
             // re-projects it onto its own class typar `!0`.
             yield
                 test "a closure inside a generic class member body capturing a class-typar value" {
@@ -80,7 +80,7 @@ let tests =
                             ])
                 }
 
-            // Mixed-axis capture: `'T` on the declaring axis and `'U` on the method axis,
+            // Mixed-scope capture: `'T` in the type scope and `'U` in the method scope,
             // where `'U` lands at the closure's `!(d + j)`.
             yield
                 test "a closure inside a generic class member body capturing class + member typar values" {

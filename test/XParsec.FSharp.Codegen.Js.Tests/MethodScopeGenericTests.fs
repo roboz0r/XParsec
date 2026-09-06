@@ -1,4 +1,4 @@
-module XParsec.FSharp.Codegen.Js.Tests.MethodAxisGenericTests
+module XParsec.FSharp.Codegen.Js.Tests.MethodScopeGenericTests
 
 open Expecto
 open Vesper.Ts.Manifest
@@ -7,7 +7,7 @@ open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 open XParsec.FSharp.Codegen.Js.Tests.SchemaDsl
 
-// A METHOD-AXIS generic member, resolved and emitted and run. `Id.identity<U>(x: U): U`
+// A METHOD-SCOPE generic member, resolved and emitted and run. `Id.identity<U>(x: U): U`
 // is called at TWO types in one program; both type-check and run only if `U` is
 // instantiated independently per call, rather than solved once for the member.
 
@@ -66,9 +66,9 @@ let private emitWithId (input: string) : string =
 [<Tests>]
 let tests =
     testList
-        "MethodAxisGeneric"
+        "MethodScopeGeneric"
         [
-            test "a method-axis generic member freshens per call and round-trips under Node" {
+            test "a method-scope generic member freshens per call and round-trips under Node" {
                 let js = emitWithId program
 
                 Expect.isTrue
@@ -76,8 +76,8 @@ let tests =
                     (sprintf "expected a mangled static-member ref `Id_identity`, got:\n%s" js)
 
                 expectNodeOutput
-                    "method-axis-generic"
-                    [ "method-axis-generic.mjs", js; "idlib.mjs", idRuntimeSource ]
+                    "method-scope-generic"
+                    [ "method-scope-generic.mjs", js; "idlib.mjs", idRuntimeSource ]
                     "5 hi"
             }
         ]

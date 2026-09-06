@@ -140,7 +140,7 @@ outer scope.
 
 **Value restriction is split across two passes**, deliberately:
 
-- The **gate** is in `Unification` (`shouldGeneralise` skips a binding carrying a
+- The **gate** is in `Unification` (`generalises` skips a binding carrying a
   `mutableToken`), so a mutable binding never gets a scheme and every use unifies
   against the one shared variable.
 - The **diagnostic** is in `Validation`, which runs late enough that every use

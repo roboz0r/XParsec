@@ -1,4 +1,4 @@
-module XParsec.FSharp.Codegen.Js.Tests.MethodAxisSingleCandidateTests
+module XParsec.FSharp.Codegen.Js.Tests.MethodScopeSingleCandidateTests
 
 open Expecto
 open Vesper.Ts.Manifest
@@ -67,7 +67,7 @@ let private emitWithEcho (input: string) : string =
 [<Tests>]
 let tests =
     testList
-        "MethodAxisSingleCandidate"
+        "MethodScopeSingleCandidate"
         [
             test "a single-candidate instance generic member freshens per call (analysis)" {
                 let errors = analyseErrors program
@@ -85,8 +85,8 @@ let tests =
                     (sprintf "expected the instance member call `.echo(...)`, got:\n%s" js)
 
                 expectNodeOutput
-                    "method-axis-single"
-                    [ "method-axis-single.mjs", js; "boxlib.mjs", echoRuntimeSource ]
+                    "method-scope-single"
+                    [ "method-scope-single.mjs", js; "boxlib.mjs", echoRuntimeSource ]
                     "5 hi"
             }
         ]

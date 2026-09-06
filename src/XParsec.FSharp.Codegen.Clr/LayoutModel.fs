@@ -424,10 +424,10 @@ type internal FieldKey =
     /// A non-capturing, monomorphic closure's `static readonly` singleton field, the
     /// one cached instance every construction site `ldsfld`s.
     | ClosureCached of closure: string
-    /// A module-level value's `public static` field, keyed by `SymbolKey`
+    /// A module-level value's `public static` field, keyed by `BindingKey`
     /// (declaring module class + emitted name) so the combined field-def map stays injective
     /// across files and under entry-file shadowing.
-    | ModuleValue of SymbolKey
+    | ModuleValue of BindingKey
 
 /// One `Field` row: the i-th entry of `AssemblyLayout.Fields` is table row i+1.
 type internal FieldSlot =
@@ -546,10 +546,10 @@ type internal MethodKey =
     /// The anonymous "Program" class's `.cctor`, which initialises the
     /// leading-prefix top-level values; at most one per assembly.
     | ProgramCctor
-    /// A top-level function lowered to a static method, keyed by `SymbolKey` (declaring
+    /// A top-level function lowered to a static method, keyed by `BindingKey` (declaring
     /// module class + emitted name) so the combined method-def map stays injective across files
     /// and under entry-file shadowing.
-    | StaticFn of SymbolKey
+    | StaticFn of BindingKey
     | Main
 
 [<RequireQualifiedAccess>]

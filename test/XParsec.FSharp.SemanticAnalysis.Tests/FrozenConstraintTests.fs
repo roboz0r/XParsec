@@ -5,7 +5,7 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 // A generalised binding's `when` clauses reach the frozen pools as `FrozenConstraint`s over
-// the method axis, one per source constraint, and survive the blob codec.
+// the method scope, one per source constraint, and survive the blob codec.
 
 /// The scheme of the module binding named `name`; `None` for a binding absent from the table.
 let private tryFrozenSchemeOf (pools: FrozenPools) (name: string) : GenericFnScheme option =
@@ -67,12 +67,12 @@ let tests =
         "FrozenConstraint"
         [
             for name, constraints in expected do
-                test (sprintf "%s freezes its constraint over the method axis" name) {
+                test (sprintf "%s freezes its constraint over the method scope" name) {
                     let pools = freezeFor source
                     Expect.equal (schemeOf pools name) constraints "frozen scheme"
                 }
 
-            test "a coercion freezes its target over the method axis" {
+            test "a coercion freezes its target over the method scope" {
                 let pools = freezeFor source
 
                 match schemeOf pools "coerce" with
@@ -126,7 +126,7 @@ let tests =
         ]
 
 // A type declaration, a member and an abstract slot carry their own typars' constraints on the
-// declaration itself, on the declaring axis for the type and the method axis for the rest.
+// declaration itself, in the type scope for the type and the method scope for the rest.
 
 let private declSource =
     """
@@ -159,7 +159,7 @@ let declTests =
     testList
         "TyparConstraints on declarations"
         [
-            test "a record's declared constraint is on the declaring axis" {
+            test "a record's declared constraint is in the type scope" {
                 let td = typeDeclOf (freezeFor declSource) "Box"
 
                 Expect.equal
@@ -176,10 +176,10 @@ let declTests =
                     [ at 0 TyparConstraintKindG.Equality ]
                     "type-level constraint"
 
-                Expect.isTrue (memberOf td "Same").MethodTyparConstraints.IsEmpty "no method-axis constraint"
+                Expect.isTrue (memberOf td "Same").MethodTyparConstraints.IsEmpty "no method-scope constraint"
             }
 
-            test "a member's declared constraint is on the method axis" {
+            test "a member's declared constraint is in the method scope" {
                 let td = typeDeclOf (freezeFor declSource) "Holder"
 
                 Expect.equal
@@ -188,7 +188,7 @@ let declTests =
                     "method constraint"
             }
 
-            test "a member's inferred constraint is on the method axis" {
+            test "a member's inferred constraint is in the method scope" {
                 let td = typeDeclOf (freezeFor declSource) "Holder"
 
                 Expect.equal
@@ -197,7 +197,7 @@ let declTests =
                     "method constraint"
             }
 
-            test "an abstract slot's declared constraint is on the method axis" {
+            test "an abstract slot's declared constraint is in the method scope" {
                 let td = typeDeclOf (freezeFor declSource) "IShape"
 
                 match td.Kind with

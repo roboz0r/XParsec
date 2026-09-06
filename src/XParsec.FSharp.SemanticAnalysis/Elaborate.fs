@@ -82,10 +82,10 @@ module Elaborate =
 
                     ctx.InlineParamAttrs.[boundVarKey] <- attrs
 
-    /// A *value* binding's free typars are method typars only where the generaliser
-    /// quantified them: `let empty: SetTree<'T> = null` has a scheme, `let n = null` does not.
-    let private bindingWasGeneralised (ctx: PassContext) (b: Binding<SyntaxToken>) : bool =
-        match ctx.TryScheme(CstKeys.ofBinding b) with
+    /// Whether the scheme recorded at `key`, a binding's pattern node, quantifies a typar:
+    /// `let empty: SetTree<'T> = null` does, `let n = null` does not.
+    let private schemeQuantifies (ctx: PassContext) (key: NodeKey) : bool =
+        match ctx.TryScheme key with
         | ValueSome scheme -> not (List.isEmpty scheme.Quantified)
         | ValueNone -> false
 
@@ -142,38 +142,101 @@ module Elaborate =
             ValueSome info.Key
         | _ -> ValueNone
 
-    /// A function binding always quantifies; a value binding only when generalised AND its free
-    /// typars sit inside a type constructor, because a bare `ldnull : !!0` does not verify. A
-    /// keyless binding (`let (a, b) = …`) has no scope, so its free typars freeze to `FTUnknown`.
-    let private moduleLetQuantEnv
+    /// The typars a module value at pattern node `patKey` quantifies under `scope`. A function
+    /// or `inline` binding always quantifies; a value binding only when generalised AND its
+    /// free typars sit inside a type constructor, because a bare `ldnull : !!0` does not verify.
+    let private valueQuantEnv
         (ctx: PassContext)
+        (isInline: bool)
+        (scope: TyparScope)
+        (declaredTypars: DeclaredTypar list)
+        (patKey: NodeKey)
+        (valueTy: SemType)
+        : (TyVarId * SemType) list =
+        let quantify () =
+            mkMethodQuantEnv ctx.Store scope declaredTypars valueTy
+
+        if isInline then
+            quantify ()
+        else
+            match Unification.zonk ctx.Store valueTy with
+            | TyFun _ -> quantify ()
+            // A bare free var is value-restricted, so never a method typar.
+            | TyVar _
+            | TyTypar _ -> []
+            | _ when schemeQuantifies ctx patKey -> quantify ()
+            | _ -> []
+
+    /// One value a module binding introduces, with the typars it quantifies.
+    type private QuantifiedValue =
+        {
+            BoundVar: BoundVarKey
+            Tok: SyntaxToken
+            QuantEnv: (TyVarId * SemType) list
+        }
+
+    /// The values a module binding's pattern introduces: its one name, or every name of a
+    /// tuple pattern, each under the scope `scopeOf` assigns to the name's token.
+    let rec private quantifiedValues
+        (ctx: PassContext)
+        (isInline: bool)
+        (scopeOf: SyntaxToken -> TyparScope)
+        (declaredTypars: DeclaredTypar list)
+        (p: TPat)
+        : QuantifiedValue list =
+        match BoundVarKey.ofPat p, p with
+        | ValueSome boundVar, TPat.NamedSimple(key, ty, tok, _) ->
+            [
+                {
+                    BoundVar = boundVar
+                    Tok = tok
+                    QuantEnv = valueQuantEnv ctx isInline (scopeOf tok) declaredTypars key ty
+                }
+            ]
+        | _, TPat.Tuple(items, _, _) ->
+            EqArray.toList items
+            |> List.collect (quantifiedValues ctx isInline scopeOf declaredTypars)
+        | _ -> []
+
+    /// The values a module `let` introduces with their quantified typars. A keyed binding
+    /// quantifies under its own scope; each name of a tuple binding (`let (f, g) = …`)
+    /// quantifies under a `ModuleFunction` scope keyed by that name, as `fsc` generalises them.
+    let private moduleLetValues
+        (ctx: PassContext)
+        (container: ModuleContainer)
         (b: Binding<SyntaxToken>)
         (key: BindingKey voption)
-        (declTy: SemType)
-        : (TyVarId * SemType) list =
+        (tpat: TPat)
+        : QuantifiedValue list =
+        let scopeOf =
+            match key with
+            | ValueSome key -> fun (_: SyntaxToken) -> TyparScope.ModuleFunction key
+            | ValueNone -> fun tok -> TyparScope.ModuleFunction(SymbolKeyOps.bindingKeyOf container (ctx.NameOf tok))
+
         let declaredTypars =
             match ctx.Bindings.DeclaredTypars.TryGetValue(CstKeys.ofBinding b) with
             | ValueSome ds -> ds
             | ValueNone -> []
 
-        match key with
-        | ValueNone -> []
-        | ValueSome key ->
-            let quantify () =
-                mkMethodQuantEnv ctx.Store (TyparScope.ModuleFunction key) declaredTypars declTy
+        quantifiedValues ctx b.inlineToken.IsSome scopeOf declaredTypars tpat
 
-            // An inline binding is never emitted, so no emission gate applies: it is a TEMPLATE
-            // whose free typars must be named under the binding's scope or freeze to `FTUnknown`.
-            if b.inlineToken.IsSome then
-                quantify ()
-            else
-                match Unification.zonk ctx.Store declTy with
-                | TyFun _ -> quantify ()
-                // A bare free var is value-restricted, so never a method typar.
-                | TyVar _
-                | TyTypar _ -> []
-                | _ when bindingWasGeneralised ctx b -> quantify ()
-                | _ -> []
+    /// The decl's env: every value's env, over disjoint roots. A root shared by two names
+    /// (`let (f: 'a -> 'a, g: 'a -> 'a) = …`) would need two scopes against one freeze target,
+    /// and is reported `NotYetSupported` at the second name.
+    let private declQuantEnv (ctx: PassContext) (values: QuantifiedValue list) : (TyVarId * SemType) list =
+        let seen = System.Collections.Generic.HashSet<TyVarId>()
+
+        [
+            for v in values do
+                for (root, target) in v.QuantEnv do
+                    if seen.Add root then
+                        yield root, target
+                    else
+                        ctx.Report(
+                            v.Tok,
+                            Kind.NotYetSupported "a type parameter shared by two names of a tuple binding"
+                        )
+        ]
 
     /// One module binding as a `let` member, paired with the typar env it freezes over.
     /// `ValueNone` for a format-literal alias, whose `New PrintfFormat` value is dead: it
@@ -198,7 +261,8 @@ module Elaborate =
             MemberNames.ofBinding ctx b
             |> ValueOption.map (fun named -> SymbolKeyOps.bindingKeyOf container named.Name)
 
-        let quantEnv = moduleLetQuantEnv ctx b bindingKey declTy
+        let values = moduleLetValues ctx container b bindingKey m.Pattern
+        let quantEnv = declQuantEnv ctx values
 
         let attrElement =
             let isFunctionShaped =
@@ -224,12 +288,13 @@ module Elaborate =
         | TPat.NamedSimple(boundVarKey, _, _, _) -> recordInlineParamAttrs ctx b boundVarKey m.Value
         | _ -> ()
 
-        // A bound-variable-less pattern has nowhere to file the scheme.
-        match boundVar with
-        | ValueSome bk -> recordGenericFnScheme ctx bk quantEnv
-        | ValueNone -> ()
+        if elided then
+            ValueNone
+        else
+            for v in values do
+                recordGenericFnScheme ctx v.BoundVar v.QuantEnv
 
-        if elided then ValueNone else ValueSome(m, quantEnv)
+            ValueSome(m, quantEnv)
 
     let private moduleLetDecl (isRec: bool) (b: Binding<SyntaxToken>) (m: TLetMember) : TDecl =
         TDecl.Let(m, b.inlineToken.IsSome, isRec)

@@ -420,7 +420,7 @@ module UnificationInfer =
         enterLevel ctx
 
         for i in members do
-            for _, key in NameResolutionScope.bindingsOfPat ctx bindings.[i].pattern do
+            for key in boundKeys ctx bindings.[i] do
                 tvOf ctx key |> ignore
                 barPolymorphicRecursion ctx key
 
@@ -439,10 +439,7 @@ module UnificationInfer =
         settleTraitBounds ()
 
         for i in members do
-            let b = bindings.[i]
-
-            if shouldGeneralise b then
-                let key = CstKeys.ofPat b.pattern
+            for key in generalisedKeys ctx bindings.[i] do
                 let patTv = tvOf ctx key
                 let zonked = zonk ctx.Store (TyVar patTv)
 

@@ -89,7 +89,7 @@ let tests =
     testList
         "ExternalSignature instantiation oracle"
         [
-            test "instantiateDeclaring template args ≡ hand-written expected (no method axis)" {
+            test "instantiateDeclaring template args ≡ hand-written expected (no method scope)" {
                 for name, arity, template, expected in declaringTemplates do
                     let args = argsForArity arity
 
@@ -167,7 +167,7 @@ let tests =
             // --- Member path: hand-written ExternalSignature + instantiateSignature ---
 
             /// Assert `instantiateSignature` instantiates `signature` to `expected` on ground
-            /// args. `expected` is `None` for a generic member: the method axis freshens to
+            /// args. `expected` is `None` for a generic member: the method scope freshens to
             /// `TyVar`s, so only the arities and the `TyFun` shape are asserted.
             let memberOracle
                 name

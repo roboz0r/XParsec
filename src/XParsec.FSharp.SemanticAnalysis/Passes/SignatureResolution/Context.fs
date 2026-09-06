@@ -51,32 +51,21 @@ module SignatureResolutionContext =
 
     /// The env of a declaration's own typars under `scope`: a typar written anywhere in the
     /// declaration's structure freezes to `FTTypar(scope, i)` at its declared position.
-    let private scopedEnv
-        (ctx: PassContext)
-        (scope: TyparScope)
-        (typars: EqArray<DeclaredTypar>)
-        : (TyVarId * SemType) list =
+    let scopedEnv (ctx: PassContext) (scope: TyparScope) (typars: EqArray<DeclaredTypar>) : (TyVarId * SemType) list =
         ElaborateTypars.mkDeclTyparEnv ctx.Store scope (DeclaredTypar.protos typars)
 
-    /// WHAT is being frozen, which is what decides the SCOPE each typar lands on.
-    [<RequireQualifiedAccess>]
-    type TyparOwner =
-        /// A TYPE and everything its declared structure writes: fields, cases, base,
-        /// interfaces, an abbreviation's body.
-        | Type of key: TypeKey * typars: EqArray<DeclaredTypar>
-        /// A MEMBER: its declaring type's typars under the type's scope, its own under the
-        /// member's.
-        | Member of key: TypeKey * declaring: EqArray<DeclaredTypar> * own: EqArray<DeclaredTypar>
-        /// A VALUE quantifies its own typars under its binding's scope.
-        | Value of key: BindingKey * typars: EqArray<DeclaredTypar>
-
-    let typarEnv (ctx: PassContext) (owner: TyparOwner) : (TyVarId * SemType) list =
-        match owner with
-        | TyparOwner.Type(key, typars) -> scopedEnv ctx (TyparScope.Type key) typars
-        | TyparOwner.Value(key, typars) -> scopedEnv ctx (TyparScope.ModuleFunction key) typars
-        | TyparOwner.Member(key, declaring, own) ->
-            scopedEnv ctx (TyparScope.Type key) declaring
-            @ scopedEnv ctx (TyparScope.Member key) own
+    /// A member's env: the owner's `declaring` typars under the type's scope, then the
+    /// member's `own` under the member's.
+    let memberEnv
+        (ctx: PassContext)
+        (owner: TypeKey)
+        (declaring: EqArray<DeclaredTypar>)
+        (own: EqArray<DeclaredTypar>)
+        : (TyVarId * SemType) list =
+        [
+            yield! scopedEnv ctx (TyparScope.Type owner) declaring
+            yield! scopedEnv ctx (TyparScope.Member owner) own
+        ]
 
     // --- typar scopes ---------------------------------------------------------------
 

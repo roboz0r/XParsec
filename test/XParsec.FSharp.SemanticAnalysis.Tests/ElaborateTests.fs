@@ -1583,6 +1583,59 @@ let typeAccessibilityTests =
         ]
 
 [<Tests>]
+let moduleTupleBindingTests =
+    // `fsc` generalises each name of a module tuple binding on its own, so `f` and `g` are
+    // both used at two types, and each quantifies under a scope keyed by its own name.
+    let src =
+        String.concat
+            "\n"
+            [
+                "let (f, g) = ((fun x -> x), (fun y -> y))"
+                "let a = f 1"
+                "let b = f \"a\""
+                "let c = g true"
+                "let d = g 'x'"
+            ]
+
+    testList
+        "Elaborate module tuple binding"
+        [
+            test "each name of `let (f, g) = …` quantifies under its own ModuleFunction scope" {
+                let tast = analyse src
+                Expect.isEmpty (Diagnostic.errors tast.Diagnostics) "both names are used at two types"
+
+                match tast.Decls.[0] with
+                | TDecl.Let({
+                                Pattern = TPat.Tuple(_, TyTuple(EqList [ fTy; gTy ]), _)
+                            },
+                            _,
+                            _) ->
+                    match fTy, gTy with
+                    | TyFun(TyTypar(TyparScope.ModuleFunction { Name = "f" } as fScope, 0), TyTypar(fScope', 0)),
+                      TyFun(TyTypar(TyparScope.ModuleFunction { Name = "g" } as gScope, 0), TyTypar(gScope', 0)) ->
+                        Expect.equal fScope fScope' "f's parameter and result share f's typar"
+                        Expect.equal gScope gScope' "g's parameter and result share g's typar"
+                        Expect.notEqual fScope gScope "f and g quantify under distinct scopes"
+                    | other -> failtestf "expected `'a -> 'a` under f's scope and `'b -> 'b` under g's, got %A" other
+                | other -> failtestf "expected a tuple-pattern let, got %A" other
+            }
+
+            test "a typar shared by two names of a tuple binding reports NotYetSupported" {
+                let tast = analyse "let (f: 'a -> 'a, g: 'a -> 'a) = ((fun x -> x), (fun y -> y))"
+
+                let reported =
+                    tast.Diagnostics
+                    |> List.exists (fun d ->
+                        match d.Kind with
+                        | Kind.NotYetSupported feature -> feature.Contains "tuple binding"
+                        | _ -> false
+                    )
+
+                Expect.isTrue reported "the shared `'a` has no single scope to quantify under"
+            }
+        ]
+
+[<Tests>]
 let tastFileEqualityTests =
     // Populates all four collection fields: an intrinsic abbreviation, a `[<Global>]` binding,
     // a nested module the same-named type suffixes, and a `private` binding.

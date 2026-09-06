@@ -204,8 +204,8 @@ interface; matching the two is conformance, not scoping.
 
 ## What changes, by site
 
-- `TyparAxis` and both `FTTypar` axes: replaced by `TyparScope`. The Extractor and Manifest
-  schema carry the old words in diagnostic codes (`method-axis-typar-erased`) and comments.
+- `TyparAxis` and both `FTTypar` axes: replaced by `TyparScope`. The Extractor's and Manifest
+  schema's diagnostic code is `method-scope-typar-erased`.
 - `FTLocalTypar` and `SchemeId`: folded into `FTTypar` with a `LocalFunction` scope.
 - `MemberOrdinal` outside NameResolution: `TTypeMemberG.Ordinal` becomes `Key: MemberKey`;
   the codec field, `ClassMemberDeclaring.OrdinalOf`, `MetadataSymbols.methodOrdinal`, the

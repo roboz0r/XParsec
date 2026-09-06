@@ -60,7 +60,7 @@ module internal UnificationInferForwardSchemes =
     /// function's binding-site TyVar. Unannotated arg / return slots get a fresh typar.
     let prebindModuleFunctionSchemes (ctx: PassContext) (bindings: ImmutableArray<Binding<SyntaxToken>>) : unit =
         for b in bindings do
-            if shouldGeneralise b && not b.argumentPats.IsEmpty then
+            if not b.argumentPats.IsEmpty && generalises b then
                 let key = CstKeys.ofPat b.pattern
 
                 if (ctx.TryScheme key).IsNone then

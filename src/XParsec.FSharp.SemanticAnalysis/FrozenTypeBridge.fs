@@ -129,30 +129,6 @@ module FrozenTypeBridge =
     [<Struct>]
     type internal LocalTyparKey = { Binding: LocalBindingId; Index: int }
 
-    /// The identity instantiation: each declared typar maps back to its own `TyTypar`
-    /// marker. A local typar has no marker to map to, so it MINTS a fresh `TyVar`, memoised
-    /// per `(binding, index)` so repeated occurrences share one cell.
-    let ofFrozen (thaw: IMeasuredThaw) (ft: FrozenType) : SemType =
-        let localCache = Dictionary<LocalTyparKey, SemType>()
-
-        instantiateWith
-            thaw
-            { new ITyparInstantiation with
-                member _.Typar(scope, index) =
-                    match scope with
-                    | TyparScope.LocalFunction binding ->
-                        let key = { Binding = binding; Index = index }
-
-                        match localCache.TryGetValue key with
-                        | true, v -> v
-                        | _ ->
-                            let v = TyVar(thaw.Store.NewTypeVar())
-                            localCache.[key] <- v
-                            v
-                    | _ -> TyTypar(scope, index)
-            }
-            ft
-
     // A template is an external descriptor's body with its open typars baked as `FTTypar`
     // leaves. It carries type shape only, never constraints.
 
@@ -171,26 +147,59 @@ module FrozenTypeBridge =
     [<RequireQualifiedAccess>]
     module TyparInstantiation =
 
+        /// The instantiation dispatching each typar leaf to the handler for its scope.
+        let ofScopes
+            (onType: TypeKey -> int -> SemType)
+            (onMember: TypeKey -> int -> SemType)
+            (onFunction: BindingKey -> int -> SemType)
+            (onLocal: LocalBindingId -> int -> SemType)
+            : ITyparInstantiation =
+            { new ITyparInstantiation with
+                member _.Typar(scope, index) =
+                    match scope with
+                    | TyparScope.Type key -> onType key index
+                    | TyparScope.Member owner -> onMember owner index
+                    | TyparScope.ModuleFunction key -> onFunction key index
+                    | TyparScope.LocalFunction binding -> onLocal binding index
+            }
+
+        let private marker (scope: TyparScope) (index: int) : SemType = TyTypar(scope, index)
+
+        /// A fresh `TyVar` per `(binding, index)`, memoised so repeated occurrences of one
+        /// local typar share one cell.
+        let mintLocals (store: TypeStore) : LocalBindingId -> int -> SemType =
+            let cache = Dictionary<LocalTyparKey, SemType>()
+
+            fun binding index ->
+                let key = { Binding = binding; Index = index }
+
+                match cache.TryGetValue key with
+                | true, v -> v
+                | _ ->
+                    let v = TyVar(store.NewTypeVar())
+                    cache.[key] <- v
+                    v
+
         /// A declaration's own typars from `args`: a type shape's (record field, union-case
         /// field, interface arg, base type, abbreviation body) or a module function's scheme.
         /// An index past `args` degrades to `TyUnknown UnknownReason.ArityMismatch`; a
         /// member's or a body-local typar in the template is a producer bug.
         let declaringOnly (args: SemType[]) : ITyparInstantiation =
-            { new ITyparInstantiation with
-                member _.Typar(scope, index) =
-                    match scope with
-                    | TyparScope.Type _
-                    | TyparScope.ModuleFunction _ ->
-                        if index < args.Length then
-                            args.[index]
-                        else
-                            TyUnknown UnknownReason.ArityMismatch
-                    | TyparScope.Member _ ->
-                        failwithf
-                            "TyparInstantiation.declaringOnly: unexpected member typar %d in a type-shape template"
-                            index
-                    | TyparScope.LocalFunction binding -> localTyparInTemplate binding index
-            }
+            let arg (index: int) =
+                if index < args.Length then
+                    args.[index]
+                else
+                    TyUnknown UnknownReason.ArityMismatch
+
+            ofScopes
+                (fun _ index -> arg index)
+                (fun _ index ->
+                    failwithf
+                        "TyparInstantiation.declaringOnly: unexpected member typar %d in a type-shape template"
+                        index
+                )
+                (fun _ index -> arg index)
+                localTyparInTemplate
 
         /// A declaring index past `declaringArgs` in a member template is a provider bug.
         let private declaringArg (policy: string) (declaringArgs: SemType[]) (i: int) : SemType =
@@ -207,14 +216,11 @@ module FrozenTypeBridge =
         /// `declaringArgs`, a member's or a module function's own left an inert `TyTypar`
         /// marker.
         let openMethod (declaringArgs: SemType[]) : ITyparInstantiation =
-            { new ITyparInstantiation with
-                member _.Typar(scope, index) =
-                    match scope with
-                    | TyparScope.Type _ -> declaringArg "openMethod" declaringArgs index
-                    | TyparScope.Member _
-                    | TyparScope.ModuleFunction _ -> TyTypar(scope, index)
-                    | TyparScope.LocalFunction binding -> localTyparInTemplate binding index
-            }
+            ofScopes
+                (fun _ index -> declaringArg "openMethod" declaringArgs index)
+                (fun owner -> marker (TyparScope.Member owner))
+                (fun key -> marker (TyparScope.ModuleFunction key))
+                localTyparInTemplate
 
         /// A member call's instantiation at `level`: one fresh `TyVar` per own typar,
         /// memoised in the value, so every template instantiated through ONE value shares
@@ -230,22 +236,33 @@ module FrozenTypeBridge =
             for (j, ty) in seed do
                 cache.[j] <- ty
 
-            { new ITyparInstantiation with
-                member _.Typar(scope, index) =
-                    match scope with
-                    | TyparScope.Type _ -> declaringArg "atCallSite" declaringArgs index
-                    | TyparScope.Member _
-                    | TyparScope.ModuleFunction _ ->
-                        match cache.TryGetValue index with
-                        | true, v -> v
-                        | _ ->
-                            let tv = store.NewTypeVar()
-                            store.SetLevel(UnionFind.find store tv, level)
-                            let v = TyVar tv
-                            cache.[index] <- v
-                            v
-                    | TyparScope.LocalFunction binding -> localTyparInTemplate binding index
-            }
+            let own (index: int) =
+                match cache.TryGetValue index with
+                | true, v -> v
+                | _ ->
+                    let tv = store.NewTypeVar()
+                    store.SetLevel(UnionFind.find store tv, level)
+                    let v = TyVar tv
+                    cache.[index] <- v
+                    v
+
+            ofScopes
+                (fun _ index -> declaringArg "atCallSite" declaringArgs index)
+                (fun _ index -> own index)
+                (fun _ index -> own index)
+                localTyparInTemplate
+
+        /// The identity instantiation: each declared typar maps back to its own inert
+        /// `TyTypar` marker. A local typar has no marker, so `mintLocals` supplies one cell.
+        let identity (store: TypeStore) : ITyparInstantiation =
+            ofScopes
+                (fun key -> marker (TyparScope.Type key))
+                (fun owner -> marker (TyparScope.Member owner))
+                (fun key -> marker (TyparScope.ModuleFunction key))
+                (mintLocals store)
+
+    let ofFrozen (thaw: IMeasuredThaw) (ft: FrozenType) : SemType =
+        instantiateWith thaw (TyparInstantiation.identity thaw.Store) ft
 
     let instantiateDeclaring (thaw: IMeasuredThaw) (template: FrozenType) (declaringArgs: SemType[]) : SemType =
         instantiateWith thaw (TyparInstantiation.declaringOnly declaringArgs) template

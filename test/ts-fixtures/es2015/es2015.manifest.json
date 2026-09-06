@@ -79186,47 +79186,47 @@
   "diagnostics": [
     {
       "severity": "warning",
-      "code": "method-axis-typar-erased",
+      "code": "method-scope-typar-erased",
       "symbol": "U",
       "span": {
         "file": "lib.es5.d.ts",
         "start": 11756,
         "end": 11757
       },
-      "message": "type parameter 'U' is bound by neither the declaring nor the method axis; erased to obj"
+      "message": "type parameter 'U' is bound by neither the type nor the method scope; erased to obj"
     },
     {
       "severity": "warning",
-      "code": "method-axis-typar-erased",
+      "code": "method-scope-typar-erased",
       "symbol": "A",
       "span": {
         "file": "lib.es5.d.ts",
         "start": 11957,
         "end": 11958
       },
-      "message": "type parameter 'A' is bound by neither the declaring nor the method axis; erased to obj"
+      "message": "type parameter 'A' is bound by neither the type nor the method scope; erased to obj"
     },
     {
       "severity": "warning",
-      "code": "method-axis-typar-erased",
+      "code": "method-scope-typar-erased",
       "symbol": "R",
       "span": {
         "file": "lib.es5.d.ts",
         "start": 11969,
         "end": 11970
       },
-      "message": "type parameter 'R' is bound by neither the declaring nor the method axis; erased to obj"
+      "message": "type parameter 'R' is bound by neither the type nor the method scope; erased to obj"
     },
     {
       "severity": "warning",
-      "code": "method-axis-typar-erased",
+      "code": "method-scope-typar-erased",
       "symbol": "T",
       "span": {
         "file": "lib.es5.d.ts",
         "start": 11883,
         "end": 11884
       },
-      "message": "type parameter 'T' is bound by neither the declaring nor the method axis; erased to obj"
+      "message": "type parameter 'T' is bound by neither the type nor the method scope; erased to obj"
     },
     {
       "severity": "warning",
@@ -79241,36 +79241,36 @@
     },
     {
       "severity": "warning",
-      "code": "method-axis-typar-erased",
+      "code": "method-scope-typar-erased",
       "symbol": "T",
       "span": {
         "file": "lib.es5.d.ts",
         "start": 48024,
         "end": 48025
       },
-      "message": "type parameter 'T' is bound by neither the declaring nor the method axis; erased to obj"
+      "message": "type parameter 'T' is bound by neither the type nor the method scope; erased to obj"
     },
     {
       "severity": "warning",
-      "code": "method-axis-typar-erased",
+      "code": "method-scope-typar-erased",
       "symbol": "T",
       "span": {
         "file": "lib.es5.d.ts",
         "start": 57661,
         "end": 57662
       },
-      "message": "type parameter 'T' is bound by neither the declaring nor the method axis; erased to obj"
+      "message": "type parameter 'T' is bound by neither the type nor the method scope; erased to obj"
     },
     {
       "severity": "warning",
-      "code": "method-axis-typar-erased",
+      "code": "method-scope-typar-erased",
       "symbol": "T",
       "span": {
         "file": "lib.es5.d.ts",
         "start": 73059,
         "end": 73060
       },
-      "message": "type parameter 'T' is bound by neither the declaring nor the method axis; erased to obj"
+      "message": "type parameter 'T' is bound by neither the type nor the method scope; erased to obj"
     },
     {
       "severity": "warning",
@@ -79281,36 +79281,36 @@
     },
     {
       "severity": "warning",
-      "code": "method-axis-typar-erased",
+      "code": "method-scope-typar-erased",
       "symbol": "F",
       "span": {
         "file": "lib.es5.d.ts",
         "start": 73223,
         "end": 73224
       },
-      "message": "type parameter 'F' is bound by neither the declaring nor the method axis; erased to obj"
+      "message": "type parameter 'F' is bound by neither the type nor the method scope; erased to obj"
     },
     {
       "severity": "warning",
-      "code": "method-axis-typar-erased",
+      "code": "method-scope-typar-erased",
       "symbol": "V",
       "span": {
         "file": "lib.es5.d.ts",
         "start": 73383,
         "end": 73384
       },
-      "message": "type parameter 'V' is bound by neither the declaring nor the method axis; erased to obj"
+      "message": "type parameter 'V' is bound by neither the type nor the method scope; erased to obj"
     },
     {
       "severity": "warning",
-      "code": "method-axis-typar-erased",
+      "code": "method-scope-typar-erased",
       "symbol": "_",
       "span": {
         "file": "lib.es5.d.ts",
         "start": 73401,
         "end": 73402
       },
-      "message": "type parameter '_' is bound by neither the declaring nor the method axis; erased to obj"
+      "message": "type parameter '_' is bound by neither the type nor the method scope; erased to obj"
     },
     {
       "severity": "warning",
@@ -79519,14 +79519,14 @@
     },
     {
       "severity": "warning",
-      "code": "method-axis-typar-erased",
+      "code": "method-scope-typar-erased",
       "symbol": "P",
       "span": {
         "file": "lib.es5.d.ts",
         "start": 74867,
         "end": 74868
       },
-      "message": "type parameter 'P' is bound by neither the declaring nor the method axis; erased to obj"
+      "message": "type parameter 'P' is bound by neither the type nor the method scope; erased to obj"
     },
     {
       "severity": "warning",
@@ -79541,25 +79541,25 @@
     },
     {
       "severity": "warning",
-      "code": "method-axis-typar-erased",
+      "code": "method-scope-typar-erased",
       "symbol": "P",
       "span": {
         "file": "lib.es5.d.ts",
         "start": 75080,
         "end": 75081
       },
-      "message": "type parameter 'P' is bound by neither the declaring nor the method axis; erased to obj"
+      "message": "type parameter 'P' is bound by neither the type nor the method scope; erased to obj"
     },
     {
       "severity": "warning",
-      "code": "method-axis-typar-erased",
+      "code": "method-scope-typar-erased",
       "symbol": "R",
       "span": {
         "file": "lib.es5.d.ts",
         "start": 75242,
         "end": 75243
       },
-      "message": "type parameter 'R' is bound by neither the declaring nor the method axis; erased to obj"
+      "message": "type parameter 'R' is bound by neither the type nor the method scope; erased to obj"
     },
     {
       "severity": "warning",
@@ -79574,14 +79574,14 @@
     },
     {
       "severity": "warning",
-      "code": "method-axis-typar-erased",
+      "code": "method-scope-typar-erased",
       "symbol": "R",
       "span": {
         "file": "lib.es5.d.ts",
         "start": 75434,
         "end": 75435
       },
-      "message": "type parameter 'R' is bound by neither the declaring nor the method axis; erased to obj"
+      "message": "type parameter 'R' is bound by neither the type nor the method scope; erased to obj"
     },
     {
       "severity": "warning",

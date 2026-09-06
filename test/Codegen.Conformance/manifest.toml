@@ -488,3 +488,15 @@ accept = ["clr", "js"]
 [[program]]
 path = "constraints/typar-enum-violated.fs"
 diagnose = { clr = "does not support the 'enum<int>' constraint", js = "does not support the 'enum<int>' constraint" }
+
+# ---------------------------------------------------------------------------------------
+# MODULE TUPLE BINDING — `let (f, g) = (id, id)` at module level generalises `f` and `g`
+# independently, as `fsc` does, each under a typar scope keyed by its own name. JS erases
+# types, so a destructured module-scope `const` runs it. The CLR emits a generic module
+# VALUE as a generic static method only when it is not function-typed (`EmitClosures.
+# collectGenericModuleValues` defers `let f : 'T -> 'T = id`), and a tuple binding has no
+# per-name declaration to lower that way, so the CLR owes it after both land.
+[[program]]
+path = "bindings/module-tuple-poly.fs"
+run = ["js"]
+pending = { clr = "generic function-typed module values, per name of a tuple binding" }

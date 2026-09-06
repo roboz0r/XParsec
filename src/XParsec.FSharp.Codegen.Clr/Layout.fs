@@ -133,7 +133,7 @@ module internal Layout =
             | EmitTypes.EmittedNaming.Minted -> FieldReach.Assembly
 
         {
-            Key = FieldKey.ModuleValue mv.SymbolKey
+            Key = FieldKey.ModuleValue mv.BindingKey
             Name = mv.Name
             Attrs = staticFieldAttrs reach writes
             Ty = mv.Ty
@@ -143,7 +143,7 @@ module internal Layout =
     /// The `MethodDef` row behind a static-method function.
     let private staticFnRow (fn: Emit.StaticFn) : MethodRow =
         {
-            Key = MethodKey.StaticFn fn.SymbolKey
+            Key = MethodKey.StaticFn fn.BindingKey
             Name = fn.Name
             Attrs =
                 match fn.Naming with
@@ -177,31 +177,28 @@ module internal Layout =
         // nodes, so a lambda in one is a closure exactly as a member body's is.
         let memberRoots =
             [
-                let root
+                let memberRoot
                     (td: TastAccessor.TypeDecl)
-                    (methodTypars: int)
-                    (memberScope: TyparScope voption)
-                    (body: TastAccessor.ExprId)
+                    (m: TastAccessor.TypeMember)
                     : EmitClosures.MemberClosureRoot =
                     {
-                        DeclaringTypars = td.TypeParams.Length
-                        MethodTypars = methodTypars
                         Enclosing =
-                            {
-                                Type = ValueSome td.TypeKey
-                                Function = memberScope
-                            }
-                        Body = body
+                            EmitTypes.EnclosingTypars.ofMember td.TypeKey td.TypeParams.Length m.MethodTypeParams.Length
+                        Body = m.Body
                     }
 
-                let memberRoot (td: TastAccessor.TypeDecl) (m: TastAccessor.TypeMember) =
-                    root td m.MethodTypeParams.Length (ValueSome(TyparScope.Member td.TypeKey)) m.Body
-
                 // A preamble initialiser runs in the constructor, which has no typars of its own.
-                let preambleRoot (td: TastAccessor.TypeDecl) (entry: TastAccessor.PreambleEntry) =
-                    match entry with
-                    | TPreambleEntryG.Let l -> root td 0 ValueNone l.Init
-                    | TPreambleEntryG.Do e -> root td 0 ValueNone e
+                let preambleRoot
+                    (td: TastAccessor.TypeDecl)
+                    (entry: TastAccessor.PreambleEntry)
+                    : EmitClosures.MemberClosureRoot =
+                    {
+                        Enclosing = EmitTypes.EnclosingTypars.ofType td.TypeKey td.TypeParams.Length
+                        Body =
+                            match entry with
+                            | TPreambleEntryG.Let l -> l.Init
+                            | TPreambleEntryG.Do e -> e
+                    }
 
                 for ud in partitioned.Unions do
                     for m in ud.Members -> memberRoot ud.Decl m
@@ -464,15 +461,15 @@ module internal Layout =
         // declaring the same namespace can both declare `let f`, but F# tells them apart by
         // an implicit module named after each FILE, which this front end cannot mint.
         let programFnRows =
-            let seen = HashSet<SymbolKey>()
+            let seen = HashSet<BindingKey>()
 
             [
                 for f in files do
                     for fn in f.Plan.ProgramFns do
-                        if not (seen.Add fn.SymbolKey) then
+                        if not (seen.Add fn.BindingKey) then
                             failwithf
                                 "Layout.combine: top-level binding %s is declared by more than one file, and two files declaring the same namespace cannot both hold a binding of that name (F# would distinguish them by an implicit module named after each file)"
-                                (SymbolKeyOps.qualifiedName fn.SymbolKey)
+                                (SymbolKeyOps.qualifiedName (SymbolKey.Binding fn.BindingKey))
 
                         yield staticFnRow fn
             ]

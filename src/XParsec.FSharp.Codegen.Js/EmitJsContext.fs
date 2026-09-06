@@ -464,13 +464,14 @@ module EmitJsContext =
         | _ -> PlainRender.Native
 
     /// Compile a pattern against a pure scrutinee-access expression `access` into a
-    /// refutability test (`None` ⇒ irrefutable) and the `const` bindings its named sub-patterns
-    /// introduce. `access` must be pure, because it is duplicated across the test and bindings.
+    /// refutability test (`None` ⇒ irrefutable) and the `(name, value)` bindings its named
+    /// sub-patterns introduce, in pattern order. `access` must be pure, because it is
+    /// duplicated across the test and bindings.
     let rec compileMatchPattern
         (ctx: WalkCtx)
         (access: JsExpr)
         (pat: TastAccessor.PatId)
-        : JsExpr option * JsStatement list =
+        : JsExpr option * (string * JsExpr) list =
         let memberAccess (field: string) =
             JsExpr.Member(access, JsExpr.Identifier(field, ValueNone), false, ValueNone)
 
@@ -478,7 +479,7 @@ module EmitJsContext =
         | PatShape.Wildcard -> None, []
         | PatShape.NamedSimple ->
             let k = (TastAccessor.patBoundVar pat).Value
-            None, [ JsStatement.Const(boundVarNameOf ctx.Pool k, access) ]
+            None, [ boundVarNameOf ctx.Pool k, access ]
         | PatShape.Const ->
             let value = TastAccessor.patConstValue pat
             Some(JsExpr.Binary("===", access, constExpr value ValueNone, ValueNone)), []
@@ -551,3 +552,6 @@ module EmitJsContext =
             let tests = [ for alt in alts -> fst (compileMatchPattern ctx access alt) ]
 
             disjoin tests, []
+
+    let constBinds (binds: (string * JsExpr) list) : JsStatement list =
+        [ for (name, value) in binds -> JsStatement.Const(name, value) ]

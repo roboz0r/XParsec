@@ -96,7 +96,7 @@ let private mapMember (ctx: MapCtx) (isStatic: bool) (prop: Ts.Symbol) : Schema.
             Name = prop.getName ()
             Kind = Schema.MemberKind.Method
             Type = None
-            Signatures = callSigs |> Seq.map (mapSignature ctx SigAxis.MemberMethod) |> List.ofSeq
+            Signatures = callSigs |> Seq.map (mapSignature ctx SigScope.MemberMethod) |> List.ofSeq
             Static = isStatic
             Optional = optional
         }
@@ -121,7 +121,7 @@ let private ctorMemberOf (ctx: MapCtx) (ctorSigs: ResizeArray<Ts.Signature>) : S
                 Name = ".ctor"
                 Kind = Schema.MemberKind.Method
                 Type = None
-                Signatures = ctorSigs |> Seq.map (mapSignature ctx SigAxis.Ctor) |> List.ofSeq
+                Signatures = ctorSigs |> Seq.map (mapSignature ctx SigScope.Ctor) |> List.ofSeq
                 Static = false
                 Optional = false
             }
@@ -319,11 +319,11 @@ let rec private mapExport (ctx0: MapCtx) (sym: Ts.Symbol) : Schema.Export option
     elif hasFlag flags Ts.SymbolFlags.Function then
         let t = checker.getTypeOfSymbolAtLocation (resolved, declOf resolved)
 
-        // Each call signature is mapped against its OWN typars as the declaring axis:
+        // Each call signature is mapped against its OWN typars in the type scope:
         // `identity<T>(x: T): T` → `TypeParams = 1`, params/return `Typar 0`.
         let sigs =
             t.getCallSignatures ()
-            |> Seq.map (mapSignature ctx0 SigAxis.FreeFunction)
+            |> Seq.map (mapSignature ctx0 SigScope.FreeFunction)
             |> List.ofSeq
 
         Some(Schema.Export.Function(name, sigs, import))

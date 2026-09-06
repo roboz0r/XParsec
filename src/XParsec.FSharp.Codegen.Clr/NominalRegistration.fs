@@ -154,8 +154,8 @@ module internal NominalRegistration =
         // `AssemblyRef`-scoped `MemberRef`. Keyed by the `SymbolKey` a reference spells.
         for fn in file.Plan.StaticFns do
             provider.RegisterLocalModuleFn(
-                fn.SymbolKey,
-                toEntity (handles.MethodDefOf(MethodKey.StaticFn fn.SymbolKey))
+                SymbolKey.Binding fn.BindingKey,
+                toEntity (handles.MethodDefOf(MethodKey.StaticFn fn.BindingKey))
             )
 
         // A generic closure is a real generic `TypeDefinition`; its handle lets

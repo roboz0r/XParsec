@@ -64,7 +64,7 @@ module internal TsManifestMembers =
         (isInterface: bool)
         (mem: Schema.Member)
         : ExternalMember list =
-        let ctx = ctx.InMember declKey
+        let ctx = ctx.InScope(TyparScope.Member declKey)
 
         match mem.Kind with
         | Schema.MemberKind.Method when mem.Name = ".ctor" -> expandCtor ctx declKey origin declTyparArity mem
@@ -419,7 +419,13 @@ module internal TsManifestMembers =
                             Optional = false
                         }
 
-                    expandMethod (ctx.InMember declared.Key) declared.Key origin 0 MemberKind.Method mem
+                    expandMethod
+                        (ctx.InScope(TyparScope.Member declared.Key))
+                        declared.Key
+                        origin
+                        0
+                        MemberKind.Method
+                        mem
                 )
                 |> EqArray.ofList
 

@@ -150,7 +150,7 @@ module SignatureResolutionMembers =
         let domains, ret =
             underTypars ctx declTypars ownTypars (fun () -> translateSigGroups ctx m.Signature)
 
-        let env = typarEnv ctx (TyparOwner.Member(declKey, declTypars, ownTypars))
+        let env = memberEnv ctx declKey declTypars ownTypars
         let frozenDomains = freezeDomains ctx env domains
         let frozenRet = freezeOver ctx env ret
 
@@ -186,7 +186,7 @@ module SignatureResolutionMembers =
         (elems: TypeElementsSignature<SyntaxToken>)
         : ExternalMember list =
         let ctx = sctx.Pass
-        let env = typarEnv ctx (TyparOwner.Type(declKey, declTypars))
+        let env = scopedEnv ctx (TyparScope.Type declKey) declTypars
         let declName = SymbolKeyOps.typeMetaName declKey
 
         let ctorOf (sign: UncurriedSig<SyntaxToken>) =
@@ -277,7 +277,7 @@ module SignatureResolutionMembers =
         (types: (SyntaxToken * Type<SyntaxToken>) list)
         : EqArray<FrozenNominal> =
         let ctx = sctx.Pass
-        let env = typarEnv ctx (TyparOwner.Type(declKey, declTypars))
+        let env = scopedEnv ctx (TyparScope.Type declKey) declTypars
 
         // Translated UNDER the declaring typars, not merely frozen over them: `interface
         // seq<'T>` references `'T`, and one resolved outside their scope is a fresh variable that
@@ -370,7 +370,7 @@ module SignatureResolutionMembers =
                                 |> BaseEligibility.admit ctx inhTok
                                 |> ValueOption.map (fun parent ->
                                     NominalG.map
-                                        (freezeOver ctx (typarEnv ctx (TyparOwner.Type(id.Key, typeParams))))
+                                        (freezeOver ctx (scopedEnv ctx (TyparScope.Type id.Key) typeParams))
                                         parent.Nominal
                                 )
                             )

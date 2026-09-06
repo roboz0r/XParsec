@@ -79,31 +79,42 @@ separate change.
      level's `Member` scope, so a base's and a derived's `M<'a>('a)` dedupe as one
      signature.
 
-3e. **Scope plumbing cleanups.** After 3a, sequenced there because each shrinks once the
-   ordinal is gone. Each deletes a runtime check or a duplicate type:
-   - `EmitTypes.EnclosingScopes` and `EmitConstruct.scopeOf`: the closure's lifted
-     instantiation (`FTTypar` list over the enclosing type's and function's scopes) is
-     built once at `EmitClosures.registerClosure`, where the counts and scopes are both
-     known, and stored on `ClosureClass`; the construction site reads it. The `voption`
-     pair and the failwith go. Step 3c later replaces the counts themselves with the
-     owner chain.
-   - `TsManifestTranslate.TranslateCtx`: `TyparScope` and `MethodTyparScope` become one
-     `Scope: TyparScope voption`. Under `Member owner`, `Typar i` resolves to
-     `Type owner` and `MethodTypar j` to the member; under `Type k`, `MethodTypar` is a
-     corrupt manifest. `InScope`'s reset and one `scopeOf` arm go.
-   - `SignatureResolutionContext.TyparOwner`: deleted. `typarEnv ctx owner` becomes
-     `scopedEnv ctx scope typars`, with a `memberEnv` for the declaring-plus-own
-     concatenation the `Member` case was.
-   - `FrozenTypeBridge.TyparInstantiation`: `declaringOnly`, `openMethod` and `atCallSite`
-     differ only in their `Type` and function arms, so one builder taking those two
-     functions replaces the three object expressions; `InlineThaw` is a fourth caller.
-   - A keyless module binding (`let (a, b) = …`, step 3's leftover) either gets a scope
-     or a diagnostic; today its free typars freeze to `FTUnknown` silently. `fsc` accepts
-     a generalisable tuple binding, so the answer is a scope, pinned by a test that
-     `let (f, g) = (id, id)` reaches the backend with both typars quantified.
-   - Stale names: The `MethodAxisGenericTests.fs` and
-     `MethodAxisSingleCandidateTests.fs` file names and the wire string
-     `method-axis-typar-erased` still carry the old word. Rename to method scope.
+3e. **Scope plumbing cleanups.** Landed. Each deleted a runtime check or a duplicate type:
+   - `EmitTypes.EnclosingScopes` and `EmitConstruct.scopeOf` are gone. `EnclosingTypars`,
+     the enclosing type's key and typar count plus the enclosing member's or module
+     function's scope and own count, is built at each discovery root (`Layout`'s member and
+     preamble roots, `discoverClosures`'s static-fn root) and stored on `Closure.Enclosing`.
+     `Closure.Typars` and `Closure.DeclaringTypars` are members over it, and the
+     construction site passes its `Instantiation` to `UserClosureMemberRef`. Step 3c
+     replaces the record with the owner chain. `StaticFn`, `ModuleValue` and
+     `MethodKey.StaticFn` / `FieldKey.ModuleValue` carry a `BindingKey`; the provider's
+     cross-file tables still key by the `SymbolKey` a reference spells.
+   - `TsManifestTypes.TranslateCtx` carries one `Scope: TyparScope voption`. Under
+     `Member owner`, `Typar i` resolves to `Type owner` and `MethodTypar j` to the member;
+     elsewhere a `MethodTypar` is a corrupt manifest.
+   - `SignatureResolutionContext.TyparOwner` is deleted; `scopedEnv ctx scope typars` and
+     `memberEnv ctx owner declaring own` replace `typarEnv`.
+   - `FrozenTypeBridge.TyparInstantiation.ofScopes onType onMember onFunction onLocal`, one
+     arm per scope kind, builds every instantiation: `declaringOnly`, `openMethod`,
+     `atCallSite`, `identity` and `InlineThaw.bodyAtPath`; `mintLocals` is the memoised
+     local-typar arm the last two share.
+   - A module tuple binding (`let (f, g) = …`) generalises per name, as `fsc` does:
+     `InferGeneralize.generalisedKeys` yields every name the pattern binds, and
+     `Elaborate.moduleLetValues` quantifies each under a `ModuleFunction` scope keyed by
+     its own name, recording a `GenericFnScheme` per name. Pinned by
+     `ElaborateTests.moduleTupleBindingTests` and by the `bindings/module-tuple-poly`
+     conformance program, which JS runs through a new module-scope destructuring
+     (`EmitJs`, closing the `TypeAbbreviationTests` GAP). The CLR is `pending`: it lowers a
+     generic module VALUE to a generic static method only when the value is not
+     function-typed (`collectGenericModuleValues` defers `let f : 'T -> 'T = id`), and a
+     tuple binding has no per-name declaration to lower that way; until then the program
+     reaches `Main` with open typars and fails to load. One explicit `'a` written on two
+     names of a tuple pattern (`let (f: 'a -> 'a, g: 'a -> 'a) = …`) has one freeze target in
+     the decl but two scopes to quantify under; `Elaborate.declQuantEnv` reports it as
+     `NotYetSupported`, pinned in `ElaborateTests.moduleTupleBindingTests`.
+   - `MethodScopeGenericTests.fs`, `MethodScopeSingleCandidateTests.fs` and the wire string
+     `method-scope-typar-erased` (`Schema.DiagCode.MethodScopeTyparErased`) carry the new
+     word; the `es2015` fixture manifest and the extractor burndown ranking were re-spelled.
 
 3b. **`LocalOwners`.** `LocalOwner` and the `LocalBindingId -> LocalOwner` table on
    `FrozenPools`, per the design doc's *Lexical ownership*. Written where the local
@@ -190,10 +201,9 @@ separate change.
    programs pin.
 
 8. **Deletions and the deferred parts of step 3.** `TyparScope.Extension` once
-   `ExtensionKey` exists. The Extractor and Manifest schema diagnostic code
-   `method-axis-typar-erased` renamed, with its `Schema.DiagCode` case. `TyparAxis`,
-   `normAxisTo`, `toDeclaringAxis` and `SchemeId` are already gone (step 3), and
-   `MemberOrdinal` with step 3a.
+   `ExtensionKey` exists. `TyparAxis`, `normAxisTo`, `toDeclaringAxis` and `SchemeId` are
+   already gone (step 3), `MemberOrdinal` with step 3a, and the `method-axis-typar-erased`
+   diagnostic code was renamed in step 3e.
 
 9. **`unmanaged` and the nullability attributes**, in that order, each with its own scope.
 
@@ -229,10 +239,11 @@ Before this document is deleted, each row is in code or in a test:
 - [ ] `locals/local-poly` runs on the CLR (step 3c).
 - [ ] `inline/inline-local-poly` runs on the CLR and the `CrossFileTests` served-local
       `ptest` is a `test` (step 3d).
-- [ ] `EnclosingScopes`, `TranslateCtx.MethodTyparScope` and `TyparOwner` are gone, and
+- [x] `EnclosingScopes`, `TranslateCtx.MethodTyparScope` and `TyparOwner` are gone, and
       no `scopeOf` failwith remains in `EmitConstruct` or `TsManifestTypes` (step 3e).
-- [ ] `let (f, g) = (id, id)` at module level quantifies both typars, pinned by a
-      program that calls `f 1` and `g "a"`; `fsc` accepts and generalises it (step 3e).
+- [x] `let (f, g) = (id, id)` at module level quantifies both typars, pinned by
+      `ElaborateTests.moduleTupleBindingTests` and by `bindings/module-tuple-poly`, which
+      calls each name at two types; JS runs it, the CLR is `pending` (step 3e).
 - [x] A `.fsi`-declared generic member and its `.fs` implementation agree on scope once
       homed, pinned by `ConformanceTests` (`MemberTyparConformance`) and by
       `Vesper.Formatter` in the CLR suite. Re-pinned as plain equality in step 3a.

@@ -19,10 +19,10 @@ type MapCtx =
         Diags: ResizeArray<Schema.Diagnostic>
         /// Foreign named references, keyed by the bare name in the emitted `Named`.
         Refs: ResizeArray<string * Schema.RefEntry>
-        /// Declaring-axis typar scope: the enclosing type's typars for a member,
+        /// Type-scope typars: the enclosing type's typars for a member,
         /// or a FREE FUNCTION's own typars (its single index space).
         DeclaringEnv: Ts.Symbol list
-        /// Method-axis scope: a generic MEMBER's own typars. Empty for a free
+        /// Method scope: a generic MEMBER's own typars. Empty for a free
         /// function / property / heritage walk.
         MethodEnv: Ts.Symbol list
         /// OVERRIDE for a foreign ref's home: one manifest per quoted `declare module

@@ -571,6 +571,7 @@ module EmitJs =
         [
             for arm in arms do
                 let test, binds = compileMatchPattern ctx access arm.Pat
+                let binds = constBinds binds
 
                 let inner =
                     match arm.Guard with
@@ -781,7 +782,11 @@ module EmitJs =
                         match compileMatchPattern ctx (JsExpr.Identifier(tmp, ValueNone)) fi.Pat with
                         | None, binds ->
                             [
-                                JsStatement.ForOf(tmp, buildExpr ctx fi.Source, binds @ buildStatements ctx fi.Body)
+                                JsStatement.ForOf(
+                                    tmp,
+                                    buildExpr ctx fi.Source,
+                                    constBinds binds @ buildStatements ctx fi.Body
+                                )
                             ]
                         | Some _, _ ->
                             failwithf "EmitJs: refutable `for … in` bound variable pattern is unsupported %A" fi.Pat
@@ -1133,12 +1138,26 @@ module EmitJs =
                                 | true, cf -> emitFlatModuleFn ctx k dl.Recursion cf (locOf ctx value)
                                 | _ -> emitBound ctx k dl.Recursion value
 
-                            topLevelBinding
-                                ctx
-                                (TastPoolBuilder.boundVarIsMutable ctx.Pool k)
-                                (boundVarNameOf ctx.Pool k)
-                                init
-                        | _ -> failwithf "EmitJs: unsupported declaration %A" decl
+                            yield
+                                topLevelBinding
+                                    ctx
+                                    (TastPoolBuilder.boundVarIsMutable ctx.Pool k)
+                                    (boundVarNameOf ctx.Pool k)
+                                    init
+                        // A destructuring `let (a, b) = value`: the value evaluates once into a
+                        // module-scope temp, then each named leaf binds from its position. A
+                        // `let mutable` takes a single name, so every leaf is a `const`.
+                        | _ ->
+                            let tmp = freshTemp ctx.Pool "_let"
+
+                            match compileMatchPattern ctx (JsExpr.Identifier(tmp, ValueNone)) dl.Pattern with
+                            | None, binds ->
+                                yield JsStatement.Const(tmp, buildExpr ctx dl.Value)
+
+                                for (name, init) in binds do
+                                    yield topLevelBinding ctx false name init
+                            | Some _, _ ->
+                                failwithf "EmitJs: refutable top-level binding pattern is unsupported %A" decl
                     | DeclShape.LetGroup ->
                         failwithf "EmitJs: a `let rec … and …` group survived `TastLower.lower` unsplit: %A" decl
                     | DeclShape.Type -> failwithf "EmitJs: unsupported declaration %A" decl

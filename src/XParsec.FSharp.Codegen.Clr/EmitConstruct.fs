@@ -291,32 +291,7 @@ module EmitConstruct =
                 | true, ctor -> ctor
                 | false, _ -> failwith "Emit: closure constructor not yet emitted (leaves-first ordering broken)"
             else
-                // The closure's typar list is the enclosing class typars (the leading
-                // `DeclaringTypars` slots, encoded `!i` in a member body) followed by the
-                // enclosing member's or function's own typars (`!!j`).
-                let scopeOf (what: string) (scope: 'a voption) : 'a =
-                    match scope with
-                    | ValueSome s -> s
-                    | ValueNone ->
-                        failwithf
-                            "Emit: closure %s lifts %s typars but its enclosing scope is unknown"
-                            closure.Name
-                            what
-
-                let instArgs =
-                    [
-                        if closure.DeclaringTypars > 0 then
-                            let typeScope = TyparScope.Type(scopeOf "type" closure.Enclosing.Type)
-
-                            for i in 0 .. closure.DeclaringTypars - 1 -> FTTypar(typeScope, i)
-
-                        if closure.Typars > closure.DeclaringTypars then
-                            let functionScope = scopeOf "function" closure.Enclosing.Function
-
-                            for j in 0 .. closure.Typars - closure.DeclaringTypars - 1 -> FTTypar(functionScope, j)
-                    ]
-
-                env.Provider.UserClosureMemberRef(closure.Name, instArgs, ClosureMember.Ctor)
+                env.Provider.UserClosureMemberRef(closure.Name, closure.Enclosing.Instantiation, ClosureMember.Ctor)
 
         b.Add(ILInstr.Newobj(ctorHandle, List.length closure.Captures))
 

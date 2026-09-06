@@ -388,7 +388,7 @@ let mapVariantTests =
 // under a reordered disjunct. These pin the tyctor-keyed fallback that recovers the pairing.
 [<Tests>]
 let iterChildren2FTOrTests =
-    // A minimal mirror of the CLR encoder's open-typar recovery: record what each method-axis
+    // A minimal mirror of the CLR encoder's open-typar recovery: record what each method-scope
     // `FTTypar` slot instantiates to as `iterChildren2` pairs children.
     let recoverMethodTypars (openT: FrozenType) (instT: FrozenType) =
         let recovered = System.Collections.Generic.Dictionary<int, FrozenType>()

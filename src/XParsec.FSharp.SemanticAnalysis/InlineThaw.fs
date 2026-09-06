@@ -31,7 +31,6 @@ module InlineThaw =
         let store = thaw.Store
         let declaringRoots = ResizeArray<TyVarId voption>()
         let methodRoots = ResizeArray<TyVarId voption>()
-        let localRoots = Dictionary<LocalTyparKey, TyVarId>()
 
         let mintAt (roots: ResizeArray<TyVarId voption>) (i: int) : SemType =
             while roots.Count <= i do
@@ -45,22 +44,11 @@ module InlineThaw =
                 TyVar v
 
         let inst =
-            { new ITyparInstantiation with
-                member _.Typar(scope, index) =
-                    match scope with
-                    | TyparScope.Type _ -> mintAt declaringRoots index
-                    | TyparScope.Member _
-                    | TyparScope.ModuleFunction _ -> mintAt methodRoots index
-                    | TyparScope.LocalFunction binding ->
-                        let key = { Binding = binding; Index = index }
-
-                        match localRoots.TryGetValue key with
-                        | true, v -> TyVar v
-                        | _ ->
-                            let v = store.NewTypeVar()
-                            localRoots.[key] <- v
-                            TyVar v
-            }
+            FrozenTypeBridge.TyparInstantiation.ofScopes
+                (fun _ i -> mintAt declaringRoots i)
+                (fun _ i -> mintAt methodRoots i)
+                (fun _ i -> mintAt methodRoots i)
+                (FrozenTypeBridge.TyparInstantiation.mintLocals store)
 
         let thawed =
             TastConvert.decl (FrozenTypeBridge.instantiateWith thaw inst) (LexedFiles.tokenAt retained path) decl

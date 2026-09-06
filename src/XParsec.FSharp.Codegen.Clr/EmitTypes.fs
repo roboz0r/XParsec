@@ -8,21 +8,71 @@ open XParsec.FSharp.Codegen.Common
 
 module EmitTypes =
 
-    /// The scopes whose typars a closure lifts onto its own class: the enclosing type's take
-    /// the first `DeclaringTypars` slots, the enclosing member's or module function's the
-    /// rest. `ValueNone` where the enclosing declaration has none of that kind.
-    type EnclosingScopes =
+    /// The typars a closure lifts onto its own class: the enclosing type's lead, the
+    /// enclosing member's or module function's own follow.
+    type EnclosingTypars =
         {
-            Type: TypeKey voption
-            Function: TyparScope voption
+            /// The enclosing type and its typar count.
+            Declaring: (TypeKey * int) voption
+            /// The enclosing member's or module function's scope and its own typar count.
+            Own: (TyparScope * int) voption
         }
 
+        member x.DeclaringCount: int =
+            match x.Declaring with
+            | ValueSome(_, n) -> n
+            | ValueNone -> 0
+
+        member x.Count: int =
+            x.DeclaringCount
+            + (
+                match x.Own with
+                | ValueSome(_, n) -> n
+                | ValueNone -> 0
+            )
+
+        /// The instantiation a construction site `Newobj`s the ctor `MemberRef` on:
+        /// `FTTypar(Type _, i)` for each declaring typar, then `FTTypar(own, j)` for each own.
+        member x.Instantiation: FrozenType list =
+            let ofScope (scope: TyparScope) (count: int) =
+                [ for i in 0 .. count - 1 -> FTTypar(scope, i) ]
+
+            [
+                match x.Declaring with
+                | ValueSome(key, n) -> yield! ofScope (TyparScope.Type key) n
+                | ValueNone -> ()
+                match x.Own with
+                | ValueSome(scope, n) -> yield! ofScope scope n
+                | ValueNone -> ()
+            ]
+
     [<RequireQualifiedAccess>]
-    module EnclosingScopes =
-        let none: EnclosingScopes =
+    module EnclosingTypars =
+        let none: EnclosingTypars =
             {
-                Type = ValueNone
-                Function = ValueNone
+                Declaring = ValueNone
+                Own = ValueNone
+            }
+
+        /// For a type's constructor body: every typar is the type's.
+        let ofType (key: TypeKey) (count: int) : EnclosingTypars =
+            {
+                Declaring = ValueSome(key, count)
+                Own = ValueNone
+            }
+
+        /// For a module function's body: every typar is the function's own.
+        let ofFunction (key: BindingKey) (count: int) : EnclosingTypars =
+            {
+                Declaring = ValueNone
+                Own = ValueSome(TyparScope.ModuleFunction key, count)
+            }
+
+        /// For a member body: the owner's `declaring` typars, then the member's `own`.
+        let ofMember (owner: TypeKey) (declaring: int) (own: int) : EnclosingTypars =
+            {
+                Declaring = ValueSome(owner, declaring)
+                Own = ValueSome(TyparScope.Member owner, own)
             }
 
     /// One synthesised closure class: a `System.Object` implementing
@@ -45,17 +95,9 @@ module EmitTypes =
             /// recursive self-reference resolves to `this` (`ldarg.0`), so it is not
             /// captured. `ValueNone` for an anonymous lambda.
             SelfKey: BoundVarId voption
-            /// `> 0` ⇒ a generic closure: the TOTAL number of `GenericParam` rows (`T0…`)
-            /// on its `TypeDefinition`, the enclosing class's typars followed by the
-            /// enclosing method's. The construction site `Newobj`s a `MemberRef` on the
-            /// `TypeSpec`.
-            Typars: int
-            /// How many of `Typars` are the enclosing class's (a member-body closure on a
-            /// generic class); `0` for a static-fn closure, all of whose typars are the
-            /// function's. Splits the construction-site instantiation into the two scopes.
-            DeclaringTypars: int
-            /// The scopes the construction site writes the instantiation over.
-            Enclosing: EnclosingScopes
+            /// The typars the closure lifts onto its own class. `Count > 0` ⇒ a generic
+            /// closure, with that many `GenericParam` rows (`T0…`) on its `TypeDefinition`.
+            Enclosing: EnclosingTypars
             /// The front-end verdict that a readonly-struct shape is ADMISSIBLE for this
             /// closure. Necessary but not sufficient: `IsValueStruct` is the codegen gate.
             Repr: ClosureRepr
@@ -72,6 +114,12 @@ module EmitTypes =
             /// become their own closures. `Invoke` binds extra param `i` to `ldarg.(2+i)`.
             ExtraParams: (BoundVarId * FrozenType * TastAccessor.PatId) list
         }
+
+        /// The total `GenericParam` row count on the closure's `TypeDefinition`.
+        member c.Typars: int = c.Enclosing.Count
+
+        /// How many of `Typars` are the enclosing class's; `0` for a static-fn closure.
+        member c.DeclaringTypars: int = c.Enclosing.DeclaringCount
 
     /// A capture-free monomorphic heap closure is stateless, so one shared instance
     /// suffices: it is `newobj`'d once into a singleton field by the closure's `.cctor`
@@ -370,7 +418,7 @@ module EmitTypes =
             /// The stable handle key, used instead of the per-file `Key`, a bare offset
             /// that collides across files. An exportable binding carries exactly its own
             /// identity, so a cross-file call re-homes here; others carry an unspellable mint.
-            SymbolKey: SymbolKey
+            BindingKey: BindingKey
             Name: string
             Home: EmitHome
             Naming: EmittedNaming
@@ -397,8 +445,8 @@ module EmitTypes =
     type ModuleValue =
         {
             Key: BoundVarId
-            /// This value's stable handle key, on the same terms as `StaticFn.SymbolKey`.
-            SymbolKey: SymbolKey
+            /// This value's stable handle key, on the same terms as `StaticFn.BindingKey`.
+            BindingKey: BindingKey
             Name: string
             Naming: EmittedNaming
             Ty: FrozenType
