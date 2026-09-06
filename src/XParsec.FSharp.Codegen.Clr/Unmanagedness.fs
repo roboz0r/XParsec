@@ -102,6 +102,7 @@ module Unmanagedness =
             | FTKeyOf _
             | FTIndexedAccess _
             | FTConditional _
+            | FTMeasure _
             | FTUnknown _ -> Unmanagedness.Undetermined t
 
     /// The classification of a stored value of type `t`. Every nominal reached is resolved

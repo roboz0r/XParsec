@@ -80,10 +80,10 @@ module PublishedNominal =
 
     /// The instance field types at `args`. `ValueNone` for a class, whose storage is
     /// private to the publishing unit.
-    let fieldTypes (d: PublishedNominal) (args: EqArray<SemType>) : SemType list voption =
+    let fieldTypes (thaw: IMeasuredThaw) (d: PublishedNominal) (args: EqArray<SemType>) : SemType list voption =
         let at (fts: FrozenType seq) : SemType list voption =
             let declaringArgs = EqArray.toArray args
-            ValueSome [ for ft in fts -> FrozenTypeBridge.instantiateDeclaring ft declaringArgs ]
+            ValueSome [ for ft in fts -> FrozenTypeBridge.instantiateDeclaring thaw ft declaringArgs ]
 
         match d with
         | PublishedNominal.Record shape -> at (seq { for f in shape.Fields -> f.Frozen })
@@ -164,7 +164,7 @@ module NominalDecl =
         | NominalDecl.Published(PublishedNominal.Record _ | PublishedNominal.Union _) -> false
 
     /// The instance field types at `args`. `ValueNone` for a published class.
-    let fieldTypes (store: TypeStore) (d: NominalDecl) (args: EqArray<SemType>) : SemType list voption =
+    let fieldTypes (thaw: IMeasuredThaw) (d: NominalDecl) (args: EqArray<SemType>) : SemType list voption =
         match d with
-        | NominalDecl.Local l -> ValueSome(LocalNominal.fieldTypes store l args)
-        | NominalDecl.Published p -> PublishedNominal.fieldTypes p args
+        | NominalDecl.Local l -> ValueSome(LocalNominal.fieldTypes thaw.Store l args)
+        | NominalDecl.Published p -> PublishedNominal.fieldTypes thaw p args

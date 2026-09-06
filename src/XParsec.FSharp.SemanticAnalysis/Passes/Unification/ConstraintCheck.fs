@@ -181,7 +181,7 @@ module UnificationConstraintCheck =
                 | Satisfied ->
                     match
                         NominalDecl.tryOfKey ctx key
-                        |> ValueOption.bind (fun d -> NominalDecl.fieldTypes ctx.Store d args)
+                        |> ValueOption.bind (fun d -> NominalDecl.fieldTypes ctx d args)
                     with
                     | ValueSome fields -> reduceOutcome (unmanagedOutcome ctx) fields
                     | ValueNone -> Satisfied
