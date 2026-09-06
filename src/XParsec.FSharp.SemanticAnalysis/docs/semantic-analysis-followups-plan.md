@@ -95,17 +95,13 @@ pure function of the declaration's `NodeKey` (`BoundVarKey.ofDeclaredThis`,
 Not done (2026-08-28): only `TClassG` has a type-level `ThisKey`, so a record's or union's member
 is the sole carrier of its host's key; removal needs `ThisKey` hoisted to `TTypeDeclG` first.
 
-### `Passes/Unification/Translate.fs:506` — the measure carrier is the last by-name reach
+### `Passes/Unification/InferCtor.fs:242` — the external ctor path re-resolves a stamped key
 
-`tryResolveExternalType` resolves `float` / `int` by name for a `float<m>` carrier, because
-The classifying walk recorded that name at its SYNTACTIC arity of 1 and the carrier is wanted at
-arity 0. `TypeRegistration.fs:365-367` already recognises the shape (`isMeasuredCarrier` skips
-the carrier so `float<kg>` reports no diagnostic at `kg`), so the classifying walk knows it is
-looking at a carrier and could record the arity-0 verdict there instead of skipping the node.
-
-That is what would leave `ctx.Resolver` read only by NameResolution — the enforcement the
-deleted `ResolverAllowlistTests` was standing in for, since the handle could then be a parameter
-rather than a `PassContext` member. Worth doing for that reason, not for the lookup it saves.
+The ctor-as-function path reads a bare `TypeKey` from `Resolution.ResolvedType` and expands it
+through `tryExternalTypeOfKey`, a second lookup of a shape NameResolution already held when it
+stamped the site. `TypeRefVerdict.ExternalType` carries the provider's shape beside the key for
+type references (2026-09-04); the ctor stamp should carry the same shape, so `tryExternalTypeOfKey`
+loses its last caller and the comment at `:236-238` is deleted.
 
 ### `Passes/Unification/Translate.fs:118` — the key-minting invariant is written three times
 

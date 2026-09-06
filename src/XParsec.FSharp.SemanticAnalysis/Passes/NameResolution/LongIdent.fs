@@ -660,9 +660,8 @@ module NameResolutionLongIdent =
             | ValueNone -> unresolvedInEnv first 1
         | n -> firstOf (qualifiedReadings ctx useSite Position.Pattern names) (unresolvedInEnv first n)
 
-    /// A written type name at `arity`: this file's claim at exactly that arity, then the
-    /// referenced contracts' at that arity, then this file's nearest arity as
-    /// `LocalAtOtherArity`, then the contracts' narrowest arity as `ExternalAtOtherArity`.
+    /// A written type name at `arity`. An exact arity outranks the nearest other arity, and at
+    /// each this file's claim outranks a referenced contract's.
     /// `int` inside `type int<[<Measure>] 'M> = int` reaches the contract's arity-0 claim.
     let resolveType (ctx: PassContext) (useSite: UseSite) (written: WrittenTypeName) (arity: int) : TypeNameResolution =
         let external (writtenArity: WrittenArity) (pick: TypeKey -> ExternalTypeShape -> TypeNameResolution) =

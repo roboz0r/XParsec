@@ -455,10 +455,8 @@ module internal UnificationTranslate =
             match RuntimeNames.tryTargetOptionalPrimitiveKey name with
             | ValueNone -> apply (TyparKinds.typeOnly args.Length) (fun _ -> unresolved ())
             // A target-optional primitive (`nativeint`, `decimal`, `undefined`, …) resolves to
-            // its language-known key on a stack that declares no contract for it, at each
-            // arity the language knows it at; `PlatformTypes` then reports each mention as
-            // unsupported on the compiling target. Any other written count is FS0033 against
-            // the nearest known arity, and the bare mention still reaches `PlatformTypes`.
+            // its language-known key on a stack that declares no contract for it; `PlatformTypes`
+            // then reports each mention as unsupported on the compiling target.
             | ValueSome key ->
                 let known = RuntimeNames.targetOptionalPrimitiveKinds key
                 let bare = TyConst(key, EqArray.empty)
