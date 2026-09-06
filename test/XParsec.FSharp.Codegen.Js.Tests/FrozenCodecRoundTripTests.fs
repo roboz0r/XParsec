@@ -69,7 +69,7 @@ let private collect () : Collected =
             | FTTypar(scope, _) ->
                 match scope with
                 | TyparScope.Type key
-                | TyparScope.Member(key, _) -> tks.Add key |> ignore
+                | TyparScope.Member key -> tks.Add key |> ignore
                 | TyparScope.ModuleFunction key -> sks.Add(SymbolKey.Binding key) |> ignore
                 | TyparScope.LocalFunction _ -> ()
             | FTUnknown _ -> ()
@@ -263,7 +263,7 @@ let private collect () : Collected =
             FTIndexedAccess(ftRecord, ftLitStr)
             ftCond
             FTTypar(TyparScope.Type tkList, 0)
-            FTTypar(TyparScope.Member(tkList, MemberOrdinal 4), 3)
+            FTTypar(TyparScope.Member tkList, 3)
             FTTypar(
                 TyparScope.ModuleFunction
                     {

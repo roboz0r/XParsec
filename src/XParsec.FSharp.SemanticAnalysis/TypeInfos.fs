@@ -58,12 +58,10 @@ type TypeMemberInfo
         declSite: NodeSite,
         seedTypars: EqArray<DeclaredTypar>,
         declaredTyparCount: int,
-        argNames: EqArray<string voption>,
-        ordinal: MemberOrdinal
+        argNames: EqArray<string voption>
     ) =
     member val Name = name
     member val Kind = kind
-    member val Ordinal: MemberOrdinal = ordinal
 
     /// An abstract slot's argument names as the signature spells them, one per source
     /// argument in source order, `ValueNone` for a bare type. Empty for a concrete member,
@@ -481,22 +479,18 @@ type ClassInherit =
 /// A secondary constructor (`new(args) = SelfType(primaryArgs)`). `DeclSite` is the `new`
 /// token.
 [<Sealed>]
-type ClassSecondaryCtorInfo
-    (declSite: NodeSite, parms: ClassCtorParamInfo[], body: AdditionalConstrExpr<SyntaxToken>, ordinal: MemberOrdinal) =
+type ClassSecondaryCtorInfo(declSite: NodeSite, parms: ClassCtorParamInfo[], body: AdditionalConstrExpr<SyntaxToken>) =
     member val DeclSite = declSite
     member val Params = parms
     member val Body = body
-    member val Ordinal: MemberOrdinal = ordinal
 
-/// The declarations of one type body or augmentation. Every ordinal-bearing declaration (the
-/// primary constructor, a `new`, a member, each accessor half, an interface impl's member)
-/// holds the `MemberOrdinal` of its position in source order.
+/// The declarations of one type body or augmentation.
 type TypeBodyMembers =
     {
-        /// `ValueSome` for `type T(args) =` / `type T() =`; `ValueNone` for the `val`-field
-        /// form (`type T = val …; new(…) =`) whose only ctors are secondaries, and for an
+        /// True for `type T(args) =` / `type T() =`; false for the `val`-field form
+        /// (`type T = val …; new(…) =`) whose only ctors are secondaries, and for an
         /// augmentation.
-        PrimaryCtor: MemberOrdinal voption
+        HasPrimaryCtor: bool
         SecondaryCtors: ClassSecondaryCtorInfo[]
         /// `val [mutable] x: T` explicit fields.
         InstanceFields: ClassFieldInfo[]
@@ -537,7 +531,7 @@ type ClassTypeInfo
     /// Instance `let` / `do` in declaration order: the END of the primary ctor, run after
     /// the base-ctor call. A class with no primary ctor cannot have one.
     member val InstancePreamble: ClassPreambleEntry[] = [||] with get, set
-    member this.HasPrimaryCtor: bool = this.Body.PrimaryCtor.IsSome
+    member this.HasPrimaryCtor: bool = this.Body.HasPrimaryCtor
     member val TyparConstraints: TyparConstraints<SyntaxToken> voption = ValueNone with get, set
     /// `[<Struct>]`, or the `type X = struct … end` shape.
     member val IsValueType: bool = false with get, set

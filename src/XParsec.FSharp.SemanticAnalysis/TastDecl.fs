@@ -168,9 +168,8 @@ module TMemberKind =
 type TTypeMemberG<'ty, 'id, 'body> =
     {
         Name: string
-        /// The member's position in its type's declaration order, the `ordinal` of its
-        /// `TyparScope.Member`.
-        Ordinal: MemberOrdinal
+        /// The key a call site refers to the member by.
+        Key: MemberKey
         IsStatic: bool
         Accessibility: Accessibility
         IsInline: bool
@@ -299,10 +298,9 @@ type TBaseG<'ty, 'id, 'body> =
         Ctor: TBaseCtorCallG<'ty, 'id, 'body> voption
     }
 
-/// `Signature` is the curried function type. `MethodTypeParams` are the method's own generic
-/// parameters in source order (`["'C"]` for `abstract Map<'C> : 'A -> 'C`): the names as written,
-/// whereas in `Signature` they appear as `TyTypar(Member(owner, ordinal), i)`, the declaring
-/// type's as `TyTypar(Type owner, i)`.
+/// `Signature` is the curried function type. `MethodTypeParams` holds the method's own generic
+/// parameters as written, in source order (`["'C"]` for `abstract Map<'C> : 'A -> 'C`); within
+/// `Signature` they are `TyTypar(Member owner, i)` and the declaring type's `TyTypar(Type owner, i)`.
 type TAbstractMethodG<'ty> =
     {
         Name: string

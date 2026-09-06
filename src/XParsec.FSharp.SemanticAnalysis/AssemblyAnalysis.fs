@@ -282,13 +282,11 @@ module AssemblyAnalysis =
         // dropped for later files of this assembly while consumers of the published assembly
         // see them. Pinned pending under "an `[<AutoOpen>]` module behind a `.fsi`" in
         // `LongIdentResolutionTests.fs`.
-        let surface = ConformanceTypars.rescopeToImplementation r.Surface impl.Frozen
-
         let published =
             ExternalSymbolProviders.stack
                 (ValueSome(SymbolHome.InFile impl.Retained.Path))
                 []
-                [ PublishedSurface.toProvider surface ]
+                [ PublishedSurface.toProvider r.Surface ]
 
         let verdict (v: ConformanceVerdict) =
             Diagnostic.nowhere (Kind.Conformance(assembly.Name, v))
@@ -303,7 +301,7 @@ module AssemblyAnalysis =
             Conformance.implDeclPath implementation.Parsed.Lexed implementation.Parsed.Tree
 
         {
-            Surface = surface
+            Surface = r.Surface
             Published = published
             Conformance =
                 [

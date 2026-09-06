@@ -53,17 +53,6 @@ module FrozenType =
         | FTTypar(scope, index) -> f scope index
         | t -> mapChildren (mapTypars f) t
 
-    /// `t` with every member-scoped typar rewritten under `scope`, index kept: the form two
-    /// members' signatures compare α-equivalent in.
-    let rescopeMemberTypars (scope: TyparScope) (t: FrozenType) : FrozenType =
-        mapTypars
-            (fun s i ->
-                match s with
-                | TyparScope.Member _ -> FTTypar(scope, i)
-                | _ -> FTTypar(s, i)
-            )
-            t
-
     /// Variance-tracking rebuild. `tryReplace v node` is consulted FIRST at every node,
     /// interior ones included: `ValueSome replacement` replaces `node` at variance `v` and
     /// STOPS the recursion; `ValueNone` recurses under the variance rule the arms spell out.
@@ -161,11 +150,6 @@ module FrozenType =
             | _ -> failwithf "FrozenType.MeasuredNominal: a nominal applied to several measures: %A" t
         | _ -> ValueNone
 
-    let private isLocalScope (scope: TyparScope) : bool =
-        match scope with
-        | TyparScope.LocalFunction _ -> true
-        | _ -> false
-
     /// True when `a` and `b` share the same outermost type constructor: same case, and for a
     /// nominal the same `key`; child structure is ignored. A type's, member's or module
     /// function's typar is a WILDCARD matching anything; a local typar matches only itself.
@@ -173,7 +157,7 @@ module FrozenType =
         match a, b with
         | FTTypar(TyparScope.LocalFunction s1, i1), FTTypar(TyparScope.LocalFunction s2, i2) -> s1 = s2 && i1 = i2
         | FTTypar(scope, _), _
-        | _, FTTypar(scope, _) -> not (isLocalScope scope)
+        | _, FTTypar(scope, _) -> not scope.IsLocal
         | FTConst(k1, _), FTConst(k2, _) -> k1 = k2
         | FTRecord(k1, _), FTRecord(k2, _)
         | FTUnion(k1, _), FTUnion(k2, _)
@@ -228,7 +212,7 @@ module FrozenType =
 
                 for i in 0 .. n - 1 do
                     match xs.[i] with
-                    | FTTypar(scope, _) when not (isLocalScope scope) -> wildcards.Add xs.[i]
+                    | FTTypar(scope, _) when not scope.IsLocal -> wildcards.Add xs.[i]
                     | x ->
                         let candidates =
                             [

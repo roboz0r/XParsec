@@ -113,11 +113,11 @@ module internal TsManifestTranslate =
                 MethodTyparScope = ValueNone
             }
 
-        /// The context for translating member `ordinal` of `declKey`: a `TypeRef.MethodTypar`
+        /// The context for translating a member of `declKey`: a `TypeRef.MethodTypar`
         /// resolves under the member's scope.
-        member ctx.InMember(declKey: TypeKey, ordinal: MemberOrdinal) : TranslateCtx =
+        member ctx.InMember(declKey: TypeKey) : TranslateCtx =
             { ctx with
-                MethodTyparScope = ValueSome(TyparScope.Member(declKey, ordinal))
+                MethodTyparScope = ValueSome(TyparScope.Member declKey)
             }
 
         /// The gate that turns a nominal `Named` into `FTClass`: only a declared class or

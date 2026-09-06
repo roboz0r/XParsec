@@ -48,31 +48,36 @@ separate change.
    - A keyless module binding (`let (a, b) = …`) has no `ModuleFunction` scope, so its free
      typars freeze to `FTUnknown UnresolvedTypar` instead of being quantified.
 
-   Landed with `Member of owner * MemberOrdinal`, which the review of 2026-09-06 found to
-   be an identity nothing reads: a `.fsi` and its `.fs` number their members independently
-   (`Vesper.Formatter` interleaves private members and extra constructors), so every
-   comparison erases the ordinal (`UnificationInferOverload.comparisonScope`,
-   `FrozenType.rescopeMemberTypars`) and the homed signature is re-scoped onto the
-   implementation's numbering (`ConformanceTypars.rescopeToImplementation`). Step 3a
-   removes it. Until then `TTypeMemberG.Ordinal`, the codec field,
-   `ClassMemberDeclaring.OrdinalOf`, `MetadataSymbols.methodOrdinal`, the manifest
-   translator's `InMember` and the `resolveMember` ordinal parameter carry it outward.
+   First landed with `Member of owner * MemberOrdinal`, which the review of 2026-09-06
+   found to be an identity nothing reads: a `.fsi` and its `.fs` number their members
+   independently (`Vesper.Formatter` interleaves private members and extra constructors),
+   so every comparison erased the ordinal and the homed signature was re-scoped onto the
+   implementation's numbering. Step 3a removed it.
 
-3a. **`Member of owner: TypeKey`.** The ordinal leaves the scope and every site in the
-   list above is deleted; `checkMembers` compares by equality as `schemesAgree` does;
-   `TTypeMemberG.Ordinal` becomes `Key: MemberKey`. `MemberOrdinal` stays as the
-   registration index in `TypeBodyExtraction` and `TypeInfos`, where `PrimaryCtor` reads
-   it. The `MemberKey` doc at `SemanticInfo.fs` loses its ordering clause. Format bump.
+3a. **`Member of owner: TypeKey`.** Landed. The ordinal left the scope;
+   `ConformanceTypars.rescopeToImplementation`, `FrozenType.rescopeMemberTypars`,
+   `UnificationInferOverload.comparisonScope`, `ClassMemberDeclaring.OrdinalOf`,
+   `MetadataSymbols.methodOrdinal`, the manifest translator's `InMember` ordinal and the
+   `resolveMember` ordinal parameter are deleted; `checkMembers` compares by equality as
+   `schemesAgree` does; `TTypeMemberG.Ordinal` became `Key: MemberKey`, minted at
+   elaboration by `frozenUserMemberKey` and interned through the pool's member-key table
+   (`FrozenCodecTypes.writeMemberKeyRef`). `MemberOrdinal` is deleted outright: its only
+   remaining reader was `TypeBodyMembers.PrimaryCtor.IsSome`, now `HasPrimaryCtor: bool`.
+   `ElaborateMembers.DeclaringType` carries the type's key, typars and registered members
+   as data, and the member walk resolves each site's `TypeMemberInfo` once for both its
+   `MemberKey` and its method typars. Format version 8.
 
-   Carried in the same diff, because each is a line or two once the ordinal is gone:
-   - `TyparScope.IsLocal` beside `IsFunction`, replacing `FrozenType.isLocalScope` and the
-     `LocalFunction` arms `EmitResolve.paramAccepts` and `EmitClosures.ftNoUnknown` spell
-     out; `paramAccepts` collapses to one typar arm and one constructor arm.
-   - The `sameTyCtor` doc comment at `SemTypeWalks.fs` moves back onto `sameTyCtor`; it
-     sits on `isLocalScope` today.
-   - `Elaborate.fs` reads `MemberNames.ofBinding` once: `exportedBindingInfo` returns the
-     `BindingKey` it already has the name for, and `moduleLetQuantEnv` takes it.
-   - `ConformanceTests.fs`'s `mAxis` helper is renamed; `axis` is retired vocabulary.
+   Carried in the same diff:
+   - `TyparScope.IsLocal` beside `IsFunction`; `EmitResolve.paramAccepts` is one typar arm
+     and one constructor arm, `EmitClosures.ftNoUnknown` reads the flag.
+   - The `sameTyCtor` doc comment sits on `sameTyCtor`.
+   - `Elaborate.fs` reads `MemberNames.ofBinding` once: `translateModuleLet` mints the
+     `BindingKey` and both `moduleLetQuantEnv` and `exportedBindingInfo` take it.
+   - `ConformanceTests.fs`'s helper was already `mTypar`; the two tests pinning the
+     ordinal erasure and the re-scoping are deleted, and the plain-equality test remains.
+   - `UnificationInferOverload.levelSignature` still takes one shared scope, the head
+     level's `Member` scope, so a base's and a derived's `M<'a>('a)` dedupe as one
+     signature.
 
 3e. **Scope plumbing cleanups.** After 3a, sequenced there because each shrinks once the
    ordinal is gone. Each deletes a runtime check or a duplicate type:
@@ -187,8 +192,8 @@ separate change.
 8. **Deletions and the deferred parts of step 3.** `TyparScope.Extension` once
    `ExtensionKey` exists. The Extractor and Manifest schema diagnostic code
    `method-axis-typar-erased` renamed, with its `Schema.DiagCode` case. `TyparAxis`,
-   `normAxisTo`, `toDeclaringAxis` and `SchemeId` are already gone (step 3);
-   `MemberOrdinal` outside NameResolution goes in step 3a.
+   `normAxisTo`, `toDeclaringAxis` and `SchemeId` are already gone (step 3), and
+   `MemberOrdinal` with step 3a.
 
 9. **`unmanaged` and the nullability attributes**, in that order, each with its own scope.
 
@@ -214,7 +219,7 @@ Before this document is deleted, each row is in code or in a test:
       `SchemeId` are gone.
 - [x] Every `TyparScope` case round-trips through the codec, pinned by
       `FrozenCodecRoundTripTests`.
-- [ ] `TyparScope.Member` carries no ordinal; `rescopeToImplementation`,
+- [x] `TyparScope.Member` carries no ordinal; `rescopeToImplementation`,
       `rescopeMemberTypars` and `comparisonScope` are gone, and `Vesper.Formatter` still
       conforms in the CLR suite (step 3a).
 - [ ] `LocalOwners` records every generalised local's owner, pinned per owner kind and by

@@ -6,6 +6,7 @@ open XParsec.FSharp.SemanticAnalysis.Passes
 open XParsec.FSharp.SemanticAnalysis.ElaborateNominals
 open XParsec.FSharp.SemanticAnalysis.ElaboratePatterns
 open XParsec.FSharp.SemanticAnalysis.ElaborateExpr
+open XParsec.FSharp.SemanticAnalysis.ElaborateTypars
 
 // Member surfacing for the Elaborate pass: declared accessibility, the name / key /
 // parameter projections a member binding contributes, and the union / record
@@ -138,21 +139,19 @@ module internal ElaborateMembers =
             IsStatic: bool
         }
 
-    /// What the DECLARING type contributes to every member built for it: the `this` / `base`
-    /// bound variables it synthesises, the self type they carry, the rewrite its own fields
-    /// need in a member body, and the member's own generic params.
+    /// The declaring type's contribution to every member elaborated within it.
     [<NoEquality; NoComparison>]
     type DeclaringType =
         {
+            TypeKey: TypeKey
+            TypeParams: EqArray<DeclaredTypar>
+            /// Every member the type registered, its `interface … with` impl members included.
+            Members: TypeMemberInfo seq
             ThisKey: BoundVarKey
             ThisTy: SemType
             /// `ValueNone` for a type with no `inherit`; a static member drops it regardless.
             BaseKey: BoundVarKey voption
             LowerBody: MemberSite -> Expr<SyntaxToken> -> TExpr
-            /// The member's own typars and the constraints on them, indexed into the typars.
-            MethodTypeParams: MemberSite -> EqArray<string * SemType> * EqSet<TyparConstraintG<SemType>>
-            /// The member's position in the declaring type's declaration order.
-            OrdinalOf: MemberSite -> MemberOrdinal
         }
 
     /// The registered info of `site`: by its registration `DeclKey` where it has one, because
@@ -178,12 +177,35 @@ module internal ElaborateMembers =
                 yield! impl.Members
         }
 
-    /// `site`'s ordinal off its registered info; a member the registration walk did not mint
-    /// is a bug.
-    let ordinalOf (members: TypeMemberInfo seq) (site: MemberSite) : MemberOrdinal =
-        match memberInfoOf members site with
-        | Some mi -> mi.Ordinal
-        | None -> failwithf "ElaborateMembers.ordinalOf: member '%s' was not registered" site.Name
+    /// `site`'s registered info. Fails when the registration walk did not mint the member.
+    let private registeredMemberOf (declaring: DeclaringType) (site: MemberSite) : TypeMemberInfo =
+        match memberInfoOf declaring.Members site with
+        | Some mi -> mi
+        | None -> failwithf "ElaborateMembers.registeredMemberOf: member '%s' was not registered" site.Name
+
+    /// The member's own generic parameters and the constraints on them, indexed into the
+    /// typars, in the registered `CanonicalTypars` order.
+    let private methodTypeParamsOf
+        (ctx: PassContext)
+        (declaring: DeclaringType)
+        (mi: TypeMemberInfo)
+        : EqArray<string * SemType> * EqSet<TyparConstraintG<SemType>> =
+        // Each root advances to its union-find SURVIVOR, which generalise keyed the body's
+        // frozen typar markers on. A root linked to a concrete type is dropped.
+        let roots =
+            mi.CanonicalTypars
+            |> GeneralizedTypars.refreshRoots (fun tv ->
+                match Unification.zonk ctx.Store (TyVar tv) with
+                | TyVar r -> ValueSome r
+                | _ -> ValueNone
+            )
+
+        // Each root materialises as a plain `TyVar root`, which the later cut flips to
+        // `TyTypar(Member _, i)` like every other embedded type.
+        GeneralizedTypars.toArray roots
+        |> Array.map (fun tp -> tp.Name, TyVar tp.TyVar)
+        |> EqArray.ofArray,
+        constraintsOfEnv ctx.Store (GeneralizedTypars.methodEnv (TyparScope.Member declaring.TypeKey) roots)
 
     /// Translate one member element into its `TTypeMember`s. The declaring type supplies
     /// everything a class has and a union / record does not, so both hosts share this walk.
@@ -228,15 +250,22 @@ module internal ElaborateMembers =
                         IsStatic = isStatic
                     }
 
+                let mi = registeredMemberOf declaring site
+
                 let methodTypeParams, methodTyparConstraints =
                     match decl.Defn with
                     // `ValueNone` is an auto-property; only a `Defn`-backed member can be generic.
                     | ValueNone -> EqArray.empty, EqSet.empty
-                    | ValueSome _ -> declaring.MethodTypeParams site
+                    | ValueSome _ -> methodTypeParamsOf ctx declaring mi
 
                 {
                     Name = decl.Name
-                    Ordinal = declaring.OrdinalOf site
+                    Key =
+                        UnificationInferOverload.frozenUserMemberKey
+                            ctx.Store
+                            declaring.TypeKey
+                            declaring.TypeParams
+                            mi
                     IsStatic = isStatic
                     Accessibility = autoPropertyAccess memberAccessibility decl.OwnAccess
                     IsInline = inlineTok.IsSome
@@ -258,17 +287,18 @@ module internal ElaborateMembers =
             )
         | _ -> [||]
 
-    /// Unions and records carry no primary-ctor params, so a field reference in a member is
-    /// already an explicit `this.N` and needs no body rewrite; nor are they inheritable, so
-    /// `base` is never in scope and a member is never generic.
+    /// The `DeclaringType` of a union or record host: a field reference in a member body is
+    /// already an explicit `this.N`, so the body passes through unrewritten, and `base` is
+    /// out of scope.
     let private nominalDeclaringType (ctx: PassContext) (host: IInterfaceImplHost) : DeclaringType =
         {
+            TypeKey = host.TypeKey
+            TypeParams = host.TypeParams
+            Members = hostMembers host.Members host.InterfaceImpls
             ThisKey = host.ThisKey
             ThisTy = host.MkSelfType EqArray.empty
             BaseKey = ValueNone
             LowerBody = fun _ e -> translateExpr ctx e
-            MethodTypeParams = fun _ -> EqArray.empty, EqSet.empty
-            OrdinalOf = ordinalOf (hostMembers host.Members host.InterfaceImpls)
         }
 
     /// Surface a union/record host's augmentation members and its resolved `interface …

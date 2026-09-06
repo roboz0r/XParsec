@@ -95,7 +95,13 @@ let private pokeMemberWith (paramTy: FrozenType) (mkBody: BoundVarId -> Pooled.T
 
     {
         Name = "Poke"
-        Ordinal = MemberOrdinal 0
+        Key =
+            SymbolKeyOps.memberKeyOf
+                (RuntimeNames.opaqueKey "widget")
+                "Poke"
+                (EqArray.singleton paramTy)
+                0
+                MemberKind.Method
         IsStatic = false
         Accessibility = Accessibility.Public
         IsInline = true

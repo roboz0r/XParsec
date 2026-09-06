@@ -128,7 +128,7 @@ type MeasureAtomRow = { Atom: TypeKeyId; Exponent: Rational }
 [<RequireQualifiedAccess>]
 type TyparScopeRow =
     | Type of TypeKeyId
-    | Member of owner: TypeKeyId * ordinal: int
+    | Member of owner: TypeKeyId
     | ModuleFunction of BindingKeyId
     | LocalFunction of int
 
@@ -309,7 +309,7 @@ type FrozenTypeTableBuilder private (rows: FrozenTypeRows) =
     let typarScope (s: TyparScope) : TyparScopeRow =
         match s with
         | TyparScope.Type key -> TyparScopeRow.Type(typeKey key)
-        | TyparScope.Member(owner, MemberOrdinal ordinal) -> TyparScopeRow.Member(typeKey owner, ordinal)
+        | TyparScope.Member owner -> TyparScopeRow.Member(typeKey owner)
         | TyparScope.ModuleFunction key -> TyparScopeRow.ModuleFunction(bindingKey key)
         | TyparScope.LocalFunction(LocalBindingId id) -> TyparScopeRow.LocalFunction id
 
@@ -390,6 +390,8 @@ type FrozenTypeTableBuilder private (rows: FrozenTypeRows) =
     /// A nominal key reaches the wire on its own, not only inside a type, so it needs an
     /// entry point of its own.
     member _.InternTypeKey(k: TypeKey) : TypeKeyId = typeKey k
+
+    member _.InternMemberKey(k: MemberKey) : MemberKeyId = memberKey k
 
     member _.InternModule(m: ModuleKey) : ModuleId = moduleKey m
 
@@ -512,7 +514,7 @@ type FrozenTypeTable private (rows: FrozenTypeRows, view: FrozenType -> FrozenTy
     let typarScope (s: TyparScopeRow) : TyparScope =
         match s with
         | TyparScopeRow.Type key -> TyparScope.Type(typeKey key)
-        | TyparScopeRow.Member(owner, ordinal) -> TyparScope.Member(typeKey owner, MemberOrdinal ordinal)
+        | TyparScopeRow.Member owner -> TyparScope.Member(typeKey owner)
         | TyparScopeRow.ModuleFunction key -> TyparScope.ModuleFunction(bindingKey key)
         | TyparScopeRow.LocalFunction id -> TyparScope.LocalFunction(LocalBindingId id)
 
@@ -612,6 +614,9 @@ type FrozenTypeTable private (rows: FrozenTypeRows, view: FrozenType -> FrozenTy
 
     member _.Item
         with get (id: TypeKeyId): TypeKey = typeKey id
+
+    member _.Item
+        with get (id: MemberKeyId): MemberKey = memberKey id
 
     member _.Item
         with get (id: ModuleId): ModuleKey = moduleKey id

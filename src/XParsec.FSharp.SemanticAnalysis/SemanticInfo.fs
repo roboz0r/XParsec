@@ -57,7 +57,7 @@ type MeasureTerm private (exponents: (TypeKey * Rational) list) =
 
 /// `ArgSig` is written in the declaring type's OPEN typars (`FTTypar(Type Decl, i)`), never
 /// an instantiation: a key minted at a `C<int>` use site equals one from the open declaration.
-/// The member's own typars are `FTTypar(Member(Decl, ordinal), j)`.
+/// The member's own typars are `FTTypar(Member Decl, j)`.
 type MemberKey =
     {
         Decl: TypeKey

@@ -124,14 +124,12 @@ module SignatureResolutionMembers =
 
             ValueNone
 
-    /// One member as the declaring type's consumers see it: its signature over the declaring
-    /// typars, under the type's scope, and its own, under the member's. `ordinal` is the
-    /// member's position among the signature's members.
+    /// The published form of `m`: its signature frozen over the declaring typars under
+    /// `TyparScope.Type declKey`, and over its own under `TyparScope.Member declKey`.
     let resolveMember
         (ctx: PassContext)
         (declKey: TypeKey)
         (declTypars: EqArray<DeclaredTypar>)
-        (ordinal: MemberOrdinal)
         (m: SigMember)
         : ExternalMember =
         classifyCurriedSigTypes ctx m.Signature
@@ -152,7 +150,7 @@ module SignatureResolutionMembers =
         let domains, ret =
             underTypars ctx declTypars ownTypars (fun () -> translateSigGroups ctx m.Signature)
 
-        let env = typarEnv ctx (TyparOwner.Member(declKey, declTypars, ordinal, ownTypars))
+        let env = typarEnv ctx (TyparOwner.Member(declKey, declTypars, ownTypars))
         let frozenDomains = freezeDomains ctx env domains
         let frozenRet = freezeOver ctx env ret
 
@@ -219,14 +217,11 @@ module SignatureResolutionMembers =
                 []
 
         [
-            // Ordinals follow the signature's own member order, one per member as written.
-            for ordinal, m in List.indexed (sigMembers ctx elems) do
+            for m in sigMembers ctx elems do
                 let named () =
                     sprintf "member '%s.%s'" declName m.Name
 
-                match
-                    tryResolve sctx named (fun () -> resolveMember ctx declKey declTypars (MemberOrdinal ordinal) m)
-                with
+                match tryResolve sctx named (fun () -> resolveMember ctx declKey declTypars m) with
                 | ValueSome published -> yield published
                 | ValueNone -> ()
 

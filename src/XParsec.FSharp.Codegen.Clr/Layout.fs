@@ -195,7 +195,7 @@ module internal Layout =
                     }
 
                 let memberRoot (td: TastAccessor.TypeDecl) (m: TastAccessor.TypeMember) =
-                    root td m.MethodTypeParams.Length (ValueSome(TyparScope.Member(td.TypeKey, m.Ordinal))) m.Body
+                    root td m.MethodTypeParams.Length (ValueSome(TyparScope.Member td.TypeKey)) m.Body
 
                 // A preamble initialiser runs in the constructor, which has no typars of its own.
                 let preambleRoot (td: TastAccessor.TypeDecl) (entry: TastAccessor.PreambleEntry) =

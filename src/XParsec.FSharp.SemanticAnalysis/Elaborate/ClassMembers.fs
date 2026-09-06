@@ -101,36 +101,10 @@ module internal ElaborateClassMembers =
             else
                 rewriteFieldRefs instanceRewrite body
 
-        let members = hostMembers info.Body.Members info.Body.InterfaceImpls
-
-        // The member's own generic parameters, recovered from the registered
-        // `TypeMemberInfo.CanonicalTypars`. That order is PRESERVED, so the
-        // ABI index a frozen `TyTypar(Member _, i)` marker carries stays valid.
-        let methodTypeParams (site: MemberSite) : EqArray<string * SemType> * EqSet<TyparConstraintG<SemType>> =
-            // Materialise each root as a plain `TyVar root`, so the later cut flips it
-            // to `TyTypar(Member _, i)` like every other embedded type, and the tree field
-            // never holds a union-find carrier. The constraints read off the same roots.
-            let ofRoots (scope: TyparScope) (g: GeneralizedTypars) =
-                GeneralizedTypars.toArray g
-                |> Array.map (fun tp -> tp.Name, TyVar tp.TyVar)
-                |> EqArray.ofArray,
-                constraintsOfEnv ctx.Store (GeneralizedTypars.methodEnv scope g)
-
-            match memberInfoOf members site with
-            | Some mi ->
-                // A root unioned away since generalise keys the body's frozen typar
-                // markers on its SURVIVOR; a root linked to a concrete type is no
-                // longer a typar, and keeping it would inflate the GenericParam arity.
-                mi.CanonicalTypars
-                |> GeneralizedTypars.refreshRoots (fun tv ->
-                    match Unification.zonk ctx.Store (TyVar tv) with
-                    | TyVar r -> ValueSome r
-                    | _ -> ValueNone
-                )
-                |> ofRoots (TyparScope.Member(info.TypeKey, mi.Ordinal))
-            | None -> EqArray.empty, EqSet.empty
-
         {
+            TypeKey = info.TypeKey
+            TypeParams = info.TypeParams
+            Members = hostMembers info.Body.Members info.Body.InterfaceImpls
             ThisKey = info.ThisKey
             ThisTy = TyClass(info.TypeKey, EqArray.empty)
             // `base` is in scope only when the class has an `inherit` clause; an instance
@@ -141,8 +115,6 @@ module internal ElaborateClassMembers =
                 else
                     ValueNone
             LowerBody = lowerBody
-            MethodTypeParams = methodTypeParams
-            OrdinalOf = ordinalOf members
         }
 
     /// Each `let`-preamble binding becomes a `TCtorLet`, and the final chain call's arguments

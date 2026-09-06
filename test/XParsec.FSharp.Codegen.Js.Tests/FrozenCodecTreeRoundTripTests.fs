@@ -164,14 +164,22 @@ let tests =
                     )
                     |> Option.defaultWith (fun () -> failtest "no member `Id` in the frozen tree")
 
-                // Genuinely populated, not silently frozen empty, and scoped by the member's
-                // ordinal: `1`, after the primary constructor.
-                Expect.equal idMember.Ordinal (MemberOrdinal 1) "Id follows the primary constructor"
+                // The key a call site refers to `Id` by: over its own typar, with
+                // method-typar arity 1.
+                Expect.equal
+                    idMember.Key
+                    (SymbolKeyOps.memberKeyOf
+                        cKey
+                        "Id"
+                        (EqArray.singleton (FTTypar(TyparScope.Member cKey, 0)))
+                        1
+                        MemberKind.Method)
+                    "Id's key survives the round trip"
 
                 Expect.equal
                     (EqArray.toList idMember.MethodTypeParams)
-                    [ "'T", FTTypar(TyparScope.Member(cKey, MemberOrdinal 1), 0) ]
-                    "member's own typar is stored as (name, FTTypar(Member(C, 1), 0))"
+                    [ "'T", FTTypar(TyparScope.Member cKey, 0) ]
+                    "member's own typar is stored as (name, FTTypar(Member C, 0))"
 
                 Expect.isTrue (survivesRoundTrip f) "generic-member file survived flatten/thaw structurally"
             }

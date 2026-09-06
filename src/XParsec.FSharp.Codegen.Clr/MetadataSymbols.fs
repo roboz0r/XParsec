@@ -35,10 +35,6 @@ module private MetadataMapping =
 
         SymbolKeyOps.typeKeyOfSegment container t.Name
 
-    /// A method's `MemberOrdinal`: its `MethodDef` row number, distinct within the assembly.
-    let methodOrdinal (m: MethodBase) : MemberOrdinal =
-        MemberOrdinal(m.MetadataToken &&& 0xFFFFFF)
-
     /// `intrinsics` reconciles a platform type id to its canon (`"System.Int32"` → `int`), so a
     /// BCL member's `System.Int32` parameter presents as `int` and is callable. A name it
     /// does not reconcile is a real class.
@@ -63,8 +59,7 @@ module private MetadataMapping =
             if isNull t.DeclaringMethod then
                 Some(FTTypar(TyparScope.Type(declTypeKey t.DeclaringType), pos))
             else
-                let m = t.DeclaringMethod
-                Some(FTTypar(TyparScope.Member(declTypeKey m.DeclaringType, methodOrdinal m), pos))
+                Some(FTTypar(TyparScope.Member(declTypeKey t.DeclaringMethod.DeclaringType), pos))
         elif t.IsGenericType then
             // Open generic has null `FullName`; this branch must precede the `FullName` match.
             let name = t.GetGenericTypeDefinition().FullName

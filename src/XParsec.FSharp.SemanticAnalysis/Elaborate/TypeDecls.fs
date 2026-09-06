@@ -171,9 +171,7 @@ module internal ElaborateTypeDecls =
                                 // backend encodes them against the METHOD, not the type.
                                 if GeneralizedTypars.count m.CanonicalTypars > 0 then
                                     env.AddRange(
-                                        GeneralizedTypars.methodEnv
-                                            (TyparScope.Member(info.TypeKey, m.Ordinal))
-                                            m.CanonicalTypars
+                                        GeneralizedTypars.methodEnv (TyparScope.Member info.TypeKey) m.CanonicalTypars
                                     )
 
                                 yield
@@ -184,7 +182,7 @@ module internal ElaborateTypeDecls =
                                             constraintsOfEnv
                                                 ctx.Store
                                                 (GeneralizedTypars.methodEnv
-                                                    (TyparScope.Member(info.TypeKey, m.Ordinal))
+                                                    (TyparScope.Member info.TypeKey)
                                                     m.CanonicalTypars)
                                         Signature = m.Type
                                         ParamNames = m.ArgNames

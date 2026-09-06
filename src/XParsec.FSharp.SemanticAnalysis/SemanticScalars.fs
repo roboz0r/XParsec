@@ -352,7 +352,7 @@ type TyparScope =
     /// A type declaration's own typars: `!i` in CLI metadata.
     | Type of TypeKey
     /// A member's own typars, nested in the owner's `Type` scope: `!!j` in CLI metadata.
-    | Member of owner: TypeKey * ordinal: MemberOrdinal
+    | Member of owner: TypeKey
     /// A module-level `let`'s own typars, a top-level `let` of the implicit program module
     /// included: `!!j` on the static method it compiles to.
     | ModuleFunction of BindingKey
@@ -366,6 +366,13 @@ type TyparScope =
         | ModuleFunction _ -> true
         | Type _
         | LocalFunction _ -> false
+
+    member this.IsLocal: bool =
+        match this with
+        | LocalFunction _ -> true
+        | Type _
+        | Member _
+        | ModuleFunction _ -> false
 
 /// A dense index into `FrozenPools`' bound variable columns. A bound variable is a definition site the tree
 /// INTRODUCES: a `NamedSimple` pattern, a `ForTo` loop variable, a type's key slots.

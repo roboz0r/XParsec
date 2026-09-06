@@ -165,7 +165,7 @@ module internal ElaborateTypars =
     /// pair its own typar roots with markers under the member's scope, for the decl's freeze
     /// env. Signature / body / return types stay verbatim until the deferred cut.
     let elaborateMember (declKey: TypeKey) (selfTy: SemType) (m: TTypeMember) : TTypeMember * (TyVarId * SemType) list =
-        let scope = TyparScope.Member(declKey, m.Ordinal)
+        let scope = TyparScope.Member declKey
 
         let methodMarkers =
             [

@@ -56,18 +56,15 @@ module internal TsManifestMembers =
             }
         )
 
-    /// `ordinal` is the member's position among its declaration's members, the scope its
-    /// own typars resolve under.
     let toExternalMembers
         (ctx: TranslateCtx)
         (declKey: TypeKey)
         (origin: SymbolOrigin)
         (declTyparArity: int)
         (isInterface: bool)
-        (ordinal: MemberOrdinal)
         (mem: Schema.Member)
         : ExternalMember list =
-        let ctx = ctx.InMember(declKey, ordinal)
+        let ctx = ctx.InMember declKey
 
         match mem.Kind with
         | Schema.MemberKind.Method when mem.Name = ".ctor" -> expandCtor ctx declKey origin declTyparArity mem
@@ -170,10 +167,7 @@ module internal TsManifestMembers =
 
             let mems =
                 members
-                |> List.indexed
-                |> List.collect (fun (ordinal, mem) ->
-                    toExternalMembers ctx declared.Key origin tp isInterface (MemberOrdinal ordinal) mem
-                )
+                |> List.collect (toExternalMembers ctx declared.Key origin tp isInterface)
                 |> EqArray.ofList
 
             let heritageInterfaces, frozenBaseType = classifyHeritage ctx heritage
@@ -307,8 +301,7 @@ module internal TsManifestMembers =
 
             let members =
                 fields
-                |> List.indexed
-                |> List.collect (fun (ordinal, (fname, fty)) ->
+                |> List.collect (fun (fname, fty) ->
                     let mem: Schema.Member =
                         {
                             Name = fname
@@ -319,7 +312,7 @@ module internal TsManifestMembers =
                             Optional = false
                         }
 
-                    toExternalMembers ctx declared.Key origin 0 true (MemberOrdinal ordinal) mem
+                    toExternalMembers ctx declared.Key origin 0 true mem
                 )
                 |> EqArray.ofList
 
@@ -413,8 +406,7 @@ module internal TsManifestMembers =
 
             let members =
                 fns
-                |> List.indexed
-                |> List.collect (fun (ordinal, fn) ->
+                |> List.collect (fun fn ->
                     // The member name stays the REAL export name: that is what the erase
                     // emits as the callee.
                     let mem: Schema.Member =
@@ -427,13 +419,7 @@ module internal TsManifestMembers =
                             Optional = false
                         }
 
-                    expandMethod
-                        (ctx.InMember(declared.Key, MemberOrdinal ordinal))
-                        declared.Key
-                        origin
-                        0
-                        MemberKind.Method
-                        mem
+                    expandMethod (ctx.InMember declared.Key) declared.Key origin 0 MemberKind.Method mem
                 )
                 |> EqArray.ofList
 

@@ -18,10 +18,10 @@ let private declType (tast: TastFile) : SemType =
 /// The marker of `key`'s own typar `i`.
 let private declTypar (key: TypeKey) (i: int) : SemType = TyTypar(TyparScope.Type key, i)
 
-/// The marker of `m`'s own typar `i`, scoped by the class `m.ThisTy` names and `m.Ordinal`.
+/// The marker of `m`'s own typar `i`, scoped by the class `m.ThisTy` resolves to.
 let private memberTypar (m: TTypeMember) (i: int) : SemType =
     match m.ThisTy with
-    | SemType.TyClass(key, _) -> TyTypar(TyparScope.Member(key, m.Ordinal), i)
+    | SemType.TyClass(key, _) -> TyTypar(TyparScope.Member key, i)
     | other -> failtestf "expected a class self type, got %A" other
 
 /// Asserts `actual` is a module function's own typar `index`, whatever its binding key.
@@ -479,7 +479,7 @@ let interfaceTests =
 
                         Expect.equal
                             m.Signature
-                            (TyFun(declTypar td.TypeKey 0, TyTypar(TyparScope.Member(td.TypeKey, MemberOrdinal 0), 0)))
+                            (TyFun(declTypar td.TypeKey 0, TyTypar(TyparScope.Member td.TypeKey, 0)))
                             "Map signature 'A -> 'B"
                     | other -> failtestf "expected one interface method, got %A" other
                 | other -> failtestf "expected single TDecl.Type, got %A" other

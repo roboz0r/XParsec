@@ -338,11 +338,6 @@ type BindingKey =
         Name: string
     }
 
-/// A member's index within its type, in source order: the primary constructor, then each
-/// `new`, member, accessor half and interface-impl member as written. Dense from 0.
-[<Struct>]
-type MemberOrdinal = | MemberOrdinal of int
-
 /// A key's name AS SHOWN TO A HUMAN, containment chain and generic arity dropped. A LOSSY
 /// projection OUT of an identity, never a route back INTO one: to ask a table, ask the KEY.
 [<Struct>]

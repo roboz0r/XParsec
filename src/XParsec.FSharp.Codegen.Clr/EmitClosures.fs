@@ -281,8 +281,8 @@ module EmitClosures =
     /// skipped, not an error, because `let f () = let g = fun x -> x in (g, g)` is a legal program.
     let rec private ftNoUnknown (t: FrozenType) : bool =
         match t with
-        | FTUnknown _
-        | FTTypar(TyparScope.LocalFunction _, _) -> false
+        | FTUnknown _ -> false
+        | FTTypar(scope, _) -> not scope.IsLocal
         | t -> FrozenType.forallChildren ftNoUnknown t
 
     /// A binding absent from the front-end scheme table quantifies nothing.

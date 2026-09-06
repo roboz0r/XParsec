@@ -326,9 +326,8 @@ module UnificationInferOverload =
         d
 
     /// Freeze a user member's value-parameter `SemType`s into the declaring type's open typars
-    /// (`FTTypar(Type declKey, i)`) and its own (`FTTypar(Member(declKey, ordinal), j)`),
-    /// yielding the same structural, call-site-independent form an external member's argSig
-    /// takes. `Show(int)` → `[int]`.
+    /// (`FTTypar(Type declKey, i)`) and its own (`FTTypar(Member declKey, j)`), yielding the
+    /// call-site-independent form of an external member's argSig. `Show(int)` → `[int]`.
     let freezeUserMemberArgSig
         (store: TypeStore)
         (declKey: TypeKey)
@@ -337,7 +336,7 @@ module UnificationInferOverload =
         : EqArray<FrozenType> =
         let declEnv = frozenScopeEnv store declTypars
         let methodEnv = frozenScopeEnv store m.EffectiveMethodTypars
-        let ownScope = TyparScope.Member(declKey, m.Ordinal)
+        let ownScope = TyparScope.Member declKey
 
         // A metavar in NEITHER scope: not generic in anything the key can denote. It goes into
         // an argSig, which is a key, so every such position must freeze to the SAME value, or a
@@ -376,12 +375,6 @@ module UnificationInferOverload =
             m.EffectiveMethodTypars.Length
             (memberKindOf m)
 
-    /// The scope two members' own typars are rewritten under before their signatures are
-    /// compared, so `M<'a>('a)` declared twice, or on a base and on its derived type, reads
-    /// as one signature. The ordinal is a place-holder the comparison never reads back.
-    let private comparisonScope (declKey: TypeKey) : TyparScope =
-        TyparScope.Member(declKey, MemberOrdinal 0)
-
     /// A member's overload-identity signature key for duplicate detection: name, static-ness,
     /// kind, frozen argSig and method-typar arity are the axes F#'s FS0438 collapses. A genuine
     /// overload (distinct param types / arity) mints a distinct key and coexists.
@@ -394,8 +387,7 @@ module UnificationInferOverload =
         struct (m.Name,
                 m.IsStatic,
                 memberKindOf m,
-                freezeUserMemberArgSig store declKey declTypars m
-                |> EqArray.map (FrozenType.rescopeMemberTypars (comparisonScope declKey)),
+                freezeUserMemberArgSig store declKey declTypars m,
                 m.EffectiveMethodTypars.Length)
 
     /// The user-member resolution verdict. `NotOverloaded` (0/1 candidate) tells the caller
@@ -589,7 +581,9 @@ module UnificationInferOverload =
             | []
             | [ _ ] -> declared
             | _ ->
-                let scope = comparisonScope (List.head levels).DeclKey
+                // A single scope shared across the levels, so `M<'a>('a)` on a base and on a
+                // derived fold to one signature.
+                let scope = TyparScope.Member (List.head levels).DeclKey
                 declared |> List.distinctBy (fun c -> levelSignature ctx scope c.Level c.Member)
 
         match candidates with

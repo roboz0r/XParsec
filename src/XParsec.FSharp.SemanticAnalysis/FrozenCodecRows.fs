@@ -29,8 +29,8 @@ module FrozenCodecRows =
     let private writeBindingKeyId (w: FrozenWriter) (BindingKeyId i) = w.Write i
     let private readBindingKeyId (r: FrozenReader) : BindingKeyId = BindingKeyId(r.ReadInt32())
 
-    let private writeMemberKeyId (w: FrozenWriter) (MemberKeyId i) = w.Write i
-    let private readMemberKeyId (r: FrozenReader) : MemberKeyId = MemberKeyId(r.ReadInt32())
+    let writeMemberKeyId (w: FrozenWriter) (MemberKeyId i) = w.Write i
+    let readMemberKeyId (r: FrozenReader) : MemberKeyId = MemberKeyId(r.ReadInt32())
 
     /// A row of the file's symbol-key table. Public: a symbol REFERENCE is written as one.
     let writeSymbolId (w: FrozenWriter) (SymbolId i) = w.Write i
@@ -130,10 +130,9 @@ module FrozenCodecRows =
         | TyparScopeRow.Type key ->
             w.Write 0uy
             writeTypeKeyId w key
-        | TyparScopeRow.Member(owner, ordinal) ->
+        | TyparScopeRow.Member owner ->
             w.Write 1uy
             writeTypeKeyId w owner
-            w.Write ordinal
         | TyparScopeRow.ModuleFunction key ->
             w.Write 2uy
             writeBindingKeyId w key
@@ -144,10 +143,7 @@ module FrozenCodecRows =
     let private readTyparScopeRow (r: FrozenReader) : TyparScopeRow =
         match r.ReadByte() with
         | 0uy -> TyparScopeRow.Type(readTypeKeyId r)
-        | 1uy ->
-            let owner = readTypeKeyId r
-            let ordinal = r.ReadInt32()
-            TyparScopeRow.Member(owner, ordinal)
+        | 1uy -> TyparScopeRow.Member(readTypeKeyId r)
         | 2uy -> TyparScopeRow.ModuleFunction(readBindingKeyId r)
         | 3uy -> TyparScopeRow.LocalFunction(r.ReadInt32())
         | b -> failwithf "FrozenCodec: unknown TyparScopeRow tag %d" b

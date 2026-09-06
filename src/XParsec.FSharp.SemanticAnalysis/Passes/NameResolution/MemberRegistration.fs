@@ -145,7 +145,7 @@ module NameResolutionMemberRegistration =
             let isValueType = classAttrs.IsValueType || TypeDefnPatterns.isStructShape td
 
             let struct (staticPreamble, instancePreamble) =
-                extractPreamble ctx id.DeclSite.Tok members.PrimaryCtor.IsSome isValueType body.classPreamble
+                extractPreamble ctx id.DeclSite.Tok members.HasPrimaryCtor isValueType body.classPreamble
 
             let info =
                 ClassTypeInfo(name, typeParams, ctorParams, members, id.DeclSite, thisName, thisKey, baseKey, id.Key)

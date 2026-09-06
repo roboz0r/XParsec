@@ -225,9 +225,6 @@ module FrozenCodecPrimitives =
     let writeAnchor (w: FrozenWriter) (a: Anchor) = w.Write(Anchor.toStored a)
     let readAnchor (r: FrozenReader) : Anchor = Anchor.ofStored (r.ReadInt32())
 
-    let writeMemberOrdinal (w: FrozenWriter) (MemberOrdinal ordinal) = w.Write ordinal
-
-    let readMemberOrdinal (r: FrozenReader) : MemberOrdinal = MemberOrdinal(r.ReadInt32())
 
     let writeTyparKind (w: FrozenWriter) (k: TyparKind) =
         match k with

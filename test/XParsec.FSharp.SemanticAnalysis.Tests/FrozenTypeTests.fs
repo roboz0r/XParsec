@@ -15,8 +15,7 @@ let private store = TypeStore()
 let private kScope = SymbolKeyOps.qualifiedTypeKeyOf "Test.Scope" 1
 let private d (i: int) : FrozenType = FTTypar(TyparScope.Type kScope, i)
 
-let private m (i: int) : FrozenType =
-    FTTypar(TyparScope.Member(kScope, MemberOrdinal 0), i)
+let private m (i: int) : FrozenType = FTTypar(TyparScope.Member kScope, i)
 
 /// A deterministic, depth-bounded enumeration of `FrozenType` constructors, nested, over a
 /// type's and a member's scope, but no local typar, whose `ofFrozen` image is a `TyVar` that

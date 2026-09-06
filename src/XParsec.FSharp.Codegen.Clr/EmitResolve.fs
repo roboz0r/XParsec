@@ -134,8 +134,7 @@ module EmitResolve =
     /// generic argument tie.
     let private paramAccepts (param: FrozenType) (arg: FrozenType) : bool =
         match param with
-        | FTTypar(TyparScope.LocalFunction _, _) -> tyCtorOf param = tyCtorOf arg
-        | FTTypar _ -> true
+        | FTTypar(scope, _) when not scope.IsLocal -> true
         | _ -> tyCtorOf param = tyCtorOf arg
 
     /// Pick the overload of `name` matching the call's argument types (ECMA-335 §I.10.2:

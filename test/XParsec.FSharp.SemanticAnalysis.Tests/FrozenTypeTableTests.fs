@@ -102,20 +102,16 @@ let private samples: FrozenType list =
         FTLiteral(LiteralConst.Int 42L)
         FrozenType.MkUnion [ FTLiteral(LiteralConst.String "ping"); FTLiteral(LiteralConst.String "pong") ]
         FTKeyOf(FTTypar(TyparScope.Type boxKey, 0))
-        FTIndexedAccess(FTTypar(TyparScope.Type boxKey, 0), FTTypar(TyparScope.Member(boxKey, MemberOrdinal 1), 0))
+        FTIndexedAccess(FTTypar(TyparScope.Type boxKey, 0), FTTypar(TyparScope.Member boxKey, 0))
         FTConditional
             {
                 Check = intTy
-                Extends =
-                    FTIndexedAccess(
-                        FTTypar(TyparScope.Type boxKey, 0),
-                        FTTypar(TyparScope.Member(boxKey, MemberOrdinal 1), 0)
-                    )
-                WhenTrue = FTTypar(TyparScope.Member(boxKey, MemberOrdinal 1), 0)
+                Extends = FTIndexedAccess(FTTypar(TyparScope.Type boxKey, 0), FTTypar(TyparScope.Member boxKey, 0))
+                WhenTrue = FTTypar(TyparScope.Member boxKey, 0)
                 WhenFalse = FrozenType.MkUnion []
             }
         FTTypar(TyparScope.Type boxKey, 3)
-        FTTypar(TyparScope.Member(boxKey, MemberOrdinal 1), 2)
+        FTTypar(TyparScope.Member boxKey, 2)
         FTTypar(TyparScope.ModuleFunction(SymbolKeyOps.bindingKeyOf (SymbolKeyOps.inNamespace "Test") "map"), 1)
         FTTypar(TyparScope.LocalFunction(LocalBindingId 0), 0)
         FTTypar(TyparScope.LocalFunction(LocalBindingId 1), 2)

@@ -205,25 +205,12 @@ module NameResolutionTypeBodyExtraction =
             ArgNames: EqArray<string voption>
         }
 
-    /// Supplies the next `MemberOrdinal` of one type body.
-    type private Minter = unit -> MemberOrdinal
-
-    let private addMember (ctx: PassContext) (mint: Minter) (acc: ResizeArray<TypeMemberInfo>) (m: MemberShape) : unit =
+    let private addMember (ctx: PassContext) (acc: ResizeArray<TypeMemberInfo>) (m: MemberShape) : unit =
         let tv = ctx.NewTypeVar()
         ctx.Store.SetLevel(UnionFind.find ctx.Store tv, 0)
 
         let cmi =
-            TypeMemberInfo(
-                m.Name,
-                m.Kind,
-                m.IsStatic,
-                TyVar tv,
-                m.Site,
-                m.SeedTypars,
-                m.DeclaredTyparCount,
-                m.ArgNames,
-                mint ()
-            )
+            TypeMemberInfo(m.Name, m.Kind, m.IsStatic, TyVar tv, m.Site, m.SeedTypars, m.DeclaredTyparCount, m.ArgNames)
 
         cmi.IsOverride <- m.IsOverride
         acc.Add cmi
@@ -291,13 +278,12 @@ module NameResolutionTypeBodyExtraction =
     let private addMembersOfDefn
         (ctx: PassContext)
         (typarNames: string list)
-        (mint: Minter)
         (acc: ResizeArray<TypeMemberInfo>)
         (staticTok: SyntaxToken voption)
         (kw: MemberKeyword<SyntaxToken>)
         (d: MethodOrPropDefn<SyntaxToken>)
         : unit =
-        let add = addMember ctx mint acc
+        let add = addMember ctx acc
         let isStatic = staticTok.IsSome
 
         match kw with
@@ -395,7 +381,6 @@ module NameResolutionTypeBodyExtraction =
     let private interfaceImpl
         (ctx: PassContext)
         (typarNames: string list)
-        (mint: Minter)
         (ifaceTok: SyntaxToken)
         (ifaceTyp: Type<SyntaxToken>)
         (objMembersOpt: ObjectMembers<SyntaxToken> voption)
@@ -412,7 +397,7 @@ module NameResolutionTypeBodyExtraction =
         for md in memberDefns do
             match md with
             | MemberDefn.Member(staticToken = s; keyword = kw; defn = d) ->
-                addMembersOfDefn ctx typarNames mint ifaceMembers s kw d
+                addMembersOfDefn ctx typarNames ifaceMembers s kw d
             | MemberDefn.Value(ident = id) ->
                 ctx.Report(id, Kind.Message "A field declaration is not permitted in an interface implementation")
             | MemberDefn.AdditionalConstructor(newToken = nt) ->
@@ -423,8 +408,8 @@ module NameResolutionTypeBodyExtraction =
 
         ClassInterfaceImplInfo(ifaceTyp, ifaceMembers.ToArray(), memberEls, ifaceSite)
 
-    /// `TypeBodyMembers` for a type body or augmentation. A class's primary constructor takes
-    /// ordinal 0 when present. An unsupported element diagnoses at `declTok`.
+    /// `TypeBodyMembers` for a type body or augmentation. Unsupported elements are diagnosed
+    /// at `declTok`.
     let extractTypeBody
         (ctx: PassContext)
         (declTok: SyntaxToken)
@@ -432,19 +417,10 @@ module NameResolutionTypeBodyExtraction =
         (host: TypeBodyHost)
         (elements: TypeDefnElement<SyntaxToken> seq)
         : TypeBodyMembers =
-        let mutable nextOrdinal = 0
-
-        let mint: Minter =
-            fun () ->
-                let ordinal = MemberOrdinal nextOrdinal
-                nextOrdinal <- nextOrdinal + 1
-                ordinal
-
-        let primaryCtor =
+        let hasPrimaryCtor =
             match host with
-            | TypeBodyHost.Class(hasPrimaryCtor = true) -> ValueSome(mint ())
-            | TypeBodyHost.Class(hasPrimaryCtor = false)
-            | TypeBodyHost.Augmentation -> ValueNone
+            | TypeBodyHost.Class(hasPrimaryCtor = has) -> has
+            | TypeBodyHost.Augmentation -> false
 
         let secondaryCtors = ResizeArray<ClassSecondaryCtorInfo>()
         let instanceFields = ResizeArray<ClassFieldInfo>()
@@ -454,15 +430,13 @@ module NameResolutionTypeBodyExtraction =
         for el in elements do
             match el with
             | TypeDefnElement.Member(MemberDefn.Member(staticToken = s; keyword = kw; defn = d)) ->
-                addMembersOfDefn ctx typarNames mint members s kw d
+                addMembersOfDefn ctx typarNames members s kw d
             | TypeDefnElement.Member(MemberDefn.AdditionalConstructor(newToken = nt; pat = pat; body = body)) ->
                 match host with
                 | TypeBodyHost.Class _ ->
                     let parms = ctorParamsOfPat ctx nt pat
 
-                    secondaryCtors.Add(
-                        ClassSecondaryCtorInfo(NodeSite.ofToken NodeKind.PatIdent nt, parms, body, mint ())
-                    )
+                    secondaryCtors.Add(ClassSecondaryCtorInfo(NodeSite.ofToken NodeKind.PatIdent nt, parms, body))
                 | TypeBodyHost.Augmentation ->
                     ctx.Report(nt, Kind.Message "Constructors cannot be defined for this type")
             // A `static val` (accepted by F#) is registered as an instance field; `staticToken` is unread.
@@ -481,14 +455,14 @@ module NameResolutionTypeBodyExtraction =
                     ctx.Report(id, Kind.Message "Explicit fields cannot be defined for this type")
             | TypeDefnElement.InterfaceImpl(InterfaceImpl.InterfaceImpl(
                 interfaceToken = ifaceTok; typ = ifaceTyp; objectMembers = objMembersOpt)) ->
-                interfaceImpls.Add(interfaceImpl ctx typarNames mint ifaceTok ifaceTyp objMembersOpt)
+                interfaceImpls.Add(interfaceImpl ctx typarNames ifaceTok ifaceTyp objMembersOpt)
             | TypeDefnElement.InterfaceSpec _ ->
                 // An `interface IFace` spec declares no members.
                 ()
             | TypeDefnElement.Inherit _ -> ctx.Report(declTok, Kind.NotYetSupported "inheritance")
 
         {
-            PrimaryCtor = primaryCtor
+            HasPrimaryCtor = hasPrimaryCtor
             SecondaryCtors = secondaryCtors.ToArray()
             InstanceFields = instanceFields.ToArray()
             Members = members.ToArray()

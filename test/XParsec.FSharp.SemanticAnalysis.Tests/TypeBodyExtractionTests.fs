@@ -1,19 +1,19 @@
-module XParsec.FSharp.SemanticAnalysis.Tests.MemberOrdinalTests
+module XParsec.FSharp.SemanticAnalysis.Tests.TypeBodyExtractionTests
 
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 open XParsec.FSharp.SemanticAnalysis.Tests.UnificationTestHelpers
 
-let private ordinalOf (members: TypeMemberInfo[]) (name: string) : MemberOrdinal =
-    (members |> Array.find (fun m -> m.Name = name)).Ordinal
+let private memberNamed (members: TypeMemberInfo[]) (name: string) : TypeMemberInfo =
+    members |> Array.find (fun m -> m.Name = name)
 
 [<Tests>]
 let tests =
     testList
-        "MemberOrdinal and LocalBindingId"
+        "TypeBodyExtraction and LocalBindingId"
         [
-            test "a class's ordinals follow source order: primary ctor first, then each declaration in turn" {
+            test "a class body registers its ctors, members, accessor halves and interface impl members" {
                 let ctx =
                     analyse (
                         String.concat
@@ -25,63 +25,36 @@ let tests =
                                 "type C(x: int) ="
                                 "    member this.A() = x"
                                 "    new() = C(0)"
-                                "    member this.B() = x + 1"
+                                "    abstract P: int with get, set"
                                 "    interface IRank with"
                                 "        member this.Rank() = x"
                             ]
                     )
 
                 let info = expectClass ctx "C"
-
-                Expect.equal info.Body.PrimaryCtor (ValueSome(MemberOrdinal 0)) "primary ctor is member 0"
-                Expect.equal (ordinalOf info.Body.Members "A") (MemberOrdinal 1) "A"
+                Expect.isTrue info.Body.HasPrimaryCtor "primary ctor"
+                Expect.equal info.Body.SecondaryCtors.Length 1 "one secondary ctor"
 
                 Expect.equal
-                    (info.Body.SecondaryCtors |> Array.map (fun c -> c.Ordinal))
-                    [| MemberOrdinal 2 |]
-                    "the secondary ctor sits where it is written"
-
-                Expect.equal (ordinalOf info.Body.Members "B") (MemberOrdinal 3) "B"
+                    (info.Body.Members |> Array.map (fun m -> m.Name) |> List.ofArray)
+                    [ "A"; "P"; "set_P" ]
+                    "members in source order, one per accessor half"
 
                 let impl = Array.exactlyOne info.Body.InterfaceImpls
-                Expect.equal (ordinalOf impl.Members "Rank") (MemberOrdinal 4) "the interface impl member"
+                Expect.equal (memberNamed impl.Members "Rank").Name "Rank" "the interface impl member"
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
 
-            test "a class without a primary ctor starts its ordinals at the first secondary" {
+            test "the `val`-field form has no primary ctor" {
                 let ctx =
                     analyse "type C =\n    val N: int\n    new(n) = { N = n }\n    member this.Get() = this.N"
 
                 let info = expectClass ctx "C"
-                Expect.equal info.Body.PrimaryCtor ValueNone "no primary ctor"
-                Expect.equal (Array.exactlyOne info.Body.SecondaryCtors).Ordinal (MemberOrdinal 0) "secondary ctor"
-                Expect.equal (ordinalOf info.Body.Members "Get") (MemberOrdinal 1) "Get"
+                Expect.isFalse info.Body.HasPrimaryCtor "no primary ctor"
+                Expect.equal info.Body.SecondaryCtors.Length 1 "one secondary ctor"
             }
 
-            test "an accessor pair takes one ordinal per half" {
-                let ctx =
-                    analyse "type C() =\n    abstract P: int with get, set\n    abstract Q: int"
-
-                let info = expectClass ctx "C"
-                Expect.equal (ordinalOf info.Body.Members "P") (MemberOrdinal 1) "getter half"
-                Expect.equal (ordinalOf info.Body.Members "set_P") (MemberOrdinal 2) "setter half"
-                Expect.equal (ordinalOf info.Body.Members "Q") (MemberOrdinal 3) "the next member"
-            }
-
-            test "a union augmentation numbers its members from zero" {
-                let ctx =
-                    analyse
-                        "type U =
-    | A
-    | B
-
-    member this.IsA = match this with A -> true | B -> false"
-
-                let info = expectUnion ctx "U"
-                Expect.equal (ordinalOf info.Members "IsA") (MemberOrdinal 0) "IsA"
-            }
-
-            test "a rejected `new` or `val` in an augmentation takes no ordinal and adds no other diagnostic" {
+            test "a rejected `new` or `val` in an augmentation adds no other diagnostic" {
                 let ctx =
                     analyse (
                         String.concat
@@ -101,11 +74,7 @@ let tests =
                     )
 
                 let info = expectUnion ctx "U"
-
-                Expect.equal
-                    (ordinalOf info.Members "IsA")
-                    (MemberOrdinal 0)
-                    "IsA follows the rejected declarations directly"
+                Expect.equal (memberNamed info.Members "IsA").Name "IsA" "IsA is registered"
 
                 Expect.equal
                     (ctx.Diagnostics |> Seq.map (fun d -> d.Message) |> Seq.sort |> List.ofSeq)
@@ -136,11 +105,7 @@ let tests =
 
                 let info = expectClass ctx "C"
                 let impl = Array.exactlyOne info.Body.InterfaceImpls
-
-                Expect.equal
-                    (ordinalOf impl.Members "Rank")
-                    (MemberOrdinal 1)
-                    "the impl member follows the primary ctor"
+                Expect.equal (memberNamed impl.Members "Rank").Name "Rank" "the impl member is registered"
 
                 Expect.equal
                     (ctx.Diagnostics |> Seq.map (fun d -> d.Message) |> Seq.sort |> List.ofSeq)

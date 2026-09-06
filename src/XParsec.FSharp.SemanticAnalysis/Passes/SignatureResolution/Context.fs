@@ -66,11 +66,7 @@ module SignatureResolutionContext =
         | Type of key: TypeKey * typars: EqArray<DeclaredTypar>
         /// A MEMBER: its declaring type's typars under the type's scope, its own under the
         /// member's.
-        | Member of
-            key: TypeKey *
-            declaring: EqArray<DeclaredTypar> *
-            ordinal: MemberOrdinal *
-            own: EqArray<DeclaredTypar>
+        | Member of key: TypeKey * declaring: EqArray<DeclaredTypar> * own: EqArray<DeclaredTypar>
         /// A VALUE quantifies its own typars under its binding's scope.
         | Value of key: BindingKey * typars: EqArray<DeclaredTypar>
 
@@ -78,9 +74,9 @@ module SignatureResolutionContext =
         match owner with
         | TyparOwner.Type(key, typars) -> scopedEnv ctx (TyparScope.Type key) typars
         | TyparOwner.Value(key, typars) -> scopedEnv ctx (TyparScope.ModuleFunction key) typars
-        | TyparOwner.Member(key, declaring, ordinal, own) ->
+        | TyparOwner.Member(key, declaring, own) ->
             scopedEnv ctx (TyparScope.Type key) declaring
-            @ scopedEnv ctx (TyparScope.Member(key, ordinal)) own
+            @ scopedEnv ctx (TyparScope.Member key) own
 
     // --- typar scopes ---------------------------------------------------------------
 

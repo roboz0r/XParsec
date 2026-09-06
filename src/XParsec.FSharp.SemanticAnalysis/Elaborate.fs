@@ -110,21 +110,19 @@ module Elaborate =
 
     /// The binding's exportable identity, keyed by the name its source writes and carrying
     /// `[<CompiledName>]`'s as the name it emits under (`Set.empty` ⇒ `SetModule.Empty`).
-    /// `ValueSome` only where the pattern binds exactly one variable; `ValueNone` for the rest
-    /// (`let (a, b) = p`) and for an active-pattern name.
+    /// `key` is the binding's own, present only where the pattern binds exactly one variable.
     let private exportedBindingInfo
         (ctx: PassContext)
-        (container: ModuleContainer)
-        (b: Binding<SyntaxToken>)
+        (key: BindingKey voption)
         (resolved: ResolvedAttributes)
         (attributes: TAttributes)
         : ModuleBindingInfo voption =
-        MemberNames.ofBinding ctx b
-        |> ValueOption.map (fun m ->
+        key
+        |> ValueOption.map (fun k ->
             {
-                Container = container
-                Name = m.Name
-                CompiledName = AttributeDecode.compiledNameOf ctx.NameOf m.Name resolved
+                Container = k.Decl
+                Name = k.Name
+                CompiledName = AttributeDecode.compiledNameOf ctx.NameOf k.Name resolved
                 Attributes = attributes
             }
         )
@@ -194,7 +192,8 @@ module Elaborate =
 
         let declTy = m.Ty
 
-        // The scope the binding's own typars quantify under; `ValueNone` for a pattern binding.
+        // Only a binding whose pattern is a simple name or an operator carries a key; a
+        // tuple pattern (`let (a, b) = p`) and an active-pattern name yield `ValueNone`.
         let bindingKey =
             MemberNames.ofBinding ctx b
             |> ValueOption.map (fun named -> SymbolKeyOps.bindingKeyOf container named.Name)
@@ -214,7 +213,7 @@ module Elaborate =
         let resolvedAttrs = ctx.ResolveAttributes b.attributes
         let attributes = AttributeFold.build ctx attrElement resolvedAttrs
 
-        let info = exportedBindingInfo ctx container b resolvedAttrs attributes
+        let info = exportedBindingInfo ctx bindingKey resolvedAttrs attributes
         let emittedName = info |> ValueOption.map (fun i -> i.EmittedName)
         let exportedKey = recordExportedBinding ctx b info boundVar
 
