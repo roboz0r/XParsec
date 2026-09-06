@@ -27,7 +27,7 @@ module RefCellPromotion =
                 VisitExpr =
                     fun _ e ->
                         match e with
-                        | TExpr.Let(TPat.NamedSimple(k, t, _, true), _, _, _, _) ->
+                        | TExpr.Let(TPat.NamedSimple(k, t, _, true), _, _, _, _, _) ->
                             match ctx.Bindings.Escape.TryGetValue k with
                             | ValueSome HeapShared -> promote.[k] <- refType t
                             | _ -> ()
@@ -38,7 +38,7 @@ module RefCellPromotion =
 
         for d in decls do
             match d with
-            | TDecl.Let(_, value, _, _) ->
+            | TDecl.Let(_, value, _, _, _) ->
                 // Only NESTED `let mutable` bound variables are candidates. A module-level mutable
                 // is a static field (CLR) / reassignable `let` (JS), shared across closures
                 // natively, and `rewriteDecl` leaves its declaration bare.
@@ -95,10 +95,10 @@ module RefCellPromotion =
                                     tok
                                 )
                             )
-                        | TExpr.Let(pat, value, body, ty, tok) ->
+                        | TExpr.Let(pat, value, body, isRec, ty, tok) ->
                             let pat' = TastWalk.mapPat m pat
                             let value' = wrapValueIfPromoted pat (TastWalk.mapExpr m value)
-                            ValueSome(TExpr.Let(pat', value', TastWalk.mapExpr m body, ty, tok))
+                            ValueSome(TExpr.Let(pat', value', TastWalk.mapExpr m body, isRec, ty, tok))
                         | _ -> ValueNone
             }
 
@@ -106,10 +106,10 @@ module RefCellPromotion =
 
     let private rewriteDecl (promote: IReadOnlyDictionary<NodeKey, SemType>) (d: TDecl) : TDecl =
         match d with
-        | TDecl.Let(pat, value, isInline, ty) ->
+        | TDecl.Let(pat, value, isInline, isRec, ty) ->
             // A top-level bound variable is never promoted, so the pattern's type is unchanged;
             // the rewrite reaches any inner `let mutable` through the value's tree.
-            TDecl.Let(pat, rewriteExpr promote value, isInline, ty)
+            TDecl.Let(pat, rewriteExpr promote value, isInline, isRec, ty)
         | TDecl.Expression(e, ty) -> TDecl.Expression(rewriteExpr promote e, ty)
         | TDecl.Type _ -> d
 

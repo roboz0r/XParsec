@@ -428,7 +428,7 @@ module TastLower =
             | ExprShape.Let ->
                 let l = TastAccessor.exprLet e
 
-                TastAccessor.mintLetDecl l.Pattern l.Value false (TastAccessor.exprTy l.Value)
+                TastAccessor.mintLetDecl l.Pattern l.Value false l.IsRec l.Recursion (TastAccessor.exprTy l.Value)
                 :: flattenTopLevel l.Body
             | _ -> [ TastAccessor.mintExpressionDecl e (TastAccessor.exprTy e) ]
 

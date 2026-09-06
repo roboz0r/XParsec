@@ -26,7 +26,7 @@ let private callKeys (tast: TastFile) : ResizeArray<SymbolKey> =
 
     for d in EqArray.toList tast.Decls do
         match d with
-        | TDecl.Let(_, value, _, _) -> TastWalk.iterExpr it value
+        | TDecl.Let(_, value, _, _, _) -> TastWalk.iterExpr it value
         | _ -> ()
 
     calls
@@ -58,7 +58,7 @@ let private declType (tast: TastFile) : SemType =
         )
 
     match valueDecls with
-    | [ TDecl.Let(_, _, _, ty) ] -> ty
+    | [ TDecl.Let(_, _, _, _, ty) ] -> ty
     | other -> failwithf "expected single TDecl.Let, got %A" other
 
 /// A range materialises no seq value, so it is legal ONLY as the direct source of a
@@ -81,7 +81,7 @@ let tests =
                     | _ -> failwithf "expected two decls, got %A" tast.Decls
 
                 match resultDecl with
-                | TDecl.Let(_, _, _, ty) -> Expect.equal ty BuiltinTypes.tyInt "r : int"
+                | TDecl.Let(_, _, _, _, ty) -> Expect.equal ty BuiltinTypes.tyInt "r : int"
                 | other -> failtestf "unexpected: %A" other
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
@@ -106,7 +106,7 @@ let tests =
                     | _ -> failwithf "expected two decls, got %A" tast.Decls
 
                 match resultDecl with
-                | TDecl.Let(_, _, _, ty) -> Expect.equal ty BuiltinTypes.tyInt "r : int"
+                | TDecl.Let(_, _, _, _, ty) -> Expect.equal ty BuiltinTypes.tyInt "r : int"
                 | other -> failtestf "unexpected: %A" other
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
@@ -131,7 +131,7 @@ let tests =
                     | _ -> failwithf "expected three decls, got %A" tast.Decls
 
                 match hDecl with
-                | TDecl.Let(_, _, _, ty) ->
+                | TDecl.Let(_, _, _, _, ty) ->
                     Expect.equal ty (TyFun(BuiltinTypes.tyInt, BuiltinTypes.tyInt)) "h : int -> int"
                 | other -> failtestf "unexpected: %A" other
 
@@ -147,7 +147,7 @@ let tests =
                     | _ -> failwithf "expected three decls, got %A" tast.Decls
 
                 match hDecl with
-                | TDecl.Let(_, _, _, ty) ->
+                | TDecl.Let(_, _, _, _, ty) ->
                     Expect.equal ty (TyFun(BuiltinTypes.tyInt, BuiltinTypes.tyInt)) "h : int -> int"
                 | other -> failtestf "unexpected: %A" other
 
@@ -340,7 +340,7 @@ let tests =
                     | _ -> failwithf "expected two decls, got %A" tast.Decls
 
                 match resultDecl with
-                | TDecl.Let(_, _, _, ty) -> Expect.equal ty BuiltinTypes.tyInt "r : int"
+                | TDecl.Let(_, _, _, _, ty) -> Expect.equal ty BuiltinTypes.tyInt "r : int"
                 | other -> failtestf "unexpected: %A" other
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
@@ -502,6 +502,7 @@ let tests =
                                                      _),
                                          _,
                                          _),
+                            _,
                             _,
                             _) -> ()
                 | other -> failtestf "unexpected: %A" other
@@ -673,7 +674,7 @@ let tests =
                     |> EqArray.toList
                     |> List.tryPick (
                         function
-                        | TDecl.Let(_, v, _, _) -> Some v
+                        | TDecl.Let(_, v, _, _, _) -> Some v
                         | _ -> None
                     )
                     |> Option.defaultWith (fun () -> failwithf "expected a let, got %A" tast.Decls)
@@ -697,7 +698,7 @@ let tests =
                     |> EqArray.toList
                     |> List.tryPick (
                         function
-                        | TDecl.Let(_, v, _, _) -> Some v
+                        | TDecl.Let(_, v, _, _, _) -> Some v
                         | _ -> None
                     )
                     |> Option.defaultWith (fun () -> failwithf "expected a let, got %A" tast.Decls)
@@ -726,7 +727,7 @@ let tests =
                     |> EqArray.toList
                     |> List.tryPick (
                         function
-                        | TDecl.Let(_, v, _, _) -> Some v
+                        | TDecl.Let(_, v, _, _, _) -> Some v
                         | _ -> None
                     )
                     |> Option.defaultWith (fun () -> failwithf "expected a let, got %A" tast.Decls)
@@ -754,7 +755,7 @@ let tests =
                     |> EqArray.toList
                     |> List.tryPick (
                         function
-                        | TDecl.Let(_, v, _, _) -> Some v
+                        | TDecl.Let(_, v, _, _, _) -> Some v
                         | _ -> None
                     )
                     |> Option.defaultWith (fun () -> failwithf "expected a let, got %A" tast.Decls)
@@ -778,7 +779,7 @@ let tests =
                     |> EqArray.toList
                     |> List.tryPick (
                         function
-                        | TDecl.Let(_, v, _, _) -> Some v
+                        | TDecl.Let(_, v, _, _, _) -> Some v
                         | _ -> None
                     )
                     |> Option.defaultWith (fun () -> failwithf "expected a let, got %A" tast.Decls)
@@ -803,7 +804,7 @@ let tests =
                     |> EqArray.toList
                     |> List.tryPick (
                         function
-                        | TDecl.Let(_, v, _, _) -> Some v
+                        | TDecl.Let(_, v, _, _, _) -> Some v
                         | _ -> None
                     )
                     |> Option.defaultWith (fun () -> failwithf "expected a let, got %A" tast.Decls)
@@ -1275,7 +1276,7 @@ let tests =
 
                 for d in EqArray.toList tast.Decls do
                     match d with
-                    | TDecl.Let(_, value, _, _) -> TastWalk.iterExpr it value
+                    | TDecl.Let(_, value, _, _, _) -> TastWalk.iterExpr it value
                     | _ -> ()
 
                 // The single-`FTConst` parameter type name of a member key, if any.

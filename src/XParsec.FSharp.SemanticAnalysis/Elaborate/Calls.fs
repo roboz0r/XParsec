@@ -94,7 +94,7 @@ module internal ElaborateCalls =
     /// Wrap a call in the `let`s `openTupledMemberArg` produced, outermost first.
     let wrapOpenedBinds (binds: (TPat * TExpr) list) (call: TExpr) : TExpr =
         List.foldBack
-            (fun (pat, value) body -> TExpr.Let(pat, value, body, TastWalk.exprTy body, TastWalk.patTok pat))
+            (fun (pat, value) body -> TExpr.Let(pat, value, body, false, TastWalk.exprTy body, TastWalk.patTok pat))
             binds
             call
 

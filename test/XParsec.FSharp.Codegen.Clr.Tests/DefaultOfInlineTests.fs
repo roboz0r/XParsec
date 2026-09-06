@@ -35,7 +35,7 @@ let tests =
 
                             let spliced =
                                 match tast.Decls with
-                                | EqList [ TDecl.Let(_, v, _, _) ] -> findIlzero tast v
+                                | EqList [ TDecl.Let(_, v, _, _, _) ] -> findIlzero tast v
                                 | _ -> false
 
                             Expect.isTrue spliced (sprintf "%s splices to the ilzero intrinsic" label)

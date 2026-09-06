@@ -73,30 +73,35 @@ export const emptyDocs = ([]);
 export const append = (a, d) => ([...(a), (d)]);
 export const dLen = (a) => ((a).length);
 export const dGet = (a, i) => ((a)[(i)]);
-export const flatWidth = (d) => ((_m212) => {
-  if ((_m212.tag === 0)) {
-    const s = _m212.Item;
-    return strLen(s);
+export const flatWidth = (d) => {
+  while (true) {
+    const _m212 = d;
+    if ((_m212.tag === 0)) {
+      const s = _m212.Item;
+      return strLen(s);
+    }
+    if ((_m212.tag === 1)) {
+      const flat = _m212.Item;
+      return strLen(flat);
+    }
+    if ((_m212.tag === 2)) {
+      const kids = _m212.Item;
+      return catWidth(kids, 0, 0);
+    }
+    if ((_m212.tag === 3)) {
+      const inner = _m212.Item2;
+      const _tc0 = inner;
+      d = _tc0;
+      continue;
+    }
+    if ((_m212.tag === 4)) {
+      const inner = _m212.Item1;
+      const parens = _m212.Item2;
+      return addI(flatWidth(inner), (parens ? 2 : 0));
+    }
+    throw new Error("The match cases were incomplete");
   }
-  if ((_m212.tag === 1)) {
-    const flat = _m212.Item;
-    return strLen(flat);
-  }
-  if ((_m212.tag === 2)) {
-    const kids = _m212.Item;
-    return catWidth(kids, 0, 0);
-  }
-  if ((_m212.tag === 3)) {
-    const inner = _m212.Item2;
-    return flatWidth(inner);
-  }
-  if ((_m212.tag === 4)) {
-    const inner = _m212.Item1;
-    const parens = _m212.Item2;
-    return addI(flatWidth(inner), (parens ? 2 : 0));
-  }
-  throw new Error("The match cases were incomplete");
-})(d);
+};
 export const catWidth = (kids, i, acc) => {
   while (true) {
     if (intGe(i, dLen(kids))) {
@@ -116,31 +121,63 @@ export const mkStrCell = (s) => ([(s)]);
 export const getStr = (c) => ((c)[0]);
 export const emit = (out, s) => ((out)[0] = (out)[0] + (s));
 export const nSpaces = (n) => (' '.repeat((n)));
-export const renderDoc = (d, out, indent, broken, col, width) => ((_m213) => {
-  if ((_m213.tag === 0)) {
-    const s = _m213.Item;
-    return (emit(out, s), addI(col, strLen(s)));
+export const renderDoc = (d, out, indent, broken, col, width) => {
+  while (true) {
+    const _m213 = d;
+    if ((_m213.tag === 0)) {
+      const s = _m213.Item;
+      emit(out, s);
+      return addI(col, strLen(s));
+    }
+    if ((_m213.tag === 1)) {
+      const flat = _m213.Item;
+      if (broken) {
+        emit(out, "\n");
+        emit(out, nSpaces(indent));
+        return indent;
+      } else {
+        emit(out, flat);
+        return addI(col, strLen(flat));
+      }
+    }
+    if ((_m213.tag === 3)) {
+      const i = _m213.Item1;
+      const inner = _m213.Item2;
+      const _tc0 = inner;
+      const _tc1 = out;
+      const _tc2 = addI(indent, i);
+      const _tc3 = broken;
+      const _tc4 = col;
+      const _tc5 = width;
+      d = _tc0;
+      out = _tc1;
+      indent = _tc2;
+      broken = _tc3;
+      col = _tc4;
+      width = _tc5;
+      continue;
+    }
+    if ((_m213.tag === 2)) {
+      const kids = _m213.Item;
+      return renderCat(kids, 0, out, indent, broken, col, width);
+    }
+    if ((_m213.tag === 4)) {
+      const inner = _m213.Item1;
+      const parens = _m213.Item2;
+      const openCol = (parens ? inc(col) : col);
+      const groupBroken = (intEq(width, 0) ? false : intGt(addI(openCol, flatWidth(inner)), width));
+      (parens ? emit(out, "(") : undefined);
+      const endCol = renderDoc(inner, out, indent, groupBroken, openCol, width);
+      if (parens) {
+        emit(out, ")");
+        return inc(endCol);
+      } else {
+        return endCol;
+      }
+    }
+    throw new Error("The match cases were incomplete");
   }
-  if ((_m213.tag === 1)) {
-    const flat = _m213.Item;
-    return (broken ? (emit(out, "\n"), emit(out, nSpaces(indent)), indent) : (emit(out, flat), addI(col, strLen(flat))));
-  }
-  if ((_m213.tag === 3)) {
-    const i = _m213.Item1;
-    const inner = _m213.Item2;
-    return renderDoc(inner, out, addI(indent, i), broken, col, width);
-  }
-  if ((_m213.tag === 2)) {
-    const kids = _m213.Item;
-    return renderCat(kids, 0, out, indent, broken, col, width);
-  }
-  if ((_m213.tag === 4)) {
-    const inner = _m213.Item1;
-    const parens = _m213.Item2;
-    return ((openCol) => ((groupBroken) => ((parens ? emit(out, "(") : undefined), ((endCol) => (parens ? (emit(out, ")"), inc(endCol)) : endCol))(renderDoc(inner, out, indent, groupBroken, openCol, width))))((intEq(width, 0) ? false : intGt(addI(openCol, flatWidth(inner)), width))))((parens ? inc(col) : col));
-  }
-  throw new Error("The match cases were incomplete");
-})(d);
+};
 export const renderCat = (kids, i, out, indent, broken, col, width) => {
   while (true) {
     if (intGe(i, dLen(kids))) {

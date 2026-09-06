@@ -434,7 +434,9 @@ type TTypeDeclG<'ty, 'tok, 'id, 'body> =
 
 [<RequireQualifiedAccess>]
 type TDeclG<'ty, 'tok, 'id> =
-    | Let of pattern: TPatG<'ty, 'tok, 'id> * value: TExprG<'ty, 'tok, 'id> * isInline: bool * ty: 'ty
+    /// `isRec` is the source `rec` keyword: only a `let rec` value can reference the variable
+    /// the pattern binds.
+    | Let of pattern: TPatG<'ty, 'tok, 'id> * value: TExprG<'ty, 'tok, 'id> * isInline: bool * isRec: bool * ty: 'ty
     | Expression of expr: TExprG<'ty, 'tok, 'id> * ty: 'ty
     | Type of TTypeDeclG<'ty, 'tok, 'id, TExprG<'ty, 'tok, 'id>>
 

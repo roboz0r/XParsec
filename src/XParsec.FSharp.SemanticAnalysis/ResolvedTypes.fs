@@ -59,7 +59,7 @@ module ResolvedTypes =
                     addFreeRoots ctx.Store allowed acc (TastWalk.exprTy e)
 
                     match e with
-                    | TExpr.Let(binding, value, body, _, _) ->
+                    | TExpr.Let(binding, value, body, _, _, _) ->
                         // The inner let's quantified roots are allowed in its value RHS and
                         // binding pattern only; popped before the body's check.
                         let added = pushScheme ctx binding allowed
@@ -103,7 +103,7 @@ module ResolvedTypes =
     /// in the binding's pattern, and no place in the file otherwise.
     let declSite (d: TDecl) : Site =
         match d with
-        | TDecl.Let(binding, _, _, _) ->
+        | TDecl.Let(binding, _, _, _, _) ->
             match TastWalk.namedSimplesOfTPat binding with
             | struct (_, tok) :: _ -> Site.ofToken tok
             | [] -> Site.Nowhere
@@ -114,7 +114,7 @@ module ResolvedTypes =
         let iter = buildIter ctx allowed acc
 
         match d with
-        | TDecl.Let(binding, value, _, ty) ->
+        | TDecl.Let(binding, value, _, _, ty) ->
             let added = pushScheme ctx binding allowed
             addFreeRoots ctx.Store allowed acc ty
             TastWalk.iterPat iter binding

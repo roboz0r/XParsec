@@ -174,6 +174,7 @@ module Elaborate =
     let private translateModuleLet
         (ctx: PassContext)
         (container: ModuleContainer)
+        (isRec: bool)
         (b: Binding<SyntaxToken>)
         : (TDecl * (TyVarId * SemType) list) voption =
         let tpat = translateBindingPat ctx b
@@ -220,7 +221,7 @@ module Elaborate =
         if elided then
             ValueNone
         else
-            ValueSome(TDecl.Let(tpat, valT, b.inlineToken.IsSome, declTy), quantEnv)
+            ValueSome(TDecl.Let(tpat, valT, b.inlineToken.IsSome, isRec, declTy), quantEnv)
 
     let private translateModuleElem
         (ctx: PassContext)
@@ -229,10 +230,10 @@ module Elaborate =
         let container = ctx.CurrentContainer
 
         match m with
-        | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(bindings = bindings)) ->
+        | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(isRec = isRec; bindings = bindings)) ->
             [
                 for b in bindings do
-                    match translateModuleLet ctx container b with
+                    match translateModuleLet ctx container isRec.IsSome b with
                     | ValueSome decl -> yield decl
                     | ValueNone -> ()
             ]
@@ -274,7 +275,7 @@ module Elaborate =
             // `^T` template.
             for (d, env) in elaborated do
                 match d with
-                | TDecl.Let(TPat.NamedSimple(k, _, _, _), _, true, _) ->
+                | TDecl.Let(TPat.NamedSimple(k, _, _, _), _, true, _, _) ->
                     ctx.InlineTemplates.[k] <- freezeTypars ctx.Store env d
                 | _ -> ()
 

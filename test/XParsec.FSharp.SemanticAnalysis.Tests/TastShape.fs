@@ -169,7 +169,7 @@ type private Renderer() =
             push " -> "
             this.Expr body
 
-        | TExpr.Let(p, v, b, _, _) ->
+        | TExpr.Let(p, v, b, _, _, _) ->
             push "let "
             this.Pat p
             push " = "
@@ -690,7 +690,7 @@ type private Renderer() =
 
     member this.Decl(d: TDecl) : unit =
         match d with
-        | TDecl.Let(p, v, isInline, _) ->
+        | TDecl.Let(p, v, isInline, _, _) ->
             push (if isInline then "let inline " else "let ")
             this.Pat p
             push " = "

@@ -216,10 +216,13 @@ type TExprG<'ty, 'tok, 'id> =
     | Unresolved of ty: 'ty * tok: 'tok
     | Lambda of param: TPatG<'ty, 'tok, 'id> * body: TExprG<'ty, 'tok, 'id> * ty: 'ty * tok: 'tok
     | App of fn: TExprG<'ty, 'tok, 'id> * arg: TExprG<'ty, 'tok, 'id> * ty: 'ty * tok: 'tok
+    /// `isRec` is the source `rec` keyword: only a `let rec` value can reference the variable
+    /// the pattern binds.
     | Let of
         pattern: TPatG<'ty, 'tok, 'id> *
         value: TExprG<'ty, 'tok, 'id> *
         body: TExprG<'ty, 'tok, 'id> *
+        isRec: bool *
         ty: 'ty *
         tok: 'tok
     /// `use x = value in body` — `Let`'s shape plus disposal: `body` runs inside a

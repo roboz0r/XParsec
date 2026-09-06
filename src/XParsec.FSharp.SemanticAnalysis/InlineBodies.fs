@@ -43,13 +43,15 @@ module InlineBodies =
                 resultTy <- lamTy
 
             let declTy = resultTy
-            // `inlineExpand` matches `TDecl.Let(_, value, _, declTy)`, so this bound variable is
-            // filler that keeps the node total — minted rather than taken from anything.
+            // `inlineExpand` reads only the value, so this bound variable is filler the decl's
+            // shape requires, minted rather than taken from anything.
             let decl =
                 TastAccessor.mintLetDecl
                     (TastAccessor.mintNamedPat pool (TastPoolBuilder.mintBoundVar pool) declTy bodyTok)
                     body
                     true
+                    false
+                    Recursion.NonRecursive
                     declTy
 
             // One entry per curried position, so `this` takes a leading default. No member

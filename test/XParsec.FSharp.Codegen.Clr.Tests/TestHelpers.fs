@@ -91,7 +91,7 @@ let rec iterThroughEdges (it: TastWalk.Iter) (tast: TastFile) (e: TExpr) : unit 
 let iterFileExprs (it: TastWalk.Iter) (tast: TastFile) : unit =
     let ofDecl (d: TDecl) =
         match d with
-        | TDecl.Let(_, value, _, _) -> TastWalk.iterExpr it value
+        | TDecl.Let(_, value, _, _, _) -> TastWalk.iterExpr it value
         | TDecl.Expression(e, _) -> TastWalk.iterExpr it e
         | TDecl.Type _ -> ()
 
@@ -150,6 +150,13 @@ let vesperOptionPackage: string = srcPackage "Vesper.Option"
 let dependencyName (entry: string) : string =
     IO.Path.GetFileName(IO.Path.TrimEndingDirectorySeparator entry)
 
+/// The `src/` package directories listed under `depends-on` in `package`'s CLR manifest, in
+/// manifest order: the contract stack its own impl analyses against.
+let dependencyPackages (package: string) : string list =
+    ReferencedProject.resolveManifest Target.Clr package
+    |> Result.bind ReferencedProject.loadManifest
+    |> PackageFaults.okOrFail (sprintf "dependencyPackages %s" package)
+    |> fun manifest -> manifest.DependsOn |> List.map (dependencyName >> srcPackage)
 
 /// The contract, GATED, so a test that miswires its packages fails with the contract error
 /// and not an unresolved name three files later.
@@ -246,53 +253,6 @@ let vesperCoreDll: Lazy<string> =
          Codegen.materialise artifact
          AssemblyLoadContext.Default.LoadFromAssemblyPath corePath |> ignore
          corePath)
-
-/// Compile `src/Vesper.Option/option.fs` (the `Vesper.Option\`1` struct union plus
-/// `OptionModule`), load it into the *Default* `AssemblyLoadContext`, and return its path.
-let vesperOptionDll: Lazy<string> =
-    lazy
-        (let outDir = tmpDir "vesper-option"
-         let optionPath = IO.Path.Combine(outDir, "Vesper.Option.dll")
-
-         let project =
-             { ProjectInfo.library "Vesper.Option" with
-                 OutputPath = Some optionPath
-                 References = [ vesperCoreDll.Value ]
-             }
-
-         let src = IO.File.ReadAllText(IO.Path.Combine(vesperOptionPackage, "option.fs"))
-         let provider = ClrSymbolProviders.buildContract [ vesperCorePackage ]
-         let artifact = compileAgainst provider project src
-         Codegen.materialise artifact
-         AssemblyLoadContext.Default.LoadFromAssemblyPath optionPath |> ignore
-         optionPath)
-
-/// Compile `src/Vesper.List/list.fs` (the `Vesper.Collections.List\`1` cons-list plus
-/// `ListModule::fold`), load it into the *Default* `AssemblyLoadContext`, and return its
-/// path. `fold`'s folder is a `Vesper.Fun`, so it references `Vesper.Core`; `GetSlice`'s
-/// bounds are `int option`, so it references `Vesper.Option` too.
-let vesperListDll: Lazy<string> =
-    lazy
-        (let outDir = tmpDir "vesper-list"
-         let listPath = IO.Path.Combine(outDir, "Vesper.List.dll")
-
-         let project =
-             { ProjectInfo.library "Vesper.List" with
-                 OutputPath = Some listPath
-                 References = [ vesperCoreDll.Value; vesperOptionDll.Value ]
-             }
-
-         let src = IO.File.ReadAllText(vesperListSource "list.fs")
-         // A `[1; 2; 3]` consumer literal binds to this list by ARITY (nullary terminator
-         // + binary cons), not by case name. `list.fs` calls `failwith`, an inline operator
-         // in the Vesper.Core contract, so that contract must be in the stack to inline it.
-         let provider =
-             ClrSymbolProviders.buildContract [ vesperCorePackage; vesperOptionPackage ]
-
-         let artifact = compileAgainst provider project src
-         Codegen.materialise artifact
-         AssemblyLoadContext.Default.LoadFromAssemblyPath listPath |> ignore
-         listPath)
 
 let vesperListPackage: string = srcPackage "Vesper.List"
 
@@ -444,18 +404,30 @@ let packageOutputPath (package: string) : string =
     | Some p -> p
     | None -> failwithf "buildPackage %s produced no OutputPath" package
 
-/// The Vesper-compiled `Vesper.Printf.dll` loaded into the *Default* `AssemblyLoadContext`
-/// as the only copy there, so a fresh-ALC driver resolves it by fall-through, onto the
-/// `vesperCoreDll` / `vesperListDll` copies forced first.
-let vesperPrintfDll: Lazy<string> =
+/// The Vesper-compiled DLL `buildPackage` produces for `package`, loaded into the *Default*
+/// `AssemblyLoadContext` and returned by path, so a fresh-ALC driver resolves it by
+/// fall-through. `deps` are the Default copies its references bind to, forced first.
+let private defaultLoadedPackageDll (deps: Lazy<string> list) (package: string) : Lazy<string> =
     lazy
-        (vesperCoreDll.Value |> ignore
-         vesperListDll.Value |> ignore
+        (for dep in deps do
+            dep.Value |> ignore
 
-         let path = packageOutputPath "Vesper.Printf"
-
+         let path = packageOutputPath package
          AssemblyLoadContext.Default.LoadFromAssemblyPath path |> ignore
          path)
+
+/// `Vesper.Option.dll`: the `Vesper.Option\`1` struct union plus `OptionModule`.
+let vesperOptionDll: Lazy<string> =
+    defaultLoadedPackageDll [ vesperCoreDll ] "Vesper.Option"
+
+/// `Vesper.List.dll`: the `Vesper.Collections.List\`1` cons-list plus `ListModule`. A
+/// `[1; 2; 3]` consumer literal binds to this list by ARITY (nullary terminator + binary
+/// cons), not by case name.
+let vesperListDll: Lazy<string> =
+    defaultLoadedPackageDll [ vesperCoreDll; vesperOptionDll ] "Vesper.List"
+
+let vesperPrintfDll: Lazy<string> =
+    defaultLoadedPackageDll [ vesperCoreDll; vesperListDll ] "Vesper.Printf"
 
 /// Add `Vesper.Core.dll` / `Vesper.Option.dll` / `Vesper.List.dll` / `Vesper.Printf.dll` to
 /// `References` so a program's function values, list literals and `printf` calls resolve, but

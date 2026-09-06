@@ -440,7 +440,7 @@ module Regions =
 
         let rec collect (e: TExpr) : TExpr =
             match e with
-            | TExpr.Let(p, v, body, _, _) ->
+            | TExpr.Let(p, v, body, _, _, _) ->
                 bindings.Add(p, v)
                 collect body
             | TExpr.Use(p, v, body, _, _, _) ->
@@ -669,7 +669,7 @@ module Regions =
             [
                 for d in decls do
                     match d with
-                    | TDecl.Let(p, v, _, _) -> yield (p, v)
+                    | TDecl.Let(p, v, _, _, _) -> yield (p, v)
                     | TDecl.Expression _
                     | TDecl.Type _ -> ()
             ]

@@ -53,16 +53,98 @@ module TastPools =
                 Payload = patPayload boundVar p
             }
 
+    /// The `let rec` binding whose value the walk is inside. `Referenced` and `TailCalled`
+    /// are set by the walk of the value and read once it completes.
+    type private SelfFrame<'id>(var: 'id) =
+        member _.Var = var
+        member val Referenced = false with get, set
+        member val TailCalled = false with get, set
+
+        member this.Recursion =
+            if not this.Referenced then Recursion.NonRecursive
+            elif this.TailCalled then Recursion.TailRecursive
+            else Recursion.Recursive
+
+    /// Where a node stands relative to the enclosing `let rec` value's tail position.
+    [<RequireQualifiedAccess>]
+    type private TailPos<'id> =
+        | NotTail
+        /// On the value's leading lambda chain, `lambdas` deep. A `Lambda` here continues the
+        /// chain; any other node is the value's body.
+        | Leading of frame: SelfFrame<'id> * lambdas: int
+        /// In tail position of the body after the value's `arity` leading lambdas.
+        | Tail of frame: SelfFrame<'id> * arity: int
+
+    /// The frame for a `let rec` binding a single named variable; `ValueNone` for a
+    /// destructuring pattern or a non-recursive binding.
+    let private selfFrame (pattern: TPatG<FrozenType, 'tok, 'id>) (isRec: bool) : SelfFrame<'id> voption =
+        match pattern with
+        | TPatG.NamedSimple(boundVar = k) when isRec -> ValueSome(SelfFrame k)
+        | _ -> ValueNone
+
+    /// Whether `e` is the outermost application of `frame.Var` to exactly `arity` arguments.
+    let private isSaturatedSelfCall (frame: SelfFrame<'id>) (arity: int) (e: TExprG<FrozenType, 'tok, 'id>) : bool =
+        match TastWalk.collectAppChain [] e with
+        | TExprG.Var(boundVar = b), args -> b = frame.Var && List.length args = arity
+        | _ -> false
+
     /// Pool an expression subtree post-order (see `poolPat`), its owned sub-patterns
-    /// included.
-    let rec poolExpr (sink: IPoolSink<'tok, 'id>) (e: TExprG<FrozenType, 'tok, 'id>) : ExprPoolId =
+    /// included. `frames` are the `let rec` values the node is inside, innermost first;
+    /// `tail` is its position relative to the innermost value's tail.
+    let rec private poolExprIn
+        (sink: IPoolSink<'tok, 'id>)
+        (frames: SelfFrame<'id> list)
+        (tail: TailPos<'id>)
+        (e: TExprG<FrozenType, 'tok, 'id>)
+        : ExprPoolId =
+        // The first non-lambda on the leading chain is the value's body: in tail position,
+        // with the chain's length as the saturating arity.
+        let tail =
+            match e, tail with
+            | TExprG.Lambda _, _ -> tail
+            | _, TailPos.Leading(frame, lambdas) -> TailPos.Tail(frame, lambdas)
+            | _, _ -> tail
+
         // A `ForTo` binds its loop variable with no pattern node behind it, so the intern
         // happens here rather than in `poolPat`.
         let boundVar =
             BoundVarKey.ofExpr e |> ValueOption.map (fun k -> sink.InternBoundVar k)
 
-        let exprKids = exprChildren e |> Array.map (poolExpr sink)
+        let childPos (isTail: bool) : TailPos<'id> =
+            match tail with
+            | TailPos.Leading(frame, lambdas) -> TailPos.Leading(frame, lambdas + 1)
+            | TailPos.Tail _ when isTail -> tail
+            | TailPos.Tail _
+            | TailPos.NotTail -> TailPos.NotTail
+
+        let struct (exprKids, payload) =
+            match e with
+            | TExprG.Let(pattern = pattern; value = value; body = body; isRec = isRec) ->
+                let struct (valueId, recursion) = poolLetValue sink frames pattern isRec value
+                let bodyId = poolExprIn sink frames (childPos true) body
+                struct ([| valueId; bodyId |], ExprPayload.Let(isRec, recursion))
+            | _ ->
+                let kids =
+                    exprChildEdges e
+                    |> Array.map (fun struct (c, isTail) -> poolExprIn sink frames (childPos isTail) c)
+
+                let payload =
+                    match e, tail with
+                    | TExprG.App _, TailPos.Tail(frame, arity) when isSaturatedSelfCall frame arity e ->
+                        frame.TailCalled <- true
+                        ExprPayload.App AppKind.TailSelfCall
+                    | _ -> exprPayload (fun t -> sink.Anchor t) boundVar e
+
+                struct (kids, payload)
+
         let patKids = exprPatChildren e |> Array.map (poolPat sink)
+
+        match e with
+        | TExprG.Var(boundVar = b) ->
+            for frame in frames do
+                if frame.Var = b then
+                    frame.Referenced <- true
+        | _ -> ()
 
         let row =
             {
@@ -71,7 +153,7 @@ module TastPools =
                 Children = exprKids
                 PatChildren = patKids
                 VarBoundVar = ValueNone
-                Payload = exprPayload (fun t -> sink.Anchor t) boundVar e
+                Payload = payload
             }
 
         let id = sink.AddExpr row
@@ -83,12 +165,43 @@ module TastPools =
 
         id
 
+    /// Pool a `let` binding's value, under its own frame for a `let rec` over a single
+    /// variable, with the binding's `Recursion` read off that frame.
+    and private poolLetValue
+        (sink: IPoolSink<'tok, 'id>)
+        (frames: SelfFrame<'id> list)
+        (pattern: TPatG<FrozenType, 'tok, 'id>)
+        (isRec: bool)
+        (value: TExprG<FrozenType, 'tok, 'id>)
+        : struct (ExprPoolId * Recursion) =
+        match selfFrame pattern isRec with
+        | ValueSome frame ->
+            let id = poolExprIn sink (frame :: frames) (TailPos.Leading(frame, 0)) value
+
+            struct (id, frame.Recursion)
+        | ValueNone -> struct (poolExprIn sink frames TailPos.NotTail value, Recursion.NonRecursive)
+
+    /// Pool an expression subtree that is outside every `let rec` value.
+    let poolExpr (sink: IPoolSink<'tok, 'id>) (e: TExprG<FrozenType, 'tok, 'id>) : ExprPoolId =
+        poolExprIn sink [] TailPos.NotTail e
+
     /// A frozen declaration's fields MINUS its child expr/pat roots. A `Type` decl's
     /// member/preamble/ctor bodies are pooled through the sink and their IDS kept in the
     /// slots that held the trees.
-    let private declPayload (sink: IPoolSink<'tok, 'id>) (d: TDeclG<FrozenType, 'tok, 'id>) : DeclPayload =
+    let private declPayload
+        (sink: IPoolSink<'tok, 'id>)
+        (recursion: Recursion)
+        (d: TDeclG<FrozenType, 'tok, 'id>)
+        : DeclPayload =
         match d with
-        | TDeclG.Let(isInline = isInline; ty = ty) -> DeclPayload.Let {| IsInline = isInline; Ty = ty |}
+        | TDeclG.Let(isInline = isInline; isRec = isRec; ty = ty) ->
+            DeclPayload.Let
+                {|
+                    IsInline = isInline
+                    IsRec = isRec
+                    Recursion = recursion
+                    Ty = ty
+                |}
         | TDeclG.Expression(ty = ty) -> DeclPayload.Expression ty
         | TDeclG.Type td ->
             DeclPayload.Type(
@@ -105,18 +218,19 @@ module TastPools =
     /// Pool a declaration, its expr/pat roots (see `poolPat`) and, for a `Type` decl,
     /// its member bodies, which the payload references by id rather than surfacing as children.
     let poolDecl (sink: IPoolSink<'tok, 'id>) (d: TDeclG<FrozenType, 'tok, 'id>) : DeclPoolId =
-        let struct (exprKids, patKids) =
+        let struct (exprKids, patKids, recursion) =
             match d with
-            | TDeclG.Let(pattern = pattern; value = value) ->
-                struct ([| poolExpr sink value |], [| poolPat sink pattern |])
-            | TDeclG.Expression(expr = expr) -> struct ([| poolExpr sink expr |], [||])
-            | TDeclG.Type _ -> struct ([||], [||])
+            | TDeclG.Let(pattern = pattern; value = value; isRec = isRec) ->
+                let struct (valueId, recursion) = poolLetValue sink [] pattern isRec value
+                struct ([| valueId |], [| poolPat sink pattern |], recursion)
+            | TDeclG.Expression(expr = expr) -> struct ([| poolExpr sink expr |], [||], Recursion.NonRecursive)
+            | TDeclG.Type _ -> struct ([||], [||], Recursion.NonRecursive)
 
         sink.AddDecl
             {
                 ExprChildren = exprKids
                 PatChildren = patKids
-                Payload = declPayload sink d
+                Payload = declPayload sink recursion d
             }
 
     /// The SOURCE arity of every module binding, read off the columns just filled, so a

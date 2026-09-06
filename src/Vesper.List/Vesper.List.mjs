@@ -124,30 +124,52 @@ export const List__get_Tail = (_s2) => ((_m165) => {
   throw new Error("The match cases were incomplete");
 })(_s2);
 export const List__get_Item = (_s2) => (index) => (() => {
-  const nth = (l) => (n) => ((_m166) => {
-    if ((_m166.tag === 0)) {
-      return ((() => { throw new Error(("The index was outside the range of elements in the list.")); })());
+  const nth = (l) => (n) => {
+    while (true) {
+      const _m166 = l;
+      if ((_m166.tag === 0)) {
+        return ((() => { throw new Error(("The index was outside the range of elements in the list.")); })());
+      }
+      if ((_m166.tag === 1)) {
+        const h = _m166.Head;
+        const t = _m166.Tail;
+        if (((n) === (0))) {
+          return h;
+        } else {
+          const _tc0 = t;
+          const _tc1 = (((n) - (1)) | 0);
+          l = _tc0;
+          n = _tc1;
+          continue;
+        }
+      }
+      throw new Error("The match cases were incomplete");
     }
-    if ((_m166.tag === 1)) {
-      const h = _m166.Head;
-      const t = _m166.Tail;
-      return (((n) === (0)) ? h : nth(t)((((n) - (1)) | 0)));
-    }
-    throw new Error("The match cases were incomplete");
-  })(l);
+  };
   return nth(_s2)(index);
 })();
 export const List__GetSlice = (_s2) => (startIndex) => (endIndex) => (() => {
-  const sliceSkip = (n) => (l) => (((n) <= (0)) ? l : ((_m167) => {
-    if ((_m167.tag === 0)) {
-      return new List_Empty();
+  const sliceSkip = (n) => (l) => {
+    while (true) {
+      if (((n) <= (0))) {
+        return l;
+      } else {
+        const _m167 = l;
+        if ((_m167.tag === 0)) {
+          return new List_Empty();
+        }
+        if ((_m167.tag === 1)) {
+          const t = _m167.Tail;
+          const _tc0 = (((n) - (1)) | 0);
+          const _tc1 = t;
+          n = _tc0;
+          l = _tc1;
+          continue;
+        }
+        throw new Error("The match cases were incomplete");
+      }
     }
-    if ((_m167.tag === 1)) {
-      const t = _m167.Tail;
-      return sliceSkip((((n) - (1)) | 0))(t);
-    }
-    throw new Error("The match cases were incomplete");
-  })(l));
+  };
   return (() => {
     const sliceTake = (n) => (l) => (((n) < (0)) ? new List_Empty() : ((_m168) => {
       if ((_m168.tag === 0)) {
@@ -182,17 +204,26 @@ export const List__GetSlice = (_s2) => (startIndex) => (endIndex) => (() => {
   })();
 })();
 export const List__GetReverseIndex = (_s2) => (_rank) => (offset) => ((_s147) => (((_s147) - (1)) | 0))(((_s143) => (((_s143) - (offset)) | 0))(List__get_Length(_s2)));
-export const fold = (folder, state, list) => ((_m170) => {
-  if ((_m170.tag === 0)) {
-    return state;
+export const fold = (folder, state, list) => {
+  while (true) {
+    const _m170 = list;
+    if ((_m170.tag === 0)) {
+      return state;
+    }
+    if ((_m170.tag === 1)) {
+      const h = _m170.Head;
+      const t = _m170.Tail;
+      const _tc0 = folder;
+      const _tc1 = folder(state)(h);
+      const _tc2 = t;
+      folder = _tc0;
+      state = _tc1;
+      list = _tc2;
+      continue;
+    }
+    throw new Error("The match cases were incomplete");
   }
-  if ((_m170.tag === 1)) {
-    const h = _m170.Head;
-    const t = _m170.Tail;
-    return fold(folder, folder(state)(h), t);
-  }
-  throw new Error("The match cases were incomplete");
-})(list);
+};
 export const isEmpty = (list) => ((_m171) => {
   if ((_m171.tag === 0)) {
     return true;
@@ -243,17 +274,28 @@ export const map = (mapping, list) => ((_m175) => {
   }
   throw new Error("The match cases were incomplete");
 })(list);
-export const filter = (predicate, list) => ((_m176) => {
-  if ((_m176.tag === 0)) {
-    return new List_Empty();
+export const filter = (predicate, list) => {
+  while (true) {
+    const _m176 = list;
+    if ((_m176.tag === 0)) {
+      return new List_Empty();
+    }
+    if ((_m176.tag === 1)) {
+      const h = _m176.Head;
+      const t = _m176.Tail;
+      if (predicate(h)) {
+        return new List_Cons(h, filter(predicate, t));
+      } else {
+        const _tc0 = predicate;
+        const _tc1 = t;
+        predicate = _tc0;
+        list = _tc1;
+        continue;
+      }
+    }
+    throw new Error("The match cases were incomplete");
   }
-  if ((_m176.tag === 1)) {
-    const h = _m176.Head;
-    const t = _m176.Tail;
-    return (predicate(h) ? new List_Cons(h, filter(predicate, t)) : filter(predicate, t));
-  }
-  throw new Error("The match cases were incomplete");
-})(list);
+};
 export const append = (list1, list2) => ((_m177) => {
   if ((_m177.tag === 0)) {
     return list2;

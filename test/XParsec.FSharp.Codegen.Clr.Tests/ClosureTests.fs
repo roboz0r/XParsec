@@ -151,6 +151,7 @@ let tests =
                     | EqList [ TDecl.Let(TPat.NamedSimple(kAdd, _, _, _),
                                          TExpr.Lambda(_, TExpr.Lambda(_, _, _, _), _, _),
                                          false,
+                                         _,
                                          _)
                                TDecl.Expression(TExpr.Format(FormatSink.ToStdOut true, segs, _, _), _) ] ->
                         match EqArray.toList segs with
@@ -220,7 +221,7 @@ let tests =
                         |> EqArray.toList
                         |> List.tryPick (fun d ->
                             match d with
-                            | TDecl.Let(TPat.NamedSimple _, value, _, _) -> Some value
+                            | TDecl.Let(TPat.NamedSimple _, value, _, _, _) -> Some value
                             | _ -> None
                         )
 

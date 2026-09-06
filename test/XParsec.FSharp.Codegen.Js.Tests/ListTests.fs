@@ -186,17 +186,18 @@ let tests =
                         (sprintf "exports the %s accessor" name)
             }
 
-            // `GetSlice` takes `int option` bounds, so the module resolves `Vesper.Option`.
-            // The option value rides inline as `{ tag, Value }`, so the driver builds one
-            // rather than importing the case classes.
+            // `GetSlice` takes `int option` bounds, so the driver ships `Vesper.Option`'s
+            // committed module (and Core's, which it imports) and builds the bounds from its
+            // case classes.
             test "GetSlice slices by index under Node, saturating at both ends" {
                 let driver =
                     String.concat
                         "\n"
                         [
                             "import { List_Cons, List_Empty, List__GetSlice, length, head } from \"./Vesper.List/index.mjs\";"
-                            "const some = (v) => ({ tag: 1, Value: v });"
-                            "const none = { tag: 0 };"
+                            "import { Option_Some, Option_None } from \"./Vesper.Option/index.mjs\";"
+                            "const some = (v) => new Option_Some(v);"
+                            "const none = new Option_None();"
                             "const consAll = (a) => a.reduceRight((t, h) => new List_Cons(h, t), new List_Empty());"
                             "const xs = consAll([0, 1, 2, 3, 4]);"
                             "const slice = (i, j) => List__GetSlice(xs)(i)(j);"
@@ -211,7 +212,18 @@ let tests =
                     runNodeFiles
                         "list-getslice-node"
                         ([ "driver.mjs", driver ]
-                         @ packageFiles "Vesper.List" [ "Vesper.List.mjs", generated.Value ])
+                         @ packageFiles "Vesper.List" [ "Vesper.List.mjs", generated.Value ]
+                         @ packageFiles
+                             "Vesper.Option"
+                             [
+                                 "Vesper.Option.mjs", IO.File.ReadAllText(srcFile "Vesper.Option" "Vesper.Option.mjs")
+                             ]
+                         @ packageFiles
+                             "Vesper.Core"
+                             [
+                                 "Vesper.Core.mjs", IO.File.ReadAllText(srcFile "Vesper.Core" "Vesper.Core.mjs")
+                                 "exceptions.mjs", IO.File.ReadAllText(srcFile "Vesper.Core" "exceptions.mjs")
+                             ])
                 with
                 | None -> skiptest "node is not installed"
                 | Some(code, out) ->

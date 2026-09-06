@@ -178,9 +178,27 @@ type FormatSegShape =
     | DynHole of hasWidth: bool * hasPrecision: bool * spec: Pooled.HoleSpec
     | CallbackHole of Pooled.HoleSpec
 
-/// The residual payload of a frozen expression node, one case per `ExprShape`, carrying
-/// only what the columnar split left: not `ty`/`tok`, the child expr/pat ids, or a `Var`'s
-/// bound variable id. A composite carrier also records the STRUCTURE that re-nests those columns.
+/// Whether a `let` binding's value references the variable it binds.
+[<RequireQualifiedAccess>]
+type Recursion =
+    | NonRecursive
+    | Recursive
+    /// The value is a function containing a `TailSelfCall`. A backend may lower the function
+    /// to a loop.
+    | TailRecursive
+
+[<RequireQualifiedAccess>]
+type AppKind =
+    | Call
+    /// The outermost application of a saturated tail self-call: the chain applies the
+    /// enclosing `let rec` variable to one argument per lambda the value declares, in tail
+    /// position of the innermost lambda's body.
+    | TailSelfCall
+
+/// The residual payload of a frozen expression node, one case per `ExprShape`: the fields
+/// the columnar split left (not `ty`/`tok`, the child expr/pat ids, or a `Var`'s bound
+/// variable id) plus the `Recursion` / `AppKind` the pooling walk classifies. A composite
+/// carrier also records the STRUCTURE that re-nests those columns.
 [<RequireQualifiedAccess>]
 type ExprPayload =
     | Const of TConstValue
@@ -188,8 +206,9 @@ type ExprPayload =
     | External of key: BindingKey
     | Unresolved
     | Lambda
-    | App
-    | Let
+    | App of AppKind
+    /// `isRec` is the source `rec` keyword, distinct from the analysed `recursion`.
+    | Let of isRec: bool * recursion: Recursion
     | Use of Disposal
     | IfThenElse
     | Tuple
@@ -306,8 +325,8 @@ module ExprPayload =
         | ExprPayload.External _ -> ExprShape.External
         | ExprPayload.Unresolved -> ExprShape.Unresolved
         | ExprPayload.Lambda -> ExprShape.Lambda
-        | ExprPayload.App -> ExprShape.App
-        | ExprPayload.Let -> ExprShape.Let
+        | ExprPayload.App _ -> ExprShape.App
+        | ExprPayload.Let _ -> ExprShape.Let
         | ExprPayload.Use _ -> ExprShape.Use
         | ExprPayload.IfThenElse -> ExprShape.IfThenElse
         | ExprPayload.Tuple -> ExprShape.Tuple
@@ -370,8 +389,8 @@ module ExprPayload =
         | ExprPayload.External _
         | ExprPayload.Unresolved
         | ExprPayload.Lambda
-        | ExprPayload.App
-        | ExprPayload.Let
+        | ExprPayload.App _
+        | ExprPayload.Let _
         | ExprPayload.Use _
         | ExprPayload.IfThenElse
         | ExprPayload.Tuple
@@ -558,8 +577,15 @@ module BoundVarNaming =
 [<RequireQualifiedAccess>]
 type DeclPayload =
     /// The binding is the sole pat child, its value the sole expr child;
-    /// `IsInline`/`Ty` (the binding's declared slot type) are the residual scalars.
-    | Let of {| IsInline: bool; Ty: FrozenType |}
+    /// `IsInline`/`IsRec`/`Recursion`/`Ty` (the binding's declared slot type) are the residual
+    /// scalars. `IsRec` is the source `rec` keyword, distinct from the analysed `Recursion`.
+    | Let of
+        {|
+            IsInline: bool
+            IsRec: bool
+            Recursion: Recursion
+            Ty: FrozenType
+        |}
     /// The decl's declared type; the body is the sole expr child.
     | Expression of FrozenType
     /// The `type` declaration's shape, its body slots holding pool ids rather than trees.

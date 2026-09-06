@@ -134,8 +134,13 @@ module FrozenCodec =
             w.Write 2uy
             writeSymbolRef w (SymbolKey.Binding key)
         | ExprPayload.Lambda -> w.Write 3uy
-        | ExprPayload.App -> w.Write 4uy
-        | ExprPayload.Let -> w.Write 5uy
+        | ExprPayload.App kind ->
+            w.Write 4uy
+            writeAppKind w kind
+        | ExprPayload.Let(isRec, recursion) ->
+            w.Write 5uy
+            w.Write isRec
+            writeRecursion w recursion
         | ExprPayload.Use dispose ->
             w.Write 6uy
             writeDisposal w dispose
@@ -251,8 +256,10 @@ module FrozenCodec =
             | SymbolKey.Binding key -> ExprPayload.External key
             | k -> failwithf "FrozenCodec: an External expr stored a non-Binding key: %A" k
         | 3uy -> ExprPayload.Lambda
-        | 4uy -> ExprPayload.App
-        | 5uy -> ExprPayload.Let
+        | 4uy -> ExprPayload.App(readAppKind r)
+        | 5uy ->
+            let isRec = r.ReadBoolean()
+            ExprPayload.Let(isRec, readRecursion r)
         | 6uy -> ExprPayload.Use(readDisposal r)
         | 7uy -> ExprPayload.IfThenElse
         | 8uy -> ExprPayload.Tuple
@@ -424,6 +431,8 @@ module FrozenCodec =
         | DeclPayload.Let p ->
             w.Write 0uy
             w.Write p.IsInline
+            w.Write p.IsRec
+            writeRecursion w p.Recursion
             writeTypeRef w p.Ty
         | DeclPayload.Expression ty ->
             w.Write 1uy
@@ -436,8 +445,17 @@ module FrozenCodec =
         match r.ReadByte() with
         | 0uy ->
             let isInline = r.ReadBoolean()
+            let isRec = r.ReadBoolean()
+            let recursion = readRecursion r
             let ty = readTypeRef r
-            DeclPayload.Let {| IsInline = isInline; Ty = ty |}
+
+            DeclPayload.Let
+                {|
+                    IsInline = isInline
+                    IsRec = isRec
+                    Recursion = recursion
+                    Ty = ty
+                |}
         | 1uy -> DeclPayload.Expression(readTypeRef r)
         | 2uy -> DeclPayload.Type(readTypeDecl r)
         | b -> failwithf "FrozenCodec: unknown DeclPayload tag %d" b
@@ -499,7 +517,7 @@ module FrozenCodec =
     /// The blob layout's version. Bump it with every change to a column, a payload or a
     /// table's encoding, so a blob of an older layout is refused rather than misread.
     [<Literal>]
-    let private FormatVersion = 6uy
+    let private FormatVersion = 8uy
 
     let private writePools (w: FrozenWriter) (p: FrozenPools) =
         w.Write FormatVersion

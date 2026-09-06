@@ -253,9 +253,19 @@ let emitJsLibrary (input: string) : string =
 let coreDepsJsContract: Lazy<PackageProviders.AnalysedManifest> =
     lazy JsNativeSymbols.jsNativeContract [ vesperCorePackage ]
 
-/// Deps-only JS contract for `Vesper.List`'s impl: `Vesper.Option` for `GetSlice`'s bounds.
+/// The `src/` package directories listed under `depends-on` in `package`'s JS manifest, in
+/// manifest order: the contract stack its own impl analyses against.
+let dependencyPackages (package: string) : string list =
+    ReferencedProject.resolveManifest Target.Js package
+    |> Result.bind ReferencedProject.loadManifest
+    |> PackageFaults.okOrFail (sprintf "dependencyPackages %s" package)
+    |> fun manifest ->
+        manifest.DependsOn
+        |> List.map (fun entry -> srcPackage (IO.Path.GetFileName(IO.Path.TrimEndingDirectorySeparator entry)))
+
+/// Deps-only JS contract for `Vesper.List`'s impl, from its manifest.
 let listDepsJsContract: Lazy<PackageProviders.AnalysedManifest> =
-    lazy JsNativeSymbols.jsNativeContract [ vesperCorePackage; srcPackage "Vesper.Option" ]
+    lazy JsNativeSymbols.jsNativeContract (dependencyPackages (srcPackage "Vesper.List"))
 
 /// As `coreDepsJsContract`, plus `Vesper.Array`'s OWN manifest, because `array.fs` splices
 /// `NewArray` out of the per-target `array-prelude.js.fs`. Safe only because `Vesper.Array`

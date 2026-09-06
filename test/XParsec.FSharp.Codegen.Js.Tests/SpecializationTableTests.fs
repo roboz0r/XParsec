@@ -370,7 +370,7 @@ let tests =
                     (expanded.Decls
                      |> List.collect (fun (d, _) ->
                          match d with
-                         | TDecl.Let(_, value, _, _) -> InlineSpecTable.edges value
+                         | TDecl.Let(_, value, _, _, _) -> InlineSpecTable.edges value
                          | _ -> []
                      ))
                     "the declarations keep their edges, since nothing may walk a cyclic table"
@@ -423,7 +423,7 @@ let tests =
                             yield! edgeArities (entryValue e)
                         for (d, _) in expanded.Decls do
                             match d with
-                            | TDecl.Let(_, value, _, _) -> yield! edgeArities value
+                            | TDecl.Let(_, value, _, _, _) -> yield! edgeArities value
                             | TDecl.Expression(x, _) -> yield! edgeArities x
                             | TDecl.Type _ -> ()
                     ]
@@ -701,7 +701,7 @@ let tests =
 
                 for (d, _) in expanded.Decls do
                     match d with
-                    | TDecl.Let(_, value, _, _) -> TastWalk.iterExpr it value
+                    | TDecl.Let(_, value, _, _, _) -> TastWalk.iterExpr it value
                     | TDecl.Expression(e, _) -> TastWalk.iterExpr it e
                     | TDecl.Type _ -> ()
 
@@ -722,7 +722,7 @@ let tests =
                     [
                         for (d, _) in expanded.Decls do
                             match d with
-                            | TDecl.Let(_, value, _, _) -> yield! InlineSpecTable.edges value
+                            | TDecl.Let(_, value, _, _, _) -> yield! InlineSpecTable.edges value
                             | TDecl.Expression(e, _) -> yield! InlineSpecTable.edges e
                             | TDecl.Type _ -> ()
                     ]
@@ -774,7 +774,7 @@ let tests =
                     [
                         for (d, _) in expanded.Decls do
                             match d with
-                            | TDecl.Let(_, value, _, _) ->
+                            | TDecl.Let(_, value, _, _, _) ->
                                 yield!
                                     value
                                     |> TastWalk.chooseExpr (fun e ->

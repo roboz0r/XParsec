@@ -345,7 +345,7 @@ module TastWalk =
                     e
                 else
                     TExpr.App(fn', a', ty', tok)
-            | TExpr.Let(p, v, body, ty, tok) ->
+            | TExpr.Let(p, v, body, isRec, ty, tok) ->
                 let p' = pp p
                 let v' = pe v
                 let body' = pe body
@@ -354,7 +354,7 @@ module TastWalk =
                 if refEq p' p && refEq v' v && refEq body' body && refEq ty' ty then
                     e
                 else
-                    TExpr.Let(p', v', body', ty', tok)
+                    TExpr.Let(p', v', body', isRec, ty', tok)
             | TExpr.Use(p, v, body, dispose, ty, tok) ->
                 let p' = pp p
                 let v' = pe v
@@ -826,7 +826,7 @@ module TastWalk =
             | TExpr.App(fn, a, _, _) ->
                 walk fn
                 walk a
-            | TExpr.Let(p, v, body, _, _)
+            | TExpr.Let(p, v, body, _, _, _)
             | TExpr.Use(p, v, body, _, _, _) ->
                 walkPat p
                 walk v
@@ -996,7 +996,7 @@ module TastWalk =
 
         for d in decls do
             match d with
-            | TDecl.Let(p, v, _, _) ->
+            | TDecl.Let(p, v, _, _, _) ->
                 iterPat it p
                 iterExpr it v
             | TDecl.Expression(e, _) -> iterExpr it e
@@ -1074,7 +1074,7 @@ module TastWalk =
                             iterExpr it b
                             removeBoundVars added
                             false
-                        | TExpr.Let(p, v, b, _, _) ->
+                        | TExpr.Let(p, v, b, _, _, _) ->
                             iterExpr it v
                             let added = addBoundVars p
                             iterExpr it b

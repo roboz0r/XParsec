@@ -230,7 +230,7 @@ let tests =
                 match InlineBodies.liftMemberBody nowhereSource (pokeMember ()) with
                 | Some body ->
                     match body.Decl with
-                    | TDeclG.Let(_, TExprG.Lambda(TPatG.NamedSimple(_, thisTy, _, _), inner, _, _), true, declTy) ->
+                    | TDeclG.Let(_, TExprG.Lambda(TPatG.NamedSimple(_, thisTy, _, _), inner, _, _), true, _, declTy) ->
                         Expect.equal thisTy ftWidget "outer param is `this : widget`"
 
                         match inner with
@@ -272,6 +272,7 @@ let tests =
                     | TDeclG.Let(_,
                                  TExprG.Lambda(TPatG.NamedSimple(_, FTConst(k0, _), _, _), TExprG.ILIntrinsic _, _, _),
                                  true,
+                                 _,
                                  declTy) when SymbolKeyOps.typeSimpleName k0 = DisplayName "int" ->
                         match declTy with
                         | FTFun(FTConst(k1, _), FTConst(k2, _)) when
@@ -295,7 +296,7 @@ let tests =
                 match InlineBodies.liftMemberBody nowhereSource identity with
                 | Some body ->
                     match body.Decl with
-                    | TDeclG.Let(_, TExprG.Lambda(_, TExprG.Lambda(_, TExprG.Var _, _, _), _, _), true, _) -> ()
+                    | TDeclG.Let(_, TExprG.Lambda(_, TExprG.Lambda(_, TExprG.Var _, _, _), _, _), true, _, _) -> ()
                     | other -> failtestf "expected a `this`-first curried lambda over the `Var` body, got %A" other
                 | None -> failtest "liftMemberBody returned None for a non-IL `member inline`"
             }
@@ -394,6 +395,7 @@ let tests =
                     match body.Decl with
                     | TDeclG.Let(_,
                                  TExprG.Lambda(_, TExprG.Lambda(_, TExprG.ILIntrinsic(t, _, _, _, _), _, _), _, _),
+                                 _,
                                  _,
                                  _) -> t
                     | other -> failtestf "not a `this`-first single-param inline body: %A" other
@@ -583,7 +585,7 @@ let tests =
                 match lifted |> List.tryFind (fun (name, _) -> name = "Poke") with
                 | Some(_, body) ->
                     match body.Decl with
-                    | TDeclG.Let(_, TExprG.Lambda(TPatG.NamedSimple(_, FTConst(key, _), _, _), _, _, _), true, _) when
+                    | TDeclG.Let(_, TExprG.Lambda(TPatG.NamedSimple(_, FTConst(key, _), _, _), _, _, _), true, _, _) when
                         SymbolKeyOps.typeSimpleName key = DisplayName "widget"
                         ->
                         ()

@@ -197,12 +197,14 @@ module TastAccessor =
     [<return: Struct>]
     let (|ELet|_|) (e: ExprId) : LetView voption =
         match payload e with
-        | ExprPayload.Let ->
+        | ExprPayload.Let(isRec, recursion) ->
             ValueSome
                 {
                     Pattern = exprPatChild e 0
                     Value = exprChild e 0
                     Body = exprChild e 1
+                    IsRec = isRec
+                    Recursion = recursion
                 }
         | _ -> ValueNone
 
@@ -250,7 +252,7 @@ module TastAccessor =
     [<return: Struct>]
     let (|EApp|_|) (e: ExprId) : AppView voption =
         match payload e with
-        | ExprPayload.App ->
+        | ExprPayload.App _ ->
             ValueSome
                 {
                     Fn = exprChild e 0
@@ -797,6 +799,8 @@ module TastAccessor =
                     Pattern = declPatChild d 0
                     Value = declExprChild d 0
                     IsInline = p.IsInline
+                    IsRec = p.IsRec
+                    Recursion = p.Recursion
                     Ty = p.Ty
                 }
         | _ -> ValueNone
@@ -863,6 +867,17 @@ module TastAccessor =
             collectAppChain (level :: acc) app.Fn
         | _ -> e, acc
 
+    /// The saturated tail self-call at `e`: the enclosing `let rec` variable it applies, and
+    /// its arguments, one per lambda of that binding's value.
+    [<return: Struct>]
+    let (|ETailSelfCall|_|) (e: ExprId) : struct (BoundVarId * ExprId list) voption =
+        match payload e with
+        | ExprPayload.App AppKind.TailSelfCall ->
+            match collectAppChain [] e with
+            | EVar b, args -> ValueSome(struct (b, [ for a in args -> a.Arg ]))
+            | _ -> failwith "TastAccessor.ETailSelfCall: the app chain does not apply a bound variable"
+        | _ -> ValueNone
+
     /// Rewrite a curried `App` chain: `fArg` on each argument, `fFn` on the applied
     /// function. Every `App` is a row copy, so a chain whose function and arguments all
     /// stay put keeps every id it already had.
@@ -925,7 +940,7 @@ module TastAccessor =
 
     /// `fn arg`, typed with the application's result type.
     let mintApp (fn: ExprId) (arg: ExprId) (ty: FrozenType) (tok: Anchor) : ExprId =
-        mintExpr fn.Pool ty tok [| fn.Id; arg.Id |] [||] ExprPayload.App
+        mintExpr fn.Pool ty tok [| fn.Id; arg.Id |] [||] (ExprPayload.App AppKind.Call)
 
     /// Re-apply a function to its argument levels: the inverse of `collectAppChain`.
     let mintAppChain (fn: ExprId) (args: AppliedArg list) : ExprId =
@@ -935,9 +950,15 @@ module TastAccessor =
     let mintLambda (param: PatId) (body: ExprId) (ty: FrozenType) (tok: Anchor) : ExprId =
         mintExpr body.Pool ty tok [| body.Id |] [| param.Id |] ExprPayload.Lambda
 
-    /// `let pattern = value in body`, typed with the body's type.
+    /// A non-recursive `let pattern = value in body`, typed with the body's type.
     let mintLet (pattern: PatId) (value: ExprId) (body: ExprId) (ty: FrozenType) (tok: Anchor) : ExprId =
-        mintExpr body.Pool ty tok [| value.Id; body.Id |] [| pattern.Id |] ExprPayload.Let
+        mintExpr
+            body.Pool
+            ty
+            tok
+            [| value.Id; body.Id |]
+            [| pattern.Id |]
+            (ExprPayload.Let(false, Recursion.NonRecursive))
 
     /// `objArg.Key args` — an instance call on a project-local member.
     let mintMethodCall
@@ -982,7 +1003,14 @@ module TastAccessor =
         mintPat pool ty tok (items |> Array.map (fun i -> i.Id)) PatPayload.Tuple
 
     /// A top-level `let pattern = value` declaration.
-    let mintLetDecl (pattern: PatId) (value: ExprId) (isInline: bool) (ty: FrozenType) : DeclId =
+    let mintLetDecl
+        (pattern: PatId)
+        (value: ExprId)
+        (isInline: bool)
+        (isRec: bool)
+        (recursion: Recursion)
+        (ty: FrozenType)
+        : DeclId =
         {
             Pool = value.Pool
             Id =
@@ -991,7 +1019,14 @@ module TastAccessor =
                     {
                         ExprChildren = [| value.Id |]
                         PatChildren = [| pattern.Id |]
-                        Payload = DeclPayload.Let {| IsInline = isInline; Ty = ty |}
+                        Payload =
+                            DeclPayload.Let
+                                {|
+                                    IsInline = isInline
+                                    IsRec = isRec
+                                    Recursion = recursion
+                                    Ty = ty
+                                |}
                     }
         }
 

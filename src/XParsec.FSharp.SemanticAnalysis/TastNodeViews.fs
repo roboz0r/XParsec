@@ -75,13 +75,16 @@ module TastNodeViews =
     type LambdaView = { Param: PatId; Body: ExprId }
 
     /// The scalar payload of a `Let` node. `Value`/`Body` are the two `exprChildren`
-    /// entries; `Pattern` is a pattern child.
+    /// entries; `Pattern` is a pattern child. `IsRec` is the source `rec` keyword, distinct
+    /// from the analysed `Recursion`.
     [<Struct>]
     type LetView =
         {
             Pattern: PatId
             Value: ExprId
             Body: ExprId
+            IsRec: bool
+            Recursion: Recursion
         }
 
     /// The scalar payload of an `Assignment` node (`lhs <- rhs`): the two nodes
@@ -275,13 +278,16 @@ module TastNodeViews =
     type EnumCasePatView = { EnumKey: TypeKey; CaseName: string }
 
     /// The payload of a `Let` decl. `IsInline` is whether the binding expands per call site;
-    /// `Ty` is the binding's declared type, distinct from the type of `Value` for a
-    /// destructuring binding.
+    /// `IsRec` is the source `rec` keyword, distinct from the analysed `Recursion`; `Ty` is
+    /// the binding's declared type, distinct from the type of `Value` for a destructuring
+    /// binding.
     [<Struct>]
     type DeclLetView =
         {
             Pattern: PatId
             Value: ExprId
             IsInline: bool
+            IsRec: bool
+            Recursion: Recursion
             Ty: FrozenType
         }

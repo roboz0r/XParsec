@@ -172,7 +172,8 @@ module JsEmitHelpers =
 
             match l.Pattern with
             | TastAccessor.PNamed k when
-                not (TastPoolBuilder.boundVarIsMutable e.Pool k)
+                l.Recursion = Recursion.NonRecursive
+                && not (TastPoolBuilder.boundVarIsMutable e.Pool k)
                 && substitutableValue k l.Value l.Body
                 ->
                 Some(InlineExpand.substituteVar derivation k l.Value l.Body)
@@ -222,44 +223,14 @@ module JsEmitHelpers =
         /// One flat arrow over the compiled parameters.
         | Flat of CompiledFns.FlatParams<string>
 
-        member this.Arity =
-            match this with
-            | Unary names -> List.length names
-            | Flat ps -> ps.GroupCount
-
         member this.Names =
             match this with
             | Unary names -> names
             | Flat ps -> ps.Flat
 
-    let (|TailSelfCall|_|)
-        (selfKey: BoundVarId)
-        (ps: TrampolineParams)
-        (e: TastAccessor.ExprId)
-        : TastAccessor.ExprId list option =
-        match TastAccessor.exprKind e with
-        | ExprShape.App ->
-            match TastAccessor.collectAppChain [] e with
-            | fn, appArgs when
-                TastAccessor.exprKind fn = ExprShape.Var
-                && TastAccessor.exprVarBoundVar fn = selfKey
-                && List.length appArgs = ps.Arity
-                ->
-                Some [ for a in appArgs -> a.Arg ]
-            | _ -> None
+    /// The arguments of a saturated tail self-call of `selfKey` at `e`, one per source
+    /// application.
+    let (|TailSelfCall|_|) (selfKey: BoundVarId) (e: TastAccessor.ExprId) : TastAccessor.ExprId list option =
+        match e with
+        | TastAccessor.ETailSelfCall(b, args) when b = selfKey -> Some args
         | _ -> None
-
-    let rec hasTailSelfCall (selfKey: BoundVarId) (ps: TrampolineParams) (e: TastAccessor.ExprId) : bool =
-        match TastAccessor.exprKind e with
-        | ExprShape.IfThenElse ->
-            let i = TastAccessor.exprIfThenElse e
-            hasTailSelfCall selfKey ps i.ThenExpr || hasTailSelfCall selfKey ps i.ElseExpr
-        | ExprShape.Let -> hasTailSelfCall selfKey ps (TastAccessor.exprLet e).Body
-        | ExprShape.Sequential ->
-            let xs = TastAccessor.exprChildren e
-            xs.Length > 0 && hasTailSelfCall selfKey ps xs.[xs.Length - 1]
-        | ExprShape.App ->
-            match e with
-            | TailSelfCall selfKey ps _ -> true
-            | _ -> false
-        | _ -> false

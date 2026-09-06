@@ -167,6 +167,76 @@ let tests =
                     Expect.equal out "55" "1+2+…+10, temps capture old param values"
             }
 
+            test "a tail self-call in a match arm trampolines" {
+                Expect.equal
+                    (emitJs "let rec loop n = match n with 0 -> 42 | _ -> loop (n - 1)")
+                    ("const loop = (n) => {\n"
+                     + "  while (true) {\n"
+                     + "    const _m12 = n;\n"
+                     + "    if ((_m12 === 0)) {\n"
+                     + "      return 42;\n"
+                     + "    }\n"
+                     + "    {\n"
+                     + "      const _tc0 = (((n) - (1)) | 0);\n"
+                     + "      n = _tc0;\n"
+                     + "      continue;\n"
+                     + "    }\n"
+                     + "    throw new Error(\"The match cases were incomplete\");\n"
+                     + "  }\n"
+                     + "};\n")
+                    "the scrutinee binds as a const in the loop body; the arm writes back and continues"
+            }
+
+            test "tail recursion through match arms runs in constant stack (loop 1000000 = 42)" {
+                match
+                    runJs
+                        "fn-loop-match"
+                        ("let rec loop n = match n with 0 -> 42 | _ -> loop (n - 1)\n"
+                         + "printfn \"%d\" (loop 1000000)")
+                with
+                | None -> skiptest "node not found on PATH"
+                | Some(code, out) ->
+                    Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
+                    Expect.equal out "42" "deep tail recursion through a match does not grow the stack"
+            }
+
+            // `a` is classified `NonRecursive`, so it binds as an IIFE parameter and its value's
+            // reference to `b` is out of scope (`ReferenceError: b is not defined`).
+            ptest
+                "GAP: a local `let rec … and …` member that references only its sibling binds before the sibling is declared" {
+                match
+                    runJs
+                        "fn-local-mutual-rec"
+                        ("let run () =\n"
+                         + "    let rec a x = if x = 0 then 0 else b (x - 1)\n"
+                         + "    and b x = a x\n"
+                         + "    a 3\n"
+                         + "printfn \"%d\" (run ())")
+                with
+                | None -> skiptest "node not found on PATH"
+                | Some(code, out) ->
+                    Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
+                    Expect.equal out "0" "each member is in scope of every value in the group"
+            }
+
+            test "a tail self-call under a tail-position let trampolines" {
+                let js = emitJs "let rec f n = let m = n - 1 in if m < 0 then 0 else f m"
+                Expect.stringContains js "while (true)" "the TailRecursive binding loops"
+                Expect.stringContains js "continue;" "the marked call writes back and continues"
+            }
+
+            test "a TailRecursive let in a trampolined function's tail position gets its own loop" {
+                let js =
+                    emitJs (
+                        "let rec outer n =\n"
+                        + "    let rec inner m = if m = 0 then 0 else inner (m - 1)\n"
+                        + "    if n = 0 then inner 3 else outer (n - 1)"
+                    )
+
+                let loops = (js.Split("while (true)")).Length - 1
+                Expect.equal loops 2 (sprintf "outer and inner each trampoline:\n%s" js)
+            }
+
             test "a tupled parameter group trampolines onto its flattened parameters" {
                 // One source application carries two flat params, so the write-back must open
                 // the tuple rather than assume one argument per parameter.

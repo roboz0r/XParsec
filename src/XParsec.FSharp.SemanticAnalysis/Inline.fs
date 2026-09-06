@@ -29,7 +29,7 @@ module Inline =
     /// compile-time ALIAS, so every reference splices the body rather than calling it.
     let nullaryIntrinsicValueBody (decl: TDecl) : TExpr voption =
         match decl with
-        | TDecl.Let(_, body, _, _) when (TExprG.nullaryIntrinsicText body).IsSome -> ValueSome body
+        | TDecl.Let(_, body, _, _, _) when (TExprG.nullaryIntrinsicText body).IsSome -> ValueSome body
         | _ -> ValueNone
 
     /// Substitute typar roots present in `subst`: chase each `TyVar` to its union-find root
@@ -177,7 +177,7 @@ module Inline =
         (typeArgs: SemType[])
         : TExpr * UnresolvedTrait list =
         match decl with
-        | TDecl.Let(_, value, _, _) ->
+        | TDecl.Let(_, value, _, _, _) ->
             let subst = Dictionary<TyVarId, SemType>()
 
             typars
@@ -251,7 +251,14 @@ module Inline =
         | TExpr.Lambda(TPat.NamedSimple(k, paramTy, patTok, _), lamBody, _, _), a :: rest ->
             let reduced = betaReduce lamBody rest
 
-            TExpr.Let(TPat.NamedSimple(k, paramTy, patTok, false), a.Arg, reduced, TastWalk.exprTy reduced, a.AppTok)
+            TExpr.Let(
+                TPat.NamedSimple(k, paramTy, patTok, false),
+                a.Arg,
+                reduced,
+                false,
+                TastWalk.exprTy reduced,
+                a.AppTok
+            )
         | TExpr.Lambda(param, _, _, _), _ ->
             failwithf "Inline.betaReduce: inline parameter destructuring is out of scope: %A" param
         | _, _ :: _ -> failwith "Inline.betaReduce: over-application of an inline function"

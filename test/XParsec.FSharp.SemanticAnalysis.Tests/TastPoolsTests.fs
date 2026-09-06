@@ -31,9 +31,18 @@ let rec private checkPat (pools: FrozenPools) (PatPoolId i) (du: Pooled.TPat) =
     Expect.equal (ChildColumn.count pools.PatChildren i) duKids.Length "pat child fan-out"
     Array.iter2 (checkPat pools) (ChildColumn.slice pools.PatChildren i) duKids
 
+/// `p` with `Recursion` / `AppKind` reset to the `NonRecursive` / `Call` defaults
+/// `TastPoolShapes.exprPayload` produces.
+let private withoutRecFacts (p: ExprPayload) : ExprPayload =
+    match p with
+    | ExprPayload.Let(isRec, _) -> ExprPayload.Let(isRec, Recursion.NonRecursive)
+    | ExprPayload.App _ -> ExprPayload.App AppKind.Call
+    | p -> p
+
 let rec private checkExpr (pools: FrozenPools) (ExprPoolId i) (du: Pooled.TExpr) =
     let boundVar = internedBoundVarId pools (BoundVarKey.ofExpr du)
-    Expect.equal pools.ExprPayloads.[i] (TastPoolShapes.exprPayload id boundVar du) "expr payload"
+
+    Expect.equal (withoutRecFacts pools.ExprPayloads.[i]) (TastPoolShapes.exprPayload id boundVar du) "expr payload"
     let duExprKids = TastPoolShapes.exprChildren du
     let duPatKids = TastPoolShapes.exprPatChildren du
     Expect.equal (ChildColumn.count pools.ExprChildren i) duExprKids.Length "expr child fan-out"
@@ -725,4 +734,193 @@ let staleSideTableEntryTests =
                             "a slot claiming ids that are not there"
                     }
                 ]
+        ]
+
+/// Every `let` in `src`, module-level then local in pool walk order, as `(name, Recursion)`.
+let private letRecursions (src: string) : (string * Recursion) list =
+    let pool = TastPoolBuilder.openOver (freezeFor src)
+
+    let name (p: TastAccessor.PatId) =
+        match p with
+        | TastAccessor.PNamedNaming(BoundVarNaming.Source n) -> n
+        | _ -> "_"
+
+    let acc = ResizeArray<string * Recursion>()
+
+    let rec walk (e: TastAccessor.ExprId) =
+        match e with
+        | TastAccessor.ELet l -> acc.Add(name l.Pattern, l.Recursion)
+        | _ -> ()
+
+        for c in TastAccessor.exprChildren e do
+            walk c
+
+    for d in TastAccessor.roots pool do
+        match d with
+        | TastAccessor.DLet dl ->
+            acc.Add(name dl.Pattern, dl.Recursion)
+            walk dl.Value
+        | _ -> ()
+
+    List.ofSeq acc
+
+[<Tests>]
+let recursionTests =
+    testList
+        "TastPools records each let's Recursion"
+        [
+            test "a module let is Recursive, TailRecursive or NonRecursive by what its value applies" {
+                let src =
+                    "let rec fact n = if n = 0 then 1 else n * fact (n - 1)\n"
+                    + "let rec loop n acc = if n = 0 then acc else loop (n - 1) (acc * n)\n"
+                    + "let rec partial n acc = if n = 0 then acc else partial (n - 1)\n"
+                    + "let rec viaMatch n = match n with 0 -> 42 | _ -> viaMatch (n - 1)\n"
+                    + "let rec unused x = x + 1\n"
+                    + "let plain x = x + 1\n"
+
+                Expect.equal
+                    (letRecursions src)
+                    [
+                        "fact", Recursion.Recursive
+                        "loop", Recursion.TailRecursive
+                        "partial", Recursion.Recursive
+                        "viaMatch", Recursion.TailRecursive
+                        "unused", Recursion.NonRecursive
+                        "plain", Recursion.NonRecursive
+                    ]
+                    "a saturated tail self-call is TailRecursive; an unsaturated or non-tail one is Recursive; `rec` alone is NonRecursive"
+            }
+
+            test "a local let classifies exactly as a module let" {
+                let src =
+                    "let f () =\n"
+                    + "    let rec go i = if i = 0 then 0 else go (i - 1)\n"
+                    + "    let rec count i = if i = 0 then 0 else 1 + count (i - 1)\n"
+                    + "    let rec k = 5\n"
+                    + "    let y = go k\n"
+                    + "    count y\n"
+
+                Expect.equal
+                    (letRecursions src)
+                    [
+                        "f", Recursion.NonRecursive
+                        "go", Recursion.TailRecursive
+                        "count", Recursion.Recursive
+                        "k", Recursion.NonRecursive
+                        "y", Recursion.NonRecursive
+                    ]
+                    "`let rec` without a self-reference is NonRecursive, the same as a plain let"
+            }
+
+            test "a `let rec` whose lambdas are not a direct chain is Recursive, not TailRecursive" {
+                let src =
+                    "let rec h = if true then (fun x -> h x) else (fun x -> x)\n"
+                    + "let rec f = fun x -> if x = 0 then 0 else f (x - 1)\n"
+
+                Expect.equal
+                    (letRecursions src)
+                    [ "h", Recursion.Recursive; "f", Recursion.TailRecursive ]
+                    "only the body after the value's leading lambdas is in tail position"
+            }
+
+            test "a nested `let rec` classifies against its own binding, its parent against the parent's" {
+                let src =
+                    "let rec outer n =\n"
+                    + "    let rec inner m = if m = 0 then outer (n - 1) else inner (m - 1)\n"
+                    + "    if n = 0 then 0 else inner n\n"
+
+                Expect.equal
+                    (letRecursions src)
+                    [ "outer", Recursion.Recursive; "inner", Recursion.TailRecursive ]
+                    "`outer (n - 1)` is in tail position of `inner`, not of `outer`, so it is a reference and not a tail self-call"
+            }
+        ]
+
+/// One marked `TailSelfCall`: the source name of the binding whose value contains it, the
+/// source name of the variable it applies, and the number of arguments it applies.
+type private TailSelfCallSite =
+    {
+        Binding: string
+        Callee: string
+        ArgCount: int
+    }
+
+/// Every `TailSelfCall` under `src`'s module lets, in pool walk order.
+let private tailSelfCalls (src: string) : TailSelfCallSite list =
+    let pool = TastPoolBuilder.openOver (freezeFor src)
+
+    let name (p: TastAccessor.PatId) =
+        match p with
+        | TastAccessor.PNamedNaming(BoundVarNaming.Source n) -> n
+        | _ -> "_"
+
+    let acc = ResizeArray<TailSelfCallSite>()
+
+    let rec walk (binding: string) (e: TastAccessor.ExprId) =
+        match e with
+        | TastAccessor.ETailSelfCall(callee, args) ->
+            let calleeName =
+                match TastPoolBuilder.boundVarNaming pool callee with
+                | BoundVarNaming.Source n -> n
+                | BoundVarNaming.Minted _ -> "_"
+
+            acc.Add
+                {
+                    Binding = binding
+                    Callee = calleeName
+                    ArgCount = List.length args
+                }
+        | _ -> ()
+
+        for c in TastAccessor.exprChildren e do
+            walk binding c
+
+    for d in TastAccessor.roots pool do
+        match d with
+        | TastAccessor.DLet dl -> walk (name dl.Pattern) dl.Value
+        | _ -> ()
+
+    List.ofSeq acc
+
+[<Tests>]
+let tailSelfCallTests =
+    testList
+        "TastPools marks each saturated tail self-call's outermost App"
+        [
+            test "one mark per tail self-call, on the application of the binding to every parameter" {
+                let src =
+                    "let rec fact n = if n = 0 then 1 else n * fact (n - 1)\n"
+                    + "let rec loop n acc = if n = 0 then acc else loop (n - 1) (acc * n)\n"
+                    + "let rec partial n acc = if n = 0 then acc else partial (n - 1)\n"
+                    + "let rec viaMatch n = match n with 0 -> 42 | 1 -> viaMatch 0 | _ -> viaMatch (n - 1)\n"
+                    + "let rec outer n =\n"
+                    + "    let rec inner m = if m = 0 then outer (n - 1) else inner (m - 1)\n"
+                    + "    if n = 0 then 0 else inner n\n"
+
+                Expect.equal
+                    (tailSelfCalls src)
+                    [
+                        {
+                            Binding = "loop"
+                            Callee = "loop"
+                            ArgCount = 2
+                        }
+                        {
+                            Binding = "viaMatch"
+                            Callee = "viaMatch"
+                            ArgCount = 1
+                        }
+                        {
+                            Binding = "viaMatch"
+                            Callee = "viaMatch"
+                            ArgCount = 1
+                        }
+                        {
+                            Binding = "outer"
+                            Callee = "inner"
+                            ArgCount = 1
+                        }
+                    ]
+                    "a non-tail or unsaturated self-call stays `AppKind.Call`; a nested binding's tail self-call resolves to the nested variable"
+            }
         ]

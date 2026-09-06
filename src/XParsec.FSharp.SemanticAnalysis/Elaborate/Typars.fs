@@ -191,7 +191,7 @@ module internal ElaborateTypars =
         let f = remapDeclTypars store env
 
         match d with
-        | TDecl.Let(binding, value, isInline, ty) ->
-            TDecl.Let(freezeTyparsPat store env binding, mapExprTypes f value, isInline, f ty)
+        | TDecl.Let(binding, value, isInline, isRec, ty) ->
+            TDecl.Let(freezeTyparsPat store env binding, mapExprTypes f value, isInline, isRec, f ty)
         | TDecl.Expression(e, ty) -> TDecl.Expression(mapExprTypes f e, f ty)
         | TDecl.Type td -> TDecl.Type(TastWalk.mapTypeDecl f (mapExprTypes f) td)

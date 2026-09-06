@@ -53,6 +53,22 @@ module EmitJs =
 
         [ JsStatement.If(guard, [ JsStatement.Expression disposeCall ], []) ]
 
+    /// The variable a `TailRecursive` binding's body trampolines on.
+    let private selfKeyOf (recursion: Recursion) (k: BoundVarId) : BoundVarId voption =
+        match recursion with
+        | Recursion.TailRecursive -> ValueSome k
+        | Recursion.Recursive
+        | Recursion.NonRecursive -> ValueNone
+
+    /// How a `match` arm's body leaves the statement list it is emitted into.
+    [<RequireQualifiedAccess>]
+    type private ArmExit =
+        /// `return <body>;`
+        | Returning
+        /// Tail position of the `selfKey` trampoline over parameters `ps`: a saturated tail
+        /// self-call writes its arguments back and `continue`s, any other body `return`s.
+        | Trampolining of selfKey: BoundVarId * ps: TrampolineParams
+
     let rec buildExpr (ctx: WalkCtx) (e: TastAccessor.ExprId) : JsExpr =
         let loc = locOf ctx e
 
@@ -104,16 +120,15 @@ module EmitJs =
                 let l = TastAccessor.exprLet e
 
                 match l.Pattern with
-                // A `let rec` whose value calls itself binds as a `const` in a block body,
-                // which the value's own closure captures. An IIFE parameter is out of scope
-                // in the argument that fills it.
-                | TastAccessor.PNamed k when InlineExpand.references k l.Value ->
+                // A `let rec` binds as a `const` in a block body, which the value's own closure
+                // captures. An IIFE parameter is out of scope in the argument that fills it.
+                | TastAccessor.PNamed k when l.Recursion <> Recursion.NonRecursive ->
                     JsExpr.Call(
                         JsExpr.Arrow(
                             [],
                             JsFnBody.Block(
                                 [
-                                    localBinding ctx.Pool k (emitBound ctx k l.Value)
+                                    localBinding ctx.Pool k (emitBound ctx k l.Recursion l.Value)
                                     JsStatement.Return(buildExpr ctx l.Body)
                                 ]
                             ),
@@ -389,12 +404,7 @@ module EmitJs =
             let mv = freshTemp ctx.Pool "_m"
             let access = JsExpr.Identifier(mv, ValueNone)
 
-            let body =
-                [
-                    for arm in m.Arms do
-                        yield! buildMatchArm ctx access arm
-                    yield matchFailure
-                ]
+            let body = buildMatchArms ctx access ArmExit.Returning m.Arms
 
             JsExpr.Call(JsExpr.Arrow([ mv ], JsFnBody.Block body, loc), [ buildExpr ctx m.Scrutinee ], loc)
 
@@ -539,27 +549,39 @@ module EmitJs =
         | ExprShape.CallerExpr -> TastLower.callerExprUnexpanded ()
         | ExprShape.TraitCall -> TastLower.traitCallUnresolved (TastAccessor.exprTraitCallMemberName e)
 
-    /// Build one `match` arm's statements: a matching pattern (and passing guard) `return`s
-    /// the body. An always-matching arm emits a bare `Block` so its bindings stay scoped, since
-    /// two arms may bind the same source name; a refutable arm guards it with `if (test)`.
-    and private buildMatchArm (ctx: WalkCtx) (access: JsExpr) (arm: TastAccessor.Arm) : JsStatement list =
-        let test, binds = compileMatchPattern ctx access arm.Pat
+    /// The statements of a `match` over the scrutinee in `access`: each arm in order, then
+    /// `matchFailure`. Each arm's bindings stay scoped to it, since two arms may bind the same
+    /// source name.
+    and private buildMatchArms
+        (ctx: WalkCtx)
+        (access: JsExpr)
+        (exit: ArmExit)
+        (arms: TastAccessor.Arm[])
+        : JsStatement list =
+        let armBody (body: TastAccessor.ExprId) =
+            match exit with
+            | ArmExit.Returning -> [ JsStatement.Return(buildExpr ctx body) ]
+            | ArmExit.Trampolining(selfKey, ps) -> buildTrampolineBody ctx selfKey ps body
 
-        let inner =
-            match arm.Guard with
-            | ValueNone -> binds @ [ JsStatement.Return(buildExpr ctx arm.Body) ]
-            | ValueSome g ->
-                binds
-                @ [
-                    JsStatement.If(buildExpr ctx g, [ JsStatement.Return(buildExpr ctx arm.Body) ], [])
-                ]
+        [
+            for arm in arms do
+                let test, binds = compileMatchPattern ctx access arm.Pat
 
-        match test with
-        | None -> [ JsStatement.Block inner ]
-        | Some t -> [ JsStatement.If(t, inner, []) ]
+                let inner =
+                    match arm.Guard with
+                    | ValueNone -> binds @ armBody arm.Body
+                    | ValueSome g -> binds @ [ JsStatement.If(buildExpr ctx g, armBody arm.Body, []) ]
 
-    /// The body of a function with parameters `ps`: a `while (true)` trampoline when
-    /// `selfKey`'s body makes a saturated tail self-call, else the plain expression.
+                match test with
+                | None -> JsStatement.Block inner
+                | Some t -> JsStatement.If(t, inner, [])
+
+            matchFailure
+        ]
+
+    /// The body of a function with parameters `ps`: a `while (true)` trampoline over the
+    /// tail self-calls of `selfKey`, the binding's `TailRecursive` variable, else the plain
+    /// expression.
     and private trampolineOrExpr
         (ctx: WalkCtx)
         (selfKey: BoundVarId voption)
@@ -567,7 +589,7 @@ module EmitJs =
         (body: TastAccessor.ExprId)
         : JsFnBody =
         match selfKey with
-        | ValueSome k when hasTailSelfCall k ps body ->
+        | ValueSome k ->
             JsFnBody.Block
                 [
                     JsStatement.While(
@@ -598,7 +620,7 @@ module EmitJs =
 
         match e with
         | InlinableLet ctx reduced -> recur reduced
-        | TailSelfCall selfKey ps args ->
+        | TailSelfCall selfKey args ->
             // Args arrive one per SOURCE application: a tuple group opens onto several flat
             // params (an impure tuple spilling to `_tg`), a lone unit group onto none.
             let flatArgs, spills =
@@ -621,12 +643,20 @@ module EmitJs =
             | ExprShape.IfThenElse ->
                 let i = TastAccessor.exprIfThenElse e
                 [ JsStatement.If(buildExpr ctx i.Cond, recur i.ThenExpr, recur i.ElseExpr) ]
+            // Every arm body is in tail position, so the scrutinee binds as a `const` in the
+            // loop body rather than as an IIFE parameter, keeping `continue` in the loop.
+            | ExprShape.Match ->
+                let m = TastAccessor.exprMatch e
+                let mv = freshTemp ctx.Pool "_m"
+
+                JsStatement.Const(mv, buildExpr ctx m.Scrutinee)
+                :: buildMatchArms ctx (JsExpr.Identifier(mv, ValueNone)) (ArmExit.Trampolining(selfKey, ps)) m.Arms
             | ExprShape.Let ->
                 let l = TastAccessor.exprLet e
 
                 match l.Pattern with
                 | TastAccessor.PNamed k ->
-                    let binding = localBinding ctx.Pool k (buildExpr ctx l.Value)
+                    let binding = localBinding ctx.Pool k (emitBound ctx k l.Recursion l.Value)
 
                     binding :: recur l.Body
                 | _ ->
@@ -663,11 +693,10 @@ module EmitJs =
         let (DisplayName memberName) = SymbolKeyOps.simpleName key
         JsExpr.Member(buildExpr ctx objArg, JsExpr.Identifier(memberName, ValueNone), false, loc)
 
-    /// A value bound to a name. A `Lambda` value carries its bound variable key down, so a recursive
-    /// binding (`let rec`) can recognise its own tail calls.
-    and emitBound (ctx: WalkCtx) (k: BoundVarId) (value: TastAccessor.ExprId) : JsExpr =
+    /// The value bound to `k`. A `TailRecursive` lambda's body trampolines its tail self-calls.
+    and emitBound (ctx: WalkCtx) (k: BoundVarId) (recursion: Recursion) (value: TastAccessor.ExprId) : JsExpr =
         match TastAccessor.exprKind value with
-        | ExprShape.Lambda -> emitFunction ctx (ValueSome k) value
+        | ExprShape.Lambda -> emitFunction ctx (selfKeyOf recursion k) value
         | _ -> buildExpr ctx value
 
     /// An expression in statement position. `Sequential` flattens; a `let` bound variable
@@ -689,7 +718,7 @@ module EmitJs =
 
                 match l.Pattern with
                 | TastAccessor.PNamed k ->
-                    let binding = localBinding ctx.Pool k (emitBound ctx k l.Value)
+                    let binding = localBinding ctx.Pool k (emitBound ctx k l.Recursion l.Value)
 
                     binding :: buildStatements ctx l.Body
                 | _ ->
@@ -779,13 +808,14 @@ module EmitJs =
     let private emitFlatModuleFn
         (ctx: WalkCtx)
         (k: BoundVarId)
+        (recursion: Recursion)
         (cf: CompiledFns.CompiledFn)
         (loc: JsLoc voption)
         : JsExpr =
         let ps =
             TrampolineParams.Flat(CompiledFns.FlatParams.map (JsFlatFns.paramNameOf ctx.Pool) cf.Params)
 
-        JsExpr.Arrow(ps.Names, trampolineOrExpr ctx (ValueSome k) ps cf.Body, loc)
+        JsExpr.Arrow(ps.Names, trampolineOrExpr ctx (selfKeyOf recursion k) ps cf.Body, loc)
 
     /// A class's instance preamble is the END of its primary constructor: declaration order
     /// is load-bearing, hence ctor statements rather than class-field initialisers. Every `let`
@@ -1091,8 +1121,8 @@ module EmitJs =
                             // A module FUNCTION emits FLAT; a plain value stays curried.
                             let init =
                                 match ctx.CompiledFns.TryGetValue k with
-                                | true, cf -> emitFlatModuleFn ctx k cf (locOf ctx value)
-                                | _ -> emitBound ctx k value
+                                | true, cf -> emitFlatModuleFn ctx k dl.Recursion cf (locOf ctx value)
+                                | _ -> emitBound ctx k dl.Recursion value
 
                             topLevelBinding
                                 ctx

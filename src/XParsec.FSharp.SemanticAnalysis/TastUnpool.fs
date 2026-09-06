@@ -43,15 +43,15 @@ module TastUnpool =
             let param = nextP ()
             let body = nextE ()
             TExprG.Lambda(param, body, ty, tok)
-        | ExprPayload.App ->
+        | ExprPayload.App _ ->
             let fn = nextE ()
             let arg = nextE ()
             TExprG.App(fn, arg, ty, tok)
-        | ExprPayload.Let ->
+        | ExprPayload.Let(isRec, _) ->
             let binding = nextP ()
             let value = nextE ()
             let body = nextE ()
-            TExprG.Let(binding, value, body, ty, tok)
+            TExprG.Let(binding, value, body, isRec, ty, tok)
         | ExprPayload.Use dispose ->
             let binding = nextP ()
             let value = nextE ()
@@ -193,7 +193,7 @@ module TastUnpool =
         (ps: TPatG<FrozenType, Anchor, 'id>[])
         : TDeclG<FrozenType, Anchor, 'id> =
         match payload with
-        | DeclPayload.Let p -> TDeclG.Let(ps.[0], es.[0], p.IsInline, p.Ty)
+        | DeclPayload.Let p -> TDeclG.Let(ps.[0], es.[0], p.IsInline, p.IsRec, p.Ty)
         | DeclPayload.Expression ty -> TDeclG.Expression(es.[0], ty)
         | DeclPayload.Type td ->
             TDeclG.Type(

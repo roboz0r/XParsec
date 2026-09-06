@@ -247,7 +247,8 @@ module internal ElaborateExpr =
         | Expr.InfixApp(left, _, right) -> ElaborateApply.translateInfix translateExpr ctx key left right ty tok
         | Expr.PrefixApp(_, operand) -> ElaborateApply.translatePrefix translateExpr ctx key operand ty tok
         | Expr.Fun(argumentPats = argPats; expr = body) -> translateFun ctx argPats body
-        | Expr.LetOrUse(keyword = kw; bindings = bindings; body = body) -> translateLet ctx kw bindings body
+        | Expr.LetOrUse(keyword = kw; isRec = isRec; bindings = bindings; body = body) ->
+            translateLet ctx kw isRec.IsSome bindings body
         | Expr.EnclosedBlock(lParen = ParenKind.List _; expr = inner) ->
             translateListLiteral ctx ty (listLiteralItems inner) tok
         | Expr.EnclosedBlock(lParen = ParenKind.Array _; expr = inner) ->
@@ -672,6 +673,7 @@ module internal ElaborateExpr =
     and private translateLet
         (ctx: PassContext)
         (keyword: LetOrUseKeyword<SyntaxToken>)
+        (isRec: bool)
         (bindings: ImmutableArray<Binding<SyntaxToken>>)
         (body: Expr<SyntaxToken> voption)
         : TExpr =
@@ -715,7 +717,7 @@ module internal ElaborateExpr =
 
                         TExpr.Use(tpat, valT, result, dispose, resultTy, bindTok)
                     else
-                        TExpr.Let(tpat, valT, result, resultTy, bindTok)
+                        TExpr.Let(tpat, valT, result, isRec, resultTy, bindTok)
 
         result
 

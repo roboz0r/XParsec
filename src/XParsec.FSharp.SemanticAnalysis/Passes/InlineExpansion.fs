@@ -15,7 +15,7 @@ module InlineExpansion =
 
     let private mapDeclExprs (f: TExpr -> TExpr) (d: TDecl) : TDecl =
         match d with
-        | TDecl.Let(p, value, isInline, ty) -> TDecl.Let(p, f value, isInline, ty)
+        | TDecl.Let(p, value, isInline, isRec, ty) -> TDecl.Let(p, f value, isInline, isRec, ty)
         | TDecl.Expression(e, ty) -> TDecl.Expression(f e, ty)
         | TDecl.Type td -> TDecl.Type(TastWalk.mapTypeDecl id f td)
 
@@ -67,7 +67,7 @@ module InlineExpansion =
 
         for (d, env) in decls do
             match d with
-            | TDecl.Let(TPat.NamedSimple(b, _, _, _) as pattern, _, true, _) ->
+            | TDecl.Let(TPat.NamedSimple(b, _, _, _) as pattern, _, true, _, _) ->
                 locals.[b] <-
                     {
                         Key = templateKey pattern

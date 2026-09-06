@@ -45,6 +45,30 @@ module FrozenCodecDecls =
         | 2uy -> Disposal.Unresolved
         | b -> failwithf "FrozenCodec: unknown Disposal tag %d" b
 
+    let writeRecursion (w: FrozenWriter) (r: Recursion) =
+        match r with
+        | Recursion.NonRecursive -> w.Write 0uy
+        | Recursion.Recursive -> w.Write 1uy
+        | Recursion.TailRecursive -> w.Write 2uy
+
+    let readRecursion (r: FrozenReader) : Recursion =
+        match r.ReadByte() with
+        | 0uy -> Recursion.NonRecursive
+        | 1uy -> Recursion.Recursive
+        | 2uy -> Recursion.TailRecursive
+        | b -> failwithf "FrozenCodec: unknown Recursion tag %d" b
+
+    let writeAppKind (w: FrozenWriter) (k: AppKind) =
+        match k with
+        | AppKind.Call -> w.Write 0uy
+        | AppKind.TailSelfCall -> w.Write 1uy
+
+    let readAppKind (r: FrozenReader) : AppKind =
+        match r.ReadByte() with
+        | 0uy -> AppKind.Call
+        | 1uy -> AppKind.TailSelfCall
+        | b -> failwithf "FrozenCodec: unknown AppKind tag %d" b
+
     let writeCallVia (w: FrozenWriter) (v: CallVia<FrozenType>) =
         match v with
         | CallVia.Self -> w.Write 0uy

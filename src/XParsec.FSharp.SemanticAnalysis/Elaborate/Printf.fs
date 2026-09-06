@@ -195,6 +195,7 @@ module internal ElaboratePrintf =
                         TPat.NamedSimple(sKey, scratch.ScratchTy, t, false),
                         newScratch,
                         seq,
+                        false,
                         ctx.Intrinsics.String,
                         t
                     )

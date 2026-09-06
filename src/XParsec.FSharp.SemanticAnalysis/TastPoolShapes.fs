@@ -8,11 +8,14 @@ open XParsec.FSharp.Lexer
 
 module TastPoolShapes =
 
-    /// The immediate child *expressions*, in evaluation order. Sub-patterns are NOT
-    /// children; composite carriers with no node identity of their own, namely match arms,
-    /// format segments and static-opt clauses, are descended into, each sub-expression once.
-    let exprChildren (e: TExprG<FrozenType, 'tok, 'id>) : TExprG<FrozenType, 'tok, 'id>[] =
-        let acc = ResizeArray<TExprG<FrozenType, 'tok, 'id>>()
+    /// The immediate child *expressions*, in evaluation order, each flagged as in tail position
+    /// of `e`. Sub-patterns are NOT children; composite carriers with no node identity of their
+    /// own, namely match arms, format segments and static-opt clauses, are descended into, each
+    /// sub-expression once.
+    let exprChildEdges (e: TExprG<FrozenType, 'tok, 'id>) : struct (TExprG<FrozenType, 'tok, 'id> * bool)[] =
+        let acc = ResizeArray<struct (TExprG<FrozenType, 'tok, 'id> * bool)>()
+        let add (x: TExprG<FrozenType, 'tok, 'id>) = acc.Add(struct (x, false))
+        let addTail (x: TExprG<FrozenType, 'tok, 'id>) = acc.Add(struct (x, true))
 
         match e with
         | TExprG.Const _
@@ -22,103 +25,106 @@ module TastPoolShapes =
         | TExprG.Null _
         | TExprG.StaticPropertyGet _
         | TExprG.StaticFieldGet _ -> ()
-        | TExprG.Lambda(body = body) -> acc.Add body
+        | TExprG.Lambda(body = body) -> add body
         | TExprG.App(fn = fn; arg = arg) ->
-            acc.Add fn
-            acc.Add arg
+            add fn
+            add arg
         | TExprG.Let(value = value; body = body) ->
-            acc.Add value
-            acc.Add body
+            add value
+            addTail body
         | TExprG.Use(value = value; body = body) ->
-            acc.Add value
-            acc.Add body
+            add value
+            add body
         | TExprG.IfThenElse(cond = cond; thenExpr = thenExpr; elseExpr = elseExpr) ->
-            acc.Add cond
-            acc.Add thenExpr
-            acc.Add elseExpr
+            add cond
+            addTail thenExpr
+            addTail elseExpr
         | TExprG.Tuple(items = items)
-        | TExprG.ArrayLit(elems = items)
-        | TExprG.Sequential(items = items) ->
+        | TExprG.ArrayLit(elems = items) ->
             for x in items do
-                acc.Add x
+                add x
+        | TExprG.Sequential(items = items) ->
+            let last = items.Length - 1
+
+            items |> EqArray.iteri (fun i x -> if i = last then addTail x else add x)
         | TExprG.While(cond = cond; body = body) ->
-            acc.Add cond
-            acc.Add body
+            add cond
+            add body
         | TExprG.ForTo(startExpr = startExpr; endExpr = endExpr; body = body) ->
-            acc.Add startExpr
-            acc.Add endExpr
-            acc.Add body
+            add startExpr
+            add endExpr
+            add body
         | TExprG.ForIn(source = source; body = body) ->
-            acc.Add source
-            acc.Add body
+            add source
+            add body
         | TExprG.Match(scrutinee = scrutinee; arms = arms) ->
-            acc.Add scrutinee
+            add scrutinee
 
             for arm in arms do
                 match arm.Guard with
-                | ValueSome g -> acc.Add g
+                | ValueSome g -> add g
                 | ValueNone -> ()
 
-                acc.Add arm.Body
+                addTail arm.Body
         | TExprG.TryWith(body = body; arms = arms) ->
-            acc.Add body
+            add body
 
             for arm in arms do
                 match arm.Guard with
-                | ValueSome g -> acc.Add g
+                | ValueSome g -> add g
                 | ValueNone -> ()
 
-                acc.Add arm.Body
+                add arm.Body
         | TExprG.TryFinally(body = body; cleanup = cleanup) ->
-            acc.Add body
-            acc.Add cleanup
+            add body
+            add cleanup
         | TExprG.Assignment(lhs = lhs; rhs = rhs) ->
-            acc.Add lhs
-            acc.Add rhs
+            add lhs
+            add rhs
         | TExprG.Range(startExpr = startExpr; step = step; stopExpr = stopExpr) ->
-            acc.Add startExpr
+            add startExpr
 
             match step with
-            | Some s -> acc.Add s
+            | Some s -> add s
             | None -> ()
 
-            acc.Add stopExpr
+            add stopExpr
         | TExprG.RecordCons(fields = fields) ->
             for (_, v) in fields do
-                acc.Add v
+                add v
         | TExprG.RecordClone(source = source; overrides = overrides) ->
-            acc.Add source
+            add source
 
             for (_, v) in overrides do
-                acc.Add v
-        | TExprG.FieldGet(objArg = objArg) -> acc.Add objArg
+                add v
+        | TExprG.FieldGet(objArg = objArg) -> add objArg
         | TExprG.FieldSet(objArg = objArg; value = value) ->
-            acc.Add objArg
-            acc.Add value
+            add objArg
+            add value
         | TExprG.UnionCons(args = args) ->
             for x in args do
-                acc.Add x
+                add x
         | TExprG.New(args = args) ->
             for x in args do
-                acc.Add x
+                add x
         | TExprG.MethodCall(objArg = objArg; args = args) ->
-            acc.Add objArg
+            add objArg
 
             for x in args do
-                acc.Add x
-        | TExprG.PropertyGet(objArg = objArg) -> acc.Add objArg
+                add x
+        | TExprG.PropertyGet(objArg = objArg) -> add objArg
         | TExprG.StaticMethodCall(args = args) ->
             for x in args do
-                acc.Add x
-        | TExprG.StaticFieldSet(value = value) -> acc.Add value
+                add x
+        | TExprG.StaticFieldSet(value = value) -> add value
         | TExprG.ExternalMember(objArg = objArg) ->
             match objArg with
-            | ValueSome r -> acc.Add r
+            | ValueSome r -> add r
             | ValueNone -> ()
         | TExprG.Format(sink = sink; segments = segments) ->
             match sink with
-            | FormatSinkG.ToWriter(writer = writer) -> acc.Add writer
-            | FormatSinkG.ToBuilder builder -> acc.Add builder
+            | FormatSinkG.ToWriter(writer = writer) -> add writer
+            | FormatSinkG.ToBuilder builder -> add builder
             | FormatSinkG.ToStdOut _
             | FormatSinkG.ToStdErr _
             | FormatSinkG.ToString -> ()
@@ -126,40 +132,45 @@ module TastPoolShapes =
             for seg in segments do
                 match seg with
                 | FormatSegG.Lit _ -> ()
-                | FormatSegG.Hole(_, value) -> acc.Add value
+                | FormatSegG.Hole(_, value) -> add value
                 | FormatSegG.DynHole hole ->
                     match hole.Width with
-                    | ValueSome w -> acc.Add w
+                    | ValueSome w -> add w
                     | ValueNone -> ()
 
                     match hole.Precision with
-                    | ValueSome p -> acc.Add p
+                    | ValueSome p -> add p
                     | ValueNone -> ()
 
-                    acc.Add hole.Value
-                | FormatSegG.CallbackHole(residue = residue) -> acc.Add residue
+                    add hole.Value
+                | FormatSegG.CallbackHole(residue = residue) -> add residue
         | TExprG.ILIntrinsic(args = args) ->
             for x in args do
-                acc.Add x
+                add x
         | TExprG.StaticOptimization(clauses = clauses; defaultExpr = defaultExpr) ->
             for clause in clauses do
-                acc.Add clause.Body
+                add clause.Body
 
-            acc.Add defaultExpr
-        | TExprG.Upcast(source = source) -> acc.Add source
-        | TExprG.Downcast(source = source) -> acc.Add source
-        | TExprG.TypeTest(source = source) -> acc.Add source
-        | TExprG.CallerExpr(body = body) -> acc.Add body
+            add defaultExpr
+        | TExprG.Upcast(source = source) -> add source
+        | TExprG.Downcast(source = source) -> add source
+        | TExprG.TypeTest(source = source) -> add source
+        | TExprG.CallerExpr(body = body) -> add body
         | TExprG.TraitCall(args = args) ->
             for x in args do
-                acc.Add x
+                add x
         // The ENTRY is not a child: it is a separate pool root, shared by every call site
         // that references it. Only the call's own argument expressions belong to this node.
         | TExprG.InlineCall(args = args) ->
             for x in args do
-                acc.Add x
+                add x
 
         acc.ToArray()
+
+    /// The immediate child *expressions*, in evaluation order: `exprChildEdges` without the
+    /// tail flags.
+    let exprChildren (e: TExprG<FrozenType, 'tok, 'id>) : TExprG<FrozenType, 'tok, 'id>[] =
+        exprChildEdges e |> Array.map (fun struct (c, _) -> c)
 
     /// The immediate child *patterns* an expression owns directly, in source order: the
     /// bound variables (`Lambda`/`Let`/`Use`/`ForIn`) and the per-arm scrutinee patterns
@@ -253,8 +264,9 @@ module TastPoolShapes =
                 "TastPoolShapes.introducedBoundVar: the node's payload names a bound variable the walk interned none for"
 
     /// The residual payload of a frozen expression node: its fields MINUS `ty`/`tok`, the
-    /// child expr and owned pat ids, and the `Var` bound variable id. `anchor` narrows a walked
-    /// token to its stored index; `ForTo`'s `identTok` is the one anchor a payload carries.
+    /// child expr and owned pat ids, and the `Var` bound variable id. `Let` / `App` take the
+    /// `NonRecursive` / `Call` defaults the pooling walk then classifies; `anchor` narrows a
+    /// walked token to its stored index, and `ForTo`'s `identTok` is the one anchor carried.
     let exprPayload
         (anchor: 'tok -> Anchor)
         (boundVar: BoundVarId voption)
@@ -271,8 +283,8 @@ module TastPoolShapes =
         | TExprG.External(key = key) -> ExprPayload.External key
         | TExprG.Unresolved _ -> ExprPayload.Unresolved
         | TExprG.Lambda _ -> ExprPayload.Lambda
-        | TExprG.App _ -> ExprPayload.App
-        | TExprG.Let _ -> ExprPayload.Let
+        | TExprG.App _ -> ExprPayload.App AppKind.Call
+        | TExprG.Let(isRec = isRec) -> ExprPayload.Let(isRec, Recursion.NonRecursive)
         | TExprG.Use(dispose = dispose) -> ExprPayload.Use dispose
         | TExprG.IfThenElse _ -> ExprPayload.IfThenElse
         | TExprG.Tuple _ -> ExprPayload.Tuple
