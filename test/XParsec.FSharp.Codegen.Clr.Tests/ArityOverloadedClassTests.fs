@@ -6,6 +6,7 @@ open Expecto
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 open XParsec.FSharp.Codegen.Clr.Tests.PeInspection
+open XParsec.FSharp.Codegen.Clr.Tests.ReflectionHarness
 open XParsec.FSharp.Codegen.Clr.Tests.PackageHarness
 
 // Two project-local type definitions sharing a name at different generic arity
@@ -14,9 +15,6 @@ open XParsec.FSharp.Codegen.Clr.Tests.PackageHarness
 
 [<Tests>]
 let tests =
-    let declaredInstance =
-        BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly
-
     testList
         "ArityOverloadedClasses"
         [

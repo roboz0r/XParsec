@@ -231,8 +231,6 @@ let runsSeqLines (expected: string list) (src: string) : unit =
 let typeChecksSeq (src: string) : unit = typeChecksPackages [ "Vesper.Seq" ] src
 
 // ---- Vesper.Set wrappers -----------------------------------------------------
-// A driver's HOF argument (`Set.fold` / `partition`'s folder) must be written CURRIED:
-// `fun s -> fun x -> …`.
 
 let runsSet (expected: string) (src: string) : unit =
     runsPackages [ "Vesper.Set" ] expected src

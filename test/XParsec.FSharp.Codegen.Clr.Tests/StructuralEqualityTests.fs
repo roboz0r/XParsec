@@ -188,8 +188,7 @@ let tests =
                 Expect.isNotNull caseOverride "Circle overrides Equals(Shape)"
 
                 // The field walk lives here; the `Shape`-typed override is only the guard.
-                let caseTyped =
-                    caseTy.GetMethod("Equals", declaredInstance, null, [| caseTy |], null)
+                let caseTyped = typedEquals caseTy
 
                 Expect.isNotNull caseTyped "Circle declares Equals(Circle), which holds the field walk"
                 Expect.isFalse caseTyped.IsVirtual "Equals(Circle) declares no slot, so it binds by `call`"

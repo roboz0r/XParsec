@@ -8,6 +8,7 @@ open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 open XParsec.FSharp.Codegen.Clr.Tests.PeInspection
+open XParsec.FSharp.Codegen.Clr.Tests.ReflectionHarness
 
 // Class emission, asserted by reflecting over the emitted PE.
 
@@ -23,9 +24,6 @@ let private programStaticField (program: Type) (name: string) : FieldInfo =
 
 [<Tests>]
 let monoTests =
-    let declaredInstance =
-        BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly
-
     testList
         "ClassMono"
         [
@@ -35,8 +33,7 @@ let monoTests =
                 let artifact =
                     compileSource
                         "ClsMeta"
-                        (String.concat
-                            "\n"
+                        (lines
                             [
                                 "type Point(x: int, y: int) ="
                                 "    member this.Magnitude () = x * x + y * y"
@@ -69,9 +66,7 @@ let monoTests =
 
             test "a class with `member this.M () = 1` emits an instance method that returns 1" {
                 let artifact =
-                    compileSource
-                        "ClsM1"
-                        (String.concat "\n" [ "type C() ="; "    member this.M () = 1"; "let c = C()" ])
+                    compileSource "ClsM1" (lines [ "type C() ="; "    member this.M () = 1"; "let c = C()" ])
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "C"
@@ -89,8 +84,7 @@ let monoTests =
                 let artifact =
                     compileSource
                         "ClsMag"
-                        (String.concat
-                            "\n"
+                        (lines
                             [
                                 "type Point(x: int, y: int) ="
                                 "    member this.Magnitude () = x * x + y * y"
@@ -112,8 +106,7 @@ let monoTests =
                 let artifact =
                     compileSource
                         "ClsProp"
-                        (String.concat
-                            "\n"
+                        (lines
                             [
                                 "type Point(x: int, y: int) ="
                                 "    member this.X = x"
@@ -142,8 +135,7 @@ let monoTests =
                 let artifact =
                     compileSource
                         "ClsAdd2"
-                        (String.concat
-                            "\n"
+                        (lines
                             [
                                 "type T() ="
                                 "    member this.Add(a: int, b: int) : int = a + b"
@@ -165,9 +157,7 @@ let monoTests =
 
             test "a class with no ctor params + a capture-free method emits cleanly" {
                 let artifact =
-                    compileSource
-                        "ClsNullary"
-                        (String.concat "\n" [ "type C() ="; "    member this.M () = 42"; "let c = C()" ])
+                    compileSource "ClsNullary" (lines [ "type C() ="; "    member this.M () = 42"; "let c = C()" ])
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "C"
@@ -183,20 +173,14 @@ let monoTests =
 
             test "a class is reference-equal by default: no IEquatable<Self> + no synthesised Equals override" {
                 let artifact =
-                    compileSource
-                        "ClsRefEq"
-                        (String.concat "\n" [ "type C() ="; "    member this.M () = 1"; "let c = C()" ])
+                    compileSource "ClsRefEq" (lines [ "type C() ="; "    member this.M () = 1"; "let c = C()" ])
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "C"
 
-                Expect.isNull
-                    (ty.GetMethod("Equals", declaredInstance, null, [| typeof<obj> |], null))
-                    "no Equals(object) override on the class itself"
+                Expect.isNull (equalsObj ty) "no Equals(object) override on the class itself"
 
-                Expect.isNull
-                    (ty.GetMethod("GetHashCode", declaredInstance, null, [||], null))
-                    "no GetHashCode override on the class itself"
+                Expect.isNull (getHash ty) "no GetHashCode override on the class itself"
 
                 let iface = typedefof<IEquatable<_>>.MakeGenericType ty
                 Expect.isFalse (iface.IsAssignableFrom ty) "C does not declare IEquatable<C>"
@@ -204,9 +188,7 @@ let monoTests =
 
             test "a class emission does not pin FSharp.Core" {
                 let artifact =
-                    compileSource
-                        "ClsNoDep"
-                        (String.concat "\n" [ "type C() ="; "    member this.M () = 1"; "let c = C()" ])
+                    compileSource "ClsNoDep" (lines [ "type C() ="; "    member this.M () = 1"; "let c = C()" ])
 
                 expectNoFSharpCore artifact "class emission only references the BCL"
             }
@@ -215,9 +197,7 @@ let monoTests =
             // `[<Sealed>]` flips `TypeAttributes.Sealed` on.
             test "a class without [<Sealed>] is not sealed" {
                 let artifact =
-                    compileSource
-                        "ClsOpen"
-                        (String.concat "\n" [ "type C() ="; "    member this.M () = 1"; "let c = C()" ])
+                    compileSource "ClsOpen" (lines [ "type C() ="; "    member this.M () = 1"; "let c = C()" ])
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "C"
@@ -229,7 +209,7 @@ let monoTests =
                 let artifact =
                     compileSource
                         "ClsSealed"
-                        (String.concat "\n" [ "[<Sealed>]"; "type C() ="; "    member this.M () = 1"; "let c = C()" ])
+                        (lines [ "[<Sealed>]"; "type C() ="; "    member this.M () = 1"; "let c = C()" ])
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "C"
@@ -250,8 +230,7 @@ let monoTests =
                 let artifact =
                     compileSource
                         "ClsSelfIds"
-                        (String.concat
-                            "\n"
+                        (lines
                             [
                                 "type C() ="
                                 "    member a.First = a.Second + 1"
@@ -278,17 +257,12 @@ let staticTests =
     let declaredStatic =
         BindingFlags.Public ||| BindingFlags.Static ||| BindingFlags.DeclaredOnly
 
-    let declaredInstance =
-        BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly
-
     testList
         "ClassStatic"
         [
             test "a class static method emits with the Static flag and returns 1" {
                 let artifact =
-                    compileSource
-                        "ClsStaticM"
-                        (String.concat "\n" [ "type C() ="; "    static member M () = 1"; "let c = C()" ])
+                    compileSource "ClsStaticM" (lines [ "type C() ="; "    static member M () = 1"; "let c = C()" ])
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "C"
@@ -307,7 +281,7 @@ let staticTests =
                 let artifact =
                     compileSource
                         "ClsStaticAdd2"
-                        (String.concat "\n" [ "type T ="; "    static member M(a: int, b: int) : int = a + b" ])
+                        (lines [ "type T ="; "    static member M(a: int, b: int) : int = a + b" ])
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "T"
@@ -327,8 +301,7 @@ let staticTests =
                 let artifact =
                     compileSource
                         "ModuleValMember"
-                        (String.concat
-                            "\n"
+                        (lines
                             [
                                 "module Helper ="
                                 "    let seed : int = 42"
@@ -355,8 +328,7 @@ let staticTests =
                 let artifact =
                     compileSource
                         "ModuleValGenericStaticLet"
-                        (String.concat
-                            "\n"
+                        (lines
                             [
                                 "module Helper ="
                                 "    let seed : int = 42"
@@ -383,9 +355,7 @@ let staticTests =
                 let artifact =
                     compileSource
                         "ModuleValFn"
-                        (String.concat
-                            "\n"
-                            [ "module Helper ="; "    let seed : int = 42"; "    let get () : int = seed" ])
+                        (lines [ "module Helper ="; "    let seed : int = 42"; "    let get () : int = seed" ])
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let helper = asm.GetType "Helper"
@@ -401,7 +371,7 @@ let staticTests =
                 let artifact =
                     compileSource
                         "ModuleValChain"
-                        (String.concat "\n" [ "module Helper ="; "    let a : int = 1"; "    let b : int = a + 1" ])
+                        (lines [ "module Helper ="; "    let a : int = 1"; "    let b : int = a + 1" ])
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let helper = asm.GetType "Helper"
@@ -417,8 +387,7 @@ let staticTests =
                     try
                         compileSource
                             "ModuleValUnresolvable"
-                            (String.concat
-                                "\n"
+                            (lines
                                 [
                                     "let (a, b) = (1, 2)"
                                     "let f = fun (x: int) -> x + a"
@@ -446,8 +415,7 @@ let staticTests =
                 let artifact =
                     compileSource
                         "GenericModuleVal"
-                        (String.concat
-                            "\n"
+                        (lines
                             [
                                 "[<AllowNullLiteral>]"
                                 "type Node<'T>(v: 'T) ="
@@ -497,8 +465,7 @@ let staticTests =
                 let artifact =
                     compileSource
                         "ClsStaticLet"
-                        (String.concat
-                            "\n"
+                        (lines
                             [
                                 "type C() ="
                                 "    static let x = 42"
@@ -522,8 +489,7 @@ let staticTests =
                 let artifact =
                     compileSource
                         "ClsStaticLetInst"
-                        (String.concat
-                            "\n"
+                        (lines
                             [
                                 "type C() ="
                                 "    static let k = 7"
@@ -556,8 +522,7 @@ let staticTests =
                 let artifact =
                     compileSource
                         "ClsStaticLetMutable"
-                        (String.concat
-                            "\n"
+                        (lines
                             [
                                 "type C() ="
                                 "    static let mutable n = 0"
@@ -587,8 +552,7 @@ let staticTests =
                 let artifact =
                     compileSource
                         "ClsStaticLetInitOnly"
-                        (String.concat
-                            "\n"
+                        (lines
                             [
                                 "type C() ="
                                 "    static let k = 7"
@@ -621,8 +585,7 @@ let staticTests =
                 let artifact =
                     compileSource
                         "ClsStaticLetGeneric"
-                        (String.concat
-                            "\n"
+                        (lines
                             [
                                 "type Box<'T>(v: 'T) ="
                                 "    static let tag = 99"
@@ -666,8 +629,7 @@ let staticTests =
             test "a `static let` read from inside a lambda in a member body (Assembly-visible field)" {
                 runs
                     "43"
-                    (String.concat
-                        "\n"
+                    (lines
                         [
                             "type C() ="
                             "    static let x = 42"
@@ -681,8 +643,7 @@ let staticTests =
             test "a ctor-param backing field read from inside a lambda in a member body (Assembly-visible field)" {
                 runs
                     "43"
-                    (String.concat
-                        "\n"
+                    (lines
                         [
                             "type C(k: int) ="
                             "    member _.F () = fun () -> k + 1"
@@ -698,8 +659,7 @@ let staticTests =
                 let artifact =
                     compileSource
                         "ClsOpMember"
-                        (String.concat
-                            "\n"
+                        (lines
                             [
                                 "type V(n: int) ="
                                 "    member this.N = n"
@@ -733,8 +693,7 @@ let staticTests =
                 // `Tag`/`Origin` are `'T`-free so the object argument's `<'T>` is the only
                 // explicit instantiation under test.
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "type Box<'T>(v: 'T) ="
                             "    member this.V = v"
@@ -790,8 +749,7 @@ let staticTests =
             test "a generic class's static method recovers its instantiation from an arg" {
                 runs
                     "9"
-                    (String.concat
-                        "\n"
+                    (lines
                         [
                             "type Box<'T>(v: 'T) ="
                             "    member this.V = v"
@@ -806,8 +764,7 @@ let staticTests =
             test "a generic class's static getter whose typar is not in its signature loads" {
                 runs
                     "5"
-                    (String.concat
-                        "\n"
+                    (lines
                         [
                             "type Box<'T>() ="
                             "    static member P with get () = 5"
@@ -818,8 +775,7 @@ let staticTests =
             test "a generic class's static setter whose typar is not in its signature loads" {
                 runs
                     "41"
-                    (String.concat
-                        "\n"
+                    (lines
                         [
                             "type Box<'T>() ="
                             "    static let mutable state = 0"
@@ -834,8 +790,7 @@ let staticTests =
             test "a generic class's static method whose typar is not in its signature loads" {
                 runs
                     "6"
-                    (String.concat
-                        "\n"
+                    (lines
                         [
                             "type Box<'T>() ="
                             "    static member M (x: int) : int = x + 1"
@@ -848,8 +803,7 @@ let staticTests =
             test "List.fold over an own-op closure inside a member body" {
                 runs
                     "6"
-                    (String.concat
-                        "\n"
+                    (lines
                         [
                             "type V(n: int) ="
                             "    member x.N = n"
@@ -866,8 +820,7 @@ let staticTests =
             test "generic own-op List.fold inside a generic member body runs end-to-end" {
                 runs
                     "6"
-                    (String.concat
-                        "\n"
+                    (lines
                         [
                             "type V<'T>(n: int) ="
                             "    member x.N = n"
@@ -886,8 +839,7 @@ let staticTests =
                 let artifact =
                     compileSource
                         "TopLevelLeading"
-                        (String.concat
-                            "\n"
+                        (lines
                             [
                                 "let a = 10" // leading → .cctor, initonly
                                 "let b = a + 5" // leading → .cctor, initonly; reads a (ldsfld) in the cctor
@@ -917,8 +869,7 @@ let staticTests =
                 let artifact =
                     compileSource
                         "TopLevelValMember"
-                        (String.concat
-                            "\n"
+                        (lines
                             [
                                 "let provider = 42"
                                 "type Reader() ="
@@ -951,8 +902,7 @@ let staticTests =
                 let artifact =
                     compileSource
                         "TopLevelGeneric"
-                        (String.concat
-                            "\n"
+                        (lines
                             [
                                 "let empty : 'T list = []" // generic → zero-arg generic static method
                                 "let xs : int list = empty" // instantiates empty<int> (call MethodSpec)
@@ -992,8 +942,7 @@ let staticTests =
                 let artifact =
                     compileSource
                         "TopLevelTrailing"
-                        (String.concat
-                            "\n"
+                        (lines
                             [
                                 "let p = 10" // leading → .cctor, initonly
                                 "printfn \"%d\" p" // statement → Main
@@ -1042,9 +991,6 @@ let staticTests =
 
 [<Tests>]
 let secondaryCtorTests =
-    let declaredInstance =
-        BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly
-
     testList
         "ClassSecondaryCtor"
         [
@@ -1053,8 +999,7 @@ let secondaryCtorTests =
                 let artifact =
                     compileSource
                         "ClsSecCtor"
-                        (String.concat
-                            "\n"
+                        (lines
                             [
                                 "type C(x: int) ="
                                 "    new() = C(0)"
@@ -1088,8 +1033,7 @@ let secondaryCtorTests =
                 let artifact =
                     compileSource
                         "ClsSecCtorFwd"
-                        (String.concat
-                            "\n"
+                        (lines
                             [
                                 "type C2(x: int, y: int) ="
                                 "    new(x: int) = C2(x, 0)"
@@ -1115,8 +1059,7 @@ let secondaryCtorTests =
                 let artifact =
                     compileSource
                         "ClsSecCtorGen"
-                        (String.concat
-                            "\n"
+                        (lines
                             [
                                 "type Box<'a>(v: 'a, n: int) ="
                                 "    new(v: 'a) = Box(v, 1)"
@@ -1150,9 +1093,6 @@ let secondaryCtorTests =
 let typeAppTests =
     let publicInstance = BindingFlags.Public ||| BindingFlags.Instance
 
-    let declaredInstance =
-        BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly
-
     // Explicit type application at a construction site: `Box<int>(5)`,
     // `Holder<'T>(v)`. The type args unify against the ctor's nominal result, and the
     // `TypeApp` wrapper is peeled so the call still lowers to a `New`.
@@ -1163,7 +1103,7 @@ let typeAppTests =
                 let artifact =
                     compileSource
                         "TyAppMod"
-                        (String.concat "\n" [ "type Box<'a>(v: 'a) ="; "    member this.V = v"; "let b = Box<int>(5)" ])
+                        (lines [ "type Box<'a>(v: 'a) ="; "    member this.V = v"; "let b = Box<int>(5)" ])
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let boxInt = (asm.GetType "Box`1").MakeGenericType typeof<int>
@@ -1177,8 +1117,7 @@ let typeAppTests =
                 let artifact =
                     compileSource
                         "TyAppMember"
-                        (String.concat
-                            "\n"
+                        (lines
                             [
                                 "type Holder<'T>(v: 'T) ="
                                 "    member this.V = v"
@@ -1210,9 +1149,6 @@ let typeAppTests =
 
 [<Tests>]
 let genericTests =
-    let declaredInstance =
-        BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly
-
     testList
         "ClassGeneric"
         [
@@ -1220,7 +1156,7 @@ let genericTests =
                 let artifact =
                     compileSource
                         "ClsGenMeta"
-                        (String.concat "\n" [ "type Box<'a>(v: 'a) ="; "    member this.V = v"; "let b = Box(0)" ])
+                        (lines [ "type Box<'a>(v: 'a) ="; "    member this.V = v"; "let b = Box(0)" ])
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let boxTy = asm.GetType "Box`1"
@@ -1240,7 +1176,7 @@ let genericTests =
                 let artifact =
                     compileSource
                         "ClsGenIntV"
-                        (String.concat "\n" [ "type Box<'a>(v: 'a) ="; "    member this.V = v"; "let b = Box(0)" ])
+                        (lines [ "type Box<'a>(v: 'a) ="; "    member this.V = v"; "let b = Box(0)" ])
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let boxInt = (asm.GetType "Box`1").MakeGenericType typeof<int>
@@ -1259,7 +1195,7 @@ let genericTests =
                 let artifact =
                     compileSource
                         "ClsGenStrV"
-                        (String.concat "\n" [ "type Box<'a>(v: 'a) ="; "    member this.V = v"; "let b = Box(0)" ])
+                        (lines [ "type Box<'a>(v: 'a) ="; "    member this.V = v"; "let b = Box(0)" ])
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let boxStr = (asm.GetType "Box`1").MakeGenericType typeof<string>
@@ -1277,8 +1213,7 @@ let genericTests =
                 let artifact =
                     compileSource
                         "ClsGenTwoField"
-                        (String.concat
-                            "\n"
+                        (lines
                             [
                                 "type Box<'a>(v: 'a, n: int) ="
                                 "    member this.V = v"
@@ -1300,9 +1235,6 @@ let genericTests =
 
 [<Tests>]
 let genericMethodTests =
-    let declaredInstance =
-        BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly
-
     // A member introducing its *own* generic parameter (`member this.Id<'b> …`). The
     // method's typar is a `GenericParam` row owned by the `MethodDef`, encoded `!!i`
     // in signatures, against `!i` for the declaring type's typars.
@@ -1313,7 +1245,7 @@ let genericMethodTests =
                 let artifact =
                     compileSource
                         "ClsGenMethMono"
-                        (String.concat "\n" [ "type C() ="; "    member this.Id<'b> (x: 'b) = x"; "let c = C()" ])
+                        (lines [ "type C() ="; "    member this.Id<'b> (x: 'b) = x"; "let c = C()" ])
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "C"
@@ -1335,8 +1267,7 @@ let genericMethodTests =
                 let artifact =
                     compileSource
                         "ClsGenMethEcho"
-                        (String.concat
-                            "\n"
+                        (lines
                             [
                                 "type Box<'a>(v: 'a) ="
                                 "    member this.Echo<'b> (x: 'b) = x"
@@ -1365,8 +1296,7 @@ let genericMethodTests =
                 let artifact =
                     compileSource
                         "ClsGenMethMixed"
-                        (String.concat
-                            "\n"
+                        (lines
                             [
                                 "type Box<'a>(v: 'a) ="
                                 "    member this.First<'b> (x: 'b) = v"
@@ -1394,9 +1324,6 @@ let genericMethodTests =
 
 [<Tests>]
 let castTests =
-    let declaredInstance =
-        BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly
-
     // `:?` and `:?>` emit `isinst` / `castclass` against the target's `TypeToken`.
     // A same-type cast on `this` still emits them, so the IL runs against a live
     // instance.
@@ -1407,7 +1334,7 @@ let castTests =
                 let artifact =
                     compileSource
                         "ClsTypeTest"
-                        (String.concat "\n" [ "type C() ="; "    member this.IsC () = this :? C"; "let c = C()" ])
+                        (lines [ "type C() ="; "    member this.IsC () = this :? C"; "let c = C()" ])
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "C"
@@ -1424,8 +1351,7 @@ let castTests =
                     compileSourceWarning
                         "Downcast is redundant"
                         "ClsDowncast"
-                        (String.concat
-                            "\n"
+                        (lines
                             [
                                 "type C() ="
                                 "    member this.M () = 42"
@@ -1447,9 +1373,6 @@ let castTests =
 let inheritanceTests =
     let publicInstance = BindingFlags.Public ||| BindingFlags.Instance
 
-    let declaredInstance =
-        BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly
-
     // `inherit Base(args)` sets `TypeDefinition.BaseType` and makes the primary
     // `.ctor` chain `ldarg.0; <args>; call Base::.ctor` before storing derived fields.
     // A `.ctor` that never calls a base or sibling ctor fails PE verification.
@@ -1460,8 +1383,7 @@ let inheritanceTests =
                 let artifact =
                     compileSource
                         "InhBaseType"
-                        (String.concat
-                            "\n"
+                        (lines
                             [
                                 "type Shape(x: int) ="
                                 "    member this.Raw = x"
@@ -1482,8 +1404,7 @@ let inheritanceTests =
                 let artifact =
                     compileSource
                         "InhBaseCtor"
-                        (String.concat
-                            "\n"
+                        (lines
                             [
                                 "type Shape(x: int) ="
                                 "    member this.Raw = x"
@@ -1515,8 +1436,7 @@ let inheritanceTests =
                 let artifact =
                     compileSource
                         "InhStaticLetArg"
-                        (String.concat
-                            "\n"
+                        (lines
                             [
                                 "type Shape(x: int) ="
                                 "    member this.Raw = x"
@@ -1539,8 +1459,7 @@ let inheritanceTests =
                 let artifact =
                     compileSource
                         "InhOverride"
-                        (String.concat
-                            "\n"
+                        (lines
                             [
                                 "type Shape(x: int) ="
                                 "    member this.Raw = x"
@@ -1573,8 +1492,7 @@ let inheritanceTests =
                 let artifact =
                     compileSource
                         "InhGenericBase"
-                        (String.concat
-                            "\n"
+                        (lines
                             [
                                 "type Box<'a>(v: 'a) ="
                                 "    member this.V = v"
@@ -1608,8 +1526,7 @@ let inheritanceTests =
                 let artifact =
                     compileSource
                         "InhGenericChain"
-                        (String.concat
-                            "\n"
+                        (lines
                             [
                                 "type SetTree<'T>(h: int) ="
                                 "    member this.Height = h"
@@ -1644,8 +1561,7 @@ let inheritanceTests =
             test "reading an inherited member on a derived object argument resolves the base property (Key shape)" {
                 runs
                     "42"
-                    (String.concat
-                        "\n"
+                    (lines
                         [
                             "type Base<'T>(k: 'T) ="
                             "    member _.Key = k"
@@ -1661,8 +1577,7 @@ let inheritanceTests =
             test "an inherited member read captured in a closure resolves the base property" {
                 runs
                     "7"
-                    (String.concat
-                        "\n"
+                    (lines
                         [
                             "type Base<'T>(k: 'T) ="
                             "    member _.Key = k"
@@ -1682,8 +1597,7 @@ let inheritanceTests =
                 let artifact =
                     compileSource
                         "InhBaseCall"
-                        (String.concat
-                            "\n"
+                        (lines
                             [
                                 "type Base() ="
                                 "    member this.M () = 1"
@@ -1715,8 +1629,7 @@ let interfaceImplTests =
                 let provider = ClrSymbolProviders.buildContract defaultPackages
 
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "type C() ="
                             "    interface System.IComparable with"
@@ -1752,8 +1665,7 @@ let interfaceImplTests =
                 let provider = ClrSymbolProviders.buildContract defaultPackages
 
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "type Base() ="
                             "    member this.M () = 1"
@@ -1783,8 +1695,7 @@ let interfaceImplTests =
                 let provider = ClrSymbolProviders.buildContract defaultPackages
 
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "type I1 ="
                             "    abstract A: int"
@@ -1815,8 +1726,7 @@ let interfaceImplTests =
             test "inheriting a capability interface is rejected as an interface" {
                 let provider = ClrSymbolProviders.buildContract defaultPackages
 
-                let src =
-                    String.concat "\n" [ "type D() ="; "    inherit disposable"; "    member this.X = 1" ]
+                let src = lines [ "type D() ="; "    inherit disposable"; "    member this.X = 1" ]
 
                 let lexed, file = parseFile src
 
@@ -1837,8 +1747,7 @@ let interfaceImplTests =
                 let provider = ClrSymbolProviders.buildContract defaultPackages
 
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "type ILocal ="
                             "    abstract M: unit -> int"
@@ -1868,8 +1777,7 @@ let interfaceImplTests =
                 let provider = ClrSymbolProviders.buildContract defaultPackages
 
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "open System"
                             "type D() ="
@@ -1893,8 +1801,7 @@ let interfaceImplTests =
             test "inheriting a type with no nominal head is rejected with a diagnostic" {
                 let provider = ClrSymbolProviders.buildContract defaultPackages
 
-                let src =
-                    String.concat "\n" [ "type D() ="; "    inherit (int * int)"; "    member this.X = 1" ]
+                let src = lines [ "type D() ="; "    inherit (int * int)"; "    member this.X = 1" ]
 
                 let lexed, file = parseFile src
 
@@ -1917,8 +1824,7 @@ let interfaceImplTests =
                 let provider = ClrSymbolProviders.buildContract defaultPackages
 
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "type Base() ="
                             "    member this.M() = 1"
@@ -1977,8 +1883,7 @@ let interfaceImplTests =
                 let errorsOf (inheritLine: string) =
                     let lexed, file =
                         parseFile (
-                            String.concat
-                                "\n"
+                            lines
                                 [
                                     "type Base = (# class \"System.Exception\" #)"
                                     "type D(m: string) ="
@@ -2005,8 +1910,7 @@ let interfaceImplTests =
                 let provider = ClrSymbolProviders.buildContract defaultPackages
 
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "type C() ="
                             "    interface System.Collections.Generic.IEnumerable<int> with"
@@ -2046,8 +1950,7 @@ let interfaceImplTests =
                 let provider = ClrSymbolProviders.buildContract defaultPackages
 
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "type IBox<'E> ="
                             "    abstract member Unwrap : unit -> 'E"
@@ -2086,8 +1989,7 @@ let interfaceImplTests =
                 let provider = ClrSymbolProviders.buildContract defaultPackages
 
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "type C() ="
                             "    interface System.IComparable with"
@@ -2112,8 +2014,7 @@ let interfaceImplTests =
                 let provider = ClrSymbolProviders.buildContract defaultPackages
 
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "type C() ="
                             "    interface System.IComparable with"
@@ -2156,8 +2057,7 @@ let interfaceImplCodegenTests =
     // no enumerator of its own, so what is under test is interface-impl emission
     // rather than enumeration.
     let src =
-        String.concat
-            "\n"
+        lines
             [
                 "type C(e: System.Collections.Generic.IEnumerator<int>) ="
                 "    interface System.Collections.Generic.IEnumerable<int> with"
@@ -2213,8 +2113,7 @@ let interfaceImplCodegenTests =
             // instantiation, a different relation from `IEnumerator<int>` above.
             test "a generic class upcasts its own-typar IEnumerator<'T> to the non-generic IEnumerator and enumerates" {
                 let gsrc =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "type C<'T>(e: System.Collections.Generic.IEnumerator<'T>) ="
                             "    interface System.Collections.Generic.IEnumerable<'T> with"
@@ -2267,8 +2166,7 @@ let interfaceImplCodegenTests =
             test
                 "a class implementing IStructuralEquatable + Object overrides type-loads with non-generic virtual members" {
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "open System.Collections"
                             "type C<'T>(x: 'T) ="
@@ -2325,8 +2223,7 @@ let interfaceImplCodegenTests =
             // rather than by grounding `'T` to `obj`.
             test "a generic member passing 'T into an obj parameter keeps 'T generic and boxes the arg" {
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "open System.Collections"
                             "type Holder<'T>(x: 'T) ="
@@ -2355,8 +2252,7 @@ let interfaceImplCodegenTests =
             // value, since a raw `int` in an `obj` slot is unverifiable IL.
             test "a project-local instance call into an obj parameter boxes a value-type arg and runs" {
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "type C() ="
                             "    member _.M(x: obj) = x"
@@ -2380,8 +2276,7 @@ let interfaceImplCodegenTests =
             // accessor METHODS, because a property node carries an object argument and no index.
             test "explicit `with get` / `set` accessors emit and run" {
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "type C(v: int) ="
                             "    let mutable q = v"
@@ -2433,8 +2328,7 @@ let interfaceImplCodegenTests =
             // against and no field to fall back on.
             test "a write-only property assigns through its `set_` accessor" {
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "type C() ="
                             "    let mutable q = 0"
@@ -2464,8 +2358,7 @@ let interfaceImplCodegenTests =
             // resolved TYPE is what carries it; the call is an ordinary static one.
             test "`C.P <- v` dispatches through a STATIC `set_P` accessor" {
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "type C() ="
                             "    static let mutable q = 0"
@@ -2505,8 +2398,7 @@ let interfaceImplCodegenTests =
             // both the write's type and the accessor it calls.
             test "a write-only STATIC property assigns through its `set_` accessor" {
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "type C() ="
                             "    static let mutable q = 0"
@@ -2536,8 +2428,7 @@ let interfaceImplCodegenTests =
 
             test "an abstract property signature emits its accessor slots" {
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "type IBox ="
                             "    abstract P: int with get, set"
@@ -2564,8 +2455,7 @@ let interfaceImplCodegenTests =
             // `ldelem` / `stelem` the array intrinsic would splice appear nowhere in it.
             test "`x.[i]` and `x.[i] <- v` dispatch through a declared indexer" {
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "type C(v: int) ="
                             "    let mutable slot = v"
@@ -2608,8 +2498,7 @@ let interfaceImplCodegenTests =
             // resolve up the `inherit` chain and call the base that emits them.
             test "`x.[i]` and `x.[i] <- v` dispatch through an INHERITED indexer" {
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "type Store(v: int) ="
                             "    let mutable slot = v"
@@ -2659,8 +2548,7 @@ let interfaceImplCodegenTests =
             // object argument upcasts so the call resolves to the base that emits the accessor.
             test "`x.P <- v` dispatches through an INHERITED setter" {
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "type Holder(v: int) ="
                             "    let mutable q = v"
@@ -2703,8 +2591,7 @@ let interfaceImplCodegenTests =
             // callable and the index type picks between them.
             test "a derived indexer does not hide a base indexer of a different signature" {
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "type Named() ="
                             "    member this.Item with get (k: string) = k.Length"
@@ -2740,8 +2627,7 @@ let interfaceImplCodegenTests =
             // DOES hide the base one, so the read reaches the derived one rather than tying.
             test "a derived indexer hides a base indexer of the same signature" {
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "type Under() ="
                             "    member this.Item with get (i: int) = i + 10"
@@ -2769,8 +2655,7 @@ let interfaceImplCodegenTests =
             // one, so the write only picks correctly if the probe discriminates by ARITY.
             test "`x.P <- v` picks the plain setter over an inherited INDEXED one" {
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "type Slots(v: int) ="
                             "    let mutable slot = v"
@@ -2800,8 +2685,7 @@ let interfaceImplCodegenTests =
             // The array declares no `Item` accessor, so it keeps the element intrinsics.
             test "a plain array index still lowers to `ldelem` / `stelem`" {
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "type Arr() ="
                             "    member _.Probe(xs: int[], i: int, w: int) ="
@@ -2831,8 +2715,7 @@ let interfaceImplCodegenTests =
             // has no reachable depth to pop from and rejects the body.
             test "a void interface member whose body ends in `raise` emits and throws at runtime" {
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "type C() ="
                             "    interface System.IDisposable with"
@@ -2866,9 +2749,6 @@ let coercionTests =
     // Implicit class→interface and explicit class→base upcasts. A class's interfaces
     // are resolved in a pre-pass, before any member body is typed, and the upcast
     // unifies the witness's type args so a generic target gets pinned.
-    let declaredInstance =
-        BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly
-
     let analyseErrs src =
         let provider = ClrSymbolProviders.buildContract defaultPackages
         let lexed, file = parseFile src
@@ -2883,8 +2763,7 @@ let coercionTests =
         [
             test "a class value coerces to an interface-typed ctor param (secondary-ctor chain call)" {
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "type C(comparer: System.Collections.Generic.IComparer<int>) ="
                             "    member this.Cmp = comparer"
@@ -2897,8 +2776,7 @@ let coercionTests =
 
             test "a class value coerces to an interface-typed function argument" {
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "let f (c: System.Collections.Generic.IComparer<int>) = 0"
                             "let g () = f (System.Collections.Generic.Comparer<int>.Default)"
@@ -2913,8 +2791,7 @@ let coercionTests =
                 // is known here only by a scheme pre-bound from its annotation. Otherwise
                 // the `Comparer<'T>` arg would pin its param monomorphically.
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "module M ="
                             "    let useCmp (c: System.Collections.Generic.IComparer<'T>) (x: 'T) = x"
@@ -2931,8 +2808,7 @@ let coercionTests =
 
             test "`(this :> System.IComparable)` upcasts a class to a declared interface" {
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "type C() ="
                             "    interface System.IComparable with"
@@ -2949,8 +2825,7 @@ let coercionTests =
                 // unify that runs AFTER the body, so `comparer.Equals(…)` defers as a
                 // pending dot-access on a free TyVar and is discharged later.
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "open System.Collections"
                             "type C() ="
@@ -2972,8 +2847,7 @@ let coercionTests =
                 // Same lateness on `that`: still a free TyVar at the downcast site, so
                 // an unresolved source is admitted and runtime-checked, like `obj`.
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "open System.Collections"
                             "type C() ="
@@ -2995,8 +2869,7 @@ let coercionTests =
                 let artifact =
                     compileSource
                         "UpcastBase"
-                        (String.concat
-                            "\n"
+                        (lines
                             [
                                 "type Shape(x: int) ="
                                 "    member this.Raw = x"
@@ -3025,9 +2898,6 @@ let classPreambleTests =
     // Instance `let`/`do` are the END of the primary `.ctor`; `static do` runs in the
     // `.cctor`. Runtime semantics live in Codegen.Conformance/classes/preamble-*.fs.
     // Keep an OPERATOR in every initialiser here, because a literal-only one probes nothing.
-    let declaredInstance =
-        BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly
-
     let declaredStatic =
         BindingFlags.Public ||| BindingFlags.Static ||| BindingFlags.DeclaredOnly
 
@@ -3041,8 +2911,7 @@ let classPreambleTests =
                 let artifact =
                     compileSource
                         "PreambleLet"
-                        (String.concat
-                            "\n"
+                        (lines
                             [
                                 "type C(n: int) ="
                                 "    let m = n + 1"
@@ -3073,8 +2942,7 @@ let classPreambleTests =
                 let artifact =
                     compileSource
                         "PreambleMutable"
-                        (String.concat
-                            "\n"
+                        (lines
                             [
                                 "type Counter(step: int) ="
                                 "    let mutable count = 0"
@@ -3107,8 +2975,7 @@ let classPreambleTests =
             test "the base ctor runs before the derived class's preamble" {
                 runsLines
                     [ "base 5"; "derived z=8" ]
-                    (String.concat
-                        "\n"
+                    (lines
                         [
                             "type Base(x: int) ="
                             "    do printfn \"base %d\" x"
@@ -3127,8 +2994,7 @@ let classPreambleTests =
             test "`static do` runs in the cctor, interleaved with `static let` in declaration order" {
                 runsLines
                     [ "static a=2"; "static b=6"; "B=6" ]
-                    (String.concat
-                        "\n"
+                    (lines
                         [
                             "type S() ="
                             "    static let a = 1 + 1"
@@ -3144,8 +3010,7 @@ let classPreambleTests =
                 let artifact =
                     compileSource
                         "PreambleStaticDoOnly"
-                        (String.concat
-                            "\n"
+                        (lines
                             [
                                 "type S() ="
                                 "    static do printfn \"%d\" (1 + 1)"

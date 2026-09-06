@@ -8,6 +8,7 @@ open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 open XParsec.FSharp.Codegen.Clr.Tests.PeInspection
+open XParsec.FSharp.Codegen.Clr.Tests.ReflectionHarness
 
 // `[<Struct>]` value-type emission, asserted by reflecting over the emitted PE.
 // Each test's program is a standalone file under `data/`; a `//#include _x.fs`
@@ -15,9 +16,6 @@ open XParsec.FSharp.Codegen.Clr.Tests.PeInspection
 
 [<Tests>]
 let structTests =
-    let declaredInstance =
-        BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly
-
     testList
         "Struct"
         [

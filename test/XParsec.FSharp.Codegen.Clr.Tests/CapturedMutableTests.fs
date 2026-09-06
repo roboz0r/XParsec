@@ -9,6 +9,7 @@ open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 open XParsec.FSharp.Codegen.Clr.Tests.PeInspection
+open XParsec.FSharp.Codegen.Clr.Tests.ReflectionHarness
 
 // A `let mutable` captured by an escaping closure (Regions verdict `HeapShared`) is
 // rewritten to a `Vesper.Ref<'T>` heap cell the closure and the outer frame share. The
@@ -27,8 +28,7 @@ let tests =
         [
             test "TAST: a captured `let mutable` does NOT prepend a Ref decl (cell lives in Vesper.Core.dll)" {
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "let mkCounter z ="
                             "    let mutable n = z"
@@ -56,7 +56,7 @@ let tests =
                 // The cell never crosses a closure boundary, so Regions reports
                 // `CallerStack` and the promotion pass skips it.
                 let src =
-                    String.concat "\n" [ "let useLocal z ="; "    let mutable n = z"; "    n <- 7"; "    n" ]
+                    lines [ "let useLocal z ="; "    let mutable n = z"; "    n <- 7"; "    n" ]
 
                 let tast = analyse src
 
@@ -73,8 +73,7 @@ let tests =
 
             test "TAST: a captured cell's use/write/init sites all lower through Vesper.Ref<_>" {
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "let mkCounter z ="
                             "    let mutable n = z"
@@ -140,8 +139,7 @@ let tests =
                 // lower to `Vesper.Ref<int>::contents`, and the closure value itself is
                 // consumed synchronously.
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "let useCounter (z: int) : int ="
                             "    let mutable n = z"
@@ -175,8 +173,7 @@ let tests =
 
             test "mkCounter () counter: three invocations see the shared Vesper.Ref<int> cell" {
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "let mkCounter () ="
                             "    let mutable n = 0"
@@ -206,8 +203,7 @@ let tests =
             // `let mutable` lives in a static field instead and never promotes.
             test "two closures share a single Vesper.Ref<int> cell" {
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "let useTwoClosures () ="
                             "    let mutable n = 0"
@@ -258,7 +254,7 @@ let tests =
             test "a closure inside a monomorphic static fn has empty Typars" {
                 // `x + 1` forces `x: int`, so `f` is `int -> int` with no typars. `g`
                 // captures `x` and is a closure, because static-method candidates are top-level only.
-                let src = String.concat "\n" [ "let f x ="; "    let g () = x + 1"; "    g ()" ]
+                let src = lines [ "let f x ="; "    let g () = x + 1"; "    g ()" ]
 
                 let closures = discover src
 
@@ -277,8 +273,7 @@ let tests =
             test "a frame-local applied closure carries Repr = Stack" {
                 // `f` is `LocalStack` (confined to `useLocal`) and its only use is
                 // the direct callee of `f 3`, so Axis 2 is `StackOnlyEligible`.
-                let src =
-                    String.concat "\n" [ "let useLocal () ="; "    let f x = x + 1"; "    f 3" ]
+                let src = lines [ "let useLocal () ="; "    let f x = x + 1"; "    f 3" ]
 
                 let closures = discover src
 
@@ -289,8 +284,7 @@ let tests =
             test "a closure stored in a ValueTuple carries Repr = Heap" {
                 // `g` is frame-local, but `(g, g)` is a `ValueTuple`, which can't hold a
                 // ref-struct field, so Axis 2 is pinned to `RequiresHeapRepr`.
-                let src =
-                    String.concat "\n" [ "let f () ="; "    let g = fun x -> x"; "    (g, g)" ]
+                let src = lines [ "let f () ="; "    let g = fun x -> x"; "    (g, g)" ]
 
                 let closures = discover src
 
@@ -328,8 +322,7 @@ let tests =
                 // the lambda peel after `x`, and `let mid y = let inner = fun z -> x in inner`
                 // produces two nested closures, both inheriting mkPair's typars.
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "let mkPair x ="
                             "    let mid y ="
@@ -372,8 +365,7 @@ let tests =
             // inside `mkConst`, and `<closure>$0<!0>` from inside its own `Invoke`.
             test "Generic closure used at two distinct instantiations (int + string)" {
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             mkConstSource
                             "let always10 = mkConst 10"
@@ -541,8 +533,7 @@ let tests =
             // generic closures in `mkPair`'s body, all inheriting its single typar.
             test "Sibling closures inside a generic static fn each carry the typar set" {
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "let mkPair x ="
                             "    let a = fun () -> x"
@@ -598,8 +589,7 @@ let tests =
             // holds is the cell.
             test "Every closure capture field is `private initonly`" {
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "type Adder(k: int) ="
                             "    let add (x: int) = x + k"

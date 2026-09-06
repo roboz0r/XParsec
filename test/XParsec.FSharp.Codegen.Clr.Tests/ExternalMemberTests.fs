@@ -7,6 +7,7 @@ open XParsec.FSharp.SemanticAnalysis.Passes
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
+open XParsec.FSharp.Codegen.Clr.Tests.ReflectionHarness
 
 // Member access on an EXTERNAL type: each access node freezes carrying the `SymbolKey`
 // the metadata-backed provider resolved for it, and the emitted call runs.
@@ -23,7 +24,6 @@ let private analyseWithCtx (provider: IExternalSymbolProvider) (input: string) :
     let lexed, file = parseFile input
     Pipeline.analyseSemWithContextFor testCompiling provider (LexedFile.ofText lexed) file
 
-let private errors (tast: TastFile) : Diagnostic list = tast.Diagnostics |> Diagnostic.errors
 
 /// The home assembly of the type `decl` identifies. A `SymbolKey` is a NOMINAL identity and
 /// carries no home, so the physical location has to be read back off the shape the
