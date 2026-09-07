@@ -87,8 +87,7 @@ let tests =
                               (SymbolKeyOps.inNamespace "Ns")
                               "f"
                               (ExternalSignature.unfreezable "test placeholder")
-                              0
-                              [] with
+                              FunctionScheme.monomorphic with
                             ValRepr = valRepr
                         }
                         |> PublishedSurfaceBuilder.addValue b

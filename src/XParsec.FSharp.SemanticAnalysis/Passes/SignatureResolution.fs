@@ -93,7 +93,7 @@ module SignatureResolution =
                 key
                 (ExternalTypeShape.Record
                     {
-                        Typars = TyparList.ofSeq (TTypeParam.ofDeclared info.TypeParams)
+                        Typars = TyparList.unconstrained info.TypeParams
                         Fields = fields
                         Origin = SymbolOrigin.Empty
                         IsValueType = info.IsValueType
@@ -149,7 +149,7 @@ module SignatureResolution =
                 key
                 (ExternalTypeShape.Union
                     {
-                        Typars = TyparList.ofSeq (TTypeParam.ofDeclared info.TypeParams)
+                        Typars = TyparList.unconstrained info.TypeParams
                         Cases = cases
                         Interfaces = interfaces
                         Origin = SymbolOrigin.Empty
@@ -185,7 +185,7 @@ module SignatureResolution =
             id.Key
             (ExternalTypeShape.Abbrev
                 {
-                    Typars = TyparList.ofSeq (TTypeParam.ofDeclared info.TypeParams)
+                    Typars = TyparList.unconstrained info.TypeParams
                     Body = body
                 })
 
@@ -663,13 +663,13 @@ module SignatureResolution =
 
                 let template = freezeOver ctx env (curriedFunTy domains ret)
 
-                let constraints =
+                let generics =
                     underTypars
                         ctx
                         EqArray.empty
                         typeParams
                         (fun () ->
-                            publishedConstraints
+                            publishedScheme
                                 ctx
                                 env
                                 typeParams
@@ -692,7 +692,7 @@ module SignatureResolution =
                     AttrTarget.ofModuleValue (not (List.isEmpty domains)) (typeParams.Length <> 0)
 
                 let sym =
-                    { ExternalSymbols.scheme decl name template typeParams.Length constraints with
+                    { ExternalSymbols.scheme decl name template generics with
                         CompiledName = AttributeDecode.compiledNameOf ctx.NameOf name resolvedAttrs
                         ValRepr = valRepr
                     }

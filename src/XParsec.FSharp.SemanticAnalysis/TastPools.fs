@@ -612,7 +612,7 @@ module TastPools =
                 ModuleMembers = remapSideTable tryBoundVarIdOf file.ModuleMembers
                 ClosureReprs = remapSideTable tryBoundVarIdOf file.ClosureReprs
                 FunVerdicts = funVerdicts
-                GenericFnSchemes = remapSideTable tryBoundVarIdOf file.GenericFnSchemes
+                FunctionSchemes = remapSideTable tryBoundVarIdOf file.FunctionSchemes
                 LocalOwners = [| for KeyValue(id, owner) in file.LocalOwners -> id, owner |]
                 LocalSchemes = remapSideTable tryBoundVarIdOf file.LocalSchemes
                 // Derived below, off the pools themselves.

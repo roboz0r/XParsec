@@ -877,9 +877,9 @@ let tests =
             }
 
             test "`when 'T : equality` is captured, and applied to the fresh TyVar at instantiation" {
-                // `when 'T : equality` must land on BOTH the symbol's structured `Constraints`
-                // and — via `instantiateSymbol` — the fresh `TypeVar` minted for that typar
-                // slot, which is the only half a use site's inference consults.
+                // `when 'T : equality` must land on BOTH the symbol's typar in `Generics`
+                // and, via `instantiateSymbol`, the fresh `TypeVar` minted for that typar slot,
+                // which is the half a use site's inference reads.
                 let r =
                     resolveFsi
                         "app.fsi"
@@ -889,19 +889,12 @@ let tests =
 
                 Expect.equal sym.TyparArity 1 "the val generalises over its single typar"
 
-                // The clause is recorded against the typar's INDEX, not its name.
-                let equalityTrait =
-                    sym.Constraints
-                    |> List.exists (fun c ->
-                        match c with
-                        | ExternalConstraint.Encodable {
-                                                           TyparIndex = 0
-                                                           Kind = TyparConstraintKindG.Equality
-                                                       } -> true
-                        | _ -> false
-                    )
+                // The clause is recorded on the typar at its INDEX, not by its name.
+                let typars = sym.Generics.Typars
 
-                Expect.isTrue equalityTrait (sprintf "Constraints carries Equality on typar 0; got %A" sym.Constraints)
+                Expect.isTrue
+                    (EqSet.contains TyparConstraintKindG.Equality typars.Types.[0].Constraints.Kinds)
+                    (sprintf "typar 0 carries Equality; got %A" typars)
 
                 let store = TypeStore()
 
@@ -925,28 +918,24 @@ let tests =
 
                 let sym = symbolOf r "add"
 
-                let trait_ =
-                    sym.Constraints
-                    |> List.tryPick (fun c ->
-                        match c with
-                        | ExternalConstraint.MemberTrait(idxs, name, args, ret) -> Some(idxs, name, args, ret)
-                        | _ -> None
-                    )
+                match EqArray.toList sym.Generics.Traits with
+                | [] -> failtestf "no MemberTrait captured for `add`; Generics: %A" sym.Generics
+                | trait_ :: _ ->
+                    Expect.equal
+                        (EqArray.toList trait_.TyparIndices)
+                        [ 0 ]
+                        "the trait is borne by the val's single typar slot"
 
-                match trait_ with
-                | None -> failtestf "no MemberTrait captured for `add`; Constraints: %A" sym.Constraints
-                | Some(idxs, name, args, ret) ->
-                    Expect.equal (EqArray.toList idxs) [ 0 ] "the trait is borne by the val's single typar slot"
-                    Expect.equal name "op_Addition" "`(+)` is captured by its COMPILED name"
+                    Expect.equal trait_.MemberName "op_Addition" "`(+)` is captured by its COMPILED name"
 
                     let ownTypar = FTTypar(TyparScope.ModuleFunction sym.Key, 0)
 
                     Expect.equal
-                        (EqArray.toList args)
+                        (EqArray.toList trait_.ArgTypes)
                         [ ownTypar; ownTypar ]
                         "the tupled trait args flatten to two templates over the val's own typar"
 
-                    Expect.equal ret ownTypar "the trait returns the val's own typar"
+                    Expect.equal trait_.ReturnType ownTypar "the trait returns the val's own typar"
 
                 // The instantiated trait lands in the store's `Srtp` table under the fresh
                 // TyVar's representative id.

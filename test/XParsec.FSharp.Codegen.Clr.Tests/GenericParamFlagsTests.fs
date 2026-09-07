@@ -151,6 +151,22 @@ let tests =
                 Expect.equal (typeGenericParamsOf bytes "Ref`1") [ "a", referenceType ] "class typar"
             }
 
+            // The CLR erases a measure-kinded typar: only the type-kinded ones get a row, and
+            // the metadata name counts those alone. The measure typar is declared and unused:
+            // `float<'u>` in a field of a measure-generic record is not yet resolved.
+            test "a measure-kinded typar has no GenericParam row" {
+                let bytes =
+                    bytesOf
+                        "GpMeasure"
+                        [
+                            "type Pair<[<Measure>] 'u, 'a when 'a: struct> = { V: 'a }"
+                            "let n = 1"
+                            "ignore n"
+                        ]
+
+                Expect.equal (typeGenericParamsOf bytes "Pair`1") [ "a", valueType ] "one row, the type-kinded typar's"
+            }
+
             test "a union's case classes carry the declaring typar's constraint" {
                 let bytes =
                     bytesOf

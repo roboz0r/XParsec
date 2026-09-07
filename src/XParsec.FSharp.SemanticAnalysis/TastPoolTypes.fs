@@ -189,7 +189,7 @@ type FrozenPools =
         /// rows may share a verdict, because every copy of a spliced inline body keeps the
         /// definition-site token the verdict was filed under.
         FunVerdicts: DenseTable<ExprPoolId, FunVerdict>
-        GenericFnSchemes: DenseTable<BoundVarId, GenericFnScheme>
+        FunctionSchemes: DenseTable<BoundVarId, FunctionScheme>
         /// Every generalised body-local `let` of the file → the declaration whose body
         /// declares it, in `LocalBindingId` order.
         LocalOwners: DenseTable<LocalBindingId, LocalOwner>
@@ -236,7 +236,7 @@ module FrozenPools =
             ModuleMembers = [||]
             ClosureReprs = [||]
             FunVerdicts = [||]
-            GenericFnSchemes = [||]
+            FunctionSchemes = [||]
             LocalOwners = [||]
             LocalSchemes = [||]
             BindingValReprs = [||]
@@ -250,15 +250,15 @@ module FrozenPools =
         let (BoundVarId i) = id
         pools.BoundVarMutable.[i]
 
-    /// Each binding's scheme, indexed once over `GenericFnSchemes`. A binding absent from the
-    /// table is `GenericFnScheme.monomorphic`.
-    let schemes (pools: FrozenPools) : BoundVarId -> GenericFnScheme =
-        let schemes = DenseTable.index pools.GenericFnSchemes
+    /// Each binding's scheme, indexed once over `FunctionSchemes`. A binding absent from the
+    /// table is `FunctionScheme.monomorphic`.
+    let schemes (pools: FrozenPools) : BoundVarId -> FunctionScheme =
+        let schemes = DenseTable.index pools.FunctionSchemes
 
         fun boundVar ->
             match schemes.TryGetValue boundVar with
             | true, s -> s
-            | false, _ -> GenericFnScheme.monomorphic
+            | false, _ -> FunctionScheme.monomorphic
 
     // Qualified for the same reason `FrozenFileResidue.Diagnostics` is: the opened
     // `XParsec.FSharp.Parser` declares its own `Diagnostic`, which the bare name binds to.

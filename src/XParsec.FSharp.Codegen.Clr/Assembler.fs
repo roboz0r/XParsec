@@ -623,7 +623,7 @@ type internal Assembler
                         MetaName = memberMetaName m.Name m.Kind
                         ParamTys = paramTys
                         RetTy = retTy
-                        MethodTyparCount = m.MethodTypeParams.Length
+                        MethodTyparCount = m.MethodTypars.TypeArity
                     }
 
                 memberTable.[m.Name] <-
@@ -637,7 +637,7 @@ type internal Assembler
                         Signature = abstractMethodSignature provider m
                         Body = PreparedBody.Abstract
                         ParamNames = List.map fst slots
-                        MethodTypars = GenericParamRow.ofTypars m.MethodTypeParams m.MethodTyparConstraints
+                        MethodTypars = GenericParamRow.ofTypars m.MethodTypars
                     }
                 )
             )
@@ -645,7 +645,7 @@ type internal Assembler
             interfaces.[td.TypeKey] <-
                 {
                     Name = td.Name
-                    Typars = EqArray.toList (TTypeParam.names td.TypeParams)
+                    Typars = EqArray.toList (TyparList.typeNames td.TypeParams)
                     Members = memberTable
                 }
 
@@ -877,8 +877,7 @@ type internal Assembler
                         Signature = signature
                         Body = liftedBody
                         ParamNames = paramNames emitCtx.Pool paramKeys
-                        MethodTypars =
-                            GenericParamRow.ofTypars (GenericParamRow.positionalNames frame.Count) EqSet.empty
+                        MethodTypars = GenericParamRow.ofTypars (TyparList.positional frame.Count)
                     }
                 )
 

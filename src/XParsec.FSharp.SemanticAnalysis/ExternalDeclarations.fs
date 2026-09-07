@@ -27,23 +27,6 @@ exception BodylessExternalShape of compiledName: string * reason: UnmodelledReas
             this.compiledName
             this.reason.Description
 
-/// A constraint captured on an external symbol's typar list; every `target` is a template
-/// over the symbol's own declaring typars.
-[<RequireQualifiedAccess>]
-type ExternalConstraint =
-    /// `when 'T : equality`, `when 'e :> <ty>` and every other constraint with a metadata encoding.
-    | Encodable of TyparConstraintG<FrozenType>
-    /// `when (^T or ^U) : (static member (+) : ^T * ^U -> ^V)` — `typarIndices` is the
-    /// trait's LHS; `memberName` is the compiled name (`op_Addition`).
-    | MemberTrait of
-        typarIndices: EqArray<int> *
-        memberName: string *
-        argTypes: EqArray<FrozenType> *
-        returnType: FrozenType
-    /// `default ^T : <ty>` at generalisation. `target` is another typar
-    /// (`default ^T3 : ^T1`) or a concrete shape (`default ^T1 : int`).
-    | Default of typarIndex: int * target: FrozenType
-
 /// How a symbol's home module EXPORTS it, deciding the JS `import` statement shape.
 [<RequireQualifiedAccess>]
 type ImportForm =
@@ -82,10 +65,9 @@ type ExternalSymbol =
     {
         /// The symbol's type SCHEME over its own typars, baked as `FTTypar(ModuleFunction _, i)`.
         Scheme: FrozenType
-        TyparArity: int
-        /// Stamped onto the fresh TyVars when the scheme is instantiated; callers don't apply
-        /// them separately.
-        Constraints: ExternalConstraint list
+        /// The symbol's own typars with their constraints, and its member traits, stamped onto
+        /// the fresh TyVars by instantiating `Scheme`.
+        Generics: FunctionScheme
         /// Where the symbol lives. `SymbolOrigin.Empty` until a resolving source fills it.
         Origin: SymbolOrigin
         /// The symbol's identity. Every written spelling that reaches this symbol carries it,
@@ -101,6 +83,9 @@ type ExternalSymbol =
         /// The symbol's splice TEMPLATE: a `val inline` whose home file published its body.
         InlineBody: InlineBody voption
     }
+
+    /// The type-kinded typar count of `Generics`.
+    member this.TyparArity: int = this.Generics.TyparArity
 
     /// The short name the declaration emits under.
     member this.EmittedName: string =

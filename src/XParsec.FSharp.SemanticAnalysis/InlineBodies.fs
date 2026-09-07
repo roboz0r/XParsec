@@ -118,7 +118,7 @@ module InlineBodies =
                                         tdecl.TypeKey
                                         m.Name
                                         (m.Params |> EqArray.map snd)
-                                        m.MethodTypeParams.Length
+                                        m.MethodTypars.TypeArity
                                         kind
 
                                 yield { Key = key; Body = body }

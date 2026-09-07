@@ -238,7 +238,11 @@ let private publishing (unitASource: string) : IExternalSymbolProvider =
                 // binding's own scope.
                 let scheme = declTy
 
-                ExternalSymbols.scheme binding.Decl binding.Name scheme (typarArity scheme) []
+                ExternalSymbols.scheme
+                    binding.Decl
+                    binding.Name
+                    scheme
+                    (FunctionScheme.unconstrained (typarArity scheme))
                 |> PublishedSurfaceBuilder.addValue b
         )
 

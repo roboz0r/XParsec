@@ -1,8 +1,8 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
 // Cross-type structural rebuild of the TAST cluster: every embedded `'ty` through `f`,
-// every POSITION through `fTok`, no hooks. Other payload is copied verbatim, but NOT
-// `MethodTypeParams`, whose entries embed `'ty` and would carry a live `UnionFind` cell.
+// every POSITION through `fTok`. A typar list is rebuilt too, since its constraints embed
+// `'ty`; other payload is copied verbatim.
 
 [<RequireQualifiedAccess>]
 module TastConvert =
@@ -243,8 +243,7 @@ module TastConvert =
             Params = EqArray.map (fun (k, ty) -> slot k, fTy ty) m.Params
             Body = fBody m.Body
             ReturnTy = fTy m.ReturnTy
-            MethodTypeParams = EqArray.map (fun (n, ty) -> n, fTy ty) m.MethodTypeParams
-            MethodTyparConstraints = EqSet.map (TyparConstraint.map fTy) m.MethodTyparConstraints
+            MethodTypars = TyparList.map fTy m.MethodTypars
             Attributes = m.Attributes
         }
 
@@ -301,8 +300,7 @@ module TastConvert =
     let abstractMethod (f: 'a -> 'b) (am: TAbstractMethodG<'a>) : TAbstractMethodG<'b> =
         {
             Name = am.Name
-            MethodTypeParams = am.MethodTypeParams
-            MethodTyparConstraints = EqSet.map (TyparConstraint.map f) am.MethodTyparConstraints
+            MethodTypars = TyparList.map f am.MethodTypars
             Signature = f am.Signature
             ParamNames = am.ParamNames
             Kind = am.Kind
@@ -367,8 +365,7 @@ module TastConvert =
         {
             Name = td.Name
             TypeKey = td.TypeKey
-            TypeParams = td.TypeParams
-            TyparConstraints = EqSet.map (TyparConstraint.map m.Ty) td.TyparConstraints
+            TypeParams = TyparList.map m.Ty td.TypeParams
             Kind = kind m td.Kind
             Attributes = td.Attributes
         }
@@ -464,7 +461,7 @@ module TastConvert =
             ModuleMembers = tf.ModuleMembers
             ClosureReprs = tf.ClosureReprs
             FunVerdicts = tf.FunVerdicts
-            GenericFnSchemes = tf.GenericFnSchemes
+            FunctionSchemes = tf.FunctionSchemes
             LocalOwners = tf.LocalOwners
             LocalSchemes = tf.LocalSchemes
             Accessibility = tf.Accessibility

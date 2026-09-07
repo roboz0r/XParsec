@@ -217,8 +217,7 @@ module FrozenCodecDecls =
 
         writeExprPoolId w m.Body
         writeTypeRef w m.ReturnTy
-        writeMethodTypeParams w m.MethodTypeParams
-        writeEqSetWith w writeFrozenConstraint m.MethodTyparConstraints
+        writeTyparList w m.MethodTypars
         writeTAttributes w m.Attributes
         writeMemberKeyRef w m.Key
 
@@ -260,8 +259,7 @@ module FrozenCodecDecls =
 
         let body = readExprPoolId r
         let returnTy = readTypeRef r
-        let methodTypeParams = readMethodTypeParams r
-        let methodTyparConstraints = readEqSetWith r readFrozenConstraint
+        let methodTypars = readTyparList r
         let attributes = readTAttributes r
         let key = readMemberKeyRef r
 
@@ -279,8 +277,7 @@ module FrozenCodecDecls =
             Params = parameters
             Body = body
             ReturnTy = returnTy
-            MethodTypeParams = methodTypeParams
-            MethodTyparConstraints = methodTyparConstraints
+            MethodTypars = methodTypars
             Attributes = attributes
         }
 
@@ -466,32 +463,10 @@ module FrozenCodecDecls =
             w.Write 6uy
             writeMeasureTerm w term
 
-    let private writeTypeParams (w: FrozenWriter) (ps: EqArray<TTypeParam>) =
-        writeEqArrayWith
-            w
-            (fun w (p: TTypeParam) ->
-                w.Write p.Name
-                writeTyparKind w p.Kind
-            )
-            ps
-
-    let private readTypeParams (r: FrozenReader) : EqArray<TTypeParam> =
-        EqArray.ofArray (
-            readArrayWith
-                r
-                (fun r ->
-                    let name = r.ReadString()
-                    let kind = readTyparKind r
-
-                    { Name = name; Kind = kind }: TTypeParam
-                )
-        )
-
     let writeTypeDecl (w: FrozenWriter) (td: PooledTypeDecl) =
         w.Write td.Name
         writeTypeKeyRef w td.TypeKey
-        writeTypeParams w td.TypeParams
-        writeEqSetWith w writeFrozenConstraint td.TyparConstraints
+        writeTyparList w td.TypeParams
         writeTypeKind w td.Kind
         writeTAttributes w td.Attributes
 
@@ -598,8 +573,7 @@ module FrozenCodecDecls =
     let readTypeDecl (r: FrozenReader) : PooledTypeDecl =
         let name = r.ReadString()
         let typeKey = readTypeKeyRef r
-        let typeParams = readTypeParams r
-        let typarConstraints = readEqSetWith r readFrozenConstraint
+        let typeParams = readTyparList r
         let kind = readTypeKind r
         let attributes = readTAttributes r
 
@@ -607,7 +581,6 @@ module FrozenCodecDecls =
             Name = name
             TypeKey = typeKey
             TypeParams = typeParams
-            TyparConstraints = typarConstraints
             Kind = kind
             Attributes = attributes
         }

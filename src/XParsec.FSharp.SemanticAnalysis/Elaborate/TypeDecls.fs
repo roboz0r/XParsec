@@ -56,30 +56,6 @@ module internal ElaborateTypeDecls =
         else
             ValueNone
 
-    /// A decl's declared typars in declaration order and the constraints on them, indexed
-    /// into the typars.
-    type private DeclTypars =
-        {
-            Params: EqArray<TTypeParam>
-            Constraints: EqSet<TyparConstraintG<SemType>>
-        }
-
-    let private noDeclTypars: DeclTypars =
-        {
-            Params = EqArray.empty
-            Constraints = EqSet.empty
-        }
-
-    /// The declared typars of a decl whose type-scope env is `env`.
-    let private mkDeclTypars
-        (store: TypeStore)
-        (typeParams: EqArray<DeclaredTypar>)
-        (env: (TyVarId * SemType) list)
-        : DeclTypars =
-        {
-            Params = TTypeParam.ofDeclared typeParams
-            Constraints = constraintsOfEnv store env
-        }
 
     /// What a host surfacer elaborates its members under. `Env` starts as the declaring
     /// typars and is extended in place with each generic method's own as the members
@@ -87,9 +63,8 @@ module internal ElaborateTypeDecls =
     [<NoEquality; NoComparison>]
     type private DeclScope =
         {
-            Key: TypeKey
             Env: ResizeArray<TyVarId * SemType>
-            Typars: DeclTypars
+            Typars: TyparListG<SemType>
             SelfTy: SemType
         }
 
@@ -105,23 +80,17 @@ module internal ElaborateTypeDecls =
             mkDeclTyparEnv ctx.Store (TyparScope.Type key) (DeclaredTypar.protos typeParams)
 
         {
-            Key = key
             Env = ResizeArray env
-            Typars = mkDeclTypars ctx.Store typeParams env
+            Typars = declTyparList ctx.Store typeParams
             SelfTy = mkSelfTy (declTyparArgs ctx.Store typeParams)
         }
-
-    /// The member elaborator `scope` implies, which binds `this` to the decl's self-type and
-    /// records each generic method's own typars into the freeze env.
-    let private elaboratorOf (scope: DeclScope) : TTypeMember -> TTypeMember =
-        mkMemberElaborator scope.Key scope.SelfTy (TTypeParam.names scope.Typars.Params) scope.Env
 
     /// An interface-shaped object-model body: its declared typars, its abstract slots, and
     /// the freeze env covering both the declaring typars and every slot's own.
     [<NoEquality; NoComparison>]
     type private InterfaceShape =
         {
-            Typars: DeclTypars
+            Typars: TyparListG<SemType>
             Methods: EqArray<TAbstractMethod>
             Env: (TyVarId * SemType) list
         }
@@ -177,13 +146,7 @@ module internal ElaborateTypeDecls =
                                 yield
                                     {
                                         Name = m.Name
-                                        MethodTypeParams = EqArray.ofArray (GeneralizedTypars.names m.CanonicalTypars)
-                                        MethodTyparConstraints =
-                                            constraintsOfEnv
-                                                ctx.Store
-                                                (GeneralizedTypars.methodEnv
-                                                    (TyparScope.Member info.TypeKey)
-                                                    m.CanonicalTypars)
+                                        MethodTypars = methodTyparList ctx.Store m.CanonicalTypars
                                         Signature = m.Type
                                         ParamNames = m.ArgNames
                                         Kind = m.Kind
@@ -194,7 +157,7 @@ module internal ElaborateTypeDecls =
 
                 Some
                     {
-                        Typars = mkDeclTypars ctx.Store info.TypeParams declEnv
+                        Typars = declTyparList ctx.Store info.TypeParams
                         Methods = methods
                         Env = List.ofSeq env
                     }
@@ -202,7 +165,7 @@ module internal ElaborateTypeDecls =
     let private mkTypeDecl
         (name: string)
         (key: TypeKey)
-        (typars: DeclTypars)
+        (typars: TyparListG<SemType>)
         (attrs: TAttributes)
         (kind: TTypeKind)
         : TDecl =
@@ -210,8 +173,7 @@ module internal ElaborateTypeDecls =
             {
                 Name = name
                 TypeKey = key
-                TypeParams = typars.Params
-                TyparConstraints = typars.Constraints
+                TypeParams = typars
                 Kind = kind
                 Attributes = attrs
             }
@@ -241,7 +203,6 @@ module internal ElaborateTypeDecls =
                 mkDeclScope ctx info.TypeKey info.TypeParams (fun args -> TyUnion(info.TypeKey, args))
 
             let env = scope.Env
-            let elaborateOne = elaboratorOf scope
 
             let cases =
                 EqArray.ofSeq (
@@ -270,7 +231,7 @@ module internal ElaborateTypeDecls =
                 )
 
             let members, interfaces =
-                elaborateHostMembers ctx (info :> IInterfaceImplHost) ext elaborateOne
+                elaborateHostMembers ctx (info :> IInterfaceImplHost) ext env
 
             let valueKind =
                 if info.IsValueType then
@@ -335,7 +296,7 @@ module internal ElaborateTypeDecls =
                 )
             | ValueNone -> ()
 
-            Some(mkTypeDecl name info.TypeKey noDeclTypars info.Attributes (TTypeKind.Enum tcases), [])
+            Some(mkTypeDecl name info.TypeKey TyparList.empty info.Attributes (TTypeKind.Enum tcases), [])
 
     /// Surface a `TypeDefn.Record` as a `TDecl.Type` from the resolved `RecordTypeInfo`.
     /// Field types are remapped through the declaring-type typars, as for a union.
@@ -360,7 +321,6 @@ module internal ElaborateTypeDecls =
                 mkDeclScope ctx info.TypeKey info.TypeParams (fun args -> TyRecord(info.TypeKey, args))
 
             let env = scope.Env
-            let elaborateOne = elaboratorOf scope
 
             let fields =
                 EqArray.ofSeq (
@@ -376,7 +336,7 @@ module internal ElaborateTypeDecls =
                 )
 
             let members, interfaces =
-                elaborateHostMembers ctx (info :> IInterfaceImplHost) ext elaborateOne
+                elaborateHostMembers ctx (info :> IInterfaceImplHost) ext env
 
             let valueKind =
                 if info.IsValueType then
@@ -405,7 +365,7 @@ module internal ElaborateTypeDecls =
     let private elaborateClassElements
         (ctx: PassContext)
         (info: ClassTypeInfo)
-        (elaborateOne: TTypeMember -> TTypeMember)
+        (env: ResizeArray<TyVarId * SemType>)
         (elements: TypeDefnElements<SyntaxToken>)
         : EqArray<TTypeMember> =
         let declaring = classDeclaringType ctx info
@@ -413,8 +373,7 @@ module internal ElaborateTypeDecls =
         EqArray.ofSeq (
             seq {
                 for el in elements do
-                    for m in translateMemberElement ctx declaring el do
-                        yield elaborateOne m
+                    yield! translateMemberElement ctx declaring env el
             }
         )
 
@@ -424,13 +383,13 @@ module internal ElaborateTypeDecls =
     let private elaborateClassInterfaces
         (ctx: PassContext)
         (info: ClassTypeInfo)
-        (elaborateOne: TTypeMember -> TTypeMember)
+        (env: ResizeArray<TyVarId * SemType>)
         : EqArray<SemType * EqArray<TTypeMember>> =
         EqArray.ofSeq (
             seq {
                 for impl in info.Body.InterfaceImpls do
                     match InterfaceImplResolution.tryIface impl.Resolution with
-                    | ValueSome ifaceTy -> yield (ifaceTy, elaborateClassElements ctx info elaborateOne impl.Elements)
+                    | ValueSome ifaceTy -> yield (ifaceTy, elaborateClassElements ctx info env impl.Elements)
                     | ValueNone -> ()
             }
         )
@@ -507,7 +466,6 @@ module internal ElaborateTypeDecls =
 
             let env = scope.Env
             let selfTy = scope.SelfTy
-            let elaborateOne = elaboratorOf scope
 
             let ctorParams =
                 EqArray.ofSeq (
@@ -539,8 +497,8 @@ module internal ElaborateTypeDecls =
                     }
                 )
 
-            let members = elaborateClassElements ctx info elaborateOne elements
-            let interfaces = elaborateClassInterfaces ctx info elaborateOne
+            let members = elaborateClassElements ctx info env elements
+            let interfaces = elaborateClassInterfaces ctx info env
 
             let staticRewrite = staticFieldRewrite info
             let instanceRewrite = instanceFieldRewrite info selfTy
@@ -613,7 +571,7 @@ module internal ElaborateTypeDecls =
                 mkTypeDecl
                     claim.Name
                     info.TypeKey
-                    (mkDeclTypars ctx.Store info.TypeParams env)
+                    (declTyparList ctx.Store info.TypeParams)
                     info.Attributes
                     (TTypeKind.Abbrev body),
                 env
@@ -631,7 +589,7 @@ module internal ElaborateTypeDecls =
                 mkTypeDecl
                     claim.Name
                     info.TypeKey
-                    noDeclTypars
+                    TyparList.empty
                     // A measure stores no attributes of its own.
                     EqArray.empty
                     (TTypeKind.Measure term),
@@ -660,10 +618,8 @@ module internal ElaborateTypeDecls =
                 mkDeclScope ctx info.TypeKey info.TypeParams (fun args -> TyConst(info.SelfKey, args))
 
             let env = scope.Env
-            let elaborateOne = elaboratorOf scope
 
-            let members, _ =
-                elaborateHostMembers ctx (info :> IInterfaceImplHost) ext elaborateOne
+            let members, _ = elaborateHostMembers ctx (info :> IInterfaceImplHost) ext env
 
             let clsG: TClass =
                 {
@@ -695,7 +651,7 @@ module internal ElaborateTypeDecls =
                 // Mint the identity registration would, from the SAME containment-derived
                 // container, so a reference to the interface compares equal to this decl's key
                 // wherever the interface is declared.
-                let key = ctx.DeclaredTypeKey(name, shape.Typars.Params.Length)
+                let key = ctx.DeclaredTypeKey(name, shape.Typars.Length)
 
                 let attrs =
                     match TypeRegistry.tryClassByKey ctx.Types key with

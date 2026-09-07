@@ -200,14 +200,6 @@ type TyparKind =
     | Type
     | Measure
 
-/// A declared type parameter as the frozen contract carries it.
-type TTypeParam =
-    {
-        /// Source-text name, leading `'`/`^` included (`'a`).
-        Name: string
-        Kind: TyparKind
-    }
-
 /// A type parameter's name.
 [<RequireQualifiedAccess>]
 type TyparName =
@@ -217,8 +209,134 @@ type TyparName =
     /// an intrinsic binding, an unresolved reference.
     | Positional of int
 
-/// A type-kinded parameter.
-type TypeTypar = { Name: TyparName }
+    /// The name as source spells it: the written text, or `'T<i>` for a positional parameter.
+    member this.Display: string =
+        match this with
+        | Written s -> s
+        | Positional i -> sprintf "'T%d" i
+
+/// The kind of a constraint on a type-kinded parameter.
+[<RequireQualifiedAccess>]
+type TyparConstraintKindG<'ty> =
+    /// `when 'a : equality`.
+    | Equality
+    /// `when 'a : comparison`.
+    | Comparison
+    /// `when 'a : struct`.
+    | Struct
+    /// `when 'a : not struct`.
+    | ReferenceType
+    /// `when 'a : null`.
+    | Nullness
+    /// `when 'a : not null`.
+    | NotNull
+    /// `when 'a :> <ty>`.
+    | Coercion of target: 'ty
+    /// `when 'a : (new : unit -> 'a)`.
+    | DefaultConstructor
+    /// `when 'a : unmanaged`.
+    | Unmanaged
+    /// `when 'a : enum<underlying>`.
+    | Enum of underlying: 'ty
+    /// `when 'a : delegate<args, ret>`.
+    | Delegate of args: 'ty * ret: 'ty
+
+[<RequireQualifiedAccess>]
+module TyparConstraintKind =
+
+    let map (f: 'a -> 'b) (kind: TyparConstraintKindG<'a>) : TyparConstraintKindG<'b> =
+        match kind with
+        | TyparConstraintKindG.Equality -> TyparConstraintKindG.Equality
+        | TyparConstraintKindG.Comparison -> TyparConstraintKindG.Comparison
+        | TyparConstraintKindG.Struct -> TyparConstraintKindG.Struct
+        | TyparConstraintKindG.ReferenceType -> TyparConstraintKindG.ReferenceType
+        | TyparConstraintKindG.Nullness -> TyparConstraintKindG.Nullness
+        | TyparConstraintKindG.NotNull -> TyparConstraintKindG.NotNull
+        | TyparConstraintKindG.Coercion target -> TyparConstraintKindG.Coercion(f target)
+        | TyparConstraintKindG.DefaultConstructor -> TyparConstraintKindG.DefaultConstructor
+        | TyparConstraintKindG.Unmanaged -> TyparConstraintKindG.Unmanaged
+        | TyparConstraintKindG.Enum underlying -> TyparConstraintKindG.Enum(f underlying)
+        | TyparConstraintKindG.Delegate(args, ret) -> TyparConstraintKindG.Delegate(f args, f ret)
+
+    /// Applies `f` to each embedded type.
+    let iter (f: 'a -> unit) (kind: TyparConstraintKindG<'a>) : unit =
+        match kind with
+        | TyparConstraintKindG.Coercion target
+        | TyparConstraintKindG.Enum target -> f target
+        | TyparConstraintKindG.Delegate(args, ret) ->
+            f args
+            f ret
+        | TyparConstraintKindG.Equality
+        | TyparConstraintKindG.Comparison
+        | TyparConstraintKindG.Struct
+        | TyparConstraintKindG.ReferenceType
+        | TyparConstraintKindG.Nullness
+        | TyparConstraintKindG.NotNull
+        | TyparConstraintKindG.DefaultConstructor
+        | TyparConstraintKindG.Unmanaged -> ()
+
+    /// The coercion supertype, for a `Coercion` constraint only.
+    let tryCoercion (kind: TyparConstraintKindG<'ty>) : 'ty voption =
+        match kind with
+        | TyparConstraintKindG.Coercion target -> ValueSome target
+        | TyparConstraintKindG.Equality
+        | TyparConstraintKindG.Comparison
+        | TyparConstraintKindG.Struct
+        | TyparConstraintKindG.ReferenceType
+        | TyparConstraintKindG.Nullness
+        | TyparConstraintKindG.NotNull
+        | TyparConstraintKindG.DefaultConstructor
+        | TyparConstraintKindG.Unmanaged
+        | TyparConstraintKindG.Enum _
+        | TyparConstraintKindG.Delegate _ -> ValueNone
+
+/// The constraints on one type-kinded parameter. An embedded type may reference a sibling
+/// parameter of the same declaration.
+type ConstraintSetG<'ty> =
+    {
+        /// Declared or inferred, deduplicated structurally, in source order.
+        Kinds: EqSet<TyparConstraintKindG<'ty>>
+        /// `default ^T : <ty>` targets in source order; generalisation takes the first that
+        /// resolves.
+        Defaults: EqArray<'ty>
+    }
+
+    member this.IsEmpty: bool = this.Kinds.IsEmpty && this.Defaults.IsEmpty
+
+[<RequireQualifiedAccess; CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
+module ConstraintSet =
+
+    let empty<'ty> : ConstraintSetG<'ty> =
+        {
+            Kinds = EqSet.empty
+            Defaults = EqArray.empty
+        }
+
+    let ofKinds (kinds: seq<TyparConstraintKindG<'ty>>) : ConstraintSetG<'ty> =
+        {
+            Kinds = EqSet.ofSeq kinds
+            Defaults = EqArray.empty
+        }
+
+    let map (f: 'a -> 'b) (set: ConstraintSetG<'a>) : ConstraintSetG<'b> =
+        {
+            Kinds = EqSet.map (TyparConstraintKind.map f) set.Kinds
+            Defaults = EqArray.map f set.Defaults
+        }
+
+    /// Applies `f` to each embedded type.
+    let iter (f: 'a -> unit) (set: ConstraintSetG<'a>) : unit =
+        for c in set.Kinds do
+            TyparConstraintKind.iter f c
+
+        EqArray.iter f set.Defaults
+
+/// A type-kinded parameter with its constraints.
+type TypeTyparG<'ty> =
+    {
+        Name: TyparName
+        Constraints: ConstraintSetG<'ty>
+    }
 
 /// A measure-kinded parameter (`[<Measure>] 'u`).
 type MeasureTypar = { Name: TyparName }
@@ -234,10 +352,11 @@ type TyparSlot =
         | Type _ -> TyparKind.Type
         | Measure _ -> TyparKind.Measure
 
-/// A declaration's type parameters, type-kinded and measure-kinded apart.
-type TyparList =
+/// A declaration's type parameters, type-kinded and measure-kinded apart. A typar leaf
+/// indexes `Types`; the CLR encodes `Types` alone.
+type TyparListG<'ty> =
     {
-        Types: EqArray<TypeTypar>
+        Types: EqArray<TypeTyparG<'ty>>
         Measures: EqArray<MeasureTypar>
         /// Source order, one slot per parameter.
         Order: EqArray<TyparSlot>
@@ -248,70 +367,23 @@ type TyparList =
 
     member this.IsEmpty: bool = this.Order.IsEmpty
 
-[<RequireQualifiedAccess>]
-module TyparList =
+    /// The type-kinded count: the arity a backend that erases measures emits.
+    member this.TypeArity: int = this.Types.Length
 
-    let empty: TyparList =
-        {
-            Types = EqArray.empty
-            Measures = EqArray.empty
-            Order = EqArray.empty
-        }
+    member this.HasTypeTypars: bool = not this.Types.IsEmpty
 
-    /// Each parameter's kind, in source order.
-    let kinds (typars: TyparList) : EqArray<TyparKind> =
-        typars.Order |> EqArray.map (fun s -> s.Kind)
+    /// Whether any type-kinded parameter carries a constraint or a default.
+    member this.HasConstraints: bool =
+        this.Types |> EqArray.exists (fun t -> not t.Constraints.IsEmpty)
 
-    /// The list over written parameters in source order.
-    let ofSeq (typars: seq<TTypeParam>) : TyparList =
-        let types = ResizeArray<TypeTypar>()
-        let measures = ResizeArray<MeasureTypar>()
-        let order = ResizeArray<TyparSlot>()
-
-        for p in typars do
-            match p.Kind with
-            | TyparKind.Type ->
-                order.Add(TyparSlot.Type types.Count)
-
-                types.Add
-                    {
-                        TypeTypar.Name = TyparName.Written p.Name
-                    }
-            | TyparKind.Measure ->
-                order.Add(TyparSlot.Measure measures.Count)
-
-                measures.Add
-                    {
-                        MeasureTypar.Name = TyparName.Written p.Name
-                    }
-
-        {
-            Types = EqArray.ofSeq types
-            Measures = EqArray.ofSeq measures
-            Order = EqArray.ofSeq order
-        }
-
-    /// Type-kinded parameters under the written names.
-    let typeOnly (names: seq<string>) : TyparList =
-        ofSeq (seq { for n in names -> { Name = n; Kind = TyparKind.Type } })
-
-    /// `n` type-kinded parameters, positionally named.
-    let positional (n: int) : TyparList =
-        match n with
-        | 0 -> empty
-        | n ->
-            {
-                Types =
-                    EqArray.init
-                        n
-                        (fun i ->
-                            {
-                                TypeTypar.Name = TyparName.Positional i
-                            }
-                        )
-                Measures = EqArray.empty
-                Order = EqArray.init n TyparSlot.Type
-            }
+    /// Each parameter's display name, in source order.
+    member this.Names: EqArray<string> =
+        this.Order
+        |> EqArray.map (fun slot ->
+            match slot with
+            | TyparSlot.Type i -> this.Types.[i].Name.Display
+            | TyparSlot.Measure i -> this.Measures.[i].Name.Display
+        )
 
 /// A type parameter as a declaration binds it. `TyVar` is a prototype; every use site
 /// substitutes a fresh variable for it.
@@ -332,13 +404,127 @@ module DeclaredTypar =
 
     let names (typars: EqArray<DeclaredTypar>) : EqArray<string> = typars |> EqArray.map (fun t -> t.Name)
 
-[<RequireQualifiedAccess>]
-module TTypeParam =
+[<RequireQualifiedAccess; CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
+module TyparList =
 
-    let ofDeclared (ts: EqArray<DeclaredTypar>) : EqArray<TTypeParam> =
-        ts |> EqArray.map (fun t -> { Name = t.Name; Kind = t.Kind })
+    let empty<'ty> : TyparListG<'ty> =
+        {
+            Types = EqArray.empty
+            Measures = EqArray.empty
+            Order = EqArray.empty
+        }
 
-    let names (ps: EqArray<TTypeParam>) : EqArray<string> = ps |> EqArray.map (fun p -> p.Name)
+    /// Each parameter's kind, in source order.
+    let kinds (typars: TyparListG<'ty>) : EqArray<TyparKind> =
+        typars.Order |> EqArray.map (fun s -> s.Kind)
+
+    /// The display names of the type-kinded parameters, by `Types` index.
+    let typeNames (typars: TyparListG<'ty>) : EqArray<string> =
+        typars.Types |> EqArray.map (fun t -> t.Name.Display)
+
+    /// The list over `(name, kind)` pairs in source order, every type-kinded parameter
+    /// constrained by `constraintsAt` its source position.
+    let ofKinded (constraintsAt: int -> ConstraintSetG<'ty>) (typars: seq<string * TyparKind>) : TyparListG<'ty> =
+        let types = ResizeArray<TypeTyparG<'ty>>()
+        let measures = ResizeArray<MeasureTypar>()
+        let order = ResizeArray<TyparSlot>()
+
+        for (name, kind) in typars do
+            match kind with
+            | TyparKind.Type ->
+                order.Add(TyparSlot.Type types.Count)
+
+                types.Add
+                    {
+                        Name = TyparName.Written name
+                        Constraints = constraintsAt (order.Count - 1)
+                    }
+            | TyparKind.Measure ->
+                order.Add(TyparSlot.Measure measures.Count)
+
+                measures.Add
+                    {
+                        MeasureTypar.Name = TyparName.Written name
+                    }
+
+        {
+            Types = EqArray.ofSeq types
+            Measures = EqArray.ofSeq measures
+            Order = EqArray.ofSeq order
+        }
+
+    /// The list over written, unconstrained parameters in source order.
+    let ofSeq (typars: seq<string * TyparKind>) : TyparListG<'ty> =
+        ofKinded (fun _ -> ConstraintSet.empty) typars
+
+    /// The list over a declaration's typars, each type-kinded one constrained by
+    /// `constraintsOf` its declaration.
+    let ofDeclared
+        (constraintsOf: DeclaredTypar -> ConstraintSetG<'ty>)
+        (ts: EqArray<DeclaredTypar>)
+        : TyparListG<'ty> =
+        ofKinded (fun i -> constraintsOf ts.[i]) (seq { for t in ts -> t.Name, t.Kind })
+
+    /// The list over a declaration's typars, unconstrained.
+    let unconstrained (ts: EqArray<DeclaredTypar>) : TyparListG<'ty> =
+        ofDeclared (fun _ -> ConstraintSet.empty) ts
+
+    /// Type-kinded parameters under the written names, unconstrained.
+    let typeOnly (names: seq<string>) : TyparListG<'ty> =
+        ofSeq (seq { for n in names -> n, TyparKind.Type })
+
+    /// `n` type-kinded parameters, positionally named, each constrained by `constraintsAt`
+    /// its index.
+    let positionalWith (constraintsAt: int -> ConstraintSetG<'ty>) (n: int) : TyparListG<'ty> =
+        match n with
+        | 0 -> empty
+        | n ->
+            {
+                Types =
+                    EqArray.init
+                        n
+                        (fun i ->
+                            {
+                                Name = TyparName.Positional i
+                                Constraints = constraintsAt i
+                            }
+                        )
+                Measures = EqArray.empty
+                Order = EqArray.init n TyparSlot.Type
+            }
+
+    /// `n` type-kinded parameters, positionally named and unconstrained.
+    let positional (n: int) : TyparListG<'ty> =
+        positionalWith (fun _ -> ConstraintSet.empty) n
+
+    let map (f: 'a -> 'b) (typars: TyparListG<'a>) : TyparListG<'b> =
+        {
+            Types =
+                typars.Types
+                |> EqArray.map (fun t ->
+                    {
+                        Name = t.Name
+                        Constraints = ConstraintSet.map f t.Constraints
+                    }
+                )
+            Measures = typars.Measures
+            Order = typars.Order
+        }
+
+    /// Applies `f` to each type embedded in a constraint.
+    let iter (f: 'a -> unit) (typars: TyparListG<'a>) : unit =
+        for t in typars.Types do
+            ConstraintSet.iter f t.Constraints
+
+    /// Every `Coercion` supertype, paired with the `Types` index of the typar it constrains.
+    let coercions (typars: TyparListG<'ty>) : (int * 'ty) list =
+        [
+            for i in 0 .. typars.Types.Length - 1 do
+                for kind in typars.Types.[i].Constraints.Kinds do
+                    match TyparConstraintKind.tryCoercion kind with
+                    | ValueSome target -> i, target
+                    | ValueNone -> ()
+        ]
 
 /// A generalised binding's identity within its file, minted when the binding generalises
 /// and dense in generalisation order. Stable across re-generalisation of the same binding.

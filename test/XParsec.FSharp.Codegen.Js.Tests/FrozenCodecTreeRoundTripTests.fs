@@ -144,9 +144,8 @@ let tests =
             }
 
             // The corpus above declares ZERO generic members, so it never populates a member's
-            // `MethodTypeParams`. This case forces a non-empty carrier: it must be stored as
-            // `(name, FTTypar(Member _, i))` and round-trip as plain data.
-            test "a generic member's MethodTypeParams is stored on the frozen tree as FTTypar and round-trips" {
+            // `MethodTypars`. This case forces a non-empty list, which round-trips as plain data.
+            test "a generic member's MethodTypars is stored on the frozen tree and round-trips" {
                 let f = frozenOfJs "type C() =\n    member this.Id<'T> (x: 'T) : 'T = x\n"
 
                 let cKey, idMember =
@@ -177,9 +176,9 @@ let tests =
                     "Id's key survives the round trip"
 
                 Expect.equal
-                    (EqArray.toList idMember.MethodTypeParams)
-                    [ "'T", FTTypar(TyparScope.Member cKey, 0) ]
-                    "member's own typar is stored as (name, FTTypar(Member C, 0))"
+                    (EqArray.toList idMember.MethodTypars.Names)
+                    [ "'T" ]
+                    "member's own typar is stored by name"
 
                 Expect.isTrue (survivesRoundTrip f) "generic-member file survived flatten/thaw structurally"
             }

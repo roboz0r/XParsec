@@ -188,11 +188,9 @@ type TTypeMemberG<'ty, 'id, 'body> =
         Body: 'body
         ReturnTy: 'ty
         /// The member's *own* generic parameters (`member this.Map<'C> …`), distinct from
-        /// the declaring type's `TypeParams`. Each entry pairs the source name with the
-        /// typar's own type.
-        MethodTypeParams: EqArray<string * 'ty>
-        /// The constraints on `MethodTypeParams`, declared or inferred, indexed into it.
-        MethodTyparConstraints: EqSet<TyparConstraintG<'ty>>
+        /// the declaring type's `TypeParams`, each with its declared or inferred constraints.
+        /// Within the member's types they are `TyTypar(Member owner, i)`.
+        MethodTypars: TyparListG<'ty>
         /// The member's attributes, resolved and constant-folded.
         Attributes: TAttributes
     }
@@ -298,15 +296,14 @@ type TBaseG<'ty, 'id, 'body> =
         Ctor: TBaseCtorCallG<'ty, 'id, 'body> voption
     }
 
-/// `Signature` is the curried function type. `MethodTypeParams` holds the method's own generic
-/// parameters as written, in source order (`["'C"]` for `abstract Map<'C> : 'A -> 'C`); within
-/// `Signature` they are `TyTypar(Member owner, i)` and the declaring type's `TyTypar(Type owner, i)`.
+/// `Signature` is the curried function type. `MethodTypars` holds the method's own generic
+/// parameters as written, in source order (`'C` for `abstract Map<'C> : 'A -> 'C`), each with
+/// its constraints; within `Signature` they are `TyTypar(Member owner, i)` and the declaring
+/// type's `TyTypar(Type owner, i)`.
 type TAbstractMethodG<'ty> =
     {
         Name: string
-        MethodTypeParams: EqArray<string>
-        /// The constraints on `MethodTypeParams`, indexed into it.
-        MethodTyparConstraints: EqSet<TyparConstraintG<'ty>>
+        MethodTypars: TyparListG<'ty>
         Signature: 'ty
         /// The argument names the signature spells, one per source argument across every
         /// curried group in source order; `ValueNone` for an argument written as a bare type.
@@ -378,11 +375,9 @@ type TTypeDeclG<'ty, 'tok, 'id, 'body> =
         /// The type's stable nominal identity, carried into the backend so the emitted-type
         /// tables key off it instead of re-deriving a string.
         TypeKey: TypeKey
-        /// Declared type parameters in source order.
-        TypeParams: EqArray<TTypeParam>
-        /// The constraints on `TypeParams`, declared or inferred from a member body, indexed
-        /// into it.
-        TyparConstraints: EqSet<TyparConstraintG<'ty>>
+        /// Declared type parameters in source order, each with its constraints, declared or
+        /// inferred from a member body.
+        TypeParams: TyparListG<'ty>
         Kind: TTypeKindG<'ty, 'tok, 'id, 'body>
         /// The declaration's attributes, resolved and constant-folded. The equality /
         /// comparison / qualified-access verdicts are views over this list.

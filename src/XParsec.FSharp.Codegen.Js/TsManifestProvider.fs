@@ -60,7 +60,7 @@ module TsManifestProvider =
                 List.foldBack (fun a acc -> FTFun(a, acc)) paramTypes (toFrozen ctx sg.Returns)
 
             let sym =
-                ExternalSymbols.scheme decl name frozenTy sg.TypeParams []
+                ExternalSymbols.scheme decl name frozenTy (FunctionScheme.unconstrained sg.TypeParams)
                 |> stampValueSymbol origin import
 
             Some sym

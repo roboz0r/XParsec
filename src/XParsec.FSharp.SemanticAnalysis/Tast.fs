@@ -79,7 +79,7 @@ type TastFileG<'ty, 'tok, 'id when 'id: comparison> =
         FunVerdicts: Map<LambdaKey, FunVerdict>
         /// A project-local generalised binding's bound variable → its typar scheme. A
         /// binding absent here quantifies nothing.
-        GenericFnSchemes: Map<BoundVarKeyG<'id>, GenericFnScheme>
+        FunctionSchemes: Map<BoundVarKeyG<'id>, FunctionScheme>
         /// Every generalised body-local `let` of the file → the declaration whose body
         /// declares it. A module-level `let` has no entry.
         LocalOwners: Map<LocalBindingId, LocalOwner>

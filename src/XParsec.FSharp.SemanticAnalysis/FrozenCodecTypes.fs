@@ -367,12 +367,9 @@ module FrozenCodecTypes =
             ResultTyparPos = resultTyparPos
         }
 
-    /// A frozen typar constraint: the typar index, a kind tag, then each embedded type through
-    /// `writeTypeRef`.
-    let writeFrozenConstraint (w: FrozenWriter) (c: FrozenConstraint) =
-        w.Write c.TyparIndex
-
-        match c.Kind with
+    /// A typar constraint kind: a tag, then each embedded type through `writeTypeRef`.
+    let writeConstraintKind (w: FrozenWriter) (kind: TyparConstraintKindG<FrozenType>) =
+        match kind with
         | TyparConstraintKindG.Coercion target ->
             w.Write 0uy
             writeTypeRef w target
@@ -392,37 +389,119 @@ module FrozenCodecTypes =
             writeTypeRef w args
             writeTypeRef w ret
 
-    let readFrozenConstraint (r: FrozenReader) : FrozenConstraint =
-        let typarIndex = r.ReadInt32()
+    let readConstraintKind (r: FrozenReader) : TyparConstraintKindG<FrozenType> =
+        match r.ReadByte() with
+        | 0uy -> TyparConstraintKindG.Coercion(readTypeRef r)
+        | 1uy -> TyparConstraintKindG.Equality
+        | 2uy -> TyparConstraintKindG.Comparison
+        | 3uy -> TyparConstraintKindG.Struct
+        | 4uy -> TyparConstraintKindG.ReferenceType
+        | 5uy -> TyparConstraintKindG.Nullness
+        | 6uy -> TyparConstraintKindG.NotNull
+        | 7uy -> TyparConstraintKindG.DefaultConstructor
+        | 8uy -> TyparConstraintKindG.Unmanaged
+        | 9uy -> TyparConstraintKindG.Enum(readTypeRef r)
+        | 10uy ->
+            let args = readTypeRef r
+            let ret = readTypeRef r
+            TyparConstraintKindG.Delegate(args, ret)
+        | b -> failwithf "FrozenCodec: unknown TyparConstraintKind tag %d" b
 
-        let kind =
-            match r.ReadByte() with
-            | 0uy -> TyparConstraintKindG.Coercion(readTypeRef r)
-            | 1uy -> TyparConstraintKindG.Equality
-            | 2uy -> TyparConstraintKindG.Comparison
-            | 3uy -> TyparConstraintKindG.Struct
-            | 4uy -> TyparConstraintKindG.ReferenceType
-            | 5uy -> TyparConstraintKindG.Nullness
-            | 6uy -> TyparConstraintKindG.NotNull
-            | 7uy -> TyparConstraintKindG.DefaultConstructor
-            | 8uy -> TyparConstraintKindG.Unmanaged
-            | 9uy -> TyparConstraintKindG.Enum(readTypeRef r)
-            | 10uy ->
-                let args = readTypeRef r
-                let ret = readTypeRef r
-                TyparConstraintKindG.Delegate(args, ret)
-            | b -> failwithf "FrozenCodec: unknown FrozenConstraint tag %d" b
+    let writeTyparName (w: FrozenWriter) (name: TyparName) =
+        match name with
+        | TyparName.Written s ->
+            w.Write 0uy
+            w.Write s
+        | TyparName.Positional i ->
+            w.Write 1uy
+            w.Write i
 
-        { TyparIndex = typarIndex; Kind = kind }
+    let readTyparName (r: FrozenReader) : TyparName =
+        match r.ReadByte() with
+        | 0uy -> TyparName.Written(r.ReadString())
+        | 1uy -> TyparName.Positional(r.ReadInt32())
+        | b -> failwithf "FrozenCodec: unknown TyparName tag %d" b
 
-    /// A binding's scheme: the arity, then its constraints.
-    let writeGenericFnScheme (w: FrozenWriter) (s: GenericFnScheme) =
-        w.Write s.TyparArity
-        writeEqSetWith w writeFrozenConstraint s.Constraints
+    let private writeTypeTypar (w: FrozenWriter) (t: TypeTypar) =
+        writeTyparName w t.Name
+        writeEqSetWith w writeConstraintKind t.Constraints.Kinds
+        writeEqArrayWith w writeTypeRef t.Constraints.Defaults
 
-    let readGenericFnScheme (r: FrozenReader) : GenericFnScheme =
-        let arity = r.ReadInt32()
-        GenericFnScheme.create arity (readEqSetWith r readFrozenConstraint)
+    let private readTypeTypar (r: FrozenReader) : TypeTypar =
+        let name = readTyparName r
+        let constraints = readEqSetWith r readConstraintKind
+        let defaults = readEqArrayWith r readTypeRef
+
+        {
+            Name = name
+            Constraints =
+                {
+                    Kinds = constraints
+                    Defaults = defaults
+                }
+        }
+
+    let private writeTyparSlot (w: FrozenWriter) (slot: TyparSlot) =
+        match slot with
+        | TyparSlot.Type i ->
+            w.Write 0uy
+            w.Write i
+        | TyparSlot.Measure i ->
+            w.Write 1uy
+            w.Write i
+
+    let private readTyparSlot (r: FrozenReader) : TyparSlot =
+        match r.ReadByte() with
+        | 0uy -> TyparSlot.Type(r.ReadInt32())
+        | 1uy -> TyparSlot.Measure(r.ReadInt32())
+        | b -> failwithf "FrozenCodec: unknown TyparSlot tag %d" b
+
+    /// A typar list: the type-kinded parameters with their constraints, the measure-kinded
+    /// ones, then the source order.
+    let writeTyparList (w: FrozenWriter) (typars: TyparList) =
+        writeEqArrayWith w writeTypeTypar typars.Types
+        writeEqArrayWith w (fun w (m: MeasureTypar) -> writeTyparName w m.Name) typars.Measures
+        writeEqArrayWith w writeTyparSlot typars.Order
+
+    let readTyparList (r: FrozenReader) : TyparList =
+        let types = readEqArrayWith r readTypeTypar
+        let measures = readEqArrayWith r (fun r -> { MeasureTypar.Name = readTyparName r })
+        let order = readEqArrayWith r readTyparSlot
+
+        {
+            Types = types
+            Measures = measures
+            Order = order
+        }
+
+    let private writeMemberTrait (w: FrozenWriter) (t: MemberTrait) =
+        writeEqArrayWith w (fun w (i: int) -> w.Write i) t.TyparIndices
+        w.Write t.MemberName
+        writeEqArrayWith w writeTypeRef t.ArgTypes
+        writeTypeRef w t.ReturnType
+
+    let private readMemberTrait (r: FrozenReader) : MemberTrait =
+        let indices = readEqArrayWith r (fun r -> r.ReadInt32())
+        let name = r.ReadString()
+        let args = readEqArrayWith r readTypeRef
+        let ret = readTypeRef r
+
+        {
+            TyparIndices = indices
+            MemberName = name
+            ArgTypes = args
+            ReturnType = ret
+        }
+
+    /// A function scheme: its typars, then its traits.
+    let writeFunctionScheme (w: FrozenWriter) (s: FunctionScheme) =
+        writeTyparList w s.Typars
+        writeEqArrayWith w writeMemberTrait s.Traits
+
+    let readFunctionScheme (r: FrozenReader) : FunctionScheme =
+        let typars = readTyparList r
+        let traits = readEqArrayWith r readMemberTrait
+        FunctionScheme.create typars traits
 
     let writeLocalBindingId (w: FrozenWriter) (LocalBindingId i) = w.Write i
 
@@ -513,20 +592,6 @@ module FrozenCodecTypes =
     let writeParamAttrs (w: FrozenWriter) (a: ParamAttrs) = w.Write a.CallAtMostOnce
 
     let readParamAttrs (r: FrozenReader) : ParamAttrs = { CallAtMostOnce = r.ReadBoolean() }
-
-    /// A member's own method typars: each entry is the source name plus the typar's frozen
-    /// type (`FTTypar(Member _, i)`), and its POSITION is the ABI index.
-    let writeMethodTypeParams (w: FrozenWriter) (mtps: EqArray<string * FrozenType>) =
-        writeEqArrayWith
-            w
-            (fun w (n: string, ty) ->
-                w.Write n
-                writeTypeRef w ty
-            )
-            mtps
-
-    let readMethodTypeParams (r: FrozenReader) : EqArray<string * FrozenType> =
-        EqArray.ofArray (readArrayWith r (fun r -> let n = r.ReadString() in n, readTypeRef r))
 
     // ── the printf hole-form cluster (a `HoleSpec` payload) ─────────────────
 
@@ -751,8 +816,7 @@ module FrozenCodecTypes =
 
     let writeAbstractMethod (w: FrozenWriter) (m: Frozen.TAbstractMethod) =
         w.Write m.Name
-        writeStringArray w m.MethodTypeParams
-        writeEqSetWith w writeFrozenConstraint m.MethodTyparConstraints
+        writeTyparList w m.MethodTypars
         writeTypeRef w m.Signature
         writeEqArrayWith w writeStringVOption m.ParamNames
         writeTMemberKind w m.Kind
@@ -760,8 +824,7 @@ module FrozenCodecTypes =
 
     let readAbstractMethod (r: FrozenReader) : Frozen.TAbstractMethod =
         let name = r.ReadString()
-        let methodTypeParams = readStringArray r
-        let methodTyparConstraints = readEqSetWith r readFrozenConstraint
+        let methodTypars = readTyparList r
         let signature = readTypeRef r
         let paramNames = readEqArrayWith r readStringVOption
         let kind = readTMemberKind r
@@ -769,8 +832,7 @@ module FrozenCodecTypes =
 
         {
             Name = name
-            MethodTypeParams = methodTypeParams
-            MethodTyparConstraints = methodTyparConstraints
+            MethodTypars = methodTypars
             Signature = signature
             ParamNames = paramNames
             Kind = kind

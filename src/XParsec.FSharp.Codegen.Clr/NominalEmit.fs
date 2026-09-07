@@ -35,7 +35,7 @@ module internal NominalEmit =
         (members: TastAccessor.TypeMember list)
         : unit =
         let icodegen = asm.Icodegen
-        let isGeneric = not td.TypeParams.IsEmpty
+        let isGeneric = td.TypeParams.HasTypeTypars
         let typarMarkers = typarMarkersOf td
 
         // Every member's handle is its layout row, resolvable before any body
@@ -56,7 +56,7 @@ module internal NominalEmit =
                     MetaName = memberMetaName mem.Name mem.Kind
                     ParamTys = [ for (_, t) in mem.Params -> t ]
                     RetTy = mem.ReturnTy
-                    MethodTyparCount = mem.MethodTypeParams.Length
+                    MethodTyparCount = mem.MethodTypars.TypeArity
                 }
 
             let prior =
@@ -74,7 +74,7 @@ module internal NominalEmit =
             asm.Records.[td.TypeKey] <-
                 {
                     Name = td.Name
-                    Typars = EqArray.toList (TTypeParam.names td.TypeParams)
+                    Typars = EqArray.toList (TyparList.typeNames td.TypeParams)
                     Fields =
                         [
                             for f in rd.Fields ->
@@ -148,7 +148,7 @@ module internal NominalEmit =
             asm.Classes.[td.TypeKey] <-
                 {
                     Name = td.Name
-                    Typars = EqArray.toList (TTypeParam.names td.TypeParams)
+                    Typars = EqArray.toList (TyparList.typeNames td.TypeParams)
                     Fields =
                         [
                             for p in ctorParams ->
@@ -365,7 +365,7 @@ module internal NominalEmit =
         (classCtor: EntityHandle)
         : unit =
         let icodegen = asm.Icodegen
-        let isGeneric = not td.TypeParams.IsEmpty
+        let isGeneric = td.TypeParams.HasTypeTypars
         let typarMarkers = typarMarkersOf td
         let instanceFields = cd.Fields
         let ctorParams = cd.CtorParams
@@ -533,8 +533,8 @@ module internal NominalEmit =
 
         // `(name, ty)[]` in ABI order — position IS the typar index. Feeds the
         // `GENERIC` header arity and the `GenericParam` rows.
-        let methodTypars = mem.MethodTypeParams
-        let isGenericMethod = methodTypars.Length > 0
+        let methodTypars = mem.MethodTypars
+        let isGenericMethod = methodTypars.HasTypeTypars
 
         // A `unit`-returning member, static or instance, encodes as genuine CLR
         // `void`. Emitting the `unit`-as-`ValueTuple` return instead breaks
@@ -564,13 +564,18 @@ module internal NominalEmit =
         let signature =
             try
                 if returnsVoid && isGenericMethod then
-                    provider.GenericMethodOnTypeSignatureVoid(methodTypars.Length, paramTys, not mem.IsStatic)
+                    provider.GenericMethodOnTypeSignatureVoid(methodTypars.TypeArity, paramTys, not mem.IsStatic)
                 elif returnsVoid && mem.IsStatic then
                     provider.StaticMethodSignatureVoid paramTys
                 elif returnsVoid then
                     provider.InstanceMethodSignatureVoid paramTys
                 elif isGenericMethod then
-                    provider.GenericMethodOnTypeSignature(methodTypars.Length, paramTys, mem.ReturnTy, not mem.IsStatic)
+                    provider.GenericMethodOnTypeSignature(
+                        methodTypars.TypeArity,
+                        paramTys,
+                        mem.ReturnTy,
+                        not mem.IsStatic
+                    )
                 elif mem.IsStatic then
                     provider.StaticMethodSignature(paramTys, mem.ReturnTy)
                 else
@@ -587,7 +592,7 @@ module internal NominalEmit =
                 Signature = signature
                 Body = memberBody
                 ParamNames = paramNames emitCtx.Pool (mem.Params |> Seq.map (fst >> BoundVarKey.identity))
-                MethodTypars = GenericParamRow.ofTypars (Seq.map fst methodTypars) mem.MethodTyparConstraints
+                MethodTypars = GenericParamRow.ofTypars methodTypars
             }
         )
 

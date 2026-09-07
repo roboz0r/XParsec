@@ -157,7 +157,9 @@ let tests =
                         match (TastUnpool.ofPools frozen).Decls with
                         | EqList [ TDeclG.Type td ] ->
                             Expect.equal
-                                [ for p in td.TypeParams -> p.Name, p.Kind ]
+                                (List.zip
+                                    (EqArray.toList td.TypeParams.Names)
+                                    (EqArray.toList (TyparList.kinds td.TypeParams)))
                                 [ "'u", TyparKind.Measure; "'a", TyparKind.Type ]
                                 "the frozen declaration carries the kinds"
                         | other -> failtestf "expected a single type declaration, got %A" other
@@ -172,13 +174,7 @@ let tests =
 
                         Expect.equal
                             (SignatureResolutionTests.shapeOf r "carrier`1").Typars
-                            (TyparList.ofSeq
-                                [
-                                    {
-                                        TTypeParam.Name = "'u"
-                                        Kind = TyparKind.Measure
-                                    }
-                                ])
+                            (TyparList.ofSeq [ "'u", TyparKind.Measure ])
                             "an extern primitive carries its declared kinds"
                     }
 
@@ -190,13 +186,7 @@ let tests =
 
                         Expect.equal
                             (SignatureResolutionTests.shapeOf r "Carrier`1").Typars
-                            (TyparList.ofSeq
-                                [
-                                    {
-                                        TTypeParam.Name = "'u"
-                                        Kind = TyparKind.Measure
-                                    }
-                                ])
+                            (TyparList.ofSeq [ "'u", TyparKind.Measure ])
                             "an opaque type carries its declared kinds"
                     }
                 ]

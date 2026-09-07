@@ -108,21 +108,15 @@ module TastLower =
         : FrozenType list =
         strict (sprintf "%A" scope) (matchTyparsPartial (fun s -> s = scope) typarCount defTys actualTys)
 
-    /// Fill `instArr`'s remaining holes from the CONSTRAINTS: for a `Coercion(ci, target)`
-    /// whose `ci` is already solved, `tryWitness` reads that type's actual impl of
+    /// Fill `instArr`'s remaining holes from the CONSTRAINTS: for a `Coercion target` on the
+    /// typar at `ci`, already solved, `tryWitness` reads that type's actual impl of
     /// `target`'s interface, and `target`'s typars are recovered from the witness.
     let solvePhantomTypars
-        (constraints: EqSet<FrozenConstraint>)
+        (typars: TyparList)
         (tryWitness: FrozenType -> TypeKey -> EqArray<FrozenType> voption)
         (instArr: FrozenType voption[])
         : unit =
-        let coercions =
-            [
-                for c in constraints do
-                    match TyparConstraint.tryCoercion c with
-                    | ValueSome ct -> ct
-                    | ValueNone -> ()
-            ]
+        let coercions = TyparList.coercions typars
 
         if not (List.isEmpty coercions) then
             // A witness OVERRIDES an already-recovered value at these indices: a typar in

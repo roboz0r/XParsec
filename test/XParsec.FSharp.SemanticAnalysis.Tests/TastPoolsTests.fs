@@ -143,7 +143,7 @@ let private checkIdResolution (pools: FrozenPools) (frozen: Pooled.TastFile) =
     checkTable "ModuleMembers" id pools.ModuleMembers (boundVarSource frozen.ModuleMembers)
     checkTable "ClosureReprs" id pools.ClosureReprs (boundVarSource frozen.ClosureReprs)
     checkTable "FunVerdicts" (pooledLambdaKey pools) pools.FunVerdicts (keysOf frozen.FunVerdicts)
-    checkTable "GenericFnSchemes" id pools.GenericFnSchemes (boundVarSource frozen.GenericFnSchemes)
+    checkTable "FunctionSchemes" id pools.FunctionSchemes (boundVarSource frozen.FunctionSchemes)
     checkTable "LocalOwners" id pools.LocalOwners (keysOf frozen.LocalOwners)
     checkTable "LocalSchemes" id pools.LocalSchemes (boundVarSource frozen.LocalSchemes)
 
@@ -668,7 +668,7 @@ let private lastBindingDropped () =
                 Decls = EqArray.ofArray (Array.removeAt index decls)
                 ModuleMembers = Map.remove boundVar frozen.ModuleMembers
                 ClosureReprs = Map.remove boundVar frozen.ClosureReprs
-                GenericFnSchemes = Map.remove boundVar frozen.GenericFnSchemes
+                FunctionSchemes = Map.remove boundVar frozen.FunctionSchemes
             }
     |}
 
@@ -699,21 +699,18 @@ let staleSideTableEntryTests =
             }
 
             // The SAME dropped bound variable in a different table.
-            test "a retained GenericFnSchemes entry is dropped" {
+            test "a retained FunctionSchemes entry is dropped" {
                 let dropped = lastBindingDropped ()
 
                 let injected =
                     { dropped.Pruned with
-                        GenericFnSchemes =
-                            Map.add
-                                dropped.BoundVar
-                                (GenericFnScheme.create 1 EqSet.empty)
-                                dropped.Pruned.GenericFnSchemes
+                        FunctionSchemes =
+                            Map.add dropped.BoundVar (FunctionScheme.unconstrained 1) dropped.Pruned.FunctionSchemes
                     }
 
                 Expect.equal
-                    (dropped.RePool injected).GenericFnSchemes.Length
-                    (dropped.RePool dropped.Pruned).GenericFnSchemes.Length
+                    (dropped.RePool injected).FunctionSchemes.Length
+                    (dropped.RePool dropped.Pruned).FunctionSchemes.Length
                     "the stale entry adds no row"
             }
 

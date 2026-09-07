@@ -61,30 +61,24 @@ type internal GenericParamRow =
 
 module internal GenericParamRow =
 
-    /// The rows of an owner's typars in `TyparIndex` order. The metadata name drops a
-    /// leading quote (`'T` → `T`).
-    let ofTypars (names: string seq) (constraints: EqSet<FrozenConstraint>) : GenericParamRow list =
-        let names = Array.ofSeq names
-        let attrs = Array.create names.Length GenericParameterAttributes.None
+    /// The metadata name of a typar: its display name without the leading quote (`'T` →
+    /// `T`, `'T0` → `T0`).
+    let private metadataName (name: TyparName) : string = name.Display.TrimStart('\'', '^')
 
-        for c in constraints do
-            attrs.[c.TyparIndex] <- attrs.[c.TyparIndex] ||| CliConstraintEncoding.flags c.Kind
-
+    /// The rows of an owner's type-kinded typars, in `Types` order.
+    let ofTypars (typars: TyparList) : GenericParamRow list =
         [
-            for i in 0 .. names.Length - 1 ->
+            for t in typars.Types ->
                 {
-                    Name = names.[i].TrimStart('\'')
-                    Attrs = attrs.[i]
+                    Name = metadataName t.Name
+                    Attrs =
+                        (GenericParameterAttributes.None, t.Constraints.Kinds)
+                        ||> EqSet.fold (fun attrs kind -> attrs ||| CliConstraintEncoding.flags kind)
                 }
         ]
 
-    /// The positional typar names `T0 .. T(count-1)` of a synthesised owner, such as a
-    /// closure class or a module function.
-    let positionalNames (count: int) : string seq = Seq.init count (sprintf "T%d")
-
-    /// The rows of a module function's scheme, under positional names.
-    let ofScheme (scheme: GenericFnScheme) : GenericParamRow list =
-        ofTypars (positionalNames scheme.TyparArity) scheme.Constraints
+    /// The rows of a module function's scheme.
+    let ofScheme (scheme: FunctionScheme) : GenericParamRow list = ofTypars scheme.Typars
 
 /// A `GenericParam` row bound to its owner, a `TypeDefinition` or `MethodDefinition`.
 type internal GenericParamEntry =

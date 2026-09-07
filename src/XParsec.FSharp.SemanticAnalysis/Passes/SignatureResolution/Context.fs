@@ -198,15 +198,65 @@ module SignatureResolutionContext =
 
     // --- `when` clauses --------------------------------------------------------------
 
-    /// The published form of a signature's `when` clauses, over its own typars by INDEX. An
-    /// entry referencing a typar the signature does not declare is dropped: a consumer
-    /// instantiates by index and has nothing to attach it to.
-    let publishedConstraints
+    /// The trait a `when (^T or ^U) : (static member M : …)` clause declares, over the typar
+    /// indices `indexOf` assigns and the frozen types `target` builds. `ValueNone` for a member
+    /// with no compiled name, or a support set naming no declared typar.
+    let private memberTraitOf
+        (ctx: PassContext)
+        (indexOf: Typar<SyntaxToken> -> int voption)
+        (target: Type<SyntaxToken> -> FrozenType)
+        sts
+        (ms: MemberSig<SyntaxToken>)
+        : MemberTrait voption =
+        let indices =
+            EqArray.ofList
+                [
+                    match sts with
+                    | StaticTypars.Single t ->
+                        match indexOf t with
+                        | ValueSome i -> yield i
+                        | ValueNone -> ()
+                    | StaticTypars.OrList(typars = ts) ->
+                        for t in ts do
+                            match indexOf t with
+                            | ValueSome i -> yield i
+                            | ValueNone -> ()
+                ]
+
+        let ident, CurriedSig(args = argGroups; returnType = retTy) =
+            match ms with
+            | MemberSig.MethodOrPropSig(ident = i; sign = s)
+            | MemberSig.PropSig(ident = i; sign = s) -> i, s
+
+        match OperatorNames.ofDeclaredName ctx.NameOf ident with
+        | ValueSome memberName when not indices.IsEmpty ->
+            // A trait signature is tupled by convention (`^T * ^T -> ^T`), parsing as one
+            // group of N args; flatten it to the arg list.
+            let argFts =
+                EqArray.ofList
+                    [
+                        for struct (ArgsSpec.ArgsSpec(args = specs), _) in argGroups do
+                            for ArgSpec(typ = t) in specs -> target t
+                    ]
+
+            ValueSome
+                {
+                    TyparIndices = indices
+                    MemberName = memberName
+                    ArgTypes = argFts
+                    ReturnType = target retTy
+                }
+        | _ -> ValueNone
+
+    /// The published scheme of a signature over its own typars: each typar's `when` clauses
+    /// by INDEX, and the member traits. A clause referencing a typar the signature does not
+    /// declare is dropped.
+    let publishedScheme
         (ctx: PassContext)
         (env: (TyVarId * SemType) list)
         (typeParams: EqArray<DeclaredTypar>)
         (clauses: TyparConstraints<SyntaxToken> list)
-        : ExternalConstraint list =
+        : FunctionScheme =
         let indexOf (t: Typar<SyntaxToken>) : int voption =
             match typarName ctx t with
             | ValueNone -> ValueNone
@@ -215,66 +265,51 @@ module SignatureResolutionContext =
         let target (t: Type<SyntaxToken>) : FrozenType =
             freezeOver ctx env (translateType ctx t)
 
+        let constraints =
+            Array.init typeParams.Length (fun _ -> ResizeArray<TyparConstraintKindG<FrozenType>>())
+
+        let defaults = Array.init typeParams.Length (fun _ -> ResizeArray<FrozenType>())
+        let traits = ResizeArray<MemberTrait>()
+
         let constraintOn (t: Typar<SyntaxToken>) (kind: TyparConstraintKindG<FrozenType>) =
             match indexOf t with
-            | ValueSome i -> [ ExternalConstraint.Encodable { TyparIndex = i; Kind = kind } ]
-            | ValueNone -> []
+            | ValueSome i -> constraints.[i].Add kind
+            | ValueNone -> ()
 
-        [
-            for clause in clauses do
-                for c in clause.Constraints do
-                    match c with
-                    | Constraint.Equality(typar = t) -> yield! constraintOn t TyparConstraintKindG.Equality
-                    | Constraint.Comparison(typar = t) -> yield! constraintOn t TyparConstraintKindG.Comparison
-                    | Constraint.Struct(typar = t) -> yield! constraintOn t TyparConstraintKindG.Struct
-                    | Constraint.ReferenceType(typar = t) -> yield! constraintOn t TyparConstraintKindG.ReferenceType
-                    | Constraint.Nullness(typar = t) -> yield! constraintOn t TyparConstraintKindG.Nullness
-                    | Constraint.NotNull(typar = t) -> yield! constraintOn t TyparConstraintKindG.NotNull
-                    | Constraint.Coercion(typar = t; typ = tgt) ->
-                        yield! constraintOn t (TyparConstraintKindG.Coercion(target tgt))
-                    | Constraint.DefaultConstructor(typar = t) ->
-                        yield! constraintOn t TyparConstraintKindG.DefaultConstructor
-                    | Constraint.Unmanaged(typar = t) -> yield! constraintOn t TyparConstraintKindG.Unmanaged
-                    | Constraint.Enum(typar = t; typ = underlying) ->
-                        yield! constraintOn t (TyparConstraintKindG.Enum(target underlying))
-                    | Constraint.Delegate(typar = t; type1 = args; type2 = ret) ->
-                        yield! constraintOn t (TyparConstraintKindG.Delegate(target args, target ret))
-                    | Constraint.Default(typar = t; typ = tgt) ->
-                        match indexOf t with
-                        | ValueSome i -> yield ExternalConstraint.Default(i, target tgt)
-                        | ValueNone -> ()
-                    | Constraint.MemberTrait(staticTypars = sts; membersign = ms) ->
-                        let indices =
-                            EqArray.ofList
-                                [
-                                    match sts with
-                                    | StaticTypars.Single t ->
-                                        match indexOf t with
-                                        | ValueSome i -> yield i
-                                        | ValueNone -> ()
-                                    | StaticTypars.OrList(typars = ts) ->
-                                        for t in ts do
-                                            match indexOf t with
-                                            | ValueSome i -> yield i
-                                            | ValueNone -> ()
-                                ]
+        for clause in clauses do
+            for c in clause.Constraints do
+                match c with
+                | Constraint.Equality(typar = t) -> constraintOn t TyparConstraintKindG.Equality
+                | Constraint.Comparison(typar = t) -> constraintOn t TyparConstraintKindG.Comparison
+                | Constraint.Struct(typar = t) -> constraintOn t TyparConstraintKindG.Struct
+                | Constraint.ReferenceType(typar = t) -> constraintOn t TyparConstraintKindG.ReferenceType
+                | Constraint.Nullness(typar = t) -> constraintOn t TyparConstraintKindG.Nullness
+                | Constraint.NotNull(typar = t) -> constraintOn t TyparConstraintKindG.NotNull
+                | Constraint.Coercion(typar = t; typ = tgt) ->
+                    constraintOn t (TyparConstraintKindG.Coercion(target tgt))
+                | Constraint.DefaultConstructor(typar = t) -> constraintOn t TyparConstraintKindG.DefaultConstructor
+                | Constraint.Unmanaged(typar = t) -> constraintOn t TyparConstraintKindG.Unmanaged
+                | Constraint.Enum(typar = t; typ = underlying) ->
+                    constraintOn t (TyparConstraintKindG.Enum(target underlying))
+                | Constraint.Delegate(typar = t; type1 = args; type2 = ret) ->
+                    constraintOn t (TyparConstraintKindG.Delegate(target args, target ret))
+                | Constraint.Default(typar = t; typ = tgt) ->
+                    match indexOf t with
+                    | ValueSome i -> defaults.[i].Add(target tgt)
+                    | ValueNone -> ()
+                | Constraint.MemberTrait(staticTypars = sts; membersign = ms) ->
+                    match memberTraitOf ctx indexOf target sts ms with
+                    | ValueSome trait_ -> traits.Add trait_
+                    | ValueNone -> ()
 
-                        let ident, CurriedSig(args = argGroups; returnType = retTy) =
-                            match ms with
-                            | MemberSig.MethodOrPropSig(ident = i; sign = s)
-                            | MemberSig.PropSig(ident = i; sign = s) -> i, s
+        let typars =
+            TyparList.ofKinded
+                (fun i ->
+                    {
+                        Kinds = EqSet.ofSeq constraints.[i]
+                        Defaults = EqArray.ofSeq defaults.[i]
+                    }
+                )
+                (seq { for tp in typeParams -> tp.Name, tp.Kind })
 
-                        match OperatorNames.ofDeclaredName ctx.NameOf ident with
-                        | ValueSome memberName when not indices.IsEmpty ->
-                            // A trait signature is tupled by convention (`^T * ^T -> ^T`),
-                            // parsing as one group of N args; flatten it to the arg list.
-                            let argFts =
-                                EqArray.ofList
-                                    [
-                                        for struct (ArgsSpec.ArgsSpec(args = specs), _) in argGroups do
-                                            for ArgSpec(typ = t) in specs -> target t
-                                    ]
-
-                            yield ExternalConstraint.MemberTrait(indices, memberName, argFts, target retTy)
-                        | _ -> ()
-        ]
+        FunctionScheme.create typars (EqArray.ofSeq traits)

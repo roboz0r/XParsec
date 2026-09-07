@@ -303,17 +303,17 @@ module EmitClosures =
         | t -> FrozenType.forallChildren ftNoUnknown t
 
     /// A binding absent from the front-end scheme table quantifies nothing.
-    let private schemeOf (genericFnSchemes: Map<BoundVarId, GenericFnScheme>) (k: BoundVarId) : GenericFnScheme =
-        match Map.tryFind k genericFnSchemes with
+    let private schemeOf (functionSchemes: Map<BoundVarId, FunctionScheme>) (k: BoundVarId) : FunctionScheme =
+        match Map.tryFind k functionSchemes with
         | Some s -> s
-        | None -> GenericFnScheme.monomorphic
+        | None -> FunctionScheme.monomorphic
 
     /// The GENERIC module-level values (`let empty : SetTree<'T> = …`). A module class has no
     /// type parameter to type a `SetTree<'T>` field, so each lowers to a zero-arg generic
     /// static method, an ordinary 0-param `StaticFn`. A reference `call`s its `MethodSpec`.
     let collectGenericModuleValues
         (emissions: Dictionary<BoundVarId, Emission>)
-        (genericFnSchemes: Map<BoundVarId, GenericFnScheme>)
+        (functionSchemes: Map<BoundVarId, FunctionScheme>)
         (decls: TastAccessor.DeclId list)
         : StaticFn list =
         // Open but encodable, and not itself a function type: a non-lambda
@@ -345,7 +345,7 @@ module EmitClosures =
                         Body = value
                         ResultTy = ty
                         ReturnsVoid = false
-                        Scheme = schemeOf genericFnSchemes k
+                        Scheme = schemeOf functionSchemes k
                     }
             )
 
@@ -457,7 +457,7 @@ module EmitClosures =
     /// capture-demoted, or newly turned into a lambda by the escape bridging.
     let collectStaticFns
         (emissions: Dictionary<BoundVarId, Emission>)
-        (genericFnSchemes: Map<BoundVarId, GenericFnScheme>)
+        (functionSchemes: Map<BoundVarId, FunctionScheme>)
         (eligible: HashSet<BoundVarId>)
         (fns: CompiledFns.CompiledFn list)
         : StaticFn list =
@@ -477,7 +477,7 @@ module EmitClosures =
                             Body = c.Body
                             ResultTy = c.ResultTy
                             ReturnsVoid = c.ReturnsVoid
-                            Scheme = schemeOf genericFnSchemes c.Key
+                            Scheme = schemeOf functionSchemes c.Key
                         }
         ]
 

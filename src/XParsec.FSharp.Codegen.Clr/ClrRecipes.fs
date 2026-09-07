@@ -293,7 +293,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             let callHandleOf (callBase: EntityHandle) =
                 if methodTyparArity = 0 then
                     callBase
-                elif openSig.Scheme.Constraints.IsEmpty then
+                elif not openSig.Scheme.Typars.HasConstraints then
                     // Match the open template's function typars against the call's concrete
                     // type, recovering each method arg by index. No constraint typars here, so
                     // every method typar is signature-reachable.
@@ -307,7 +307,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
                     let instArr =
                         TastLower.matchInstantiationPartial methodTyparArity [ openSig.Signature ] [ fnTy ]
 
-                    TastLower.solvePhantomTypars openSig.Scheme.Constraints tryExternalInterfaceWitness instArr
+                    TastLower.solvePhantomTypars openSig.Scheme.Typars tryExternalInterfaceWitness instArr
 
                     let methodArgs =
                         [

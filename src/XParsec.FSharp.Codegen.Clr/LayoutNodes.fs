@@ -279,8 +279,8 @@ module internal LayoutNodes =
                     Key = TypeSlotKey.Nominal td.Key
                     Kind = kind
                     Namespace = ns
-                    MetaName = SymbolKeyOps.arityName td.Name td.TypeParams.Length
-                    Typars = GenericParamRow.ofTypars (TTypeParam.names td.TypeParams) td.TyparConstraints
+                    MetaName = SymbolKeyOps.arityName td.Name td.TypeParams.TypeArity
+                    Typars = GenericParamRow.ofTypars td.TypeParams
                 }
             Enclosing = enclosing
             Fields = fields
@@ -641,7 +641,7 @@ module internal LayoutNodes =
                             Kind = TypeSlotKind.Closure
                             Namespace = ""
                             MetaName = SymbolKeyOps.arityName c.Name c.Typars
-                            Typars = GenericParamRow.ofTypars (GenericParamRow.positionalNames c.Typars) EqSet.empty
+                            Typars = GenericParamRow.ofTypars (TyparList.positional c.Typars)
                         }
                     Enclosing = ValueNone
                     Fields = fields

@@ -9,7 +9,7 @@ open AssemblerScaffold
 module internal NominalShared =
 
     let typarMarkersOf (td: TastAccessor.TypeDecl) : FrozenType list =
-        declaringMarkers td.TypeKey td.TypeParams.Length
+        declaringMarkers td.TypeKey td.TypeParams.TypeArity
 
     /// A reference to a member of `parent`, a type registered over `td`'s own typars: the
     /// type itself, or a case type or nested value type of a union. A generic `td` reaches
@@ -22,7 +22,7 @@ module internal NominalShared =
         (kind: UserMemberKind)
         (monoHandle: EntityHandle)
         : EntityHandle =
-        if not td.TypeParams.IsEmpty then
+        if td.TypeParams.HasTypeTypars then
             asm.Icodegen.UserGenericMemberRef(parent, typarMarkersOf td, kind)
         else
             monoHandle
@@ -56,7 +56,7 @@ module internal NominalShared =
     let selfTypeHandleOf (asm: Assembler) (input: NominalEmissionInput) (td: TastAccessor.TypeDecl) : EntityHandle =
         let provider = asm.Provider
 
-        if td.TypeParams.IsEmpty then
+        if not td.TypeParams.HasTypeTypars then
             provider.UserTypeHandle td.TypeKey
         else
             match input with

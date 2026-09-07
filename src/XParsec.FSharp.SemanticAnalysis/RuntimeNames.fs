@@ -462,16 +462,7 @@ module RuntimeNames =
     /// numeric primitive at arity 0 and at arity 1 over a measure, every other at arity 0 alone.
     let targetOptionalPrimitiveTypars (key: TypeKey) : TyparList list =
         if isKeyIn numericKeys key then
-            [
-                TyparList.empty
-                TyparList.ofSeq
-                    [
-                        {
-                            TTypeParam.Name = "'Measure"
-                            Kind = TyparKind.Measure
-                        }
-                    ]
-            ]
+            [ TyparList.empty; TyparList.ofSeq [ "'Measure", TyparKind.Measure ] ]
         else
             [ TyparList.empty ]
 

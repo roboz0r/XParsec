@@ -24,9 +24,9 @@ module internal NominalRegistration =
 
             provider.RegisterUserType(caseKey, toEntity (handles.TypeDefOf(TypeSlotKey.UnionCase(td.Key, c.Name))))
 
-            if not td.TypeParams.IsEmpty then
+            if td.TypeParams.HasTypeTypars then
                 let fields = caseFields ud c
-                provider.RegisterGenericClass(caseKey, TTypeParam.names td.TypeParams, List.length fields, fields)
+                provider.RegisterGenericClass(caseKey, TyparList.typeNames td.TypeParams, List.length fields, fields)
 
     let private registerUnion (provider: ClrProvider) (handles: LayoutHandles) (ud: UnionDecl) : unit =
         let td = ud.Decl
@@ -46,15 +46,15 @@ module internal NominalRegistration =
             provider.RegisterUserType(typeKey, toEntity (handles.TypeDefOf(UnionNestedType.slotKey td.Key t)))
             provider.RegisterUserValueType typeKey
 
-            if t.IsGeneric && not td.TypeParams.IsEmpty then
-                let fields = t.Fields(td.TypeKey, td.TypeParams.Length)
+            if t.IsGeneric && td.TypeParams.HasTypeTypars then
+                let fields = t.Fields(td.TypeKey, td.TypeParams.TypeArity)
 
                 let ctorParamCount =
                     match t with
                     | UnionNestedType.View _ -> List.length fields
                     | UnionNestedType.Payload _ -> 0
 
-                provider.RegisterGenericClass(typeKey, TTypeParam.names td.TypeParams, ctorParamCount, fields)
+                provider.RegisterGenericClass(typeKey, TyparList.typeNames td.TypeParams, ctorParamCount, fields)
 
         match ud.Placements with
         | ValueSome p ->
@@ -62,12 +62,12 @@ module internal NominalRegistration =
             List.iter registerOwned p.OverlayTypes
         | ValueNone -> ()
 
-        if not td.TypeParams.IsEmpty then
+        if td.TypeParams.HasTypeTypars then
             let shape = [ for c in ud.Cases -> c.Name, caseFields ud c ]
 
             provider.RegisterGenericUnion(
                 td.TypeKey,
-                TTypeParam.names td.TypeParams,
+                TyparList.typeNames td.TypeParams,
                 shape,
                 ud.ValueKind,
                 ud.Placements |> ValueOption.map (fun p -> p.Home)
@@ -80,7 +80,7 @@ module internal NominalRegistration =
         if rd.ValueKind.IsValueType then
             provider.RegisterUserValueType td.TypeKey
 
-        if not td.TypeParams.IsEmpty then
+        if td.TypeParams.HasTypeTypars then
             let shape =
                 [
                     for f in rd.Fields ->
@@ -91,7 +91,7 @@ module internal NominalRegistration =
                         }
                 ]
 
-            provider.RegisterGenericRecord(td.TypeKey, TTypeParam.names td.TypeParams, shape)
+            provider.RegisterGenericRecord(td.TypeKey, TyparList.typeNames td.TypeParams, shape)
 
     let private registerClass (provider: ClrProvider) (handles: LayoutHandles) (cd: ClassDecl) : unit =
         let td = cd.Decl
@@ -100,7 +100,7 @@ module internal NominalRegistration =
         if cd.ValueKind.IsValueType then
             provider.RegisterUserValueType td.TypeKey
 
-        if not td.TypeParams.IsEmpty then
+        if td.TypeParams.HasTypeTypars then
             // On a generic class, ctor-param, `val`, instance-`let` and `static let`
             // fields all reach their `ldfld`/`stfld`/`ldsfld` through a `MemberRef` on
             // the open self-`TypeSpec`, so all four must be registered by name.
@@ -114,7 +114,7 @@ module internal NominalRegistration =
 
             provider.RegisterGenericClass(
                 td.TypeKey,
-                TTypeParam.names td.TypeParams,
+                TyparList.typeNames td.TypeParams,
                 List.length ctorParamFields,
                 shape
             )
@@ -138,8 +138,8 @@ module internal NominalRegistration =
         for (td, _) in partitioned.Interfaces do
             provider.RegisterUserType(td.TypeKey, toEntity (handles.TypeDefOf(TypeSlotKey.Nominal td.Key)))
 
-            if not td.TypeParams.IsEmpty then
-                provider.RegisterGenericClass(td.TypeKey, TTypeParam.names td.TypeParams, 0, [])
+            if td.TypeParams.HasTypeTypars then
+                provider.RegisterGenericClass(td.TypeKey, TyparList.typeNames td.TypeParams, 0, [])
 
         // Numeric enums (a `System.Enum` subclass) and string/mixed ones (a `[<Struct>]`
         // wrapper) are both project-local value types → `ELEMENT_TYPE_VALUETYPE`.

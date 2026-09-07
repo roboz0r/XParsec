@@ -74,7 +74,7 @@ module FrozenSignature =
 
         let memberOf (declKey: TypeKey) (declArity: int) (m: TastAccessor.TypeMember) : ExternalMember =
             let isValueMember = (m.Kind = TMemberKind.Property)
-            let methodArity = m.MethodTypeParams.Length
+            let methodArity = m.MethodTypars.TypeArity
 
             let signature =
                 if isValueMember then
@@ -93,7 +93,7 @@ module FrozenSignature =
         // member carries decurried `Params` / `ReturnTy`. Peel ONE `->` to the `.NET`-tupled
         // domain (`unit` domain / no `->` ⇒ none); a property's `Signature` IS its value type.
         let abstractMemberOf (declKey: TypeKey) (declArity: int) (am: Frozen.TAbstractMethod) : ExternalMember =
-            let methodArity = am.MethodTypeParams.Length
+            let methodArity = am.MethodTypars.TypeArity
 
             let signature =
                 if am.Kind = TMemberKind.Property then
@@ -176,7 +176,7 @@ module FrozenSignature =
             | ExportedTypeDecl td ->
                 let typeKey = td.TypeKey
                 let key = SymbolKey.Type typeKey
-                let typars = TyparList.ofSeq td.TypeParams
+                let typars = td.TypeParams
                 let arity = typars.Length
                 let origin = originIn typeKey.Namespace
 
@@ -313,7 +313,7 @@ module FrozenSignature =
 
         let addValue (info: ModuleBindingInfo) (boundVar: BoundVarId) (ty: FrozenType) =
             let sym =
-                { ExternalSymbols.scheme info.Container info.Name ty (schemeOf boundVar).TyparArity [] with
+                { ExternalSymbols.scheme info.Container info.Name ty (schemeOf boundVar) with
                     Origin = originIn info.Container.Namespace
                     CompiledName = info.CompiledName
                     ValRepr = bindingValRepr boundVar

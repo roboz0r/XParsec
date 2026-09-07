@@ -644,7 +644,14 @@ let typarConformanceTests =
                 // inferred scheme is `'a -> 'b -> 'b` = `M1 -> M0 -> M0`, the REVERSE
                 // positional skeleton of the `.fsi`'s `'a -> 'b -> 'b` = `D0 -> D1 -> D1`.
                 let contract =
-                    contractProvider [ ExternalSymbols.scheme (SymbolKeyOps.inNamespace "") "f" fScheme 2 [] ]
+                    contractProvider
+                        [
+                            ExternalSymbols.scheme
+                                (SymbolKeyOps.inNamespace "")
+                                "f"
+                                fScheme
+                                (FunctionScheme.unconstrained 2)
+                        ]
 
                 let tast = frozenOf "let f<'b,'a> (x: 'a) (y: 'b) : 'b = y"
                 Expect.isEmpty tast.Residue.Diagnostics "no diagnostics"
@@ -658,7 +665,14 @@ let typarConformanceTests =
                 // No explicit `<…>`: the canonical order IS appearance order, matching the
                 // `.fsi`. The very same binding+contract that fails above now conforms.
                 let contract =
-                    contractProvider [ ExternalSymbols.scheme (SymbolKeyOps.inNamespace "") "f" fScheme 2 [] ]
+                    contractProvider
+                        [
+                            ExternalSymbols.scheme
+                                (SymbolKeyOps.inNamespace "")
+                                "f"
+                                fScheme
+                                (FunctionScheme.unconstrained 2)
+                        ]
 
                 let tast = frozenOf "let f (x: 'a) (y: 'b) : 'b = y"
                 Expect.isEmpty tast.Residue.Diagnostics "no diagnostics"
@@ -677,7 +691,14 @@ let typarConformanceTests =
 
             test "an inline binding's typar order is checked: `<'b,'a>` reorder → TyparMismatch" {
                 let contract =
-                    contractProvider [ ExternalSymbols.scheme (SymbolKeyOps.inNamespace "") "f" fScheme 2 [] ]
+                    contractProvider
+                        [
+                            ExternalSymbols.scheme
+                                (SymbolKeyOps.inNamespace "")
+                                "f"
+                                fScheme
+                                (FunctionScheme.unconstrained 2)
+                        ]
 
                 let tast = frozenOf "let inline f<'b,'a> (x: 'a) (y: 'b) : 'b = y"
                 Expect.isEmpty tast.Residue.Diagnostics "no diagnostics"
@@ -689,7 +710,14 @@ let typarConformanceTests =
 
             test "an inline binding in appearance order conforms → no mismatch" {
                 let contract =
-                    contractProvider [ ExternalSymbols.scheme (SymbolKeyOps.inNamespace "") "f" fScheme 2 [] ]
+                    contractProvider
+                        [
+                            ExternalSymbols.scheme
+                                (SymbolKeyOps.inNamespace "")
+                                "f"
+                                fScheme
+                                (FunctionScheme.unconstrained 2)
+                        ]
 
                 let tast = frozenOf "let inline f (x: 'a) (y: 'b) : 'b = y"
                 Expect.isEmpty tast.Residue.Diagnostics "no diagnostics"
@@ -708,8 +736,7 @@ let typarConformanceTests =
                                 (SymbolKeyOps.inNamespace "")
                                 "f"
                                 (FTFun(fTypar 0, FTFun(fTypar 1, fTypar 0)))
-                                2
-                                []
+                                (FunctionScheme.unconstrained 2)
                         ]
 
                 let tast = frozenOf "let inline f (x: 'a) (y: 'a) : 'a = x"

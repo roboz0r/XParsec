@@ -58,25 +58,39 @@ module internal ElaborateTypars =
                 | _ -> ()
         ]
 
-    /// The constraints the store holds on `root`, indexed `i`; a `Coercion` target stays
-    /// `TyVar`-rooted for the deferred cut.
-    let private constraintsAt (store: TypeStore) (i: int) (root: TyVarId) : TyparConstraintG<SemType> list =
-        [
-            for sc in store.Constraints.Items(UnionFind.find store root) do
-                match TyparConstraint.ofSemantic i id sc.Kind with
-                | ValueSome c -> c
-                | ValueNone -> ()
-        ]
-
-    /// The constraints on each typar of `env`, at the index its `TyTypar` marker carries.
-    let constraintsOfEnv (store: TypeStore) (env: (TyVarId * SemType) list) : EqSet<TyparConstraintG<SemType>> =
-        EqSet.ofSeq
+    /// The constraints the store holds on `root`; a `Coercion` target stays `TyVar`-rooted
+    /// for the deferred cut.
+    let constraintSetOf (store: TypeStore) (root: TyVarId) : ConstraintSetG<SemType> =
+        ConstraintSet.ofKinds
             [
-                for (root, target) in env do
-                    match target with
-                    | TyTypar(_, i) -> yield! constraintsAt store i root
-                    | _ -> ()
+                for sc in store.Constraints.Items(UnionFind.find store root) do
+                    match TyparConstraint.ofSemantic id sc.Kind with
+                    | ValueSome c -> c
+                    | ValueNone -> ()
             ]
+
+    /// A declaration's typars with their constraints. A typar pinned to a concrete type
+    /// carries none.
+    let declTyparList (store: TypeStore) (typeParams: EqArray<DeclaredTypar>) : TyparListG<SemType> =
+        TyparList.ofDeclared
+            (fun tp ->
+                match Unification.zonk store (TyVar tp.TyVar) with
+                | TyVar root -> constraintSetOf store root
+                | _ -> ConstraintSet.empty
+            )
+            typeParams
+
+    /// A member's or abstract slot's own typars with their constraints, in canonical order.
+    let methodTyparList (store: TypeStore) (roots: GeneralizedTypars) : TyparListG<SemType> =
+        TyparList.ofDeclared
+            (fun tp -> constraintSetOf store tp.TyVar)
+            (EqArray.ofArray (GeneralizedTypars.toArray roots))
+
+    /// A module function's own typars with their constraints, positionally named in the order
+    /// `env` quantifies them: entry `i` of a `mkMethodQuantEnv` result is `TyTypar(scope, i)`.
+    let quantEnvTyparList (store: TypeStore) (env: (TyVarId * SemType) list) : TyparListG<SemType> =
+        let roots = env |> List.map fst |> Array.ofList
+        TyparList.positionalWith (fun i -> constraintSetOf store roots.[i]) roots.Length
 
     /// Quantify a module-`let`'s free type parameters into `TyTypar(scope, i)` in the F#
     /// canonical order: `declared` typars first in source order (`<'b,'a>` stays `'b,'a`),
@@ -160,39 +174,6 @@ module internal ElaborateTypars =
     /// stay `TyVar`-shaped until `freezeTypars` remaps them to `TyTypar(Type _, i)`.
     let declTyparArgs (store: TypeStore) (typeParams: EqArray<DeclaredTypar>) : EqArray<SemType> =
         EqArray.ofSeq (seq { for tp in typeParams -> Unification.zonk store (TyVar tp.TyVar) })
-
-    /// Elaborate one member of `declKey`: stamp `ThisTy` with the `TyVar`-rooted `selfTy` and
-    /// pair its own typar roots with markers under the member's scope, for the decl's freeze
-    /// env. Signature / body / return types stay verbatim until the deferred cut.
-    let elaborateMember (declKey: TypeKey) (selfTy: SemType) (m: TTypeMember) : TTypeMember * (TyVarId * SemType) list =
-        let scope = TyparScope.Member declKey
-
-        let methodMarkers =
-            [
-                for i in 0 .. m.MethodTypeParams.Length - 1 do
-                    match snd m.MethodTypeParams.[i] with
-                    | TyVar root -> (root, TyTypar(scope, i))
-                    | _ -> ()
-            ]
-
-        { m with ThisTy = selfTy }, methodMarkers
-
-    /// The per-member elaborator each host surfacer folds over the members of `declKey`.
-    /// Host elaborators differ only in `selfTy`'s type constructor. Surface a member when
-    /// the declaring type is generic OR the member itself is generic; else leave it as is.
-    let mkMemberElaborator
-        (declKey: TypeKey)
-        (selfTy: SemType)
-        (declTypars: EqArray<string>)
-        (env: ResizeArray<TyVarId * SemType>)
-        : TTypeMember -> TTypeMember =
-        fun m ->
-            if declTypars.Length = 0 && m.MethodTypeParams.Length = 0 then
-                m
-            else
-                let m, methodMarkers = elaborateMember declKey selfTy m
-                env.AddRange methodMarkers
-                m
 
     /// Walk every `SemType` in `p` through `remapDeclTypars env` (see `freezeTypars`).
     let freezeTyparsPat (store: TypeStore) (env: (TyVarId * SemType) list) (p: TPat) : TPat =

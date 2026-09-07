@@ -4,24 +4,25 @@ open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
-// A generalised binding's `when` clauses reach the frozen pools as `FrozenConstraint`s over
-// the method scope, one per source constraint, and survive the blob codec.
+// A generalised binding's `when` clauses reach the frozen pools on the scheme's own typars,
+// one `ConstraintSet` per typar, and survive the blob codec.
 
 /// The scheme of the module binding named `name`; `None` for a binding absent from the table.
-let private tryFrozenSchemeOf (pools: FrozenPools) (name: string) : GenericFnScheme option =
-    pools.GenericFnSchemes
+let private tryFrozenSchemeOf (pools: FrozenPools) (name: string) : FunctionScheme option =
+    pools.FunctionSchemes
     |> Array.tryPick (fun (BoundVarId i, s) -> if pools.BoundVarNames.[i] = name then Some s else None)
 
-let private frozenSchemeOf (pools: FrozenPools) (name: string) : GenericFnScheme =
+let private frozenSchemeOf (pools: FrozenPools) (name: string) : FunctionScheme =
     tryFrozenSchemeOf pools name
     |> Option.defaultWith (fun () -> failtestf "no frozen scheme for %s" name)
 
-/// The constraints of the module binding named `name`, in stored order.
-let private schemeOf (pools: FrozenPools) (name: string) : FrozenConstraint list =
-    EqSet.toList (frozenSchemeOf pools name).Constraints
+/// Each typar's constraints, in stored order, of `typars`.
+let private constraintsOf (typars: TyparList) : TyparConstraintKindG<FrozenType> list list =
+    [ for t in typars.Types -> EqSet.toList t.Constraints.Kinds ]
 
-/// The constraint `kind` on the typar at `i`.
-let private at (i: int) (kind: TyparConstraintKindG<'ty>) : TyparConstraintG<'ty> = { TyparIndex = i; Kind = kind }
+/// The constraints of the module binding named `name`, per typar.
+let private schemeOf (pools: FrozenPools) (name: string) : TyparConstraintKindG<FrozenType> list list =
+    constraintsOf (frozenSchemeOf pools name).Typars
 
 let private source =
     """
@@ -42,24 +43,37 @@ let viaCall x = inferredCmp x x
 let mono (x: int) = x
 """
 
-let private expected: (string * FrozenConstraint list) list =
+let private expected: (string * TyparConstraintKindG<FrozenType> list list) list =
     [
-        "eq", [ at 0 TyparConstraintKindG.Equality ]
-        "cmp", [ at 0 TyparConstraintKindG.Comparison ]
-        "st", [ at 0 TyparConstraintKindG.Struct ]
-        "notSt", [ at 0 TyparConstraintKindG.ReferenceType ]
-        "nul", [ at 0 TyparConstraintKindG.Nullness ]
-        "notNul", [ at 0 TyparConstraintKindG.NotNull ]
-        "two", [ at 0 TyparConstraintKindG.Struct; at 1 TyparConstraintKindG.Comparison ]
-        "newable", [ at 0 TyparConstraintKindG.DefaultConstructor ]
-        "unmanaged", [ at 0 TyparConstraintKindG.Unmanaged ]
-        "enumOf", [ at 0 (TyparConstraintKindG.Enum RuntimeNames.intTy) ]
+        "eq", [ [ TyparConstraintKindG.Equality ] ]
+        "cmp", [ [ TyparConstraintKindG.Comparison ] ]
+        "st", [ [ TyparConstraintKindG.Struct ] ]
+        "notSt", [ [ TyparConstraintKindG.ReferenceType ] ]
+        "nul", [ [ TyparConstraintKindG.Nullness ] ]
+        "notNul", [ [ TyparConstraintKindG.NotNull ] ]
+        "two", [ [ TyparConstraintKindG.Struct ]; [ TyparConstraintKindG.Comparison ] ]
+        "newable", [ [ TyparConstraintKindG.DefaultConstructor ] ]
+        "unmanaged", [ [ TyparConstraintKindG.Unmanaged ] ]
+        "enumOf", [ [ TyparConstraintKindG.Enum RuntimeNames.intTy ] ]
         // No `delegate<_,_>` entry: `Translate` refuses the clause, so codec tag 10 is unpinned.
         // Inferred from the body rather than declared, and propagated through a call.
-        "inferredEq", [ at 0 TyparConstraintKindG.Equality ]
-        "inferredCmp", [ at 0 TyparConstraintKindG.Comparison ]
-        "viaCall", [ at 0 TyparConstraintKindG.Comparison ]
+        "inferredEq", [ [ TyparConstraintKindG.Equality ] ]
+        "inferredCmp", [ [ TyparConstraintKindG.Comparison ] ]
+        "viaCall", [ [ TyparConstraintKindG.Comparison ] ]
     ]
+
+/// A scheme over `n` positional typars, the first constrained by `kind`.
+let private schemeWith (n: int) (kind: TyparConstraintKindG<FrozenType>) : FunctionScheme =
+    FunctionScheme.ofTypars (
+        TyparList.positionalWith
+            (fun i ->
+                if i = 0 then
+                    ConstraintSet.ofKinds [ kind ]
+                else
+                    ConstraintSet.empty
+            )
+            n
+    )
 
 [<Tests>]
 let tests =
@@ -67,7 +81,7 @@ let tests =
         "FrozenConstraint"
         [
             for name, constraints in expected do
-                test (sprintf "%s freezes its constraint over the method scope" name) {
+                test (sprintf "%s freezes its constraint on its own typar" name) {
                     let pools = freezeFor source
                     Expect.equal (schemeOf pools name) constraints "frozen scheme"
                 }
@@ -76,10 +90,8 @@ let tests =
                 let pools = freezeFor source
 
                 match schemeOf pools "coerce" with
-                | [ {
-                        TyparIndex = 0
-                        Kind = TyparConstraintKindG.Coercion(FTConst(key, _))
-                    } ] -> Expect.equal key.Name "exn" "coercion target"
+                | [ [ TyparConstraintKindG.Coercion(FTConst(key, _)) ] ] ->
+                    Expect.equal key.Name "exn" "coercion target"
                 | other -> failtestf "unexpected scheme %A" other
             }
 
@@ -103,30 +115,35 @@ let tests =
                 Expect.isNone (tryFrozenSchemeOf pools "mono") "mono"
             }
 
-            test "a constraint on a typar at or past the arity is refused" {
-                Expect.throws
-                    (fun () ->
-                        GenericFnScheme.create 1 (EqSet.ofSeq [ at 1 TyparConstraintKindG.Equality ])
-                        |> ignore
-                    )
-                    "TyparIndex past the arity"
-            }
-
             test "a constraint whose type references a method typar past the arity is refused" {
                 let target =
                     FTTypar(TyparScope.ModuleFunction(SymbolKeyOps.bindingKeyOf (SymbolKeyOps.inNamespace "") "f"), 1)
 
                 Expect.throws
+                    (fun () -> schemeWith 1 (TyparConstraintKindG.Coercion target) |> ignore)
+                    "method typar referenced past the arity"
+            }
+
+            test "a trait on a typar at or past the arity is refused" {
+                let trait_: MemberTrait =
+                    {
+                        TyparIndices = EqArray.singleton 1
+                        MemberName = "op_Addition"
+                        ArgTypes = EqArray.empty
+                        ReturnType = RuntimeNames.intTy
+                    }
+
+                Expect.throws
                     (fun () ->
-                        GenericFnScheme.create 1 (EqSet.ofSeq [ at 0 (TyparConstraintKindG.Coercion target) ])
+                        FunctionScheme.create (TyparList.positional 1) (EqArray.singleton trait_)
                         |> ignore
                     )
-                    "method typar referenced past the arity"
+                    "trait index past the arity"
             }
         ]
 
 // A type declaration, a member and an abstract slot carry their own typars' constraints on the
-// declaration itself, in the type scope for the type and the method scope for the rest.
+// typars themselves, in the type scope for the type and the method scope for the rest.
 
 let private declSource =
     """
@@ -159,53 +176,49 @@ let declTests =
     testList
         "TyparConstraints on declarations"
         [
-            test "a record's declared constraint is in the type scope" {
+            test "a record's declared constraint is on the declaring typar" {
                 let td = typeDeclOf (freezeFor declSource) "Box"
 
                 Expect.equal
-                    (EqSet.toList td.TyparConstraints)
-                    [ at 0 TyparConstraintKindG.Comparison ]
+                    (constraintsOf td.TypeParams)
+                    [ [ TyparConstraintKindG.Comparison ] ]
                     "type-level constraint"
             }
 
             test "a constraint inferred from a member body lands on the declaring typar" {
                 let td = typeDeclOf (freezeFor declSource) "Holder"
 
-                Expect.equal
-                    (EqSet.toList td.TyparConstraints)
-                    [ at 0 TyparConstraintKindG.Equality ]
-                    "type-level constraint"
+                Expect.equal (constraintsOf td.TypeParams) [ [ TyparConstraintKindG.Equality ] ] "type-level constraint"
 
-                Expect.isTrue (memberOf td "Same").MethodTyparConstraints.IsEmpty "no method-scope constraint"
+                Expect.isFalse (memberOf td "Same").MethodTypars.HasConstraints "no method-scope constraint"
             }
 
-            test "a member's declared constraint is in the method scope" {
+            test "a member's declared constraint is on its own typar" {
                 let td = typeDeclOf (freezeFor declSource) "Holder"
 
                 Expect.equal
-                    (EqSet.toList (memberOf td "Pick").MethodTyparConstraints)
-                    [ at 0 TyparConstraintKindG.Struct ]
+                    (constraintsOf (memberOf td "Pick").MethodTypars)
+                    [ [ TyparConstraintKindG.Struct ] ]
                     "method constraint"
             }
 
-            test "a member's inferred constraint is in the method scope" {
+            test "a member's inferred constraint is on its own typar" {
                 let td = typeDeclOf (freezeFor declSource) "Holder"
 
                 Expect.equal
-                    (EqSet.toList (memberOf td "Less").MethodTyparConstraints)
-                    [ at 0 TyparConstraintKindG.Comparison ]
+                    (constraintsOf (memberOf td "Less").MethodTypars)
+                    [ [ TyparConstraintKindG.Comparison ] ]
                     "method constraint"
             }
 
-            test "an abstract slot's declared constraint is in the method scope" {
+            test "an abstract slot's declared constraint is on its own typar" {
                 let td = typeDeclOf (freezeFor declSource) "IShape"
 
                 match td.Kind with
                 | TTypeKindG.Interface methods ->
                     Expect.equal
-                        (EqArray.toList methods
-                         |> List.map (fun m -> EqSet.toList m.MethodTyparConstraints))
-                        [ [ at 0 TyparConstraintKindG.ReferenceType ] ]
+                        (EqArray.toList methods |> List.map (fun m -> constraintsOf m.MethodTypars))
+                        [ [ [ TyparConstraintKindG.ReferenceType ] ] ]
                         "slot constraint"
                 | _ -> failtest "IShape is not an interface"
             }
@@ -216,5 +229,82 @@ let declTests =
 
                 for name in [ "Box"; "Holder"; "IShape" ] do
                     Expect.equal (typeDeclOf thawed name) (typeDeclOf pools name) name
+            }
+        ]
+
+// Two `fsc` parity gaps in how a scheme's typars are ordered and merged, each pinned as it
+// stands. `fsc` orders a binding's typars by first appearance in the source INCLUDING its
+// `when` clauses; this compiler orders them by appearance in the binding's type, then the
+// constraint-only ones. Two coercions on one typar to the same generic interface unify their
+// arguments under FS0064 in `fsc`; this compiler keeps both.
+
+/// The frozen type of the module binding named `name`.
+let private declTypeOf (pools: FrozenPools) (name: string) : FrozenType =
+    EqArray.toList (TastUnpool.ofPools pools).Decls
+    |> List.pick (
+        function
+        | TDeclG.Let({ Pattern = TPatG.NamedSimple(BoundVarId b, _, _, _) } as m, _, _) when
+            pools.BoundVarNames.[b] = name
+            ->
+            Some m.Ty
+        | _ -> None
+    )
+
+let private paritySource =
+    """
+type IStructSeq<'T, 'E> =
+    abstract Enumerator: unit -> 'E
+
+type IFun<'T, 'U> =
+    abstract Invoke: 'T -> 'U
+
+type MapSeq<'S, 'E, 'TFunc, 'T, 'U> = { Source: 'S; F: 'TFunc }
+
+let map (f: 'TFunc when 'TFunc :> IFun<'T, 'U>) (source: 'S when 'S :> IStructSeq<'T, 'E>) : MapSeq<'S, 'E, 'TFunc, 'T, 'U> =
+    { Source = source; F = f }
+
+type IBox<'t> =
+    abstract Value: 't
+
+let twice (x: 'a when 'a :> IBox<int> and 'a :> IBox<'b>) = x
+"""
+
+[<Tests>]
+let fscParityTests =
+    testList
+        "fsc typar-order and FS0064 parity"
+        [
+            ptest
+                "gap: fsc orders `map`'s typars TFunc, T, U, S, E by first appearance including the when clauses; this compiler gives TFunc, S, E, T, U" {
+                let pools = freezeFor paritySource
+
+                let scope =
+                    TyparScope.ModuleFunction(SymbolKeyOps.bindingKeyOf (SymbolKeyOps.inNamespace "") "map")
+
+                let at (i: int) = FTTypar(scope, i)
+
+                let mapSeq =
+                    match declTypeOf pools "map" with
+                    | FTFun(_, FTFun(_, result)) -> result
+                    | other -> failtestf "map's type is not a two-argument function: %A" other
+
+                // TFunc = 0, T = 1, U = 2, S = 3, E = 4.
+                match mapSeq with
+                | FTRecord(_, args) ->
+                    Expect.equal (EqArray.toList args) [ at 3; at 4; at 0; at 1; at 2 ] "MapSeq<'S, 'E, 'TFunc, 'T, 'U>"
+                | other -> failtestf "map does not return a record: %A" other
+            }
+
+            ptest "gap: fsc unifies two coercions to one generic interface under FS0064; this compiler keeps both" {
+                let pools = freezeFor paritySource
+                let scheme = frozenSchemeOf pools "twice"
+
+                Expect.equal scheme.TyparArity 1 "`'b` is solved to `int`, leaving one typar"
+
+                match constraintsOf scheme.Typars with
+                | [ [ TyparConstraintKindG.Coercion(FTClass(key, args)) ] ] ->
+                    Expect.equal key.Name "IBox" "one coercion remains"
+                    Expect.equal (EqArray.toList args) [ RuntimeNames.intTy ] "at IBox<int>"
+                | other -> failtestf "unexpected constraints %A" other
             }
         ]

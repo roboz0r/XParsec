@@ -18,7 +18,7 @@ module internal UnionEmit =
 
     /// The `Payload` struct in the union's own scope.
     let private payloadTyOf (td: TastAccessor.TypeDecl) : FrozenType =
-        UnionPayloadType.payloadTyDeclaring td.TypeKey td.TypeParams.Length
+        UnionPayloadType.payloadTyDeclaring td.TypeKey td.TypeParams.TypeArity
 
     /// A case's `Payload_<Case>` view in the union's own scope.
     let private viewTyOf (td: TastAccessor.TypeDecl) (caseName: string) : FrozenType =
@@ -819,7 +819,7 @@ module internal UnionEmit =
         asm.Unions.[td.TypeKey] <-
             {
                 Name = td.Name
-                Typars = EqArray.toList (TTypeParam.names td.TypeParams)
+                Typars = EqArray.toList (TyparList.typeNames td.TypeParams)
                 Tag =
                     if ud.HasTag then
                         ValueSome

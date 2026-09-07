@@ -62,7 +62,7 @@ module FilePlan =
         // already address a bound variable by.
         let moduleMembers = Map.ofArray pools.ModuleMembers
         let closureReprs = Map.ofArray pools.ClosureReprs
-        let genericFnSchemes = Map.ofArray pools.GenericFnSchemes
+        let functionSchemes = Map.ofArray pools.FunctionSchemes
 
         // A source lambda's verdict, keyed by NODE (id + issuing pool): two files' pools
         // both number from 0, so a bare id would not miss across files but would
@@ -111,7 +111,7 @@ module FilePlan =
         // function, keeping the flat static method and adding a wrapper closure. Closure
         // discovery must walk the rewritten decls it republishes.
         let plan =
-            ModuleClassPlan.create moduleMembers genericFnSchemes programClass refStructKeys lowered0
+            ModuleClassPlan.create moduleMembers functionSchemes programClass refStructKeys lowered0
 
         {
             Pool = pool
@@ -203,7 +203,7 @@ module internal Layout =
                     (m: TastAccessor.TypeMember)
                     : EmitClosures.MemberClosureRoot =
                     {
-                        Frame = TyparFrame.ofMember td.TypeKey td.TypeParams.Length m.MethodTypeParams.Length
+                        Frame = TyparFrame.ofMember td.TypeKey td.TypeParams.TypeArity m.MethodTypars.TypeArity
                         Body = m.Body
                     }
 
@@ -213,7 +213,7 @@ module internal Layout =
                     (entry: TastAccessor.PreambleEntry)
                     : EmitClosures.MemberClosureRoot =
                     {
-                        Frame = TyparFrame.ofType td.TypeKey td.TypeParams.Length
+                        Frame = TyparFrame.ofType td.TypeKey td.TypeParams.TypeArity
                         Body =
                             match entry with
                             | TPreambleEntryG.Let l -> l.Init

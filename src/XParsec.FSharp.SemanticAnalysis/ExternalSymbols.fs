@@ -470,7 +470,7 @@ type CodegenOpenSignature =
         /// The emitted method-typar count and the constraints over those typars. A
         /// `Coercion` constraint lets a phantom slot be recovered from the constrained
         /// source's interface witness.
-        Scheme: GenericFnScheme
+        Scheme: FunctionScheme
         /// The name the function emits under, already resolved against the declaring key's
         /// own short name.
         EmittedName: string
@@ -715,8 +715,8 @@ module ExternalSymbols =
         instantiateBaseTypeFrozen thaw shape.FrozenBaseType declaringArgs
 
     /// Instantiate a value/free-function symbol's `Scheme` at `level`: a fresh `TyVar` per
-    /// typar of its `ModuleFunction` scope, the `Constraints` stamped onto them, then the
-    /// scheme instantiated against that array.
+    /// typar of its `ModuleFunction` scope, `Generics`' constraints, defaults and traits
+    /// stamped onto them, then the scheme instantiated against that array.
     let instantiateSymbol (thaw: IMeasuredThaw) (sym: ExternalSymbol) (level: int) : SemType =
         let store = thaw.Store
 
@@ -724,14 +724,14 @@ module ExternalSymbols =
             FrozenTypeBridge.instantiateDeclaring thaw ft fresh
 
         let scheme = sym.Scheme
-        let constraints = sym.Constraints
+        let typars = sym.Generics.Typars.Types
 
-        if sym.TyparArity = 0 then
+        if typars.IsEmpty then
             inst scheme [||]
         else
             let freshTvs =
                 Array.init
-                    sym.TyparArity
+                    typars.Length
                     (fun _ ->
                         let tv = store.NewTypeVar()
                         store.SetLevel(UnionFind.find store tv, level)
@@ -742,40 +742,33 @@ module ExternalSymbols =
 
             // External symbols carry no source-side NodeKey; stamp `Unknown`
             // so diagnostics attribute the constraint to the use site.
-            for c in constraints do
-                match c with
-                | ExternalConstraint.Encodable b ->
+            for i in 0 .. typars.Length - 1 do
+                for kind in typars.[i].Constraints.Kinds do
                     let cstr: SemanticConstraint =
                         {
-                            Kind = TyparConstraintKind.toSemantic (fun target -> inst target fresh) b.Kind
+                            Kind = TyparConstraint.toSemantic (fun target -> inst target fresh) kind
                             DeclKey = NodeKey.ofSource 0 NodeKind.Unknown
                         }
 
-                    store.Constraints.Prepend(UnionFind.find store freshTvs.[b.TyparIndex], cstr)
-                | _ -> ()
+                    store.Constraints.Prepend(UnionFind.find store freshTvs.[i], cstr)
 
             // Appended, not prepended: generalisation takes the first target in list order
             // that resolves, so the list must stay in source order.
-            for c in constraints do
-                match c with
-                | ExternalConstraint.Default(i, target) ->
+            for i in 0 .. typars.Length - 1 do
+                for target in typars.[i].Constraints.Defaults do
                     store.Defaults.Append(UnionFind.find store freshTvs.[i], inst target fresh)
-                | _ -> ()
 
-            for c in constraints do
-                match c with
-                | ExternalConstraint.MemberTrait(idxs, mName, argFts, retFt) ->
-                    let sig_: MemberSignature =
-                        {
-                            MemberName = mName
-                            SupportTys = EqArray.ofSeq (seq { for i in idxs -> fresh.[i] })
-                            ArgTypes = EqArray.ofSeq (seq { for ft in argFts -> inst ft fresh })
-                            ReturnType = inst retFt fresh
-                        }
+            for mt in sym.Generics.Traits do
+                let sig_: MemberSignature =
+                    {
+                        MemberName = mt.MemberName
+                        SupportTys = EqArray.ofSeq (seq { for i in mt.TyparIndices -> fresh.[i] })
+                        ArgTypes = EqArray.ofSeq (seq { for ft in mt.ArgTypes -> inst ft fresh })
+                        ReturnType = inst mt.ReturnType fresh
+                    }
 
-                    for i in idxs do
-                        store.Srtp.Prepend(UnionFind.find store freshTvs.[i], sig_)
-                | _ -> ()
+                for i in mt.TyparIndices do
+                    store.Srtp.Prepend(UnionFind.find store freshTvs.[i], sig_)
 
             inst scheme fresh
 
@@ -784,8 +777,7 @@ module ExternalSymbols =
     let private ofBindingKey (key: BindingKey) : ExternalSymbol =
         {
             Scheme = deferredTemplate
-            TyparArity = 0
-            Constraints = []
+            Generics = FunctionScheme.monomorphic
             Origin = SymbolOrigin.Empty
             Key = key
             CompiledName = ValueNone
@@ -802,17 +794,10 @@ module ExternalSymbols =
             Scheme = scheme
         }
 
-    /// A symbol from a `FrozenType` scheme over `arity` declaring typars: a template
+    /// A symbol from a `FrozenType` scheme over the typars of `generics`: a template
     /// freshened per use site, not a closure.
-    let scheme
-        (decl: ModuleContainer)
-        (name: string)
-        (frozen: FrozenType)
-        (arity: int)
-        (constraints: ExternalConstraint list)
-        : ExternalSymbol =
+    let scheme (decl: ModuleContainer) (name: string) (frozen: FrozenType) (generics: FunctionScheme) : ExternalSymbol =
         { ofBindingKey (SymbolKeyOps.bindingKeyOf decl name) with
             Scheme = frozen
-            TyparArity = arity
-            Constraints = constraints
+            Generics = generics
         }

@@ -109,11 +109,8 @@ let private collect () : Collected =
         for k in file.Accessibility.Keys do
             visitSym k
 
-        for KeyValue(_, scheme) in file.GenericFnSchemes do
-            for c in scheme.Constraints do
-                match TyparConstraint.tryCoercion c with
-                | ValueSome(_, target) -> visitFt target
-                | ValueNone -> ()
+        for KeyValue(_, scheme) in file.FunctionSchemes do
+            TyparList.iter visitFt scheme.Typars
 
         // No `BindingValReprs` pass: a binding's source arity is a PROJECTION of its lambda
         // chain derived off the columns, so every type and slot it references is already reached

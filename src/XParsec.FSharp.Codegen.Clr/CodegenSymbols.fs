@@ -71,13 +71,11 @@ module CodegenSymbols =
                     if sym.Origin.Home = SymbolHome.Unstamped then
                         ValueNone
                     else
-                        let os = OpenSignature.ofSymbol sym
-
                         ValueSome
                             {
                                 Origin = sym.Origin
-                                Signature = os.Signature
-                                Scheme = os.Scheme
+                                Signature = sym.Scheme
+                                Scheme = sym.Generics
                                 EmittedName = sym.EmittedName
                                 ValRepr = sym.ValRepr
                             }

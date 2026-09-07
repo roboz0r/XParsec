@@ -206,19 +206,42 @@ separate change.
    same-file splice, which keeps the template's own owner through `ShareBindingEntry`.
    Format version 11.
 
-4. **Per-typar `ConstraintSet` and `FunctionScheme`.** `TypeTypar.Constraints` holds the
-   `TyparConstraintKindG` cases plus `Default`; `TyparConstraintG.TyparIndex` and the flat
-   `EqSet` on `TTypeDeclG.TyparConstraints`, `TTypeMemberG.MethodTyparConstraints` and
-   `TAbstractMethodG.MethodTyparConstraints` are deleted. `GenericFnScheme` becomes
-   `FunctionScheme` with `Traits`; `ExternalConstraint.MemberTrait` moves into it and
-   `ExternalConstraint.Encodable` / `Default` into the typar. `MemberKey.MethodTyparArity`
-   reads `Types.Length`.
+4. **Per-typar `ConstraintSet` and `FunctionScheme`.** Landed. `TypeTyparG<'ty>.Constraints`
+   is a `ConstraintSetG<'ty>`: the `TyparConstraintKindG` cases as an `EqSet` plus the
+   `default` targets in source order. `TyparListG<'ty>` is generic so `TTypeDeclG`,
+   `TTypeMemberG` and `TAbstractMethodG` carry their typars as one list with the constraints
+   on them (`TypeParams` / `MethodTypars`), and `TyparList = TyparListG<FrozenType>`.
+   `TyparConstraintG`, `FrozenConstraint`, `TTypeParam`, the flat `EqSet`s and the `'ty`
+   carrier of `MethodTypeParams` are deleted: the member walk adds each generic member's
+   `TyTypar(Member _, i)` markers to the decl's freeze env directly, and `DeclaringType.ThisTy`
+   is the full self type, so the per-member elaborator is gone.
+   `FunctionScheme = { Typars; Traits: EqArray<MemberTrait> }` replaces `GenericFnScheme`;
+   `ExternalConstraint` is deleted, its `Encodable` / `Default` cases living on the typar and
+   `MemberTrait` on the scheme, which `ExternalSymbol.Generics` carries beside the `Scheme`
+   template. `MemberKey.MethodTyparArity` is minted from `Types.Length`. The CLR reads `Types`
+   alone for its `GenericParam` rows and arity names, pinned in `GenericParamFlagsTests` by a
+   `[<Measure>]`-bearing record. Format version 12.
 
-   Two `fsc` parity gaps land here, because this step first changes the order rows are read
-   in: `fsc` orders typars by first appearance including the constraint clauses (`TFunc, T,
-   U, S, E` for `StructSeq.map`, where this compiler gives `TFunc, S, E, T, U`), and two
-   coercions on one typar to the same generic interface unify their arguments under FS0064
-   where `addConstraintByKind` only dedupes structurally equal constraints.
+   Carried in the same diff, the project-local half of step 7: `FrozenSignature.addValue`
+   publishes the binding's scheme, so a cross-file call is checked against its constraints,
+   pinned by `CrossFileTests` (`'a : not struct` across two files on the CLR; the
+   SemanticAnalysis suite's `none` target settles no layout, so the pin lives there).
+
+   The two `fsc` parity gaps are pinned as `ptest`s in `FrozenConstraintTests.fscParityTests`
+   with the gap quoted in the name. `fsc` orders typars by first appearance including the
+   constraint clauses (`TFunc, T, U, S, E` for `StructSeq.map`, where this compiler gives
+   `TFunc, S, E, T, U`), which needs the implicit typars' source positions at generalisation,
+   which `mkMethodQuantEnv` does not track; and two coercions on one typar to the same generic
+   interface unify their arguments under FS0064, where `addConstraintByKind` only dedupes
+   structurally equal constraints.
+
+4a. **Typar slots.** `typar-slot-plan.md`, sequenced here. Step 4's review found two
+   producers still numbering a leaf by signature slot (`mkDeclTyparEnv`, `publishedScheme`'s
+   trait indices) against a `Types`-indexed consumer, and that a measure typar has no leaf to
+   freeze to. That plan tags the three numberings as measures (`sigSlot`, `typeSlot`,
+   `measureSlot`) over an `EqArrayM`, moves the tag onto `FTTypar` / `TyTypar`, and adds
+   `MeasureAtom.Typar`. It lands before step 5, whose rows index a type slot, and absorbs
+   step 6. Format versions 13 and 14.
 
 5. **`GenericParamConstraint` rows.** No code in `src/` emits one. The table is added to the
    assembler with its row-order prediction, the same prefix-sum discipline as every other
@@ -240,23 +263,20 @@ separate change.
    | `'a : equality` / `comparison` | none; F# has no CLI encoding for these either |
    | SRTP member trait | none; an `inline` binding resolves it at the splice |
 
-6. **`MeasureAtom.Typar`.** `MeasureTerm`'s atom widens from `TypeKey` to `MeasureAtom`;
-   `[<Measure>]` on a member or binding typar is read at `mkMethodTypars` and at `Infer`'s
-   binding-typar read, the two sites `measure-resolution-plan.md` step 2 left type-kinded by
-   construction. Measure-generic abbreviations (`type Meters<[<Measure>] 'u> = float<'u>`)
-   leave `NotYetSupported`.
+6. **`MeasureAtom.Typar`.** Absorbed by `typar-slot-plan.md` step 3, which gives the atom a
+   `measureSlot`-tagged index. `[<Measure>]` on a member or binding typar is read at
+   `mkMethodTypars` and at `Infer`'s binding-typar read, the two sites
+   `measure-resolution-plan.md` step 2 left type-kinded by construction. Measure-generic
+   abbreviations (`type Meters<[<Measure>] 'u> = float<'u>`) leave `NotYetSupported`.
 
 7. **Import.** A foreign generic's constraints are read off its metadata into the typar's
    `ConstraintSet`, so enforcement against a BCL or third-party generic exists. The
    `enum<'u>` constraint reads `ExternalTypeShape.Enum`'s underlying key; the
    `delegate<_,_>` constraint waits on `delegates-plan.md` stage 2.
 
-   The project-local half lands first: `FrozenSignature.addValue` publishes a binding's
-   `ExternalSymbol` with `[]` constraints, so a cross-file call to a constrained generic is
-   unenforced although the scheme holds the constraints. The published scheme and its
-   constraints are both in the binding's `ModuleFunction` scope, so no re-scoping is needed
-   between them. Verify with a two-file program whose second file violates the first file's
-   `'a : struct` constraint, refused with the diagnostic the single-file `typar-*-violated.fs`
+   The project-local half landed with step 4: `FrozenSignature.addValue` publishes the
+   binding's `FunctionScheme`, in the binding's `ModuleFunction` scope like the template, so
+   a cross-file call is refused with the diagnostic the single-file `typar-*-violated.fs`
    programs pin.
 
 8. **Deletions and the deferred parts of step 3.** `TyparScope.Extension` once
@@ -308,12 +328,12 @@ Before this document is deleted, each row is in code or in a test:
 - [x] A `.fsi`-declared generic member and its `.fs` implementation agree on scope once
       homed, pinned by `ConformanceTests` (`MemberTyparConformance`) and by
       `Vesper.Formatter` in the CLR suite. Re-pinned as plain equality in step 3a.
-- [ ] `TyparList.Order` is the only source of typar display and conformance order; the CLR
-      encoder indexes `Types` alone, pinned by a `[<Measure>]`-bearing type's `GenericParam`
-      row count.
+- [x] `TyparList.Order` is the only source of typar display order (`TyparListG.Names`);
+      the CLR encoder indexes `Types` alone, pinned by a `[<Measure>]`-bearing type's
+      `GenericParam` row count in `GenericParamFlagsTests` (step 4).
 - [ ] Every constraint kind in the encoding table has a `MetadataStructure` assertion or a
       row stating why it has none.
-- [ ] The two `fsc` typar-order and FS0064 gaps have tests, green or `ptest` with the gap
-      quoted in the name.
-- [ ] A cross-file constrained generic is enforced, pinned by the two-file `'a : struct`
-      program.
+- [x] The two `fsc` typar-order and FS0064 gaps have tests, `ptest` with the gap quoted in
+      the name, in `FrozenConstraintTests` (step 4).
+- [x] A cross-file constrained generic is enforced, pinned by the two-file `'a : not struct`
+      program in `CrossFileTests` (step 4).

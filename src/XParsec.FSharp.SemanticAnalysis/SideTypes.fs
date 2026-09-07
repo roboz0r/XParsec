@@ -21,75 +21,8 @@ type FunVerdict =
         ResultTyparPos: int voption
     }
 
-/// The kind of a constraint on a typar.
 [<RequireQualifiedAccess>]
-type TyparConstraintKindG<'ty> =
-    /// `when 'a : equality`.
-    | Equality
-    /// `when 'a : comparison`.
-    | Comparison
-    /// `when 'a : struct`.
-    | Struct
-    /// `when 'a : not struct`.
-    | ReferenceType
-    /// `when 'a : null`.
-    | Nullness
-    /// `when 'a : not null`.
-    | NotNull
-    /// `when 'a :> <ty>`.
-    | Coercion of target: 'ty
-    /// `when 'a : (new : unit -> 'a)`.
-    | DefaultConstructor
-    /// `when 'a : unmanaged`.
-    | Unmanaged
-    /// `when 'a : enum<underlying>`.
-    | Enum of underlying: 'ty
-    /// `when 'a : delegate<args, ret>`.
-    | Delegate of args: 'ty * ret: 'ty
-
-/// A typar constraint on a generic declaration, declared or inferred. `TyparIndex` indexes
-/// the owner's own typars: a type declaration's, or a binding's, a member's or an abstract
-/// slot's.
-type TyparConstraintG<'ty> =
-    {
-        TyparIndex: int
-        Kind: TyparConstraintKindG<'ty>
-    }
-
-/// A typar constraint whose embedded types are frozen, with typar leaves `FTTypar(scope, i)`.
-type FrozenConstraint = TyparConstraintG<FrozenType>
-
-module TyparConstraintKind =
-    let map (f: 'a -> 'b) (kind: TyparConstraintKindG<'a>) : TyparConstraintKindG<'b> =
-        match kind with
-        | TyparConstraintKindG.Equality -> TyparConstraintKindG.Equality
-        | TyparConstraintKindG.Comparison -> TyparConstraintKindG.Comparison
-        | TyparConstraintKindG.Struct -> TyparConstraintKindG.Struct
-        | TyparConstraintKindG.ReferenceType -> TyparConstraintKindG.ReferenceType
-        | TyparConstraintKindG.Nullness -> TyparConstraintKindG.Nullness
-        | TyparConstraintKindG.NotNull -> TyparConstraintKindG.NotNull
-        | TyparConstraintKindG.Coercion target -> TyparConstraintKindG.Coercion(f target)
-        | TyparConstraintKindG.DefaultConstructor -> TyparConstraintKindG.DefaultConstructor
-        | TyparConstraintKindG.Unmanaged -> TyparConstraintKindG.Unmanaged
-        | TyparConstraintKindG.Enum underlying -> TyparConstraintKindG.Enum(f underlying)
-        | TyparConstraintKindG.Delegate(args, ret) -> TyparConstraintKindG.Delegate(f args, f ret)
-
-    /// Applies `f` to each embedded type.
-    let iter (f: 'a -> unit) (kind: TyparConstraintKindG<'a>) : unit =
-        match kind with
-        | TyparConstraintKindG.Coercion target
-        | TyparConstraintKindG.Enum target -> f target
-        | TyparConstraintKindG.Delegate(args, ret) ->
-            f args
-            f ret
-        | TyparConstraintKindG.Equality
-        | TyparConstraintKindG.Comparison
-        | TyparConstraintKindG.Struct
-        | TyparConstraintKindG.ReferenceType
-        | TyparConstraintKindG.Nullness
-        | TyparConstraintKindG.NotNull
-        | TyparConstraintKindG.DefaultConstructor
-        | TyparConstraintKindG.Unmanaged -> ()
+module TyparConstraint =
 
     /// The constraint's kind, every embedded type mapped through `target`. `ValueNone` for a
     /// printf format family's `OneOf`, which is solved at the format literal and has no
@@ -124,76 +57,68 @@ module TyparConstraintKind =
         | TyparConstraintKindG.Enum u -> SemanticConstraintKind.Enum(target u)
         | TyparConstraintKindG.Delegate(a, r) -> SemanticConstraintKind.Delegate(target a, target r)
 
-module TyparConstraint =
-    let map (f: 'a -> 'b) (c: TyparConstraintG<'a>) : TyparConstraintG<'b> =
-        {
-            TyparIndex = c.TyparIndex
-            Kind = TyparConstraintKind.map f c.Kind
-        }
+/// A statically resolved member constraint on a function scheme:
+/// `when (^T or ^U) : (static member (+) : ^T * ^U -> ^V)`. `TyparIndices` is the trait's
+/// support set, indexing the scheme's `Types`; `MemberName` is the compiled name
+/// (`op_Addition`).
+type MemberTrait =
+    {
+        TyparIndices: EqArray<int>
+        MemberName: string
+        ArgTypes: EqArray<FrozenType>
+        ReturnType: FrozenType
+    }
 
-    /// The constraint `kind` places on the typar at `typarIndex`; `ValueNone` for `OneOf`.
-    let ofSemantic
-        (typarIndex: int)
-        (target: SemType -> 'ty)
-        (kind: SemanticConstraintKind)
-        : TyparConstraintG<'ty> voption =
-        match TyparConstraintKind.ofSemantic target kind with
-        | ValueSome k -> ValueSome { TyparIndex = typarIndex; Kind = k }
-        | ValueNone -> ValueNone
-
-    /// The constrained typar's index and the supertype, for a `Coercion` constraint only.
-    let tryCoercion (c: TyparConstraintG<'ty>) : (int * 'ty) voption =
-        match c.Kind with
-        | TyparConstraintKindG.Coercion target -> ValueSome(c.TyparIndex, target)
-        | TyparConstraintKindG.Equality
-        | TyparConstraintKindG.Comparison
-        | TyparConstraintKindG.Struct
-        | TyparConstraintKindG.ReferenceType
-        | TyparConstraintKindG.Nullness
-        | TyparConstraintKindG.NotNull
-        | TyparConstraintKindG.DefaultConstructor
-        | TyparConstraintKindG.Unmanaged
-        | TyparConstraintKindG.Enum _
-        | TyparConstraintKindG.Delegate _ -> ValueNone
-
-/// A generalised binding's typar scheme: its arity and its constraints, in source order.
-/// Every constraint's `TyparIndex`, and every function typar referenced by a constraint's
-/// type, is below `TyparArity`.
-type GenericFnScheme =
+/// A member's, module function's or local function's scheme: its own typars, each with its
+/// constraints, and its member traits. Every function typar referenced by a trait, or by a
+/// type embedded in a constraint, indexes `Typars.Types`.
+type FunctionScheme =
     private
         {
-            arity: int
-            constraints: EqSet<FrozenConstraint>
+            typars: TyparList
+            traits: EqArray<MemberTrait>
         }
 
-    member this.TyparArity = this.arity
-    member this.Constraints = this.constraints
+    member this.Typars: TyparList = this.typars
+    member this.Traits: EqArray<MemberTrait> = this.traits
+
+    /// The type-kinded count: the emitted method-typar count.
+    member this.TyparArity: int = this.typars.TypeArity
 
 [<RequireQualifiedAccess>]
-module GenericFnScheme =
+module FunctionScheme =
 
-    /// Faults on a constraint whose `TyparIndex`, or whose type references a method typar, at
-    /// or past `arity`.
-    let create (arity: int) (constraints: EqSet<FrozenConstraint>) : GenericFnScheme =
+    /// Faults on a trait index, or on a function typar referenced by a constraint's or a
+    /// trait's type, at or past `typars.TypeArity`.
+    let create (typars: TyparList) (traits: EqArray<MemberTrait>) : FunctionScheme =
+        let arity = typars.TypeArity
+
         let rec checkType (t: FrozenType) =
             match t with
             | FTFunctionTypar i when i >= arity ->
-                failwithf "GenericFnScheme: constraint references method typar %d, arity %d" i arity
+                failwithf "FunctionScheme: constraint references method typar %d, arity %d" i arity
             | t -> FrozenType.iterChildren checkType t
 
-        for c in constraints do
-            if c.TyparIndex >= arity then
-                failwithf "GenericFnScheme: constraint on typar %d, arity %d" c.TyparIndex arity
+        TyparList.iter checkType typars
 
-            TyparConstraintKind.iter checkType c.Kind
+        for mt in traits do
+            for i in mt.TyparIndices do
+                if i >= arity then
+                    failwithf "FunctionScheme: trait on typar %d, arity %d" i arity
 
-        {
-            arity = arity
-            constraints = constraints
-        }
+            EqArray.iter checkType mt.ArgTypes
+            checkType mt.ReturnType
+
+        { typars = typars; traits = traits }
+
+    /// A scheme over `typars` alone.
+    let ofTypars (typars: TyparList) : FunctionScheme = create typars EqArray.empty
+
+    /// A scheme over `n` positional, unconstrained typars.
+    let unconstrained (n: int) : FunctionScheme = ofTypars (TyparList.positional n)
 
     /// The scheme of a binding that quantifies nothing.
-    let monomorphic: GenericFnScheme = { arity = 0; constraints = EqSet.empty }
+    let monomorphic: FunctionScheme = ofTypars TyparList.empty
 
 /// How codegen resolves the `GetEnumerator` handle of a `Pattern` for-in source.
 [<RequireQualifiedAccess>]

@@ -194,6 +194,14 @@ module LocalOwnerG =
 /// `LocalOwnerG` as the frozen file records it, a member identified by its `MemberKey`.
 type LocalOwner = LocalOwnerG<MemberKey>
 
+/// The constraints on one type-kinded parameter, with typar leaves `FTTypar(scope, i)`.
+type ConstraintSet = ConstraintSetG<FrozenType>
+
+type TypeTypar = TypeTyparG<FrozenType>
+
+/// A declaration's type parameters as the frozen contract carries them.
+type TyparList = TyparListG<FrozenType>
+
 /// A generalised body-local `let`'s own typars: the scope its `FTTypar(LocalFunction Id, i)`
 /// leaves carry, with `i < TyparArity`.
 ///

@@ -288,8 +288,8 @@ type PassContextResolution =
         Resolved: SideTable<ResolvedItem>
         /// Keyed by an `Expr.Ident` / `Expr.LongIdentOrOp` at an external-value use-site.
         ExternalValue: SideTable<BindingKey>
-        /// Keyed by an external value/operator use-site. The whole symbol, not just its key,
-        /// because instantiating it needs the polymorphic `Scheme` / `TyparArity` / `Constraints`.
+        /// Keyed by an external value/operator use-site: the symbol instantiation reads,
+        /// with its polymorphic `Scheme` and `Generics`.
         ExternalSymbolStamp: SideTable<ExternalSymbol>
         /// Keyed by an expression splicing a cross-package `let inline` body (an operator, `x?f`,
         /// `arr.[i]`, `arr.Length`): the intrinsic's key, so the splice is by KEY.
@@ -592,7 +592,7 @@ type PassContext(provider: IExternalSymbolProvider, file: LexedFile, assembly: C
     member val FunVerdicts = LambdaTable<FunVerdict>() with get
     /// A generalised binding's scheme, its constraints frozen over the binding's own typar
     /// indices.
-    member val GenericFnSchemes = BoundVarTable<GenericFnScheme>() with get
+    member val FunctionSchemes = BoundVarTable<FunctionScheme>() with get
     /// How the SOURCE writes each bound variable this file introduces: the identifier and where.
     /// Recorded at the mint: once a body is copied elsewhere its tokens spell the CALL site.
     member val BoundVarNames = BoundVarTable<BoundVarIdent>() with get

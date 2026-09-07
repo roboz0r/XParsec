@@ -68,15 +68,7 @@ module NameResolutionTypeRegistration =
 
     /// The declared typars, named and kinded, in source order.
     let typarListOfTypeName (ctx: PassContext) (tn: TypeName<SyntaxToken>) : TyparList =
-        TyparList.ofSeq (
-            seq {
-                for (name, attrs) in typarSlotsOfTypeName ctx tn ->
-                    {
-                        TTypeParam.Name = name
-                        Kind = kindOfSlot ctx attrs
-                    }
-            }
-        )
+        TyparList.ofSeq (seq { for (name, attrs) in typarSlotsOfTypeName ctx tn -> name, kindOfSlot ctx attrs })
 
     /// The generic arity that keys this type in the registries (`0` for a non-generic name).
     let arityOfTypeName (ctx: PassContext) (tn: TypeName<SyntaxToken>) : int =

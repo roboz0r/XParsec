@@ -113,8 +113,7 @@ let private pokeMemberWith (paramTy: FrozenType) (mkBody: BoundVarId -> Pooled.T
         Params = EqArray.ofList [ (xBoundVar, paramTy) ]
         Body = { Pool = pool; Id = body }
         ReturnTy = ftInt
-        MethodTypeParams = EqArray.empty
-        MethodTyparConstraints = EqSet.empty
+        MethodTypars = TyparList.empty
         Attributes = EqArray.empty
     }
 
@@ -547,7 +546,7 @@ let tests =
                         declKey
                         m.Name
                         (m.Params |> EqArray.map snd)
-                        m.MethodTypeParams.Length
+                        m.MethodTypars.TypeArity
                         (TMemberKind.keyKind m.Kind)
 
                 let kInt = mintKey (pokeMemberOf "$0 + 1" ftInt)

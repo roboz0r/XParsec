@@ -68,7 +68,7 @@ module ModuleClassPlan =
     /// method / field emission orders.
     let create
         (moduleMembers: Map<BoundVarId, ModuleBindingInfo>)
-        (genericFnSchemes: Map<BoundVarId, GenericFnScheme>)
+        (functionSchemes: Map<BoundVarId, FunctionScheme>)
         (programClass: Emit.ModuleClassKey)
         (refStructKeys: HashSet<TypeKey>)
         (lowered0: TastAccessor.DeclId list)
@@ -90,7 +90,7 @@ module ModuleClassPlan =
             for mv in Emit.collectProgramValues emissions refStructKeys lowered0 do
                 s.Add mv.Key |> ignore
 
-            for fn in Emit.collectGenericModuleValues emissions genericFnSchemes lowered0 do
+            for fn in Emit.collectGenericModuleValues emissions functionSchemes lowered0 do
                 s.Add fn.Key |> ignore
 
             s
@@ -123,7 +123,7 @@ module ModuleClassPlan =
         // FIELD, because a non-generic module class has no type parameter to type it, so it
         // lowers to a zero-arg generic static METHOD; a reference `call`s its `MethodSpec`.
         let genericModuleValues =
-            Emit.collectGenericModuleValues emissions genericFnSchemes lowered
+            Emit.collectGenericModuleValues emissions functionSchemes lowered
 
         let genericModuleValueKeys =
             HashSet<BoundVarId>(genericModuleValues |> List.map (fun fn -> fn.Key))
@@ -132,7 +132,7 @@ module ModuleClassPlan =
         // onto the bridged decls. A binding bridging newly turned into a lambda whose key
         // was never eligible is skipped here and falls to closure discovery.
         let collectedFns =
-            Emit.collectStaticFns emissions genericFnSchemes eligible (CompiledFns.gather lowered)
+            Emit.collectStaticFns emissions functionSchemes eligible (CompiledFns.gather lowered)
 
         // Generic module values emit exactly like static fns (signature, body, handle,
         // module class method slot); merge them in so every downstream pass treats them

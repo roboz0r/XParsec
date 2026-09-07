@@ -183,13 +183,14 @@ module internal ElaborateMembers =
         | Some mi -> mi
         | None -> failwithf "ElaborateMembers.registeredMemberOf: member '%s' was not registered" site.Name
 
-    /// The member's own generic parameters and the constraints on them, indexed into the
-    /// typars, in the registered `CanonicalTypars` order.
-    let private methodTypeParamsOf
+    /// The member's own generic parameters in the registered `CanonicalTypars` order, each
+    /// with its constraints, and the freeze markers pairing each typar's root with
+    /// `TyTypar(Member _, i)`.
+    let private methodTyparsOf
         (ctx: PassContext)
         (declaring: DeclaringType)
         (mi: TypeMemberInfo)
-        : EqArray<string * SemType> * EqSet<TyparConstraintG<SemType>> =
+        : TyparListG<SemType> * (TyVarId * SemType) list =
         // Each root advances to its union-find SURVIVOR, which generalise keyed the body's
         // frozen typar markers on. A root linked to a concrete type is dropped.
         let roots =
@@ -200,18 +201,14 @@ module internal ElaborateMembers =
                 | _ -> ValueNone
             )
 
-        // Each root materialises as a plain `TyVar root`, which the later cut flips to
-        // `TyTypar(Member _, i)` like every other embedded type.
-        GeneralizedTypars.toArray roots
-        |> Array.map (fun tp -> tp.Name, TyVar tp.TyVar)
-        |> EqArray.ofArray,
-        constraintsOfEnv ctx.Store (GeneralizedTypars.methodEnv (TyparScope.Member declaring.TypeKey) roots)
+        methodTyparList ctx.Store roots, GeneralizedTypars.methodEnv (TyparScope.Member declaring.TypeKey) roots
 
-    /// Translate one member element into its `TTypeMember`s. The declaring type supplies
-    /// everything a class has and a union / record does not, so both hosts share this walk.
+    /// Translate one member element into its `TTypeMember`s, adding each generic member's own
+    /// typar markers to `env`, the decl's freeze env.
     let translateMemberElement
         (ctx: PassContext)
         (declaring: DeclaringType)
+        (env: ResizeArray<TyVarId * SemType>)
         (el: TypeDefnElement<SyntaxToken>)
         : TTypeMember[] =
         match el with
@@ -252,11 +249,14 @@ module internal ElaborateMembers =
 
                 let mi = registeredMemberOf declaring site
 
-                let methodTypeParams, methodTyparConstraints =
+                let methodTypars =
                     match decl.Defn with
                     // `ValueNone` is an auto-property; only a `Defn`-backed member can be generic.
-                    | ValueNone -> EqArray.empty, EqSet.empty
-                    | ValueSome _ -> methodTypeParamsOf ctx declaring mi
+                    | ValueNone -> TyparList.empty
+                    | ValueSome _ ->
+                        let typars, markers = methodTyparsOf ctx declaring mi
+                        env.AddRange markers
+                        typars
 
                 {
                     Name = decl.Name
@@ -280,8 +280,7 @@ module internal ElaborateMembers =
                         | ValueNone -> EqArray.empty
                     Body = declaring.LowerBody site decl.Body
                     ReturnTy = typeOfKey ctx (CstKeys.ofExpr decl.Body)
-                    MethodTypeParams = methodTypeParams
-                    MethodTyparConstraints = methodTyparConstraints
+                    MethodTypars = methodTypars
                     Attributes = attributes
                 }
             )
@@ -296,7 +295,7 @@ module internal ElaborateMembers =
             TypeParams = host.TypeParams
             Members = hostMembers host.Members host.InterfaceImpls
             ThisKey = host.ThisKey
-            ThisTy = host.MkSelfType EqArray.empty
+            ThisTy = host.MkSelfType(declTyparArgs ctx.Store host.TypeParams)
             BaseKey = ValueNone
             LowerBody = fun _ e -> translateExpr ctx e
         }
@@ -308,7 +307,7 @@ module internal ElaborateMembers =
         (ctx: PassContext)
         (host: IInterfaceImplHost)
         (ext: TypeExtensionElements<SyntaxToken> voption)
-        (elaborateOne: TTypeMember -> TTypeMember)
+        (env: ResizeArray<TyVarId * SemType>)
         : EqArray<TTypeMember> * EqArray<SemType * EqArray<TTypeMember>> =
         let declaring = nominalDeclaringType ctx host
 
@@ -316,8 +315,7 @@ module internal ElaborateMembers =
             EqArray.ofSeq (
                 seq {
                     for el in els do
-                        for m in translateMemberElement ctx declaring el do
-                            yield elaborateOne m
+                        yield! translateMemberElement ctx declaring env el
                 }
             )
 

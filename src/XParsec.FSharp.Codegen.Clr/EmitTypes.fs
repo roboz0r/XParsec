@@ -402,7 +402,7 @@ module EmitTypes =
             /// The binding's scheme: the emitted method-typar count and the constraints the
             /// call-site phantom-typar solve reads to recover a typar that no parameter or
             /// result mentions, like `fold`'s `'E`.
-            Scheme: GenericFnScheme
+            Scheme: FunctionScheme
         }
 
     /// A module-level value (`let x = e` at module scope) lowered to a `static`
@@ -434,7 +434,7 @@ module EmitTypes =
             /// recovers the instantiation by matching the flat parameter types, whose leaves
             /// are `FTTypar(ModuleFunction _, i)`, against the actual argument types, and
             /// solves a phantom typar from the constraints.
-            Scheme: GenericFnScheme
+            Scheme: FunctionScheme
             /// `true` ⇒ the method is CLR `void`: the `call` declares 0 results and a
             /// value-position consumer reifies a `unit` afterward.
             ReturnsVoid: bool

@@ -197,7 +197,7 @@ module UnificationInferOverload =
                         c.Params)
             )
 
-        // A generic candidate's OWN where-constraints (`ExternalConstraint.Encodable`)
+        // A generic candidate's OWN where-constraints (its typars' `ConstraintSet`s)
         // are NOT verified here: they are stamped on the fresh TyVars at the commit seam and
         // fire on the first `Link`, so a violated constraint surfaces as a commit error instead.
         match filterTier false with

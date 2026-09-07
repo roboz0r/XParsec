@@ -106,7 +106,7 @@ module internal ElaborateClassMembers =
             TypeParams = info.TypeParams
             Members = hostMembers info.Body.Members info.Body.InterfaceImpls
             ThisKey = info.ThisKey
-            ThisTy = TyClass(info.TypeKey, EqArray.empty)
+            ThisTy = classTy
             // `base` is in scope only when the class has an `inherit` clause; an instance
             // member then carries the shared `BaseKey` so a `base.M(...)` object argument resolves.
             BaseKey =

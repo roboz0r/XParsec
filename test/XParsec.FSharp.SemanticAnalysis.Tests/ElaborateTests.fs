@@ -443,12 +443,12 @@ let interfaceTests =
                 | EqList [ TDecl.Type td ] ->
                     Expect.equal td.Name "Fun" "type name"
                     Expect.equal td.TypeKey.Namespace.Dotted "Vesper" "namespace"
-                    Expect.equal (EqArray.toList (TTypeParam.names td.TypeParams)) [ "'A"; "'B" ] "declared typars"
+                    Expect.equal (EqArray.toList td.TypeParams.Names) [ "'A"; "'B" ] "declared typars"
 
                     match td.Kind with
                     | TTypeKind.Interface(EqList [ m ]) ->
                         Expect.equal m.Name "Invoke" "method name"
-                        Expect.isTrue m.MethodTypeParams.IsEmpty "Invoke has no method typars"
+                        Expect.isTrue m.MethodTypars.IsEmpty "Invoke has no method typars"
 
                         Expect.equal
                             m.Signature
@@ -470,12 +470,12 @@ let interfaceTests =
                 match tast.Decls with
                 | EqList [ TDecl.Type td ] ->
                     Expect.equal td.Name "Mapper" "type name"
-                    Expect.equal (EqArray.toList (TTypeParam.names td.TypeParams)) [ "'A" ] "declaring typar 'A only"
+                    Expect.equal (EqArray.toList td.TypeParams.Names) [ "'A" ] "declaring typar 'A only"
 
                     match td.Kind with
                     | TTypeKind.Interface(EqList [ m ]) ->
                         Expect.equal m.Name "Map" "method name"
-                        Expect.equal (EqArray.toList m.MethodTypeParams) [ "'B" ] "method's own typar 'B"
+                        Expect.equal (EqArray.toList m.MethodTypars.Names) [ "'B" ] "method's own typar 'B"
 
                         Expect.equal
                             m.Signature
@@ -560,7 +560,7 @@ let memberTyparOrderTests =
                     "returns (x * y) = (typar 0 * typar 1)"
 
                 Expect.equal
-                    [ for (n, _) in m.MethodTypeParams -> n ]
+                    (EqArray.toList m.MethodTypars.Names)
                     [ "M0"; "'a" ]
                     "names: synthetic body typar, preserved 'a"
             }
@@ -577,7 +577,7 @@ let memberTyparOrderTests =
                 | other -> failtestf "expected two params, got %A" other
 
                 Expect.equal
-                    [ for (n, _) in m.MethodTypeParams -> n ]
+                    (EqArray.toList m.MethodTypars.Names)
                     [ "'a"; "M0" ]
                     "names: declared 'a first, synthetic body typar"
             }
@@ -633,7 +633,7 @@ let unionCaseSyntaxTests =
                 match union tast with
                 | [ (td, EqList [ empty; cons ]) ] ->
                     Expect.equal td.Name "List" "type name"
-                    Expect.equal (EqArray.toList (TTypeParam.names td.TypeParams)) [ "'T" ] "one declared typar"
+                    Expect.equal (EqArray.toList td.TypeParams.Names) [ "'T" ] "one declared typar"
 
                     Expect.equal empty.Name "Empty" "`([])` is named Empty"
                     Expect.isTrue empty.Fields.IsEmpty "Empty is nullary"

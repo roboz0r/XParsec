@@ -62,7 +62,7 @@ module internal UnionLayoutNodes =
                     Kind = TypeSlotKind.UnionCase
                     Namespace = ""
                     MetaName = c.Name
-                    Typars = GenericParamRow.ofTypars (TTypeParam.names td.TypeParams) td.TyparConstraints
+                    Typars = GenericParamRow.ofTypars td.TypeParams
                 }
             Enclosing = ValueSome(TypeSlotKey.Nominal td.Key)
             Fields = fields
@@ -123,7 +123,7 @@ module internal UnionLayoutNodes =
                     }
                 )
                 (nestedFieldKeys td t)
-                (t.Fields(td.TypeKey, td.TypeParams.Length))
+                (t.Fields(td.TypeKey, td.TypeParams.TypeArity))
 
         {
             Slot =
@@ -134,7 +134,7 @@ module internal UnionLayoutNodes =
                     MetaName = t.MetaName td.TypeKey
                     Typars =
                         if t.IsGeneric then
-                            GenericParamRow.ofTypars (TTypeParam.names td.TypeParams) td.TyparConstraints
+                            GenericParamRow.ofTypars td.TypeParams
                         else
                             []
                 }
@@ -212,7 +212,7 @@ module internal UnionLayoutNodes =
                 let singletonCases = ud.SingletonCases
 
                 let selfTy =
-                    FTUnion(td.TypeKey, EqArray.ofList (declaringMarkers td.TypeKey td.TypeParams.Length))
+                    FTUnion(td.TypeKey, EqArray.ofList (declaringMarkers td.TypeKey td.TypeParams.TypeArity))
 
                 // A flat union's payload fields: `initonly` inline slots on its own `TypeDef`,
                 // or the one `_payload` field with the value types nested behind it. A
@@ -239,7 +239,7 @@ module internal UnionLayoutNodes =
                                     Key = FieldKey.UnionPayload td.Key
                                     Name = UnionPayloadType.payloadFieldName
                                     Attrs = instanceFieldAttrs FieldReach.Assembly FieldWrites.ByCtor
-                                    Ty = UnionPayloadType.payloadTyDeclaring td.TypeKey td.TypeParams.Length
+                                    Ty = UnionPayloadType.payloadTyDeclaring td.TypeKey td.TypeParams.TypeArity
                                     ClosureScope = ValueNone
                                 }
                             ],

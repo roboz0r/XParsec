@@ -89,9 +89,10 @@ module Elaborate =
         | ValueSome scheme -> not (List.isEmpty scheme.Quantified)
         | ValueNone -> false
 
-    /// Records `boundVar`'s scheme: `quantEnv`'s length as the arity, and its constraints with
-    /// each embedded type frozen over `quantEnv`, its typars as `FTTypar(ModuleFunction _, i)`.
-    let private recordGenericFnScheme
+    /// Records `boundVar`'s scheme: one positional typar per `quantEnv` entry, carrying the
+    /// constraints on the entry's root with each embedded type frozen over `quantEnv`, its
+    /// typars as `FTTypar(ModuleFunction _, i)`.
+    let private recordFunctionScheme
         (ctx: PassContext)
         (boundVar: BoundVarKey)
         (quantEnv: (TyVarId * SemType) list)
@@ -102,11 +103,8 @@ module Elaborate =
             let freezeTarget (t: SemType) : FrozenType =
                 FrozenTypeBridge.freeze ctx.Store (remapDeclTypars ctx.Store quantEnv t)
 
-            let constraints =
-                constraintsOfEnv ctx.Store quantEnv
-                |> EqSet.map (TyparConstraint.map freezeTarget)
-
-            ctx.GenericFnSchemes.Set(boundVar, GenericFnScheme.create (List.length quantEnv) constraints)
+            let typars = TyparList.map freezeTarget (quantEnvTyparList ctx.Store quantEnv)
+            ctx.FunctionSchemes.Set(boundVar, FunctionScheme.ofTypars typars)
 
     /// The binding's exportable identity, keyed by the name its source writes and carrying
     /// `[<CompiledName>]`'s as the name it emits under (`Set.empty` ⇒ `SetModule.Empty`).
@@ -292,7 +290,7 @@ module Elaborate =
             ValueNone
         else
             for v in values do
-                recordGenericFnScheme ctx v.BoundVar v.QuantEnv
+                recordFunctionScheme ctx v.BoundVar v.QuantEnv
 
             ValueSome(m, quantEnv)
 
@@ -459,7 +457,7 @@ module Elaborate =
             // Filled by the Pipeline once escape analysis has run.
             ClosureReprs = Map.empty
             FunVerdicts = Map.empty
-            GenericFnSchemes = emptyIfDegraded (ctx.GenericFnSchemes.AsDictionary())
+            FunctionSchemes = emptyIfDegraded (ctx.FunctionSchemes.AsDictionary())
             LocalOwners = localOwners ctx
             LocalSchemes = emptyIfDegraded (localSchemes ctx)
             Accessibility = EqDict.ofSeq ctx.Bindings.Accessibility

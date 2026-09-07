@@ -28,8 +28,51 @@ let private compileUnits (asmName: string) (units: AssemblyFiles.SourceUnit list
 let private compileFiles (asmName: string) (sources: AssemblyFiles.SourceFile list) : byte[] =
     compileUnits asmName (sources |> List.map SourceUnit.ofImplementation)
 
+/// The front-end diagnostics for a multi-file assembly; empty when it compiles.
+let private diagnoseFiles (asmName: string) (sources: AssemblyFiles.SourceFile list) : AnchoredDiagnostic list =
+    let external = ClrSymbolProviders.buildContract defaultPackages
+    let project = withCore (ProjectInfo.defaults asmName)
+    let units = sources |> List.map SourceUnit.ofImplementation
+
+    match ClrDriver.compileWith [] external project (ClrDriver.sourcesFor project Set.empty units) with
+    | Ok _ -> []
+    | Error diags -> diags
+
 let private compileTwoFiles (asmName: string) (file1: string) (file2: string) : byte[] =
     compileFiles asmName [ SourceFile.ofText "file1.fs" file1; SourceFile.ofText "file2.fs" file2 ]
+
+[<Tests>]
+let constraintTests =
+    testList
+        "CrossFile constraints"
+        [
+            // File 1's scheme publishes its typars' constraints, so file 2's call is checked
+            // against them as a single-file call is.
+            test "file 2's call violating file 1's `'a : not struct` constraint is refused" {
+                let file1 =
+                    "namespace CrossFile.Lib
+
+module M =
+    let onlyRef<'a when 'a: not struct> (x: 'a) = x
+"
+
+                let file2 =
+                    "open CrossFile.Lib.M
+
+let v = onlyRef 1
+ignore v
+"
+
+                let diags =
+                    diagnoseFiles
+                        "CrossFileConstraint"
+                        [ SourceFile.ofText "file1.fs" file1; SourceFile.ofText "file2.fs" file2 ]
+
+                Expect.isNonEmpty
+                    (mentioning "does not support the 'not struct' constraint" diags)
+                    (sprintf "file 2's call is refused; findings were %A" (diagnosticMessages diags))
+            }
+        ]
 
 [<Tests>]
 let tests =
