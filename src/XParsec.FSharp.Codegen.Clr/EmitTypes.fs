@@ -9,6 +9,22 @@ open XParsec.FSharp.Codegen.Common
 
 module EmitTypes =
 
+    /// How a closure's capture field receives its value.
+    [<RequireQualifiedAccess>]
+    type CaptureFill =
+        /// Pushed at the construction site and stored by the `.ctor`.
+        | ByCtor
+        /// The `.ctor` receives `null`. The `let rec … and …` group constructing the closure
+        /// stores the sibling once every member is bound.
+        | BackPatched
+
+    type Capture =
+        {
+            Key: BoundVarId
+            Ty: FrozenType
+            Fill: CaptureFill
+        }
+
     /// One synthesised closure class: a `System.Object` implementing
     /// `Vesper.Fun\`2<ParamTy, ResultTy>`. `Node`, its pool id, keys every `…ByNode` table.
     /// `Captures` order = field order = ctor-arg order = order pushed at construction.
@@ -24,7 +40,7 @@ module EmitTypes =
             ParamPat: TastAccessor.PatId
             ResultTy: FrozenType
             Body: TastAccessor.ExprId
-            Captures: (BoundVarId * FrozenType) list
+            Captures: Capture list
             /// Binding key of the `let [rec] f = <this lambda>` this is the value of. A
             /// recursive self-reference resolves to `this` (`ldarg.0`), so it is not
             /// captured. `ValueNone` for an anonymous lambda.
@@ -93,6 +109,53 @@ module EmitTypes =
     /// and every construction site `ldsfld`s that instead of allocating.
     let closureIsCached (c: Closure) : bool =
         List.isEmpty c.Captures && c.Typars = 0 && not c.IsValueStruct
+
+    /// The `Def` tokens of a MONOMORPHIC closure, valid in every body. A generic closure has
+    /// none: its `TypeSpec` and `MemberRef`s encode `FTTypar` relative to the referencing
+    /// body's typar slots, so `closureToken` mints them per site.
+    type EmittedClosure =
+        {
+            /// The `initobj` and `castclass` operand.
+            Type: EntityHandle
+            Ctor: EntityHandle
+            /// In `Closure.Captures` order.
+            CaptureFields: EntityHandle[]
+            /// The singleton field of a `closureIsCached` closure; construction `ldsfld`s it.
+            CachedField: EntityHandle voption
+            /// The synthetic encodable type of a value-struct closure's by-value local.
+            ValueType: FrozenType voption
+        }
+
+    /// A token of a closure as referenced from a body.
+    [<RequireQualifiedAccess>]
+    type ClosureToken =
+        | Type
+        | Ctor
+        /// By index into `Closure.Captures`.
+        | CaptureField of int
+
+    /// The token of `c` for the body being emitted: a monomorphic closure's `Def` token, or a
+    /// generic closure's `TypeSpec` / `MemberRef` minted under that body's typar slots.
+    let closureTokenWith
+        (provider: ICodegenProvider)
+        (closures: Dictionary<TastAccessor.ExprId, EmittedClosure>)
+        (c: Closure)
+        (which: ClosureToken)
+        : EntityHandle =
+        if c.Typars = 0 then
+            let emitted = closures.[c.Node]
+
+            match which with
+            | ClosureToken.Type -> emitted.Type
+            | ClosureToken.Ctor -> emitted.Ctor
+            | ClosureToken.CaptureField i -> emitted.CaptureFields.[i]
+        else
+            let args = c.Frame.Instantiation
+
+            match which with
+            | ClosureToken.Type -> provider.UserClosureTypeSpec(c.Name, args)
+            | ClosureToken.Ctor -> provider.UserClosureMemberRef(c.Name, args, ClosureMember.Ctor)
+            | ClosureToken.CaptureField i -> provider.UserClosureMemberRef(c.Name, args, ClosureMember.CaptureField i)
 
     /// One `ldfld` step of a union field's read path, over the field's identity `'h`: its
     /// layout `FieldKey` while the union is laid out, its `Def` token once emitted.
@@ -451,15 +514,8 @@ module EmitTypes =
             /// The pool that issued the ids in the bodies this context emits.
             Pool: PoolBuilder
             ClosureByNode: Dictionary<TastAccessor.ExprId, Closure>
-            CtorHandleByNode: Dictionary<TastAccessor.ExprId, EntityHandle>
-            /// A cached closure singleton field: a `Lambda` node here `ldsfld`s its one
-            /// shared instance instead of `newobj`ing per construction.
-            CachedClosureFieldByNode: Dictionary<TastAccessor.ExprId, EntityHandle>
-            /// A value-struct closure `Lambda` node → the synthetic encodable `FrozenType`
-            /// of its by-value local, and (`ClosureTypeDefByNode`) the closure-`TypeDef`
-            /// handle that is the `initobj` operand.
-            ClosureValueTypeByNode: Dictionary<TastAccessor.ExprId, FrozenType>
-            ClosureTypeDefByNode: Dictionary<TastAccessor.ExprId, EntityHandle>
+            /// Every MONOMORPHIC closure `Lambda` node → its `Def` tokens.
+            Closures: Dictionary<TastAccessor.ExprId, EmittedClosure>
             Unions: Dictionary<TypeKey, EmittedUnion>
             Records: Dictionary<TypeKey, EmittedRecord>
             Classes: Dictionary<TypeKey, EmittedClass>
@@ -487,14 +543,7 @@ module EmitTypes =
             Ctx: MetadataContext
             Slots: Dictionary<BoundVarId, int>
             ClosureByNode: Dictionary<TastAccessor.ExprId, Closure>
-            CtorHandleByNode: Dictionary<TastAccessor.ExprId, EntityHandle>
-            /// Cached closure singleton fields; a `Lambda` value here `ldsfld`s instead of
-            /// `newobj`ing.
-            CachedClosureFieldByNode: Dictionary<TastAccessor.ExprId, EntityHandle>
-            /// Value-struct closures: synthetic encodable `FrozenType` + closure-`TypeDef`
-            /// handle per value-struct `Lambda` node.
-            ClosureValueTypeByNode: Dictionary<TastAccessor.ExprId, FrozenType>
-            ClosureTypeDefByNode: Dictionary<TastAccessor.ExprId, EntityHandle>
+            Closures: Dictionary<TastAccessor.ExprId, EmittedClosure>
             Args: Dictionary<BoundVarId, int>
             SelfKey: BoundVarId voption
             /// The declaring VALUE TYPE of the member being emitted: `this` (`ldarg.0`)
@@ -526,6 +575,15 @@ module EmitTypes =
         else
             ILInstr.Ldloc slot
 
+    let closureToken (env: EmitEnv) (c: Closure) (which: ClosureToken) : EntityHandle =
+        closureTokenWith env.Provider env.Closures c which
+
+    /// The by-value type of `e` when it constructs a value-struct closure.
+    let closureValueType (env: EmitEnv) (e: TastAccessor.ExprId) : FrozenType voption =
+        match env.Closures.TryGetValue e with
+        | true, ec -> ec.ValueType
+        | false, _ -> ValueNone
+
     /// A `Var` bound to an addressable local slot in `env` → its slot index. The shared
     /// "is this an addressable local?" test in front of struct object-arg addressing, the
     /// `&`-address-of intrinsic, and the struct-argument spill, each with its own fallback.
@@ -553,10 +611,7 @@ module EmitTypes =
                 Ctx = ctx.Ctx
                 Slots = Dictionary<BoundVarId, int>()
                 ClosureByNode = ctx.ClosureByNode
-                CtorHandleByNode = ctx.CtorHandleByNode
-                CachedClosureFieldByNode = ctx.CachedClosureFieldByNode
-                ClosureValueTypeByNode = ctx.ClosureValueTypeByNode
-                ClosureTypeDefByNode = ctx.ClosureTypeDefByNode
+                Closures = ctx.Closures
                 Args = args
                 SelfKey = selfKey
                 SelfValueType = ValueNone

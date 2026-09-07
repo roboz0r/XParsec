@@ -71,6 +71,44 @@ module EmitBindings =
             bindPattern env b slot m.Pattern
             recur pos env b view.Body
 
+    /// `let rec a … and b … in body`. Slots for every member precede every member's value, and
+    /// each closure's back-patched sibling captures are stored once the whole group is bound.
+    /// Discovery rejects a non-function member, so every member's value is a closure.
+    let buildLetGroup (recur: RecurAt) (pos: ExprPos) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
+        let view = TastAccessor.exprLetGroup e
+
+        let slots =
+            view.Members
+            |> Array.map (fun m ->
+                let slot = b.Local m.Ty
+                env.Slots.[TastAccessor.letGroupMemberKey m] <- slot
+                slot
+            )
+
+        view.Members
+        |> Array.iteri (fun i m ->
+            recur ExprPos.Value env b m.Value
+            b.Add(ILInstr.Stloc slots.[i])
+        )
+
+        view.Members
+        |> Array.iteri (fun i m ->
+            let c = env.ClosureByNode.[m.Value]
+
+            c.Captures
+            |> List.iteri (fun j cap ->
+                match cap.Fill with
+                | CaptureFill.BackPatched ->
+                    b.Add(ILInstr.Ldloc slots.[i])
+                    b.Add(ILInstr.Castclass(closureToken env c ClosureToken.Type))
+                    buildVarLoad env b cap.Key
+                    b.Add(ILInstr.Stfld(closureToken env c (ClosureToken.CaptureField j)))
+                | CaptureFill.ByCtor -> ()
+            )
+        )
+
+        recur pos env b view.Body
+
     let buildUse (recur: RecurAt) (pos: ExprPos) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         let view = TastAccessor.exprUse e
         let pat = view.Pattern

@@ -1,4 +1,4 @@
-module XParsec.FSharp.Codegen.Clr.Tests.ClosureTests
+﻿module XParsec.FSharp.Codegen.Clr.Tests.ClosureTests
 
 open Vesper
 open Expecto
@@ -275,11 +275,8 @@ let tests =
                          + "printfn \"%d\" (test ())")
                 }
 
-            // `walkFreeRefs` scopes only `a`'s own name over `a`'s value, so the sibling `b`
-            // counts as a free reference of `a`'s closure and `buildHeapClosure` loads it
-            // while `b` still has no slot: "Emit: no binding for variable BoundVarId 2".
             yield
-                ptest "GAP: a local `let rec … and …` member captures its sibling before the sibling has a slot" {
+                test "a local `let rec … and …` member calls its sibling" {
                     runs
                         "0"
                         ("let run () =\n"
@@ -287,5 +284,83 @@ let tests =
                          + "    and b x = a x\n"
                          + "    a 3\n"
                          + "printfn \"%d\" (run ())")
+                }
+
+            // `a` captures `k` ahead of `b`, so the back-patched store must find its own
+            // capture field rather than the group's first.
+            yield
+                test "a local `let rec … and …` member captures an outer local beside its sibling" {
+                    runs
+                        "10"
+                        ("let run () =\n"
+                         + "    let k = 10\n"
+                         + "    let rec a x = if x = 0 then k else b (x - 1)\n"
+                         + "    and b x = a x\n"
+                         + "    a 3\n"
+                         + "printfn \"%d\" (run ())")
+                }
+
+            // Both members lift `'T` onto their own closure class, so each sibling field is
+            // reached through a `MemberRef` on the instantiated closure `TypeSpec`.
+            yield
+                test "a local `let rec … and …` group inside a generic member body" {
+                    runs
+                        "8"
+                        (String.concat
+                            "\n"
+                            [
+                                "type Box<'T>(v: 'T) ="
+                                "    member this.Count (f: 'T -> int) ="
+                                "        let rec a n = if n = 0 then f v else b (n - 1)"
+                                "        and b n = a n"
+                                "        a 3"
+                                "let box' = Box(7)"
+                                "printfn \"%d\" (box'.Count (fun x -> x + 1))"
+                            ])
+                }
+
+            // Each call constructs fresh closures and back-patches them, so the two calls
+            // see their own `k`.
+            yield
+                test "a local `let rec … and …` group is rebuilt on every call of its enclosing function" {
+                    runs
+                        "3"
+                        ("let run k =\n"
+                         + "    let rec a x = if x = 0 then k else b (x - 1)\n"
+                         + "    and b x = a x\n"
+                         + "    a 2\n"
+                         + "printfn \"%d\" (run 1 + run 2)")
+                }
+
+            // The group's names are bound inside `f`, so `f`'s closure captures `k` alone.
+            yield
+                test "a local `let rec … and …` group inside a closure body" {
+                    runs
+                        "5"
+                        ("let run () =\n"
+                         + "    let k = 5\n"
+                         + "    let f = fun n ->\n"
+                         + "        let rec a x = if x = 0 then k else b (x - 1)\n"
+                         + "        and b x = a x\n"
+                         + "        a n\n"
+                         + "    f 3\n"
+                         + "printfn \"%d\" (run ())")
+                }
+
+            // F# accepts this with FS0040 and checks the reference at runtime. `a`'s value is a
+            // call, so the inner lambda would read `b` while `b` is still unbound.
+            yield
+                test "a `let rec … and …` value member is rejected rather than reading an unbound sibling" {
+                    let src =
+                        "let wrap f = f\n"
+                        + "let run () =\n"
+                        + "    let rec a = wrap (fun x -> if x = 0 then 0 else b (x - 1))\n"
+                        + "    and b x = a x\n"
+                        + "    a 3\n"
+                        + "printfn \"%d\" (run ())"
+
+                    Expect.throwsC
+                        (fun () -> runs "0" src)
+                        (fun ex -> Expect.stringContains ex.Message "value recursion is not supported" "the rejection")
                 }
         ]

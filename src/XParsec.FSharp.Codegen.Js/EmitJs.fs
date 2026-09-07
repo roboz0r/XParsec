@@ -727,9 +727,8 @@ module EmitJs =
     and private groupBindings (ctx: WalkCtx) (members: TastAccessor.LetMemberView[]) : JsStatement list =
         [
             for m in members do
-                match m.Pattern with
-                | TastAccessor.PNamed k -> localBinding ctx.Pool k (emitBound ctx k m.Recursion m.Value)
-                | _ -> failwithf "EmitJs: unsupported `let rec … and …` member pattern %A" m.Pattern
+                let k = TastAccessor.letGroupMemberKey m
+                localBinding ctx.Pool k (emitBound ctx k m.Recursion m.Value)
         ]
 
     /// An expression in statement position. `Sequential` flattens; a `let` bound variable

@@ -391,6 +391,9 @@ type ClrProvider
         member _.UserClosureMemberRef(name, args, which) =
             generics.GenericClosureMemberRef(name, args, which)
 
+        member _.UserClosureTypeSpec(name, args) =
+            generics.GenericClosureTypeSpec(name, args)
+
         member _.TryEmitRecordCons(key, tyArgs, _fieldNames) =
             match ext.ExternalRecordCtor(key, tyArgs) with
             | ValueNone -> ValueNone

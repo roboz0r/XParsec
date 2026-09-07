@@ -257,51 +257,36 @@ module EmitConstruct =
         (closureFt: FrozenType)
         : unit =
         let closure = closureOf env e
-        let closureHandle = env.ClosureTypeDefByNode.[e]
+        let emitted = env.Closures.[e]
         let slot = b.Local closureFt
         b.Add(ILInstr.Ldloca slot)
 
         if List.isEmpty closure.Captures then
-            b.Add(ILInstr.Initobj closureHandle)
+            b.Add(ILInstr.Initobj emitted.Type)
         else
-            for (k, _) in closure.Captures do
-                buildVarLoad env b k
+            for cap in closure.Captures do
+                buildVarLoad env b cap.Key
 
-            let ctorHandle =
-                match env.CtorHandleByNode.TryGetValue e with
-                | true, ctor -> ctor
-                | false, _ ->
-                    failwith "Emit: value-struct closure constructor not yet emitted (leaves-first ordering broken)"
-
-            b.Add(ILInstr.Call(ctorHandle, List.length closure.Captures + 1, 0))
+            b.Add(ILInstr.Call(emitted.Ctor, List.length closure.Captures + 1, 0))
 
         b.Add(ILInstr.Ldloc slot)
 
-    /// A heap closure: push its captures, then `newobj` its ctor. A generic one routes the
-    /// `Newobj` through a `MemberRef` on `<closure>$n<args>`, `args` being its typars as
-    /// seen at THIS construction site.
+    /// A heap closure: push its captures, then `newobj` its ctor. A back-patched capture is
+    /// pushed as `null`.
     let private buildHeapClosure (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         let closure = closureOf env e
 
-        for (k, _) in closure.Captures do
-            buildVarLoad env b k
+        for cap in closure.Captures do
+            match cap.Fill with
+            | CaptureFill.ByCtor -> buildVarLoad env b cap.Key
+            | CaptureFill.BackPatched -> b.Add ILInstr.Ldnull
 
-        let ctorHandle =
-            if closure.Typars = 0 then
-                match env.CtorHandleByNode.TryGetValue e with
-                | true, ctor -> ctor
-                | false, _ -> failwith "Emit: closure constructor not yet emitted (leaves-first ordering broken)"
-            else
-                env.Provider.UserClosureMemberRef(closure.Name, closure.Frame.Instantiation, ClosureMember.Ctor)
-
-        b.Add(ILInstr.Newobj(ctorHandle, List.length closure.Captures))
+        b.Add(ILInstr.Newobj(closureToken env closure ClosureToken.Ctor, List.length closure.Captures))
 
     /// A `Lambda` value: construct its closure by value if it is a value-struct, else a
     /// stateless one `ldsfld`s the singleton cached for it, else `newobj` on the heap.
     let buildLambda (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
-        match env.ClosureValueTypeByNode.TryGetValue e with
-        | true, closureFt -> buildValueStructClosure env b e closureFt
-        | false, _ ->
-            match env.CachedClosureFieldByNode.TryGetValue e with
-            | true, cachedField -> b.Add(ILInstr.Ldsfld cachedField)
-            | false, _ -> buildHeapClosure env b e
+        match env.Closures.TryGetValue e with
+        | true, { ValueType = ValueSome closureFt } -> buildValueStructClosure env b e closureFt
+        | true, { CachedField = ValueSome cachedField } -> b.Add(ILInstr.Ldsfld cachedField)
+        | _ -> buildHeapClosure env b e

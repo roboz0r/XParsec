@@ -364,6 +364,10 @@ type ICodegenProvider =
     /// `<closure>$n`), instantiated at `args`. Closures carry no `SymbolKey`.
     abstract UserClosureMemberRef: name: string * args: FrozenType list * which: ClosureMember -> EntityHandle
 
+    /// The `TypeSpec` of an emitted *generic* closure `name` at `args`: the `castclass` operand
+    /// a construction site uses to reach the closure's own fields.
+    abstract UserClosureTypeSpec: name: string * args: FrozenType list -> EntityHandle
+
     /// A `MemberRef` to a *referenced-assembly* record's `.ctor`, instantiated at `tyArgs`,
     /// for a record declared in another package (`Vesper.Ref\`1` in `Vesper.Core.dll`).
     /// `ValueNone` ⇒ the record is unknown here.

@@ -16,10 +16,9 @@ open AssemblerScaffold
 type private FilePrelude =
     {
         Layout: FileLayout
-        CtorHandleByNode: Dictionary<TastAccessor.ExprId, EntityHandle>
-        CachedClosureFieldByNode: Dictionary<TastAccessor.ExprId, EntityHandle>
+        /// A value-struct closure `Lambda` node → the synthetic encodable `FrozenType` of
+        /// its by-value local.
         ClosureValueTypeByNode: Dictionary<TastAccessor.ExprId, FrozenType>
-        ClosureTypeDefByNode: Dictionary<TastAccessor.ExprId, EntityHandle>
         Verdict: ClosureVerdictRewrite.Rewrite
     }
 
@@ -133,23 +132,15 @@ type internal Assembler
 
         NominalRegistration.apply provider layoutHandles file
 
-        let ctorHandleByNode = Dictionary<TastAccessor.ExprId, EntityHandle>()
-
-        let cachedClosureFieldByNode = Dictionary<TastAccessor.ExprId, EntityHandle>()
-
-        // A captureless value-struct closure's synthetic encodable `FrozenType` and its
-        // `TypeDef` handle (the `initobj` operand). Minted NOW: the module-value field
-        // substitution reads the type while the up-front field pass encodes stored slots.
+        // A value-struct closure's synthetic encodable `FrozenType`. Minted NOW: the
+        // module-value field substitution reads the type while the up-front field pass
+        // encodes stored slots.
         let closureValueTypeByNode = Dictionary<TastAccessor.ExprId, FrozenType>()
-
-        let closureTypeDefByNode = Dictionary<TastAccessor.ExprId, EntityHandle>()
 
         for c in closures do
             if c.IsValueStruct then
                 let defHandle = toEntity (layoutHandles.TypeDefOf(TypeSlotKey.Closure c.Name))
-                let ft = provider.RegisterStackClosureValueType(c.Name, defHandle)
-                closureValueTypeByNode.[c.Node] <- ft
-                closureTypeDefByNode.[c.Node] <- defHandle
+                closureValueTypeByNode.[c.Node] <- provider.RegisterStackClosureValueType(c.Name, defHandle)
 
         // A numeric enum's case `Constant` values + its registry entry, both needed
         // before the field pass attaches the `Constant` rows.
@@ -215,10 +206,7 @@ type internal Assembler
 
         {
             Layout = file
-            CtorHandleByNode = ctorHandleByNode
-            CachedClosureFieldByNode = cachedClosureFieldByNode
             ClosureValueTypeByNode = closureValueTypeByNode
-            ClosureTypeDefByNode = closureTypeDefByNode
             Verdict = verdict
         }
 
@@ -350,16 +338,37 @@ type internal Assembler
         for mv in plan.ProgramMainValues do
             mainInitValues.[mv.Key] <- moduleValueFields.[mv.Key]
 
+        let closures = Dictionary<TastAccessor.ExprId, Emit.EmittedClosure>()
+
+        for c in file.Closures do
+            if c.Typars = 0 then
+                closures.[c.Node] <-
+                    {
+                        Type = toEntity (layoutHandles.TypeDefOf(TypeSlotKey.Closure c.Name))
+                        Ctor = toEntity (layoutHandles.MethodDefOf(MethodKey.ClosureCtor c.Name))
+                        CaptureFields =
+                            [|
+                                for i in 0 .. List.length c.Captures - 1 ->
+                                    toEntity fieldDefHandles.[FieldKey.ClosureCapture(c.Name, i)]
+                            |]
+                        CachedField =
+                            if Emit.closureIsCached c then
+                                ValueSome(toEntity fieldDefHandles.[FieldKey.ClosureCached c.Name])
+                            else
+                                ValueNone
+                        ValueType =
+                            match pre.ClosureValueTypeByNode.TryGetValue c.Node with
+                            | true, ft -> ValueSome ft
+                            | false, _ -> ValueNone
+                    }
+
         let emitCtx: Emit.EmitContext =
             {
                 Provider = icodegen
                 Ctx = ctx
                 Pool = file.Pool
                 ClosureByNode = file.ClosureByNode
-                CtorHandleByNode = pre.CtorHandleByNode
-                CachedClosureFieldByNode = pre.CachedClosureFieldByNode
-                ClosureValueTypeByNode = pre.ClosureValueTypeByNode
-                ClosureTypeDefByNode = pre.ClosureTypeDefByNode
+                Closures = closures
                 Unions = unions
                 Records = records
                 Classes = classes
@@ -581,24 +590,6 @@ type internal Assembler
                 fieldDefHandles
                 [ for f in files -> f.Layout.Partitioned ]
 
-    // Monomorphic: the construction-site `newobj` targets the ctor's `Def` directly. A
-    // generic closure mints a fresh `MemberRef` at the use site, so its entry stays unset.
-    member this.BindClosures(f: FileEmit) =
-        for c in f.Layout.Closures do
-            if c.Typars = 0 then
-                f.EmitCtx.CtorHandleByNode.[c.Node] <-
-                    toEntity (layoutHandles.MethodDefOf(MethodKey.ClosureCtor c.Name))
-
-            if Emit.closureIsCached c then
-                f.EmitCtx.CachedClosureFieldByNode.[c.Node] <-
-                    toEntity (fieldDefHandles.[FieldKey.ClosureCached c.Name])
-
-            // A value-struct closure's `FrozenType` + `TypeDef` handle were minted in the
-            // prelude, before the field pass. `RegisterStackClosureValueType` fails on a
-            // duplicate key, so this asserts presence rather than re-minting.
-            if c.IsValueStruct && not (f.EmitCtx.ClosureValueTypeByNode.ContainsKey c.Node) then
-                failwithf "Emit: value-struct closure '%s' was not pre-minted before the field pass" c.Name
-
     member this.PrepareInterfaces(f: FileEmit) =
         for (td, methods) in f.Layout.Partitioned.Interfaces do
             // The use-site table for a call on an interface-typed object arg: each method's
@@ -724,11 +715,7 @@ type internal Assembler
     // the enclosing function's `FTTypar(scope, i)` re-projects onto this class's `!i`.
     member this.PrepareClosures(f: FileEmit) =
         for c in f.Layout.Closures do
-            let captureFields = Dictionary<BoundVarId, EntityHandle>()
             let isGenericClosure = c.Typars > 0
-            // This closure's self-instantiation over its OWN typars (`!0 … !{n-1}`), the
-            // frame's leaves, for the capture-field `MemberRef`s on its self-`TypeSpec`.
-            let selfArgs = c.Frame.Instantiation
 
             // A `Stack` closure's ctor does NOT chain `System.Object::.ctor`, because
             // value types have none. A captureless one's ctor is a bare `ret`: construction is
@@ -738,20 +725,13 @@ type internal Assembler
             let prepare () =
                 let fieldHandles =
                     c.Captures
-                    |> List.mapi (fun i (k, _) ->
-                        let h = fieldDefHandles.[FieldKey.ClosureCapture(c.Name, i)]
-
-                        // Generic closure: `stfld` (ctor) and `ldfld` (`Invoke`) reference a
-                        // `MemberRef` on the self-`TypeSpec`; monomorphic keeps `Def`.
-                        let handleForUse =
-                            if isGenericClosure then
-                                icodegen.UserClosureMemberRef(c.Name, selfArgs, ClosureMember.CaptureField i)
-                            else
-                                toEntity h
-
-                        captureFields.[k] <- handleForUse
-                        handleForUse
+                    |> List.mapi (fun i _ ->
+                        Emit.closureTokenWith icodegen f.EmitCtx.Closures c (Emit.ClosureToken.CaptureField i)
                     )
+
+                let captureFields = Dictionary<BoundVarId, EntityHandle>()
+
+                List.iter2 (fun (cap: Emit.Capture) h -> captureFields.[cap.Key] <- h) c.Captures fieldHandles
 
                 let ctorMethodBody =
                     if isStack then
@@ -765,9 +745,9 @@ type internal Assembler
                 this.AddPrepared(
                     MethodKey.ClosureCtor c.Name,
                     {
-                        Signature = provider.ClosureCtorSignature(List.map snd c.Captures)
+                        Signature = provider.ClosureCtorSignature(c.Captures |> List.map (fun cap -> cap.Ty))
                         Body = ctorMethodBody
-                        ParamNames = paramNames f.EmitCtx.Pool (Seq.map fst c.Captures)
+                        ParamNames = paramNames f.EmitCtx.Pool (c.Captures |> Seq.map (fun cap -> cap.Key))
                         MethodTypars = []
                     }
                 )
@@ -789,12 +769,14 @@ type internal Assembler
 
                 // A cached closure's `.cctor` `newobj`s the ctor once and `stsfld`s the
                 // singleton field that construction sites `ldsfld`.
-                if Emit.closureIsCached c then
-                    let ctorHandle = toEntity (layoutHandles.MethodDefOf(MethodKey.ClosureCtor c.Name))
-                    let cachedField = toEntity (fieldDefHandles.[FieldKey.ClosureCached c.Name])
-
+                match f.EmitCtx.Closures.TryGetValue c.Node with
+                | true,
+                  {
+                      CachedField = ValueSome cachedField
+                      Ctor = ctor
+                  } ->
                     let cctorMethodBody =
-                        methodBody (Emit.buildCachedFieldCctor [ [ ILInstr.Newobj(ctorHandle, 0) ], cachedField ])
+                        methodBody (Emit.buildCachedFieldCctor [ [ ILInstr.Newobj(ctor, 0) ], cachedField ])
 
                     this.AddPrepared(
                         MethodKey.ClosureCctor c.Name,
@@ -805,6 +787,7 @@ type internal Assembler
                             MethodTypars = []
                         }
                     )
+                | _ -> ()
 
                 // `Fun\`2<param, result>` interface `TypeSpec`. The closure ambient is still
                 // installed, so free typars encode to `!i`. A flat (arity ≥2) closure

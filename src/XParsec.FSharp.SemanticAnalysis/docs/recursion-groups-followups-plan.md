@@ -308,14 +308,34 @@ oracle can be compared; and `poolLetGroup` re-derives `Ty` and `sink.Anchor m.To
   into one `Let` decl per member in source order, and `buildProgram` emits one `const` each.
 - The JS `ptest` is promoted. Four emission tests pin the four positions.
 
-### 6. CLR lowering
+### 6. CLR lowering — DONE
 
-- `walkFreeRefs` scopes every `LetGroup` member name over every member value.
-- `buildLet` for a `LetGroup`: allocate every member's closure and store its slot first, then
-  back-patch each closure's captured sibling fields. A closure capturing only itself needs no
-  patch. Reading `components` to patch only within a component is an optimisation, not a
-  correctness requirement, and is deferred.
-- Promote the CLR `ptest`.
+- `walkFreeRefs` scopes every `LetGroup` member name over every member value, so the group's
+  names are not free in the enclosing closure or method. `discoverClosures` threads an
+  `Anchor` through its walk: `Anonymous`, `Bound key`, or `GroupMember(key, siblings)`. A
+  member's value is walked under `GroupMember`, so a self-reference is `this` and a SIBLING
+  reference becomes a capture with `Fill = CaptureFill.BackPatched`.
+- Every group member must be a function. A value member (`let rec a = id (fun …)`, which F#
+  accepts under FS0040 with a runtime check) would read its sibling's slot before the group
+  is bound, so discovery rejects it. `components` is not read: a sibling in an earlier
+  component is back-patched too, and the store is redundant rather than wrong.
+- `EmitBindings.buildLetGroup` binds a slot per member first, emits the values in source
+  order, then stores each back-patched field: `ldloc` the member's slot, `castclass` the
+  closure's type, load the sibling, `stfld`. `buildHeapClosure` pushes `ldnull` for those
+  captures; a sibling is a function, so the field is always a reference type.
+- A back-patched capture field is `assembly` and not `initonly`, because the store is outside
+  the closure's `.ctor` and on another type; every other capture field keeps `private
+  initonly`. A value-struct closure is anonymous, so it never back-patches.
+- A monomorphic closure's `Def` tokens live in one `EmittedClosure` record per `Lambda` node
+  (`EmitContext.Closures`): type, ctor, capture fields, cached singleton field and
+  value-struct type, built once in `Assembler.completeFile`. A generic closure's `TypeSpec`
+  and `MemberRef`s encode `FTTypar` relative to the referencing body's typar slots, so
+  `EmitTypes.closureToken` mints them per site (via `ICodegenProvider.UserClosureTypeSpec`
+  and `UserClosureMemberRef`). That one function owns the mono/generic split; the
+  construction sites, `PrepareClosures` and the back-patch store all go through it.
+- The CLR `ptest` is promoted. Emission tests pin a member capturing an outer local ahead of
+  its sibling, a group inside a generic member body, a group rebuilt per call of its
+  enclosing function, a group inside a closure body, and the value-member rejection.
 
 ### 7. Close out
 

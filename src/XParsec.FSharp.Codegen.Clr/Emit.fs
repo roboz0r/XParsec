@@ -14,6 +14,11 @@ open EmitExpr
 module Emit =
 
     type Closure = EmitTypes.Closure
+    type Capture = EmitTypes.Capture
+    type CaptureFill = EmitTypes.CaptureFill
+    type EmittedClosure = EmitTypes.EmittedClosure
+    type ClosureToken = EmitTypes.ClosureToken
+    let closureTokenWith = EmitTypes.closureTokenWith
     type EmittedCase = EmitTypes.EmittedCase
     type EmittedMember = EmitTypes.EmittedMember
     type EmittedUnion = EmitTypes.EmittedUnion

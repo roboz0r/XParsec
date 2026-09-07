@@ -703,6 +703,14 @@ module TastAccessor =
         | PatPayload.NamedSimple(boundVar, _) -> ValueSome boundVar
         | _ -> ValueNone
 
+    /// The variable a `let rec … and …` member binds. F# rejects a destructuring pattern under
+    /// `let rec` (FS0873, FS3521); a `_` member binds no variable and is rejected here.
+    let letGroupMemberKey (m: LetMemberView) : BoundVarId =
+        match patBoundVar m.Pattern with
+        | ValueSome k -> k
+        | ValueNone ->
+            failwithf "TastAccessor: a `let rec … and …` member destructures its value (FS0873): %A" m.Pattern
+
     [<return: Struct>]
     let (|PNamed|_|) (p: PatId) : BoundVarId voption = patBoundVar p
 

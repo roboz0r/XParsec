@@ -107,13 +107,16 @@ module EmitCall =
             // which is stale once an argument became a value-struct closure, because that
             // argument still encodes to the `Fun`2` INTERFACE. Rebuild from the actual types.
             let recipeFnTy =
-                if appArgs |> List.exists (fun a -> env.ClosureValueTypeByNode.ContainsKey a.Arg) then
+                if
+                    appArgs
+                    |> List.exists (fun a -> ValueOption.isSome (closureValueType env a.Arg))
+                then
                     let argTys =
                         appArgs
                         |> List.map (fun a ->
-                            match env.ClosureValueTypeByNode.TryGetValue a.Arg with
-                            | true, closureFt -> closureFt
-                            | false, _ -> typeOfExpr a.Arg
+                            match closureValueType env a.Arg with
+                            | ValueSome closureFt -> closureFt
+                            | ValueNone -> typeOfExpr a.Arg
                         )
 
                     List.foldBack (fun a acc -> FTFun(a, acc)) argTys (typeOfExpr e)
@@ -217,8 +220,8 @@ module EmitCall =
                     // A closure fills a whole group, so its group's one flat slot is the typar.
                     List.iter2
                         (fun (a: TastAccessor.AppliedArg) (_, slotTys) ->
-                            match env.ClosureValueTypeByNode.TryGetValue a.Arg, slotTys with
-                            | (true, closureFt), [ FTFunctionTypar idx ] when idx >= 0 && idx < instArr.Length ->
+                            match closureValueType env a.Arg, slotTys with
+                            | ValueSome closureFt, [ FTFunctionTypar idx ] when idx >= 0 && idx < instArr.Length ->
                                 instArr.[idx] <- ValueSome closureFt
                             | _ -> ()
                         )

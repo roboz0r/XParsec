@@ -49,7 +49,7 @@ module EmitClosures =
 
     /// Walk `body`, invoking `onFree key ty` once per `Var` not shadowed by `bound`, which is
     /// mutated in place, so pass a private set. `let rec f = <lambda>` scopes `f` across its own
-    /// VALUE too: the self-reference is the closure's `this`, not a phantom capture.
+    /// VALUE, and a `let rec … and …` group scopes every member's name across every value.
     let private walkFreeRefs
         (lifted: LiftedCaptures)
         (bound: HashSet<BoundVarId>)
@@ -81,6 +81,15 @@ module EmitClosures =
             | TastAccessor.ELet letv ->
                 go letv.Binding.Value
                 scoped (patKeys letv.Binding.Pattern) (fun () -> go letv.Body)
+            | TastAccessor.ELetGroup g ->
+                scoped
+                    [ for m in g.Members -> TastAccessor.letGroupMemberKey m ]
+                    (fun () ->
+                        for m in g.Members do
+                            go m.Value
+
+                        go g.Body
+                    )
             | TastAccessor.EUse usev ->
                 go usev.Value
                 scoped (patKeys usev.Pattern) (fun () -> go usev.Body)
@@ -550,6 +559,22 @@ module EmitClosures =
             liftedCounter <- liftedCounter + 1
             name
 
+    /// The binding a walked value belongs to. A `Lambda` that is a `Bound` or `GroupMember`
+    /// value is that binding's closure, and its self-reference is `this`.
+    [<RequireQualifiedAccess>]
+    type private Anchor =
+        | Anonymous
+        | Bound of BoundVarId
+        /// A `let rec … and …` member. `siblings` are the group's other members, captured as
+        /// `CaptureFill.BackPatched`.
+        | GroupMember of key: BoundVarId * siblings: HashSet<BoundVarId>
+
+        member x.SelfKey: BoundVarId voption =
+            match x with
+            | Anonymous -> ValueNone
+            | Bound k
+            | GroupMember(k, _) -> ValueSome k
+
     /// Every `Lambda` in the lowered tree with its capture set, leaves-first: a closure comes
     /// before any closure that constructs it. A `staticFns` outer lambda and a `localSchemes`
     /// generalised local are not closures; the closures in their bodies inherit their frames.
@@ -622,9 +647,10 @@ module EmitClosures =
                 1
 
         // `enclosing` is the frame inherited from the enclosing method, closure or lifted
-        // local. `selfKey` is set on a `let f = …` value: its self-reference is `this`.
-        let rec go (enclosing: TyparFrame) (selfKey: BoundVarId voption) (e: TastAccessor.ExprId) =
+        // local.
+        let rec go (enclosing: TyparFrame) (anchor: Anchor) (e: TastAccessor.ExprId) =
             let currentTypars = enclosing.Count
+            let selfKey = anchor.SelfKey
 
             // A flat value-struct lambda of arity `2..4` peels its inner `Lambda` levels into
             // the SAME closure's extra params (one `Invoke(a,b,…)`), so those inner lambdas
@@ -648,7 +674,7 @@ module EmitClosures =
                     ValueNone
 
             (match flatInner with
-             | ValueSome inner -> go enclosing ValueNone inner
+             | ValueSome inner -> go enclosing Anchor.Anonymous inner
              | ValueNone ->
                  match e with
                  // A generic local: its lambda chain is the lifted method's parameters, not a
@@ -663,14 +689,33 @@ module EmitClosures =
                              Count = scheme.TyparArity
                          }
 
-                     go (enclosing.Push own) ValueNone fn.Body
+                     go (enclosing.Push own) Anchor.Anonymous fn.Body
                      registerLifted enclosing own fn captures
-                     go enclosing ValueNone letv.Body
+                     go enclosing Anchor.Anonymous letv.Body
                  // The bound variable anchors an inner closure to its name, scoped across the value.
                  | LetBoundLambda(k, value, body) ->
-                     go enclosing (ValueSome k) value
-                     go enclosing ValueNone body
-                 | _ -> iterChildren (go enclosing ValueNone) e) // children (and inner lambdas) first → leaves-first
+                     go enclosing (Anchor.Bound k) value
+                     go enclosing Anchor.Anonymous body
+                 // Back-patching defers a sibling reference to the member's `Invoke`, so a
+                 // non-function member is rejected. F# admits one with FS0040 and checks the
+                 // reference at runtime.
+                 | TastAccessor.ELetGroup g ->
+                     let keys = [ for m in g.Members -> TastAccessor.letGroupMemberKey m ]
+
+                     for m, k in Seq.zip g.Members keys do
+                         match TastAccessor.exprKind m.Value with
+                         | ExprShape.Lambda -> ()
+                         | _ ->
+                             failwithf
+                                 "Emit: a `let rec … and …` member is not a function; value recursion is not supported: %A"
+                                 m.Value
+
+                         let siblings = HashSet<BoundVarId>(keys)
+                         siblings.Remove k |> ignore
+                         go enclosing (Anchor.GroupMember(k, siblings)) m.Value
+
+                     go enclosing Anchor.Anonymous g.Body
+                 | _ -> iterChildren (go enclosing Anchor.Anonymous) e) // children (and inner lambdas) first → leaves-first
 
             let registerClosure
                 (p: BoundVarId)
@@ -735,7 +780,16 @@ module EmitClosures =
                     patKeys paramPat
                     @ (extraParams |> List.collect (fun (_, _, ppat) -> patKeys ppat))
 
-                let captures = freeVars liftedCaptures nonCaptured paramBound selfKey body
+                let captures =
+                    freeVars liftedCaptures nonCaptured paramBound selfKey body
+                    |> List.map (fun (k, ty) ->
+                        let fill =
+                            match anchor with
+                            | Anchor.GroupMember(_, siblings) when siblings.Contains k -> CaptureFill.BackPatched
+                            | _ -> CaptureFill.ByCtor
+
+                        { Key = k; Ty = ty; Fill = fill }
+                    )
 
                 // The codegen trigger, stricter than `Repr`, which is NOT consulted: an
                 // ANONYMOUS monomorphic lambda (a `let`-bound one keeps its heap shape) in a
@@ -799,16 +853,16 @@ module EmitClosures =
                         // ones, which inherit the method's typars.
                         let _, body = peelLambda letd.Binding.Value
 
-                        go (TyparFrame.ofFunction fn.BindingKey fn.Scheme.TyparArity) ValueNone body
-                    | false, _ -> go TyparFrame.empty (ValueSome k) letd.Binding.Value
-                | ValueNone -> go TyparFrame.empty ValueNone letd.Binding.Value
-            | TastAccessor.DExpression(e, _) -> go TyparFrame.empty ValueNone e
+                        go (TyparFrame.ofFunction fn.BindingKey fn.Scheme.TyparArity) Anchor.Anonymous body
+                    | false, _ -> go TyparFrame.empty (Anchor.Bound k) letd.Binding.Value
+                | ValueNone -> go TyparFrame.empty Anchor.Anonymous letd.Binding.Value
+            | TastAccessor.DExpression(e, _) -> go TyparFrame.empty Anchor.Anonymous e
             | _ -> ()
 
         // A member body sees no `selfKey`: the member dispatches as a call, not a captured
         // value.
         for root in memberRoots do
-            go root.Frame ValueNone root.Body
+            go root.Frame Anchor.Anonymous root.Body
 
         {
             Closures = [ for n in order -> lookup.[n] ]

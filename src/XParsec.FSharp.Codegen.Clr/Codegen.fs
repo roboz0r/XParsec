@@ -27,8 +27,6 @@ module Codegen =
             for cd in f.Layout.Partitioned.Classes do
                 NominalEmit.register asm (NominalEmissionInput.Class cd) cd.Decl cd.Members
 
-            asm.BindClosures f
-
         // Prepare, per file: build every signature + body against the resolved handles.
         // `PrepareMain` fires only for the file the layout gave the entry point.
         for f in asm.Files do
