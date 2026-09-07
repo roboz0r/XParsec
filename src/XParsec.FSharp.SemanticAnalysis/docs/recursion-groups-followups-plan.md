@@ -125,18 +125,30 @@ Dropped: "a `LetGroup` never has fewer than two members". Under D3 a `LetGroup` 
 construction invariant that remains, every member index in exactly one component, lands with
 the node in step 4.
 
-### 2. The SCC utility
+### 2. The SCC utility — DONE
 
-`Scc.fs` early in the `SemanticAnalysis` compile order, ahead of `Passes/Unification`, so
-`Regions` and the pool walk can also reach it, and both backends inherit it.
+`Scc.fs` sits after `Fifo.fs`, ahead of the pool walk, `Passes/Unification` and `Regions`, and
+both backends inherit it.
 
-- Input: node count and CSR adjacency (`xadj: int[]`, `adj: int[]`).
-- Output: `Components: EqArray<EqArray<int>>` in reverse topological order, and per node its
-  component index and whether it has a self-edge. Expose `isRecursive: int -> bool` as the
-  brainstorm specifies.
-- Iterative Tarjan with an explicit frame stack, per the brainstorm's §2 pseudocode.
-- Differential test against a small recursive reference implementation over random graphs,
-  asserting identical partitions and a valid reverse-topological order.
+- `Digraph.OfSuccessors(nodeCount, successors)` is the only constructor: it copies, sorts and
+  deduplicates each node's successors, and rejects a negative `nodeCount` or an out-of-range
+  successor. Step 3 builds its binding reference graph through it. A CSR-in constructor was
+  built and then dropped — no client holds flat arrays, and it carried the whole `xadj`
+  validation surface. Ascending, distinct successors make `Digraph.HasSelfEdge` a binary
+  search.
+- `Scc.compute : Digraph -> SccPartition`, with `Components: EqArray<SccComponent>` in reverse
+  topological order and `ComponentIndex` per node, which orders the components it indexes.
+  `SccPartition.ComponentOf node` takes both hops, so no consumer spells the composition and
+  indexing `Components` by a node cannot be written. `SccComponent` is
+  `Cycle of members: EqArray<int> | Acyclic of node: int`, so a component states whether its
+  members are recursive and `Scc.isRecursive` is a match. The brainstorm's per-node self-edge
+  array was dropped: a self-edge only ever decides a singleton, and a multi-member component is
+  recursive regardless.
+- Iterative Tarjan with an explicit frame stack, per the brainstorm's §2 pseudocode, over
+  `Successors` spans with a per-frame cursor relative to the node's row.
+- `SccTests`: differential against a recursive Kosaraju over 1000 random graphs, asserting
+  identical partitions, reverse topological order, self-edges and `isRecursive`, plus a
+  200000-node chain that pins the explicit stack.
 
 ### 3. Components in inference
 
@@ -148,8 +160,10 @@ In `inferBindingGroup`:
   component's TyVars, bar polymorphic recursion within the component only, infer, exit,
   settle traits, generalise.
 - Record the components per group in `ctx.Bindings`, keyed by the group's first pattern key,
-  as `EqArray<EqArray<int>>` over source-order member indices, in reverse topological order.
-  Self-edges are not recorded here; the pool walk classifies them per member (D4a).
+  as `EqArray<EqArray<int>>` over source-order member indices, in reverse topological order,
+  mapping each `SccComponent` through `.Members`. The `Cycle`/`Acyclic` classification is
+  dropped at this boundary; the pool walk classifies recursion per member (D4a). The D6 warning
+  below reads it before the mapping.
 
 - Emit the D6 warning from the recorded components: more than one component, or a single
   component without a self-edge under `rec`.
