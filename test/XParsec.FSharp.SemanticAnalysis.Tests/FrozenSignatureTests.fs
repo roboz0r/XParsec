@@ -185,13 +185,13 @@ let tests =
 
                 match store.TryLookupByKey totalKey with
                 | ValueSome s ->
-                    Expect.equal s.TyparArity 0 "total is monomorphic"
+                    Expect.equal s.TyparArity 0<typeSlot> "total is monomorphic"
                     // The scope resolves the SAME entry through the container that declares it.
                     Expect.isTrue (resolver.Scope.TryValue totalKey).IsSome "total resolves through its container"
                 | ValueNone -> failtest "total did not project"
 
                 match store.TryLookupByKey(bindingKey frozen "ident") with
-                | ValueSome s -> Expect.equal s.TyparArity 1 "ident has one typar"
+                | ValueSome s -> Expect.equal s.TyparArity 1<typeSlot> "ident has one typar"
                 | ValueNone -> failtest "ident did not project"
             }
 

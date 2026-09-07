@@ -201,14 +201,39 @@ type TyparKind =
     | Type
     | Measure
 
+/// Indexes `TyparList.Order`: one position per parameter of either kind, in the order the
+/// declaration writes them. A written `<'a, 'u>` argument list and `TypeKey.TyparArity` count
+/// these.
+[<Measure>]
+type sigSlot
+
+/// Indexes `TyparList.Types`. A typar leaf carries one, and the CLR emits one `GenericParam`
+/// row per slot.
+[<Measure>]
+type typeSlot
+
+/// Indexes `TyparList.Measures`. Both backends erase these parameters.
+[<Measure>]
+type measureSlot
+
+[<RequireQualifiedAccess>]
+module TyparIndex =
+
+    let sigSlot (i: int) : int<sigSlot> = LanguagePrimitives.Int32WithMeasure i
+
+    let typeSlot (i: int) : int<typeSlot> = LanguagePrimitives.Int32WithMeasure i
+
+    let measureSlot (i: int) : int<measureSlot> = LanguagePrimitives.Int32WithMeasure i
+
 /// A type parameter's name.
 [<RequireQualifiedAccess>]
 type TyparName =
     /// Source text, leading `'`/`^` included (`'a`).
     | Written of string
     /// The `i`th parameter of a declaration known only by arity: a TypeScript manifest export,
-    /// an intrinsic binding, an unresolved reference.
-    | Positional of int
+    /// an intrinsic binding, an unresolved reference. Such a declaration has only type-kinded
+    /// parameters.
+    | Positional of int<typeSlot>
 
     /// The name as source spells it: the written text, or `'T<i>` for a positional parameter.
     member this.Display: string =
@@ -345,8 +370,8 @@ type MeasureTypar = { Name: TyparName }
 /// One source-order position of a `TyparList`: an index into `Types` or into `Measures`.
 [<RequireQualifiedAccess>]
 type TyparSlot =
-    | Type of int
-    | Measure of int
+    | Type of typeSlot: int<typeSlot>
+    | Measure of measureSlot: int<measureSlot>
 
     member this.Kind: TyparKind =
         match this with
@@ -357,19 +382,21 @@ type TyparSlot =
 /// indexes `Types`; the CLR encodes `Types` alone.
 type TyparListG<'ty> =
     {
-        Types: Block<TypeTyparG<'ty>>
-        Measures: Block<MeasureTypar>
+        Types: BlockM<TypeTyparG<'ty>, typeSlot>
+        Measures: BlockM<MeasureTypar, measureSlot>
         /// Source order, one slot per parameter.
-        Order: Block<TyparSlot>
+        Order: BlockM<TyparSlot, sigSlot>
     }
 
     /// The arity: one per parameter of either kind.
-    member this.Length: int = this.Order.Length
+    member this.Length: int = int this.Order.Length
 
     member this.IsEmpty: bool = this.Order.IsEmpty
 
     /// The type-kinded count: the arity a backend that erases measures emits.
-    member this.TypeArity: int = this.Types.Length
+    member this.TypeArity: int<typeSlot> = this.Types.Length
+
+    member this.MeasureArity: int<measureSlot> = this.Measures.Length
 
     member this.HasTypeTypars: bool = not this.Types.IsEmpty
 
@@ -378,7 +405,7 @@ type TyparListG<'ty> =
         this.Types |> Block.exists (fun t -> not t.Constraints.IsEmpty)
 
     /// Each parameter's display name, in source order.
-    member this.Names: Block<string> =
+    member this.Names: BlockM<string, sigSlot> =
         this.Order
         |> Block.map (fun slot ->
             match slot with
@@ -399,8 +426,15 @@ type DeclaredTypar =
 [<RequireQualifiedAccess>]
 module DeclaredTypar =
 
-    /// The prototype variables, in declaration order.
-    let protos (typars: Block<DeclaredTypar>) : Block<TyVarId> = typars |> Block.map (fun t -> t.TyVar)
+    let typeArity (typars: Block<DeclaredTypar>) : int<typeSlot> =
+        typars
+        |> Block.fold
+            (fun n tp ->
+                match tp.Kind with
+                | TyparKind.Type -> n + 1<typeSlot>
+                | TyparKind.Measure -> n
+            )
+            0<typeSlot>
 
     let names (typars: Block<DeclaredTypar>) : Block<string> = typars |> Block.map (fun t -> t.Name)
 
@@ -415,52 +449,77 @@ module TyparList =
         }
 
     /// Each parameter's kind, in source order.
-    let kinds (typars: TyparListG<'ty>) : Block<TyparKind> =
+    let kinds (typars: TyparListG<'ty>) : BlockM<TyparKind, sigSlot> =
         typars.Order |> Block.map (fun s -> s.Kind)
 
-    /// The display names of the type-kinded parameters, by `Types` index.
-    let typeNames (typars: TyparListG<'ty>) : Block<string> =
+    /// The display names of the type-kinded parameters, in `Types` order.
+    let typeNames (typars: TyparListG<'ty>) : BlockM<string, typeSlot> =
         typars.Types |> Block.map (fun t -> t.Name.Display)
 
-    /// The list over `(name, kind)` pairs in source order, every type-kinded parameter
-    /// constrained by `constraintsAt` its source position.
-    let ofKinded (constraintsAt: int -> ConstraintSetG<'ty>) (typars: seq<string * TyparKind>) : TyparListG<'ty> =
+    /// The `Types` index of the parameter at signature position `slot`. `ValueNone` for a
+    /// measure-kinded parameter, or a position past the arity.
+    let typeSlotOf (typars: TyparListG<'ty>) (slot: int<sigSlot>) : int<typeSlot> voption =
+        match Block.tryItem slot typars.Order with
+        | ValueSome(TyparSlot.Type i) -> ValueSome i
+        | ValueSome(TyparSlot.Measure _)
+        | ValueNone -> ValueNone
+
+    /// The `Measures` index of the parameter at signature position `slot`. `ValueNone` for a
+    /// type-kinded parameter, or a position past the arity.
+    let measureSlotOf (typars: TyparListG<'ty>) (slot: int<sigSlot>) : int<measureSlot> voption =
+        match Block.tryItem slot typars.Order with
+        | ValueSome(TyparSlot.Measure i) -> ValueSome i
+        | ValueSome(TyparSlot.Type _)
+        | ValueNone -> ValueNone
+
+    /// The signature position `slot` occupies.
+    let sigSlotOf (typars: TyparListG<'ty>) (slot: TyparSlot) : int<sigSlot> voption =
+        typars.Order |> Block.tryFindIndex (fun s -> s = slot)
+
+    /// The list over `elements` in source order, each element read for its name, its kind and
+    /// — when it is type-kinded — its constraints.
+    let private ofElements
+        (nameOf: 'a -> string)
+        (kindOf: 'a -> TyparKind)
+        (constraintsOf: 'a -> ConstraintSetG<'ty>)
+        (elements: seq<'a>)
+        : TyparListG<'ty> =
         let types = ResizeArray<TypeTyparG<'ty>>()
         let measures = ResizeArray<MeasureTypar>()
         let order = ResizeArray<TyparSlot>()
 
-        for (name, kind) in typars do
-            match kind with
+        for e in elements do
+            match kindOf e with
             | TyparKind.Type ->
-                order.Add(TyparSlot.Type types.Count)
+                order.Add(TyparSlot.Type(TyparIndex.typeSlot types.Count))
 
                 types.Add
                     {
-                        Name = TyparName.Written name
-                        Constraints = constraintsAt (order.Count - 1)
+                        Name = TyparName.Written(nameOf e)
+                        Constraints = constraintsOf e
                     }
             | TyparKind.Measure ->
-                order.Add(TyparSlot.Measure measures.Count)
+                order.Add(TyparSlot.Measure(TyparIndex.measureSlot measures.Count))
 
                 measures.Add
                     {
-                        MeasureTypar.Name = TyparName.Written name
+                        MeasureTypar.Name = TyparName.Written(nameOf e)
                     }
 
         {
-            Types = Block.ofSeq types
-            Measures = Block.ofSeq measures
-            Order = Block.ofSeq order
+            Types = Block.ofResizeArray types
+            Measures = Block.ofResizeArray measures
+            Order = Block.ofResizeArray order
         }
 
     /// The list over written, unconstrained parameters in source order.
     let ofSeq (typars: seq<string * TyparKind>) : TyparListG<'ty> =
-        ofKinded (fun _ -> ConstraintSet.empty) typars
+        ofElements fst snd (fun _ -> ConstraintSet.empty) typars
 
     /// The list over a declaration's typars, each type-kinded one constrained by
     /// `constraintsOf` its declaration.
     let ofDeclared (constraintsOf: DeclaredTypar -> ConstraintSetG<'ty>) (ts: Block<DeclaredTypar>) : TyparListG<'ty> =
-        ofKinded (fun i -> constraintsOf ts.[i]) (seq { for t in ts -> t.Name, t.Kind })
+        ofElements (fun (t: DeclaredTypar) -> t.Name) (fun t -> t.Kind) constraintsOf ts
 
     /// The list over a declaration's typars, unconstrained.
     let unconstrained (ts: Block<DeclaredTypar>) : TyparListG<'ty> =
@@ -471,11 +530,11 @@ module TyparList =
         ofSeq (seq { for n in names -> n, TyparKind.Type })
 
     /// `n` type-kinded parameters, positionally named, each constrained by `constraintsAt`
-    /// its index.
-    let positionalWith (constraintsAt: int -> ConstraintSetG<'ty>) (n: int) : TyparListG<'ty> =
+    /// its index. With no measure-kinded parameter, signature position `i` is type slot `i`.
+    let positionalWith (constraintsAt: int<typeSlot> -> ConstraintSetG<'ty>) (n: int<typeSlot>) : TyparListG<'ty> =
         match n with
-        | 0 -> empty
-        | n ->
+        | 0<_> -> empty
+        | _ ->
             {
                 Types =
                     Block.init
@@ -487,11 +546,11 @@ module TyparList =
                             }
                         )
                 Measures = Block.empty
-                Order = Block.init n TyparSlot.Type
+                Order = Block.init (TyparIndex.sigSlot (int n)) (fun i -> TyparSlot.Type(TyparIndex.typeSlot (int i)))
             }
 
     /// `n` type-kinded parameters, positionally named and unconstrained.
-    let positional (n: int) : TyparListG<'ty> =
+    let positional (n: int<typeSlot>) : TyparListG<'ty> =
         positionalWith (fun _ -> ConstraintSet.empty) n
 
     let map (f: 'a -> 'b) (typars: TyparListG<'a>) : TyparListG<'b> =
@@ -514,14 +573,18 @@ module TyparList =
             ConstraintSet.iter f t.Constraints
 
     /// Every `Coercion` supertype, paired with the `Types` index of the typar it constrains.
-    let coercions (typars: TyparListG<'ty>) : (int * 'ty) list =
-        [
-            for i in 0 .. typars.Types.Length - 1 do
-                for kind in typars.Types.[i].Constraints.Kinds do
-                    match TyparConstraintKind.tryCoercion kind with
-                    | ValueSome target -> i, target
-                    | ValueNone -> ()
-        ]
+    let coercions (typars: TyparListG<'ty>) : Block<int<typeSlot> * 'ty> =
+        let acc = ResizeArray<int<typeSlot> * 'ty>()
+
+        typars.Types
+        |> Block.iteri (fun i t ->
+            for kind in t.Constraints.Kinds do
+                match TyparConstraintKind.tryCoercion kind with
+                | ValueSome target -> acc.Add(i, target)
+                | ValueNone -> ()
+        )
+
+        Block.ofResizeArray acc
 
 /// A generalised binding's identity within its file, minted when the binding generalises
 /// and dense in generalisation order. Stable across re-generalisation of the same binding.

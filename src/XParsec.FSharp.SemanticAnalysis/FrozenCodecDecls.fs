@@ -658,12 +658,12 @@ module FrozenCodecDecls =
         | b -> failwithf "FrozenCodec: unknown ArgGroup tag %d" b
 
     let writeValRepr (w: FrozenWriter) (v: PooledValRepr) =
-        w.Write v.Typars
+        w.Write(int v.Typars)
         writeListWith w writeArgGroup v.Groups
         writeTypeRef w v.ResultTy
 
     let readValRepr (r: FrozenReader) : PooledValRepr =
-        let typars = r.ReadInt32()
+        let typars = TyparIndex.typeSlot (r.ReadInt32())
         let groups = readListWith r readArgGroup
         let resultTy = readTypeRef r
 

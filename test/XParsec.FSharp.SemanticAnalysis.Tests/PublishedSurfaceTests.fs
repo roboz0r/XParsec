@@ -15,7 +15,11 @@ let private key (ns: string) (name: string) (arity: int) : TypeKey =
 
 let private shapeOf (arity: int) : ExternalTypeShape =
     ExternalTypeShape.Class(
-        ExternalClassShape.basic (TyparList.positional arity, ClassCommitment.Class, SymbolOrigin.Empty)
+        ExternalClassShape.basic (
+            TyparList.positional (TyparIndex.typeSlot arity),
+            ClassCommitment.Class,
+            SymbolOrigin.Empty
+        )
     )
 
 /// A builder holding three types and two union cases, filled in the order given, so the same
@@ -99,7 +103,7 @@ let tests =
                 let tupled () =
                     let elem = ExternalSignature.unfreezable "test placeholder"
                     let pair = FTTuple(Block.ofArray [| elem; elem |])
-                    ValueSome(TastLower.externalValRepr 0 [ (2, pair) ] elem)
+                    ValueSome(TastLower.externalValRepr 0<_> [ (2, pair) ] elem)
 
                 Expect.equal (symbol ValueNone) (symbol ValueNone) "everything BUT the handles compares by contents"
 
@@ -115,7 +119,7 @@ let tests =
                 let union =
                     ExternalTypeShape.Union
                         {
-                            Typars = TyparList.positional 1
+                            Typars = TyparList.positional 1<typeSlot>
                             Cases =
                                 Block.ofList
                                     [

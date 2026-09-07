@@ -137,7 +137,7 @@ module NameResolutionUnionRegistration =
             typeParams
             (fun () ->
                 match typarConstraints with
-                | ValueSome cs -> translateConstraints ctx cs
+                | ValueSome cs -> translateConstraints ctx typeParams cs
                 | ValueNone -> ()
 
                 for UnionTypeCase(attributes = caseAttrs; data = data) in cases do

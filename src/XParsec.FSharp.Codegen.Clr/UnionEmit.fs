@@ -538,7 +538,7 @@ module internal UnionEmit =
                 asm
                 td
                 (UnionCaseType.key td.TypeKey caseName)
-                (UserMemberKind.Member(UnionCaseSlot.metaName slot, false, 0, paramTys, retTy))
+                (UserMemberKind.Member(UnionCaseSlot.metaName slot, false, 0<_>, paramTys, retTy))
                 (toEntity (asm.MethodDef(MethodKey.UnionCaseStructural(td.Key, caseName, slot))))
 
         for slot in UnionCaseSlot.required self.Members do

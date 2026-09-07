@@ -333,6 +333,15 @@ let x: Box<m> = { V = 1 }
 "
                     }
 
+                    // FS0703: "Expected type parameter, not unit-of-measure parameter".
+                    test "a `when` clause on a measure-kinded parameter is an error" {
+                        expectUserErrorReportedAlone
+                            "Expected type parameter, not unit-of-measure parameter"
+                            "\
+type Pair<[<Measure>] 'u, 'a when 'u: equality> = { V: 'a }
+"
+                    }
+
                     // FS0704 again: a measure claim in TYPE position.
                     test "a measure in type position is an error" {
                         expectUserErrorReportedAlone

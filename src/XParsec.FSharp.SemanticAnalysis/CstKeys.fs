@@ -36,6 +36,12 @@ module CstKeys =
         | Measure.Reciprocal(t, _)
         | Measure.Paren(t, _, _) -> t
 
+    let typarToken (t: Typar<SyntaxToken>) : SyntaxToken voption =
+        match t with
+        | Typar.Named(ident = id)
+        | Typar.Static(ident = id) -> ValueSome id
+        | Typar.Anon _ -> ValueNone
+
     let firstTokenOfConstant (c: Constant<SyntaxToken>) : SyntaxToken =
         match c with
         | Constant.Literal t -> t

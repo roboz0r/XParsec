@@ -33,7 +33,7 @@ type internal GenericUnionCase =
 /// their `Def` tokens suffice.
 type internal GenericUnionShape =
     {
-        Typars: Block<string>
+        Typars: BlockM<string, typeSlot>
         /// Per case, each logical field's `(FSC-spelled name, declared type)`: a hierarchy
         /// case type's own field rows, and every case factory's parameter types.
         Cases: Block<GenericUnionCase>
@@ -63,7 +63,7 @@ type internal GenericRecordField =
 /// A *generic* user record: typar names + fields in declaration order.
 type internal GenericRecordShape =
     {
-        Typars: Block<string>
+        Typars: BlockM<string, typeSlot>
         Fields: Block<GenericRecordField>
     }
 
@@ -72,7 +72,7 @@ type internal GenericRecordShape =
 /// `CtorParamCount` of them are the primary ctor's parameters; the rest are not ctor args.
 type internal GenericClassShape =
     {
-        Typars: Block<string>
+        Typars: BlockM<string, typeSlot>
         CtorParamCount: int
         Fields: Block<string * FrozenType>
     }
@@ -542,13 +542,14 @@ type internal ClrEnv
     // Closures have no `SymbolKey` (synthetic names), so they stay string-keyed.
     let genericClosures = Dictionary<string, GenericClosureShape>()
 
-    let arityOfMetaName (name: string) : int =
+    /// The `GenericParam` row count a `` Name`n `` metadata name carries; `0` without a suffix.
+    let arityOfMetaName (name: string) : int<typeSlot> =
         match name.LastIndexOf '`' with
         | i when i >= 0 ->
             match System.Int32.TryParse(name.Substring(i + 1)) with
-            | true, n -> n
-            | _ -> 0
-        | _ -> 0
+            | true, n -> TyparIndex.typeSlot n
+            | _ -> 0<typeSlot>
+        | _ -> 0<typeSlot>
 
     let externalAsmRef (origin: SymbolHome) : EntityHandle =
         // The CLR emits ONE PE per assembly, so a home refined to its declaring file

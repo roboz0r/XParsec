@@ -146,7 +146,8 @@ module SignatureResolutionMembers =
             implicitTyparNames ctx known m.TyparDefns (fun it -> CstTypeWalk.iterTypeCurriedSig it m.Signature)
 
         let ownTypars = mkMethodTypars ctx.Store (explicit @ implicit)
-        let declArity = declTypars.Length
+        let declArity = DeclaredTypar.typeArity declTypars
+        let methodArity = DeclaredTypar.typeArity ownTypars
 
         let domains, ret =
             underTypars ctx declTypars ownTypars (fun () -> translateSigGroups ctx m.Signature)
@@ -158,21 +159,19 @@ module SignatureResolutionMembers =
         let signature, kind, storage =
             match m.Form with
             | SigMemberForm.Setter ->
-                ExternalSignature.setter declArity ownTypars.Length frozenDomains frozenRet,
+                ExternalSignature.setter declArity methodArity frozenDomains frozenRet,
                 MemberKind.Method,
                 MemberStorage.Method
             | SigMemberForm.Property ->
-                ExternalSignature.value (declArity, ownTypars.Length, frozenRet),
-                MemberKind.Property,
-                MemberStorage.Property
+                ExternalSignature.value (declArity, methodArity, frozenRet), MemberKind.Property, MemberStorage.Property
             | SigMemberForm.Method ->
-                ExternalSignature.ofGroups (declArity, ownTypars.Length, frozenDomains, frozenRet),
+                ExternalSignature.ofGroups (declArity, methodArity, frozenDomains, frozenRet),
                 MemberKind.Method,
                 MemberStorage.Method
 
         let argSig = ExternalSignature.argSigOf signature
 
-        { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey m.Name argSig ownTypars.Length kind) with
+        { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey m.Name argSig (int methodArity) kind) with
             IsStatic = m.IsStatic
             Storage = storage
             Signature = signature
@@ -212,7 +211,7 @@ module SignatureResolutionMembers =
 
             ExternalMember.ctor
                 declKey
-                (ExternalSignature.make (declTypars.Length, 0, parameters, ret))
+                (ExternalSignature.make (DeclaredTypar.typeArity declTypars, 0<_>, parameters, ret))
                 (ExternalSignature.argSigOfParameters parameters)
                 SymbolOrigin.Empty
                 []

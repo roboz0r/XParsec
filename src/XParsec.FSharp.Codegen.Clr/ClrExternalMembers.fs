@@ -25,7 +25,7 @@ type internal OpenMemberSignature =
         /// A property is minted as its `get_<name>` accessor, which takes no parameters.
         IsProperty: bool
         IsStatic: bool
-        MethodTyparArity: int
+        MethodTyparArity: int<typeSlot>
     }
 
     static member OfMember(m: ExternalMember) : OpenMemberSignature =
@@ -92,7 +92,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                 openParams (sprintf "external member '%s'" memberName) sig_.ParameterCount sig_.TupledParameters
 
             BlobEncoder(s)
-                .MethodSignature(genericParameterCount = sig_.MethodTyparArity, isInstanceMethod = not isStatic)
+                .MethodSignature(genericParameterCount = int sig_.MethodTyparArity, isInstanceMethod = not isStatic)
                 .Parameters(
                     List.length paramTys,
                     // A `System.Void` return surfaces as `FTUnit`, but encoding it as
@@ -193,7 +193,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
             // Only the member's own typars are recovered here; declaring arity 0 leaves the
             // template's `FTTypar(Type _, i)` slots to encode as `!i` when the blob is minted.
             let _, methodArgs =
-                recoverOpenTypars 0 sig_.MethodTyparArity (ExternalSignature.openTemplate chosen.Signature) memberTy
+                recoverOpenTypars 0<_> sig_.MethodTyparArity (ExternalSignature.openTemplate chosen.Signature) memberTy
 
             let parent = typeSpecOf declTy
 
@@ -226,7 +226,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                 | ValueSome dt -> typeSpecOf dt
                 | ValueNone ->
                     let declTyparArity = arityOfMetaName name
-                    let declArgs, _ = recoverOpenTypars declTyparArity 0 openFieldTy memberTy
+                    let declArgs, _ = recoverOpenTypars declTyparArity 0<_> openFieldTy memberTy
 
                     let tref =
                         match env.ClassOrigin declKey with
@@ -289,7 +289,9 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                 let paramTys = Block.toList case.FrozenFieldTypes
 
                 let unionKey = SymbolKeyOps.qualifiedTypeKeyOf fullName arity
-                let retTy = FTUnion(unionKey, Block.ofList (declaringMarkers unionKey arity))
+
+                let retTy =
+                    FTUnion(unionKey, Block.ofList (declaringMarkers unionKey u.Typars.TypeArity))
 
                 let s = BlobBuilder()
 

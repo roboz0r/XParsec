@@ -185,7 +185,7 @@ module internal NominalShared =
         selfMemberRef
             asm
             td
-            (UserMemberKind.Member(name, false, 0, [ self.SelfTy ], retTy))
+            (UserMemberKind.Member(name, false, 0<_>, [ self.SelfTy ], retTy))
             (toEntity (asm.MethodDef key))
 
     /// The type's own typed `Equals(Self)`.

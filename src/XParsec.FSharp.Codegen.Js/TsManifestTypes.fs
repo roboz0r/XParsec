@@ -406,7 +406,7 @@ module internal TsManifestTranslate =
         | [ p ] -> toFrozen ctx p.Type
         | many -> FTTuple(Block.ofSeq (many |> List.map (fun p -> toFrozen ctx p.Type)))
 
-    let signatureOf (ctx: TranslateCtx) (declTyparArity: int) (sg: Schema.Signature) : ExternalSignature =
+    let signatureOf (ctx: TranslateCtx) (declTyparArity: int<typeSlot>) (sg: Schema.Signature) : ExternalSignature =
         // A bound (`<Key extends keyof Events>`) is carried faithfully so the front end can
         // keyof-fold it at the call site.
         let methodTypars =

@@ -682,7 +682,7 @@ let typarConformanceTests =
                                 (SymbolKeyOps.inNamespace "")
                                 "f"
                                 fScheme
-                                (FunctionScheme.unconstrained 2)
+                                (FunctionScheme.unconstrained 2<typeSlot>)
                         ]
 
                 let tast = frozenOf "let f<'b,'a> (x: 'a) (y: 'b) : 'b = y"
@@ -703,7 +703,7 @@ let typarConformanceTests =
                                 (SymbolKeyOps.inNamespace "")
                                 "f"
                                 fScheme
-                                (FunctionScheme.unconstrained 2)
+                                (FunctionScheme.unconstrained 2<typeSlot>)
                         ]
 
                 let tast = frozenOf "let f (x: 'a) (y: 'b) : 'b = y"
@@ -729,7 +729,7 @@ let typarConformanceTests =
                                 (SymbolKeyOps.inNamespace "")
                                 "f"
                                 fScheme
-                                (FunctionScheme.unconstrained 2)
+                                (FunctionScheme.unconstrained 2<typeSlot>)
                         ]
 
                 let tast = frozenOf "let inline f<'b,'a> (x: 'a) (y: 'b) : 'b = y"
@@ -748,7 +748,7 @@ let typarConformanceTests =
                                 (SymbolKeyOps.inNamespace "")
                                 "f"
                                 fScheme
-                                (FunctionScheme.unconstrained 2)
+                                (FunctionScheme.unconstrained 2<typeSlot>)
                         ]
 
                 let tast = frozenOf "let inline f (x: 'a) (y: 'b) : 'b = y"
@@ -768,7 +768,7 @@ let typarConformanceTests =
                                 (SymbolKeyOps.inNamespace "")
                                 "f"
                                 (FTFun(fTypar 0, FTFun(fTypar 1, fTypar 0)))
-                                (FunctionScheme.unconstrained 2)
+                                (FunctionScheme.unconstrained 2<typeSlot>)
                         ]
 
                 let tast = frozenOf "let inline f (x: 'a) (y: 'a) : 'a = x"

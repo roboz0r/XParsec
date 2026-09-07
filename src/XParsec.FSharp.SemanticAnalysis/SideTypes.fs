@@ -65,7 +65,7 @@ module TyparConstraint =
 /// (`op_Addition`).
 type MemberTrait =
     {
-        TyparIndices: Block<int>
+        TyparIndices: Block<int<typeSlot>>
         MemberName: string
         ArgTypes: Block<FrozenType>
         ReturnType: FrozenType
@@ -85,7 +85,7 @@ type FunctionScheme =
     member this.Traits: Block<MemberTrait> = this.traits
 
     /// The type-kinded count: the emitted method-typar count.
-    member this.TyparArity: int = this.typars.TypeArity
+    member this.TyparArity: int<typeSlot> = this.typars.TypeArity
 
 [<RequireQualifiedAccess>]
 module FunctionScheme =
@@ -97,7 +97,7 @@ module FunctionScheme =
 
         let rec checkType (t: FrozenType) =
             match t with
-            | FTFunctionTypar i when i >= arity ->
+            | FTFunctionTypar i when i >= int arity ->
                 failwithf "FunctionScheme: constraint references method typar %d, arity %d" i arity
             | t -> FrozenType.iterChildren checkType t
 
@@ -117,7 +117,7 @@ module FunctionScheme =
     let ofTypars (typars: TyparList) : FunctionScheme = create typars Block.empty
 
     /// A scheme over `n` positional, unconstrained typars.
-    let unconstrained (n: int) : FunctionScheme = ofTypars (TyparList.positional n)
+    let unconstrained (n: int<typeSlot>) : FunctionScheme = ofTypars (TyparList.positional n)
 
     /// The scheme of a binding that quantifies nothing.
     let monomorphic: FunctionScheme = ofTypars TyparList.empty

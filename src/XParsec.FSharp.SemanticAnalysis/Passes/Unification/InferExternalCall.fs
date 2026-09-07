@@ -65,7 +65,9 @@ module internal UnificationInferExternalCall =
                         |> Array.exists (fun m ->
                             match List.tryItem i (memberParamTypes ctx declArgs m) with
                             | Some(TyFunctionTypar j) ->
-                                match (ExternalSymbols.instantiateSignatureBounds ctx m declArgs).[j] with
+                                match
+                                    (ExternalSymbols.instantiateSignatureBounds ctx m declArgs).[TyparIndex.typeSlot j]
+                                with
                                 | ValueSome bound ->
                                     match boundLiteralStrings ctx bound with
                                     | ValueSome set -> Set.contains s set
@@ -126,7 +128,7 @@ module internal UnificationInferExternalCall =
                 | ValueSome s ->
                     for j in referencedMethodTypars ctx.Store paramTys.[i] do
                         if not (Set.contains j bareTypars) && not (seed.ContainsKey j) then
-                            match bounds.[j] with
+                            match bounds.[TyparIndex.typeSlot j] with
                             | ValueSome bound ->
                                 match boundLiteralStrings ctx bound with
                                 | ValueSome set when Set.contains s set -> seed.[j] <- TyLiteral(LiteralConst.String s)

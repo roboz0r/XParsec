@@ -547,7 +547,7 @@ let tests =
                         declKey
                         m.Name
                         (m.Params |> Block.map snd)
-                        m.MethodTypars.TypeArity
+                        (int m.MethodTypars.TypeArity)
                         (TMemberKind.keyKind m.Kind)
 
                 let kInt = mintKey (pokeMemberOf "$0 + 1" ftInt)

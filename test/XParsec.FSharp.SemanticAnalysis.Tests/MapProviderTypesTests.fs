@@ -37,7 +37,7 @@ let private candidate: ExternalRecordCandidate =
 
 let private markerMember: ExternalMember =
     { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf clsKey "m" Block.empty 0 MemberKind.Method) with
-        Signature = TestHelpers.mkSignature 0 0 marker marker
+        Signature = TestHelpers.mkSignature 0<_> 0<_> marker marker
         Origin = origin
     }
 
@@ -68,7 +68,7 @@ let private typeByName (name: string) : ExternalTypeShape voption =
         ValueSome(
             ExternalTypeShape.Record
                 {
-                    Typars = TyparList.positional 1
+                    Typars = TyparList.positional 1<typeSlot>
                     Fields =
                         Block.singleton
                             {
@@ -85,7 +85,7 @@ let private typeByName (name: string) : ExternalTypeShape voption =
         ValueSome(
             ExternalTypeShape.Union
                 {
-                    Typars = TyparList.positional 1
+                    Typars = TyparList.positional 1<typeSlot>
                     Cases = Block.singleton markerCase
                     Interfaces =
                         Block.singleton (
@@ -100,7 +100,7 @@ let private typeByName (name: string) : ExternalTypeShape voption =
         ValueSome(
             ExternalTypeShape.Abbrev
                 {
-                    Typars = TyparList.positional 1
+                    Typars = TyparList.positional 1<typeSlot>
                     Body = marker
                 }
         )

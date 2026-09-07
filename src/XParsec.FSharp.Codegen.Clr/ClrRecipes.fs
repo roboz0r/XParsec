@@ -261,7 +261,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
                 let s = BlobBuilder()
 
                 BlobEncoder(s)
-                    .MethodSignature(genericParameterCount = methodTyparArity, isInstanceMethod = false)
+                    .MethodSignature(genericParameterCount = int methodTyparArity, isInstanceMethod = false)
                     .Parameters(
                         List.length flatParamTys,
                         (fun (ret: ReturnTypeEncoder) ->
@@ -292,13 +292,13 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
                         ValueSome(toEntity (ctx.MemberRef(parent, name, msig)))
 
             let callHandleOf (callBase: EntityHandle) =
-                if methodTyparArity = 0 then
+                if methodTyparArity = 0<_> then
                     callBase
                 elif not openSig.Scheme.Typars.HasConstraints then
                     // Match the open template's function typars against the call's concrete
                     // type, recovering each method arg by index. No constraint typars here, so
                     // every method typar is signature-reachable.
-                    let _, methodArgs = recoverOpenTypars 0 methodTyparArity openSig.Signature fnTy
+                    let _, methodArgs = recoverOpenTypars 0<_> methodTyparArity openSig.Signature fnTy
 
                     methodSpec callBase methodArgs
                 else
@@ -312,7 +312,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
 
                     let methodArgs =
                         [
-                            for i in 0 .. methodTyparArity - 1 ->
+                            for i in 0 .. instArr.Length - 1 ->
                                 match instArr.[i] with
                                 | ValueSome t -> t
                                 | ValueNone ->

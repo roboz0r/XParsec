@@ -41,7 +41,7 @@ let overloadMember (paramFts: FrozenType list) (methodTyparArity: int) : Externa
               MemberKind.Method
       ) with
         IsStatic = true
-        Signature = TestHelpers.mkSignature 0 methodTyparArity parameters unitFt
+        Signature = TestHelpers.mkSignature 0<_> (TyparIndex.typeSlot methodTyparArity) parameters unitFt
     }
 
 let classMember (paramTy: SemType) : ExternalMember = overloadMember [ toFrozen paramTy ] 0
@@ -57,7 +57,7 @@ let boxMember (paramFt: FrozenType) : ExternalMember =
               MemberKind.Method
       ) with
         IsStatic = false
-        Signature = TestHelpers.mkSignature 1 0 paramFt unitFt
+        Signature = TestHelpers.mkSignature 1<_> 0<_> paramFt unitFt
     }
 
 let chosenParamsWith (typeArgs: SemType[]) (m: ExternalMember) : SemType list =

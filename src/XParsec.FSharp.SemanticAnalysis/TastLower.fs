@@ -39,17 +39,17 @@ module TastLower =
     /// unmentioned by the declared types is left a `ValueNone` hole.
     let private matchTyparsPartial
         (isOwn: TyparScope -> bool)
-        (typarCount: int)
+        (typarCount: int<typeSlot>)
         (defTys: FrozenType list)
         (actualTys: FrozenType list)
         : FrozenType voption[] =
-        let result = Array.create typarCount ValueNone
+        let result = Array.create (int typarCount) ValueNone
 
         let rec go (defT: FrozenType) (actT: FrozenType) =
             match defT, actT with
             // `act` may itself be a typar: the enclosing context's own.
             | FTTypar(scope, i), act when isOwn scope ->
-                if i >= 0 && i < typarCount && result.[i].IsNone then
+                if i >= 0 && i < result.Length && result.[i].IsNone then
                     result.[i] <- ValueSome act
             | FTFun(a1, r1), FTFun(a2, r2) ->
                 go a1 a2
@@ -80,7 +80,7 @@ module TastLower =
     /// parameters and result. A phantom constraint typar (`fold`'s enumerator `'E`) is
     /// unrecoverable by param-matching and must be solved from its constraints.
     let matchInstantiationPartial
-        (typarCount: int)
+        (typarCount: int<typeSlot>)
         (defTys: FrozenType list)
         (actualTys: FrozenType list)
         : FrozenType voption[] =
@@ -97,13 +97,17 @@ module TastLower =
     /// Recover a generic static method's per-typar instantiation at a call site by
     /// structurally matching each declared parameter type against the actual argument
     /// type; first occurrence wins. Strict: an unrecovered typar throws.
-    let matchInstantiation (typarCount: int) (defTys: FrozenType list) (actualTys: FrozenType list) : FrozenType list =
+    let matchInstantiation
+        (typarCount: int<typeSlot>)
+        (defTys: FrozenType list)
+        (actualTys: FrozenType list)
+        : FrozenType list =
         strict "static-method" (matchInstantiationPartial typarCount defTys actualTys)
 
     /// `matchInstantiation` over the typars of one `scope`, a lifted local's own.
     let matchScopeInstantiation
         (scope: TyparScope)
-        (typarCount: int)
+        (typarCount: int<typeSlot>)
         (defTys: FrozenType list)
         (actualTys: FrozenType list)
         : FrozenType list =
@@ -119,7 +123,7 @@ module TastLower =
         : unit =
         let coercions = TyparList.coercions typars
 
-        if not (List.isEmpty coercions) then
+        if not coercions.IsEmpty then
             // A witness OVERRIDES an already-recovered value at these indices: a typar in
             // both a constraint and the result can be stale in the result occurrence, while the
             // witness reads it off the concrete impl.
@@ -138,7 +142,9 @@ module TastLower =
             while changed do
                 changed <- false
 
-                for (ci, target) in coercions do
+                for (slot, target) in coercions do
+                    let ci = int slot
+
                     if ci >= 0 && ci < instArr.Length then
                         match instArr.[ci], target with
                         | ValueSome instTy, FTClass(ifaceKey, _) ->
@@ -146,7 +152,7 @@ module TastLower =
                             | ValueSome witnessArgs ->
                                 let holes =
                                     matchInstantiationPartial
-                                        instArr.Length
+                                        typars.TypeArity
                                         [ target ]
                                         [ FTClass(ifaceKey, witnessArgs) ]
 
@@ -330,7 +336,7 @@ module TastLower =
 
     /// Build the SOURCE `ValRepr` for a function value, returning the residual body the
     /// backend emits. `ResultTy` is that body's type, before unit→void normalisation.
-    let valReprOf (typars: int) (e: TastAccessor.ExprId) : ValRepr * TastAccessor.ExprId =
+    let valReprOf (typars: int<typeSlot>) (e: TastAccessor.ExprId) : ValRepr * TastAccessor.ExprId =
         let groups, body = peelValRepr e
 
         {
@@ -398,7 +404,7 @@ module TastLower =
     /// Build the SOURCE `ValRepr` for an EXTERNAL (contract-extracted) function, which has
     /// no lambda tree to peel: each `(arity, paramTy)` pair reconstructs a group, arity
     /// being the `*`-separated width within it. A contract's parameter names are dropped.
-    let externalValRepr (typars: int) (groups: (int * FrozenType) list) (resultTy: FrozenType) : ValRepr =
+    let externalValRepr (typars: int<typeSlot>) (groups: (int * FrozenType) list) (resultTy: FrozenType) : ValRepr =
         // A contract-minted pattern belongs to no file's tree, so it indexes into no
         // file's pool and gets a standalone one, owned by this `ValRepr` and reachable
         // only through the handles it hands out. No token spells any of them.

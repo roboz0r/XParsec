@@ -20,7 +20,7 @@ module ConformanceBodies =
             Name: string
             IsStatic: bool
             IsValueMember: bool
-            MethodTyparArity: int
+            MethodTyparArity: int<typeSlot>
             Folded: FrozenType
         }
 
@@ -44,7 +44,7 @@ module ConformanceBodies =
             Name = c.Name
             IsStatic = true
             IsValueMember = c.FrozenFieldTypes.Length = 0
-            MethodTyparArity = 0
+            MethodTyparArity = 0<_>
             Folded =
                 match c.FrozenFieldTypes.Length with
                 | 0 -> self

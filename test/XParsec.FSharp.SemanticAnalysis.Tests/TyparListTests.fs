@@ -10,6 +10,13 @@ let private unconstrained (name: string) : TypeTypar =
         Constraints = ConstraintSet.empty
     }
 
+let private declared (name: string) (kind: TyparKind) (tyVar: int) : DeclaredTypar =
+    {
+        Name = name
+        TyVar = LanguagePrimitives.Int32WithMeasure tyVar
+        Kind = kind
+    }
+
 [<Tests>]
 let tests =
     testList
@@ -41,7 +48,11 @@ let tests =
 
                 Expect.equal
                     (Block.toList typars.Order)
-                    [ TyparSlot.Measure 0; TyparSlot.Type 0; TyparSlot.Measure 1 ]
+                    [
+                        TyparSlot.Measure 0<measureSlot>
+                        TyparSlot.Type 0<typeSlot>
+                        TyparSlot.Measure 1<measureSlot>
+                    ]
                     "each slot is the next index of its own kind"
 
                 Expect.equal (Block.toList typars.Types) [ unconstrained "'a" ] "the type-kinded parameters"
@@ -59,16 +70,48 @@ let tests =
                     "the measure-kinded parameters"
             }
 
-            test "ofKinded constrains a type-kinded parameter by its source position" {
+            test "a measure typar before a type typar counts on its own axis" {
                 let typars: TyparList =
-                    TyparList.ofKinded
-                        (fun i ->
-                            if i = 2 then
-                                ConstraintSet.ofKinds [ TyparConstraintKindG.Equality ]
-                            else
-                                ConstraintSet.empty
-                        )
-                        [ "'a", TyparKind.Type; "'u", TyparKind.Measure; "'b", TyparKind.Type ]
+                    TyparList.ofSeq [ "'u", TyparKind.Measure; "'a", TyparKind.Type; "'b", TyparKind.Type ]
+
+                Expect.equal typars.Length 3 "the signature arity counts both kinds"
+                Expect.equal typars.TypeArity 2<typeSlot> "the type-kinded count"
+                Expect.equal typars.MeasureArity 1<measureSlot> "the measure-kinded count"
+
+                Expect.equal (TyparList.typeSlotOf typars 0<sigSlot>) ValueNone "signature slot 0 is measure-kinded"
+                Expect.equal (TyparList.measureSlotOf typars 0<sigSlot>) (ValueSome 0<measureSlot>) "its measure slot"
+                Expect.equal (TyparList.typeSlotOf typars 1<sigSlot>) (ValueSome 0<typeSlot>) "'a is type slot 0"
+                Expect.equal (TyparList.typeSlotOf typars 2<sigSlot>) (ValueSome 1<typeSlot>) "'b is type slot 1"
+                Expect.equal (TyparList.typeSlotOf typars 3<sigSlot>) ValueNone "past the arity"
+
+                Expect.equal
+                    (TyparList.sigSlotOf typars (TyparSlot.Type 1<typeSlot>))
+                    (ValueSome 2<sigSlot>)
+                    "type slot 1 is written third"
+
+                Expect.equal
+                    (TyparList.sigSlotOf typars (TyparSlot.Measure 0<measureSlot>))
+                    (ValueSome 0<sigSlot>)
+                    "measure slot 0 is written first"
+            }
+
+            test "ofDeclared constrains a type-kinded parameter by its declaration" {
+                let typeParams =
+                    Block.ofList
+                        [
+                            declared "'a" TyparKind.Type 0
+                            declared "'u" TyparKind.Measure 1
+                            declared "'b" TyparKind.Type 2
+                        ]
+
+                let typars: TyparList =
+                    typeParams
+                    |> TyparList.ofDeclared (fun tp ->
+                        if tp.Name = "'b" then
+                            ConstraintSet.ofKinds [ TyparConstraintKindG.Equality ]
+                        else
+                            ConstraintSet.empty
+                    )
 
                 Expect.equal
                     [ for t in typars.Types -> EqSet.toList t.Constraints.Kinds ]
@@ -79,24 +122,24 @@ let tests =
             }
 
             test "positional names its parameters by index" {
-                let typars: TyparList = TyparList.positional 2
+                let typars: TyparList = TyparList.positional 2<typeSlot>
 
                 Expect.equal
                     (Block.toList typars.Types)
                     [
                         {
-                            Name = TyparName.Positional 0
+                            Name = TyparName.Positional 0<typeSlot>
                             Constraints = ConstraintSet.empty
                         }
                         {
-                            Name = TyparName.Positional 1
+                            Name = TyparName.Positional 1<typeSlot>
                             Constraints = ConstraintSet.empty
                         }
                     ]
                     "no name is fabricated"
 
-                Expect.equal typars.Measures.Length 0 "positional parameters are type-kinded"
-                Expect.equal (TyparList.positional 0) TyparList.empty "arity 0 is empty"
+                Expect.equal typars.MeasureArity 0<measureSlot> "positional parameters are type-kinded"
+                Expect.equal (TyparList.positional 0<typeSlot>) TyparList.empty "arity 0 is empty"
                 Expect.isFalse typars.HasConstraints "positional parameters are unconstrained"
             }
         ]

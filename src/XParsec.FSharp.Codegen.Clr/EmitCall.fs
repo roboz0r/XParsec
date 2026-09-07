@@ -200,7 +200,7 @@ module EmitCall =
             let flatActualTys = flattenGroupPushes recur env b sm.Params.Groups leading
 
             let callHandle =
-                if sm.Scheme.TyparArity = 0 then
+                if sm.Scheme.TyparArity = 0<_> then
                     sm.Handle
                 else
                     // The instantiation is recovered by matching declared types against

@@ -67,7 +67,7 @@ module EmitTypes =
         }
 
         /// The total `GenericParam` row count on the closure's `TypeDefinition`.
-        member c.Typars: int = c.Frame.Count
+        member c.Typars: int<typeSlot> = c.Frame.Count
 
     /// A generalised body-local `let` with a positive typar count, lifted to a generic static
     /// method on the Program class, as `fsc` emits it. Its method typars are `Frame`, and a
@@ -108,7 +108,7 @@ module EmitTypes =
     /// suffices: it is `newobj`'d once into a singleton field by the closure's `.cctor`
     /// and every construction site `ldsfld`s that instead of allocating.
     let closureIsCached (c: Closure) : bool =
-        List.isEmpty c.Captures && c.Typars = 0 && not c.IsValueStruct
+        List.isEmpty c.Captures && c.Typars = 0<_> && not c.IsValueStruct
 
     /// The `Def` tokens of a MONOMORPHIC closure, valid in every body. A generic closure has
     /// none: its `TypeSpec` and `MemberRef`s encode `FTTypar` relative to the referencing
@@ -142,7 +142,7 @@ module EmitTypes =
         (c: Closure)
         (which: ClosureToken)
         : EntityHandle =
-        if c.Typars = 0 then
+        if c.Typars = 0<_> then
             let emitted = closures.[c.Node]
 
             match which with
@@ -220,7 +220,7 @@ module EmitTypes =
             /// The member's *own* generic-method typar count (`member s.Map<'U> …`).
             /// 0 for the common non-generic member. > 0 ⇒ the member-ref must carry
             /// the `GENERIC` header and the call site a `MethodSpec`.
-            MethodTyparCount: int
+            MethodTyparCount: int<typeSlot>
         }
 
     /// One step of a class preamble, in declaration order: what the `.cctor` (static

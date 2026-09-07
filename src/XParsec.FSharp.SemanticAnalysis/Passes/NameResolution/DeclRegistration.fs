@@ -59,7 +59,7 @@ module NameResolutionDeclRegistration =
             typeParams
             (fun () ->
                 match typarConstraints with
-                | ValueSome cs -> translateConstraints ctx cs
+                | ValueSome cs -> translateConstraints ctx typeParams cs
                 | ValueNone -> ()
 
                 for f in fields do

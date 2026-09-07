@@ -124,8 +124,8 @@ let tests =
                 // shared across `Parameters` and `Return`.
                 let signature: ExternalSignature =
                     TestHelpers.mkSignature
-                        1
-                        2
+                        1<_>
+                        2<_>
                         (FTTuple(Block.ofList [ d 0; m 0 ]))
                         (FTTuple(Block.ofList [ m 0; m 1 ]))
 
@@ -173,8 +173,8 @@ let tests =
             let memberOracle
                 name
                 isProperty
-                declTyparArity
-                methodTyparArity
+                (declTyparArity: int<typeSlot>)
+                (methodTyparArity: int<typeSlot>)
                 (signature: ExternalSignature)
                 (expected: SemType option)
                 =
@@ -189,7 +189,7 @@ let tests =
                             Signature = signature
                         }
 
-                    let args = argsForArity declTyparArity
+                    let args = argsForArity (int declTyparArity)
 
                     match expected with
                     | Some exp ->
@@ -213,11 +213,11 @@ let tests =
                     memberOracle
                         "nullary method"
                         false
-                        0
-                        0
+                        0<_>
+                        0<_>
                         (TestHelpers.mkSignature
-                            0
-                            0
+                            0<_>
+                            0<_>
                             (FTConst(RuntimeNames.unitKey, Block.empty))
                             (FTConst(RuntimeNames.intKey, Block.empty)))
                         (Some(
@@ -228,20 +228,20 @@ let tests =
                     memberOracle
                         "unary method over declaring typar"
                         false
-                        1
-                        0
-                        (TestHelpers.mkSignature 1 0 (d 0) (FTConst(RuntimeNames.boolKey, Block.empty)))
+                        1<_>
+                        0<_>
+                        (TestHelpers.mkSignature 1<_> 0<_> (d 0) (FTConst(RuntimeNames.boolKey, Block.empty)))
                         (Some(TyFun(groundArgs.[0], TyConst(RuntimeNames.boolKey, Block.empty))))
 
                     // N≥2 params: one tupled arg.
                     memberOracle
                         "binary method tupled"
                         false
-                        2
-                        0
+                        2<_>
+                        0<_>
                         (TestHelpers.mkSignature
-                            2
-                            0
+                            2<_>
+                            0<_>
                             (FTTuple(Block.ofList [ d 0; d 1 ]))
                             (FTConst(RuntimeNames.unitKey, Block.empty)))
                         (Some(
@@ -256,20 +256,20 @@ let tests =
                     memberOracle
                         "property bare value"
                         true
-                        1
-                        0
-                        (ExternalSignature.value (1, 0, FTClass(kRec, Block.singleton (d 0))))
+                        1<_>
+                        0<_>
+                        (ExternalSignature.value (1<_>, 0<_>, FTClass(kRec, Block.singleton (d 0))))
                         (Some(TyClass(kRec, Block.singleton groundArgs.[0])))
 
                     // Ctor-shaped: `(p1 * p2) -> declType`.
                     memberOracle
                         "ctor tupled to declaring type"
                         false
-                        1
-                        0
+                        1<_>
+                        0<_>
                         (TestHelpers.mkSignature
-                            1
-                            0
+                            1<_>
+                            0<_>
                             (FTTuple(Block.ofList [ d 0; FTConst(RuntimeNames.intKey, Block.empty) ]))
                             (FTRecord(kRec, Block.singleton (d 0))))
                         (Some(
@@ -283,9 +283,9 @@ let tests =
                     memberOracle
                         "generic method bakes method typar"
                         false
-                        1
-                        1
-                        (TestHelpers.mkSignature 1 1 (m 0) (FTTuple(Block.ofList [ d 0; m 0 ])))
+                        1<_>
+                        1<_>
+                        (TestHelpers.mkSignature 1<_> 1<_> (m 0) (FTTuple(Block.ofList [ d 0; m 0 ])))
                         None
                 ]
 
@@ -297,9 +297,9 @@ let tests =
                 [
                     test "a group's width is its own tupled domain, not the member's flat arity" {
                         let tupled =
-                            TestHelpers.mkSignature 0 0 (FTTuple(Block.ofList [ ftInt; ftInt ])) ftInt
+                            TestHelpers.mkSignature 0<_> 0<_> (FTTuple(Block.ofList [ ftInt; ftInt ])) ftInt
 
-                        let curried = ExternalSignature.ofGroups (0, 0, [ ftInt; ftInt ], ftInt)
+                        let curried = ExternalSignature.ofGroups (0<_>, 0<_>, [ ftInt; ftInt ], ftInt)
 
                         Expect.equal
                             (ExternalSignature.argGroupWidths tupled)
@@ -317,12 +317,12 @@ let tests =
                             "and both flatten to the same parameter vector, which is why the key cannot tell them apart"
 
                         Expect.equal
-                            (ExternalSignature.argGroupWidths (TestHelpers.mkSignature 0 0 ftUnit ftInt))
+                            (ExternalSignature.argGroupWidths (TestHelpers.mkSignature 0<_> 0<_> ftUnit ftInt))
                             (Block.ofList [ 0 ])
                             "`M: unit -> r` is one 0-wide group: an argument that erases"
 
                         Expect.equal
-                            (ExternalSignature.argGroupWidths (ExternalSignature.value (0, 0, ftInt)))
+                            (ExternalSignature.argGroupWidths (ExternalSignature.value (0<_>, 0<_>, ftInt)))
                             Block.empty
                             "and a value member has no group at all"
                     }

@@ -694,7 +694,7 @@ module internal NominalEmit =
                     UserMemberKind.Member(
                         memberMetaName mem.Name mem.Kind,
                         false,
-                        0,
+                        0<_>,
                         [ for (_, t) in mem.Params -> t ],
                         mem.ReturnTy
                     )

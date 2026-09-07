@@ -119,7 +119,7 @@ module InlineBodies =
                                         tdecl.TypeKey
                                         m.Name
                                         (m.Params |> Block.map snd)
-                                        m.MethodTypars.TypeArity
+                                        (int m.MethodTypars.TypeArity)
                                         kind
 
                                 yield { Key = key; Body = body }

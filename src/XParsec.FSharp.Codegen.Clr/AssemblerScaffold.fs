@@ -29,7 +29,7 @@ module internal AssemblerScaffold =
         let blob = BlobBuilder()
 
         BlobEncoder(blob)
-            .MethodSignature(genericParameterCount = m.MethodTypars.TypeArity, isInstanceMethod = true)
+            .MethodSignature(genericParameterCount = int m.MethodTypars.TypeArity, isInstanceMethod = true)
             .Parameters(
                 List.length paramTys,
                 // `-> unit` encodes as genuine `void`, not the `unit`-as-`ValueTuple`

@@ -88,7 +88,7 @@ module UnionPayloadType =
 
     /// `Payload` in the scope of the union's own `arity` typars: the type its `_payload`
     /// field, its `.ctor` parameter and each view's wrapped field are declared at.
-    let payloadTyDeclaring (unionKey: TypeKey) (arity: int) : FrozenType =
+    let payloadTyDeclaring (unionKey: TypeKey) (arity: int<typeSlot>) : FrozenType =
         payloadTy unionKey (declaringMarkers unionKey arity)
 
     let overlayTy (unionKey: TypeKey) : FrozenType =

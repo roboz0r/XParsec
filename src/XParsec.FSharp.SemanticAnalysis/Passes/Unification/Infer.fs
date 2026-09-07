@@ -310,9 +310,9 @@ module UnificationInfer =
 
         // Elaborate needs the binding's explicit `<'b,'a>` typars in SOURCE order to put a free
         // function's declared typars first, and cannot recover that order from the scheme.
-        match b.typarDefns with
-        | ValueSome(TyparDefns(defns = ds)) ->
-            let declared =
+        let declared =
+            match b.typarDefns with
+            | ValueSome(TyparDefns(defns = ds)) ->
                 [
                     for TyparDefn(typar = t) in ds do
                         match t with
@@ -333,13 +333,13 @@ module UnificationInfer =
                             | _ -> ()
                         | Typar.Anon _ -> ()
                 ]
+            | ValueNone -> []
 
-            if not (List.isEmpty declared) then
-                ctx.Bindings.DeclaredTypars.Set(CstKeys.ofBinding b, declared)
-        | ValueNone -> ()
+        if not (List.isEmpty declared) then
+            ctx.Bindings.DeclaredTypars.Set(CstKeys.ofBinding b, declared)
 
         match b.typarDefns with
-        | ValueSome(TyparDefns(constraints = ValueSome cs)) -> translateConstraints ctx cs
+        | ValueSome(TyparDefns(constraints = ValueSome cs)) -> translateConstraints ctx (Block.ofList declared) cs
         | _ -> ()
 
         // The member-typar seed is for this binding's own typars only; clear it so a nested

@@ -163,7 +163,7 @@ module UnificationInferOverload =
     type RankCandidate<'T> =
         {
             Params: SemType list
-            MethodTyparArity: int
+            MethodTyparArity: int<typeSlot>
             Item: 'T
         }
 
@@ -227,7 +227,7 @@ module UnificationInferOverload =
                     if argCmp <> 0 then
                         argCmp
                     else
-                        compare (a.MethodTyparArity = 0) (b.MethodTyparArity = 0)
+                        compare (a.MethodTyparArity = 0<_>) (b.MethodTyparArity = 0<_>)
 
                 let best =
                     many
@@ -425,7 +425,7 @@ module UnificationInferOverload =
                 |> Array.map (fun m ->
                     {
                         Params = userMemberParams ctx typeParams args m
-                        MethodTyparArity = m.EffectiveMethodTypars.Length
+                        MethodTyparArity = DeclaredTypar.typeArity m.EffectiveMethodTypars
                         Item = m
                     }
                 )
@@ -492,7 +492,7 @@ module UnificationInferOverload =
                     for c in candidates ->
                         {
                             Params = c.Parameters
-                            MethodTyparArity = 0
+                            MethodTyparArity = 0<_>
                             Item = c
                         }
                 |]
@@ -601,7 +601,7 @@ module UnificationInferOverload =
                 |> List.map (fun c ->
                     {
                         Params = userMemberParams ctx c.Level.TypeParams c.Level.Args c.Member
-                        MethodTyparArity = c.Member.EffectiveMethodTypars.Length
+                        MethodTyparArity = DeclaredTypar.typeArity c.Member.EffectiveMethodTypars
                         Item = c
                     }
                 )

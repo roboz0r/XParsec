@@ -167,7 +167,7 @@ module FrozenTypeBridge =
         /// local typar share one cell.
         let mintLocals (store: TypeStore) : LocalBindingId -> int -> SemType =
             let roots = LocalTyparRoots store
-            fun binding index -> TyVar(roots.At(binding, index))
+            fun binding index -> TyVar(roots.At(binding, TyparIndex.typeSlot index))
 
         /// A declaration's own typars from `args`: a type shape's (record field, union-case
         /// field, interface arg, base type, abbreviation body) or a module function's scheme.

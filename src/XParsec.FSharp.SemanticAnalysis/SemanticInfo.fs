@@ -210,7 +210,11 @@ type TyparList = TyparListG<FrozenType>
 /// TODO(local-constraints): arity alone, so a splice of the declaring template regeneralises
 /// the local UNCONSTRAINED. A body-local carrying a member or trait constraint needs the
 /// constraints frozen here too.
-type LocalScheme = { Id: LocalBindingId; TyparArity: int }
+type LocalScheme =
+    {
+        Id: LocalBindingId
+        TyparArity: int<typeSlot>
+    }
 
 /// The mutable inference type IR. Every `TyVar` is a dense `TyVarId` index into the
 /// per-file `TypeStore` union-find graph.

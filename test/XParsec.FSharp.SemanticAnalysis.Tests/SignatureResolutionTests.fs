@@ -208,7 +208,7 @@ let tests =
                             SymbolKeyOps.typeKeyOfArity "Dep" "Widget" 1,
                             ExternalTypeShape.Union
                                 {
-                                    Typars = TyparList.positional 1
+                                    Typars = TyparList.positional 1<typeSlot>
                                     Cases = Block.empty
                                     Interfaces = Block.empty
                                     Origin = SymbolOrigin.Empty
@@ -888,13 +888,13 @@ let tests =
 
                 let sym = symbolOf r "contains"
 
-                Expect.equal sym.TyparArity 1 "the val generalises over its single typar"
+                Expect.equal sym.TyparArity 1<typeSlot> "the val generalises over its single typar"
 
                 // The clause is recorded on the typar at its INDEX, not by its name.
                 let typars = sym.Generics.Typars
 
                 Expect.isTrue
-                    (EqSet.contains TyparConstraintKindG.Equality typars.Types.[0].Constraints.Kinds)
+                    (EqSet.contains TyparConstraintKindG.Equality typars.Types.[0<typeSlot>].Constraints.Kinds)
                     (sprintf "typar 0 carries Equality; got %A" typars)
 
                 let store = TypeStore()
@@ -924,7 +924,7 @@ let tests =
                 | trait_ :: _ ->
                     Expect.equal
                         (Block.toList trait_.TyparIndices)
-                        [ 0 ]
+                        [ 0<typeSlot> ]
                         "the trait is borne by the val's single typar slot"
 
                     Expect.equal trait_.MemberName "op_Addition" "`(+)` is captured by its COMPILED name"
@@ -951,6 +951,51 @@ let tests =
                         Expect.isFalse (store.Srtp.IsSolved memberTrait) "a freshly stamped trait is undischarged"
                     | other -> failtestf "expected exactly one SRTP trait on the fresh TyVar; got %A" other
                 | other -> failtestf "expected (^T -> ^T -> ^T) over a fresh TyVar; got %A" other
+            }
+
+            test "a `when` clause after a measure typar lands on the type slot, not the signature slot" {
+                let r =
+                    resolveFsi
+                        "app.fsi"
+                        "namespace App\n\nmodule M =\n    val eqAfter<[<Measure>] 'u, 'a when 'a: equality> : 'a -> 'a\n"
+
+                Expect.isEmpty r.Messages "a measure typar beside a constrained type typar resolves cleanly"
+
+                let typars = (symbolOf r "eqAfter").Generics.Typars
+
+                Expect.equal typars.Length 2 "both parameters are declared"
+                Expect.equal typars.TypeArity 1<typeSlot> "only `'a` is type-kinded"
+                Expect.equal typars.MeasureArity 1<measureSlot> "`'u` is measure-kinded"
+
+                Expect.isTrue
+                    (EqSet.contains TyparConstraintKindG.Equality typars.Types.[0<typeSlot>].Constraints.Kinds)
+                    (sprintf "`'a` carries Equality at type slot 0; got %A" typars)
+            }
+
+            test "an SRTP support set after a measure typar indexes the type slot" {
+                let r =
+                    resolveFsi
+                        "app.fsi"
+                        "namespace App\n\nmodule M =\n    val inline add<[<Measure>] 'u, ^T when ^T: (static member (+): ^T * ^T -> ^T)> : ^T -> ^T -> ^T\n"
+
+                Expect.isEmpty r.Messages "a measure typar beside an SRTP type typar resolves cleanly"
+
+                match Block.toList (symbolOf r "add").Generics.Traits with
+                | [ trait_ ] ->
+                    Expect.equal
+                        (Block.toList trait_.TyparIndices)
+                        [ 0<typeSlot> ]
+                        "`^T` is type slot 0, though it is written second"
+                | other -> failtestf "expected exactly one MemberTrait; got %A" other
+            }
+
+            test "a measure typar in an SRTP support set is FS0703" {
+                let r =
+                    resolveFsi
+                        "app.fsi"
+                        "namespace App\n\nmodule M =\n    val inline zero<[<Measure>] 'u when 'u: (static member Zero: int)> : int\n"
+
+                expectErrorIn r.Messages "Expected type parameter, not unit-of-measure parameter"
             }
 
             // --- property signatures (`member P: T with get, set`) ------------------

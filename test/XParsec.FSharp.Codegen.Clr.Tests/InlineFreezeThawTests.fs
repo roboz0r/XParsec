@@ -243,7 +243,7 @@ let private publishing (unitASource: string) : IExternalSymbolProvider =
                     binding.Decl
                     binding.Name
                     scheme
-                    (FunctionScheme.unconstrained (typarArity scheme))
+                    (FunctionScheme.unconstrained (TyparIndex.typeSlot (typarArity scheme)))
                 |> PublishedSurfaceBuilder.addValue b
         )
 

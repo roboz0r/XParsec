@@ -706,7 +706,10 @@ let staleSideTableEntryTests =
                 let injected =
                     { dropped.Pruned with
                         FunctionSchemes =
-                            Map.add dropped.BoundVar (FunctionScheme.unconstrained 1) dropped.Pruned.FunctionSchemes
+                            Map.add
+                                dropped.BoundVar
+                                (FunctionScheme.unconstrained 1<typeSlot>)
+                                dropped.Pruned.FunctionSchemes
                     }
 
                 Expect.equal

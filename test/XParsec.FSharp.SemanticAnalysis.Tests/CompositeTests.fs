@@ -23,8 +23,8 @@ let private tagged (name: string) (tag: string) : IExternalSymbolProvider =
             IsStatic = true
             Signature =
                 TestHelpers.mkSignature
-                    0
-                    0
+                    0<_>
+                    0<_>
                     (FTConst(RuntimeNames.unitKey, Block.empty))
                     (FTConst(RuntimeNames.opaqueKey tag, Block.empty))
             Origin = origin

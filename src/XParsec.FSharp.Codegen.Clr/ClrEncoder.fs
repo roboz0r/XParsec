@@ -125,11 +125,11 @@ type internal ClrEncoder(env: ClrEnv) =
                 | TyparScope.LocalFunction _ -> outsideFrame ()
             | TyparSlots.ClosureClass frame ->
                 match frame.TryOffset scope with
-                | ValueSome offset -> te.GenericTypeParameter(offset + i)
+                | ValueSome offset -> te.GenericTypeParameter(int offset + i)
                 | ValueNone -> outsideFrame ()
             | TyparSlots.LiftedMethod frame ->
                 match frame.TryOffset scope with
-                | ValueSome offset -> te.GenericMethodTypeParameter(offset + i)
+                | ValueSome offset -> te.GenericMethodTypeParameter(int offset + i)
                 | ValueNone -> outsideFrame ()
         // A tuple is a member of the `System.ValueTuple` struct family, a `VALUETYPE` generic
         // instantiation, and nests whatever does not fit one member, per the standard .NET scheme.
@@ -235,13 +235,13 @@ type internal ClrEncoder(env: ClrEnv) =
     /// a member's OPEN signature template against its INSTANTIATED use-site type. Index-keyed;
     /// first occurrence wins. A slot stays `ValueNone` when its typar surfaces nowhere.
     let fillOpenTyparSlots
-        (declTyparArity: int)
-        (methodTyparArity: int)
+        (declTyparArity: int<typeSlot>)
+        (methodTyparArity: int<typeSlot>)
         (openT: FrozenType)
         (instT: FrozenType)
         : FrozenType voption[] * FrozenType voption[] =
-        let decl = Array.create declTyparArity ValueNone
-        let meth = Array.create methodTyparArity ValueNone
+        let decl = Array.create (int declTyparArity) ValueNone
+        let meth = Array.create (int methodTyparArity) ValueNone
 
         let rec go (d: FrozenType) (a: FrozenType) =
             match d with
@@ -266,8 +266,8 @@ type internal ClrEncoder(env: ClrEnv) =
     /// Recover both open-typar slot arrays; every slot must be filled, so an unrecoverable
     /// typar throws. Returns `(declaringArgs, methodArgs)`.
     let recoverOpenTypars
-        (declTyparArity: int)
-        (methodTyparArity: int)
+        (declTyparArity: int<typeSlot>)
+        (methodTyparArity: int<typeSlot>)
         (openT: FrozenType)
         (instT: FrozenType)
         : FrozenType list * FrozenType list =
@@ -463,12 +463,12 @@ type internal ClrEncoder(env: ClrEnv) =
     /// the declaring type's typars are spelled `FTTypar(Declaring, i)` (`!i`), the method's own
     /// `FTTypar(Method, i)` (`!!i`). `methodTyparCount` sets the `GENERIC` header count.
     member _.GenericMethodOnTypeSignature
-        (methodTyparCount: int, paramTys: FrozenType list, retTy: FrozenType, isInstanceMethod: bool)
+        (methodTyparCount: int<typeSlot>, paramTys: FrozenType list, retTy: FrozenType, isInstanceMethod: bool)
         : BlobBuilder =
         let s = BlobBuilder()
 
         BlobEncoder(s)
-            .MethodSignature(genericParameterCount = methodTyparCount, isInstanceMethod = isInstanceMethod)
+            .MethodSignature(genericParameterCount = int methodTyparCount, isInstanceMethod = isInstanceMethod)
             .Parameters(
                 List.length paramTys,
                 (fun (ret: ReturnTypeEncoder) -> encodeType (ret.Type()) (retTy)),
@@ -484,12 +484,12 @@ type internal ClrEncoder(env: ClrEnv) =
     /// method (`Formatter.AppendFormatted<'T> : 'T -> unit`) must encode `void`, or a consumer's
     /// `unit → void` member-ref misses it (`MissingMethodException`). Body emitted in void mode.
     member _.GenericMethodOnTypeSignatureVoid
-        (methodTyparCount: int, paramTys: FrozenType list, isInstanceMethod: bool)
+        (methodTyparCount: int<typeSlot>, paramTys: FrozenType list, isInstanceMethod: bool)
         : BlobBuilder =
         let s = BlobBuilder()
 
         BlobEncoder(s)
-            .MethodSignature(genericParameterCount = methodTyparCount, isInstanceMethod = isInstanceMethod)
+            .MethodSignature(genericParameterCount = int methodTyparCount, isInstanceMethod = isInstanceMethod)
             .Parameters(
                 List.length paramTys,
                 (fun (ret: ReturnTypeEncoder) -> ret.Void()),
@@ -510,11 +510,13 @@ type internal ClrEncoder(env: ClrEnv) =
 
         s
 
-    member _.GenericStaticFnSignature(typarCount: int, paramTys: FrozenType list, retTy: FrozenType) : BlobBuilder =
+    member _.GenericStaticFnSignature
+        (typarCount: int<typeSlot>, paramTys: FrozenType list, retTy: FrozenType)
+        : BlobBuilder =
         let s = BlobBuilder()
 
         BlobEncoder(s)
-            .MethodSignature(genericParameterCount = typarCount, isInstanceMethod = false)
+            .MethodSignature(genericParameterCount = int typarCount, isInstanceMethod = false)
             .Parameters(
                 List.length paramTys,
                 (fun (ret: ReturnTypeEncoder) -> encodeType (ret.Type()) (retTy)),

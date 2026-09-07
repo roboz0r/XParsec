@@ -89,7 +89,7 @@ type ExternalSymbol =
     }
 
     /// The type-kinded typar count of `Generics`.
-    member this.TyparArity: int = this.Generics.TyparArity
+    member this.TyparArity: int<typeSlot> = this.Generics.TyparArity
 
     /// The short name the declaration emits under.
     member this.EmittedName: string =
@@ -228,12 +228,12 @@ type ExternalRecordCandidate =
 /// (the declaring type's) / `FTTypar(Member _, j)` (its own).
 type ExternalSignature =
     {
-        DeclaringTyparArity: int
+        DeclaringTyparArity: int<typeSlot>
         /// The member's OWN generic parameters, one entry per typar in declaration order:
         /// index `j` holds the `j`-th typar's UPPER BOUND (`<Key extends keyof Events>`),
         /// baked over the DECLARING typars (`keyof Events` at `Emitter<R>` → `TyKeyOf R`).
         /// `ValueNone` for an unconstrained typar.
-        MethodTypars: Block<FrozenType voption>
+        MethodTypars: BlockM<FrozenType voption, typeSlot>
         /// One entry per `->` the source wrote, each already .NET-tupled: `M: a * b -> r` holds
         /// `[a * b]` and the curried `M: a -> b -> r` holds `[a; b]`. EMPTY for a value member,
         /// whose type is `Return` with no `->` in front of it.
@@ -242,15 +242,17 @@ type ExternalSignature =
     }
 
     /// The member's own generic parameter count (`Take<TSource>` ⇒ 1).
-    member s.MethodTyparArity = s.MethodTypars.Length
+    member s.MethodTyparArity: int<typeSlot> = s.MethodTypars.Length
 
     /// `n` method typars, none of them constrained.
-    static member unbounded(n: int) : Block<FrozenType voption> = Block.init n (fun _ -> ValueNone)
+    static member unbounded(n: int<typeSlot>) : BlockM<FrozenType voption, typeSlot> = Block.init n (fun _ -> ValueNone)
 
     /// The sentinel a contract-layer member carries until the finalize pass fills its groups /
     /// `Return` from the stashed signature CST. `argGroupCount` is already known there, and
     /// keeping it exact is what makes a deferred value member read as one.
-    static member deferred(declaringTyparArity: int, methodTyparArity: int, argGroupCount: int) : ExternalSignature =
+    static member deferred
+        (declaringTyparArity: int<typeSlot>, methodTyparArity: int<typeSlot>, argGroupCount: int)
+        : ExternalSignature =
         {
             DeclaringTyparArity = declaringTyparArity
             MethodTypars = ExternalSignature.unbounded methodTyparArity
@@ -262,8 +264,12 @@ type ExternalSignature =
     /// constraints. Every reflection, manifest and tupled-source producer mints this shape; a
     /// constraint-carrying producer builds the record explicitly instead.
     static member make
-        (declaringTyparArity: int, methodTyparArity: int, parameters: FrozenType, return': FrozenType)
-        : ExternalSignature =
+        (
+            declaringTyparArity: int<typeSlot>,
+            methodTyparArity: int<typeSlot>,
+            parameters: FrozenType,
+            return': FrozenType
+        ) : ExternalSignature =
         {
             DeclaringTyparArity = declaringTyparArity
             MethodTypars = ExternalSignature.unbounded methodTyparArity
@@ -274,7 +280,9 @@ type ExternalSignature =
     /// A FIELD or PROPERTY, whose type is `return'` with no `->` in front of it. Distinct from
     /// the `unit -> r` METHOD `make` mints for a `member M: unit -> r`, which a use site must
     /// still apply.
-    static member value(declaringTyparArity: int, methodTyparArity: int, return': FrozenType) : ExternalSignature =
+    static member value
+        (declaringTyparArity: int<typeSlot>, methodTyparArity: int<typeSlot>, return': FrozenType)
+        : ExternalSignature =
         {
             DeclaringTyparArity = declaringTyparArity
             MethodTypars = ExternalSignature.unbounded methodTyparArity
@@ -284,8 +292,12 @@ type ExternalSignature =
 
     /// One group per `->` the source wrote, each holding that group's own tupled domain.
     static member ofGroups
-        (declaringTyparArity: int, methodTyparArity: int, argGroups: FrozenType list, return': FrozenType)
-        : ExternalSignature =
+        (
+            declaringTyparArity: int<typeSlot>,
+            methodTyparArity: int<typeSlot>,
+            argGroups: FrozenType list,
+            return': FrozenType
+        ) : ExternalSignature =
         {
             DeclaringTyparArity = declaringTyparArity
             MethodTypars = ExternalSignature.unbounded methodTyparArity
@@ -361,8 +373,8 @@ module ExternalSignature =
     /// groups collapse to ONE .NET parameter vector with the getter's result appended:
     /// `Item: int -> 'T with set` takes `(int, 'T)`.
     let setter
-        (declaringTyparArity: int)
-        (methodTyparArity: int)
+        (declaringTyparArity: int<typeSlot>)
+        (methodTyparArity: int<typeSlot>)
         (groupDomains: FrozenType list)
         (getterReturn: FrozenType)
         : ExternalSignature =
@@ -417,7 +429,7 @@ type ExternalMember =
             IsStatic = false
             Storage = MemberStorage.Method
             ConstValue = ValueNone
-            Signature = ExternalSignature.deferred (0, 0, 1)
+            Signature = ExternalSignature.deferred (0<_>, 0<_>, 1)
             Origin = SymbolOrigin.Empty
             Key = key
             OptionalDefaults = []
@@ -436,7 +448,7 @@ type ExternalMember =
         (origin: SymbolOrigin)
         (optionalDefaults: OptionalDefault list)
         : ExternalMember =
-        { ExternalMember.OfKey(SymbolKeyOps.ctorKeyOf declKey argSig signature.MethodTyparArity) with
+        { ExternalMember.OfKey(SymbolKeyOps.ctorKeyOf declKey argSig (int signature.MethodTyparArity)) with
             Signature = signature
             Origin = origin
             OptionalDefaults = optionalDefaults

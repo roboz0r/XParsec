@@ -58,7 +58,7 @@ module EmitExpr =
                 let sm = env.StaticMethods.[boundVar]
 
                 let callHandle =
-                    if sm.Scheme.TyparArity = 0 then
+                    if sm.Scheme.TyparArity = 0<_> then
                         sm.Handle
                     else
                         let inst = matchInstantiation sm.Scheme.TyparArity [ sm.ResultTy ] [ varTy ]

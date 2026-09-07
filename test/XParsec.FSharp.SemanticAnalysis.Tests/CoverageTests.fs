@@ -1388,7 +1388,7 @@ let tests =
 
                 { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf extDeclKey "M" ps 0 MemberKind.Method) with
                     IsStatic = true
-                    Signature = TestHelpers.mkSignature 0 0 (FTTuple ps) unitFt
+                    Signature = TestHelpers.mkSignature 0<_> 0<_> (FTTuple ps) unitFt
                 }
 
             // The stub channels layered OVER `realProvider`: `Vec2` resolves through the stub,
@@ -1444,7 +1444,7 @@ let tests =
                           SymbolKeyOps.memberKeyOf extDeclKey "N" (Block.singleton intFt) 0 MemberKind.Method
                       ) with
                         IsStatic = true
-                        Signature = TestHelpers.mkSignature 0 0 intFt unitFt
+                        Signature = TestHelpers.mkSignature 0<_> 0<_> intFt unitFt
                     }
 
                 let ctx =

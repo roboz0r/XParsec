@@ -102,11 +102,11 @@ module private MetadataMapping =
             Some(paramTys |> Array.map Option.get, retTy.Value)
 
     /// The method's own generic-parameter count; `0` for a non-generic method.
-    let methodTyparArityOf (m: MethodInfo) : int =
+    let methodTyparArityOf (m: MethodInfo) : int<typeSlot> =
         if m.IsGenericMethodDefinition then
-            m.GetGenericArguments().Length
+            TyparIndex.typeSlot (m.GetGenericArguments().Length)
         else
-            0
+            0<typeSlot>
 
     /// The `IntKind` a BCL integral primitive's name denotes. `System.IntPtr` /
     /// `System.UIntPtr` are absent: neither a parameter default nor a metadata `Constant`
@@ -221,13 +221,13 @@ module private MetadataMapping =
             Some(paramTys |> Array.map Option.get, retTy.Value)
 
     /// Property `ExternalSignature`: no argument group, value type in `Return`.
-    let propertySignature (declaringTyparArity: int) (valueTy: FrozenType) : ExternalSignature =
-        ExternalSignature.value (declaringTyparArity, 0, valueTy)
+    let propertySignature (declaringTyparArity: int<typeSlot>) (valueTy: FrozenType) : ExternalSignature =
+        ExternalSignature.value (declaringTyparArity, 0<_>, valueTy)
 
     /// Method/ctor `ExternalSignature` from its `(Parameters, Return)` templates.
     let methodSignature
-        (declaringTyparArity: int)
-        (methodTyparArity: int)
+        (declaringTyparArity: int<typeSlot>)
+        (methodTyparArity: int<typeSlot>)
         (parameters: FrozenType, ret: FrozenType)
         : ExternalSignature =
         ExternalSignature.make (declaringTyparArity, methodTyparArity, parameters, ret)
@@ -337,7 +337,12 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
     /// A public FIELD (`String.Empty`, `Vector3.X`) as an `ExternalMember`, shaped and keyed
     /// as a property, read by `ldfld`/`ldsfld`. A `const` (`Int32.MaxValue`, `Math.PI`) also
     /// carries its `ConstValue`. `None` for the enum `value__` and for an unmappable `const`.
-    let fieldMemberOf (declKey: TypeKey) (origin: SymbolOrigin) (arity: int) (f: FieldInfo) : ExternalMember option =
+    let fieldMemberOf
+        (declKey: TypeKey)
+        (origin: SymbolOrigin)
+        (arity: int<typeSlot>)
+        (f: FieldInfo)
+        : ExternalMember option =
         let constValue () =
             if f.IsLiteral then
                 MetadataMapping.tryLiteralValue f |> Option.map ValueSome
@@ -360,13 +365,20 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
             | _ -> None
 
     /// A mapped method as an `ExternalMember`; `None` if its signature doesn't map.
-    let methodMemberOf (declKey: TypeKey) (origin: SymbolOrigin) (arity: int) (m: MethodInfo) : ExternalMember option =
+    let methodMemberOf
+        (declKey: TypeKey)
+        (origin: SymbolOrigin)
+        (arity: int<typeSlot>)
+        (m: MethodInfo)
+        : ExternalMember option =
         MetadataMapping.tryMethodSignature intrinsics m
         |> Option.map (fun (ps, ret) ->
             let argSig = Block.ofArray ps
             let methodTyparArity = MetadataMapping.methodTyparArityOf m
 
-            { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey m.Name argSig methodTyparArity MemberKind.Method) with
+            { ExternalMember.OfKey(
+                  SymbolKeyOps.memberKeyOf declKey m.Name argSig (int methodTyparArity) MemberKind.Method
+              ) with
                 IsStatic = m.IsStatic
                 Signature =
                     MetadataMapping.methodSignature arity methodTyparArity (ExternalSignature.tupledParams argSig, ret)
@@ -379,7 +391,7 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
     let propertyMemberOf
         (declKey: TypeKey)
         (origin: SymbolOrigin)
-        (arity: int)
+        (arity: int<typeSlot>)
         (p: PropertyInfo)
         : ExternalMember option =
         MetadataMapping.tryPropertySignature intrinsics p
@@ -401,9 +413,9 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
         // template's declaring slots (`FTTypar(Type _, i)`, `i < arity`).
         let arity =
             if t.IsGenericType then
-                t.GetGenericArguments().Length
+                TyparIndex.typeSlot (t.GetGenericArguments().Length)
             else
-                0
+                0<typeSlot>
 
         let properties =
             t.GetProperties declaredFlags
@@ -431,7 +443,7 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
                     { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey "get_Item" argSig 0 MemberKind.Method) with
                         IsStatic = getter.IsStatic
                         Signature =
-                            MetadataMapping.methodSignature arity 0 (ExternalSignature.tupledParams argSig, ret)
+                            MetadataMapping.methodSignature arity 0<_> (ExternalSignature.tupledParams argSig, ret)
                         Origin = origin
                     }
                 )
@@ -451,7 +463,7 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
 
                     ExternalMember.ctor
                         declKey
-                        (MetadataMapping.methodSignature arity 0 (ExternalSignature.tupledParams argSig, ret))
+                        (MetadataMapping.methodSignature arity 0<_> (ExternalSignature.tupledParams argSig, ret))
                         argSig
                         origin
                         (MetadataMapping.optionalDefaults (c.GetParameters()))
@@ -555,9 +567,9 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
 
                         let arity =
                             if st.IsGenericType then
-                                st.GetGenericArguments().Length
+                                TyparIndex.typeSlot (st.GetGenericArguments().Length)
                             else
-                                0
+                                0<typeSlot>
 
                         origin, declKey, arity
 
@@ -575,7 +587,7 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
                                     declKey
                                     (MetadataMapping.methodSignature
                                         arity
-                                        0
+                                        0<_>
                                         (ExternalSignature.tupledParams argSig, ret))
                                     argSig
                                     origin

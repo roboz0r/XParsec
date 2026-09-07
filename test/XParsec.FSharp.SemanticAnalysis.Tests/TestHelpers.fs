@@ -65,8 +65,8 @@ let (|TyClass|_|) (t: SemType) =
 /// reflection, `.fsi` and JS-native producers carry no keyof constraint. Call it qualified from a
 /// file that must not take this module's shadow `TyUnion`/`TyRecord`/`TyClass` constructors.
 let mkSignature
-    (declaringTyparArity: int)
-    (methodTyparArity: int)
+    (declaringTyparArity: int<typeSlot>)
+    (methodTyparArity: int<typeSlot>)
     (parameters: FrozenType)
     (ret: FrozenType)
     : ExternalSignature =
@@ -80,7 +80,11 @@ let mkMember (name: string) : ExternalMember =
       ) with
         IsStatic = true
         Signature =
-            mkSignature 0 0 (FTConst(RuntimeNames.unitKey, Block.empty)) (FTConst(RuntimeNames.unitKey, Block.empty))
+            mkSignature
+                0<_>
+                0<_>
+                (FTConst(RuntimeNames.unitKey, Block.empty))
+                (FTConst(RuntimeNames.unitKey, Block.empty))
     }
 
 /// A throwaway source token: `TExprG` pins `'tok = SyntaxToken`, so every hand-assembled
@@ -298,13 +302,13 @@ let mkStaticProperty (decl: TypeKey) (name: string) (ret: FrozenType) : External
     { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf decl name Block.empty 0 MemberKind.Property) with
         IsStatic = true
         Storage = MemberStorage.Property
-        Signature = ExternalSignature.value (decl.TyparArity, 0, ret)
+        Signature = ExternalSignature.value (TyparIndex.typeSlot decl.TyparArity, 0<_>, ret)
     }
 
 let private unionShape (key: TypeKey) (cases: ExternalCaseShape list) (rqa: bool) : ExternalTypeShape =
     ExternalTypeShape.Union
         {
-            Typars = TyparList.positional key.TyparArity
+            Typars = TyparList.positional (TyparIndex.typeSlot key.TyparArity)
             Cases = Block.ofList cases
             Interfaces = Block.empty
             Origin = SymbolOrigin.Empty
@@ -325,7 +329,7 @@ let publishRecord (b: PublishedSurfaceBuilder) (key: TypeKey) (fields: ExternalF
         key
         (ExternalTypeShape.Record
             {
-                Typars = TyparList.positional key.TyparArity
+                Typars = TyparList.positional (TyparIndex.typeSlot key.TyparArity)
                 Fields = Block.ofList fields
                 Origin = SymbolOrigin.Empty
                 IsValueType = false
@@ -339,7 +343,11 @@ let publishClass (b: PublishedSurfaceBuilder) (key: TypeKey) (members: ExternalM
         b
         key
         (ExternalTypeShape.Class
-            { ExternalClassShape.basic (TyparList.positional key.TyparArity, ClassCommitment.Class, SymbolOrigin.Empty) with
+            { ExternalClassShape.basic (
+                  TyparList.positional (TyparIndex.typeSlot key.TyparArity),
+                  ClassCommitment.Class,
+                  SymbolOrigin.Empty
+              ) with
                 Members = Block.ofList members
             })
         members

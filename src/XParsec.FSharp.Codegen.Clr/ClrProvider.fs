@@ -79,7 +79,7 @@ type ClrProvider
     member _.RegisterGenericUnion
         (
             key: TypeKey,
-            typars: Block<string>,
+            typars: BlockM<string, typeSlot>,
             cases: (string * (string * FrozenType) list) list,
             valueKind: NominalValueKind,
             home: UnionSlotHome voption
@@ -101,7 +101,7 @@ type ClrProvider
             }
 
     member internal _.RegisterGenericRecord
-        (key: TypeKey, typars: Block<string>, fields: GenericRecordField list)
+        (key: TypeKey, typars: BlockM<string, typeSlot>, fields: GenericRecordField list)
         : unit =
         env.GenericRecords.[key] <-
             {
@@ -110,7 +110,7 @@ type ClrProvider
             }
 
     member _.RegisterGenericClass
-        (key: TypeKey, typars: Block<string>, ctorParamCount: int, fields: (string * FrozenType) list)
+        (key: TypeKey, typars: BlockM<string, typeSlot>, ctorParamCount: int, fields: (string * FrozenType) list)
         : unit =
         env.GenericClasses.[key] <-
             {
@@ -122,7 +122,7 @@ type ClrProvider
     member _.RecordCtorSignature(paramTys: FrozenType list) : BlobBuilder = enc.RecordCtorSignature(paramTys)
 
     member _.GenericMethodOnTypeSignature
-        (methodTyparCount: int, paramTys: FrozenType list, retTy: FrozenType, isInstanceMethod: bool)
+        (methodTyparCount: int<typeSlot>, paramTys: FrozenType list, retTy: FrozenType, isInstanceMethod: bool)
         : BlobBuilder =
         enc.GenericMethodOnTypeSignature(methodTyparCount, paramTys, retTy, isInstanceMethod)
 
@@ -132,7 +132,9 @@ type ClrProvider
 
     member _.GenericRecordSelfSpec(key: TypeKey) : EntityHandle = generics.GenericRecordSelfSpec key
 
-    member _.GenericStaticFnSignature(typarCount: int, paramTys: FrozenType list, retTy: FrozenType) : BlobBuilder =
+    member _.GenericStaticFnSignature
+        (typarCount: int<typeSlot>, paramTys: FrozenType list, retTy: FrozenType)
+        : BlobBuilder =
         enc.GenericStaticFnSignature(typarCount, paramTys, retTy)
 
     member _.StaticMethodSignature(paramTys: FrozenType list, retTy: FrozenType) : BlobBuilder =
@@ -154,7 +156,7 @@ type ClrProvider
         enc.StaticMethodSignatureVoid(paramTys)
 
     member _.GenericMethodOnTypeSignatureVoid
-        (methodTyparCount: int, paramTys: FrozenType list, isInstanceMethod: bool)
+        (methodTyparCount: int<typeSlot>, paramTys: FrozenType list, isInstanceMethod: bool)
         : BlobBuilder =
         enc.GenericMethodOnTypeSignatureVoid(methodTyparCount, paramTys, isInstanceMethod)
 

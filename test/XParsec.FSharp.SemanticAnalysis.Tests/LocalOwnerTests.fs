@@ -204,7 +204,7 @@ let tests =
 
                 for name in [ "idc"; "g"; "h"; "inner" ] do
                     Expect.equal (schemeOf pools name).Id (localIdOf pools name) (name + "'s scope")
-                    Expect.equal (schemeOf pools name).TyparArity 1 (name + " quantifies one typar")
+                    Expect.equal (schemeOf pools name).TyparArity 1<typeSlot> (name + " quantifies one typar")
             }
 
             test "a same-file inline body's local is the same binding under each spliced copy" {
@@ -256,7 +256,7 @@ let tests =
                     1
                     "the spliced `g` quantifies its own typar in the consumer"
 
-                Expect.equal (snd pools.LocalSchemes.[0]).TyparArity 1 "one typar"
+                Expect.equal (snd pools.LocalSchemes.[0]).TyparArity 1<typeSlot> "one typar"
 
                 Expect.equal
                     (pools.LocalOwners |> Array.map snd)

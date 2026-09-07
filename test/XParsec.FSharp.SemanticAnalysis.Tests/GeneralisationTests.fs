@@ -100,7 +100,7 @@ let tests =
                         (SymbolKeyOps.inNamespace "")
                         "myId"
                         (FTFun(FTTypar(scope, 0), FTTypar(scope, 0)))
-                        (FunctionScheme.unconstrained 1)
+                        (FunctionScheme.unconstrained 1<typeSlot>)
 
                 // First-hit-wins: only `myId` comes from the stub; the `int`/`bool`
                 // intrinsics the RHS types through fall through to `realProvider`.

@@ -51,15 +51,24 @@ module internal ElaborateTypars =
             }
             e
 
-    /// Pair each declared typar's zonked root with `TyTypar(scope, i)`, `i` being its
-    /// position in the declaration list. A typar pinned to a non-`TyVar` is dropped, but
-    /// the index still counts it, so a surviving typar keeps its declared slot.
-    let mkDeclTyparEnv (store: TypeStore) (scope: TyparScope) (protos: Block<TyVarId>) : (TyVarId * SemType) list =
+    /// Pair each declared type-kinded typar's zonked root with `TyTypar(scope, i)`, `i` being
+    /// its `Types` slot. A measure-kinded typar has no leaf. A typar pinned to a non-`TyVar` is
+    /// dropped, but the slot still counts it, so a surviving typar keeps its declared slot.
+    let mkDeclTyparEnv
+        (store: TypeStore)
+        (scope: TyparScope)
+        (typars: Block<DeclaredTypar>)
+        : (TyVarId * SemType) list =
+        let shape: TyparList = TyparList.unconstrained typars
+
         [
-            for i in 0 .. protos.Length - 1 do
-                match Unification.zonk store (TyVar protos.[i]) with
-                | TyVar root -> yield (root, TyTypar(scope, i))
-                | _ -> ()
+            for i in 0 .. typars.Length - 1 do
+                match shape.Order.[TyparIndex.sigSlot i] with
+                | TyparSlot.Type slot ->
+                    match Unification.zonk store (TyVar typars.[i].TyVar) with
+                    | TyVar root -> yield (root, TyTypar(scope, int slot))
+                    | _ -> ()
+                | TyparSlot.Measure _ -> ()
         ]
 
     /// The constraints the store holds on `root`; a `Coercion` target stays `TyVar`-rooted
@@ -93,7 +102,7 @@ module internal ElaborateTypars =
     /// A module function's own typars with their constraints, positionally named in the order
     /// `env` quantifies them: entry `i` of a `mkMethodQuantEnv` result is `TyTypar(scope, i)`.
     let quantEnvTyparList (store: TypeStore) (env: (TyVarId * SemType) list) : TyparListG<SemType> =
-        let roots = env |> List.map fst |> Array.ofList
+        let roots: BlockM<TyVarId, typeSlot> = Block.ofList (env |> List.map fst)
         TyparList.positionalWith (fun i -> constraintSetOf store roots.[i]) roots.Length
 
     /// Quantify a module-`let`'s free type parameters into `TyTypar(scope, i)` in the F#

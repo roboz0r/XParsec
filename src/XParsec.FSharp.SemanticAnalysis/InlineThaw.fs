@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
 open System.Collections.Generic
+open Vesper
 open XParsec.FSharp.Parser
 
 module InlineThaw =
@@ -55,7 +56,8 @@ module InlineThaw =
         |> Map.map (fun key scheme ->
             // A typar of the scheme absent from the body has no leaf and so no cell yet;
             // minting it here keeps index `i` at position `i`.
-            let typars = [ for i in 0 .. scheme.TyparArity - 1 -> roots.At(scheme.Id, i) ]
+            let typars =
+                Block.toList (Block.init scheme.TyparArity (fun i -> roots.At(scheme.Id, i)))
 
             match boundTys.TryGetValue key with
             | true, ty -> TypeScheme(typars, ty)
@@ -86,7 +88,7 @@ module InlineThaw =
                 (fun _ i -> TyVar(declaringRoots.At i))
                 (fun _ i -> TyVar(methodRoots.At i))
                 (fun _ i -> TyVar(methodRoots.At i))
-                (fun binding i -> TyVar(localRoots.At(binding, i)))
+                (fun binding i -> TyVar(localRoots.At(binding, TyparIndex.typeSlot i)))
 
         let thawed =
             TastConvert.decl (FrozenTypeBridge.instantiateWith thaw inst) (LexedFiles.tokenAt retained path) body.Decl

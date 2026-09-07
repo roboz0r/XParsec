@@ -352,7 +352,8 @@ module Unification =
                         use _ = ctx.PushTyparScope(memberScope, ctx.Resolution.TyparScopeStrict)
 
                         match tds with
-                        | ValueSome(TyparDefns(constraints = ValueSome cs)) -> translateConstraints ctx cs
+                        | ValueSome(TyparDefns(constraints = ValueSome cs)) ->
+                            translateConstraints ctx mInfo.SeedTypars cs
                         | _ -> ()
 
                         let sigTy = mkSigTy ()
@@ -639,7 +640,7 @@ module Unification =
                             // prototype TyVars, so a member-body access on an interface-
                             // constrained class typar resolves through the interface.
                             match info.TyparConstraints with
-                            | ValueSome cs -> translateConstraints ctx cs
+                            | ValueSome cs -> translateConstraints ctx info.TypeParams cs
                             | ValueNone -> ()
 
                             // A ctor param's TyVar already carries its declared type (linked

@@ -247,7 +247,7 @@ type UnionNestedType =
 
     /// The type's fields as `(name, type)` in row order, in the scope of the union's own
     /// `arity` typars.
-    member this.Fields(unionKey: TypeKey, arity: int) : (string * FrozenType) list =
+    member this.Fields(unionKey: TypeKey, arity: int<typeSlot>) : (string * FrozenType) list =
         match this with
         | UnionNestedType.Payload p -> p.Fields unionKey
         | UnionNestedType.View _ ->

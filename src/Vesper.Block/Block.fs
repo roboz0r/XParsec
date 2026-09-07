@@ -389,7 +389,7 @@ module Block =
             BlockM<'T, 'M>(Array.sub src 0 n)
 
     /// Wraps the immutable array's own buffer, so nothing is copied.
-    let ofImmutable (xs: ImmutableArray<'T>) : Block<'T> =
+    let ofImmutable (xs: ImmutableArray<'T>) : BlockM<'T, 'M> =
         match ImmutableCollectionsMarshal.AsArray xs with
         | null -> empty
         | arr -> unsafeOfArray arr

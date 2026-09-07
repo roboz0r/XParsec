@@ -200,7 +200,7 @@ type ArgGroupG<'ty, 'pat, 'id> =
 /// consumes; `ResultTy` is the source (NOT unit-erased) result type.
 type ValReprG<'ty, 'pat, 'id> =
     {
-        Typars: int
+        Typars: int<typeSlot>
         Groups: ArgGroupG<'ty, 'pat, 'id> list
         ResultTy: 'ty
     }

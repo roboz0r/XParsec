@@ -18,7 +18,7 @@ let private provider: IExternalSymbolProvider =
 
     let box =
         ExternalTypeShape.Class(
-            ExternalClassShape.basic (TyparList.positional 1, ClassCommitment.Class, SymbolOrigin.Empty)
+            ExternalClassShape.basic (TyparList.positional 1<typeSlot>, ClassCommitment.Class, SymbolOrigin.Empty)
         )
 
     providerOfSurface (fun b ->

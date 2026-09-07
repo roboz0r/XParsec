@@ -61,7 +61,7 @@ module NameResolutionTypeRegistration =
 
     /// `Measure` where `[<Measure>]` is written on the slot. Reports no diagnostic; callable at
     /// CLAIM time.
-    let private kindOfSlot (ctx: PassContext) (attrs: Attributes<SyntaxToken> voption) : TyparKind =
+    let kindOfSlot (ctx: PassContext) (attrs: Attributes<SyntaxToken> voption) : TyparKind =
         if ctx.HasAttribute(attrs, RuntimeNames.measureAttributeKey) then
             TyparKind.Measure
         else
@@ -106,20 +106,24 @@ module NameResolutionTypeRegistration =
             }
         )
 
-    /// Mint a prototype TyVar per name, for typars this pass reads by name alone: a MEMBER's
-    /// own `<'C>` and a VALUE signature's. `[<Measure>]` on one of those is not yet modelled,
-    /// so they are all type-kinded.
-    let mkMethodTypars (store: TypeStore) (names: string list) : Block<DeclaredTypar> =
+    /// Mint a prototype TyVar per `(name, kind)`, in the order given.
+    let mkDeclaredTypars (store: TypeStore) (typars: (string * TyparKind) list) : Block<DeclaredTypar> =
         Block.ofSeq (
             seq {
-                for n in names ->
+                for (n, kind) in typars ->
                     {
                         Name = n
                         TyVar = newTypar store
-                        Kind = TyparKind.Type
+                        Kind = kind
                     }
             }
         )
+
+    /// Mint a prototype TyVar per name, for a MEMBER's own `<'C>`, which this pass reads by
+    /// name alone. `[<Measure>]` on a member typar is not yet modelled, so they are all
+    /// type-kinded.
+    let mkMethodTypars (store: TypeStore) (names: string list) : Block<DeclaredTypar> =
+        mkDeclaredTypars store [ for n in names -> n, TyparKind.Type ]
 
     /// The container a TYPE declared in `c` sits in, under this file's module-naming rules.
     let localTypeContainer (ctx: PassContext) (c: DeclContainment<SyntaxToken>) : TypeContainer = ctx.TypeContainerOf c

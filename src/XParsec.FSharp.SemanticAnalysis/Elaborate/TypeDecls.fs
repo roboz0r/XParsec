@@ -77,8 +77,7 @@ module internal ElaborateTypeDecls =
         (typeParams: Block<DeclaredTypar>)
         (mkSelfTy: Block<SemType> -> SemType)
         : DeclScope =
-        let env =
-            mkDeclTyparEnv ctx.Store (TyparScope.Type key) (DeclaredTypar.protos typeParams)
+        let env = mkDeclTyparEnv ctx.Store (TyparScope.Type key) typeParams
 
         {
             Env = ResizeArray env
@@ -126,7 +125,7 @@ module internal ElaborateTypeDecls =
                 // The member signatures were typed under the class's typar scope, so they
                 // share these prototype TyVars and the remap reaches every one.
                 let declEnv =
-                    mkDeclTyparEnv ctx.Store (TyparScope.Type info.TypeKey) (DeclaredTypar.protos info.TypeParams)
+                    mkDeclTyparEnv ctx.Store (TyparScope.Type info.TypeKey) info.TypeParams
 
                 let env = ResizeArray declEnv
 
@@ -573,8 +572,7 @@ module internal ElaborateTypeDecls =
         match info.TryFilled with
         | ValueNone -> None
         | ValueSome body ->
-            let env =
-                mkDeclTyparEnv ctx.Store (TyparScope.Type info.TypeKey) (DeclaredTypar.protos info.TypeParams)
+            let env = mkDeclTyparEnv ctx.Store (TyparScope.Type info.TypeKey) info.TypeParams
 
             Some(
                 mkTypeDecl

@@ -285,12 +285,12 @@ module FrozenCodecTypes =
             w.Write s
         | TyparName.Positional i ->
             w.Write 1uy
-            w.Write i
+            w.Write(int i)
 
     let readTyparName (r: FrozenReader) : TyparName =
         match r.ReadByte() with
         | 0uy -> TyparName.Written(r.ReadString())
-        | 1uy -> TyparName.Positional(r.ReadInt32())
+        | 1uy -> TyparName.Positional(TyparIndex.typeSlot (r.ReadInt32()))
         | b -> failwithf "FrozenCodec: unknown TyparName tag %d" b
 
     let private writeTypeTypar (w: FrozenWriter) (t: TypeTypar) =
@@ -316,15 +316,15 @@ module FrozenCodecTypes =
         match slot with
         | TyparSlot.Type i ->
             w.Write 0uy
-            w.Write i
+            w.Write(int i)
         | TyparSlot.Measure i ->
             w.Write 1uy
-            w.Write i
+            w.Write(int i)
 
     let private readTyparSlot (r: FrozenReader) : TyparSlot =
         match r.ReadByte() with
-        | 0uy -> TyparSlot.Type(r.ReadInt32())
-        | 1uy -> TyparSlot.Measure(r.ReadInt32())
+        | 0uy -> TyparSlot.Type(TyparIndex.typeSlot (r.ReadInt32()))
+        | 1uy -> TyparSlot.Measure(TyparIndex.measureSlot (r.ReadInt32()))
         | b -> failwithf "FrozenCodec: unknown TyparSlot tag %d" b
 
     /// A typar list: the type-kinded parameters with their constraints, the measure-kinded
@@ -335,9 +335,12 @@ module FrozenCodecTypes =
         writeBlockWith w writeTyparSlot typars.Order
 
     let readTyparList (r: FrozenReader) : TyparList =
-        let types = readBlockWith r readTypeTypar
-        let measures = readBlockWith r (fun r -> { MeasureTypar.Name = readTyparName r })
-        let order = readBlockWith r readTyparSlot
+        let types: BlockM<TypeTypar, typeSlot> = readBlockWith r readTypeTypar
+
+        let measures: BlockM<MeasureTypar, measureSlot> =
+            readBlockWith r (fun r -> { MeasureTypar.Name = readTyparName r })
+
+        let order: BlockM<TyparSlot, sigSlot> = readBlockWith r readTyparSlot
 
         {
             Types = types
@@ -346,13 +349,13 @@ module FrozenCodecTypes =
         }
 
     let private writeMemberTrait (w: FrozenWriter) (t: MemberTrait) =
-        writeBlockWith w (fun w (i: int) -> w.Write i) t.TyparIndices
+        writeBlockWith w (fun w (i: int<typeSlot>) -> w.Write(int i)) t.TyparIndices
         w.Write t.MemberName
         writeBlockWith w writeTypeRef t.ArgTypes
         writeTypeRef w t.ReturnType
 
     let private readMemberTrait (r: FrozenReader) : MemberTrait =
-        let indices = readBlockWith r (fun r -> r.ReadInt32())
+        let indices = readBlockWith r (fun r -> TyparIndex.typeSlot (r.ReadInt32()))
         let name = r.ReadString()
         let args = readBlockWith r readTypeRef
         let ret = readTypeRef r
@@ -405,12 +408,15 @@ module FrozenCodecTypes =
 
     let writeLocalScheme (w: FrozenWriter) (s: LocalScheme) =
         writeLocalBindingId w s.Id
-        w.Write s.TyparArity
+        w.Write(int s.TyparArity)
 
     let readLocalScheme (r: FrozenReader) : LocalScheme =
         let id = readLocalBindingId r
 
-        { Id = id; TyparArity = r.ReadInt32() }
+        {
+            Id = id
+            TyparArity = TyparIndex.typeSlot (r.ReadInt32())
+        }
 
     let writeModuleBindingInfo (w: FrozenWriter) (m: ModuleBindingInfo) =
         writeSymbolRef w m.Key

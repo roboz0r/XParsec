@@ -83,11 +83,11 @@ module FrozenCodecPrimitives =
 
     /// Length prefix, then each element. `readArrayWith` is the inverse, returning a bare
     /// array, which every `Block` reader wraps.
-    let writeBlockWith (w: FrozenWriter) (writeElem: FrozenWriter -> 'a -> unit) (xs: Block<'a>) =
-        w.Write xs.Length
+    let writeBlockWith (w: FrozenWriter) (writeElem: FrozenWriter -> 'a -> unit) (xs: BlockM<'a, 'm>) =
+        w.Write(int xs.Length)
 
-        for i in 0 .. xs.Length - 1 do
-            writeElem w xs.[i]
+        for x in xs do
+            writeElem w x
 
     let readArrayWith (r: FrozenReader) (readElem: FrozenReader -> 'a) : 'a[] =
         let n = r.ReadInt32()
@@ -134,7 +134,7 @@ module FrozenCodecPrimitives =
         // Count = Capacity by construction, so this hands over the buffer rather than copying.
         b.MoveToImmutable()
 
-    let readBlockWith (r: FrozenReader) (readElem: FrozenReader -> 'a) : Block<'a> =
+    let readBlockWith (r: FrozenReader) (readElem: FrozenReader -> 'a) : BlockM<'a, 'm> =
         Block.ofImmutable (readImmutableWith r readElem)
 
     // ── container helpers (option / voption / list) ────────────────────────

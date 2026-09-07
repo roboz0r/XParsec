@@ -81,7 +81,7 @@ module EmitResolve =
     let recoverMemberInst
         (env: EmitEnv)
         (m: EmittedMember)
-        (declTyparArity: int)
+        (declTyparArity: int<typeSlot>)
         (argTys: FrozenType list)
         (resultTy: FrozenType)
         : FrozenType list * FrozenType list =

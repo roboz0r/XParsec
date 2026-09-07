@@ -26,7 +26,7 @@ module internal TsManifestMembers =
         (ctx: TranslateCtx)
         (declKey: TypeKey)
         (origin: SymbolOrigin)
-        (declTyparArity: int)
+        (declTyparArity: int<typeSlot>)
         (mem: Schema.Member)
         : ExternalMember list =
         overloadArgSigs ctx mem
@@ -40,7 +40,7 @@ module internal TsManifestMembers =
         (ctx: TranslateCtx)
         (declKey: TypeKey)
         (origin: SymbolOrigin)
-        (declTyparArity: int)
+        (declTyparArity: int<typeSlot>)
         (kind: MemberKind)
         (mem: Schema.Member)
         : ExternalMember list =
@@ -59,7 +59,7 @@ module internal TsManifestMembers =
         (ctx: TranslateCtx)
         (declKey: TypeKey)
         (origin: SymbolOrigin)
-        (declTyparArity: int)
+        (declTyparArity: int<typeSlot>)
         (isInterface: bool)
         (mem: Schema.Member)
         : ExternalMember list =
@@ -77,7 +77,7 @@ module internal TsManifestMembers =
                 { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey mem.Name Block.empty 0 MemberKind.Property) with
                     IsStatic = mem.Static
                     Storage = MemberStorage.Property
-                    Signature = ExternalSignature.value (declTyparArity, 0, ret)
+                    Signature = ExternalSignature.value (declTyparArity, 0<_>, ret)
                     Origin = origin
                     IsOptional = mem.Optional
                 }
@@ -166,7 +166,7 @@ module internal TsManifestMembers =
 
             let mems =
                 members
-                |> List.collect (toExternalMembers ctx declared.Key origin tp isInterface)
+                |> List.collect (toExternalMembers ctx declared.Key origin (TyparIndex.typeSlot tp) isInterface)
                 |> Block.ofList
 
             let heritageInterfaces, frozenBaseType = classifyHeritage ctx heritage
@@ -188,7 +188,7 @@ module internal TsManifestMembers =
                 declared,
                 ExternalTypeShape.Class
                     {
-                        Typars = TyparList.positional tp
+                        Typars = TyparList.positional (TyparIndex.typeSlot tp)
                         Commitment = ClassCommitment.ofIsInterface isInterface
                         Members = mems
                         FrozenInterfaces = frozenInterfaces
@@ -220,7 +220,7 @@ module internal TsManifestMembers =
                 minted,
                 ExternalTypeShape.Abbrev
                     {
-                        Typars = TyparList.positional tp
+                        Typars = TyparList.positional (TyparIndex.typeSlot tp)
                         Body = toFrozen ctx target
                     }
             )
@@ -311,7 +311,7 @@ module internal TsManifestMembers =
                             Optional = false
                         }
 
-                    toExternalMembers ctx declared.Key origin 0 true mem
+                    toExternalMembers ctx declared.Key origin 0<_> true mem
                 )
                 |> Block.ofList
 
@@ -422,7 +422,7 @@ module internal TsManifestMembers =
                         (ctx.InScope(TyparScope.Member declared.Key))
                         declared.Key
                         origin
-                        0
+                        0<_>
                         MemberKind.Method
                         mem
                 )

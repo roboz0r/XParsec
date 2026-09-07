@@ -185,7 +185,7 @@ type UserMemberKind =
     | Member of
         metaName: string *
         isStatic: bool *
-        methodTyparCount: int *
+        methodTyparCount: int<typeSlot> *
         paramTys: FrozenType list *
         retTy: FrozenType
 
@@ -402,7 +402,7 @@ type ICodegenProvider =
     /// matching an *open* signature (`FTTypar(Type _, i)` / `FTTypar(Member _, j)` markers)
     /// against its *instantiated* counterpart. Returns `(declaringArgs, methodArgs)`.
     abstract RecoverOpenTypars:
-        declTyparArity: int * methodTyparArity: int * openT: FrozenType * instT: FrozenType ->
+        declTyparArity: int<typeSlot> * methodTyparArity: int<typeSlot> * openT: FrozenType * instT: FrozenType ->
             FrozenType list * FrozenType list
 
     /// `Vesper.Fun\`2::Invoke` — apply a function *value* of type `funcTy` to one argument.

@@ -53,7 +53,7 @@ module SignatureResolutionContext =
     /// The env of a declaration's own typars under `scope`: a typar written anywhere in the
     /// declaration's structure freezes to `FTTypar(scope, i)` at its declared position.
     let scopedEnv (ctx: PassContext) (scope: TyparScope) (typars: Block<DeclaredTypar>) : (TyVarId * SemType) list =
-        ElaborateTypars.mkDeclTyparEnv ctx.Store scope (DeclaredTypar.protos typars)
+        ElaborateTypars.mkDeclTyparEnv ctx.Store scope typars
 
     /// A member's env: the owner's `declaring` typars under the type's scope, then the
     /// member's `own` under the member's.
@@ -139,17 +139,22 @@ module SignatureResolutionContext =
 
         List.ofSeq acc
 
-    /// The explicit `<'a, 'b>` a signature declares, in source order.
-    let explicitTyparNames (ctx: PassContext) (tds: TyparDefns<SyntaxToken> voption) : string list =
+    /// The explicit `<'a, [<Measure>] 'u>` a signature declares, named and kinded, in source
+    /// order.
+    let explicitTypars (ctx: PassContext) (tds: TyparDefns<SyntaxToken> voption) : (string * TyparKind) list =
         match tds with
         | ValueNone -> []
         | ValueSome(TyparDefns(defns = ds)) ->
             [
-                for TyparDefn(typar = t) in ds do
+                for TyparDefn(attributes = attrs; typar = t) in ds do
                     match typarName ctx t with
-                    | ValueSome n -> yield n
+                    | ValueSome n -> yield n, kindOfSlot ctx attrs
                     | ValueNone -> ()
             ]
+
+    /// The explicit `<'a, 'b>` a signature declares, in source order.
+    let explicitTyparNames (ctx: PassContext) (tds: TyparDefns<SyntaxToken> voption) : string list =
+        explicitTypars ctx tds |> List.map fst
 
     /// Run `f` under a typar scope holding exactly `outer` then `own`, STRICT: every typar the
     /// signature writes was collected before entry, so one that still misses is undeclared.
@@ -194,12 +199,12 @@ module SignatureResolutionContext =
 
     // --- `when` clauses --------------------------------------------------------------
 
-    /// The trait a `when (^T or ^U) : (static member M : …)` clause declares, over the typar
+    /// The trait a `when (^T or ^U) : (static member M : …)` clause declares, over the `Types`
     /// indices `indexOf` assigns and the frozen types `target` builds. `ValueNone` for a member
-    /// with no compiled name, or a support set naming no declared typar.
+    /// with no compiled name, or a support set naming no declared type-kinded typar.
     let private memberTraitOf
         (ctx: PassContext)
-        (indexOf: Typar<SyntaxToken> -> int voption)
+        (indexOf: Typar<SyntaxToken> -> int<typeSlot> voption)
         (target: Type<SyntaxToken> -> FrozenType)
         sts
         (ms: MemberSig<SyntaxToken>)
@@ -244,31 +249,46 @@ module SignatureResolutionContext =
                 }
         | _ -> ValueNone
 
-    /// The published scheme of a signature over its own typars: each typar's `when` clauses
-    /// by INDEX, and the member traits. A clause referencing a typar the signature does not
-    /// declare is dropped.
+    /// The published scheme of a signature over its own typars: each type-kinded typar's `when`
+    /// clauses, and the member traits. A clause referencing a typar the signature does not
+    /// declare is dropped; one naming a measure-kinded typar is reported.
     let publishedScheme
         (ctx: PassContext)
         (env: (TyVarId * SemType) list)
         (typeParams: Block<DeclaredTypar>)
         (clauses: TyparConstraints<SyntaxToken> list)
         : FunctionScheme =
-        let indexOf (t: Typar<SyntaxToken>) : int voption =
+        let shape: TyparList = TyparList.unconstrained typeParams
+
+        /// The `Types` index of the declared type parameter `t` names. A measure-kinded
+        /// parameter is reported.
+        let typeSlotOf (t: Typar<SyntaxToken>) : int<typeSlot> voption =
             match typarName ctx t with
             | ValueNone -> ValueNone
-            | ValueSome n -> typeParams |> Block.tryFindIndex (fun tp -> tp.Name = n)
+            | ValueSome n ->
+                match typeParams |> Block.tryFindIndex (fun tp -> tp.Name = n) with
+                | ValueNone -> ValueNone
+                | ValueSome pos ->
+                    match TyparList.typeSlotOf shape (TyparIndex.sigSlot pos) with
+                    | ValueSome i -> ValueSome i
+                    | ValueNone ->
+                        match CstKeys.typarToken t with
+                        | ValueSome tok -> ctx.Report(tok, Kind.TypeParameterExpectedNotMeasure)
+                        | ValueNone -> ()
+
+                        ValueNone
 
         let target (t: Type<SyntaxToken>) : FrozenType =
             freezeOver ctx env (translateType ctx t)
 
         let constraints =
-            Array.init typeParams.Length (fun _ -> ResizeArray<TyparConstraintKindG<FrozenType>>())
+            Block.init shape.TypeArity (fun _ -> ResizeArray<TyparConstraintKindG<FrozenType>>())
 
-        let defaults = Array.init typeParams.Length (fun _ -> ResizeArray<FrozenType>())
+        let defaults = Block.init shape.TypeArity (fun _ -> ResizeArray<FrozenType>())
         let traits = ResizeArray<MemberTrait>()
 
         let constraintOn (t: Typar<SyntaxToken>) (kind: TyparConstraintKindG<FrozenType>) =
-            match indexOf t with
+            match typeSlotOf t with
             | ValueSome i -> constraints.[i].Add kind
             | ValueNone -> ()
 
@@ -290,22 +310,27 @@ module SignatureResolutionContext =
                 | Constraint.Delegate(typar = t; type1 = args; type2 = ret) ->
                     constraintOn t (TyparConstraintKindG.Delegate(target args, target ret))
                 | Constraint.Default(typar = t; typ = tgt) ->
-                    match indexOf t with
+                    match typeSlotOf t with
                     | ValueSome i -> defaults.[i].Add(target tgt)
                     | ValueNone -> ()
                 | Constraint.MemberTrait(staticTypars = sts; membersign = ms) ->
-                    match memberTraitOf ctx indexOf target sts ms with
+                    match memberTraitOf ctx typeSlotOf target sts ms with
                     | ValueSome trait_ -> traits.Add trait_
                     | ValueNone -> ()
 
         let typars =
-            TyparList.ofKinded
-                (fun i ->
-                    {
-                        Kinds = EqSet.ofSeq constraints.[i]
-                        Defaults = Block.ofSeq defaults.[i]
-                    }
-                )
-                (seq { for tp in typeParams -> tp.Name, tp.Kind })
+            { shape with
+                Types =
+                    shape.Types
+                    |> Block.mapi (fun i t ->
+                        { t with
+                            Constraints =
+                                {
+                                    Kinds = EqSet.ofSeq constraints.[i]
+                                    Defaults = Block.ofResizeArray defaults.[i]
+                                }
+                        }
+                    )
+            }
 
-        FunctionScheme.create typars (Block.ofSeq traits)
+        FunctionScheme.create typars (Block.ofResizeArray traits)

@@ -104,16 +104,49 @@ separate change.
    No format bump: the codec writes `int i` for every slot and the shapes on the wire are
    unchanged.
 
+   Landed from the step 1 review. A tag is erased only where the consumer structurally
+   requires an untagged `int`; a cast at a call site into repo-owned code means the callee's
+   parameter is mistyped. The tagged surface now reaches: `ExternalSignature`
+   (`DeclaringTyparArity`, `MethodTypars`, `MethodTyparArity`, every constructor),
+   `ValReprG.Typars`, `LocalScheme.TyparArity`, `TyparName.Positional`, `TyparList.typeNames`,
+   `TyparList.coercions` (a `Block`), `LocalTyparRoots.At`, `TastLower.matchInstantiation`
+   and its siblings, and on the CLR side `declaringMarkers`, `FrameScope.Count`,
+   `TyparFrame` (`Count`, `TryOffset`, the constructors), `payloadTyDeclaring`,
+   `UnionPlacements.Fields`, `EmittedMember.MethodTyparCount`, `UserMemberKind.Member`,
+   `RecoverOpenTypars`, the generic signature encoders, `Closure.Typars`, the
+   `GenericUnionShape` / `GenericRecordShape` / `GenericClassShape` typar name blocks,
+   `arityOfMetaName` and `methodTyparArityOf`. The remaining `int` casts sit at:
+   - `System.Reflection.Metadata` (`genericParameterCount`, `GenericInstantiation`,
+     `GenericTypeParameter`), the codec writers, and reflection / TypeScript-manifest reads.
+   - `FTTypar` / `TyTypar` construction and the arrays they index, which step 2 tags.
+   - `MemberKey.MethodTyparArity` and `TypeKey.TyparArity`, re-tagged with the key types in
+     step 5; `SymbolKeyOps.arityName`, which formats either numbering.
+   - `positionalWith`'s `Order` line, the one place the coincident numbering is asserted.
+
+   Also landed here: `publishedScheme` buckets its `when` clauses by `int<typeSlot>` over the
+   `Order` of `TyparList.unconstrained typeParams` and fills `Types` with one `mapi`; a `val`
+   signature's explicit typars are kinded (`SignatureResolutionContext.explicitTypars`,
+   `mkDeclaredTypars`), so `val f<[<Measure>] 'u, 'a when 'a : equality>` publishes the
+   constraint on type slot 0 and an SRTP support set naming `'u` is FS0703. A member's own
+   typars stay type-kinded (`mkMethodTypars`), because `InferOverload.frozenScopeEnv` and
+   `MemberKey.MethodTyparArity` still number by signature position. `translateConstraints`
+   takes the declared typar block and reports FS0703 for a `when` clause on a measure-kinded
+   typar of a type declaration; the impl-side binding path (`Infer.inferBinding`) still kinds
+   every binding typar `Type`. `mkDeclTyparEnv` walks `Order` and mints one
+   `TyTypar(scope, i)` per `Type` slot, so a measure typar has no env entry; this is step 2's
+   `mkDeclTyparEnv` change, landed early because `FunctionScheme.create` refuses a
+   signature-slot index at or past `TypeArity`.
+
 2. **The type leaf carries `typeSlot`.** `FTTypar of scope: TyparScope * index:
    int<typeSlot>` and `TyTypar` likewise; `ITyparInstantiation.Typar`, the
    `FTFunctionTypar` / `TyFunctionTypar` active patterns, `TyparFrame`'s counts and every
    `TyparSlots` resolution in the CLR encoder take the tag. Pattern matches and codec writes
    need `int i` at most; the sites that stop compiling are the ones this step exists for.
-   `mkDeclTyparEnv` walks `Order`, mints a `TyTypar(scope, i<typeSlot>)` per `Type` slot,
-   and skips a `Measure` slot until step 3 gives it a leaf. `GeneralizedTypars.canonical`
-   keeps a declared measure typar's kind, so `methodTyparList` files it under `Measures` and
-   the type-slot numbering of the rest stays dense. `ExternalSymbols.instantiateSymbol`
-   allocates one fresh variable per `Types` entry, as it already assumes.
+   `mkDeclTyparEnv` already walks `Order` and skips a `Measure` slot (landed under step 1);
+   here its `TyTypar` index takes the tag. `GeneralizedTypars.canonical` keeps a declared
+   measure typar's kind, so `methodTyparList` files it under `Measures` and the type-slot
+   numbering of the rest stays dense. `ExternalSymbols.instantiateSymbol` already allocates
+   one fresh variable per `Types` entry through a tagged `Block`.
 
    Format version 13, because a `TypeRow.Typar` index that once meant a signature slot on a
    measure-generic type now means a type slot.
@@ -145,6 +178,28 @@ separate change.
    `Measures`, `MeasureArity` or a measure atom; `TastFileG`, `FrozenPools` and the codec
    keep all three.
 
+5. **`` `N `` is written from one numbering and read as another.** `TypeKey.TyparArity` counts
+   signature slots: `NameResolutionTypeRegistration.arityOfTypeName` is
+   `typarSlotsOfTypeName |> List.length` with measures included, and it is the arity a source
+   name must be written at (FS0033). Emission and reference then take that count from opposite
+   numberings. `LayoutNodes` builds a `TypeDef`'s `MetaName` from `TypeParams.TypeArity`, so
+   `type Pair<[<Measure>] 'u, 'a>` emits as `` Pair`1 `` with one `GenericParam` row, which
+   `GenericParamFlagsTests` pins. `SymbolKeyOps.typeSegmentName` and `typeMetaName` render
+   `` `N `` from `TypeKey.TyparArity`, so every `TypeRef` `ClrEnv` spells for that type —
+   `typeRefOfKey`, `externalRecordRef`, `externalUnionRef`, `externalClassRef` — says
+   `` Pair`2 ``, and so does the provider-store key. `typeRefOfKey`'s doc claims the emitted
+   row and the matched identity cannot denote different types; for a measure-generic type they
+   already do. `ClrEnv.arityOfMetaName` reads a suffix back as `int<typeSlot>`, which holds for
+   a metadata name and fails for anything `typeSegmentName` produced.
+
+   A key needs both numberings: the signature count keys resolution and FS0033, the type count
+   spells the metadata name. Whether that is a second field on `TypeKey` or a `TyparList` shape
+   reachable from it is open, and settles when the key types take their tags — the same change
+   that re-tags `MemberKey.MethodTyparArity`, which conflates the two the same way.
+
+   No test fails today: the measure-generic declaration in `GenericParamFlagsTests` is never
+   referenced by name, so the `TypeDef` and the `TypeRef` spellings are never compared.
+
 ## Verify
 
 - `TyparListTests`: a list with a measure typar before a type typar reports `TypeArity`,
@@ -161,6 +216,9 @@ separate change.
 - `MeasureResolutionTests`: `float<'u>` in a measure-generic record field, class field and
   member signature analyses without diagnostics; a measure wildcard stays `NotYetSupported`,
   pinned with the gap quoted in the name.
+- `GenericParamFlagsTests`: a measure-generic type USED by name from another declaration
+  resolves, so the `TypeRef` and the `TypeDef` agree on `` `N ``; a cross-package reference to
+  one loads (step 5).
 - The `typar-*` conformance programs and goldens are byte-identical after steps 1 and 2.
 
 ## Migration checklist
@@ -170,11 +228,17 @@ Before this document is deleted, each row is in code or in a test:
 - [x] `BlockM` carries the tag, `Block` is its alias, and `Vesper.Block.Tests` pins the
       uninitialised value, ownership, equality and comparison (step 1a).
 - [ ] `Block` and its module are deleted; every call site names `Block` (step 1c).
-- [ ] `TyparList.Types`, `Measures` and `Order` accept only their own tag; no `int` indexes
+- [x] `TyparList.Types`, `Measures` and `Order` accept only their own tag; no `int` indexes
       any of them (step 1).
-- [ ] `TyparList.ofKinded`'s index callback is gone; `publishedScheme` buckets by
-      `DeclaredTypar` and `MemberTrait.TyparIndices` is `int<typeSlot>` (step 1).
-- [ ] `TypeArity` is the only CLR arity read; no `.Types.Length` or `.Types.IsEmpty` remains
+- [x] `TyparList.ofKinded`'s index callback is gone; `publishedScheme` buckets by
+      `int<typeSlot>` and `MemberTrait.TyparIndices` is `int<typeSlot>` (step 1).
+- [x] A `val`'s measure-kinded typar publishes a later `when` clause on the type slot and an
+      SRTP support set naming it is FS0703, pinned in `SignatureResolutionTests`; a type
+      declaration's `when` clause on a measure typar is FS0703, pinned in
+      `MeasureResolutionTests` (step 1).
+- [x] Every `int` erasure of a slot tag sits at a metadata, codec, reflection or manifest
+      boundary, at an `FTTypar` / `TyTypar` leaf, or at a key arity (step 1).
+- [x] `TypeArity` is the only CLR arity read; no `.Types.Length` or `.Types.IsEmpty` remains
       outside `SemanticScalars.fs` (step 1).
 - [ ] `FTTypar` and `TyTypar` carry `int<typeSlot>`, pinned by the measure-before-type
       binding in `FrozenConstraintTests` (step 2).
@@ -182,4 +246,7 @@ Before this document is deleted, each row is in code or in a test:
       and a member, pinned in `MeasureResolutionTests` and `FrozenCodecRoundTripTests`
       (step 3).
 - [ ] The erasure rule lives on the CLR encoder, not on `TyparListG` (step 4).
+- [ ] A metadata name's `` `N `` is a type-slot count wherever it is written and wherever it is
+      read; `TypeKey` and `MemberKey` carry the signature count and the type count apart
+      (step 5).
 - [ ] `typar-scope-plan.md` step 6 is struck and points here.

@@ -55,6 +55,9 @@ type Kind =
     /// A MEASURE written where a type is expected: a measure claim in type position (`x: m`),
     /// or a measure argument on a type-kinded parameter (`Box<m>`).
     | TypeExpectedNotMeasure
+    /// A measure-kinded parameter named where a type-kinded one is required: the target of a
+    /// `when` clause, or a member of an SRTP support set.
+    | TypeParameterExpectedNotMeasure
 
     // ── Constructors and patterns ──────────────────────────────────────────────
     /// The head of an applied or dotted pattern (`Foo x`, `Bar.Baz`) is neither a union case
@@ -219,6 +222,7 @@ module Kind =
         | Kind.MeasureMismatch _
         | Kind.DimensionlessMeasureMismatch _ -> DiagCode.FSharp 1 // ErrorFromAddingTypeEquation
         | Kind.TypeExpectedNotMeasure -> DiagCode.FSharp 704 // ExpectedTypeNotUnitOfMeasure
+        | Kind.TypeParameterExpectedNotMeasure -> DiagCode.FSharp 703 // ExpectedTypeParameterNotUnitOfMeasureParameter
         | Kind.MeasureExpected -> DiagCode.FSharp 705 // ExpectedUnitOfMeasureNotType
         | Kind.DowncastUnrelated _ -> DiagCode.FSharp 7 // InvalidRuntimeCoercion
         // ── The two "this coercion tells you nothing" warnings are one number in fsc.
@@ -360,6 +364,7 @@ module Kind =
         | Kind.MeasureMismatch(left, right) -> sprintf "Measure mismatch: <%s> vs <%s>" left right
         | Kind.DimensionlessMeasureMismatch measure -> sprintf "Measure mismatch: dimensionless vs <%s>" measure
         | Kind.TypeExpectedNotMeasure -> "Expected type, not unit-of-measure"
+        | Kind.TypeParameterExpectedNotMeasure -> "Expected type parameter, not unit-of-measure parameter"
         | Kind.MeasureExpected -> "Expected unit-of-measure, not type"
         | Kind.UndefinedPatternDiscriminator name -> sprintf "The pattern discriminator '%s' is not defined" name
         | Kind.NullaryConstructorPattern(name, arity) ->
@@ -540,6 +545,7 @@ module Kind =
         | Kind.DimensionlessMeasureMismatch _
         | Kind.MeasureExpected
         | Kind.TypeExpectedNotMeasure
+        | Kind.TypeParameterExpectedNotMeasure
         | Kind.UndefinedPatternDiscriminator _
         | Kind.NullaryConstructorPattern _
         | Kind.AmbiguousConstructor _

@@ -357,10 +357,10 @@ type TyparRoots(store: TypeStore) =
 type LocalTyparRoots(store: TypeStore) =
     let byBinding = System.Collections.Generic.Dictionary<LocalBindingId, TyparRoots>()
 
-    member _.At(binding: LocalBindingId, index: int) : TyVarId =
+    member _.At(binding: LocalBindingId, index: int<typeSlot>) : TyVarId =
         match byBinding.TryGetValue binding with
-        | true, roots -> roots.At index
+        | true, roots -> roots.At(int index)
         | _ ->
             let roots = TyparRoots store
             byBinding.[binding] <- roots
-            roots.At index
+            roots.At(int index)

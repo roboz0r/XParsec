@@ -64,11 +64,11 @@ let private expected: (string * TyparConstraintKindG<FrozenType> list list) list
     ]
 
 /// A scheme over `n` positional typars, the first constrained by `kind`.
-let private schemeWith (n: int) (kind: TyparConstraintKindG<FrozenType>) : FunctionScheme =
+let private schemeWith (n: int<typeSlot>) (kind: TyparConstraintKindG<FrozenType>) : FunctionScheme =
     FunctionScheme.ofTypars (
         TyparList.positionalWith
             (fun i ->
-                if i = 0 then
+                if i = 0<_> then
                     ConstraintSet.ofKinds [ kind ]
                 else
                     ConstraintSet.empty
@@ -106,9 +106,9 @@ let tests =
 
             test "a scheme's arity is the binding's quantified typar count" {
                 let pools = freezeFor source
-                Expect.equal (frozenSchemeOf pools "eq").TyparArity 1 "eq"
-                Expect.equal (frozenSchemeOf pools "two").TyparArity 2 "two"
-                Expect.equal (frozenSchemeOf pools "inferredEq").TyparArity 1 "inferredEq"
+                Expect.equal (frozenSchemeOf pools "eq").TyparArity 1<typeSlot> "eq"
+                Expect.equal (frozenSchemeOf pools "two").TyparArity 2<typeSlot> "two"
+                Expect.equal (frozenSchemeOf pools "inferredEq").TyparArity 1<typeSlot> "inferredEq"
             }
 
             test "a monomorphic binding has no scheme" {
@@ -121,14 +121,14 @@ let tests =
                     FTTypar(TyparScope.ModuleFunction(SymbolKeyOps.bindingKeyOf (SymbolKeyOps.inNamespace "") "f"), 1)
 
                 Expect.throws
-                    (fun () -> schemeWith 1 (TyparConstraintKindG.Coercion target) |> ignore)
+                    (fun () -> schemeWith 1<typeSlot> (TyparConstraintKindG.Coercion target) |> ignore)
                     "method typar referenced past the arity"
             }
 
             test "a trait on a typar at or past the arity is refused" {
                 let trait_: MemberTrait =
                     {
-                        TyparIndices = Block.singleton 1
+                        TyparIndices = Block.singleton 1<typeSlot>
                         MemberName = "op_Addition"
                         ArgTypes = Block.empty
                         ReturnType = RuntimeNames.intTy
@@ -136,7 +136,7 @@ let tests =
 
                 Expect.throws
                     (fun () ->
-                        FunctionScheme.create (TyparList.positional 1) (Block.singleton trait_)
+                        FunctionScheme.create (TyparList.positional 1<typeSlot>) (Block.singleton trait_)
                         |> ignore
                     )
                     "trait index past the arity"
@@ -299,7 +299,7 @@ let fscParityTests =
                 let pools = freezeFor paritySource
                 let scheme = frozenSchemeOf pools "twice"
 
-                Expect.equal scheme.TyparArity 1 "`'b` is solved to `int`, leaving one typar"
+                Expect.equal scheme.TyparArity 1<typeSlot> "`'b` is solved to `int`, leaving one typar"
 
                 match constraintsOf scheme.Typars with
                 | [ [ TyparConstraintKindG.Coercion(FTClass(key, args)) ] ] ->

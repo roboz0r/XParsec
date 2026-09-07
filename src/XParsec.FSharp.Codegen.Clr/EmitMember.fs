@@ -248,10 +248,12 @@ module EmitMember =
             // `'U` is encoded as `!!i`), so the call must wrap it in a `MethodSpec`. The node
             // carries no method type args, so recover them from the declared signature.
             let handle =
-                if m.MethodTyparCount = 0 then
+                if m.MethodTyparCount = 0<_> then
                     handle0
                 else
-                    let _, methodArgs = recoverMemberInst env m objArgNominal.Args.Length argTys ty
+                    // A nominal's argument list is its `Types` instantiation.
+                    let _, methodArgs =
+                        recoverMemberInst env m (TyparIndex.typeSlot objArgNominal.Args.Length) argTys ty
 
                     env.Provider.StaticFnMethodSpec(handle0, methodArgs)
 

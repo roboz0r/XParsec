@@ -638,8 +638,12 @@ module EmitClosures =
         // `1` by default, `2` for a flat `Fun`3` slot, and only for an ANONYMOUS
         // monomorphic lambda the verdict reached, which is what `selfKey` / `currentTypars`
         // gate on here.
-        let valueStructArity (currentTypars: int) (selfKey: BoundVarId voption) (e: TastAccessor.ExprId) : int =
-            if currentTypars = 0 && ValueOption.isNone selfKey then
+        let valueStructArity
+            (currentTypars: int<typeSlot>)
+            (selfKey: BoundVarId voption)
+            (e: TastAccessor.ExprId)
+            : int =
+            if currentTypars = 0<_> && ValueOption.isNone selfKey then
                 match stackLambdaArgs.TryGetValue e with
                 | true, arity -> arity
                 | false, _ -> 1
@@ -795,7 +799,9 @@ module EmitClosures =
                 // ANONYMOUS monomorphic lambda (a `let`-bound one keeps its heap shape) in a
                 // constrained `Fun`2`/`Fun`3` slot. Captures are allowed, stored by value.
                 let isValueStruct =
-                    currentTypars = 0 && ValueOption.isNone selfKey && stackLambdaArgs.ContainsKey e
+                    currentTypars = 0<_>
+                    && ValueOption.isNone selfKey
+                    && stackLambdaArgs.ContainsKey e
 
                 let c =
                     {

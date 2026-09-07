@@ -101,11 +101,11 @@ let tests =
                     | ValueSome s -> s
                     | ValueNone -> failtestf "the Vesper.Core contract publishes %s" addName
 
-                Expect.equal add.TyparArity 3 "(+) is published with its three typars"
+                Expect.equal add.TyparArity 3<typeSlot> "(+) is published with its three typars"
 
                 let rec reverseTypars (t: FrozenType) : FrozenType =
                     match t with
-                    | FTTypar(scope, i) -> FTTypar(scope, add.TyparArity - 1 - i)
+                    | FTTypar(scope, i) -> FTTypar(scope, int add.TyparArity - 1 - i)
                     | t -> FrozenType.mapChildren reverseTypars t
 
                 let reversed =
@@ -166,7 +166,8 @@ let tests =
                 Expect.isNonEmpty appendFormatted "formatter.fsi publishes AppendFormatted overloads"
 
                 Expect.isTrue
-                    (appendFormatted |> Block.forall (fun m -> m.Signature.MethodTyparArity = 1))
+                    (appendFormatted
+                     |> Block.forall (fun m -> m.Signature.MethodTyparArity = 1<typeSlot>))
                     (sprintf
                         "every AppendFormatted overload carries its own typar (MethodTyparArity = 1); got %A"
                         (appendFormatted |> Block.map (fun m -> m.Signature.MethodTyparArity)))

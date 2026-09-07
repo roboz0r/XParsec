@@ -684,7 +684,7 @@ module ExternalSymbols =
         (thaw: IMeasuredThaw)
         (m: ExternalMember)
         (declaringArgs: SemType[])
-        : Block<SemType voption> =
+        : BlockM<SemType voption, typeSlot> =
         let inst = TyparInstantiation.openMethod declaringArgs
 
         m.Signature.MethodTypars
@@ -743,7 +743,7 @@ module ExternalSymbols =
             inst scheme [||]
         else
             let freshTvs =
-                Array.init
+                Block.init
                     typars.Length
                     (fun _ ->
                         let tv = store.NewTypeVar()
@@ -751,12 +751,15 @@ module ExternalSymbols =
                         tv
                     )
 
-            let fresh = freshTvs |> Array.map TyVar
+            let freshTys = freshTvs |> Block.map TyVar
+            // `instantiateDeclaring` reads the instantiation positionally.
+            let fresh = Block.toArray freshTys
 
             // External symbols carry no source-side NodeKey; stamp `Unknown`
             // so diagnostics attribute the constraint to the use site.
-            for i in 0 .. typars.Length - 1 do
-                for kind in typars.[i].Constraints.Kinds do
+            typars
+            |> Block.iteri (fun i t ->
+                for kind in t.Constraints.Kinds do
                     let cstr: SemanticConstraint =
                         {
                             Kind = TyparConstraint.toSemantic (fun target -> inst target fresh) kind
@@ -764,18 +767,21 @@ module ExternalSymbols =
                         }
 
                     store.Constraints.Prepend(UnionFind.find store freshTvs.[i], cstr)
+            )
 
             // Appended, not prepended: generalisation takes the first target in list order
             // that resolves, so the list must stay in source order.
-            for i in 0 .. typars.Length - 1 do
-                for target in typars.[i].Constraints.Defaults do
+            typars
+            |> Block.iteri (fun i t ->
+                for target in t.Constraints.Defaults do
                     store.Defaults.Append(UnionFind.find store freshTvs.[i], inst target fresh)
+            )
 
             for mt in sym.Generics.Traits do
                 let sig_: MemberSignature =
                     {
                         MemberName = mt.MemberName
-                        SupportTys = Block.ofSeq (seq { for i in mt.TyparIndices -> fresh.[i] })
+                        SupportTys = Block.ofSeq (seq { for i in mt.TyparIndices -> freshTys.[i] })
                         ArgTypes = Block.ofSeq (seq { for ft in mt.ArgTypes -> inst ft fresh })
                         ReturnType = inst mt.ReturnType fresh
                     }

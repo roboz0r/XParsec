@@ -54,10 +54,9 @@ module FrozenSignature =
         /// signature rather than being passed alongside it and risking disagreement.
         let memberFromParts
             (declKey: TypeKey)
-            (declArity: int)
             (name: string)
             (isStatic: bool)
-            (methodArity: int)
+            (methodArity: int<typeSlot>)
             (signature: ExternalSignature)
             : ExternalMember =
             let kind, storage =
@@ -67,14 +66,14 @@ module FrozenSignature =
 
             let argSig = ExternalSignature.argSigOf signature
 
-            { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey name argSig methodArity kind) with
+            { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey name argSig (int methodArity) kind) with
                 IsStatic = isStatic
                 Storage = storage
                 Signature = signature
                 Origin = originIn declKey.Namespace
             }
 
-        let memberOf (declKey: TypeKey) (declArity: int) (m: TastAccessor.TypeMember) : ExternalMember =
+        let memberOf (declKey: TypeKey) (declArity: int<typeSlot>) (m: TastAccessor.TypeMember) : ExternalMember =
             let isValueMember = (m.Kind = TMemberKind.Property)
             let methodArity = m.MethodTypars.TypeArity
 
@@ -89,12 +88,16 @@ module FrozenSignature =
                         m.ReturnTy
                     )
 
-            memberFromParts declKey declArity m.Name m.IsStatic methodArity signature
+            memberFromParts declKey m.Name m.IsStatic methodArity signature
 
         // An interface's abstract method carries a single CURRIED `Signature`; a concrete
         // member carries decurried `Params` / `ReturnTy`. Peel ONE `->` to the `.NET`-tupled
         // domain (`unit` domain / no `->` ⇒ none); a property's `Signature` IS its value type.
-        let abstractMemberOf (declKey: TypeKey) (declArity: int) (am: Frozen.TAbstractMethod) : ExternalMember =
+        let abstractMemberOf
+            (declKey: TypeKey)
+            (declArity: int<typeSlot>)
+            (am: Frozen.TAbstractMethod)
+            : ExternalMember =
             let methodArity = am.MethodTypars.TypeArity
 
             let signature =
@@ -108,11 +111,11 @@ module FrozenSignature =
 
                     ExternalSignature.make (declArity, methodArity, parameters, returnTy)
 
-            memberFromParts declKey declArity am.Name am.IsStatic methodArity signature
+            memberFromParts declKey am.Name am.IsStatic methodArity signature
 
         let membersOf
             (declKey: TypeKey)
-            (declArity: int)
+            (declArity: int<typeSlot>)
             (ms: Block<TastAccessor.TypeMember>)
             : ResizeArray<ExternalMember> =
             let acc = ResizeArray<ExternalMember>()
@@ -127,11 +130,15 @@ module FrozenSignature =
 
         /// A class's `.ctor` overloads: the primary constructor when the class declares one,
         /// then each `new(…)` secondary in declaration order.
-        let ctorsOf (declKey: TypeKey) (declArity: int) (c: TastAccessor.Class) : ResizeArray<ExternalMember> =
+        let ctorsOf
+            (declKey: TypeKey)
+            (declArity: int<typeSlot>)
+            (c: TastAccessor.Class)
+            : ResizeArray<ExternalMember> =
             let acc = ResizeArray<ExternalMember>()
 
             let selfTy =
-                FTClass(declKey, Block.ofSeq [ for i in 0 .. declArity - 1 -> FTTypar(TyparScope.Type declKey, i) ])
+                FTClass(declKey, Block.ofSeq [ for i in 0 .. int declArity - 1 -> FTTypar(TyparScope.Type declKey, i) ])
 
             let addCtor (paramTys: Block<FrozenType>) =
                 let parameters = ExternalSignature.tupledParams paramTys
@@ -139,7 +146,7 @@ module FrozenSignature =
                 acc.Add(
                     ExternalMember.ctor
                         declKey
-                        (ExternalSignature.make (declArity, 0, parameters, selfTy))
+                        (ExternalSignature.make (declArity, 0<_>, parameters, selfTy))
                         (ExternalSignature.argSigOfParameters parameters)
                         (originIn declKey.Namespace)
                         []
@@ -179,7 +186,7 @@ module FrozenSignature =
                 let typeKey = td.TypeKey
                 let key = SymbolKey.Type typeKey
                 let typars = td.TypeParams
-                let arity = typars.Length
+                let arity = typars.TypeArity
                 let origin = originIn typeKey.Namespace
 
                 let register (shape: ExternalTypeShape) (members: ResizeArray<ExternalMember> voption) =
@@ -356,7 +363,7 @@ module FrozenSignature =
                                     Canon = typeKey
                                     // An intrinsic BINDING is `type x = (# "…" #)`, whose typars
                                     // are the structural constructors' (`'T []`, `byref`).
-                                    Typars = TyparList.positional typeKey.TyparArity
+                                    Typars = TyparList.positional (TyparIndex.typeSlot typeKey.TyparArity)
                                     Platform = IntrinsicPlatform.Bound binding.TypeId
                                 }
                             Class =
@@ -372,7 +379,7 @@ module FrozenSignature =
                     ExternalTypeShape.Intrinsic(
                         IntrinsicShape.Scalar(
                             typeKey,
-                            TyparList.positional typeKey.TyparArity,
+                            TyparList.positional (TyparIndex.typeSlot typeKey.TyparArity),
                             IntrinsicPlatform.Bound binding.TypeId
                         )
                     )

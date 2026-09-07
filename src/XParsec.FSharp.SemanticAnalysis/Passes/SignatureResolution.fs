@@ -701,12 +701,19 @@ module SignatureResolution =
             | ValueNone -> ()
             | ValueSome name ->
                 let decl = localContainerChain ctx containment
-                let explicit = explicitTyparNames ctx tds
+                let explicit = explicitTypars ctx tds
 
                 let implicit =
-                    implicitTyparNames ctx explicit tds (fun it -> CstTypeWalk.iterTypeCurriedSig it csig)
+                    implicitTyparNames
+                        ctx
+                        (List.map fst explicit)
+                        tds
+                        (fun it -> CstTypeWalk.iterTypeCurriedSig it csig)
 
-                let typeParams = mkMethodTypars ctx.Store (explicit @ implicit)
+                // An implicit typar is one the signature mentions without declaring, which only a
+                // type position can do.
+                let typeParams =
+                    mkDeclaredTypars ctx.Store (explicit @ [ for n in implicit -> n, TyparKind.Type ])
 
                 let domains, ret =
                     underTypars ctx Block.empty typeParams (fun () -> translateSigGroups ctx csig)
@@ -739,7 +746,7 @@ module SignatureResolution =
                     if List.isEmpty arities || List.length paramTys <> List.length arities then
                         ValueNone
                     else
-                        ValueSome(TastLower.externalValRepr typeParams.Length (List.zip arities paramTys) resultTy)
+                        ValueSome(TastLower.externalValRepr generics.TyparArity (List.zip arities paramTys) resultTy)
 
                 let attrElement =
                     AttrTarget.ofModuleValue (not (List.isEmpty domains)) (typeParams.Length <> 0)

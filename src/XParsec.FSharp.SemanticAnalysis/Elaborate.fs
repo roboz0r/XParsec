@@ -383,7 +383,7 @@ module Elaborate =
                         BoundVarKey.ofPatKey key,
                         {
                             Id = entry.Id
-                            TyparArity = List.length scheme.Quantified
+                            TyparArity = TyparIndex.typeSlot (List.length scheme.Quantified)
                         }
                     | _ -> ()
             }

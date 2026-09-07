@@ -42,7 +42,7 @@ module ConformanceTypars =
             let key = (TastPoolBuilder.moduleMemberOf pool boundVar).BindingKey
 
             match provider.TryLookupByKey key with
-            | ValueSome sym when sym.TyparArity > 0 && not (schemesAgree sym.Scheme ty) ->
+            | ValueSome sym when sym.TyparArity > 0<_> && not (schemesAgree sym.Scheme ty) ->
                 ValueSome
                     {
                         Name = SymbolKeyOps.qualifiedBindingName key

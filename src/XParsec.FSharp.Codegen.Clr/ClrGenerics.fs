@@ -29,7 +29,7 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
         // encodes as `CLASS` and the loader faults "value type mismatch" when
         // constructing or dispatching on a generic struct.
         let isVt = userValueTypes.Contains key
-        let g = te.GenericInstantiation(userTypes.[key], shape.Typars.Length, isVt)
+        let g = te.GenericInstantiation(userTypes.[key], int shape.Typars.Length, isVt)
 
         for a in args do
             encodeType (g.AddArgument()) a
@@ -92,7 +92,7 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
         let te = BlobEncoder(tsB).TypeSpecificationSignature()
 
         let g =
-            te.GenericInstantiation(userTypes.[key], shape.Typars.Length, userValueTypes.Contains key)
+            te.GenericInstantiation(userTypes.[key], int shape.Typars.Length, userValueTypes.Contains key)
 
         for a in args do
             encodeType (g.AddArgument()) a
@@ -207,7 +207,7 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
         let te = BlobEncoder(tsB).TypeSpecificationSignature()
 
         let g =
-            te.GenericInstantiation(userTypes.[key], shape.Typars.Length, userValueTypes.Contains key)
+            te.GenericInstantiation(userTypes.[key], int shape.Typars.Length, userValueTypes.Contains key)
 
         for a in args do
             encodeType (g.AddArgument()) a
@@ -272,7 +272,7 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
         (args: FrozenType list)
         (metaName: string)
         (isStatic: bool)
-        (methodTyparCount: int)
+        (methodTyparCount: int<typeSlot>)
         (paramTys: FrozenType list)
         (retTy: FrozenType)
         : EntityHandle =
@@ -280,7 +280,7 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
         let s = BlobBuilder()
 
         BlobEncoder(s)
-            .MethodSignature(genericParameterCount = methodTyparCount, isInstanceMethod = not isStatic)
+            .MethodSignature(genericParameterCount = int methodTyparCount, isInstanceMethod = not isStatic)
             .Parameters(
                 List.length paramTys,
                 // A `unit`-returning member Def is emitted `void`, static and instance alike,
@@ -304,7 +304,7 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
         let tsB = BlobBuilder()
         let te = BlobEncoder(tsB).TypeSpecificationSignature()
 
-        let g = te.GenericInstantiation(shape.DefHandle, shape.Frame.Count, false)
+        let g = te.GenericInstantiation(shape.DefHandle, int shape.Frame.Count, false)
 
         for a in args do
             encodeType (g.AddArgument()) a
