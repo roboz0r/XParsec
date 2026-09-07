@@ -226,18 +226,22 @@ let tests =
             }
 
             // ---- Generic closures (TAST-level acceptance) ----
-            // A `Closure`'s `Typars` count is the enclosing static method's, or 0 in `Main`, a
-            // top-level value let, or a monomorphic fn. Inner closures inherit it verbatim.
+            // A `Closure`'s `Typars` count is its frame's: the enclosing static method's, plus
+            // each enclosing lifted local's own, or 0 in `Main`, a top-level value let, or a
+            // monomorphic fn.
 
-            // The closures of a single-file program, discovered through the layout's own
-            // `FilePlan`. The sources here declare no types, so there are no member-body roots.
-            let discover (src: string) : Emit.Closure list =
+            // The closures and lifted locals of a single-file program, discovered through the
+            // layout's own `FilePlan`, with the file's closure verdicts. The sources here
+            // declare no types, so there are no member-body roots.
+            let discoverAll (src: string) : Emit.Discovered * Map<BoundVarId, ClosureRepr> =
                 let ctx, tast = analyseWithCtx src
 
                 let file =
                     FilePlan.create (ProjectInfo.defaults "ClosureDiscovery") (Freeze.run ctx tast)
 
-                fst (FilePlan.discoverClosures (Emit.ClosureNamer()) file [])
+                FilePlan.discoverClosures (Emit.ClosureNamer()) file [], file.ClosureReprs
+
+            let discover (src: string) : Emit.Closure list = (fst (discoverAll src)).Closures
 
             test "a closure inside a generic static fn carries that fn's typars" {
                 // `mkConst` is generic (`'a -> unit -> 'a`) and its inner `fun () -> x`
@@ -281,15 +285,22 @@ let tests =
                 Expect.equal (List.head closures).Repr ClosureRepr.Stack "frame-local + no heap channel ⇒ Stack"
             }
 
-            test "a closure stored in a ValueTuple carries Repr = Heap" {
+            test "a generalised local stored in a ValueTuple carries Repr = Heap and is lifted" {
                 // `g` is frame-local, but `(g, g)` is a `ValueTuple`, which can't hold a
-                // ref-struct field, so Axis 2 is pinned to `RequiresHeapRepr`.
+                // ref-struct field, so Axis 2 is pinned to `RequiresHeapRepr`. `g` is also
+                // generic (`'a -> 'a`), so it is lifted, and each escape into the tuple is an
+                // anonymous bridge closure over a saturated call.
                 let src = lines [ "let f () ="; "    let g = fun x -> x"; "    (g, g)" ]
 
-                let closures = discover src
+                let discovered, reprs = discoverAll src
 
-                Expect.equal (List.length closures) 1 "exactly one closure: `g`"
-                Expect.equal (List.head closures).Repr ClosureRepr.Heap "tuple containment ⇒ Heap"
+                Expect.equal (List.length discovered.LiftedLocals) 1 "exactly one lifted local: `g`"
+                let g = List.head discovered.LiftedLocals
+                Expect.equal (Map.find g.Key reprs) ClosureRepr.Heap "tuple containment ⇒ Heap"
+                Expect.equal (List.length discovered.Closures) 2 "one bridge closure per escape"
+
+                for c in discovered.Closures do
+                    Expect.equal c.Repr ClosureRepr.Heap (sprintf "bridge closure %s defaults to Heap" c.Name)
             }
 
             test "a generic closure also carries the Repr field" {
@@ -317,10 +328,12 @@ let tests =
                     Expect.equal c.Repr ClosureRepr.Heap (sprintf "anonymous closure %s defaults to Heap" c.Name)
             }
 
-            test "an inner closure inherits the enclosing closure's Typars" {
-                // `mkPair` is generic (`'a -> ('b -> 'a)`); the `let mid = …; mid` body stops
-                // the lambda peel after `x`, and `let mid y = let inner = fun z -> x in inner`
-                // produces two nested closures, both inheriting mkPair's typars.
+            test "a closure inside a lifted local's body adds the local's own typars to its frame" {
+                // `mkPair` is generic (`'a -> 'b -> 'c -> 'a`); the `let mid = …; mid` body
+                // stops the lambda peel after `x`. `mid` (`'b -> 'c -> 'a`) and `inner`
+                // (`'c -> 'a`) are generalised locals, so both are lifted, and each escapes
+                // once as a bridge closure: `inner`'s inside `mid`'s lifted body, under
+                // `mkPair`'s three typars plus `mid`'s two, and `mid`'s in `mkPair`'s body.
                 let src =
                     lines
                         [
@@ -331,19 +344,20 @@ let tests =
                             "    mid"
                         ]
 
-                let closures = discover src
+                let discovered, _ = discoverAll src
 
-                Expect.equal (List.length closures) 2 "two closures: `mid` and `inner`"
+                Expect.equal
+                    (discovered.LiftedLocals |> List.map (fun ll -> ll.Own.Count))
+                    [ 1; 2 ]
+                    "leaves-first: `inner` over `'c`, then `mid` over `'b` and `'c`"
 
-                for c in closures do
-                    Expect.isTrue
-                        (c.Typars > 0)
-                        (sprintf "closure %s should inherit mkPair's typars (count > 0)" c.Name)
+                Expect.equal (List.length discovered.Closures) 2 "two bridge closures: `inner`'s and `mid`'s"
 
-                let inner = closures.[0] // registered first (leaves-first walk)
-                let outer = closures.[1]
+                let innerBridge = discovered.Closures.[0] // registered first (leaves-first walk)
+                let midBridge = discovered.Closures.[1]
 
-                Expect.equal outer.Typars inner.Typars "both closures carry the same typar count (inherited verbatim)"
+                Expect.equal midBridge.Typars 3 "`mid`'s bridge lives in `mkPair`'s body"
+                Expect.equal innerBridge.Typars 5 "`inner`'s bridge lives in `mid`'s lifted body"
             }
 
             test "a closure in Main / top-level expression has empty Typars" {

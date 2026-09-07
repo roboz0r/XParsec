@@ -291,7 +291,7 @@ module EmitConstruct =
                 | true, ctor -> ctor
                 | false, _ -> failwith "Emit: closure constructor not yet emitted (leaves-first ordering broken)"
             else
-                env.Provider.UserClosureMemberRef(closure.Name, closure.Enclosing.Instantiation, ClosureMember.Ctor)
+                env.Provider.UserClosureMemberRef(closure.Name, closure.Frame.Instantiation, ClosureMember.Ctor)
 
         b.Add(ILInstr.Newobj(ctorHandle, List.length closure.Captures))
 

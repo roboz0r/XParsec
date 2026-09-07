@@ -17,6 +17,9 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
     let userValueTypes = env.UserValueTypes
     let encodeType te t = enc.EncodeType(te, t)
 
+    let declared (build: unit -> 'a) : 'a = enc.Declared build
+    let encodeDeclared te t = enc.EncodeDeclaredType(te, t)
+
     let genericClassTypeSpec (key: TypeKey) (args: FrozenType list) : EntityHandle =
         let shape = genericClasses.[key]
         let tsB = BlobBuilder()
@@ -53,7 +56,7 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
                     (fun (ret: ReturnTypeEncoder) -> ret.Void()),
                     (fun (pars: ParametersEncoder) ->
                         for p in paramTys do
-                            encodeType (pars.AddParameter().Type()) p
+                            encodeDeclared (pars.AddParameter().Type()) p
                     )
                 )
 
@@ -70,7 +73,7 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
                     (fun (ret: ReturnTypeEncoder) -> ret.Void()),
                     (fun (pars: ParametersEncoder) ->
                         for p in paramTys do
-                            encodeType (pars.AddParameter().Type()) p
+                            encodeDeclared (pars.AddParameter().Type()) p
                     )
                 )
 
@@ -79,7 +82,7 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
             match shape.Fields |> EqArray.tryFind (fun (n, _) -> n = fieldName) with
             | ValueSome(_, declTy) ->
                 let s = BlobBuilder()
-                encodeType (BlobEncoder(s).FieldSignature()) declTy
+                encodeDeclared (BlobEncoder(s).FieldSignature()) declTy
                 toEntity (ctx.MemberRef(parent, fieldName, s))
             | ValueNone -> failwithf "ClrProvider: generic class '%A' has no field '%s'" key fieldName
 
@@ -136,7 +139,7 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
                     (fun (ret: ReturnTypeEncoder) -> ret.Void()),
                     (fun (pars: ParametersEncoder) ->
                         for p in paramTys do
-                            encodeType (pars.AddParameter().Type()) p
+                            encodeDeclared (pars.AddParameter().Type()) p
                     )
                 )
 
@@ -162,7 +165,7 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
             match slots |> List.tryFind (fun s -> s.Key = slotKey), shape.Home with
             | Some slot, ValueSome(UnionSlotHome.Inline _) ->
                 let s = BlobBuilder()
-                encodeType (BlobEncoder(s).FieldSignature()) slot.Ty
+                encodeDeclared (BlobEncoder(s).FieldSignature()) slot.Ty
                 toEntity (ctx.MemberRef(parent, slot.MetaName, s))
             // `Payload` is registered as a generic class over the union's typars, so its
             // slot refs come from that family.
@@ -172,12 +175,12 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
             | None, _ -> failwithf "ClrProvider: generic union '%A' has no slot '%A'" key slotKey
         | UnionMember.Payload ->
             let s = BlobBuilder()
-            encodeType (BlobEncoder(s).FieldSignature()) payloadTy
+            encodeDeclared (BlobEncoder(s).FieldSignature()) payloadTy
             toEntity (ctx.MemberRef(parent, UnionPayloadType.payloadFieldName, s))
         | UnionMember.CaseCtor caseName -> genericClassMemberRef (UnionCaseType.key key caseName) args ClassMember.Ctor
         | UnionMember.CaseSingleton caseName ->
             let s = BlobBuilder()
-            encodeType (BlobEncoder(s).FieldSignature()) selfTy
+            encodeDeclared (BlobEncoder(s).FieldSignature()) selfTy
             toEntity (ctx.MemberRef(parent, "_unique_" + caseName, s))
         | UnionMember.Factory caseName ->
             let paramTys = caseFields caseName |> EqArray.map snd
@@ -189,10 +192,10 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
                 .MethodSignature(isInstanceMethod = false)
                 .Parameters(
                     paramTys.Length,
-                    (fun (ret: ReturnTypeEncoder) -> encodeType (ret.Type()) retTy),
+                    (fun (ret: ReturnTypeEncoder) -> encodeDeclared (ret.Type()) retTy),
                     (fun (pars: ParametersEncoder) ->
                         for p in paramTys do
-                            encodeType (pars.AddParameter().Type()) p
+                            encodeDeclared (pars.AddParameter().Type()) p
                     )
                 )
 
@@ -234,7 +237,7 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
                     (fun (ret: ReturnTypeEncoder) -> ret.Void()),
                     (fun (pars: ParametersEncoder) ->
                         for p in paramTys do
-                            encodeType (pars.AddParameter().Type()) p
+                            encodeDeclared (pars.AddParameter().Type()) p
                     )
                 )
 
@@ -242,12 +245,12 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
         | RecordMember.Field fieldName ->
             let f = genericRecordField key fieldName
             let s = BlobBuilder()
-            encodeType (BlobEncoder(s).FieldSignature()) f.Ty
+            encodeDeclared (BlobEncoder(s).FieldSignature()) f.Ty
             toEntity (ctx.MemberRef(parent, f.MetaName, s))
         | RecordMember.Accessor(fieldName, role) ->
             let f = genericRecordField key fieldName
             let name = TAccessorRole.methodName role fieldName
-            toEntity (ctx.MemberRef(parent, name, enc.RecordAccessorSignature(role, f.Ty)))
+            toEntity (ctx.MemberRef(parent, name, declared (fun () -> enc.RecordAccessorSignature(role, f.Ty))))
 
     /// The parent `TypeSpec` of a generic user type, whichever family declares it. Every
     /// family's registry is keyed by the nominal `TypeKey`, so the key alone picks the arm.
@@ -286,11 +289,11 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
                 (fun (ret: ReturnTypeEncoder) ->
                     match retTy with
                     | FTUnit -> ret.Void()
-                    | _ -> encodeType (ret.Type()) retTy
+                    | _ -> encodeDeclared (ret.Type()) retTy
                 ),
                 (fun (pars: ParametersEncoder) ->
                     for p in paramTys do
-                        encodeType (pars.AddParameter().Type()) p
+                        encodeDeclared (pars.AddParameter().Type()) p
                 )
             )
 
@@ -301,7 +304,7 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
         let tsB = BlobBuilder()
         let te = BlobEncoder(tsB).TypeSpecificationSignature()
 
-        let g = te.GenericInstantiation(shape.DefHandle, shape.TyparCount, false)
+        let g = te.GenericInstantiation(shape.DefHandle, shape.Frame.Count, false)
 
         for a in args do
             encodeType (g.AddArgument()) a
@@ -354,10 +357,9 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
 
                 toEntity (ctx.MemberRef(parent, "Invoke", s))
 
-        // `parent` is minted under the caller's ambient closure scope; `mint` encodes against
-        // THIS closure's typars, so force its scope on: under it `FTTypar(Type _, i)`
-        // encodes `!i` and a function typar `j` encodes `!(d + j)`.
-        env.WithClosureTyparScope(shape.DeclaringTypars, mint)
+        // `parent` is minted under the caller's ambient slots; `mint` encodes against THIS
+        // closure's typars, so force its frame on.
+        env.WithTyparSlots(TyparSlots.ClosureClass shape.Frame, mint)
 
     member _.GenericUnionMemberRef(key, args, which) = genericUnionMemberRef key args which
     member _.GenericRecordMemberRef(key, args, which) = genericRecordMemberRef key args which

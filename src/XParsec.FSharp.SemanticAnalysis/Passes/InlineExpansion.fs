@@ -370,7 +370,7 @@ module InlineExpansion =
                         // CALL SITE's argument, whose tokens anchor its `FunVerdicts` entry.
                         | AppliedFunction.Fused fused ->
                             ValueSome(
-                                walkAt x fused.Caller (Inline.betaReduce (Inline.freshen x.Mint fused.Body) appArgs)
+                                walkAt x fused.Caller (Inline.betaReduce (freshenBody x.Ctx x.Mint fused.Body) appArgs)
                             )
                         // A rebuild walks the arguments as the CALLER's own material.
                         | AppliedFunction.Opaque rebuiltFn ->

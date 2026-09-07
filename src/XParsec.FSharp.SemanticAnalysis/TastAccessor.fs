@@ -1120,6 +1120,28 @@ module TastAccessor =
 
         at d (TastPoolBuilder.copyDeclWith d.Pool d.Id (fun row -> { row with ExprChildren = kids }))
 
+    /// Visit EVERY expression a declaration carries, on the terms of `mapDeclBodies`.
+    let iterDeclBodies (f: ExprId -> unit) (d: DeclId) : unit =
+        match declPayload d with
+        | DeclPayload.Type td ->
+            TastConvert.typeDecl
+                {
+                    Ty = id
+                    Tok = id
+                    Id = BoundVarKey.identity
+                    Body =
+                        fun (b: ExprPoolId) ->
+                            f (at d b)
+                            b
+                }
+                td
+            |> ignore
+        | DeclPayload.Let _
+        | DeclPayload.LetGroup _
+        | DeclPayload.Expression _ ->
+            for c in TastPoolBuilder.declExprChildren d.Pool d.Id do
+                f (at d c)
+
     /// Apply `f` to EVERY expression a declaration carries, including a `type` decl's member
     /// bodies, class preambles, secondary ctors and base-ctor args, all named INSIDE the
     /// payload, so they escape a child-column rewrite.

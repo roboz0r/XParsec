@@ -165,8 +165,7 @@ module internal NominalRegistration =
             if c.Typars > 0 then
                 provider.RegisterClosure(
                     c.Name,
-                    c.Typars,
-                    c.DeclaringTypars,
+                    c.Frame,
                     c.Captures |> List.map snd,
                     c.ParamTy,
                     c.ResultTy,

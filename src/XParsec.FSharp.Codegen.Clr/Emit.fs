@@ -25,6 +25,9 @@ module Emit =
     type StaticFn = EmitTypes.StaticFn
     type ModuleValue = EmitTypes.ModuleValue
     type StaticMethodRef = EmitTypes.StaticMethodRef
+    type LiftedLocal = EmitTypes.LiftedLocal
+    type LiftedLocalRef = EmitTypes.LiftedLocalRef
+    type Discovered = EmitClosures.Discovered
     type EmitContext = EmitTypes.EmitContext
     type PreambleStep = EmitTypes.PreambleStep
     type CtorChain = EmitTypes.CtorChain
@@ -41,7 +44,8 @@ module Emit =
     let collectProgramValues = EmitClosures.collectProgramValues
     let validateModuleValueInits = EmitClosures.validateModuleValueInits
     let staticEligible = EmitClosures.staticEligible
-    let bridgeStaticFnEscapes = EmitClosures.bridgeStaticFnEscapes
+    let bridgeStaticFnEscapes = EmitBridges.bridgeStaticFnEscapes
+    let bridgeLiftedLocalEscapes = EmitBridges.bridgeLiftedLocalEscapes
     let collectStaticFns = EmitClosures.collectStaticFns
     let discoverClosures = EmitClosures.discoverClosures
 
@@ -122,14 +126,21 @@ module Emit =
         b.Add ILInstr.Ret
         b.Body
 
-    /// Build a static-method function's body: bind each flattened parameter to its
-    /// `ldarg` index (no `this`, so the first parameter is `ldarg.0`), evaluate the
-    /// body onto the stack, then `ret`.
-    let buildStaticMethod (ctx: EmitContext) (fn: StaticFn) : ILBody =
+    /// Build a static method's body: bind `leading`, then each flattened parameter, to its
+    /// `ldarg` index (no `this`, so the first is `ldarg.0`), evaluate the body onto the
+    /// stack, then `ret`.
+    let private buildFlatStaticBody
+        (ctx: EmitContext)
+        (leading: BoundVarId list)
+        (flatParams: StaticParam list)
+        (returnsVoid: bool)
+        (body: TastAccessor.ExprId)
+        : ILBody =
         let b = IlBuilder()
         let args = Dictionary<BoundVarId, int>()
-        let flatParams = fn.Params.Flat
-        flatParams |> List.iteri (fun i p -> args.[p.Slot] <- i)
+        leading |> List.iteri (fun i k -> args.[k] <- i)
+        let offset = List.length leading
+        flatParams |> List.iteri (fun i p -> args.[p.Slot] <- offset + i)
         let env = EmitEnv.ofContext ctx args
 
         // A destructuring tuple parameter: its `ldarg.i` holds the `ValueTuple`n`;
@@ -139,15 +150,23 @@ module Emit =
             match p.Pat with
             | Some pat ->
                 let slot = b.Local p.Ty
-                b.Add(ILInstr.Ldarg i)
+                b.Add(ILInstr.Ldarg(offset + i))
                 b.Add(ILInstr.Stloc slot)
                 bindPattern env b slot pat
             | None -> ()
         )
 
-        buildExprAt (ExprPos.ofReturnsVoid fn.ReturnsVoid) env b fn.Body
+        buildExprAt (ExprPos.ofReturnsVoid returnsVoid) env b body
         b.Add ILInstr.Ret
         b.Body
+
+    /// Build a static-method function's body over its flattened parameters alone.
+    let buildStaticMethod (ctx: EmitContext) (fn: StaticFn) : ILBody =
+        buildFlatStaticBody ctx [] fn.Params.Flat fn.ReturnsVoid fn.Body
+
+    /// Build a lifted local's body: its captures lead the flattened parameters.
+    let buildLiftedLocal (ctx: EmitContext) (ll: LiftedLocal) : ILBody =
+        buildFlatStaticBody ctx (List.map fst ll.Captures) ll.Fn.Params.Flat ll.Fn.ReturnsVoid ll.Fn.Body
 
     /// Build a nominal member's body: an instance member's `this` is `ldarg.0` and its
     /// parameters `ldarg.1…`, a static member's parameters start at `ldarg.0`.

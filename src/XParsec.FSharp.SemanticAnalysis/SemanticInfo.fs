@@ -168,6 +168,10 @@ and [<Sealed>] FTDisjuncts private (disjuncts: EqSet<FrozenType>) =
 /// `LocalOwnerG` as the frozen file records it, a member identified by its `MemberKey`.
 type LocalOwner = LocalOwnerG<MemberKey>
 
+/// A generalised body-local `let`'s own typars: the scope its `FTTypar(LocalFunction Id, i)`
+/// leaves carry, with `i < TyparArity`.
+type LocalScheme = { Id: LocalBindingId; TyparArity: int }
+
 /// The mutable inference type IR. Every `TyVar` is a dense `TyVarId` index into the
 /// per-file `TypeStore` union-find graph.
 type SemType =

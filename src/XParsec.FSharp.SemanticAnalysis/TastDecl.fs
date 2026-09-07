@@ -583,6 +583,10 @@ module BoundVarKey =
     /// `TExpr.Var` identifies its bound variable by that axis.
     let identity (BoundVar k) : 'id = k
 
+    /// The bound variable of the `NamedSimple` pattern keyed `key`. A binding's scheme is
+    /// filed under its pattern's key, which is that bound variable's identity.
+    let ofPatKey (key: 'id) : BoundVarKeyG<'id> = BoundVar key
+
     /// Re-file a bound variable into ANOTHER identity space: `f` returns the identity the bound
     /// variable takes there (interning it into a pool, widening a dense id back to a key).
     let refile (f: BoundVarKeyG<'a> -> 'b) (k: BoundVarKeyG<'a>) : BoundVarKeyG<'b> = BoundVar(f k)

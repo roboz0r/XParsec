@@ -7,14 +7,12 @@ open System.Reflection.Metadata.Ecma335
 open XParsec.FSharp.SemanticAnalysis
 
 /// A generic closure's registry entry. Every `FrozenType` field embeds the ENCLOSING
-/// function's `FTTypar(scope, i)`; encoding under a closure-typar scope re-projects those
-/// onto the closure class's own `!i`.
+/// scopes' `FTTypar(scope, i)`; encoding under `TyparSlots.ClosureClass Frame` re-projects
+/// those onto the closure class's own `!slot`.
 type internal GenericClosureShape =
     {
-        TyparCount: int
-        /// Offset of the closure's own typars: the enclosing class's occupy the first
-        /// `DeclaringTypars` slots. `0` for a static-fn closure.
-        DeclaringTypars: int
+        /// The closure class's typars, one slot per enclosing typar.
+        Frame: TyparFrame
         CaptureSigs: FrozenType list
         ParamTy: FrozenType
         ResultTy: FrozenType
@@ -617,10 +615,8 @@ type internal ClrEnv
             ValueSome(toEntity (ctx.TypeRef(externalAsmRef u.Origin.Home, key.Namespace.Dotted, simple)), u)
         | ValueNone -> ValueNone
 
-    // `ValueNone` ⇒ off: a function typar `i` encodes to the method's own `!!i`. `ValueSome d`
-    // ⇒ inside a closure's own emission, where the enclosing class's typars hold the closure's
-    // first `d` slots, so a function typar `j` lands at `!(d + j)` (a static-fn closure has d = 0).
-    let mutable closureTyparScope: int voption = ValueNone
+    // The ambient slot resolution, `Declared` until a synthesised owner's emission sets it.
+    let mutable typarSlots: TyparSlots = TyparSlots.Declared
 
     let rec uncurryTy (t: FrozenType) : FrozenType list * FrozenType =
         match t with
@@ -692,18 +688,17 @@ type internal ClrEnv
     member _.GenericClasses = genericClasses
     member _.GenericClosures = genericClosures
 
-    member _.ClosureTyparScope = closureTyparScope
+    member _.TyparSlots = typarSlots
 
-    /// Run `f` with the closure-typar scope set to `declaringTypars`, restoring the enclosing
-    /// scope on the way out, including on an exception.
-    member _.WithClosureTyparScope(declaringTypars: int, f: unit -> 'T) : 'T =
-        let saved = closureTyparScope
-        closureTyparScope <- ValueSome declaringTypars
+    /// Run `f` with the ambient slot resolution set to `slots`.
+    member _.WithTyparSlots(slots: TyparSlots, f: unit -> 'T) : 'T =
+        let saved = typarSlots
+        typarSlots <- slots
 
         try
             f ()
         finally
-            closureTyparScope <- saved
+            typarSlots <- saved
 
     member _.ArityOfMetaName name = arityOfMetaName name
     member _.UncurryTy t = uncurryTy t

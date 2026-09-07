@@ -33,10 +33,11 @@ module TastLower =
             "Emit: a TraitCall to '%s' reached the emitter, but inline expansion grounds every trait call it can and reports the rest, so this node should not exist here"
             memberName
 
-    /// As `matchInstantiation`, but leaves a `ValueNone` hole for a typar no
-    /// parameter/result mentions, because a phantom constraint typar (`fold`'s enumerator `'E`)
-    /// is unrecoverable by param-matching and must be solved from its constraints.
-    let matchInstantiationPartial
+    /// Recover the instantiation of the typars `isOwn` selects by structurally matching each
+    /// declared type against its actual counterpart; first occurrence wins. A typar
+    /// unmentioned by the declared types is left a `ValueNone` hole.
+    let private matchTyparsPartial
+        (isOwn: TyparScope -> bool)
         (typarCount: int)
         (defTys: FrozenType list)
         (actualTys: FrozenType list)
@@ -45,8 +46,8 @@ module TastLower =
 
         let rec go (defT: FrozenType) (actT: FrozenType) =
             match defT, actT with
-            // `act` may itself be a function typar: the enclosing context's own.
-            | FTFunctionTypar i, act ->
+            // `act` may itself be a typar: the enclosing context's own.
+            | FTTypar(scope, i), act when isOwn scope ->
                 if i >= 0 && i < typarCount && result.[i].IsNone then
                     result.[i] <- ValueSome act
             | FTFun(a1, r1), FTFun(a2, r2) ->
@@ -74,18 +75,38 @@ module TastLower =
         List.iter2 go defTys actualTys
         result
 
+    /// As `matchInstantiation`, but leaves a `ValueNone` hole for a typar unmentioned by the
+    /// parameters and result. A phantom constraint typar (`fold`'s enumerator `'E`) is
+    /// unrecoverable by param-matching and must be solved from its constraints.
+    let matchInstantiationPartial
+        (typarCount: int)
+        (defTys: FrozenType list)
+        (actualTys: FrozenType list)
+        : FrozenType voption[] =
+        matchTyparsPartial (fun scope -> scope.IsFunction) typarCount defTys actualTys
+
+    let private strict (what: string) (result: FrozenType voption[]) : FrozenType list =
+        [
+            for i in 0 .. result.Length - 1 ->
+                match result.[i] with
+                | ValueSome t -> t
+                | ValueNone -> failwithf "Emit: could not infer instantiation for %s type parameter %d" what i
+        ]
+
     /// Recover a generic static method's per-typar instantiation at a call site by
     /// structurally matching each declared parameter type against the actual argument
     /// type; first occurrence wins. Strict: an unrecovered typar throws.
     let matchInstantiation (typarCount: int) (defTys: FrozenType list) (actualTys: FrozenType list) : FrozenType list =
-        let result = matchInstantiationPartial typarCount defTys actualTys
+        strict "static-method" (matchInstantiationPartial typarCount defTys actualTys)
 
-        [
-            for i in 0 .. typarCount - 1 ->
-                match result.[i] with
-                | ValueSome t -> t
-                | ValueNone -> failwithf "Emit: could not infer instantiation for static-method type parameter %d" i
-        ]
+    /// `matchInstantiation` over the typars of one `scope`, a lifted local's own.
+    let matchScopeInstantiation
+        (scope: TyparScope)
+        (typarCount: int)
+        (defTys: FrozenType list)
+        (actualTys: FrozenType list)
+        : FrozenType list =
+        strict (sprintf "%A" scope) (matchTyparsPartial (fun s -> s = scope) typarCount defTys actualTys)
 
     /// Fill `instArr`'s remaining holes from the CONSTRAINTS: for a `Coercion(ci, target)`
     /// whose `ci` is already solved, `tryWitness` reads that type's actual impl of
@@ -343,10 +364,10 @@ module TastLower =
                 Pat = Some p
             }
 
-    /// The compiled parameters of a source `ValRepr`, kept as the segment each SOURCE group
+    /// The compiled parameters of source `groups`, kept as the segment each SOURCE group
     /// expands to: tuple flattening one level, a LONE unit group to nothing (one among
     /// others stays a param). `pool` is where a `GUnit`'s placeholder slot is minted.
-    let compiledSegments (pool: PoolBuilder) (vr: ValRepr) : (ArgGroup * StaticParam list) list =
+    let compiledSegments (pool: PoolBuilder) (groups: ArgGroup list) : (ArgGroup * StaticParam list) list =
         let flattenGroup (g: ArgGroup) : StaticParam list =
             match g with
             | ArgGroupG.GUnit ty ->
@@ -363,15 +384,15 @@ module TastLower =
                 | PatShape.Tuple -> [ for it in TastAccessor.patChildren pat -> flattenTupleItem it ]
                 | other -> failwithf "peelValRepr: GTuple must carry a tuple pattern, not %A" other
 
-        if isLoneUnitGroup vr.Groups then
-            [ for g in vr.Groups -> g, [] ]
+        if isLoneUnitGroup groups then
+            [ for g in groups -> g, [] ]
         else
-            [ for g in vr.Groups -> g, flattenGroup g ]
+            [ for g in groups -> g, flattenGroup g ]
 
     /// The flat `CompiledForm`: every segment in source order, and a unit result as `RVoid`.
     let compiledOf (pool: PoolBuilder) (vr: ValRepr) : CompiledForm =
         {
-            Params = compiledSegments pool vr |> List.collect snd
+            Params = compiledSegments pool vr.Groups |> List.collect snd
             Return =
                 (if isUnitFrozen vr.ResultTy then
                      CompiledReturnG.RVoid

@@ -368,8 +368,8 @@ let tests =
                 Expect.equal kv0 kb0 "original body Var references the original bound variable"
 
                 let mint = sharedMinter ()
-                let f1 = Inline.freshen mint body
-                let f2 = Inline.freshen mint body
+                let f1 = fst (Inline.freshen mint body)
+                let f2 = fst (Inline.freshen mint body)
 
                 let kb1, kv1 = succBoundVarAndVar f1
                 let kb2, kv2 = succBoundVarAndVar f2
@@ -402,7 +402,7 @@ let tests =
                         tyInt
                     )
 
-                match Inline.freshen (sharedMinter ()) body with
+                match fst (Inline.freshen (sharedMinter ()) body) with
                 | TExpr.Let({
                                 Pattern = TPat.NamedSimple(kb, _, _, _)
                                 Value = TExpr.Var(kFree, _, _)

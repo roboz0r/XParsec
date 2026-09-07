@@ -8,73 +8,6 @@ open XParsec.FSharp.Codegen.Common
 
 module EmitTypes =
 
-    /// The typars a closure lifts onto its own class: the enclosing type's lead, the
-    /// enclosing member's or module function's own follow.
-    type EnclosingTypars =
-        {
-            /// The enclosing type and its typar count.
-            Declaring: (TypeKey * int) voption
-            /// The enclosing member's or module function's scope and its own typar count.
-            Own: (TyparScope * int) voption
-        }
-
-        member x.DeclaringCount: int =
-            match x.Declaring with
-            | ValueSome(_, n) -> n
-            | ValueNone -> 0
-
-        member x.Count: int =
-            x.DeclaringCount
-            + (
-                match x.Own with
-                | ValueSome(_, n) -> n
-                | ValueNone -> 0
-            )
-
-        /// The instantiation a construction site `Newobj`s the ctor `MemberRef` on:
-        /// `FTTypar(Type _, i)` for each declaring typar, then `FTTypar(own, j)` for each own.
-        member x.Instantiation: FrozenType list =
-            let ofScope (scope: TyparScope) (count: int) =
-                [ for i in 0 .. count - 1 -> FTTypar(scope, i) ]
-
-            [
-                match x.Declaring with
-                | ValueSome(key, n) -> yield! ofScope (TyparScope.Type key) n
-                | ValueNone -> ()
-                match x.Own with
-                | ValueSome(scope, n) -> yield! ofScope scope n
-                | ValueNone -> ()
-            ]
-
-    [<RequireQualifiedAccess>]
-    module EnclosingTypars =
-        let none: EnclosingTypars =
-            {
-                Declaring = ValueNone
-                Own = ValueNone
-            }
-
-        /// For a type's constructor body: every typar is the type's.
-        let ofType (key: TypeKey) (count: int) : EnclosingTypars =
-            {
-                Declaring = ValueSome(key, count)
-                Own = ValueNone
-            }
-
-        /// For a module function's body: every typar is the function's own.
-        let ofFunction (key: BindingKey) (count: int) : EnclosingTypars =
-            {
-                Declaring = ValueNone
-                Own = ValueSome(TyparScope.ModuleFunction key, count)
-            }
-
-        /// For a member body: the owner's `declaring` typars, then the member's `own`.
-        let ofMember (owner: TypeKey) (declaring: int) (own: int) : EnclosingTypars =
-            {
-                Declaring = ValueSome(owner, declaring)
-                Own = ValueSome(TyparScope.Member owner, own)
-            }
-
     /// One synthesised closure class: a `System.Object` implementing
     /// `Vesper.Fun\`2<ParamTy, ResultTy>`. `Node`, its pool id, keys every `…ByNode` table.
     /// `Captures` order = field order = ctor-arg order = order pushed at construction.
@@ -95,9 +28,10 @@ module EmitTypes =
             /// recursive self-reference resolves to `this` (`ldarg.0`), so it is not
             /// captured. `ValueNone` for an anonymous lambda.
             SelfKey: BoundVarId voption
-            /// The typars the closure lifts onto its own class. `Count > 0` ⇒ a generic
-            /// closure, with that many `GenericParam` rows (`T0…`) on its `TypeDefinition`.
-            Enclosing: EnclosingTypars
+            /// The typars the closure lifts onto its own class: every scope visible at its
+            /// construction site. `Count > 0` ⇒ a generic closure, with that many
+            /// `GenericParam` rows (`T0…`) on its `TypeDefinition`.
+            Frame: TyparFrame
             /// The front-end verdict that a readonly-struct shape is ADMISSIBLE for this
             /// closure. Necessary but not sufficient: `IsValueStruct` is the codegen gate.
             Repr: ClosureRepr
@@ -116,10 +50,42 @@ module EmitTypes =
         }
 
         /// The total `GenericParam` row count on the closure's `TypeDefinition`.
-        member c.Typars: int = c.Enclosing.Count
+        member c.Typars: int = c.Frame.Count
 
-        /// How many of `Typars` are the enclosing class's; `0` for a static-fn closure.
-        member c.DeclaringTypars: int = c.Enclosing.DeclaringCount
+    /// A generalised body-local `let` with a positive typar count, lifted to a generic static
+    /// method on the Program class, as `fsc` emits it. Its method typars are `Frame`, and a
+    /// call passes `Captures` ahead of `Params`.
+    type LiftedLocal =
+        {
+            /// The local's compiled form: its key, its flat parameters and its body.
+            Fn: CompiledFns.CompiledFn
+            /// The metadata name, unique assembly-wide: `<source>@<n>`.
+            Name: string
+            /// The scopes visible at the local's `let`.
+            Enclosing: TyparFrame
+            /// The local's own scope and typar count, `Frame`'s last entry.
+            Own: FrameScope
+            /// The free variables of the local's body, in first-occurrence order: the leading
+            /// parameters of the lifted method.
+            Captures: (BoundVarId * FrozenType) list
+        }
+
+        member x.Key: BoundVarId = x.Fn.Key
+        member x.Frame: TyparFrame = x.Enclosing.Push x.Own
+
+    /// Emission handle and call shape of a lifted local, on the same terms as
+    /// `StaticMethodRef`. A call site's `MethodSpec` is `Enclosing.Instantiation`, the
+    /// caller's own leaves, followed by the local's typars recovered from the arguments.
+    type LiftedLocalRef =
+        {
+            Handle: EntityHandle
+            Enclosing: TyparFrame
+            Own: FrameScope
+            Captures: (BoundVarId * FrozenType) list
+            Params: CompiledFns.FlatParams<FrozenType>
+            ResultTy: FrozenType
+            ReturnsVoid: bool
+        }
 
     /// A capture-free monomorphic heap closure is stateless, so one shared instance
     /// suffices: it is `newobj`'d once into a singleton field by the closure's `.cctor`
@@ -501,6 +467,7 @@ module EmitTypes =
             /// `StaticFieldGet` / `EnumCase` resolves a case's literal field here.
             Enums: Dictionary<TypeKey, EmittedEnum>
             StaticMethods: Dictionary<BoundVarId, StaticMethodRef>
+            LiftedLocals: Dictionary<BoundVarId, LiftedLocalRef>
             /// Module-level value bindings → their emitted `public static` field, so a
             /// module value resolves the same way in any method, `.ctor` or `.cctor`.
             ModuleValues: Dictionary<BoundVarId, EntityHandle>
@@ -542,6 +509,9 @@ module EmitTypes =
             /// body resolves a case's field here.
             Enums: Dictionary<TypeKey, EmittedEnum>
             StaticMethods: Dictionary<BoundVarId, StaticMethodRef>
+            /// A generalised local of this file → its lifted generic static method. A
+            /// reference is a `call`, never a slot load or a capture.
+            LiftedLocals: Dictionary<BoundVarId, LiftedLocalRef>
             /// Module-level values, each lowered to a `public static` field on its module
             /// class and resolved here by bound variable → field handle (`ldsfld`).
             ModuleValues: Dictionary<BoundVarId, EntityHandle>
@@ -596,6 +566,7 @@ module EmitTypes =
                 Interfaces = ctx.Interfaces
                 Enums = ctx.Enums
                 StaticMethods = ctx.StaticMethods
+                LiftedLocals = ctx.LiftedLocals
                 ModuleValues = ctx.ModuleValues
             }
 

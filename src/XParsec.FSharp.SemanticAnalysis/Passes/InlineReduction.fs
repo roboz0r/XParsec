@@ -220,6 +220,16 @@ module InlineReduction =
         let isClosed (p: Peeled) : bool =
             p.Params |> List.forall (fun x -> x.Disposition = Disposition.Survive)
 
+    /// `Inline.freshen`, with every freshened generalised local filed as the same binding under
+    /// its fresh key, so the copy keeps the local's `LocalBindingId`, scheme and owner.
+    let internal freshenBody (ctx: PassContext) (mint: unit -> NodeKey) (body: TExpr) : TExpr =
+        let body, renamed = Inline.freshen mint body
+
+        for KeyValue(source, fresh) in renamed do
+            ctx.ShareBindingEntry(source, fresh)
+
+        body
+
     /// Expand ONE inline binding for one use site. Substituting the derived type arguments selects
     /// the body's `StaticOptimization` clause, dispatches its `TraitCall`s, and GROUNDS a typar
     /// reachable only through the body, which beta-reduction binds no value parameter to.
@@ -243,7 +253,7 @@ module InlineReduction =
             {|
                 // BoundVars are freshened so two expansions of one template cannot share a
                 // codegen local slot; the body is NOT moved off the positions it was written at.
-                Body = Inline.freshen mint expanded
+                Body = freshenBody ctx mint expanded
                 // The grounding the specialization table keys on.
                 TypeArgs = typeArgs
             |}

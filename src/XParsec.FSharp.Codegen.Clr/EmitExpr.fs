@@ -45,7 +45,12 @@ module EmitExpr =
         | ExprShape.Var ->
             let boundVar = TastAccessor.exprVarBoundVar e
 
-            if env.StaticMethods.ContainsKey boundVar then
+            if env.LiftedLocals.ContainsKey boundVar then
+                // A bare reference to a lifted local: a parameterless one is called as a
+                // generic module value is; a function-typed one was eta-bridged, so it is
+                // never bare here.
+                EmitCall.buildAppCall buildExpr pos env b e
+            elif env.StaticMethods.ContainsKey boundVar then
                 // A generic module value (`let empty : SetTree<'T> = …`) lowers to a 0-arg
                 // generic static method, since a non-generic module class cannot host a
                 // `SetTree<'T>` field. Its instantiation comes from this use's own type.

@@ -5,7 +5,8 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 // `FrozenPools.LocalOwners` maps every generalised body-local `let` to the declaration whose
-// body declares it. A module-level `let` has no row.
+// body declares it. A module-level `let` has no row. `FrozenPools.LocalSchemes` maps a local's
+// bound variable to the scope of its own typars.
 
 /// Every `TyparScope` a frozen type's `FTTypar` leaves carry.
 let rec private scopesOf (t: FrozenType) : TyparScope list =
@@ -44,6 +45,25 @@ let private localIdOf (pools: FrozenPools) (name: string) : LocalBindingId =
     match List.distinct ids with
     | [ id ] -> id
     | other -> failtestf "expected one LocalFunction scope on '%s'; found %A" name other
+
+/// The bound variable named `name`.
+let private boundVarOf (pools: FrozenPools) (name: string) : BoundVarId =
+    match
+        [
+            for i in 0 .. pools.BoundVarNames.Length - 1 do
+                if pools.BoundVarNames.[i] = name then
+                    BoundVarId i
+        ]
+    with
+    | [ b ] -> b
+    | other -> failtestf "expected one bound variable named '%s'; found %d" name other.Length
+
+let private schemeOf (pools: FrozenPools) (name: string) : LocalScheme =
+    let schemes = DenseTable.index pools.LocalSchemes
+
+    match schemes.TryGetValue(boundVarOf pools name) with
+    | true, scheme -> scheme
+    | false, _ -> failtestf "no LocalSchemes row for '%s'" name
 
 let private ownerOf (pools: FrozenPools) (name: string) : LocalOwner =
     let owners = DenseTable.index pools.LocalOwners
@@ -129,6 +149,42 @@ let tests =
                 let pools = freezeFor source
                 let thawed = FrozenCodec.thaw (FrozenCodec.flatten pools)
                 Expect.equal thawed.LocalOwners pools.LocalOwners "LocalOwners"
+                Expect.equal thawed.LocalSchemes pools.LocalSchemes "LocalSchemes"
+            }
+
+            test "a local's scheme is the scope its own leaves carry" {
+                let pools = freezeFor source
+
+                for name in [ "idc"; "g"; "h"; "inner" ] do
+                    Expect.equal (schemeOf pools name).Id (localIdOf pools name) (name + "'s scope")
+                    Expect.equal (schemeOf pools name).TyparArity 1 (name + " quantifies one typar")
+            }
+
+            test "a same-file inline body's local is the same binding under each spliced copy" {
+                let pools =
+                    freezeFor "let inline f (x: int) =\n    let g y = y\n    (g x, g \"s\")\nlet a = f 1\nlet b = f 2\n"
+
+                let rows =
+                    pools.LocalSchemes
+                    |> Array.map (fun (BoundVarId b, s) -> pools.BoundVarNames.[b], s)
+                    |> Array.sortBy fst
+
+                // Both call sites ground `f` at one instantiation, so they share one entry.
+                Expect.equal (Array.length rows) 2 "the template's `g` and the specialization's copy"
+
+                Expect.equal
+                    (rows |> Array.map (fun (_, s) -> s.Id) |> Array.distinct |> Array.length)
+                    1
+                    "one LocalBindingId"
+
+                Expect.equal (fst rows.[rows.Length - 1]) "g" "the template's own row is named"
+                Expect.equal pools.LocalOwners.Length 1 "one owner row for the one binding"
+            }
+
+            test "a local quantifying nothing has no scheme row" {
+                let pools = freezeFor "let f (a: int) =\n    let g b = b + a\n    g 1\n"
+                Expect.isEmpty pools.LocalSchemes "g is monomorphic"
+                Expect.equal pools.LocalOwners.Length 1 "g still has an owner row"
             }
 
             test "a Type leaf never freezes under a module function's body" {

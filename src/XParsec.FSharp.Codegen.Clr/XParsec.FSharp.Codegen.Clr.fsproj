@@ -31,6 +31,7 @@
     <Compile Include="IlIr.fs" />
     <Compile Include="EmitTypes.fs" />
     <Compile Include="EmitLower.fs" />
+    <Compile Include="EmitBridges.fs" />
     <Compile Include="EmitClosures.fs" />
     <Compile Include="EmitResolve.fs" />
     <Compile Include="ClrHoleFormat.fs" />

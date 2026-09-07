@@ -357,6 +357,7 @@ module TastUnpool =
             FunVerdicts = pools.FunVerdicts |> Array.map (fun (id, v) -> lambdaKeyOf id, v) |> Map.ofArray
             GenericFnSchemes = boundVarKeyedMap readmittedBoundVar pools.GenericFnSchemes
             LocalOwners = Map.ofArray pools.LocalOwners
+            LocalSchemes = boundVarKeyedMap readmittedBoundVar pools.LocalSchemes
             InlineBodies = inlineBodies
             Specializations = specializations
             Accessibility = pools.Residue.Accessibility

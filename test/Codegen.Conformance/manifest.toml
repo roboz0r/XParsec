@@ -357,23 +357,22 @@ path = "inline/inline-module.fs"
 run = ["clr", "js"]
 
 # A body-local `let` inside an inline function is generalised at its own `let`: a splice
-# re-generalises it rather than instantiating it once per body. The CLR owes it after
-# `typar-scope-plan.md` steps 3c (a generic local lifted to a generic static method) and
+# re-generalises it rather than instantiating it once per body. The same-file cases run on
+# the CLR through a lifted generic method; the served case owes `typar-scope-plan.md` step
 # 3d (a thawed local generalised again in the host).
 [[program]]
 path = "inline/inline-local-poly.fs"
 run = ["js"]
-pending = { clr = "typar-scope-plan steps 3c and 3d" }
+pending = { clr = "typar-scope-plan step 3d" }
 
 # ---------------------------------------------------------------------------------------
 # LOCALS — a body-local `let` generalised at its own `let` and used at two types, with no
-# `inline` involved: the control for the inline program above. The CLR closure-converts
-# every local into a class with a fixed `Invoke`, so a local whose own typar survives
-# generalisation has no slot; `typar-scope-plan.md` step 3c lifts it instead.
+# `inline` involved: the control for the inline program above. The CLR lifts a local whose
+# own typar survives generalisation to a generic static method with the local's typars as
+# method typars, as `fsc` does.
 [[program]]
 path = "locals/local-poly.fs"
-run = ["js"]
-pending = { clr = "typar-scope-plan step 3c" }
+run = ["clr", "js"]
 
 # ---------------------------------------------------------------------------------------
 # TYPAR CONSTRAINTS over PRIMITIVES — `when 'a : struct` and `when 'a : not struct`.

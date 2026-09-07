@@ -687,6 +687,14 @@ type PassContext(provider: IExternalSymbolProvider, file: LexedFile, assembly: C
             }
         )
 
+    /// File `source`'s entry under `copy` too: a freshened copy of a template's local is the
+    /// same binding under another key, with the same `LocalBindingId`, scheme and owner. An
+    /// unfiled `source` is a no-op.
+    member this.ShareBindingEntry(source: NodeKey, copy: NodeKey) : unit =
+        match this.Bindings.Scheme.TryGetValue source with
+        | ValueSome entry -> this.Bindings.Scheme.Set(copy, entry)
+        | ValueNone -> ()
+
     /// Withdraw a binding's scheme, keeping its `LocalBindingId` for the re-generalisation
     /// that follows. A binding with no scheme is unaffected.
     member this.RetractScheme(key: NodeKey) : unit =

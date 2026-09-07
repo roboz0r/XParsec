@@ -369,6 +369,23 @@ module Elaborate =
             }
         )
 
+    /// Every generalised body-local of the file that quantifies a typar → the scope of its own
+    /// typars, keyed by its bound variable.
+    let private localSchemes (ctx: PassContext) : Map<BoundVarKey, LocalScheme> =
+        Map.ofSeq (
+            seq {
+                for KeyValue(key, entry) in ctx.Bindings.Scheme.AsDictionary() do
+                    match entry.Owner, entry.Scheme with
+                    | ValueSome _, ValueSome scheme when not (List.isEmpty scheme.Quantified) ->
+                        BoundVarKey.ofPatKey key,
+                        {
+                            Id = entry.Id
+                            TyparArity = List.length scheme.Quantified
+                        }
+                    | _ -> ()
+            }
+        )
+
     let run (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : TastFile =
         let elaborateDecls () =
             let elaborated = elaborate ctx file
@@ -444,5 +461,6 @@ module Elaborate =
             FunVerdicts = Map.empty
             GenericFnSchemes = emptyIfDegraded (ctx.GenericFnSchemes.AsDictionary())
             LocalOwners = localOwners ctx
+            LocalSchemes = emptyIfDegraded (localSchemes ctx)
             Accessibility = EqDict.ofSeq ctx.Bindings.Accessibility
         }

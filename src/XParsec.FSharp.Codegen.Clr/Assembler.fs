@@ -227,7 +227,7 @@ type internal Assembler
 
     // Tables are independent (only intra-table order matters), so the whole field table
     // is written up front, straight off the layout. A generic closure's capture-field
-    // signature encodes inside the ambient closure-typar scope, bracketed per slot.
+    // signature encodes under its class frame.
     do
         for fs in layout.Fields do
             let addField () =
@@ -258,7 +258,7 @@ type internal Assembler
 
             let h =
                 match fs.ClosureScope with
-                | ValueSome d -> provider.WithClosureTyparScope(d, addField)
+                | ValueSome frame -> provider.WithTyparSlots(TyparSlots.ClosureClass frame, addField)
                 | ValueNone -> addField ()
 
             fieldDefHandles.Add(fs.Key, h)
@@ -320,6 +320,21 @@ type internal Assembler
                     ReturnsVoid = fn.ReturnsVoid
                 }
 
+        // A lifted local resolves through its layout-derived handle, as a static fn does.
+        let liftedLocals = Dictionary<BoundVarId, Emit.LiftedLocalRef>()
+
+        for ll in file.LiftedLocals do
+            liftedLocals.[ll.Key] <-
+                {
+                    Handle = toEntity (layoutHandles.MethodDefOf(MethodKey.LiftedLocal ll.Name))
+                    Enclosing = ll.Enclosing
+                    Own = ll.Own
+                    Captures = ll.Captures
+                    Params = ll.Fn.Params |> CompiledFns.FlatParams.map (fun p -> p.Ty)
+                    ResultTy = ll.Fn.ResultTy
+                    ReturnsVoid = ll.Fn.ReturnsVoid
+                }
+
         // Module-value bindings resolve to their already-written field rows.
         let moduleValueFields = Dictionary<BoundVarId, EntityHandle>()
 
@@ -350,6 +365,7 @@ type internal Assembler
                 Interfaces = interfaces
                 Enums = enums
                 StaticMethods = staticMethods
+                LiftedLocals = liftedLocals
                 ModuleValues = moduleValueFields
                 MainInitValues = mainInitValues
             }
@@ -709,10 +725,9 @@ type internal Assembler
         for c in f.Layout.Closures do
             let captureFields = Dictionary<BoundVarId, EntityHandle>()
             let isGenericClosure = c.Typars > 0
-            // This closure's self-instantiation over its OWN typars (`!0 … !{n-1}`), for
-            // the capture-field `MemberRef`s on its self-`TypeSpec`. A closure typar is
-            // its own declaring typar, so this encodes `!i` at any closure-scope offset.
-            let selfArgs = [ for i in 0 .. c.Typars - 1 -> FTTypar(closureScope c.Name, i) ]
+            // This closure's self-instantiation over its OWN typars (`!0 … !{n-1}`), the
+            // frame's leaves, for the capture-field `MemberRef`s on its self-`TypeSpec`.
+            let selfArgs = c.Frame.Instantiation
 
             // A `Stack` closure's ctor does NOT chain `System.Object::.ctor`, because
             // value types have none. A captureless one's ctor is a bare `ret`: construction is
@@ -807,7 +822,7 @@ type internal Assembler
 
             let ifaceSpec =
                 if isGenericClosure then
-                    provider.WithClosureTyparScope(c.DeclaringTypars, prepare)
+                    provider.WithTyparSlots(TyparSlots.ClosureClass c.Frame, prepare)
                 else
                     prepare ()
 
@@ -822,6 +837,52 @@ type internal Assembler
                              provider.ObjectType)
                 }
             )
+
+    /// A lifted local is a generic static method whose typars are its frame: every scope
+    /// visible at its `let`, then its own. Its signature and body encode under
+    /// `TyparSlots.LiftedMethod`, so each of those scopes lands on the method's own `!!slot`.
+    member this.PrepareLiftedLocals(f: FileEmit) =
+        let emitCtx = f.EmitCtx
+        let retypeBody = f.Verdict.RetypeBody
+
+        for ll in f.Layout.LiftedLocals do
+            let ll =
+                { ll with
+                    Fn =
+                        { ll.Fn with
+                            Body = retypeBody ll.Fn.Body
+                        }
+                }
+
+            let frame = ll.Frame
+            let fn = ll.Fn
+
+            let prepare () =
+                let liftedBody = methodBody (Emit.buildLiftedLocal emitCtx ll)
+                let captureTys = ll.Captures |> List.map snd
+                let paramTys = captureTys @ (fn.Params.Flat |> List.map (fun p -> p.Ty))
+
+                let signature =
+                    if fn.ReturnsVoid then
+                        provider.GenericMethodOnTypeSignatureVoid(frame.Count, paramTys, false)
+                    else
+                        provider.GenericStaticFnSignature(frame.Count, paramTys, fn.ResultTy)
+
+                let paramKeys =
+                    (ll.Captures |> List.map fst) @ (fn.Params.Flat |> List.map (fun p -> p.Slot))
+
+                this.AddPrepared(
+                    MethodKey.LiftedLocal ll.Name,
+                    {
+                        Signature = signature
+                        Body = liftedBody
+                        ParamNames = paramNames emitCtx.Pool paramKeys
+                        MethodTypars =
+                            GenericParamRow.ofTypars (GenericParamRow.positionalNames frame.Count) EqSet.empty
+                    }
+                )
+
+            provider.WithTyparSlots(TyparSlots.LiftedMethod frame, prepare)
 
     member this.PrepareStaticMethods(f: FileEmit) =
         let plan = f.Layout.Plan

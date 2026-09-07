@@ -46,7 +46,8 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     let externalClassRef key = env.ExternalClassRef key
     let externalRecordRef key arity = env.ExternalRecordRef(key, arity)
     let externalUnionRef key arity = env.ExternalUnionRef(key, arity)
-    let encodeType te t = enc.EncodeType(te, t)
+    // Every signature minted here is a member's DECLARED one, over open markers.
+    let encodeType te t = enc.EncodeDeclaredType(te, t)
     let methodSpec handle args = enc.MethodSpec(handle, args)
 
     let recoverOpenTypars declTyparArity methodTyparArity (openT: FrozenType) (instT: FrozenType) =
@@ -515,7 +516,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                         ctx.MemberRef(
                             parent,
                             TAccessorRole.methodName role fieldName,
-                            enc.RecordAccessorSignature(role, openFieldTy)
+                            enc.Declared(fun () -> enc.RecordAccessorSignature(role, openFieldTy))
                         )
                     )
                 )

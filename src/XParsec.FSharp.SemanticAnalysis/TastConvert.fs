@@ -466,5 +466,6 @@ module TastConvert =
             FunVerdicts = tf.FunVerdicts
             GenericFnSchemes = tf.GenericFnSchemes
             LocalOwners = tf.LocalOwners
+            LocalSchemes = tf.LocalSchemes
             Accessibility = tf.Accessibility
         }

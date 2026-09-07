@@ -193,6 +193,8 @@ type FrozenPools =
         /// Every generalised body-local `let` of the file → the declaration whose body
         /// declares it, in `LocalBindingId` order.
         LocalOwners: DenseTable<LocalBindingId, LocalOwner>
+        /// A generalised body-local `let`'s bound variable → the scope of its own typars.
+        LocalSchemes: DenseTable<BoundVarId, LocalScheme>
         BindingValReprs: DenseTable<BoundVarId, PooledValRepr>
     }
 
@@ -236,6 +238,7 @@ module FrozenPools =
             FunVerdicts = [||]
             GenericFnSchemes = [||]
             LocalOwners = [||]
+            LocalSchemes = [||]
             BindingValReprs = [||]
         }
 

@@ -11,7 +11,78 @@ module internal TyparMarkers =
     let declaringMarkers (key: TypeKey) (count: int) : FrozenType list =
         [ for i in 0 .. count - 1 -> FTTypar(TyparScope.Type key, i) ]
 
-    /// The type scope of a synthesised closure class. A closure has no front-end key, so
-    /// its scope is minted from its metadata `name`.
-    let closureScope (name: string) : TyparScope =
-        TyparScope.Type(SymbolKeyOps.qualifiedTypeKeyOf name 0)
+/// One scope's typars in a `TyparFrame`.
+type FrameScope = { Scope: TyparScope; Count: int }
+
+/// The typar slots a synthesised generic owner declares, in slot order: the enclosing type's,
+/// then the enclosing member's or module function's, then each enclosing lifted local's,
+/// innermost last. A closure class declares them as class typars, a lifted local as method ones.
+type TyparFrame =
+    {
+        Scopes: EqArray<FrameScope>
+    }
+
+    member x.Count: int = x.Scopes |> EqArray.fold (fun n s -> n + s.Count) 0
+
+    /// The slot the scope's typar `0` occupies, `ValueNone` for a scope outside the frame.
+    member x.TryOffset(scope: TyparScope) : int voption =
+        let mutable offset = 0
+        let mutable found = ValueNone
+
+        for s in x.Scopes do
+            if found.IsNone then
+                if s.Scope = scope then
+                    found <- ValueSome offset
+                else
+                    offset <- offset + s.Count
+
+        found
+
+    /// The frame's own leaves in slot order: the instantiation denoting the owner from inside
+    /// the bodies its scopes are visible in.
+    member x.Instantiation: FrozenType list =
+        [
+            for s in x.Scopes do
+                for i in 0 .. s.Count - 1 -> FTTypar(s.Scope, i)
+        ]
+
+    /// The frame with `scope`'s typars appended.
+    member x.Push(scope: FrameScope) : TyparFrame =
+        {
+            Scopes = EqArray.append x.Scopes (EqArray.singleton scope)
+        }
+
+[<RequireQualifiedAccess>]
+module TyparFrame =
+    let empty: TyparFrame = { Scopes = EqArray.empty }
+
+    let private ofScope (scope: TyparScope) (count: int) : TyparFrame =
+        empty.Push { Scope = scope; Count = count }
+
+    /// A type's constructor body: every typar is the type's.
+    let ofType (key: TypeKey) (count: int) : TyparFrame = ofScope (TyparScope.Type key) count
+
+    /// A module function's body: every typar is the function's own.
+    let ofFunction (key: BindingKey) (count: int) : TyparFrame =
+        ofScope (TyparScope.ModuleFunction key) count
+
+    /// A member body: the owner's `declaring` typars, then the member's `own`.
+    let ofMember (owner: TypeKey) (declaring: int) (own: int) : TyparFrame =
+        (ofType owner declaring).Push
+            {
+                Scope = TyparScope.Member owner
+                Count = own
+            }
+
+/// How a signature encoder resolves an `FTTypar` leaf to a generic parameter slot.
+[<RequireQualifiedAccess>]
+type TyparSlots =
+    /// A nominal's member or a module function: a type's typar is `!i`, a member's or a
+    /// module function's own `!!i`. A local's has no slot.
+    | Declared
+    /// A closure class's own emission: every scope of the frame is a class typar at its
+    /// offset.
+    | ClosureClass of TyparFrame
+    /// A lifted local's own emission: every scope of the frame is a method typar at its
+    /// offset.
+    | LiftedMethod of TyparFrame

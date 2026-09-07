@@ -83,6 +83,9 @@ type TastFileG<'ty, 'tok, 'id when 'id: comparison> =
         /// Every generalised body-local `let` of the file → the declaration whose body
         /// declares it. A module-level `let` has no entry.
         LocalOwners: Map<LocalBindingId, LocalOwner>
+        /// A generalised body-local `let`'s bound variable → the scope of its own typars. A
+        /// local quantifying nothing, and a module-level `let`, have no entry.
+        LocalSchemes: Map<BoundVarKeyG<'id>, LocalScheme>
         /// The file's INLINE VOCABULARY: every `let inline` binding and every
         /// nullary-intrinsic value alias (`let undefined = (# "undefined" #)`), as the
         /// UNEXPANDED body, a different tree from the decl of the same name. Empty pre-freeze.

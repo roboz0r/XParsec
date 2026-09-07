@@ -593,7 +593,7 @@ module internal LayoutNodes =
                                 // `Vesper.Ref`, so the field holds the cell.
                                 Attrs = instanceFieldAttrs FieldReach.OwnType FieldWrites.ByCtor
                                 Ty = snd c.Captures.[i]
-                                ClosureScope = (if isGeneric then ValueSome c.DeclaringTypars else ValueNone)
+                                ClosureScope = (if isGeneric then ValueSome c.Frame else ValueNone)
                             }
                     ]
 

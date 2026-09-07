@@ -51,6 +51,9 @@ module EmitBindings =
         let m = view.Binding
 
         match TastAccessor.patBoundVar m.Pattern with
+        // A generalised local lifted to a generic static method: its value is that method's
+        // body, so the `let` binds no slot and only its body runs here.
+        | ValueSome boundVar when env.LiftedLocals.ContainsKey boundVar -> recur pos env b view.Body
         | ValueSome boundVar ->
             // A simple `let x = value in body` bound variable: park the value in `x`'s slot.
             let slot = b.Local m.Ty

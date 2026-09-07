@@ -145,6 +145,7 @@ let private checkIdResolution (pools: FrozenPools) (frozen: Pooled.TastFile) =
     checkTable "FunVerdicts" (pooledLambdaKey pools) pools.FunVerdicts (keysOf frozen.FunVerdicts)
     checkTable "GenericFnSchemes" id pools.GenericFnSchemes (boundVarSource frozen.GenericFnSchemes)
     checkTable "LocalOwners" id pools.LocalOwners (keysOf frozen.LocalOwners)
+    checkTable "LocalSchemes" id pools.LocalSchemes (boundVarSource frozen.LocalSchemes)
 
 /// A binding's recorded arity is READ OFF the pooled lambda chain, so every recorded `GTuple` must
 /// point to a pat some `Lambda` bears as its parameter — a re-pooled copy is structurally equal but a

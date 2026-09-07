@@ -449,6 +449,15 @@ module FrozenCodecTypes =
         | 3uy -> LocalOwner.Initialiser
         | b -> failwithf "FrozenCodec: unknown LocalOwner tag %d" b
 
+    let writeLocalScheme (w: FrozenWriter) (s: LocalScheme) =
+        writeLocalBindingId w s.Id
+        w.Write s.TyparArity
+
+    let readLocalScheme (r: FrozenReader) : LocalScheme =
+        let id = readLocalBindingId r
+
+        { Id = id; TyparArity = r.ReadInt32() }
+
     let writeModuleBindingInfo (w: FrozenWriter) (m: ModuleBindingInfo) =
         writeSymbolRef w m.Key
         writeVOptionWith w (fun w (CompiledName n) -> w.Write n) m.CompiledName

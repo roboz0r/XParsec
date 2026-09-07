@@ -189,8 +189,7 @@ type ClrProvider
     member _.RegisterClosure
         (
             name: string,
-            typarCount: int,
-            declaringTypars: int,
+            frame: TyparFrame,
             captureSigs: FrozenType list,
             paramTy: FrozenType,
             resultTy: FrozenType,
@@ -198,8 +197,7 @@ type ClrProvider
         ) : unit =
         env.GenericClosures.[name] <-
             {
-                TyparCount = typarCount
-                DeclaringTypars = declaringTypars
+                Frame = frame
                 CaptureSigs = captureSigs
                 ParamTy = paramTy
                 ResultTy = resultTy
@@ -225,11 +223,9 @@ type ClrProvider
     member _.GenericClosureMemberRef(name: string, args: FrozenType list, which: ClosureMember) : EntityHandle =
         generics.GenericClosureMemberRef(name, args, which)
 
-    /// Run `f`, a generic closure's own ctor / `Invoke` / field / locals / member-ref emission,
-    /// with the enclosing function's typar `i`, which the closure body embeds, re-projected
-    /// onto the closure *class*'s `!(declaringTypars + i)` rather than `!!i`.
-    member _.WithClosureTyparScope(declaringTypars: int, f: unit -> 'T) : 'T =
-        env.WithClosureTyparScope(declaringTypars, f)
+    /// Run `f`, a synthesised owner's own signature / body / member-ref emission, with every
+    /// `FTTypar` leaf resolved through `slots`.
+    member _.WithTyparSlots(slots: TyparSlots, f: unit -> 'T) : 'T = env.WithTyparSlots(slots, f)
 
     member _.EncodeAbstractType(te: SignatureTypeEncoder, t: FrozenType) : unit = enc.EncodeAbstractType(te, t)
 

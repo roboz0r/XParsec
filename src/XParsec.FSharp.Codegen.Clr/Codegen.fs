@@ -45,6 +45,7 @@ module Codegen =
 
             asm.PrepareStructEnums f
             asm.PrepareClosures f
+            asm.PrepareLiftedLocals f
             asm.PrepareStaticMethods f
             asm.PrepareMain f
 

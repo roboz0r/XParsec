@@ -356,7 +356,8 @@ type TyparScope =
     /// A module-level `let`'s own typars, a top-level `let` of the implicit program module
     /// included: `!!j` on the static method it compiles to.
     | ModuleFunction of BindingKey
-    /// A generalised body-local `let`'s own typars. A CLI signature has no slot for one.
+    /// A generalised body-local `let`'s own typars: `!!j` on the generic method the local is
+    /// lifted to, after every enclosing scope's.
     | LocalFunction of LocalBindingId
 
     /// A member's or a module function's scope: the typars a call site instantiates.

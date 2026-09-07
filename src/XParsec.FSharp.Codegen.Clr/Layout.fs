@@ -20,6 +20,10 @@ type FilePlan =
         /// NODE, the id together with the pool that issued it, so an id from another
         /// file's pool misses instead of silently denoting a different node.
         FunVerdicts: IReadOnlyDictionary<TastAccessor.ExprId, FunVerdict>
+        /// Every generalised local of the file with a positive typar count → the scope of its
+        /// own typars, a local of a spliced inline body included under its freshened bound
+        /// variable.
+        LocalSchemes: IReadOnlyDictionary<BoundVarId, LocalScheme>
         Plan: ModuleClassPlan
     }
 
@@ -37,7 +41,22 @@ module FilePlan =
         // over the DECLARATIONS rather than the lowered list: lowering drops `type` decls,
         // so an inline call inside a member body would otherwise be invisible.
         let expansion = InlineExpand.expand pool (TastAccessor.roots pool |> List.ofArray)
-        let decls = expansion.Decls
+
+        // A spliced inline body's local is a generalised local of THIS file under the bound
+        // variable the splice minted for it, so the scheme table follows the freshening.
+        let localSchemes =
+            let d = Dictionary<BoundVarId, LocalScheme>(DenseTable.index pools.LocalSchemes)
+
+            for KeyValue(fresh, source) in expansion.FreshenedBoundVars do
+                match d.TryGetValue source with
+                | true, scheme -> d.[fresh] <- scheme
+                | false, _ -> ()
+
+            d :> IReadOnlyDictionary<_, _>
+
+        // Every non-saturated reference to a generalised local becomes a wrapper closure
+        // over a saturated call, so the lifted method is the only form the local takes.
+        let decls = Emit.bridgeLiftedLocalEscapes localSchemes expansion.Decls
 
         // The bound-variable-keyed side tables this lowering consumes, at the dense id the columns
         // already address a bound variable by.
@@ -99,16 +118,17 @@ module FilePlan =
             Decls = decls
             ClosureReprs = closureReprs
             FunVerdicts = funVerdicts
+            LocalSchemes = localSchemes
             Plan = plan
         }
 
-    /// The closures of the plan's lowered decls and of `memberRoots`, leaves-first, with
-    /// their by-node index. The shared `ClosureNamer` keeps closure names unique across files.
+    /// The closures and lifted locals of the plan's lowered decls and of `memberRoots`,
+    /// leaves-first. The shared `ClosureNamer` keeps their names unique across files.
     let discoverClosures
         (closureNamer: Emit.ClosureNamer)
         (file: FilePlan)
         (memberRoots: EmitClosures.MemberClosureRoot list)
-        : Emit.Closure list * Dictionary<TastAccessor.ExprId, Emit.Closure> =
+        : Emit.Discovered =
         Emit.discoverClosures
             closureNamer
             file.Plan.StaticFnsByKey
@@ -116,6 +136,7 @@ module FilePlan =
             // Which source lambdas are value-structs, by node membership.
             file.FunVerdicts
             file.ClosureReprs
+            file.LocalSchemes
             file.Plan.Lowered
             memberRoots
 
@@ -182,8 +203,7 @@ module internal Layout =
                     (m: TastAccessor.TypeMember)
                     : EmitClosures.MemberClosureRoot =
                     {
-                        Enclosing =
-                            EmitTypes.EnclosingTypars.ofMember td.TypeKey td.TypeParams.Length m.MethodTypeParams.Length
+                        Frame = TyparFrame.ofMember td.TypeKey td.TypeParams.Length m.MethodTypeParams.Length
                         Body = m.Body
                     }
 
@@ -193,7 +213,7 @@ module internal Layout =
                     (entry: TastAccessor.PreambleEntry)
                     : EmitClosures.MemberClosureRoot =
                     {
-                        Enclosing = EmitTypes.EnclosingTypars.ofType td.TypeKey td.TypeParams.Length
+                        Frame = TyparFrame.ofType td.TypeKey td.TypeParams.Length
                         Body =
                             match entry with
                             | TPreambleEntryG.Let l -> l.Init
@@ -218,8 +238,8 @@ module internal Layout =
                     for entry in cd.StaticPreamble @ cd.InstancePreamble -> preambleRoot cd.Decl entry
             ]
 
-        let closures, closureByNode =
-            FilePlan.discoverClosures closureNamer file memberRoots
+        let discovered = FilePlan.discoverClosures closureNamer file memberRoots
+        let closures = discovered.Closures
 
         // Each type's node carries its own field and method rows, so the rows the writer
         // walks ARE the rows its range claims: both are `List.collect`s over the same
@@ -367,7 +387,8 @@ module internal Layout =
             Lowered = lowered
             Plan = plan
             Closures = closures
-            ClosureByNode = closureByNode
+            ClosureByNode = discovered.ClosureByNode
+            LiftedLocals = discovered.LiftedLocals
             Partitioned = partitioned
             FunVerdicts = funVerdicts
             Pool = pool
@@ -474,13 +495,26 @@ module internal Layout =
                         yield staticFnRow fn
             ]
 
+        // Every file's lifted locals, in file order then leaves-first, on the Program class.
+        let liftedLocalRows =
+            [
+                for f in files do
+                    for ll in f.LiftedLocals ->
+                        {
+                            Key = MethodKey.LiftedLocal ll.Name
+                            Name = ll.Name
+                            Attrs = assemblyStaticMethodAttrs
+                        }
+            ]
+
         // The Program class exists only if it would hold something: `Main`, a top-level
-        // value field, or a Program-class fn from any file.
+        // value field, a Program-class fn or a lifted local from any file.
         let programNodes =
             if
                 entryFile.IsSome
                 || not (List.isEmpty programFields)
                 || not (List.isEmpty programFnRows)
+                || not (List.isEmpty liftedLocalRows)
             then
                 [
                     {
@@ -505,6 +539,7 @@ module internal Layout =
                                         }
 
                                 yield! programFnRows
+                                yield! liftedLocalRows
 
                                 // Only an executable has an entry file, and only it has `Main`.
                                 if entryFile.IsSome then

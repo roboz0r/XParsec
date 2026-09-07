@@ -78,6 +78,24 @@ module EmitCall =
         CompiledFns.flattenPlan groups (leading |> List.map (fun a -> a.Arg))
         |> pushFlatSteps recur env b
 
+    /// `call` a flat static method whose `pushed` arguments are on the stack, reify a `unit`
+    /// result for a value-position consumer, then `Invoke` the result with `rest`.
+    let private callFlatStatic
+        (recur: Recur)
+        (pos: ExprPos)
+        (env: EmitEnv)
+        (b: IlBuilder)
+        (handle: EntityHandle)
+        (pushed: int)
+        (returnsVoid: bool)
+        (resultTy: FrozenType)
+        (rest: TastAccessor.AppliedArg list)
+        : unit =
+        let result = CallResult.ofReturnsVoid returnsVoid
+        b.Add(ILInstr.Call(handle, pushed, result.Pushes))
+        CallResult.reify env b pos result
+        foldInvoke recur env b resultTy rest
+
     /// Lower an `App` chain: dispatch on the applied function's shape, then apply any
     /// argument its own call did not consume through `Invoke`.
     let buildAppCall (recur: Recur) (pos: ExprPos) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
@@ -135,6 +153,42 @@ module EmitCall =
                 foldInvoke recur env b funcTy rest
             | ValueNone -> failwithf "Emit: no call recipe for external '%s'" (SymbolKeyOps.qualifiedBindingName key)
 
+        | TastAccessor.EVar k when env.LiftedLocals.ContainsKey k ->
+            // A generalised local lifted to a generic static method. Its instantiation is the
+            // caller's own leaves for every enclosing scope, then the local's typars recovered
+            // from the arguments and from the reference's type, one `->` peeled per group.
+            let ll = env.LiftedLocals.[k]
+
+            for (ck, _) in ll.Captures do
+                buildVarLoad env b ck
+
+            let leading, rest = List.splitAt ll.Params.GroupCount appArgs
+            let flatActualTys = flattenGroupPushes recur env b ll.Params.Groups leading
+
+            let _, actualResultTy =
+                TastLower.peelFunDomains ll.Params.GroupCount (typeOfExpr fn)
+
+            let own =
+                TastLower.matchScopeInstantiation
+                    ll.Own.Scope
+                    ll.Own.Count
+                    (ll.Params.Flat @ [ ll.ResultTy ])
+                    (flatActualTys @ [ actualResultTy ])
+
+            let callHandle =
+                env.Provider.StaticFnMethodSpec(ll.Handle, ll.Enclosing.Instantiation @ own)
+
+            callFlatStatic
+                recur
+                pos
+                env
+                b
+                callHandle
+                (List.length ll.Captures + List.length flatActualTys)
+                ll.ReturnsVoid
+                ll.ResultTy
+                rest
+
         | TastAccessor.EVar k when env.StaticMethods.ContainsKey k ->
             // A top-level function emitted as a static method: `call` it with one
             // argument per SOURCE group, then `Invoke` the result with any remainder.
@@ -189,11 +243,7 @@ module EmitCall =
 
                     env.Provider.StaticFnMethodSpec(sm.Handle, inst)
 
-            let result = CallResult.ofReturnsVoid sm.ReturnsVoid
-            b.Add(ILInstr.Call(callHandle, List.length flatActualTys, result.Pushes))
-            CallResult.reify env b pos result
-
-            foldInvoke recur env b sm.ResultTy rest
+            callFlatStatic recur pos env b callHandle (List.length flatActualTys) sm.ReturnsVoid sm.ResultTy rest
 
         | TastAccessor.EExternalMember em when em.Storage = MemberStorage.Method ->
             let objArg = em.ObjArg

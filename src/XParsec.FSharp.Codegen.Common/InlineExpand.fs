@@ -80,6 +80,9 @@ module InlineExpand =
             Origins: IReadOnlyDictionary<TastAccessor.ExprId, NodeOrigin>
             /// Every node this expansion authored → the node it was authored from.
             Derived: Derivation
+            /// Every bound variable a copied body introduced → the entry's own it was
+            /// freshened from. A copy of a copy resolves in one step, to the entry's.
+            FreshenedBoundVars: IReadOnlyDictionary<BoundVarId, BoundVarId>
         }
 
     /// WHICH FILE the material being walked is anchored in: a declaring file's, or the file being
@@ -200,6 +203,7 @@ module InlineExpand =
     let expand (pool: PoolBuilder) (decls: TastAccessor.DeclId list) : Expansion =
         let origins = Dictionary<TastAccessor.ExprId, NodeOrigin>()
         let derived = Derivation.create ()
+        let freshened = Dictionary<BoundVarId, BoundVarId>()
 
         // The one file whose anchors need no provenance is the file being compiled. It has to
         // be the identity the front end stamped onto the nodes — one rebuilt here from a path
@@ -218,6 +222,12 @@ module InlineExpand =
         let bind (copy: Copy) (b: BoundVarId) : BoundVarId =
             let fresh = TastPoolBuilder.mintBoundVar pool
             copy.BoundVars.[b] <- fresh
+
+            freshened.[fresh] <-
+                match freshened.TryGetValue b with
+                | true, source -> source
+                | false, _ -> b
+
             fresh
 
         let useBoundVar (copy: Copy) (b: BoundVarId) : BoundVarId =
@@ -417,4 +427,5 @@ module InlineExpand =
             Decls = List.map expandDecl decls
             Origins = origins
             Derived = derived
+            FreshenedBoundVars = freshened
         }

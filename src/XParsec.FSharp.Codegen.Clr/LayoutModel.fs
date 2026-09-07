@@ -436,10 +436,10 @@ type internal FieldSlot =
         Name: string
         Attrs: FieldAttributes
         Ty: FrozenType
-        /// `ValueSome d` ⇒ encode this field's signature inside the closure-typar scope
-        /// at declaring-typar offset `d`, so the body's typars re-project onto the closure
-        /// class's slots (a *generic* closure's captures); `ValueNone` ⇒ no such scope.
-        ClosureScope: int voption
+        /// `ValueSome frame` ⇒ encode this field's signature under
+        /// `TyparSlots.ClosureClass frame`, so the body's typars re-project onto the closure
+        /// class's slots (a *generic* closure's captures); `ValueNone` ⇒ the declared slots.
+        ClosureScope: TyparFrame voption
     }
 
 /// One synthesised structural member on a hierarchy union's case type. The `Case`-typed
@@ -550,6 +550,9 @@ type internal MethodKey =
     /// module class + emitted name) so the combined method-def map stays injective across files
     /// and under entry-file shadowing.
     | StaticFn of BindingKey
+    /// A generalised body-local lifted to a generic static method on the Program class,
+    /// keyed by its assembly-unique name.
+    | LiftedLocal of name: string
     | Main
 
 [<RequireQualifiedAccess>]
@@ -753,6 +756,9 @@ type internal FileLayout =
         Plan: ModuleClassPlan
         Closures: EmitTypes.Closure list
         ClosureByNode: Dictionary<TastAccessor.ExprId, EmitTypes.Closure>
+        /// This file's generalised locals, each a generic static method row on the Program
+        /// class, leaves-first.
+        LiftedLocals: EmitTypes.LiftedLocal list
         Partitioned: PartitionedTypeDecls
         /// This file's source-lambda value-struct closure verdicts, keyed by the lambda
         /// NODE, the id together with the pool that issued it, so an id from another

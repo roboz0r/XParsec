@@ -5,6 +5,7 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
 open EmitTypes
 open EmitLower
+open EmitBridges
 
 module EmitClosures =
     let private patKeys (p: TastAccessor.PatId) : BoundVarId list =
@@ -39,10 +40,18 @@ module EmitClosures =
             | _ -> ValueNone
         | _ -> ValueNone
 
+    /// A lifted local's captures, by its key. A reference to a lifted local is a `call` that
+    /// pushes the captures, so the reference frees THEM rather than the local.
+    type private LiftedCaptures = IReadOnlyDictionary<BoundVarId, (BoundVarId * FrozenType) list>
+
+    let private noLifted: LiftedCaptures =
+        Dictionary<BoundVarId, (BoundVarId * FrozenType) list>()
+
     /// Walk `body`, invoking `onFree key ty` once per `Var` not shadowed by `bound`, which is
     /// mutated in place, so pass a private set. `let rec f = <lambda>` scopes `f` across its own
     /// VALUE too: the self-reference is the closure's `this`, not a phantom capture.
     let private walkFreeRefs
+        (lifted: LiftedCaptures)
         (bound: HashSet<BoundVarId>)
         (onFree: BoundVarId -> FrozenType -> unit)
         (body: TastAccessor.ExprId)
@@ -57,8 +66,14 @@ module EmitClosures =
         let rec go (e: TastAccessor.ExprId) =
             match e with
             | TastAccessor.EVar key ->
-                if not (bound.Contains key) then
-                    onFree key (TastAccessor.exprTy e)
+                match lifted.TryGetValue key with
+                | true, captures ->
+                    for (ck, cty) in captures do
+                        if not (bound.Contains ck) then
+                            onFree ck cty
+                | false, _ ->
+                    if not (bound.Contains key) then
+                        onFree key (TastAccessor.exprTy e)
             | TastAccessor.ELambda lam -> scoped (patKeys lam.Param) (fun () -> go lam.Body)
             | LetBoundLambda(k, value, body) ->
                 scoped [ k ] (fun () -> go value)
@@ -104,6 +119,7 @@ module EmitClosures =
     /// capture field order. `staticFnKeys` are excluded: a reference to a
     /// static-method function is a direct `call`, not a captured value.
     let private freeVars
+        (lifted: LiftedCaptures)
         (staticFnKeys: HashSet<BoundVarId>)
         (paramKeys: BoundVarId list)
         (selfKey: BoundVarId voption)
@@ -125,6 +141,7 @@ module EmitClosures =
         let seen = HashSet<BoundVarId>()
 
         walkFreeRefs
+            lifted
             bound
             (fun key ty ->
                 if seen.Add key then
@@ -139,7 +156,7 @@ module EmitClosures =
     let private freeVarKeys (boundKeys: BoundVarId seq) (body: TastAccessor.ExprId) : HashSet<BoundVarId> =
         let bound = HashSet<BoundVarId>(boundKeys)
         let acc = HashSet<BoundVarId>()
-        walkFreeRefs bound (fun key _ -> acc.Add key |> ignore) body
+        walkFreeRefs noLifted bound (fun key _ -> acc.Add key |> ignore) body
         acc
 
     /// The name, home class and handle key a top-level decl emits under.
@@ -386,97 +403,6 @@ module EmitClosures =
                         mv.Name
                         free
 
-    /// Eta-expand every NON-saturated reference to an `eligible` function to its source arity,
-    /// keeping the flat static method a cross-assembly consumer `call`s:
-    ///   `f` → `fun a0 … a(n-1) -> f a0 … a(n-1)`, and `f x` → that lambda applied to `x`.
-    let bridgeStaticFnEscapes
-        (eligible: HashSet<BoundVarId>)
-        (fns: CompiledFns.CompiledFn list)
-        (decls: TastAccessor.DeclId list)
-        : TastAccessor.DeclId list =
-        // Each eligible function's source arity: the parameters the eta-expansion peels, and
-        // the argument count at or above which a reference is a saturated direct `call`.
-        let arity = Dictionary<BoundVarId, int>()
-
-        for f in fns do
-            if eligible.Contains f.Key then
-                arity.[f.Key] <- f.Params.GroupCount
-
-        if arity.Count = 0 then
-            decls
-        else
-            // `fun a0 … a(n-1) -> f a0 … a(n-1)`, typed from the reference's own curried
-            // type. A tuple / unit source group needs no special case: the single fresh
-            // param carries the group's domain and is passed as one argument.
-            let buildEta (fVar: TastAccessor.ExprId) (n: int) : TastAccessor.ExprId =
-                let tok = TastAccessor.exprTok fVar
-
-                // Each peeled `->` as `(domain, codomain)`: the fresh param's type and the
-                // intermediate `App` result type.
-                let levels = TastLower.peelFuns n (typeOfExpr fVar)
-
-                if List.length levels <> n then
-                    failwithf
-                        "bridgeStaticFnEscapes: function type has fewer than %d parameters: %A"
-                        n
-                        (typeOfExpr fVar)
-
-                let keys = levels |> List.map (fun _ -> TastPoolBuilder.mintBoundVar fVar.Pool)
-
-                // The bridge's nodes are in no frozen tree, so they append to the same pool
-                // `fVar` lives in, letting the spliced `fVar` keep its own id.
-                let pool = fVar.Pool
-
-                let appliedArgs: TastAccessor.AppliedArg list =
-                    List.map2
-                        (fun k (dom, cod) ->
-                            {
-                                Arg = TastAccessor.mintVar pool k dom tok
-                                StepResultTy = cod
-                                Tok = tok
-                            }
-                        )
-                        keys
-                        levels
-
-                let body = TastAccessor.mintAppChain fVar appliedArgs
-
-                List.foldBack2
-                    (fun k (dom, cod) acc ->
-                        TastAccessor.mintLambda (TastAccessor.mintNamedPat pool k dom tok) acc (FTFun(dom, cod)) tok
-                    )
-                    keys
-                    levels
-                    body
-
-            let rec rw (e: TastAccessor.ExprId) : TastAccessor.ExprId =
-                match e with
-                | TastAccessor.EVar k when arity.ContainsKey k -> buildEta e arity.[k]
-                | TastAccessor.EApp _ ->
-                    let fn, args = TastAccessor.collectAppChain [] e
-
-                    match fn with
-                    | TastAccessor.EVar k when arity.ContainsKey k && List.length args < arity.[k] ->
-                        // Under-application: partially apply the eta closure.
-                        TastAccessor.mintAppChain
-                            (buildEta fn arity.[k])
-                            (args |> List.map (fun a -> { a with Arg = rw a.Arg }))
-                    | _ ->
-                        // The application STANDS: a saturated (or over-applied) eligible
-                        // function stays a direct `call`, so only the arguments and a
-                        // non-eligible function can move.
-                        TastAccessor.mapAppChain
-                            (fun h ->
-                                match h with
-                                | TastAccessor.EVar k when arity.ContainsKey k -> h
-                                | _ -> rw h
-                            )
-                            rw
-                            e
-                | _ -> TastAccessor.mapChildren rw e
-
-            decls |> List.map (TastAccessor.mapDeclExpr rw)
-
     /// The static-method-eligible top-level functions. `let [rec] f p0 … = body` is eligible
     /// unless it captures a module-level LOCAL, because a capture field needs a `this` a static
     /// method has none of. So its free vars must all be eligible too: a fixpoint over the offenders.
@@ -559,8 +485,17 @@ module EmitClosures =
     /// its construction site, which the closure re-projects onto its own class typars.
     type MemberClosureRoot =
         {
-            Enclosing: EnclosingTypars
+            Frame: TyparFrame
             Body: TastAccessor.ExprId
+        }
+
+    /// What closure discovery found in one file: the closures leaves-first, their by-node
+    /// index, and the generalised locals lifted to generic static methods, leaves-first.
+    type Discovered =
+        {
+            Closures: Closure list
+            ClosureByNode: Dictionary<TastAccessor.ExprId, Closure>
+            LiftedLocals: LiftedLocal list
         }
 
     /// The source-lambda nodes that lower onto a zero-alloc value-struct, each mapped to the
@@ -594,11 +529,12 @@ module EmitClosures =
 
         stackNodes
 
-    /// Mints `<closure>$0`, `<closure>$1`, … in discovery order. The name IS the closure's
-    /// TypeDef slot key, resolved assembly-wide by name, so ONE namer threaded across every
-    /// `discoverClosures` call is what keeps those keys unique across the whole assembly.
+    /// Mints `<closure>$0`, `<closure>$1`, … and `<source>@0`, `<source>@1`, … in discovery
+    /// order. A name IS the closure's TypeDef slot key or the lifted local's method key, so
+    /// ONE namer threaded across every `discoverClosures` call keeps them assembly-unique.
     type ClosureNamer() =
         let mutable counter = 0
+        let mutable liftedCounter = 0
 
         /// `node` and `selfKey` are the context a debuggable `<bound-name>@<line>` policy
         /// would need. A counter ignores them, but only this member would have to change.
@@ -607,20 +543,30 @@ module EmitClosures =
             counter <- counter + 1
             name
 
+        /// The lifted method's metadata name, `<source>@<n>`, with `source` the bound
+        /// variable's source name where it has one.
+        member _.NextLiftedName(source: string) : string =
+            let name = sprintf "%s@%d" source liftedCounter
+            liftedCounter <- liftedCounter + 1
+            name
+
     /// Every `Lambda` in the lowered tree with its capture set, leaves-first: a closure comes
-    /// before any closure that constructs it. A `staticFns` outer lambda is NOT a closure, so
-    /// only its body is walked; the closures found there inherit its scheme's typars.
+    /// before any closure that constructs it. A `staticFns` outer lambda and a `localSchemes`
+    /// generalised local are not closures; the closures in their bodies inherit their frames.
     let discoverClosures
         (namer: ClosureNamer)
         (staticFns: IReadOnlyDictionary<BoundVarId, StaticFn>)
         (moduleValueKeys: HashSet<BoundVarId>)
         (funVerdicts: IReadOnlyDictionary<TastAccessor.ExprId, FunVerdict>)
         (closureReprs: Map<BoundVarId, ClosureRepr>)
+        (localSchemes: IReadOnlyDictionary<BoundVarId, LocalScheme>)
         (decls: TastAccessor.DeclId list)
         (memberRoots: MemberClosureRoot list)
-        : Closure list * Dictionary<TastAccessor.ExprId, Closure> =
+        : Discovered =
         let order = ResizeArray<TastAccessor.ExprId>()
         let lookup = Dictionary<TastAccessor.ExprId, Closure>()
+        let lifted = ResizeArray<LiftedLocal>()
+        let liftedCaptures = Dictionary<BoundVarId, (BoundVarId * FrozenType) list>()
 
         // Source lambdas threaded through a constrained `Fun`2`/`Fun`3` slot, mapped to
         // their flat arity (1 or 2).
@@ -630,6 +576,39 @@ module EmitClosures =
         // `call`, so neither needs a capture.
         let nonCaptured = HashSet<BoundVarId>(staticFns.Keys)
         nonCaptured.UnionWith moduleValueKeys
+
+        // The captures are filed in `liftedCaptures` BEFORE the body is walked, so a closure
+        // there that references the local frees THEM instead. `walkFreeRefs` descends into a
+        // nested `let`'s value directly, so an inner local is covered without an entry yet.
+        let liftedCapturesOf (fn: CompiledFns.CompiledFn) : (BoundVarId * FrozenType) list =
+            let paramBound =
+                fn.Params.Flat
+                |> List.collect (fun p ->
+                    match p.Pat with
+                    | Some pat -> patKeys pat
+                    | None -> [ p.Slot ]
+                )
+
+            let captures =
+                freeVars liftedCaptures nonCaptured paramBound (ValueSome fn.Key) fn.Body
+
+            liftedCaptures.[fn.Key] <- captures
+            captures
+
+        let registerLifted (enclosing: TyparFrame) (own: FrameScope) (fn: CompiledFns.CompiledFn) captures =
+            let source =
+                match TastPoolBuilder.boundVarNaming fn.Body.Pool fn.Key with
+                | BoundVarNaming.Source n -> n
+                | BoundVarNaming.Minted _ -> "local"
+
+            lifted.Add
+                {
+                    Fn = fn
+                    Name = namer.NextLiftedName source
+                    Enclosing = enclosing
+                    Own = own
+                    Captures = captures
+                }
 
         // `1` by default, `2` for a flat `Fun`3` slot, and only for an ANONYMOUS
         // monomorphic lambda the verdict reached, which is what `selfKey` / `currentTypars`
@@ -642,9 +621,9 @@ module EmitClosures =
             else
                 1
 
-        // `enclosing` is the instantiation inherited from the enclosing method / closure.
-        // `selfKey` is set on a `let f = …` value: its self-reference is `this`.
-        let rec go (enclosing: EnclosingTypars) (selfKey: BoundVarId voption) (e: TastAccessor.ExprId) =
+        // `enclosing` is the frame inherited from the enclosing method, closure or lifted
+        // local. `selfKey` is set on a `let f = …` value: its self-reference is `this`.
+        let rec go (enclosing: TyparFrame) (selfKey: BoundVarId voption) (e: TastAccessor.ExprId) =
             let currentTypars = enclosing.Count
 
             // A flat value-struct lambda of arity `2..4` peels its inner `Lambda` levels into
@@ -672,6 +651,21 @@ module EmitClosures =
              | ValueSome inner -> go enclosing ValueNone inner
              | ValueNone ->
                  match e with
+                 // A generic local: its lambda chain is the lifted method's parameters, not a
+                 // closure, and its body is walked under the lifted frame.
+                 | LetBoundGenericLocal localSchemes (k, scheme, letv) ->
+                     let fn = CompiledFns.compileValue k letv.Binding.Value
+                     let captures = liftedCapturesOf fn
+
+                     let own =
+                         {
+                             Scope = TyparScope.LocalFunction scheme.Id
+                             Count = scheme.TyparArity
+                         }
+
+                     go (enclosing.Push own) ValueNone fn.Body
+                     registerLifted enclosing own fn captures
+                     go enclosing ValueNone letv.Body
                  // The bound variable anchors an inner closure to its name, scoped across the value.
                  | LetBoundLambda(k, value, body) ->
                      go enclosing (ValueSome k) value
@@ -741,7 +735,7 @@ module EmitClosures =
                     patKeys paramPat
                     @ (extraParams |> List.collect (fun (_, _, ppat) -> patKeys ppat))
 
-                let captures = freeVars nonCaptured paramBound selfKey body
+                let captures = freeVars liftedCaptures nonCaptured paramBound selfKey body
 
                 // The codegen trigger, stricter than `Repr`, which is NOT consulted: an
                 // ANONYMOUS monomorphic lambda (a `let`-bound one keeps its heap shape) in a
@@ -760,7 +754,7 @@ module EmitClosures =
                         Body = body
                         Captures = captures
                         SelfKey = selfKey
-                        Enclosing = enclosing
+                        Frame = enclosing
                         Repr = repr
                         IsValueStruct = isValueStruct
                         FunArity = funArity
@@ -805,15 +799,19 @@ module EmitClosures =
                         // ones, which inherit the method's typars.
                         let _, body = peelLambda letd.Binding.Value
 
-                        go (EnclosingTypars.ofFunction fn.BindingKey fn.Scheme.TyparArity) ValueNone body
-                    | false, _ -> go EnclosingTypars.none (ValueSome k) letd.Binding.Value
-                | ValueNone -> go EnclosingTypars.none ValueNone letd.Binding.Value
-            | TastAccessor.DExpression(e, _) -> go EnclosingTypars.none ValueNone e
+                        go (TyparFrame.ofFunction fn.BindingKey fn.Scheme.TyparArity) ValueNone body
+                    | false, _ -> go TyparFrame.empty (ValueSome k) letd.Binding.Value
+                | ValueNone -> go TyparFrame.empty ValueNone letd.Binding.Value
+            | TastAccessor.DExpression(e, _) -> go TyparFrame.empty ValueNone e
             | _ -> ()
 
         // A member body sees no `selfKey`: the member dispatches as a call, not a captured
         // value.
         for root in memberRoots do
-            go root.Enclosing ValueNone root.Body
+            go root.Frame ValueNone root.Body
 
-        [ for n in order -> lookup.[n] ], lookup
+        {
+            Closures = [ for n in order -> lookup.[n] ]
+            ClosureByNode = lookup
+            LiftedLocals = List.ofSeq lifted
+        }

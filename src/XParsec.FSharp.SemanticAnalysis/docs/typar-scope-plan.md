@@ -145,16 +145,42 @@ separate change.
    - `FrozenTypeTableBuilder.InternBindingKey` and the `BindingKeyId` indexer, so a
      `ModuleFunction` owner writes as a binding-table row.
 
-3c. **Generic locals on the CLR.** A local whose own typar survives generalisation is
-   lifted to a generic static method with the local's typars as method typars, as `fsc`
-   emits, instead of a closure class with a fixed `Invoke`. The lifted method's enclosing
-   typars are the owner chain from `LocalOwners`, which replaces the counts and scopes
-   `EmitTypes.ClosureClass` threads today (`Typars`, `DeclaringTypars`, `Enclosing`).
-   `ClrEncoder.encodeType`'s `LocalFunction` arm stops being reachable from a lifted
-   local's own signature; it stays for a `Vesper.Fun`-boxed value. Turns green:
-   `locals/local-poly` on the CLR (`pending` in the manifest), and the CLR half of the
-   same-file cases in `inline/inline-local-poly`. `fillTypeMembers` is a roughly 200-line
-   nested closure that ought to be refactored.
+3c. **Generic locals on the CLR.** Landed. A local whose own typar survives generalisation
+   is lifted to a generic static method on the Program class, `<name>@<n>`, with its
+   captures as leading parameters and its typars as method typars, as `fsc` emits, instead
+   of a closure class with a fixed `Invoke`. A non-saturated reference is eta-bridged to a
+   closure over a saturated call (`EmitClosures.bridgeLiftedLocalEscapes`, member bodies
+   included); a generalised local bound to a value (`let g = id`) is a parameterless
+   generic method called as a generic module value is. Turns green: `locals/local-poly` on
+   the CLR, pinned by the conformance run and the byte-identity goldens, and the same-file
+   cases of `inline/inline-local-poly`, pinned in `LiftedLocalTests`; the served case is
+   step 3d's.
+
+   What landed differs from the sketch above in three places:
+   - `FrozenPools.LocalSchemes`, a `BoundVarId -> LocalScheme` table (the local's
+     `LocalBindingId` and own typar count), written by `Elaborate.localSchemes` off the
+     scheme table. The backend reads a local's own scope off this row rather than off its
+     leaves, and does not read `LocalOwners`: the enclosing scopes are the frame the
+     discovery walk carries top-down, which is what closures already used. Format
+     version 10.
+   - `TyparFrame` (`TyparMarkers.fs`), an ordered list of `(scope, count)`, replaces
+     `EnclosingTypars` and the `DeclaringTypars` offset. `Closure.Frame` and
+     `LiftedLocal.Enclosing` carry it; the encoder resolves a leaf through
+     `TyparSlots`: `Declared` (`!i` / `!!j`), `ClosureClass frame` (every scope a class
+     slot) or `LiftedMethod frame` (every scope a method slot), replacing the integer
+     `ClosureTyparScope`. A generic nominal's member-ref signature encodes under `Declared`
+     whatever the ambient slots (`ClrGenerics.encodeDeclared`), which the lifted frame
+     surfaced: under a closure frame the declaring type happened to sit at offset 0.
+   - A same-file inline splice freshens the template's bound-variable keys, so the copy's
+     local had no scheme row. `InlineReduction.freshenBody` files the entry under the fresh
+     key too (`PassContext.ShareBindingEntry`), and `InlineExpand.FreshenedBoundVars`
+     carries the row to each call site's copy in the backend.
+
+   A local's captures are filed before its body is walked for closures, so a closure in the
+   body that references the local, a generic `let rec` local's own recursive reference
+   included, captures the local's captures and `call`s the lifted method; pinned in
+   `LiftedLocalTests`. `fillTypeMembers` is a roughly 200-line nested closure that ought to
+   be refactored.
 
 3d. **A served local generalises again.** `InlineThaw.bodyAtPath` mints one cell per
    `(LocalBindingId, index)` for the whole body, so a served local used at two types
@@ -256,7 +282,8 @@ Before this document is deleted, each row is in code or in a test:
       the codec round-trip (step 3b), in `LocalOwnerTests`.
 - [x] A `Type` leaf never freezes under a module function's body, pinned on a module
       function with a local (step 3b), in `LocalOwnerTests`.
-- [ ] `locals/local-poly` runs on the CLR (step 3c).
+- [x] `locals/local-poly` runs on the CLR (step 3c), pinned by the conformance run, the
+      byte-identity goldens and `LiftedLocalTests`.
 - [ ] `inline/inline-local-poly` runs on the CLR and the `CrossFileTests` served-local
       `ptest` is a `test` (step 3d).
 - [x] `EnclosingScopes`, `TranslateCtx.MethodTyparScope` and `TyparOwner` are gone, and

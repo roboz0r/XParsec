@@ -196,7 +196,8 @@ module Inline =
     /// Rename every bound variable NodeKey in `body`, and the references to it, to a fresh key from
     /// `mint`. Two expansions would otherwise share a bound variable, and so a codegen local slot,
     /// making nested call sites (`succ (succ x)`) clobber each other. Free vars pass through.
-    let freshen (mint: unit -> NodeKey) (body: TExpr) : TExpr =
+    /// Returns the renamed body with every renaming, source key → fresh key.
+    let freshen (mint: unit -> NodeKey) (body: TExpr) : TExpr * IReadOnlyDictionary<NodeKey, NodeKey> =
         let remap = Dictionary<NodeKey, NodeKey>()
 
         let bind (k: NodeKey) : NodeKey =
@@ -241,7 +242,7 @@ module Inline =
                         | _ -> ValueNone
             }
 
-        TastWalk.mapExpr mapper body
+        TastWalk.mapExpr mapper body, remap
 
     /// Beta-reduce a curried lambda against its applied arguments, lowering each application to
     /// a `TExpr.Let` sited at that application, its bound variable keeping the lambda parameter's own

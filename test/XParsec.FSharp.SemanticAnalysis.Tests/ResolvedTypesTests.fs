@@ -89,6 +89,7 @@ let tests =
                         FunVerdicts = Map.empty
                         GenericFnSchemes = Map.empty
                         LocalOwners = Map.empty
+                        LocalSchemes = Map.empty
                         Accessibility = EqDict.empty
                     }
 
@@ -156,6 +157,7 @@ let tests =
                         FunVerdicts = Map.empty
                         GenericFnSchemes = Map.empty
                         LocalOwners = Map.empty
+                        LocalSchemes = Map.empty
                         Accessibility = EqDict.empty
                     }
 

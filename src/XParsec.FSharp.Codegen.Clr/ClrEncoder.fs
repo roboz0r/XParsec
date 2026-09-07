@@ -107,24 +107,28 @@ type internal ClrEncoder(env: ClrEnv) =
             failwithf
                 "ClrProvider: the untyped position %s reached signature encoding (the front end should have errored first)"
                 reason.Render
-        | FTTypar(TyparScope.LocalFunction binding, i) ->
-            // A typar of a body-local `let`'s own generalized scheme. It may reach the backend,
-            // because it is phantom wherever a closure over it is `Vesper.Fun`-boxed, but not
-            // signature encoding: unlike a type's or a function's typar it occupies no slot in
-            // any enclosing generic parameter list.
-            failwithf
-                "ClrProvider: local typar #%d of body-local %O reached signature encoding, but it occupies no generic parameter slot, so it has no CLR representation (the emitting site should have declined or boxed it)"
-                i
-                binding
-        // A type's typar → the enclosing type's `!i`; a member's or a module function's →
-        // the method's own `!!i`.
-        | FTTypar(TyparScope.Type _, i) -> te.GenericTypeParameter i
-        | FTFunctionTypar i ->
-            match env.ClosureTyparScope with
-            // Inside a closure's own emission the enclosing class typars hold the first `d`
-            // slots, so a function typar lands at `!(d + i)` (a static-fn closure: `d = 0`).
-            | ValueSome d -> te.GenericTypeParameter(d + i)
-            | ValueNone -> te.GenericMethodTypeParameter i
+        | FTTypar(scope, i) ->
+            let outsideFrame () =
+                failwithf
+                    "ClrProvider: typar #%d of %A reached signature encoding outside every frame that declares it, so it has no generic parameter slot"
+                    i
+                    scope
+
+            match env.TyparSlots with
+            | TyparSlots.Declared ->
+                match scope with
+                | TyparScope.Type _ -> te.GenericTypeParameter i
+                | TyparScope.Member _
+                | TyparScope.ModuleFunction _ -> te.GenericMethodTypeParameter i
+                | TyparScope.LocalFunction _ -> outsideFrame ()
+            | TyparSlots.ClosureClass frame ->
+                match frame.TryOffset scope with
+                | ValueSome offset -> te.GenericTypeParameter(offset + i)
+                | ValueNone -> outsideFrame ()
+            | TyparSlots.LiftedMethod frame ->
+                match frame.TryOffset scope with
+                | ValueSome offset -> te.GenericMethodTypeParameter(offset + i)
+                | ValueNone -> outsideFrame ()
         // A tuple is a member of the `System.ValueTuple` struct family, a `VALUETYPE` generic
         // instantiation, and nests whatever does not fit one member, per the standard .NET scheme.
         | FTTuple items ->
@@ -328,6 +332,16 @@ type internal ClrEncoder(env: ClrEnv) =
             toEntity (ctx.MethodSpec(handle, inst))
 
     member _.EncodeType(te, t: FrozenType) = encodeType te t
+
+    /// Run `build`, a member's declared signature, under `TyparSlots.Declared`: the
+    /// declaring type's own `!i` and the member's own `!!j`, whatever the ambient slots at
+    /// the use site. Only the parent `TypeSpec` carries the use site's instantiation.
+    member _.Declared(build: unit -> 'T) : 'T =
+        env.WithTyparSlots(TyparSlots.Declared, build)
+
+    /// `EncodeType` under `TyparSlots.Declared`.
+    member this.EncodeDeclaredType(te, t: FrozenType) : unit =
+        this.Declared(fun () -> encodeType te t)
 
     member _.RecoverOpenTypars(declTyparArity, methodTyparArity, openT, instT) =
         recoverOpenTypars declTyparArity methodTyparArity openT instT

@@ -564,12 +564,13 @@ module FrozenCodec =
 
         writeDenseTable w writeBoundVarId writeGenericFnScheme p.GenericFnSchemes
         writeDenseTable w writeLocalBindingId writeLocalOwner p.LocalOwners
+        writeDenseTable w writeBoundVarId writeLocalScheme p.LocalSchemes
         writeDenseTable w writeBoundVarId writeValRepr p.BindingValReprs
 
     /// The blob layout's version. Bump it with every change to a column, a payload or a
     /// table's encoding, so a blob of an older layout is refused rather than misread.
     [<Literal>]
-    let private FormatVersion = 14uy
+    let private FormatVersion = 15uy
 
     let private writePools (w: FrozenWriter) (p: FrozenPools) =
         w.Write FormatVersion
@@ -616,6 +617,7 @@ module FrozenCodec =
 
         let genericFnSchemes = readDenseTable r readBoundVarId readGenericFnScheme
         let localOwners = readDenseTable r readLocalBindingId readLocalOwner
+        let localSchemes = readDenseTable r readBoundVarId readLocalScheme
         let bindingValReprs = readDenseTable r readBoundVarId readValRepr
 
         checkSlots "ExprChildren" exprPayloads.Length exprChildren
@@ -659,6 +661,7 @@ module FrozenCodec =
             FunVerdicts = funVerdicts
             GenericFnSchemes = genericFnSchemes
             LocalOwners = localOwners
+            LocalSchemes = localSchemes
             BindingValReprs = bindingValReprs
         }
 

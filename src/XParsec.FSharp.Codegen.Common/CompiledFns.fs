@@ -118,6 +118,21 @@ module CompiledFns =
                         | other -> failwithf "flattenPlan: tuple-group argument is not a tuple type: %A" other
         ]
 
+    /// The compiled form of the value bound to `key`: its lambda chain peeled to flat
+    /// parameters and residual body. A non-lambda value (`let g = id`) has no parameter and
+    /// its body is the value.
+    let compileValue (key: BoundVarId) (value: TastAccessor.ExprId) : CompiledFn =
+        let groups, body = TastLower.peelValRepr value
+        let resultTy = TastAccessor.exprTy body
+
+        {
+            Key = key
+            Params = FlatParams.ofSegments (TastLower.compiledSegments value.Pool groups)
+            Body = body
+            ResultTy = resultTy
+            ReturnsVoid = TastLower.isUnitFrozen resultTy
+        }
+
     /// Gather every top-level `let f … = …` whose value peels to ≥ 1 source group (a
     /// function, not a zero-param value), in declaration order. Needs decls already
     /// flattened by `TastLower.lower`, which leaves the curried `Lambda` chain intact.
@@ -128,25 +143,10 @@ module CompiledFns =
                 | TastAccessor.DLet lv ->
                     match lv.Binding.Pattern with
                     | TastAccessor.PNamed k ->
-                        match TastLower.peelValRepr lv.Binding.Value with
-                        | (_ :: _ as groups), body ->
-                            let resultTy = TastAccessor.exprTy body
+                        let fn = compileValue k lv.Binding.Value
 
-                            let vr: TastLower.ValRepr =
-                                {
-                                    Typars = 0 // the segmentation reads `Groups` alone
-                                    Groups = groups
-                                    ResultTy = resultTy
-                                }
-
-                            {
-                                Key = k
-                                Params = FlatParams.ofSegments (TastLower.compiledSegments lv.Binding.Value.Pool vr)
-                                Body = body
-                                ResultTy = resultTy
-                                ReturnsVoid = TastLower.isUnitFrozen resultTy
-                            }
-                        | [], _ -> ()
+                        if fn.Params.GroupCount > 0 then
+                            fn
                     | _ -> ()
                 | _ -> ()
         ]

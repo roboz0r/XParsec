@@ -614,6 +614,7 @@ module TastPools =
                 FunVerdicts = funVerdicts
                 GenericFnSchemes = remapSideTable tryBoundVarIdOf file.GenericFnSchemes
                 LocalOwners = [| for KeyValue(id, owner) in file.LocalOwners -> id, owner |]
+                LocalSchemes = remapSideTable tryBoundVarIdOf file.LocalSchemes
                 // Derived below, off the pools themselves.
                 BindingValReprs = [||]
             }
