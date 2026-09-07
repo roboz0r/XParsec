@@ -834,6 +834,54 @@ let recursionTests =
                     [ "outer", Recursion.Recursive; "inner", Recursion.TailRecursive ]
                     "`outer (n - 1)` is in tail position of `inner`, not of `outer`, so it is a reference and not a tail self-call"
             }
+
+            ptest "GAP: every member of a mutually recursive module group is Recursive" {
+                let src =
+                    "let rec isEven n = if n = 0 then true else isOdd (n - 1)\n"
+                    + "and isOdd n = if n = 0 then false else isEven (n - 1)\n"
+
+                Expect.equal
+                    (letRecursions src)
+                    [ "isEven", Recursion.Recursive; "isOdd", Recursion.Recursive ]
+                    "a member referencing a sibling is recursive, exactly as one referencing itself"
+            }
+
+            ptest "GAP: every member of a mutually recursive local group is Recursive" {
+                let src =
+                    "let run () =\n"
+                    + "    let rec a x = if x = 0 then 0 else b (x - 1)\n"
+                    + "    and b x = a x\n"
+                    + "    a 3\n"
+
+                Expect.equal
+                    (letRecursions src)
+                    [
+                        "run", Recursion.NonRecursive
+                        "a", Recursion.Recursive
+                        "b", Recursion.Recursive
+                    ]
+                    "a local group classifies exactly as a module group"
+            }
+
+            ptest "GAP: a group member's saturated tail self-call is TailRecursive" {
+                let src =
+                    "let rec walk n = if n = 0 then stop 0 else walk (n - 1)\n"
+                    + "and stop n = walk n\n"
+
+                Expect.equal
+                    (letRecursions src)
+                    [ "walk", Recursion.TailRecursive; "stop", Recursion.Recursive ]
+                    "a tail call to a sibling is an ordinary call, so only `walk` trampolines"
+            }
+
+            test "a `let rec … and …` group whose members reference only themselves is plain lets" {
+                let src = "let rec p x = x\nand q y = y\n"
+
+                Expect.equal
+                    (letRecursions src)
+                    [ "p", Recursion.NonRecursive; "q", Recursion.NonRecursive ]
+                    "each member is its own component, and a singleton without a self-edge is not recursive"
+            }
         ]
 
 /// One marked `TailSelfCall`: the source name of the binding whose value contains it, the

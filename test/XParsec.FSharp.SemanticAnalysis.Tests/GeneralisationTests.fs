@@ -5,10 +5,6 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Passes
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
-let private analyse (input: string) =
-    let lexed, file = parseFile input
-    Pipeline.analyseSemFor testCompiling realProvider.Value (LexedFile.ofText lexed) file
-
 let private analyseWithCtx (input: string) =
     let lexed, file = parseFile input
     Pipeline.analyseSemWithContextFor testCompiling realProvider.Value (LexedFile.ofText lexed) file
@@ -31,7 +27,7 @@ let tests =
         [
             test "polymorphic identity used at two types" {
                 // `id` generalises to `∀'a. 'a -> 'a`; each use mints its own variable.
-                let tast = analyse "let r = let id = fun x -> x in id 1, id true"
+                let tast = analyseSem "let r = let id = fun x -> x in id 1, id true"
 
                 Expect.equal
                     (declType tast)
@@ -43,7 +39,7 @@ let tests =
 
             test "polymorphic identity in arithmetic and boolean position" {
                 let tast =
-                    analyse "let r = let id = fun x -> x in id 1 + (if id true then 0 else 1)"
+                    analyseSem "let r = let id = fun x -> x in id 1 + (if id true then 0 else 1)"
 
                 Expect.equal (declType tast) BuiltinTypes.tyInt "r : int"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
@@ -51,14 +47,14 @@ let tests =
 
             test "polymorphic constant returned by application" {
                 // `k 1 true` — k : 'a -> 'b -> 'a, applied to int and bool, returns int.
-                let tast = analyse "let r = let k = fun x -> fun _ -> x in k 1 true"
+                let tast = analyseSem "let r = let k = fun x -> fun _ -> x in k 1 true"
                 Expect.equal (declType tast) BuiltinTypes.tyInt "r : int"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
             test "function-form let generalises" {
                 // `let id x = x` is sugar for `let id = fun x -> x`; same scheme.
-                let tast = analyse "let r = let id x = x in id 1, id true"
+                let tast = analyseSem "let r = let id x = x in id 1, id true"
 
                 Expect.equal
                     (declType tast)
@@ -71,7 +67,7 @@ let tests =
             test "polymorphic recursion is rejected: f used at conflicting types in its own body" {
                 // Within `f`'s RHS, `f` is monomorphic. Pinning to `bool -> ?`
                 // via `f true` makes `f 1` outside the binding mismatch.
-                let tast = analyse "let r = let rec f x = f true in f 1"
+                let tast = analyseSem "let r = let rec f x = f true in f 1"
                 Expect.isTrue (hasMismatch tast) "mismatch on f 1 after f's RHS pinned bool"
             }
 
@@ -79,13 +75,13 @@ let tests =
                 // `fun id -> ...` — `id` is a parameter, monomorphic.
                 // Using it as both int and bool inside the body must mismatch.
                 let tast =
-                    analyse "let r = (fun id -> id 1 + (if id true then 0 else 1)) (fun x -> x)"
+                    analyseSem "let r = (fun id -> id 1 + (if id true then 0 else 1)) (fun x -> x)"
 
                 Expect.isTrue (hasMismatch tast) "param `id` is monomorphic — int vs bool mismatches"
             }
 
             test "nested let-poly: inner binding generalises inside outer body" {
-                let tast = analyse "let outer () = let inner x = x in inner 1, inner true"
+                let tast = analyseSem "let outer () = let inner x = x in inner 1, inner true"
                 let unitTy = BuiltinTypes.tyUnit
                 let bodyTy = TyTuple(EqArray.ofList [ BuiltinTypes.tyInt; BuiltinTypes.tyBool ])
                 Expect.equal (declType tast) (TyFun(unitTy, bodyTy)) "outer : unit -> int * bool"
@@ -126,14 +122,14 @@ let tests =
             test "occurs check still fires on let rec f x = f" {
                 // Generalisation runs AFTER RHS unification, so the recursive
                 // self-application that creates an infinite type still bombs.
-                let tast = analyse "let rec f x = f"
+                let tast = analyseSem "let rec f x = f"
                 Expect.isTrue (hasOccurs tast) "occurs check stops infinite type"
             }
 
             test "mutual recursion + generalisation: id used inside pair at two types" {
                 // id : `∀'a. 'a -> 'a`; pair : `∀'b. 'b -> 'b * 'b`. Both uses of
                 // `id` inside pair share pair's argument var, not id's quantified one.
-                let tast = analyse "let rec id x = x\nand pair x = id x, id x"
+                let tast = analyseSem "let rec id x = x\nand pair x = id x, id x"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
                 let pairDecl =
@@ -149,10 +145,28 @@ let tests =
                 | other -> failtestf "expected `'b -> 'b * 'b`, got %A" other
             }
 
+            ptest "GAP: a `let rec … and …` group generalises one strongly connected component at a time" {
+                // `f` references neither member and `g` references `f`, so they are separate
+                // components: `f` generalises before `g` is typed, and `g` may use it at
+                // `int` and at `string`. `dotnet fsi` accepts this program.
+                let tast = analyseSem "let rec f x = x\nand g () = (f 1, f \"a\")"
+
+                Expect.isEmpty
+                    (errorMessages tast.Diagnostics)
+                    "a syntactic group is not a generalisation barrier across components"
+            }
+
+            test "a genuine cycle is one component, so polymorphic recursion inside it is still rejected" {
+                // `f` references `g` and `g` references `f`, so both stay monomorphic for the
+                // whole component and the two uses of `f` conflict. `dotnet fsi` reports FS0001.
+                let tast = analyseSem "let rec f x = g x\nand g x = (f 1, f \"a\")"
+                Expect.isTrue (hasMismatch tast) "`f 1` and `f \"a\"` conflict within the component"
+            }
+
             test "local scheme: two uses do not share variables" {
                 // id's scheme is at module level; each top-level binding below is its
                 // own generalisation group, so `a` and `b` do not share variables.
-                let tast = analyse "let id = fun x -> x\nlet a = id 1\nlet b = id true"
+                let tast = analyseSem "let id = fun x -> x\nlet a = id 1\nlet b = id true"
 
                 match tast.Decls with
                 | EqList [ _; TDecl.Let(_, _, _, _, aTy); TDecl.Let(_, _, _, _, bTy) ] ->
@@ -166,7 +180,7 @@ let tests =
             test "tuple-destructuring let does NOT generalise" {
                 // Compound binding patterns skip the scheme table: `let (f, _) = …`
                 // gets no scheme even though the RHS would otherwise generalise.
-                let tast = analyse "let r = let (f, _) = (fun x -> x), 0 in f 1"
+                let tast = analyseSem "let r = let (f, _) = (fun x -> x), 0 in f 1"
                 Expect.isEmpty tast.Diagnostics "no diagnostics for monomorphic tuple-destructure"
                 Expect.equal (declType tast) BuiltinTypes.tyInt "r : int"
             }
@@ -183,7 +197,7 @@ let tests =
             test "mutable binding is monomorphic across two use sites" {
                 // `id 1` pins the binding's TyVar to `int -> int`, so `id true`
                 // mismatches — the same behaviour as a lambda parameter.
-                let tast = analyse "let mutable id = fun x -> x\nlet a = id 1\nlet b = id true"
+                let tast = analyseSem "let mutable id = fun x -> x\nlet a = id 1\nlet b = id true"
                 Expect.isTrue (hasMismatch tast) "second use at bool conflicts with int from first use"
             }
 
@@ -230,7 +244,7 @@ let tests =
                             "let s2 = wrap s1"
                         ]
 
-                let tast = analyse src
+                let tast = analyseSem src
                 Expect.isEmpty tast.Diagnostics (sprintf "chained wrap diagnostics: %A" tast.Diagnostics)
             }
 

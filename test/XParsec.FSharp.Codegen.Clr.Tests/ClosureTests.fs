@@ -267,4 +267,18 @@ let tests =
                          + "let test () =\n    let mutable m = 1\n    let g = delay m\n    m <- 2\n    g ()\n"
                          + "printfn \"%d\" (test ())")
                 }
+
+            // `walkFreeRefs` scopes only `a`'s own name over `a`'s value, so the sibling `b`
+            // counts as a free reference of `a`'s closure and `buildHeapClosure` loads it
+            // while `b` still has no slot: "Emit: no binding for variable BoundVarId 2".
+            yield
+                ptest "GAP: a local `let rec … and …` member captures its sibling before the sibling has a slot" {
+                    runs
+                        "0"
+                        ("let run () =\n"
+                         + "    let rec a x = if x = 0 then 0 else b (x - 1)\n"
+                         + "    and b x = a x\n"
+                         + "    a 3\n"
+                         + "printfn \"%d\" (run ())")
+                }
         ]

@@ -57,45 +57,73 @@ group, which is the first client `brainstorm-tarjan-scc.md` lists.
   `let rec … and …` group, in Tarjan's reverse topological order. A singleton without a
   self-edge is not recursive, whatever keyword it was written under.
 - **D2.** The components are computed once, in Unification, where generalisation needs them,
-  and recorded in the pass context. Elaborate reads them to shape the tree; it does not
-  re-derive them.
-- **D3.** `Let` keeps describing one binding: non-recursive, or a function referencing only
-  itself, with `isRec` as the source `rec` fact and `Recursion` classified as today. A new node,
-  `TExprG.LetGroup of members * body` and `TDeclG.LetGroup of members`, describes a component of
-  two or more mutually referencing bindings, carried as data. A group identity on `Let` was
-  rejected: the pool walk, the JS block lowering, the CLR back-patch and `walkFreeRefs` would
-  each re-derive the member set by scanning the `Let` spine, against a contiguity invariant the
-  type cannot state and that `EmitJs.InlinableLet` already breaks. A `LetGroup` is always from a
-  `rec` group and carries no flag. The minimum of two members is a construction invariant,
-  pinned by a test.
-- **D4.** A syntactic group whose components split emits as nested `LetGroup`/`Let` nodes in
-  reverse topological order, not source order. This is semantics-preserving for functions and
-  matches what F# requires of value bindings.
+  and recorded in the pass context. Elaborate attaches them to the `LetGroup` node; it does
+  not re-derive them.
+- **D3.** `Let` keeps describing one binding written without `and`: non-recursive, or a
+  function referencing only itself, with `isRec` as the source `rec` fact and `Recursion`
+  classified as today. A new node, `TExprG.LetGroup of members * components * body` and
+  `TDeclG.LetGroup of members * components`, describes one lexical `let rec … and …` group.
+  `members` are the bindings in source order, each a record of pattern, value and binding
+  token. `components: EqArray<EqArray<int>>` partitions the member indices into strongly
+  connected components in reverse topological order. Every member index appears in exactly
+  one component, checked at construction. A group identity on `Let` was rejected: the pool
+  walk, the JS block lowering, the CLR back-patch and `walkFreeRefs` would each re-derive the
+  member set by scanning the `Let` spine, against a contiguity invariant the type cannot state
+  and that `EmitJs.InlinableLet` already breaks. One `LetGroup` per component was rejected:
+  the tree shape would then carry the analysis, so a split group has to be reordered and
+  nested, and every consumer depends on that nesting being right.
+- **D4.** The tree keeps source order. A consumer that treats the whole group as one
+  recursive unit is correct and merely pessimistic: the JS block lowering and the CLR
+  back-patch may ignore `components`. The pool walk, inference and the D6 warning read
+  `components`, because a member referencing a sibling in another component is not recursive.
+  Value bindings initialise in source order, as F# requires.
+- **D4a.** The recursion fact is stored once, per member, as `Recursion`. A component's
+  recursion is derivable: a component of two or more members has every member `Recursive` or
+  `TailRecursive`, and a singleton component's member says whether it has a self-edge. The
+  components carry no `IsRecursive` flag.
 - **D5.** The SCC utility is the brainstorm's §2 core and §3 output contract only. Canonical
   numbering (§4) stays with the structural-hash work.
-- **D6.** A Vesper-specific warning, with its own diagnostic code, reports a `let rec … and`
+- **D6.** A Vesper-specific warning, `DiagCode.Vesper "V260"`, reports a `let rec … and`
   group that splits into more than one component, naming the members that can be declared
   outside the group and the component order that makes the move legal. The same code reports a
-  `let rec` singleton with no self-reference. F# has no equivalent warning. `src/Vesper.*`
-  transliterates FSharp.Core groups literally and will trigger it; whether the ports carry the
-  warning or the manifest suppresses the code for them is open.
+  `let rec` singleton with no self-reference. One warning per syntactic group: a group of
+  several components reports the split, and a group of one non-self-referencing component
+  reports the redundant `rec`. Names are quoted (`'c'`), which `RecursionGroupTests` pins.
+  F# has no equivalent warning. `src/Vesper.*` transliterates FSharp.Core groups literally and
+  will trigger it; whether the ports carry the warning or the manifest suppresses the code for
+  them is open.
 
 ## Steps
 
 Each step leaves the build green. Steps 1 and 2 have no dependency on each other.
 
-### 1. Red tests
+### 1. Red tests — DONE
+
+Every red test is a `ptest "GAP: …"`, so the suites stay green. The step that turns a case
+green promotes it to `test`.
 
 - `TastPoolsTests.recursionTests`: the two-member group at module level and local level, both
   members expected `Recursive`; a group whose members do not reference each other, both
   `NonRecursive` on plain `Let` nodes; a member tail-calling itself inside a group,
-  `TailRecursive`; a `LetGroup` never has fewer than two members.
-- Diagnostics: the splittable group warns and names the liftable member; a `let rec` with no
-  self-reference warns; a genuine two-member cycle is silent.
-- `GeneralisationTests`: `let rec f x = x and g () = (f 1, f "a")` clean; the genuine cycle
-  still rejected.
-- `FunctionEmissionTests` (JS) already pins the local group under Node with a `ptest`. Add the
-  matching CLR `ptest`.
+  `TailRecursive`. Four tests added; three red, the non-referencing group green already.
+  `letRecursions` reads `TastAccessor.ELet`/`DLet` and flattens every binding to
+  `name * Recursion`, so it cannot observe whether a binding is a `Let` or a `LetGroup`
+  member. Step 4 reshapes it to `Let of name * Recursion | Group of members * components`
+  and rewords the non-referencing case to "one lexical group with two singleton components,
+  both `NonRecursive`".
+- Diagnostics: `RecursionGroupTests`, new file. The splittable group warns and names the
+  liftable member; a `let rec` with no self-reference warns; a genuine cycle and a
+  self-referencing singleton are silent. Two red, two green.
+- `GeneralisationTests`: `let rec f x = x and g () = (f 1, f "a")` clean (red); the genuine
+  cycle still rejected (green).
+- `FunctionEmissionTests` (JS) already pins the local group under Node with a `ptest`. The
+  matching CLR `ptest` is `ClosureTests`'s last entry; unpinned it fails at emission with
+  "no binding for variable BoundVarId 2" out of `EmitConstruct.buildHeapClosure`.
+
+Dropped: "a `LetGroup` never has fewer than two members". Under D3 a `LetGroup` is a lexical
+`and` group, so a singleton `let rec` is a `Let` and the invariant has no subject. The
+construction invariant that remains, every member index in exactly one component, lands with
+the node in step 4.
 
 ### 2. The SCC utility
 
@@ -120,8 +148,8 @@ In `inferBindingGroup`:
   component's TyVars, bar polymorphic recursion within the component only, infer, exit,
   settle traits, generalise.
 - Record the components per group in `ctx.Bindings`, keyed by the group's first pattern key,
-  as `EqArray<RecComponent>` where `RecComponent = { Members: EqArray<int>; IsRecursive: bool }`
-  in emission order.
+  as `EqArray<EqArray<int>>` over source-order member indices, in reverse topological order.
+  Self-edges are not recorded here; the pool walk classifies them per member (D4a).
 
 - Emit the D6 warning from the recorded components: more than one component, or a single
   component without a self-edge under `rec`.
@@ -130,25 +158,29 @@ This turns the `GeneralisationTests` case green on its own.
 
 ### 4. `LetGroup` on the tree
 
-- Add `TExprG.LetGroup of members * body` and `TDeclG.LetGroup of members`, where a member
-  is a record of pattern, value and binding token, in source order within the component.
-  The `Let` path is unchanged.
-- `translateLet` and `translateModuleLet` read the recorded components and emit one
-  `LetGroup` per recursive component and one `Let` per non-recursive singleton, nested in
-  component order. A member folded out as a format-literal alias leaves its component; an
-  emptied component is skipped.
+- Add `TExprG.LetGroup of members * components * body` and
+  `TDeclG.LetGroup of members * components` per D3. The `Let` path is unchanged.
+- `translateLet` and `translateModuleLet` emit one `LetGroup` per lexical `and` group, members
+  in source order, with the recorded components attached. A member folded out as a
+  format-literal alias is removed from `members` and its index from `components`, with the
+  remaining indices renumbered; an emptied component is dropped. A group left with one member
+  becomes a `Let`.
+- `letRecursions` in `TastPoolsTests` returns `Let of name * Recursion | Group of members *
+  components`; the four step-1 group tests assert the `Group` shape.
 - Thread the node through `FrozenCodec`, `TastUnpool`, `TastAccessor`, `TastWalk`,
   `RefCellPromotion`, `InlineExpansion`, `TastPoolShapes` and the CLR's `LetBoundLambda`.
-- `TastPools`: `LetGroup` opens all member frames before walking any member value; every
-  member is `Recursive` unless its own frame records a saturated tail self-call. A `Let`
-  classifies exactly as today.
+- `TastPools`: `LetGroup` walks one component at a time, opening that component's member
+  frames before walking any of its member values. A member of a multi-member component is
+  `Recursive` unless its own frame records a saturated tail self-call. A singleton component
+  classifies exactly as a `Let` does today. Opening every member's frame at once is wrong: a
+  member referencing a sibling in another component would classify `Recursive`.
 
 ### 5. JS lowering
 
 - Expression position: a `LetGroup` emits one block, `const m1 = …; const m2 = …; return body`,
-  inside a single IIFE. Arrows capture by reference, so declaration order within the block
-  does not matter for functions.
-- Statement and module position: one `const` per member in order.
+  inside a single IIFE, members in source order. Arrows capture by reference, so declaration
+  order within the block does not matter for functions. `components` is not read.
+- Statement and module position: one `const` per member in source order.
 - Promote the JS `ptest`.
 
 ### 6. CLR lowering
@@ -156,7 +188,8 @@ This turns the `GeneralisationTests` case green on its own.
 - `walkFreeRefs` scopes every `LetGroup` member name over every member value.
 - `buildLet` for a `LetGroup`: allocate every member's closure and store its slot first, then
   back-patch each closure's captured sibling fields. A closure capturing only itself needs no
-  patch.
+  patch. Reading `components` to patch only within a component is an optimisation, not a
+  correctness requirement, and is deferred.
 - Promote the CLR `ptest`.
 
 ### 7. Close out
