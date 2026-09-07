@@ -42,8 +42,7 @@ module UnificationConstraintCheck =
         | SemanticConstraintKind.Enum underlying -> sprintf "enum<%s>" (shown ctx.Store underlying)
         | SemanticConstraintKind.Delegate(args, ret) ->
             sprintf "delegate<%s, %s>" (shown ctx.Store args) (shown ctx.Store ret)
-        | SemanticConstraintKind.OneOf choices ->
-            "one of " + String.concat ", " [ for k in choices.Underlying -> k.Name ]
+        | SemanticConstraintKind.OneOf choices -> "one of " + String.concat ", " [ for k in choices -> k.Name ]
 
     /// `ValueSome true` = constraint holds; `ValueSome false` = violation;
     /// `ValueNone` = undecided, fall through to structural / deferred handling.
@@ -171,7 +170,7 @@ module UnificationConstraintCheck =
         | TyEnum _ -> Satisfied
         | TyTuple items as ty ->
             match valueLayoutOutcome ctx ty with
-            | Satisfied -> reduceOutcome (unmanagedOutcome ctx) (items.Underlying :> seq<SemType>)
+            | Satisfied -> reduceOutcome (unmanagedOutcome ctx) (items :> seq<SemType>)
             | other -> other
         | (TyRecord(key, args) | TyUnion(key, args) | TyClass(key, args)) as ty ->
             if not args.IsEmpty then
@@ -303,7 +302,7 @@ module UnificationConstraintCheck =
             | ValueNone -> Defer
         | (SemanticConstraintKind.Equality | SemanticConstraintKind.Comparison), TyFun _ -> Violated
         | (SemanticConstraintKind.Equality | SemanticConstraintKind.Comparison), TyTuple items ->
-            reduceOutcome (checkConstraint ctx c) (items.Underlying :> seq<SemType>)
+            reduceOutcome (checkConstraint ctx c) (items :> seq<SemType>)
         // A published shape carries no stamped verdict, so it decides neither capability.
         | (SemanticConstraintKind.Equality | SemanticConstraintKind.Comparison),
           (TyRecord(key, args) | TyUnion(key, args) | TyClass(key, args)) ->

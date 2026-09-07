@@ -225,7 +225,7 @@ module ScopeContents =
                     EqArray.ofSeq
                         [
                             for s in sources do
-                                for uc in (s.UnionCasesNamed(c, name)).Underlying do
+                                for uc in s.UnionCasesNamed(c, name) do
                                     if seen.Add(caseIdentity uc) then
                                         uc
                         ]
@@ -246,7 +246,7 @@ module ScopeContents =
                         let byArity = SortedDictionary<int, struct (TypeKey * ExternalTypeShape)>()
 
                         for found in hits do
-                            for struct (key, shape) in found.Underlying do
+                            for struct (key, shape) in found do
                                 if not (byArity.ContainsKey key.TyparArity) then
                                     byArity.Add(key.TyparArity, struct (key, shape))
 
@@ -256,7 +256,7 @@ module ScopeContents =
                     EqArray.ofSeq
                         [
                             for s in sources do
-                                yield! (s.DeclarationsOf m).Underlying
+                                yield! s.DeclarationsOf m
                         ]
             }
 
@@ -284,7 +284,7 @@ module ScopeContents =
             match cs with
             | [] -> ValueNone
             | c :: rest ->
-                let declared = (scope.TypesNamed(c, name)).Underlying
+                let declared = scope.TypesNamed(c, name)
                 let mutable result = ValueNone
                 let mutable i = 0
 

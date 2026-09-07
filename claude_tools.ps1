@@ -23,6 +23,7 @@ param(
         "XParsec.Tests",
         "XParsec.Toml.Tests",
         "Vesper.Tests",
+        "Vesper.Block.Tests",
         "Vesper.Ts.Extractor.Tests",
         "Vesper.UnionFind.Tests"
     )]
@@ -39,6 +40,7 @@ param(
         "XParsec.FSharp.SemanticAnalysis",
         "XParsec.Json",
         "XParsec.Toml",
+        "Vesper.Block",
         "Vesper.Ts.Manifest.Schema",
         "Vesper.Ts.Extractor",
         "Vesper.UnionFind"

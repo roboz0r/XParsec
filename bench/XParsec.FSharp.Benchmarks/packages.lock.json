@@ -192,6 +192,12 @@
         "resolved": "4.7.0",
         "contentHash": "VybpaOQQhqE6siHppMktjfGBw1GCwvCqiufqmP8F1nj7fTUNtW35LOEt3UZTEsECfo+ELAl/9o9nJx3U91i7vA=="
       },
+      "vesper.block": {
+        "type": "Project",
+        "dependencies": {
+          "FSharp.Core": "[8.0.300, )"
+        }
+      },
       "xparsec": {
         "type": "Project",
         "dependencies": {
@@ -225,6 +231,7 @@
         "dependencies": {
           "FSharp.Core": "[8.0.300, )",
           "System.IO.Hashing": "[8.0.0, )",
+          "Vesper.Block": "[1.0.0, )",
           "XParsec.FSharp": "[1.0.0, )",
           "XParsec.Toml": "[1.0.0, )"
         }

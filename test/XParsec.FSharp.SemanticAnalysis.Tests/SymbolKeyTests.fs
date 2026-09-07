@@ -35,7 +35,7 @@ let tests =
                 let key = SymbolKeyOps.qualifiedTypeKeyOf "Vesper.Collections.seq" 1
 
                 Expect.equal
-                    (List.ofSeq key.Namespace.Path.Underlying)
+                    (EqArray.toList key.Namespace.Path)
                     [ "Vesper"; "Collections" ]
                     "the namespace is segmented from the name"
 
@@ -140,7 +140,7 @@ let tests =
                 Expect.equal inner.DeclaredPath "Vesper.Outer.Inner" "the whole chain renders"
 
                 Expect.equal
-                    (List.ofSeq inner.Namespace.Path.Underlying)
+                    (EqArray.toList inner.Namespace.Path)
                     [ "Vesper" ]
                     "the namespace is `Vesper` alone — `Outer` is a module, not a namespace segment"
 
@@ -255,7 +255,7 @@ let localTypeContainment =
 
                 match k.Container with
                 | TypeContainer.InNamespace ns ->
-                    Expect.equal (List.ofSeq ns.Path.Underlying) [ "N" ] "the declaring namespace, segmented"
+                    Expect.equal (EqArray.toList ns.Path) [ "N" ] "the declaring namespace, segmented"
                 | other -> failtestf "expected InNamespace, got %A" other
             }
 
@@ -270,16 +270,13 @@ let localTypeContainment =
                     match m.Container with
                     | ModuleContainer.InNamespace ns ->
                         Expect.equal
-                            (List.ofSeq ns.Path.Underlying)
+                            (EqArray.toList ns.Path)
                             [ "N" ]
                             "the namespace at the root of the chain — `M` is NOT a namespace segment"
                     | other -> failtestf "expected the module to sit in a namespace, got %A" other
                 | other -> failtestf "expected InModule, got %A" other
 
-                Expect.equal
-                    (List.ofSeq k.Namespace.Path.Underlying)
-                    [ "N" ]
-                    "`TypeKey.Namespace` walks the chain to its root"
+                Expect.equal (EqArray.toList k.Namespace.Path) [ "N" ] "`TypeKey.Namespace` walks the chain to its root"
 
                 // A module compiles to a static class, so the metadata name `+`-joins it and
                 // the namespace column is the outermost container's.
@@ -312,7 +309,7 @@ let localTypeContainment =
                         Expect.equal a.Name "A" "which is itself held by the outer module"
 
                         Expect.equal
-                            (List.ofSeq a.Namespace.Path.Underlying)
+                            (EqArray.toList a.Namespace.Path)
                             [ "N" ]
                             "and the outer module by the namespace — neither module is a namespace segment"
                     | other -> failtestf "expected B's container to be module A, got %A" other

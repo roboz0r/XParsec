@@ -35,6 +35,7 @@ To compile a specific library project (path `src/<SourceProject>`) and isolate c
 - `XParsec.FSharp.SemanticAnalysis`
 - `XParsec.Json`
 - `XParsec.Toml`
+- `Vesper.Block`
 - `Vesper.Ts.Manifest.Schema`
 - `Vesper.UnionFind`
 
@@ -62,6 +63,7 @@ To run a test suite, you must use the `Test` action and specify the exact test p
 - `XParsec.MessagePack.Tests`
 - `XParsec.Tests`
 - `XParsec.Toml.Tests`
+- `Vesper.Block.Tests`
 - `Vesper.Tests`
 - `Vesper.UnionFind.Tests`
 - `Vesper.Ts.Extractor.Tests` — the golden/snapshot suite for the TS extractor. Its extractor-run tests **SKIP** until the extractor has been Fable-built (see the **Fable** action); build it first, then run this suite (optionally with `-UpdateSnapshots` to regenerate the `.manifest.json` goldens).

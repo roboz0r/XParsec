@@ -41,7 +41,7 @@ type NamespaceKey =
 
     /// The dotted rendering (`"System.Collections"`; `""` for the global namespace), a
     /// BOUNDARY projection only. Identity comparisons use the segmented `Path`.
-    member this.Dotted: string = System.String.Join(".", this.Path.Underlying)
+    member this.Dotted: string = System.String.Join(".", this.Path)
 
     static member Global = { Path = EqArray.empty }
 

@@ -153,7 +153,7 @@ module NameResolutionLongIdent =
         EqArray.ofSeq
             [
                 for c in containersOf ctx useSite Qualifier.Bare do
-                    for uc in (ctx.Resolver.Scope.UnionCasesNamed(c, caseName)).Underlying do
+                    for uc in ctx.Resolver.Scope.UnionCasesNamed(c, caseName) do
                         if not uc.IsRequireQualifiedAccess then
                             uc
             ]
@@ -194,7 +194,7 @@ module NameResolutionLongIdent =
         | ValueSome info -> [| ResolvedUnionCase.Local info |]
         | ValueNone ->
             [|
-                for uc in (ctx.Resolver.Scope.UnionCasesNamed(c, name)).Underlying -> ResolvedUnionCase.External uc
+                for uc in ctx.Resolver.Scope.UnionCasesNamed(c, name) -> ResolvedUnionCase.External uc
             |]
 
     /// Every claim on the type `name` declared directly in `c`, ASCENDING by arity. Resolution
@@ -206,8 +206,7 @@ module NameResolutionLongIdent =
         (c: ModuleContainer)
         (name: string)
         : ResolvedTypeRef list =
-        let external () =
-            (ctx.Resolver.Scope.TypesNamed(c, name)).Underlying
+        let external () = ctx.Resolver.Scope.TypesNamed(c, name)
 
         match LocalScope.typesNamed ctx useSite c name with
         | [] -> [ for struct (key, shape) in external () -> externalType ctx key shape ]
@@ -466,7 +465,7 @@ module NameResolutionLongIdent =
                     struct (r, ResolvedUnionCase.Local c)
 
             for e in useSite.Scopes do
-                for uc in (ctx.Resolver.Scope.UnionCasesNamed(e.Container, name)).Underlying do
+                for uc in ctx.Resolver.Scope.UnionCasesNamed(e.Container, name) do
                     if not uc.IsRequireQualifiedAccess then
                         struct (ScopeEntry.rank e, ResolvedUnionCase.External uc)
         ]

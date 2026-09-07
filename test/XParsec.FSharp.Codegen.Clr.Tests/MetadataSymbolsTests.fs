@@ -345,7 +345,7 @@ let tests =
                 | ValueSome c ->
                     let arities =
                         [
-                            for struct (k, shape) in (scope.TypesNamed(c, "Action")).Underlying do
+                            for struct (k, shape) in scope.TypesNamed(c, "Action") do
                                 Expect.equal shape.TyparArity k.TyparArity "key and shape agree on arity"
                                 k.TyparArity
                         ]

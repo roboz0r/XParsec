@@ -118,7 +118,7 @@ module PrintfSpec =
         | FormatHoleTy.FloatFamily -> ValueSome RuntimeNames.floatFormatKeys
 
     /// The type a family settles on where nothing else pins it.
-    let familyDefault (keys: EqArray<TypeKey>) : TypeKey = keys.Underlying.[0]
+    let familyDefault (keys: EqArray<TypeKey>) : TypeKey = keys.[0]
 
     /// Every argument a placeholder consumes, in APPLICATION order: one `int` per `Star`
     /// dimension (width before precision, `sprintf "%*.*f" w p v`), then the value. A

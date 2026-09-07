@@ -109,7 +109,7 @@ let private vesperTypeClaims (name: string) : (int * TyparKind list) list =
     | ValueNone -> failtest "the `Vesper` namespace is not published"
     | ValueSome container ->
         [
-            for struct (key, shape) in (scope.TypesNamed(container, name)).Underlying ->
+            for struct (key, shape) in scope.TypesNamed(container, name) ->
                 key.TyparArity, EqArray.toList (TyparList.kinds shape.Typars)
         ]
 

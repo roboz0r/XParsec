@@ -12,6 +12,16 @@
           "Mono.Cecil": "[0.11.4, 1.0.0)"
         }
       },
+      "Expecto.FsCheck": {
+        "type": "Direct",
+        "requested": "[10.2.2, )",
+        "resolved": "10.2.2",
+        "contentHash": "ef5jUN+wXrW1c4YnPtaM16CMnlNoSs04quT4lQ7L9MdD1tPjK25DtJaFC7KUZIEf/n5DrXw+K0CZ9VLp2E/QRw==",
+        "dependencies": {
+          "Expecto": "10.2.2",
+          "FsCheck": "[2.16.5, 3.0.0)"
+        }
+      },
       "FSharp.Core": {
         "type": "Direct",
         "requested": "[8.0.300, )",
@@ -38,6 +48,14 @@
           "FSharp.Core": "7.0.200",
           "Microsoft.Testing.Extensions.VSTestBridge": "1.6.2",
           "Microsoft.Testing.Platform.MSBuild": "1.6.2"
+        }
+      },
+      "FsCheck": {
+        "type": "Transitive",
+        "resolved": "2.16.5",
+        "contentHash": "Tw6Lb/UBqtmUj5porM1rRcAU5xT9NttSlFTaIQ8gn4Fsw2LiZavN/eMAZqSA63laV51t4HRJJAAGeYSWFFxRfA==",
+        "dependencies": {
+          "FSharp.Core": "4.2.3"
         }
       },
       "Microsoft.ApplicationInsights": {
@@ -120,50 +138,6 @@
         "dependencies": {
           "FSharp.Core": "[8.0.300, )"
         }
-      },
-      "xparsec": {
-        "type": "Project",
-        "dependencies": {
-          "FSharp.Core": "[8.0.300, )"
-        }
-      },
-      "xparsec.fsharp": {
-        "type": "Project",
-        "dependencies": {
-          "XParsec": "[1.0.0, )"
-        }
-      },
-      "xparsec.fsharp.codegen.common.tests": {
-        "type": "Project",
-        "dependencies": {
-          "Expecto": "[10.2.2, )",
-          "FSharp.Core": "[8.0.300, )",
-          "XParsec.FSharp.SemanticAnalysis": "[1.0.0, )",
-          "XParsec.Toml": "[1.0.0, )"
-        }
-      },
-      "xparsec.fsharp.semanticanalysis": {
-        "type": "Project",
-        "dependencies": {
-          "FSharp.Core": "[8.0.300, )",
-          "System.IO.Hashing": "[8.0.0, )",
-          "Vesper.Block": "[1.0.0, )",
-          "XParsec.FSharp": "[1.0.0, )",
-          "XParsec.Toml": "[1.0.0, )"
-        }
-      },
-      "xparsec.toml": {
-        "type": "Project",
-        "dependencies": {
-          "FSharp.Core": "[8.0.300, )",
-          "XParsec": "[1.0.0, )"
-        }
-      },
-      "System.IO.Hashing": {
-        "type": "CentralTransitive",
-        "requested": "[8.0.0, )",
-        "resolved": "8.0.0",
-        "contentHash": "ne1843evDugl0md7Fjzy6QjJrzsjh46ZKbhf8GwBXb5f/gw97J4bxMs0NQKifDuThh/f0bZ0e62NPl1jzTuRqA=="
       }
     }
   }

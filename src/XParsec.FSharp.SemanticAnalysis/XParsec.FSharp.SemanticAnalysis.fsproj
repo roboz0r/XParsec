@@ -233,6 +233,7 @@
     <Compile Include="AnalysedAssembly.fs" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\Vesper.Block\Vesper.Block.fsproj" />
     <ProjectReference Include="..\XParsec.FSharp\XParsec.FSharp.fsproj" />
     <ProjectReference Include="..\XParsec.Toml\XParsec.Toml.fsproj" />
   </ItemGroup>

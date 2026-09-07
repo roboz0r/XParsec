@@ -26,6 +26,12 @@
           "System.Collections.Immutable": "8.0.0"
         }
       },
+      "vesper.block": {
+        "type": "Project",
+        "dependencies": {
+          "FSharp.Core": "[8.0.300, )"
+        }
+      },
       "xparsec": {
         "type": "Project",
         "dependencies": {
@@ -51,6 +57,7 @@
         "dependencies": {
           "FSharp.Core": "[8.0.300, )",
           "System.IO.Hashing": "[8.0.0, )",
+          "Vesper.Block": "[1.0.0, )",
           "XParsec.FSharp": "[1.0.0, )",
           "XParsec.Toml": "[1.0.0, )"
         }

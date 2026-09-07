@@ -55,16 +55,25 @@ Each step lands green on its own. Additive where a widely-used shape changes: th
 lands beside the old behind a central alias, readers swap, the old one is deleted in a
 separate change.
 
-1. **The three measures and `EqArrayM`.** `[<Measure>] type sigSlot`, `typeSlot` and
-   `measureSlot` in `SemanticScalars.fs` beside `TyparKind`. `EqArrayM<'T, [<Measure>] 'M>`
-   in `EqArray.fs`, a struct over `EqArray<'T>` mirroring `ImmutableArrayM`: `Item` and
-   `tryItem` over `int<'M>`, `Length: int<'M>`, `IsEmpty`, enumeration, and `Untagged` for
-   the existing `EqArray` module functions. Only `init` and `mapi` get measured
-   counterparts, because they are the functions that hand out an index; the module does not
-   otherwise duplicate `EqArray`.
+1a. **`Vesper.Block`.** LANDED. `BlockM<'T, [<Measure>] 'M>` in `src/Vesper.Block`, a struct
+   over `'T[]` carrying `EqArray`'s structural equality and comparison, with `Item`,
+   `tryItem`, `init`, `mapi`, `iteri`, `tryFindIndex` and `Length` over `int<'M>`. The whole
+   module is measure-generic, so there are no tagged counterparts and no untagged escape.
+   `Block<'T> = BlockM<'T, 1>` indexes by a plain `int`. `EqArray<'T>` is an alias for
+   `Block<'T>` and `module EqArray` delegates; both go with the last call site.
 
-   `TyparListG<'ty>` becomes `{ Types: EqArrayM<TypeTyparG<'ty>, typeSlot>; Measures:
-   EqArrayM<MeasureTypar, measureSlot>; Order: EqArrayM<TyparSlot, sigSlot> }` with
+   The backing array is internal to the assembly: `AsSpan`, the indexer, enumeration and
+   `Block.toArray` are the reads, and `Block.unsafeOfArray` is the one entry that does not
+   copy. `sort`, `distinct` and `contains` keep their `Comparer`/`EqualityComparer` bodies
+   rather than delegating to `Array`, which would impose `comparison` / `equality` on
+   callers; `forall2`, `tryFind`, `tryFindIndex` and `mapPreserve` keep theirs for their
+   return shapes.
+
+1. **The three measures.** `[<Measure>] type sigSlot`, `typeSlot` and `measureSlot` in
+   `SemanticScalars.fs` beside `TyparKind`.
+
+   `TyparListG<'ty>` becomes `{ Types: BlockM<TypeTyparG<'ty>, typeSlot>; Measures:
+   BlockM<MeasureTypar, measureSlot>; Order: BlockM<TyparSlot, sigSlot> }` with
    `TyparSlot.Type of int<typeSlot>` and `TyparSlot.Measure of int<measureSlot>`. Members:
    `TypeArity: int<typeSlot>`, `MeasureArity: int<measureSlot>`, and `Length` stays the
    untagged signature count because `TypeKey.TyparArity` reads it at sixty sites and is
@@ -75,7 +84,7 @@ separate change.
    Constructors keep one index convention each, in the signature: `ofDeclared` keys its
    callback by `DeclaredTypar`; `positionalWith` keys by `int<typeSlot>`; `ofKinded`'s
    `int -> ConstraintSet` callback is deleted and `publishedScheme` buckets its `when`
-   clauses by `DeclaredTypar` instead. `MemberTrait.TyparIndices: EqArray<int<typeSlot>>`;
+   clauses by `DeclaredTypar` instead. `MemberTrait.TyparIndices: Block<int<typeSlot>>`;
    `publishedScheme`'s `indexOf` returns a `TyparSlot` through `Order`, and a measure typar
    in an SRTP support set is a diagnostic rather than a silently dropped index.
    `FunctionScheme.TyparArity: int<typeSlot>`. `TyparListG.TypeArity` and `HasTypeTypars`
@@ -158,6 +167,9 @@ separate change.
 
 Before this document is deleted, each row is in code or in a test:
 
+- [x] `BlockM` carries the tag, `EqArray` is its alias, and `Vesper.Block.Tests` pins the
+      uninitialised value, ownership, equality and comparison (step 1a).
+- [ ] `EqArray` and its module are deleted; every call site names `Block` (step 1c).
 - [ ] `TyparList.Types`, `Measures` and `Order` accept only their own tag; no `int` indexes
       any of them (step 1).
 - [ ] `TyparList.ofKinded`'s index callback is gone; `publishedScheme` buckets by

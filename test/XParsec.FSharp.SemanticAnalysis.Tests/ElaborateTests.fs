@@ -387,7 +387,7 @@ let nestedModuleTests =
                         Expect.equal a.Name "A" "which is itself held by the outer module"
 
                         Expect.equal
-                            (List.ofSeq a.Namespace.Path.Underlying)
+                            (EqArray.toList a.Namespace.Path)
                             [ "N" ]
                             "and the outer module by the namespace — neither module is a namespace segment"
                     | other -> failtestf "expected B's container to be module A, got %A" other

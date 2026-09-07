@@ -273,10 +273,7 @@ let tests =
                         let scope = (publishedViews [ "lib.fs", arityLib ]).[0].Scope
                         let m = containerOrFail scope "Test.Ar.M"
 
-                        let arities =
-                            [
-                                for struct (key, _) in (scope.TypesNamed(m, "P")).Underlying -> key.TyparArity
-                            ]
+                        let arities = [ for struct (key, _) in scope.TypesNamed(m, "P") -> key.TyparArity ]
 
                         Expect.equal arities [ 0; 2; 10 ] "every declared arity, ascending"
                     }

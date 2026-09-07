@@ -131,6 +131,11 @@ on none remaining.
 
 ## src/Vesper.* (the runtime port)
 
+The rules below govern the directories the compiler consumes as Vesper source: `Vesper.Core`,
+`Vesper.List`, `Vesper.Array` and their siblings, each holding a `manifest.<target>.toml`.
+`Vesper.Block` and `Vesper.UnionFind` share the prefix but are ordinary `.fsproj` compiler
+utilities, so a comment sweep applies the general rules to them.
+
 Transliterate FSharp.Core as literally as possible, carrying `// FSharp.Core/list.fs:142` style
 references, so the port stays diffable against upstream as it evolves. Do not propose a
 signature-only port, a rewrite or a reorganisation unless asked.

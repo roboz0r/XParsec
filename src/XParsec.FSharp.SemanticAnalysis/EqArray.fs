@@ -1,444 +1,131 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
-open System
-open System.Collections
-open System.Collections.Generic
 open System.Collections.Immutable
-open System.Runtime.CompilerServices
+open System.Runtime.InteropServices
 
-open XParsec // SmallArrayBuilder
+open Vesper
 
 [<AutoOpen>]
 module internal RefEquality =
     let inline refEq (x: 'T) (y: 'T) = System.Object.ReferenceEquals(x, y)
 
-/// An `ImmutableArray<'T>` with structural (value) equality: equal iff equal length and
-/// element-wise-equal contents, recursing into `'T`'s own equality. An uninitialised value
-/// reads as empty rather than throwing off the default `ImmutableArray`.
-///
-/// Comparable exactly when `'T` is, and then lexicographic under F# `compare`: element-wise
-/// over the shorter length, then by length, as a `list` orders.
-[<Struct; IsReadOnly; CustomEquality; CustomComparison>]
-type EqArray<[<ComparisonConditionalOn>] 'T> =
-    val private items: ImmutableArray<'T>
-
-    new(items: ImmutableArray<'T>) = { items = items }
-
-    member this.Underlying: ImmutableArray<'T> =
-        if this.items.IsDefault then
-            ImmutableArray<'T>.Empty
-        else
-            this.items
-
-    member this.Length: int = if this.items.IsDefault then 0 else this.items.Length
-
-    member this.IsEmpty: bool = this.items.IsDefaultOrEmpty
-
-    member this.Item
-        with get (index: int): 'T = this.Underlying.[index]
-
-    member this.AsSpan() : ReadOnlySpan<'T> = this.Underlying.AsSpan()
-
-    member this.GetEnumerator() = this.Underlying.GetEnumerator()
-
-    interface IEnumerable<'T> with
-        member this.GetEnumerator() : IEnumerator<'T> =
-            (this.Underlying :> IEnumerable<'T>).GetEnumerator()
-
-    interface IEnumerable with
-        member this.GetEnumerator() : IEnumerator =
-            (this.Underlying :> IEnumerable).GetEnumerator()
-
-    interface IEquatable<EqArray<'T>> with
-        member this.Equals(other: EqArray<'T>) =
-            let a = this.Underlying
-            let b = other.Underlying
-
-            a.Length = b.Length
-            && MemoryExtensions.SequenceEqual<'T>(a.AsSpan(), b.AsSpan(), EqualityComparer<'T>.Default)
-
-    override this.Equals(o: obj) =
-        match o with
-        | :? EqArray<'T> as other -> (this :> IEquatable<EqArray<'T>>).Equals other
-        | _ -> false
-
-    member private this.CompareWith(other: EqArray<'T>, comparer: IComparer) : int =
-        let a = this.Underlying
-        let b = other.Underlying
-        let n = min a.Length b.Length
-        let mutable i = 0
-        let mutable c = 0
-
-        while c = 0 && i < n do
-            c <- comparer.Compare(box a.[i], box b.[i])
-            i <- i + 1
-
-        if c <> 0 then c else compare a.Length b.Length
-
-    interface IComparable with
-        member this.CompareTo(o: obj) =
-            match o with
-            | :? EqArray<'T> as other -> this.CompareWith(other, LanguagePrimitives.GenericComparer)
-            | _ -> invalidArg "o" "EqArray compared with a value of another type."
-
-    interface IStructuralComparable with
-        member this.CompareTo(o: obj, comparer: IComparer) =
-            match o with
-            | :? EqArray<'T> as other -> this.CompareWith(other, comparer)
-            | _ -> invalidArg "o" "EqArray compared with a value of another type."
-
-    override this.GetHashCode() =
-        // Order-sensitive fold, consistent with the element-wise equality above.
-        let xs = this.Underlying
-        let cmp = EqualityComparer<'T>.Default
-        let mutable h = 17
-
-        for i in 0 .. xs.Length - 1 do
-            h <- (h * 397) ^^^ cmp.GetHashCode xs.[i]
-
-        h
-
-    // `%A` on a struct falls back to this, so a value in a diagnostic prints as `EqArray [a; b]`.
-    override this.ToString() =
-        let xs = this.Underlying
-        let sb = System.Text.StringBuilder("EqArray [")
-
-        for i in 0 .. xs.Length - 1 do
-            if i > 0 then
-                sb.Append "; " |> ignore
-
-            sb.Append(sprintf "%A" xs.[i]) |> ignore
-
-        sb.Append(']').ToString()
+/// Transitional alias for `Vesper.Block`. Call sites move to `Block` directly, and this file
+/// goes with the last of them.
+type EqArray<'T> = Block<'T>
 
 [<RequireQualifiedAccess>]
 module EqArray =
     [<GeneralizableValue>]
-    let empty<'T> : EqArray<'T> = EqArray<'T>(ImmutableArray<'T>.Empty)
+    let empty<'T> : EqArray<'T> = Block.empty
 
-    let inline ofImmutable (xs: ImmutableArray<'T>) : EqArray<'T> = EqArray<'T>(xs)
+    /// Wraps the immutable array's own buffer, so nothing is copied.
+    let ofImmutable (xs: ImmutableArray<'T>) : EqArray<'T> =
+        match ImmutableCollectionsMarshal.AsArray xs with
+        | null -> Block.empty
+        | arr -> Block.unsafeOfArray arr
 
-    let singleton (x: 'T) : EqArray<'T> = EqArray<'T>(ImmutableArray.Create(x))
+    let singleton (x: 'T) : EqArray<'T> = Block.singleton x
 
-    let ofSeq (xs: 'T seq) : EqArray<'T> =
-        EqArray<'T>(ImmutableArray.CreateRange xs)
+    let ofSeq (xs: 'T seq) : EqArray<'T> = Block.ofSeq xs
 
-    let ofList (xs: 'T list) : EqArray<'T> = ofSeq xs
+    let ofList (xs: 'T list) : EqArray<'T> = Block.ofList xs
 
     /// Copies, so the caller may keep mutating `xs`.
-    let ofArray (xs: 'T[]) : EqArray<'T> =
-        EqArray<'T>(ImmutableArray.Create<'T>(xs))
+    let ofArray (xs: 'T[]) : EqArray<'T> = Block.ofArray xs
 
     /// Copies, so the caller may keep mutating `xs`.
-    let ofResizeArray (xs: ResizeArray<'T>) : EqArray<'T> =
-        EqArray<'T>(ImmutableArray.CreateRange xs)
+    let ofResizeArray (xs: ResizeArray<'T>) : EqArray<'T> = Block.ofResizeArray xs
 
-    /// Hands the builder's buffer off uncopied when its `Count = Capacity`; otherwise copies.
-    let ofImmutableBuilder (b: ImmutableArrayBuilder<'T>) : EqArray<'T> = EqArray<'T>(b.ToImmutable())
-
-    let toList (xs: EqArray<'T>) : 'T list = List.ofSeq xs.Underlying
+    let toList (xs: EqArray<'T>) : 'T list = Block.toList xs
 
     /// Copies into a fresh mutable array.
-    let toArray (xs: EqArray<'T>) : 'T[] =
-        let src = xs.Underlying
+    let toArray (xs: EqArray<'T>) : 'T[] = Block.toArray xs
 
-        if src.IsEmpty then
-            Array.empty
-        else
-            let out = Array.zeroCreate src.Length
-            src.CopyTo(out)
-            out
+    let init (n: int) (f: int -> 'T) : EqArray<'T> = Block.init n f
 
-    let init (n: int) (f: int -> 'T) : EqArray<'T> =
-        let mutable b = SmallArrayBuilder<'T>()
-
-        for i in 0 .. n - 1 do
-            b.Add(f i)
-
-        EqArray<'T>(b.ToImmutable())
-
-    let map (mapping: 'T -> 'U) (xs: EqArray<'T>) : EqArray<'U> =
-        let mutable b = SmallArrayBuilder<'U>()
-
-        for x in xs.Underlying do
-            b.Add(mapping x)
-
-        EqArray<'U>(b.ToImmutable())
+    let map (mapping: 'T -> 'U) (xs: EqArray<'T>) : EqArray<'U> = Block.map mapping xs
 
     /// Reference-preserving map: `ValueNone`, allocating nothing, when `mapping` returns a
-    /// reference-equal result for EVERY element, the common case when a structural walk reaches
-    /// an already-resolved subtree. Reference types only; a struct element would box per item.
+    /// reference-equal result for EVERY element.
     let mapPreserve<'T when 'T: not struct> (mapping: 'T -> 'T) (xs: EqArray<'T>) : EqArray<'T> voption =
-        let src = xs.Underlying
-        let n = src.Length
-        let mutable b = SmallArrayBuilder<'T>()
-        let mutable changed = false
+        Block.mapPreserve mapping xs
 
-        for i in 0 .. n - 1 do
-            let x = src.[i]
-            let y = mapping x
+    let mapi (mapping: int -> 'T -> 'U) (xs: EqArray<'T>) : EqArray<'U> = Block.mapi mapping xs
 
-            if not changed && not (refEq x y) then
-                // First change: backfill the unchanged prefix, then accumulate the rest.
-                changed <- true
+    let iter (action: 'T -> unit) (xs: EqArray<'T>) : unit = Block.iter action xs
 
-                for j in 0 .. i - 1 do
-                    b.Add(src.[j])
+    let iteri (action: int -> 'T -> unit) (xs: EqArray<'T>) : unit = Block.iteri action xs
 
-            if changed then
-                b.Add(y)
+    let exists (predicate: 'T -> bool) (xs: EqArray<'T>) : bool = Block.exists predicate xs
 
-        if changed then
-            ValueSome(EqArray<'T>(b.ToImmutable()))
-        else
-            ValueNone
-
-    let mapi (mapping: int -> 'T -> 'U) (xs: EqArray<'T>) : EqArray<'U> =
-        let mutable b = SmallArrayBuilder<'U>()
-        let src = xs.Underlying
-
-        for i in 0 .. src.Length - 1 do
-            b.Add(mapping i src.[i])
-
-        EqArray<'U>(b.ToImmutable())
-
-    let iter (action: 'T -> unit) (xs: EqArray<'T>) : unit =
-        let src = xs.Underlying
-
-        for i in 0 .. src.Length - 1 do
-            action src.[i]
-
-    let iteri (action: int -> 'T -> unit) (xs: EqArray<'T>) : unit =
-        let src = xs.Underlying
-
-        for i in 0 .. src.Length - 1 do
-            action i src.[i]
-
-    let exists (predicate: 'T -> bool) (xs: EqArray<'T>) : bool =
-        let src = xs.Underlying
-        let mutable i = 0
-        let mutable hit = false
-
-        while not hit && i < src.Length do
-            if predicate src.[i] then
-                hit <- true
-
-            i <- i + 1
-
-        hit
-
-    let forall (predicate: 'T -> bool) (xs: EqArray<'T>) : bool =
-        let src = xs.Underlying
-        let mutable i = 0
-        let mutable ok = true
-
-        while ok && i < src.Length do
-            if not (predicate src.[i]) then
-                ok <- false
-
-            i <- i + 1
-
-        ok
+    let forall (predicate: 'T -> bool) (xs: EqArray<'T>) : bool = Block.forall predicate xs
 
     /// Returns `false` on a length mismatch; it does NOT throw, so a caller that must
     /// distinguish "mismatched" from "unequal" has to compare `.Length` itself.
-    let forall2 (predicate: 'T -> 'U -> bool) (xs: EqArray<'T>) (ys: EqArray<'U>) : bool =
-        let a = xs.Underlying
-        let b = ys.Underlying
-
-        if a.Length <> b.Length then
-            false
-        else
-            let mutable i = 0
-            let mutable ok = true
-
-            while ok && i < a.Length do
-                if not (predicate a.[i] b.[i]) then
-                    ok <- false
-
-                i <- i + 1
-
-            ok
+    let forall2 (predicate: 'T -> 'U -> bool) (xs: EqArray<'T>) (ys: EqArray<'U>) : bool = Block.forall2 predicate xs ys
 
     /// Raises `ArgumentException` on a length mismatch.
-    let map2 (mapping: 'T -> 'U -> 'V) (xs: EqArray<'T>) (ys: EqArray<'U>) : EqArray<'V> =
-        let a = xs.Underlying
-        let b = ys.Underlying
+    let map2 (mapping: 'T -> 'U -> 'V) (xs: EqArray<'T>) (ys: EqArray<'U>) : EqArray<'V> = Block.map2 mapping xs ys
 
-        if a.Length <> b.Length then
-            invalidArg "ys" $"length %d{b.Length} differs from the first array's %d{a.Length}"
+    let tryFind (predicate: 'T -> bool) (xs: EqArray<'T>) : 'T voption = Block.tryFind predicate xs
 
-        let mutable out = SmallArrayBuilder<'V>()
+    let tryFindIndex (predicate: 'T -> bool) (xs: EqArray<'T>) : int voption = Block.tryFindIndex predicate xs
 
-        for i in 0 .. a.Length - 1 do
-            out.Add(mapping a.[i] b.[i])
-
-        EqArray<'V>(out.ToImmutable())
-
-    let tryFind (predicate: 'T -> bool) (xs: EqArray<'T>) : 'T voption =
-        let src = xs.Underlying
-        let mutable i = 0
-        let mutable found = ValueNone
-
-        while found.IsNone && i < src.Length do
-            if predicate src.[i] then
-                found <- ValueSome src.[i]
-
-            i <- i + 1
-
-        found
-
-    let tryFindIndex (predicate: 'T -> bool) (xs: EqArray<'T>) : int voption =
-        let src = xs.Underlying
-        let mutable i = 0
-        let mutable found = ValueNone
-
-        while found.IsNone && i < src.Length do
-            if predicate src.[i] then
-                found <- ValueSome i
-
-            i <- i + 1
-
-        found
-
-    let fold (folder: 'State -> 'T -> 'State) (state: 'State) (xs: EqArray<'T>) : 'State =
-        let src = xs.Underlying
-        let mutable acc = state
-
-        for i in 0 .. src.Length - 1 do
-            acc <- folder acc src.[i]
-
-        acc
+    let fold (folder: 'State -> 'T -> 'State) (state: 'State) (xs: EqArray<'T>) : 'State = Block.fold folder state xs
 
     /// Visits elements last-to-first.
     let foldBack (folder: 'T -> 'State -> 'State) (xs: EqArray<'T>) (state: 'State) : 'State =
-        let src = xs.Underlying
-        let mutable acc = state
-
-        for i in src.Length - 1 .. -1 .. 0 do
-            acc <- folder src.[i] acc
-
-        acc
+        Block.foldBack folder xs state
 
     /// `ValueNone` for an out-of-range index, in place of an indexer's throw.
-    let tryItem (index: int) (xs: EqArray<'T>) : 'T voption =
-        if index >= 0 && index < xs.Length then
-            ValueSome xs.[index]
-        else
-            ValueNone
+    let tryItem (index: int) (xs: EqArray<'T>) : 'T voption = Block.tryItem index xs
 
-    let tryLast (xs: EqArray<'T>) : 'T voption =
-        match xs.Length with
-        | 0 -> ValueNone
-        | n -> ValueSome xs.[n - 1]
+    let tryLast (xs: EqArray<'T>) : 'T voption = Block.tryLast xs
 
-    let last (xs: EqArray<'T>) : 'T =
-        match xs.Length with
-        | 0 -> invalidArg "xs" "EqArray.last: the input array was empty"
-        | n -> xs.[n - 1]
+    let last (xs: EqArray<'T>) : 'T = Block.last xs
 
-    let filter (predicate: 'T -> bool) (xs: EqArray<'T>) : EqArray<'T> =
-        let mutable b = SmallArrayBuilder<'T>()
-        let src = xs.Underlying
-
-        for i in 0 .. src.Length - 1 do
-            if predicate src.[i] then
-                b.Add src.[i]
-
-        EqArray<'T>(b.ToImmutable())
+    let filter (predicate: 'T -> bool) (xs: EqArray<'T>) : EqArray<'T> = Block.filter predicate xs
 
     /// Ascending by `Comparer<'T>.Default`, so callers need no `'T: comparison` constraint.
-    let sort (xs: EqArray<'T>) : EqArray<'T> =
-        // `toArray` already copied, and nothing else holds `out`, so the buffer is handed
-        // over rather than copied a second time.
-        let out = toArray xs
-        Array.Sort(out, Comparer<'T>.Default)
-        EqArray<'T>(System.Runtime.InteropServices.ImmutableCollectionsMarshal.AsImmutableArray out)
+    let sort (xs: EqArray<'T>) : EqArray<'T> = Block.sort xs
 
-    let append (xs: EqArray<'T>) (ys: EqArray<'T>) : EqArray<'T> =
-        if xs.IsEmpty then
-            ys
-        elif ys.IsEmpty then
-            xs
-        else
-            let mutable b = SmallArrayBuilder<'T>()
-
-            for x in xs.Underlying do
-                b.Add x
-
-            for y in ys.Underlying do
-                b.Add y
-
-            EqArray<'T>(b.ToImmutable())
+    let append (xs: EqArray<'T>) (ys: EqArray<'T>) : EqArray<'T> = Block.append xs ys
 
     /// First occurrence of each element wins, so the surviving order is the input's. Uses
     /// `EqualityComparer<'T>.Default`, so callers need no `'T: equality` constraint.
-    let distinct (xs: EqArray<'T>) : EqArray<'T> =
-        let src = xs.Underlying
-        let seen = HashSet<'T>(EqualityComparer<'T>.Default)
-        let mutable b = SmallArrayBuilder<'T>()
-
-        for i in 0 .. src.Length - 1 do
-            if seen.Add src.[i] then
-                b.Add src.[i]
-
-        EqArray<'T>(b.ToImmutable())
+    let distinct (xs: EqArray<'T>) : EqArray<'T> = Block.distinct xs
 
     /// Uses `EqualityComparer<'T>.Default`, so callers need no `'T: equality` constraint.
-    let contains (value: 'T) (xs: EqArray<'T>) : bool =
-        let src = xs.Underlying
-        let cmp = EqualityComparer<'T>.Default
-        let mutable i = 0
-        let mutable hit = false
-
-        while not hit && i < src.Length do
-            if cmp.Equals(src.[i], value) then
-                hit <- true
-
-            i <- i + 1
-
-        hit
+    let contains (value: 'T) (xs: EqArray<'T>) : bool = Block.contains value xs
 
     /// Returns the first `count` elements (all of them when `count` exceeds the
     /// length; empty when `count <= 0`). Returns the SAME array when nothing is dropped.
-    let truncate (count: int) (xs: EqArray<'T>) : EqArray<'T> =
-        let src = xs.Underlying
-        let n = min (max count 0) src.Length
-
-        if n = src.Length then
-            xs
-        else
-            let mutable b = SmallArrayBuilder<'T>()
-
-            for i in 0 .. n - 1 do
-                b.Add src.[i]
-
-            EqArray<'T>(b.ToImmutable())
+    let truncate (count: int) (xs: EqArray<'T>) : EqArray<'T> = Block.truncate count xs
 
 /// Fixed-arity deconstruction patterns: allocation-free arity checks that bind elements by
 /// index, in place of `match EqArray.toList xs with [ … ]`.
 [<AutoOpen>]
 module EqArrayPatterns =
     [<return: Struct>]
-    let inline (|EqEmpty|_|) (xs: EqArray<'T>) : unit voption =
-        match xs.Length with
-        | 0 -> ValueSome()
+    let (|EqEmpty|_|) (xs: EqArray<'T>) : unit voption =
+        match xs with
+        | BlockEmpty -> ValueSome()
         | _ -> ValueNone
 
     [<return: Struct>]
-    let inline (|EqOne|_|) (xs: EqArray<'T>) : 'T voption =
-        match xs.Length with
-        | 1 -> ValueSome xs.[0]
+    let (|EqOne|_|) (xs: EqArray<'T>) : 'T voption =
+        match xs with
+        | BlockOne x -> ValueSome x
         | _ -> ValueNone
 
     [<return: Struct>]
-    let inline (|EqTwo|_|) (xs: EqArray<'T>) : struct ('T * 'T) voption =
-        match xs.Length with
-        | 2 -> ValueSome(struct (xs.[0], xs.[1]))
+    let (|EqTwo|_|) (xs: EqArray<'T>) : struct ('T * 'T) voption =
+        match xs with
+        | BlockTwo(a, b) -> ValueSome(struct (a, b))
         | _ -> ValueNone
 
     [<return: Struct>]
-    let inline (|EqThree|_|) (xs: EqArray<'T>) : struct ('T * 'T * 'T) voption =
-        match xs.Length with
-        | 3 -> ValueSome(struct (xs.[0], xs.[1], xs.[2]))
+    let (|EqThree|_|) (xs: EqArray<'T>) : struct ('T * 'T * 'T) voption =
+        match xs with
+        | BlockThree(a, b, c) -> ValueSome(struct (a, b, c))
         | _ -> ValueNone

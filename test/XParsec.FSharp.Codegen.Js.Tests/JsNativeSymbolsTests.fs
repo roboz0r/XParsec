@@ -15,7 +15,7 @@ let tests =
                 let scope = JsNativeSymbols.provider.Scope
                 let root = ModuleContainer.InNamespace(SymbolKeyOps.namespaceKey "")
 
-                match List.ofSeq (scope.TypesNamed(root, "Error")).Underlying with
+                match EqArray.toList (scope.TypesNamed(root, "Error")) with
                 | [ struct (key, shape) ] ->
                     Expect.equal key (SymbolKeyOps.typeKeyOf "" "Error") "registered identity"
                     Expect.equal shape.TyparArity key.TyparArity "key and shape agree on arity"
