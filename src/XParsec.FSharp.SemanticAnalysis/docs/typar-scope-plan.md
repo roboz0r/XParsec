@@ -182,16 +182,29 @@ separate change.
    `LiftedLocalTests`. `fillTypeMembers` is a roughly 200-line nested closure that ought to
    be refactored.
 
-3d. **A served local generalises again.** `InlineThaw.bodyAtPath` mints one cell per
-   `(LocalBindingId, index)` for the whole body, so a served local used at two types
-   fails to unify. The thawed local is run through the host's ordinary generalisation
-   at its `let`, under the host's level discipline, so a typar the local captures from
-   the outer function (`f3` in the design doc) stays un-generalised. The re-generalised
-   local gets a host `LocalBindingId` and an owner entry in the host's `LocalOwners`.
-   Turns green: `inline/inline-local-poly` on the CLR, and `CrossFileTests`'s `ptest`
-   "file 2 expands file 1's inline body whose LOCAL is used at two types". JS is already
-   green on both programs because it erases types; the thaw defect is unobservable there
-   until a JS test reads the thawed scheme.
+3d. **A served local generalises again.** Landed. `InlineThaw.bodyAtPath` minted one cell per
+   `(LocalBindingId, index)` for the whole body and quantified none of them, so a served
+   local's typar reached `Freeze` unbound and degraded to `FTUnknown UnresolvedTypar`, which
+   the CLR encoder then refused. The thawed local is generalised again in the host:
+   `InlineReduction.lookupExternal` files a `BindingScheme` per thawed local through
+   `PassContext.AdoptSplicedLocal`, quantifying the cells that local's leaves thawed to,
+   under a host `LocalBindingId` minted per call so two call sites of one template are two
+   locals. Turns green: `inline/inline-local-poly` on the CLR, pinned by the conformance run
+   and the byte-identity goldens, and `CrossFileTests`'s served-local test. JS is already
+   green on both programs because it erases types.
+
+   Which typars a served local quantifies is read off the frozen leaves, not re-derived
+   under a level discipline: `FTTypar(LocalFunction _, i)` is exactly the set the declaring
+   file generalised, and a typar the local captured from the outer function (`f3` in the
+   design doc) freezes under the enclosing `ModuleFunction` scope instead. What the wire was
+   missing is which `let` each scope belongs to, so `InlineBody` gained `LocalSchemes`, the
+   declaring file's rows for the served decl, built by `TastPoolBuilder.declTreeWithLocals`
+   as it re-mints the body's bound variables.
+
+   A spliced local's owner is `LocalOwner.Spliced template`, a new case: the declaration that
+   owns it is in the declaring file, so the host's owner chain stops there. This matches the
+   same-file splice, which keeps the template's own owner through `ShareBindingEntry`.
+   Format version 11.
 
 4. **Per-typar `ConstraintSet` and `FunctionScheme`.** `TypeTypar.Constraints` holds the
    `TyparConstraintKindG` cases plus `Default`; `TyparConstraintG.TyparIndex` and the flat
@@ -284,8 +297,9 @@ Before this document is deleted, each row is in code or in a test:
       function with a local (step 3b), in `LocalOwnerTests`.
 - [x] `locals/local-poly` runs on the CLR (step 3c), pinned by the conformance run, the
       byte-identity goldens and `LiftedLocalTests`.
-- [ ] `inline/inline-local-poly` runs on the CLR and the `CrossFileTests` served-local
-      `ptest` is a `test` (step 3d).
+- [x] `inline/inline-local-poly` runs on the CLR and the `CrossFileTests` served-local
+      `ptest` is a `test` (step 3d), with the served local's re-generalisation pinned in
+      `LocalOwnerTests`.
 - [x] `EnclosingScopes`, `TranslateCtx.MethodTyparScope` and `TyparOwner` are gone, and
       no `scopeOf` failwith remains in `EmitConstruct` or `TsManifestTypes` (step 3e).
 - [x] `let (f, g) = (id, id)` at module level quantifies both typars, pinned by

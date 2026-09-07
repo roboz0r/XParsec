@@ -37,6 +37,10 @@ module InlineReduction =
             /// The file every anchor in `Decl` indexes: this file's own for a local template,
             /// the declaring file's for a served one.
             Path: AssemblyFilePath
+            /// The scheme each generalised body-local of a SERVED template thawed to, keyed by
+            /// the bound variable `Decl` binds it at. Empty for a template of this file, whose
+            /// locals its own generalisation already filed.
+            SplicedLocals: Map<BoundVarKey, TypeScheme>
         }
 
     /// WHICH inline binding a reduction is expanding: the identity a RECURSION is detected on,
@@ -220,13 +224,30 @@ module InlineReduction =
         let isClosed (p: Peeled) : bool =
             p.Params |> List.forall (fun x -> x.Disposition = Disposition.Survive)
 
-    /// `Inline.freshen`, with every freshened generalised local filed as the same binding under
-    /// its fresh key, so the copy keeps the local's `LocalBindingId`, scheme and owner.
-    let internal freshenBody (ctx: PassContext) (mint: unit -> NodeKey) (body: TExpr) : TExpr =
+    /// `Inline.freshen`, with every freshened generalised local filed under its FRESH key. A
+    /// local listed in `template`'s `SplicedLocals` is generalised again here, so two call sites
+    /// of one template are two locals with two scopes; every other local keeps the
+    /// `LocalBindingId`, scheme and owner it has. `template` is `ValueNone` for call-site material.
+    let internal freshenBody
+        (ctx: PassContext)
+        (mint: unit -> NodeKey)
+        (template: TemplateBody voption)
+        (body: TExpr)
+        : TExpr =
         let body, renamed = Inline.freshen mint body
 
+        let splicedAt (source: NodeKey) : struct (SymbolKey * TypeScheme) voption =
+            match template with
+            | ValueSome t ->
+                match Map.tryFind (BoundVarKey.ofPatKey source) t.SplicedLocals with
+                | Some scheme -> ValueSome(struct (t.Key, scheme))
+                | None -> ValueNone
+            | ValueNone -> ValueNone
+
         for KeyValue(source, fresh) in renamed do
-            ctx.ShareBindingEntry(source, fresh)
+            match splicedAt source with
+            | ValueSome(struct (owner, scheme)) -> ctx.AdoptSplicedLocal(fresh, scheme, owner)
+            | ValueNone -> ctx.ShareBindingEntry(source, fresh)
 
         body
 
@@ -253,7 +274,7 @@ module InlineReduction =
             {|
                 // BoundVars are freshened so two expansions of one template cannot share a
                 // codegen local slot; the body is NOT moved off the positions it was written at.
-                Body = freshenBody ctx mint expanded
+                Body = freshenBody ctx mint (ValueSome template) expanded
                 // The grounding the specialization table keys on.
                 TypeArgs = typeArgs
             |}
@@ -401,7 +422,7 @@ module InlineReduction =
         ExternalSymbolProviders.tryInlineBody ctx.Provider key
         |> ValueOption.map (fun ib ->
             let sources = SpecTable.retain ib.File specs
-            let thawed = InlineThaw.bodyAtPath ctx sources ib.File.Path ib.Decl
+            let thawed = InlineThaw.bodyAtPath ctx sources ib.File.Path ib.Body
 
             {
                 Key = key
@@ -409,5 +430,7 @@ module InlineReduction =
                 Typars = thawed.Typars
                 ParamAttrs = ib.ParamAttrs
                 Path = ib.File.Path
+                // The template generalised each of these at its own `let`, so the splice does too.
+                SplicedLocals = thawed.Locals
             }
         )

@@ -61,6 +61,13 @@ type LocalOwner =
     | Member of MemberKey
     | ModuleFunction of BindingKey
     | Local of LocalBindingId
+    /// A body with no key of its own: a module-level `do`, a module-level tuple binding's
+    /// right-hand side, an auto-property initialiser, or a type's `let` / `do` preamble or
+    /// secondary constructor.
+    | Initialiser
+    /// A local of another file's splice template, copied in at a call site. The owning
+    /// declaration belongs to the declaring file, so this file's chain stops here.
+    | Spliced of template: SymbolKey
 
 /// Every generalised local of the file, by owner. Recorded when the local generalises,
 /// carried by `FrozenPools`.
@@ -95,13 +102,15 @@ let f4 (x: int)        = let g y = y in (g x, g "a")
 ```
 
 Two consequences for this compiler. A served inline body carries its locals frozen under
-`LocalFunction` leaves, and the host must generalise each one again rather than mint one
-inference cell per local typar for the whole body, or the second use fails to unify. And a
-backend with typed signatures cannot closure-convert a generic local into a class with a
-fixed `Invoke`, because the local's typar has no slot there. The CLR lifts such a local to
-a generic static method whose method typars are the local's own, which is what `fsc`
-emits. The corpus programs `locals/local-poly.fs` and `inline/inline-local-poly.fs` pin
-both, with the CLR pending on them.
+`LocalFunction` leaves, and the host must generalise each one again: a cell minted for such
+a leaf and left unquantified reaches `Freeze` unbound and degrades to `FTUnknown`, which a
+typed backend refuses. Which typars each local quantifies is the leaf set itself, so the
+published body carries the declaring file's `LocalScheme` rows to say which `let` owns each
+scope. And a backend with typed signatures cannot closure-convert a generic local into a
+class with a fixed `Invoke`, because the local's typar has no slot there. The CLR lifts such
+a local to a generic static method whose method typars are the local's own, which is what
+`fsc` emits. The corpus programs `locals/local-poly.fs` and `inline/inline-local-poly.fs`
+pin both.
 
 ### Leaves
 

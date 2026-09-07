@@ -31,7 +31,7 @@ module InlineBodies =
             | TExprG.Lambda(_, b, _, _) -> walkExpr b
             | _ -> ()
 
-        match body.Decl with
+        match body.Body.Decl with
         | TDeclG.Let(binding = { Value = v }) -> walkExpr v
         | _ -> ()
 

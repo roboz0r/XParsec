@@ -111,6 +111,47 @@ let f (a: int) =
 let private moduleFunction (name: string) : LocalOwner =
     LocalOwner.ModuleFunction(SymbolKeyOps.bindingKeyOf (SymbolKeyOps.inNamespace "") name)
 
+/// `Cross.Lib.served`, a splice template with one generalised body-local, and the consuming
+/// file that expands it. The consumer's own copy of the local is what the assertions read.
+let private servedTemplate =
+    "\
+namespace Cross
+
+module Lib =
+    let inline served (x: int) =
+        let g y = y
+        (g x, g \"a\")
+"
+
+let private servedConsumer =
+    "\
+namespace Cross
+
+module Use =
+    let consume () = Lib.served 7
+"
+
+/// The last unit of a two-file assembly, frozen.
+let private freezeConsumer (files: (string * string) list) : FrozenPools =
+    (analyseFiles "LocalOwnerCross" files |> analysedFiles |> List.last).Frozen
+
+/// Every `FTUnknown` reason the file's expression and pattern type columns carry.
+let private unknownsIn (pools: FrozenPools) : UnknownReason list =
+    let rec reasons (t: FrozenType) : UnknownReason list =
+        match t with
+        | FTUnknown reason -> [ reason ]
+        | t ->
+            let found = ResizeArray<UnknownReason>()
+            FrozenType.iterChildren (fun child -> found.AddRange(reasons child)) t
+            List.ofSeq found
+
+    [
+        for ty in pools.ExprTys do
+            yield! reasons pools.Types.[ty]
+        for ty in pools.PatTys do
+            yield! reasons pools.Types.[ty]
+    ]
+
 [<Tests>]
 let tests =
     testList
@@ -146,10 +187,16 @@ let tests =
             }
 
             test "LocalOwners survives the blob codec" {
-                let pools = freezeFor source
-                let thawed = FrozenCodec.thaw (FrozenCodec.flatten pools)
-                Expect.equal thawed.LocalOwners pools.LocalOwners "LocalOwners"
-                Expect.equal thawed.LocalSchemes pools.LocalSchemes "LocalSchemes"
+                // `source` covers `Member`, `ModuleFunction` and `Local`; the consumer covers
+                // `Spliced`.
+                for pools in
+                    [
+                        freezeFor source
+                        freezeConsumer [ "lib.fs", servedTemplate; "use.fs", servedConsumer ]
+                    ] do
+                    let thawed = FrozenCodec.thaw (FrozenCodec.flatten pools)
+                    Expect.equal thawed.LocalOwners pools.LocalOwners "LocalOwners"
+                    Expect.equal thawed.LocalSchemes pools.LocalSchemes "LocalSchemes"
             }
 
             test "a local's scheme is the scope its own leaves carry" {
@@ -199,5 +246,27 @@ let tests =
                     )
 
                 Expect.isEmpty typeScopes "no Type scope stands under a module function"
+            }
+
+            test "a served template's local is generalised again in the consuming file" {
+                let pools = freezeConsumer [ "lib.fs", servedTemplate; "use.fs", servedConsumer ]
+
+                Expect.equal
+                    (Array.length pools.LocalSchemes)
+                    1
+                    "the spliced `g` quantifies its own typar in the consumer"
+
+                Expect.equal (snd pools.LocalSchemes.[0]).TyparArity 1 "one typar"
+
+                Expect.equal
+                    (pools.LocalOwners |> Array.map snd)
+                    [|
+                        LocalOwner.Spliced(SymbolKey.Binding(SymbolKeyOps.moduleBindingKey "Cross" "Lib" "served"))
+                    |]
+                    "the owning declaration is the template, which belongs to the declaring file"
+
+                Expect.isEmpty
+                    (unknownsIn pools |> List.filter (fun r -> r = UnknownReason.UnresolvedTypar))
+                    "one cell per local typar for the whole body would leave the local's typar unquantified"
             }
         ]

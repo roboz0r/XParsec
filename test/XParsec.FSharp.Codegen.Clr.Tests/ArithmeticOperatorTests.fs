@@ -173,7 +173,7 @@ let tests =
                     | e -> e
 
                 for name in arithmeticOps do
-                    match inlines.[name].Decl with
+                    match inlines.[name].Body.Decl with
                     | TDeclG.Let({ Value = v }, true, _) ->
                         match traitBase v with
                         | TExprG.TraitCall(_, traitName, _, _, _) ->

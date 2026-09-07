@@ -32,13 +32,7 @@ let private impl (fileName: string) (text: string) : SourceUnit =
     SourceUnit.ofImplementation (SourceFile.ofText fileName text)
 
 let private analyseUnits (units: SourceUnit list) : AnalysedAssembly =
-    AnalysedAssembly.analyse
-        Pipeline.analyseFileFor
-        realProvider.Value
-        {
-            Assembly = asm
-            Units = List.map (AssemblyUnit.parse Set.empty) units
-        }
+    analyseUnitsOf asm realProvider.Value units
 
 /// The errors every unit of an assembly run surfaces, `.fsi` match findings included.
 let private assemblyErrors (units: SourceUnit list) : string list =

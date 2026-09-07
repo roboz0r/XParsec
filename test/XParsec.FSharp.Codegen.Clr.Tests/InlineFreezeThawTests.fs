@@ -122,20 +122,22 @@ let private sourceOf (src: string) : LexedFile =
 
 /// Thaw a wire body against the file it was frozen from: a `Wire.TDecl`'s anchors index
 /// the declaring file's tokens.
-let private thawFrom (store: TypeStore) (src: string) (decl: Wire.TDecl) : TDecl =
+let private thawFrom (store: TypeStore) (src: string) (published: Wire.UnpooledDecl) : TDecl =
     let source = sourceOf src
-    (InlineThaw.bodyAtPath (MeasuredThaw.noneOver store) (LexedFiles.ofSeq [ source ]) source.Path decl).Decl
+    (InlineThaw.bodyAtPath (MeasuredThaw.noneOver store) (LexedFiles.ofSeq [ source ]) source.Path published).Decl
 
 /// The frozen `let` decl of a single-binding program, unpooled as a provider serves a body
-/// (`declTree`), the form `thawFrom` takes.
-let private frozenLetDecl (src: string) : Wire.TDecl =
+/// (`unpoolDecl`), the form `thawFrom` takes.
+let private frozenLetDecl (src: string) : Wire.UnpooledDecl =
     let pools = freezePools src
     let pool = TastPoolBuilder.openOver pools
 
     pools.Roots
     |> Seq.tryPick (fun r ->
-        match TastPoolBuilder.declTree pool r with
-        | TDeclG.Let({ Pattern = TPatG.NamedSimple _ }, _, _) as d -> Some d
+        match TastPoolBuilder.unpoolDecl pool r with
+        | {
+              Decl = TDeclG.Let({ Pattern = TPatG.NamedSimple _ }, _, _)
+          } as d -> Some d
         | _ -> None
     )
     |> Option.defaultWith (fun () -> failtestf "no top-level `let` in the frozen tree of:\n%s" src)
@@ -205,14 +207,14 @@ let private publishing (unitASource: string) : IExternalSymbolProvider =
     let unitA = Freeze.run ctx tastA
     let pool = TastPoolBuilder.openOver unitA
 
-    // `declTree` re-mints the body's bound variables into the node space B's expansion consumes;
+    // `unpoolDecl` re-mints the body's bound variables into the node space B's expansion consumes;
     // anchoring in A's own file is what makes the indices those bodies carry readable at B.
     let source = sourceOf unitASource
 
     let published =
         [
             for t in unitA.InlineTemplates ->
-                t.Key, InlineBody.anchoredIn source (TastPoolBuilder.declTree pool t.Decl) t.ParamAttrs
+                t.Key, InlineBody.anchoredIn source (TastPoolBuilder.unpoolDecl pool t.Decl) t.ParamAttrs
         ]
 
     let bodies = dict published
@@ -223,7 +225,7 @@ let private publishing (unitASource: string) : IExternalSymbolProvider =
         PublishedSurface.build (fun b ->
             for (key, body) in published do
                 let declTy =
-                    match body.Decl with
+                    match body.Body.Decl with
                     | TDeclG.Let(m, _, _) -> m.Ty
                     | other -> failtestf "a published body is not a `let`: %A" other
 
@@ -380,14 +382,14 @@ let tests =
                 let fDecl = frozenLetDecl twoLocalSchemes
 
                 let declTy =
-                    match fDecl with
+                    match fDecl.Decl with
                     | TDeclG.Let(m, _, _) -> m.Ty
                     | _ -> failtest "unreachable"
 
                 // `g`'s `'x` and `h`'s `'y` are each bound by their OWN local scheme, so
                 // neither occurs in `f`'s type, and they are distinguished by SCHEME, not
                 // by an index that happens to differ.
-                let leaves = collectTys fDecl |> localLeavesIn
+                let leaves = collectTys fDecl.Decl |> localLeavesIn
 
                 Expect.isNonEmpty leaves "the body-local schemes' own roots reach freeze as LocalFunction typars"
 
@@ -420,15 +422,15 @@ let tests =
 
                 Expect.equal
                     cells.Length
-                    (distinctLeafCount fDecl)
+                    (distinctLeafCount fDecl.Decl)
                     "a decl-scoped thaw mints EXACTLY one fresh cell per distinct leaf, sharing it across every occurrence"
             }
 
             test "freeze: the same source freezes local-typar leaves to the same (scheme, index)s" {
                 // Serializing a frozen body and re-reading it makes index stability rest on
                 // the freeze walk order. Nothing but this test enforces that order.
-                let once = frozenLetDecl twoLocalSchemes |> collectTys |> localLeavesIn
-                let twice = frozenLetDecl twoLocalSchemes |> collectTys |> localLeavesIn
+                let once = (frozenLetDecl twoLocalSchemes).Decl |> collectTys |> localLeavesIn
+                let twice = (frozenLetDecl twoLocalSchemes).Decl |> collectTys |> localLeavesIn
 
                 Expect.isNonEmpty once "the fixture actually produces local typars"
 
@@ -452,8 +454,8 @@ let tests =
                 let pDecl = frozenLetDecl declaring
                 let cDecl = frozenLetDecl consumer
 
-                let pLeaves = collectTys pDecl |> localLeavesIn
-                let cLeaves = collectTys cDecl |> localLeavesIn
+                let pLeaves = collectTys pDecl.Decl |> localLeavesIn
+                let cLeaves = collectTys cDecl.Decl |> localLeavesIn
 
                 Expect.equal pLeaves.Length 1 "the declaring file has one local scheme"
                 Expect.equal cLeaves.Length 1 "the consumer file has one local scheme"
@@ -488,12 +490,12 @@ let tests =
 
                 Expect.equal
                     pCells.Length
-                    (distinctLeafCount pDecl)
+                    (distinctLeafCount pDecl.Decl)
                     "the declaring file body thaws to exactly one fresh cell per distinct leaf"
 
                 Expect.equal
                     cCells.Length
-                    (distinctLeafCount cDecl)
+                    (distinctLeafCount cDecl.Decl)
                     "the consumer body thaws to exactly one fresh cell per distinct leaf"
 
                 Expect.isEmpty

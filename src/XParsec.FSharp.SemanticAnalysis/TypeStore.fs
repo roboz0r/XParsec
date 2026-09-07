@@ -325,3 +325,42 @@ module UnionFind =
             | ValueSome target -> zonkErased store target
             | ValueNone -> TyVar root.Id
         | t -> SemType.mapChildren (zonkErased store) t
+
+/// Fresh inference cells for one typar scope, one per index, memoised so two occurrences of
+/// a typar share a cell.
+[<Sealed>]
+type TyparRoots(store: TypeStore) =
+    let roots = ResizeArray<TyVarId voption>()
+
+    member _.At(index: int) : TyVarId =
+        while roots.Count <= index do
+            roots.Add ValueNone
+
+        match roots.[index] with
+        | ValueSome v -> v
+        | ValueNone ->
+            let v = store.NewTypeVar()
+            roots.[index] <- ValueSome v
+            v
+
+    /// The cells minted so far, in index order.
+    member _.Minted: TyVarId seq =
+        roots
+        |> Seq.choose (
+            function
+            | ValueSome v -> Some v
+            | ValueNone -> None
+        )
+
+/// One `TyparRoots` per body-local `let`, so each local's typars quantify on their own.
+[<Sealed>]
+type LocalTyparRoots(store: TypeStore) =
+    let byBinding = System.Collections.Generic.Dictionary<LocalBindingId, TyparRoots>()
+
+    member _.At(binding: LocalBindingId, index: int) : TyVarId =
+        match byBinding.TryGetValue binding with
+        | true, roots -> roots.At index
+        | _ ->
+            let roots = TyparRoots store
+            byBinding.[binding] <- roots
+            roots.At index

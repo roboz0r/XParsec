@@ -108,6 +108,15 @@ module Wire =
     type TInlineBody = TInlineBodyG<FrozenType, Anchor, NodeKey>
     type TInlineValue = TInlineValueG<FrozenType, Anchor, NodeKey>
 
+    /// A wire declaration together with the generalised body-locals it declares, keyed by the
+    /// bound variable each is bound at. An `FTTypar(LocalFunction _, i)` leaf of `Decl` refers
+    /// to a scope on `LocalSchemes`, which resolves it to the `let` that quantifies it.
+    type UnpooledDecl =
+        {
+            Decl: TDecl
+            LocalSchemes: Map<BoundVarKey, LocalScheme>
+        }
+
 /// A `type` declaration whose member/preamble/ctor BODY slots identify their expression by
 /// pool id instead of carrying the tree, and whose pattern-less BOUND-VARIABLE slots (a member's
 /// `this`, parameters, ctor locals) identify their definition site by `BoundVarId`.

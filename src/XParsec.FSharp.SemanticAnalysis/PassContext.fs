@@ -687,6 +687,21 @@ type PassContext(provider: IExternalSymbolProvider, file: LexedFile, assembly: C
             }
         )
 
+    /// Generalise a served template's body-local in this file, under a `LocalBindingId` minted
+    /// per call. `key` is the local's FRESHENED key, unique to one splice of `template`, so two
+    /// call sites of one template are two locals with two scopes.
+    member this.AdoptSplicedLocal(key: NodeKey, scheme: TypeScheme, template: SymbolKey) : unit =
+        this.Bindings.Scheme.Set(
+            key,
+            {
+                Id = LocalBindingId localBindings
+                Scheme = ValueSome scheme
+                Owner = ValueSome(LocalOwnerSite.Spliced template)
+            }
+        )
+
+        localBindings <- localBindings + 1
+
     /// File `source`'s entry under `copy` too: a freshened copy of a template's local is the
     /// same binding under another key, with the same `LocalBindingId`, scheme and owner. An
     /// unfiled `source` is a no-op.

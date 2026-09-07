@@ -19,24 +19,9 @@ let private asm: CompilingAssembly =
 
 /// The provider view each unit pushed for the units after it, in order.
 let private publishedViewsOfUnits (units: SourceUnit list) : IExternalSymbolProvider list =
-    let analysed =
-        AnalysedAssembly.analyse
-            Pipeline.analyseFileFor
-            realProvider.Value
-            {
-                Assembly = asm
-                Units = [ for u in units -> AssemblyUnit.parse Set.empty u ]
-            }
-
-    analysed.Units
-    |> List.map (
-        function
-        | UnitOutcome.Analysed u -> u.File.View
-        | UnitOutcome.Failed(leading, rest) ->
-            failtestf
-                "unit failed to parse: %A"
-                [ for e in leading :: rest -> e.Id.Name, FileFault.diagnostics e.Fault ]
-    )
+    analyseUnitsOf asm realProvider.Value units
+    |> analysedFiles
+    |> List.map (fun f -> f.View)
 
 /// `publishedViewsOfUnits` over implementation-only files.
 let private publishedViews (files: (string * string) list) : IExternalSymbolProvider list =

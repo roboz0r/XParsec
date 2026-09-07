@@ -357,13 +357,11 @@ path = "inline/inline-module.fs"
 run = ["clr", "js"]
 
 # A body-local `let` inside an inline function is generalised at its own `let`: a splice
-# re-generalises it rather than instantiating it once per body. The same-file cases run on
-# the CLR through a lifted generic method; the served case owes `typar-scope-plan.md` step
-# 3d (a thawed local generalised again in the host).
+# re-generalises it rather than instantiating it once per body. Both the same-file cases and
+# the served one run on the CLR through a lifted generic method.
 [[program]]
 path = "inline/inline-local-poly.fs"
-run = ["js"]
-pending = { clr = "typar-scope-plan step 3d" }
+run = ["clr", "js"]
 
 # ---------------------------------------------------------------------------------------
 # LOCALS — a body-local `let` generalised at its own `let` and used at two types, with no

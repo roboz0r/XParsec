@@ -61,9 +61,9 @@ type ImportForm =
 /// handed across the boundary VERBATIM for the consumer to thaw.
 type InlineBody =
     {
-        Decl: Wire.TDecl
+        Body: Wire.UnpooledDecl
         ParamAttrs: EqArray<ParamAttrs>
-        /// The declaring file's anchors: its text and token table. `Decl`'s nodes carry
+        /// The declaring file's anchors: its text and token table. `Body`'s nodes carry
         /// token INDICES into that file, unreadable without it.
         File: LexedFile
     }
@@ -71,9 +71,9 @@ type InlineBody =
 [<RequireQualifiedAccess>]
 module InlineBody =
 
-    let anchoredIn (file: LexedFile) (decl: Wire.TDecl) (paramAttrs: EqArray<ParamAttrs>) : InlineBody =
+    let anchoredIn (file: LexedFile) (body: Wire.UnpooledDecl) (paramAttrs: EqArray<ParamAttrs>) : InlineBody =
         {
-            Decl = decl
+            Body = body
             ParamAttrs = paramAttrs
             File = file
         }

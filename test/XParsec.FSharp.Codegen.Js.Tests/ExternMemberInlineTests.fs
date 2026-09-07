@@ -236,7 +236,7 @@ let tests =
             test "liftMemberBody mints a `this`-first curried inline TDecl.Let" {
                 match InlineBodies.liftMemberBody nowhereSource (pokeMember ()) with
                 | Some body ->
-                    match body.Decl with
+                    match body.Body.Decl with
                     | TDeclG.Let({
                                      Value = TExprG.Lambda(TPatG.NamedSimple(_, thisTy, _, _), inner, _, _)
                                  } as binding,
@@ -279,7 +279,7 @@ let tests =
 
                 match InlineBodies.liftMemberBody nowhereSource staticPoke with
                 | Some body ->
-                    match body.Decl with
+                    match body.Body.Decl with
                     | TDeclG.Let({
                                      Value = TExprG.Lambda(TPatG.NamedSimple(_, FTConst(k0, _), _, _),
                                                            TExprG.ILIntrinsic _,
@@ -309,7 +309,7 @@ let tests =
 
                 match InlineBodies.liftMemberBody nowhereSource identity with
                 | Some body ->
-                    match body.Decl with
+                    match body.Body.Decl with
                     | TDeclG.Let({
                                      Value = TExprG.Lambda(_, TExprG.Lambda(_, TExprG.Var _, _, _), _, _)
                                  },
@@ -410,7 +410,7 @@ let tests =
 
                 // The IL template a body splices: the observable that tells the two apart.
                 let templateOf (body: InlineBody) : string =
-                    match body.Decl with
+                    match body.Body.Decl with
                     | TDeclG.Let({
                                      Value = TExprG.Lambda(_,
                                                            TExprG.Lambda(_, TExprG.ILIntrinsic(t, _, _, _, _), _, _),
@@ -605,7 +605,7 @@ let tests =
 
                 match lifted |> List.tryFind (fun (name, _) -> name = "Poke") with
                 | Some(_, body) ->
-                    match body.Decl with
+                    match body.Body.Decl with
                     | TDeclG.Let({
                                      Value = TExprG.Lambda(TPatG.NamedSimple(_, FTConst(key, _), _, _), _, _, _)
                                  },

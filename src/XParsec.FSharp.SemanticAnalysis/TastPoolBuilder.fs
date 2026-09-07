@@ -26,13 +26,15 @@ type PoolBuilder =
             mutable OvBoundVarCount: int
             /// The overlay-minted bound variables bound by a mutable `NamedSimple` pattern row.
             OvMutableBoundVars: HashSet<BoundVarId>
-            /// The bound variable key `declTree` hands a DU-typed consumer for each bound variable. Per
+            /// The bound variable key `unpoolDecl` hands a DU-typed consumer for each bound variable. Per
             /// BUILDER, not per unpool: two unpools of one subtree are two views of the same
             /// bound variables and must key them alike.
             UnpooledBoundVarKeys: Dictionary<BoundVarId, NodeKey>
             mutable UnpoolCount: int
             /// The base pool's `ModuleMembers` by bound variable, indexed on first read.
             ModuleMemberIndex: Lazy<IReadOnlyDictionary<BoundVarId, ModuleBindingInfo>>
+            /// The base pool's `LocalSchemes` by bound variable, indexed on first read.
+            LocalSchemeIndex: Lazy<IReadOnlyDictionary<BoundVarId, LocalScheme>>
         }
 
 /// A node HANDLE: a dense pool id together with the pool that resolves it. Equality is the
@@ -58,6 +60,7 @@ module TastPoolBuilder =
             UnpooledBoundVarKeys = Dictionary()
             UnpoolCount = 0
             ModuleMemberIndex = lazy (DenseTable.index pools.ModuleMembers)
+            LocalSchemeIndex = lazy (DenseTable.index pools.LocalSchemes)
         }
 
     /// A builder over no base at all, for nodes belonging to no frozen tree: an EXTERNAL
@@ -424,7 +427,7 @@ module TastPoolBuilder =
 
         TastUnpool.substitutePat rename row.Ty row.Tok row.Payload (row.Children |> Array.map (patTree rename b))
 
-    /// The DU subtree an expression id denotes. Reached through `declTree`: the cross-file
+    /// The DU subtree an expression id denotes. Reached through `unpoolDecl`: the cross-file
     /// wire carries whole declarations, never a bare expression.
     let rec private exprTree (rename: BoundVarId -> NodeKey) (b: PoolBuilder) (at: ExprPoolId) : Wire.TExpr =
         let row = exprRow b at
@@ -438,10 +441,14 @@ module TastPoolBuilder =
             (row.Children |> Array.map (exprTree rename b))
             (row.PatChildren |> Array.map (patTree rename b))
 
-    /// The DU subtree a declaration id denotes. Its bound variables are RE-MINTED as `NodeKey`s, not
-    /// lent: a slot means nothing outside the pool that issued it, and a DU consumer needs
-    /// only distinctness plus equality between a bound variable and its references.
-    let declTree (b: PoolBuilder) (at: DeclPoolId) : Wire.TDecl =
+    /// The DU subtree a declaration id denotes, with the generalised body-locals it declares.
+    /// Bound variables are RE-MINTED, not lent: a slot means nothing outside the pool that
+    /// issued it, and a DU consumer needs only distinctness plus equality between a bound
+    /// variable and its references.
+    let unpoolDecl (b: PoolBuilder) (at: DeclPoolId) : Wire.UnpooledDecl =
+        let schemes = b.LocalSchemeIndex.Force()
+        let locals = ResizeArray<BoundVarKey * LocalScheme>()
+
         let rename (boundVar: BoundVarId) : NodeKey =
             match b.UnpooledBoundVarKeys.TryGetValue boundVar with
             | true, k -> k
@@ -449,13 +456,25 @@ module TastPoolBuilder =
                 b.UnpoolCount <- b.UnpoolCount + 1
                 let k = NodeKey.ofSyntheticCounter b.UnpoolCount NodeKind.SynthUnpooledBoundVar
                 b.UnpooledBoundVarKeys.[boundVar] <- k
+
+                match schemes.TryGetValue boundVar with
+                | true, scheme -> locals.Add(BoundVarKey.ofPatKey k, scheme)
+                | _ -> ()
+
                 k
 
         let row = declRow b at
 
-        TastUnpool.substituteDecl
-            rename
-            (exprTree rename b)
-            row.Payload
-            (row.ExprChildren |> Array.map (exprTree rename b))
-            (row.PatChildren |> Array.map (patTree rename b))
+        // `rename` fills `locals` as it goes, so the table is complete only once the tree is.
+        let tree =
+            TastUnpool.substituteDecl
+                rename
+                (exprTree rename b)
+                row.Payload
+                (row.ExprChildren |> Array.map (exprTree rename b))
+                (row.PatChildren |> Array.map (patTree rename b))
+
+        {
+            Decl = tree
+            LocalSchemes = Map.ofSeq locals
+        }

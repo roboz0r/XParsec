@@ -59,7 +59,7 @@ module InlineBodies =
             // param carries a decoded attribute today, so every entry is `ParamAttrs.Default`.
             let paramAttrs = EqArray.init curried.Length (fun _ -> ParamAttrs.Default)
 
-            Some(InlineBody.anchoredIn file (TastPoolBuilder.declTree pool decl.Id) paramAttrs)
+            Some(InlineBody.anchoredIn file (TastPoolBuilder.unpoolDecl pool decl.Id) paramAttrs)
 
     type KeyedInlineBody = { Key: SymbolKey; Body: InlineBody }
 
@@ -88,8 +88,6 @@ module InlineBodies =
         // The overlay dies with this call.
         let pool = TastPoolBuilder.openOver tast
 
-        let anchored = InlineBody.anchoredIn file
-
         // Unpooled off their own pool roots: the wire form is DU-typed because a pool id
         // means nothing in the compiling file's pool.
         let values =
@@ -97,7 +95,7 @@ module InlineBodies =
                 for iv in tast.InlineTemplates ->
                     {
                         Key = iv.Key
-                        Body = anchored (TastPoolBuilder.declTree pool iv.Decl) iv.ParamAttrs
+                        Body = InlineBody.anchoredIn file (TastPoolBuilder.unpoolDecl pool iv.Decl) iv.ParamAttrs
                     }
             ]
 

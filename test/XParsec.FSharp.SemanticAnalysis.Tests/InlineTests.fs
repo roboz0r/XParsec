@@ -43,7 +43,7 @@ let private thawedTemplate (letInline: string) : TypeStore * InlineThaw.ThawedTe
     let pool = TastPoolBuilder.openOver pools
 
     match List.ofArray pools.InlineTemplates with
-    | [ v ] -> ctx0.Store, thawPublished ctx0.Store source (TastPoolBuilder.declTree pool v.Decl)
+    | [ v ] -> ctx0.Store, thawPublished ctx0.Store source (TastPoolBuilder.unpoolDecl pool v.Decl)
     | other -> failwithf "expected exactly one published inline body for %s, got %d" letInline (List.length other)
 
 // A wire body keeps the DECLARING file's token indices and does not say which file they index,
@@ -104,7 +104,7 @@ let private expandedCore (tast: TastFile) (d: TDecl) : string =
     | other -> failwithf "expected a `do` of one inline call; got %A" other
 
 /// The declaring file's sole published template, unpooled to the wire form a provider serves.
-let private publishedTemplate () : Wire.TDecl =
+let private publishedTemplate () : Wire.UnpooledDecl =
     let lexed, file = parseFile declaringSrc
 
     let pools =
@@ -113,7 +113,7 @@ let private publishedTemplate () : Wire.TDecl =
     let pool = TastPoolBuilder.openOver pools
 
     match List.ofArray pools.InlineTemplates with
-    | [ v ] -> TastPoolBuilder.declTree pool v.Decl
+    | [ v ] -> TastPoolBuilder.unpoolDecl pool v.Decl
     | other -> failwithf "expected exactly one published template, got %d" (List.length other)
 
 [<Tests>]
@@ -131,7 +131,7 @@ let tests =
                     |> positions
                     |> tokenIndices
 
-                let written = positions body |> List.map Anchor.toStored
+                let written = positions body.Decl |> List.map Anchor.toStored
 
                 Expect.isNonEmpty written "the fixture body actually carries positions"
 
@@ -491,7 +491,7 @@ let tests =
 
                 let body =
                     match List.ofArray pools.InlineTemplates with
-                    | [ v ] -> thawPublishedDecl (TypeStore()) source (TastPoolBuilder.declTree pool v.Decl)
+                    | [ v ] -> thawPublishedDecl (TypeStore()) source (TastPoolBuilder.unpoolDecl pool v.Decl)
                     | other -> failtestf "expected exactly one published body, got %d" (List.length other)
 
                 let refs = ResizeArray<SymbolKey>()
@@ -571,7 +571,7 @@ let tests =
 
                 let body =
                     match List.ofArray pools.InlineTemplates with
-                    | [ v ] -> thawPublishedDecl (TypeStore()) source (TastPoolBuilder.declTree pool v.Decl)
+                    | [ v ] -> thawPublishedDecl (TypeStore()) source (TastPoolBuilder.unpoolDecl pool v.Decl)
                     | other -> failtestf "expected exactly one published body, got %d" (List.length other)
 
                 match body with

@@ -440,6 +440,9 @@ module FrozenCodecTypes =
             w.Write 2uy
             writeLocalBindingId w id
         | LocalOwner.Initialiser -> w.Write 3uy
+        | LocalOwner.Spliced template ->
+            w.Write 4uy
+            writeSymbolRef w template
 
     let readLocalOwner (r: FrozenReader) : LocalOwner =
         match r.ReadByte() with
@@ -447,6 +450,7 @@ module FrozenCodecTypes =
         | 1uy -> LocalOwner.ModuleFunction(readBindingKeyRef r)
         | 2uy -> LocalOwner.Local(readLocalBindingId r)
         | 3uy -> LocalOwner.Initialiser
+        | 4uy -> LocalOwner.Spliced(readSymbolRef r)
         | b -> failwithf "FrozenCodec: unknown LocalOwner tag %d" b
 
     let writeLocalScheme (w: FrozenWriter) (s: LocalScheme) =

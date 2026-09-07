@@ -170,7 +170,7 @@ let inline twice (x: int) : int = addBase (addBase x)
                 Expect.contains names "addBase" (sprintf "addBase emitted under its own name; got %A" names)
             }
 
-            ptest "GAP: file 2 expands file 1's inline body whose LOCAL is used at two types" {
+            test "file 2 expands file 1's inline body whose LOCAL is used at two types" {
                 // The local `g` is generalised at its own `let` inside the template, so the
                 // thawed body must generalise it again in file 2: one cell per local typar
                 // pins `g` to `int` at the first use. F# accepts this program.

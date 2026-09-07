@@ -24,23 +24,13 @@ let private asm: CompilingAssembly =
 let private impl (id: string) (text: string) : SourceUnit =
     SourceUnit.ofImplementation (SourceFile.ofText id text)
 
-/// `AnalysedAssembly.analyse` over units held as TEXT, under no compilation defines. No source
-/// in this suite carries a `#if`, so every file here parses one way.
+/// Each unit's outcome, in order.
 let private analyseAssembly
     (assembly: CompilingAssembly)
     (external: IExternalSymbolProvider)
     (units: SourceUnit list)
     : UnitOutcome list =
-    let analysed =
-        AnalysedAssembly.analyse
-            Pipeline.analyseFileFor
-            external
-            {
-                Assembly = assembly
-                Units = List.map (AssemblyUnit.parse Set.empty) units
-            }
-
-    analysed.Units
+    (analyseUnitsOf assembly external units).Units
 
 /// The analysed files of an assembly run, or a test failure citing the first parse error.
 let private files (outcomes: UnitOutcome list) : FrozenFile list =

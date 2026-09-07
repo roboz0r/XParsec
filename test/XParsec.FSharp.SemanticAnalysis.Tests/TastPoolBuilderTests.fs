@@ -77,7 +77,7 @@ let private checkBaseIdsResolve (pools: FrozenPools) (b: PoolBuilder) =
 let private unpoolRoots (b: PoolBuilder) : Wire.TDecl[] =
     TastPoolBuilder.roots b
     |> EqArray.toArray
-    |> Array.map (TastPoolBuilder.declTree b)
+    |> Array.map (fun r -> (TastPoolBuilder.unpoolDecl b r).Decl)
 
 // Programs spanning the domains the stack has to keep straight: a bound variable reference across
 // decls, a composite expr with swappable children, a sub-patterned pattern, a `for` loop variable.
@@ -286,7 +286,7 @@ let rowCopyTests =
 
                 // The oracle: the ORIGINAL root's own unpool with the tuple's items reversed, so
                 // both sides share the identity an unpool produces.
-                let original = TastPoolBuilder.declTree b root
+                let original = (TastPoolBuilder.unpoolDecl b root).Decl
 
                 let expected =
                     match original with
@@ -303,11 +303,14 @@ let rowCopyTests =
                 // The derived decl is a node like any other, reached by the id the copy returned.
                 // Nothing repoints the root: a rewrite hands its caller the new id.
                 Expect.equal
-                    (TastPoolBuilder.declTree b newRoot)
+                    (TastPoolBuilder.unpoolDecl b newRoot).Decl
                     expected
                     "the derived decl is the original with the tuple's items swapped"
 
-                Expect.equal (TastPoolBuilder.declTree b root) original "the original root is untouched by the copy"
+                Expect.equal
+                    (TastPoolBuilder.unpoolDecl b root).Decl
+                    original
+                    "the original root is untouched by the copy"
             }
 
             test "a retype copies the row with a different type" {

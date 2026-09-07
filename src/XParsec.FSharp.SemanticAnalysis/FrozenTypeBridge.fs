@@ -126,9 +126,6 @@ module FrozenTypeBridge =
         | FTTypar(scope, index) -> inst.Typar(scope, index)
         | FTUnknown reason -> TyUnknown reason
 
-    [<Struct>]
-    type internal LocalTyparKey = { Binding: LocalBindingId; Index: int }
-
     // A template is an external descriptor's body with its open typars baked as `FTTypar`
     // leaves. It carries type shape only, never constraints.
 
@@ -168,17 +165,8 @@ module FrozenTypeBridge =
         /// A fresh `TyVar` per `(binding, index)`, memoised so repeated occurrences of one
         /// local typar share one cell.
         let mintLocals (store: TypeStore) : LocalBindingId -> int -> SemType =
-            let cache = Dictionary<LocalTyparKey, SemType>()
-
-            fun binding index ->
-                let key = { Binding = binding; Index = index }
-
-                match cache.TryGetValue key with
-                | true, v -> v
-                | _ ->
-                    let v = TyVar(store.NewTypeVar())
-                    cache.[key] <- v
-                    v
+            let roots = LocalTyparRoots store
+            fun binding index -> TyVar(roots.At(binding, index))
 
         /// A declaration's own typars from `args`: a type shape's (record field, union-case
         /// field, interface arg, base type, abbreviation body) or a module function's scheme.

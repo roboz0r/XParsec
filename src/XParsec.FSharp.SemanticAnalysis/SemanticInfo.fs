@@ -165,11 +165,41 @@ and [<Sealed>] FTDisjuncts private (disjuncts: EqSet<FrozenType>) =
 
     override _.GetHashCode() = hash disjuncts
 
+/// The declaration whose body declares a generalised body-local `let`. `'m` identifies a
+/// member: its `MemberKey` once the file is typed, its registration while inference is still
+/// settling the key's signature.
+[<RequireQualifiedAccess>]
+type LocalOwnerG<'m> =
+    | Member of 'm
+    | ModuleFunction of BindingKey
+    /// An enclosing body-local `let`.
+    | Local of LocalBindingId
+    /// A body with no key of its own: a module-level `do`, a module-level tuple binding's
+    /// right-hand side, an auto-property initialiser, or a type's `let` / `do` preamble or
+    /// secondary constructor.
+    | Initialiser
+    /// A local of `template`, another file's splice template, copied in at a call site. The
+    /// owning declaration belongs to the declaring file, terminating the owner chain.
+    | Spliced of template: SymbolKey
+
+module LocalOwnerG =
+    let mapMember (f: 'a -> 'b) (o: LocalOwnerG<'a>) : LocalOwnerG<'b> =
+        match o with
+        | LocalOwnerG.Member m -> LocalOwnerG.Member(f m)
+        | LocalOwnerG.ModuleFunction key -> LocalOwnerG.ModuleFunction key
+        | LocalOwnerG.Local id -> LocalOwnerG.Local id
+        | LocalOwnerG.Initialiser -> LocalOwnerG.Initialiser
+        | LocalOwnerG.Spliced template -> LocalOwnerG.Spliced template
+
 /// `LocalOwnerG` as the frozen file records it, a member identified by its `MemberKey`.
 type LocalOwner = LocalOwnerG<MemberKey>
 
 /// A generalised body-local `let`'s own typars: the scope its `FTTypar(LocalFunction Id, i)`
 /// leaves carry, with `i < TyparArity`.
+///
+/// TODO(local-constraints): arity alone, so a splice of the declaring template regeneralises
+/// the local UNCONSTRAINED. A body-local carrying a member or trait constraint needs the
+/// constraints frozen here too.
 type LocalScheme = { Id: LocalBindingId; TyparArity: int }
 
 /// The mutable inference type IR. Every `TyVar` is a dense `TyVarId` index into the

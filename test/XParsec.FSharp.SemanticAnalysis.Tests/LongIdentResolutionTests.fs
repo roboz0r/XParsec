@@ -21,24 +21,7 @@ let private impl (id: string) (text: string) : SourceUnit =
 
 /// The analysed files, or a test failure naming the first unit that did not parse.
 let private analyse (units: SourceUnit list) : FrozenFile list =
-    let analysed =
-        AnalysedAssembly.analyse
-            Pipeline.analyseFileFor
-            realProvider.Value
-            {
-                Assembly = asm
-                Units = List.map (AssemblyUnit.parse Set.empty) units
-            }
-
-    analysed.Units
-    |> List.map (
-        function
-        | UnitOutcome.Analysed u -> u.File
-        | UnitOutcome.Failed(leading, rest) ->
-            failtestf
-                "unit failed to parse: %A"
-                [ for e in leading :: rest -> e.Id.Name, FileFault.diagnostics e.Fault ]
-    )
+    analyseUnitsOf asm realProvider.Value units |> analysedFiles
 
 let private errorsOf (f: FrozenFile) : Diagnostic list =
     f.Frozen.Residue.Diagnostics |> List.filter Diagnostic.isError

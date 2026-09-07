@@ -116,11 +116,11 @@ let parseRecoveredFile (input: string) : Lexed * ImplementationFile<SyntaxToken>
 
 /// Thaw a WIRE inline body against the file it was published from: the body carries the
 /// declaring file's own token indices, and only that file can resolve them.
-let thawPublished (store: TypeStore) (source: LexedFile) (decl: Wire.TDecl) : InlineThaw.ThawedTemplate =
-    InlineThaw.bodyAtPath (MeasuredThaw.noneOver store) (LexedFiles.ofSeq [ source ]) source.Path decl
+let thawPublished (store: TypeStore) (source: LexedFile) (published: Wire.UnpooledDecl) : InlineThaw.ThawedTemplate =
+    InlineThaw.bodyAtPath (MeasuredThaw.noneOver store) (LexedFiles.ofSeq [ source ]) source.Path published
 
-let thawPublishedDecl (store: TypeStore) (source: LexedFile) (decl: Wire.TDecl) : TDecl =
-    (thawPublished store source decl).Decl
+let thawPublishedDecl (store: TypeStore) (source: LexedFile) (published: Wire.UnpooledDecl) : TDecl =
+    (thawPublished store source published).Decl
 
 /// Lex + parse a signature (`.fsi`) source string and return Lexed + a
 /// SignatureFile. Raises on failure.
@@ -208,6 +208,47 @@ let freezeWithOrigin (src: string) : LexedFile * FrozenPools =
 /// Freeze `src` through the whole front end: the pooled output the cache stores, the codec
 /// flattens, and the signature projection reads. Raises on lex/parse failure.
 let freezeFor (src: string) : FrozenPools = snd (freezeWithOrigin src)
+
+/// `AnalysedAssembly.analyse` over units held as TEXT, under no compilation defines, against
+/// `external`.
+let analyseUnitsOf
+    (assembly: CompilingAssembly)
+    (external: IExternalSymbolProvider)
+    (units: AssemblyFiles.SourceUnit list)
+    : AnalysedAssembly =
+    AnalysedAssembly.analyse
+        Pipeline.analyseFileFor
+        external
+        {
+            Assembly = assembly
+            Units = List.map (AssemblyFiles.AssemblyUnit.parse Set.empty) units
+        }
+
+/// `analyseUnitsOf` against the real contract stack, over implementation-only files given as
+/// `fileName, text`, on a `none`-target assembly named `name`.
+let analyseFiles (name: string) (files: (string * string) list) : AnalysedAssembly =
+    analyseUnitsOf
+        {
+            Name = AssemblyName name
+            Target = "none"
+        }
+        realProvider.Value
+        [
+            for (fileName, text) in files ->
+                AssemblyFiles.SourceUnit.ofImplementation (AssemblyFiles.SourceFile.ofText fileName text)
+        ]
+
+/// Each unit's analysed file in order, or a test failure naming the first that did not parse.
+let analysedFiles (analysed: AnalysedAssembly) : AssemblyFiles.FrozenFile list =
+    analysed.Units
+    |> List.map (
+        function
+        | AssemblyAnalysis.UnitOutcome.Analysed u -> u.File
+        | AssemblyAnalysis.UnitOutcome.Failed(leading, rest) ->
+            failtestf
+                "unit failed to parse: %A"
+                [ for e in leading :: rest -> e.Id.Name, FileFault.diagnostics e.Fault ]
+    )
 
 /// The pools under test, paired with the tree they encode. The freeze's pools are unpooled
 /// and then re-pooled from THAT tree, so a gate over the pair judges a genuine round trip
