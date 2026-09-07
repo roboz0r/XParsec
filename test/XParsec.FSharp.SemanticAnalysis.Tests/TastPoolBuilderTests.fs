@@ -136,10 +136,9 @@ let appendTests =
 
                 // The tree is already in the stored anchor form, so the anchor needs no narrowing
                 // — `Operators.id` because `id` is the pool id in scope here.
-                Expect.equal
+                expectPayloadOf
                     (TastPoolBuilder.exprPayload b id)
                     (TastPoolShapes.exprPayload Operators.id duBoundVar du)
-                    "appended payload"
 
                 Expect.equal (TastPoolBuilder.exprTy b id) (TastWalk.exprTy du) "appended ty"
                 Expect.equal (TastPoolBuilder.exprTok b id) (TastWalk.exprTok du) "appended tok"

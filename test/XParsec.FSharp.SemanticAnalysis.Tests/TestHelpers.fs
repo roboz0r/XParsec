@@ -352,3 +352,17 @@ let expectClass (ctx: PassContext) (name: string) =
     match TypeRegistry.tryClass ctx.Types UseSite.unbounded name with
     | ValueSome info -> info
     | ValueNone -> failtestf "class type %s not registered" name
+
+/// Assert a pooled expression row's payload agrees with the walk's view of an already-anchored
+/// node: `Complete` compares equal outright, `Binding` on `isRec`, and `BindingGroup` on the
+/// member anchors and the components. The walk's `Recursion` / `AppKind` verdict is unchecked.
+let expectPayloadOf (actual: ExprPayload) (expected: PayloadOfNode<Anchor, 'id>) : unit =
+    match expected, actual with
+    | PayloadOfNode.Complete p, actual -> Expect.equal actual p "expr payload"
+    | PayloadOfNode.Application, ExprPayload.App _ -> ()
+    | PayloadOfNode.Binding(isRec = isRec), ExprPayload.Let(isRec = isRec') -> Expect.equal isRec' isRec "Let isRec"
+    | PayloadOfNode.BindingGroup(members = members; components = components), ExprPayload.LetGroup g ->
+        let memberToks = members |> EqArray.toArray |> Array.map (fun m -> m.Tok)
+        Expect.equal (g.Members |> Array.map (fun m -> m.Tok)) memberToks "LetGroup member anchors"
+        Expect.equal g.Components components "LetGroup components"
+    | expected, actual -> failtestf "payload %A is not the walk's view %A" actual expected

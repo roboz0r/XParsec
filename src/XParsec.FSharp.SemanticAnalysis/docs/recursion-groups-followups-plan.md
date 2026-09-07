@@ -265,7 +265,7 @@ and Printf), so D6's open question about suppressing the code for them has no su
   a parenthesised sub-pattern onto its own lines; a test that needs both the value and the
   type binds the member with `as m` and reads `m.Ty`.
 
-### 4b. `exprPayload` stops inventing a `Recursion`
+### 4b. `exprPayload` stops inventing a `Recursion` — DONE
 
 `TastPoolShapes.exprPayload` is total over `TExprG` and returns `ExprPayload`, so at `Let`,
 `App` and each `LetGroup` member it writes a `Recursion` / `AppKind` it has no evidence for:
@@ -277,20 +277,19 @@ is written twice, on `exprPayload` and again on `ExprPayload` (`TastPoolNodes.fs
 oracle can be compared; and `poolLetGroup` re-derives `Ty` and `sink.Anchor m.Tok` per member
 (`TastPools.fs:238-245`) because what `exprPayload` computed went down the dead path.
 
-- `LetMemberScalars = { Ty: FrozenType; Tok: Anchor }`, and `LetMemberShape` becomes
-  `{ Scalars: LetMemberScalars; Recursion: Recursion }`.
-- `exprPayload` returns `PayloadOfNode = Complete of ExprPayload | Application | Binding of
-  isRec: bool | BindingGroup of members: LetMemberScalars[] * components: SccPartition`, so a
-  placeholder verdict is a type error rather than a documented default. `poolExprIn` matches
-  on it at the three points that already branch there, and takes the scalars for its
-  `LetGroupShape` instead of recomputing them.
-- `withoutRecFacts` is deleted. `checkExpr` compares scalars against scalars, inventing no
-  `Recursion` to discard; `TastPoolBuilderTests:141` follows.
-- `FrozenCodec.writeLetGroupShape` / `readLetGroupShape`, `TastAccessor.letMembers` and
-  `TastUnpool` read through `Scalars`. `FormatVersion` is unchanged if the encoded field order
-  is.
-- Add `PayloadOfNode` beside the current signature and delete the old return type in a
-  separate change, per the additive-swap rule.
+- After 4a a member's only scalar is its `Tok`, so `LetMemberScalars` has one field and was
+  not introduced: `LetMemberShape` stays `{ Tok; Recursion }` and the codec, `TastAccessor`,
+  `TastUnpool` and `FormatVersion` are untouched.
+- `exprPayload` returns `PayloadOfNode<'tok, 'id> = Complete of ExprPayload | Application |
+  Binding of binding * body * isRec | BindingGroup of members * components * body`, so a
+  placeholder verdict is a type error rather than a documented default. The classified cases
+  carry the node parts the walk reads, so `poolExprIn` is one match over `PayloadOfNode` with
+  no unreachable arm. `poolLetGroup` anchors each member's `Tok` itself, the single site.
+- `withoutRecFacts` is deleted. `TestHelpers.expectPayloadOf` compares a pooled payload with
+  the `PayloadOfNode` of an already-anchored tree: equal for `Complete`, and on `isRec` /
+  member anchors / components for the classified shapes. `TastPoolsTests.checkExpr` and
+  `TastPoolBuilderTests` use it.
+- The three callers of `exprPayload` were swapped in one change rather than additively.
 
 ### 5. JS lowering
 

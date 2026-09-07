@@ -6,6 +6,22 @@ open XParsec.FSharp.Lexer
 // order the columns record them, and the residual payload left once `ty`/`tok`/the child
 // ids/the bound variable id are lifted out of it. Pure and free of any pool.
 
+/// The pooling walk's view of one expression node. `Complete` carries the node's finished
+/// residual payload; the other cases carry the parts of a node whose payload holds a verdict
+/// the walk supplies.
+[<RequireQualifiedAccess>]
+type PayloadOfNode<'tok, 'id> =
+    | Complete of ExprPayload
+    /// An `App`. The walk decides its `AppKind`.
+    | Application
+    /// A `Let`. The walk decides its `Recursion`; `isRec` is the source `rec` keyword.
+    | Binding of binding: TLetMemberG<FrozenType, 'tok, 'id> * body: TExprG<FrozenType, 'tok, 'id> * isRec: bool
+    /// A `LetGroup`. The walk decides each member's `Recursion`.
+    | BindingGroup of
+        members: EqArray<TLetMemberG<FrozenType, 'tok, 'id>> *
+        components: SccPartition *
+        body: TExprG<FrozenType, 'tok, 'id>
+
 module TastPoolShapes =
 
     /// The immediate child *expressions*, in evaluation order, each flagged as in tail position
@@ -271,97 +287,95 @@ module TastPoolShapes =
             failwith
                 "TastPoolShapes.introducedBoundVar: the node's payload names a bound variable the walk interned none for"
 
-    /// The residual payload of a frozen expression node: its fields MINUS `ty`/`tok`, the
-    /// child expr and owned pat ids, and the `Var` bound variable id. `Let` / `LetGroup` /
-    /// `App` take the `NonRecursive` / `Call` defaults the pooling walk then classifies;
-    /// `anchor` narrows a walked token to its stored index, and `ForTo`'s `identTok` and a
-    /// `LetGroup` member's `Tok` are the anchors carried.
+    /// The pooling walk's view of `e`: `App`, `Let` and `LetGroup` are returned as their parts,
+    /// every other node as its `Complete` residual payload. `anchor` narrows a walked token to
+    /// its stored index, and is applied to `ForTo`'s `identTok` and to the format holes.
     let exprPayload
         (anchor: 'tok -> Anchor)
         (boundVar: BoundVarId voption)
         (e: TExprG<FrozenType, 'tok, 'id>)
-        : ExprPayload =
+        : PayloadOfNode<'tok, 'id> =
         // Per-arm guard-presence flags, the only residual structure a `Match`/`TryWith`
         // records; the arm pats, guards and bodies themselves are stored in the child columns.
         let armGuards (arms: EqArray<TMatchArmG<_, _>>) =
             arms |> EqArray.toArray |> Array.map (fun arm -> arm.Guard.IsSome)
 
+        let complete (p: ExprPayload) = PayloadOfNode.Complete p
+
         match e with
-        | TExprG.Const(value = value) -> ExprPayload.Const value
-        | TExprG.Var _ -> ExprPayload.Var
-        | TExprG.External(key = key) -> ExprPayload.External key
-        | TExprG.Unresolved _ -> ExprPayload.Unresolved
-        | TExprG.Lambda _ -> ExprPayload.Lambda
-        | TExprG.App _ -> ExprPayload.App AppKind.Call
-        | TExprG.Let(isRec = isRec) -> ExprPayload.Let(isRec, Recursion.NonRecursive)
-        | TExprG.LetGroup(members = members; components = components) ->
-            ExprPayload.LetGroup
-                {
-                    Members =
-                        members
-                        |> EqArray.toArray
-                        |> Array.map (fun m ->
-                            {
-                                Tok = anchor m.Tok
-                                Recursion = Recursion.NonRecursive
-                            }
-                        )
-                    Components = components
-                }
-        | TExprG.Use(dispose = dispose) -> ExprPayload.Use dispose
-        | TExprG.IfThenElse _ -> ExprPayload.IfThenElse
-        | TExprG.Tuple _ -> ExprPayload.Tuple
-        | TExprG.ArrayLit _ -> ExprPayload.ArrayLit
-        | TExprG.Sequential _ -> ExprPayload.Sequential
-        | TExprG.While _ -> ExprPayload.While
+        | TExprG.App _ -> PayloadOfNode.Application
+        | TExprG.Let(binding = binding; body = body; isRec = isRec) -> PayloadOfNode.Binding(binding, body, isRec)
+        | TExprG.LetGroup(members = members; components = components; body = body) ->
+            PayloadOfNode.BindingGroup(members, components, body)
+        | TExprG.Const(value = value) -> complete (ExprPayload.Const value)
+        | TExprG.Var _ -> complete ExprPayload.Var
+        | TExprG.External(key = key) -> complete (ExprPayload.External key)
+        | TExprG.Unresolved _ -> complete ExprPayload.Unresolved
+        | TExprG.Lambda _ -> complete ExprPayload.Lambda
+        | TExprG.Use(dispose = dispose) -> complete (ExprPayload.Use dispose)
+        | TExprG.IfThenElse _ -> complete ExprPayload.IfThenElse
+        | TExprG.Tuple _ -> complete ExprPayload.Tuple
+        | TExprG.ArrayLit _ -> complete ExprPayload.ArrayLit
+        | TExprG.Sequential _ -> complete ExprPayload.Sequential
+        | TExprG.While _ -> complete ExprPayload.While
         | TExprG.ForTo(identTok = identTok) ->
-            ExprPayload.ForTo
-                {|
-                    Var = introducedBoundVar boundVar
-                    IdentTok = anchor identTok
-                |}
-        | TExprG.ForIn(enumerator = enumerator) -> ExprPayload.ForIn enumerator
-        | TExprG.Match(arms = arms) -> ExprPayload.Match(armGuards arms)
-        | TExprG.TryWith(arms = arms) -> ExprPayload.TryWith(armGuards arms)
-        | TExprG.TryFinally _ -> ExprPayload.TryFinally
-        | TExprG.Assignment _ -> ExprPayload.Assignment
-        | TExprG.Null _ -> ExprPayload.Null
-        | TExprG.Range(step = step) -> ExprPayload.Range step.IsSome
-        | TExprG.RecordCons(fields = fields) -> ExprPayload.RecordCons(fields |> EqArray.toArray |> Array.map fst)
+            complete (
+                ExprPayload.ForTo
+                    {|
+                        Var = introducedBoundVar boundVar
+                        IdentTok = anchor identTok
+                    |}
+            )
+        | TExprG.ForIn(enumerator = enumerator) -> complete (ExprPayload.ForIn enumerator)
+        | TExprG.Match(arms = arms) -> complete (ExprPayload.Match(armGuards arms))
+        | TExprG.TryWith(arms = arms) -> complete (ExprPayload.TryWith(armGuards arms))
+        | TExprG.TryFinally _ -> complete ExprPayload.TryFinally
+        | TExprG.Assignment _ -> complete ExprPayload.Assignment
+        | TExprG.Null _ -> complete ExprPayload.Null
+        | TExprG.Range(step = step) -> complete (ExprPayload.Range step.IsSome)
+        | TExprG.RecordCons(fields = fields) ->
+            complete (ExprPayload.RecordCons(fields |> EqArray.toArray |> Array.map fst))
         | TExprG.RecordClone(overrides = overrides) ->
-            ExprPayload.RecordClone(overrides |> EqArray.toArray |> Array.map fst)
-        | TExprG.FieldGet(fieldName = fieldName) -> ExprPayload.FieldGet fieldName
-        | TExprG.FieldSet(fieldName = fieldName) -> ExprPayload.FieldSet fieldName
-        | TExprG.UnionCons(caseName = caseName) -> ExprPayload.UnionCons caseName
-        | TExprG.New(className = className; key = key) -> ExprPayload.New {| ClassName = className; Key = key |}
-        | TExprG.MethodCall(key = key; via = via) -> ExprPayload.MethodCall {| Key = key; Via = via |}
-        | TExprG.PropertyGet(key = key; via = via) -> ExprPayload.PropertyGet {| Key = key; Via = via |}
+            complete (ExprPayload.RecordClone(overrides |> EqArray.toArray |> Array.map fst))
+        | TExprG.FieldGet(fieldName = fieldName) -> complete (ExprPayload.FieldGet fieldName)
+        | TExprG.FieldSet(fieldName = fieldName) -> complete (ExprPayload.FieldSet fieldName)
+        | TExprG.UnionCons(caseName = caseName) -> complete (ExprPayload.UnionCons caseName)
+        | TExprG.New(className = className; key = key) ->
+            complete (ExprPayload.New {| ClassName = className; Key = key |})
+        | TExprG.MethodCall(key = key; via = via) -> complete (ExprPayload.MethodCall {| Key = key; Via = via |})
+        | TExprG.PropertyGet(key = key; via = via) -> complete (ExprPayload.PropertyGet {| Key = key; Via = via |})
         | TExprG.StaticMethodCall(key = key; declArgs = declArgs) ->
-            ExprPayload.StaticMethodCall {| Key = key; DeclArgs = declArgs |}
+            complete (ExprPayload.StaticMethodCall {| Key = key; DeclArgs = declArgs |})
         | TExprG.StaticPropertyGet(key = key; declArgs = declArgs) ->
-            ExprPayload.StaticPropertyGet {| Key = key; DeclArgs = declArgs |}
+            complete (ExprPayload.StaticPropertyGet {| Key = key; DeclArgs = declArgs |})
         | TExprG.StaticFieldGet(declKey = declKey; fieldName = fieldName) ->
-            ExprPayload.StaticFieldGet
-                {|
-                    DeclKey = declKey
-                    FieldName = fieldName
-                |}
+            complete (
+                ExprPayload.StaticFieldGet
+                    {|
+                        DeclKey = declKey
+                        FieldName = fieldName
+                    |}
+            )
         | TExprG.StaticFieldSet(declKey = declKey; fieldName = fieldName) ->
-            ExprPayload.StaticFieldSet
-                {|
-                    DeclKey = declKey
-                    FieldName = fieldName
-                |}
+            complete (
+                ExprPayload.StaticFieldSet
+                    {|
+                        DeclKey = declKey
+                        FieldName = fieldName
+                    |}
+            )
         | TExprG.ExternalMember(
             objArg = objArg; key = key; memberName = memberName; storage = storage; argGroupWidths = argGroupWidths) ->
-            ExprPayload.ExternalMember
-                {|
-                    HasObjArg = objArg.IsSome
-                    Key = key
-                    MemberName = memberName
-                    Storage = storage
-                    ArgGroupWidths = argGroupWidths
-                |}
+            complete (
+                ExprPayload.ExternalMember
+                    {|
+                        HasObjArg = objArg.IsSome
+                        Key = key
+                        MemberName = memberName
+                        Storage = storage
+                        ArgGroupWidths = argGroupWidths
+                    |}
+            )
         | TExprG.Format(sink = sink; segments = segments) ->
             let sink' =
                 match sink with
@@ -386,26 +400,35 @@ module TastPoolShapes =
                     | FormatSegG.CallbackHole(h, _) -> FormatSegShape.CallbackHole(spec h)
                 )
 
-            ExprPayload.Format {| Sink = sink'; Segments = segments' |}
+            complete (ExprPayload.Format {| Sink = sink'; Segments = segments' |})
         | TExprG.ILIntrinsic(opCode = opCode; typeOperand = typeOperand) ->
-            ExprPayload.ILIntrinsic
-                {|
-                    OpCode = opCode
-                    TypeOperand = typeOperand
-                |}
+            complete (
+                ExprPayload.ILIntrinsic
+                    {|
+                        OpCode = opCode
+                        TypeOperand = typeOperand
+                    |}
+            )
         | TExprG.StaticOptimization(clauses = clauses) ->
-            ExprPayload.StaticOptimization(clauses |> EqArray.toArray |> Array.map (fun clause -> clause.Constraints))
-        | TExprG.Upcast _ -> ExprPayload.Upcast
-        | TExprG.Downcast _ -> ExprPayload.Downcast
-        | TExprG.TypeTest(testTy = testTy) -> ExprPayload.TypeTest testTy
+            complete (
+                ExprPayload.StaticOptimization(
+                    clauses |> EqArray.toArray |> Array.map (fun clause -> clause.Constraints)
+                )
+            )
+        | TExprG.Upcast _ -> complete ExprPayload.Upcast
+        | TExprG.Downcast _ -> complete ExprPayload.Downcast
+        | TExprG.TypeTest(testTy = testTy) -> complete (ExprPayload.TypeTest testTy)
         | TExprG.TraitCall(supportTys = supportTys; memberName = memberName) ->
-            ExprPayload.TraitCall
-                {|
-                    SupportTys = supportTys
-                    MemberName = memberName
-                |}
-        | TExprG.InlineCall(spec = spec; path = path) -> ExprPayload.InlineCall {| Path = path; Spec = spec |}
-        | TExprG.CallerExpr(path = path) -> ExprPayload.CallerExpr path
+            complete (
+                ExprPayload.TraitCall
+                    {|
+                        SupportTys = supportTys
+                        MemberName = memberName
+                    |}
+            )
+        | TExprG.InlineCall(spec = spec; path = path) ->
+            complete (ExprPayload.InlineCall {| Path = path; Spec = spec |})
+        | TExprG.CallerExpr(path = path) -> complete (ExprPayload.CallerExpr path)
 
     /// The residual payload of a frozen pattern node: its fields MINUS `ty`/`tok` and the
     /// child sub-pat ids. `boundVar` is `NamedSimple`'s own bound variable, and no other case's.

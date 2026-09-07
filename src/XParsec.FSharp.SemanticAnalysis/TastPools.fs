@@ -148,31 +148,34 @@ module TastPools =
             | TailPos.Tail _
             | TailPos.NotTail -> TailPos.NotTail
 
+        let poolKids () =
+            exprChildEdges e
+            |> Array.map (fun struct (c, isTail) -> poolExprIn sink frames (childPos isTail) c)
+
         let struct (exprKids, payload) =
-            match e with
-            | TExprG.Let(binding = binding; body = body; isRec = isRec) ->
+            match exprPayload (fun t -> sink.Anchor t) boundVar e with
+            | PayloadOfNode.Binding(binding, body, isRec) ->
                 let struct (valueId, recursion) =
                     poolLetValue sink frames binding.Pattern isRec binding.Value
 
                 let bodyId = poolExprIn sink frames (childPos true) body
                 struct ([| valueId; bodyId |], ExprPayload.Let(isRec, recursion))
-            | TExprG.LetGroup(members = members; components = components; body = body) ->
+            | PayloadOfNode.BindingGroup(members, components, body) ->
                 let struct (valueIds, shape) = poolLetGroup sink frames members components
                 let bodyId = poolExprIn sink frames (childPos true) body
                 struct (Array.append valueIds [| bodyId |], ExprPayload.LetGroup shape)
-            | _ ->
-                let kids =
-                    exprChildEdges e
-                    |> Array.map (fun struct (c, isTail) -> poolExprIn sink frames (childPos isTail) c)
+            | PayloadOfNode.Application ->
+                let kids = poolKids ()
 
-                let payload =
-                    match e, tail with
-                    | TExprG.App _, TailPos.Tail(frame, arity) when isSaturatedSelfCall frame arity e ->
+                let kind =
+                    match tail with
+                    | TailPos.Tail(frame, arity) when isSaturatedSelfCall frame arity e ->
                         frame.TailCalled <- true
-                        ExprPayload.App AppKind.TailSelfCall
-                    | _ -> exprPayload (fun t -> sink.Anchor t) boundVar e
+                        AppKind.TailSelfCall
+                    | _ -> AppKind.Call
 
-                struct (kids, payload)
+                struct (kids, ExprPayload.App kind)
+            | PayloadOfNode.Complete payload -> struct (poolKids (), payload)
 
         let patKids = exprPatChildren e |> Array.map (poolPat sink)
 

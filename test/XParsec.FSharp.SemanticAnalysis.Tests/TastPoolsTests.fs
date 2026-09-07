@@ -31,29 +31,10 @@ let rec private checkPat (pools: FrozenPools) (PatPoolId i) (du: Pooled.TPat) =
     Expect.equal (ChildColumn.count pools.PatChildren i) duKids.Length "pat child fan-out"
     Array.iter2 (checkPat pools) (ChildColumn.slice pools.PatChildren i) duKids
 
-/// `p` with `Recursion` / `AppKind` reset to the `NonRecursive` / `Call` defaults
-/// `TastPoolShapes.exprPayload` produces.
-let private withoutRecFacts (p: ExprPayload) : ExprPayload =
-    match p with
-    | ExprPayload.Let(isRec, _) -> ExprPayload.Let(isRec, Recursion.NonRecursive)
-    | ExprPayload.LetGroup g ->
-        ExprPayload.LetGroup
-            { g with
-                Members =
-                    g.Members
-                    |> Array.map (fun m ->
-                        { m with
-                            Recursion = Recursion.NonRecursive
-                        }
-                    )
-            }
-    | ExprPayload.App _ -> ExprPayload.App AppKind.Call
-    | p -> p
-
 let rec private checkExpr (pools: FrozenPools) (ExprPoolId i) (du: Pooled.TExpr) =
     let boundVar = internedBoundVarId pools (BoundVarKey.ofExpr du)
 
-    Expect.equal (withoutRecFacts pools.ExprPayloads.[i]) (TastPoolShapes.exprPayload id boundVar du) "expr payload"
+    expectPayloadOf pools.ExprPayloads.[i] (TastPoolShapes.exprPayload id boundVar du)
     let duExprKids = TastPoolShapes.exprChildren du
     let duPatKids = TastPoolShapes.exprPatChildren du
     Expect.equal (ChildColumn.count pools.ExprChildren i) duExprKids.Length "expr child fan-out"
