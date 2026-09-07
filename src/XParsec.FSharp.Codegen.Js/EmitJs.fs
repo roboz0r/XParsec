@@ -169,9 +169,20 @@ module EmitJs =
                         )
                     | _ -> failwithf "EmitJs: unsupported expression %A" e
 
-        // GAP: a local `let rec … and …` group has no lowering yet; it wants one block of
-        // `const`s inside a single IIFE.
-        | ExprShape.LetGroup -> failwithf "EmitJs: a local `let rec … and …` group is not lowered yet: %A" e
+        // A local `let rec … and …` group: one block of `const`s inside a single IIFE, with
+        // the body returned last.
+        | ExprShape.LetGroup ->
+            let g = TastAccessor.exprLetGroup e
+
+            JsExpr.Call(
+                JsExpr.Arrow(
+                    [],
+                    JsFnBody.Block(groupBindings ctx g.Members @ [ JsStatement.Return(buildExpr ctx g.Body) ]),
+                    ValueNone
+                ),
+                [],
+                loc
+            )
 
         // An anonymous lambda has no bound variable key, so no self-tail-call analysis applies.
         | ExprShape.Lambda -> emitFunction ctx ValueNone e
@@ -673,6 +684,10 @@ module EmitJs =
                     | PatShape.Wildcard when isPureValue m.Value -> recur l.Body
                     | PatShape.Wildcard -> buildStatements ctx m.Value @ recur l.Body
                     | _ -> [ JsStatement.Return(buildExpr ctx e) ]
+            // The members bind into the loop body, leaving the group's body in tail position.
+            | ExprShape.LetGroup ->
+                let g = TastAccessor.exprLetGroup e
+                groupBindings ctx g.Members @ recur g.Body
             | ExprShape.Sequential ->
                 let xs = TastAccessor.exprChildren e
 
@@ -707,6 +722,16 @@ module EmitJs =
         | ExprShape.Lambda -> emitFunction ctx (selfKeyOf recursion k) value
         | _ -> buildExpr ctx value
 
+    /// One binding statement per `let rec … and …` member, in source order. An arrow captures
+    /// by reference, so a member's value may call a sibling bound later in the block.
+    and private groupBindings (ctx: WalkCtx) (members: TastAccessor.LetMemberView[]) : JsStatement list =
+        [
+            for m in members do
+                match m.Pattern with
+                | TastAccessor.PNamed k -> localBinding ctx.Pool k (emitBound ctx k m.Recursion m.Value)
+                | _ -> failwithf "EmitJs: unsupported `let rec … and …` member pattern %A" m.Pattern
+        ]
+
     /// An expression in statement position. `Sequential` flattens; a `let` bound variable
     /// becomes a `const`; anything else is one `ExpressionStatement`.
     and buildStatements (ctx: WalkCtx) (e: TastAccessor.ExprId) : JsStatement list =
@@ -737,6 +762,11 @@ module EmitJs =
                     | PatShape.Wildcard when isPureValue m.Value -> buildStatements ctx l.Body
                     | PatShape.Wildcard -> buildStatements ctx m.Value @ buildStatements ctx l.Body
                     | _ -> [ JsStatement.Expression(buildExpr ctx e) ]
+            // A `let rec … and …` group needs no IIFE here: its members bind into the
+            // surrounding statement list, in source order, and the body follows.
+            | ExprShape.LetGroup ->
+                let g = TastAccessor.exprLetGroup e
+                groupBindings ctx g.Members @ buildStatements ctx g.Body
             // `while cond do body` as a bare loop statement — no IIFE wrapper needed here.
             | ExprShape.While ->
                 let w = TastAccessor.exprWhile e

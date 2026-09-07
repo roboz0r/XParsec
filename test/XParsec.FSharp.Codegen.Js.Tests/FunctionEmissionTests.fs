@@ -200,10 +200,7 @@ let tests =
                     Expect.equal out "42" "deep tail recursion through a match does not grow the stack"
             }
 
-            // `a` is classified `NonRecursive`, so it binds as an IIFE parameter and its value's
-            // reference to `b` is out of scope (`ReferenceError: b is not defined`).
-            ptest
-                "GAP: a local `let rec … and …` member that references only its sibling binds before the sibling is declared" {
+            test "a local `let rec … and …` member may call a sibling declared after it" {
                 match
                     runJs
                         "fn-local-mutual-rec"
@@ -217,6 +214,74 @@ let tests =
                 | Some(code, out) ->
                     Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
                     Expect.equal out "0" "each member is in scope of every value in the group"
+            }
+
+            test "a local `let rec … and …` group is one IIFE over a block of `const`s" {
+                Expect.equal
+                    (emitJs (
+                        "let run () =\n"
+                        + "    let rec a x = if x = 0 then 0 else b (x - 1)\n"
+                        + "    and b x = a x\n"
+                        + "    a 3\n"
+                    ))
+                    ("const run = () => (() => {\n"
+                     + "  const a = (x) => (((x) === (0)) ? 0 : b((((x) - (1)) | 0)));\n"
+                     + "  const b = (x) => a(x);\n"
+                     + "  return a(3);\n"
+                     + "})();\n")
+                    "members in source order, the body returned last"
+            }
+
+            test "a module-level `let rec … and …` group is one `const` per member" {
+                Expect.equal
+                    (emitJs "let rec a x = if x = 0 then 0 else b (x - 1)\nand b x = a x\n")
+                    ("const a = (x) => (((x) === (0)) ? 0 : b((((x) - (1)) | 0)));\n"
+                     + "const b = (x) => a(x);\n")
+                    "no IIFE at module scope"
+            }
+
+            test "a `let rec … and …` group in statement position binds into the enclosing block" {
+                let js =
+                    emitJs (
+                        "let run () =\n"
+                        + "    let mutable n = 3\n"
+                        + "    while n > 0 do\n"
+                        + "        let rec a x = if x = 0 then 0 else b (x - 1)\n"
+                        + "        and b x = a x\n"
+                        + "        n <- n - 1 - a 2\n"
+                        + "    n\n"
+                    )
+
+                Expect.stringContains
+                    js
+                    ("  while (((n) > (0))) {\n"
+                     + "    const a = (x) => (((x) === (0)) ? 0 : b((((x) - (1)) | 0)));\n"
+                     + "    const b = (x) => a(x);\n")
+                    (sprintf "the members are statements of the loop body, not a nested IIFE:\n%s" js)
+            }
+
+            test "a `let rec … and …` group leaves the trampolined body in tail position" {
+                Expect.equal
+                    (emitJs (
+                        "let rec loop n =\n"
+                        + "    let rec a x = if x = 0 then 0 else b (x - 1)\n"
+                        + "    and b x = a x\n"
+                        + "    if n = 0 then a 3 else loop (n - 1)\n"
+                    ))
+                    ("const loop = (n) => {\n"
+                     + "  while (true) {\n"
+                     + "    const a = (x) => (((x) === (0)) ? 0 : b((((x) - (1)) | 0)));\n"
+                     + "    const b = (x) => a(x);\n"
+                     + "    if (((n) === (0))) {\n"
+                     + "      return a(3);\n"
+                     + "    } else {\n"
+                     + "      const _tc0 = (((n) - (1)) | 0);\n"
+                     + "      n = _tc0;\n"
+                     + "      continue;\n"
+                     + "    }\n"
+                     + "  }\n"
+                     + "};\n")
+                    "the members bind inside the loop and the outer self-call still continues"
             }
 
             test "a tail self-call under a tail-position let trampolines" {

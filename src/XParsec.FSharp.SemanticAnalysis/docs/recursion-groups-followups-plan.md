@@ -291,13 +291,22 @@ oracle can be compared; and `poolLetGroup` re-derives `Ty` and `sink.Anchor m.To
   `TastPoolBuilderTests` use it.
 - The three callers of `exprPayload` were swapped in one change rather than additively.
 
-### 5. JS lowering
+### 5. JS lowering — DONE
 
-- Expression position: a `LetGroup` emits one block, `const m1 = …; const m2 = …; return body`,
-  inside a single IIFE, members in source order. Arrows capture by reference, so declaration
-  order within the block does not matter for functions. `components` is not read.
-- Statement and module position: one `const` per member in source order.
-- Promote the JS `ptest`.
+- `EmitJs.groupBindings` is the one site that lowers a group's members: one `localBinding` per
+  member, in source order, each value through `emitBound` under the member's own `Recursion`,
+  so a `TailRecursive` member still trampolines. `components` is not read. A member whose
+  pattern is not a simple name fails there; F# admits only simple names under `let rec`.
+- Expression position: one block, `const m1 = …; const m2 = …; return body`, inside a single
+  IIFE. Arrows capture by reference, so a member may call a sibling bound later in the block.
+- Statement position (`buildStatements`) and tail position under a trampoline
+  (`buildTrampolineBody`) bind the members into the enclosing statement list and keep the
+  group's body in the position the group held. The trampoline arm was not in the original
+  step: without it a group in tail position fell through to `return <IIFE>` and the enclosing
+  self-call stopped looping.
+- Module position needed no work: `TastLower.lower` already splits a module-level `LetGroup`
+  into one `Let` decl per member in source order, and `buildProgram` emits one `const` each.
+- The JS `ptest` is promoted. Four emission tests pin the four positions.
 
 ### 6. CLR lowering
 
