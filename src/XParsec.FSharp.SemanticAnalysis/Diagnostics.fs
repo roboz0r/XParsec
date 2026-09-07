@@ -390,6 +390,17 @@ module AttributeTargetFlags =
         |> List.map snd
         |> String.concat ", "
 
+/// A `rec` keyword claiming wider recursion than the bindings under it exhibit.
+[<RequireQualifiedAccess>]
+type RecursionOverstatement =
+    /// A `let rec … and …` group whose members split into independent recursion groups.
+    /// Each inner list is the names bound by one group, in source order; the outer list is a
+    /// valid declaration order for the groups.
+    | SplittableGroup of groups: string list list
+    /// A `let rec` binding whose value refers to names outside itself only. `names` are those
+    /// bound by the binding's pattern.
+    | RedundantRec of names: string list
+
 /// WHAT a diagnostic says. A case carries the facts its sentence is built from, never the
 /// sentence, so a consumer selects on the verdict instead of parsing English.
 [<RequireQualifiedAccess>]
@@ -515,6 +526,7 @@ type Kind =
     | IncompleteAnonUnionMatch of unhandled: string list
     | UnrelatedTypeTest of source: string * target: string
     | RedundantDowncast of ty: string
+    | OverstatedRecursion of shape: RecursionOverstatement
 
     // ── Whole-file and whole-package verdicts ──────────────────────────────────
     /// `assembly` is what the checked pair belongs to, which a package build spells with
@@ -538,6 +550,10 @@ type Kind =
 
 [<RequireQualifiedAccess>]
 module Kind =
+
+    /// `'a', 'b'`
+    let private quotedNames (names: string list) : string =
+        names |> List.map (sprintf "'%s'") |> String.concat ", "
 
     /// Every `DiagCode.FSharp` number is one fsc ITSELF files the same verdict under, read
     /// out of the F# compiler sources; the exception or resource it came from is named
@@ -603,6 +619,7 @@ module Kind =
         // ── This compiler's own published families.
         | Kind.Conformance(verdict = v) -> ConformanceVerdict.code v
         | Kind.ConformanceFinding _ -> DiagCode.Vesper "V240"
+        | Kind.OverstatedRecursion _ -> DiagCode.Vesper "V260"
         | Kind.PackageSet fault -> PackageSetFault.code fault
         | Kind.ParseFailure _ -> DiagCode.Vesper "PARSE"
         | Kind.Driver _ -> DiagCode.Vesper "DRV"
@@ -784,6 +801,15 @@ module Kind =
         | Kind.UnrelatedTypeTest(source, target) ->
             sprintf "Type test of '%s' against unrelated type '%s' is always false" source target
         | Kind.RedundantDowncast ty -> sprintf "Downcast is redundant, because the static type '%s' already matches" ty
+        | Kind.OverstatedRecursion(RecursionOverstatement.RedundantRec names) ->
+            sprintf
+                "The 'rec' keyword is redundant on %s, whose value refers to names outside itself only"
+                (quotedNames names)
+        | Kind.OverstatedRecursion(RecursionOverstatement.SplittableGroup groups) ->
+            sprintf
+                "This 'let rec' group covers %d independent recursion groups. Declare them apart, in the order: %s"
+                groups.Length
+                (groups |> List.map quotedNames |> String.concat "; then ")
         | Kind.Conformance(assembly, verdict) -> sprintf "%s: %s" assembly (ConformanceVerdict.describe verdict)
         | Kind.PackageSet fault -> PackageSetFault.describe fault
         | Kind.ParseFailure detail -> sprintf "parse error: %s" detail
@@ -803,7 +829,8 @@ module Kind =
         | Kind.HeterogeneousEnum _
         | Kind.IncompleteAnonUnionMatch _
         | Kind.UnrelatedTypeTest _
-        | Kind.RedundantDowncast _ -> Severity.Warning
+        | Kind.RedundantDowncast _
+        | Kind.OverstatedRecursion _ -> Severity.Warning
         | Kind.UndefinedType _
         | Kind.UnsupportedOnTarget _
         | Kind.NoMember _

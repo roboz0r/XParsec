@@ -167,6 +167,7 @@
     <Compile Include="Passes\NameResolution\InheritParent.fs" />
     <Compile Include="Passes\NameResolution\MemberRegistration.fs" />
     <Compile Include="Passes\NameResolution.fs" />
+    <Compile Include="Passes\Unification\RecursionComponents.fs" />
     <Compile Include="Passes\Unification\InferGeneralize.fs" />
     <Compile Include="Passes\Unification\InferLiterals.fs" />
     <Compile Include="Passes\Unification\InferResolve.fs" />

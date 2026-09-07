@@ -24,8 +24,8 @@ module Unification =
 
     let private walkModuleElem (ctx: PassContext) (m: ModuleElem<SyntaxToken>) =
         match m with
-        | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(bindings = bindings)) ->
-            inferBindingGroup ctx bindings
+        | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(isRec = isRec; bindings = bindings)) ->
+            inferBindingGroup ctx isRec bindings
         | ModuleElem.Expression e ->
             infer ctx e |> ignore
             // A bare expression has no generalisation point, so its deferred trait

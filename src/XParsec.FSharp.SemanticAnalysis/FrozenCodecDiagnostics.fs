@@ -657,6 +657,12 @@ module FrozenCodecDiagnostics =
         | Kind.RedundantDowncast ty ->
             w.Write 40uy
             w.Write ty
+        | Kind.OverstatedRecursion(RecursionOverstatement.RedundantRec names) ->
+            w.Write 66uy
+            writeStringList w names
+        | Kind.OverstatedRecursion(RecursionOverstatement.SplittableGroup groups) ->
+            w.Write 67uy
+            writeListWith w writeStringList groups
         | Kind.Conformance(package, verdict) ->
             w.Write 41uy
             w.Write package
@@ -852,6 +858,8 @@ module FrozenCodecDiagnostics =
                 | b -> failwithf "FrozenCodec: unknown UnionFieldNameClash tag %d" b
 
             Kind.UnionCaseFieldNameClash(name, clash)
+        | 66uy -> Kind.OverstatedRecursion(RecursionOverstatement.RedundantRec(readStringList r))
+        | 67uy -> Kind.OverstatedRecursion(RecursionOverstatement.SplittableGroup(readListWith r readStringList))
         | b -> failwithf "FrozenCodec: unknown Kind tag %d" b
 
     let writeDiagnostic (w: FrozenWriter) (d: XParsec.FSharp.SemanticAnalysis.Diagnostic) =

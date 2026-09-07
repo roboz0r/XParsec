@@ -180,7 +180,8 @@ module UnificationInfer =
             | Expr.InfixApp(left, _, right) -> inferInfix infer ctx node left right
             | Expr.PrefixApp(_, operand) -> inferPrefix infer ctx node operand
             | Expr.Fun(argumentPats = argPats; expr = body) -> inferFun infer ctx argPats body
-            | Expr.LetOrUse(keyword = kw; bindings = bindings; body = body) -> inferLet ctx kw bindings body
+            | Expr.LetOrUse(keyword = kw; isRec = isRec; bindings = bindings; body = body) ->
+                inferLet ctx kw isRec bindings body
             | Expr.EnclosedBlock(lParen = ParenKind.List _; expr = inner; rParen = rTok) ->
                 checkLiteralClose ctx node.Tok rTok Token.KWRBracket "]"
                 inferListLikeLiteral infer ctx node.Tok inner false
@@ -264,10 +265,11 @@ module UnificationInfer =
     and private inferLet
         (ctx: PassContext)
         (keyword: LetOrUseKeyword<SyntaxToken>)
+        (isRec: SyntaxToken voption)
         (bindings: ImmutableArray<Binding<SyntaxToken>>)
         (body: Expr<SyntaxToken> voption)
         : SemType =
-        inferBindingGroup ctx bindings
+        inferBindingGroup ctx isRec bindings
 
         // `use` binds a disposable: resolve each bound variable's `Dispose` so disposal can be
         // keyed for codegen and a non-disposable diagnosed. `let` skips this.
@@ -406,30 +408,29 @@ module UnificationInfer =
             | ValueNone -> ()
         | _ -> ()
 
-    /// Type a `let` / `let rec` group. Sibling binding-pattern TyVars are pre-allocated so a forward
-    /// reference from inside one RHS finds the sibling's TyVar at THIS group's level rather
-    /// than lazy-minting at a deeper one. Generalisation runs against the outer level.
-    and inferBindingGroup (ctx: PassContext) (bindings: ImmutableArray<Binding<SyntaxToken>>) : unit =
+    /// Type one recursion component of a group at one level. The component's bound-variable
+    /// TyVars are pre-allocated at THIS level and stay monomorphic until the component is
+    /// generalised, which forbids polymorphic recursion. Generalisation runs at the outer level.
+    and private inferComponent
+        (ctx: PassContext)
+        (bindings: ImmutableArray<Binding<SyntaxToken>>)
+        (members: EqArray<int>)
+        : unit =
         let outerLevel = ctx.CurrentLevel
         enterLevel ctx
 
-        for b in bindings do
-            match b.pattern with
-            | Pat.NamedSimple _
-            | Pat.Op _ ->
-                let key = CstKeys.ofPat b.pattern
+        for i in members do
+            for _, key in NameResolutionScope.bindingsOfPat ctx bindings.[i].pattern do
                 tvOf ctx key |> ignore
                 barPolymorphicRecursion ctx key
-            | _ -> ()
 
-        for b in bindings do
-            inferBinding ctx b
+        for i in members do
+            inferBinding ctx bindings.[i]
 
         exitLevel ctx
 
         let settleTraitBounds () =
-            if not bindings.IsEmpty then
-                UnificationEngine.sweepSrtpTraits ctx (CstKeys.firstTokenOfPat bindings.[0].pattern)
+            UnificationEngine.sweepSrtpTraits ctx (CstKeys.firstTokenOfPat bindings.[members.[0]].pattern)
 
         // Settle deferred traits BEFORE defaults run inside `generalise`: a trait
         // with one pinned host solves now, pinning its free operands from the member's
@@ -437,7 +438,9 @@ module UnificationInfer =
         // escape warning) where a default would ground them first and differently.
         settleTraitBounds ()
 
-        for b in bindings do
+        for i in members do
+            let b = bindings.[i]
+
             if shouldGeneralise b then
                 let key = CstKeys.ofPat b.pattern
                 let patTv = tvOf ctx key
@@ -452,5 +455,24 @@ module UnificationInfer =
 
         // Defaulting inside `generalise` grounds support typars without firing the
         // on-unified callback, and a value-restricted binding never generalises at all,
-        // so the group's deferred traits settle here.
+        // so the component's deferred traits settle here.
         settleTraitBounds ()
+
+    /// Type one lexical `let` / `let rec … and …` group one recursion component at a time, in
+    /// partition order, so each component is generalised before a later one is typed. The
+    /// partition is recorded under the first binding's pattern key; `V260` reports a `rec` wider than it.
+    and inferBindingGroup
+        (ctx: PassContext)
+        (isRec: SyntaxToken voption)
+        (bindings: ImmutableArray<Binding<SyntaxToken>>)
+        : unit =
+        if not bindings.IsEmpty then
+            let partition = UnificationRecursionComponents.partition ctx isRec bindings
+            ctx.Bindings.RecursionComponents.Set(CstKeys.ofPat bindings.[0].pattern, partition)
+
+            match isRec with
+            | ValueSome recTok -> UnificationRecursionComponents.report ctx recTok bindings partition
+            | ValueNone -> ()
+
+            for scc in partition.Components do
+                inferComponent ctx bindings scc.Members

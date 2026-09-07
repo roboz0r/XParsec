@@ -154,6 +154,10 @@ type PassContextBindings =
         ModuleMembers: Dictionary<BoundVarKey, ModuleBindingInfo>
         /// Keyed by the binding's pattern `NodeKey`, in SOURCE order, which is the method-typar order.
         DeclaredTypars: SideTable<DeclaredTypar list>
+        /// Keyed by the FIRST binding's pattern `NodeKey` of one lexical `let` / `let rec … and …`
+        /// group. The partition's nodes are the group's source-order member indices, and its
+        /// component order is a valid declaration and generalisation order.
+        RecursionComponents: SideTable<SccPartition>
         /// Top-level EXPORTED entities only, because a type MEMBER's accessibility is carried on
         /// the member. Un-thresholded: each export filter applies its own.
         Accessibility: Dictionary<SymbolKey, Accessibility>
@@ -172,6 +176,7 @@ module PassContextBindings =
             Escape = SideTable<_>()
             ModuleMembers = Dictionary<_, _>()
             DeclaredTypars = SideTable<_>()
+            RecursionComponents = SideTable<_>()
             Accessibility = Dictionary<_, _>()
             GlobalValueKeys = HashSet<_>()
             Imports = ResizeArray<_>()

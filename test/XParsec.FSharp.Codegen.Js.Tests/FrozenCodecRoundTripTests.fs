@@ -572,6 +572,8 @@ let tests =
                         Kind.IncompleteAnonUnionMatch []
                         Kind.UnrelatedTypeTest("int", "string")
                         Kind.RedundantDowncast "int"
+                        Kind.OverstatedRecursion(RecursionOverstatement.RedundantRec [ "loop" ])
+                        Kind.OverstatedRecursion(RecursionOverstatement.SplittableGroup [ [ "a"; "b" ]; [ "c" ] ])
                         Kind.ParseFailure "unexpected token"
                         Kind.Driver "no target framework"
                         Kind.Message "an un-migrated sentence"

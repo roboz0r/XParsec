@@ -150,25 +150,43 @@ both backends inherit it.
   identical partitions, reverse topological order, self-edges and `isRecursive`, plus a
   200000-node chain that pins the explicit stack.
 
-### 3. Components in inference
+### 3. Components in inference — DONE
 
-In `inferBindingGroup`:
+`Passes/Unification/RecursionComponents.fs` sits between `Passes/NameResolution.fs` and
+`InferGeneralize.fs`.
 
-- Build the reference graph from the bindings' RHS identifiers through NameResolution's
-  `ResolvedBinding.BindingSite`, keeping edges whose target is a sibling pattern key.
-- Run `Scc`. For each component in order, run the existing body: enter level, pre-allocate the
-  component's TyVars, bar polymorphic recursion within the component only, infer, exit,
-  settle traits, generalise.
-- Record the components per group in `ctx.Bindings`, keyed by the group's first pattern key,
-  as `EqArray<EqArray<int>>` over source-order member indices, in reverse topological order,
-  mapping each `SccComponent` through `.Members`. The `Cycle`/`Acyclic` classification is
-  dropped at this boundary; the pool walk classifies recursion per member (D4a). The D6 warning
-  below reads it before the mapping.
+- `partition` builds the reference graph by walking each binding's value with
+  `CstWalk.iterExpr` and reading `ctx.Bindings.Binding` at `CstKeys.ofExpr`, plus the
+  `ExprIdent` key on a multi-segment long ident's leading segment, which is where
+  `NameResolutionScope` binds a field-access chain's anchor. Every member takes a graph node,
+  and every bound-variable key `NameResolutionScope.bindingsOfPat` yields for its pattern maps
+  to it, so the sites the graph reads are exactly the sites NameResolution wrote. Every
+  expression stamp `NameResolutionScope.visit` writes lands on one of those two keys, so the
+  graph over-approximates nothing and misses nothing. Siblings are in scope of each other's
+  values under `rec` only, so a group without `rec` takes the edgeless graph and no walk.
+- `inferBindingGroup` takes the group's `rec` token and calls the extracted `inferComponent`
+  once per `SccComponent`, in the partition's order: enter level, pre-allocate and bar the
+  component's bound variables (again through `bindingsOfPat`), infer them, exit, settle
+  traits, generalise. A member of a later component keeps its forward scheme while an earlier
+  one types, which is sound because a component references earlier components only.
+- The `SccPartition` is recorded at `ctx.Bindings.RecursionComponents`, keyed by the group's
+  first pattern key, for every group including the singletons Elaborate will emit as `Let`.
+  The `Cycle`/`Acyclic` classification survives to Elaborate, which maps each component
+  through `.Members` when it builds the `LetGroup` node per D3.
+- F# allows only simple variable patterns under `let rec` (FS0873) and rejects a parenthesised
+  head outright (FS3521). Neither is diagnosed here yet; a destructuring or `as` pattern under
+  `rec` types as its bound variables allow.
+- `report` emits `V260` per D6, positioned on the `rec` token: `Kind.OverstatedRecursion` of
+  `RecursionOverstatement.SplittableGroup` (component names in declaration order) or
+  `RedundantRec` (the lone member).
 
-- Emit the D6 warning from the recorded components: more than one component, or a single
-  component without a self-edge under `rec`.
+`GeneralisationTests`'s two group cases and `RecursionGroupTests`'s two warning cases are
+promoted. `GeneralisationTests`'s "id used inside pair" case was renamed and relaxed to assert
+no ERRORS: its program is not mutually recursive, so the group now earns a `V260` warning and
+`id` generalises before `pair` types. Its `'b -> 'b * 'b` assertion is unchanged.
 
-This turns the `GeneralisationTests` case green on its own.
+The `src/Vesper.*` ports emit no `V260` today (measured over Core, Option, List, Comparison
+and Printf), so D6's open question about suppressing the code for them has no subject yet.
 
 ### 4. `LetGroup` on the tree
 

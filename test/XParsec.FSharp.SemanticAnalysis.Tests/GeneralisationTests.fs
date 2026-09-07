@@ -126,11 +126,12 @@ let tests =
                 Expect.isTrue (hasOccurs tast) "occurs check stops infinite type"
             }
 
-            test "mutual recursion + generalisation: id used inside pair at two types" {
-                // id : `∀'a. 'a -> 'a`; pair : `∀'b. 'b -> 'b * 'b`. Both uses of
-                // `id` inside pair share pair's argument var, not id's quantified one.
+            test "a sibling's scheme instantiates per use: id used inside pair" {
+                // id : `∀'a. 'a -> 'a`; pair : `∀'b. 'b -> 'b * 'b`. `id` generalises first and
+                // each use inside `pair` instantiates it against pair's argument var. The split
+                // reports V260, so only errors are asserted absent.
                 let tast = analyseSem "let rec id x = x\nand pair x = id x, id x"
-                Expect.isEmpty tast.Diagnostics "no diagnostics"
+                Expect.isEmpty (errorMessages tast.Diagnostics) "no errors"
 
                 let pairDecl =
                     match tast.Decls with
@@ -145,7 +146,7 @@ let tests =
                 | other -> failtestf "expected `'b -> 'b * 'b`, got %A" other
             }
 
-            ptest "GAP: a `let rec … and …` group generalises one strongly connected component at a time" {
+            test "a `let rec … and …` group generalises one strongly connected component at a time" {
                 // `f` references neither member and `g` references `f`, so they are separate
                 // components: `f` generalises before `g` is typed, and `g` may use it at
                 // `int` and at `string`. `dotnet fsi` accepts this program.

@@ -26,7 +26,7 @@ let tests =
     testList
         "Recursion groups"
         [
-            ptest "GAP: a group covering several components warns and names the member to declare outside it" {
+            test "a group covering several components warns and names the member to declare outside it" {
                 // `a` and `b` are a cycle. `c` references `a`, and the cycle references `c`
                 // nowhere, so `c` is a component of its own and belongs after the group as a
                 // plain `let`.
@@ -41,7 +41,7 @@ let tests =
                 Expect.stringContains d.Message "'c'" "names the member that can leave the group"
             }
 
-            ptest "GAP: a `let rec` binding whose value references only outer names warns" {
+            test "a `let rec` binding whose value references only outer names warns" {
                 let d = theOne "let helper x = x + 1\nlet rec unused x = helper x\n"
 
                 Expect.equal d.Severity Severity.Warning "the program still compiles"
@@ -60,5 +60,29 @@ let tests =
                 Expect.isEmpty
                     (v260 "let rec fact n = if n <= 1 then 1 else n * fact (n - 1)\n")
                     "a self-edge makes the singleton a recursive component"
+            }
+
+            test "a cycle through a type-annotated value member is silent" {
+                // `f : int -> int` binds through a return annotation, so its binding site is
+                // the same key a reference to it resolves to. `dotnet fsi` accepts this program.
+                let src = "let rec f : int -> int = fun x -> g x\nand g x = f x\n"
+                Expect.isEmpty (v260 src) "one component covers both members"
+            }
+
+            test "a cycle through a type-annotated value member stays monomorphic" {
+                // Both members share one component, so `g` is typed at `int -> int` and
+                // `dotnet fsi` rejects `g "str"` with FS0001.
+                let errors =
+                    errorMessages
+                        (analyseSem "let rec f : int -> int = fun x -> g x\nand g x = f x\nlet r = g \"str\"\n")
+                            .Diagnostics
+
+                Expect.isNonEmpty errors "the string argument is a type error"
+            }
+
+            test "a group written without `rec` is silent" {
+                // Siblings are out of each other's scope without `rec`, so the group has no
+                // edges and no `rec` keyword to report on.
+                Expect.isEmpty (v260 "let a = 1\nlet b = a\n") "no rec keyword"
             }
         ]
