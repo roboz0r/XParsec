@@ -27,7 +27,7 @@ let private frozenExprs (decls: TastAccessor.DeclId list) : TastAccessor.ExprId 
     [
         for d in decls do
             match d with
-            | TastAccessor.DLet lv -> yield! subExprs lv.Value
+            | TastAccessor.DLet lv -> yield! subExprs lv.Binding.Value
             | TastAccessor.DExpression(e, _) -> yield! subExprs e
             | _ -> ()
     ]
@@ -104,12 +104,13 @@ let tests =
                 // here would compare the two operands by reference.
                 match Emit.lower (pooledDecls (Freeze.run ctx tast)) with
                 | [ TastAccessor.DLet lv ] when
-                    (TastAccessor.patBoundVar lv.Pattern).IsSome
+                    (TastAccessor.patBoundVar lv.Binding.Pattern).IsSome
                     && not lv.IsInline
-                    && TastAccessor.exprKind lv.Value = ExprShape.Lambda
-                    && TastAccessor.exprKind (TastAccessor.exprLambda lv.Value).Body = ExprShape.Lambda
+                    && TastAccessor.exprKind lv.Binding.Value = ExprShape.Lambda
+                    && TastAccessor.exprKind (TastAccessor.exprLambda lv.Binding.Value).Body = ExprShape.Lambda
                     ->
-                    let body = (TastAccessor.exprLambda (TastAccessor.exprLambda lv.Value).Body).Body
+                    let body =
+                        (TastAccessor.exprLambda (TastAccessor.exprLambda lv.Binding.Value).Body).Body
 
                     Expect.isTrue
                         (mentionsSymbol "EqualityComparer" body)
@@ -236,10 +237,10 @@ let tests =
 
                 let isStaticOptInline =
                     function
-                    | TDeclG.Let(_,
-                                 TExprG.Lambda(_, TExprG.Lambda(_, TExprG.StaticOptimization _, _, _), _, _),
+                    | TDeclG.Let({
+                                     Value = TExprG.Lambda(_, TExprG.Lambda(_, TExprG.StaticOptimization _, _, _), _, _)
+                                 },
                                  true,
-                                 _,
                                  _) -> true
                     | _ -> false
 

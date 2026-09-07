@@ -11,7 +11,7 @@ let private analyseWithCtx (input: string) =
 
 let private declType (tast: TastFile) : SemType =
     match tast.Decls with
-    | EqList [ TDecl.Let(_, _, _, _, ty) ] -> ty
+    | EqList [ TDecl.Let(m, _, _) ] -> m.Ty
     | _ -> failwithf "expected single TDecl.Let, got %A" tast.Decls
 
 let private hasMismatch (tast: TastFile) =
@@ -170,9 +170,9 @@ let tests =
                 let tast = analyseSem "let id = fun x -> x\nlet a = id 1\nlet b = id true"
 
                 match tast.Decls with
-                | EqList [ _; TDecl.Let(_, _, _, _, aTy); TDecl.Let(_, _, _, _, bTy) ] ->
-                    Expect.equal aTy BuiltinTypes.tyInt "a : int"
-                    Expect.equal bTy BuiltinTypes.tyBool "b : bool"
+                | EqList [ _; TDecl.Let(a, _, _); TDecl.Let(b, _, _) ] ->
+                    Expect.equal a.Ty BuiltinTypes.tyInt "a : int"
+                    Expect.equal b.Ty BuiltinTypes.tyBool "b : bool"
                 | other -> failwithf "expected three decls, got %A" other
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics"

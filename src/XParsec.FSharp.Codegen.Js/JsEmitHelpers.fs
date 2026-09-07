@@ -144,8 +144,8 @@ module JsEmitHelpers =
         | ExprShape.Let ->
             let l = TastAccessor.exprLet e
 
-            match TastAccessor.patKind l.Pattern with
-            | PatShape.NamedSimple -> isPureValue l.Value && isPureValue l.Body
+            match TastAccessor.patKind l.Binding.Pattern with
+            | PatShape.NamedSimple -> isPureValue l.Binding.Value && isPureValue l.Body
             | _ -> false
         | _ -> false
 
@@ -159,8 +159,8 @@ module JsEmitHelpers =
         | ExprShape.Let ->
             let l = TastAccessor.exprLet v
 
-            TastAccessor.patKind l.Pattern = PatShape.NamedSimple
-            && substitutableValue k l.Value body
+            TastAccessor.patKind l.Binding.Pattern = PatShape.NamedSimple
+            && substitutableValue k l.Binding.Value body
             && substitutableValue k l.Body body
         | _ -> InlineExpand.substitutable k v body
 
@@ -170,13 +170,13 @@ module JsEmitHelpers =
         | ExprShape.Let ->
             let l = TastAccessor.exprLet e
 
-            match l.Pattern with
+            match l.Binding.Pattern with
             | TastAccessor.PNamed k when
-                l.Recursion = Recursion.NonRecursive
+                l.Binding.Recursion = Recursion.NonRecursive
                 && not (TastPoolBuilder.boundVarIsMutable e.Pool k)
-                && substitutableValue k l.Value l.Body
+                && substitutableValue k l.Binding.Value l.Body
                 ->
-                Some(InlineExpand.substituteVar derivation k l.Value l.Body)
+                Some(InlineExpand.substituteVar derivation k l.Binding.Value l.Body)
             | _ -> None
         | _ -> None
 

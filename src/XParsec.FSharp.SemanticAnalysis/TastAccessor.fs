@@ -203,11 +203,15 @@ module TastAccessor =
         | ExprPayload.Let(isRec, recursion) ->
             ValueSome
                 {
-                    Pattern = exprPatChild e 0
-                    Value = exprChild e 0
+                    Binding =
+                        {
+                            Pattern = exprPatChild e 0
+                            Value = exprChild e 0
+                            Tok = exprTok e
+                            Recursion = recursion
+                        }
                     Body = exprChild e 1
                     IsRec = isRec
-                    Recursion = recursion
                 }
         | _ -> ValueNone
 
@@ -220,7 +224,6 @@ module TastAccessor =
             {
                 Pattern = pat i
                 Value = value i
-                Ty = m.Ty
                 Tok = m.Tok
                 Recursion = m.Recursion
             }
@@ -826,12 +829,15 @@ module TastAccessor =
         | DeclPayload.Let p ->
             ValueSome
                 {
-                    Pattern = declPatChild d 0
-                    Value = declExprChild d 0
+                    Binding =
+                        {
+                            Pattern = declPatChild d 0
+                            Value = declExprChild d 0
+                            Tok = p.Tok
+                            Recursion = p.Recursion
+                        }
                     IsInline = p.IsInline
                     IsRec = p.IsRec
-                    Recursion = p.Recursion
-                    Ty = p.Ty
                 }
         | _ -> ValueNone
 
@@ -858,20 +864,12 @@ module TastAccessor =
         Array.init ids.Length (fun i -> { Pool = pool; Id = ids.[i] })
 
     /// Every module-level binding, in source order: a `Let` root and each member of a
-    /// `LetGroup` root. A `Let` root's `Tok` is its pattern's anchor.
+    /// `LetGroup` root.
     let rootBindings (pool: PoolBuilder) : LetMemberView[] =
         [|
             for d in roots pool do
                 match d with
-                | DLet l ->
-                    ({
-                        Pattern = l.Pattern
-                        Value = l.Value
-                        Ty = l.Ty
-                        Tok = patTok l.Pattern
-                        Recursion = l.Recursion
-                    }
-                    : LetMemberView)
+                | DLet l -> l.Binding
                 | DLetGroup g -> yield! g.Members
                 | _ -> ()
         |]
@@ -1066,29 +1064,22 @@ module TastAccessor =
         mintPat pool ty tok (items |> Array.map (fun i -> i.Id)) PatPayload.Tuple
 
     /// A top-level `let pattern = value` declaration.
-    let mintLetDecl
-        (pattern: PatId)
-        (value: ExprId)
-        (isInline: bool)
-        (isRec: bool)
-        (recursion: Recursion)
-        (ty: FrozenType)
-        : DeclId =
+    let mintLetDecl (m: LetMemberView) (isInline: bool) (isRec: bool) : DeclId =
         {
-            Pool = value.Pool
+            Pool = m.Value.Pool
             Id =
                 TastPoolBuilder.appendDecl
-                    value.Pool
+                    m.Value.Pool
                     {
-                        ExprChildren = [| value.Id |]
-                        PatChildren = [| pattern.Id |]
+                        ExprChildren = [| m.Value.Id |]
+                        PatChildren = [| m.Pattern.Id |]
                         Payload =
                             DeclPayload.Let
                                 {|
                                     IsInline = isInline
                                     IsRec = isRec
-                                    Recursion = recursion
-                                    Ty = ty
+                                    Recursion = m.Recursion
+                                    Tok = m.Tok
                                 |}
                     }
         }

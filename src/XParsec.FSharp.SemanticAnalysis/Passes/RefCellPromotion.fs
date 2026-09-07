@@ -27,7 +27,10 @@ module RefCellPromotion =
                 VisitExpr =
                     fun _ e ->
                         match e with
-                        | TExpr.Let(TPat.NamedSimple(k, t, _, true), _, _, _, _, _) ->
+                        | TExpr.Let(
+                            binding = {
+                                          Pattern = TPat.NamedSimple(k, t, _, true)
+                                      }) ->
                             match ctx.Bindings.Escape.TryGetValue k with
                             | ValueSome HeapShared -> promote.[k] <- refType t
                             | _ -> ()
@@ -92,10 +95,21 @@ module RefCellPromotion =
                                     tok
                                 )
                             )
-                        | TExpr.Let(pat, value, body, isRec, ty, tok) ->
-                            let pat' = TastWalk.mapPat m pat
-                            let value' = wrapValueIfPromoted pat (TastWalk.mapExpr m value)
-                            ValueSome(TExpr.Let(pat', value', TastWalk.mapExpr m body, isRec, ty, tok))
+                        | TExpr.Let(binding, body, isRec, ty) ->
+                            let pat' = TastWalk.mapPat m binding.Pattern
+                            let value' = wrapValueIfPromoted binding.Pattern (TastWalk.mapExpr m binding.Value)
+
+                            ValueSome(
+                                TExpr.Let(
+                                    { binding with
+                                        Pattern = pat'
+                                        Value = value'
+                                    },
+                                    TastWalk.mapExpr m body,
+                                    isRec,
+                                    ty
+                                )
+                            )
                         | _ -> ValueNone
             }
 

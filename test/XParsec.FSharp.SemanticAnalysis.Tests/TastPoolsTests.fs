@@ -85,7 +85,7 @@ let private checkDecl (pools: FrozenPools) (DeclPoolId i) (du: Pooled.TDecl) =
     let shapeIs = Expect.equal (DeclPayload.shape pools.DeclPayloads.[i])
 
     match du with
-    | TDeclG.Let(pattern = pattern; value = value) ->
+    | TDeclG.Let(binding = { Pattern = pattern; Value = value }) ->
         shapeIs DeclShape.Let "decl shape"
         Expect.equal (ChildColumn.count pools.DeclExprChildren i) 1 "let decl one value child"
         Expect.equal (ChildColumn.count pools.DeclPatChildren i) 1 "let decl one pattern child"
@@ -663,7 +663,7 @@ let private lastBindingDropped () =
         |> Seq.rev
         |> Seq.pick (fun i ->
             match decls.[i] with
-            | TDeclG.Let(pattern = pattern) ->
+            | TDeclG.Let(binding = { Pattern = pattern }) ->
                 match BoundVarKey.ofPat pattern with
                 | ValueSome b -> Some(i, b)
                 | ValueNone -> None

@@ -22,7 +22,6 @@ module TastUnpool =
             {
                 Pattern = ps.[i]
                 Value = es.[i]
-                Ty = m.Ty
                 Tok = m.Tok
             }
         )
@@ -66,10 +65,20 @@ module TastUnpool =
             let arg = nextE ()
             TExprG.App(fn, arg, ty, tok)
         | ExprPayload.Let(isRec, _) ->
-            let binding = nextP ()
+            let pattern = nextP ()
             let value = nextE ()
             let body = nextE ()
-            TExprG.Let(binding, value, body, isRec, ty, tok)
+
+            TExprG.Let(
+                {
+                    Pattern = pattern
+                    Value = value
+                    Tok = tok
+                },
+                body,
+                isRec,
+                ty
+            )
         | ExprPayload.LetGroup g -> TExprG.LetGroup(letMembers g ps es, g.Components, es.[g.Members.Length], ty, tok)
         | ExprPayload.Use dispose ->
             let binding = nextP ()
@@ -212,7 +221,16 @@ module TastUnpool =
         (ps: TPatG<FrozenType, Anchor, 'id>[])
         : TDeclG<FrozenType, Anchor, 'id> =
         match payload with
-        | DeclPayload.Let p -> TDeclG.Let(ps.[0], es.[0], p.IsInline, p.IsRec, p.Ty)
+        | DeclPayload.Let p ->
+            TDeclG.Let(
+                {
+                    Pattern = ps.[0]
+                    Value = es.[0]
+                    Tok = p.Tok
+                },
+                p.IsInline,
+                p.IsRec
+            )
         | DeclPayload.LetGroup g -> TDeclG.LetGroup(letMembers g ps es, g.Components)
         | DeclPayload.Expression ty -> TDeclG.Expression(es.[0], ty)
         | DeclPayload.Type td ->

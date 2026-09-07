@@ -440,8 +440,8 @@ module Regions =
 
         let rec collect (e: TExpr) : TExpr =
             match e with
-            | TExpr.Let(p, v, body, _, _, _) ->
-                bindings.Add(p, v)
+            | TExpr.Let(binding = b; body = body) ->
+                bindings.Add(b.Pattern, b.Value)
                 collect body
             | TExpr.Use(p, v, body, _, _, _) ->
                 bindings.Add(p, v)
@@ -667,7 +667,8 @@ module Regions =
         let bindings =
             [
                 for d in decls do
-                    yield! TastWalk.declBindings d
+                    for m in TastWalk.declBindings d do
+                        yield m.Pattern, m.Value
             ]
 
         withBindingGroup

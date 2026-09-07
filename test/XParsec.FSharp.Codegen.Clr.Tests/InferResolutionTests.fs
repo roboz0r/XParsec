@@ -36,7 +36,7 @@ let private lastLetTy (src: string) : SemType =
     |> EqArray.toList
     |> List.choose (fun d ->
         match d with
-        | TDecl.Let(_, _, _, _, ty) -> Some ty
+        | TDecl.Let(m, _, _) -> Some m.Ty
         | _ -> None
     )
     |> List.tryLast

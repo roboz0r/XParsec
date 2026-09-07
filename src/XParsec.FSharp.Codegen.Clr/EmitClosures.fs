@@ -34,8 +34,8 @@ module EmitClosures =
         : struct (BoundVarId * TastAccessor.ExprId * TastAccessor.ExprId) voption =
         match e with
         | TastAccessor.ELet letv ->
-            match TastAccessor.patBoundVar letv.Pattern, TastAccessor.exprKind letv.Value with
-            | ValueSome k, ExprShape.Lambda -> ValueSome(struct (k, letv.Value, letv.Body))
+            match TastAccessor.patBoundVar letv.Binding.Pattern, TastAccessor.exprKind letv.Binding.Value with
+            | ValueSome k, ExprShape.Lambda -> ValueSome(struct (k, letv.Binding.Value, letv.Body))
             | _ -> ValueNone
         | _ -> ValueNone
 
@@ -64,8 +64,8 @@ module EmitClosures =
                 scoped [ k ] (fun () -> go value)
                 scoped [ k ] (fun () -> go body)
             | TastAccessor.ELet letv ->
-                go letv.Value
-                scoped (patKeys letv.Pattern) (fun () -> go letv.Body)
+                go letv.Binding.Value
+                scoped (patKeys letv.Binding.Pattern) (fun () -> go letv.Body)
             | TastAccessor.EUse usev ->
                 go usev.Value
                 scoped (patKeys usev.Pattern) (fun () -> go usev.Body)
@@ -198,8 +198,8 @@ module EmitClosures =
                 for d in decls do
                     match d with
                     | TastAccessor.DLet letd ->
-                        match letd.Pattern with
-                        | TastAccessor.PNamed k -> k, letd.Value.Pool
+                        match letd.Binding.Pattern with
+                        | TastAccessor.PNamed k -> k, letd.Binding.Value.Pool
                         | _ -> ()
                     | _ -> ()
             ]
@@ -237,13 +237,13 @@ module EmitClosures =
         |> List.choose (fun d ->
             match d with
             | TastAccessor.DLet letd ->
-                match letd.Pattern with
+                match letd.Binding.Pattern with
                 | TastAccessor.PNamed k when
                     not letd.IsInline
-                    && TastAccessor.exprKind letd.Value <> ExprShape.Lambda
-                    && tyOk (TastAccessor.patTy letd.Pattern)
+                    && TastAccessor.exprKind letd.Binding.Value <> ExprShape.Lambda
+                    && tyOk letd.Binding.Ty
                     ->
-                    project k (TastAccessor.patTy letd.Pattern) letd.Value emissions.[k]
+                    project k letd.Binding.Ty letd.Binding.Value emissions.[k]
                 | _ -> None
             | _ -> None
         )
@@ -591,7 +591,7 @@ module EmitClosures =
         for d in decls do
             match d with
             | TastAccessor.DExpression(e, _) -> walk e
-            | TastAccessor.DLet letd -> walk letd.Value
+            | TastAccessor.DLet letd -> walk letd.Binding.Value
             | _ -> ()
 
         for r in memberRoots do
@@ -802,16 +802,16 @@ module EmitClosures =
         for d in decls do
             match d with
             | TastAccessor.DLet letd ->
-                match TastAccessor.patBoundVar letd.Pattern with
+                match TastAccessor.patBoundVar letd.Binding.Pattern with
                 | ValueSome k ->
                     match staticFns.TryGetValue k with
                     | true, fn ->
                         // The outer lambda is not a closure, but its body may construct inner
                         // ones, which inherit the method's typars.
-                        let _, body = peelLambda letd.Value
+                        let _, body = peelLambda letd.Binding.Value
                         go fn.Scheme.TyparArity 0 ValueNone body
-                    | false, _ -> go 0 0 (ValueSome k) letd.Value
-                | ValueNone -> go 0 0 ValueNone letd.Value
+                    | false, _ -> go 0 0 (ValueSome k) letd.Binding.Value
+                | ValueNone -> go 0 0 ValueNone letd.Binding.Value
             | TastAccessor.DExpression(e, _) -> go 0 0 ValueNone e
             | _ -> ()
 

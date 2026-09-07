@@ -61,7 +61,7 @@ module InlineExpansion =
 
         for (d, env) in decls do
             match d with
-            | TDecl.Let(TPat.NamedSimple(b, _, _, _) as pattern, _, true, _, _) ->
+            | TastWalk.InlineTemplateDecl(b, pattern) ->
                 locals.[b] <-
                     {
                         Key = templateKey pattern

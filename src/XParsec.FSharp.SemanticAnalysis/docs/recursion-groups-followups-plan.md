@@ -236,32 +236,34 @@ and Printf), so D6's open question about suppressing the code for them has no su
   `TastAccessor.rootBindings`, which presents a `Let` root as a `LetMemberView` whose `Tok`
   is the pattern's anchor.
 
-### 4a. `TDeclG.Let` carries a `TLetMemberG`
+### 4a. `TDeclG.Let` carries a `TLetMemberG` — DONE
 
-`TDeclG.Let of pattern * value * isInline * isRec * ty` and `TLetMemberG` describe the same
-binding with two shapes, and `TDeclG.Let` lacks the member's `Tok`. Every decl consumer
-therefore writes two arms, one per shape, and `TastAccessor.rootBindings` synthesises a
-`Tok` from the pattern's anchor. `TExprG.Let` has the same relationship to `TLetMemberG`
-with `ty` as the body's type and no declared type.
-
-- `TDeclG.Let of binding: TLetMemberG * isInline: bool * isRec: bool`. `TExprG.Let of
-  binding: TLetMemberG * body * isRec * ty * tok` follows, with `tok` then equal to
-  `binding.Tok` and dropped. `Ty` on a `Let` decl's member is the declared type it carries
-  today; on an expression `Let` it is the pattern's type, which `TastLower.lower` currently
-  reads off the value.
-- `TastWalk.declBindings` returns `TLetMemberG list`, so a consumer reads `Ty` and `Tok` per
-  binding at both levels. `PlatformTypes`, `ResolvedTypes` and the CLR `LetBoundLambda` read
-  the member directly and lose their `Let`/`LetGroup` arm pairs.
-- `DeclLetView` becomes `LetMemberView` plus `IsInline` and `IsRec`, or the two flags move to
-  `DeclLetView` over a `LetMemberView` field; `rootBindings` then projects rather than
-  synthesises. `LetView` likewise.
-- `TastPoolShapes`, `TastPools.poolDecl`, `TastUnpool` and `FrozenCodec` read the member's
-  fields in place of the tuple's; `DeclPayload.Let` is unchanged. `FormatVersion` is
-  unchanged if the encoded fields are, since only the tree shape moves.
-- `TastConvert.decl` and `TastConvert.expr` map the member through `letMember`.
-- 171 `TDecl.Let(` match sites across `src` and `test` at the time of writing; each becomes a
-  record pattern on the member. Do it in one change, on a green tree, with no behaviour
-  change; the pinned tests are the gate.
+- `TDeclG.Let of binding: TLetMemberG * isInline: bool * isRec: bool` and `TExprG.Let of
+  binding: TLetMemberG * body * isRec * ty`, the expression node's `tok` dropped in favour
+  of `binding.Tok`. `TLetMemberG` now documents one `let` binding, standalone or a group
+  member.
+- `TLetMemberG` carries `Pattern`, `Value` and `Tok`; its `Ty` is a computed member over
+  the pattern's type, as is `LetMemberView.Ty`. `LetMemberShape` and `DeclPayload.Let`
+  store no type: every producer wrote the pattern's type, so the stored column was a
+  second derivation that `TastWalk.mapExpr` and `RefCellPromotion` had to keep in step.
+- `Tok` is where the binding SITS rather than always the pattern's first token:
+  `Inline.betaReduce` sites a minted binding at the call site while its pattern keeps the
+  template's parameter token, and that anchor is preserved. `DeclPayload.Let` stores `Tok`
+  as `LetMemberShape` does, so a decl member's anchor round-trips through the pool
+  (`FormatVersion` 11).
+- `TastWalk.declBindings` returns `TLetMemberG list`. `PlatformTypes.walkDecl`,
+  `ResolvedTypes.walkDecl` and `ResolvedTypes.declSite` each collapse to one arm over it;
+  `Regions.run` projects the pattern/value pair `withBindingGroup` takes.
+- `DeclLetView` and `LetView` carry a `LetMemberView` field beside their flags, so
+  `rootBindings` projects `l.Binding` and `TastAccessor.mintLetDecl` takes a
+  `LetMemberView` plus the two flags.
+- `TastWalk.(|InlineTemplateDecl|_|)` is a `let inline` decl bound to a simple name, as its
+  bound variable and pattern; `Elaborate`, `InlineExpansion` and `Freeze.isInlineVocabulary`
+  match it in place of a `Let`-then-`NamedSimple` nested match.
+- `TastLower.lower` reads a top-level `Let`'s type off the member instead of its value.
+- Match sites across `src` and `test` rewritten. Fantomas explodes a record pattern carrying
+  a parenthesised sub-pattern onto its own lines; a test that needs both the value and the
+  type binds the member with `as m` and reads `m.Ty`.
 
 ### 4b. `exprPayload` stops inventing a `Recursion`
 

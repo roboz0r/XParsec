@@ -191,12 +191,22 @@ let tests =
                     tast.Decls
                     |> EqArray.tryFind (fun d ->
                         match d with
-                        | TDecl.Let(TPat.NamedSimple _, TExpr.Lambda _, _, _, _) -> true
+                        | TDecl.Let({
+                                        Pattern = TPat.NamedSimple _
+                                        Value = TExpr.Lambda _
+                                    },
+                                    _,
+                                    _) -> true
                         | _ -> false
                     )
                     |> ValueOption.map (fun d ->
                         match d with
-                        | TDecl.Let(TPat.NamedSimple(k, _, _, _), TExpr.Lambda _, _, _, _) -> k
+                        | TDecl.Let({
+                                        Pattern = TPat.NamedSimple(k, _, _, _)
+                                        Value = TExpr.Lambda _
+                                    },
+                                    _,
+                                    _) -> k
                         | _ -> failwith "unreachable"
                     )
 

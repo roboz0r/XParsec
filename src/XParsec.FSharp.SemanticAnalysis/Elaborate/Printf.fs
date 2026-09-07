@@ -192,12 +192,14 @@ module internal ElaboratePrintf =
                         )
 
                     TExpr.Let(
-                        TPat.NamedSimple(sKey, scratch.ScratchTy, t, false),
-                        newScratch,
+                        {
+                            Pattern = TPat.NamedSimple(sKey, scratch.ScratchTy, t, false)
+                            Value = newScratch
+                            Tok = t
+                        },
                         seq,
                         false,
-                        ctx.Intrinsics.String,
-                        t
+                        ctx.Intrinsics.String
                     )
 
             // `spec.Ty` records the `%a` value type (`unit` for `%t`) for provenance;

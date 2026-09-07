@@ -20,7 +20,7 @@ let private letTypes (tast: TastFile) : SemType list =
     [
         for d in tast.Decls do
             match d with
-            | TDecl.Let(_, _, _, _, ty) -> ty
+            | TDecl.Let(m, _, _) -> m.Ty
             | _ -> ()
     ]
 

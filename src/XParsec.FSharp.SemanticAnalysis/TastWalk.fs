@@ -65,7 +65,6 @@ module TastWalk =
         | TExprG.Unresolved(tok = tok)
         | TExprG.Lambda(tok = tok)
         | TExprG.App(tok = tok)
-        | TExprG.Let(tok = tok)
         | TExprG.LetGroup(tok = tok)
         | TExprG.Use(tok = tok)
         | TExprG.IfThenElse(tok = tok)
@@ -103,6 +102,7 @@ module TastWalk =
         | TExprG.InlineCall(tok = tok)
         | TExprG.CallerExpr(tok = tok)
         | TExprG.TypeTest(tok = tok) -> tok
+        | TExprG.Let(binding = b) -> b.Tok
 
     /// Mark `body` as CALLER material: an expression written in `stamp` that a reduction
     /// FUSED into a specialization entry anchored in some other file. Its `ty`/`tok` ARE
@@ -117,19 +117,6 @@ module TastWalk =
         match e with
         | TExprG.CallerExpr(body = body) -> unmarked body
         | _ -> e
-
-    let patTy (p: TPatG<'ty, 'tok, 'id>) : 'ty =
-        match p with
-        | TPatG.NamedSimple(ty = ty)
-        | TPatG.Wildcard(ty = ty)
-        | TPatG.Tuple(ty = ty)
-        | TPatG.Const(ty = ty)
-        | TPatG.Record(ty = ty)
-        | TPatG.Union(ty = ty)
-        | TPatG.TypeTestAs(ty = ty)
-        | TPatG.Null(ty = ty)
-        | TPatG.EnumCase(ty = ty)
-        | TPatG.Or(ty = ty) -> ty
 
     let patTok (p: TPatG<'ty, 'tok, 'id>) : 'tok =
         match p with
@@ -347,16 +334,16 @@ module TastWalk =
                     e
                 else
                     TExpr.App(fn', a', ty', tok)
-            | TExpr.Let(p, v, body, isRec, ty, tok) ->
-                let p' = pp p
-                let v' = pe v
+            | TExpr.Let(m, body, isRec, ty) ->
+                let p' = pp m.Pattern
+                let v' = pe m.Value
                 let body' = pe body
                 let ty' = f ty
 
-                if refEq p' p && refEq v' v && refEq body' body && refEq ty' ty then
+                if refEq p' m.Pattern && refEq v' m.Value && refEq body' body && refEq ty' ty then
                     e
                 else
-                    TExpr.Let(p', v', body', isRec, ty', tok)
+                    TExpr.Let({ m with Pattern = p'; Value = v' }, body', isRec, ty')
             // Every member pattern is rewritten before any member value, because each value
             // may reference every member.
             | TExpr.LetGroup(members, components, body, ty, tok) ->
@@ -366,15 +353,13 @@ module TastWalk =
                     members
                     |> EqArray.mapi (fun i m ->
                         let v' = pe m.Value
-                        let mty' = f m.Ty
 
-                        if refEq pats.[i] m.Pattern && refEq v' m.Value && refEq mty' m.Ty then
+                        if refEq pats.[i] m.Pattern && refEq v' m.Value then
                             m
                         else
                             { m with
                                 Pattern = pats.[i]
                                 Value = v'
-                                Ty = mty'
                             }
                     )
 
@@ -856,7 +841,7 @@ module TastWalk =
             | TExpr.App(fn, a, _, _) ->
                 walk fn
                 walk a
-            | TExpr.Let(p, v, body, _, _, _)
+            | TExpr.Let(binding = { Pattern = p; Value = v }; body = body)
             | TExpr.Use(p, v, body, _, _, _) ->
                 walkPat p
                 walk v
@@ -1010,19 +995,31 @@ module TastWalk =
 
     /// The bindings a declaration introduces, in source order: a `Let`'s one, a `LetGroup`'s
     /// members, and none for an `Expression` or `Type` decl.
-    let declBindings (d: TDeclG<'ty, 'tok, 'id>) : (TPatG<'ty, 'tok, 'id> * TExprG<'ty, 'tok, 'id>) list =
+    let declBindings (d: TDeclG<'ty, 'tok, 'id>) : TLetMemberG<'ty, 'tok, 'id> list =
         match d with
-        | TDeclG.Let(pattern = p; value = v) -> [ p, v ]
-        | TDeclG.LetGroup(members = members) -> [ for m in members -> m.Pattern, m.Value ]
+        | TDeclG.Let(binding = b) -> [ b ]
+        | TDeclG.LetGroup(members = members) -> List.ofSeq members
         | TDeclG.Expression _
         | TDeclG.Type _ -> []
+
+    /// An inline template: a `let inline` decl bound to a simple name, as its bound variable
+    /// and binding pattern.
+    [<return: Struct>]
+    let (|InlineTemplateDecl|_|) (d: TDeclG<'ty, 'tok, 'id>) : struct ('id * TPatG<'ty, 'tok, 'id>) voption =
+        match d with
+        | TDeclG.Let(
+            binding = {
+                          Pattern = TPatG.NamedSimple(boundVar = k) as p
+                      }
+            isInline = true) -> ValueSome(struct (k, p))
+        | _ -> ValueNone
 
     /// The expressions a declaration evaluates at module initialisation, in source order: a
     /// `Let` value, each `LetGroup` member value, an `Expression` body. A `Type` decl evaluates
     /// none; its member bodies are reached through `mapDeclExprs`.
     let declValues (d: TDeclG<'ty, 'tok, 'id>) : TExprG<'ty, 'tok, 'id> list =
         match d with
-        | TDeclG.Let(value = v) -> [ v ]
+        | TDeclG.Let(binding = b) -> [ b.Value ]
         | TDeclG.LetGroup(members = members) -> [ for m in members -> m.Value ]
         | TDeclG.Expression(expr = e) -> [ e ]
         | TDeclG.Type _ -> []
@@ -1032,7 +1029,7 @@ module TastWalk =
     /// and patterns are unchanged.
     let mapDeclExprs (f: TExpr -> TExpr) (d: TDecl) : TDecl =
         match d with
-        | TDecl.Let(p, value, isInline, isRec, ty) -> TDecl.Let(p, f value, isInline, isRec, ty)
+        | TDecl.Let(m, isInline, isRec) -> TDecl.Let({ m with Value = f m.Value }, isInline, isRec)
         | TDecl.LetGroup(members, components) ->
             TDecl.LetGroup(members |> EqArray.map (fun m -> { m with Value = f m.Value }), components)
         | TDecl.Expression(e, ty) -> TDecl.Expression(f e, ty)
@@ -1063,8 +1060,8 @@ module TastWalk =
             }
 
         for d in decls do
-            for (p, _) in declBindings d do
-                iterPat it p
+            for m in declBindings d do
+                iterPat it m.Pattern
 
             for v in declValues d do
                 iterExpr it v
@@ -1141,7 +1138,7 @@ module TastWalk =
                             iterExpr it b
                             removeBoundVars added
                             false
-                        | TExpr.Let(p, v, b, _, _, _) ->
+                        | TExpr.Let(binding = { Pattern = p; Value = v }; body = b) ->
                             iterExpr it v
                             let added = addBoundVars p
                             iterExpr it b

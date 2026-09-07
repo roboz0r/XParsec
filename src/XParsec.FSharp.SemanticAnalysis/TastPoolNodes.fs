@@ -192,9 +192,7 @@ type Recursion =
 /// One `LetGroup` member's residual scalars. Its pattern and value are in the child columns.
 type LetMemberShape =
     {
-        /// The binding's declared type.
-        Ty: FrozenType
-        /// The binding pattern's first token.
+        /// Where the binding sits: its pattern's first token.
         Tok: Anchor
         Recursion: Recursion
     }
@@ -605,14 +603,14 @@ module BoundVarNaming =
 [<RequireQualifiedAccess>]
 type DeclPayload =
     /// The binding is the sole pat child, its value the sole expr child;
-    /// `IsInline`/`IsRec`/`Recursion`/`Ty` (the binding's declared slot type) are the residual
+    /// `IsInline`/`IsRec`/`Recursion`/`Tok` (where the binding sits) are the residual
     /// scalars. `IsRec` is the source `rec` keyword, distinct from the analysed `Recursion`.
     | Let of
         {|
             IsInline: bool
             IsRec: bool
             Recursion: Recursion
-            Ty: FrozenType
+            Tok: Anchor
         |}
     /// Member `i`'s pattern is pat child `i` and its value expr child `i`.
     | LetGroup of LetGroupShape

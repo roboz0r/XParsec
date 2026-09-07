@@ -90,7 +90,7 @@ let tests =
                     else
                         match e with
                         | TExpr.Lambda(_, b, _, _) -> scanExpr predicate b
-                        | TExpr.Let(_, v, b, _, _, _) -> scanExpr predicate v || scanExpr predicate b
+                        | TExpr.Let({ Value = v }, b, _, _) -> scanExpr predicate v || scanExpr predicate b
                         | TExpr.App(f, a, _, _) -> scanExpr predicate f || scanExpr predicate a
                         | TExpr.Sequential(items, _, _) -> items |> EqArray.exists (scanExpr predicate)
                         | TExpr.IfThenElse(c, t, e, _, _) ->
@@ -123,7 +123,7 @@ let tests =
                     tast.Decls
                     |> EqArray.exists (fun d ->
                         match d with
-                        | TDecl.Let(_, v, _, _, _) -> scanExpr p v
+                        | TDecl.Let({ Value = v }, _, _) -> scanExpr p v
                         | TDecl.Expression(e, _) -> scanExpr p e
                         | _ -> false
                     )

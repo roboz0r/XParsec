@@ -29,7 +29,7 @@ let private letRecursions (src: string) : LetRecursion list =
 
     let rec walk (e: TastAccessor.ExprId) =
         match e with
-        | TastAccessor.ELet l -> acc.Add(Let(name l.Pattern, l.Recursion))
+        | TastAccessor.ELet l -> acc.Add(Let(name l.Binding.Pattern, l.Binding.Recursion))
         | TastAccessor.ELetGroup g -> acc.Add(group g.Members g.Components)
         | _ -> ()
 
@@ -39,8 +39,8 @@ let private letRecursions (src: string) : LetRecursion list =
     for d in TastAccessor.roots pool do
         match d with
         | TastAccessor.DLet dl ->
-            acc.Add(Let(name dl.Pattern, dl.Recursion))
-            walk dl.Value
+            acc.Add(Let(name dl.Binding.Pattern, dl.Binding.Recursion))
+            walk dl.Binding.Value
         | TastAccessor.DLetGroup g ->
             acc.Add(group g.Members g.Components)
 

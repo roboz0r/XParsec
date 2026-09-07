@@ -58,7 +58,7 @@ module Emit =
             | DeclShape.Type -> ()
             | DeclShape.LetGroup -> failwithf "Emit: a `let rec … and …` group survived `TastLower.lower` unsplit: %A" d
             | DeclShape.Let ->
-                let dl = TastAccessor.declLet d
+                let dl = (TastAccessor.declLet d).Binding
 
                 match TastAccessor.patBoundVar dl.Pattern with
                 // A function emitted as a static method has no Main local.

@@ -72,6 +72,22 @@ type TPatG<'ty, 'tok, 'id> =
     | Or of alts: EqArray<TPatG<'ty, 'tok, 'id>> * ty: 'ty * tok: 'tok
 
 [<RequireQualifiedAccess>]
+module TPatG =
+
+    let ty (p: TPatG<'ty, 'tok, 'id>) : 'ty =
+        match p with
+        | TPatG.NamedSimple(ty = ty)
+        | TPatG.Wildcard(ty = ty)
+        | TPatG.Tuple(ty = ty)
+        | TPatG.Const(ty = ty)
+        | TPatG.Record(ty = ty)
+        | TPatG.Union(ty = ty)
+        | TPatG.TypeTestAs(ty = ty)
+        | TPatG.Null(ty = ty)
+        | TPatG.EnumCase(ty = ty)
+        | TPatG.Or(ty = ty) -> ty
+
+[<RequireQualifiedAccess>]
 type HoleSpecSource =
     /// Every printf specifier (`%d`, `%A`, `%08.2f`, …) and every printf-style `%d{x}`
     /// interpolation hole, classified once at elaboration.
@@ -217,14 +233,8 @@ type TExprG<'ty, 'tok, 'id> =
     | Lambda of param: TPatG<'ty, 'tok, 'id> * body: TExprG<'ty, 'tok, 'id> * ty: 'ty * tok: 'tok
     | App of fn: TExprG<'ty, 'tok, 'id> * arg: TExprG<'ty, 'tok, 'id> * ty: 'ty * tok: 'tok
     /// `isRec` is the source `rec` keyword: only a `let rec` value can reference the variable
-    /// the pattern binds.
-    | Let of
-        pattern: TPatG<'ty, 'tok, 'id> *
-        value: TExprG<'ty, 'tok, 'id> *
-        body: TExprG<'ty, 'tok, 'id> *
-        isRec: bool *
-        ty: 'ty *
-        tok: 'tok
+    /// the pattern binds. `ty` is the body's type.
+    | Let of binding: TLetMemberG<'ty, 'tok, 'id> * body: TExprG<'ty, 'tok, 'id> * isRec: bool * ty: 'ty
     /// One lexical `let rec … and …` group in expression position. `members` are the bindings
     /// in source order, each in scope of every member's value, and `components` partitions
     /// the member indices over their reference graph. `ty` is the body's type.
@@ -438,16 +448,18 @@ and TStaticOptClauseG<'ty, 'tok, 'id> =
         Body: TExprG<'ty, 'tok, 'id>
     }
 
-/// One member of a `let rec … and …` group. `Ty` is the binding's declared type, distinct
-/// from the value's type for a destructuring binding; `Tok` is the binding pattern's first
-/// token.
+/// One `let` binding, standalone or a member of a `let rec … and …` group. `Tok` is where
+/// the binding SITS — its pattern's first token in source, or the call site for a binding
+/// minted by inline reduction.
 and TLetMemberG<'ty, 'tok, 'id> =
     {
         Pattern: TPatG<'ty, 'tok, 'id>
         Value: TExprG<'ty, 'tok, 'id>
-        Ty: 'ty
         Tok: 'tok
     }
+
+    /// The binding's type: its pattern's.
+    member m.Ty: 'ty = TPatG.ty m.Pattern
 
 [<RequireQualifiedAccess>]
 module TExprG =

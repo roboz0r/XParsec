@@ -15,7 +15,7 @@ let private firstLetValue (frozen: Pooled.TastFile) : Pooled.TExpr =
     EqArray.toArray frozen.Decls
     |> Array.pick (fun d ->
         match d with
-        | TDeclG.Let(value = value) -> Some value
+        | TDeclG.Let(binding = { Value = value }) -> Some value
         | _ -> None
     )
 
@@ -164,7 +164,7 @@ let appendTests =
                     EqArray.toArray frozen.Decls
                     |> Array.pick (fun d ->
                         match d with
-                        | TDeclG.Let(value = TExprG.Var _ as value) -> Some value
+                        | TDeclG.Let(binding = { Value = TExprG.Var _ as value }) -> Some value
                         | _ -> None
                     )
 
@@ -292,15 +292,13 @@ let rowCopyTests =
                 let expected =
                     match original with
                     | TDeclG.Let(
-                        pattern = pattern
-                        value = TExprG.Tuple(items, ty, tok)
+                        binding = { Value = TExprG.Tuple(items, ty, tok) } as binding
                         isInline = isInline
-                        isRec = isRec
-                        ty = declTy) ->
+                        isRec = isRec) ->
                         let reversed =
                             TExprG.Tuple(items |> EqArray.toArray |> Array.rev |> EqArray.ofArray, ty, tok)
 
-                        TDeclG.Let(pattern, reversed, isInline, isRec, declTy)
+                        TDeclG.Let({ binding with Value = reversed }, isInline, isRec)
                     | _ -> failtest "the decl is not a `let` over a Tuple"
 
                 // The derived decl is a node like any other, reached by the id the copy returned.

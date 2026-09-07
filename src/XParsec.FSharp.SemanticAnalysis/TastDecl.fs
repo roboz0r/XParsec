@@ -436,7 +436,7 @@ type TTypeDeclG<'ty, 'tok, 'id, 'body> =
 type TDeclG<'ty, 'tok, 'id> =
     /// `isRec` is the source `rec` keyword: only a `let rec` value can reference the variable
     /// the pattern binds.
-    | Let of pattern: TPatG<'ty, 'tok, 'id> * value: TExprG<'ty, 'tok, 'id> * isInline: bool * isRec: bool * ty: 'ty
+    | Let of binding: TLetMemberG<'ty, 'tok, 'id> * isInline: bool * isRec: bool
     /// One lexical module-level `let rec … and …` group: `members` in source order, each in
     /// scope of every member's value, and `components` partitioning their indices. A group
     /// member is never `inline`.

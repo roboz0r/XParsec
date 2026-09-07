@@ -231,8 +231,8 @@ module InlineReduction =
         (args: TastWalk.AppArg list)
         : {| Body: TExpr; TypeArgs: SemType[] |} =
         match template.Decl with
-        | TDecl.Let(_, _, _, _, declTy) ->
-            let typeArgs = Inline.deriveInlineTypeArgs ctx.Store template.Typars declTy args
+        | TDecl.Let(binding = m) ->
+            let typeArgs = Inline.deriveInlineTypeArgs ctx.Store template.Typars m.Ty args
 
             let expanded, unresolved =
                 Inline.inlineExpand ctx template.Decl template.Typars typeArgs
@@ -265,7 +265,7 @@ module InlineReduction =
             | ValueSome ib ->
                 let bodyArity =
                     match ib.Decl with
-                    | TDecl.Let(_, value, _, _, _) -> Inline.lambdaArity value
+                    | TDecl.Let(binding = { Value = value }) -> Inline.lambdaArity value
                     | _ -> 0
 
                 min (SemTypeQuery.Funs.count ctx.Store refTy) bodyArity

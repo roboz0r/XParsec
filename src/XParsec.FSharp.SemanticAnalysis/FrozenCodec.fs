@@ -143,7 +143,6 @@ module FrozenCodec =
         writeArrayWith
             w
             (fun w (m: LetMemberShape) ->
-                writeTypeRef w m.Ty
                 writeAnchor w m.Tok
                 writeRecursion w m.Recursion
             )
@@ -156,15 +155,9 @@ module FrozenCodec =
             readArrayWith
                 r
                 (fun r ->
-                    let ty = readTypeRef r
                     let tok = readAnchor r
                     let recursion = readRecursion r
-
-                    {
-                        Ty = ty
-                        Tok = tok
-                        Recursion = recursion
-                    }
+                    { Tok = tok; Recursion = recursion }
                 )
 
         let components = readEqArrayWith r readSccComponent
@@ -487,7 +480,7 @@ module FrozenCodec =
             w.Write p.IsInline
             w.Write p.IsRec
             writeRecursion w p.Recursion
-            writeTypeRef w p.Ty
+            writeAnchor w p.Tok
         | DeclPayload.Expression ty ->
             w.Write 1uy
             writeTypeRef w ty
@@ -504,14 +497,14 @@ module FrozenCodec =
             let isInline = r.ReadBoolean()
             let isRec = r.ReadBoolean()
             let recursion = readRecursion r
-            let ty = readTypeRef r
+            let tok = readAnchor r
 
             DeclPayload.Let
                 {|
                     IsInline = isInline
                     IsRec = isRec
                     Recursion = recursion
-                    Ty = ty
+                    Tok = tok
                 |}
         | 1uy -> DeclPayload.Expression(readTypeRef r)
         | 2uy -> DeclPayload.Type(readTypeDecl r)
@@ -575,7 +568,7 @@ module FrozenCodec =
     /// The blob layout's version. Bump it with every change to a column, a payload or a
     /// table's encoding, so a blob of an older layout is refused rather than misread.
     [<Literal>]
-    let private FormatVersion = 10uy
+    let private FormatVersion = 11uy
 
     let private writePools (w: FrozenWriter) (p: FrozenPools) =
         w.Write FormatVersion

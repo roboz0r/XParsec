@@ -15,13 +15,21 @@ let private analyse (input: string) : PassContext * TastFile =
 /// The trailing `let`'s bound variable NodeKey (its declared/inferred query target).
 let private lastBoundVarKey (tast: TastFile) : NodeKey =
     match tast.Decls.[tast.Decls.Length - 1] with
-    | TDecl.Let(TPat.NamedSimple(k, _, _, _), _, _, _, _) -> k
+    | TDecl.Let({
+                    Pattern = TPat.NamedSimple(k, _, _, _)
+                },
+                _,
+                _) -> k
     | other -> failwithf "expected a trailing let-bound variable, got %A" other
 
 /// The trailing `let f <param> = …`'s single lambda-parameter NodeKey.
 let private lastParamKey (tast: TastFile) : NodeKey =
     match tast.Decls.[tast.Decls.Length - 1] with
-    | TDecl.Let(_, TExpr.Lambda(TPat.NamedSimple(k, _, _, _), _, _, _), _, _, _) -> k
+    | TDecl.Let({
+                    Value = TExpr.Lambda(TPat.NamedSimple(k, _, _, _), _, _, _)
+                },
+                _,
+                _) -> k
     | other -> failwithf "expected a trailing single-param function, got %A" other
 
 /// The bound variable's LIVE (un-zonked) type — the graph `HasInferenceHoleIn` must read.

@@ -45,14 +45,15 @@ module InlineBodies =
             let declTy = resultTy
             // `inlineExpand` reads only the value, so this bound variable is filler the decl's
             // shape requires, minted rather than taken from anything.
-            let decl =
-                TastAccessor.mintLetDecl
-                    (TastAccessor.mintNamedPat pool (TastPoolBuilder.mintBoundVar pool) declTy bodyTok)
-                    body
-                    true
-                    false
-                    Recursion.NonRecursive
-                    declTy
+            let binding: TastAccessor.LetMemberView =
+                {
+                    Pattern = TastAccessor.mintNamedPat pool (TastPoolBuilder.mintBoundVar pool) declTy bodyTok
+                    Value = body
+                    Tok = bodyTok
+                    Recursion = Recursion.NonRecursive
+                }
+
+            let decl = TastAccessor.mintLetDecl binding true false
 
             // One entry per curried position, so `this` takes a leading default. No member
             // param carries a decoded attribute today, so every entry is `ParamAttrs.Default`.

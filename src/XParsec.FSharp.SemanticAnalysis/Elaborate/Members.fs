@@ -41,7 +41,7 @@ module internal ElaborateMembers =
                 // yields no pair and so occupies no parameter slot.
                 | _ ->
                     match BoundVarKey.ofPat tp with
-                    | ValueSome boundVar -> yield (boundVar, TastWalk.patTy tp)
+                    | ValueSome boundVar -> yield (boundVar, TPatG.ty tp)
                     | ValueNone -> ()
             }
 

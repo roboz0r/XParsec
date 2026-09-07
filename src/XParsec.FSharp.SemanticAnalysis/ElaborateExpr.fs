@@ -751,7 +751,7 @@ module internal ElaborateExpr =
 
             match translateRecGroup ctx bindings translate with
             | RecGroup.Empty -> bodyT
-            | RecGroup.Single(m, _) -> TExpr.Let(m.Pattern, m.Value, bodyT, true, resultTy, m.Tok)
+            | RecGroup.Single(m, _) -> TExpr.Let(m, bodyT, true, resultTy)
             | RecGroup.Group(members, components) ->
                 TExpr.LetGroup(members, components, bodyT, resultTy, members.[0].Tok)
         else
@@ -776,19 +776,15 @@ module internal ElaborateExpr =
 
                             TExpr.Use(m.Pattern, m.Value, result, dispose, resultTy, m.Tok)
                         else
-                            TExpr.Let(m.Pattern, m.Value, result, false, resultTy, m.Tok)
+                            TExpr.Let(m, result, false, resultTy)
 
             result
 
-    /// One binding as a `let` member: its pattern, value, declared type and pattern anchor.
+    /// One binding as a `let` member: its pattern, value and pattern anchor.
     and translateLetMember (ctx: PassContext) (b: Binding<SyntaxToken>) : TLetMember =
-        let tpat = translateBindingPat ctx b
-        let valT = translateBinding ctx b
-
         {
-            Pattern = tpat
-            Value = valT
-            Ty = typeOfKey ctx (CstKeys.ofBinding b)
+            Pattern = translateBindingPat ctx b
+            Value = translateBinding ctx b
             Tok = CstKeys.firstTokenOfPat b.pattern
         }
 

@@ -198,7 +198,7 @@ let tests =
                         expansion.Decls
                         |> List.filter (fun d -> TastAccessor.declKind d = DeclShape.Let)
                     with
-                    | [ d ] -> (TastAccessor.declLet d).Value
+                    | [ d ] -> (TastAccessor.declLet d).Binding.Value
                     | ds -> failtestf "expected one `let` declaration, got %d" (List.length ds)
 
                 // The operator node as the EXPANSION left it: under every bound-variable `let`,

@@ -47,8 +47,8 @@ module Freeze =
     /// (# "[]" #)`), which carries no `inline` keyword but splices at every cross-file use.
     let private isInlineVocabulary (d: TDecl) : bool =
         match d with
-        | TDecl.Let(TPat.NamedSimple _, _, true, _, _) -> true
-        | TDecl.Let(TPat.NamedSimple _, _, false, _, _) -> (Inline.nullaryIntrinsicValueBody d).IsSome
+        | TastWalk.InlineTemplateDecl _ -> true
+        | TDecl.Let(binding = { Pattern = TPat.NamedSimple _ }) -> (Inline.nullaryIntrinsicValueBody d).IsSome
         | _ -> false
 
     /// Rewrite `Var` -> `External` + `SymbolKey` for every module-level sibling: a `Var` references
@@ -75,7 +75,7 @@ module Freeze =
         match d with
         // The decl's own bound variable is in scope in its body (a template may be recursive), so it
         // seeds the bound set.
-        | TDecl.Let(pat, value, _, _, _) ->
+        | TDecl.Let(binding = { Pattern = pat; Value = value }) ->
             let free = TastWalk.freeVars (TastWalk.boundVarsOfTPat pat) value
             let seen = HashSet<NodeKey>(HashIdentity.Structural)
             let sites = ResizeArray<NodeKey * SyntaxToken>()
@@ -139,7 +139,7 @@ module Freeze =
 
         for d in tast.Decls do
             match d with
-            | TDecl.Let(pattern, _, _, _, _) when isInlineVocabulary d ->
+            | TDecl.Let(binding = { Pattern = pattern }) when isInlineVocabulary d ->
                 match publishedInfo pattern with
                 | ValueSome(boundVar, info) ->
                     let k = BoundVarKey.identity boundVar

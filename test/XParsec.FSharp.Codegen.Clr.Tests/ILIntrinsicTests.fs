@@ -21,16 +21,21 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
                 match tast.Decls with
-                | EqList [ TDecl.Let(TPat.NamedSimple _,
-                                     TExpr.Lambda(_,
-                                                  TExpr.Lambda(_,
-                                                               TExpr.ILIntrinsic("ceq", _, args, TyConst(key, _), _),
-                                                               _,
-                                                               _),
-                                                  _,
-                                                  _),
+                | EqList [ TDecl.Let({
+                                         Pattern = TPat.NamedSimple _
+                                         Value = TExpr.Lambda(_,
+                                                              TExpr.Lambda(_,
+                                                                           TExpr.ILIntrinsic("ceq",
+                                                                                             _,
+                                                                                             args,
+                                                                                             TyConst(key, _),
+                                                                                             _),
+                                                                           _,
+                                                                           _),
+                                                              _,
+                                                              _)
+                                     },
                                      true,
-                                     _,
                                      _) ] when SymbolKeyOps.typeSimpleName key = DisplayName "bool" ->
                     match args with
                     | EqList [ TExpr.Var _; TExpr.Var _ ] -> ()

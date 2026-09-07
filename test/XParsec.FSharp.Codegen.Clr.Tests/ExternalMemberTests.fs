@@ -47,7 +47,7 @@ let private letValue (tast: TastFile) : TExpr option =
     EqArray.toList tast.Decls
     |> List.tryPick (
         function
-        | TDecl.Let(value = v) -> Some v
+        | TDecl.Let(binding = { Value = v }) -> Some v
         | _ -> None
     )
 
@@ -321,7 +321,7 @@ let tests =
 
                 let value =
                     match tast.Decls with
-                    | EqList [ TDecl.Let(value = v) ] -> v
+                    | EqList [ TDecl.Let(binding = { Value = v }) ] -> v
                     | _ -> failtestf "expected a single let binding, got %A" tast.Decls
 
                 match value with
@@ -362,7 +362,7 @@ let tests =
                     )
                     |> ValueOption.map (
                         function
-                        | TDecl.Let(value = v) -> v
+                        | TDecl.Let(binding = { Value = v }) -> v
                         | _ -> failwith "unreachable"
                     )
 
@@ -396,13 +396,18 @@ let tests =
 
                 match tast.Decls with
                 | EqList [ TDecl.Let(
-                               value = TExpr.ExternalMember(ValueNone,
-                                                            SymbolKey.Member { Decl = decl; Name = "Default" },
-                                                            _,
-                                                            _,
-                                                            _,
-                                                            _,
-                                                            _)) ] ->
+                               binding = {
+                                             Value = TExpr.ExternalMember(ValueNone,
+                                                                          SymbolKey.Member {
+                                                                                               Decl = decl
+                                                                                               Name = "Default"
+                                                                                           },
+                                                                          _,
+                                                                          _,
+                                                                          _,
+                                                                          _,
+                                                                          _)
+                                         }) ] ->
                     Expect.equal
                         decl
                         (SymbolKeyOps.typeKeyOfArity "System.Collections.Generic" "EqualityComparer" 1)
@@ -420,8 +425,8 @@ let tests =
                 Expect.isEmpty (errors tast) "System.Math.PI resolves against the metadata-backed contract"
 
                 match tast.Decls with
-                | EqList [ TDecl.Let(ty = ty) ] ->
-                    match Unification.zonk ctx.Store ty with
+                | EqList [ TDecl.Let(binding = m) ] ->
+                    match Unification.zonk ctx.Store m.Ty with
                     | TyConst(k, _) -> Expect.equal k RuntimeNames.floatKey "System.Math.PI is a float"
                     | other -> failtestf "expected `p` to type as float, got %A" other
                 | other -> failtestf "expected a single let binding, got %A" other
@@ -436,7 +441,10 @@ let tests =
                 Expect.isEmpty (errors tast) "System.Int32.MaxValue resolves"
 
                 match tast.Decls with
-                | EqList [ TDecl.Let(value = TExpr.Const(TConstValue.Integral(IntKind.Int32, bits), _, _)) ] ->
+                | EqList [ TDecl.Let(
+                               binding = {
+                                             Value = TExpr.Const(TConstValue.Integral(IntKind.Int32, bits), _, _)
+                                         }) ] ->
                     Expect.equal bits (int64 System.Int32.MaxValue) "the declared constant is substituted"
                 | other -> failtestf "expected `m` to elaborate to an Int32 constant, got %A" other
             }

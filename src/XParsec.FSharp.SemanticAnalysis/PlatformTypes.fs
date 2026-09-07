@@ -89,7 +89,7 @@ module PlatformTypes =
                     | _ -> true
             VisitPat =
                 fun _ p ->
-                    addUnsupported ctx acc (TastWalk.patTy p)
+                    addUnsupported ctx acc (TPatG.ty p)
                     true
         }
 
@@ -140,12 +140,9 @@ module PlatformTypes =
         let iter = buildIter ctx acc
 
         match d with
-        | TDecl.Let(binding, value, _, _, ty) ->
-            addUnsupported ctx acc ty
-            TastWalk.iterPat iter binding
-            TastWalk.iterExpr iter value
-        | TDecl.LetGroup(members, _) ->
-            for m in members do
+        | TDecl.Let _
+        | TDecl.LetGroup _ ->
+            for m in TastWalk.declBindings d do
                 addUnsupported ctx acc m.Ty
                 TastWalk.iterPat iter m.Pattern
                 TastWalk.iterExpr iter m.Value

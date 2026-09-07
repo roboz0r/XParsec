@@ -74,29 +74,29 @@ module TastNodeViews =
     [<Struct>]
     type LambdaView = { Param: PatId; Body: ExprId }
 
-    /// The scalar payload of a `Let` node. `Value`/`Body` are the two `exprChildren`
-    /// entries; `Pattern` is a pattern child. `IsRec` is the source `rec` keyword, distinct
-    /// from the analysed `Recursion`.
-    [<Struct>]
-    type LetView =
-        {
-            Pattern: PatId
-            Value: ExprId
-            Body: ExprId
-            IsRec: bool
-            Recursion: Recursion
-        }
-
-    /// One member of a `LetGroup` node: pattern child `i` and expr child `i`, with the
-    /// binding's declared type, its pattern's anchor and the analysed `Recursion`.
+    /// One `let` binding: its pattern child, its value expression, the binding's anchor
+    /// and the analysed `Recursion`.
     [<Struct>]
     type LetMemberView =
         {
             Pattern: PatId
             Value: ExprId
-            Ty: FrozenType
             Tok: Anchor
             Recursion: Recursion
+        }
+
+        /// The binding's type: its pattern's.
+        member m.Ty: FrozenType = TastPoolBuilder.patTy m.Pattern.Pool m.Pattern.Id
+
+    /// The scalar payload of a `Let` node. `Binding.Value` and `Body` are the two
+    /// `exprChildren` entries; `Binding.Pattern` is the sole pattern child. `IsRec` is the
+    /// source `rec` keyword, distinct from the analysed `Recursion`.
+    [<Struct>]
+    type LetView =
+        {
+            Binding: LetMemberView
+            Body: ExprId
+            IsRec: bool
         }
 
     /// The payload of a `LetGroup` node. `Body` is the last `exprChildren` entry.
@@ -298,18 +298,13 @@ module TastNodeViews =
     type EnumCasePatView = { EnumKey: TypeKey; CaseName: string }
 
     /// The payload of a `Let` decl. `IsInline` is whether the binding expands per call site;
-    /// `IsRec` is the source `rec` keyword, distinct from the analysed `Recursion`; `Ty` is
-    /// the binding's declared type, distinct from the type of `Value` for a destructuring
-    /// binding.
+    /// `IsRec` is the source `rec` keyword, distinct from the analysed `Recursion`.
     [<Struct>]
     type DeclLetView =
         {
-            Pattern: PatId
-            Value: ExprId
+            Binding: LetMemberView
             IsInline: bool
             IsRec: bool
-            Recursion: Recursion
-            Ty: FrozenType
         }
 
     /// The payload of a `LetGroup` decl.

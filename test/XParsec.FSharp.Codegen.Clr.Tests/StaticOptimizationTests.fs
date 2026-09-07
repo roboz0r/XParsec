@@ -31,19 +31,20 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
                 match tast.Decls with
-                | EqList [ TDecl.Let(TPat.NamedSimple _,
-                                     TExpr.Lambda(_,
-                                                  TExpr.StaticOptimization(clauses,
-                                                                           TExpr.Const(TConstValue.Integral(IntKind.Int32,
-                                                                                                            -1L),
-                                                                                       _,
+                | EqList [ TDecl.Let({
+                                         Pattern = TPat.NamedSimple _
+                                         Value = TExpr.Lambda(_,
+                                                              TExpr.StaticOptimization(clauses,
+                                                                                       TExpr.Const(TConstValue.Integral(IntKind.Int32,
+                                                                                                                        -1L),
+                                                                                                   _,
+                                                                                                   _),
+                                                                                       TyConst(key, _),
                                                                                        _),
-                                                                           TyConst(key, _),
-                                                                           _),
-                                                  _,
-                                                  _),
+                                                              _,
+                                                              _)
+                                     },
                                      true,
-                                     _,
                                      _) ] when SymbolKeyOps.typeSimpleName key = DisplayName "int" ->
                     match clauses with
                     | EqList [ {
@@ -68,10 +69,13 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
                 match tast.Decls with
-                | EqList [ TDecl.Let(_,
-                                     TExpr.Lambda(_, TExpr.StaticOptimization(EqList [ clause ], _, _, _), _, _),
+                | EqList [ TDecl.Let({
+                                         Value = TExpr.Lambda(_,
+                                                              TExpr.StaticOptimization(EqList [ clause ], _, _, _),
+                                                              _,
+                                                              _)
+                                     },
                                      true,
-                                     _,
                                      _) ] ->
                     match clause.Constraints with
                     | EqList [ TStaticOptConstraint.TyconEquals(TyTypar(axisA, iA), TyTypar(axisB, iB)) ] ->

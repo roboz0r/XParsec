@@ -43,7 +43,11 @@ let tests =
                     // `1 + 2` is matched as `_`: under the real `Vesper.Core` contract
                     // `(+)` inline-expands to an `ILIntrinsic "add"` over two synth lets.
                     match tast.Decls with
-                    | EqList [ TDecl.Let(TPat.NamedSimple(kx, _, _, _), _, false, _, _)
+                    | EqList [ TDecl.Let({
+                                             Pattern = TPat.NamedSimple(kx, _, _, _)
+                                         },
+                                         false,
+                                         _)
                                TDecl.Expression(TExpr.Format(FormatSink.ToStdOut true, segs, _, _), _) ] ->
                         match EqArray.toList segs with
                         | [ FormatSeg.Hole(hole, TExpr.Var(kxUse, _, _)) ] ->

@@ -126,9 +126,9 @@ module CompiledFns =
             for d in decls do
                 match d with
                 | TastAccessor.DLet lv ->
-                    match lv.Pattern with
+                    match lv.Binding.Pattern with
                     | TastAccessor.PNamed k ->
-                        match TastLower.peelValRepr lv.Value with
+                        match TastLower.peelValRepr lv.Binding.Value with
                         | (_ :: _ as groups), body ->
                             let resultTy = TastAccessor.exprTy body
 
@@ -141,7 +141,7 @@ module CompiledFns =
 
                             {
                                 Key = k
-                                Params = FlatParams.ofSegments (TastLower.compiledSegments lv.Value.Pool vr)
+                                Params = FlatParams.ofSegments (TastLower.compiledSegments lv.Binding.Value.Pool vr)
                                 Body = body
                                 ResultTy = resultTy
                                 ReturnsVoid = TastLower.isUnitFrozen resultTy

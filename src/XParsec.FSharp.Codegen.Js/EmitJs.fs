@@ -118,17 +118,18 @@ module EmitJs =
             | InlinableLet ctx reduced -> buildExpr ctx reduced
             | _ ->
                 let l = TastAccessor.exprLet e
+                let m = l.Binding
 
-                match l.Pattern with
+                match m.Pattern with
                 // A `let rec` binds as a `const` in a block body, which the value's own closure
                 // captures. An IIFE parameter is out of scope in the argument that fills it.
-                | TastAccessor.PNamed k when l.Recursion <> Recursion.NonRecursive ->
+                | TastAccessor.PNamed k when m.Recursion <> Recursion.NonRecursive ->
                     JsExpr.Call(
                         JsExpr.Arrow(
                             [],
                             JsFnBody.Block(
                                 [
-                                    localBinding ctx.Pool k (emitBound ctx k l.Recursion l.Value)
+                                    localBinding ctx.Pool k (emitBound ctx k m.Recursion m.Value)
                                     JsStatement.Return(buildExpr ctx l.Body)
                                 ]
                             ),
@@ -143,26 +144,26 @@ module EmitJs =
                 | TastAccessor.PNamedNaming naming ->
                     JsExpr.Call(
                         JsExpr.Arrow([ boundVarName naming ], JsFnBody.Expr(buildExpr ctx l.Body), ValueNone),
-                        [ buildExpr ctx l.Value ],
+                        [ buildExpr ctx m.Value ],
                         loc
                     )
 
                 | _ ->
-                    match TastAccessor.patKind l.Pattern with
+                    match TastAccessor.patKind m.Pattern with
                     // `let _ = value in body` keeps the value only for its effects: a pure value
                     // drops, else a comma sequence evaluates it then yields `body`.
-                    | PatShape.Wildcard when isPureValue l.Value -> buildExpr ctx l.Body
-                    | PatShape.Wildcard -> JsExpr.Sequence([ buildExpr ctx l.Value; buildExpr ctx l.Body ], loc)
+                    | PatShape.Wildcard when isPureValue m.Value -> buildExpr ctx l.Body
+                    | PatShape.Wildcard -> JsExpr.Sequence([ buildExpr ctx m.Value; buildExpr ctx l.Body ], loc)
                     // A destructuring `let (a, b) = value in body` — the same IIFE, its arrow
                     // parameter the array destructuring a tuple parameter already takes.
                     | PatShape.Tuple ->
                         JsExpr.Call(
                             JsExpr.Arrow(
-                                [ lambdaParamName ctx.Pool l.Pattern ],
+                                [ lambdaParamName ctx.Pool m.Pattern ],
                                 JsFnBody.Expr(buildExpr ctx l.Body),
                                 ValueNone
                             ),
-                            [ buildExpr ctx l.Value ],
+                            [ buildExpr ctx m.Value ],
                             loc
                         )
                     | _ -> failwithf "EmitJs: unsupported expression %A" e
@@ -657,17 +658,18 @@ module EmitJs =
                 :: buildMatchArms ctx (JsExpr.Identifier(mv, ValueNone)) (ArmExit.Trampolining(selfKey, ps)) m.Arms
             | ExprShape.Let ->
                 let l = TastAccessor.exprLet e
+                let m = l.Binding
 
-                match l.Pattern with
+                match m.Pattern with
                 | TastAccessor.PNamed k ->
-                    let binding = localBinding ctx.Pool k (emitBound ctx k l.Recursion l.Value)
+                    let binding = localBinding ctx.Pool k (emitBound ctx k m.Recursion m.Value)
 
                     binding :: recur l.Body
                 | _ ->
-                    match TastAccessor.patKind l.Pattern with
+                    match TastAccessor.patKind m.Pattern with
                     // `let _ = value in body` — the body stays in tail position.
-                    | PatShape.Wildcard when isPureValue l.Value -> recur l.Body
-                    | PatShape.Wildcard -> buildStatements ctx l.Value @ recur l.Body
+                    | PatShape.Wildcard when isPureValue m.Value -> recur l.Body
+                    | PatShape.Wildcard -> buildStatements ctx m.Value @ recur l.Body
                     | _ -> [ JsStatement.Return(buildExpr ctx e) ]
             | ExprShape.Sequential ->
                 let xs = TastAccessor.exprChildren e
@@ -719,18 +721,19 @@ module EmitJs =
                 ]
             | ExprShape.Let ->
                 let l = TastAccessor.exprLet e
+                let m = l.Binding
 
-                match l.Pattern with
+                match m.Pattern with
                 | TastAccessor.PNamed k ->
-                    let binding = localBinding ctx.Pool k (emitBound ctx k l.Recursion l.Value)
+                    let binding = localBinding ctx.Pool k (emitBound ctx k m.Recursion m.Value)
 
                     binding :: buildStatements ctx l.Body
                 | _ ->
-                    match TastAccessor.patKind l.Pattern with
+                    match TastAccessor.patKind m.Pattern with
                     // `let _ = value in body` — the discarded value emits as its own
                     // statement(s), for its effects, then the body.
-                    | PatShape.Wildcard when isPureValue l.Value -> buildStatements ctx l.Body
-                    | PatShape.Wildcard -> buildStatements ctx l.Value @ buildStatements ctx l.Body
+                    | PatShape.Wildcard when isPureValue m.Value -> buildStatements ctx l.Body
+                    | PatShape.Wildcard -> buildStatements ctx m.Value @ buildStatements ctx l.Body
                     | _ -> [ JsStatement.Expression(buildExpr ctx e) ]
             // `while cond do body` as a bare loop statement — no IIFE wrapper needed here.
             | ExprShape.While ->
@@ -915,7 +918,7 @@ module EmitJs =
             match TastAccessor.declKind d with
             | DeclShape.Type -> intrinsicBindings.ContainsKey (TastAccessor.declType d).TypeKey
             | DeclShape.Let ->
-                match (TastAccessor.declLet d).Pattern with
+                match (TastAccessor.declLet d).Binding.Pattern with
                 | TastAccessor.PNamed b ->
                     match moduleMembers.TryGetValue b with
                     | true, info -> EqSet.contains info.Key globals
@@ -1119,7 +1122,7 @@ module EmitJs =
                     match TastAccessor.declKind decl with
                     | DeclShape.Expression -> yield! buildStatements ctx (TastAccessor.declExpression decl)
                     | DeclShape.Let ->
-                        let dl = TastAccessor.declLet decl
+                        let dl = (TastAccessor.declLet decl).Binding
 
                         match dl.Pattern with
                         | TastAccessor.PNamed k ->

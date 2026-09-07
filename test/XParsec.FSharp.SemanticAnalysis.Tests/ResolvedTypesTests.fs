@@ -65,11 +65,13 @@ let tests =
                 let synthDecls =
                     [
                         TDecl.Let(
-                            TPat.NamedSimple(NodeKey(0UL), freeTy, dummyTok, false),
-                            TExpr.Const(TConstValue.Unit, freeTy, dummyTok),
+                            {
+                                Pattern = TPat.NamedSimple(NodeKey(0UL), freeTy, dummyTok, false)
+                                Value = TExpr.Const(TConstValue.Unit, freeTy, dummyTok)
+                                Tok = dummyTok
+                            },
                             false,
-                            false,
-                            freeTy
+                            false
                         )
                     ]
 
@@ -111,7 +113,11 @@ let tests =
 
                 let idKey =
                     match tast.Decls with
-                    | EqList [ TDecl.Let(TPat.NamedSimple(k, _, _, _), _, _, _, _) ] -> k
+                    | EqList [ TDecl.Let({
+                                             Pattern = TPat.NamedSimple(k, _, _, _)
+                                         },
+                                         _,
+                                         _) ] -> k
                     | _ -> failwithf "expected single NamedSimple decl, got %A" tast.Decls
 
                 let scheme = ctx.Bindings.Scheme.TryGetValue idKey
@@ -129,11 +135,13 @@ let tests =
                             EqArray.ofList
                                 [
                                     TDecl.Let(
-                                        TPat.NamedSimple(idKey, ty, dummyTok, false),
-                                        TExpr.Const(TConstValue.Unit, ty, dummyTok),
+                                        {
+                                            Pattern = TPat.NamedSimple(idKey, ty, dummyTok, false)
+                                            Value = TExpr.Const(TConstValue.Unit, ty, dummyTok)
+                                            Tok = dummyTok
+                                        },
                                         false,
-                                        false,
-                                        ty
+                                        false
                                     )
                                 ]
                         InlineBodies = EqArray.empty
@@ -207,7 +215,11 @@ let tests =
                         Pipeline.analyseSemFor testCompiling realProvider.Value (LexedFile.ofText lexed) file
 
                     match tast.Decls with
-                    | EqList [ TDecl.Let(TPat.NamedSimple(_, ty, _, _), _, _, _, _) ] -> ty
+                    | EqList [ TDecl.Let({
+                                             Pattern = TPat.NamedSimple(_, ty, _, _)
+                                         },
+                                         _,
+                                         _) ] -> ty
                     | other -> failwithf "expected a single annotated let, got %A" other
 
                 Expect.equal

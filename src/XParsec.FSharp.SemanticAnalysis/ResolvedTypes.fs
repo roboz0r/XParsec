@@ -50,12 +50,12 @@ module ResolvedTypes =
         for tv in added do
             allowed.Remove tv |> ignore
 
-    /// Run `walkMember` over every member of a `LetGroup` with every member's quantified
+    /// Run `walkMember` over every member of a binding group with every member's quantified
     /// roots allowed, because a member references its siblings.
     let private walkGroupMembers
         (ctx: PassContext)
         (allowed: HashSet<TyVarId>)
-        (members: EqArray<TLetMember>)
+        (members: TLetMember seq)
         (walkMember: TLetMember -> unit)
         : unit =
         let added = ResizeArray<TyVarId>()
@@ -77,12 +77,12 @@ module ResolvedTypes =
                     addFreeRoots ctx.Store allowed acc (TastWalk.exprTy e)
 
                     match e with
-                    | TExpr.Let(binding, value, body, _, _, _) ->
+                    | TExpr.Let(binding = m; body = body) ->
                         // The inner let's quantified roots are allowed in its value RHS and
                         // binding pattern only; popped before the body's check.
-                        let added = pushScheme ctx binding allowed
-                        TastWalk.iterPat it binding
-                        TastWalk.iterExpr it value
+                        let added = pushScheme ctx m.Pattern allowed
+                        TastWalk.iterPat it m.Pattern
+                        TastWalk.iterExpr it m.Value
                         popScheme allowed added
                         TastWalk.iterExpr it body
                         false
@@ -125,7 +125,7 @@ module ResolvedTypes =
                     | _ -> true
             VisitPat =
                 fun _ p ->
-                    addFreeRoots ctx.Store allowed acc (TastWalk.patTy p)
+                    addFreeRoots ctx.Store allowed acc (TPatG.ty p)
                     true
         }
 
@@ -137,27 +137,21 @@ module ResolvedTypes =
             | struct (_, tok) :: _ -> Site.ofToken tok
             | [] -> Site.Nowhere
 
-        match d with
-        | TDecl.Let(binding, _, _, _, _) -> firstNamed binding
-        | TDecl.LetGroup(members, _) -> firstNamed members.[0].Pattern
-        | _ -> Site.Nowhere
+        match TastWalk.declBindings d with
+        | m :: _ -> firstNamed m.Pattern
+        | [] -> Site.Nowhere
 
     let private walkDecl (ctx: PassContext) (allowed: HashSet<TyVarId>) (d: TDecl) : unit =
         let acc = HashSet<TyVarId>()
         let iter = buildIter ctx allowed acc
 
         match d with
-        | TDecl.Let(binding, value, _, _, ty) ->
-            let added = pushScheme ctx binding allowed
-            addFreeRoots ctx.Store allowed acc ty
-            TastWalk.iterPat iter binding
-            TastWalk.iterExpr iter value
-            popScheme allowed added
-        | TDecl.LetGroup(members, _) ->
+        | TDecl.Let _
+        | TDecl.LetGroup _ ->
             walkGroupMembers
                 ctx
                 allowed
-                members
+                (TastWalk.declBindings d)
                 (fun m ->
                     addFreeRoots ctx.Store allowed acc m.Ty
                     TastWalk.iterPat iter m.Pattern

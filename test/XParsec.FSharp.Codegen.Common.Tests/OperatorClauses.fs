@@ -32,7 +32,7 @@ module InlineBodies =
             | _ -> ()
 
         match body.Decl with
-        | TDeclG.Let(_, v, _, _, _) -> walkExpr v
+        | TDeclG.Let(binding = { Value = v }) -> walkExpr v
         | _ -> ()
 
         List.ofSeq acc

@@ -185,12 +185,12 @@ module InlineExpand =
 
         match reduced with
         | TastAccessor.ELet l ->
-            match l.Pattern with
+            match l.Binding.Pattern with
             | TastAccessor.PNamed k when
                 not (TastPoolBuilder.boundVarIsMutable reduced.Pool k)
-                && substitutable k l.Value l.Body
+                && substitutable k l.Binding.Value l.Body
                 ->
-                substituteVar d k l.Value l.Body
+                substituteVar d k l.Binding.Value l.Body
             | _ -> reduced
         | _ -> reduced
 

@@ -133,7 +133,7 @@ let private frozenLetDecl (src: string) : Wire.TDecl =
     pools.Roots
     |> Seq.tryPick (fun r ->
         match TastPoolBuilder.declTree pool r with
-        | TDeclG.Let(TPatG.NamedSimple _, _, _, _, _) as d -> Some d
+        | TDeclG.Let({ Pattern = TPatG.NamedSimple _ }, _, _) as d -> Some d
         | _ -> None
     )
     |> Option.defaultWith (fun () -> failtestf "no top-level `let` in the frozen tree of:\n%s" src)
@@ -228,7 +228,7 @@ let private publishing (unitASource: string) : IExternalSymbolProvider =
             for (key, body) in published do
                 let declTy =
                     match body.Decl with
-                    | TDeclG.Let(_, _, _, _, ty) -> ty
+                    | TDeclG.Let(m, _, _) -> m.Ty
                     | other -> failtestf "a published body is not a `let`: %A" other
 
                 let binding =
@@ -268,12 +268,12 @@ let private resolvedConst (provider: IExternalSymbolProvider) (src: string) : in
         match e with
         | TExprG.InlineCall(spec = SpecializationId i) -> result tast.Specializations.[i].Value
         | TExprG.Lambda(_, body, _, _)
-        | TExprG.Let(_, _, body, _, _, _) -> result body
+        | TExprG.Let(_, body, _, _) -> result body
         | TExprG.Const(TConstValue.Integral(_, v), _, _) -> v
         | other -> failtestf "expected `r` to reduce to a resolved constant, got %A" other
 
     match EqArray.tryLast tast.Decls with
-    | ValueSome(TDeclG.Let(_, value, _, _, _)) -> result value
+    | ValueSome(TDeclG.Let({ Value = value }, _, _)) -> result value
     | _ -> failtestf "expected a trailing `let r = …`, got %A" (EqArray.toList tast.Decls)
 
 [<Tests>]
@@ -342,8 +342,11 @@ let tests =
 
                 let clauses, resultTy =
                     match published.Body.Decl with
-                    | TDeclG.Let(_, TExprG.Lambda(_, TExprG.StaticOptimization(cls, _, resultTy, _), _, _), _, _, _) ->
-                        EqArray.toList cls, resultTy
+                    | TDeclG.Let({
+                                     Value = TExprG.Lambda(_, TExprG.StaticOptimization(cls, _, resultTy, _), _, _)
+                                 },
+                                 _,
+                                 _) -> EqArray.toList cls, resultTy
                     | other -> failtestf "freeze lost the static-opt shape: %A" other
 
                 Expect.equal clauses.Length 3 "all three when-clauses survive freeze"
@@ -375,7 +378,7 @@ let tests =
 
                 let declTy =
                     match fDecl with
-                    | TDeclG.Let(_, _, _, _, ty) -> ty
+                    | TDeclG.Let(m, _, _) -> m.Ty
                     | _ -> failtest "unreachable"
 
                 // `g`'s `'x` and `h`'s `'y` are each bound by their OWN local scheme, so

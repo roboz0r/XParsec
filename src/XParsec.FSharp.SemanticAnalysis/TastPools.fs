@@ -47,7 +47,7 @@ module TastPools =
 
         sink.AddPat
             {
-                Ty = TastWalk.patTy p
+                Ty = TPatG.ty p
                 Tok = sink.Anchor(TastWalk.patTok p)
                 Children = kids
                 Payload = patPayload boundVar p
@@ -150,8 +150,10 @@ module TastPools =
 
         let struct (exprKids, payload) =
             match e with
-            | TExprG.Let(pattern = pattern; value = value; body = body; isRec = isRec) ->
-                let struct (valueId, recursion) = poolLetValue sink frames pattern isRec value
+            | TExprG.Let(binding = binding; body = body; isRec = isRec) ->
+                let struct (valueId, recursion) =
+                    poolLetValue sink frames binding.Pattern isRec binding.Value
+
                 let bodyId = poolExprIn sink frames (childPos true) body
                 struct ([| valueId; bodyId |], ExprPayload.Let(isRec, recursion))
             | TExprG.LetGroup(members = members; components = components; body = body) ->
@@ -253,7 +255,6 @@ module TastPools =
                         members.Length
                         (fun i ->
                             {
-                                Ty = members.[i].Ty
                                 Tok = sink.Anchor members.[i].Tok
                                 Recursion = recursions.[i]
                             }
@@ -272,8 +273,9 @@ module TastPools =
     let poolDecl (sink: IPoolSink<'tok, 'id>) (d: TDeclG<FrozenType, 'tok, 'id>) : DeclPoolId =
         let struct (exprKids, patKids, payload) =
             match d with
-            | TDeclG.Let(pattern = pattern; value = value; isInline = isInline; isRec = isRec; ty = ty) ->
-                let struct (valueId, recursion) = poolLetValue sink [] pattern isRec value
+            | TDeclG.Let(binding = binding; isInline = isInline; isRec = isRec) ->
+                let struct (valueId, recursion) =
+                    poolLetValue sink [] binding.Pattern isRec binding.Value
 
                 let payload =
                     DeclPayload.Let
@@ -281,10 +283,10 @@ module TastPools =
                             IsInline = isInline
                             IsRec = isRec
                             Recursion = recursion
-                            Ty = ty
+                            Tok = sink.Anchor binding.Tok
                         |}
 
-                struct ([| valueId |], [| poolPat sink pattern |], payload)
+                struct ([| valueId |], [| poolPat sink binding.Pattern |], payload)
             | TDeclG.LetGroup(members = members; components = components) ->
                 let struct (valueIds, shape) = poolLetGroup sink [] members components
 

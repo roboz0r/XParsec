@@ -361,7 +361,7 @@ let tests =
                     (expanded.Decls
                      |> List.collect (fun (d, _) ->
                          match d with
-                         | TDecl.Let(_, value, _, _, _) -> InlineSpecTable.edges value
+                         | TDecl.Let({ Value = value }, _, _) -> InlineSpecTable.edges value
                          | _ -> []
                      ))
                     "the declarations keep their edges, since nothing may walk a cyclic table"
@@ -759,7 +759,7 @@ let tests =
                     [
                         for (d, _) in expanded.Decls do
                             match d with
-                            | TDecl.Let(_, value, _, _, _) ->
+                            | TDecl.Let({ Value = value }, _, _) ->
                                 yield!
                                     value
                                     |> TastWalk.chooseExpr (fun e ->

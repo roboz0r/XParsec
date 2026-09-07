@@ -164,7 +164,7 @@ module ModuleClassPlan =
                 | DeclShape.Expression -> seenMainCode <- true
                 | DeclShape.Let ->
                     // Any pattern but a simple named bound variable yields `ValueNone`.
-                    match TastAccessor.patBoundVar (TastAccessor.declLet d).Pattern with
+                    match TastAccessor.patBoundVar (TastAccessor.declLet d).Binding.Pattern with
                     | ValueSome k ->
                         match programByKey.TryGetValue k with
                         | true, mv -> (if seenMainCode then main else cctor).Add mv

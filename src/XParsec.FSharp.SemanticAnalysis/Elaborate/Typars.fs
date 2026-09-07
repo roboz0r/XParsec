@@ -208,20 +208,18 @@ module internal ElaborateTypars =
     let freezeTypars (store: TypeStore) (env: DeclEnv) (d: TDecl) : TDecl =
         let f = remapDeclTypars store env.All
 
+        let freezeMember (m: TLetMember) (env: (TyVarId * SemType) list) : TLetMember =
+            let f = remapDeclTypars store env
+
+            {
+                Pattern = freezeTyparsPat store env m.Pattern
+                Value = mapExprTypes f m.Value
+                Tok = m.Tok
+            }
+
         match d, env with
-        | TDecl.Let(binding, value, isInline, isRec, ty), _ ->
-            TDecl.Let(freezeTyparsPat store env.All binding, mapExprTypes f value, isInline, isRec, f ty)
+        | TDecl.Let(binding, isInline, isRec), _ -> TDecl.Let(freezeMember binding env.All, isInline, isRec)
         | TDecl.LetGroup(members, components), DeclEnv.PerMember envs ->
-            let freezeMember (m: TLetMember) (env: (TyVarId * SemType) list) : TLetMember =
-                let f = remapDeclTypars store env
-
-                {
-                    Pattern = freezeTyparsPat store env m.Pattern
-                    Value = mapExprTypes f m.Value
-                    Ty = f m.Ty
-                    Tok = m.Tok
-                }
-
             TDecl.LetGroup(EqArray.map2 freezeMember members envs, components)
         | TDecl.LetGroup(members, _), DeclEnv.One _ ->
             failwithf

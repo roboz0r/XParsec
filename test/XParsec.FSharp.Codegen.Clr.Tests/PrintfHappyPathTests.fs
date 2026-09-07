@@ -764,7 +764,7 @@ let tests =
             // the sink carries. Pins the hole's TYPE and the `unit` result of the write.
             test "fully-applied `fprintf` on an annotated TextWriter param lowers to a writer-sink Format" {
                 match soleDecl "let f (w: System.IO.TextWriter) = fprintf w \"%d\" 42" with
-                | TDecl.Let(_, TExpr.Lambda(_, body, _, _), _, _, _) ->
+                | TDecl.Let({ Value = TExpr.Lambda(_, body, _, _) }, _, _) ->
                     match body with
                     | TExpr.Format(FormatSink.ToWriter(_, false), segs, ty, _) ->
                         Expect.equal ty BuiltinTypes.tyUnit "fprintf result is unit"
@@ -779,8 +779,11 @@ let tests =
 
             test "fully-applied `fprintfn` on an annotated TextWriter param lowers to a newline writer-sink Format" {
                 match soleDecl "let f (w: System.IO.TextWriter) = fprintfn w \"%d\" 42" with
-                | TDecl.Let(_, TExpr.Lambda(_, TExpr.Format(FormatSink.ToWriter(_, true), _, _, _), _, _), _, _, _) ->
-                    ()
+                | TDecl.Let({
+                                Value = TExpr.Lambda(_, TExpr.Format(FormatSink.ToWriter(_, true), _, _, _), _, _)
+                            },
+                            _,
+                            _) -> ()
                 | other -> failtestf "expected a newline ToWriter Format body, got: %A" other
             }
 
@@ -823,7 +826,7 @@ let tests =
             // `System.Text.StringBuilder` must resolve to the class the builder sink carries.
             test "fully-applied `bprintf` on an annotated StringBuilder param lowers to a builder-sink Format" {
                 match soleDecl "let f (sb: System.Text.StringBuilder) = bprintf sb \"%d\" 42" with
-                | TDecl.Let(_, TExpr.Lambda(_, body, _, _), _, _, _) ->
+                | TDecl.Let({ Value = TExpr.Lambda(_, body, _, _) }, _, _) ->
                     match body with
                     | TExpr.Format(FormatSink.ToBuilder _, segs, ty, _) ->
                         Expect.equal ty BuiltinTypes.tyUnit "bprintf result is unit"

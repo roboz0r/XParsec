@@ -130,7 +130,7 @@ let frozenLetTy (file: Pooled.TastFile) : FrozenType =
     |> List.tryPick (fun d ->
         match d with
         // `let f x = …` and `let v = …` both freeze to `Let`.
-        | TDeclG.Let(ty = ty) -> Some ty
+        | TDeclG.Let(binding = m) -> Some m.Ty
         | _ -> None
     )
     |> Option.defaultWith (fun () -> failtest "expected a frozen `let` decl")

@@ -419,9 +419,7 @@ module TastLower =
         // A module-level group's members are independent module bindings: each emits as a
         // module function or value of its own, in source order, keeping its `Recursion`.
         let memberDecls (members: TastAccessor.LetMemberView[]) : TastAccessor.DeclId list =
-            [
-                for m in members -> TastAccessor.mintLetDecl m.Pattern m.Value false true m.Recursion m.Ty
-            ]
+            [ for m in members -> TastAccessor.mintLetDecl m false true ]
 
         // Consecutive top-level statements/lets arrive as ONE `TDecl.Expression` over a
         // `Sequential` / `let … in …` chain; peeling it makes each trailing `let` its own
@@ -435,9 +433,7 @@ module TastLower =
                 ]
             | ExprShape.Let ->
                 let l = TastAccessor.exprLet e
-
-                TastAccessor.mintLetDecl l.Pattern l.Value false l.IsRec l.Recursion (TastAccessor.exprTy l.Value)
-                :: flattenTopLevel l.Body
+                TastAccessor.mintLetDecl l.Binding false l.IsRec :: flattenTopLevel l.Body
             | ExprShape.LetGroup ->
                 let g = TastAccessor.exprLetGroup e
 
@@ -467,7 +463,12 @@ module TastLower =
             | DeclShape.Let ->
                 let lv = TastAccessor.declLet d
 
-                if not (lv.IsInline && (hasTraitCall lv.Value || isBareTemplateValue lv.Value)) then
+                if
+                    not (
+                        lv.IsInline
+                        && (hasTraitCall lv.Binding.Value || isBareTemplateValue lv.Binding.Value)
+                    )
+                then
                     result.Add d
             // A group member is never `inline`, so every member emits.
             | DeclShape.LetGroup -> result.AddRange(memberDecls (TastAccessor.declLetGroup d).Members)

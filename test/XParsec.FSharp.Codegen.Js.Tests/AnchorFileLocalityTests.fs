@@ -65,7 +65,7 @@ let private checkAnchors (what: string) (input: string) =
         |> ignore
 
         match d with
-        | TastAccessor.DLet l -> checkPat l.Pattern
+        | TastAccessor.DLet l -> checkPat l.Binding.Pattern
         | TastAccessor.DLetGroup g ->
             for m in g.Members do
                 checkPat m.Pattern

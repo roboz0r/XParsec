@@ -12,7 +12,7 @@ let private soleFrozenLetType (frozen: FrozenPools) : FrozenType =
         (TastUnpool.ofPools frozen).Decls
         |> Seq.choose (
             function
-            | TDeclG.Let(ty = ty) -> Some ty
+            | TDeclG.Let(binding = m) -> Some m.Ty
             | _ -> None
         )
         |> List.ofSeq
@@ -98,7 +98,7 @@ let private lastLetTypeClaim (units: SourceUnit list) : string * int =
             [
                 for d in (TastUnpool.ofPools u.File.Frozen).Decls do
                     match d with
-                    | TDeclG.Let(ty = ty) -> ty
+                    | TDeclG.Let(binding = m) -> m.Ty
                     | _ -> ()
             ]
 

@@ -91,7 +91,7 @@ let private soleLetArg (tast: TastFile) : SemType =
         [
             for d in tast.Decls do
                 match d with
-                | TDecl.Let(ty = ty) -> yield ty
+                | TDecl.Let(binding = m) -> yield m.Ty
                 | _ -> ()
         ]
 

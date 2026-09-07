@@ -27,7 +27,7 @@ let private firstDecl (input: string) : TDecl =
 
 let private declType (tast: TastFile) : SemType =
     match tast.Decls with
-    | EqList [ TDecl.Let(_, _, _, _, ty) ] -> ty
+    | EqList [ TDecl.Let(m, _, _) ] -> m.Ty
     | _ -> failwithf "expected single TDecl.Let, got %A" tast.Decls
 
 /// The template as a CONSUMER receives it: published into the file's inline vocabulary, then
@@ -166,13 +166,13 @@ let tests =
 
             test "`let inline` sets isInline on the TDecl.Let" {
                 match firstDecl "let inline succ x = x + 1" with
-                | TDecl.Let(_, _, true, _, _) -> ()
+                | TDecl.Let(_, true, _) -> ()
                 | other -> failtestf "expected inline TDecl.Let, got %A" other
             }
 
             test "a plain `let` leaves isInline clear" {
                 match firstDecl "let succ x = x + 1" with
-                | TDecl.Let(_, _, false, _, _) -> ()
+                | TDecl.Let(_, false, _) -> ()
                 | other -> failtestf "expected non-inline TDecl.Let, got %A" other
             }
 
@@ -210,7 +210,7 @@ let tests =
 
                 let body =
                     match decl with
-                    | TDecl.Let(_, v, _, _, _) -> v
+                    | TDecl.Let({ Value = v }, _, _) -> v
                     | other -> failtestf "unexpected %A" other
 
                 let expanded, unresolved = Inline.inlineExpand ctx0 decl [||] [||]
@@ -249,8 +249,13 @@ let tests =
 
                 // …the decl's own type must still carry a free typar so a
                 // second call-site can instantiate it independently.
-                match template.Decl with
-                | TDecl.Let(_, _, _, _, TyFun(TyVar a, TyVar b)) ->
+                let declTy =
+                    match template.Decl with
+                    | TDecl.Let(m, _, _) -> m.Ty
+                    | other -> failtestf "unexpected %A" other
+
+                match declTy with
+                | TyFun(TyVar a, TyVar b) ->
                     Expect.equal a b "`id : 'a -> 'a` still stands on one free root after expansion"
 
                     let again, _ =
@@ -282,11 +287,12 @@ let tests =
 
                 let edge =
                     match tast.Decls with
-                    | EqList [ TDecl.Let(TPat.NamedSimple _,
-                                         TExpr.Lambda _,
+                    | EqList [ TDecl.Let({
+                                             Pattern = TPat.NamedSimple(_, TyFun(TyConst(k1, _), TyConst(k2, _)), _, _)
+                                             Value = TExpr.Lambda _
+                                         },
                                          true,
-                                         _,
-                                         TyFun(TyConst(k1, _), TyConst(k2, _)))
+                                         _)
                                TDecl.Expression(e, _) ] when
                         SymbolKeyOps.typeSimpleName k1 = DisplayName "int"
                         && SymbolKeyOps.typeSimpleName k2 = DisplayName "int"
@@ -355,7 +361,7 @@ let tests =
             test "freshen renames bound variables and rewires their references" {
                 let body =
                     match firstDecl "let inline succ x = x + 1" with
-                    | TDecl.Let(_, v, _, _, _) -> v
+                    | TDecl.Let({ Value = v }, _, _) -> v
                     | other -> failtestf "unexpected %A" other
 
                 let kb0, kv0 = succBoundVarAndVar body
@@ -386,16 +392,24 @@ let tests =
 
                 let body =
                     TExpr.Let(
-                        TPat.NamedSimple(boundKey, tyInt, dummyTok, false),
-                        TExpr.Var(freeKey, tyInt, dummyTok),
+                        {
+                            Pattern = TPat.NamedSimple(boundKey, tyInt, dummyTok, false)
+                            Value = TExpr.Var(freeKey, tyInt, dummyTok)
+                            Tok = dummyTok
+                        },
                         TExpr.Var(boundKey, tyInt, dummyTok),
                         false,
-                        tyInt,
-                        dummyTok
+                        tyInt
                     )
 
                 match Inline.freshen (sharedMinter ()) body with
-                | TExpr.Let(TPat.NamedSimple(kb, _, _, _), TExpr.Var(kFree, _, _), TExpr.Var(kRef, _, _), _, _, _) ->
+                | TExpr.Let({
+                                Pattern = TPat.NamedSimple(kb, _, _, _)
+                                Value = TExpr.Var(kFree, _, _)
+                            },
+                            TExpr.Var(kRef, _, _),
+                            _,
+                            _) ->
                     Expect.equal kFree freeKey "free Var passes through unchanged"
                     Expect.notEqual kb boundKey "the bound name is freshened"
                     Expect.equal kRef kb "the bound reference follows the fresh bound variable"
@@ -460,7 +474,7 @@ let tests =
                 // `ModuleBindingInfo` mints — the same one the rewrite must have baked in.
                 let kBoundVar =
                     match sem.Decls.[0] with
-                    | TDecl.Let(pattern, _, _, _, _) ->
+                    | TDecl.Let({ Pattern = pattern }, _, _) ->
                         match BoundVarKey.ofPat pattern with
                         | ValueSome b -> b
                         | ValueNone -> failtest "expected `let k` to introduce a bound variable"
@@ -496,7 +510,7 @@ let tests =
                     }
 
                 match body with
-                | TDecl.Let(_, v, _, _, _) -> TastWalk.iterExpr collect v
+                | TDecl.Let({ Value = v }, _, _) -> TastWalk.iterExpr collect v
                 | other -> failtestf "unexpected published decl %A" other
 
                 Expect.contains refs expected "the sibling reference is an External carrying `k`'s SymbolKey"
@@ -524,7 +538,7 @@ let tests =
 
                 let kKey =
                     match sem.Decls.[0] with
-                    | TDecl.Let(pattern, _, _, _, _) ->
+                    | TDecl.Let({ Pattern = pattern }, _, _) ->
                         match BoundVarKey.ofPat pattern with
                         | ValueSome b ->
                             match Map.tryFind b sem.ModuleMembers with
@@ -561,7 +575,7 @@ let tests =
                     | other -> failtestf "expected exactly one published body, got %d" (List.length other)
 
                 match body with
-                | TDecl.Let(_, value, _, _, _) -> TastWalk.iterExpr collect value
+                | TDecl.Let({ Value = value }, _, _) -> TastWalk.iterExpr collect value
                 | other -> failtestf "unexpected published decl %A" other
 
                 Expect.contains refs kKey "the top-level sibling reference carries its SymbolKey"

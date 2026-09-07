@@ -35,12 +35,13 @@ let tests =
                 // `InlineCall` keeps the operand on the call node and the entry abstracts
                 // over it, so one entry serves every call site at this grounding.
                 match EqArray.toList tast.Decls with
-                | [ TDecl.Let(TPat.NamedSimple _,
-                              TExpr.InlineCall(
-                                  spec = spec
-                                  args = EqList [ TExpr.Const(TConstValue.Integral(IntKind.Int32, 5L), _, _) ]),
+                | [ TDecl.Let({
+                                  Pattern = TPat.NamedSimple _
+                                  Value = TExpr.InlineCall(
+                                      spec = spec
+                                      args = EqList [ TExpr.Const(TConstValue.Integral(IntKind.Int32, 5L), _, _) ])
+                              },
                               false,
-                              _,
                               _) ] ->
                     match specializationValue tast spec with
                     | TExpr.Lambda(_,

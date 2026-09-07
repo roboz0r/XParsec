@@ -220,7 +220,7 @@ module Elaborate =
         if elided then ValueNone else ValueSome(m, quantEnv)
 
     let private moduleLetDecl (isRec: bool) (b: Binding<SyntaxToken>) (m: TLetMember) : TDecl =
-        TDecl.Let(m.Pattern, m.Value, b.inlineToken.IsSome, isRec, m.Ty)
+        TDecl.Let(m, b.inlineToken.IsSome, isRec)
 
     /// A module-level `let rec` group as one `LetGroup` over its surviving members, with the
     /// recorded components restricted to them. A group left with one member is a `Let`.
@@ -288,8 +288,7 @@ module Elaborate =
             // `^T` template.
             for (d, env) in elaborated do
                 match d with
-                | TDecl.Let(TPat.NamedSimple(k, _, _, _), _, true, _, _) ->
-                    ctx.InlineTemplates.[k] <- freezeTypars ctx.Store env d
+                | TastWalk.InlineTemplateDecl(k, _) -> ctx.InlineTemplates.[k] <- freezeTypars ctx.Store env d
                 | _ -> ()
 
             let expanded = InlineExpansion.run ctx elaborated

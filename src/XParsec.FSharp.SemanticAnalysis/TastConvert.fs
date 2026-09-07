@@ -84,7 +84,7 @@ module TastConvert =
         | TExprG.Null(ty, tok) -> TExprG.Null(f ty, tk tok)
         | TExprG.Lambda(p, b, ty, tok) -> TExprG.Lambda(pp p, pe b, f ty, tk tok)
         | TExprG.App(fn, a, ty, tok) -> TExprG.App(pe fn, pe a, f ty, tk tok)
-        | TExprG.Let(p, v, body, isRec, ty, tok) -> TExprG.Let(pp p, pe v, pe body, isRec, f ty, tk tok)
+        | TExprG.Let(m, body, isRec, ty) -> TExprG.Let(letMember f fTok m, pe body, isRec, f ty)
         | TExprG.LetGroup(members, components, body, ty, tok) ->
             TExprG.LetGroup(EqArray.map (letMember f fTok) members, components, pe body, f ty, tk tok)
         | TExprG.Use(p, v, body, dispose, ty, tok) -> TExprG.Use(pp p, pe v, pe body, dispose, f ty, tk tok)
@@ -190,7 +190,6 @@ module TastConvert =
         {
             Pattern = pat f fTok m.Pattern
             Value = expr f fTok m.Value
-            Ty = f m.Ty
             Tok = fTok m.Tok
         }
 
@@ -375,8 +374,7 @@ module TastConvert =
 
     let decl (f: 'a -> 'b) (fTok: 'ta -> 'tb) (d: TDeclG<'a, 'ta, 'id>) : TDeclG<'b, 'tb, 'id> =
         match d with
-        | TDeclG.Let(binding, value, isInline, isRec, ty) ->
-            TDeclG.Let(pat f fTok binding, expr f fTok value, isInline, isRec, f ty)
+        | TDeclG.Let(binding, isInline, isRec) -> TDeclG.Let(letMember f fTok binding, isInline, isRec)
         | TDeclG.LetGroup(members, components) -> TDeclG.LetGroup(EqArray.map (letMember f fTok) members, components)
         | TDeclG.Expression(e, ty) -> TDeclG.Expression(expr f fTok e, f ty)
         // A tree-shaped rebuild leaves the identity axis alone: the key slots stay in the

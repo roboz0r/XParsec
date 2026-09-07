@@ -29,8 +29,8 @@ module TastPoolShapes =
         | TExprG.App(fn = fn; arg = arg) ->
             add fn
             add arg
-        | TExprG.Let(value = value; body = body) ->
-            add value
+        | TExprG.Let(binding = b; body = body) ->
+            add b.Value
             addTail body
         | TExprG.LetGroup(members = members; body = body) ->
             for m in members do
@@ -222,7 +222,7 @@ module TastPoolShapes =
         | TExprG.InlineCall _
         | TExprG.CallerExpr _ -> ()
         | TExprG.Lambda(param = param) -> acc.Add param
-        | TExprG.Let(pattern = pattern) -> acc.Add pattern
+        | TExprG.Let(binding = b) -> acc.Add b.Pattern
         | TExprG.LetGroup(members = members) ->
             for m in members do
                 acc.Add m.Pattern
@@ -302,7 +302,6 @@ module TastPoolShapes =
                         |> EqArray.toArray
                         |> Array.map (fun m ->
                             {
-                                Ty = m.Ty
                                 Tok = anchor m.Tok
                                 Recursion = Recursion.NonRecursive
                             }

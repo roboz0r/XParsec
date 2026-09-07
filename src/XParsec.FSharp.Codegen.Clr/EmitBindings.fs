@@ -48,22 +48,23 @@ module EmitBindings =
 
     let buildLet (recur: RecurAt) (pos: ExprPos) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         let view = TastAccessor.exprLet e
+        let m = view.Binding
 
-        match TastAccessor.patBoundVar view.Pattern with
+        match TastAccessor.patBoundVar m.Pattern with
         | ValueSome boundVar ->
             // A simple `let x = value in body` bound variable: park the value in `x`'s slot.
-            let slot = b.Local(TastAccessor.patTy view.Pattern)
+            let slot = b.Local m.Ty
             env.Slots.[boundVar] <- slot
-            recur ExprPos.Value env b view.Value
+            recur ExprPos.Value env b m.Value
             b.Add(ILInstr.Stloc slot)
             recur pos env b view.Body
         | ValueNone ->
             // A destructuring `let a, b = (1, 2) in body`: park the scrutinee in a temp,
             // then `bindPattern` pulls each bound variable out of it before the body runs.
-            let slot = b.Local(typeOfExpr view.Value)
-            recur ExprPos.Value env b view.Value
+            let slot = b.Local(typeOfExpr m.Value)
+            recur ExprPos.Value env b m.Value
             b.Add(ILInstr.Stloc slot)
-            bindPattern env b slot view.Pattern
+            bindPattern env b slot m.Pattern
             recur pos env b view.Body
 
     let buildUse (recur: RecurAt) (pos: ExprPos) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
