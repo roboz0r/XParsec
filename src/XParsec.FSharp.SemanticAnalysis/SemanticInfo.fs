@@ -165,6 +165,9 @@ and [<Sealed>] FTDisjuncts private (disjuncts: EqSet<FrozenType>) =
 
     override _.GetHashCode() = hash disjuncts
 
+/// `LocalOwnerG` as the frozen file records it, a member identified by its `MemberKey`.
+type LocalOwner = LocalOwnerG<MemberKey>
+
 /// The mutable inference type IR. Every `TyVar` is a dense `TyVarId` index into the
 /// per-file `TypeStore` union-find graph.
 type SemType =

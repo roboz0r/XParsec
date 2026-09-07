@@ -374,6 +374,28 @@ type TyparScope =
         | Member _
         | ModuleFunction _ -> false
 
+/// The declaration whose body declares a generalised body-local `let`. `'m` identifies a
+/// member: its `MemberKey` once the file is typed, its registration while inference is still
+/// settling the key's signature.
+[<RequireQualifiedAccess>]
+type LocalOwnerG<'m> =
+    | Member of 'm
+    | ModuleFunction of BindingKey
+    /// An enclosing body-local `let`.
+    | Local of LocalBindingId
+    /// A body with no key of its own: a module-level `do`, a module-level tuple binding's
+    /// right-hand side, an auto-property initialiser, or a type's `let` / `do` preamble or
+    /// secondary constructor.
+    | Initialiser
+
+module LocalOwnerG =
+    let mapMember (f: 'a -> 'b) (o: LocalOwnerG<'a>) : LocalOwnerG<'b> =
+        match o with
+        | LocalOwnerG.Member m -> LocalOwnerG.Member(f m)
+        | LocalOwnerG.ModuleFunction key -> LocalOwnerG.ModuleFunction key
+        | LocalOwnerG.Local id -> LocalOwnerG.Local id
+        | LocalOwnerG.Initialiser -> LocalOwnerG.Initialiser
+
 /// A dense index into `FrozenPools`' bound variable columns. A bound variable is a definition site the tree
 /// INTRODUCES: a `NamedSimple` pattern, a `ForTo` loop variable, a type's key slots.
 [<Struct>]

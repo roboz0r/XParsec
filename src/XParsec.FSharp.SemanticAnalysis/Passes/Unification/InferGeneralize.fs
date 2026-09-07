@@ -367,3 +367,32 @@ module internal UnificationInferGeneralize =
     /// `let (f, g) = (id, id)` gives `f` and `g` independent schemes, as `fsc` does.
     let generalisedKeys (ctx: PassContext) (b: Binding<SyntaxToken>) : NodeKey list =
         if generalises b then boundKeys ctx b else []
+
+    /// The declaration enclosing a `let` group: `ValueNone` for a module-level group, the
+    /// pushed owner for a body group.
+    let groupOwner (ctx: PassContext) (home: BindingGroupHome) : LocalOwnerSite voption =
+        match home with
+        | BindingGroupHome.Module -> ValueNone
+        | BindingGroupHome.Body ->
+            match ctx.CurrentLocalOwner with
+            | ValueSome _ as owner -> owner
+            | ValueNone -> invalidOp "a body-level `let` group is typed under an enclosing declaration"
+
+    /// The owner a binding's right-hand side is typed under. A binding of one name owns its own
+    /// right-hand side. A binding of several names (`let (f, g) = …`) or of none is typed as
+    /// `Initialiser` at module level and under `enclosing` inside a body.
+    let bindingRhsOwner
+        (ctx: PassContext)
+        (enclosing: LocalOwnerSite voption)
+        (b: Binding<SyntaxToken>)
+        : LocalOwnerSite voption =
+        match enclosing with
+        | ValueNone ->
+            match MemberNames.ofBinding ctx b with
+            | ValueSome m ->
+                ValueSome(LocalOwnerSite.ModuleFunction(SymbolKeyOps.bindingKeyOf ctx.CurrentContainer m.Name))
+            | ValueNone -> ValueSome LocalOwnerSite.Initialiser
+        | ValueSome _ ->
+            match boundKeys ctx b with
+            | [ key ] -> ValueSome(LocalOwnerSite.Local(ctx.EnsureBindingId(key, enclosing)))
+            | _ -> ValueNone

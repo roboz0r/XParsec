@@ -393,6 +393,8 @@ type FrozenTypeTableBuilder private (rows: FrozenTypeRows) =
 
     member _.InternMemberKey(k: MemberKey) : MemberKeyId = memberKey k
 
+    member _.InternBindingKey(k: BindingKey) : BindingKeyId = bindingKey k
+
     member _.InternModule(m: ModuleKey) : ModuleId = moduleKey m
 
     member _.InternFilePath(f: AssemblyFilePath) : FilePathId = filePath f
@@ -617,6 +619,9 @@ type FrozenTypeTable private (rows: FrozenTypeRows, view: FrozenType -> FrozenTy
 
     member _.Item
         with get (id: MemberKeyId): MemberKey = memberKey id
+
+    member _.Item
+        with get (id: BindingKeyId): BindingKey = bindingKey id
 
     member _.Item
         with get (id: ModuleId): ModuleKey = moduleKey id

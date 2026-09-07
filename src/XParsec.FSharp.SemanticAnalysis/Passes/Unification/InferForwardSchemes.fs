@@ -89,4 +89,4 @@ module internal UnificationInferForwardSchemes =
                     let fnTy = List.foldBack (fun a r -> TyFun(a, r)) argTypes retTy
                     exitLevel ctx
                     let scheme = generalise ctx.Store (zonk ctx.Store fnTy) outerLevel
-                    ctx.RecordScheme(key, scheme)
+                    ctx.RecordScheme(key, scheme, ValueNone)

@@ -190,6 +190,9 @@ type FrozenPools =
         /// definition-site token the verdict was filed under.
         FunVerdicts: DenseTable<ExprPoolId, FunVerdict>
         GenericFnSchemes: DenseTable<BoundVarId, GenericFnScheme>
+        /// Every generalised body-local `let` of the file → the declaration whose body
+        /// declares it, in `LocalBindingId` order.
+        LocalOwners: DenseTable<LocalBindingId, LocalOwner>
         BindingValReprs: DenseTable<BoundVarId, PooledValRepr>
     }
 
@@ -232,6 +235,7 @@ module FrozenPools =
             ClosureReprs = [||]
             FunVerdicts = [||]
             GenericFnSchemes = [||]
+            LocalOwners = [||]
             BindingValReprs = [||]
         }
 

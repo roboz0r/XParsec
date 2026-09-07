@@ -356,6 +356,19 @@ module Elaborate =
             translateModuleElem ctx w.Elem
         )
 
+    /// Every generalised body-local of the file → the declaration whose body declares it, a
+    /// member identified by its frozen `MemberKey`.
+    let private localOwners (ctx: PassContext) : Map<LocalBindingId, LocalOwner> =
+        Map.ofSeq (
+            seq {
+                for KeyValue(_, entry) in ctx.Bindings.Scheme.AsDictionary() do
+                    match entry.Owner with
+                    | ValueSome site ->
+                        entry.Id, LocalOwnerG.mapMember (UnificationInferOverload.frozenNominalMemberKey ctx.Store) site
+                    | ValueNone -> ()
+            }
+        )
+
     let run (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : TastFile =
         let elaborateDecls () =
             let elaborated = elaborate ctx file
@@ -430,5 +443,6 @@ module Elaborate =
             ClosureReprs = Map.empty
             FunVerdicts = Map.empty
             GenericFnSchemes = emptyIfDegraded (ctx.GenericFnSchemes.AsDictionary())
+            LocalOwners = localOwners ctx
             Accessibility = EqDict.ofSeq ctx.Bindings.Accessibility
         }

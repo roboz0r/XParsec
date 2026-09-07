@@ -69,12 +69,7 @@ module LocalMemberKeys =
             | ValueNone -> TypeRegistry.tryIntrinsicAbbrevMemberByKey ctx.Types declKey memberName
 
         match local with
-        | ValueSome nm ->
-            ValueSome(
-                SymbolKey.Member(
-                    UnificationInferOverload.frozenUserMemberKey ctx.Store nm.Decl.TypeKey nm.Decl.TypeParams nm.Member
-                )
-            )
+        | ValueSome nm -> ValueSome(SymbolKey.Member(UnificationInferOverload.frozenNominalMemberKey ctx.Store nm))
         | ValueNone ->
             match ctx.Provider.TryLookupMembers(declKey, memberName) with
             // A provider that models this member only singularly (or not at all).

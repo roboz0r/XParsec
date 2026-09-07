@@ -25,8 +25,9 @@ module Unification =
     let private walkModuleElem (ctx: PassContext) (m: ModuleElem<SyntaxToken>) =
         match m with
         | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(isRec = isRec; bindings = bindings)) ->
-            inferBindingGroup ctx isRec bindings
+            inferBindingGroup ctx BindingGroupHome.Module isRec bindings
         | ModuleElem.Expression e ->
+            use _ = ctx.PushLocalOwner LocalOwnerSite.Initialiser
             infer ctx e |> ignore
             // A bare expression has no generalisation point, so its deferred trait
             // traits settle here, as a binding group's do after `generalise`.
@@ -138,8 +139,7 @@ module Unification =
     [<NoEquality; NoComparison>]
     type private TypeMembersFill =
         {
-            TypeParams: EqArray<DeclaredTypar>
-            Members: TypeMemberInfo[]
+            Decl: TypeRegistry.NominalDecl
             ThisKey: NodeKey
             MkSelfType: EqArray<SemType> -> SemType
             PrelinkExtras: unit -> unit
@@ -232,7 +232,7 @@ module Unification =
     /// member TyVars are pre-populated so body inference links them to the inferred type.
     let private fillTypeMembers (ctx: PassContext) (fc: TypeMembersFill) : unit =
         let savedEnclosing = ctx.Resolution.EnclosingTypars
-        let classScope = UnificationClassCtors.scopeOfTypeParams fc.TypeParams
+        let classScope = UnificationClassCtors.scopeOfTypeParams fc.Decl.TypeParams
         use _ = ctx.PushTyparScope(classScope, true)
         // Keep the class typars in scope across each member body's `inferBinding`
         // (which mints a fresh scope and would otherwise drop them).
@@ -246,12 +246,15 @@ module Unification =
             // mentioning `'a` shares identity with them.
             let thisTv = ctx.NewTypeVar()
             ctx.Store.SetLevel(UnionFind.find ctx.Store thisTv, ctx.CurrentLevel)
-            let selfArgs = EqArray.ofSeq (seq { for tp in fc.TypeParams -> TyVar tp.TyVar })
+
+            let selfArgs =
+                EqArray.ofSeq (seq { for tp in fc.Decl.TypeParams -> TyVar tp.TyVar })
+
             ctx.Store.SetLink(UnionFind.find ctx.Store thisTv, ValueSome(fc.MkSelfType selfArgs))
             ctx.Bindings.TypeVar.Set(fc.ThisKey, thisTv)
 
             let inferMemberBinding (mKey: NodeKey) (b: Binding<SyntaxToken>) =
-                let mInfoOpt = fc.Members |> Array.tryFind (fun m -> m.DeclSite.Key = mKey)
+                let mInfoOpt = fc.Decl.Members |> Array.tryFind (fun m -> m.DeclSite.Key = mKey)
 
                 match mInfoOpt with
                 | Some mInfo ->
@@ -287,10 +290,17 @@ module Unification =
                     ctx.Resolution.EnclosingTypars <- ValueSome memberEnclosing
                 | _ -> ()
 
+                let ownerSite =
+                    match mInfoOpt with
+                    | Some mInfo ->
+                        LocalOwnerSite.Member({ Decl = fc.Decl; Member = mInfo }: TypeRegistry.NominalMember)
+                    | None -> invalidOp "a member binding is typed only once its member is registered"
+
                 let outerLevel = ctx.CurrentLevel
                 enterLevel ctx
 
                 try
+                    use _ = ctx.PushLocalOwner ownerSite
                     inferBinding ctx b
                 finally
                     exitLevel ctx
@@ -307,7 +317,7 @@ module Unification =
                     // never generic.
                     && not mInfo.IsOverride
                     ->
-                    generaliseMemberTypars ctx outerLevel fc.TypeParams mInfo
+                    generaliseMemberTypars ctx outerLevel fc.Decl.TypeParams mInfo
                 | _ -> ()
 
             // An abstract slot has no body: its type is the declared signature, computed by
@@ -316,7 +326,7 @@ module Unification =
             let linkAbstractSlot (mTok: SyntaxToken) (tds: TyparDefns<SyntaxToken> voption) (mkSigTy: unit -> SemType) =
                 let mKey = NodeKey.ofToken mTok NodeKind.PatIdent
 
-                match fc.Members |> Array.tryFind (fun mm -> mm.DeclSite.Key = mKey) with
+                match fc.Decl.Members |> Array.tryFind (fun mm -> mm.DeclSite.Key = mKey) with
                 | Some mInfo ->
                     match mInfo.Type with
                     | TyVar tv ->
@@ -351,7 +361,7 @@ module Unification =
                         // An abstract method has no body to infer, so mint its
                         // canonical ABI order from the elaborated signature.
                         if mInfo.ClassKind = ClassMemberKind.Method && not mInfo.SeedTypars.IsEmpty then
-                            mInfo.Generalise(canonicalMemberTypars ctx fc.TypeParams mInfo sigTy)
+                            mInfo.Generalise(canonicalMemberTypars ctx fc.Decl.TypeParams mInfo sigTy)
                     | _ -> ()
                 | None -> ()
 
@@ -371,6 +381,7 @@ module Unification =
                         enterLevel ctx
 
                         try
+                            use _ = ctx.PushLocalOwner LocalOwnerSite.Initialiser
                             let bodyTy = infer ctx e
 
                             let resultTy =
@@ -383,7 +394,7 @@ module Unification =
 
                             let mKey = NodeKey.ofToken id NodeKind.PatIdent
 
-                            match fc.Members |> Array.tryFind (fun m -> m.DeclSite.Key = mKey) with
+                            match fc.Decl.Members |> Array.tryFind (fun m -> m.DeclSite.Key = mKey) with
                             | Some mInfo ->
                                 match mInfo.Type with
                                 | TyVar tv -> ctx.Store.SetLink(UnionFind.find ctx.Store tv, ValueSome resultTy)
@@ -415,7 +426,7 @@ module Unification =
                     | _ -> ()
                 | _ -> ()
 
-            checkAccessorConformance ctx fc.Members
+            checkAccessorConformance ctx fc.Decl.Members
         finally
             ctx.Resolution.EnclosingTypars <- savedEnclosing
 
@@ -598,8 +609,12 @@ module Unification =
             fillTypeMembers
                 ctx
                 {
-                    TypeParams = info.TypeParams
-                    Members = impl.Members
+                    Decl =
+                        {
+                            TypeKey = info.TypeKey
+                            TypeParams = info.TypeParams
+                            Members = impl.Members
+                        }
                     ThisKey = BoundVarKey.identity info.ThisKey
                     MkSelfType = info.MkSelfType
                     PrelinkExtras = ignore
@@ -642,6 +657,8 @@ module Unification =
                             // Seed the registered placeholder first, so a preamble-bound
                             // name used elsewhere in the class types through the same cell.
                             let inferPreamble (entries: ClassPreambleEntry[]) =
+                                use _ = ctx.PushLocalOwner LocalOwnerSite.Initialiser
+
                                 for entry in entries do
                                     match entry with
                                     | ClassPreambleEntry.Let l ->
@@ -666,8 +683,12 @@ module Unification =
                         fillTypeMembers
                             ctx
                             {
-                                TypeParams = info.TypeParams
-                                Members = info.Body.Members
+                                Decl =
+                                    {
+                                        TypeKey = info.TypeKey
+                                        TypeParams = info.TypeParams
+                                        Members = info.Body.Members
+                                    }
                                 ThisKey = BoundVarKey.identity info.ThisKey
                                 MkSelfType = fun args -> TyClass(info.TypeKey, args)
                                 PrelinkExtras = prelinkExtras
@@ -689,8 +710,12 @@ module Unification =
             fillTypeMembers
                 ctx
                 {
-                    TypeParams = host.TypeParams
-                    Members = host.Members
+                    Decl =
+                        {
+                            TypeKey = host.TypeKey
+                            TypeParams = host.TypeParams
+                            Members = host.Members
+                        }
                     ThisKey = BoundVarKey.identity host.ThisKey
                     MkSelfType = host.MkSelfType
                     PrelinkExtras = ignore

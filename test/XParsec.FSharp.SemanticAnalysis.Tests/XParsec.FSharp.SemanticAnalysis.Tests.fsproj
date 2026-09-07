@@ -56,6 +56,7 @@
     <Compile Include="ResolvedTypesTests.fs" />
     <Compile Include="ConstraintsTests.fs" />
     <Compile Include="FrozenConstraintTests.fs" />
+    <Compile Include="LocalOwnerTests.fs" />
     <Compile Include="CompositeTests.fs" />
     <Compile Include="KeyIndexedChannelsTests.fs" />
     <Compile Include="MapProviderTypesTests.fs" />

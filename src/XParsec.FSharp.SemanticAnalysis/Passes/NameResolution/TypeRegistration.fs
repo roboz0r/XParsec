@@ -135,9 +135,14 @@ module NameResolutionTypeRegistration =
     let localContainerChain (ctx: PassContext) (c: DeclContainment<SyntaxToken>) : ModuleContainer =
         ctx.ContainerChainOf c
 
-    /// The registered `ClassTypeInfo` of the class-like DECLARATION `tn` declares, recovered by
-    /// the key the declaration mints in the module the walk stands in, never by its name: an
-    /// arity-overloaded `Box\`1`/`Box\`2` has no bare name, and two modules may each declare `C`.
+    /// `tn`'s declaration-site key.
+    let private declSiteOfTypeName (tn: TypeName<SyntaxToken>) : NodeKey =
+        let (TypeName(ident = nameLi)) = tn
+        NodeKey.ofToken nameLi.Idents.[0] NodeKind.DeclType
+
+    /// The registered `ClassTypeInfo` of the class-like DECLARATION `tn` declares, addressed by
+    /// the key the declaration mints in the current module. `ValueNone` for a rejected duplicate
+    /// declaration.
     let tryDeclaredClass (ctx: PassContext) (tn: TypeName<SyntaxToken>) : ClassTypeInfo voption =
         let (TypeName(ident = nameLi)) = tn
 
@@ -145,16 +150,18 @@ module NameResolutionTypeRegistration =
             TypeRegistry.tryClassByKey
                 ctx.Types
                 (ctx.DeclaredTypeKey(ctx.NameOf nameLi.Idents.[0], arityOfTypeName ctx tn))
+            |> ValueOption.filter (fun info -> info.DeclSite.Key = declSiteOfTypeName tn)
         else
             ValueNone
 
     /// The registered union / record / inline intrinsic-abbrev host the DECLARATION `tn`
-    /// declares. Key-addressed for the same reason as the class-like case above.
+    /// declares, addressed by its key. `ValueNone` for a rejected duplicate declaration.
     let tryDeclaredNonClassHost (ctx: PassContext) (tn: TypeName<SyntaxToken>) : IInterfaceImplHost voption =
         let (TypeName(ident = nameLi)) = tn
         let name = ctx.NameOf nameLi.Idents.[0]
 
         TypeRegistry.tryNonClassMemberHostByDecl ctx.Types (ctx.DeclaredTypeAddress(name, arityOfTypeName ctx tn))
+        |> ValueOption.filter (fun host -> host.DeclSite.Key = declSiteOfTypeName tn)
 
     /// Mint the project-local `SymbolKey` for a type declaration, under the declaring
     /// containment's containment chain. The collision branch is an INTERNAL-ERROR BACKSTOP

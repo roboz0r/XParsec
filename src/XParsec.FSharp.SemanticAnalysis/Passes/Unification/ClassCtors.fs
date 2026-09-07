@@ -112,6 +112,7 @@ module internal UnificationClassCtors =
                     enterLevel ctx
 
                     try
+                        use _ = ctx.PushLocalOwner LocalOwnerSite.Initialiser
                         inferSecondaryCtorBody ctx expected fieldTypes sc.Body
                     finally
                         exitLevel ctx

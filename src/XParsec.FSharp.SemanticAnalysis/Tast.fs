@@ -80,6 +80,9 @@ type TastFileG<'ty, 'tok, 'id when 'id: comparison> =
         /// A project-local generalised binding's bound variable → its typar scheme. A
         /// binding absent here quantifies nothing.
         GenericFnSchemes: Map<BoundVarKeyG<'id>, GenericFnScheme>
+        /// Every generalised body-local `let` of the file → the declaration whose body
+        /// declares it. A module-level `let` has no entry.
+        LocalOwners: Map<LocalBindingId, LocalOwner>
         /// The file's INLINE VOCABULARY: every `let inline` binding and every
         /// nullary-intrinsic value alias (`let undefined = (# "undefined" #)`), as the
         /// UNEXPANDED body, a different tree from the decl of the same name. Empty pre-freeze.

@@ -36,6 +36,11 @@ module FrozenCodecTypes =
 
     let readMemberKeyRef (r: FrozenReader) : MemberKey = r.Types.[readMemberKeyId r]
 
+    let writeBindingKeyRef (w: FrozenWriter) (k: BindingKey) =
+        writeBindingKeyId w (w.Types.InternBindingKey k)
+
+    let readBindingKeyRef (r: FrozenReader) : BindingKey = r.Types.[readBindingKeyId r]
+
     /// A measure term as its `(base-measure key, exponent)` pairs.
     let writeMeasureTerm (w: FrozenWriter) (m: MeasureTerm) =
         writeListWith
@@ -418,6 +423,31 @@ module FrozenCodecTypes =
     let readGenericFnScheme (r: FrozenReader) : GenericFnScheme =
         let arity = r.ReadInt32()
         GenericFnScheme.create arity (readEqSetWith r readFrozenConstraint)
+
+    let writeLocalBindingId (w: FrozenWriter) (LocalBindingId i) = w.Write i
+
+    let readLocalBindingId (r: FrozenReader) : LocalBindingId = LocalBindingId(r.ReadInt32())
+
+    let writeLocalOwner (w: FrozenWriter) (o: LocalOwner) =
+        match o with
+        | LocalOwner.Member key ->
+            w.Write 0uy
+            writeMemberKeyRef w key
+        | LocalOwner.ModuleFunction key ->
+            w.Write 1uy
+            writeBindingKeyRef w key
+        | LocalOwner.Local id ->
+            w.Write 2uy
+            writeLocalBindingId w id
+        | LocalOwner.Initialiser -> w.Write 3uy
+
+    let readLocalOwner (r: FrozenReader) : LocalOwner =
+        match r.ReadByte() with
+        | 0uy -> LocalOwner.Member(readMemberKeyRef r)
+        | 1uy -> LocalOwner.ModuleFunction(readBindingKeyRef r)
+        | 2uy -> LocalOwner.Local(readLocalBindingId r)
+        | 3uy -> LocalOwner.Initialiser
+        | b -> failwithf "FrozenCodec: unknown LocalOwner tag %d" b
 
     let writeModuleBindingInfo (w: FrozenWriter) (m: ModuleBindingInfo) =
         writeSymbolRef w m.Key

@@ -116,15 +116,34 @@ separate change.
      `method-scope-typar-erased` (`Schema.DiagCode.MethodScopeTyparErased`) carry the new
      word; the `es2015` fixture manifest and the extractor burndown ranking were re-spelled.
 
-3b. **`LocalOwners`.** `LocalOwner` and the `LocalBindingId -> LocalOwner` table on
-   `FrozenPools`, per the design doc's *Lexical ownership*. Written where the local
-   generalises: `Unification` is inside exactly one declaration at that moment, and the
-   scheme entry that already records `LocalBindingId` records the owner beside it, so
-   `Freeze` is a reader. A member's `MemberKey` is resolved by `LocalMemberKeys` before
-   the freeze, so the owner can carry it. The per-declaration freeze is no longer a
-   prerequisite. Pinned by a test that a module function's local is owned by its
-   `BindingKey`, a member's by its `MemberKey`, and a nested local by the outer local; and
-   by the codec round-trip.
+3b. **`LocalOwners`.** Landed. `LocalOwner` and the `LocalBindingId -> LocalOwner` table on
+   `FrozenPools` and on `TastFileG`, per the design doc's *Lexical ownership*. Written where
+   the local generalises: `PassContext.PushLocalOwner` carries the declaration whose body is
+   being typed, `inferBindingGroup` reads it once at group entry as the group's enclosing
+   owner, and passes it explicitly to `EnsureBindingId` / `RecordScheme`, which record it on
+   `BindingScheme` beside the `LocalBindingId`. `LocalOwner` is `LocalOwnerG<'m>` over the
+   member identity: a member's `MemberKey` is not stable until its body is typed — an
+   unannotated parameter settles the signature the key freezes — so the scheme entry holds a
+   `LocalOwnerSite = LocalOwnerG<NominalMember>` naming the member by its registration, and
+   `Elaborate.localOwners` maps it through `frozenNominalMemberKey` once the file is typed.
+   Format version 9.
+
+   Carried in the same diff:
+   - `inferBindingGroup` takes a `BindingGroupHome`, so a module-level group's bindings are
+     declarations (owner `ValueNone`) and an expression-level group's are locals, which
+     require a pushed owner. A single-name local's id is minted BEFORE its right-hand side is
+     typed, which is what lets a nested local name it.
+   - `TypeMembersFill` carries the `NominalDecl` being filled, so a member's owner site is the
+     registry's own `NominalMember`. A member binding whose member is unregistered is an
+     internal error, which surfaced a rejected duplicate type declaration being walked against
+     the first declaration's registration: `tryDeclaredClass` / `tryDeclaredNonClassHost` now
+     resolve only to the registration made from the declaration itself.
+   - `LocalOwner.Initialiser`, beyond the design doc's three cases, for a body with no key of
+     its own: a module-level `do`, a module-level tuple binding's right-hand side, an
+     auto-property initialiser, and a type's `let` / `do` preamble or secondary constructor.
+     Step 3c decides what enclosing typars such a body contributes to a lifted local.
+   - `FrozenTypeTableBuilder.InternBindingKey` and the `BindingKeyId` indexer, so a
+     `ModuleFunction` owner writes as a binding-table row.
 
 3c. **Generic locals on the CLR.** A local whose own typar survives generalisation is
    lifted to a generic static method with the local's typars as method typars, as `fsc`
@@ -134,7 +153,8 @@ separate change.
    `ClrEncoder.encodeType`'s `LocalFunction` arm stops being reachable from a lifted
    local's own signature; it stays for a `Vesper.Fun`-boxed value. Turns green:
    `locals/local-poly` on the CLR (`pending` in the manifest), and the CLR half of the
-   same-file cases in `inline/inline-local-poly`.
+   same-file cases in `inline/inline-local-poly`. `fillTypeMembers` is a roughly 200-line
+   nested closure that ought to be refactored.
 
 3d. **A served local generalises again.** `InlineThaw.bodyAtPath` mints one cell per
    `(LocalBindingId, index)` for the whole body, so a served local used at two types
@@ -232,10 +252,10 @@ Before this document is deleted, each row is in code or in a test:
 - [x] `TyparScope.Member` carries no ordinal; `rescopeToImplementation`,
       `rescopeMemberTypars` and `comparisonScope` are gone, and `Vesper.Formatter` still
       conforms in the CLR suite (step 3a).
-- [ ] `LocalOwners` records every generalised local's owner, pinned per owner kind and by
-      the codec round-trip (step 3b).
-- [ ] A `Type` leaf never freezes under a module function's body, pinned on a module
-      function with a local (step 3b).
+- [x] `LocalOwners` records every generalised local's owner, pinned per owner kind and by
+      the codec round-trip (step 3b), in `LocalOwnerTests`.
+- [x] A `Type` leaf never freezes under a module function's body, pinned on a module
+      function with a local (step 3b), in `LocalOwnerTests`.
 - [ ] `locals/local-poly` runs on the CLR (step 3c).
 - [ ] `inline/inline-local-poly` runs on the CLR and the `CrossFileTests` served-local
       `ptest` is a `test` (step 3d).

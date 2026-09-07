@@ -88,6 +88,7 @@ let tests =
                         ClosureReprs = Map.empty
                         FunVerdicts = Map.empty
                         GenericFnSchemes = Map.empty
+                        LocalOwners = Map.empty
                         Accessibility = EqDict.empty
                     }
 
@@ -154,6 +155,7 @@ let tests =
                         ClosureReprs = Map.empty
                         FunVerdicts = Map.empty
                         GenericFnSchemes = Map.empty
+                        LocalOwners = Map.empty
                         Accessibility = EqDict.empty
                     }
 

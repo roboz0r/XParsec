@@ -141,12 +141,26 @@ module ResolvedStampPatterns =
         : 'V voption =
         project stamps key
 
-/// A generalised binding's identity and current scheme. `Scheme` is `ValueNone` while a
-/// `let rec` member stands retracted for its group's body typing.
+/// Where a `let` group sits.
+[<RequireQualifiedAccess>]
+type BindingGroupHome =
+    /// A module-level group: each binding declares a module function or value.
+    | Module
+    /// An expression-level group: each binding declares a body-local.
+    | Body
+
+/// `LocalOwnerG` as inference records it, a member identified by its registration.
+type LocalOwnerSite = LocalOwnerG<TypeRegistry.NominalMember>
+
+/// A generalised binding's identity, current scheme and owning declaration. `Scheme` is
+/// `ValueNone` while a `let rec` member stands retracted for its group's body typing;
+/// `Owner` is `ValueNone` for a module-level `let`.
+[<NoEquality; NoComparison>]
 type BindingScheme =
     {
         Id: LocalBindingId
         Scheme: TypeScheme voption
+        Owner: LocalOwnerSite voption
     }
 
 type PassContextBindings =
@@ -630,18 +644,48 @@ type PassContext(provider: IExternalSymbolProvider, file: LexedFile, assembly: C
         synthBoundVars <- synthBoundVars + 1
         k
 
-    /// Record the scheme a binding generalised to, keyed by its pattern. The binding's
-    /// `LocalBindingId` is minted on its first scheme; a re-generalisation keeps it.
-    member this.RecordScheme(key: NodeKey, scheme: TypeScheme) : unit =
-        let id =
-            match this.Bindings.Scheme.TryGetValue key with
-            | ValueSome existing -> existing.Id
-            | ValueNone ->
-                let id = LocalBindingId localBindings
-                localBindings <- localBindings + 1
-                id
+    /// The declaration whose body is being typed; `ValueNone` directly at module level.
+    member val CurrentLocalOwner: LocalOwnerSite voption = ValueNone with get, set
 
-        this.Bindings.Scheme.Set(key, { Id = id; Scheme = ValueSome scheme })
+    /// Make `owner` the `CurrentLocalOwner` until the returned token is disposed.
+    member this.PushLocalOwner(owner: LocalOwnerSite) : System.IDisposable =
+        let saved = this.CurrentLocalOwner
+        this.CurrentLocalOwner <- ValueSome owner
+
+        { new System.IDisposable with
+            member _.Dispose() = this.CurrentLocalOwner <- saved
+        }
+
+    /// The binding's entry, minted under `owner` on first use. A re-generalisation keeps the
+    /// `LocalBindingId` and the owner it was minted with.
+    member private this.BindingEntry(key: NodeKey, owner: LocalOwnerSite voption) : BindingScheme =
+        match this.Bindings.Scheme.TryGetValue key with
+        | ValueSome existing -> existing
+        | ValueNone ->
+            let entry =
+                {
+                    Id = LocalBindingId localBindings
+                    Scheme = ValueNone
+                    Owner = owner
+                }
+
+            localBindings <- localBindings + 1
+            this.Bindings.Scheme.Set(key, entry)
+            entry
+
+    /// The binding's `LocalBindingId`, minted under `owner` if the binding has none yet.
+    member this.EnsureBindingId(key: NodeKey, owner: LocalOwnerSite voption) : LocalBindingId =
+        this.BindingEntry(key, owner).Id
+
+    /// Record the scheme a binding generalised to, keyed by its pattern. `owner` is the
+    /// declaration enclosing the binding, `ValueNone` for a module-level declaration.
+    member this.RecordScheme(key: NodeKey, scheme: TypeScheme, owner: LocalOwnerSite voption) : unit =
+        this.Bindings.Scheme.Set(
+            key,
+            { this.BindingEntry(key, owner) with
+                Scheme = ValueSome scheme
+            }
+        )
 
     /// Withdraw a binding's scheme, keeping its `LocalBindingId` for the re-generalisation
     /// that follows. A binding with no scheme is unaffected.

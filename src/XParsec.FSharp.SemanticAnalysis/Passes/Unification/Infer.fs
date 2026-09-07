@@ -269,7 +269,7 @@ module UnificationInfer =
         (bindings: ImmutableArray<Binding<SyntaxToken>>)
         (body: Expr<SyntaxToken> voption)
         : SemType =
-        inferBindingGroup ctx isRec bindings
+        inferBindingGroup ctx BindingGroupHome.Body isRec bindings
 
         // `use` binds a disposable: resolve each bound variable's `Dispose` so disposal can be
         // keyed for codegen and a non-disposable diagnosed. `let` skips this.
@@ -410,13 +410,16 @@ module UnificationInfer =
 
     /// Type one recursion component of a group at one level. The component's bound-variable
     /// TyVars are pre-allocated at THIS level and stay monomorphic until the component is
-    /// generalised, which forbids polymorphic recursion. Generalisation runs at the outer level.
+    /// generalised, which forbids polymorphic recursion. Generalisation runs at the outer level,
+    /// and each scheme records the ENCLOSING declaration as owner.
     and private inferComponent
         (ctx: PassContext)
+        (home: BindingGroupHome)
         (bindings: ImmutableArray<Binding<SyntaxToken>>)
         (members: EqArray<int>)
         : unit =
         let outerLevel = ctx.CurrentLevel
+        let enclosing = groupOwner ctx home
         enterLevel ctx
 
         for i in members do
@@ -425,7 +428,13 @@ module UnificationInfer =
                 barPolymorphicRecursion ctx key
 
         for i in members do
-            inferBinding ctx bindings.[i]
+            let b = bindings.[i]
+
+            match bindingRhsOwner ctx enclosing b with
+            | ValueSome owner ->
+                use _ = ctx.PushLocalOwner owner
+                inferBinding ctx b
+            | ValueNone -> inferBinding ctx b
 
         exitLevel ctx
 
@@ -448,7 +457,7 @@ module UnificationInfer =
                     // now-linked list element generalises.
                     prepareListLiterals ctx zonked outerLevel
                     let scheme = generalise ctx.Store (zonk ctx.Store zonked) outerLevel
-                    ctx.RecordScheme(key, scheme)
+                    ctx.RecordScheme(key, scheme, enclosing)
 
         // Defaulting inside `generalise` grounds support typars without firing the
         // on-unified callback, and a value-restricted binding never generalises at all,
@@ -460,6 +469,7 @@ module UnificationInfer =
     /// partition is recorded under the first binding's pattern key; `V260` reports a `rec` wider than it.
     and inferBindingGroup
         (ctx: PassContext)
+        (home: BindingGroupHome)
         (isRec: SyntaxToken voption)
         (bindings: ImmutableArray<Binding<SyntaxToken>>)
         : unit =
@@ -472,4 +482,4 @@ module UnificationInfer =
             | ValueNone -> ()
 
             for scc in partition.Components do
-                inferComponent ctx bindings scc.Members
+                inferComponent ctx home bindings scc.Members

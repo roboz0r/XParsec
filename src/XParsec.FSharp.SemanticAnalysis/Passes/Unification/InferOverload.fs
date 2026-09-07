@@ -375,6 +375,10 @@ module UnificationInferOverload =
             m.EffectiveMethodTypars.Length
             (memberKindOf m)
 
+    /// `frozenUserMemberKey` for a member found on a nominal, minted against its declaration.
+    let frozenNominalMemberKey (store: TypeStore) (nm: TypeRegistry.NominalMember) : MemberKey =
+        frozenUserMemberKey store nm.Decl.TypeKey nm.Decl.TypeParams nm.Member
+
     /// A member's overload-identity signature key for duplicate detection: name, static-ness,
     /// kind, frozen argSig and method-typar arity are the axes F#'s FS0438 collapses. A genuine
     /// overload (distinct param types / arity) mints a distinct key and coexists.

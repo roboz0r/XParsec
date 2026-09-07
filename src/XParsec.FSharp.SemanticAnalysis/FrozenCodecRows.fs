@@ -26,8 +26,8 @@ module FrozenCodecRows =
     let writeTypeKeyId (w: FrozenWriter) (TypeKeyId i) = w.Write i
     let readTypeKeyId (r: FrozenReader) : TypeKeyId = TypeKeyId(r.ReadInt32())
 
-    let private writeBindingKeyId (w: FrozenWriter) (BindingKeyId i) = w.Write i
-    let private readBindingKeyId (r: FrozenReader) : BindingKeyId = BindingKeyId(r.ReadInt32())
+    let writeBindingKeyId (w: FrozenWriter) (BindingKeyId i) = w.Write i
+    let readBindingKeyId (r: FrozenReader) : BindingKeyId = BindingKeyId(r.ReadInt32())
 
     let writeMemberKeyId (w: FrozenWriter) (MemberKeyId i) = w.Write i
     let readMemberKeyId (r: FrozenReader) : MemberKeyId = MemberKeyId(r.ReadInt32())
