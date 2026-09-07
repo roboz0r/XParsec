@@ -64,10 +64,12 @@ let private checkAnchors (what: string) (input: string) =
             d
         |> ignore
 
-        match TastAccessor.declKind d with
-        | DeclShape.Let -> checkPat (TastAccessor.declLet d).Pattern
-        | DeclShape.Expression
-        | DeclShape.Type -> ()
+        match d with
+        | TastAccessor.DLet l -> checkPat l.Pattern
+        | TastAccessor.DLetGroup g ->
+            for m in g.Members do
+                checkPat m.Pattern
+        | _ -> ()
 
 [<Tests>]
 let tests =

@@ -133,13 +133,13 @@ let tests =
                 let tast = analyseSem "let rec id x = x\nand pair x = id x, id x"
                 Expect.isEmpty (errorMessages tast.Diagnostics) "no errors"
 
-                let pairDecl =
+                let pairTy =
                     match tast.Decls with
-                    | EqList [ _; d ] -> d
-                    | _ -> failwithf "expected two decls, got %A" tast.Decls
+                    | EqList [ TDecl.LetGroup(EqTwo(_, pair), _) ] -> pair.Ty
+                    | _ -> failwithf "expected one group of two members, got %A" tast.Decls
 
-                match pairDecl with
-                | TDecl.Let(_, _, _, _, TyFun(arg, TyTuple args)) when args.Length = 2 ->
+                match pairTy with
+                | TyFun(arg, TyTuple args) when args.Length = 2 ->
                     // pair : 'b -> ('b * 'b) — both tuple elements share 'b.
                     Expect.equal args.[0] arg "first tuple element matches arg type"
                     Expect.equal args.[1] arg "second tuple element matches arg type"

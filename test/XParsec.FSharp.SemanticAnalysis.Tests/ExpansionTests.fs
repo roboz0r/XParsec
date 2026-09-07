@@ -209,7 +209,15 @@ let tests =
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics for mutual recursion"
 
-                Expect.equal tast.Decls.Length 2 "two decls"
+                match tast.Decls with
+                | EqList [ TDecl.LetGroup(members, components) ] ->
+                    Expect.equal members.Length 2 "one group of two members"
+
+                    Expect.equal
+                        components.Components
+                        (EqArray.ofList [ Cycle(EqArray.ofList [ 0; 1 ]) ])
+                        "one cyclic component"
+                | other -> failtestf "expected one LetGroup decl, got %A" other
             }
 
             test "occurs check rejects let rec f x = f" {

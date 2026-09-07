@@ -6,6 +6,24 @@ open XParsec.FSharp.SemanticAnalysis.Passes
 // deferred until the whole decl is surfaced, so a member signature, a local and a case
 // field all flip on the same indices.
 
+/// The typar roots a declaration quantifies, paired with their `TyTypar` targets.
+[<RequireQualifiedAccess>]
+type DeclEnv =
+    | One of (TyVarId * SemType) list
+    /// One env per `LetGroup` member, in member order: two members of one recursion
+    /// component share roots at different method-typar indices.
+    | PerMember of EqArray<(TyVarId * SemType) list>
+
+    /// Every pair, across the members of a group.
+    member this.All: (TyVarId * SemType) list =
+        match this with
+        | DeclEnv.One env -> env
+        | DeclEnv.PerMember envs ->
+            [
+                for env in envs do
+                    yield! env
+            ]
+
 module internal ElaborateTypars =
 
     /// Rewrite open typars to their frozen `TyTypar` nodes: `env` pairs each typar's
@@ -187,11 +205,27 @@ module internal ElaborateTypars =
     /// The deferred typar cut: walk every `SemType` in `d` through `remapDeclTypars env`,
     /// whose `env` holds the decl's own quantified typar roots. An empty `env` is then a
     /// pure zonk-rebuild. A type declaration's own slots are enumerated by `mapTypeDecl`.
-    let freezeTypars (store: TypeStore) (env: (TyVarId * SemType) list) (d: TDecl) : TDecl =
-        let f = remapDeclTypars store env
+    let freezeTypars (store: TypeStore) (env: DeclEnv) (d: TDecl) : TDecl =
+        let f = remapDeclTypars store env.All
 
-        match d with
-        | TDecl.Let(binding, value, isInline, isRec, ty) ->
-            TDecl.Let(freezeTyparsPat store env binding, mapExprTypes f value, isInline, isRec, f ty)
-        | TDecl.Expression(e, ty) -> TDecl.Expression(mapExprTypes f e, f ty)
-        | TDecl.Type td -> TDecl.Type(TastWalk.mapTypeDecl f (mapExprTypes f) td)
+        match d, env with
+        | TDecl.Let(binding, value, isInline, isRec, ty), _ ->
+            TDecl.Let(freezeTyparsPat store env.All binding, mapExprTypes f value, isInline, isRec, f ty)
+        | TDecl.LetGroup(members, components), DeclEnv.PerMember envs ->
+            let freezeMember (m: TLetMember) (env: (TyVarId * SemType) list) : TLetMember =
+                let f = remapDeclTypars store env
+
+                {
+                    Pattern = freezeTyparsPat store env m.Pattern
+                    Value = mapExprTypes f m.Value
+                    Ty = f m.Ty
+                    Tok = m.Tok
+                }
+
+            TDecl.LetGroup(EqArray.map2 freezeMember members envs, components)
+        | TDecl.LetGroup(members, _), DeclEnv.One _ ->
+            failwithf
+                "ElaborateTypars.freezeTypars: a group of %d members was paired with one env rather than one per member"
+                members.Length
+        | TDecl.Expression(e, ty), _ -> TDecl.Expression(mapExprTypes f e, f ty)
+        | TDecl.Type td, _ -> TDecl.Type(TastWalk.mapTypeDecl f (mapExprTypes f) td)

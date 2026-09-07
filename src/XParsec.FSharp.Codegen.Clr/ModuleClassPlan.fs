@@ -174,6 +174,8 @@ module ModuleClassPlan =
                             if not (staticFnKeys.Contains k || moduleValueKeys.Contains k) then
                                 seenMainCode <- true
                     | ValueNone -> seenMainCode <- true // residue destructuring `let` → `Main`
+                | DeclShape.LetGroup ->
+                    failwithf "Emit: a `let rec … and …` group survived `TastLower.lower` unsplit: %A" d
                 | DeclShape.Type -> ()
 
             List.ofSeq cctor, List.ofSeq main

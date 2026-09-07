@@ -87,6 +87,26 @@ module TastNodeViews =
             Recursion: Recursion
         }
 
+    /// One member of a `LetGroup` node: pattern child `i` and expr child `i`, with the
+    /// binding's declared type, its pattern's anchor and the analysed `Recursion`.
+    [<Struct>]
+    type LetMemberView =
+        {
+            Pattern: PatId
+            Value: ExprId
+            Ty: FrozenType
+            Tok: Anchor
+            Recursion: Recursion
+        }
+
+    /// The payload of a `LetGroup` node. `Body` is the last `exprChildren` entry.
+    type LetGroupView =
+        {
+            Members: LetMemberView[]
+            Components: SccPartition
+            Body: ExprId
+        }
+
     /// The scalar payload of an `Assignment` node (`lhs <- rhs`): the two nodes
     /// `exprChildren` yields, named by role.
     [<Struct>]
@@ -290,4 +310,11 @@ module TastNodeViews =
             IsRec: bool
             Recursion: Recursion
             Ty: FrozenType
+        }
+
+    /// The payload of a `LetGroup` decl.
+    type DeclLetGroupView =
+        {
+            Members: LetMemberView[]
+            Components: SccPartition
         }

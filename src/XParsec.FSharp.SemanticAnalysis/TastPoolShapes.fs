@@ -32,6 +32,11 @@ module TastPoolShapes =
         | TExprG.Let(value = value; body = body) ->
             add value
             addTail body
+        | TExprG.LetGroup(members = members; body = body) ->
+            for m in members do
+                add m.Value
+
+            addTail body
         | TExprG.Use(value = value; body = body) ->
             add value
             add body
@@ -218,6 +223,9 @@ module TastPoolShapes =
         | TExprG.CallerExpr _ -> ()
         | TExprG.Lambda(param = param) -> acc.Add param
         | TExprG.Let(pattern = pattern) -> acc.Add pattern
+        | TExprG.LetGroup(members = members) ->
+            for m in members do
+                acc.Add m.Pattern
         | TExprG.Use(pattern = pattern) -> acc.Add pattern
         | TExprG.ForIn(pat = pat) -> acc.Add pat
         | TExprG.Match(arms = arms) ->
@@ -264,9 +272,10 @@ module TastPoolShapes =
                 "TastPoolShapes.introducedBoundVar: the node's payload names a bound variable the walk interned none for"
 
     /// The residual payload of a frozen expression node: its fields MINUS `ty`/`tok`, the
-    /// child expr and owned pat ids, and the `Var` bound variable id. `Let` / `App` take the
-    /// `NonRecursive` / `Call` defaults the pooling walk then classifies; `anchor` narrows a
-    /// walked token to its stored index, and `ForTo`'s `identTok` is the one anchor carried.
+    /// child expr and owned pat ids, and the `Var` bound variable id. `Let` / `LetGroup` /
+    /// `App` take the `NonRecursive` / `Call` defaults the pooling walk then classifies;
+    /// `anchor` narrows a walked token to its stored index, and `ForTo`'s `identTok` and a
+    /// `LetGroup` member's `Tok` are the anchors carried.
     let exprPayload
         (anchor: 'tok -> Anchor)
         (boundVar: BoundVarId voption)
@@ -285,6 +294,21 @@ module TastPoolShapes =
         | TExprG.Lambda _ -> ExprPayload.Lambda
         | TExprG.App _ -> ExprPayload.App AppKind.Call
         | TExprG.Let(isRec = isRec) -> ExprPayload.Let(isRec, Recursion.NonRecursive)
+        | TExprG.LetGroup(members = members; components = components) ->
+            ExprPayload.LetGroup
+                {
+                    Members =
+                        members
+                        |> EqArray.toArray
+                        |> Array.map (fun m ->
+                            {
+                                Ty = m.Ty
+                                Tok = anchor m.Tok
+                                Recursion = Recursion.NonRecursive
+                            }
+                        )
+                    Components = components
+                }
         | TExprG.Use(dispose = dispose) -> ExprPayload.Use dispose
         | TExprG.IfThenElse _ -> ExprPayload.IfThenElse
         | TExprG.Tuple _ -> ExprPayload.Tuple

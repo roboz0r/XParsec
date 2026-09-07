@@ -13,17 +13,11 @@ open InlineReduction
 
 module InlineExpansion =
 
-    let private mapDeclExprs (f: TExpr -> TExpr) (d: TDecl) : TDecl =
-        match d with
-        | TDecl.Let(p, value, isInline, isRec, ty) -> TDecl.Let(p, f value, isInline, isRec, ty)
-        | TDecl.Expression(e, ty) -> TDecl.Expression(f e, ty)
-        | TDecl.Type td -> TDecl.Type(TastWalk.mapTypeDecl id f td)
-
     /// `Decls` CARRY EDGES, one `TExpr.InlineCall` per call site, and `Specializations` is the
     /// table those edges name.
     type Expanded =
         {
-            Decls: (TDecl * (TyVarId * SemType) list) list
+            Decls: (TDecl * DeclEnv) list
             /// A `SpecializationId` indexes THIS array.
             Specializations: TSpecialization[]
         }
@@ -48,7 +42,7 @@ module InlineExpansion =
     /// the TEMPLATE as elaborated, never this pass's own walked rewrite of it.
     let private collectLocalInlines
         (ctx: PassContext)
-        (decls: (TDecl * (TyVarId * SemType) list) list)
+        (decls: (TDecl * DeclEnv) list)
         : Dictionary<NodeKey, TemplateBody> =
         // The very `SymbolKey` the freeze publishes this binding under, so one template has one
         // identity whether the call that resolved it is in this file or in a consumer of it.
@@ -72,7 +66,7 @@ module InlineExpansion =
                     {
                         Key = templateKey pattern
                         Decl = d
-                        Typars = ElaborateTypars.quantifiedRoots env
+                        Typars = ElaborateTypars.quantifiedRoots env.All
                         // Empty when the inline declared no recognised parameter attribute.
                         ParamAttrs =
                             match ctx.InlineParamAttrs.TryGetValue b with
@@ -473,7 +467,7 @@ module InlineExpansion =
     /// Expand the module-level inlines in one decl-list (elaborated, `TyVar`-carrying decls paired
     /// with their freeze envs). A cross-file body is carried on the provider entry the use-site
     /// key resolves to; a provider serving none makes this an identity rebuild.
-    let run (ctx: PassContext) (decls: (TDecl * (TyVarId * SemType) list) list) : Expanded =
+    let run (ctx: PassContext) (decls: (TDecl * DeclEnv) list) : Expanded =
         // Only the degenerate empty-file case short-circuits: a file with no local inlines still
         // reaches bodies served by the contract stack.
         if List.isEmpty decls then
@@ -507,7 +501,8 @@ module InlineExpansion =
                 declExprs.Add walked
                 walked
 
-            let expanded = decls |> List.map (fun (d, env) -> mapDeclExprs walkTop d, env)
+            let expanded =
+                decls |> List.map (fun (d, env) -> TastWalk.mapDeclExprs walkTop d, env)
 
             {
                 Decls = expanded

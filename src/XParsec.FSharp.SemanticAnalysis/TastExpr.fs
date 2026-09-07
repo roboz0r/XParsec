@@ -225,6 +225,15 @@ type TExprG<'ty, 'tok, 'id> =
         isRec: bool *
         ty: 'ty *
         tok: 'tok
+    /// One lexical `let rec … and …` group in expression position. `members` are the bindings
+    /// in source order, each in scope of every member's value, and `components` partitions
+    /// the member indices over their reference graph. `ty` is the body's type.
+    | LetGroup of
+        members: EqArray<TLetMemberG<'ty, 'tok, 'id>> *
+        components: SccPartition *
+        body: TExprG<'ty, 'tok, 'id> *
+        ty: 'ty *
+        tok: 'tok
     /// `use x = value in body` — `Let`'s shape plus disposal: `body` runs inside a
     /// `try … finally`. `ty` is the body's type.
     | Use of
@@ -427,6 +436,17 @@ and TStaticOptClauseG<'ty, 'tok, 'id> =
     {
         Constraints: EqArray<TStaticOptConstraintG<'ty>>
         Body: TExprG<'ty, 'tok, 'id>
+    }
+
+/// One member of a `let rec … and …` group. `Ty` is the binding's declared type, distinct
+/// from the value's type for a destructuring binding; `Tok` is the binding pattern's first
+/// token.
+and TLetMemberG<'ty, 'tok, 'id> =
+    {
+        Pattern: TPatG<'ty, 'tok, 'id>
+        Value: TExprG<'ty, 'tok, 'id>
+        Ty: 'ty
+        Tok: 'tok
     }
 
 [<RequireQualifiedAccess>]

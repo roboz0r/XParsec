@@ -189,6 +189,7 @@ module Inline =
             let declined = ResizeArray<UnresolvedTrait>()
             let expanded = TastWalk.mapExpr (substMapper ctx declined subst) value
             expanded, List.ofSeq declined
+        | TDecl.LetGroup _ -> invalidArg "decl" "Inline.inlineExpand expects a TDecl.Let, got a TDecl.LetGroup"
         | TDecl.Expression _ -> invalidArg "decl" "Inline.inlineExpand expects a TDecl.Let, got a TDecl.Expression"
         | TDecl.Type _ -> invalidArg "decl" "Inline.inlineExpand expects a TDecl.Let, got a TDecl.Type"
 

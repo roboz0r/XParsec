@@ -14,6 +14,7 @@
     <Compile Include="SccTests.fs" />
     <Compile Include="AssemblyFilePathTests.fs" />
     <Compile Include="TastPoolsTests.fs" />
+    <Compile Include="RecursionClassificationTests.fs" />
     <Compile Include="TastPoolBuilderTests.fs" />
     <Compile Include="FrozenBlobSizeTests.fs" />
     <Compile Include="FrozenCodecColumnTests.fs" />

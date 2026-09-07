@@ -36,6 +36,8 @@ module TastAccessor =
     type ILIntrinsicView = TastNodeViews.ILIntrinsicView
     type LambdaView = TastNodeViews.LambdaView
     type LetView = TastNodeViews.LetView
+    type LetMemberView = TastNodeViews.LetMemberView
+    type LetGroupView = TastNodeViews.LetGroupView
     type AssignmentView = TastNodeViews.AssignmentView
     type IfThenElseView = TastNodeViews.IfThenElseView
     type AppView = TastNodeViews.AppView
@@ -63,6 +65,7 @@ module TastAccessor =
     type FormatView = TastNodeViews.FormatView
     type EnumCasePatView = TastNodeViews.EnumCasePatView
     type DeclLetView = TastNodeViews.DeclLetView
+    type DeclLetGroupView = TastNodeViews.DeclLetGroupView
     type Specialization = TastNodeViews.Specialization
 
     /// A sibling id in the same pool: every child edge resolves through this, so the pool
@@ -210,6 +213,33 @@ module TastAccessor =
 
     let exprLet (e: ExprId) : LetView =
         expect "TastAccessor.exprLet: not a Let node" (|ELet|_|) e
+
+    let private letMembers (shape: LetGroupShape) (pat: int -> PatId) (value: int -> ExprId) : LetMemberView[] =
+        shape.Members
+        |> Array.mapi (fun i m ->
+            {
+                Pattern = pat i
+                Value = value i
+                Ty = m.Ty
+                Tok = m.Tok
+                Recursion = m.Recursion
+            }
+        )
+
+    [<return: Struct>]
+    let (|ELetGroup|_|) (e: ExprId) : LetGroupView voption =
+        match payload e with
+        | ExprPayload.LetGroup g ->
+            ValueSome
+                {
+                    Members = letMembers g (exprPatChild e) (exprChild e)
+                    Components = g.Components
+                    Body = exprChild e g.Members.Length
+                }
+        | _ -> ValueNone
+
+    let exprLetGroup (e: ExprId) : LetGroupView =
+        expect "TastAccessor.exprLetGroup: not a LetGroup node" (|ELetGroup|_|) e
 
     [<return: Struct>]
     let private (|EAssignment|_|) (e: ExprId) : AssignmentView voption =
@@ -808,10 +838,43 @@ module TastAccessor =
     let declLet (d: DeclId) : DeclLetView =
         expect "TastAccessor.declLet: not a Let decl" (|DLet|_|) d
 
+    [<return: Struct>]
+    let (|DLetGroup|_|) (d: DeclId) : DeclLetGroupView voption =
+        match declPayload d with
+        | DeclPayload.LetGroup g ->
+            ValueSome
+                {
+                    Members = letMembers g (declPatChild d) (declExprChild d)
+                    Components = g.Components
+                }
+        | _ -> ValueNone
+
+    let declLetGroup (d: DeclId) : DeclLetGroupView =
+        expect "TastAccessor.declLetGroup: not a LetGroup decl" (|DLetGroup|_|) d
+
     /// The file's declarations, in source order: the pool roots as handles.
     let roots (pool: PoolBuilder) : DeclId[] =
         let ids = TastPoolBuilder.roots pool
         Array.init ids.Length (fun i -> { Pool = pool; Id = ids.[i] })
+
+    /// Every module-level binding, in source order: a `Let` root and each member of a
+    /// `LetGroup` root. A `Let` root's `Tok` is its pattern's anchor.
+    let rootBindings (pool: PoolBuilder) : LetMemberView[] =
+        [|
+            for d in roots pool do
+                match d with
+                | DLet l ->
+                    ({
+                        Pattern = l.Pattern
+                        Value = l.Value
+                        Ty = l.Ty
+                        Tok = patTok l.Pattern
+                        Recursion = l.Recursion
+                    }
+                    : LetMemberView)
+                | DLetGroup g -> yield! g.Members
+                | _ -> ()
+        |]
 
     /// The resolved-specialization entry an `InlineCall`'s `SpecializationId` identifies, its
     /// abstraction as a handle. Reached from the pool, not from a node: several call sites
@@ -1093,4 +1156,5 @@ module TastAccessor =
                         }
                     ))
         | DeclPayload.Let _
+        | DeclPayload.LetGroup _
         | DeclPayload.Expression _ -> mapDeclExpr f d

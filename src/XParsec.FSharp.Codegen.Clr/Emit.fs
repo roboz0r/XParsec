@@ -56,6 +56,7 @@ module Emit =
             match TastAccessor.declKind d with
             | DeclShape.Expression -> buildStatement env b (TastAccessor.declExpression d)
             | DeclShape.Type -> ()
+            | DeclShape.LetGroup -> failwithf "Emit: a `let rec … and …` group survived `TastLower.lower` unsplit: %A" d
             | DeclShape.Let ->
                 let dl = TastAccessor.declLet d
 

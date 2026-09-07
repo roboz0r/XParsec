@@ -36,15 +36,12 @@ module RefCellPromotion =
                         true
             }
 
+        // Only NESTED `let mutable` bound variables are candidates. A module-level mutable is a
+        // static field (CLR) / reassignable `let` (JS), shared across closures natively, and
+        // `rewriteDecl` leaves its declaration bare.
         for d in decls do
-            match d with
-            | TDecl.Let(_, value, _, _, _) ->
-                // Only NESTED `let mutable` bound variables are candidates. A module-level mutable
-                // is a static field (CLR) / reassignable `let` (JS), shared across closures
-                // natively, and `rewriteDecl` leaves its declaration bare.
+            for value in TastWalk.declValues d do
                 TastWalk.iterExpr iter value
-            | TDecl.Expression(e, _) -> TastWalk.iterExpr iter e
-            | TDecl.Type _ -> ()
 
         promote
 
@@ -105,13 +102,7 @@ module RefCellPromotion =
         TastWalk.mapExpr mapper e
 
     let private rewriteDecl (promote: IReadOnlyDictionary<NodeKey, SemType>) (d: TDecl) : TDecl =
-        match d with
-        | TDecl.Let(pat, value, isInline, isRec, ty) ->
-            // A top-level bound variable is never promoted, so the pattern's type is unchanged;
-            // the rewrite reaches any inner `let mutable` through the value's tree.
-            TDecl.Let(pat, rewriteExpr promote value, isInline, isRec, ty)
-        | TDecl.Expression(e, ty) -> TDecl.Expression(rewriteExpr promote e, ty)
-        | TDecl.Type _ -> d
+        TastWalk.mapDeclExprs (rewriteExpr promote) d
 
     let run (ctx: PassContext) (tast: TastFile) : TastFile =
         let promote = collectPromotions ctx tast.Decls

@@ -72,15 +72,23 @@ module internal UnificationRecursionComponents =
 
         Digraph.OfSuccessors(bindings.Length, successors) |> Scc.compute
 
-    /// Report `V260` where `recTok` covers more than the group's members need: a group
-    /// splitting into several components, or a lone binding whose value refers to outer names
-    /// only. One diagnostic per group. `partition` holds at least one component.
+    /// Report `V260` once per group where `recTok` covers more than the group's members need:
+    /// the group splits into several components, or a lone binding's value refers to outer
+    /// names only. Also report FS1114 on each `inline` member of a group of two or more.
     let report
         (ctx: PassContext)
         (recTok: SyntaxToken)
         (bindings: ImmutableArray<Binding<SyntaxToken>>)
         (partition: SccPartition)
         : unit =
+        if bindings.Length > 1 then
+            for b in bindings do
+                match b.inlineToken with
+                | ValueSome inlineTok ->
+                    for name, _ in NameResolutionScope.bindingsOfPat ctx b.pattern do
+                        ctx.Report(inlineTok, Kind.InlineInRecGroup name)
+                | ValueNone -> ()
+
         let names (scc: SccComponent) =
             [
                 for i in scc.Members do

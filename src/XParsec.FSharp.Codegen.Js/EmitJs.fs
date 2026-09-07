@@ -167,6 +167,10 @@ module EmitJs =
                         )
                     | _ -> failwithf "EmitJs: unsupported expression %A" e
 
+        // GAP: a local `let rec … and …` group has no lowering yet; it wants one block of
+        // `const`s inside a single IIFE.
+        | ExprShape.LetGroup -> failwithf "EmitJs: a local `let rec … and …` group is not lowered yet: %A" e
+
         // An anonymous lambda has no bound variable key, so no self-tail-call analysis applies.
         | ExprShape.Lambda -> emitFunction ctx ValueNone e
 
@@ -917,6 +921,7 @@ module EmitJs =
                     | true, info -> EqSet.contains info.Key globals
                     | _ -> false
                 | _ -> false
+            | DeclShape.LetGroup
             | DeclShape.Expression -> false
 
         let declared = expansion.Decls |> List.filter (declaresTargetsOwn >> not)
@@ -988,6 +993,7 @@ module EmitJs =
                 | JsBaseVerdict.Erased -> true
                 | _ -> false
             | DeclShape.Let
+            | DeclShape.LetGroup
             | DeclShape.Expression -> false
 
         let decls = declared |> List.filter (erased >> not)
@@ -1130,6 +1136,8 @@ module EmitJs =
                                 (boundVarNameOf ctx.Pool k)
                                 init
                         | _ -> failwithf "EmitJs: unsupported declaration %A" decl
+                    | DeclShape.LetGroup ->
+                        failwithf "EmitJs: a `let rec … and …` group survived `TastLower.lower` unsplit: %A" decl
                     | DeclShape.Type -> failwithf "EmitJs: unsupported declaration %A" decl
             ]
 

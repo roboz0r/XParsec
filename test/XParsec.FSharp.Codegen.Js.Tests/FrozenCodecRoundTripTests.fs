@@ -117,10 +117,8 @@ let private collect () : Collected =
 
         // Real frozen anchors, shallowly: the source anchor of each top-level decl body.
         for decl in file.Decls do
-            match decl with
-            | TDeclG.Let(_, value, _, _, _) -> toks.Add(TastWalk.exprTok value) |> ignore
-            | TDeclG.Expression(expr, _) -> toks.Add(TastWalk.exprTok expr) |> ignore
-            | TDeclG.Type _ -> ()
+            for value in TastWalk.declValues decl do
+                toks.Add(TastWalk.exprTok value) |> ignore
 
     for p in gated do
         collectFile (TastUnpool.ofPools (frozenOfJs p.Source))

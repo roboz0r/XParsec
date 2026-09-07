@@ -29,6 +29,52 @@ module internal ElaborateExpr =
         | ValueSome c -> TExpr.Const(c, ty, tok)
         | ValueNone -> TExpr.ExternalMember(objArg, info.Key, memberName, info.Storage, info.ArgGroupWidths, ty, tok)
 
+    /// The recursion components inference recorded for the `let rec … and …` group headed by
+    /// `bindings.[0]`, over the group's member indices.
+    let private recordedComponents (ctx: PassContext) (bindings: ImmutableArray<Binding<SyntaxToken>>) : SccPartition =
+        match ctx.Bindings.RecursionComponents.TryGetValue(CstKeys.ofPat bindings.[0].pattern) with
+        | ValueSome partition -> partition
+        | ValueNone ->
+            failwithf
+                "Elaborate: inference recorded no recursion components for the `let rec` group at %A"
+                (CstKeys.firstTokenOfPat bindings.[0].pattern)
+
+    /// The members of a `let rec` group that survive translation.
+    [<RequireQualifiedAccess>]
+    type RecGroup<'m> =
+        | Empty
+        /// One member, with the source binding it translates.
+        | Single of survivor: 'm * binding: Binding<SyntaxToken>
+        /// Two or more members, with the recorded components restricted to them.
+        | Group of members: EqArray<'m> * components: SccPartition
+
+    /// Translate every binding of a `let rec` group of any size, dropping each that
+    /// `translate` elides. An elided member is a format-literal alias, whose value references
+    /// outer names only.
+    let translateRecGroup
+        (ctx: PassContext)
+        (bindings: ImmutableArray<Binding<SyntaxToken>>)
+        (translate: Binding<SyntaxToken> -> 'm voption)
+        : RecGroup<'m> =
+        let translated = [| for b in bindings -> translate b |]
+
+        let members =
+            translated
+            |> Array.choose (fun t ->
+                match t with
+                | ValueSome m -> Some m
+                | ValueNone -> None
+            )
+
+        match members with
+        | [||] -> RecGroup.Empty
+        | [| m |] -> RecGroup.Single(m, bindings.[Array.findIndex ValueOption.isSome translated])
+        | _ ->
+            RecGroup.Group(
+                EqArray.ofArray members,
+                (recordedComponents ctx bindings).Retain(fun i -> translated.[i].IsSome)
+            )
+
     let rec translateExpr (ctx: PassContext) (e: Expr<SyntaxToken>) : TExpr =
         let key = CstKeys.ofExpr e
         let ty = typeOfKey ctx key
@@ -678,8 +724,8 @@ module internal ElaborateExpr =
         (body: Expr<SyntaxToken> voption)
         : TExpr =
         let bodyExpr = CstWalk.requireLetBody body
-        let mutable result = translateExpr ctx bodyExpr
-        let mutable resultTy = typeOfKey ctx (CstKeys.ofExpr bodyExpr)
+        let bodyT = translateExpr ctx bodyExpr
+        let resultTy = typeOfKey ctx (CstKeys.ofExpr bodyExpr)
 
         // `use` / `use!` bind a disposable: the binding folds to a `TExpr.Use`
         // (codegen wraps the body in `try … finally Dispose()`), not a `TExpr.Let`.
@@ -690,36 +736,61 @@ module internal ElaborateExpr =
             | LetOrUseKeyword.Let _
             | LetOrUseKeyword.LetBang _ -> false
 
-        for i = bindings.Length - 1 downto 0 do
-            let b = bindings.[i]
+        // A format-literal alias binding (`let fmt : Format<…> = "%d" in …`) is folded out:
+        // its value froze to a dead `New PrintfFormat`, since every use const-propagates the
+        // literal.
+        let elided (b: Binding<SyntaxToken>) : bool =
+            not isUse && ctx.PrintfFormatLiterals.ContainsKey(CstKeys.ofPat b.pattern)
 
-            // Drop a format-literal alias binding (`let fmt : Format<…> = "%d" in …`):
-            // its value froze to a dead `New PrintfFormat`, since every use
-            // const-propagates the literal. Fold it out, keeping the body.
-            if not isUse && ctx.PrintfFormatLiterals.ContainsKey(CstKeys.ofPat b.pattern) then
-                ()
-            else
+        if isRec then
+            let translate (b: Binding<SyntaxToken>) =
+                if elided b then
+                    ValueNone
+                else
+                    ValueSome(translateLetMember ctx b)
 
-                let tpat = translateBindingPat ctx b
-                let valT = translateBinding ctx b
-                // The let/use node's source anchor is its bound variable pattern's first token.
-                let bindTok = CstKeys.firstTokenOfPat b.pattern
+            match translateRecGroup ctx bindings translate with
+            | RecGroup.Empty -> bodyT
+            | RecGroup.Single(m, _) -> TExpr.Let(m.Pattern, m.Value, bodyT, true, resultTy, m.Tok)
+            | RecGroup.Group(members, components) ->
+                TExpr.LetGroup(members, components, bodyT, resultTy, members.[0].Tok)
+        else
+            // A non-`rec` `and` group and a `use` chain nest one node per binding, innermost last.
+            let mutable result = bodyT
 
-                result <-
-                    if isUse then
-                        // Unification records the bound variable's resolved disposal path under
-                        // the binding pattern's key. Absent ⇒ it reported a
-                        // `use`-over-non-disposable error; no backend lowers `Unresolved`.
-                        let dispose =
-                            match ctx.Resolution.UseDispose.TryGetValue(CstKeys.ofPat b.pattern) with
-                            | ValueSome d -> d
-                            | ValueNone -> Disposal.Unresolved
+            for i = bindings.Length - 1 downto 0 do
+                let b = bindings.[i]
 
-                        TExpr.Use(tpat, valT, result, dispose, resultTy, bindTok)
-                    else
-                        TExpr.Let(tpat, valT, result, isRec, resultTy, bindTok)
+                if not (elided b) then
+                    let m = translateLetMember ctx b
 
-        result
+                    result <-
+                        if isUse then
+                            // Unification records the bound variable's resolved disposal path under
+                            // the binding pattern's key. Absent ⇒ it reported a
+                            // `use`-over-non-disposable error; no backend lowers `Unresolved`.
+                            let dispose =
+                                match ctx.Resolution.UseDispose.TryGetValue(CstKeys.ofPat b.pattern) with
+                                | ValueSome d -> d
+                                | ValueNone -> Disposal.Unresolved
+
+                            TExpr.Use(m.Pattern, m.Value, result, dispose, resultTy, m.Tok)
+                        else
+                            TExpr.Let(m.Pattern, m.Value, result, false, resultTy, m.Tok)
+
+            result
+
+    /// One binding as a `let` member: its pattern, value, declared type and pattern anchor.
+    and translateLetMember (ctx: PassContext) (b: Binding<SyntaxToken>) : TLetMember =
+        let tpat = translateBindingPat ctx b
+        let valT = translateBinding ctx b
+
+        {
+            Pattern = tpat
+            Value = valT
+            Ty = typeOfKey ctx (CstKeys.ofBinding b)
+            Tok = CstKeys.firstTokenOfPat b.pattern
+        }
 
     and translateBinding (ctx: PassContext) (b: Binding<SyntaxToken>) : TExpr =
         if b.argumentPats.IsEmpty then

@@ -188,24 +188,107 @@ no ERRORS: its program is not mutually recursive, so the group now earns a `V260
 The `src/Vesper.*` ports emit no `V260` today (measured over Core, Option, List, Comparison
 and Printf), so D6's open question about suppressing the code for them has no subject yet.
 
-### 4. `LetGroup` on the tree
+### 4. `LetGroup` on the tree — DONE
 
-- Add `TExprG.LetGroup of members * components * body` and
-  `TDeclG.LetGroup of members * components` per D3. The `Let` path is unchanged.
-- `translateLet` and `translateModuleLet` emit one `LetGroup` per lexical `and` group, members
-  in source order, with the recorded components attached. A member folded out as a
-  format-literal alias is removed from `members` and its index from `components`, with the
-  remaining indices renumbered; an emptied component is dropped. A group left with one member
-  becomes a `Let`.
-- `letRecursions` in `TastPoolsTests` returns `Let of name * Recursion | Group of members *
-  components`; the four step-1 group tests assert the `Group` shape.
-- Thread the node through `FrozenCodec`, `TastUnpool`, `TastAccessor`, `TastWalk`,
-  `RefCellPromotion`, `InlineExpansion`, `TastPoolShapes` and the CLR's `LetBoundLambda`.
-- `TastPools`: `LetGroup` walks one component at a time, opening that component's member
-  frames before walking any of its member values. A member of a multi-member component is
-  `Recursive` unless its own frame records a saturated tail self-call. A singleton component
-  classifies exactly as a `Let` does today. Opening every member's frame at once is wrong: a
-  member referencing a sibling in another component would classify `Recursive`.
+- `TExprG.LetGroup of members * components * body * ty * tok` and
+  `TDeclG.LetGroup of members * components`. A member is `TLetMemberG = { Pattern; Value; Ty;
+  Tok }`: `Ty` is the binding's declared type, which `TDeclG.Let` carries and the signature
+  projection and conformance check read per member. `components` is the `SccPartition`
+  inference recorded, carried as is: `SccPartition.Create` is the checked constructor the
+  codec reads through, and `SccPartition.Retain` renumbers after members are dropped and
+  rejects dropping a `Cycle` member. `Let` is unchanged.
+- `ElaborateExpr.translateRecGroup` translates a lexical `let rec … and …` group of two or
+  more bindings through a per-binding function, drops the members it elides, and yields
+  `RecGroup.Empty | Single | Group of members * components` with the recorded components
+  restricted to the survivors. `translateLet` and `translateModuleLetGroup` build the `Let`
+  or `LetGroup` from that. A format-literal alias member is the elided case. A non-`rec`
+  `and` group stays nested `Let`s.
+- The typar freeze needs one env per member: two members of one component share roots at
+  different method-typar indices, so a union env is ambiguous. `DeclEnv = One | PerMember`
+  replaces the flat env on the elaborated pair, and `freezeTypars` applies member `i`'s env to
+  member `i`. The specialization-table freeze still takes the union, as it did before.
+- `TastPools.poolLetGroup` walks one component at a time with that component's frames open.
+  Every member's frame is open over every sibling value in the component, so a `Var` of a
+  sibling marks the sibling's frame `Referenced` and each named member's `Recursion` is read
+  off its own frame; a destructuring member is `Recursive` exactly when its component is a
+  `Cycle`. The pooled payload is `ExprPayload.LetGroup` / `DeclPayload.LetGroup` of
+  `LetGroupShape`, member `i`'s pattern at pat child `i` and value at expr child `i`, the
+  body last. `FrozenCodec` is at format 10.
+- `TastLower.lower` splits a module-level `LetGroup` into one `Let` decl per member, in source
+  order, each keeping its `Recursion`, so both backends see module groups exactly as before
+  step 4. `src/Vesper.Printf/structural-printer.*.fs` has module groups and stays green. An
+  expression-position `LetGroup` reaches both emitters and fails there until steps 5 and 6.
+- `inline` on a group member reports FS1114, as `dotnet fsi` does, because a member is never a
+  splice template. `UnificationRecursionComponents.report` owns it beside `V260`. The JS
+  specialization-table test that pinned a cycle verdict for a mutually recursive inline pair
+  is gone; `RecursionGroupTests` pins the error. A lone `let rec inline` keeps its
+  table-bounded expansion.
+- `letRecursions` in `RecursionClassificationTests` returns `Let of name * Recursion | Group
+  of members * components`; the four step-1 tests are promoted and a fifth pins a member
+  referencing a sibling in an earlier component as `NonRecursive`.
+- Every `let rec` group, singletons included, goes through `translateRecGroup`, since
+  inference records a partition for every group. `RecGroup.Single` carries the source binding
+  so a lone `let rec inline` keeps its `inline` flag. The non-`rec` path in `translateLet`
+  and `translateModuleElem` nests one `Let` per binding, `isRec = false`.
+- Decl consumers read a decl's bindings through `TastWalk.declBindings`, its module-init
+  expressions through `TastWalk.declValues`, and rebuild every expression root through
+  `TastWalk.mapDeclExprs`. Pool consumers read every module binding through
+  `TastAccessor.rootBindings`, which presents a `Let` root as a `LetMemberView` whose `Tok`
+  is the pattern's anchor.
+
+### 4a. `TDeclG.Let` carries a `TLetMemberG`
+
+`TDeclG.Let of pattern * value * isInline * isRec * ty` and `TLetMemberG` describe the same
+binding with two shapes, and `TDeclG.Let` lacks the member's `Tok`. Every decl consumer
+therefore writes two arms, one per shape, and `TastAccessor.rootBindings` synthesises a
+`Tok` from the pattern's anchor. `TExprG.Let` has the same relationship to `TLetMemberG`
+with `ty` as the body's type and no declared type.
+
+- `TDeclG.Let of binding: TLetMemberG * isInline: bool * isRec: bool`. `TExprG.Let of
+  binding: TLetMemberG * body * isRec * ty * tok` follows, with `tok` then equal to
+  `binding.Tok` and dropped. `Ty` on a `Let` decl's member is the declared type it carries
+  today; on an expression `Let` it is the pattern's type, which `TastLower.lower` currently
+  reads off the value.
+- `TastWalk.declBindings` returns `TLetMemberG list`, so a consumer reads `Ty` and `Tok` per
+  binding at both levels. `PlatformTypes`, `ResolvedTypes` and the CLR `LetBoundLambda` read
+  the member directly and lose their `Let`/`LetGroup` arm pairs.
+- `DeclLetView` becomes `LetMemberView` plus `IsInline` and `IsRec`, or the two flags move to
+  `DeclLetView` over a `LetMemberView` field; `rootBindings` then projects rather than
+  synthesises. `LetView` likewise.
+- `TastPoolShapes`, `TastPools.poolDecl`, `TastUnpool` and `FrozenCodec` read the member's
+  fields in place of the tuple's; `DeclPayload.Let` is unchanged. `FormatVersion` is
+  unchanged if the encoded fields are, since only the tree shape moves.
+- `TastConvert.decl` and `TastConvert.expr` map the member through `letMember`.
+- 171 `TDecl.Let(` match sites across `src` and `test` at the time of writing; each becomes a
+  record pattern on the member. Do it in one change, on a green tree, with no behaviour
+  change; the pinned tests are the gate.
+
+### 4b. `exprPayload` stops inventing a `Recursion`
+
+`TastPoolShapes.exprPayload` is total over `TExprG` and returns `ExprPayload`, so at `Let`,
+`App` and each `LetGroup` member it writes a `Recursion` / `AppKind` it has no evidence for:
+`NonRecursive` / `Call`. `poolExprIn` then overwrites them, for `Let` and `LetGroup` by never
+calling `exprPayload` at all (`TastPools.fs:126-131`) and for `App` by the tail-self-call arm
+above the fall-through (`TastPools.fs:138-140`). Three costs are already visible: the warning
+is written twice, on `exprPayload` and again on `ExprPayload` (`TastPoolNodes.fs:220`);
+`TastPoolsTests.withoutRecFacts` is a runtime normaliser that erases the three fields so the
+oracle can be compared; and `poolLetGroup` re-derives `Ty` and `sink.Anchor m.Tok` per member
+(`TastPools.fs:238-245`) because what `exprPayload` computed went down the dead path.
+
+- `LetMemberScalars = { Ty: FrozenType; Tok: Anchor }`, and `LetMemberShape` becomes
+  `{ Scalars: LetMemberScalars; Recursion: Recursion }`.
+- `exprPayload` returns `PayloadOfNode = Complete of ExprPayload | Application | Binding of
+  isRec: bool | BindingGroup of members: LetMemberScalars[] * components: SccPartition`, so a
+  placeholder verdict is a type error rather than a documented default. `poolExprIn` matches
+  on it at the three points that already branch there, and takes the scalars for its
+  `LetGroupShape` instead of recomputing them.
+- `withoutRecFacts` is deleted. `checkExpr` compares scalars against scalars, inventing no
+  `Recursion` to discard; `TastPoolBuilderTests:141` follows.
+- `FrozenCodec.writeLetGroupShape` / `readLetGroupShape`, `TastAccessor.letMembers` and
+  `TastUnpool` read through `Scalars`. `FormatVersion` is unchanged if the encoded field order
+  is.
+- Add `PayloadOfNode` beside the current signature and delete the old return type in a
+  separate change, per the additive-swap rule.
 
 ### 5. JS lowering
 
@@ -227,6 +310,18 @@ and Printf), so D6's open question about suppressing the code for them has no su
 ### 7. Close out
 
 - Re-check `emitFlatModuleFn`'s use of `Recursion` at module level.
+- `Regions.letChainRegion` walks a maximal `Let`/`Use` chain as one binding group, and
+  `Regions.run` walks every module decl as one, both introduced so a flattened `let rec …
+  and …` could resolve its siblings. `LetGroup` now carries the group, so the only remaining
+  effect of chain grouping is the `LetLevel` each region in the chain is minted at. Decide
+  whether a per-`Let` level is the intended escape semantics; if so, collapse both to a plain
+  `Let` arm plus `withBindingGroup` over `LetGroup`, pinned by a region-output test.
+- `DeclEnv = One | PerMember` pairs a decl with envs by shape, and `freezeTypars` fails on a
+  `LetGroup` paired with `One`. A DU co-locating each member with its env was evaluated and
+  only relocates the check, since a `LetGroup` decl is still expressible beside a single env.
+  The by-construction fix is for one component's members to share one typar numbering, so a
+  group freezes over a single union env; that changes emitted method typar indices and is a
+  separate decision.
 - Update `brainstorm-tarjan-scc.md` to mark the closure client as served, point at `Scc.fs`,
   and add `type … and` group splitting as a further client over a type-reference graph.
 - Delete this document.

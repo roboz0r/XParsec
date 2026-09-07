@@ -333,16 +333,15 @@ module FrozenSignature =
         // `ModuleMembers`, a TOP-LEVEL binding's too, keyed in the file's namespace so it
         // exports bare. An `inline` one publishes this declaration and nothing more: its
         // template is a separate object, keyed by this same binding key.
-        for decl in TastAccessor.roots pool do
-            match decl with
-            | TastAccessor.DLet {
-                                    Pattern = TastAccessor.PNamed boundVar
-                                    Ty = ty
-                                } ->
-                let info = TastPoolBuilder.moduleMemberOf pool boundVar
+        let addBinding (boundVar: BoundVarId) (ty: FrozenType) =
+            let info = TastPoolBuilder.moduleMemberOf pool boundVar
 
-                if exported info.Key then
-                    addValue info boundVar ty
+            if exported info.Key then
+                addValue info boundVar ty
+
+        for m in TastAccessor.rootBindings pool do
+            match m.Pattern with
+            | TastAccessor.PNamed boundVar -> addBinding boundVar m.Ty
             | _ -> ()
 
         // --- intrinsic / primitive type shapes ----------------------------------------

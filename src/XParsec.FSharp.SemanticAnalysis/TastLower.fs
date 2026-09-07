@@ -413,8 +413,16 @@ module TastLower =
 
     /// Flatten a decl list for emission, rewriting no expression: drop `type` decls
     /// (emitted as metadata), drop an `inline` binding whose body still carries a trait
-    /// call, and split a folded top-level statement chain into standalone decls.
+    /// call, split a folded top-level statement chain into standalone decls, and split a
+    /// module-level `let rec … and …` group into one decl per member.
     let lower (decls: TastAccessor.DeclId list) : TastAccessor.DeclId list =
+        // A module-level group's members are independent module bindings: each emits as a
+        // module function or value of its own, in source order, keeping its `Recursion`.
+        let memberDecls (members: TastAccessor.LetMemberView[]) : TastAccessor.DeclId list =
+            [
+                for m in members -> TastAccessor.mintLetDecl m.Pattern m.Value false true m.Recursion m.Ty
+            ]
+
         // Consecutive top-level statements/lets arrive as ONE `TDecl.Expression` over a
         // `Sequential` / `let … in …` chain; peeling it makes each trailing `let` its own
         // decl.
@@ -430,6 +438,10 @@ module TastLower =
 
                 TastAccessor.mintLetDecl l.Pattern l.Value false l.IsRec l.Recursion (TastAccessor.exprTy l.Value)
                 :: flattenTopLevel l.Body
+            | ExprShape.LetGroup ->
+                let g = TastAccessor.exprLetGroup e
+
+                [ yield! memberDecls g.Members; yield! flattenTopLevel g.Body ]
             | _ -> [ TastAccessor.mintExpressionDecl e (TastAccessor.exprTy e) ]
 
         let result = ResizeArray<TastAccessor.DeclId>()
@@ -457,6 +469,8 @@ module TastLower =
 
                 if not (lv.IsInline && (hasTraitCall lv.Value || isBareTemplateValue lv.Value)) then
                     result.Add d
+            // A group member is never `inline`, so every member emits.
+            | DeclShape.LetGroup -> result.AddRange(memberDecls (TastAccessor.declLetGroup d).Members)
             | DeclShape.Expression -> result.Add d
             | DeclShape.Type -> ()
 

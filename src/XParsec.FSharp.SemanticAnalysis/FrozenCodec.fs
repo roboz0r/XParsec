@@ -124,6 +124,56 @@ module FrozenCodec =
         | 3uy -> FormatSegShape.CallbackHole(readHoleSpec r)
         | b -> failwithf "FrozenCodec: unknown FormatSegShape tag %d" b
 
+    let private writeSccComponent (w: FrozenWriter) (c: SccComponent) =
+        match c with
+        | Cycle members ->
+            w.Write 0uy
+            writeEqArrayWith w (fun w (i: int) -> w.Write i) members
+        | Acyclic node ->
+            w.Write 1uy
+            w.Write node
+
+    let private readSccComponent (r: FrozenReader) : SccComponent =
+        match r.ReadByte() with
+        | 0uy -> Cycle(readEqArrayWith r (fun r -> r.ReadInt32()))
+        | 1uy -> Acyclic(r.ReadInt32())
+        | b -> failwithf "FrozenCodec: unknown SccComponent tag %d" b
+
+    let private writeLetGroupShape (w: FrozenWriter) (g: LetGroupShape) =
+        writeArrayWith
+            w
+            (fun w (m: LetMemberShape) ->
+                writeTypeRef w m.Ty
+                writeAnchor w m.Tok
+                writeRecursion w m.Recursion
+            )
+            g.Members
+
+        writeEqArrayWith w writeSccComponent g.Components.Components
+
+    let private readLetGroupShape (r: FrozenReader) : LetGroupShape =
+        let members =
+            readArrayWith
+                r
+                (fun r ->
+                    let ty = readTypeRef r
+                    let tok = readAnchor r
+                    let recursion = readRecursion r
+
+                    {
+                        Ty = ty
+                        Tok = tok
+                        Recursion = recursion
+                    }
+                )
+
+        let components = readEqArrayWith r readSccComponent
+
+        {
+            Members = members
+            Components = SccPartition.Create(members.Length, components)
+        }
+
     let private writeExprPayload (w: FrozenWriter) (p: ExprPayload) =
         match p with
         | ExprPayload.Const value ->
@@ -246,6 +296,9 @@ module FrozenCodec =
             writeFilePathRef w source
         | ExprPayload.ArrayLit -> w.Write 41uy
         | ExprPayload.Unresolved -> w.Write 42uy
+        | ExprPayload.LetGroup g ->
+            w.Write 43uy
+            writeLetGroupShape w g
 
     let private readExprPayload (r: FrozenReader) : ExprPayload =
         match r.ReadByte() with
@@ -372,6 +425,7 @@ module FrozenCodec =
         | 40uy -> ExprPayload.CallerExpr(readFilePathRef r)
         | 41uy -> ExprPayload.ArrayLit
         | 42uy -> ExprPayload.Unresolved
+        | 43uy -> ExprPayload.LetGroup(readLetGroupShape r)
         | b -> failwithf "FrozenCodec: unknown ExprPayload tag %d" b
 
     let private writePatPayload (w: FrozenWriter) (p: PatPayload) =
@@ -440,6 +494,9 @@ module FrozenCodec =
         | DeclPayload.Type td ->
             w.Write 2uy
             writeTypeDecl w td
+        | DeclPayload.LetGroup g ->
+            w.Write 3uy
+            writeLetGroupShape w g
 
     let private readDeclPayload (r: FrozenReader) : DeclPayload =
         match r.ReadByte() with
@@ -458,6 +515,7 @@ module FrozenCodec =
                 |}
         | 1uy -> DeclPayload.Expression(readTypeRef r)
         | 2uy -> DeclPayload.Type(readTypeDecl r)
+        | 3uy -> DeclPayload.LetGroup(readLetGroupShape r)
         | b -> failwithf "FrozenCodec: unknown DeclPayload tag %d" b
 
     /// The un-pooled fields, verbatim, because none of them is a tree.
@@ -517,7 +575,7 @@ module FrozenCodec =
     /// The blob layout's version. Bump it with every change to a column, a payload or a
     /// table's encoding, so a blob of an older layout is refused rather than misread.
     [<Literal>]
-    let private FormatVersion = 8uy
+    let private FormatVersion = 10uy
 
     let private writePools (w: FrozenWriter) (p: FrozenPools) =
         w.Write FormatVersion

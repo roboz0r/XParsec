@@ -64,6 +64,9 @@ module EmitExpr =
                 buildVarLoad env b boundVar
 
         | ExprShape.Let -> EmitBindings.buildLet buildExprAt pos env b e
+        // GAP: a local `let rec … and …` group has no lowering yet; every member's closure
+        // wants a slot before any sibling capture is stored.
+        | ExprShape.LetGroup -> failwithf "Emit: a local `let rec … and …` group is not lowered yet: %A" e
         | ExprShape.Use -> EmitBindings.buildUse buildExprAt pos env b e
         | ExprShape.TryFinally -> EmitBindings.buildTryFinally buildExprAt pos env b e
 

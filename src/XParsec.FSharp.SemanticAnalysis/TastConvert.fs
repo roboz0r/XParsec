@@ -85,6 +85,8 @@ module TastConvert =
         | TExprG.Lambda(p, b, ty, tok) -> TExprG.Lambda(pp p, pe b, f ty, tk tok)
         | TExprG.App(fn, a, ty, tok) -> TExprG.App(pe fn, pe a, f ty, tk tok)
         | TExprG.Let(p, v, body, isRec, ty, tok) -> TExprG.Let(pp p, pe v, pe body, isRec, f ty, tk tok)
+        | TExprG.LetGroup(members, components, body, ty, tok) ->
+            TExprG.LetGroup(EqArray.map (letMember f fTok) members, components, pe body, f ty, tk tok)
         | TExprG.Use(p, v, body, dispose, ty, tok) -> TExprG.Use(pp p, pe v, pe body, dispose, f ty, tk tok)
         | TExprG.IfThenElse(c, t, el, ty, tok) -> TExprG.IfThenElse(pe c, pe t, pe el, f ty, tk tok)
         | TExprG.Tuple(items, ty, tok) -> TExprG.Tuple(EqArray.map pe items, f ty, tk tok)
@@ -182,6 +184,14 @@ module TastConvert =
         {
             Constraints = EqArray.map (constraintOf f) c.Constraints
             Body = expr f fTok c.Body
+        }
+
+    and letMember (f: 'a -> 'b) (fTok: 'ta -> 'tb) (m: TLetMemberG<'a, 'ta, 'id>) : TLetMemberG<'b, 'tb, 'id> =
+        {
+            Pattern = pat f fTok m.Pattern
+            Value = expr f fTok m.Value
+            Ty = f m.Ty
+            Tok = fTok m.Tok
         }
 
     let unionCase (f: 'a -> 'b) (c: TUnionCaseG<'a>) : TUnionCaseG<'b> =
@@ -367,6 +377,7 @@ module TastConvert =
         match d with
         | TDeclG.Let(binding, value, isInline, isRec, ty) ->
             TDeclG.Let(pat f fTok binding, expr f fTok value, isInline, isRec, f ty)
+        | TDeclG.LetGroup(members, components) -> TDeclG.LetGroup(EqArray.map (letMember f fTok) members, components)
         | TDeclG.Expression(e, ty) -> TDeclG.Expression(expr f fTok e, f ty)
         // A tree-shaped rebuild leaves the identity axis alone: the key slots stay in the
         // space they were in, and the bodies are the expression rebuild itself.

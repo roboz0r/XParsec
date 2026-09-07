@@ -260,6 +260,21 @@ module EqArray =
 
             ok
 
+    /// Raises `ArgumentException` on a length mismatch.
+    let map2 (mapping: 'T -> 'U -> 'V) (xs: EqArray<'T>) (ys: EqArray<'U>) : EqArray<'V> =
+        let a = xs.Underlying
+        let b = ys.Underlying
+
+        if a.Length <> b.Length then
+            invalidArg "ys" $"length %d{b.Length} differs from the first array's %d{a.Length}"
+
+        let mutable out = SmallArrayBuilder<'V>()
+
+        for i in 0 .. a.Length - 1 do
+            out.Add(mapping a.[i] b.[i])
+
+        EqArray<'V>(out.ToImmutable())
+
     let tryFind (predicate: 'T -> bool) (xs: EqArray<'T>) : 'T voption =
         let src = xs.Underlying
         let mutable i = 0

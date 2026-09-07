@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+open System.Collections.Immutable
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis.Passes
@@ -169,22 +170,22 @@ module Elaborate =
             | _ when bindingWasGeneralised ctx b -> mkMethodQuantEnv ctx.Store declaredTypars declTy
             | _ -> []
 
+    /// One module binding as a `let` member, paired with the typar env it freezes over.
     /// `ValueNone` for a format-literal alias, whose `New PrintfFormat` value is dead: it
     /// reaches the frozen tree as neither a declaration nor a bound variable.
-    let private translateModuleLet
+    let private translateModuleBinding
         (ctx: PassContext)
         (container: ModuleContainer)
-        (isRec: bool)
         (b: Binding<SyntaxToken>)
-        : (TDecl * (TyVarId * SemType) list) voption =
-        let tpat = translateBindingPat ctx b
+        : (TLetMember * (TyVarId * SemType) list) voption =
+        let m = translateLetMember ctx b
         let elided = ctx.PrintfFormatLiterals.ContainsKey(CstKeys.ofPat b.pattern)
 
         // Read off the TRANSLATED pattern, never the CST binding: the analysis identity
         // addresses a pattern node that `translatePat` erases for `let (x: int) = …`.
-        let boundVar = if elided then ValueNone else BoundVarKey.ofPat tpat
+        let boundVar = if elided then ValueNone else BoundVarKey.ofPat m.Pattern
 
-        let declTy = typeOfKey ctx (CstKeys.ofBinding b)
+        let declTy = m.Ty
         let quantEnv = moduleLetQuantEnv ctx b declTy
 
         let attrElement =
@@ -204,13 +205,11 @@ module Elaborate =
         let emittedName = info |> ValueOption.map (fun i -> i.EmittedName)
         let exportedKey = recordExportedBinding ctx b info boundVar
 
-        let valT = translateBinding ctx b
+        Attributes.declareGlobalBinding ctx b emittedName exportedKey m.Value
+        Attributes.declareImportBinding ctx b emittedName exportedKey m.Value
 
-        Attributes.declareGlobalBinding ctx b emittedName exportedKey valT
-        Attributes.declareImportBinding ctx b emittedName exportedKey valT
-
-        match tpat with
-        | TPat.NamedSimple(boundVarKey, _, _, _) -> recordInlineParamAttrs ctx b boundVarKey valT
+        match m.Pattern with
+        | TPat.NamedSimple(boundVarKey, _, _, _) -> recordInlineParamAttrs ctx b boundVarKey m.Value
         | _ -> ()
 
         // A bound-variable-less pattern has nowhere to file the scheme.
@@ -218,28 +217,42 @@ module Elaborate =
         | ValueSome bk -> recordGenericFnScheme ctx bk quantEnv
         | ValueNone -> ()
 
-        if elided then
-            ValueNone
-        else
-            ValueSome(TDecl.Let(tpat, valT, b.inlineToken.IsSome, isRec, declTy), quantEnv)
+        if elided then ValueNone else ValueSome(m, quantEnv)
 
-    let private translateModuleElem
+    let private moduleLetDecl (isRec: bool) (b: Binding<SyntaxToken>) (m: TLetMember) : TDecl =
+        TDecl.Let(m.Pattern, m.Value, b.inlineToken.IsSome, isRec, m.Ty)
+
+    /// A module-level `let rec` group as one `LetGroup` over its surviving members, with the
+    /// recorded components restricted to them. A group left with one member is a `Let`.
+    let private translateModuleLetGroup
         (ctx: PassContext)
-        (m: ModuleElem<SyntaxToken>)
-        : (TDecl * (TyVarId * SemType) list) list =
+        (container: ModuleContainer)
+        (bindings: ImmutableArray<Binding<SyntaxToken>>)
+        : (TDecl * DeclEnv) list =
+        match translateRecGroup ctx bindings (translateModuleBinding ctx container) with
+        | RecGroup.Empty -> []
+        | RecGroup.Single((m, env), b) -> [ moduleLetDecl true b m, DeclEnv.One env ]
+        | RecGroup.Group(members, components) ->
+            [
+                TDecl.LetGroup(EqArray.map fst members, components), DeclEnv.PerMember(EqArray.map snd members)
+            ]
+
+    let private translateModuleElem (ctx: PassContext) (m: ModuleElem<SyntaxToken>) : (TDecl * DeclEnv) list =
         let container = ctx.CurrentContainer
 
         match m with
-        | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(isRec = isRec; bindings = bindings)) ->
+        | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(isRec = ValueSome _; bindings = bindings)) ->
+            translateModuleLetGroup ctx container bindings
+        | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(isRec = ValueNone; bindings = bindings)) ->
             [
                 for b in bindings do
-                    match translateModuleLet ctx container isRec.IsSome b with
-                    | ValueSome decl -> yield decl
+                    match translateModuleBinding ctx container b with
+                    | ValueSome(m, env) -> yield moduleLetDecl false b m, DeclEnv.One env
                     | ValueNone -> ()
             ]
         | ModuleElem.Expression e ->
             let eT = translateExpr ctx e
-            [ TDecl.Expression(eT, typeOfKey ctx (CstKeys.ofExpr e)), [] ]
+            [ TDecl.Expression(eT, typeOfKey ctx (CstKeys.ofExpr e)), DeclEnv.One [] ]
         | ModuleElem.Type defs ->
             [
                 for td in defs do
@@ -249,15 +262,15 @@ module Elaborate =
                         ctx.Bindings.Accessibility.[SymbolKey.Type tdecl.TypeKey] <-
                             accessibilityOfToken (typeDefnAccessToken td)
 
-                        yield result
-                    | Some result -> yield result
+                        yield fst result, DeclEnv.One(snd result)
+                    | Some(decl, env) -> yield decl, DeclEnv.One env
                     | None -> ()
             ]
         | _ -> []
 
     /// CST → a `TExpr` tree whose `.ty` fields are zonk'd `SemType`, still `TyVar`-carrying.
     /// Each decl is paired with the typar env it quantifies.
-    let elaborate (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : (TDecl * (TyVarId * SemType) list) list =
+    let elaborate (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : (TDecl * DeclEnv) list =
         // The flattened walk NameResolution and Unification take: a by-name read during
         // lowering resolves from the module and `open`s it is written under.
         CstModuleTree.walkImpl ctx.NameOf OpenScope.empty file
@@ -282,7 +295,7 @@ module Elaborate =
             let expanded = InlineExpansion.run ctx elaborated
 
             // No two decls generalize one root, so this union is unambiguous.
-            let env = expanded.Decls |> List.collect snd
+            let env = expanded.Decls |> List.collect (fun (_, env) -> env.All)
 
             let specializations =
                 expanded.Specializations

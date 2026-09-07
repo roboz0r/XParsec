@@ -10,6 +10,24 @@ open XParsec.FSharp.Parser
 [<RequireQualifiedAccess>]
 module TastUnpool =
 
+    /// A `LetGroup`'s members over its rebuilt children: member `i`'s pattern is `ps.[i]` and
+    /// its value `es.[i]`.
+    let private letMembers
+        (g: LetGroupShape)
+        (ps: TPatG<FrozenType, Anchor, 'id>[])
+        (es: TExprG<FrozenType, Anchor, 'id>[])
+        : EqArray<TLetMemberG<FrozenType, Anchor, 'id>> =
+        g.Members
+        |> Array.mapi (fun i m ->
+            {
+                Pattern = ps.[i]
+                Value = es.[i]
+                Ty = m.Ty
+                Tok = m.Tok
+            }
+        )
+        |> EqArray.ofArray
+
     /// Re-author one expression node from its columns and its ALREADY-REBUILT child
     /// subtrees, drawn in the order the pooling walk enumerated them. `tok` goes back
     /// unchanged, because re-axising it would silently rebase a declaring file's indices onto this file.
@@ -52,6 +70,7 @@ module TastUnpool =
             let value = nextE ()
             let body = nextE ()
             TExprG.Let(binding, value, body, isRec, ty, tok)
+        | ExprPayload.LetGroup g -> TExprG.LetGroup(letMembers g ps es, g.Components, es.[g.Members.Length], ty, tok)
         | ExprPayload.Use dispose ->
             let binding = nextP ()
             let value = nextE ()
@@ -194,6 +213,7 @@ module TastUnpool =
         : TDeclG<FrozenType, Anchor, 'id> =
         match payload with
         | DeclPayload.Let p -> TDeclG.Let(ps.[0], es.[0], p.IsInline, p.IsRec, p.Ty)
+        | DeclPayload.LetGroup g -> TDeclG.LetGroup(letMembers g ps es, g.Components)
         | DeclPayload.Expression ty -> TDeclG.Expression(es.[0], ty)
         | DeclPayload.Type td ->
             TDeclG.Type(
@@ -270,6 +290,7 @@ module TastUnpool =
             match d with
             | TDeclG.Type td -> Seq.iter readmit (BoundVarKey.ofTypeDecl td)
             | TDeclG.Let _
+            | TDeclG.LetGroup _
             | TDeclG.Expression _ -> ()
 
             d

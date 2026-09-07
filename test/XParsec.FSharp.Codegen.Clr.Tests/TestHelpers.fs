@@ -89,14 +89,9 @@ let rec iterThroughEdges (it: TastWalk.Iter) (tast: TastFile) (e: TExpr) : unit 
 /// Run `it` over every expression the file carries: its declarations AND its
 /// specialization entries. Walking `Decls` alone misses the entries.
 let iterFileExprs (it: TastWalk.Iter) (tast: TastFile) : unit =
-    let ofDecl (d: TDecl) =
-        match d with
-        | TDecl.Let(_, value, _, _, _) -> TastWalk.iterExpr it value
-        | TDecl.Expression(e, _) -> TastWalk.iterExpr it e
-        | TDecl.Type _ -> ()
-
     for d in tast.Decls do
-        ofDecl d
+        for value in TastWalk.declValues d do
+            TastWalk.iterExpr it value
 
     for entry in tast.Specializations do
         TastWalk.iterExpr it entry.Value

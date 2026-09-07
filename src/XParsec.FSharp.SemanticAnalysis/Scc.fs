@@ -74,6 +74,61 @@ type SccPartition =
     member this.ComponentOf(node: int) : SccComponent =
         this.Components.[this.ComponentIndex.[node]]
 
+    member this.NodeCount: int = this.ComponentIndex.Length
+
+    /// The partition of `0 … nodeCount - 1` into `components`, in the given order. Raises
+    /// `ArgumentException` unless every node appears in exactly one component.
+    static member Create(nodeCount: int, components: EqArray<SccComponent>) : SccPartition =
+        let componentIndex = Array.create nodeCount -1
+
+        components
+        |> EqArray.iteri (fun c scc ->
+            for node in scc.Members do
+                if node < 0 || node >= nodeCount then
+                    invalidArg "components" $"node %d{node} is outside 0 … %d{nodeCount - 1}"
+
+                if componentIndex.[node] >= 0 then
+                    invalidArg "components" $"node %d{node} appears in two components"
+
+                componentIndex.[node] <- c
+        )
+
+        for node in 0 .. nodeCount - 1 do
+            if componentIndex.[node] < 0 then
+                invalidArg "components" $"node %d{node} appears in no component"
+
+        {
+            Components = components
+            ComponentIndex = EqArray.ofArray componentIndex
+        }
+
+    /// The partition over the nodes `keep` retains, renumbered to their positions among the
+    /// retained nodes, in the same component order. Only an `Acyclic` node can be dropped:
+    /// raises `ArgumentException` when `keep` rejects a `Cycle` member.
+    member this.Retain(keep: int -> bool) : SccPartition =
+        let renumbered = Array.create this.NodeCount -1
+        let mutable next = 0
+
+        for node in 0 .. renumbered.Length - 1 do
+            if keep node then
+                renumbered.[node] <- next
+                next <- next + 1
+
+        let components = ResizeArray<SccComponent>()
+
+        for scc in this.Components do
+            match scc with
+            | Cycle members ->
+                for m in members do
+                    if renumbered.[m] < 0 then
+                        invalidArg "keep" $"node %d{m} lies on a cycle and cannot be dropped"
+
+                components.Add(Cycle(members |> EqArray.map (fun m -> renumbered.[m])))
+            | Acyclic node when renumbered.[node] >= 0 -> components.Add(Acyclic renumbered.[node])
+            | Acyclic _ -> ()
+
+        SccPartition.Create(next, EqArray.ofResizeArray components)
+
 [<RequireQualifiedAccess>]
 module Scc =
 

@@ -85,4 +85,18 @@ let tests =
                 // edges and no `rec` keyword to report on.
                 Expect.isEmpty (v260 "let a = 1\nlet b = a\n") "no rec keyword"
             }
+
+            test "`inline` on a group member is an error under F#'s code" {
+                // `dotnet fsi` reports FS1114 on each inline member of a `let rec … and …`
+                // group. A lone `let rec inline` is accepted here, its expansion bounded by the
+                // specialization table, so the report is the group's alone.
+                let tast = analyseSem "let rec inline f x = g x\nand g x = f x\n"
+
+                Expect.equal
+                    [ for d in tast.Diagnostics -> d.Code, d.Severity ]
+                    [ DiagCode.FSharp 1114, Severity.Error ]
+                    "one FS1114 on the inline member and no V260"
+
+                Expect.stringContains (List.head tast.Diagnostics).Message "'f'" "names the inline member"
+            }
         ]

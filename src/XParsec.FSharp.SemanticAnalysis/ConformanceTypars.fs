@@ -51,24 +51,25 @@ module ConformanceTypars =
     let checkFile (provider: IExternalSymbolProvider) (pools: FrozenPools) : TyparMismatch list =
         let pool = TastPoolBuilder.openOver pools
 
-        [
-            for decl in TastAccessor.roots pool do
-                match decl with
-                | TastAccessor.DLet {
-                                        Pattern = TastAccessor.PNamed boundVar
-                                        Ty = ty
-                                    } ->
-                    let key = (TastPoolBuilder.moduleMemberOf pool boundVar).BindingKey
+        let check (boundVar: BoundVarId) (ty: FrozenType) : TyparMismatch voption =
+            let key = (TastPoolBuilder.moduleMemberOf pool boundVar).BindingKey
 
-                    match provider.TryLookupByKey key with
-                    | ValueSome sym when sym.TyparArity > 0 ->
-                        if not (schemesAgree sym.Scheme ty) then
-                            yield
-                                {
-                                    Name = SymbolKeyOps.qualifiedBindingName key
-                                    Declared = normAxis sym.Scheme
-                                    Inferred = normAxis ty
-                                }
-                    | _ -> ()
+            match provider.TryLookupByKey key with
+            | ValueSome sym when sym.TyparArity > 0 && not (schemesAgree sym.Scheme ty) ->
+                ValueSome
+                    {
+                        Name = SymbolKeyOps.qualifiedBindingName key
+                        Declared = normAxis sym.Scheme
+                        Inferred = normAxis ty
+                    }
+            | _ -> ValueNone
+
+        [
+            for m in TastAccessor.rootBindings pool do
+                match m.Pattern with
+                | TastAccessor.PNamed boundVar ->
+                    match check boundVar m.Ty with
+                    | ValueSome mismatch -> yield mismatch
+                    | ValueNone -> ()
                 | _ -> ()
         ]

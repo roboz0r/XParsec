@@ -329,18 +329,9 @@ let tests =
                     "…and the verdict came off a table that really is cyclic"
             }
 
-            test "a MUTUALLY recursive pair is caught, and the verdict reports the way round" {
-                let _, ds =
-                    expandedWithDiagnostics "let rec inline f x = g x\nand inline g x = f x\nlet a = f 1\n"
-
-                // ONE verdict, not one per rotation: `g → f → g` is a single loop, reported in call
-                // order. It closes on `g` because `g` is the first entry minted: an inline binding
-                // is walked as the function it also emits, so `f`'s body reaches `g` first.
-                Expect.equal
-                    (cyclicInlines ds)
-                    [ "g", [ "f" ] ]
-                    "a → b → a is a cycle even though neither binding references itself"
-            }
+            // A mutually recursive `inline` pair never reaches the table: a `let rec … and …`
+            // member is an ordinary function, and analysis reports FS1114 on the `inline`
+            // keyword, which `RecursionGroupTests` pins.
 
             test "a recursive SERVED body terminates into a cyclic table, which is rejected" {
                 // `selfLoop`'s reduction is CLOSED, so its entry is shareable and interned. What
@@ -422,10 +413,8 @@ let tests =
                         for e in table do
                             yield! edgeArities (entryValue e)
                         for (d, _) in expanded.Decls do
-                            match d with
-                            | TDecl.Let(_, value, _, _, _) -> yield! edgeArities value
-                            | TDecl.Expression(x, _) -> yield! edgeArities x
-                            | TDecl.Type _ -> ()
+                            for value in TastWalk.declValues d do
+                                yield! edgeArities value
                     ]
 
                 Expect.isNonEmpty allEdges "the run produced edges at all, or what follows is vacuous"
@@ -700,10 +689,8 @@ let tests =
                     }
 
                 for (d, _) in expanded.Decls do
-                    match d with
-                    | TDecl.Let(_, value, _, _, _) -> TastWalk.iterExpr it value
-                    | TDecl.Expression(e, _) -> TastWalk.iterExpr it e
-                    | TDecl.Type _ -> ()
+                    for value in TastWalk.declValues d do
+                        TastWalk.iterExpr it value
 
                 Expect.equal
                     marks
@@ -721,10 +708,8 @@ let tests =
                 let edges =
                     [
                         for (d, _) in expanded.Decls do
-                            match d with
-                            | TDecl.Let(_, value, _, _, _) -> yield! InlineSpecTable.edges value
-                            | TDecl.Expression(e, _) -> yield! InlineSpecTable.edges e
-                            | TDecl.Type _ -> ()
+                            for value in TastWalk.declValues d do
+                                yield! InlineSpecTable.edges value
                     ]
 
                 // One per outlined call site, and each points to a slot of the table that came

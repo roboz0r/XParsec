@@ -36,6 +36,17 @@ let rec private checkPat (pools: FrozenPools) (PatPoolId i) (du: Pooled.TPat) =
 let private withoutRecFacts (p: ExprPayload) : ExprPayload =
     match p with
     | ExprPayload.Let(isRec, _) -> ExprPayload.Let(isRec, Recursion.NonRecursive)
+    | ExprPayload.LetGroup g ->
+        ExprPayload.LetGroup
+            { g with
+                Members =
+                    g.Members
+                    |> Array.map (fun m ->
+                        { m with
+                            Recursion = Recursion.NonRecursive
+                        }
+                    )
+            }
     | ExprPayload.App _ -> ExprPayload.App AppKind.Call
     | p -> p
 
@@ -80,6 +91,20 @@ let private checkDecl (pools: FrozenPools) (DeclPoolId i) (du: Pooled.TDecl) =
         Expect.equal (ChildColumn.count pools.DeclPatChildren i) 1 "let decl one pattern child"
         checkExpr pools (ChildColumn.item pools.DeclExprChildren i 0) value
         checkPat pools (ChildColumn.item pools.DeclPatChildren i 0) pattern
+    | TDeclG.LetGroup(members = members) ->
+        shapeIs DeclShape.LetGroup "decl shape"
+        Expect.equal (ChildColumn.count pools.DeclExprChildren i) members.Length "group decl one value child per member"
+
+        Expect.equal
+            (ChildColumn.count pools.DeclPatChildren i)
+            members.Length
+            "group decl one pattern child per member"
+
+        members
+        |> EqArray.iteri (fun j m ->
+            checkExpr pools (ChildColumn.item pools.DeclExprChildren i j) m.Value
+            checkPat pools (ChildColumn.item pools.DeclPatChildren i j) m.Pattern
+        )
     | TDeclG.Expression(expr = expr) ->
         shapeIs DeclShape.Expression "decl shape"
         Expect.equal (ChildColumn.count pools.DeclExprChildren i) 1 "expression decl one child"
@@ -157,22 +182,33 @@ let private checkValReprPatsAreLambdaParams (pools: FrozenPools) =
             | ArgGroupG.GUnit _
             | ArgGroupG.GSimple _ -> ()
 
+    let isNamed (PatPoolId pattern) =
+        match pools.PatPayloads.[pattern] with
+        | PatPayload.NamedSimple _ -> true
+        | _ -> false
+
     let namedLetRoots =
         pools.Roots
         |> EqArray.toArray
-        |> Array.filter (fun (DeclPoolId d) ->
-            DeclPayload.shape pools.DeclPayloads.[d] = DeclShape.Let
-            && (let (PatPoolId pattern) = ChildColumn.item pools.DeclPatChildren d 0
-
-                match pools.PatPayloads.[pattern] with
-                | PatPayload.NamedSimple _ -> true
-                | _ -> false)
+        |> Array.sumBy (fun (DeclPoolId d) ->
+            match pools.DeclPayloads.[d] with
+            | DeclPayload.Let _ ->
+                if isNamed (ChildColumn.item pools.DeclPatChildren d 0) then
+                    1
+                else
+                    0
+            | DeclPayload.LetGroup _ ->
+                ChildColumn.slice pools.DeclPatChildren d
+                |> Array.filter isNamed
+                |> Array.length
+            | DeclPayload.Expression _
+            | DeclPayload.Type _ -> 0
         )
 
     Expect.equal
         pools.BindingValReprs.Length
-        namedLetRoots.Length
-        "one recorded arity per simple-bound-variable Let root"
+        namedLetRoots
+        "one recorded arity per simple-bound-variable Let root or group member"
 
 // The bound variable columns' obligation: a bound variable the SOURCE WRITES is anchored at the
 // token that writes it and named with the text there; one no source writes has neither — an
@@ -275,6 +311,13 @@ let private programs =
         "type Shape(x: int) =\n    member this.Raw = x\n\ntype Circle(r: int, t: int) =\n    inherit Shape(t)\n    member this.Radius = r\n"
         "class with an interface implementation",
         "type IBox =\n    abstract member Unwrap : unit -> int\n\ntype Box(value: int) =\n    interface IBox with\n        member this.Unwrap() : int = value\n"
+
+        // A `let rec … and …` group is one node bearing several patterns and values, at module
+        // level and in expression position.
+        "module-level mutually recursive group",
+        "let rec isEven n = if n = 0 then true else isOdd (n - 1)\nand isOdd n = if n = 0 then false else isEven (n - 1)\n"
+        "local mutually recursive group",
+        "let run () =\n    let rec a x = if x = 0 then 0 else b (x - 1)\n    and b x = a x\n    a 3\n"
     ]
 
 [<Tests>]
@@ -386,6 +429,7 @@ let private carrierCounts (pools: FrozenPools) =
             match p with
             | DeclPayload.Type td -> (bodySlots td).Length
             | DeclPayload.Let _
+            | DeclPayload.LetGroup _
             | DeclPayload.Expression _ -> 0
         )
 
@@ -439,6 +483,7 @@ let pooledCarrierCoverageTests =
                         match p with
                         | DeclPayload.Type td -> Array.iter inExprs (bodySlots td)
                         | DeclPayload.Let _
+                        | DeclPayload.LetGroup _
                         | DeclPayload.Expression _ -> ()
 
                     for t in pools.InlineTemplates do
@@ -622,6 +667,7 @@ let private lastBindingDropped () =
                 match BoundVarKey.ofPat pattern with
                 | ValueSome b -> Some(i, b)
                 | ValueNone -> None
+            | TDeclG.LetGroup _
             | TDeclG.Expression _
             | TDeclG.Type _ -> None
         )
@@ -736,154 +782,6 @@ let staleSideTableEntryTests =
                 ]
         ]
 
-/// Every `let` in `src`, module-level then local in pool walk order, as `(name, Recursion)`.
-let private letRecursions (src: string) : (string * Recursion) list =
-    let pool = TastPoolBuilder.openOver (freezeFor src)
-
-    let name (p: TastAccessor.PatId) =
-        match p with
-        | TastAccessor.PNamedNaming(BoundVarNaming.Source n) -> n
-        | _ -> "_"
-
-    let acc = ResizeArray<string * Recursion>()
-
-    let rec walk (e: TastAccessor.ExprId) =
-        match e with
-        | TastAccessor.ELet l -> acc.Add(name l.Pattern, l.Recursion)
-        | _ -> ()
-
-        for c in TastAccessor.exprChildren e do
-            walk c
-
-    for d in TastAccessor.roots pool do
-        match d with
-        | TastAccessor.DLet dl ->
-            acc.Add(name dl.Pattern, dl.Recursion)
-            walk dl.Value
-        | _ -> ()
-
-    List.ofSeq acc
-
-[<Tests>]
-let recursionTests =
-    testList
-        "TastPools records each let's Recursion"
-        [
-            test "a module let is Recursive, TailRecursive or NonRecursive by what its value applies" {
-                let src =
-                    "let rec fact n = if n = 0 then 1 else n * fact (n - 1)\n"
-                    + "let rec loop n acc = if n = 0 then acc else loop (n - 1) (acc * n)\n"
-                    + "let rec partial n acc = if n = 0 then acc else partial (n - 1)\n"
-                    + "let rec viaMatch n = match n with 0 -> 42 | _ -> viaMatch (n - 1)\n"
-                    + "let rec unused x = x + 1\n"
-                    + "let plain x = x + 1\n"
-
-                Expect.equal
-                    (letRecursions src)
-                    [
-                        "fact", Recursion.Recursive
-                        "loop", Recursion.TailRecursive
-                        "partial", Recursion.Recursive
-                        "viaMatch", Recursion.TailRecursive
-                        "unused", Recursion.NonRecursive
-                        "plain", Recursion.NonRecursive
-                    ]
-                    "a saturated tail self-call is TailRecursive; an unsaturated or non-tail one is Recursive; `rec` alone is NonRecursive"
-            }
-
-            test "a local let classifies exactly as a module let" {
-                let src =
-                    "let f () =\n"
-                    + "    let rec go i = if i = 0 then 0 else go (i - 1)\n"
-                    + "    let rec count i = if i = 0 then 0 else 1 + count (i - 1)\n"
-                    + "    let rec k = 5\n"
-                    + "    let y = go k\n"
-                    + "    count y\n"
-
-                Expect.equal
-                    (letRecursions src)
-                    [
-                        "f", Recursion.NonRecursive
-                        "go", Recursion.TailRecursive
-                        "count", Recursion.Recursive
-                        "k", Recursion.NonRecursive
-                        "y", Recursion.NonRecursive
-                    ]
-                    "`let rec` without a self-reference is NonRecursive, the same as a plain let"
-            }
-
-            test "a `let rec` whose lambdas are not a direct chain is Recursive, not TailRecursive" {
-                let src =
-                    "let rec h = if true then (fun x -> h x) else (fun x -> x)\n"
-                    + "let rec f = fun x -> if x = 0 then 0 else f (x - 1)\n"
-
-                Expect.equal
-                    (letRecursions src)
-                    [ "h", Recursion.Recursive; "f", Recursion.TailRecursive ]
-                    "only the body after the value's leading lambdas is in tail position"
-            }
-
-            test "a nested `let rec` classifies against its own binding, its parent against the parent's" {
-                let src =
-                    "let rec outer n =\n"
-                    + "    let rec inner m = if m = 0 then outer (n - 1) else inner (m - 1)\n"
-                    + "    if n = 0 then 0 else inner n\n"
-
-                Expect.equal
-                    (letRecursions src)
-                    [ "outer", Recursion.Recursive; "inner", Recursion.TailRecursive ]
-                    "`outer (n - 1)` is in tail position of `inner`, not of `outer`, so it is a reference and not a tail self-call"
-            }
-
-            ptest "GAP: every member of a mutually recursive module group is Recursive" {
-                let src =
-                    "let rec isEven n = if n = 0 then true else isOdd (n - 1)\n"
-                    + "and isOdd n = if n = 0 then false else isEven (n - 1)\n"
-
-                Expect.equal
-                    (letRecursions src)
-                    [ "isEven", Recursion.Recursive; "isOdd", Recursion.Recursive ]
-                    "a member referencing a sibling is recursive, exactly as one referencing itself"
-            }
-
-            ptest "GAP: every member of a mutually recursive local group is Recursive" {
-                let src =
-                    "let run () =\n"
-                    + "    let rec a x = if x = 0 then 0 else b (x - 1)\n"
-                    + "    and b x = a x\n"
-                    + "    a 3\n"
-
-                Expect.equal
-                    (letRecursions src)
-                    [
-                        "run", Recursion.NonRecursive
-                        "a", Recursion.Recursive
-                        "b", Recursion.Recursive
-                    ]
-                    "a local group classifies exactly as a module group"
-            }
-
-            ptest "GAP: a group member's saturated tail self-call is TailRecursive" {
-                let src =
-                    "let rec walk n = if n = 0 then stop 0 else walk (n - 1)\n"
-                    + "and stop n = walk n\n"
-
-                Expect.equal
-                    (letRecursions src)
-                    [ "walk", Recursion.TailRecursive; "stop", Recursion.Recursive ]
-                    "a tail call to a sibling is an ordinary call, so only `walk` trampolines"
-            }
-
-            test "a `let rec … and …` group whose members reference only themselves is plain lets" {
-                let src = "let rec p x = x\nand q y = y\n"
-
-                Expect.equal
-                    (letRecursions src)
-                    [ "p", Recursion.NonRecursive; "q", Recursion.NonRecursive ]
-                    "each member is its own component, and a singleton without a self-edge is not recursive"
-            }
-        ]
-
 /// One marked `TailSelfCall`: the source name of the binding whose value contains it, the
 /// source name of the variable it applies, and the number of arguments it applies.
 type private TailSelfCallSite =
@@ -923,10 +821,8 @@ let private tailSelfCalls (src: string) : TailSelfCallSite list =
         for c in TastAccessor.exprChildren e do
             walk binding c
 
-    for d in TastAccessor.roots pool do
-        match d with
-        | TastAccessor.DLet dl -> walk (name dl.Pattern) dl.Value
-        | _ -> ()
+    for m in TastAccessor.rootBindings pool do
+        walk (name m.Pattern) m.Value
 
     List.ofSeq acc
 

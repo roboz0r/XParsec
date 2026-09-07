@@ -66,10 +66,7 @@ module Freeze =
                         | _ -> ValueNone
             }
 
-        match d with
-        | TDecl.Let(pat, value, isInline, isRec, ty) ->
-            TDecl.Let(pat, TastWalk.mapExpr mapper value, isInline, isRec, ty)
-        | other -> other
+        TastWalk.mapDeclExprs (TastWalk.mapExpr mapper) d
 
     /// Every `Var` in the rewritten body referencing a bound variable the splice does not re-create,
     /// in practice a module-level `let (a, b) = p`, which binds several names at once and so has

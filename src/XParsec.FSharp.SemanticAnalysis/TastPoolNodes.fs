@@ -14,6 +14,7 @@ type ExprShape =
     | Lambda
     | App
     | Let
+    | LetGroup
     | Use
     | IfThenElse
     | Tuple
@@ -69,6 +70,7 @@ type PatShape =
 [<RequireQualifiedAccess>]
 type DeclShape =
     | Let
+    | LetGroup
     | Expression
     | Type
 
@@ -187,6 +189,24 @@ type Recursion =
     /// to a loop.
     | TailRecursive
 
+/// One `LetGroup` member's residual scalars. Its pattern and value are in the child columns.
+type LetMemberShape =
+    {
+        /// The binding's declared type.
+        Ty: FrozenType
+        /// The binding pattern's first token.
+        Tok: Anchor
+        Recursion: Recursion
+    }
+
+/// A `LetGroup`'s residual payload. Member `i`'s pattern is pat child `i` and its value expr
+/// child `i`; an expression group's body is the last expr child.
+type LetGroupShape =
+    {
+        Members: LetMemberShape[]
+        Components: SccPartition
+    }
+
 [<RequireQualifiedAccess>]
 type AppKind =
     | Call
@@ -209,6 +229,7 @@ type ExprPayload =
     | App of AppKind
     /// `isRec` is the source `rec` keyword, distinct from the analysed `recursion`.
     | Let of isRec: bool * recursion: Recursion
+    | LetGroup of LetGroupShape
     | Use of Disposal
     | IfThenElse
     | Tuple
@@ -327,6 +348,7 @@ module ExprPayload =
         | ExprPayload.Lambda -> ExprShape.Lambda
         | ExprPayload.App _ -> ExprShape.App
         | ExprPayload.Let _ -> ExprShape.Let
+        | ExprPayload.LetGroup _ -> ExprShape.LetGroup
         | ExprPayload.Use _ -> ExprShape.Use
         | ExprPayload.IfThenElse -> ExprShape.IfThenElse
         | ExprPayload.Tuple -> ExprShape.Tuple
@@ -364,8 +386,9 @@ module ExprPayload =
         | ExprPayload.InlineCall _ -> ExprShape.InlineCall
         | ExprPayload.CallerExpr _ -> ExprShape.CallerExpr
 
-    /// Map every `Anchor` an expression payload EMBEDS: the loop variable's identifier token
-    /// and each format hole's. A node's own anchor lives in a column and is mapped there.
+    /// Map every `Anchor` an expression payload EMBEDS: the loop variable's identifier token,
+    /// each `LetGroup` member's and each format hole's. A node's own anchor lives in a column
+    /// and is mapped there.
     let mapToks (f: Anchor -> Anchor) (p: ExprPayload) : ExprPayload =
         let seg (s: FormatSegShape) : FormatSegShape =
             let spec (h: Pooled.HoleSpec) : Pooled.HoleSpec = { h with Tok = f h.Tok }
@@ -379,6 +402,11 @@ module ExprPayload =
 
         match p with
         | ExprPayload.ForTo ft -> ExprPayload.ForTo {| ft with IdentTok = f ft.IdentTok |}
+        | ExprPayload.LetGroup g ->
+            ExprPayload.LetGroup
+                { g with
+                    Members = g.Members |> Array.map (fun m -> { m with Tok = f m.Tok })
+                }
         | ExprPayload.Format fm ->
             ExprPayload.Format
                 {| fm with
@@ -586,6 +614,8 @@ type DeclPayload =
             Recursion: Recursion
             Ty: FrozenType
         |}
+    /// Member `i`'s pattern is pat child `i` and its value expr child `i`.
+    | LetGroup of LetGroupShape
     /// The decl's declared type; the body is the sole expr child.
     | Expression of FrozenType
     /// The `type` declaration's shape, its body slots holding pool ids rather than trees.
@@ -598,6 +628,7 @@ module DeclPayload =
     let shape (p: DeclPayload) : DeclShape =
         match p with
         | DeclPayload.Let _ -> DeclShape.Let
+        | DeclPayload.LetGroup _ -> DeclShape.LetGroup
         | DeclPayload.Expression _ -> DeclShape.Expression
         | DeclPayload.Type _ -> DeclShape.Type
 

@@ -177,6 +177,18 @@ type private Renderer() =
             push " in "
             this.Expr b
 
+        | TExpr.LetGroup(members, _, b, _, _) ->
+            members
+            |> EqArray.iteri (fun i m ->
+                push (if i = 0 then "let rec " else " and ")
+                this.Pat m.Pattern
+                push " = "
+                this.Expr m.Value
+            )
+
+            push " in "
+            this.Expr b
+
         | TExpr.Use(p, v, b, _, _, _) ->
             push "use "
             this.Pat p
@@ -695,6 +707,14 @@ type private Renderer() =
             this.Pat p
             push " = "
             this.Expr v
+        | TDecl.LetGroup(members, _) ->
+            members
+            |> EqArray.iteri (fun i m ->
+                push (if i = 0 then "let rec " else " and ")
+                this.Pat m.Pattern
+                push " = "
+                this.Expr m.Value
+            )
         | TDecl.Expression(e, _) ->
             push "do "
             this.Expr e

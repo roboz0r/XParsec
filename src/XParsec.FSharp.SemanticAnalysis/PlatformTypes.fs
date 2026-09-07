@@ -144,6 +144,11 @@ module PlatformTypes =
             addUnsupported ctx acc ty
             TastWalk.iterPat iter binding
             TastWalk.iterExpr iter value
+        | TDecl.LetGroup(members, _) ->
+            for m in members do
+                addUnsupported ctx acc m.Ty
+                TastWalk.iterPat iter m.Pattern
+                TastWalk.iterExpr iter m.Value
         | TDecl.Expression(e, ty) ->
             addUnsupported ctx acc ty
             TastWalk.iterExpr iter e

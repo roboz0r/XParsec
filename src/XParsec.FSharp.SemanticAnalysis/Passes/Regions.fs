@@ -350,6 +350,8 @@ module Regions =
         | TExpr.Lambda(param, body, _, _) -> lambdaRegionWith s ctx (freshLambda s) param body
         | TExpr.Let _
         | TExpr.Use _ -> letChainRegion s ctx e
+        | TExpr.LetGroup(members, _, body, _, _) ->
+            withBindingGroup s ctx [ for m in members -> m.Pattern, m.Value ] (fun () -> inferRegion s ctx body)
         | TExpr.IfThenElse(c, t, el, _, _) ->
             inferRegion s ctx c |> ignore
             joinArms ctx s e [ inferRegion s ctx t; inferRegion s ctx el ] RegionId.Unknown
@@ -432,9 +434,7 @@ module Regions =
         s.EnclosingLet <- savedEnclosing
         r
 
-    /// Walk a maximal chain of nested `Let`/`Use` as one binding group: `let rec … and …`
-    /// arrives flattened into nested lets, so siblings only resolve once the whole
-    /// chain is collected and pre-minted together.
+    /// Walk a maximal chain of nested `Let`/`Use` as one binding group, pre-minted together.
     and private letChainRegion (s: State) (ctx: PassContext) (e: TExpr) : RegionId =
         let bindings = ResizeArray<TPat * TExpr>()
 
@@ -662,16 +662,12 @@ module Regions =
                 FunctionStack = ResizeArray()
             }
 
-        // Module-level decls form ONE binding group: `let rec a … and b …` arrive as
-        // distinct `TDecl`s, so grouping them (conservatively) is what keeps mutual
-        // references resolvable. The group bumps module function bodies to frame depth 1.
+        // Module-level decls form ONE binding group, which bumps module function bodies to
+        // frame depth 1.
         let bindings =
             [
                 for d in decls do
-                    match d with
-                    | TDecl.Let(p, v, _, _, _) -> yield (p, v)
-                    | TDecl.Expression _
-                    | TDecl.Type _ -> ()
+                    yield! TastWalk.declBindings d
             ]
 
         withBindingGroup
@@ -684,6 +680,7 @@ module Regions =
                     | TDecl.Expression(e, _) -> inferRegion s ctx e |> ignore
                     // Type-member bodies aren't region-analysed; lets are handled above.
                     | TDecl.Let _
+                    | TDecl.LetGroup _
                     | TDecl.Type _ -> ()
 
                 RegionId.Unknown

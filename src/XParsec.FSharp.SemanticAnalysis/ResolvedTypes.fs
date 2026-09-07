@@ -50,6 +50,24 @@ module ResolvedTypes =
         for tv in added do
             allowed.Remove tv |> ignore
 
+    /// Run `walkMember` over every member of a `LetGroup` with every member's quantified
+    /// roots allowed, because a member references its siblings.
+    let private walkGroupMembers
+        (ctx: PassContext)
+        (allowed: HashSet<TyVarId>)
+        (members: EqArray<TLetMember>)
+        (walkMember: TLetMember -> unit)
+        : unit =
+        let added = ResizeArray<TyVarId>()
+
+        for m in members do
+            added.AddRange(pushScheme ctx m.Pattern allowed)
+
+        for m in members do
+            walkMember m
+
+        popScheme allowed added
+
     /// Build the visit-only iter for one decl walk: every node's `ty` feeds `addFreeRoots`,
     /// and so does each `Format` hole's `Ty`, which the default walker doesn't surface.
     let private buildIter (ctx: PassContext) (allowed: HashSet<TyVarId>) (acc: HashSet<TyVarId>) : TastWalk.Iter =
@@ -66,6 +84,18 @@ module ResolvedTypes =
                         TastWalk.iterPat it binding
                         TastWalk.iterExpr it value
                         popScheme allowed added
+                        TastWalk.iterExpr it body
+                        false
+                    | TExpr.LetGroup(members, _, body, _, _) ->
+                        walkGroupMembers
+                            ctx
+                            allowed
+                            members
+                            (fun m ->
+                                TastWalk.iterPat it m.Pattern
+                                TastWalk.iterExpr it m.Value
+                            )
+
                         TastWalk.iterExpr it body
                         false
                     | TExpr.Format(sink, segments, _, _) ->
@@ -102,11 +132,14 @@ module ResolvedTypes =
     /// Best-effort attribution for a decl-level diagnostic: the first `NamedSimple` bound
     /// in the binding's pattern, and no place in the file otherwise.
     let declSite (d: TDecl) : Site =
-        match d with
-        | TDecl.Let(binding, _, _, _, _) ->
+        let firstNamed (binding: TPat) =
             match TastWalk.namedSimplesOfTPat binding with
             | struct (_, tok) :: _ -> Site.ofToken tok
             | [] -> Site.Nowhere
+
+        match d with
+        | TDecl.Let(binding, _, _, _, _) -> firstNamed binding
+        | TDecl.LetGroup(members, _) -> firstNamed members.[0].Pattern
         | _ -> Site.Nowhere
 
     let private walkDecl (ctx: PassContext) (allowed: HashSet<TyVarId>) (d: TDecl) : unit =
@@ -120,6 +153,16 @@ module ResolvedTypes =
             TastWalk.iterPat iter binding
             TastWalk.iterExpr iter value
             popScheme allowed added
+        | TDecl.LetGroup(members, _) ->
+            walkGroupMembers
+                ctx
+                allowed
+                members
+                (fun m ->
+                    addFreeRoots ctx.Store allowed acc m.Ty
+                    TastWalk.iterPat iter m.Pattern
+                    TastWalk.iterExpr iter m.Value
+                )
         | TDecl.Expression(e, ty) ->
             addFreeRoots ctx.Store allowed acc ty
             TastWalk.iterExpr iter e

@@ -1145,15 +1145,14 @@ let propertySetterTests =
             }
 
         for d in EqArray.toList tast.Decls do
+            for value in TastWalk.declValues d do
+                TastWalk.iterExpr collect value
+
             match d with
-            | TDecl.Let(_, value, _, _, _) -> TastWalk.iterExpr collect value
-            | TDecl.Expression(e, _) -> TastWalk.iterExpr collect e
-            | TDecl.Type td ->
-                match td.Kind with
-                | TTypeKind.Class c ->
-                    for m in EqArray.toList c.Members do
-                        TastWalk.iterExpr collect m.Body
-                | _ -> ()
+            | TDecl.Type { Kind = TTypeKind.Class c } ->
+                for m in EqArray.toList c.Members do
+                    TastWalk.iterExpr collect m.Body
+            | _ -> ()
 
         {|
             Calls = List.ofSeq calls

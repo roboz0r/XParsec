@@ -507,6 +507,8 @@ type Kind =
     /// An `inline` binding whose expansion reaches itself. `via` is the bindings between
     /// `binding` and itself in call order, EMPTY for a direct self-reference.
     | CyclicInline of binding: string * via: string list
+    /// `inline` on a member of a `let rec … and …` group.
+    | InlineInRecGroup of name: string
 
     // ── Written, understood, not implemented ───────────────────────────────────
     /// The program is not WRONG, but this compiler does not do that yet.
@@ -580,6 +582,7 @@ module Kind =
         | Kind.NullaryConstructorPattern _ -> DiagCode.FSharp 19 // UnionCaseWrongArguments
         | Kind.ImmutableFieldAssignment _ -> DiagCode.FSharp 5 // FieldNotMutable
         | Kind.EnumCaseNotConstant -> DiagCode.FSharp 886 // tcInvalidEnumerationLiteral
+        | Kind.InlineInRecGroup _ -> DiagCode.FSharp 1114 // optValueMarkedInlineButNotBoundInTheOptEnv
         // ── String-literal escapes: fsc's numbers, though fsc files 1252 as a warning
         // (wrapping the value) where this compiler refuses.
         | Kind.EscapeTrigraphOutOfRange _ -> DiagCode.FSharp 1252
@@ -780,6 +783,8 @@ module Kind =
                 "The inline binding '%s' expands into itself (%s). An inline body is spliced at its call site, so a binding that reaches itself has no expansion"
                 binding
                 (String.concat " → " (binding :: via @ [ binding ]))
+        | Kind.InlineInRecGroup name ->
+            sprintf "The value '%s' was marked inline but was not bound in the optimization environment" name
         | Kind.NotYetSupported feature -> sprintf "not yet supported: %s" feature
         | Kind.IntrinsicNotInScope intrinsic ->
             sprintf
@@ -882,6 +887,7 @@ module Kind =
         | Kind.UnionCaseFieldNameClash _
         | Kind.CyclicType _
         | Kind.CyclicInline _
+        | Kind.InlineInRecGroup _
         | Kind.NotYetSupported _
         | Kind.IntrinsicNotInScope _
         | Kind.Conformance _
