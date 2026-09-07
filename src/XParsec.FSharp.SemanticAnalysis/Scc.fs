@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+open Vesper
 open System
 
 /// A directed graph over dense node ids `0 … NodeCount - 1`. Every successor is a node id of
@@ -50,24 +51,24 @@ type Digraph private (xadj: int[], adj: int[]) =
 /// One strongly connected component of a `Digraph`.
 type SccComponent =
     /// Every member lies on a cycle, so a lone member carries a self-edge. Members ascending.
-    | Cycle of members: EqArray<int>
+    | Cycle of members: Block<int>
     /// A single member with no edge to itself.
     | Acyclic of node: int
 
-    member this.Members: EqArray<int> =
+    member this.Members: Block<int> =
         match this with
         | Cycle members -> members
-        | Acyclic node -> EqArray.singleton node
+        | Acyclic node -> Block.singleton node
 
 /// A `Digraph`'s nodes partitioned into strongly connected components.
 type SccPartition =
     {
         /// Reverse topological order: where a member of component `i` has an edge to a member
         /// of a different component `j`, `j < i`.
-        Components: EqArray<SccComponent>
+        Components: Block<SccComponent>
         /// Per node, the index into `Components` of the component holding it. Comparing two
         /// of these orders the components they belong to.
-        ComponentIndex: EqArray<int>
+        ComponentIndex: Block<int>
     }
 
     /// The component holding `node`.
@@ -78,11 +79,11 @@ type SccPartition =
 
     /// The partition of `0 … nodeCount - 1` into `components`, in the given order. Raises
     /// `ArgumentException` unless every node appears in exactly one component.
-    static member Create(nodeCount: int, components: EqArray<SccComponent>) : SccPartition =
+    static member Create(nodeCount: int, components: Block<SccComponent>) : SccPartition =
         let componentIndex = Array.create nodeCount -1
 
         components
-        |> EqArray.iteri (fun c scc ->
+        |> Block.iteri (fun c scc ->
             for node in scc.Members do
                 if node < 0 || node >= nodeCount then
                     invalidArg "components" $"node %d{node} is outside 0 … %d{nodeCount - 1}"
@@ -99,7 +100,7 @@ type SccPartition =
 
         {
             Components = components
-            ComponentIndex = EqArray.ofArray componentIndex
+            ComponentIndex = Block.ofArray componentIndex
         }
 
     /// The partition over the nodes `keep` retains, renumbered to their positions among the
@@ -123,11 +124,11 @@ type SccPartition =
                     if renumbered.[m] < 0 then
                         invalidArg "keep" $"node %d{m} lies on a cycle and cannot be dropped"
 
-                components.Add(Cycle(members |> EqArray.map (fun m -> renumbered.[m])))
+                components.Add(Cycle(members |> Block.map (fun m -> renumbered.[m])))
             | Acyclic node when renumbered.[node] >= 0 -> components.Add(Acyclic renumbered.[node])
             | Acyclic _ -> ()
 
-        SccPartition.Create(next, EqArray.ofResizeArray components)
+        SccPartition.Create(next, Block.ofResizeArray components)
 
 [<RequireQualifiedAccess>]
 module Scc =
@@ -205,7 +206,7 @@ module Scc =
                             | 1 when not (g.HasSelfEdge u) -> components.Add(Acyclic u)
                             | _ ->
                                 members.Sort()
-                                components.Add(Cycle(EqArray.ofResizeArray members))
+                                components.Add(Cycle(Block.ofResizeArray members))
 
                         frameNode.RemoveAt top
                         frameCursor.RemoveAt top
@@ -215,8 +216,8 @@ module Scc =
                             lowlink.[parent] <- min lowlink.[parent] lowlink.[u]
 
         {
-            Components = EqArray.ofResizeArray components
-            ComponentIndex = EqArray.ofArray componentOf
+            Components = Block.ofResizeArray components
+            ComponentIndex = Block.ofArray componentOf
         }
 
     /// Whether `node` lies on a cycle.

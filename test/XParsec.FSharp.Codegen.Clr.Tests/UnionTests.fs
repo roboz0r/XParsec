@@ -1,6 +1,7 @@
 module XParsec.FSharp.Codegen.Clr.Tests.UnionTests
 
 open System.Reflection
+open Vesper
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
@@ -145,7 +146,7 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
                 let unions =
-                    let acc = ResizeArray<string * EqArray<TUnionCase>>()
+                    let acc = ResizeArray<string * Block<TUnionCase>>()
 
                     for d in tast.Decls do
                         match d with
@@ -189,7 +190,7 @@ let tests =
 
                 let fnKey =
                     tast.Decls
-                    |> EqArray.tryFind (fun d ->
+                    |> Block.tryFind (fun d ->
                         match d with
                         | TDecl.Let({
                                         Pattern = TPat.NamedSimple _
@@ -322,7 +323,7 @@ let tests =
 
                 let members =
                     tast.Decls
-                    |> EqArray.tryFind (fun d ->
+                    |> Block.tryFind (fun d ->
                         match d with
                         | TDecl.Type { Kind = TTypeKind.Union _ } -> true
                         | _ -> false

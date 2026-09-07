@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.Codegen.Common
 
+open Vesper
 open XParsec.FSharp.SemanticAnalysis
 
 /// Backend-agnostic compiled form of a file's top-level `let f … = …` bindings — the flat
@@ -59,7 +60,7 @@ module CompiledFns =
         /// A scalar group (`GSimple` / non-lone `GUnit`): emit the argument as one value.
         | Arg of TastAccessor.ExprId
         /// A tupled group whose argument is a literal `Tuple`: emit one value per element.
-        | TupleLiteral of EqArray<TastAccessor.ExprId>
+        | TupleLiteral of Block<TastAccessor.ExprId>
         /// A tupled group whose argument is a tuple *value*: N values read positionally
         /// (`N = elemTys.Length`). The CLR spills to a local and reads `ItemN`; the JS
         /// reads `v[j]`, spilling an impure value through an IIFE.
@@ -83,7 +84,7 @@ module CompiledFns =
     /// Elaborate rewrites `w.M t` into `let (a, b) = t in w.M(a, b)`, so a tupled group always
     /// arrives as a literal tuple. `ValueNone` is an under-applied member or a group that is
     /// not that tuple: neither is a direct call, and both eta-wrap instead.
-    let memberCallPlan (widths: EqArray<int>) (args: TastAccessor.AppliedArg list) : MemberCallPlan voption =
+    let memberCallPlan (widths: Block<int>) (args: TastAccessor.AppliedArg list) : MemberCallPlan voption =
         // The elements of an opened group all belong to the one application step the tuple
         // arrived at, so only `Arg` differs between them.
         let asTuple (a: TastAccessor.AppliedArg) : TastAccessor.AppliedArg list voption =
@@ -111,10 +112,10 @@ module CompiledFns =
                 | ArgGroupG.GSimple _ -> FlatStep.Arg a
                 | ArgGroupG.GTuple _ ->
                     match TastAccessor.exprKind a with
-                    | ExprShape.Tuple -> FlatStep.TupleLiteral(EqArray.ofArray (TastAccessor.exprChildren a))
+                    | ExprShape.Tuple -> FlatStep.TupleLiteral(Block.ofArray (TastAccessor.exprChildren a))
                     | _ ->
                         match TastAccessor.exprTy a with
-                        | FTTuple xs -> FlatStep.TupleValue(a, EqArray.toList xs)
+                        | FTTuple xs -> FlatStep.TupleValue(a, Block.toList xs)
                         | other -> failwithf "flattenPlan: tuple-group argument is not a tuple type: %A" other
         ]
 

@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+open Vesper
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis.Passes
@@ -49,12 +50,11 @@ module internal ElaborateCalls =
             | _, TyTuple elemTys when width >= 2 && elemTys.Length = width ->
                 let argTok = TastWalk.exprTok arg
 
-                let elems =
-                    [ for elemTy in EqArray.toList elemTys -> ctx.NewSynthBoundVar(), elemTy ]
+                let elems = [ for elemTy in Block.toList elemTys -> ctx.NewSynthBoundVar(), elemTy ]
 
                 let tuplePat =
                     TPat.Tuple(
-                        EqArray.ofSeq (seq { for (k, ty) in elems -> TPat.NamedSimple(k, ty, argTok, false) }),
+                        Block.ofSeq (seq { for (k, ty) in elems -> TPat.NamedSimple(k, ty, argTok, false) }),
                         argTy,
                         argTok
                     )
@@ -83,7 +83,7 @@ module internal ElaborateCalls =
                         Fn = fn'
                         Arg =
                             TExpr.Tuple(
-                                EqArray.ofSeq (seq { for (k, ty) in elems -> TExpr.Var(k, ty, argTok) }),
+                                Block.ofSeq (seq { for (k, ty) in elems -> TExpr.Var(k, ty, argTok) }),
                                 argTy,
                                 argTok
                             )
@@ -126,7 +126,7 @@ module internal ElaborateCalls =
         (className: string)
         (key: NodeKey)
         (ty: SemType)
-        (args: EqArray<TExpr>)
+        (args: Block<TExpr>)
         (tok: SyntaxToken)
         : TExpr =
         TExpr.New(
@@ -146,7 +146,7 @@ module internal ElaborateCalls =
         (objArg: TExpr)
         (declKey: TypeKey)
         (memberName: string)
-        (args: EqArray<TExpr>)
+        (args: Block<TExpr>)
         (ty: SemType)
         (tok: SyntaxToken)
         : TExpr =
@@ -185,19 +185,16 @@ module internal ElaborateCalls =
         (ctx: PassContext)
         (objArg: TExpr)
         (ifaceKey: TypeKey)
-        (ifaceArgs: EqArray<SemType>)
+        (ifaceArgs: Block<SemType>)
         (memberName: string)
-        (args: EqArray<TExpr>)
+        (args: Block<TExpr>)
         (ty: SemType)
         (tok: SyntaxToken)
         : TExpr =
         // The interface's own type args are the declaring-type args; operand element
         // types discriminate a same-arity overloaded abstract slot.
         let operands =
-            LocalMemberKeys.externalOperands
-                ctx.Store
-                (EqArray.toArray ifaceArgs)
-                [ for a in args -> TastWalk.exprTy a ]
+            LocalMemberKeys.externalOperands ctx.Store (Block.toArray ifaceArgs) [ for a in args -> TastWalk.exprTy a ]
 
         match LocalMemberKeys.totalMemberKey ctx ifaceKey memberName operands with
         | ValueSome key ->
@@ -213,28 +210,28 @@ module internal ElaborateCalls =
 
     /// The declaring instantiation stamped at a static access node, zonked. A missing stamp
     /// yields empty args, and reports an internal break when `declKey` is generic.
-    let staticDeclArgsAt (ctx: PassContext) (declKey: TypeKey) (tok: SyntaxToken) (key: NodeKey) : EqArray<SemType> =
+    let staticDeclArgsAt (ctx: PassContext) (declKey: TypeKey) (tok: SyntaxToken) (key: NodeKey) : Block<SemType> =
         match ctx.Resolution.StaticDeclaringArgs.TryGetValue key with
-        | ValueSome a -> EqArray.map (Unification.zonk ctx.Store) a
+        | ValueSome a -> Block.map (Unification.zonk ctx.Store) a
         | ValueNone ->
             if declKey.TyparArity > 0 then
                 ctx.Report(tok, Kind.Internal(InternalBreak.UnstampedStaticDeclArgs(string declKey)))
 
-            EqArray.empty
+            Block.empty
 
     /// `StaticMethodCall` resolved to `declKey.memberName`, at the declaring instantiation
     /// `declArgs` (empty for a non-generic declaring type).
     let mkStaticMethodCall
         (ctx: PassContext)
         (declKey: TypeKey)
-        (declArgs: EqArray<SemType>)
+        (declArgs: Block<SemType>)
         (memberName: string)
-        (args: EqArray<TExpr>)
+        (args: Block<TExpr>)
         (ty: SemType)
         (tok: SyntaxToken)
         : TExpr =
         let operands =
-            LocalMemberKeys.externalOperands ctx.Store (EqArray.toArray declArgs) [ for a in args -> TastWalk.exprTy a ]
+            LocalMemberKeys.externalOperands ctx.Store (Block.toArray declArgs) [ for a in args -> TastWalk.exprTy a ]
 
         match LocalMemberKeys.totalMemberKey ctx declKey memberName operands with
         | ValueSome key ->
@@ -252,7 +249,7 @@ module internal ElaborateCalls =
         (ctx: PassContext)
         (caseName: string)
         (ty: SemType)
-        (args: EqArray<TExpr>)
+        (args: Block<TExpr>)
         (tok: SyntaxToken)
         : TExpr =
         TExpr.UnionCons(caseName, wrapObjArgsEq ctx.Store (unionCaseFieldTys ctx ty caseName) args, ty, tok)

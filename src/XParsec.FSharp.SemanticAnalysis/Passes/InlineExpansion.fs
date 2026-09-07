@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis.Passes
 
 open System.Collections.Generic
+open Vesper
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open UnificationEngineCore
@@ -71,7 +72,7 @@ module InlineExpansion =
                         ParamAttrs =
                             match ctx.InlineParamAttrs.TryGetValue b with
                             | true, a -> a
-                            | _ -> EqArray.empty
+                            | _ -> Block.empty
                         Path = ctx.File.Path
                         // This file's own generalisation already filed every local of `d`.
                         SplicedLocals = Map.empty
@@ -87,7 +88,7 @@ module InlineExpansion =
         | ValueSome reentered ->
             TExpr.InlineCall(
                 reentered.Spec,
-                EqArray.ofList [ for a in call.Args -> call.Walk a.Arg ],
+                Block.ofList [ for a in call.Args -> call.Walk a.Arg ],
                 pathOf x at,
                 call.Ty,
                 call.Tok
@@ -108,13 +109,12 @@ module InlineExpansion =
     /// two arguments both arrive as `[a; b]`, with residual arguments passed through unopened.
     let private untupleMemberArgs
         (storage: MemberStorage)
-        (widths: EqArray<int>)
+        (widths: Block<int>)
         (args: TastWalk.AppArg list)
         : TastWalk.AppArg list voption =
         let asTuple (a: TastWalk.AppArg) : TastWalk.AppArg list voption =
             match a.Arg with
-            | TExpr.Tuple(items, _, _) ->
-                ValueSome [ for it in EqArray.toList items -> levelOf it (TastWalk.exprTok it) ]
+            | TExpr.Tuple(items, _, _) -> ValueSome [ for it in Block.toList items -> levelOf it (TastWalk.exprTok it) ]
             | _ -> ValueNone
 
         match storage with
@@ -198,7 +198,7 @@ module InlineExpansion =
                                 Template = template.Key
                                 // The reference's own resolved type IS the grounding: what a
                                 // generic `defaultof<'T>` is instantiated at.
-                                TypeArgs = EqArray.ofArray [| call.Ty |]
+                                TypeArgs = Block.ofArray [| call.Ty |]
                             }
                         AppliedArity = 0
                     }
@@ -286,7 +286,7 @@ module InlineExpansion =
                                 Key =
                                     {
                                         Template = template.Key
-                                        TypeArgs = EqArray.ofArray resolved.TypeArgs
+                                        TypeArgs = Block.ofArray resolved.TypeArgs
                                     }
                                 AppliedArity = List.length peeled.Params
                             }
@@ -386,7 +386,7 @@ module InlineExpansion =
                     // operator surface arrives here: `1 &&& 2` dispatches to `Vesper.int`'s
                     // `(&&&)`, and a primitive has no type to hang a method on.
                     | TExpr.StaticMethodCall(key, _, args, ty, tok) ->
-                        let callArgs = [ for a in EqArray.toList args -> levelOf a (TastWalk.exprTok a) ]
+                        let callArgs = [ for a in Block.toList args -> levelOf a (TastWalk.exprTok a) ]
 
                         tryExpandServed x at walk key ty tok callArgs
                     // A PROPERTY read applies nothing, so the `App` arm never classifies it: its

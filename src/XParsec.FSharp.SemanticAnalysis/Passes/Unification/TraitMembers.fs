@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.SemanticAnalysis.Passes
 
+open Vesper
 open XParsec.FSharp.SemanticAnalysis
 open UnificationEngineCore
 
@@ -59,16 +60,16 @@ module UnificationTraitMembers =
         | TyConst(k1, xs), TyConst(k2, ys)
         | TyClass(k1, xs), TyClass(k2, ys)
         | TyUnion(k1, xs), TyUnion(k2, ys)
-        | TyRecord(k1, xs), TyRecord(k2, ys) -> k1 = k2 && xs.Length = ys.Length && EqArray.forall2 loose xs ys
+        | TyRecord(k1, xs), TyRecord(k2, ys) -> k1 = k2 && xs.Length = ys.Length && Block.forall2 loose xs ys
         | TyFun(a1, r1), TyFun(a2, r2) -> loose a1 a2 && loose r1 r2
-        | TyTuple xs, TyTuple ys -> xs.Length = ys.Length && EqArray.forall2 loose xs ys
+        | TyTuple xs, TyTuple ys -> xs.Length = ys.Length && Block.forall2 loose xs ys
         | _ -> false
 
     /// The trait signature in the shape `candTy` is compared (and unified) against: F#
     /// accepts both `static member (+)(a, b)` and `static member (+) a b` for a trait
     /// declared `^T * ^T -> ^T`, so a tupled candidate gets the tupled form and a curried
     /// one the curried form.
-    let expectedShape (store: TypeStore) (argTys: EqArray<SemType>) (retTy: SemType) (candTy: SemType) : SemType =
+    let expectedShape (store: TypeStore) (argTys: Block<SemType>) (retTy: SemType) (candTy: SemType) : SemType =
         let tupled =
             match argTys.Length with
             | 0 -> retTy
@@ -77,7 +78,7 @@ module UnificationTraitMembers =
 
         match resolveStep store candTy with
         | TyFun(TyTuple _, _) -> tupled
-        | _ when argTys.Length >= 2 -> EqArray.foldBack (fun a r -> TyFun(a, r)) argTys retTy
+        | _ when argTys.Length >= 2 -> Block.foldBack (fun a r -> TyFun(a, r)) argTys retTy
         | _ -> tupled
 
     /// What one support type contributes to the search.
@@ -96,7 +97,7 @@ module UnificationTraitMembers =
     let private hostVerdict
         (ctx: PassContext)
         (memberName: string)
-        (argTys: EqArray<SemType>)
+        (argTys: Block<SemType>)
         (retTy: SemType)
         (hostTy: SemType)
         : HostVerdict =
@@ -113,7 +114,7 @@ module UnificationTraitMembers =
                 | Some c -> HostVerdict.Candidate c
                 | None -> HostVerdict.NameOnly cs.[0]
 
-        let fromDecl (declArgs: SemType[]) (args: EqArray<SemType>) (decl: TypeRegistry.NominalDecl) : HostVerdict =
+        let fromDecl (declArgs: SemType[]) (args: Block<SemType>) (decl: TypeRegistry.NominalDecl) : HostVerdict =
             decl.Members
             |> Array.filter (fun m -> m.IsStatic && m.Name = memberName)
             |> Array.map (fun m ->
@@ -126,8 +127,8 @@ module UnificationTraitMembers =
             )
             |> pickApplicable
 
-        let fromProvider (declArgs: SemType[]) (key: TypeKey) (args: EqArray<SemType>) : HostVerdict voption =
-            let members = EqArray.toArray (ctx.Provider.TryLookupMembers(key, memberName))
+        let fromProvider (declArgs: SemType[]) (key: TypeKey) (args: Block<SemType>) : HostVerdict voption =
+            let members = Block.toArray (ctx.Provider.TryLookupMembers(key, memberName))
 
             match members |> Array.filter (fun m -> m.IsStatic) with
             | [||] -> ValueNone
@@ -136,7 +137,7 @@ module UnificationTraitMembers =
                 |> Array.map (fun m ->
                     {
                         HostTy = hostTy
-                        Ty = ExternalSymbols.openSignature ctx m (EqArray.toArray args)
+                        Ty = ExternalSymbols.openSignature ctx m (Block.toArray args)
                         DeclArgs = declArgs
                         Source = TraitMemberSource.External m
                     }
@@ -157,7 +158,7 @@ module UnificationTraitMembers =
         | TyClass(key, args)
         | TyUnion(key, args)
         | TyRecord(key, args) ->
-            let declArgs = EqArray.toArray args
+            let declArgs = Block.toArray args
 
             match TypeRegistry.tryNominalByKey ctx.Types key with
             | ValueSome decl -> fromDecl declArgs args decl
@@ -177,7 +178,7 @@ module UnificationTraitMembers =
     let pick
         (ctx: PassContext)
         (memberName: string)
-        (argTys: EqArray<SemType>)
+        (argTys: Block<SemType>)
         (retTy: SemType)
         (supportTys: SemType[])
         (force: bool)

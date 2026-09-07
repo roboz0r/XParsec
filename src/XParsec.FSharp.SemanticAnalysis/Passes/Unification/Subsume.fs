@@ -2,6 +2,7 @@ namespace XParsec.FSharp.SemanticAnalysis.Passes
 
 open System.Collections.Generic
 open System.Collections.Immutable
+open Vesper
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
@@ -57,10 +58,10 @@ module UnificationSubsume =
             | ValueSome(ExternalSymbols.ExternalMembers members) ->
                 ValueSome(
                     members
-                    |> EqArray.filter (fun m -> not m.IsStatic)
-                    |> EqArray.map (fun m -> m.Name)
-                    |> EqArray.distinct
-                    |> EqArray.toList
+                    |> Block.filter (fun m -> not m.IsStatic)
+                    |> Block.map (fun m -> m.Name)
+                    |> Block.distinct
+                    |> Block.toList
                 )
             | _ -> ValueNone
         | _ -> ValueNone
@@ -81,7 +82,7 @@ module UnificationSubsume =
         | TyClass(key, args) when (TypeRegistry.tryClassByKey ctx.Types key).IsNone ->
             match ctx.Provider.TryLookupMember(key, name) with
             | ValueSome m when m.IsValueMember && not m.IsStatic ->
-                ValueSome(ExternalSymbols.openSignature ctx m (EqArray.toArray args))
+                ValueSome(ExternalSymbols.openSignature ctx m (Block.toArray args))
             | _ -> ValueNone
         | _ -> ValueNone
 
@@ -205,7 +206,7 @@ module UnificationSubsume =
         | TyFun(a, b), (TyClass(tk, targs)) ->
             match tryFunSlotPeel ctx.Store tk targs a b with
             | ValueSome tys when
-                List.forall2 (fun s t -> subsumes ctx s t = SubsumeOutcome.Equal) tys (EqArray.toList targs)
+                List.forall2 (fun s t -> subsumes ctx s t = SubsumeOutcome.Equal) tys (Block.toList targs)
                 ->
                 SubsumeOutcome.Subtype
             | ValueSome _ -> SubsumeOutcome.Unrelated
@@ -222,7 +223,7 @@ module UnificationSubsume =
             // v1 args are invariant: every witnessed arg must itself be `Equal`.
             | ValueSome wargs when
                 wargs.Length = ta.Length
-                && EqArray.forall2 (fun a b -> subsumes ctx a b = SubsumeOutcome.Equal) wargs ta
+                && Block.forall2 (fun a b -> subsumes ctx a b = SubsumeOutcome.Equal) wargs ta
                 ->
                 // A capability's two names (a `seq` source vs an `IEnumerable\`1` target)
                 // must read as `Equal`, not a spurious `Subtype`.

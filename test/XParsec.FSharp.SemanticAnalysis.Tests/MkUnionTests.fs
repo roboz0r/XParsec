@@ -1,5 +1,6 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.MkUnionTests
 
+open Vesper
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Passes
@@ -9,7 +10,7 @@ open XParsec.FSharp.SemanticAnalysis.Passes
 // the *same* value. Pinned on the constructor, with no parser or unifier in the loop.
 
 let private tc (n: string) : SemType =
-    TyConst(RuntimeNames.primitiveKey n, EqArray.empty)
+    TyConst(RuntimeNames.primitiveKey n, Block.empty)
 
 let private tInt = tc "int"
 let private tString = tc "string"

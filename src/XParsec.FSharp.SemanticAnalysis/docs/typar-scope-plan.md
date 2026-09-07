@@ -31,7 +31,7 @@ separate change.
    `ExtensionKey` waits for the type extension design; the front end rejects a detached
    `type … with` block, so there is nothing to key.
 
-2. **`TyparList`.** `{ Types; Measures; Order }` beside `EqArray<TyparKind>`; every reader of
+2. **`TyparList`.** `{ Types; Measures; Order }` beside `Block<TyparKind>`; every reader of
    the kind array and of `TyparKinds.typeOnly` swaps to it; the array and the helper are
    deleted. A CLR metadata row, a TypeScript declaration and an intrinsic binding build a
    `TyparList` with empty `Measures`.
@@ -215,7 +215,7 @@ separate change.
    carrier of `MethodTypeParams` are deleted: the member walk adds each generic member's
    `TyTypar(Member _, i)` markers to the decl's freeze env directly, and `DeclaringType.ThisTy`
    is the full self type, so the per-member elaborator is gone.
-   `FunctionScheme = { Typars; Traits: EqArray<MemberTrait> }` replaces `GenericFnScheme`;
+   `FunctionScheme = { Typars; Traits: Block<MemberTrait> }` replaces `GenericFnScheme`;
    `ExternalConstraint` is deleted, its `Encodable` / `Default` cases living on the typar and
    `MemberTrait` on the scheme, which `ExternalSymbol.Generics` carries beside the `Scheme`
    template. `MemberKey.MethodTyparArity` is minted from `Types.Length`. The CLR reads `Types`
@@ -239,7 +239,7 @@ separate change.
    producers still numbering a leaf by signature slot (`mkDeclTyparEnv`, `publishedScheme`'s
    trait indices) against a `Types`-indexed consumer, and that a measure typar has no leaf to
    freeze to. That plan tags the three numberings as measures (`sigSlot`, `typeSlot`,
-   `measureSlot`) over an `EqArrayM`, moves the tag onto `FTTypar` / `TyTypar`, and adds
+   `measureSlot`) over an `BlockM`, moves the tag onto `FTTypar` / `TyTypar`, and adds
    `MeasureAtom.Typar`. It lands before step 5, whose rows index a type slot, and absorbs
    step 6. Format versions 13 and 14.
 

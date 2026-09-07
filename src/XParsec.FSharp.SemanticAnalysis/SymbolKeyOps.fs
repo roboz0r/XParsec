@@ -1,5 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+open Vesper
+
 /// The `SymbolKey` ↔ compiled-name algebra. A key holds arity as an INT; the `` `N ``
 /// suffix and `+` nesting are CLR NAME-axis spellings, confined to this module. Parsing
 /// mints only `InNamespace` / `InType`, because no compiled name says "module".
@@ -97,11 +99,11 @@ module SymbolKeyOps =
     // --- Namespaces ------------------------------------------------------------------
 
     /// Segment a dotted namespace string; `""` ⇒ the EMPTY path, the global namespace.
-    let nsPath (dotted: string) : EqArray<string> =
+    let nsPath (dotted: string) : Block<string> =
         if System.String.IsNullOrEmpty dotted then
-            EqArray.empty
+            Block.empty
         else
-            EqArray.ofArray (dotted.Split '.')
+            Block.ofArray (dotted.Split '.')
 
     let namespaceKey (dottedNs: string) : NamespaceKey = { Path = nsPath dottedNs }
 
@@ -258,7 +260,7 @@ module SymbolKeyOps =
     let memberKeyOf
         (decl: TypeKey)
         (name: string)
-        (argSig: EqArray<FrozenType>)
+        (argSig: Block<FrozenType>)
         (methodTyparArity: int)
         (kind: MemberKind)
         : MemberKey =
@@ -274,7 +276,7 @@ module SymbolKeyOps =
     let memberKey
         (decl: TypeKey)
         (name: string)
-        (argSig: EqArray<FrozenType>)
+        (argSig: Block<FrozenType>)
         (methodTyparArity: int)
         (kind: MemberKind)
         : SymbolKey =
@@ -302,7 +304,7 @@ module SymbolKeyOps =
     /// `[0]` erases its `()`. `ValueNone` is under-application or a wrongly-shaped group.
     let openArgGroups
         (asTuple: 'a -> 'a list voption)
-        (widths: EqArray<int>)
+        (widths: Block<int>)
         (args: 'a list)
         : OpenedArgGroups<'a> voption =
         let rec go (i: int) (args: 'a list) (flat: 'a list) =

@@ -2,6 +2,7 @@ namespace XParsec.FSharp.SemanticAnalysis
 
 open System
 open System.Collections.Immutable
+open Vesper
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis.Passes
@@ -28,24 +29,21 @@ module internal ElaborateExprArgs =
     /// declared argument list: a parenthesised `Tuple` (`Point(3, 4)`) becomes one argument
     /// per component, `Point()` becomes none, and `Point(())` becomes one unit argument, as
     /// F# reads it.
-    let peelOneArg (translate: Expr<SyntaxToken> -> TExpr) (arg: Expr<SyntaxToken>) : EqArray<TExpr> =
+    let peelOneArg (translate: Expr<SyntaxToken> -> TExpr) (arg: Expr<SyntaxToken>) : Block<TExpr> =
         match arg with
         | Expr.EnclosedBlock(lParen = ValueParen; expr = Expr.Tuple(exprs = items)) ->
-            EqArray.ofSeq (seq { for a in items -> translate a })
-        | Expr.Tuple(exprs = items) -> EqArray.ofSeq (seq { for a in items -> translate a })
-        | Expr.EnclosedBlock(lParen = ValueParen; expr = inner) -> EqArray.singleton (translate inner)
-        | Expr.EmptyBlock(lParen = ValueParen) -> EqArray.empty
-        | a -> EqArray.singleton (translate a)
+            Block.ofSeq (seq { for a in items -> translate a })
+        | Expr.Tuple(exprs = items) -> Block.ofSeq (seq { for a in items -> translate a })
+        | Expr.EnclosedBlock(lParen = ValueParen; expr = inner) -> Block.singleton (translate inner)
+        | Expr.EmptyBlock(lParen = ValueParen) -> Block.empty
+        | a -> Block.singleton (translate a)
 
     /// `peelOneArg` for the `Expr.App` form, whose argument list the parser may already have
     /// split.
-    let peelCtorArgs
-        (translate: Expr<SyntaxToken> -> TExpr)
-        (args: ImmutableArray<Expr<SyntaxToken>>)
-        : EqArray<TExpr> =
+    let peelCtorArgs (translate: Expr<SyntaxToken> -> TExpr) (args: ImmutableArray<Expr<SyntaxToken>>) : Block<TExpr> =
         match args.Length with
         | 1 -> peelOneArg translate args.[0]
-        | _ -> EqArray.ofSeq (seq { for a in args -> translate a })
+        | _ -> Block.ofSeq (seq { for a in args -> translate a })
 
     /// `()` literal. Distinct from `parseConst` because `Expr.EmptyBlock`
     /// carries `ParenKind` + closing token, not a `Constant`.

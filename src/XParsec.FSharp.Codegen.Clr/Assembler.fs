@@ -4,6 +4,7 @@ open System.Collections.Generic
 open System.Reflection
 open System.Reflection.Metadata
 open System.Reflection.Metadata.Ecma335
+open Vesper
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
@@ -603,7 +604,7 @@ type internal Assembler
             // The use-site table for a call on an interface-typed object arg: each method's
             // slot handle keyed by source name, to `callvirt`. Overloads share a name,
             // hence the list.
-            let memberTable = Dictionary<string, EqArray<Emit.EmittedMember>>()
+            let memberTable = Dictionary<string, Block<Emit.EmittedMember>>()
 
             methods
             |> List.iteri (fun i m ->
@@ -628,8 +629,8 @@ type internal Assembler
 
                 memberTable.[m.Name] <-
                     match memberTable.TryGetValue m.Name with
-                    | true, existing -> EqArray.append existing (EqArray.singleton em)
-                    | false, _ -> EqArray.singleton em
+                    | true, existing -> Block.append existing (Block.singleton em)
+                    | false, _ -> Block.singleton em
 
                 this.AddPrepared(
                     MethodKey.InterfaceMethod(td.Key, i),
@@ -645,7 +646,7 @@ type internal Assembler
             interfaces.[td.TypeKey] <-
                 {
                     Name = td.Name
-                    Typars = EqArray.toList (TyparList.typeNames td.TypeParams)
+                    Typars = Block.toList (TyparList.typeNames td.TypeParams)
                     Members = memberTable
                 }
 
@@ -662,7 +663,7 @@ type internal Assembler
                          RuntimeNames.objKey
                      else
                          RuntimeNames.stringKey),
-                    EqArray.empty
+                    Block.empty
                 )
 
             // The registry's case → literal map feeds the `| E.A` pattern's field

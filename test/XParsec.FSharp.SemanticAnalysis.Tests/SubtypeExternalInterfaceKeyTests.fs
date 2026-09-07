@@ -1,6 +1,7 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.SubtypeExternalInterfaceKeyTests
 
 open System.Collections.Generic
+open Vesper
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Passes
@@ -33,7 +34,7 @@ let private ifaceShape =
 let private widgetShape (ifaceKey: TypeKey) =
     ExternalTypeShape.Class(
         { ExternalClassShape.basic (TyparList.empty, ClassCommitment.Class, SymbolOrigin.Empty) with
-            FrozenInterfaces = EqArray.singleton (NominalG.ofClass ifaceKey EqArray.empty)
+            FrozenInterfaces = Block.singleton (NominalG.ofClass ifaceKey Block.empty)
         }
     )
 
@@ -56,7 +57,7 @@ let private ctxFor (ifaceKey: TypeKey) : PassContext =
 // `SemType.TyClass`, never `TestHelpers`' shadow: that shim mints its key with
 // `qualifiedTypeKeyOf`, the very re-cut these tests exist to distinguish.
 let private upcastsTo (ifaceKey: TypeKey) (tgtKey: TypeKey) : bool =
-    UnificationEngineCore.tryUpcastWitness (ctxFor ifaceKey) (SemType.TyClass(widgetKey, EqArray.empty)) tgtKey
+    UnificationEngineCore.tryUpcastWitness (ctxFor ifaceKey) (SemType.TyClass(widgetKey, Block.empty)) tgtKey
     |> ValueOption.isSome
 
 let private upcastsToIface (ifaceKey: TypeKey) : bool = upcastsTo ifaceKey ifaceKey

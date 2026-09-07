@@ -1,5 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+open Vesper
+
 /// What the declarations of a module PATH state, over this compilation and the assemblies it
 /// references. A path carries one declaration per assembly (FS0248), and a reader either
 /// merges them — `open` — or selects one by home — the class a declaration emits as.
@@ -19,14 +21,14 @@ module ModuleDeclarations =
         (home: SymbolHome)
         (at: int)
         (m: ModuleKey)
-        : EqArray<ModuleDeclaration> =
+        : Block<ModuleDeclaration> =
         let referenced = scope.DeclarationsOf m
 
         match
             types.Modules.TryGetValue m, ScopeResolution.tryLocalSubContainer types.LocalContainers m.Container m.Name
         with
         | (true, own), ValueSome local when local.VisibleFrom <= at ->
-            EqArray.append (EqArray.singleton { Home = home; Facts = own }) referenced
+            Block.append (Block.singleton { Home = home; Facts = own }) referenced
         | _ -> referenced
 
     /// Is an `open` of `container` written at `at` refused? A namespace carries no
@@ -47,7 +49,7 @@ module ModuleDeclarations =
     /// is homed in its assembly, and a package's contract of ITSELF counts as a reference.
     let declaredEarlierInAssembly (scope: IScopeContents) (assembly: AssemblyName) (m: ModuleKey) : bool =
         scope.DeclarationsOf m
-        |> EqArray.exists (fun declaration ->
+        |> Block.exists (fun declaration ->
             match declaration.Home with
             | SymbolHome.InFile file -> file.Assembly = ValueSome assembly
             | SymbolHome.InAssembly _

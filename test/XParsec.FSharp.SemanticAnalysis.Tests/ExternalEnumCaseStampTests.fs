@@ -1,5 +1,6 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.ExternalEnumCaseStampTests
 
+open Vesper
 open Expecto
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
@@ -22,7 +23,7 @@ let private provider: IExternalSymbolProvider =
                         }
                         : ExternalEnumCaseShape
                     )
-                    |> EqArray.ofList
+                    |> Block.ofList
                 Underlying = RuntimeNames.intKey
                 Origin = SymbolOrigin.Empty
             }

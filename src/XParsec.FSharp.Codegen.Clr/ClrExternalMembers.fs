@@ -3,6 +3,7 @@
 open System.Collections.Generic
 open System.Reflection.Metadata
 open System.Reflection.Metadata.Ecma335
+open Vesper
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
 
@@ -66,7 +67,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
         match argSigLen, paramsT with
         | 0, _ -> []
         | 1, _ -> [ paramsT ]
-        | n, FTTuple elems when elems.Length = n -> EqArray.toList elems
+        | n, FTTuple elems when elems.Length = n -> Block.toList elems
         | _ -> failwithf "ClrProvider: %s declares %d parameters but its signature slot is %A" what argSigLen paramsT
 
     /// Mint the `MemberRef` for `sig_` on `parent`, taking the getter shape for a property.
@@ -280,15 +281,15 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
         match externalUnionRef key arity with
         | ValueNone -> ValueNone
         | ValueSome(tref, u) ->
-            match u.Cases |> EqArray.tryFind (fun c -> c.Name = caseName) with
+            match u.Cases |> Block.tryFind (fun c -> c.Name = caseName) with
             | ValueNone -> ValueNone
             | ValueSome case ->
                 let parent = externalTypeSpec key tref args
 
-                let paramTys = EqArray.toList case.FrozenFieldTypes
+                let paramTys = Block.toList case.FrozenFieldTypes
 
                 let unionKey = SymbolKeyOps.qualifiedTypeKeyOf fullName arity
-                let retTy = FTUnion(unionKey, EqArray.ofList (declaringMarkers unionKey arity))
+                let retTy = FTUnion(unionKey, Block.ofList (declaringMarkers unionKey arity))
 
                 let s = BlobBuilder()
 
@@ -331,7 +332,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
         match externalUnionRef key (List.length args) with
         | ValueNone -> ValueNone
         | ValueSome(tref, u) ->
-            match u.Cases |> EqArray.tryFindIndex (fun c -> c.Name = caseName) with
+            match u.Cases |> Block.tryFindIndex (fun c -> c.Name = caseName) with
             | ValueNone -> ValueNone
             | ValueSome tag ->
                 // A referenced package's `_tag` is private to its union, so the test calls
@@ -379,7 +380,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
         match externalUnionRef key arity with
         | ValueNone -> ValueNone
         | ValueSome(tref, u) ->
-            match u.Cases |> EqArray.tryFind (fun c -> c.Name = caseName) with
+            match u.Cases |> Block.tryFind (fun c -> c.Name = caseName) with
             | ValueSome case when fieldIndex >= 0 && fieldIndex < case.FrozenFieldTypes.Length ->
                 let regime = UnionRegime.ofExternalShape u
                 let openFieldTy = case.FrozenFieldTypes.[fieldIndex]
@@ -394,7 +395,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                         )
                     else
                         let fieldName =
-                            (UnionCaseFields.fscFieldNames (EqArray.toList case.FieldNames)).[fieldIndex]
+                            (UnionCaseFields.fscFieldNames (Block.toList case.FieldNames)).[fieldIndex]
 
                         let parent =
                             match externalCaseParent key tref regime args caseName with
@@ -501,7 +502,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
         match externalRecordRef key arity with
         | ValueNone -> ValueNone
         | ValueSome(tref, fields) ->
-            match fields |> EqArray.tryFind (fun f -> f.Name = fieldName) with
+            match fields |> Block.tryFind (fun f -> f.Name = fieldName) with
             | ValueNone -> ValueNone
             | ValueSome field ->
                 let parent = externalTypeSpec key tref args

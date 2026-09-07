@@ -2,6 +2,7 @@ namespace XParsec.FSharp.SemanticAnalysis.Passes
 
 open System.Collections.Generic
 open System.Collections.Immutable
+open Vesper
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
@@ -47,7 +48,7 @@ module internal UnificationInferExternalCall =
         : SemType =
         let elemTys =
             match resolveStep ctx.Store argTy with
-            | TyTuple ts -> EqArray.toArray ts
+            | TyTuple ts -> Block.toArray ts
             | single -> [| single |]
 
         if facts.Length <> elemTys.Length then
@@ -80,7 +81,7 @@ module internal UnificationInferExternalCall =
 
             if not changed then argTy
             elif refined.Length = 1 then refined.[0]
-            else TyTuple(EqArray.ofSeq refined)
+            else TyTuple(Block.ofSeq refined)
 
     /// At any structural depth of `t`, not just its outermost type constructor.
     let private referencedMethodTypars (store: TypeStore) (t: SemType) : Set<int> =
@@ -262,9 +263,9 @@ module internal UnificationInferExternalCall =
             let onSurface (struct (declKey, typeArgs)) =
                 match
                     ctx.Provider.TryLookupMembers(declKey, memberName)
-                    |> EqArray.filter (fun m -> not m.IsStatic)
+                    |> Block.filter (fun m -> not m.IsStatic)
                 with
-                | EqEmpty -> None
+                | BlockEmpty -> None
                 | candidates -> Some(struct (typeArgs, candidates))
 
             match externalSurfaceKeys ctx objArgTy |> List.tryPick onSurface with
@@ -274,12 +275,12 @@ module internal UnificationInferExternalCall =
                     // 0 / 1 instance overload: the single-pick path is unambiguous.
                     ValueNone
                 else
-                    let declArgs = EqArray.toArray typeArgs
+                    let declArgs = Block.toArray typeArgs
                     let facts = constArgFacts ctx argExpr
                     // Refine BEFORE the pick, so a string constant both selects the
                     // keyof-constrained typar overload and solves its freshened typar at commit.
                     let argTy =
-                        admitLiteralMethodTypars ctx (EqArray.toArray candidates) declArgs facts (infer ctx argExpr)
+                        admitLiteralMethodTypars ctx (Block.toArray candidates) declArgs facts (infer ctx argExpr)
 
                     match pickBestOverload ctx declArgs candidates (argElemsOf ctx.Store argTy) with
                     | ValueSome chosen -> ValueSome(commitExternalOverload ctx tok fn chosen declArgs facts argTy)
@@ -302,7 +303,7 @@ module internal UnificationInferExternalCall =
         : SemType voption =
         // The object argument's own declaration and the type args it is instantiated at;
         // `ValueNone` for anything but a project-local class / union / record.
-        let localHost (objArgTy: SemType) : struct (TypeRegistry.NominalDecl * EqArray<SemType>) voption =
+        let localHost (objArgTy: SemType) : struct (TypeRegistry.NominalDecl * Block<SemType>) voption =
             match resolveStep ctx.Store objArgTy with
             | TyNominal(hostKey, args) ->
                 TypeRegistry.tryNominalByKey ctx.Types hostKey
@@ -411,7 +412,7 @@ module internal UnificationInferExternalCall =
                         | TyFun(fullParams, ret) ->
                             let leading =
                                 match resolveStep ctx.Store fullParams with
-                                | TyTuple elems -> elems |> EqArray.truncate suppliedCount |> EqArray.toList
+                                | TyTuple elems -> elems |> Block.truncate suppliedCount |> Block.toList
                                 | single -> [ single ]
 
                             let resultTy = TyVar(ctx.FreshTyVar())

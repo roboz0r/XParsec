@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.SemanticAnalysis.Passes
 
+open Vesper
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open NameResolutionTypeRegistration
@@ -129,7 +130,7 @@ module SignatureResolutionMembers =
     let resolveMember
         (ctx: PassContext)
         (declKey: TypeKey)
-        (declTypars: EqArray<DeclaredTypar>)
+        (declTypars: Block<DeclaredTypar>)
         (m: SigMember)
         : ExternalMember =
         classifyCurriedSigTypes ctx m.Signature
@@ -182,7 +183,7 @@ module SignatureResolutionMembers =
     let resolveBodyMembers
         (sctx: SigCtx)
         (declKey: TypeKey)
-        (declTypars: EqArray<DeclaredTypar>)
+        (declTypars: Block<DeclaredTypar>)
         (elems: TypeElementsSignature<SyntaxToken>)
         : ExternalMember list =
         let ctx = sctx.Pass
@@ -199,10 +200,10 @@ module SignatureResolutionMembers =
                 underTypars
                     ctx
                     declTypars
-                    EqArray.empty
+                    Block.empty
                     (fun () ->
                         ExternalSignature.tupledParams (
-                            EqArray.ofSeq (
+                            Block.ofSeq (
                                 seq { for ArgSpec(typ = t) in specs -> freezeOver ctx env (translateType ctx t) }
                             )
                         ),
@@ -273,9 +274,9 @@ module SignatureResolutionMembers =
     let freezeInterfaces
         (sctx: SigCtx)
         (declKey: TypeKey)
-        (declTypars: EqArray<DeclaredTypar>)
+        (declTypars: Block<DeclaredTypar>)
         (types: (SyntaxToken * Type<SyntaxToken>) list)
-        : EqArray<FrozenNominal> =
+        : Block<FrozenNominal> =
         let ctx = sctx.Pass
         let env = scopedEnv ctx (TyparScope.Type declKey) declTypars
 
@@ -283,9 +284,9 @@ module SignatureResolutionMembers =
         // seq<'T>` references `'T`, and one resolved outside their scope is a fresh variable that
         // freezes to a hole no consumer can fill.
         let translated =
-            underTypars ctx declTypars EqArray.empty (fun () -> [ for (tok, t) in types -> tok, translateType ctx t ])
+            underTypars ctx declTypars Block.empty (fun () -> [ for (tok, t) in types -> tok, translateType ctx t ])
 
-        EqArray.ofList
+        Block.ofList
             [
                 for (tok, ty) in translated do
                     match
@@ -349,16 +350,12 @@ module SignatureResolutionMembers =
             underTypars
                 ctx
                 typeParams
-                EqArray.empty
+                Block.empty
                 (fun () ->
                     {
                         Typars = TyparList.unconstrained typeParams
                         Commitment = ClassCommitment.ofIsInterface isInterface
-                        Members =
-                            (if isInterface then
-                                 EqArray.ofList members
-                             else
-                                 EqArray.empty)
+                        Members = (if isInterface then Block.ofList members else Block.empty)
                         FrozenInterfaces = freezeInterfaces sctx id.Key typeParams interfaceTypes
                         FrozenBaseType =
                             baseClause

@@ -1,5 +1,6 @@
 module XParsec.FSharp.Codegen.Clr.Tests.IlIrTests
 
+open Vesper
 open Expecto
 open System.Reflection.Metadata
 open System.Reflection.Metadata.Ecma335
@@ -82,14 +83,14 @@ let private guardChainEquality (pairs: (int * int) list) : ILBody =
 
 [<Tests>]
 let tests =
-    let tyInt = TyConst(RuntimeNames.intKey, EqArray.empty)
-    let tyBool = TyConst(RuntimeNames.boolKey, EqArray.empty)
+    let tyInt = TyConst(RuntimeNames.intKey, Block.empty)
+    let tyBool = TyConst(RuntimeNames.boolKey, Block.empty)
 
     let cInt (n: int) =
         TExpr.Const(TConstValue.Integral(IntKind.Int32, int64 n), tyInt, dummyTok)
 
     let ceq a b =
-        TExpr.ILIntrinsic("ceq", ValueNone, EqArray.ofList [ a; b ], tyBool, dummyTok)
+        TExpr.ILIntrinsic("ceq", ValueNone, Block.ofList [ a; b ], tyBool, dummyTok)
 
     // The demo bodies carry no metadata tokens, so a standalone `Il` can lower them and
     // report the maxStack the live tracker computes, against `verify`'s own number.
@@ -195,7 +196,7 @@ let tests =
             test "try/finally with no thrown exception runs both halves" {
                 // result = 0; try { result = 42 } finally { result += 100 }; return result
                 let b = IlBuilder()
-                let result = b.Local(FTConst(RuntimeNames.intKey, EqArray.empty))
+                let result = b.Local(FTConst(RuntimeNames.intKey, Block.empty))
                 let exitL = b.Label()
                 b.Add(ILInstr.LdcI4 0)
                 b.Add(ILInstr.Stloc result)
@@ -219,7 +220,7 @@ let tests =
             test "verify accepts a try/finally body" {
                 // Same shape as above; just confirms analyze's region rules.
                 let b = IlBuilder()
-                let r = b.Local(FTConst(RuntimeNames.intKey, EqArray.empty))
+                let r = b.Local(FTConst(RuntimeNames.intKey, Block.empty))
                 let exitL = b.Label()
                 b.Add(ILInstr.LdcI4 0)
                 b.Add(ILInstr.Stloc r)
@@ -244,7 +245,7 @@ let tests =
                 // `pop` right after BeginCatch must not underflow: the runtime already
                 // pushed the exception object.
                 let b = IlBuilder()
-                let r = b.Local(FTConst(RuntimeNames.intKey, EqArray.empty))
+                let r = b.Local(FTConst(RuntimeNames.intKey, Block.empty))
                 let exitL = b.Label()
                 b.Add(ILInstr.LdcI4 0)
                 b.Add(ILInstr.Stloc r)
@@ -285,7 +286,7 @@ let tests =
                 // r = 0; try { try { throw } finally { r = 100 } } catch (object) { pop }; r
                 let buildBody (provider: ICodegenProvider) (il: Il) : unit =
                     let b = IlBuilder()
-                    let r = b.Local(FTConst(RuntimeNames.intKey, EqArray.empty))
+                    let r = b.Local(FTConst(RuntimeNames.intKey, Block.empty))
                     let outerExit = b.Label()
                     let innerExit = b.Label()
                     b.Add(ILInstr.LdcI4 0)

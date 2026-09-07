@@ -1,5 +1,6 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.AssemblyFilesTests
 
+open Vesper
 open Expecto
 // Before the SemanticAnalysis open, so a bare `Diagnostic` stays the semantic one; opened
 // here for `DiagnosticCode`, which `Kind.Parse` wraps.
@@ -506,7 +507,7 @@ module N =
 
                 match ScopeContents.tryValueAt f2.View.Scope "Test.B.N.z" with
                 | ValueSome sym ->
-                    Expect.equal sym.Scheme (FTConst(RuntimeNames.intKey, EqArray.empty)) "r.X types as int cross-file"
+                    Expect.equal sym.Scheme (FTConst(RuntimeNames.intKey, Block.empty)) "r.X types as int cross-file"
                 | ValueNone -> failtest "file 2 did not export z"
             }
 
@@ -867,7 +868,7 @@ module N =
                         sym.Scheme
                         (FTRecord(
                             RuntimeNames.vesperRefKey,
-                            EqArray.singleton (FTConst(RuntimeNames.intKey, EqArray.empty))
+                            Block.singleton (FTConst(RuntimeNames.intKey, Block.empty))
                         ))
                         "the bare literal types as Vesper.Ref<int>"
                 | ValueNone -> failtest "the file did not export cell"

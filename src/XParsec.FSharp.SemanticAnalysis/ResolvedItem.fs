@@ -1,5 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+open Vesper
+
 /// A module-level `let` of this file, visible to a use site at or after `VisibleFrom`: its
 /// own offset, or the enclosing `rec` scope's keyword when there is one. A read inside the
 /// group's own RHS is excluded separately (`PassContextResolution.PendingBindings`).
@@ -94,5 +96,5 @@ type ResolvedItem =
     | AmbiguousCase of name: string * claims: ResolvedUnionCase[]
     /// Types called `name` reach the use site at several arities. The bare name requires a
     /// written instantiation. `arities` is ascending.
-    | AmbiguousTypeArity of name: string * arities: EqArray<int>
+    | AmbiguousTypeArity of name: string * arities: Block<int>
     | Unresolved of UnresolvedName

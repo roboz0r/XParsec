@@ -1,5 +1,6 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.InlineTests
 
+open Vesper
 open Expecto
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
@@ -592,7 +593,7 @@ let tests =
 
                 let frozen = TastUnpool.ofPools pools
 
-                Expect.isEmpty (EqArray.toList frozen.InlineBodies) "the un-splice-able template is not published"
+                Expect.isEmpty (Block.toList frozen.InlineBodies) "the un-splice-able template is not published"
 
                 let errors =
                     frozen.Diagnostics

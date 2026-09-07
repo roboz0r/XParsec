@@ -1,5 +1,6 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.CoverageTests
 
+open Vesper
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
@@ -24,7 +25,7 @@ let private callKeys (tast: TastFile) : ResizeArray<SymbolKey> =
                     true
         }
 
-    for d in EqArray.toList tast.Decls do
+    for d in Block.toList tast.Decls do
         match d with
         | TDecl.Let({ Value = value }, _, _) -> TastWalk.iterExpr it value
         | _ -> ()
@@ -50,7 +51,7 @@ let private soleClass (tast: TastFile) : TClass =
 let private declType (tast: TastFile) : SemType =
     // A surfaced `TDecl.Type` is ignored: the assertion is about the value binding.
     let valueDecls =
-        EqArray.toList tast.Decls
+        Block.toList tast.Decls
         |> List.filter (fun d ->
             match d with
             | TDecl.Type _ -> false
@@ -253,7 +254,7 @@ let tests =
             test "typed pattern in tuple: `let f ((x: int), b) = b`" {
                 let tast = analyse "let f ((x: int), b) = x + b"
                 let intTy = BuiltinTypes.tyInt
-                let expected = TyFun(TyTuple(EqArray.ofList [ intTy; intTy ]), intTy)
+                let expected = TyFun(TyTuple(Block.ofList [ intTy; intTy ]), intTy)
                 Expect.equal (declType tast) expected "f : int * int -> int"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
@@ -632,13 +633,13 @@ let tests =
 
             test "generic record literal carries arg-bearing type" {
                 let tast = analyse "type Box<'a> = { Value: 'a }\nlet b = { Value = 1 }"
-                Expect.equal (declType tast) (TyRecord("Box", EqArray.singleton BuiltinTypes.tyInt)) "b : Box<int>"
+                Expect.equal (declType tast) (TyRecord("Box", Block.singleton BuiltinTypes.tyInt)) "b : Box<int>"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
             test "generic ctor application carries arg-bearing type" {
                 let tast = analyse "type Option<'a> = | Some of 'a | None\nlet s = Some 1"
-                Expect.equal (declType tast) (TyUnion("Option", EqArray.singleton BuiltinTypes.tyInt)) "s : Option<int>"
+                Expect.equal (declType tast) (TyUnion("Option", Block.singleton BuiltinTypes.tyInt)) "s : Option<int>"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
@@ -646,7 +647,7 @@ let tests =
                 let tast = analyse "type Box<'a> = { Value: 'a }\nlet f (b : Box<int>) = b.Value"
 
                 let expected =
-                    TyFun(TyRecord("Box", EqArray.singleton BuiltinTypes.tyInt), BuiltinTypes.tyInt)
+                    TyFun(TyRecord("Box", Block.singleton BuiltinTypes.tyInt), BuiltinTypes.tyInt)
 
                 Expect.equal (declType tast) expected "f : Box<int> -> int"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
@@ -660,7 +661,7 @@ let tests =
 
             test "TAST: generic abbreviation literal expands to tuple" {
                 let tast = analyse "type Pair<'a> = 'a * 'a\nlet p : Pair<int> = (1, 2)"
-                let expected = TyTuple(EqArray.ofList [ BuiltinTypes.tyInt; BuiltinTypes.tyInt ])
+                let expected = TyTuple(Block.ofList [ BuiltinTypes.tyInt; BuiltinTypes.tyInt ])
                 Expect.equal (declType tast) expected "declType is int * int"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
@@ -671,7 +672,7 @@ let tests =
 
                 let valExpr =
                     tast.Decls
-                    |> EqArray.toList
+                    |> Block.toList
                     |> List.tryPick (
                         function
                         | TDecl.Let({ Value = v }, _, _) -> Some v
@@ -683,7 +684,7 @@ let tests =
                 | TExpr.New(name, _, args, ty, _) ->
                     Expect.equal name "Point" "class name"
                     Expect.equal args.Length 2 "two ctor args"
-                    Expect.equal ty (TyClass("Point", EqArray.empty)) "ty is TyClass Point"
+                    Expect.equal ty (TyClass("Point", Block.empty)) "ty is TyClass Point"
                 | _ -> failtestf "expected TExpr.New, got %A" valExpr
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
@@ -695,7 +696,7 @@ let tests =
 
                 let valExpr =
                     tast.Decls
-                    |> EqArray.toList
+                    |> Block.toList
                     |> List.tryPick (
                         function
                         | TDecl.Let({ Value = v }, _, _) -> Some v
@@ -724,7 +725,7 @@ let tests =
 
                 let valExpr =
                     tast.Decls
-                    |> EqArray.toList
+                    |> Block.toList
                     |> List.tryPick (
                         function
                         | TDecl.Let({ Value = v }, _, _) -> Some v
@@ -752,7 +753,7 @@ let tests =
 
                 let valExpr =
                     tast.Decls
-                    |> EqArray.toList
+                    |> Block.toList
                     |> List.tryPick (
                         function
                         | TDecl.Let({ Value = v }, _, _) -> Some v
@@ -776,7 +777,7 @@ let tests =
 
                 let valExpr =
                     tast.Decls
-                    |> EqArray.toList
+                    |> Block.toList
                     |> List.tryPick (
                         function
                         | TDecl.Let({ Value = v }, _, _) -> Some v
@@ -801,7 +802,7 @@ let tests =
 
                 let valExpr =
                     tast.Decls
-                    |> EqArray.toList
+                    |> Block.toList
                     |> List.tryPick (
                         function
                         | TDecl.Let({ Value = v }, _, _) -> Some v
@@ -811,7 +812,7 @@ let tests =
 
                 match valExpr with
                 | TExpr.StaticPropertyGet(_, declArgs, _, _) ->
-                    Expect.equal (EqArray.toList declArgs) [ BuiltinTypes.tyInt ] "declArgs is the written <int>"
+                    Expect.equal (Block.toList declArgs) [ BuiltinTypes.tyInt ] "declArgs is the written <int>"
                 | _ -> failtestf "expected StaticPropertyGet, got %A" valExpr
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
@@ -850,7 +851,7 @@ let tests =
 
                 let typeDecl =
                     tast.Decls
-                    |> EqArray.toList
+                    |> Block.toList
                     |> List.tryPick (
                         function
                         | TDecl.Type t -> Some t
@@ -892,7 +893,7 @@ let tests =
 
                 let typeDecl =
                     tast.Decls
-                    |> EqArray.toList
+                    |> Block.toList
                     |> List.tryPick (
                         function
                         | TDecl.Type t -> Some t
@@ -901,7 +902,7 @@ let tests =
                     |> Option.defaultWith (fun () -> failwithf "expected a TDecl.Type, got %A" tast.Decls)
 
                 Expect.equal typeDecl.Name "Box" "type name"
-                Expect.equal (EqArray.toList typeDecl.TypeParams.Names) [ "'a" ] "one declared typar"
+                Expect.equal (Block.toList typeDecl.TypeParams.Names) [ "'a" ] "one declared typar"
 
                 match typeDecl.Kind with
                 | TTypeKind.Class c ->
@@ -930,7 +931,7 @@ let tests =
 
                 let typeDecl =
                     tast.Decls
-                    |> EqArray.toList
+                    |> Block.toList
                     |> List.tryPick (
                         function
                         | TDecl.Type t -> Some t
@@ -940,7 +941,7 @@ let tests =
 
                 match typeDecl.Kind with
                 | TTypeKind.Class c ->
-                    match TPreambleEntryG.lets (EqArray.toList c.StaticPreamble) with
+                    match TPreambleEntryG.lets (Block.toList c.StaticPreamble) with
                     | [ sl ] ->
                         Expect.equal sl.Name "x" "static-let name"
                         Expect.equal sl.Type BuiltinTypes.tyInt "static-let type inferred to int"
@@ -967,7 +968,7 @@ let tests =
 
                 let typeDecl =
                     tast.Decls
-                    |> EqArray.toList
+                    |> Block.toList
                     |> List.tryPick (
                         function
                         | TDecl.Type t -> Some t
@@ -977,7 +978,7 @@ let tests =
 
                 match typeDecl.Kind with
                 | TTypeKind.Class c ->
-                    match TPreambleEntryG.lets (EqArray.toList c.StaticPreamble) with
+                    match TPreambleEntryG.lets (Block.toList c.StaticPreamble) with
                     | [ sl ] -> Expect.equal sl.Name "x" "the generic class's `static let` surfaces in the preamble"
                     | other -> failtestf "expected one static let, got %A" other
                 | other -> failtestf "expected TTypeKind.Class, got %A" other
@@ -993,7 +994,7 @@ let tests =
 
                 match soleClass tast with
                 | c ->
-                    match TPreambleEntryG.lets (EqArray.toList c.StaticPreamble) with
+                    match TPreambleEntryG.lets (Block.toList c.StaticPreamble) with
                     | [ sl ] ->
                         Expect.equal sl.Name "f" "static-let name"
                         Expect.equal sl.Type (TyFun(BuiltinTypes.tyInt, BuiltinTypes.tyInt)) "int -> int"
@@ -1013,7 +1014,7 @@ let tests =
 
                 let c = soleClass tast
 
-                match TPreambleEntryG.lets (EqArray.toList c.InstancePreamble) with
+                match TPreambleEntryG.lets (Block.toList c.InstancePreamble) with
                 | [ l ] ->
                     Expect.equal l.Name "a" "instance-let name"
                     Expect.equal l.Type BuiltinTypes.tyInt "instance-let type inferred to int"
@@ -1038,7 +1039,7 @@ let tests =
 
                 let cls = soleClass tast
 
-                match TPreambleEntryG.lets (EqArray.toList cls.InstancePreamble) with
+                match TPreambleEntryG.lets (Block.toList cls.InstancePreamble) with
                 | [ l ] -> Expect.isTrue l.IsMutable "`let mutable` ⇒ a writable field"
                 | other -> failtestf "expected one instance let, got %A" other
 
@@ -1060,7 +1061,7 @@ let tests =
 
                 let typeDecl =
                     tast.Decls
-                    |> EqArray.toList
+                    |> Block.toList
                     |> List.tryPick (
                         function
                         | TDecl.Type t -> Some t
@@ -1107,12 +1108,12 @@ let tests =
                                 true
                     }
 
-                for d in EqArray.toList tast.Decls do
+                for d in Block.toList tast.Decls do
                     match d with
                     | TDecl.Type t ->
                         match t.Kind with
                         | TTypeKind.Class c ->
-                            for m in EqArray.toList c.Members do
+                            for m in Block.toList c.Members do
                                 TastWalk.iterExpr collect m.Body
                         | _ -> ()
                     | _ -> ()
@@ -1154,7 +1155,7 @@ let tests =
                 let tast =
                     analyse "type B() =\n    member this.X = 1\ntype D() =\n    inherit B()\nlet s = (new D()) :> B"
 
-                let last = EqArray.last tast.Decls
+                let last = Block.last tast.Decls
                 Expect.stringContains (TastShape.prettyDecl last) ":> B" "upcast rendered"
             }
 
@@ -1163,7 +1164,7 @@ let tests =
                     analyse
                         "type B() =\n    member this.X = 1\ntype D() =\n    inherit B()\nlet d = ((new D()) :> B) :?> D"
 
-                let last = EqArray.last tast.Decls
+                let last = Block.last tast.Decls
                 Expect.stringContains (TastShape.prettyDecl last) ":?> D" "downcast rendered"
             }
 
@@ -1210,7 +1211,7 @@ let tests =
                     analyse
                         "type B() =\n    member this.X = 1\ntype D() =\n    inherit B()\nlet t = ((new D()) :> B) :? D"
 
-                let last = EqArray.last tast.Decls
+                let last = Block.last tast.Decls
                 Expect.stringContains (TastShape.prettyDecl last) ":? D" "type test rendered"
             }
 
@@ -1283,7 +1284,7 @@ let tests =
                                 true
                     }
 
-                for d in EqArray.toList tast.Decls do
+                for d in Block.toList tast.Decls do
                     match d with
                     | TDecl.Let({ Value = value }, _, _) -> TastWalk.iterExpr it value
                     | _ -> ()
@@ -1342,7 +1343,7 @@ let tests =
                     Expect.equal mk.Kind MemberKind.Method "method kind"
                     Expect.equal mk.MethodTyparArity 0 "no method typars"
 
-                    match mk.ArgSig |> EqArray.toList with
+                    match mk.ArgSig |> Block.toList with
                     | [ FTConst(sk, _) ] ->
                         Expect.equal (SymbolKeyOps.typeSimpleName sk) (DisplayName "int") "arg type is the declared int"
                     | other -> failtestf "expected a single FTConst int arg type, got %A" other
@@ -1363,7 +1364,7 @@ let tests =
                     Expect.equal mk.Name "Show" "member name"
                     Expect.equal mk.Kind MemberKind.Method "method kind"
 
-                    match mk.ArgSig |> EqArray.toList with
+                    match mk.ArgSig |> Block.toList with
                     | [ FTConst(sk, _) ] ->
                         Expect.equal (SymbolKeyOps.typeSimpleName sk) (DisplayName "int") "arg type is the declared int"
                     | other -> failtestf "expected a single FTConst int arg type, got %A" other
@@ -1376,14 +1377,14 @@ let tests =
             // A singular lookup collapses an overload set to an arbitrary best-by-arity pick,
             // so the stub gives `M` two same-arity overloads differing only in operand type.
             let extDeclKey = SymbolKeyOps.qualifiedTypeKeyOf "Vec2" 0
-            let intFt = FTConst(RuntimeNames.intKey, EqArray.empty)
-            let stringFt = FTConst(RuntimeNames.stringKey, EqArray.empty)
-            let unitFt = FTConst(RuntimeNames.unitKey, EqArray.empty)
+            let intFt = FTConst(RuntimeNames.intKey, Block.empty)
+            let stringFt = FTConst(RuntimeNames.stringKey, Block.empty)
+            let unitFt = FTConst(RuntimeNames.unitKey, Block.empty)
 
             // A static two-parameter member `M(int, p2)` on external `Vec2`, keyed by its
             // parameter shape so two overloads mint DISTINCT `MemberKey`s.
             let extMember2 (p2: FrozenType) : ExternalMember =
-                let ps = EqArray.ofList [ intFt; p2 ]
+                let ps = Block.ofList [ intFt; p2 ]
 
                 { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf extDeclKey "M" ps 0 MemberKind.Method) with
                     IsStatic = true
@@ -1412,9 +1413,9 @@ let tests =
                     extCtx (
                         TestHelpers.membersProvider (fun declaringType name ->
                             if declaringType = "Vec2" && name = "M" then
-                                EqArray.ofSeq [ mII; mIS ]
+                                Block.ofSeq [ mII; mIS ]
                             else
-                                EqArray.empty
+                                Block.empty
                         )
                     )
 
@@ -1440,7 +1441,7 @@ let tests =
                 // mint is forced and equals `TryLookupMember`'s, operands or not.
                 let m1 =
                     { ExternalMember.OfKey(
-                          SymbolKeyOps.memberKeyOf extDeclKey "N" (EqArray.singleton intFt) 0 MemberKind.Method
+                          SymbolKeyOps.memberKeyOf extDeclKey "N" (Block.singleton intFt) 0 MemberKind.Method
                       ) with
                         IsStatic = true
                         Signature = TestHelpers.mkSignature 0 0 intFt unitFt
@@ -1450,9 +1451,9 @@ let tests =
                     extCtx (
                         TestHelpers.membersProvider (fun declaringType name ->
                             if declaringType = "Vec2" && name = "N" then
-                                EqArray.singleton m1
+                                Block.singleton m1
                             else
-                                EqArray.empty
+                                Block.empty
                         )
                     )
 

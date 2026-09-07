@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
 open System.Collections.Generic
+open Vesper
 open XParsec
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
@@ -281,7 +282,7 @@ type PassContextResolution =
         ExternalOptionalFill: SideTable<OptionalDefault list>
         /// Keyed by the folded `x.M(…)` call whose object argument is a typar coerced to a
         /// project-local interface (`'T :> IFace`): that interface's key and type arguments.
-        TyparInterfaceCall: SideTable<TypeKey * EqArray<SemType>>
+        TyparInterfaceCall: SideTable<TypeKey * Block<SemType>>
         /// Keyed by a name use in expression, pattern or type position: what the name denotes,
         /// resolved once in F#'s order. Absent at a pattern ident ⇒ a bound variable; absent at
         /// an expression ident ⇒ a lexically bound variable, read from `Bindings.Binding`.
@@ -298,7 +299,7 @@ type PassContextResolution =
         /// Keyed by a project-local static member access (the qualified read / call funcExpr,
         /// or an assignment's LHS access): the declaring type's instantiation at that site,
         /// one entry per declared typar.
-        StaticDeclaringArgs: SideTable<EqArray<SemType>>
+        StaticDeclaringArgs: SideTable<Block<SemType>>
         /// Keyed by a `use` binding's pattern `NodeKey`: how the bound variable is disposed.
         UseDispose: SideTable<Disposal>
         /// Keyed by a `for x in src do …` node. Absent ⇒ the interface path (which range
@@ -417,7 +418,7 @@ type PassContext(provider: IExternalSymbolProvider, file: LexedFile, assembly: C
 
     /// A field name → every external record declaring it. Not a spelling lookup: a bare
     /// `{ X = … }` does not spell a record, so the field set IS the identity, pinned at inference.
-    member _.TryRecordsWithField(fieldName: string) : EqArray<ExternalRecordCandidate> =
+    member _.TryRecordsWithField(fieldName: string) : Block<ExternalRecordCandidate> =
         provider.TryRecordsWithField fieldName
 
     /// The language-capability identities (enumerable, enumerator, disposable, equatable,
@@ -580,9 +581,9 @@ type PassContext(provider: IExternalSymbolProvider, file: LexedFile, assembly: C
             | TyClass(_, args)
             | TyRecord(_, args)
             | TyUnion(_, args)
-            | TyConst(_, args) -> args |> EqArray.exists walk
+            | TyConst(_, args) -> args |> Block.exists walk
             | TyFun(a, b) -> walk a || walk b
-            | TyTuple items -> items |> EqArray.exists walk
+            | TyTuple items -> items |> Block.exists walk
             | _ -> false
 
         walk ty
@@ -598,7 +599,7 @@ type PassContext(provider: IExternalSymbolProvider, file: LexedFile, assembly: C
     member val BoundVarNames = BoundVarTable<BoundVarIdent>() with get
     /// Keyed by an `Expr.LibraryOnlyStaticOptimization`: the resolved `when ^T : …` constraints,
     /// the outer array aligned with the node's `clauses`, the inner one clause's `and`-joined list.
-    member val StaticOpt = SideTable<EqArray<EqArray<TStaticOptConstraint>>>() with get
+    member val StaticOpt = SideTable<Block<Block<TStaticOptConstraint>>>() with get
     /// The metavar arena: mints `TypeVar` handles with dense per-file ids, owns their tables.
     member val Store: TypeStore = TypeStore() with get
 
@@ -769,7 +770,7 @@ type PassContext(provider: IExternalSymbolProvider, file: LexedFile, assembly: C
 
     /// Per module-level `let inline` binding, keyed by its function-bound-variable `NodeKey` and
     /// positionally aligned to its curried parameters. Only non-default parameters register.
-    member val InlineParamAttrs = Dictionary<NodeKey, EqArray<ParamAttrs>>() with get
+    member val InlineParamAttrs = Dictionary<NodeKey, Block<ParamAttrs>>() with get
 
     /// The UNEXPANDED body of each module-level `let inline`. An `^T`-constrained body resolves
     /// its trait calls against the CALL SITE, so expanding here bakes in the generic fallback.

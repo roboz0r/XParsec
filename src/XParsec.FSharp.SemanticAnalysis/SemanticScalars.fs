@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
 open System.Numerics
+open Vesper
 
 [<Struct>]
 type RegionId =
@@ -298,7 +299,7 @@ type ConstraintSetG<'ty> =
         Kinds: EqSet<TyparConstraintKindG<'ty>>
         /// `default ^T : <ty>` targets in source order; generalisation takes the first that
         /// resolves.
-        Defaults: EqArray<'ty>
+        Defaults: Block<'ty>
     }
 
     member this.IsEmpty: bool = this.Kinds.IsEmpty && this.Defaults.IsEmpty
@@ -309,19 +310,19 @@ module ConstraintSet =
     let empty<'ty> : ConstraintSetG<'ty> =
         {
             Kinds = EqSet.empty
-            Defaults = EqArray.empty
+            Defaults = Block.empty
         }
 
     let ofKinds (kinds: seq<TyparConstraintKindG<'ty>>) : ConstraintSetG<'ty> =
         {
             Kinds = EqSet.ofSeq kinds
-            Defaults = EqArray.empty
+            Defaults = Block.empty
         }
 
     let map (f: 'a -> 'b) (set: ConstraintSetG<'a>) : ConstraintSetG<'b> =
         {
             Kinds = EqSet.map (TyparConstraintKind.map f) set.Kinds
-            Defaults = EqArray.map f set.Defaults
+            Defaults = Block.map f set.Defaults
         }
 
     /// Applies `f` to each embedded type.
@@ -329,7 +330,7 @@ module ConstraintSet =
         for c in set.Kinds do
             TyparConstraintKind.iter f c
 
-        EqArray.iter f set.Defaults
+        Block.iter f set.Defaults
 
 /// A type-kinded parameter with its constraints.
 type TypeTyparG<'ty> =
@@ -356,10 +357,10 @@ type TyparSlot =
 /// indexes `Types`; the CLR encodes `Types` alone.
 type TyparListG<'ty> =
     {
-        Types: EqArray<TypeTyparG<'ty>>
-        Measures: EqArray<MeasureTypar>
+        Types: Block<TypeTyparG<'ty>>
+        Measures: Block<MeasureTypar>
         /// Source order, one slot per parameter.
-        Order: EqArray<TyparSlot>
+        Order: Block<TyparSlot>
     }
 
     /// The arity: one per parameter of either kind.
@@ -374,12 +375,12 @@ type TyparListG<'ty> =
 
     /// Whether any type-kinded parameter carries a constraint or a default.
     member this.HasConstraints: bool =
-        this.Types |> EqArray.exists (fun t -> not t.Constraints.IsEmpty)
+        this.Types |> Block.exists (fun t -> not t.Constraints.IsEmpty)
 
     /// Each parameter's display name, in source order.
-    member this.Names: EqArray<string> =
+    member this.Names: Block<string> =
         this.Order
-        |> EqArray.map (fun slot ->
+        |> Block.map (fun slot ->
             match slot with
             | TyparSlot.Type i -> this.Types.[i].Name.Display
             | TyparSlot.Measure i -> this.Measures.[i].Name.Display
@@ -399,28 +400,27 @@ type DeclaredTypar =
 module DeclaredTypar =
 
     /// The prototype variables, in declaration order.
-    let protos (typars: EqArray<DeclaredTypar>) : EqArray<TyVarId> =
-        typars |> EqArray.map (fun t -> t.TyVar)
+    let protos (typars: Block<DeclaredTypar>) : Block<TyVarId> = typars |> Block.map (fun t -> t.TyVar)
 
-    let names (typars: EqArray<DeclaredTypar>) : EqArray<string> = typars |> EqArray.map (fun t -> t.Name)
+    let names (typars: Block<DeclaredTypar>) : Block<string> = typars |> Block.map (fun t -> t.Name)
 
 [<RequireQualifiedAccess; CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 module TyparList =
 
     let empty<'ty> : TyparListG<'ty> =
         {
-            Types = EqArray.empty
-            Measures = EqArray.empty
-            Order = EqArray.empty
+            Types = Block.empty
+            Measures = Block.empty
+            Order = Block.empty
         }
 
     /// Each parameter's kind, in source order.
-    let kinds (typars: TyparListG<'ty>) : EqArray<TyparKind> =
-        typars.Order |> EqArray.map (fun s -> s.Kind)
+    let kinds (typars: TyparListG<'ty>) : Block<TyparKind> =
+        typars.Order |> Block.map (fun s -> s.Kind)
 
     /// The display names of the type-kinded parameters, by `Types` index.
-    let typeNames (typars: TyparListG<'ty>) : EqArray<string> =
-        typars.Types |> EqArray.map (fun t -> t.Name.Display)
+    let typeNames (typars: TyparListG<'ty>) : Block<string> =
+        typars.Types |> Block.map (fun t -> t.Name.Display)
 
     /// The list over `(name, kind)` pairs in source order, every type-kinded parameter
     /// constrained by `constraintsAt` its source position.
@@ -448,9 +448,9 @@ module TyparList =
                     }
 
         {
-            Types = EqArray.ofSeq types
-            Measures = EqArray.ofSeq measures
-            Order = EqArray.ofSeq order
+            Types = Block.ofSeq types
+            Measures = Block.ofSeq measures
+            Order = Block.ofSeq order
         }
 
     /// The list over written, unconstrained parameters in source order.
@@ -459,14 +459,11 @@ module TyparList =
 
     /// The list over a declaration's typars, each type-kinded one constrained by
     /// `constraintsOf` its declaration.
-    let ofDeclared
-        (constraintsOf: DeclaredTypar -> ConstraintSetG<'ty>)
-        (ts: EqArray<DeclaredTypar>)
-        : TyparListG<'ty> =
+    let ofDeclared (constraintsOf: DeclaredTypar -> ConstraintSetG<'ty>) (ts: Block<DeclaredTypar>) : TyparListG<'ty> =
         ofKinded (fun i -> constraintsOf ts.[i]) (seq { for t in ts -> t.Name, t.Kind })
 
     /// The list over a declaration's typars, unconstrained.
-    let unconstrained (ts: EqArray<DeclaredTypar>) : TyparListG<'ty> =
+    let unconstrained (ts: Block<DeclaredTypar>) : TyparListG<'ty> =
         ofDeclared (fun _ -> ConstraintSet.empty) ts
 
     /// Type-kinded parameters under the written names, unconstrained.
@@ -481,7 +478,7 @@ module TyparList =
         | n ->
             {
                 Types =
-                    EqArray.init
+                    Block.init
                         n
                         (fun i ->
                             {
@@ -489,8 +486,8 @@ module TyparList =
                                 Constraints = constraintsAt i
                             }
                         )
-                Measures = EqArray.empty
-                Order = EqArray.init n TyparSlot.Type
+                Measures = Block.empty
+                Order = Block.init n TyparSlot.Type
             }
 
     /// `n` type-kinded parameters, positionally named and unconstrained.
@@ -501,7 +498,7 @@ module TyparList =
         {
             Types =
                 typars.Types
-                |> EqArray.map (fun t ->
+                |> Block.map (fun t ->
                     {
                         Name = t.Name
                         Constraints = ConstraintSet.map f t.Constraints

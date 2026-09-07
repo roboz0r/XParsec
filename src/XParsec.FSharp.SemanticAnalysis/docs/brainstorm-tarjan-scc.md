@@ -127,8 +127,7 @@ always asymmetric):
    automorphisms any consistent choice yields the same hash.
 4. **Hash** over `(canonical-number, local-shape, edges-as-canonical-numbers)` of
    each SCC node. Keep the declared/pretty name in a side table for diagnostics —
-   the hash is the identity key, not human-readable (cf.
-   [[reference_eqarray_percentA_cache_key]] — don't key on opaque `%A`).
+   the hash is the identity key, not human-readable (cf. don't key on opaque `%A`).
 
 ## 5. Performance notes
 

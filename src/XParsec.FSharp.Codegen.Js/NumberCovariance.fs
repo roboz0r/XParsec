@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.Codegen.Js
 
+open Vesper
 open XParsec.FSharp.SemanticAnalysis
 
 /// Resolves the TS `number` token by the variance of its position: a JS `number` is a `float`
@@ -32,14 +33,14 @@ module NumberCovariance =
 
         let familyUnion =
             match IntrinsicTypeMap.canonsOf NumberToken inner.IntrinsicTypeMap with
-            | EqEmpty -> FTConst(numberKey, EqArray.empty)
-            | canons -> FrozenType.MkUnion(seq { for c in canons -> FTConst(c, EqArray.empty) })
+            | BlockEmpty -> FTConst(numberKey, Block.empty)
+            | canons -> FrozenType.MkUnion(seq { for c in canons -> FTConst(c, Block.empty) })
 
         let resolveNumber (v: Variance) (t: FrozenType) : FrozenType voption =
             match t with
             | FTConst(key, args) when key = numberKey && args.Length = 0 ->
                 match v with
-                | Variance.Co -> ValueSome(FTConst(RuntimeNames.floatKey, EqArray.empty))
+                | Variance.Co -> ValueSome(FTConst(RuntimeNames.floatKey, Block.empty))
                 | Variance.Inv -> ValueSome familyUnion
                 | Variance.Contra -> ValueSome t
             | _ -> ValueNone

@@ -2,6 +2,7 @@ namespace XParsec.FSharp.SemanticAnalysis.Passes
 
 open System.Collections.Generic
 open System.Collections.Immutable
+open Vesper
 open XParsec.FSharp
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
@@ -27,8 +28,8 @@ module internal UnificationInferResolve =
 
     let freshNamedInstance
         (ctx: PassContext)
-        (typeParams: EqArray<DeclaredTypar>)
-        : EqArray<SemType> * Dictionary<TyVarId, SemType> =
+        (typeParams: Block<DeclaredTypar>)
+        : Block<SemType> * Dictionary<TyVarId, SemType> =
         let subst = Dictionary<TyVarId, SemType>()
         let acc = ResizeArray<SemType>(typeParams.Length)
 
@@ -58,11 +59,11 @@ module internal UnificationInferResolve =
             | TyVar fresh -> ctx.Store.Constraints.Set(UnionFind.find ctx.Store fresh, copied)
             | _ -> ()
 
-        EqArray.ofResizeArray acc, subst
+        Block.ofResizeArray acc, subst
 
     /// A member's signature at FRESH args for its declaring type's typars, paired with those
     /// args.
-    let freshMemberInstanceArgs (ctx: PassContext) (hit: TypeRegistry.NominalMember) : EqArray<SemType> * SemType =
+    let freshMemberInstanceArgs (ctx: PassContext) (hit: TypeRegistry.NominalMember) : Block<SemType> * SemType =
         let args, subst = freshNamedInstance ctx hit.Decl.TypeParams
         args, substituteWith ctx.Store subst hit.Member.Type
 
@@ -73,7 +74,7 @@ module internal UnificationInferResolve =
         (ctx: PassContext)
         (classTok: SyntaxToken)
         (writtenTys: ImArr<Type<SyntaxToken>>)
-        (declArgs: EqArray<SemType>)
+        (declArgs: Block<SemType>)
         : unit =
         if writtenTys.IsEmpty then
             ()
@@ -117,7 +118,7 @@ module internal UnificationInferResolve =
     /// The declaring union's type arguments, instantiated fresh so two independent uses of
     /// `Some` don't share a `'a`, and the function-shaped type of a DU ctor reference.
     /// Multi-field cases bundle the fields into a tuple, an F# DU's single argument.
-    let ctorTypeInstance (ctx: PassContext) (info: UnionCaseInfo) : EqArray<SemType> * SemType =
+    let ctorTypeInstance (ctx: PassContext) (info: UnionCaseInfo) : Block<SemType> * SemType =
         let unionInfo = TypeRegistry.unionOfCase ctx.Types info
         let args, subst = freshNamedInstance ctx unionInfo.TypeParams
         let unionTy = TyUnion(unionInfo.TypeKey, args)
@@ -127,7 +128,7 @@ module internal UnificationInferResolve =
         match walkedFields.Length with
         | 0 -> args, unionTy
         | 1 -> args, TyFun(walkedFields.[0], unionTy)
-        | _ -> args, TyFun(TyTuple(EqArray.ofArray walkedFields), unionTy)
+        | _ -> args, TyFun(TyTuple(Block.ofArray walkedFields), unionTy)
 
     let ctorType (ctx: PassContext) (info: UnionCaseInfo) : SemType = snd (ctorTypeInstance ctx info)
 
@@ -136,7 +137,7 @@ module internal UnificationInferResolve =
     /// pattern's own type; the field types are what its sub-patterns unify against.
     let externalCasePattern (ctx: PassContext) (uc: ExternalUnionCase) : SemType * SemType[] =
         let freshArgs = Array.init uc.UnionKey.TyparArity (fun _ -> TyVar(ctx.FreshTyVar()))
-        let unionTy = TyUnion(uc.UnionKey, EqArray.ofArray freshArgs)
+        let unionTy = TyUnion(uc.UnionKey, Block.ofArray freshArgs)
         let fields = ExternalSymbols.instantiateCaseFieldTypes ctx uc.Case freshArgs
         unionTy, fields
 
@@ -152,7 +153,7 @@ module internal UnificationInferResolve =
             match fields.Length with
             | 0 -> ValueSome unionTy
             | 1 -> ValueSome(TyFun(fields.[0], unionTy))
-            | _ -> ValueSome(TyFun(TyTuple(EqArray.ofArray fields), unionTy))
+            | _ -> ValueSome(TyFun(TyTuple(Block.ofArray fields), unionTy))
 
     /// The local|external record identity a field set resolves to.
     type ResolvedRecord =
@@ -338,7 +339,7 @@ module internal UnificationInferResolve =
     let recordConstructionOf
         (ctx: PassContext)
         (r: ResolvedRecord)
-        : struct (TypeKey * EqArray<SemType> * (string -> SemType voption)) =
+        : struct (TypeKey * Block<SemType> * (string -> SemType voption)) =
         match r with
         | LocalRecord info ->
             let args, subst = freshNamedInstance ctx info.TypeParams
@@ -355,17 +356,17 @@ module internal UnificationInferResolve =
             let fieldShapes =
                 match ctx.Provider.TryLookupType key with
                 | ValueSome(ExternalTypeShape.Record { Fields = fs }) -> fs
-                | _ -> EqArray.empty
+                | _ -> Block.empty
 
             // Precompute the args array once (not per field): one fresh TyVar per declared
             // typar slot, instantiating each field's `FTTypar(Type _, i)` template.
             let args =
-                EqArray.ofArray [| for _ in 1 .. candidate.TyparArity -> TyVar(ctx.FreshTyVar()) |]
+                Block.ofArray [| for _ in 1 .. candidate.TyparArity -> TyVar(ctx.FreshTyVar()) |]
 
             let argsArr = args.AsSpan().ToArray()
 
             let fieldTypeOf (name: string) =
-                match fieldShapes |> EqArray.tryFind (fun f -> f.Name = name) with
+                match fieldShapes |> Block.tryFind (fun f -> f.Name = name) with
                 | ValueSome f -> ValueSome(FrozenTypeBridge.instantiateDeclaring ctx f.Frozen argsArr)
                 | ValueNone -> ValueNone
 

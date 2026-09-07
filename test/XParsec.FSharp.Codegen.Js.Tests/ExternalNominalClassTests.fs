@@ -1,5 +1,6 @@
 module XParsec.FSharp.Codegen.Js.Tests.ExternalNominalClassTests
 
+open Vesper
 open Expecto
 open Vesper.Ts.Manifest
 open XParsec.FSharp.SemanticAnalysis
@@ -144,7 +145,7 @@ let tests =
                         "Box"
                         "top-level key qualifiedName must equal the map key"
 
-                    Expect.isEmpty (args |> EqArray.toList) "Box is non-generic"
+                    Expect.isEmpty (args |> Block.toList) "Box is non-generic"
 
                     Expect.isTrue
                         (match boxProviderRaw.TryLookupMember(key, "get") with

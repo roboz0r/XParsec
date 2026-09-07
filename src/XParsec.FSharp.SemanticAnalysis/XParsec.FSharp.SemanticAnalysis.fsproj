@@ -4,7 +4,7 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="EqArray.fs" />
+    <Compile Include="Utils.fs" />
     <Compile Include="EqSet.fs" />
     <Compile Include="EqDict.fs" />
     <Compile Include="Fifo.fs" />

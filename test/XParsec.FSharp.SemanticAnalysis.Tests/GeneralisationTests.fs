@@ -1,5 +1,6 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.GeneralisationTests
 
+open Vesper
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Passes
@@ -31,7 +32,7 @@ let tests =
 
                 Expect.equal
                     (declType tast)
-                    (TyTuple(EqArray.ofList [ BuiltinTypes.tyInt; BuiltinTypes.tyBool ]))
+                    (TyTuple(Block.ofList [ BuiltinTypes.tyInt; BuiltinTypes.tyBool ]))
                     "r : int * bool"
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
@@ -58,7 +59,7 @@ let tests =
 
                 Expect.equal
                     (declType tast)
-                    (TyTuple(EqArray.ofList [ BuiltinTypes.tyInt; BuiltinTypes.tyBool ]))
+                    (TyTuple(Block.ofList [ BuiltinTypes.tyInt; BuiltinTypes.tyBool ]))
                     "r : int * bool"
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
@@ -83,7 +84,7 @@ let tests =
             test "nested let-poly: inner binding generalises inside outer body" {
                 let tast = analyseSem "let outer () = let inner x = x in inner 1, inner true"
                 let unitTy = BuiltinTypes.tyUnit
-                let bodyTy = TyTuple(EqArray.ofList [ BuiltinTypes.tyInt; BuiltinTypes.tyBool ])
+                let bodyTy = TyTuple(Block.ofList [ BuiltinTypes.tyInt; BuiltinTypes.tyBool ])
                 Expect.equal (declType tast) (TyFun(unitTy, bodyTy)) "outer : unit -> int * bool"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
@@ -115,7 +116,7 @@ let tests =
 
                 Expect.equal
                     (declType tast)
-                    (TyTuple(EqArray.ofList [ BuiltinTypes.tyInt; BuiltinTypes.tyBool ]))
+                    (TyTuple(Block.ofList [ BuiltinTypes.tyInt; BuiltinTypes.tyBool ]))
                     "r : int * bool"
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
@@ -137,7 +138,7 @@ let tests =
 
                 let pairTy =
                     match tast.Decls with
-                    | EqList [ TDecl.LetGroup(EqTwo(_, pair), _) ] -> pair.Ty
+                    | EqList [ TDecl.LetGroup(BlockTwo(_, pair), _) ] -> pair.Ty
                     | _ -> failwithf "expected one group of two members, got %A" tast.Decls
 
                 match pairTy with

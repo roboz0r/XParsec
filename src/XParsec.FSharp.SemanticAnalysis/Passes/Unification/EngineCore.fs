@@ -2,6 +2,7 @@ namespace XParsec.FSharp.SemanticAnalysis.Passes
 
 open System.Collections.Generic
 open System.Collections.Immutable
+open Vesper
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
@@ -45,7 +46,7 @@ module UnificationEngineCore =
 
     let argElemsOf (store: TypeStore) (argTy: SemType) : SemType list =
         match zonk store argTy with
-        | TyTuple xs -> EqArray.toList xs
+        | TyTuple xs -> Block.toList xs
         | TyUnit -> []
         | single -> [ single ]
 
@@ -59,7 +60,7 @@ module UnificationEngineCore =
         match paramTys with
         | [] -> intrinsics.Unit
         | [ t ] -> t
-        | many -> TyTuple(EqArray.ofList many)
+        | many -> TyTuple(Block.ofList many)
 
     /// One walk, two jobs. Occurs check: does `target` appear inside `t`, which would cycle
     /// Link pointers and make zonk loop (`let rec f x = f`)? And, since linking `target` to
@@ -119,8 +120,8 @@ module UnificationEngineCore =
     /// unsubstituted rather than silently pairing the wrong ones.
     let mkNamedTypeSubst
         (store: TypeStore)
-        (typeParams: EqArray<DeclaredTypar>)
-        (args: EqArray<SemType>)
+        (typeParams: Block<DeclaredTypar>)
+        (args: Block<SemType>)
         : Dictionary<TyVarId, SemType> =
         let subst = Dictionary<TyVarId, SemType>()
 
@@ -135,7 +136,7 @@ module UnificationEngineCore =
 
     let instantiateMember
         (store: TypeStore)
-        (typeParams: EqArray<DeclaredTypar>, args: EqArray<SemType>)
+        (typeParams: Block<DeclaredTypar>, args: Block<SemType>)
         (ty: SemType)
         : SemType =
         substituteWith store (mkNamedTypeSubst store typeParams args) ty
@@ -153,8 +154,8 @@ module UnificationEngineCore =
     /// Each fresh typar carries the prototype's constraints over the instance's typars.
     let instantiateMemberCall
         (ctx: PassContext)
-        (typeParams: EqArray<DeclaredTypar>, args: EqArray<SemType>)
-        (methodTypars: EqArray<DeclaredTypar>)
+        (typeParams: Block<DeclaredTypar>, args: Block<SemType>)
+        (methodTypars: Block<DeclaredTypar>)
         (ty: SemType)
         : SemType =
         let subst = mkNamedTypeSubst ctx.Store typeParams args
@@ -210,8 +211,8 @@ module UnificationEngineCore =
         {
             DeclKey: TypeKey
             DeclaringTy: SemType
-            TypeParams: EqArray<DeclaredTypar>
-            Args: EqArray<SemType>
+            TypeParams: Block<DeclaredTypar>
+            Args: Block<SemType>
             /// Non-static, in declaration order; never empty.
             Candidates: TypeMemberInfo[]
         }
@@ -222,13 +223,13 @@ module UnificationEngineCore =
     let classChainLevels
         (ctx: PassContext)
         (clsKey: TypeKey)
-        (args: EqArray<SemType>)
+        (args: Block<SemType>)
         (memberName: string)
         : ChainLevel list =
         let seen = HashSet<TypeKey>()
         let levels = ResizeArray<ChainLevel>()
 
-        let rec walk (clsKey: TypeKey) (args: EqArray<SemType>) : unit =
+        let rec walk (clsKey: TypeKey) (args: Block<SemType>) : unit =
             if seen.Add clsKey then
                 match TypeRegistry.tryClassByKey ctx.Types clsKey with
                 | ValueSome info ->
@@ -296,7 +297,7 @@ module UnificationEngineCore =
     let tryClassChainMemberDecl
         (ctx: PassContext)
         (clsKey: TypeKey)
-        (args: EqArray<SemType>)
+        (args: Block<SemType>)
         (memberName: string)
         : ChainMember voption =
         match classChainLevels ctx clsKey args memberName with
@@ -313,7 +314,7 @@ module UnificationEngineCore =
     let tryClassChainMember
         (ctx: PassContext)
         (clsKey: TypeKey)
-        (args: EqArray<SemType>)
+        (args: Block<SemType>)
         (memberName: string)
         : SemType voption =
         match tryClassChainMemberDecl ctx clsKey args memberName with
@@ -324,7 +325,7 @@ module UnificationEngineCore =
     let private tryClassInstanceField
         (ctx: PassContext)
         (info: ClassTypeInfo)
-        (args: EqArray<SemType>)
+        (args: Block<SemType>)
         (memberName: string)
         : SemType voption =
         match info.Body.InstanceFields |> Array.tryFind (fun f -> f.Name = memberName) with
@@ -338,7 +339,7 @@ module UnificationEngineCore =
     let tryClassChainMemberOrFieldOf
         (ctx: PassContext)
         (info: ClassTypeInfo)
-        (args: EqArray<SemType>)
+        (args: Block<SemType>)
         (memberName: string)
         : SemType voption =
         match tryClassChainMember ctx info.TypeKey args memberName with
@@ -349,7 +350,7 @@ module UnificationEngineCore =
     let tryClassChainMemberOrField
         (ctx: PassContext)
         (clsKey: TypeKey)
-        (args: EqArray<SemType>)
+        (args: Block<SemType>)
         (memberName: string)
         : SemType voption =
         match tryClassChainMember ctx clsKey args memberName with
@@ -395,7 +396,7 @@ module UnificationEngineCore =
     let tryFunSlotPeel
         (store: TypeStore)
         (tyCtor: TypeKey)
-        (targs: EqArray<SemType>)
+        (targs: Block<SemType>)
         (a: SemType)
         (b: SemType)
         : SemType list voption =
@@ -463,7 +464,7 @@ module UnificationEngineCore =
     /// The external `(SymbolKey, typeArgs)` surfaces a provider member lookup keys on, MOST
     /// SPECIFIC FIRST: an intrinsic `TyConst` publishes its own contract surface, then the
     /// platform type's (`"hello".TryCopyTo` reaching `System.String`). Empty for a local class.
-    let externalSurfaceKeys (ctx: PassContext) (ty: SemType) : struct (TypeKey * EqArray<SemType>) list =
+    let externalSurfaceKeys (ctx: PassContext) (ty: SemType) : struct (TypeKey * Block<SemType>) list =
         match resolveStep ctx.Store ty with
         | TyClass(clsKey, typeArgs) when (TypeRegistry.tryClassByKey ctx.Types clsKey).IsNone ->
             [ struct (clsKey, typeArgs) ]
@@ -486,7 +487,7 @@ module UnificationEngineCore =
     // Surface a nominal `(canonKey, args)` for the comparison, covering `TyConst` (so the
     // `exn` bound participates) as well as `TyClass`. The canonical intrinsic identity, so
     // two spellings of one intrinsic compare equal by `=`.
-    let subtypeNominalOf (ctx: PassContext) (ty: SemType) : struct (TypeKey * EqArray<SemType>) voption =
+    let subtypeNominalOf (ctx: PassContext) (ty: SemType) : struct (TypeKey * Block<SemType>) voption =
         match resolveStep ctx.Store ty with
         | TyClass(n, args) -> ValueSome(struct (canonKey ctx n, args))
         // A named DU or record enters the walk too, so its `interface … with` impls admit
@@ -507,7 +508,7 @@ module UnificationEngineCore =
         (ctx: PassContext)
         (localKey: TypeKey voption)
         (key: TypeKey)
-        (args: EqArray<SemType>)
+        (args: Block<SemType>)
         : SemType voption =
         let localInfo =
             match localKey with
@@ -536,7 +537,7 @@ module UnificationEngineCore =
         (ctx: PassContext)
         (localKey: TypeKey voption)
         (key: TypeKey)
-        (args: EqArray<SemType>)
+        (args: Block<SemType>)
         : SemType list =
         let localHost =
             match localKey with
@@ -571,10 +572,10 @@ module UnificationEngineCore =
     /// Find the instantiation of `src` (or one of its bases / interfaces) whose canonical
     /// nominal identity is `tgtKey`, returning that supertype's type args. Reflexive: `src`
     /// itself when its canon key is `tgtKey`. Read-only.
-    let tryUpcastWitness (ctx: PassContext) (src: SemType) (tgtKey: TypeKey) : EqArray<SemType> voption =
+    let tryUpcastWitness (ctx: PassContext) (src: SemType) (tgtKey: TypeKey) : Block<SemType> voption =
         // An interface supertype is itself walked for its own bases: `C : B`, `B : A<int>`
         // reaches `A` only THROUGH `B`.
-        let rec walk (seen: HashSet<TypeKey>) (cur: SemType) : EqArray<SemType> voption =
+        let rec walk (seen: HashSet<TypeKey>) (cur: SemType) : Block<SemType> voption =
             match subtypeNominalOf ctx cur with
             | ValueNone -> ValueNone
             | ValueSome(struct (s, sa)) ->
@@ -612,7 +613,7 @@ module UnificationEngineCore =
         (ctx: PassContext)
         (objArgTy: SemType)
         (memberName: string)
-        : struct (ExternalMember * EqArray<SemType>) voption =
+        : struct (ExternalMember * Block<SemType>) voption =
         // A node's direct supertypes: its interfaces, then its declared base type.
         let supertypesOf (node: SemType) : SemType list =
             match subtypeNominalOf ctx node with
@@ -629,7 +630,7 @@ module UnificationEngineCore =
 
         let seen = HashSet<TypeKey>()
 
-        let rec walk (frontier: Fifo<SemType>) : struct (ExternalMember * EqArray<SemType>) voption =
+        let rec walk (frontier: Fifo<SemType>) : struct (ExternalMember * Block<SemType>) voption =
             match Fifo.tryDequeue frontier with
             | ValueNone -> ValueNone
             | ValueSome(struct (node, rest)) ->
@@ -674,7 +675,7 @@ module UnificationEngineCore =
 
     /// Walk a `SemType` through TyVar Links to surface a nominal shape and report which
     /// kind it is.
-    let rec tryResolveNominal (store: TypeStore) (t: SemType) : (NominalKind * TypeKey * EqArray<SemType>) voption =
+    let rec tryResolveNominal (store: TypeStore) (t: SemType) : (NominalKind * TypeKey * Block<SemType>) voption =
         match t with
         | TyRecord(n, args) -> ValueSome(NominalKind.Record, n, args)
         | TyClass(n, args) -> ValueSome(NominalKind.Class, n, args)

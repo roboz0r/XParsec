@@ -56,7 +56,7 @@ let v2 = { Vec.X = 1.0; Y = 2.0 }       // qualified prefix
 ### `SemType.TyRecord` (`SemanticInfo.fs:311`)
 
 ```fsharp
-| TyRecord of key: SymbolKey * args: EqArray<SemType>
+| TyRecord of key: SymbolKey * args: Block<SemType>
 ```
 
 Identical shape to `TyUnion` (`:314`) and `TyClass` (`:318`). Field data
@@ -78,7 +78,7 @@ type; starts as a placeholder `TyVar`, linked during fill-in),
 
 - `Name`, `Key` (arity-qualified `SymbolKey`, minted by
   `stampLocalTypeKey` to match emitted metadata), `Fields`, `DeclKey`.
-- `TypeParams : EqArray<string * TypeVar>` — declared typars in order,
+- `TypeParams : Block<string * TypeVar>` — declared typars in order,
   paired with source names. Each is a *prototype* TyVar, substituted out
   at every use site so independent instantiations get independent
   variables; a bare `'a` field type shares identity with the matching
@@ -104,7 +104,7 @@ piece (cf. `TyUnion` for unions, `TyClass` for classes). See
 Storage lives on `PassContextTypes` (`PassContext.fs`):
 
 - `Record : Dictionary<string, RecordTypeInfo>` (`:456`) — by record name.
-- `FieldIndex : Dictionary<string, EqArray<RecordTypeInfo>>` (`:471`) —
+- `FieldIndex : Dictionary<string, Block<RecordTypeInfo>>` (`:471`) —
   reverse index, field name → bucket of records declaring it. Used by
   literal / pattern field-set inference; an intersection across all of a
   literal's field names that leaves more than one record means the set is
@@ -237,12 +237,12 @@ Four `TExpr` cases and one `TPat`:
 
 ```fsharp
 // Tast.fs
-| RecordCons  of fields: EqArray<string * TExprG<'ty>> * ty: 'ty        // :142
-| RecordClone of source: TExprG<'ty> * overrides: EqArray<string * TExprG<'ty>> * ty: 'ty   // :147
+| RecordCons  of fields: Block<string * TExprG<'ty>> * ty: 'ty        // :142
+| RecordClone of source: TExprG<'ty> * overrides: Block<string * TExprG<'ty>> * ty: 'ty   // :147
 | FieldGet    of objArg: TExprG<'ty> * fieldName: string * ty: 'ty    // :150
 | FieldSet    of objArg: TExprG<'ty> * fieldName: string * value: TExprG<'ty> * ty: 'ty   // :153
 // TPat
-| Record of fields: EqArray<string * TPatG<'ty>> * ty: 'ty             // :46
+| Record of fields: Block<string * TPatG<'ty>> * ty: 'ty             // :46
 ```
 
 `ty` on each is the `TyRecord` (for `FieldGet`/`FieldSet`, the field's

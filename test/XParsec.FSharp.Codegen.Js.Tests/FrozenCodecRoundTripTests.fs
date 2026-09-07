@@ -1,6 +1,7 @@
 module XParsec.FSharp.Codegen.Js.Tests.FrozenCodecRoundTripTests
 
 open System.Collections.Generic
+open Vesper
 open Expecto
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
@@ -42,16 +43,16 @@ let private collect () : Collected =
             match ft with
             | FTConst(key, args) ->
                 visitTypeKey key
-                EqArray.iter visitFt args
+                Block.iter visitFt args
             | FTFun(a, b) ->
                 visitFt a
                 visitFt b
-            | FTTuple items -> EqArray.iter visitFt items
+            | FTTuple items -> Block.iter visitFt items
             | FTRecord(key, args)
             | FTUnion(key, args)
             | FTClass(key, args) ->
                 tks.Add key |> ignore
-                EqArray.iter visitFt args
+                Block.iter visitFt args
             | FTEnum key -> tks.Add key |> ignore
             | FTOr disjuncts -> EqSet.iter visitFt disjuncts.Disjuncts
             | FTLiteral _ -> ()
@@ -89,7 +90,7 @@ let private collect () : Collected =
         | SymbolKey.Binding _ -> ()
         | SymbolKey.Member mk ->
             tks.Add mk.Decl |> ignore
-            EqArray.iter visitFt mk.ArgSig
+            Block.iter visitFt mk.ArgSig
 
             match mk.Kind with
             | MemberKind.InterfaceMethod iface
@@ -129,7 +130,7 @@ let private collect () : Collected =
 
     let nsSystem =
         {
-            Path = EqArray.ofList [ "System"; "Collections"; "Generic" ]
+            Path = Block.ofList [ "System"; "Collections"; "Generic" ]
         }
 
     let tkInt =
@@ -180,12 +181,12 @@ let private collect () : Collected =
             TyparArity = 0
         }
 
-    let ftInt = FTConst(tkInt, EqArray.empty)
-    let ftString = FTConst(tkString, EqArray.empty)
-    let ftArray = FTConst(tkArray, EqArray.singleton ftInt)
+    let ftInt = FTConst(tkInt, Block.empty)
+    let ftString = FTConst(tkString, Block.empty)
+    let ftArray = FTConst(tkArray, Block.singleton ftInt)
     let ftLitStr = FTLiteral(LiteralConst.String "GET")
     let ftLitInt = FTLiteral(LiteralConst.Int 42L)
-    let ftRecord = FTRecord(tkList, EqArray.singleton ftInt)
+    let ftRecord = FTRecord(tkList, Block.singleton ftInt)
 
     let ftCond =
         FTConditional
@@ -200,7 +201,7 @@ let private collect () : Collected =
         {
             Decl = tkList
             Name = "Add"
-            ArgSig = EqArray.ofList [ ftInt; ftString ]
+            ArgSig = Block.ofList [ ftInt; ftString ]
             MethodTyparArity = 1
             Kind = MemberKind.Method
         }
@@ -223,19 +224,19 @@ let private collect () : Collected =
                 { memberKey with
                     Kind = MemberKind.Property
                     Name = "Count"
-                    ArgSig = EqArray.empty
+                    ArgSig = Block.empty
                 }
             SymbolKey.Member
                 { memberKey with
                     Kind = MemberKind.InterfaceMethod tkList
                     Name = "GetEnumerator"
-                    ArgSig = EqArray.empty
+                    ArgSig = Block.empty
                 }
             SymbolKey.Member
                 { memberKey with
                     Kind = MemberKind.ExplicitInterfaceImpl tkNested
                     Name = "System.IDisposable.Dispose"
-                    ArgSig = EqArray.empty
+                    ArgSig = Block.empty
                 }
         ]
 
@@ -247,10 +248,10 @@ let private collect () : Collected =
             ftString
             ftArray
             FTFun(ftInt, FTFun(ftString, ftInt))
-            FTTuple(EqArray.ofList [ ftInt; ftString; ftArray ])
+            FTTuple(Block.ofList [ ftInt; ftString; ftArray ])
             ftRecord
-            FTUnion(tkList, EqArray.singleton ftString)
-            FTClass(tkList, EqArray.empty)
+            FTUnion(tkList, Block.singleton ftString)
+            FTClass(tkList, Block.empty)
             FTEnum tkInt
             // FTOr of several disjuncts — must survive as the exact stored set, uncollapsed.
             FTOr(FTDisjuncts.OfSeq [ ftInt; ftString; ftLitStr; ftLitInt ])
@@ -282,13 +283,13 @@ let private collect () : Collected =
             // claim applied to the term, whose atoms are keys of their own.
             FTConst(
                 FrozenTypeBridge.measuredClaimKey tkInt,
-                EqArray.singleton (
+                Block.singleton (
                     FTMeasure(MeasureTerm.OfList [ tkInMod, Rational.ofInt 1; tkNested, Rational.ofInt -1 ])
                 )
             )
             // Deeply nested: functions, tuples, sets and computations composed together.
             FTFun(
-                FTTuple(EqArray.ofList [ ftCond; ftArray ]),
+                FTTuple(Block.ofList [ ftCond; ftArray ]),
                 FTOr(FTDisjuncts.OfSeq [ FTKeyOf ftRecord; ftCond; ftInt ])
             )
         ]
@@ -537,9 +538,9 @@ let tests =
                         Kind.DuplicateModule "Test.A.Dup"
                         Kind.OperatorFormQualifiedName "A"
                         Kind.ConstraintNotSupported("int", "Equality")
-                        Kind.TraitNotSupported(EqArray.singleton "Widget", MemberNoun.Operator, "+")
-                        Kind.TraitNotSupported(EqArray.ofList [ "Widget"; "Gadget" ], MemberNoun.Operator, "+")
-                        Kind.TraitAmbiguous(EqArray.ofList [ "Widget"; "Gadget" ], MemberNoun.Operator, "+")
+                        Kind.TraitNotSupported(Block.singleton "Widget", MemberNoun.Operator, "+")
+                        Kind.TraitNotSupported(Block.ofList [ "Widget"; "Gadget" ], MemberNoun.Operator, "+")
+                        Kind.TraitAmbiguous(Block.ofList [ "Widget"; "Gadget" ], MemberNoun.Operator, "+")
                         Kind.UpcastUnrelated("int", "string")
                         Kind.DowncastUnrelated("int", "string")
                         Kind.MeasureMismatch("m", "s")

@@ -3,6 +3,7 @@ module XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 open System
 open System.Reflection
 open System.Runtime.Loader
+open Vesper
 open Expecto
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Lexer.Lexing
@@ -15,13 +16,13 @@ open XParsec.FSharp.Codegen.Clr.Tests.PeInspection
 
 // `SemType`'s nominal cases carry a `SymbolKey`; these shadow the constructors and
 // project the name back out, so tests construct and match by string name.
-let TyUnion (name: string, args: EqArray<SemType>) =
+let TyUnion (name: string, args: Block<SemType>) =
     SemType.TyUnion(SymbolKeyOps.qualifiedTypeKeyOf name args.Length, args)
 
-let TyRecord (name: string, args: EqArray<SemType>) =
+let TyRecord (name: string, args: Block<SemType>) =
     SemType.TyRecord(SymbolKeyOps.qualifiedTypeKeyOf name args.Length, args)
 
-let TyClass (name: string, args: EqArray<SemType>) =
+let TyClass (name: string, args: Block<SemType>) =
     SemType.TyClass(SymbolKeyOps.qualifiedTypeKeyOf name args.Length, args)
 
 let private nominalDisplayName (k: TypeKey) : string = SymbolKeyOps.typeMetaName k
@@ -41,9 +42,9 @@ let (|TyClass|_|) (t: SemType) =
     | SemType.TyClass(k, args) -> Some(nominalDisplayName k, args)
     | _ -> None
 
-/// Project an `EqArray<'T>` as a `'T list` inside a pattern match, so a test arm can be a
+/// Project a `Block<'T>` as a `'T list` inside a pattern match, so a test arm can be a
 /// list literal: `| EqList [ TDecl.Let _ ] -> …`.
-let inline (|EqList|) (xs: EqArray<'T>) : 'T list = EqArray.toList xs
+let inline (|EqList|) (xs: Block<'T>) : 'T list = Block.toList xs
 
 /// The assembly name a helper that builds no `ProjectInfo` of its own compiles under.
 let testAsm = AssemblyName "Test"
@@ -1047,8 +1048,8 @@ let unionOf (decls: TastAccessor.DeclId list) (unionName: string) : AnalysedUnio
                                 UnionRegime.classify
                                     u.ValueKind
                                     u.Cases.Length
-                                    (u.Cases |> EqArray.exists (fun c -> not c.Fields.IsEmpty))
-                            Cases = EqArray.toList u.Cases
+                                    (u.Cases |> Block.exists (fun c -> not c.Fields.IsEmpty))
+                            Cases = Block.toList u.Cases
                         }
                     | _ -> ()
                 | _ -> ()

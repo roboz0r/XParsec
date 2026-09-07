@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+open Vesper
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis.Passes
@@ -272,7 +273,7 @@ module internal ElaborateResolve =
     let (|TyparInterfaceMethod|_|)
         (ctx: PassContext)
         (li: LongIdent<SyntaxToken>)
-        : (LongIdent<SyntaxToken> * SemType * TypeKey * EqArray<SemType> * string) voption =
+        : (LongIdent<SyntaxToken> * SemType * TypeKey * Block<SemType> * string) voption =
         if li.Idents.Length < 2 then
             ValueNone
         else

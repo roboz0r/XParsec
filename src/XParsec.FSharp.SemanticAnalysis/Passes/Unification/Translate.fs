@@ -2,6 +2,7 @@ namespace XParsec.FSharp.SemanticAnalysis.Passes
 
 open System.Collections.Generic
 open System.Collections.Immutable
+open Vesper
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
@@ -157,7 +158,7 @@ module internal UnificationTranslate =
     /// A resolved `Class` whose metadata name a canon is declared on is an intrinsic's
     /// platform type id (`System.Exception` → `exn`) and resolves to the canon `TyConst`,
     /// so no raw BCL nominal enters the unifier. Capability interfaces declare no canon.
-    let externalClassTy (ctx: PassContext) (key: TypeKey) (args: EqArray<SemType>) : SemType =
+    let externalClassTy (ctx: PassContext) (key: TypeKey) (args: Block<SemType>) : SemType =
         // Built on the resolved `key` directly: re-minting an identity from the flattened
         // metadata name loses the container and gives an unequal key. The probe keys on that
         // NAME, which is sound because its entries are all bare-IL, where name and key agree.
@@ -195,7 +196,7 @@ module internal UnificationTranslate =
         (ctx: PassContext)
         (symKey: TypeKey)
         (shape: ExternalTypeShape)
-        (translatedArgs: EqArray<SemType>)
+        (translatedArgs: Block<SemType>)
         : SemType voption =
         match shape with
         // A referenced intrinsic (`exn = (# "System.Exception" #)`) is NON-transparent: its
@@ -229,7 +230,7 @@ module internal UnificationTranslate =
         (ctx: PassContext)
         (symKey: TypeKey)
         (shape: ExternalTypeShape)
-        (translatedArgs: EqArray<SemType>)
+        (translatedArgs: Block<SemType>)
         : SemType voption =
         if shape.TyparArity = translatedArgs.Length then
             buildExternalTy ctx symKey shape translatedArgs
@@ -237,7 +238,7 @@ module internal UnificationTranslate =
             ValueNone
 
     /// Fetch + build from an already-resolved external type identity.
-    let tryExternalTypeOfKey (ctx: PassContext) (symKey: TypeKey) (translatedArgs: EqArray<SemType>) : SemType voption =
+    let tryExternalTypeOfKey (ctx: PassContext) (symKey: TypeKey) (translatedArgs: Block<SemType>) : SemType voption =
         match ctx.Provider.TryLookupType symKey with
         | ValueSome shape -> tryExternalTypeOfShape ctx symKey shape translatedArgs
         | ValueNone -> ValueNone
@@ -256,7 +257,7 @@ module internal UnificationTranslate =
         (tok: SyntaxToken)
         (info: AbbreviationInfo)
         (body: SemType voption)
-        (args: EqArray<SemType>)
+        (args: Block<SemType>)
         : SemType =
         let n = min (info.TypeParams.Length) args.Length
 
@@ -328,7 +329,7 @@ module internal UnificationTranslate =
 
             errorTy ctx site.Tok (Kind.NotYetSupported(sprintf "the postfix type application '%s'" written))
         | Type.FunctionType(fromType = from; toType = into) -> TyFun(translateType ctx from, translateType ctx into)
-        | Type.TupleType(types = types) -> TyTuple(EqArray.ofSeq (seq { for t in types -> translateType ctx t }))
+        | Type.TupleType(types = types) -> TyTuple(Block.ofSeq (seq { for t in types -> translateType ctx t }))
         | Type.WhenConstrainedType(typ = inner; constraints = cs) ->
             let inner = translateType ctx inner
             translateConstraints ctx cs
@@ -338,11 +339,11 @@ module internal UnificationTranslate =
             // Array literals build the same repr.
             let rank = commas.Length + 1
 
-            TyConst(RuntimeNames.arrayKey rank, EqArray.singleton (translateType ctx baseTy))
+            TyConst(RuntimeNames.arrayKey rank, Block.singleton (translateType ctx baseTy))
         | Type.Null _ ->
             // The `null` type — a *member* of an anonymous union (`T | null`), not a nominal.
             // Resolves to the cross-backend `nullKey` intrinsic.
-            TyConst(RuntimeNames.nullKey, EqArray.empty)
+            TyConst(RuntimeNames.nullKey, Block.empty)
         | Type.UnionType(left = l; right = r) ->
             // TypeScript-style anonymous structural union (`X | Y`); the CST is left-nested
             // for `a | b | c`. `mkUnion` flattens and dedups, collapses a singleton to its
@@ -376,7 +377,7 @@ module internal UnificationTranslate =
         (ctx: PassContext)
         (site: NodeSite)
         (claim: TypeIdentity)
-        (args: EqArray<SemType>)
+        (args: Block<SemType>)
         : SemType voption =
         let key = claim.Key
 
@@ -417,7 +418,7 @@ module internal UnificationTranslate =
             unresolvedRefTy ctx site name
 
         /// `build` applied to the type-kinded arguments, measured by the measure-kinded one.
-        let apply (typars: TyparList) (build: EqArray<SemType> -> SemType) : SemType =
+        let apply (typars: TyparList) (build: Block<SemType> -> SemType) : SemType =
             match readTypeArgs ctx site.Tok typars args with
             | ValueNone -> TyVar(ctx.FreshTyVar())
             | ValueSome reads ->
@@ -425,7 +426,7 @@ module internal UnificationTranslate =
                 // wrapping measured TyVar.
                 let typeArgs =
                     reads
-                    |> EqArray.map (fun read ->
+                    |> Block.map (fun read ->
                         match read with
                         | TypeArgRead.Type ty -> ty
                         | TypeArgRead.Measure _ -> TyVar(ctx.FreshTyVar())
@@ -433,7 +434,7 @@ module internal UnificationTranslate =
 
                 let units =
                     reads
-                    |> EqArray.toArray
+                    |> Block.toArray
                     |> Array.choose (fun read ->
                         match read with
                         | TypeArgRead.Measure term -> Some term
@@ -476,7 +477,7 @@ module internal UnificationTranslate =
             // then reports each mention as unsupported on the compiling target.
             | ValueSome key ->
                 let known = RuntimeNames.targetOptionalPrimitiveTypars key
-                let bare = TyConst(key, EqArray.empty)
+                let bare = TyConst(key, Block.empty)
 
                 match known |> List.tryFind (fun typars -> typars.Length = args.Length) with
                 | Some typars -> apply typars (fun _ -> bare)
@@ -493,7 +494,7 @@ module internal UnificationTranslate =
         (nameTok: SyntaxToken)
         (typars: TyparList)
         (args: ImmutableArray<TypeArg<SyntaxToken>>)
-        : EqArray<TypeArgRead> voption =
+        : Block<TypeArgRead> voption =
         let readArg (kind: TyparKind) (arg: TypeArg<SyntaxToken>) : TypeArgRead voption =
             match kind, arg with
             | TyparKind.Type, TypeArg.Type argTy -> ValueSome(TypeArgRead.Type(translateType ctx argTy))
@@ -527,7 +528,7 @@ module internal UnificationTranslate =
         if reads |> Array.exists ValueOption.isNone then
             ValueNone
         else
-            ValueSome(EqArray.ofSeq (Seq.map ValueOption.get reads))
+            ValueSome(Block.ofSeq (Seq.map ValueOption.get reads))
 
     /// Attach to the constrained typar's TyVar through the current
     /// `ctx.Resolution.TyparScope`.

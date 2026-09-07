@@ -2,6 +2,7 @@ namespace XParsec.FSharp.Codegen.Js
 
 open System.Collections.Generic
 open System.IO
+open Vesper
 
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
@@ -159,7 +160,7 @@ module TsManifestProvider =
                     let members =
                         match shape with
                         | ExternalTypeShape.Class c -> c.Members
-                        | _ -> EqArray.empty
+                        | _ -> Block.empty
 
                     PublishedSurfaceBuilder.addTypeWith published declared.Key shape members
             )

@@ -29,7 +29,7 @@ is the signal to reconsider — not before.
 
 ## LANDED: disjunctive dispatch
 
-`TExpr.TraitCall` carries `supportTys: EqArray<'ty>` and `MemberSignature` carries the
+`TExpr.TraitCall` carries `supportTys: Block<'ty>` and `MemberSignature` carries the
 declared `(^T1 or ^T2)` support set. `UnificationTraitMembers.pick` is the one search over
 that set — host enumeration, read-only applicability, and the winning member with its
 declaration for the key mint. `Engine.trySolveSrtpTrait` defers a bound while a support

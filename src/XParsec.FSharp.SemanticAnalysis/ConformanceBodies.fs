@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+open Vesper
 open System
 open System.Collections.Generic
 
@@ -99,16 +100,16 @@ module ConformanceBodies =
     /// Each declared field by name against the defined one, then the converse, then order.
     let private checkFields
         (typeName: string)
-        (declared: EqArray<ExternalFieldShape>)
-        (defined: EqArray<ExternalFieldShape>)
+        (declared: Block<ExternalFieldShape>)
+        (defined: Block<ExternalFieldShape>)
         : Conformance.ConformanceError list =
         let definedByName = Dictionary<string, ExternalFieldShape>(StringComparer.Ordinal)
 
         for f in defined do
             definedByName.[f.Name] <- f
 
-        let declaredNames = declared |> EqArray.map (fun f -> f.Name)
-        let definedNames = defined |> EqArray.map (fun f -> f.Name)
+        let declaredNames = declared |> Block.map (fun f -> f.Name)
+        let definedNames = defined |> Block.map (fun f -> f.Name)
 
         let byName =
             [
@@ -126,7 +127,7 @@ module ConformanceBodies =
                                 )
 
                 for f in defined do
-                    if not (EqArray.contains f.Name declaredNames) then
+                    if not (Block.contains f.Name declaredNames) then
                         yield Conformance.ConformanceError.FieldMissingInSig(typeName, f.Name)
             ]
 
@@ -137,8 +138,8 @@ module ConformanceBodies =
     /// Cases compare positionally: a case's index is its runtime tag.
     let private checkCases
         (typeName: string)
-        (declared: EqArray<ExternalCaseShape>)
-        (defined: EqArray<ExternalCaseShape>)
+        (declared: Block<ExternalCaseShape>)
+        (defined: Block<ExternalCaseShape>)
         : Conformance.ConformanceError list =
         if declared.Length <> defined.Length then
             [
@@ -160,8 +161,8 @@ module ConformanceBodies =
 
     let private checkEnumCases
         (typeName: string)
-        (declared: EqArray<ExternalEnumCaseShape>)
-        (defined: EqArray<ExternalEnumCaseShape>)
+        (declared: Block<ExternalEnumCaseShape>)
+        (defined: Block<ExternalEnumCaseShape>)
         : Conformance.ConformanceError list =
         let definedByName =
             Dictionary<string, ExternalEnumCaseShape>(StringComparer.Ordinal)
@@ -169,7 +170,7 @@ module ConformanceBodies =
         for c in defined do
             definedByName.[c.Name] <- c
 
-        let declaredNames = declared |> EqArray.map (fun c -> c.Name)
+        let declaredNames = declared |> Block.map (fun c -> c.Name)
 
         [
             for c in declared do
@@ -186,7 +187,7 @@ module ConformanceBodies =
                             )
 
             for c in defined do
-                if not (EqArray.contains c.Name declaredNames) then
+                if not (Block.contains c.Name declaredNames) then
                     yield Conformance.ConformanceError.EnumCaseMissingInSig(typeName, c.Name)
         ]
 
@@ -194,7 +195,7 @@ module ConformanceBodies =
     /// signature omits is hidden.
     let private checkMembers
         (typeName: string)
-        (declared: EqArray<ExternalMember>)
+        (declared: Block<ExternalMember>)
         (defined: seq<MemberShape>)
         : Conformance.ConformanceError list =
         let defined = HashSet<MemberShape>(defined, HashIdentity.Structural)
@@ -252,10 +253,10 @@ module ConformanceBodies =
         let declaredMembers = PublishedSurface.keyIndex published.MembersByKey
         let definedMembers = PublishedSurface.keyIndex implemented.MembersByKey
 
-        let membersOf (table: Dictionary<TypeKey, EqArray<ExternalMember>>) (key: TypeKey) =
+        let membersOf (table: Dictionary<TypeKey, Block<ExternalMember>>) (key: TypeKey) =
             match table.TryGetValue key with
             | true, ms -> ms
-            | _ -> EqArray.empty
+            | _ -> Block.empty
 
         [
             for entry in published.ShapesByKey do
@@ -277,7 +278,7 @@ module ConformanceBodies =
                         yield! shapeFlag typeName "struct" s.IsValueType d.IsValueType
 
                         let self =
-                            FTUnion(key, EqArray.init d.TyparArity (fun i -> FTTypar(TyparScope.Type key, i)))
+                            FTUnion(key, Block.init d.TyparArity (fun i -> FTTypar(TyparScope.Type key, i)))
 
                         yield! checkMembers typeName declared (Seq.append defined (Seq.map (caseShape self) d.Cases))
                     | ExternalTypeShape.Enum s, ExternalTypeShape.Enum d ->

@@ -2,6 +2,7 @@ namespace XParsec.FSharp.SemanticAnalysis.Passes
 
 open System.Collections.Generic
 open System.Collections.Immutable
+open Vesper
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
@@ -234,7 +235,7 @@ module internal UnificationInferIdentExpr =
             let stamps = ctx.Resolution.Resolved
             let appliedTok = CstKeys.firstTokenOfExpr applied
 
-            let instantiate (declArgs: EqArray<SemType>) (ty: SemType) : SemType voption =
+            let instantiate (declArgs: Block<SemType>) (ty: SemType) : SemType voption =
                 unifyWrittenDeclArgs ctx appliedTok writtenTys declArgs
                 ValueSome ty
 
@@ -255,7 +256,7 @@ module internal UnificationInferIdentExpr =
                 instantiate declArgs ty
             | ValueNone ->
                 match ResolvedStamps.tryLocalEnumCase stamps node.Key with
-                | ValueSome enumKey -> instantiate EqArray.empty (TyEnum enumKey)
+                | ValueSome enumKey -> instantiate Block.empty (TyEnum enumKey)
                 | ValueNone ->
                     match ResolvedStamps.tryLocalTypeMiss stamps node.Key with
                     | ValueSome(struct (({ Kind = TypeDeclKind.Union } as claim), caseName)) ->

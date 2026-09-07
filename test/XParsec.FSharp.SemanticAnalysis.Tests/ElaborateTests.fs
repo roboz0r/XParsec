@@ -1,5 +1,6 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.ElaborateTests
 
+open Vesper
 open Expecto
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.SemanticAnalysis
@@ -149,7 +150,7 @@ let tests =
                 let tast = analyse "let xs = [1; 2; 3]"
                 let intTy = BuiltinTypes.tyInt
 
-                let listTy = SemType.TyUnion(RuntimeNames.vesperListKey, EqArray.singleton intTy)
+                let listTy = SemType.TyUnion(RuntimeNames.vesperListKey, Block.singleton intTy)
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
                 Expect.equal (declType tast) listTy "xs : List<int>"
@@ -221,7 +222,7 @@ let tests =
             test "`let xs = [|1; 2|]` freezes as an array literal over its elements" {
                 let tast = analyse "let xs = [|1; 2|]"
                 let intTy = BuiltinTypes.tyInt
-                let arrayTy = TyConst(RuntimeNames.arrayKey 1, EqArray.singleton intTy)
+                let arrayTy = TyConst(RuntimeNames.arrayKey 1, Block.singleton intTy)
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
                 Expect.equal (declType tast) arrayTy "xs : int[]"
@@ -303,8 +304,8 @@ let namespaceTests =
                 Expect.isEmpty nsForm.Diagnostics "x resolves inside y — no unresolved-ident diagnostic"
 
                 Expect.equal
-                    (nsForm.Decls |> EqArray.map TastShape.prettyDecl |> EqArray.toList)
-                    (modForm.Decls |> EqArray.map TastShape.prettyDecl |> EqArray.toList)
+                    (nsForm.Decls |> Block.map TastShape.prettyDecl |> Block.toList)
+                    (modForm.Decls |> Block.map TastShape.prettyDecl |> Block.toList)
                     "cross-referencing namespace bindings freeze identically to the module form"
 
                 match nsForm.Decls.[1] with
@@ -387,7 +388,7 @@ let nestedModuleTests =
                         Expect.equal a.Name "A" "which is itself held by the outer module"
 
                         Expect.equal
-                            (EqArray.toList a.Namespace.Path)
+                            (Block.toList a.Namespace.Path)
                             [ "N" ]
                             "and the outer module by the namespace — neither module is a namespace segment"
                     | other -> failtestf "expected B's container to be module A, got %A" other
@@ -443,7 +444,7 @@ let interfaceTests =
                 | EqList [ TDecl.Type td ] ->
                     Expect.equal td.Name "Fun" "type name"
                     Expect.equal td.TypeKey.Namespace.Dotted "Vesper" "namespace"
-                    Expect.equal (EqArray.toList td.TypeParams.Names) [ "'A"; "'B" ] "declared typars"
+                    Expect.equal (Block.toList td.TypeParams.Names) [ "'A"; "'B" ] "declared typars"
 
                     match td.Kind with
                     | TTypeKind.Interface(EqList [ m ]) ->
@@ -470,12 +471,12 @@ let interfaceTests =
                 match tast.Decls with
                 | EqList [ TDecl.Type td ] ->
                     Expect.equal td.Name "Mapper" "type name"
-                    Expect.equal (EqArray.toList td.TypeParams.Names) [ "'A" ] "declaring typar 'A only"
+                    Expect.equal (Block.toList td.TypeParams.Names) [ "'A" ] "declaring typar 'A only"
 
                     match td.Kind with
                     | TTypeKind.Interface(EqList [ m ]) ->
                         Expect.equal m.Name "Map" "method name"
-                        Expect.equal (EqArray.toList m.MethodTypars.Names) [ "'B" ] "method's own typar 'B"
+                        Expect.equal (Block.toList m.MethodTypars.Names) [ "'B" ] "method's own typar 'B"
 
                         Expect.equal
                             m.Signature
@@ -527,7 +528,7 @@ let memberTyparOrderTests =
 
         let typeDecl =
             tast.Decls
-            |> EqArray.toList
+            |> Block.toList
             |> List.tryPick (
                 function
                 | TDecl.Type t -> Some t
@@ -548,7 +549,7 @@ let memberTyparOrderTests =
             test "member orders annotated-after-unannotated by appearance, not annotation-first" {
                 let m = classMember "type C() =\n    member this.M x (y: 'a) = (x, y)"
 
-                match EqArray.toList m.Params with
+                match Block.toList m.Params with
                 | [ (_, xTy); (_, yTy) ] ->
                     Expect.equal xTy (memberTypar m 0) "x (body-inferred) is typar 0"
                     Expect.equal yTy (memberTypar m 1) "y : 'a is typar 1"
@@ -556,11 +557,11 @@ let memberTyparOrderTests =
 
                 Expect.equal
                     m.ReturnTy
-                    (TyTuple(EqArray.ofList [ memberTypar m 0; memberTypar m 1 ]))
+                    (TyTuple(Block.ofList [ memberTypar m 0; memberTypar m 1 ]))
                     "returns (x * y) = (typar 0 * typar 1)"
 
                 Expect.equal
-                    (EqArray.toList m.MethodTypars.Names)
+                    (Block.toList m.MethodTypars.Names)
                     [ "M0"; "'a" ]
                     "names: synthetic body typar, preserved 'a"
             }
@@ -570,14 +571,14 @@ let memberTyparOrderTests =
             test "member with explicit `<'a>` orders the declared typar first" {
                 let m = classMember "type C() =\n    member this.M<'a> (x: 'a) y = (x, y)"
 
-                match EqArray.toList m.Params with
+                match Block.toList m.Params with
                 | [ (_, xTy); (_, yTy) ] ->
                     Expect.equal xTy (memberTypar m 0) "x : 'a (declared) is typar 0"
                     Expect.equal yTy (memberTypar m 1) "y (body-inferred) is typar 1"
                 | other -> failtestf "expected two params, got %A" other
 
                 Expect.equal
-                    (EqArray.toList m.MethodTypars.Names)
+                    (Block.toList m.MethodTypars.Names)
                     [ "'a"; "M0" ]
                     "names: declared 'a first, synthetic body typar"
             }
@@ -588,7 +589,7 @@ let memberTyparOrderTests =
 // (`| (::) : Head: 'T * Tail: 'T list -> 'T list`).
 module private UnionCaseSyntaxHelpers =
     let union (tast: TastFile) =
-        let acc = ResizeArray<TTypeDecl * EqArray<TUnionCase>>()
+        let acc = ResizeArray<TTypeDecl * Block<TUnionCase>>()
 
         for d in tast.Decls do
             match d with
@@ -633,7 +634,7 @@ let unionCaseSyntaxTests =
                 match union tast with
                 | [ (td, EqList [ empty; cons ]) ] ->
                     Expect.equal td.Name "List" "type name"
-                    Expect.equal (EqArray.toList td.TypeParams.Names) [ "'T" ] "one declared typar"
+                    Expect.equal (Block.toList td.TypeParams.Names) [ "'T" ] "one declared typar"
 
                     Expect.equal empty.Name "Empty" "`([])` is named Empty"
                     Expect.isTrue empty.Fields.IsEmpty "Empty is nullary"
@@ -646,7 +647,7 @@ let unionCaseSyntaxTests =
                         Expect.equal ht (declTypar td.TypeKey 0) "Head : 'T"
                         Expect.equal tn (ValueSome "Tail") "second field named Tail"
 
-                        Expect.equal tt (TyUnion("List", EqArray.singleton (declTypar td.TypeKey 0))) "Tail : List<'T>"
+                        Expect.equal tt (TyUnion("List", Block.singleton (declTypar td.TypeKey 0))) "Tail : List<'T>"
                     | other -> failtestf "expected two named Cons fields, got %A" other
                 | other -> failtestf "unexpected unions: %A" other
             }
@@ -696,7 +697,7 @@ let listAbbrevTests =
 
                         Expect.equal
                             tt
-                            (TyUnion("List", EqArray.singleton (declTypar td.TypeKey 0)))
+                            (TyUnion("List", Block.singleton (declTypar td.TypeKey 0)))
                             "Tail : List<'T> via the abbrev"
                     | other -> failtestf "expected two Cons fields, got %A" other
                 | other -> failtestf "unexpected unions: %A" other
@@ -711,7 +712,7 @@ let listAbbrevTests =
 
                 let xs =
                     tast.Decls
-                    |> EqArray.tryFind (fun d ->
+                    |> Block.tryFind (fun d ->
                         match d with
                         | TDecl.Let({ Pattern = TPat.NamedSimple _ }, _, _) -> true
                         | _ -> false
@@ -726,7 +727,7 @@ let listAbbrevTests =
                 | ValueSome(value, ty) ->
                     Expect.equal
                         ty
-                        (TyUnion("List", EqArray.singleton (TyConst(RuntimeNames.intKey, EqArray.empty))))
+                        (TyUnion("List", Block.singleton (TyConst(RuntimeNames.intKey, Block.empty))))
                         "xs : List<int> (the declared union)"
 
                     Expect.equal
@@ -744,7 +745,7 @@ let listAbbrevTests =
 
                 let e =
                     tast.Decls
-                    |> EqArray.tryFind (fun d ->
+                    |> Block.tryFind (fun d ->
                         match d with
                         | TDecl.Let({ Pattern = TPat.NamedSimple _ }, _, _) -> true
                         | _ -> false
@@ -759,7 +760,7 @@ let listAbbrevTests =
                 | ValueSome(value, ty) ->
                     Expect.equal
                         ty
-                        (TyUnion("List", EqArray.singleton (TyConst(RuntimeNames.intKey, EqArray.empty))))
+                        (TyUnion("List", Block.singleton (TyConst(RuntimeNames.intKey, Block.empty))))
                         "e : List<int>"
 
                     Expect.equal (TastShape.prettyExpr value) "Empty" "the bare `[]` is the union's Empty case"
@@ -773,7 +774,7 @@ let listAbbrevTests =
 
                 let xs =
                     tast.Decls
-                    |> EqArray.tryFind (fun d ->
+                    |> Block.tryFind (fun d ->
                         match d with
                         | TDecl.Let({ Pattern = TPat.NamedSimple _ }, _, _) -> true
                         | _ -> false
@@ -790,7 +791,7 @@ let listAbbrevTests =
                         ty
                         (SemType.TyUnion(
                             RuntimeNames.vesperListKey,
-                            EqArray.singleton (TyConst(RuntimeNames.intKey, EqArray.empty))
+                            Block.singleton (TyConst(RuntimeNames.intKey, Block.empty))
                         ))
                         "xs : Vesper.Collections.List<int> (the default cons-list)"
 
@@ -837,14 +838,14 @@ let unionMemberTests =
 
                 let members =
                     tast.Decls
-                    |> EqArray.tryFind (fun d ->
+                    |> Block.tryFind (fun d ->
                         match d with
                         | TDecl.Type { Kind = TTypeKind.Union _ } -> true
                         | _ -> false
                     )
                     |> ValueOption.bind (fun d ->
                         match d with
-                        | TDecl.Type { Kind = TTypeKind.Union u } -> ValueSome(EqArray.toList u.Members)
+                        | TDecl.Type { Kind = TTypeKind.Union u } -> ValueSome(Block.toList u.Members)
                         | _ -> ValueNone
                     )
 
@@ -857,24 +858,24 @@ let unionMemberTests =
                     Expect.isFalse isEmpty.IsStatic "IsEmpty is an instance member"
                     Expect.equal isEmpty.Kind TMemberKind.Property "IsEmpty is a property"
 
-                    Expect.equal isEmpty.ReturnTy (TyConst(RuntimeNames.boolKey, EqArray.empty)) "IsEmpty : bool"
+                    Expect.equal isEmpty.ReturnTy (TyConst(RuntimeNames.boolKey, Block.empty)) "IsEmpty : bool"
 
                     Expect.isTrue
                         (ValueOption.isSome isEmpty.ThisKey)
                         "an instance member carries a `this` bound variable"
 
-                    Expect.equal (find "Head").ReturnTy (TyConst(RuntimeNames.intKey, EqArray.empty)) "Head : int"
+                    Expect.equal (find "Head").ReturnTy (TyConst(RuntimeNames.intKey, Block.empty)) "Head : int"
 
                     let empty = find "Empty"
                     Expect.isTrue empty.IsStatic "Empty is static"
-                    Expect.equal empty.ReturnTy (TyUnion("Lst", EqArray.empty)) "Empty : Lst"
+                    Expect.equal empty.ReturnTy (TyUnion("Lst", Block.empty)) "Empty : Lst"
                     Expect.isTrue (ValueOption.isNone empty.ThisKey) "a static member has no `this` bound variable"
 
                     let single = find "Single"
                     Expect.isTrue single.IsStatic "Single is static"
                     Expect.equal single.Kind TMemberKind.Method "Single is a method"
                     Expect.equal single.Params.Length 1 "Single takes one parameter"
-                    Expect.equal single.ReturnTy (TyUnion("Lst", EqArray.empty)) "Single : int -> Lst"
+                    Expect.equal single.ReturnTy (TyUnion("Lst", Block.empty)) "Single : int -> Lst"
                 | ValueNone -> failtest "no union surfaced"
             }
 
@@ -920,7 +921,7 @@ let unionInterfaceImplTests =
 
                 let interfaces =
                     tast.Decls
-                    |> EqArray.tryFind (fun d ->
+                    |> Block.tryFind (fun d ->
                         match d with
                         | TDecl.Type { Name = "U"; Kind = TTypeKind.Union _ } -> true
                         | _ -> false
@@ -980,7 +981,7 @@ let unionInterfaceImplTests =
                 // And the impl still freezes onto the union (the body typed cleanly).
                 let carried =
                     tast.Decls
-                    |> EqArray.tryFind (fun d ->
+                    |> Block.tryFind (fun d ->
                         match d with
                         | TDecl.Type { Name = "V"; Kind = TTypeKind.Union _ } -> true
                         | _ -> false
@@ -1026,7 +1027,7 @@ let recordInterfaceImplTests =
 
                 let interfaces =
                     tast.Decls
-                    |> EqArray.tryFind (fun d ->
+                    |> Block.tryFind (fun d ->
                         match d with
                         | TDecl.Type {
                                          Name = "R"
@@ -1189,13 +1190,13 @@ let propertySetterTests =
                         true
             }
 
-        for d in EqArray.toList tast.Decls do
+        for d in Block.toList tast.Decls do
             for value in TastWalk.declValues d do
                 TastWalk.iterExpr collect value
 
             match d with
             | TDecl.Type { Kind = TTypeKind.Class c } ->
-                for m in EqArray.toList c.Members do
+                for m in Block.toList c.Members do
                     TastWalk.iterExpr collect m.Body
             | _ -> ()
 
@@ -1361,10 +1362,10 @@ let stringEscapeTests =
                 let tast = analyse "let x = 42\nlet s = $\"a\\tb{x}c\\nd\""
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
-                match tast.Decls |> EqArray.last with
+                match tast.Decls |> Block.last with
                 | TDecl.Let({ Value = TExpr.Format(_, segs, _, _) }, _, _) ->
                     let lits =
-                        EqArray.toList segs
+                        Block.toList segs
                         |> List.choose (
                             function
                             | FormatSeg.Lit text -> Some text
@@ -1447,10 +1448,10 @@ let stringEscapeTests =
                 let tast = analyse "let x = 1\nlet s = $@\"a\"\"b{x}c\"\"d\""
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
-                match tast.Decls |> EqArray.last with
+                match tast.Decls |> Block.last with
                 | TDecl.Let({ Value = TExpr.Format(_, segs, _, _) }, _, _) ->
                     let lits =
-                        EqArray.toList segs
+                        Block.toList segs
                         |> List.choose (
                             function
                             | FormatSeg.Lit text -> Some text
@@ -1482,7 +1483,7 @@ let stringEscapeTests =
                 let newArgCount (call: string) =
                     let src = sprintf "type P(u: unit) =\n    member this.X = 0\nlet a = %s" call
 
-                    match (analyse src).Decls |> EqArray.last with
+                    match (analyse src).Decls |> Block.last with
                     | TDecl.Let({ Value = TExpr.New(args = args) }, _, _) -> args.Length
                     | other -> failtestf "expected a trailing `let _ = New(…)`, got %A" other
 
@@ -1498,7 +1499,7 @@ let stringEscapeTests =
 
                     Expect.isEmpty (tast.Diagnostics |> List.filter Diagnostic.isError) "nullary call is admitted"
 
-                    match tast.Decls |> EqArray.last with
+                    match tast.Decls |> Block.last with
                     | TDecl.Let({ Value = TExpr.New(args = args) }, _, _) ->
                         Expect.isEmpty args (sprintf "`%s` peels to no arguments" call)
                     | other -> failtestf "expected a trailing `let _ = New(…)`, got %A" other
@@ -1539,7 +1540,7 @@ let typeAccessibilityTests =
 
         let typeKey =
             tast.Decls
-            |> EqArray.toList
+            |> Block.toList
             |> List.tryPick (
                 function
                 | TDecl.Type td when td.Name = name -> Some td.TypeKey

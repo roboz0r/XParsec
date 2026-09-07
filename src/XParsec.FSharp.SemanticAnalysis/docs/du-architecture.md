@@ -60,7 +60,7 @@ let o = Some 1                     //  o : Option<int>
 ### `SemType.TyUnion` (`SemanticInfo.fs:314`)
 
 ```fsharp
-| TyUnion of key: SymbolKey * args: EqArray<SemType>
+| TyUnion of key: SymbolKey * args: Block<SemType>
 ```
 
 Identical shape to `TyRecord` (`:311`) and `TyClass` (`:318`). Case
@@ -93,7 +93,7 @@ typars are rewritten to `TyTypar` at freeze time.
 
 - `Name`, `Key` (arity-qualified `SymbolKey`, minted by
   `stampLocalTypeKey` to match emitted metadata), `TypeParams`
-  (`EqArray<string * TypeVar>` — generic params; case field types may
+  (`Block<string * TypeVar>` — generic params; case field types may
   reference these directly), `Cases`, `DeclKey`.
 - `TyparConstraints` — `when 'a : …` clauses, attached to prototype
   TyVars during fill-in.
@@ -110,7 +110,7 @@ Storage lives on `PassContextTypes` (`PassContext.fs`):
 
 - `Union : Dictionary<string, UnionTypeInfo>` (`:458`) — by union name,
   arity-overloaded via `TypeRegistry` keying.
-- `CtorIndex : Dictionary<string, EqArray<UnionCaseInfo>>` (`:469`) —
+- `CtorIndex : Dictionary<string, Block<UnionCaseInfo>>` (`:469`) —
   reverse index, ctor name → bucket of declaring cases. A bucket with
   more than one entry means the name is ambiguous and needs a qualifier
   or annotation.
@@ -223,9 +223,9 @@ Two TAST cases:
 
 ```fsharp
 // Tast.fs:50
-| Union of caseName: string * fields: EqArray<TPatG<'ty>> * ty: 'ty
+| Union of caseName: string * fields: Block<TPatG<'ty>> * ty: 'ty
 // Tast.fs:159
-| UnionCons of caseName: string * args: EqArray<TExprG<'ty>> * ty: 'ty
+| UnionCons of caseName: string * args: Block<TExprG<'ty>> * ty: 'ty
 ```
 
 `ty` is always the `TyUnion`; the declaring union is recovered via the

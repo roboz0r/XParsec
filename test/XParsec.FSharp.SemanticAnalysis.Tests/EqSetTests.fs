@@ -3,7 +3,7 @@ module XParsec.FSharp.SemanticAnalysis.Tests.EqSetTests
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 
-// `EqSet<'T>` is the set-semantic sibling of `EqArray`; it backs anonymous-union
+// `EqSet<'T>` is the set-semantic sibling of `Block`; it backs anonymous-union
 // (`FTOr`/`TyOr`) disjuncts.
 
 [<Tests>]

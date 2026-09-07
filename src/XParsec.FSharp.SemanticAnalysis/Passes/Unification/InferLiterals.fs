@@ -2,6 +2,7 @@ namespace XParsec.FSharp.SemanticAnalysis.Passes
 
 open System.Collections.Generic
 open System.Collections.Immutable
+open Vesper
 open XParsec.FSharp
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
@@ -182,7 +183,7 @@ module internal UnificationInferLiterals =
         let tv = ctx.FreshTyVar()
         let root = UnionFind.find ctx.Store tv
 
-        let family (keys: EqArray<TypeKey>) =
+        let family (keys: Block<TypeKey>) =
             ctx.Store.Constraints.Append(
                 root,
                 {
@@ -191,7 +192,7 @@ module internal UnificationInferLiterals =
                 }
             )
 
-            ctx.Store.Defaults.Append(root, TyConst(PrintfSpec.familyDefault keys, EqArray.empty))
+            ctx.Store.Defaults.Append(root, TyConst(PrintfSpec.familyDefault keys, Block.empty))
             ctx.FormatHoles.Add tv
 
         match PrintfSpec.familyKeys h with
@@ -239,7 +240,7 @@ module internal UnificationInferLiterals =
     /// container flexible for a later consumer to pin (`RegisterListLiteral`).
     let listLiteralTy (ctx: PassContext) (tok: SyntaxToken) (elemTy: SemType) : SemType =
         match TypeRegistry.tryAbbrevSpelling ctx.Types UseSite.unbounded RuntimeNames.vesperListAbbrevKey with
-        | ValueSome info -> expandAbbreviation ctx tok info (forceFill ctx info) (EqArray.singleton elemTy)
+        | ValueSome info -> expandAbbreviation ctx tok info (forceFill ctx info) (Block.singleton elemTy)
         | ValueNone ->
             let tv = ctx.FreshTyVar()
 

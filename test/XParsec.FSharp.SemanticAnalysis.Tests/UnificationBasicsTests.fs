@@ -1,5 +1,6 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.UnificationBasicsTests
 
+open Vesper
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Passes
@@ -34,7 +35,7 @@ let tests =
             test "custom infix operator resolves through its composed compiled name" {
                 // `++` has no dedicated token: the `op_PlusPlus` spelling is composed
                 // from source text and resolved like a well-known operator.
-                let intFt = FTConst(RuntimeNames.intKey, EqArray.empty)
+                let intFt = FTConst(RuntimeNames.intKey, Block.empty)
 
                 let opProvider =
                     providerOfValues
@@ -201,7 +202,7 @@ let tests =
                 // `x : undefined`, pat at offset 7.
                 let patKey = NodeKey.ofSource 7 NodeKind.PatIdent
 
-                Expect.equal (typeOf ctx patKey) (TyConst(RuntimeNames.undefinedKey, EqArray.empty)) "x : undefined"
+                Expect.equal (typeOf ctx patKey) (TyConst(RuntimeNames.undefinedKey, Block.empty)) "x : undefined"
 
                 let hasMismatch =
                     ctx.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "mismatch")
@@ -351,7 +352,7 @@ let tests =
                 let ctx = analyse "type R = { X: int; Y: int }\nlet r = { X = 1; Y = 2 }"
 
                 let patKey = NodeKey.ofSource 32 NodeKind.PatIdent
-                Expect.equal (typeOf ctx patKey) (TyRecord("R", EqArray.empty)) "r : TyRecord R"
+                Expect.equal (typeOf ctx patKey) (TyRecord("R", Block.empty)) "r : TyRecord R"
 
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
@@ -364,7 +365,7 @@ let tests =
 
                 // Pat r starts at offset 60: 27 + 1 + 27 + 1 + 4 ("let ").
                 let patKey = NodeKey.ofSource 60 NodeKind.PatIdent
-                Expect.equal (typeOf ctx patKey) (TyRecord("S", EqArray.empty)) "r : S"
+                Expect.equal (typeOf ctx patKey) (TyRecord("S", Block.empty)) "r : S"
             }
 
             test "unknown field set diagnoses" {
@@ -383,7 +384,7 @@ let tests =
                 let ctx = analyse "type R = { X: obj }\nlet r = { X = 5 }"
 
                 let patKey = NodeKey.ofSource 24 NodeKind.PatIdent
-                Expect.equal (typeOf ctx patKey) (TyRecord("R", EqArray.empty)) "r : R"
+                Expect.equal (typeOf ctx patKey) (TyRecord("R", Block.empty)) "r : R"
                 Expect.isEmpty ctx.Diagnostics "the value boxes into the obj field — no mismatch"
             }
 
@@ -401,7 +402,7 @@ let tests =
                 let ctx = analyse "type R = { X: int }\nlet f (r: R) = r.X"
 
                 let patKey = NodeKey.ofSource 24 NodeKind.PatIdent
-                let expected = TyFun(TyRecord("R", EqArray.empty), BuiltinTypes.tyInt)
+                let expected = TyFun(TyRecord("R", Block.empty), BuiltinTypes.tyInt)
                 Expect.equal (typeOf ctx patKey) expected "f : R -> int"
 
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
@@ -424,7 +425,7 @@ let tests =
 
                 // q pat at offset 57.
                 let qKey = NodeKey.ofSource 57 NodeKind.PatIdent
-                Expect.equal (typeOf ctx qKey) (TyRecord("R", EqArray.empty)) "q : R"
+                Expect.equal (typeOf ctx qKey) (TyRecord("R", Block.empty)) "q : R"
 
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
@@ -443,7 +444,7 @@ let tests =
                 let ctx = analyse "type S = | Point\nlet p = Point"
 
                 let patKey = NodeKey.ofSource 21 NodeKind.PatIdent
-                Expect.equal (typeOf ctx patKey) (TyUnion("S", EqArray.empty)) "p : S"
+                Expect.equal (typeOf ctx patKey) (TyUnion("S", Block.empty)) "p : S"
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
 
@@ -452,7 +453,7 @@ let tests =
                 let ctx = analyse "type S = | Circle of float\nlet c = Circle 1.0"
 
                 let patKey = NodeKey.ofSource 31 NodeKind.PatIdent
-                Expect.equal (typeOf ctx patKey) (TyUnion("S", EqArray.empty)) "c : S"
+                Expect.equal (typeOf ctx patKey) (TyUnion("S", Block.empty)) "c : S"
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
 
@@ -461,7 +462,7 @@ let tests =
                 let ctx = analyse "type S = | Rect of float * float\nlet r = Rect(2.0, 3.0)"
 
                 let patKey = NodeKey.ofSource 37 NodeKind.PatIdent
-                Expect.equal (typeOf ctx patKey) (TyUnion("S", EqArray.empty)) "r : S"
+                Expect.equal (typeOf ctx patKey) (TyUnion("S", Block.empty)) "r : S"
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
 
@@ -470,19 +471,19 @@ let tests =
                 let ctx = analyse "type S = | Circle of float\nlet f = Circle"
 
                 let patKey = NodeKey.ofSource 31 NodeKind.PatIdent
-                let expected = TyFun(BuiltinTypes.tyFloat, TyUnion("S", EqArray.empty))
+                let expected = TyFun(BuiltinTypes.tyFloat, TyUnion("S", Block.empty))
                 Expect.equal (typeOf ctx patKey) expected "f : float -> S"
             }
 
             test "ctor pattern unifies scrutinee with TyUnion" {
-                // Via the `Circle r` arm the scrutinee unifies with TyUnion("S", EqArray.empty),
+                // Via the `Circle r` arm the scrutinee unifies with TyUnion("S", Block.empty),
                 // so `area : S -> float`.
                 let ctx =
                     analyse "type S = | Circle of float\nlet area s = match s with | Circle r -> r"
 
                 // area pat at 31 (27-char type decl + "let "), s param at 36.
                 let areaKey = NodeKey.ofSource 31 NodeKind.PatIdent
-                let expected = TyFun(TyUnion("S", EqArray.empty), BuiltinTypes.tyFloat)
+                let expected = TyFun(TyUnion("S", Block.empty), BuiltinTypes.tyFloat)
                 Expect.equal (typeOf ctx areaKey) expected "area : S -> float"
             }
 
@@ -493,7 +494,7 @@ let tests =
 
                 // Pat x starts at offset 50: 21 (type R1...) + 1 (\n) + 23 (type R2...) + 1 (\n) + 4 ("let ").
                 let patKey = NodeKey.ofSource 50 NodeKind.PatIdent
-                Expect.equal (typeOf ctx patKey) (TyUnion("R2", EqArray.empty)) "x : R2"
+                Expect.equal (typeOf ctx patKey) (TyUnion("R2", Block.empty)) "x : R2"
             }
 
             test "qualified ctor resolves an ambiguous case name" {
@@ -502,7 +503,7 @@ let tests =
 
                 // Pat x starts at offset 50: 21 (type R1...) + 1 (\n) + 23 (type R2...) + 1 (\n) + 4 ("let ").
                 let patKey = NodeKey.ofSource 50 NodeKind.PatIdent
-                Expect.equal (typeOf ctx patKey) (TyUnion("R2", EqArray.empty)) "x : R2"
+                Expect.equal (typeOf ctx patKey) (TyUnion("R2", Block.empty)) "x : R2"
             }
 
             ptest "GAP: a static-optimization clause body is never checked against the declared result" {

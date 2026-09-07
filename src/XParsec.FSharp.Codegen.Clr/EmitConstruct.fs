@@ -3,6 +3,7 @@
 open System.Collections.Generic
 open System.Reflection.Metadata
 open System.Reflection.Metadata.Ecma335
+open Vesper
 open XParsec.FSharp.SemanticAnalysis
 open EmitTypes
 open EmitLower
@@ -22,7 +23,7 @@ module EmitConstruct =
 
         let tyArgs =
             match ty with
-            | FTClass(_, xs) -> EqArray.toList xs
+            | FTClass(_, xs) -> Block.toList xs
             | _ -> []
 
         // Both ctor paths filter candidates by arity off these, then disambiguate a same-arity

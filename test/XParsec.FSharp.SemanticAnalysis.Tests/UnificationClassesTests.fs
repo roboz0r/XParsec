@@ -1,5 +1,6 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.UnificationClassesTests
 
+open Vesper
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Passes
@@ -16,7 +17,7 @@ let tests =
                     analyse "type Point(x: int, y: int) =\n    member this.X = x\nlet p = new Point(3, 4)"
                 // pat p at 55: 29 + 22 char decl lines + "let ".
                 let patKey = NodeKey.ofSource 55 NodeKind.PatIdent
-                Expect.equal (typeOf ctx patKey) (TyClass("Point", EqArray.empty)) "p : TyClass Point"
+                Expect.equal (typeOf ctx patKey) (TyClass("Point", Block.empty)) "p : TyClass Point"
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
 
@@ -25,7 +26,7 @@ let tests =
                     analyse "type Point(x: int, y: int) =\n    member this.X = x\nlet p = Point(3, 4)"
 
                 let patKey = NodeKey.ofSource 55 NodeKind.PatIdent
-                Expect.equal (typeOf ctx patKey) (TyClass("Point", EqArray.empty)) "p : TyClass Point"
+                Expect.equal (typeOf ctx patKey) (TyClass("Point", Block.empty)) "p : TyClass Point"
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
 
@@ -44,7 +45,7 @@ let tests =
                     analyse "type Point(x: int, y: int) =\n    member this.X = x\nlet f (p : Point) = p.X"
                 // pat f at 55: 29 + 22 char decl lines + "let ".
                 let patKey = NodeKey.ofSource 55 NodeKind.PatIdent
-                let expected = TyFun(TyClass("Point", EqArray.empty), BuiltinTypes.tyInt)
+                let expected = TyFun(TyClass("Point", Block.empty), BuiltinTypes.tyInt)
                 Expect.equal (typeOf ctx patKey) expected "f : Point -> int"
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
@@ -55,7 +56,7 @@ let tests =
                         "type Point(x: int, y: int) =\n    member this.Magnitude () = x * x + y * y\nlet m (p : Point) = p.Magnitude()"
                 // pat m at 78: 29 + 45 char decl lines + "let ".
                 let patKey = NodeKey.ofSource 78 NodeKind.PatIdent
-                let expected = TyFun(TyClass("Point", EqArray.empty), BuiltinTypes.tyInt)
+                let expected = TyFun(TyClass("Point", Block.empty), BuiltinTypes.tyInt)
                 Expect.equal (typeOf ctx patKey) expected "m : Point -> int"
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
@@ -72,7 +73,7 @@ let tests =
                     analyse "type Box<'a>(value: 'a) =\n    member this.Value = value\nlet b = Box(1)"
                 // pat b at 60: 26 + 30 char decl lines + "let ".
                 let patKey = NodeKey.ofSource 60 NodeKind.PatIdent
-                Expect.equal (typeOf ctx patKey) (TyClass("Box", EqArray.singleton BuiltinTypes.tyInt)) "b : Box<int>"
+                Expect.equal (typeOf ctx patKey) (TyClass("Box", Block.singleton BuiltinTypes.tyInt)) "b : Box<int>"
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
 
@@ -85,7 +86,7 @@ let tests =
 
                 Expect.equal
                     (typeOf ctx patKey)
-                    (TyClass("Box", EqArray.singleton BuiltinTypes.tyString))
+                    (TyClass("Box", Block.singleton BuiltinTypes.tyString))
                     "b : Box<string>"
 
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
@@ -184,7 +185,7 @@ let tests =
                 let ctx = analyse "type C() =\n    static member Origin = (0, 0)\nlet o = C.Origin"
                 // pat o at 49: 11 + 34 char decl lines + "let ".
                 let patKey = NodeKey.ofSource 49 NodeKind.PatIdent
-                let expected = TyTuple(EqArray.ofList [ BuiltinTypes.tyInt; BuiltinTypes.tyInt ])
+                let expected = TyTuple(Block.ofList [ BuiltinTypes.tyInt; BuiltinTypes.tyInt ])
                 Expect.equal (typeOf ctx patKey) expected "o : int * int"
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
@@ -213,7 +214,7 @@ let tests =
                 let patKey = NodeKey.ofSource 4 NodeKind.PatIdent
 
                 let expected =
-                    SemType.TyUnion(RuntimeNames.vesperListKey, EqArray.singleton BuiltinTypes.tyInt)
+                    SemType.TyUnion(RuntimeNames.vesperListKey, Block.singleton BuiltinTypes.tyInt)
 
                 Expect.equal (typeOf ctx patKey) expected "xs : List<int>"
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
@@ -223,8 +224,7 @@ let tests =
                 let ctx = analyse "let xs = [|1; 2; 3|]"
                 let patKey = NodeKey.ofSource 4 NodeKind.PatIdent
 
-                let expected =
-                    TyConst(RuntimeNames.arrayKey 1, EqArray.singleton BuiltinTypes.tyInt)
+                let expected = TyConst(RuntimeNames.arrayKey 1, Block.singleton BuiltinTypes.tyInt)
 
                 Expect.equal (typeOf ctx patKey) expected "xs : int[]"
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
@@ -292,7 +292,7 @@ let tests =
                 let info = expectClass ctx "C"
                 let m = info.Body.Members |> Array.find (fun mm -> mm.Name = "P")
 
-                Expect.equal (typeOf ctx m.DeclSite.Key) (TyConst(RuntimeNames.intKey, EqArray.empty)) "P : int"
+                Expect.equal (typeOf ctx m.DeclSite.Key) (TyConst(RuntimeNames.intKey, Block.empty)) "P : int"
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
 
@@ -301,7 +301,7 @@ let tests =
 
                 let info = expectClass ctx "C"
                 let m = info.Body.Members |> Array.find (fun mm -> mm.Name = "get_Item")
-                let intTy = TyConst(RuntimeNames.intKey, EqArray.empty)
+                let intTy = TyConst(RuntimeNames.intKey, Block.empty)
 
                 Expect.equal (typeOf ctx m.DeclSite.Key) (TyFun(intTy, intTy)) "get_Item : int -> int"
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
@@ -316,8 +316,8 @@ let tests =
                 let slotTy n =
                     Unification.zonk ctx.Store (info.Body.Members |> Array.find (fun mm -> mm.Name = n)).Type
 
-                let intTy = TyConst(RuntimeNames.intKey, EqArray.empty)
-                let unitTy = TyConst(RuntimeNames.unitKey, EqArray.empty)
+                let intTy = TyConst(RuntimeNames.intKey, Block.empty)
+                let unitTy = TyConst(RuntimeNames.unitKey, Block.empty)
 
                 Expect.equal (slotTy "P") intTy "P : int"
                 Expect.equal (slotTy "set_P") (TyFun(intTy, unitTy)) "set_P : int -> unit"
@@ -333,9 +333,9 @@ let tests =
                 let slotTy n =
                     Unification.zonk ctx.Store (info.Body.Members |> Array.find (fun mm -> mm.Name = n)).Type
 
-                let intTy = TyConst(RuntimeNames.intKey, EqArray.empty)
-                let stringTy = TyConst(RuntimeNames.stringKey, EqArray.empty)
-                let unitTy = TyConst(RuntimeNames.unitKey, EqArray.empty)
+                let intTy = TyConst(RuntimeNames.intKey, Block.empty)
+                let stringTy = TyConst(RuntimeNames.stringKey, Block.empty)
+                let unitTy = TyConst(RuntimeNames.unitKey, Block.empty)
 
                 Expect.equal (slotTy "get_Item") (TyFun(intTy, stringTy)) "get_Item : int -> string"
 

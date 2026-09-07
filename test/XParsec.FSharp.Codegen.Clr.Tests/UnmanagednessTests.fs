@@ -1,5 +1,6 @@
 module XParsec.FSharp.Codegen.Clr.Tests.UnmanagednessTests
 
+open Vesper
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
@@ -10,7 +11,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // compilation's own struct records and unions through the analysed assembly's visibility,
 // referenced-package and BCL value types, and a hand-built cyclic shape.
 
-let private prim (key: TypeKey) : FrozenType = FTConst(key, EqArray.empty)
+let private prim (key: TypeKey) : FrozenType = FTConst(key, Block.empty)
 
 /// The union's case fields, `(case, fieldName, type)`, in declaration order.
 let private caseFields (decls: TastAccessor.DeclId list) (unionName: string) : (string * string * FrozenType) list =
@@ -23,7 +24,7 @@ let private caseFields (decls: TastAccessor.DeclId list) (unionName: string) : (
                 match td.Kind with
                 | TTypeKindG.Union u when td.Name = unionName ->
                     for c in u.Cases do
-                        for (i, (name, ty)) in EqArray.toList c.Fields |> List.indexed ->
+                        for (i, (name, ty)) in Block.toList c.Fields |> List.indexed ->
                             c.Name, (name |> ValueOption.defaultValue (sprintf "item%d" (i + 1))), ty
                 | _ -> ()
             | _ -> ()
@@ -53,14 +54,14 @@ let private expectCensus
 /// A symbol view over one struct record `Cyc` whose sole field is `Cyc` itself.
 let private cyclicSymbols: ICodegenSymbols * FrozenType =
     let key = SymbolKeyOps.typeKeyOf "Cyclic" "Cyc"
-    let self = FTRecord(key, EqArray.empty)
+    let self = FTRecord(key, Block.empty)
 
     let shape =
         ExternalTypeShape.Record
             {
                 Typars = TyparList.empty
                 Fields =
-                    EqArray.singleton
+                    Block.singleton
                         { ExternalFieldShape.create ("Again", false) with
                             Frozen = self
                         }
@@ -78,7 +79,7 @@ let private cyclicSymbols: ICodegenSymbols * FrozenType =
             member _.TryLookupCtor(_, _, _) = ValueNone
             member _.TryRebaseCapabilityMember _ = ValueNone
             member _.TryLookupOpenSignature _ = ValueNone
-            member _.DeclarationsOf _ = EqArray.empty
+            member _.DeclarationsOf _ = Block.empty
             member _.TryPlatformTypeId _ = ValueNone
 
             member _.IsValueType k =
@@ -115,7 +116,7 @@ let tests =
                         prim RuntimeNames.stringKey
                         prim RuntimeNames.objKey
                         prim RuntimeNames.exnKey
-                        FTConst(RuntimeNames.arrayKey 1, EqArray.singleton (prim RuntimeNames.intKey))
+                        FTConst(RuntimeNames.arrayKey 1, Block.singleton (prim RuntimeNames.intKey))
                         FTFun(prim RuntimeNames.intKey, prim RuntimeNames.intKey)
                         FTTypar(TyparScope.Type(SymbolKeyOps.qualifiedTypeKeyOf "T" 1), 0)
                     ]
@@ -135,7 +136,7 @@ let tests =
 
             test "a tuple classifies as the combination of its items" {
                 let ofItems (items: FrozenType list) =
-                    Unmanagedness.ofFrozen core.Value (FTTuple(EqArray.ofList items))
+                    Unmanagedness.ofFrozen core.Value (FTTuple(Block.ofList items))
 
                 Expect.equal
                     (ofItems [ prim RuntimeNames.intKey; prim RuntimeNames.floatKey ])

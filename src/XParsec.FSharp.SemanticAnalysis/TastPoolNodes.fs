@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+open Vesper
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 
@@ -284,12 +285,12 @@ type ExprPayload =
     | StaticMethodCall of
         {|
             Key: SymbolKey
-            DeclArgs: EqArray<FrozenType>
+            DeclArgs: Block<FrozenType>
         |}
     | StaticPropertyGet of
         {|
             Key: SymbolKey
-            DeclArgs: EqArray<FrozenType>
+            DeclArgs: Block<FrozenType>
         |}
     | StaticFieldGet of
         {|
@@ -307,7 +308,7 @@ type ExprPayload =
             Key: SymbolKey
             MemberName: string
             Storage: MemberStorage
-            ArgGroupWidths: EqArray<int>
+            ArgGroupWidths: Block<int>
         |}
     | Format of
         {|
@@ -321,7 +322,7 @@ type ExprPayload =
         |}
     /// The per-clause constraints, in source order; each clause's body is a child and the
     /// `defaultExpr` is the last child. Clause count is the array length.
-    | StaticOptimization of clauseConstraints: EqArray<Frozen.TStaticOptConstraint>[]
+    | StaticOptimization of clauseConstraints: Block<Frozen.TStaticOptConstraint>[]
     | Upcast
     | Downcast
     | TypeTest of testTy: FrozenType
@@ -329,7 +330,7 @@ type ExprPayload =
     /// args are the child expressions.
     | TraitCall of
         {|
-            SupportTys: EqArray<FrozenType>
+            SupportTys: Block<FrozenType>
             MemberName: string
         |}
     /// The specialization-table slot this call identifies, and the file the node's own anchor (and

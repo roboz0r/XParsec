@@ -1,5 +1,6 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.SymbolKeyTests
 
+open Vesper
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
@@ -35,7 +36,7 @@ let tests =
                 let key = SymbolKeyOps.qualifiedTypeKeyOf "Vesper.Collections.seq" 1
 
                 Expect.equal
-                    (EqArray.toList key.Namespace.Path)
+                    (Block.toList key.Namespace.Path)
                     [ "Vesper"; "Collections" ]
                     "the namespace is segmented from the name"
 
@@ -140,7 +141,7 @@ let tests =
                 Expect.equal inner.DeclaredPath "Vesper.Outer.Inner" "the whole chain renders"
 
                 Expect.equal
-                    (EqArray.toList inner.Namespace.Path)
+                    (Block.toList inner.Namespace.Path)
                     [ "Vesper" ]
                     "the namespace is `Vesper` alone — `Outer` is a module, not a namespace segment"
 
@@ -193,12 +194,12 @@ let tests =
 [<Tests>]
 let memberKeyIdentity =
     let cKey = SymbolKeyOps.qualifiedTypeKeyOf "C" 1 // the OPEN `C<'T>`
-    let ftInt: FrozenType = FTConst(RuntimeNames.intKey, EqArray.empty)
+    let ftInt: FrozenType = FTConst(RuntimeNames.intKey, Block.empty)
     let declTypar: FrozenType = FTTypar(TyparScope.Type cKey, 0)
     let methodTypar: FrozenType = FTTypar(TyparScope.Member cKey, 0)
 
     let mk (argSig: FrozenType list) (methodTyparArity: int) : MemberKey =
-        SymbolKeyOps.memberKeyOf cKey "M" (EqArray.ofList argSig) methodTyparArity MemberKind.Method
+        SymbolKeyOps.memberKeyOf cKey "M" (Block.ofList argSig) methodTyparArity MemberKind.Method
 
     testList
         "MemberKey overload identity"
@@ -255,7 +256,7 @@ let localTypeContainment =
 
                 match k.Container with
                 | TypeContainer.InNamespace ns ->
-                    Expect.equal (EqArray.toList ns.Path) [ "N" ] "the declaring namespace, segmented"
+                    Expect.equal (Block.toList ns.Path) [ "N" ] "the declaring namespace, segmented"
                 | other -> failtestf "expected InNamespace, got %A" other
             }
 
@@ -270,13 +271,13 @@ let localTypeContainment =
                     match m.Container with
                     | ModuleContainer.InNamespace ns ->
                         Expect.equal
-                            (EqArray.toList ns.Path)
+                            (Block.toList ns.Path)
                             [ "N" ]
                             "the namespace at the root of the chain — `M` is NOT a namespace segment"
                     | other -> failtestf "expected the module to sit in a namespace, got %A" other
                 | other -> failtestf "expected InModule, got %A" other
 
-                Expect.equal (EqArray.toList k.Namespace.Path) [ "N" ] "`TypeKey.Namespace` walks the chain to its root"
+                Expect.equal (Block.toList k.Namespace.Path) [ "N" ] "`TypeKey.Namespace` walks the chain to its root"
 
                 // A module compiles to a static class, so the metadata name `+`-joins it and
                 // the namespace column is the outermost container's.
@@ -309,7 +310,7 @@ let localTypeContainment =
                         Expect.equal a.Name "A" "which is itself held by the outer module"
 
                         Expect.equal
-                            (EqArray.toList a.Namespace.Path)
+                            (Block.toList a.Namespace.Path)
                             [ "N" ]
                             "and the outer module by the namespace — neither module is a namespace segment"
                     | other -> failtestf "expected B's container to be module A, got %A" other

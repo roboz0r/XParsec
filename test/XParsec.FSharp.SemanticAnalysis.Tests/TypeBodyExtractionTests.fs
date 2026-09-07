@@ -141,12 +141,12 @@ let mutable v = 0"
             }
 
             test "a `let rec` member keeps its LocalBindingId across the retraction that bars polymorphic recursion" {
-                // `f`'s annotation-derived scheme is recorded, retracted while the group's
-                // bodies type, then recorded again.
+                // `f` and `g` are one recursion component, so each annotation-derived scheme is
+                // recorded, retracted while the component's bodies type, then recorded again.
                 let ctx =
                     analyse
                         "let rec f (x: 'a) : 'a = g x
-and g (y: 'b) : 'b = y"
+and g (y: 'a) : 'a = f y"
 
                 let entries = ctx.Bindings.Scheme.AsDictionary()
                 Expect.equal entries.Count 2 "f and g generalise"

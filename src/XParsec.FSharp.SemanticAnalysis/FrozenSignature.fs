@@ -1,5 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+open Vesper
+
 // In-memory projection of a FROZEN implementation file to the surface it publishes, a file's
 // *implicit signature*, so file N+1 resolves file N's exports by NAME with no DLL emitted.
 // Keeps INTERNAL-or-better, as a resolved `.fsi` does: the cross-assembly public-only cut
@@ -83,7 +85,7 @@ module FrozenSignature =
                     ExternalSignature.make (
                         declArity,
                         methodArity,
-                        ExternalSignature.tupledParams (EqArray.ofSeq [ for (_, ty) in m.Params -> ty ]),
+                        ExternalSignature.tupledParams (Block.ofSeq [ for (_, ty) in m.Params -> ty ]),
                         m.ReturnTy
                     )
 
@@ -111,7 +113,7 @@ module FrozenSignature =
         let membersOf
             (declKey: TypeKey)
             (declArity: int)
-            (ms: EqArray<TastAccessor.TypeMember>)
+            (ms: Block<TastAccessor.TypeMember>)
             : ResizeArray<ExternalMember> =
             let acc = ResizeArray<ExternalMember>()
 
@@ -129,9 +131,9 @@ module FrozenSignature =
             let acc = ResizeArray<ExternalMember>()
 
             let selfTy =
-                FTClass(declKey, EqArray.ofSeq [ for i in 0 .. declArity - 1 -> FTTypar(TyparScope.Type declKey, i) ])
+                FTClass(declKey, Block.ofSeq [ for i in 0 .. declArity - 1 -> FTTypar(TyparScope.Type declKey, i) ])
 
-            let addCtor (paramTys: EqArray<FrozenType>) =
+            let addCtor (paramTys: Block<FrozenType>) =
                 let parameters = ExternalSignature.tupledParams paramTys
 
                 acc.Add(
@@ -144,10 +146,10 @@ module FrozenSignature =
                 )
 
             if c.HasPrimaryCtor then
-                addCtor (EqArray.ofSeq [ for p in c.CtorParams -> p.Type ])
+                addCtor (Block.ofSeq [ for p in c.CtorParams -> p.Type ])
 
             for sc in c.SecondaryCtors do
-                addCtor (EqArray.ofSeq [ for (_, ty) in sc.Params -> ty ])
+                addCtor (Block.ofSeq [ for (_, ty) in sc.Params -> ty ])
 
             acc
 
@@ -155,8 +157,8 @@ module FrozenSignature =
         let caseShapeOf (c: Frozen.TUnionCase) : ExternalCaseShape =
             {
                 Name = c.Name
-                FieldNames = EqArray.ofSeq [ for (n, _) in c.Fields -> n ]
-                FrozenFieldTypes = EqArray.ofSeq [ for (_, ty) in c.Fields -> ty ]
+                FieldNames = Block.ofSeq [ for (n, _) in c.Fields -> n ]
+                FrozenFieldTypes = Block.ofSeq [ for (_, ty) in c.Fields -> ty ]
             }
 
         // --- declarations -------------------------------------------------------------
@@ -196,7 +198,7 @@ module FrozenSignature =
                                         ValueKind = valueKind
                                     } ->
                     let fieldShapes =
-                        EqArray.ofSeq
+                        Block.ofSeq
                             [
                                 for f in fields ->
                                     {
@@ -223,14 +225,14 @@ module FrozenSignature =
                                        Members = members
                                        ValueKind = valueKind
                                    } ->
-                    let caseShapes = EqArray.ofSeq [ for c in cases -> caseShapeOf c ]
+                    let caseShapes = Block.ofSeq [ for c in cases -> caseShapeOf c ]
 
                     register
                         (ExternalTypeShape.Union
                             {
                                 Typars = typars
                                 Cases = caseShapes
-                                Interfaces = EqArray.empty
+                                Interfaces = Block.empty
                                 Origin = origin
                                 IsValueType = valueKind.IsValueType
                                 RequiresQualifiedAccess = td.IsRequireQualifiedAccess
@@ -245,12 +247,12 @@ module FrozenSignature =
                         {
                             Typars = typars
                             Commitment = ClassCommitment.Class
-                            Members = EqArray.ofResizeArray members
+                            Members = Block.ofResizeArray members
                             // Neither clause is DROPPED: inference stamps one only once it
                             // resolves, reporting every other spelling. A drop would lose an
                             // impl, or re-parent the class to `obj`.
                             FrozenInterfaces =
-                                EqArray.ofSeq
+                                Block.ofSeq
                                     [
                                         for (ity, _) in c.Interfaces ->
                                             FrozenNominal.ofFrozen "an `interface` clause" ity
@@ -278,8 +280,8 @@ module FrozenSignature =
                         {
                             Typars = typars
                             Commitment = ClassCommitment.Interface
-                            Members = EqArray.ofResizeArray members
-                            FrozenInterfaces = EqArray.empty
+                            Members = Block.ofResizeArray members
+                            FrozenInterfaces = Block.empty
                             FrozenBaseType = ValueNone
                             Flags = ExternalClassFlags.Default
                             Origin = origin
@@ -361,8 +363,8 @@ module FrozenSignature =
                                     {
                                         Heritable = true
                                         BaseType = ValueNone
-                                        Interfaces = EqArray.empty
-                                        Members = EqArray.empty
+                                        Interfaces = Block.empty
+                                        Members = Block.empty
                                     }
                         }
                 else

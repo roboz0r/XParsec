@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+open Vesper
 open XParsec.FSharp
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis.Passes
@@ -54,7 +55,7 @@ module internal ElaborateAccess =
         // The CALL's own return; `ty` is what the ACCESS yields.
         let callTy =
             if retIsByref then
-                TyConst(RuntimeNames.byrefKey, EqArray.singleton ty)
+                TyConst(RuntimeNames.byrefKey, Block.singleton ty)
             else
                 ty
 
@@ -72,7 +73,7 @@ module internal ElaborateAccess =
         let call = TExpr.App(accessor, arg, callTy, tok)
 
         if retIsByref then
-            TExpr.ILIntrinsic("ldobj", ValueSome ty, EqArray.singleton call, ty, tok)
+            TExpr.ILIntrinsic("ldobj", ValueSome ty, Block.singleton call, ty, tok)
         else
             call
 
@@ -89,7 +90,7 @@ module internal ElaborateAccess =
         : TExpr voption =
         match tryAccessorTarget ctx key objArg with
         | ValueSome target ->
-            let args = EqArray.singleton (translateExpr ctx right)
+            let args = Block.singleton (translateExpr ctx right)
 
             mkMethodCall ctx key target.ObjArg target.DeclKey (AccessorNames.setterName name) args ty tok
             |> ValueSome
@@ -163,7 +164,7 @@ module internal ElaborateAccess =
         // `C.P <- v` through the STATIC `set_P` the qualifier's type declares. There is no
         // object argument, so the write is an ordinary static call carrying the value alone.
         | AssignTarget.StaticSlot(setter = setter) ->
-            let args = EqArray.singleton (translateExpr ctx right)
+            let args = Block.singleton (translateExpr ctx right)
             let declArgs = staticDeclArgsAt ctx setter.Decl.TypeKey tok lhs.Access.Key
             mkStaticMethodCall ctx setter.Decl.TypeKey declArgs setter.Member.Name args ty tok
         | AssignTarget.Indexed(arrE, idxE) ->
@@ -171,7 +172,7 @@ module internal ElaborateAccess =
 
             match tryAccessorTarget ctx key objArg with
             | ValueSome target ->
-                let args = EqArray.ofList [ translateExpr ctx idxE; translateExpr ctx right ]
+                let args = Block.ofList [ translateExpr ctx idxE; translateExpr ctx right ]
                 mkMethodCall ctx key target.ObjArg target.DeclKey AccessorNames.itemSetter args ty tok
             | ValueNone ->
 
@@ -183,9 +184,9 @@ module internal ElaborateAccess =
                     let valArg = translateExpr ctx right
 
                     let argsTy =
-                        TyTuple(EqArray.ofList [ TastWalk.exprTy idxArg; TastWalk.exprTy valArg ])
+                        TyTuple(Block.ofList [ TastWalk.exprTy idxArg; TastWalk.exprTy valArg ])
 
-                    let args = TExpr.Tuple(EqArray.ofList [ idxArg; valArg ], argsTy, tok)
+                    let args = TExpr.Tuple(Block.ofList [ idxArg; valArg ], argsTy, tok)
                     mkExternalAccessorCall ctx info objArg args argsTy ty tok
                 // An index-signature object argument has no `set_Item`: the `$0[$1] = $2` bracket IS
                 // its accessor, emitted as a curried `External` whose type is rebuilt from the
@@ -281,7 +282,7 @@ module internal ElaborateAccess =
 
         match tryAccessorTarget ctx key objArg with
         | ValueSome target ->
-            let args = EqArray.singleton (translateExpr ctx idx)
+            let args = Block.singleton (translateExpr ctx idx)
             mkMethodCall ctx key target.ObjArg target.DeclKey AccessorNames.itemGetter args ty tok
         | ValueNone ->
             match ctx.Resolution.ExternalAccess.TryGetValue key with

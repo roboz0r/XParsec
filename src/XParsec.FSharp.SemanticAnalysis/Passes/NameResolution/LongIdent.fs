@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.SemanticAnalysis.Passes
 
+open Vesper
 open XParsec.FSharp.SemanticAnalysis
 open NameResolutionContainers
 
@@ -149,8 +150,8 @@ module NameResolutionLongIdent =
     /// `[<RequireQualifiedAccess>]`, of a union declared directly in an opened container.
     /// Two claims are an ambiguity for the caller to report. A written qualifier
     /// (`Color.Red`) resolves through `inType` instead.
-    let externalCasesInScope (ctx: PassContext) (useSite: UseSite) (caseName: string) : EqArray<ExternalUnionCase> =
-        EqArray.ofSeq
+    let externalCasesInScope (ctx: PassContext) (useSite: UseSite) (caseName: string) : Block<ExternalUnionCase> =
+        Block.ofSeq
             [
                 for c in containersOf ctx useSite Qualifier.Bare do
                     for uc in ctx.Resolver.Scope.UnionCasesNamed(c, caseName) do
@@ -274,7 +275,7 @@ module NameResolutionLongIdent =
     /// NOT count: F# rejects `T.InstanceMember` with FS3214.
     let private declaresExternalStatic (ctx: PassContext) (key: TypeKey) (name: string) : bool =
         let anyStatic (n: string) =
-            ctx.Provider.TryLookupMembers(key, n) |> EqArray.exists (fun m -> m.IsStatic)
+            ctx.Provider.TryLookupMembers(key, n) |> Block.exists (fun m -> m.IsStatic)
 
         anyStatic name || anyStatic (AccessorNames.setterName name)
 
@@ -327,7 +328,7 @@ module NameResolutionLongIdent =
                                           Cases = cases
                                           RequiresQualifiedAccess = rqa
                                       } ->
-                match EqArray.tryFind (fun (c: ExternalCaseShape) -> c.Name = name) cases with
+                match Block.tryFind (fun (c: ExternalCaseShape) -> c.Name = name) cases with
                 | ValueSome case ->
                     let uc: ExternalUnionCase =
                         {
@@ -339,7 +340,7 @@ module NameResolutionLongIdent =
                     ValueSome(ResolvedItem.UnionCase(ResolvedUnionCase.External uc, false))
                 | ValueNone -> staticIf (declaresExternalStatic ctx key name)
             | ExternalTypeShape.Enum { Cases = cases } ->
-                if cases |> EqArray.exists (fun c -> c.Name = name) then
+                if cases |> Block.exists (fun c -> c.Name = name) then
                     ValueSome(ResolvedItem.EnumCase(t, name))
                 else
                     // `E.Equals` reaches a static inherited from `System.Enum`, which the

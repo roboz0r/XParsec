@@ -2,6 +2,7 @@ module XParsec.FSharp.SemanticAnalysis.Tests.TastShape
 
 open System.Collections.Generic
 open System.Text
+open Vesper
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.SemanticAnalysis
 
@@ -180,7 +181,7 @@ type private Renderer() =
 
         | TExpr.LetGroup(members, _, b, _, _) ->
             members
-            |> EqArray.iteri (fun i m ->
+            |> Block.iteri (fun i m ->
                 push (if i = 0 then "let rec " else " and ")
                 this.Pat m.Pattern
                 push " = "
@@ -209,7 +210,7 @@ type private Renderer() =
             push "("
 
             items
-            |> EqArray.iteri (fun i x ->
+            |> Block.iteri (fun i x ->
                 if i > 0 then
                     push ", "
 
@@ -222,7 +223,7 @@ type private Renderer() =
             push "[|"
 
             elems
-            |> EqArray.iteri (fun i x ->
+            |> Block.iteri (fun i x ->
                 if i > 0 then
                     push "; "
 
@@ -235,7 +236,7 @@ type private Renderer() =
             push "("
 
             items
-            |> EqArray.iteri (fun i x ->
+            |> Block.iteri (fun i x ->
                 if i > 0 then
                     push "; "
 
@@ -335,7 +336,7 @@ type private Renderer() =
             push "{ "
 
             fields
-            |> EqArray.iteri (fun i (n, v) ->
+            |> Block.iteri (fun i (n, v) ->
                 if i > 0 then
                     push "; "
 
@@ -352,7 +353,7 @@ type private Renderer() =
             push " with "
 
             overrides
-            |> EqArray.iteri (fun i (n, v) ->
+            |> Block.iteri (fun i (n, v) ->
                 if i > 0 then
                     push "; "
 
@@ -387,7 +388,7 @@ type private Renderer() =
                 push "("
 
                 args
-                |> EqArray.iteri (fun i a ->
+                |> Block.iteri (fun i a ->
                     if i > 0 then
                         push ", "
 
@@ -402,7 +403,7 @@ type private Renderer() =
             push "("
 
             args
-            |> EqArray.iteri (fun i a ->
+            |> Block.iteri (fun i a ->
                 if i > 0 then
                     push ", "
 
@@ -426,7 +427,7 @@ type private Renderer() =
             push "("
 
             args
-            |> EqArray.iteri (fun i a ->
+            |> Block.iteri (fun i a ->
                 if i > 0 then
                     push ", "
 
@@ -454,7 +455,7 @@ type private Renderer() =
             push "("
 
             args
-            |> EqArray.iteri (fun i a ->
+            |> Block.iteri (fun i a ->
                 if i > 0 then
                     push ", "
 
@@ -494,7 +495,7 @@ type private Renderer() =
             push "["
 
             segments
-            |> EqArray.toList
+            |> Block.toList
             |> List.iteri (fun i seg ->
                 if i > 0 then
                     push "; "
@@ -584,13 +585,13 @@ type private Renderer() =
             push (tyName testTy)
             push ")"
         | TExpr.TraitCall(supportTys, memberName, args, _, _) ->
-            push (supportTys |> EqArray.toArray |> Array.map tyName |> String.concat " or ")
+            push (supportTys |> Block.toArray |> Array.map tyName |> String.concat " or ")
             push "."
             push memberName
             push "("
 
             args
-            |> EqArray.iteri (fun i a ->
+            |> Block.iteri (fun i a ->
                 if i > 0 then
                     push ", "
 
@@ -607,7 +608,7 @@ type private Renderer() =
             push "("
 
             args
-            |> EqArray.iteri (fun i a ->
+            |> Block.iteri (fun i a ->
                 if i > 0 then
                     push ", "
 
@@ -636,7 +637,7 @@ type private Renderer() =
             push "("
 
             items
-            |> EqArray.iteri (fun i x ->
+            |> Block.iteri (fun i x ->
                 if i > 0 then
                     push ", "
 
@@ -649,7 +650,7 @@ type private Renderer() =
             push "{ "
 
             fields
-            |> EqArray.iteri (fun i (n, p) ->
+            |> Block.iteri (fun i (n, p) ->
                 if i > 0 then
                     push "; "
 
@@ -672,7 +673,7 @@ type private Renderer() =
                 push "("
 
                 fields
-                |> EqArray.iteri (fun i p ->
+                |> Block.iteri (fun i p ->
                     if i > 0 then
                         push ", "
 
@@ -694,7 +695,7 @@ type private Renderer() =
             push caseName
         | TPat.Or(alts, _, _) ->
             alts
-            |> EqArray.iteri (fun i p ->
+            |> Block.iteri (fun i p ->
                 if i > 0 then
                     push " | "
 
@@ -710,7 +711,7 @@ type private Renderer() =
             this.Expr v
         | TDecl.LetGroup(members, _) ->
             members
-            |> EqArray.iteri (fun i m ->
+            |> Block.iteri (fun i m ->
                 push (if i = 0 then "let rec " else " and ")
                 this.Pat m.Pattern
                 push " = "
@@ -760,7 +761,7 @@ type private Renderer() =
 
             if not td.TypeParams.IsEmpty then
                 push "<"
-                push (String.concat ", " (EqArray.toList td.TypeParams.Names))
+                push (String.concat ", " (Block.toList td.TypeParams.Names))
                 push ">"
 
             match td.Kind with
@@ -794,7 +795,7 @@ type private Renderer() =
                 push " = { "
 
                 r.Fields
-                |> EqArray.iteri (fun i f ->
+                |> Block.iteri (fun i f ->
                     if i > 0 then
                         push "; "
 
@@ -824,7 +825,7 @@ type private Renderer() =
                 push "("
 
                 ctorParams
-                |> EqArray.iteri (fun i p ->
+                |> Block.iteri (fun i p ->
                     if i > 0 then
                         push ", "
 
@@ -835,7 +836,7 @@ type private Renderer() =
 
                 push ") = class"
 
-                let pushPreamble (prefix: string) (entries: EqArray<TPreambleEntry>) =
+                let pushPreamble (prefix: string) (entries: Block<TPreambleEntry>) =
                     for entry in entries do
                         match entry with
                         | TPreambleEntry.Let l ->
@@ -865,7 +866,7 @@ type private Renderer() =
                     push " new("
 
                     sc.Params
-                    |> EqArray.iteri (fun i (_, ty) ->
+                    |> Block.iteri (fun i (_, ty) ->
                         if i > 0 then
                             push ", "
 

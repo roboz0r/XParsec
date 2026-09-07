@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis.Passes
 
 open System.Collections.Immutable
+open Vesper
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open UnificationEngineCore
@@ -180,8 +181,8 @@ module NameResolutionTypeBodyExtraction =
     let private sigArgNames
         (ctx: PassContext)
         (sigArgs: ImmutableArray<struct (ArgsSpec<SyntaxToken> * SyntaxToken)>)
-        : EqArray<string voption> =
-        EqArray.ofSeq (
+        : Block<string voption> =
+        Block.ofSeq (
             seq {
                 for struct (ArgsSpec(args = args), _) in sigArgs do
                     for ArgSpec(name = name) in args do
@@ -200,9 +201,9 @@ module NameResolutionTypeBodyExtraction =
             IsStatic: bool
             IsOverride: bool
             Site: NodeSite
-            SeedTypars: EqArray<DeclaredTypar>
+            SeedTypars: Block<DeclaredTypar>
             DeclaredTyparCount: int
-            ArgNames: EqArray<string voption>
+            ArgNames: Block<string voption>
         }
 
     let private addMember (ctx: PassContext) (acc: ResizeArray<TypeMemberInfo>) (m: MemberShape) : unit =
@@ -247,7 +248,7 @@ module NameResolutionTypeBodyExtraction =
             Site = mSite
             SeedTypars = mkMethodTypars ctx.Store (explicit @ implicit)
             DeclaredTyparCount = List.length explicit
-            ArgNames = EqArray.empty
+            ArgNames = Block.empty
         }
 
     /// The shape of an `abstract` signature. A slot declaration is never an override.
@@ -258,7 +259,7 @@ module NameResolutionTypeBodyExtraction =
         (tds: TyparDefns<SyntaxToken> voption)
         (isStatic: bool)
         (kind: TMemberKind)
-        (argNames: EqArray<string voption>)
+        (argNames: Block<string voption>)
         : MemberShape =
         let explicit = memberTyparNames ctx tds
 
@@ -314,9 +315,9 @@ module NameResolutionTypeBodyExtraction =
                     IsStatic = isStatic
                     IsOverride = isOverride
                     Site = NodeSite.ofToken NodeKind.PatIdent id
-                    SeedTypars = EqArray.empty
+                    SeedTypars = Block.empty
                     DeclaredTyparCount = 0
-                    ArgNames = EqArray.empty
+                    ArgNames = Block.empty
                 }
         | MethodOrPropDefn.PropertyWithGetSet(ident = propId; defns = defns) ->
             PropertyAccessors.reportNonAccessors ctx propId defns
@@ -347,7 +348,7 @@ module NameResolutionTypeBodyExtraction =
                 match halves.Getter with
                 | ValueSome tok ->
                     match sigArgs.Length with
-                    | 0 -> add (abstractSlot ctx propName tok tds isStatic TMemberKind.Property EqArray.empty)
+                    | 0 -> add (abstractSlot ctx propName tok tds isStatic TMemberKind.Property Block.empty)
                     | _ ->
                         add (
                             abstractSlot

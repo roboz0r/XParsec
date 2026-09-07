@@ -1,5 +1,6 @@
 module XParsec.FSharp.Codegen.Clr.Tests.ExternalMemberTests
 
+open Vesper
 open Expecto
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.SemanticAnalysis
@@ -44,7 +45,7 @@ let private eqComparerKey =
 
 /// The `let`-bound value of `tast`, whichever declaration position an `open` leaves it in.
 let private letValue (tast: TastFile) : TExpr option =
-    EqArray.toList tast.Decls
+    Block.toList tast.Decls
     |> List.tryPick (
         function
         | TDecl.Let(binding = { Value = v }) -> Some v
@@ -99,7 +100,7 @@ let private assertGetHashCodeFreezesCarryingItsKey (src: string) : unit =
                 "the arity is spelled only when the metadata name is RENDERED"
 
             Expect.equal
-                (EqArray.toList argSig)
+                (Block.toList argSig)
                 [ FTTypar(TyparScope.Type decl, 0) ]
                 "GetHashCode(T) argSig is the declaring typar"
         | other -> failtestf "unexpected GetHashCode key %A" other
@@ -355,7 +356,7 @@ let tests =
 
                 let value =
                     tast.Decls
-                    |> EqArray.tryFind (
+                    |> Block.tryFind (
                         function
                         | TDecl.Let _ -> true
                         | _ -> false

@@ -1,5 +1,6 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.NameResolutionTests
 
+open Vesper
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Passes
@@ -605,7 +606,7 @@ let tests =
 
                 Expect.equal
                     (info.Base |> ValueOption.map (fun b -> BaseParent.ty b.Parent))
-                    (ValueSome(TyClass("B", EqArray.empty)))
+                    (ValueSome(TyClass("B", Block.empty)))
                     "D inherits B"
 
                 Expect.isTrue (info.Base |> ValueOption.exists (fun b -> b.CtorArgs.IsSome)) "base-ctor args captured"
@@ -627,7 +628,7 @@ let tests =
 
                 Expect.equal
                     (info.Base |> ValueOption.map (fun b -> BaseParent.ty b.Parent))
-                    (ValueSome(TyClass("Box", EqArray.singleton (TyConst(RuntimeNames.intKey, EqArray.empty)))))
+                    (ValueSome(TyClass("Box", Block.singleton (TyConst(RuntimeNames.intKey, Block.empty)))))
                     "IntBox inherits Box<int>"
             }
 

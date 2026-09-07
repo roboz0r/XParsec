@@ -1,5 +1,6 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.UnificationTestHelpers
 
+open Vesper
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Passes
@@ -19,9 +20,9 @@ let analyse (input: string) = analyseParsed input (parseFile input)
 let analyseRecovered (input: string) =
     analyseParsed input (parseRecoveredFile input)
 
-let unitFt = FTConst(RuntimeNames.unitKey, EqArray.empty)
-let intFt = FTConst(RuntimeNames.intKey, EqArray.empty)
-let stringFt = FTConst(RuntimeNames.stringKey, EqArray.empty)
+let unitFt = FTConst(RuntimeNames.unitKey, Block.empty)
+let intFt = FTConst(RuntimeNames.intKey, Block.empty)
+let stringFt = FTConst(RuntimeNames.stringKey, Block.empty)
 
 // A candidate `static C.M(paramFts)`; candidates differ only in their parameters.
 let overloadMember (paramFts: FrozenType list) (methodTyparArity: int) : ExternalMember =
@@ -29,13 +30,13 @@ let overloadMember (paramFts: FrozenType list) (methodTyparArity: int) : Externa
         match paramFts with
         | [] -> unitFt
         | [ p ] -> p
-        | many -> FTTuple(EqArray.ofList many)
+        | many -> FTTuple(Block.ofList many)
 
     { ExternalMember.OfKey(
           SymbolKeyOps.memberKeyOf
               (SymbolKeyOps.qualifiedTypeKeyOf "C" 0)
               "M"
-              (EqArray.ofList paramFts)
+              (Block.ofList paramFts)
               methodTyparArity
               MemberKind.Method
       ) with
@@ -51,7 +52,7 @@ let boxMember (paramFt: FrozenType) : ExternalMember =
           SymbolKeyOps.memberKeyOf
               (SymbolKeyOps.qualifiedTypeKeyOf "Box" 1)
               "M"
-              (EqArray.singleton paramFt)
+              (Block.singleton paramFt)
               0
               MemberKind.Method
       ) with
@@ -65,7 +66,7 @@ let chosenParamsWith (typeArgs: SemType[]) (m: ExternalMember) : SemType list =
 let pickWith
     (ctx: PassContext)
     (typeArgs: SemType[])
-    (candidates: EqArray<ExternalMember>)
+    (candidates: Block<ExternalMember>)
     (args: SemType list)
     : ExternalMember voption =
     UnificationInferOverload.pickBestOverload ctx typeArgs candidates args
@@ -73,9 +74,9 @@ let pickWith
 let chosenParams (m: ExternalMember) : SemType list =
     UnificationInferOverload.memberParamTypes (analyse "") [||] m
 
-let grandBaseTy = TyClass("GrandBase", EqArray.empty)
-let baseTy = TyClass("Base", EqArray.empty)
-let derivedTy = TyClass("Derived", EqArray.empty)
+let grandBaseTy = TyClass("GrandBase", Block.empty)
+let baseTy = TyClass("Base", Block.empty)
+let derivedTy = TyClass("Derived", Block.empty)
 
 // A FRESH ctx per call: `PassContext` is mutable and these tests run in parallel.
 let overloadCtx () = analyse "let _ = 0"
@@ -126,7 +127,7 @@ let freezeDecls (input: string) : Pooled.TastFile =
 
 let frozenLetTy (file: Pooled.TastFile) : FrozenType =
     file.Decls
-    |> EqArray.toList
+    |> Block.toList
     |> List.tryPick (fun d ->
         match d with
         // `let f x = …` and `let v = …` both freeze to `Let`.

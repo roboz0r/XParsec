@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
 open XParsec.FSharp.Parser
+open Vesper
 
 // `RequireQualifiedAccess` because an unqualified `Error` case would shadow the `Result`
 // constructor.
@@ -420,7 +421,7 @@ type Kind =
     | TypeArgArity of name: string * expected: int * got: int
     /// Types called `name` reach the use site at several arities. The bare name requires a
     /// written instantiation. `arities` is ascending.
-    | AmbiguousTypeArity of name: string * arities: EqArray<int>
+    | AmbiguousTypeArity of name: string * arities: Block<int>
     | UnresolvedQualifiedName of name: string
     /// A `module R = N` whose target is a namespace. An abbreviation binds a module.
     | AbbreviatedNamespace of path: string
@@ -434,9 +435,9 @@ type Kind =
     /// A `new` clause whose constructed type is other than the constrained typar.
     | NewConstraintResultType
     /// A trait call in an inline body that no type in the support set satisfies.
-    | TraitNotSupported of supportTys: EqArray<string> * noun: MemberNoun * name: string
+    | TraitNotSupported of supportTys: Block<string> * noun: MemberNoun * name: string
     /// A trait call in an inline body that more than one type in the support set satisfies.
-    | TraitAmbiguous of supportTys: EqArray<string> * noun: MemberNoun * name: string
+    | TraitAmbiguous of supportTys: Block<string> * noun: MemberNoun * name: string
 
     // ── Casts and type tests ───────────────────────────────────────────────────
     | UpcastUnrelated of source: string * target: string
@@ -700,13 +701,13 @@ module Kind =
             | _ ->
                 sprintf
                     "Neither type '%s' supports the %s '%s'"
-                    (String.concat "' nor '" (EqArray.toArray supportTys))
+                    (String.concat "' nor '" (Block.toArray supportTys))
                     (MemberNoun.word noun)
                     name
         | Kind.TraitAmbiguous(supportTys, noun, name) ->
             sprintf
                 "The types '%s' each support the %s '%s', so the call is ambiguous"
-                (String.concat "' and '" (EqArray.toArray supportTys))
+                (String.concat "' and '" (Block.toArray supportTys))
                 (MemberNoun.word noun)
                 name
         | Kind.UpcastUnrelated(source, target) ->

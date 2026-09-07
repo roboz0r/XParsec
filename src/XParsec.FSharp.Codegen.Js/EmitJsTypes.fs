@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.Codegen.Js
 
+open Vesper
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
 open EmitJsCapabilities
@@ -145,8 +146,8 @@ module EmitJsTypes =
     let partitionClassMembers
         (caps: RuntimeNames.CapabilityIds)
         (typeName: string)
-        (interfaces: EqArray<FrozenType * EqArray<TastAccessor.TypeMember>>)
-        (members: EqArray<TastAccessor.TypeMember>)
+        (interfaces: Block<FrozenType * Block<TastAccessor.TypeMember>>)
+        (members: Block<TastAccessor.TypeMember>)
         : PartitionedMembers =
         let slotted = ResizeArray<MemberSlot * TastAccessor.TypeMember>()
         let free = ResizeArray<TastAccessor.TypeMember>()
@@ -221,7 +222,7 @@ module EmitJsTypes =
         let pendingUnions = ResizeArray<PendingUnion>()
         let members = ResizeArray<string * TastAccessor.TypeMember>()
 
-        let addMembers (typeName: string) (ms: EqArray<TastAccessor.TypeMember>) =
+        let addMembers (typeName: string) (ms: Block<TastAccessor.TypeMember>) =
             for m in ms do
                 members.Add(typeName, m)
 
@@ -229,8 +230,8 @@ module EmitJsTypes =
         // every deferred arm shares.
         let deferPartition
             (typeName: string)
-            (interfaces: EqArray<FrozenType * EqArray<TastAccessor.TypeMember>>)
-            (declMembers: EqArray<TastAccessor.TypeMember>)
+            (interfaces: Block<FrozenType * Block<TastAccessor.TypeMember>>)
+            (declMembers: Block<TastAccessor.TypeMember>)
             : PartitionedMembers =
             let parts = partitionClassMembers caps typeName interfaces declMembers
 

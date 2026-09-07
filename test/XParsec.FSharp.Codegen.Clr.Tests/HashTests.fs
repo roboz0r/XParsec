@@ -1,5 +1,6 @@
 module XParsec.FSharp.Codegen.Clr.Tests.HashTests
 
+open Vesper
 open Expecto
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.SemanticAnalysis
@@ -34,7 +35,7 @@ let tests =
 
                 // `InlineCall` keeps the operand on the call node and the entry abstracts
                 // over it, so one entry serves every call site at this grounding.
-                match EqArray.toList tast.Decls with
+                match Block.toList tast.Decls with
                 | [ TDecl.Let({
                                   Pattern = TPat.NamedSimple _
                                   Value = TExpr.InlineCall(

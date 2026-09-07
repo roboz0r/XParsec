@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
 open System.Collections.Immutable
+open Vesper
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis.Passes
@@ -44,9 +45,9 @@ module Elaborate =
         : unit =
         if not b.argumentPats.IsEmpty then
             let attrs =
-                EqArray.ofSeq [ for p in b.argumentPats -> Attributes.paramAttrsOfArgPat ctx p ]
+                Block.ofSeq [ for p in b.argumentPats -> Attributes.paramAttrsOfArgPat ctx p ]
 
-            if attrs |> EqArray.exists (fun a -> not a.IsDefault) then
+            if attrs |> Block.exists (fun a -> not a.IsDefault) then
                 if not b.inlineToken.IsSome then
                     ctx.Report(
                         (CstKeys.siteOfBinding b).Tok,
@@ -55,7 +56,7 @@ module Elaborate =
                     )
                 else
                     attrs
-                    |> EqArray.iteri (fun i a ->
+                    |> Block.iteri (fun i a ->
                         if a.CallAtMostOnce then
                             // This array and the lambda nest must stay positionally aligned:
                             // the inliner re-derives the same `i` from the nest.
@@ -192,7 +193,7 @@ module Elaborate =
                 }
             ]
         | _, TPat.Tuple(items, _, _) ->
-            EqArray.toList items
+            Block.toList items
             |> List.collect (quantifiedValues ctx isInline scopeOf declaredTypars)
         | _ -> []
 
@@ -309,7 +310,7 @@ module Elaborate =
         | RecGroup.Single((m, env), b) -> [ moduleLetDecl true b m, DeclEnv.One env ]
         | RecGroup.Group(members, components) ->
             [
-                TDecl.LetGroup(EqArray.map fst members, components), DeclEnv.PerMember(EqArray.map snd members)
+                TDecl.LetGroup(Block.map fst members, components), DeclEnv.PerMember(Block.map snd members)
             ]
 
     let private translateModuleElem (ctx: PassContext) (m: ModuleElem<SyntaxToken>) : (TDecl * DeclEnv) list =
@@ -444,11 +445,11 @@ module Elaborate =
             | ValueNone -> Map.empty
 
         {
-            Decls = EqArray.ofList decls
+            Decls = Block.ofList decls
             // Published later, ADDITIVELY, so an inline binding stays a decl here.
-            InlineBodies = EqArray.empty
+            InlineBodies = Block.empty
             // Slot order: the `SpecializationId`s the decls' edges carry index THIS array.
-            Specializations = EqArray.ofArray specializations
+            Specializations = Block.ofArray specializations
             Diagnostics = List.ofSeq ctx.Diagnostics
             IntrinsicBindings = EqDict.ofSeq ctx.Types.IntrinsicBindings
             GlobalValueKeys = EqSet.ofSeq ctx.Bindings.GlobalValueKeys

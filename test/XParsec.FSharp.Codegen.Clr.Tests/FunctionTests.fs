@@ -1,6 +1,7 @@
 module XParsec.FSharp.Codegen.Clr.Tests.FunctionTests
 
 open System.Reflection
+open Vesper
 open Expecto
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.SemanticAnalysis
@@ -63,7 +64,7 @@ let tests =
                         SymbolKeyOps.typeSimpleName k1 = DisplayName "int"
                         && SymbolKeyOps.typeSimpleName k2 = DisplayName "int"
                         ->
-                        match EqArray.toList segs with
+                        match Block.toList segs with
                         | [ FormatSeg.Hole(_,
                                            TExpr.InlineCall(
                                                args = EqList [ TExpr.Const(TConstValue.Integral(IntKind.Int32, 41L),

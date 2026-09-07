@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
 open System.Collections.Generic
+open Vesper
 open XParsec.FSharp
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis.Passes
@@ -16,9 +17,9 @@ module Inline =
     /// member name (`op_Addition`); the types are SUBSTITUTED.
     type UnresolvedTrait =
         /// No type in the support set carries the member; `supportTys` is the searched set.
-        | NoSupport of supportTys: EqArray<SemType> * memberName: string
+        | NoSupport of supportTys: Block<SemType> * memberName: string
         /// More than one type carries the member; `supportTys` is those SUPPORTING types.
-        | Ambiguous of supportTys: EqArray<SemType> * memberName: string
+        | Ambiguous of supportTys: Block<SemType> * memberName: string
         /// Members of the name exist but no signature admits the operands (`1 + 1L`).
         /// `candidateTy` is the first such member's type and `expectedTy` the trait
         /// shape it was searched with; both are ground.
@@ -52,12 +53,12 @@ module Inline =
     let rec private staticOptTypesMatch (store: TypeStore) (a: SemType) (b: SemType) : bool =
         match a, b with
         | TyVar x, TyVar y -> UnionFind.find store x = UnionFind.find store y
-        | TyConst(k1, xs), TyConst(k2, ys) -> k1 = k2 && EqArray.forall2 (staticOptTypesMatch store) xs ys
+        | TyConst(k1, xs), TyConst(k2, ys) -> k1 = k2 && Block.forall2 (staticOptTypesMatch store) xs ys
         | TyFun(a1, r1), TyFun(a2, r2) -> staticOptTypesMatch store a1 a2 && staticOptTypesMatch store r1 r2
-        | TyTuple xs, TyTuple ys -> EqArray.forall2 (staticOptTypesMatch store) xs ys
+        | TyTuple xs, TyTuple ys -> Block.forall2 (staticOptTypesMatch store) xs ys
         | TyRecord(n1, xs), TyRecord(n2, ys)
         | TyUnion(n1, xs), TyUnion(n2, ys)
-        | TyClass(n1, xs), TyClass(n2, ys) -> n1 = n2 && EqArray.forall2 (staticOptTypesMatch store) xs ys
+        | TyClass(n1, xs), TyClass(n2, ys) -> n1 = n2 && Block.forall2 (staticOptTypesMatch store) xs ys
         | _ -> false
 
     /// `when ^T : struct` as a clause guard: the target's layout, else what the declaration
@@ -84,12 +85,12 @@ module Inline =
         // No clause body is a trait call: the arithmetic bodies carry the SRTP dispatch in the
         // BASE, with an explicit clause per supported primitive, so an operand matching no
         // clause falls to the base, where the trait call decides whether the type has it.
-        let clauseSelected (cl: TStaticOptClause) = cl.Constraints |> EqArray.forall holds
+        let clauseSelected (cl: TStaticOptClause) = cl.Constraints |> Block.forall holds
 
-        let resolveStaticOpt (clauses: EqArray<TStaticOptClause>) (defaultExpr: TExpr) : TExpr =
+        let resolveStaticOpt (clauses: Block<TStaticOptClause>) (defaultExpr: TExpr) : TExpr =
             let m = substMapper ctx declined subst
 
-            match clauses |> EqArray.tryFind clauseSelected with
+            match clauses |> Block.tryFind clauseSelected with
             | ValueSome cl -> TastWalk.mapExpr m cl.Body
             | ValueNone -> TastWalk.mapExpr m defaultExpr
 
@@ -98,14 +99,14 @@ module Inline =
         // result type is `sub ty`, because `Vec2 * float -> Vec2` returns neither operand's type.
         let resolveTraitCall
             (m: TastWalk.Mapper)
-            (supportTys: EqArray<SemType>)
+            (supportTys: Block<SemType>)
             (memberName: string)
-            (args: EqArray<TExpr>)
+            (args: Block<TExpr>)
             (ty: SemType)
             (tok: SyntaxToken)
             : TExpr voption =
-            let candidates = supportTys |> EqArray.map sub |> EqArray.distinct
-            let argTys = args |> EqArray.map (fun a -> sub (TastWalk.exprTy a))
+            let candidates = supportTys |> Block.map sub |> Block.distinct
+            let argTys = args |> Block.map (fun a -> sub (TastWalk.exprTy a))
             let retTy = sub ty
 
             let mint (c: UnificationTraitMembers.TraitCandidate) : SymbolKey =
@@ -120,21 +121,19 @@ module Inline =
                     )
                 | UnificationTraitMembers.TraitMemberSource.External em -> SymbolKey.Member em.Key
 
-            match UnificationTraitMembers.pick ctx memberName argTys retTy (EqArray.toArray candidates) true with
+            match UnificationTraitMembers.pick ctx memberName argTys retTy (Block.toArray candidates) true with
             | UnificationTraitMembers.TraitPick.Resolved c ->
                 ValueSome(
                     TExpr.StaticMethodCall(
                         mint c,
-                        EqArray.ofArray c.DeclArgs,
-                        EqArray.map (TastWalk.mapExpr m) args,
+                        Block.ofArray c.DeclArgs,
+                        Block.map (TastWalk.mapExpr m) args,
                         retTy,
                         tok
                     )
                 )
             | UnificationTraitMembers.TraitPick.Ambiguous(first, rest) ->
-                declined.Add(
-                    UnresolvedTrait.Ambiguous(EqArray.ofList [ for c in first :: rest -> c.HostTy ], memberName)
-                )
+                declined.Add(UnresolvedTrait.Ambiguous(Block.ofList [ for c in first :: rest -> c.HostTy ], memberName))
 
                 ValueNone
             | UnificationTraitMembers.TraitPick.NameOnly(first, unsupported) ->
@@ -146,7 +145,7 @@ module Inline =
                              UnificationTraitMembers.expectedShape ctx.Store argTys retTy first.Ty
                          )
                      )
-                 | tys -> declined.Add(UnresolvedTrait.NoSupport(EqArray.ofList tys, memberName)))
+                 | tys -> declined.Add(UnresolvedTrait.NoSupport(Block.ofList tys, memberName)))
 
                 ValueNone
             // Expansion is the last chance to pin, so an incomplete set is a decline too.
@@ -422,12 +421,12 @@ module Inline =
     /// (`op_Addition`). A name outside that table is not an operator at all:
     /// `(^T: (member GetAwaiter: …) x)`.
     let internal reportUnresolvedTrait (ctx: PassContext) (siteTok: SyntaxToken) (u: UnresolvedTrait) : unit =
-        let render (supportTys: EqArray<SemType>) =
+        let render (supportTys: Block<SemType>) =
             supportTys
-            |> EqArray.toArray
+            |> Block.toArray
             |> Array.map (shown ctx.Store)
             |> Array.distinct
-            |> EqArray.ofArray
+            |> Block.ofArray
 
         let spell (memberName: string) =
             match OperatorData.sourceSpelling memberName with

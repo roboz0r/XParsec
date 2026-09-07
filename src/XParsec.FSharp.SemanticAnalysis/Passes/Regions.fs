@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis.Passes
 
 open System.Collections.Generic
+open Vesper
 open XParsec.FSharp.SemanticAnalysis
 
 // Pre:  ctx.Bindings.Binding / .TypeVar populated; `decls` is post-inline.
@@ -622,7 +623,7 @@ module Regions =
     let private closureReprs
         (ctx: PassContext)
         (repr: SideTable<RegionRepr>)
-        (decls: EqArray<TDecl>)
+        (decls: Block<TDecl>)
         : Map<BoundVarKey, ClosureRepr> =
         Map.ofSeq (
             seq {
@@ -652,7 +653,7 @@ module Regions =
     /// `specializations` is the file's resolved-inline table. It must be walked: a caller
     /// local captured by a lambda fused into an inline body is a capture of THIS file's
     /// binding, and leaving it unseen is a `let mutable` left unpromoted.
-    let run (ctx: PassContext) (decls: EqArray<TDecl>) (specializations: EqArray<TSpecialization>) : RegionVerdicts =
+    let run (ctx: PassContext) (decls: Block<TDecl>) (specializations: Block<TSpecialization>) : RegionVerdicts =
         let s: State =
             {
                 Graph = RegionGraph()

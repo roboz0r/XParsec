@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+open Vesper
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 
@@ -227,7 +228,7 @@ module TastPools =
     and private poolLetGroup
         (sink: IPoolSink<'tok, 'id>)
         (frames: SelfFrame<'id> list)
-        (members: EqArray<TLetMemberG<FrozenType, 'tok, 'id>>)
+        (members: Block<TLetMemberG<FrozenType, 'tok, 'id>>)
         (components: SccPartition)
         : struct (ExprPoolId[] * LetGroupShape) =
         let valueIds = Array.zeroCreate<ExprPoolId> members.Length
@@ -240,16 +241,14 @@ module TastPools =
                 | Acyclic _ -> false
 
             let evidence =
-                scc.Members
-                |> EqArray.map (fun i -> recEvidence members.[i].Pattern true onCycle)
+                scc.Members |> Block.map (fun i -> recEvidence members.[i].Pattern true onCycle)
 
-            let opened = evidence |> EqArray.fold openFrame frames
-
-            scc.Members
-            |> EqArray.iteri (fun j i -> valueIds.[i] <- poolExprIn sink opened evidence.[j].ValuePos members.[i].Value)
+            let opened = evidence |> Block.fold openFrame frames
 
             scc.Members
-            |> EqArray.iteri (fun j i -> recursions.[i] <- evidence.[j].Recursion)
+            |> Block.iteri (fun j i -> valueIds.[i] <- poolExprIn sink opened evidence.[j].ValuePos members.[i].Value)
+
+            scc.Members |> Block.iteri (fun j i -> recursions.[i] <- evidence.[j].Recursion)
 
         let shape =
             {
@@ -293,8 +292,7 @@ module TastPools =
             | TDeclG.LetGroup(members = members; components = components) ->
                 let struct (valueIds, shape) = poolLetGroup sink [] members components
 
-                let patIds =
-                    members |> EqArray.toArray |> Array.map (fun m -> poolPat sink m.Pattern)
+                let patIds = members |> Block.toArray |> Array.map (fun m -> poolPat sink m.Pattern)
 
                 struct (valueIds, patIds, DeclPayload.LetGroup shape)
             | TDeclG.Expression(expr = expr; ty = ty) ->
@@ -490,14 +488,14 @@ module TastPools =
                     | PooledEvent.LambdaPooled(anchor, id) -> lambdaSlots.Add(struct (id, LambdaKey anchor))
             }
 
-        let roots = file.Decls |> EqArray.map (poolDecl sink)
+        let roots = file.Decls |> Block.map (poolDecl sink)
 
         // The inline vocabulary, pooled as its OWN roots: a template is a different tree from
         // the emitted function of the same name. Ordinary pooled decls, so the walk reaches a
         // template's bound variables too.
         let inlineTemplates =
             file.InlineBodies
-            |> EqArray.toArray
+            |> Block.toArray
             |> Array.map (fun iv ->
                 {
                     Key = iv.Key
@@ -510,7 +508,7 @@ module TastPools =
         // identifies a position in this array, not in the pools the nodes land in.
         let specializations =
             file.Specializations
-            |> EqArray.toArray
+            |> Block.toArray
             |> Array.map (fun s ->
                 {
                     Key = s.Key

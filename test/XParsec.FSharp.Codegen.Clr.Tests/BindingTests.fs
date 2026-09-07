@@ -1,5 +1,6 @@
 module XParsec.FSharp.Codegen.Clr.Tests.BindingTests
 
+open Vesper
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
@@ -49,15 +50,12 @@ let tests =
                                          false,
                                          _)
                                TDecl.Expression(TExpr.Format(FormatSink.ToStdOut true, segs, _, _), _) ] ->
-                        match EqArray.toList segs with
+                        match Block.toList segs with
                         | [ FormatSeg.Hole(hole, TExpr.Var(kxUse, _, _)) ] ->
                             Expect.equal kxUse kx "the hole's `Var` references the let-bound NodeKey"
 
-                            Expect.equal
-                                hole.Ty
-                                (TyConst(RuntimeNames.intKey, EqArray.empty))
-                                "the %d hole types as int"
+                            Expect.equal hole.Ty (TyConst(RuntimeNames.intKey, Block.empty)) "the %d hole types as int"
                         | other -> failtestf "unexpected Format segments: %A" other
-                    | _ -> failtestf "unexpected let-decl TAST: %A" (EqArray.toList tast.Decls)
+                    | _ -> failtestf "unexpected let-decl TAST: %A" (Block.toList tast.Decls)
                 }
         ]

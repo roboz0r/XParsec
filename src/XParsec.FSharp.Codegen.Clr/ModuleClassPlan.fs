@@ -221,7 +221,7 @@ module ModuleClassPlan =
             fnClasses @ valueOnly
 
         // `Dictionary`, not `Map`: a `ModuleClassKey` is equatable but not ordered, because
-        // its namespace path is an `EqArray`, which has no comparison.
+        // its namespace path is an `Block`, which has no comparison.
         let valuesByClassIndex = Dictionary<Emit.ModuleClassKey, Emit.ModuleValue list>()
 
         for (h, vs) in valuesByClass do

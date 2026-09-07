@@ -1,5 +1,6 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.CompositeTests
 
+open Vesper
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 
@@ -18,14 +19,14 @@ let private tagged (name: string) (tag: string) : IExternalSymbolProvider =
     let typeKey = SymbolKeyOps.qualifiedTypeKeyOf name 0
 
     let taggedMember =
-        { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf typeKey name EqArray.empty 0 MemberKind.Method) with
+        { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf typeKey name Block.empty 0 MemberKind.Method) with
             IsStatic = true
             Signature =
                 TestHelpers.mkSignature
                     0
                     0
-                    (FTConst(RuntimeNames.unitKey, EqArray.empty))
-                    (FTConst(RuntimeNames.opaqueKey tag, EqArray.empty))
+                    (FTConst(RuntimeNames.unitKey, Block.empty))
+                    (FTConst(RuntimeNames.opaqueKey tag, Block.empty))
             Origin = origin
         }
 
@@ -35,7 +36,7 @@ let private tagged (name: string) (tag: string) : IExternalSymbolProvider =
             { ExternalSymbols.monoFrozen
                   (SymbolKeyOps.inNamespace "")
                   name
-                  (FTConst(RuntimeNames.opaqueKey tag, EqArray.empty)) with
+                  (FTConst(RuntimeNames.opaqueKey tag, Block.empty)) with
                 Origin = origin
             }
 
@@ -44,7 +45,7 @@ let private tagged (name: string) (tag: string) : IExternalSymbolProvider =
             typeKey
             (ExternalTypeShape.Class
                 { ExternalClassShape.basic (TyparList.empty, ClassCommitment.Class, origin) with
-                    Members = EqArray.singleton taggedMember
+                    Members = Block.singleton taggedMember
                 })
             [ taggedMember ]
     )

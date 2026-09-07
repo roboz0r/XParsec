@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
 open System.Collections.Generic
+open Vesper
 
 /// `SemType` ↔ `FrozenType`. `TyVar` is the sole `SemType` case with no frozen counterpart:
 /// a measure-bearing `TyVar` freezes to its carrier's arity-1 claim over an `FTMeasure`, and
@@ -43,12 +44,12 @@ module FrozenTypeBridge =
         let go = toFrozenWith onVar
 
         match ty with
-        | TyConst(key, args) -> FTConst(key, EqArray.map go args)
+        | TyConst(key, args) -> FTConst(key, Block.map go args)
         | TyFun(arg, result) -> FTFun(go arg, go result)
-        | TyTuple items -> FTTuple(EqArray.map go items)
-        | TyRecord(key, args) -> FTRecord(key, EqArray.map go args)
-        | TyUnion(key, args) -> FTUnion(key, EqArray.map go args)
-        | TyClass(key, args) -> FTClass(key, EqArray.map go args)
+        | TyTuple items -> FTTuple(Block.map go items)
+        | TyRecord(key, args) -> FTRecord(key, Block.map go args)
+        | TyUnion(key, args) -> FTUnion(key, Block.map go args)
+        | TyClass(key, args) -> FTClass(key, Block.map go args)
         | TyEnum key -> FTEnum key
         // Freezing can collapse the set (two distinct disjuncts freezing equal),
         // so rebuild through `MkUnion` rather than mapping in place.
@@ -81,7 +82,7 @@ module FrozenTypeBridge =
             match store.Units root, store.Link root with
             | ValueSome units, ValueSome carrier ->
                 match UnionFind.zonk store carrier with
-                | TyConst(key, EqEmpty) -> FTConst(measuredClaimKey key, EqArray.singleton (FTMeasure units))
+                | TyConst(key, BlockEmpty) -> FTConst(measuredClaimKey key, Block.singleton (FTMeasure units))
                 // The recovery type of a reported reference, already diagnosed at the source.
                 | TyUnknown reason -> FTUnknown reason
                 | other ->
@@ -100,13 +101,13 @@ module FrozenTypeBridge =
 
         match template with
         | FrozenType.MeasuredNominal(key, units) -> thaw.Measured(key, units)
-        | FTConst(key, args) -> TyConst(key, EqArray.map go args)
+        | FTConst(key, args) -> TyConst(key, Block.map go args)
         | FTMeasure units -> failwithf "FrozenTypeBridge: the measure <%O> reached type position" units
         | FTFun(arg, result) -> TyFun(go arg, go result)
-        | FTTuple items -> TyTuple(EqArray.map go items)
-        | FTRecord(key, args) -> TyRecord(key, EqArray.map go args)
-        | FTUnion(key, args) -> TyUnion(key, EqArray.map go args)
-        | FTClass(key, args) -> TyClass(key, EqArray.map go args)
+        | FTTuple items -> TyTuple(Block.map go items)
+        | FTRecord(key, args) -> TyRecord(key, Block.map go args)
+        | FTUnion(key, args) -> TyUnion(key, Block.map go args)
+        | FTClass(key, args) -> TyClass(key, Block.map go args)
         | FTEnum key -> TyEnum key
         // Instantiation can collapse the set (a typar disjunct becoming another
         // disjunct), so rebuild through `MkUnion`, not a raw `TyOr`.
@@ -282,7 +283,7 @@ module FrozenTypeBridge =
         (target: TypeKey)
         (declArgs: FrozenType[])
         (ifaces: FrozenNominal seq)
-        : EqArray<FrozenType> voption =
+        : Block<FrozenType> voption =
         match ifaces |> Seq.tryFind (fun iface -> iface.Key = target) with
-        | Some iface -> ValueSome(iface.Args |> EqArray.map (substituteDeclaring declArgs))
+        | Some iface -> ValueSome(iface.Args |> Block.map (substituteDeclaring declArgs))
         | None -> ValueNone

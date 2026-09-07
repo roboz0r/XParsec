@@ -148,10 +148,10 @@ type TyparSlot =
 
 type TyparList =
     {
-        Types: EqArray<TypeTypar>
-        Measures: EqArray<MeasureTypar>
+        Types: Block<TypeTypar>
+        Measures: Block<MeasureTypar>
         /// Source order, one slot per typar.
-        Order: EqArray<TyparSlot>
+        Order: Block<TyparSlot>
     }
 ```
 
@@ -179,7 +179,7 @@ type FunctionScheme =
         Typars: TyparList
         /// Statically resolved member constraints. A trait references one or more of
         /// `Typars.Types` on its left-hand side.
-        Traits: EqArray<MemberTrait>
+        Traits: Block<MemberTrait>
     }
 ```
 
@@ -227,7 +227,7 @@ interface; matching the two is conformance, not scoping.
 - `TyparConstraintG.TyparIndex` and the flat `EqSet<TyparConstraintG>` on decls
   (`TastDecl.fs` `MethodTyparConstraints`, `TyparConstraints`): replaced by per-typar
   `ConstraintSet`.
-- `EqArray<TyparKind>` and `TyparKinds.typeOnly`: replaced by `TyparList`.
+- `Block<TyparKind>` and `TyparKinds.typeOnly`: replaced by `TyparList`.
 - `MeasureTerm` atoms: `TypeKey` widens to `MeasureAtom`.
 - `ExternalConstraint`: `Encodable` and `Default` move into the typar's `ConstraintSet`,
   `MemberTrait` into `FunctionScheme.Traits`.

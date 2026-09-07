@@ -1,5 +1,6 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.ExpansionTests
 
+open Vesper
 open Expecto
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.SemanticAnalysis
@@ -99,7 +100,7 @@ let tests =
 
                 Expect.equal
                     (declType tast)
-                    (TyTuple(EqArray.ofList [ BuiltinTypes.tyInt; BuiltinTypes.tyInt ]))
+                    (TyTuple(Block.ofList [ BuiltinTypes.tyInt; BuiltinTypes.tyInt ]))
                     "p : int * int"
 
                 Expect.equal (TastShape.prettyDecl tast.Decls.[0]) "let v0 = (1, 2)" "TAST shape"
@@ -111,7 +112,7 @@ let tests =
 
                 Expect.equal
                     (declType tast)
-                    (TyTuple(EqArray.ofList [ BuiltinTypes.tyInt; BuiltinTypes.tyBool; BuiltinTypes.tyInt ]))
+                    (TyTuple(Block.ofList [ BuiltinTypes.tyInt; BuiltinTypes.tyBool; BuiltinTypes.tyInt ]))
                     "t : int * bool * int"
 
                 Expect.equal (TastShape.prettyDecl tast.Decls.[0]) "let v0 = (1, true, spec#0(2, 3))" "TAST shape"
@@ -126,7 +127,7 @@ let tests =
                     (declType tast)
                     (TyFun(
                         BuiltinTypes.tyInt,
-                        TyTuple(EqArray.ofList [ BuiltinTypes.tyInt; BuiltinTypes.tyBool; BuiltinTypes.tyInt ])
+                        TyTuple(Block.ofList [ BuiltinTypes.tyInt; BuiltinTypes.tyBool; BuiltinTypes.tyInt ])
                     ))
                     "f : int -> int * bool * int"
 
@@ -215,7 +216,7 @@ let tests =
 
                     Expect.equal
                         components.Components
-                        (EqArray.ofList [ Cycle(EqArray.ofList [ 0; 1 ]) ])
+                        (Block.ofList [ Cycle(Block.ofList [ 0; 1 ]) ])
                         "one cyclic component"
                 | other -> failtestf "expected one LetGroup decl, got %A" other
             }
@@ -390,7 +391,7 @@ let tests =
             test "lambda with tuple param: `fun (a, b) -> a + b`" {
                 let tast = analyse "let f = fun (a, b) -> a + b"
                 let intType = BuiltinTypes.tyInt
-                let expected = TyFun(TyTuple(EqArray.ofList [ intType; intType ]), intType)
+                let expected = TyFun(TyTuple(Block.ofList [ intType; intType ]), intType)
                 Expect.equal (declType tast) expected "f : int * int -> int"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
@@ -403,7 +404,7 @@ let tests =
             test "function-form let with tuple arg: `let f (a, b) = a * b`" {
                 let tast = analyse "let f (a, b) = a * b"
                 let intType = BuiltinTypes.tyInt
-                let expected = TyFun(TyTuple(EqArray.ofList [ intType; intType ]), intType)
+                let expected = TyFun(TyTuple(Block.ofList [ intType; intType ]), intType)
                 Expect.equal (declType tast) expected "f : int * int -> int"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
@@ -437,8 +438,7 @@ let tests =
                 let tast = analyse "let f = fun ((a, b), c) -> a + b + c"
                 let i = BuiltinTypes.tyInt
 
-                let expected =
-                    TyFun(TyTuple(EqArray.ofList [ TyTuple(EqArray.ofList [ i; i ]); i ]), i)
+                let expected = TyFun(TyTuple(Block.ofList [ TyTuple(Block.ofList [ i; i ]); i ]), i)
 
                 Expect.equal (declType tast) expected "f : (int * int) * int -> int"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
@@ -489,7 +489,7 @@ let tests =
             test "match on tuple with tuple pattern" {
                 let tast = analyse "let f p = match p with | (a, b) -> a + b"
                 let i = BuiltinTypes.tyInt
-                let expected = TyFun(TyTuple(EqArray.ofList [ i; i ]), i)
+                let expected = TyFun(TyTuple(Block.ofList [ i; i ]), i)
                 Expect.equal (declType tast) expected "f : int * int -> int"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
@@ -525,13 +525,13 @@ let tests =
                     analyse "let inline f<'b, 'a> (x: 'a) (y: 'b) = (y, x)\nlet r = f 1 \"s\""
 
                 let rTy =
-                    match List.ofSeq (EqArray.toList tast.Decls) with
+                    match List.ofSeq (Block.toList tast.Decls) with
                     | [ _; TDecl.Let(m, _, _) ] -> m.Ty
                     | other -> failtestf "expected two TDecl.Lets, got %A" other
 
                 Expect.equal
                     rTy
-                    (TyTuple(EqArray.ofList [ BuiltinTypes.tyString; BuiltinTypes.tyInt ]))
+                    (TyTuple(Block.ofList [ BuiltinTypes.tyString; BuiltinTypes.tyInt ]))
                     "r : string * int"
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics"

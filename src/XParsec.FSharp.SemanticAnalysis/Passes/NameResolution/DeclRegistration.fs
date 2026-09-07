@@ -2,6 +2,7 @@ namespace XParsec.FSharp.SemanticAnalysis.Passes
 
 open System.Collections.Generic
 open System.Collections.Immutable
+open Vesper
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open NameResolutionTypeRefStamp
@@ -28,7 +29,7 @@ module NameResolutionDeclRegistration =
             ctx.Report(declTok, Kind.CustomEqualityOnRecordOrUnion)
 
     /// File `v` at the FRONT of `index.[name]`'s bucket: the newest declaration wins the slot.
-    let prependToIndex (index: Dictionary<string, EqArray<'T>>) (name: string) (v: 'T) : unit =
+    let prependToIndex (index: Dictionary<string, Block<'T>>) (name: string) (v: 'T) : unit =
         match index.TryGetValue name with
         | true, existing ->
             let buf = ResizeArray(existing.Length + 1)
@@ -37,8 +38,8 @@ module NameResolutionDeclRegistration =
             for i in existing do
                 buf.Add i
 
-            index.[name] <- EqArray.ofResizeArray buf
-        | false, _ -> index.[name] <- EqArray.singleton v
+            index.[name] <- Block.ofResizeArray buf
+        | false, _ -> index.[name] <- Block.singleton v
 
     let registerRecordDecl
         (ctx: PassContext)
@@ -123,7 +124,7 @@ module NameResolutionDeclRegistration =
         let declSite = id.DeclSite
 
         let resolved =
-            EqArray.ofSeq (
+            Block.ofSeq (
                 seq {
                     for EnumTypeCase(attributes = caseAttrs; ident = cid; constValue = v) in cases ->
                         EnumCaseValues.resolveCase

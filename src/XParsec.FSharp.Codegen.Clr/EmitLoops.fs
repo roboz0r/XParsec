@@ -3,6 +3,7 @@ namespace XParsec.FSharp.Codegen.Clr
 open System.Collections.Generic
 open System.Reflection.Metadata
 open System.Reflection.Metadata.Ecma335
+open Vesper
 open XParsec.FSharp.SemanticAnalysis
 open EmitTypes
 open EmitLower
@@ -56,7 +57,7 @@ module EmitLoops =
     let private constrainedSlot
         (env: EmitEnv)
         (ifaceKey: TypeKey)
-        (ifaceArgs: EqArray<FrozenType>)
+        (ifaceArgs: Block<FrozenType>)
         (memberName: string)
         : EntityHandle =
         let iface =
@@ -73,7 +74,7 @@ module EmitLoops =
             env
             iface.Typars
             ifaceKey
-            (EqArray.toList ifaceArgs)
+            (Block.toList ifaceArgs)
             (UserMemberKind.Member(m.MetaName, false, m.MethodTyparCount, m.ParamTys, m.RetTy))
             m.Handle
 
@@ -84,7 +85,7 @@ module EmitLoops =
             SymbolKeyOps.memberKey
                 (SymbolKeyOps.typeKeyOf "System" "IDisposable")
                 "Dispose"
-                EqArray.empty
+                Block.empty
                 0
                 MemberKind.Method,
             false,
@@ -295,13 +296,13 @@ module EmitLoops =
             // against its DECLARING interface (`IEnumerable`1` / `IEnumerator` /
             // `IEnumerator`1`), so a `callvirt` dispatches to the collection's impl.
             let enumTy =
-                FTClass(SymbolKeyOps.typeKeyOf "System.Collections.Generic" "IEnumerator`1", EqArray.singleton elemTy)
+                FTClass(SymbolKeyOps.typeKeyOf "System.Collections.Generic" "IEnumerator`1", Block.singleton elemTy)
 
             let geKey =
                 SymbolKeyOps.memberKey
                     (SymbolKeyOps.typeKeyOf "System.Collections.Generic" "IEnumerable`1")
                     "GetEnumerator"
-                    EqArray.empty
+                    Block.empty
                     0
                     MemberKind.Method
 
@@ -312,7 +313,7 @@ module EmitLoops =
                 SymbolKeyOps.memberKey
                     (SymbolKeyOps.typeKeyOf "System.Collections" "IEnumerator")
                     "MoveNext"
-                    EqArray.empty
+                    Block.empty
                     0
                     MemberKind.Method
 
@@ -323,7 +324,7 @@ module EmitLoops =
                 SymbolKeyOps.memberKey
                     (SymbolKeyOps.typeKeyOf "System.Collections.Generic" "IEnumerator`1")
                     "Current"
-                    EqArray.empty
+                    Block.empty
                     0
                     MemberKind.Property
 

@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.Codegen.Clr
 
 open System.Collections.Generic
+open Vesper
 open System.Reflection.Metadata
 open XParsec.FSharp.SemanticAnalysis
 
@@ -36,7 +37,7 @@ module internal AttributeRowPrep =
         (attr: TAttribute)
         : AttributeCtorResolution =
         let positionalCount =
-            attr.Args |> EqArray.fold (fun n a -> if a.Name.IsNone then n + 1 else n) 0
+            attr.Args |> Block.fold (fun n a -> if a.Name.IsNone then n + 1 else n) 0
 
         if attr.Key = RuntimeNames.isByRefLikeAttributeKey then
             // The `TypeSlotKind.Class RefStruct` write emits this row; a second one here

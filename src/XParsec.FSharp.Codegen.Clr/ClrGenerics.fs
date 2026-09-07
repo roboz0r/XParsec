@@ -2,6 +2,7 @@
 
 open System.Reflection.Metadata
 open System.Reflection.Metadata.Ecma335
+open Vesper
 open XParsec.FSharp.SemanticAnalysis
 
 /// `TypeSpec` + `MemberRef` minting for generic user types emitted into this assembly: unions,
@@ -44,8 +45,7 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
             // Only the primary ctor's own parameters (the leading `CtorParamCount`
             // entries), not the trailing `val`/`static let` backing fields that also
             // live in `Fields` for name-based `ClassMember.Field` resolution.
-            let paramTys =
-                shape.Fields |> EqArray.truncate shape.CtorParamCount |> EqArray.map snd
+            let paramTys = shape.Fields |> Block.truncate shape.CtorParamCount |> Block.map snd
 
             let s = BlobBuilder()
 
@@ -79,7 +79,7 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
 
             toEntity (ctx.MemberRef(parent, ".ctor", s))
         | ClassMember.Field fieldName ->
-            match shape.Fields |> EqArray.tryFind (fun (n, _) -> n = fieldName) with
+            match shape.Fields |> Block.tryFind (fun (n, _) -> n = fieldName) with
             | ValueSome(_, declTy) ->
                 let s = BlobBuilder()
                 encodeDeclared (BlobEncoder(s).FieldSignature()) declTy
@@ -105,7 +105,7 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
 
         // The union named from inside its own bodies: the type a factory returns and a
         // `_unique_<Case>` singleton is typed at.
-        let selfTy = FTUnion(key, EqArray.ofList (declaringMarkers key shape.Typars.Length))
+        let selfTy = FTUnion(key, Block.ofList (declaringMarkers key shape.Typars.Length))
 
         // A flat regime's slots, and the `Payload` struct a `StructTagged` union nests, in
         // the same scope.
@@ -116,8 +116,8 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
 
         let payloadTy = UnionPayloadType.payloadTyDeclaring key shape.Typars.Length
 
-        let caseFields cn : EqArray<string * FrozenType> =
-            match shape.Cases |> EqArray.tryFind (fun c -> c.Name = cn) with
+        let caseFields cn : Block<string * FrozenType> =
+            match shape.Cases |> Block.tryFind (fun c -> c.Name = cn) with
             | ValueSome c -> c.Fields
             | ValueNone -> failwithf "ClrProvider: generic union '%A' has no case '%s'" key cn
 
@@ -183,7 +183,7 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
             encodeDeclared (BlobEncoder(s).FieldSignature()) selfTy
             toEntity (ctx.MemberRef(parent, "_unique_" + caseName, s))
         | UnionMember.Factory caseName ->
-            let paramTys = caseFields caseName |> EqArray.map snd
+            let paramTys = caseFields caseName |> Block.map snd
             let retTy = selfTy
 
             let s = BlobBuilder()
@@ -217,7 +217,7 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
     /// The field of the generic record `key` with source name `fieldName`. Its `Ty` uses the
     /// record's own `!i` markers.
     let genericRecordField (key: TypeKey) (fieldName: string) : GenericRecordField =
-        match genericRecords.[key].Fields |> EqArray.tryFind (fun f -> f.Name = fieldName) with
+        match genericRecords.[key].Fields |> Block.tryFind (fun f -> f.Name = fieldName) with
         | ValueSome f -> f
         | ValueNone -> failwithf "ClrProvider: generic record '%A' has no field '%s'" key fieldName
 
@@ -227,7 +227,7 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
 
         match which with
         | RecordMember.Ctor ->
-            let paramTys = fields |> EqArray.map (fun f -> f.Ty)
+            let paramTys = fields |> Block.map (fun f -> f.Ty)
             let s = BlobBuilder()
 
             BlobEncoder(s)

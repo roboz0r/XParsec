@@ -1,5 +1,6 @@
 module XParsec.FSharp.Codegen.Js.Tests.SpecializationTableTests
 
+open Vesper
 open Expecto
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
@@ -62,13 +63,13 @@ let private expandedFor (input: string) : InlineExpansion.Expanded =
 /// way: the pass writes its verdicts onto the context it was given.
 let private heapSharedCount (input: string) (walkTable: bool) : int =
     let analysed = expandedWith jsProvider.Value input
-    let decls = EqArray.ofList [ for (d, _) in analysed.Expanded.Decls -> d ]
+    let decls = Block.ofList [ for (d, _) in analysed.Expanded.Decls -> d ]
 
     let table =
         if walkTable then
-            EqArray.ofArray analysed.Expanded.Specializations
+            Block.ofArray analysed.Expanded.Specializations
         else
-            EqArray.empty
+            Block.empty
 
     Regions.run analysed.Ctx decls table |> ignore
 
@@ -797,7 +798,7 @@ let tests =
                 let edge =
                     TExpr.InlineCall(
                         spec,
-                        EqArray.empty,
+                        Block.empty,
                         entry.Path,
                         TastWalk.exprTy (entryValue entry),
                         SyntaxToken.nowhere

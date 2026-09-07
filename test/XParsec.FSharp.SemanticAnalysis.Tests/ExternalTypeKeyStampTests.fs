@@ -1,5 +1,6 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.ExternalTypeKeyStampTests
 
+open Vesper
 open Expecto
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
@@ -17,7 +18,7 @@ let private provider: IExternalSymbolProvider =
             b
             widgetKey
             [
-                mkStaticProperty widgetKey "Make" (FTConst(RuntimeNames.intKey, EqArray.empty))
+                mkStaticProperty widgetKey "Make" (FTConst(RuntimeNames.intKey, Block.empty))
             ]
 
         // `Box<'T>.Empty : Box<'T>` — the static's own type names the declaring typar.
@@ -25,10 +26,7 @@ let private provider: IExternalSymbolProvider =
             b
             boxKey
             [
-                mkStaticProperty
-                    boxKey
-                    "Empty"
-                    (FTClass(boxKey, EqArray.ofList [ FTTypar(TyparScope.Type boxKey, 0) ]))
+                mkStaticProperty boxKey "Empty" (FTClass(boxKey, Block.ofList [ FTTypar(TyparScope.Type boxKey, 0) ]))
             ]
 
         b.ImplicitOpens <- [ SymbolKeyOps.assemblyAutoOpen "Tests" ]

@@ -4,6 +4,7 @@ module XParsec.FSharp.Codegen.Clr.Tests.TupleTests
 // emitted.
 
 open System.Reflection
+open Vesper
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
@@ -28,7 +29,7 @@ let private provider () =
     ClrProvider(MetadataContext(), ownIntrinsics, Map.empty, symbols)
 
 let private ftConst (name: string) =
-    FTConst(RuntimeNames.primitiveKey name, EqArray.empty)
+    FTConst(RuntimeNames.primitiveKey name, Block.empty)
 
 [<Tests>]
 let tests =
@@ -85,7 +86,7 @@ let tests =
 /// A bare `FTTuple` encodes to a `ValueTuple`n` generic-instantiation TypeSpec.
 [<Tests>]
 let encodeTests =
-    let ftTuple (tys: FrozenType list) = FTTuple(EqArray.ofList tys)
+    let ftTuple (tys: FrozenType list) = FTTuple(Block.ofList tys)
 
     testList
         "Tuple representation: FTTuple encoding"

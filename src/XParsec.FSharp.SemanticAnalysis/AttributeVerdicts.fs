@@ -1,5 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+open Vesper
+
 // The frozen attribute value model, and the verdicts derived from it. Ahead of `TastDecl`:
 // the frozen `TTypeDeclG`'s equality / comparison / qualified-access members are views over
 // its stored `TAttributes`, computed here.
@@ -21,11 +23,11 @@ type TAttributeArg =
 type TAttribute =
     {
         Key: TypeKey
-        Args: EqArray<TAttributeArg>
+        Args: Block<TAttributeArg>
     }
 
 /// A declaration position's attributes in written order.
-type TAttributes = EqArray<TAttribute>
+type TAttributes = Block<TAttribute>
 
 /// The axis the attribute-legality matrices key on: one case per shape a declaration can
 /// take, because a record may carry `[<ReferenceEquality>]` where a struct record cannot.
@@ -197,7 +199,7 @@ module AttributeVerdicts =
         ]
 
     let has (attrs: TAttributes) (key: TypeKey) : bool =
-        attrs |> EqArray.exists (fun a -> a.Key = key)
+        attrs |> Block.exists (fun a -> a.Key = key)
 
     /// Every present row, in table order, so a contradictory mix stays visible to the FS0377 check.
     let presentRows (attrs: TAttributes) (rows: EqCompAttr<'Verdict> list) : EqCompAttr<'Verdict> list =

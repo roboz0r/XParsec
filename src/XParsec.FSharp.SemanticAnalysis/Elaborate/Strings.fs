@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
 open System.Collections.Immutable
+open Vesper
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis.Passes
@@ -138,7 +139,7 @@ module internal ElaborateStrings =
 
         if hasHole && lowerable then
             flushLit ()
-            Some(TExpr.Format(FormatSink.ToString, EqArray.ofSeq segments, ty, tok))
+            Some(TExpr.Format(FormatSink.ToString, Block.ofSeq segments, ty, tok))
         else
             None
 
@@ -158,7 +159,7 @@ module internal ElaborateStrings =
                     PrintfSpec.printfFormatName,
                     // There is a single `value: string` ctor, so codegen resolves it by arity.
                     ValueNone,
-                    EqArray.singleton (
+                    Block.singleton (
                         TExpr.Const(TConstValue.String(stitchLiteralString ctx parts), ctx.Intrinsics.String, tok)
                     ),
                     ty,

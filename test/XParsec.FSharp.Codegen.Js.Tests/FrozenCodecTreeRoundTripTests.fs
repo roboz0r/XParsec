@@ -1,5 +1,6 @@
 module XParsec.FSharp.Codegen.Js.Tests.FrozenCodecTreeRoundTripTests
 
+open Vesper
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common.Tests.Conformance
@@ -88,7 +89,7 @@ let private withSpecialization () : FrozenPools =
                     Key =
                         {
                             Template = template.Key
-                            TypeArgs = EqArray.ofList [ FTConst(RuntimeNames.intKey, EqArray.empty) ]
+                            TypeArgs = Block.ofList [ FTConst(RuntimeNames.intKey, Block.empty) ]
                         }
                     // A file OTHER than the one the blob is keyed by, so nothing about the
                     // source is recoverable from the key. Synthetic: no anchor is resolved here.
@@ -116,7 +117,7 @@ let private withSharedFilePath () : FrozenPools =
                 { first with
                     Key =
                         { first.Key with
-                            TypeArgs = EqArray.ofList [ FTConst(RuntimeNames.boolKey, EqArray.empty) ]
+                            TypeArgs = Block.ofList [ FTConst(RuntimeNames.boolKey, Block.empty) ]
                         }
                 }
             |]
@@ -150,12 +151,12 @@ let tests =
 
                 let cKey, idMember =
                     (TastUnpool.ofPools f).Decls
-                    |> EqArray.toList
+                    |> Block.toList
                     |> List.tryPick (fun d ->
                         match d with
                         | TDeclG.Type td ->
                             TTypeKindG.members td.Kind
-                            |> EqArray.toList
+                            |> Block.toList
                             |> List.tryPick (fun (m: Pooled.TTypeMember) ->
                                 if m.Name = "Id" then Some(td.TypeKey, m) else None
                             )
@@ -170,15 +171,12 @@ let tests =
                     (SymbolKeyOps.memberKeyOf
                         cKey
                         "Id"
-                        (EqArray.singleton (FTTypar(TyparScope.Member cKey, 0)))
+                        (Block.singleton (FTTypar(TyparScope.Member cKey, 0)))
                         1
                         MemberKind.Method)
                     "Id's key survives the round trip"
 
-                Expect.equal
-                    (EqArray.toList idMember.MethodTypars.Names)
-                    [ "'T" ]
-                    "member's own typar is stored by name"
+                Expect.equal (Block.toList idMember.MethodTypars.Names) [ "'T" ] "member's own typar is stored by name"
 
                 Expect.isTrue (survivesRoundTrip f) "generic-member file survived flatten/thaw structurally"
             }
@@ -284,7 +282,7 @@ let tests =
 
                 let typeDecl name =
                     decoded.Decls
-                    |> EqArray.toList
+                    |> Block.toList
                     |> List.tryPick (fun d ->
                         match d with
                         | TDeclG.Type td when td.Name = name -> Some td
@@ -293,8 +291,8 @@ let tests =
                     |> Option.defaultWith (fun () -> failtestf "no decoded type decl named %s" name)
 
                 let markArgs (attrs: TAttributes) =
-                    match attrs |> EqArray.toList |> List.filter (fun a -> a.Key.Name = "MarkAttribute") with
-                    | [ a ] -> EqArray.toList a.Args
+                    match attrs |> Block.toList |> List.filter (fun a -> a.Key.Name = "MarkAttribute") with
+                    | [ a ] -> Block.toList a.Args
                     | other -> failtestf "expected exactly one Mark attribute, got %d" (List.length other)
 
                 let int32 (v: int64) =
@@ -363,7 +361,7 @@ let tests =
 
                 let memberAttrs =
                     TTypeKindG.members (typeDecl "Widget").Kind
-                    |> EqArray.toList
+                    |> Block.toList
                     |> List.pick (fun m -> if m.Name = "M" then Some m.Attributes else None)
 
                 Expect.equal

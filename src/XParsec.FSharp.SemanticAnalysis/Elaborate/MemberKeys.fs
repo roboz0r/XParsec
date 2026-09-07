@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+open Vesper
 open XParsec.FSharp.SemanticAnalysis.Passes
 
 // Minting a resolved member's `SymbolKey.MemberKey`: the local-vs-external branch and the
@@ -21,7 +22,7 @@ module LocalMemberKeys =
     /// Empty for a non-nominal: a non-generic static declarer, an intrinsic, an unpinned var.
     let nominalArgs (store: TypeStore) (t: SemType) : SemType[] =
         match Unification.zonk store t with
-        | TyNominal(_, args) -> EqArray.toArray args
+        | TyNominal(_, args) -> Block.toArray args
         | _ -> [||]
 
     /// `ValueNone` when any operand type is NOT ground: the picker cannot then discriminate,
@@ -73,8 +74,8 @@ module LocalMemberKeys =
         | ValueNone ->
             match ctx.Provider.TryLookupMembers(declKey, memberName) with
             // A provider that models this member only singularly (or not at all).
-            | EqEmpty -> singular ()
-            | EqOne only -> ValueSome(SymbolKey.Member only.Key)
+            | BlockEmpty -> singular ()
+            | BlockOne only -> ValueSome(SymbolKey.Member only.Key)
             // ≥2 overloads sharing this name: a genuine set. A `ValueNone` pick
             // (none-applicable / ambiguous) is left for the caller to diagnose, never a wrong key.
             | members ->

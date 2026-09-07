@@ -1,5 +1,6 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.ExternMemberElabTests
 
+open Vesper
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
@@ -33,7 +34,7 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
                 let tdecl =
-                    EqArray.toList tast.Decls
+                    Block.toList tast.Decls
                     |> List.tryPick (fun d ->
                         match d with
                         | TDecl.Type t -> Some t
@@ -48,11 +49,11 @@ let tests =
                     match t.Kind with
                     | TTypeKind.Class clsG ->
                         let poke =
-                            EqArray.toList clsG.Members
+                            Block.toList clsG.Members
                             |> List.tryFind (fun (m: TTypeMember) -> m.Name = "Poke")
 
                         match poke with
-                        | None -> failtestf "no Poke member, members: %A" (EqArray.toList clsG.Members)
+                        | None -> failtestf "no Poke member, members: %A" (Block.toList clsG.Members)
                         | Some m ->
                             Expect.isFalse m.IsStatic "instance member"
                             Expect.isTrue m.ThisKey.IsSome "instance member carries a ThisKey"
@@ -76,7 +77,7 @@ let tests =
                 let tast = analyse widgetSource
 
                 let idWTy =
-                    EqArray.toList tast.Decls
+                    Block.toList tast.Decls
                     |> List.tryPick (fun d ->
                         match d with
                         | TDecl.Let({ Pattern = TPat.NamedSimple _ } as m, _, _) -> Some m.Ty
@@ -84,13 +85,13 @@ let tests =
                     )
 
                 let selfKey =
-                    EqArray.toList tast.Decls
+                    Block.toList tast.Decls
                     |> List.tryPick (fun d ->
                         match d with
                         | TDecl.Type t when t.Name = "widget" ->
                             match t.Kind with
                             | TTypeKind.Class clsG ->
-                                EqArray.toList clsG.Members
+                                Block.toList clsG.Members
                                 |> List.tryPick (fun (m: TTypeMember) ->
                                     match m.ThisTy with
                                     | TyConst(k, _) -> Some k
@@ -134,7 +135,7 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
                 let addWTy =
-                    EqArray.toList tast.Decls
+                    Block.toList tast.Decls
                     |> List.tryPick (fun d ->
                         match d with
                         | TDecl.Let({ Pattern = TPat.NamedSimple _ } as m, _, _) -> Some m.Ty

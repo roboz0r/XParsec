@@ -2,6 +2,7 @@
 
 open System.Collections.Generic
 open System.Reflection.Metadata
+open Vesper
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
@@ -203,7 +204,7 @@ module EmitTypes =
             /// Augmentation members by source name, each mapping to the LIST of its
             /// overloads: own members first, interface impls last. `Append(v:'T)` and
             /// `Append(v:'T, width:int)` share a key; the call site picks by argument type.
-            Members: Dictionary<string, EqArray<EmittedMember>>
+            Members: Dictionary<string, Block<EmittedMember>>
         }
 
         /// Drives `isValueType` at use sites: box on `:>`, `unbox.any` on `:?>`.
@@ -265,7 +266,7 @@ module EmitTypes =
             IsValueType: bool
             Ctor: EntityHandle
             /// Augmentation members, on the same terms as `EmittedUnion.Members`.
-            Members: Dictionary<string, EqArray<EmittedMember>>
+            Members: Dictionary<string, Block<EmittedMember>>
         }
 
     /// The path a use site takes to a named field on a record or class object argument, for
@@ -300,7 +301,7 @@ module EmitTypes =
             /// val …; new(…) = …`: `Ctor` aliases the first secondary, unusable as one.
             HasPrimaryCtor: bool
             /// Augmentation members, on the same terms as `EmittedUnion.Members`.
-            Members: Dictionary<string, EqArray<EmittedMember>>
+            Members: Dictionary<string, Block<EmittedMember>>
             /// `static let` backing fields keyed by source name; a `TExpr.StaticFieldGet`
             /// resolves its `ldsfld` handle here. A mono class stores the field `Def`
             /// token, a generic class a `MemberRef` on the open self-`TypeSpec`.
@@ -341,7 +342,7 @@ module EmitTypes =
         {
             Name: string
             Typars: string list
-            Members: Dictionary<string, EqArray<EmittedMember>>
+            Members: Dictionary<string, Block<EmittedMember>>
         }
 
     /// One static module class per `module Foo = …`, identified by the whole `ModuleKey`

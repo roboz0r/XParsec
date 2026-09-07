@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
 open System.Collections.Generic
+open Vesper
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 
@@ -250,7 +251,7 @@ module TastPoolBuilder =
 
     /// The file's decl roots, in source order. They are the BASE pool's: a whole-decl rewrite
     /// returns the derived id for its caller to carry rather than repointing this array.
-    let roots (b: PoolBuilder) : EqArray<DeclPoolId> = b.Base.Roots
+    let roots (b: PoolBuilder) : Block<DeclPoolId> = b.Base.Roots
 
     // ── append primitives ───────────────────────────────────────────────────
 

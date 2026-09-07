@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
 open System.Collections.Generic
+open Vesper
 open XParsec.FSharp.Lexer
 
 module internal IntrinsicResolve =
@@ -31,7 +32,7 @@ module internal IntrinsicResolve =
         (name: string)
         : SemType option =
         tryResolveIntrinsicKey provider intrinsicKeys name
-        |> Option.map (fun k -> TyConst(k, EqArray.empty))
+        |> Option.map (fun k -> TyConst(k, Block.empty))
 
 /// `int`/`string`/`bool`/… resolved from the `prim-types-*` contract. Each member resolves
 /// on first access: a self-host file's own intrinsics are registered only after this is built.
@@ -53,7 +54,7 @@ type IntrinsicSet(tryResolve: string -> SemType option) =
                 cache.[canon] <- t
                 t
             | None when RuntimeNames.isTargetOptionalPrimitiveKey canon ->
-                let t = TyConst(canon, EqArray.empty)
+                let t = TyConst(canon, Block.empty)
                 cache.[canon] <- t
                 t
             | None ->

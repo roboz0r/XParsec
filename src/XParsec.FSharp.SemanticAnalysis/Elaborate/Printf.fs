@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
 open System.Collections.Immutable
+open Vesper
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis.Passes
@@ -34,9 +35,9 @@ module internal ElaboratePrintf =
             // Matched by KEY, so a user type of the same name is not mistaken for one. All
             // are niladic, so any type argument means it isn't really the intrinsic.
             isAtomScalar key && args.Length = 0
-        | TyTuple items -> EqArray.forall structuredArgFaithful items
+        | TyTuple items -> Block.forall structuredArgFaithful items
         // The cons-list stays faithful-iff-its-element-is.
-        | TyUnion(key, args) when RuntimeNames.isVesperListKey key -> EqArray.forall structuredArgFaithful args
+        | TyUnion(key, args) when RuntimeNames.isVesperListKey key -> Block.forall structuredArgFaithful args
         // Every nominal record / DU / class renders on the engine, wherever its assembly
         // lives. No recursion into fields: this is a cold-vs-engine switch, not a
         // per-field renderer, and the runtime dispatcher already routes each field.
@@ -165,7 +166,7 @@ module internal ElaboratePrintf =
                     let sVar () = TExpr.Var(sKey, scratch.ScratchTy, t)
 
                     let newScratch =
-                        TExpr.New(scratch.ScratchClassName, ValueNone, EqArray.empty, scratch.ScratchTy, t)
+                        TExpr.New(scratch.ScratchClassName, ValueNone, Block.empty, scratch.ScratchTy, t)
 
                     let toStringCall =
                         TExpr.App(
@@ -175,7 +176,7 @@ module internal ElaboratePrintf =
                                 "ToString",
                                 MemberStorage.Method,
                                 // `ToString()`: one group taking `unit`, so zero pushed arguments.
-                                EqArray.singleton 0,
+                                Block.singleton 0,
                                 TyFun(ctx.Intrinsics.Unit, ctx.Intrinsics.String),
                                 t
                             ),
@@ -186,7 +187,7 @@ module internal ElaboratePrintf =
 
                     let seq =
                         TExpr.Sequential(
-                            EqArray.ofList [ applyCallback (sVar ()); toStringCall ],
+                            Block.ofList [ applyCallback (sVar ()); toStringCall ],
                             ctx.Intrinsics.String,
                             t
                         )
@@ -322,7 +323,7 @@ module internal ElaboratePrintf =
                 // `bprintfn`, so `ToBuilder` carries no trailing newline.
                 | PrintfSpec.PrintfSink.Builder -> FormatSink.ToBuilder(translateExpr ctx args.[0])
 
-            ValueSome(TExpr.Format(formatSink, EqArray.ofSeq segments, ty, tok))
+            ValueSome(TExpr.Format(formatSink, Block.ofSeq segments, ty, tok))
 
     /// Lower a `PrintfLowering.Partial` call (a fully-unapplied printf partial)
     /// to a synthesised closure `fun h1 … hn -> Format(sink, …)`. `ty` is the curried printer
@@ -425,7 +426,7 @@ module internal ElaboratePrintf =
                     "Elaborate.translatePrintfPartial: writer/builder sink is not a partial-lowering shape (marker invariant broken)"
 
         // `runningTy` is now the codomain; the `Format` node returns it.
-        let mutable body = TExpr.Format(formatSink, EqArray.ofSeq segments, runningTy, tok)
+        let mutable body = TExpr.Format(formatSink, Block.ofSeq segments, runningTy, tok)
         let mutable resultTy = runningTy
 
         // Wrap innermost-last, so the outermost lambda's type is the whole printer type (`ty`).

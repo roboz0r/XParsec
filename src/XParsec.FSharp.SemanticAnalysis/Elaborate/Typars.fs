@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+open Vesper
 open XParsec.FSharp.SemanticAnalysis.Passes
 
 // The typar envs a decl quantifies, one per scope, and the `TyVar -> TyTypar` cut deferred
@@ -12,7 +13,7 @@ type DeclEnv =
     | One of (TyVarId * SemType) list
     /// One env per `LetGroup` member, in member order: two members of one recursion
     /// component share roots at different method-typar indices.
-    | PerMember of EqArray<(TyVarId * SemType) list>
+    | PerMember of Block<(TyVarId * SemType) list>
 
     /// Every pair, across the members of a group.
     member this.All: (TyVarId * SemType) list =
@@ -50,7 +51,7 @@ module internal ElaborateTypars =
     /// Pair each declared typar's zonked root with `TyTypar(scope, i)`, `i` being its
     /// position in the declaration list. A typar pinned to a non-`TyVar` is dropped, but
     /// the index still counts it, so a surviving typar keeps its declared slot.
-    let mkDeclTyparEnv (store: TypeStore) (scope: TyparScope) (protos: EqArray<TyVarId>) : (TyVarId * SemType) list =
+    let mkDeclTyparEnv (store: TypeStore) (scope: TyparScope) (protos: Block<TyVarId>) : (TyVarId * SemType) list =
         [
             for i in 0 .. protos.Length - 1 do
                 match Unification.zonk store (TyVar protos.[i]) with
@@ -71,7 +72,7 @@ module internal ElaborateTypars =
 
     /// A declaration's typars with their constraints. A typar pinned to a concrete type
     /// carries none.
-    let declTyparList (store: TypeStore) (typeParams: EqArray<DeclaredTypar>) : TyparListG<SemType> =
+    let declTyparList (store: TypeStore) (typeParams: Block<DeclaredTypar>) : TyparListG<SemType> =
         TyparList.ofDeclared
             (fun tp ->
                 match Unification.zonk store (TyVar tp.TyVar) with
@@ -84,7 +85,7 @@ module internal ElaborateTypars =
     let methodTyparList (store: TypeStore) (roots: GeneralizedTypars) : TyparListG<SemType> =
         TyparList.ofDeclared
             (fun tp -> constraintSetOf store tp.TyVar)
-            (EqArray.ofArray (GeneralizedTypars.toArray roots))
+            (Block.ofArray (GeneralizedTypars.toArray roots))
 
     /// A module function's own typars with their constraints, positionally named in the order
     /// `env` quantifies them: entry `i` of a `mkMethodQuantEnv` result is `TyTypar(scope, i)`.
@@ -172,8 +173,8 @@ module internal ElaborateTypars =
     /// The declaring-type typars as `SemType` args, for a member's `ThisTy` and the body's
     /// synthesised `this` self-type: each declared typar zonked to its root `TyVar`. They
     /// stay `TyVar`-shaped until `freezeTypars` remaps them to `TyTypar(Type _, i)`.
-    let declTyparArgs (store: TypeStore) (typeParams: EqArray<DeclaredTypar>) : EqArray<SemType> =
-        EqArray.ofSeq (seq { for tp in typeParams -> Unification.zonk store (TyVar tp.TyVar) })
+    let declTyparArgs (store: TypeStore) (typeParams: Block<DeclaredTypar>) : Block<SemType> =
+        Block.ofSeq (seq { for tp in typeParams -> Unification.zonk store (TyVar tp.TyVar) })
 
     /// Walk every `SemType` in `p` through `remapDeclTypars env` (see `freezeTypars`).
     let freezeTyparsPat (store: TypeStore) (env: (TyVarId * SemType) list) (p: TPat) : TPat =
@@ -205,7 +206,7 @@ module internal ElaborateTypars =
         match d, env with
         | TDecl.Let(binding, isInline, isRec), _ -> TDecl.Let(freezeMember binding env.All, isInline, isRec)
         | TDecl.LetGroup(members, components), DeclEnv.PerMember envs ->
-            TDecl.LetGroup(EqArray.map2 freezeMember members envs, components)
+            TDecl.LetGroup(Block.map2 freezeMember members envs, components)
         | TDecl.LetGroup(members, _), DeclEnv.One _ ->
             failwithf
                 "ElaborateTypars.freezeTypars: a group of %d members was paired with one env rather than one per member"

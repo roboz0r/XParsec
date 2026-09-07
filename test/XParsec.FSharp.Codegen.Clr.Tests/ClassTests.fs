@@ -2,6 +2,7 @@ module XParsec.FSharp.Codegen.Clr.Tests.ClassTests
 
 open System
 open System.Reflection
+open Vesper
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
@@ -726,12 +727,12 @@ let staticTests =
                                 true
                     }
 
-                for d in EqArray.toList tast.Decls do
+                for d in Block.toList tast.Decls do
                     match d with
                     | TDecl.Type td ->
                         match td.Kind with
                         | TTypeKindG.Class c ->
-                            for m in EqArray.toList c.Members do
+                            for m in Block.toList c.Members do
                                 TastWalk.iterExpr it m.Body
                         | _ -> ()
                     | _ -> ()

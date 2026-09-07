@@ -3,6 +3,7 @@
 open System.Reflection
 open System.Reflection.Metadata
 open System.Reflection.Metadata.Ecma335
+open Vesper
 open XParsec.FSharp.SemanticAnalysis
 
 /// `ICodegenProvider` over the BCL + the referenced assemblies — a thin shell forwarding to the
@@ -73,7 +74,7 @@ type ClrProvider
     member _.RegisterGenericUnion
         (
             key: TypeKey,
-            typars: EqArray<string>,
+            typars: Block<string>,
             cases: (string * (string * FrozenType) list) list,
             valueKind: NominalValueKind,
             home: UnionSlotHome voption
@@ -83,11 +84,11 @@ type ClrProvider
                 Typars = typars
                 Cases =
                     cases
-                    |> EqArray.ofSeq
-                    |> EqArray.map (fun (name, fields) ->
+                    |> Block.ofSeq
+                    |> Block.map (fun (name, fields) ->
                         {
                             Name = name
-                            Fields = EqArray.ofList fields
+                            Fields = Block.ofList fields
                         }
                     )
                 ValueKind = valueKind
@@ -95,22 +96,22 @@ type ClrProvider
             }
 
     member internal _.RegisterGenericRecord
-        (key: TypeKey, typars: EqArray<string>, fields: GenericRecordField list)
+        (key: TypeKey, typars: Block<string>, fields: GenericRecordField list)
         : unit =
         env.GenericRecords.[key] <-
             {
                 Typars = typars
-                Fields = EqArray.ofList fields
+                Fields = Block.ofList fields
             }
 
     member _.RegisterGenericClass
-        (key: TypeKey, typars: EqArray<string>, ctorParamCount: int, fields: (string * FrozenType) list)
+        (key: TypeKey, typars: Block<string>, ctorParamCount: int, fields: (string * FrozenType) list)
         : unit =
         env.GenericClasses.[key] <-
             {
                 Typars = typars
                 CtorParamCount = ctorParamCount
-                Fields = EqArray.ofList fields
+                Fields = Block.ofList fields
             }
 
     member _.RecordCtorSignature(paramTys: FrozenType list) : BlobBuilder = enc.RecordCtorSignature(paramTys)
@@ -215,7 +216,7 @@ type ClrProvider
 
         env.UserTypes.[typeKey] <- defHandle
         env.UserValueTypes.Add typeKey |> ignore
-        FTClass(typeKey, EqArray.empty)
+        FTClass(typeKey, Block.empty)
 
     member _.GenericClosureTypeSpec(name: string, args: FrozenType list) : EntityHandle =
         generics.GenericClosureTypeSpec(name, args)
@@ -235,7 +236,7 @@ type ClrProvider
     member _.ValueTupleRefs(elemTys: FrozenType list) : ValueTupleHandles = enc.ValueTupleRefs elemTys
 
     /// The `System.HashCode` accumulator local type for a union's `GetHashCode`.
-    member _.HashCodeType: FrozenType = FTConst(ClrSinkKeys.hashCode, EqArray.empty)
+    member _.HashCodeType: FrozenType = FTConst(ClrSinkKeys.hashCode, Block.empty)
 
     member _.EqualityComparerDefault(elem: FrozenType) : EntityHandle = recipes.EqualityComparerDefault elem
 
@@ -289,7 +290,7 @@ type ClrProvider
     interface IStructuralHandles with
         member _.EqualityComparerDefault elem = recipes.EqualityComparerDefault elem
         member _.EqualityComparerEquals elem = recipes.EqualityComparerEquals elem
-        member _.HashCodeType = FTConst(ClrSinkKeys.hashCode, EqArray.empty)
+        member _.HashCodeType = FTConst(ClrSinkKeys.hashCode, Block.empty)
         member _.HashCodeAdd elem = recipes.HashCodeAdd elem
         member _.HashCodeToHashCode = env.EHashCodeToHashCode.Value
         member _.ComparerDefault elem = recipes.ComparerDefault elem

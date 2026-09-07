@@ -2,6 +2,7 @@ namespace XParsec.FSharp.SemanticAnalysis.Passes
 
 open System.Collections.Generic
 open System.Collections.Immutable
+open Vesper
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
@@ -40,11 +41,11 @@ module internal UnificationInferControlFlow =
         : EnumProbe voption =
         let moveNext =
             enumShape.Members
-            |> EqArray.tryFind (fun m -> m.Name = "MoveNext" && not m.IsStatic && not m.IsValueMember)
+            |> Block.tryFind (fun m -> m.Name = "MoveNext" && not m.IsStatic && not m.IsValueMember)
 
         let current =
             enumShape.Members
-            |> EqArray.tryFind (fun m -> m.Name = "Current" && not m.IsStatic && m.IsValueMember)
+            |> Block.tryFind (fun m -> m.Name = "Current" && not m.IsStatic && m.IsValueMember)
 
         match moveNext, current with
         | ValueSome mn, ValueSome cur ->
@@ -92,7 +93,7 @@ module internal UnificationInferControlFlow =
     let private probeLocalEnumerator
         (ctx: PassContext)
         (enumInfo: ClassTypeInfo)
-        (enumArgs: EqArray<SemType>)
+        (enumArgs: Block<SemType>)
         : EnumProbe voption =
         let inst (t: SemType) =
             zonk ctx.Store (instantiateMember ctx.Store (enumInfo.TypeParams, enumArgs) t)
@@ -140,7 +141,7 @@ module internal UnificationInferControlFlow =
     let private (|CoercedToLocalInterface|_|)
         (ctx: PassContext)
         (c: SemanticConstraint)
-        : (TypeKey * EqArray<SemType>) voption =
+        : (TypeKey * Block<SemType>) voption =
         match c.Kind with
         | SemanticConstraintKind.Coercion target ->
             match resolveStep ctx.Store target with
@@ -156,7 +157,7 @@ module internal UnificationInferControlFlow =
     let private tryPickCoercedInterface
         (ctx: PassContext)
         (tv: TyVarId)
-        (pick: TypeKey -> EqArray<SemType> -> 'a voption)
+        (pick: TypeKey -> Block<SemType> -> 'a voption)
         : 'a voption =
         let rec scan (cs: SemanticConstraint list) =
             match cs with
@@ -299,7 +300,7 @@ module internal UnificationInferControlFlow =
         List.foldBack (fun a r -> TyFun(a, r)) argTypes bodyTy
 
     let inferTuple (infer: Infer) (ctx: PassContext) (items: ImmutableArray<Expr<SyntaxToken>>) : SemType =
-        TyTuple(EqArray.ofSeq (seq { for e in items -> infer ctx e }))
+        TyTuple(Block.ofSeq (seq { for e in items -> infer ctx e }))
 
     let inferSequential
         (infer: Infer)
@@ -359,7 +360,7 @@ module internal UnificationInferControlFlow =
         : (SemType * ForInEnumerator) voption =
         match
             shape.Members
-            |> EqArray.tryFind (fun m -> m.Name = "GetEnumerator" && not m.IsStatic && not m.IsValueMember)
+            |> Block.tryFind (fun m -> m.Name = "GetEnumerator" && not m.IsStatic && not m.IsValueMember)
         with
         | ValueNone -> ValueNone
         | ValueSome ge ->
@@ -393,7 +394,7 @@ module internal UnificationInferControlFlow =
     let tryLocalDuckTypedEnumerator
         (ctx: PassContext)
         (nameKey: TypeKey)
-        (args: EqArray<SemType>)
+        (args: Block<SemType>)
         : (SemType * ForInEnumerator) voption =
         match TypeRegistry.tryClassByKey ctx.Types nameKey with
         | ValueSome info ->
@@ -454,7 +455,7 @@ module internal UnificationInferControlFlow =
     let tryLocalInterfaceEnumeratorOn
         (ctx: PassContext)
         (host: IInterfaceImplHost)
-        (args: EqArray<SemType>)
+        (args: Block<SemType>)
         : (SemType * ForInEnumerator) voption =
         let picked =
             host.InterfaceImpls
@@ -478,7 +479,7 @@ module internal UnificationInferControlFlow =
     let tryLocalInterfaceEnumerator
         (ctx: PassContext)
         (nameKey: TypeKey)
-        (args: EqArray<SemType>)
+        (args: Block<SemType>)
         : (SemType * ForInEnumerator) voption =
         match TypeRegistry.tryClassByKey ctx.Types nameKey with
         | ValueSome info -> tryLocalInterfaceEnumeratorOn ctx info args
@@ -725,7 +726,7 @@ module internal UnificationInferControlFlow =
         // Pin the scrutinee to the primitive `exn` placeholder: a fresh TyVar would let a
         // wildcard or variable arm pattern carry an unresolved TyVar into the TAST.
         let resultTy = infer ctx body
-        let exnTy = TyConst(RuntimeNames.exnKey, EqArray.empty)
+        let exnTy = TyConst(RuntimeNames.exnKey, Block.empty)
         inferRules infer ctx tok exnTy resultTy rules
         resultTy
 

@@ -1,5 +1,6 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.TyparListTests
 
+open Vesper
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 
@@ -26,12 +27,12 @@ let tests =
                 let typars: TyparList = TyparList.ofSeq written
 
                 Expect.equal
-                    (EqArray.toList (TyparList.kinds typars))
+                    (Block.toList (TyparList.kinds typars))
                     [ for (_, k) in written -> k ]
                     "kinds read back in source order"
 
                 Expect.equal typars.Length written.Length "arity counts both kinds"
-                Expect.equal (EqArray.toList typars.Names) [ for (n, _) in written -> n ] "names in source order"
+                Expect.equal (Block.toList typars.Names) [ for (n, _) in written -> n ] "names in source order"
             }
 
             test "Order indexes Types and Measures apart" {
@@ -39,14 +40,14 @@ let tests =
                     TyparList.ofSeq [ "'u", TyparKind.Measure; "'a", TyparKind.Type; "'v", TyparKind.Measure ]
 
                 Expect.equal
-                    (EqArray.toList typars.Order)
+                    (Block.toList typars.Order)
                     [ TyparSlot.Measure 0; TyparSlot.Type 0; TyparSlot.Measure 1 ]
                     "each slot is the next index of its own kind"
 
-                Expect.equal (EqArray.toList typars.Types) [ unconstrained "'a" ] "the type-kinded parameters"
+                Expect.equal (Block.toList typars.Types) [ unconstrained "'a" ] "the type-kinded parameters"
 
                 Expect.equal
-                    (EqArray.toList typars.Measures)
+                    (Block.toList typars.Measures)
                     [
                         {
                             MeasureTypar.Name = TyparName.Written "'u"
@@ -81,7 +82,7 @@ let tests =
                 let typars: TyparList = TyparList.positional 2
 
                 Expect.equal
-                    (EqArray.toList typars.Types)
+                    (Block.toList typars.Types)
                     [
                         {
                             Name = TyparName.Positional 0

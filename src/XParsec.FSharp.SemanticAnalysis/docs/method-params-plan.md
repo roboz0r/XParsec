@@ -55,7 +55,7 @@ a stage that discards an intermediate and makes consumers re-derive it: the disa
 has to be fixed by passing the intermediate, which is what should have happened when it was
 written.
 
-The `if m.ParamNames.Length = elems.Length then … else EqArray.empty` guard in the sole-tuple
+The `if m.ParamNames.Length = elems.Length then … else Block.empty` guard in the sole-tuple
 branch is that disagreement being detected in the one shape where it was anticipated, and
 papered over by dropping every name. The general branch has no guard at all.
 
@@ -106,7 +106,7 @@ only signatures that do not follow it.
 # Provenance
 
 Pre-existing. The prior `abstractMethodParamTys` had the identical three branches; `1123c6cb`
-layered names onto an already-misaligned slot set and added the `EqArray.empty` fallback. The
+layered names onto an already-misaligned slot set and added the `Block.empty` fallback. The
 arity bug has been latent since the abstract-slot emitter was written.
 
 CLR-only: `Codegen.Js` does not read `TAbstractMethod`. The fix nevertheless belongs partly in
@@ -133,7 +133,7 @@ re-deriving arity from `FrozenType`. Nothing in the parser needs to change.
 # Plan
 
 **Step 1 — carry the source groups on the abstract slot.**
-Replace `TAbstractMethodG.ParamNames: EqArray<string voption>` with a per-group structure
+Replace `TAbstractMethodG.ParamNames: Block<string voption>` with a per-group structure
 carrying, for each source group, its kind (unit / simple / tuple) and the spelled name of each
 argument in it. `ArgGroupG<'ty, 'pat, 'id>` is already generic over the pattern and id
 parameters that a signature has no values for, so a signature-side instantiation is the
@@ -156,7 +156,7 @@ Rewrite `abstractMethodParams` to expand the carried groups into slots, returnin
 is the type that already fixed the same class of bug on the static-function side — see **A1**
 in `codegen-clr-followups-plan.md`, where a source-group index was used against the flat
 parameter list and the fix was to hand each group its own flat slots. `uncurry m.Signature`
-then supplies types only, and the arity agrees by construction: the `EqArray.empty` fallback
+then supplies types only, and the arity agrees by construction: the `Block.empty` fallback
 and the `ParamNames.Length = elems.Length` guard both disappear with nothing to replace them.
 
 A `TMemberKind.Accessor` slot in the `Setter` role carries one trailing slot beyond what its
@@ -193,7 +193,7 @@ as well as elaboration.
 
 **A19** in `codegen-clr-followups-plan.md` records that `TypeMemberInfo.ArgNames` is
 meaningful for an abstract slot only, two of three `addMember` call sites passing
-`EqArray.empty`, and proposes registering an abstract slot through its own record. This plan
+`Block.empty`, and proposes registering an abstract slot through its own record. This plan
 subsumes it: Step 1 changes that field's type and its producer, so the split A19 asks for is
 the natural place to land it. Do them together; strike A19 when this lands.
 

@@ -1,5 +1,6 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.ScopeContentsTests
 
+open Vesper
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.AssemblyFiles
@@ -149,7 +150,7 @@ let private expectBagSpellings (view: IExternalSymbolProvider) : unit =
     match bySource with
     | ModuleContainer.InModule m ->
         match view.Scope.DeclarationsOf m with
-        | EqOne declaration ->
+        | BlockOne declaration ->
             Expect.equal
                 declaration.Facts.CompiledName
                 (ValueSome(CompiledName "BagModule"))
@@ -159,7 +160,7 @@ let private expectBagSpellings (view: IExternalSymbolProvider) : unit =
 
     Expect.equal
         (view.Scope.DeclarationsOf(SymbolKeyOps.moduleInNamespace "Test.A" "Absent"))
-        EqArray.empty
+        Block.empty
         "a module this surface never published states nothing, rather than defaulting to its source name"
 
 // --- Composition ------------------------------------------------------------------------
@@ -167,7 +168,7 @@ let private expectBagSpellings (view: IExternalSymbolProvider) : unit =
 let private caseOf (unionKey: TypeKey) (name: string) : ExternalUnionCase =
     {
         UnionKey = unionKey
-        Case = ExternalCaseShape.create (name, EqArray.empty)
+        Case = ExternalCaseShape.create (name, Block.empty)
         IsRequireQualifiedAccess = false
     }
 
@@ -179,15 +180,15 @@ let private scopeOfCases (cases: ExternalUnionCase list) : IScopeContents =
         member _.TryValue _ = ValueNone
 
         member _.UnionCasesNamed(_, name) =
-            EqArray.ofList
+            Block.ofList
                 [
                     for c in cases do
                         if c.Case.Name = name then
                             c
                 ]
 
-        member _.TypesNamed(_, _) = EqArray.empty
-        member _.DeclarationsOf _ = EqArray.empty
+        member _.TypesNamed(_, _) = Block.empty
+        member _.DeclarationsOf _ = Block.empty
     }
 
 let private root = ModuleContainer.InNamespace NamespaceKey.Global
@@ -237,7 +238,7 @@ let tests =
                         let n = containerOrFail scope "Test.A.N"
 
                         match scope.UnionCasesNamed(m, "Red"), scope.UnionCasesNamed(n, "Red") with
-                        | EqOne inM, EqOne inN ->
+                        | BlockOne inM, BlockOne inN ->
                             Expect.equal inM.UnionKey.Name "Color" "M's Red is Color's"
                             Expect.equal inN.UnionKey.Name "Light" "N's Red is Light's"
                             Expect.isFalse inM.IsRequireQualifiedAccess "Color is not RQA"
@@ -251,7 +252,7 @@ let tests =
                         let m = containerOrFail scope "Test.A.M"
 
                         match scope.UnionCasesNamed(m, "Red") with
-                        | EqOne uc ->
+                        | BlockOne uc ->
                             Expect.isTrue uc.IsRequireQualifiedAccess "the flag is carried on the resolved case"
                         | other -> failtestf "Red resolves through its module; the report is the caller's: %A" other
                     }
@@ -296,7 +297,7 @@ let tests =
                         | ValueNone -> failtest "a [<CompiledName>] binding publishes its source spelling"
 
                         match view.Scope.TypesNamed(containerOrFail view.Scope "Test.A.Bag", "Tag") with
-                        | EqOne(struct (key, _)) ->
+                        | BlockOne(struct (key, _)) ->
                             Expect.equal
                                 (SymbolKeyOps.typeMetaName key)
                                 "Test.A.Bag+Tag"
@@ -310,8 +311,8 @@ let tests =
                         match containerOrFail scope "Test.Ar.M" with
                         | ModuleContainer.InModule m ->
                             Expect.equal
-                                (scope.DeclarationsOf m |> EqArray.map (fun d -> d.Facts))
-                                (EqArray.singleton ModuleFacts.plain)
+                                (scope.DeclarationsOf m |> Block.map (fun d -> d.Facts))
+                                (Block.singleton ModuleFacts.plain)
                                 "a published module carrying no suffix is a declaration, not an absence"
                         | ModuleContainer.InNamespace _ -> failtest "Test.Ar.M is a module"
                     }
@@ -384,8 +385,8 @@ module P =
                         let declarations = scope.DeclarationsOf dual
 
                         Expect.equal
-                            (declarations |> EqArray.map (fun d -> d.Home))
-                            (EqArray.ofSeq
+                            (declarations |> Block.map (fun d -> d.Home))
+                            (Block.ofSeq
                                 [
                                     SymbolHome.InAssembly(AssemblyName "PlainAsm")
                                     SymbolHome.InAssembly(AssemblyName "RqaAsm")
@@ -456,7 +457,7 @@ module P =
                             ScopeContents.composite
                                 [ scopeOfCases [ shared ]; scopeOfCases [ shared; caseOf light "Red" ] ]
 
-                        match EqArray.toArray (composed.UnionCasesNamed(root, "Red")) with
+                        match Block.toArray (composed.UnionCasesNamed(root, "Red")) with
                         | [| a; b |] ->
                             Expect.equal a.UnionKey color "the shared case, once"
                             Expect.equal b.UnionKey light "the second union's own claim"

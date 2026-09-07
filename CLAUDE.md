@@ -48,7 +48,7 @@ Where comments and code disagree confirm with the user, the expected semantics.
 - "Parse, don't validate". Use types to encode facts about values. Score the change by the runtime checks it deletes, not the sites it touches.
 - A stage that discards an intermediate and makes consumers re-derive it is wrong. Inevitably the two derivations disagree, and the disagreement then needs to be fixed by passing the intermediate, which should have happened when it was written.
 - `list` has two uses: a collection always iterated from 0, and an immutable stack. Reaching for `@`, `List.rev` beside a consumer, `List.item` or `.Length` in a loop means the structure is wrong, so change the structure rather than the call site.
-  - Use `EqArray` or `EqSet` for array-backed immutable collections with structural equality.
+  - Use `Block` or `EqSet` for array-backed immutable collections with structural equality.
 - `[<Struct>]` only where object creation dominates passing. A value threaded through a provider chain stays a reference record.
 - Swap a widely-used underlying type additively, behind a central alias, and delete the old one in a separate change.
 - Excise a wart documented as harmless. The cleanup usually surfaces an invariant the compiler can enforce, such as a field that proves to be write-once and can lose its setter.

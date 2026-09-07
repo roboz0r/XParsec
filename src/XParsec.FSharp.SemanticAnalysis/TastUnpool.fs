@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+open Vesper
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 
@@ -16,7 +17,7 @@ module TastUnpool =
         (g: LetGroupShape)
         (ps: TPatG<FrozenType, Anchor, 'id>[])
         (es: TExprG<FrozenType, Anchor, 'id>[])
-        : EqArray<TLetMemberG<FrozenType, Anchor, 'id>> =
+        : Block<TLetMemberG<FrozenType, Anchor, 'id>> =
         g.Members
         |> Array.mapi (fun i m ->
             {
@@ -25,7 +26,7 @@ module TastUnpool =
                 Tok = m.Tok
             }
         )
-        |> EqArray.ofArray
+        |> Block.ofArray
 
     /// Re-author one expression node from its columns and its ALREADY-REBUILT child
     /// subtrees, drawn in the order the pooling walk enumerated them. `tok` goes back
@@ -43,7 +44,7 @@ module TastUnpool =
         let nextP = ExprPayload.cursor ps 0
 
         let buildArms (guardPresent: bool[]) =
-            ExprPayload.arms guardPresent nextP nextE |> EqArray.ofArray
+            ExprPayload.arms guardPresent nextP nextE |> Block.ofArray
 
         match payload with
         | ExprPayload.Var ->
@@ -90,9 +91,9 @@ module TastUnpool =
             let thenExpr = nextE ()
             let elseExpr = nextE ()
             TExprG.IfThenElse(cond, thenExpr, elseExpr, ty, tok)
-        | ExprPayload.Tuple -> TExprG.Tuple(EqArray.ofArray es, ty, tok)
-        | ExprPayload.ArrayLit -> TExprG.ArrayLit(EqArray.ofArray es, ty, tok)
-        | ExprPayload.Sequential -> TExprG.Sequential(EqArray.ofArray es, ty, tok)
+        | ExprPayload.Tuple -> TExprG.Tuple(Block.ofArray es, ty, tok)
+        | ExprPayload.ArrayLit -> TExprG.ArrayLit(Block.ofArray es, ty, tok)
+        | ExprPayload.Sequential -> TExprG.Sequential(Block.ofArray es, ty, tok)
         | ExprPayload.While ->
             let cond = nextE ()
             let body = nextE ()
@@ -128,14 +129,14 @@ module TastUnpool =
             TExprG.Range(startExpr, step', stopExpr, ty, tok)
         | ExprPayload.RecordCons fieldNames ->
             let fields' =
-                fieldNames |> Array.map (fun name -> (name, nextE ())) |> EqArray.ofArray
+                fieldNames |> Array.map (fun name -> (name, nextE ())) |> Block.ofArray
 
             TExprG.RecordCons(fields', ty, tok)
         | ExprPayload.RecordClone overrideNames ->
             let source = nextE ()
 
             let overrides' =
-                overrideNames |> Array.map (fun name -> (name, nextE ())) |> EqArray.ofArray
+                overrideNames |> Array.map (fun name -> (name, nextE ())) |> Block.ofArray
 
             TExprG.RecordClone(source, overrides', ty, tok)
         | ExprPayload.FieldGet fieldName ->
@@ -145,14 +146,14 @@ module TastUnpool =
             let objArg = nextE ()
             let value = nextE ()
             TExprG.FieldSet(objArg, fieldName, value, ty, tok)
-        | ExprPayload.UnionCons caseName -> TExprG.UnionCons(caseName, EqArray.ofArray es, ty, tok)
-        | ExprPayload.New p -> TExprG.New(p.ClassName, p.Key, EqArray.ofArray es, ty, tok)
+        | ExprPayload.UnionCons caseName -> TExprG.UnionCons(caseName, Block.ofArray es, ty, tok)
+        | ExprPayload.New p -> TExprG.New(p.ClassName, p.Key, Block.ofArray es, ty, tok)
         // Positional, not a cursor draw: the children are the object argument then exactly the args.
-        | ExprPayload.MethodCall p -> TExprG.MethodCall(es.[0], p.Key, p.Via, EqArray.ofArray es.[1..], ty, tok)
+        | ExprPayload.MethodCall p -> TExprG.MethodCall(es.[0], p.Key, p.Via, Block.ofArray es.[1..], ty, tok)
         | ExprPayload.PropertyGet p ->
             let objArg = nextE ()
             TExprG.PropertyGet(objArg, p.Key, p.Via, ty, tok)
-        | ExprPayload.StaticMethodCall p -> TExprG.StaticMethodCall(p.Key, p.DeclArgs, EqArray.ofArray es, ty, tok)
+        | ExprPayload.StaticMethodCall p -> TExprG.StaticMethodCall(p.Key, p.DeclArgs, Block.ofArray es, ty, tok)
         | ExprPayload.StaticFieldSet p ->
             let value = nextE ()
             TExprG.StaticFieldSet(p.DeclKey, p.FieldName, value, ty, tok)
@@ -161,9 +162,9 @@ module TastUnpool =
             TExprG.ExternalMember(objArg', p.Key, p.MemberName, p.Storage, p.ArgGroupWidths, ty, tok)
         | ExprPayload.Format p ->
             let sink', segments' = ExprPayload.format p.Sink p.Segments nextE
-            TExprG.Format(sink', EqArray.ofArray segments', ty, tok)
-        | ExprPayload.ILIntrinsic p -> TExprG.ILIntrinsic(p.OpCode, p.TypeOperand, EqArray.ofArray es, ty, tok)
-        | ExprPayload.InlineCall p -> TExprG.InlineCall(p.Spec, EqArray.ofArray es, p.Path, ty, tok)
+            TExprG.Format(sink', Block.ofArray segments', ty, tok)
+        | ExprPayload.ILIntrinsic p -> TExprG.ILIntrinsic(p.OpCode, p.TypeOperand, Block.ofArray es, ty, tok)
+        | ExprPayload.InlineCall p -> TExprG.InlineCall(p.Spec, Block.ofArray es, p.Path, ty, tok)
         | ExprPayload.StaticOptimization clauseConstraints ->
             let clauses' =
                 clauseConstraints
@@ -173,7 +174,7 @@ module TastUnpool =
                         Body = nextE ()
                     }
                 )
-                |> EqArray.ofArray
+                |> Block.ofArray
 
             let defaultExpr = nextE ()
             TExprG.StaticOptimization(clauses', defaultExpr, ty, tok)
@@ -183,7 +184,7 @@ module TastUnpool =
         | ExprPayload.TypeTest testTy ->
             let source = nextE ()
             TExprG.TypeTest(source, testTy, ty, tok)
-        | ExprPayload.TraitCall p -> TExprG.TraitCall(p.SupportTys, p.MemberName, EqArray.ofArray es, ty, tok)
+        | ExprPayload.TraitCall p -> TExprG.TraitCall(p.SupportTys, p.MemberName, Block.ofArray es, ty, tok)
 
     let substitutePat
         (widenBoundVar: BoundVarId -> 'id)
@@ -198,15 +199,15 @@ module TastUnpool =
         | PatPayload.Null -> TPatG.Null(ty, tok)
         | PatPayload.Const value -> TPatG.Const(value, ty, tok)
         | PatPayload.EnumCase p -> TPatG.EnumCase(p.EnumKey, p.CaseName, ty, tok)
-        | PatPayload.Tuple -> TPatG.Tuple(EqArray.ofArray ps, ty, tok)
-        | PatPayload.Or -> TPatG.Or(EqArray.ofArray ps, ty, tok)
-        | PatPayload.Union caseName -> TPatG.Union(caseName, EqArray.ofArray ps, ty, tok)
+        | PatPayload.Tuple -> TPatG.Tuple(Block.ofArray ps, ty, tok)
+        | PatPayload.Or -> TPatG.Or(Block.ofArray ps, ty, tok)
+        | PatPayload.Union caseName -> TPatG.Union(caseName, Block.ofArray ps, ty, tok)
         | PatPayload.TypeTestAs testTy -> TPatG.TypeTestAs(testTy, ps.[0], ty, tok)
         | PatPayload.Record fieldNames ->
             // Field names pair off with the sub-pat children in the order the pooling walk
             // enumerated the record's fields.
             let fields' =
-                Array.map2 (fun name sub -> (name, sub)) fieldNames ps |> EqArray.ofArray
+                Array.map2 (fun name sub -> (name, sub)) fieldNames ps |> Block.ofArray
 
             TPatG.Record(fields', ty, tok)
 
@@ -313,7 +314,7 @@ module TastUnpool =
 
             d
 
-        let decls = pools.Roots |> EqArray.map fromDecl
+        let decls = pools.Roots |> Block.map fromDecl
 
         let inlineBodies =
             pools.InlineTemplates
@@ -327,7 +328,7 @@ module TastUnpool =
                         }
                 }
             )
-            |> EqArray.ofArray
+            |> Block.ofArray
 
         // Likewise the specialization table, in SLOT ORDER: the `SpecializationId`s the
         // rebuilt tree carries index this array, so it must not be reordered or compacted,
@@ -342,7 +343,7 @@ module TastUnpool =
                     Value = fromExpr s.Value
                 }
             )
-            |> EqArray.ofArray
+            |> Block.ofArray
 
         // The lambda-keyed inverse FOLDS: every copy of a spliced inline body keeps one
         // definition-site token, hence one verdict.

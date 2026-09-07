@@ -1,6 +1,7 @@
 ﻿namespace XParsec.FSharp.Codegen.Clr
 
 open System.Reflection.Metadata
+open Vesper
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.SemanticAnalysis
 open EmitTypes
@@ -91,7 +92,7 @@ module EmitResolve =
     /// Pick the interface template a project-local class implements matching `ifaceKey`,
     /// instantiated at THIS object argument (`FTTypar(Type _, i) := classArgs.[i]`).
     /// Direct-declared interfaces only, not those of base classes or transitive interfaces.
-    let tryInterfaceWitness (env: EmitEnv) (nominal: FrozenType) (ifaceKey: TypeKey) : EqArray<FrozenType> voption =
+    let tryInterfaceWitness (env: EmitEnv) (nominal: FrozenType) (ifaceKey: TypeKey) : Block<FrozenType> voption =
         match nominal with
         | FTClass(classKey, classArgs) ->
             match env.Classes.TryGetValue classKey with
@@ -140,15 +141,14 @@ module EmitResolve =
     /// Pick the overload of `name` matching the call's argument types (ECMA-335 §I.10.2:
     /// overloading is by number + types of parameters). Candidates arrive own-members-first, so
     /// the FIRST equally-good match wins: `Set.Add` beats its same-signature interface impl.
-    let pickOverload (name: string) (candidates: EqArray<EmittedMember>) (argTys: FrozenType list) : EmittedMember =
+    let pickOverload (name: string) (candidates: Block<EmittedMember>) (argTys: FrozenType list) : EmittedMember =
         match candidates.Length with
         | 0 -> failwithf "Emit: no emitted member '%s'" name
         | 1 -> candidates.[0]
         | _ ->
             let arity = List.length argTys
 
-            let sameArity =
-                candidates |> EqArray.filter (fun m -> List.length m.ParamTys = arity)
+            let sameArity = candidates |> Block.filter (fun m -> List.length m.ParamTys = arity)
 
             match sameArity.Length with
             | 0 -> candidates.[0] // no candidate has this arity, so take the first and fail later
@@ -156,7 +156,7 @@ module EmitResolve =
             | _ ->
                 match
                     sameArity
-                    |> EqArray.tryFind (fun m -> List.forall2 paramAccepts m.ParamTys argTys)
+                    |> Block.tryFind (fun m -> List.forall2 paramAccepts m.ParamTys argTys)
                 with
                 | ValueSome m -> m
                 | ValueNone -> sameArity.[0]
@@ -179,7 +179,7 @@ module EmitResolve =
         let fromMembers
             (kindLabel: string)
             (typars: string list)
-            (members: System.Collections.Generic.Dictionary<string, EqArray<EmittedMember>>)
+            (members: System.Collections.Generic.Dictionary<string, Block<EmittedMember>>)
             =
             match members.TryGetValue name with
             | true, candidates ->
@@ -324,7 +324,7 @@ module EmitResolve =
     /// cannot be based on, `nativeint` included, so the bare load needs no width conversion.
     let enumIntLoad (v: TConstValue) : ILInstr * FrozenType =
         let k, bits = TEnumCases.integralValue v
-        EmitTypes.intConstLoad k bits, FTConst(RuntimeNames.intKindKey k, EqArray.empty)
+        EmitTypes.intConstLoad k bits, FTConst(RuntimeNames.intKindKey k, Block.empty)
 
     /// Push a string/mixed enum case literal as the wrapper `.ctor`'s single argument: a
     /// string case is `ldstr` (a ref, assignable to a `string` or `obj` field unboxed); a

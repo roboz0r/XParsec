@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.Codegen.Js
 
+open Vesper
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
@@ -30,7 +31,7 @@ module internal TsManifestMembers =
         : ExternalMember list =
         overloadArgSigs ctx mem
         |> List.map (fun (argSig, sg) ->
-            ExternalMember.ctor declKey (signatureOf ctx declTyparArity sg) (EqArray.ofList argSig) origin []
+            ExternalMember.ctor declKey (signatureOf ctx declTyparArity sg) (Block.ofList argSig) origin []
         )
 
     /// One `ExternalMember` per overload signature, each keyed by its own interned `argSig`
@@ -45,9 +46,7 @@ module internal TsManifestMembers =
         : ExternalMember list =
         overloadArgSigs ctx mem
         |> List.map (fun (argSig, sg) ->
-            { ExternalMember.OfKey(
-                  SymbolKeyOps.memberKeyOf declKey mem.Name (EqArray.ofList argSig) sg.TypeParams kind
-              ) with
+            { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey mem.Name (Block.ofList argSig) sg.TypeParams kind) with
                 IsStatic = mem.Static
                 Signature = signatureOf ctx declTyparArity sg
                 Origin = origin
@@ -75,7 +74,7 @@ module internal TsManifestMembers =
                 | None -> unitFrozen
 
             [
-                { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey mem.Name EqArray.empty 0 MemberKind.Property) with
+                { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey mem.Name Block.empty 0 MemberKind.Property) with
                     IsStatic = mem.Static
                     Storage = MemberStorage.Property
                     Signature = ExternalSignature.value (declTyparArity, 0, ret)
@@ -98,7 +97,7 @@ module internal TsManifestMembers =
     let private classifyHeritage
         (ctx: TranslateCtx)
         (heritage: Schema.TypeRef list)
-        : EqArray<FrozenNominal> * FrozenNominal voption =
+        : Block<FrozenNominal> * FrozenNominal voption =
         let interfaces = ResizeArray<FrozenNominal>()
         let mutable baseTy = ValueNone
 
@@ -126,9 +125,9 @@ module internal TsManifestMembers =
                     | None ->
                         SymbolKeyOps.qualifiedTypeKeyOf (SymbolKeyOps.arityName name ifaceArgs.Length) ifaceArgs.Length
 
-                interfaces.Add(NominalG.ofClass key (EqArray.ofArray ifaceArgs))
+                interfaces.Add(NominalG.ofClass key (Block.ofArray ifaceArgs))
 
-        EqArray.ofResizeArray interfaces, baseTy
+        Block.ofResizeArray interfaces, baseTy
 
     /// TypeScript escapes a `[Symbol.iterator]()` method as `__@iterator@<symbolId>`; the
     /// trailing id varies by lib (`@1`, `@112`), so match by prefix.
@@ -168,7 +167,7 @@ module internal TsManifestMembers =
             let mems =
                 members
                 |> List.collect (toExternalMembers ctx declared.Key origin tp isInterface)
-                |> EqArray.ofList
+                |> Block.ofList
 
             let heritageInterfaces, frozenBaseType = classifyHeritage ctx heritage
 
@@ -178,10 +177,10 @@ module internal TsManifestMembers =
             let frozenInterfaces =
                 match tryIteratorElement ctx members with
                 | ValueSome elem ->
-                    EqArray.ofSeq
+                    Block.ofSeq
                         [
                             yield! heritageInterfaces
-                            NominalG.ofClass RuntimeNames.seqKey (EqArray.singleton elem)
+                            NominalG.ofClass RuntimeNames.seqKey (Block.singleton elem)
                         ]
                 | ValueNone -> heritageInterfaces
 
@@ -253,7 +252,7 @@ module internal TsManifestMembers =
                         )
                     | None -> None
                 )
-                |> EqArray.ofList
+                |> Block.ofList
 
             let isString (c: ExternalEnumCaseShape) =
                 match c.Value with
@@ -261,8 +260,8 @@ module internal TsManifestMembers =
                 | ExternalEnumCaseValue.IntVal _ -> false
 
             let underlying =
-                if EqArray.forall isString cases then RuntimeNames.stringKey
-                elif EqArray.exists isString cases then RuntimeNames.objKey
+                if Block.forall isString cases then RuntimeNames.stringKey
+                elif Block.exists isString cases then RuntimeNames.objKey
                 else RuntimeNames.intKey
 
             Some(
@@ -314,7 +313,7 @@ module internal TsManifestMembers =
 
                     toExternalMembers ctx declared.Key origin 0 true mem
                 )
-                |> EqArray.ofList
+                |> Block.ofList
 
             declared,
             ExternalTypeShape.Class
@@ -322,7 +321,7 @@ module internal TsManifestMembers =
                     Typars = TyparList.empty
                     Commitment = ClassCommitment.Interface
                     Members = members
-                    FrozenInterfaces = EqArray.empty
+                    FrozenInterfaces = Block.empty
                     FrozenBaseType = ValueNone
                     Flags =
                         { ExternalClassFlags.Default with
@@ -427,7 +426,7 @@ module internal TsManifestMembers =
                         MemberKind.Method
                         mem
                 )
-                |> EqArray.ofList
+                |> Block.ofList
 
             declared,
             ExternalTypeShape.Class
@@ -435,7 +434,7 @@ module internal TsManifestMembers =
                     Typars = TyparList.empty
                     Commitment = ClassCommitment.Class
                     Members = members
-                    FrozenInterfaces = EqArray.empty
+                    FrozenInterfaces = Block.empty
                     FrozenBaseType = ValueNone
                     Flags =
                         { ExternalClassFlags.Default with

@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.Codegen.Js
 
+open Vesper
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
 
@@ -24,24 +25,24 @@ module JsNativeSymbols =
     /// `Error` is global, so its compiled / lookup name is the bare `Error`.
     let private errorTypeKey: TypeKey = SymbolKeyOps.typeKeyOf "" "Error"
 
-    let private errorTy: FrozenType = FTClass(errorTypeKey, EqArray.empty)
+    let private errorTy: FrozenType = FTClass(errorTypeKey, Block.empty)
 
-    let private stringTy: FrozenType = FTConst(RuntimeNames.stringKey, EqArray.empty)
+    let private stringTy: FrozenType = FTConst(RuntimeNames.stringKey, Block.empty)
 
-    let private unitTy: FrozenType = FTConst(RuntimeNames.unitKey, EqArray.empty)
+    let private unitTy: FrozenType = FTConst(RuntimeNames.unitKey, Block.empty)
 
     /// `new Error(message: string)`.
     let private errorCtor: ExternalMember =
         ExternalMember.ctor
             errorTypeKey
             (ExternalSignature.make (0, 0, stringTy, errorTy))
-            (EqArray.singleton stringTy)
+            (Block.singleton stringTy)
             errorOrigin
             []
 
     /// `Error.prototype.message : string`.
     let private errorMessage: ExternalMember =
-        { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf errorTypeKey "message" EqArray.empty 0 MemberKind.Property) with
+        { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf errorTypeKey "message" Block.empty 0 MemberKind.Property) with
             Storage = MemberStorage.Property
             Signature = ExternalSignature.value (0, 0, stringTy)
             Origin = errorOrigin
@@ -52,8 +53,8 @@ module JsNativeSymbols =
             {
                 Typars = TyparList.empty
                 Commitment = ClassCommitment.Class
-                Members = EqArray.ofSeq [ errorCtor; errorMessage ]
-                FrozenInterfaces = EqArray.empty
+                Members = Block.ofSeq [ errorCtor; errorMessage ]
+                FrozenInterfaces = Block.empty
                 FrozenBaseType = ValueNone
                 Flags = ExternalClassFlags.Default
                 Origin = errorOrigin

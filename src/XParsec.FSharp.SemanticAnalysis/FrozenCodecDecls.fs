@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+open Vesper
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 
@@ -75,13 +76,13 @@ module FrozenCodecDecls =
         | CallVia.Base -> w.Write 1uy
         | CallVia.Interface ifaceArgs ->
             w.Write 2uy
-            writeEqArrayWith w writeTypeRef ifaceArgs
+            writeBlockWith w writeTypeRef ifaceArgs
 
     let readCallVia (r: FrozenReader) : CallVia<FrozenType> =
         match r.ReadByte() with
         | 0uy -> CallVia.Self
         | 1uy -> CallVia.Base
-        | 2uy -> CallVia.Interface(EqArray.ofArray (readArrayWith r readTypeRef))
+        | 2uy -> CallVia.Interface(Block.ofArray (readArrayWith r readTypeRef))
         | b -> failwithf "FrozenCodec: unknown CallVia tag %d" b
 
     let writeStaticOptConstraint (w: FrozenWriter) (c: Frozen.TStaticOptConstraint) =
@@ -112,7 +113,7 @@ module FrozenCodecDecls =
         | ForInGetEnumG.ConstrainedInterface(iface, ifaceArgs) ->
             w.Write 2uy
             writeTypeKeyRef w iface
-            writeEqArrayWith w writeTypeRef ifaceArgs
+            writeBlockWith w writeTypeRef ifaceArgs
 
     let private readForInGetEnum (r: FrozenReader) : Frozen.ForInGetEnum =
         match r.ReadByte() with
@@ -120,7 +121,7 @@ module FrozenCodecDecls =
         | 1uy -> ForInGetEnumG.Local
         | 2uy ->
             let iface = readTypeKeyRef r
-            let ifaceArgs = EqArray.ofArray (readArrayWith r readTypeRef)
+            let ifaceArgs = Block.ofArray (readArrayWith r readTypeRef)
             ForInGetEnumG.ConstrainedInterface(iface, ifaceArgs)
         | b -> failwithf "FrozenCodec: unknown ForInGetEnum tag %d" b
 
@@ -134,7 +135,7 @@ module FrozenCodecDecls =
         | ForInEnumMembersG.ConstrainedInterface(iface, ifaceArgs) ->
             w.Write 2uy
             writeTypeKeyRef w iface
-            writeEqArrayWith w writeTypeRef ifaceArgs
+            writeBlockWith w writeTypeRef ifaceArgs
 
     let writeForInEnumerator (w: FrozenWriter) (e: Frozen.ForInEnumerator) =
         match e with
@@ -156,7 +157,7 @@ module FrozenCodecDecls =
         | 1uy -> ForInEnumMembersG.Local
         | 2uy ->
             let iface = readTypeKeyRef r
-            let ifaceArgs = EqArray.ofArray (readArrayWith r readTypeRef)
+            let ifaceArgs = Block.ofArray (readArrayWith r readTypeRef)
             ForInEnumMembersG.ConstrainedInterface(iface, ifaceArgs)
         | b -> failwithf "FrozenCodec: unknown ForInEnumMembers tag %d" b
 
@@ -207,7 +208,7 @@ module FrozenCodecDecls =
         writeVOptionWith w writeBoundVarSlot m.BaseKey
         writeTypeRef w m.ThisTy
 
-        writeEqArrayWith
+        writeBlockWith
             w
             (fun w (k, ty) ->
                 writeBoundVarSlot w k
@@ -225,13 +226,13 @@ module FrozenCodecDecls =
     // bodies. Shared by the class / union / record arms.
     let private writeInterfaces
         (w: FrozenWriter)
-        (interfaces: EqArray<FrozenType * EqArray<TTypeMemberG<FrozenType, BoundVarId, ExprPoolId>>>)
+        (interfaces: Block<FrozenType * Block<TTypeMemberG<FrozenType, BoundVarId, ExprPoolId>>>)
         =
-        writeEqArrayWith
+        writeBlockWith
             w
             (fun w (ty, mems) ->
                 writeTypeRef w ty
-                writeEqArrayWith w writeTypeMember mems
+                writeBlockWith w writeTypeMember mems
             )
             interfaces
 
@@ -247,7 +248,7 @@ module FrozenCodecDecls =
         let thisTy = readTypeRef r
 
         let parameters =
-            EqArray.ofArray (
+            Block.ofArray (
                 readArrayWith
                     r
                     (fun r ->
@@ -283,13 +284,13 @@ module FrozenCodecDecls =
 
     let private readInterfaces
         (r: FrozenReader)
-        : EqArray<FrozenType * EqArray<TTypeMemberG<FrozenType, BoundVarId, ExprPoolId>>> =
-        EqArray.ofArray (
+        : Block<FrozenType * Block<TTypeMemberG<FrozenType, BoundVarId, ExprPoolId>>> =
+        Block.ofArray (
             readArrayWith
                 r
                 (fun r ->
                     let ty = readTypeRef r
-                    let mems = EqArray.ofArray (readArrayWith r readTypeMember)
+                    let mems = Block.ofArray (readArrayWith r readTypeMember)
                     ty, mems
                 )
         )
@@ -354,7 +355,7 @@ module FrozenCodecDecls =
         { Field = field; Init = init }
 
     let private writeSecondaryCtor (w: FrozenWriter) (sc: TSecondaryCtorG<FrozenType, BoundVarId, ExprPoolId>) =
-        writeEqArrayWith
+        writeBlockWith
             w
             (fun w (k, ty) ->
                 writeBoundVarSlot w k
@@ -362,19 +363,19 @@ module FrozenCodecDecls =
             )
             sc.Params
 
-        writeEqArrayWith w writeCtorLet sc.Lets
+        writeBlockWith w writeCtorLet sc.Lets
 
         match sc.Body with
         | TSecondaryCtorBodyG.Chain primaryArgs ->
             w.Write 0uy
-            writeEqArrayWith w writeExprPoolId primaryArgs
+            writeBlockWith w writeExprPoolId primaryArgs
         | TSecondaryCtorBodyG.ExplicitFieldInit fieldInits ->
             w.Write 1uy
-            writeEqArrayWith w writeCtorFieldInit fieldInits
+            writeBlockWith w writeCtorFieldInit fieldInits
 
     let private readSecondaryCtor (r: FrozenReader) : TSecondaryCtorG<FrozenType, BoundVarId, ExprPoolId> =
         let parameters =
-            EqArray.ofArray (
+            Block.ofArray (
                 readArrayWith
                     r
                     (fun r ->
@@ -384,12 +385,12 @@ module FrozenCodecDecls =
                     )
             )
 
-        let lets = EqArray.ofArray (readArrayWith r readCtorLet)
+        let lets = Block.ofArray (readArrayWith r readCtorLet)
 
         let body =
             match r.ReadByte() with
-            | 0uy -> TSecondaryCtorBodyG.Chain(EqArray.ofArray (readArrayWith r readExprPoolId))
-            | 1uy -> TSecondaryCtorBodyG.ExplicitFieldInit(EqArray.ofArray (readArrayWith r readCtorFieldInit))
+            | 0uy -> TSecondaryCtorBodyG.Chain(Block.ofArray (readArrayWith r readExprPoolId))
+            | 1uy -> TSecondaryCtorBodyG.ExplicitFieldInit(Block.ofArray (readArrayWith r readCtorFieldInit))
             | b -> failwithf "FrozenCodec: unknown TSecondaryCtorBody tag %d" b
 
         {
@@ -399,7 +400,7 @@ module FrozenCodecDecls =
         }
 
     let private writeBaseCtorCall (w: FrozenWriter) (bc: TBaseCtorCallG<FrozenType, BoundVarId, ExprPoolId>) =
-        writeEqArrayWith
+        writeBlockWith
             w
             (fun w (k, ty) ->
                 writeBoundVarSlot w k
@@ -407,7 +408,7 @@ module FrozenCodecDecls =
             )
             bc.CtorParams
 
-        writeEqArrayWith w writeExprPoolId bc.Args
+        writeBlockWith w writeExprPoolId bc.Args
         writeVOptionWith w writeSymbolRef bc.ChosenCtor
 
     let private writeBase (w: FrozenWriter) (b: TBaseG<FrozenType, BoundVarId, ExprPoolId>) =
@@ -416,20 +417,20 @@ module FrozenCodecDecls =
          | BaseParentG.PrimitiveCanon _ -> w.Write 1uy)
 
         writeTypeKeyRef w b.Parent.Key
-        writeEqArrayWith w writeTypeRef b.Parent.Args
+        writeBlockWith w writeTypeRef b.Parent.Args
         writeVOptionWith w writeBaseCtorCall b.Ctor
 
     let private writeClass (w: FrozenWriter) (c: TClassG<FrozenType, BoundVarId, ExprPoolId>) =
-        writeEqArrayWith w writeRecordField c.Fields
-        writeEqArrayWith w writeRecordField c.CtorParams
-        writeEqArrayWith w writeTypeMember c.Members
+        writeBlockWith w writeRecordField c.Fields
+        writeBlockWith w writeRecordField c.CtorParams
+        writeBlockWith w writeTypeMember c.Members
         writeVOptionWith w writeBase c.Base
         writeInterfaces w c.Interfaces
         writeDeclaredFlags w c.Declared
-        writeEqArrayWith w writePreambleEntry c.StaticPreamble
-        writeEqArrayWith w writePreambleEntry c.InstancePreamble
+        writeBlockWith w writePreambleEntry c.StaticPreamble
+        writeBlockWith w writePreambleEntry c.InstancePreamble
         writeBoundVarSlot w c.ThisKey
-        writeEqArrayWith w writeSecondaryCtor c.SecondaryCtors
+        writeBlockWith w writeSecondaryCtor c.SecondaryCtors
         writeClassValueKind w c.ValueKind
         w.Write c.HasPrimaryCtor
 
@@ -437,17 +438,17 @@ module FrozenCodecDecls =
         match k with
         | TTypeKindG.Interface methods ->
             w.Write 0uy
-            writeEqArrayWith w writeAbstractMethod methods
+            writeBlockWith w writeAbstractMethod methods
         | TTypeKindG.Union u ->
             w.Write 1uy
-            writeEqArrayWith w writeUnionCase u.Cases
-            writeEqArrayWith w writeTypeMember u.Members
+            writeBlockWith w writeUnionCase u.Cases
+            writeBlockWith w writeTypeMember u.Members
             writeInterfaces w u.Interfaces
             writeNominalValueKind w u.ValueKind
         | TTypeKindG.Record rec' ->
             w.Write 2uy
-            writeEqArrayWith w writeRecordField rec'.Fields
-            writeEqArrayWith w writeTypeMember rec'.Members
+            writeBlockWith w writeRecordField rec'.Fields
+            writeBlockWith w writeTypeMember rec'.Members
             writeInterfaces w rec'.Interfaces
             writeNominalValueKind w rec'.ValueKind
         | TTypeKindG.Class c ->
@@ -455,7 +456,7 @@ module FrozenCodecDecls =
             writeClass w c
         | TTypeKindG.Enum cases ->
             w.Write 4uy
-            writeEqArrayWith w writeEnumCase cases
+            writeBlockWith w writeEnumCase cases
         | TTypeKindG.Abbrev body ->
             w.Write 5uy
             writeTypeRef w body
@@ -472,7 +473,7 @@ module FrozenCodecDecls =
 
     let private readBaseCtorCall (r: FrozenReader) : TBaseCtorCallG<FrozenType, BoundVarId, ExprPoolId> =
         let ctorParams =
-            EqArray.ofArray (
+            Block.ofArray (
                 readArrayWith
                     r
                     (fun r ->
@@ -482,7 +483,7 @@ module FrozenCodecDecls =
                     )
             )
 
-        let args = EqArray.ofArray (readArrayWith r readExprPoolId)
+        let args = Block.ofArray (readArrayWith r readExprPoolId)
         let chosenCtor = readVOptionWith r readSymbolRef
 
         {
@@ -494,7 +495,7 @@ module FrozenCodecDecls =
     let rec private readBase (r: FrozenReader) : TBaseG<FrozenType, BoundVarId, ExprPoolId> =
         let tag = r.ReadByte()
         let key = readTypeKeyRef r
-        let args = EqArray.ofArray (readArrayWith r readTypeRef)
+        let args = Block.ofArray (readArrayWith r readTypeRef)
 
         let parent =
             match tag with
@@ -507,16 +508,16 @@ module FrozenCodecDecls =
         { Parent = parent; Ctor = ctor }
 
     let private readClass (r: FrozenReader) : TClassG<FrozenType, BoundVarId, ExprPoolId> =
-        let fields = EqArray.ofArray (readArrayWith r readRecordField)
-        let ctorParams = EqArray.ofArray (readArrayWith r readRecordField)
-        let members = EqArray.ofArray (readArrayWith r readTypeMember)
+        let fields = Block.ofArray (readArrayWith r readRecordField)
+        let ctorParams = Block.ofArray (readArrayWith r readRecordField)
+        let members = Block.ofArray (readArrayWith r readTypeMember)
         let baseNode = readVOptionWith r readBase
         let interfaces = readInterfaces r
         let declared = readDeclaredFlags r
-        let staticPreamble = EqArray.ofArray (readArrayWith r readPreambleEntry)
-        let instancePreamble = EqArray.ofArray (readArrayWith r readPreambleEntry)
+        let staticPreamble = Block.ofArray (readArrayWith r readPreambleEntry)
+        let instancePreamble = Block.ofArray (readArrayWith r readPreambleEntry)
         let thisKey = readBoundVarSlot r
-        let secondaryCtors = EqArray.ofArray (readArrayWith r readSecondaryCtor)
+        let secondaryCtors = Block.ofArray (readArrayWith r readSecondaryCtor)
         let valueKind = readClassValueKind r
         let hasPrimaryCtor = r.ReadBoolean()
 
@@ -537,10 +538,10 @@ module FrozenCodecDecls =
 
     let private readTypeKind (r: FrozenReader) : TTypeKindG<FrozenType, Anchor, BoundVarId, ExprPoolId> =
         match r.ReadByte() with
-        | 0uy -> TTypeKindG.Interface(EqArray.ofArray (readArrayWith r readAbstractMethod))
+        | 0uy -> TTypeKindG.Interface(Block.ofArray (readArrayWith r readAbstractMethod))
         | 1uy ->
-            let cases = EqArray.ofArray (readArrayWith r readUnionCase)
-            let members = EqArray.ofArray (readArrayWith r readTypeMember)
+            let cases = Block.ofArray (readArrayWith r readUnionCase)
+            let members = Block.ofArray (readArrayWith r readTypeMember)
             let interfaces = readInterfaces r
             let valueKind = readNominalValueKind r
 
@@ -552,8 +553,8 @@ module FrozenCodecDecls =
                     ValueKind = valueKind
                 }
         | 2uy ->
-            let fields = EqArray.ofArray (readArrayWith r readRecordField)
-            let members = EqArray.ofArray (readArrayWith r readTypeMember)
+            let fields = Block.ofArray (readArrayWith r readRecordField)
+            let members = Block.ofArray (readArrayWith r readTypeMember)
             let interfaces = readInterfaces r
             let valueKind = readNominalValueKind r
 
@@ -565,7 +566,7 @@ module FrozenCodecDecls =
                     ValueKind = valueKind
                 }
         | 3uy -> TTypeKindG.Class(readClass r)
-        | 4uy -> TTypeKindG.Enum(EqArray.ofArray (readArrayWith r readEnumCase))
+        | 4uy -> TTypeKindG.Enum(Block.ofArray (readArrayWith r readEnumCase))
         | 5uy -> TTypeKindG.Abbrev(readTypeRef r)
         | 6uy -> TTypeKindG.Measure(readMeasureTerm r)
         | b -> failwithf "FrozenCodec: unknown TTypeKind tag %d" b
@@ -590,12 +591,12 @@ module FrozenCodecDecls =
     let writeInlineTemplate (w: FrozenWriter) (v: PooledInlineValue) =
         writeSymbolRef w v.Key
         writeDeclPoolId w v.Decl
-        writeEqArrayWith w writeParamAttrs v.ParamAttrs
+        writeBlockWith w writeParamAttrs v.ParamAttrs
 
     let readInlineTemplate (r: FrozenReader) : PooledInlineValue =
         let key = readSymbolRef r
         let decl = readDeclPoolId r
-        let paramAttrs = readEqArrayWith r readParamAttrs
+        let paramAttrs = readBlockWith r readParamAttrs
 
         {
             Key = key
@@ -608,14 +609,14 @@ module FrozenCodecDecls =
     /// INTERNED here, because the `ty` columns never carried them, and so is the origin.
     let writeSpecialization (w: FrozenWriter) (s: PooledSpecialization) =
         writeSymbolRef w s.Key.Template
-        writeEqArrayWith w writeTypeRef s.Key.TypeArgs
+        writeBlockWith w writeTypeRef s.Key.TypeArgs
         writeFilePathRef w s.Path
         writePatPoolId w s.Pat
         writeExprPoolId w s.Value
 
     let readSpecialization (r: FrozenReader) : PooledSpecialization =
         let template = readSymbolRef r
-        let typeArgs = EqArray.ofArray (readArrayWith r readTypeRef)
+        let typeArgs = Block.ofArray (readArrayWith r readTypeRef)
         let origin = readFilePathRef r
         let pat = readPatPoolId r
         let value = readExprPoolId r

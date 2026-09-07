@@ -56,7 +56,7 @@ and `Codegen.Clr.Tests/StructuralComparisonTests.fs` pins the emission.
 
 What the doc listed as gaps and is still absent: **`compare` / `min` / `max`** as intrinsics.
 
-`EqArray.fs` is deliberately `[<NoComparison>]` (its doc comment: "nothing
+`Block.fs` is deliberately `[<NoComparison>]` (its doc comment: "nothing
 orders SemType/TAST nodes") — so the compiler-internal array twin is *not* a
 template for `Block`'s ordering; that's a fresh, opt-in method (§6).
 
@@ -243,7 +243,7 @@ alongside its consumer rather than as a standalone surprise.
   while a fully-polymorphic `'T` arg keeps the fail-loud throw as residual. See
   §7c.
 - **Is `Block<'T>` comparable at all (§6)?** Only if there's a consumer (sorting
-  blocks, blocks as `Map` keys). Defer until one exists; `EqArray` chose
+  blocks, blocks as `Map` keys). Defer until one exists; `Block` chose
   `NoComparison` for the same reason.
 - **Build timing — DECIDED: with `Set`/`Map`.** Structural-comparison
   *generation* (§5) has no consumer until ordered collections arrive (`min`/`max`

@@ -1,5 +1,6 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.OpenResolutionTests
 
+open Vesper
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Passes
@@ -15,7 +16,7 @@ let private provider: IExternalSymbolProvider =
     let moduleB = ModuleContainer.InModule(SymbolKeyOps.moduleInNamespace "A" "B")
 
     let mono name =
-        ExternalSymbols.monoFrozen moduleB name (FTConst(RuntimeNames.intKey, EqArray.empty))
+        ExternalSymbols.monoFrozen moduleB name (FTConst(RuntimeNames.intKey, Block.empty))
 
     providerOfSurface (fun b ->
         PublishedSurfaceBuilder.addValue b (mono "thing")
@@ -26,12 +27,12 @@ let private provider: IExternalSymbolProvider =
         publishRqaUnion
             b
             (SymbolKeyOps.qualifiedTypeKeyOf "Tests.Color" 0)
-            [ ExternalCaseShape.create ("Red", EqArray.empty) ]
+            [ ExternalCaseShape.create ("Red", Block.empty) ]
 
         publishUnion
             b
             (SymbolKeyOps.qualifiedTypeKeyOf "Tests.Hue" 0)
-            [ ExternalCaseShape.create ("Blue", EqArray.empty) ]
+            [ ExternalCaseShape.create ("Blue", Block.empty) ]
     )
 
 /// The contract stack, extended with three modules of `namespace Ref`, of which `Ref.Rqa`
@@ -57,7 +58,7 @@ let private shadowedProvider: IExternalSymbolProvider =
             (ExternalSymbols.monoFrozen
                 (ModuleContainer.InModule(modul name))
                 valueName
-                (FTConst(RuntimeNames.intKey, EqArray.empty)))
+                (FTConst(RuntimeNames.intKey, Block.empty)))
 
     let published =
         providerOfSurface (fun b ->
@@ -95,7 +96,7 @@ let private autoOpenShadowProvider: IExternalSymbolProvider =
                 (ExternalSymbols.monoFrozen
                     (ModuleContainer.InModule path)
                     valueName
-                    (FTConst(RuntimeNames.intKey, EqArray.empty)))
+                    (FTConst(RuntimeNames.intKey, Block.empty)))
         )
 
     ExternalSymbolProviders.composite

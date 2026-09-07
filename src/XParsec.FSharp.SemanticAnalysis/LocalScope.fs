@@ -1,5 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+open Vesper
+
 /// The contents of one of THIS file's own modules or namespaces, as seen from a use site:
 /// the local half of the queries `IScopeContents` provides over a published surface. Every
 /// result honours file order, so a declaration below the use site is absent.
@@ -59,7 +61,7 @@ module LocalScope =
         match ctx.Types.CtorIndex.TryGetValue name with
         | true, cases ->
             cases
-            |> EqArray.tryFind (fun c ->
+            |> Block.tryFind (fun c ->
                 SymbolKeyOps.tryModuleContainerOf c.UnionKey.Container = ValueSome container
                 && (
                     match claimOf ctx c.UnionKey with

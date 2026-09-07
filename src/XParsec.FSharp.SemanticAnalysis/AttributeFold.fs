@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
 open System.Collections.Immutable
+open Vesper
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open NameResolutionContainers
@@ -121,7 +122,7 @@ module internal AttributeFold =
             | ValueSome claim ->
                 match TypeRegistry.tryEnumByKey ctx.Types claim.Key with
                 | ValueSome info ->
-                    match info.Cases |> EqArray.tryFind (fun c -> c.Name = caseName) with
+                    match info.Cases |> Block.tryFind (fun c -> c.Name = caseName) with
                     | ValueSome case -> case.Value |> ValueOption.map (ofLiteral claim.Key)
                     | ValueNone -> ValueNone
                 | ValueNone -> ValueNone
@@ -133,7 +134,7 @@ module internal AttributeFold =
                     (fun key shape ->
                         match shape with
                         | ExternalTypeShape.Enum { Cases = cases } ->
-                            match cases |> EqArray.tryFind (fun c -> c.Name = caseName) with
+                            match cases |> Block.tryFind (fun c -> c.Name = caseName) with
                             | ValueSome case ->
                                 match case.Value with
                                 | ExternalEnumCaseValue.IntVal(kind, v) ->
@@ -218,11 +219,11 @@ module internal AttributeFold =
 
         match
             declAttrs
-            |> EqArray.tryFind (fun a -> a.Key = RuntimeNames.attributeUsageAttributeKey)
+            |> Block.tryFind (fun a -> a.Key = RuntimeNames.attributeUsageAttributeKey)
         with
         | ValueSome usage ->
             let firstFixed =
-                EqArray.toList usage.Args
+                Block.toList usage.Args
                 |> List.tryPick (fun a ->
                     match a.Name, a.Value with
                     | ValueNone, TConstValue.Integral(_, v) -> Some(int v)
@@ -273,7 +274,7 @@ module internal AttributeFold =
             ValueSome
                 {
                     Key = entry.Key
-                    Args = EqArray.ofSeq args
+                    Args = Block.ofSeq args
                 }
         else
             ValueNone
@@ -282,9 +283,9 @@ module internal AttributeFold =
     /// against `usedOn`. An attribute with a rejected argument was diagnosed and is absent.
     let build (ctx: PassContext) (usedOn: AttrTarget) (attrs: ResolvedAttributes) : TAttributes =
         match attrs.Entries with
-        | [] -> EqArray.empty
+        | [] -> Block.empty
         | entries ->
-            EqArray.ofList
+            Block.ofList
                 [
                     for entry in entries do
                         enforceTarget ctx usedOn entry

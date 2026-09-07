@@ -1,6 +1,7 @@
 module XParsec.FSharp.Codegen.Clr.Tests.ConformanceTyparsTests
 
 open System.IO
+open Vesper
 
 open Expecto
 
@@ -165,9 +166,9 @@ let tests =
                 Expect.isNonEmpty appendFormatted "formatter.fsi publishes AppendFormatted overloads"
 
                 Expect.isTrue
-                    (appendFormatted |> EqArray.forall (fun m -> m.Signature.MethodTyparArity = 1))
+                    (appendFormatted |> Block.forall (fun m -> m.Signature.MethodTyparArity = 1))
                     (sprintf
                         "every AppendFormatted overload carries its own typar (MethodTyparArity = 1); got %A"
-                        (appendFormatted |> EqArray.map (fun m -> m.Signature.MethodTyparArity)))
+                        (appendFormatted |> Block.map (fun m -> m.Signature.MethodTyparArity)))
             }
         ]

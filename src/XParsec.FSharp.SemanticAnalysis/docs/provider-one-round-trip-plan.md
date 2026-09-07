@@ -138,7 +138,7 @@ type ResolvedType =
 
 type IExternalSymbolStore =
     abstract TryResolveType: key: TypeKey -> ResolvedType voption
-    abstract TryLookupMembers: key: TypeKey * memberName: string -> EqArray<ExternalMember>
+    abstract TryLookupMembers: key: TypeKey * memberName: string -> Block<ExternalMember>
     abstract TryLookupMemberByKey: key: MemberKey -> ExternalMember voption
     abstract TryLookupByKey: key: BindingKey -> ExternalSymbol voption
     abstract IntrinsicTypeMap: IntrinsicTypeMap
@@ -261,7 +261,7 @@ declaring typars, and a caller opens it with the DERIVED type's args (`Subsume.f
 `Unification.fs:371`). The metadata source is correct today only because reflection substitutes
 eagerly: `commonOf st` (`:553`) runs on the CONSTRUCTED `t.BaseType`, so a `Base<string>` member
 already reads `string`. A `FrozenNominal` walk has no such substitution, which is exactly why
-`tryExternalInheritedMember` returns `struct (ExternalMember * EqArray<SemType>)` and
+`tryExternalInheritedMember` returns `struct (ExternalMember * Block<SemType>)` and
 `InferRecordAccess.fs:346` commits at the supertype's args instead.
 
 So `stack` substitutes `FTTypar(Declaring, i) := <the base nominal's args>`, composed down the
@@ -416,7 +416,7 @@ Scoped, and smaller than it looks because the flag is already threaded to the ri
 - **Emit the MethodImpl row.** `Metadata.fs` has no `AddMethodImplementation` wrapper; add one
   beside `AddInterfaceImplementation` (`:254`). The `decl` operand is a member ref on the
   interface, whose type handle `ClrProvider.fs:147` already resolves.
-- **Fix the bare-name index.** `NominalEmit.fs:55-79` builds `Dictionary<string, EqArray<EmittedMember>>`
+- **Fix the bare-name index.** `NominalEmit.fs:55-79` builds `Dictionary<string, Block<EmittedMember>>`
   keyed by `mem.Name` over `members @ flattenIfaceMembers …`, so an interface-impl member is
   reachable by BARE name off the class. Renaming only `MetaName` would leave the index finding it
   and minting a ref to a now-private method — invalid IL, and silent at emission. Key the explicit

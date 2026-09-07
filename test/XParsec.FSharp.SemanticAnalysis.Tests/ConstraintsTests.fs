@@ -1,5 +1,6 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.ConstraintsTests
 
+open Vesper
 open Expecto
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.SemanticAnalysis
@@ -53,7 +54,7 @@ let private importedEnum (qualifiedName: string) (kind: IntKind) : IExternalSymb
             }
             : ExternalEnumCaseShape
         )
-        |> EqArray.ofList
+        |> Block.ofList
 
     providerOfSurface (fun b ->
         PublishedSurfaceBuilder.addType

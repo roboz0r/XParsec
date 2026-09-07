@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.Codegen.Js
 
+open Vesper
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
@@ -351,7 +352,7 @@ module EmitJs =
             applyArgs
                 ctx
                 (Members.localFn ctx (TastAccessor.exprStaticMethodCallKey e) true false loc)
-                (EqArray.ofArray (TastAccessor.exprChildren e))
+                (Block.ofArray (TastAccessor.exprChildren e))
 
         // A member on an external type, reached WITHOUT being applied; the call forms fold at
         // the applied function off the same `MemberDispatch`. A STATIC member has no native
@@ -690,9 +691,9 @@ module EmitJs =
             | _ -> [ JsStatement.Return(buildExpr ctx e) ]
 
     /// `base(a)(b)…` — one unary `Call` per argument, in source order.
-    and private applyArgs (ctx: WalkCtx) (baseExpr: JsExpr) (args: EqArray<TastAccessor.ExprId>) : JsExpr =
+    and private applyArgs (ctx: WalkCtx) (baseExpr: JsExpr) (args: Block<TastAccessor.ExprId>) : JsExpr =
         args
-        |> EqArray.fold (fun acc a -> JsExpr.Call(acc, [ buildExpr ctx a ], ValueNone)) baseExpr
+        |> Block.fold (fun acc a -> JsExpr.Call(acc, [ buildExpr ctx a ], ValueNone)) baseExpr
 
     /// `objArg.<member>` for a call dispatched through a local interface slot. The member
     /// resolves to the attached method emitted on the object argument's class, under its JS name.

@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
 open System.Collections.Immutable
+open Vesper
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis.Passes
@@ -123,21 +124,21 @@ module internal ElaborateClassMembers =
     /// unsupported rather than silently lost.
     let translateSecondaryCtor (ctx: PassContext) (className: string) (sc: ClassSecondaryCtorInfo) : TSecondaryCtor =
         let parms =
-            EqArray.ofSeq (seq { for p in sc.Params -> (p.DeclSite.BoundVar, Unification.zonk ctx.Store p.Type) })
+            Block.ofSeq (seq { for p in sc.Params -> (p.DeclSite.BoundVar, Unification.zonk ctx.Store p.Type) })
 
-        let chainArgs (e: Expr<SyntaxToken>) : EqArray<TExpr> =
+        let chainArgs (e: Expr<SyntaxToken>) : Block<TExpr> =
             match e with
             | Expr.HighPrecedenceApp(argExpr = arg) -> peelOneArg (translateExpr ctx) arg
             | Expr.App(argExprs = args) -> peelCtorArgs (translateExpr ctx) args
-            | _ -> EqArray.empty
+            | _ -> Block.empty
 
         let lets = ResizeArray<TCtorLet>()
 
         // The explicit field-init form `new(args) = { f = e; … }` stores into declared
         // instance fields and has no primary-ctor chain; the LAST `LongIdent` segment
         // identifies the field.
-        let fieldInitsOf (inits: ImmutableArray<FieldInitializer<SyntaxToken>>) : EqArray<TCtorFieldInit> =
-            EqArray.ofSeq (
+        let fieldInitsOf (inits: ImmutableArray<FieldInitializer<SyntaxToken>>) : Block<TCtorFieldInit> =
+            Block.ofSeq (
                 seq {
                     for FieldInitializer(longIdent = li; expr = e) in inits do
                         if not li.Idents.IsEmpty then
@@ -192,6 +193,6 @@ module internal ElaborateClassMembers =
 
         {
             Params = parms
-            Lets = EqArray.ofSeq lets
+            Lets = Block.ofSeq lets
             Body = body
         }

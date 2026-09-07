@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis.Passes
 
 open System.Collections.Generic
+open Vesper
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 
@@ -307,7 +308,7 @@ module InlineSpecTable =
                     let spec, survivors = mintEntry o t
                     spec, [ for p in survivors -> p.Arg ]
 
-            TExpr.InlineCall(spec, EqArray.ofList args, o.Edge.Path, o.Edge.Ty, o.Edge.Tok)
+            TExpr.InlineCall(spec, Block.ofList args, o.Edge.Path, o.Edge.Ty, o.Edge.Tok)
 
         /// Materialise the table, and discharge the two facts about it that no single entry can
         /// see: acyclicity, and that a fused entry is named by exactly one edge. `declExprs` is

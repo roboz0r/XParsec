@@ -1,5 +1,6 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.MemoizeTests
 
+open Vesper
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 
@@ -31,14 +32,14 @@ type private CountingProvider(name: string) =
                         ExternalSymbols.monoFrozen
                             (SymbolKeyOps.inNamespace "")
                             n
-                            (FTConst(RuntimeNames.opaqueKey "tag", EqArray.empty))
+                            (FTConst(RuntimeNames.opaqueKey "tag", Block.empty))
                     )
                 else
                     ValueNone
 
-            member _.UnionCasesNamed(_, _) = EqArray.empty
-            member _.TypesNamed(_, _) = EqArray.empty
-            member _.DeclarationsOf _ = EqArray.empty
+            member _.UnionCasesNamed(_, _) = Block.empty
+            member _.TypesNamed(_, _) = Block.empty
+            member _.DeclarationsOf _ = Block.empty
         }
 
     member _.ValueHits = valueHits
@@ -51,7 +52,7 @@ type private CountingProvider(name: string) =
 
     interface IExternalSymbolResolver with
         member _.Scope = scope
-        member _.TryRecordsWithField _ = EqArray.empty
+        member _.TryRecordsWithField _ = Block.empty
         member _.ImplicitOpens = []
 
     interface IExternalSymbolStore with
@@ -65,8 +66,8 @@ type private CountingProvider(name: string) =
             else
                 ValueNone
 
-        member _.TryLookupAttributes _ = EqArray.empty
-        member _.TryLookupMembers(_, _) = EqArray.empty
+        member _.TryLookupAttributes _ = Block.empty
+        member _.TryLookupMembers(_, _) = Block.empty
 
         // A miss, but a counted one: at-most-once is observable on this channel too.
         member _.TryLookupMemberByKey(_: MemberKey) =
@@ -158,7 +159,7 @@ let tests =
                     SymbolKeyOps.memberKeyOf
                         (SymbolKeyOps.typeKeyOf "Tests" "Widget")
                         "Poke"
-                        EqArray.empty
+                        Block.empty
                         0
                         MemberKind.Method
 

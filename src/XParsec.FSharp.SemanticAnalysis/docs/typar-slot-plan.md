@@ -56,11 +56,11 @@ lands beside the old behind a central alias, readers swap, the old one is delete
 separate change.
 
 1a. **`Vesper.Block`.** LANDED. `BlockM<'T, [<Measure>] 'M>` in `src/Vesper.Block`, a struct
-   over `'T[]` carrying `EqArray`'s structural equality and comparison, with `Item`,
+   over `'T[]` carrying `Block`'s structural equality and comparison, with `Item`,
    `tryItem`, `init`, `mapi`, `iteri`, `tryFindIndex` and `Length` over `int<'M>`. The whole
    module is measure-generic, so there are no tagged counterparts and no untagged escape.
-   `Block<'T> = BlockM<'T, 1>` indexes by a plain `int`. `EqArray<'T>` is an alias for
-   `Block<'T>` and `module EqArray` delegates; both go with the last call site.
+   `Block<'T> = BlockM<'T, 1>` indexes by a plain `int`. `Block<'T>` is an alias for
+   `Block<'T>` and `module Block` delegates; both go with the last call site.
 
    The backing array is internal to the assembly: `AsSpan`, the indexer, enumeration and
    `Block.toArray` are the reads, and `Block.unsafeOfArray` is the one entry that does not
@@ -167,9 +167,9 @@ separate change.
 
 Before this document is deleted, each row is in code or in a test:
 
-- [x] `BlockM` carries the tag, `EqArray` is its alias, and `Vesper.Block.Tests` pins the
+- [x] `BlockM` carries the tag, `Block` is its alias, and `Vesper.Block.Tests` pins the
       uninitialised value, ownership, equality and comparison (step 1a).
-- [ ] `EqArray` and its module are deleted; every call site names `Block` (step 1c).
+- [ ] `Block` and its module are deleted; every call site names `Block` (step 1c).
 - [ ] `TyparList.Types`, `Measures` and `Order` accept only their own tag; no `int` indexes
       any of them (step 1).
 - [ ] `TyparList.ofKinded`'s index callback is gone; `publishedScheme` buckets by

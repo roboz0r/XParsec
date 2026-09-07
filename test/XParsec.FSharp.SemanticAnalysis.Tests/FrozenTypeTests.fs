@@ -1,5 +1,6 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.FrozenTypeTests
 
+open Vesper
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 
@@ -30,8 +31,8 @@ let private sampleFrozenTypes: FrozenType list =
     // Leaves: every nullary / typar / unknown form.
     let leaves =
         [
-            FTConst(RuntimeNames.intKey, EqArray.empty)
-            FTConst(RuntimeNames.stringKey, EqArray.empty)
+            FTConst(RuntimeNames.intKey, Block.empty)
+            FTConst(RuntimeNames.stringKey, Block.empty)
             d 0
             d 3
             m 0
@@ -41,20 +42,20 @@ let private sampleFrozenTypes: FrozenType list =
         ]
 
     // One level of every branching constructor over a couple of leaves; `branch2` then nests
-    // branches inside branches, so the recursive `EqArray.map` arms are exercised.
+    // branches inside branches, so the recursive `Block.map` arms are exercised.
     let branch1 =
         [
-            FTConst(RuntimeNames.arrayKey 1, EqArray.singleton (FTConst(RuntimeNames.intKey, EqArray.empty)))
-            FTFun(FTConst(RuntimeNames.intKey, EqArray.empty), m 0)
-            FTTuple(EqArray.ofList [ FTConst(RuntimeNames.intKey, EqArray.empty); d 0 ])
-            FTRecord(kRec, EqArray.singleton (d 0))
-            FTUnion(kUnion, EqArray.singleton (FTConst(RuntimeNames.stringKey, EqArray.empty)))
-            FTClass(kClass, EqArray.ofList [ d 0; d 1 ])
+            FTConst(RuntimeNames.arrayKey 1, Block.singleton (FTConst(RuntimeNames.intKey, Block.empty)))
+            FTFun(FTConst(RuntimeNames.intKey, Block.empty), m 0)
+            FTTuple(Block.ofList [ FTConst(RuntimeNames.intKey, Block.empty); d 0 ])
+            FTRecord(kRec, Block.singleton (d 0))
+            FTUnion(kUnion, Block.singleton (FTConst(RuntimeNames.stringKey, Block.empty)))
+            FTClass(kClass, Block.ofList [ d 0; d 1 ])
             // Anonymous union through the smart constructor: `EqSet` disjuncts, set identity.
             FrozenType.MkUnion
                 [
-                    FTConst(RuntimeNames.intKey, EqArray.empty)
-                    FTConst(RuntimeNames.stringKey, EqArray.empty)
+                    FTConst(RuntimeNames.intKey, Block.empty)
+                    FTConst(RuntimeNames.stringKey, Block.empty)
                 ]
             // A structural literal type (string + int), external-vocabulary only.
             FTLiteral(LiteralConst.String "GET")
@@ -67,10 +68,10 @@ let private sampleFrozenTypes: FrozenType list =
             FTIndexedAccess(d 0, m 0)
             FTConditional
                 {
-                    Check = FTConst(RuntimeNames.undefinedKey, EqArray.empty)
+                    Check = FTConst(RuntimeNames.undefinedKey, Block.empty)
                     Extends = FTIndexedAccess(d 0, m 0)
                     WhenTrue = m 0
-                    WhenFalse = FTConst(RuntimeNames.opaqueKey "never", EqArray.empty)
+                    WhenFalse = FTConst(RuntimeNames.opaqueKey "never", Block.empty)
                 }
         ]
 
@@ -79,26 +80,26 @@ let private sampleFrozenTypes: FrozenType list =
             // Curried fun nesting a tuple arg and a record result.
             FTFun(
                 FTTuple(
-                    EqArray.ofList
+                    Block.ofList
                         [
-                            FTConst(RuntimeNames.intKey, EqArray.empty)
-                            FTConst(RuntimeNames.boolKey, EqArray.empty)
+                            FTConst(RuntimeNames.intKey, Block.empty)
+                            FTConst(RuntimeNames.boolKey, Block.empty)
                         ]
                 ),
-                FTFun(FTRecord(kRec, EqArray.singleton (m 0)), FTConst(RuntimeNames.unitKey, EqArray.empty))
+                FTFun(FTRecord(kRec, Block.singleton (m 0)), FTConst(RuntimeNames.unitKey, Block.empty))
             )
             // Generic intrinsic carrying a union carrying a class.
             FTConst(
                 RuntimeNames.arrayKey 1,
-                EqArray.singleton (
+                Block.singleton (
                     FTUnion(
                         kUnion,
-                        EqArray.singleton (
+                        Block.singleton (
                             FTClass(
                                 kClass,
-                                EqArray.ofList
+                                Block.ofList
                                     [
-                                        FTConst(RuntimeNames.intKey, EqArray.empty)
+                                        FTConst(RuntimeNames.intKey, Block.empty)
                                         FTUnknown(UnknownReason.UndefinedName "X")
                                     ]
                             )
@@ -188,7 +189,7 @@ let tests =
 
             test "toFrozen rejects a TyVar nested inside an otherwise-frozen shape" {
                 let nested =
-                    TyFun(TyConst(RuntimeNames.intKey, EqArray.empty), TyVar(TypeStore().NewTypeVar()))
+                    TyFun(TyConst(RuntimeNames.intKey, Block.empty), TyVar(TypeStore().NewTypeVar()))
 
                 Expect.throws
                     (fun () -> toFrozen nested |> ignore)
@@ -201,7 +202,7 @@ let tests =
 // `FTConst("co"|"contra"|"inv", [])`, so the output records where the marker was reached.
 [<Tests>]
 let mapVariantTests =
-    let marker = FTConst(RuntimeNames.opaqueKey "M", EqArray.empty)
+    let marker = FTConst(RuntimeNames.opaqueKey "M", Block.empty)
 
     let witnessVariance (v: Variance) (t: FrozenType) : FrozenType voption =
         match t with
@@ -212,7 +213,7 @@ let mapVariantTests =
                 | Variance.Contra -> "contra"
                 | Variance.Inv -> "inv"
 
-            ValueSome(FTConst(RuntimeNames.opaqueKey name, EqArray.empty))
+            ValueSome(FTConst(RuntimeNames.opaqueKey name, Block.empty))
         | _ -> ValueNone
 
     /// Reused from the round-trip oracle: reaches every constructor.
@@ -222,7 +223,7 @@ let mapVariantTests =
         FrozenType.mapVariant witnessVariance v t
 
     let witness name =
-        FTConst(RuntimeNames.opaqueKey name, EqArray.empty)
+        FTConst(RuntimeNames.opaqueKey name, Block.empty)
 
     testList
         "FrozenType.mapVariant"
@@ -259,15 +260,15 @@ let mapVariantTests =
                 // (the inner `M`) flips again to co.
                 let t =
                     FTFun(
-                        FTFun(marker, FTConst(RuntimeNames.unitKey, EqArray.empty)),
-                        FTConst(RuntimeNames.unitKey, EqArray.empty)
+                        FTFun(marker, FTConst(RuntimeNames.unitKey, Block.empty)),
+                        FTConst(RuntimeNames.unitKey, Block.empty)
                     )
 
                 Expect.equal
                     (run Variance.Co t)
                     (FTFun(
-                        FTFun(witness "co", FTConst(RuntimeNames.unitKey, EqArray.empty)),
-                        FTConst(RuntimeNames.unitKey, EqArray.empty)
+                        FTFun(witness "co", FTConst(RuntimeNames.unitKey, Block.empty)),
+                        FTConst(RuntimeNames.unitKey, Block.empty)
                     ))
                     "domain-of-domain is co again"
             }
@@ -276,8 +277,8 @@ let mapVariantTests =
                 // `[]<M>` (a generic intrinsic) at every root variance → the arg is inv.
                 for root in [ Variance.Co; Variance.Contra; Variance.Inv ] do
                     Expect.equal
-                        (run root (FTConst(RuntimeNames.arrayKey 1, EqArray.singleton marker)))
-                        (FTConst(RuntimeNames.arrayKey 1, EqArray.singleton (witness "inv")))
+                        (run root (FTConst(RuntimeNames.arrayKey 1, Block.singleton marker)))
+                        (FTConst(RuntimeNames.arrayKey 1, Block.singleton (witness "inv")))
                         (sprintf "arg is inv under %A root" root)
             }
 
@@ -285,11 +286,11 @@ let mapVariantTests =
                 let kBox = SymbolKeyOps.qualifiedTypeKeyOf "Test.Box" 1
                 // `Box<M> -> M` under Co: the domain is contra, but `Box`'s ARG is a generic
                 // slot → inv wins over the contra it sits inside; the result `M` stays co.
-                let t = FTFun(FTClass(kBox, EqArray.singleton marker), marker)
+                let t = FTFun(FTClass(kBox, Block.singleton marker), marker)
 
                 Expect.equal
                     (run Variance.Co t)
-                    (FTFun(FTClass(kBox, EqArray.singleton (witness "inv")), witness "co"))
+                    (FTFun(FTClass(kBox, Block.singleton (witness "inv")), witness "co"))
                     "Box arg is inv, result is co"
             }
 
@@ -303,16 +304,16 @@ let mapVariantTests =
                         (fun a -> FTUnion(k, a))
                     ] do
                     Expect.equal
-                        (run Variance.Co (mk (EqArray.singleton marker)))
-                        (mk (EqArray.singleton (witness "inv")))
+                        (run Variance.Co (mk (Block.singleton marker)))
+                        (mk (Block.singleton (witness "inv")))
                         "nominal args are invariant"
             }
 
             test "structural operators carry the enclosing variance into their children" {
                 // Tuple under Contra → every element contra.
                 Expect.equal
-                    (run Variance.Contra (FTTuple(EqArray.ofList [ marker; marker ])))
-                    (FTTuple(EqArray.ofList [ witness "contra"; witness "contra" ]))
+                    (run Variance.Contra (FTTuple(Block.ofList [ marker; marker ])))
+                    (FTTuple(Block.ofList [ witness "contra"; witness "contra" ]))
                     "tuple carries contra"
 
                 // keyof / indexed / conditional under Co → children co.
@@ -346,18 +347,18 @@ let mapVariantTests =
             test "an anonymous union carries variance and re-canonicalises through MkUnion" {
                 // `M | int` under Contra: the marker becomes `contra`, and the set is
                 // rebuilt through `MkUnion` (structural arm via `mapChildren`).
-                let t = FrozenType.MkUnion [ marker; FTConst(RuntimeNames.intKey, EqArray.empty) ]
+                let t = FrozenType.MkUnion [ marker; FTConst(RuntimeNames.intKey, Block.empty) ]
 
                 Expect.equal
                     (run Variance.Contra t)
-                    (FrozenType.MkUnion [ witness "contra"; FTConst(RuntimeNames.intKey, EqArray.empty) ])
+                    (FrozenType.MkUnion [ witness "contra"; FTConst(RuntimeNames.intKey, Block.empty) ])
                     "union disjunct carried to contra"
             }
 
             test "childless leaves pass through untouched" {
                 for childless in
                     [
-                        FTConst(RuntimeNames.intKey, EqArray.empty)
+                        FTConst(RuntimeNames.intKey, Block.empty)
                         m 0
                         FTLiteral(LiteralConst.String "GET")
                         FTUnknown(UnknownReason.UndefinedName "X")
@@ -369,7 +370,7 @@ let mapVariantTests =
             test "tryReplace is consulted first at INTERIOR nodes and can own the whole subtree" {
                 // Firing on an FTFun replaces it wholesale — recursion never descends. Proves
                 // `tryReplace` gets first crack at every node, not just childless ones.
-                let sentinel = FTConst(RuntimeNames.opaqueKey "REPLACED", EqArray.empty)
+                let sentinel = FTConst(RuntimeNames.opaqueKey "REPLACED", Block.empty)
 
                 let replaceFun (_: Variance) (t: FrozenType) : FrozenType voption =
                     match t with
@@ -412,15 +413,15 @@ let iterChildren2FTOrTests =
                 let openOr =
                     FrozenType.MkUnion
                         [
-                            FTClass(kBox, EqArray.singleton (m 0))
-                            FTConst(RuntimeNames.intKey, EqArray.empty)
+                            FTClass(kBox, Block.singleton (m 0))
+                            FTConst(RuntimeNames.intKey, Block.empty)
                         ]
 
                 let instOr =
                     FrozenType.MkUnion
                         [
-                            FTConst(RuntimeNames.intKey, EqArray.empty)
-                            FTClass(kBox, EqArray.singleton (FTConst(RuntimeNames.stringKey, EqArray.empty)))
+                            FTConst(RuntimeNames.intKey, Block.empty)
+                            FTClass(kBox, Block.singleton (FTConst(RuntimeNames.stringKey, Block.empty)))
                         ]
 
                 let recovered = recoverMethodTypars openOr instOr
@@ -429,7 +430,7 @@ let iterChildren2FTOrTests =
 
                 Expect.equal
                     recovered.[0]
-                    (FTConst(RuntimeNames.stringKey, EqArray.empty))
+                    (FTConst(RuntimeNames.stringKey, Block.empty))
                     "!!0 recovers to `string` via tyctor-keyed pairing, not the positional `int`"
             }
 
@@ -441,15 +442,15 @@ let iterChildren2FTOrTests =
                 let openOr =
                     FrozenType.MkUnion
                         [
-                            FTConst(RuntimeNames.intKey, EqArray.empty)
-                            FTClass(kBox, EqArray.singleton (m 0))
+                            FTConst(RuntimeNames.intKey, Block.empty)
+                            FTClass(kBox, Block.singleton (m 0))
                         ]
 
                 let instOr =
                     FrozenType.MkUnion
                         [
-                            FTClass(kBox, EqArray.singleton (FTConst(RuntimeNames.stringKey, EqArray.empty)))
-                            FTClass(kBox, EqArray.singleton (FTConst(RuntimeNames.floatKey, EqArray.empty)))
+                            FTClass(kBox, Block.singleton (FTConst(RuntimeNames.stringKey, Block.empty)))
+                            FTClass(kBox, Block.singleton (FTConst(RuntimeNames.floatKey, Block.empty)))
                         ]
 
                 Expect.throws

@@ -120,19 +120,19 @@ name and no registry entry**. `TypeRef.Union → FTOr` already set the precedent
 external vocabulary tolerates structural unions; literals reuse the same seam.
 
 **Union member identity: order-preserving storage, order-INSENSITIVE equality.** Union
-members live in a new `EqSet<'T>` (sibling of `EqArray`): insertion-ordered storage so
+members live in a new `EqSet<'T>` (sibling of `Block`): insertion-ordered storage so
 the DECLARED `.d.ts` order survives into diagnostics and the manifest golden, but
 `Equals`/`GetHashCode` are set-semantic (member-set equality; commutative hash combine).
 Canonical-sort normalisation was REJECTED: it requires a total order on `FrozenType`
-that does not exist (and the tempting `%A`-sort shortcut is the known EqArray-in-`%A`
+that does not exist (and the tempting `%A`-sort shortcut is the known Block-in-`%A`
 collision trap), whereas set equality reuses the member equality/hash that already
 exists. The smart constructor also owns TS's SEMANTIC union rules — flatten nested
 unions, dedupe, collapse a singleton to its member — because duplicates arise
 POST-construction too (`TyOr [typar a; typar b]` instantiated at `a = b`): every
 rebuild site (`instantiateWith`, freshen/map walks) must rebuild through the
 constructor, never raw-copy the member list. Scope: `FTOr`/`TyOr` members ONLY —
-tuples/args/typars stay positional `EqArray`. No `IComparable` until something truly
-needs ordered keying. Do NOT key any cache on `%A` of these (the EqArray
+tuples/args/typars stay positional `Block`. No `IComparable` until something truly
+needs ordered keying. Do NOT key any cache on `%A` of these (the Block
 `%A`-collision trap).
 
 **The nominalism invariant (what keeps F# F#).** Vesper's own inference NEVER mints a

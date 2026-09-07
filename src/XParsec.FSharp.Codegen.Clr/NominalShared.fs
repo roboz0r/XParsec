@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.Codegen.Clr
 
 open System.Reflection.Metadata
+open Vesper
 open XParsec.FSharp.SemanticAnalysis
 open AssemblerScaffold
 
@@ -47,9 +48,9 @@ module internal NominalShared =
 
     let selfTyOf (input: NominalEmissionInput) (td: TastAccessor.TypeDecl) (ts: FrozenType list) : FrozenType =
         match input with
-        | NominalEmissionInput.Union _ -> FTUnion(td.TypeKey, EqArray.ofList ts)
-        | NominalEmissionInput.Record _ -> FTRecord(td.TypeKey, EqArray.ofList ts)
-        | NominalEmissionInput.Class _ -> FTClass(td.TypeKey, EqArray.ofList ts)
+        | NominalEmissionInput.Union _ -> FTUnion(td.TypeKey, Block.ofList ts)
+        | NominalEmissionInput.Record _ -> FTRecord(td.TypeKey, Block.ofList ts)
+        | NominalEmissionInput.Class _ -> FTClass(td.TypeKey, Block.ofList ts)
 
     /// The handle the equality/comparison bodies `isinst`/`unbox.any` against: a
     /// generic type's open self-`TypeSpec`, a mono type's `TypeDef`.

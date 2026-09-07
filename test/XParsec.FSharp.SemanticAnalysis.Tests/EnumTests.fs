@@ -1,5 +1,6 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.EnumTests
 
+open Vesper
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
@@ -27,7 +28,7 @@ let private errors (tast: TastFile) = tast.Diagnostics |> Diagnostic.errors
 let private singleLet (tast: TastFile) : TExpr * SemType =
     match
         tast.Decls
-        |> EqArray.toList
+        |> Block.toList
         |> List.choose (fun d ->
             match d with
             | TDecl.Let(m, _, _) -> Some(m.Value, m.Ty)
@@ -283,7 +284,7 @@ let tests =
                 // the whole decl's rendering rather than digging out the arm.
                 let rendered =
                     tast.Decls
-                    |> EqArray.toList
+                    |> Block.toList
                     |> List.map TastShape.prettyDecl
                     |> String.concat "\n"
 

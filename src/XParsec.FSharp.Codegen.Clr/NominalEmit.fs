@@ -2,6 +2,7 @@
 
 open System.Collections.Generic
 open System.Reflection.Metadata
+open Vesper
 open XParsec.FSharp.SemanticAnalysis
 open AssemblerScaffold
 open NominalShared
@@ -41,7 +42,7 @@ module internal NominalEmit =
         // Every member's handle is its layout row, resolvable before any body
         // is built, so a member body can reference a sibling (`this.Length`) or
         // a case factory (`static member Empty = []`).
-        let emittedMembers = Dictionary<string, EqArray<Emit.EmittedMember>>()
+        let emittedMembers = Dictionary<string, Block<Emit.EmittedMember>>()
 
         // Name → its overloads in declaration order. Own members lead and interface-impl
         // members trail, so a same-signature pair (`Set.Add : Set<'T>` vs
@@ -62,9 +63,9 @@ module internal NominalEmit =
             let prior =
                 match emittedMembers.TryGetValue mem.Name with
                 | true, ms -> ms
-                | false, _ -> EqArray.empty
+                | false, _ -> Block.empty
 
-            emittedMembers.[mem.Name] <- EqArray.append prior (EqArray.singleton em)
+            emittedMembers.[mem.Name] <- Block.append prior (Block.singleton em)
         )
 
         match input with
@@ -74,7 +75,7 @@ module internal NominalEmit =
             asm.Records.[td.TypeKey] <-
                 {
                     Name = td.Name
-                    Typars = EqArray.toList (TyparList.typeNames td.TypeParams)
+                    Typars = Block.toList (TyparList.typeNames td.TypeParams)
                     Fields =
                         [
                             for f in rd.Fields ->
@@ -148,7 +149,7 @@ module internal NominalEmit =
             asm.Classes.[td.TypeKey] <-
                 {
                     Name = td.Name
-                    Typars = EqArray.toList (TyparList.typeNames td.TypeParams)
+                    Typars = Block.toList (TyparList.typeNames td.TypeParams)
                     Fields =
                         [
                             for p in ctorParams ->
@@ -282,7 +283,7 @@ module internal NominalEmit =
             let argTypes = [ for a in bcc.Args -> TastAccessor.exprTy a ]
 
             match icodegen.TryEmitCtor(baseKey, bcc.ChosenCtor, [], argTypes) with
-            | ValueSome recipe -> Emit.CtorChain.Base(recipe.Handle, EqArray.toList bcc.Args)
+            | ValueSome recipe -> Emit.CtorChain.Base(recipe.Handle, Block.toList bcc.Args)
             | ValueNone ->
                 failwithf
                     "Emit: class '%s' inherits external base %A but no '.ctor' overload matches its %d base-ctor argument(s)"
@@ -301,7 +302,7 @@ module internal NominalEmit =
             let baseKey, baseArgs =
                 match baseShape with
                 | BaseShape.LocalMono(k, _) -> k, []
-                | BaseShape.Generic(FTClass(n, xs)) -> n, EqArray.toList xs
+                | BaseShape.Generic(FTClass(n, xs)) -> n, Block.toList xs
                 | _ -> failwithf "Emit: class '%s' has a base-ctor call but no class base type" td.Name
 
             // `inherit Base(args)` reaches any of the base's ctors, so the chain target
@@ -319,7 +320,7 @@ module internal NominalEmit =
                 | false, _ ->
                     failwithf "Emit: base class '%A' of '%s' is not an emitted project-local class" baseKey td.Name
 
-            Emit.CtorChain.Base(baseCtorHandle, EqArray.toList bcc.Args)
+            Emit.CtorChain.Base(baseCtorHandle, Block.toList bcc.Args)
         | _, ValueNone when isStruct -> Emit.CtorChain.None
         | _, ValueNone -> Emit.CtorChain.Base(provider.ObjectCtorRef, [])
 
@@ -379,7 +380,7 @@ module internal NominalEmit =
             |> List.iteri (fun i sc ->
                 let paramTys = [ for (_, t) in sc.Params -> t ]
 
-                let lets = EqArray.toList sc.Lets
+                let lets = Block.toList sc.Lets
 
                 let ctorIr =
                     match sc.Body with
@@ -404,7 +405,7 @@ module internal NominalEmit =
 
                         Emit.buildSecondaryCtorFieldInit emitCtx sc.Params lets fieldInits
                     | TSecondaryCtorBodyG.Chain primaryArgs ->
-                        Emit.buildSecondaryCtor emitCtx sc.Params lets primaryCtorRef (EqArray.toList primaryArgs)
+                        Emit.buildSecondaryCtor emitCtx sc.Params lets primaryCtorRef (Block.toList primaryArgs)
 
                 let scBody = bodyOf asm ctorIr
 
@@ -477,7 +478,7 @@ module internal NominalEmit =
         // backing field), so this is empty for every other chain shape.
         let ctorParamArgs =
             match baseCtorCall with
-            | ValueSome bcc -> EqArray.toList bcc.CtorParams
+            | ValueSome bcc -> Block.toList bcc.CtorParams
             | ValueNone -> []
 
         // The instance preamble, resolved through the same self-`MemberRef` shape as
@@ -708,7 +709,7 @@ module internal NominalEmit =
 
                     provider.InstanceMethodSignature(
                         [],
-                        FTClass(SymbolKeyOps.typeKeyOf "System.Collections" "IEnumerator", EqArray.empty)
+                        FTClass(SymbolKeyOps.typeKeyOf "System.Collections" "IEnumerator", Block.empty)
                     ),
                     Emit.buildEnumerableGetEnumeratorCoSlot getEnumerator
                 | CoSlot.EnumeratorCurrent ->

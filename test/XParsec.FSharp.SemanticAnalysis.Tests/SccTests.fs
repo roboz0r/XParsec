@@ -1,5 +1,6 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.SccTests
 
+open Vesper
 open System
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
@@ -62,7 +63,7 @@ let private partitionOfIds (componentOf: int[]) : int list list =
 
 let private partitionOf (partition: SccPartition) : int list list =
     partition.Components
-    |> Seq.map (fun c -> EqArray.toList c.Members)
+    |> Seq.map (fun c -> Block.toList c.Members)
     |> List.ofSeq
     |> List.sort
 
@@ -144,7 +145,7 @@ let tests =
             test "a self-edge makes a singleton a Cycle" {
                 let g = Digraph.OfSuccessors(1, fun _ -> [ 0 ])
                 let p = Scc.compute g
-                Expect.equal p.Components.[0] (Cycle(EqArray.ofList [ 0 ])) "one cyclic component"
+                Expect.equal p.Components.[0] (Cycle(Block.ofList [ 0 ])) "one cyclic component"
                 Expect.isTrue (g.HasSelfEdge 0) "self-edge"
                 Expect.isTrue (Scc.isRecursive p 0) "recursive"
             }
@@ -152,7 +153,7 @@ let tests =
             test "a two-cycle is one component with both members recursive" {
                 let g = Digraph.OfSuccessors(2, fun u -> [ 1 - u ])
                 let p = Scc.compute g
-                Expect.equal p.Components.[0] (Cycle(EqArray.ofList [ 0; 1 ])) "one component of two members"
+                Expect.equal p.Components.[0] (Cycle(Block.ofList [ 0; 1 ])) "one component of two members"
                 Expect.isTrue (Scc.isRecursive p 0) "0 is recursive"
                 Expect.isTrue (Scc.isRecursive p 1) "1 is recursive"
                 Expect.isFalse (g.HasSelfEdge 0) "0 has no self-edge"
@@ -163,7 +164,7 @@ let tests =
                 let adj = [| [| 1 |]; [| 0; 2 |]; [||] |]
                 let p = Scc.compute (Digraph.OfSuccessors(3, fun u -> adj.[u]))
                 Expect.equal p.Components.[0] (Acyclic 2) "the sink component is first"
-                Expect.equal p.Components.[1] (Cycle(EqArray.ofList [ 0; 1 ])) "the cycle is second"
+                Expect.equal p.Components.[1] (Cycle(Block.ofList [ 0; 1 ])) "the cycle is second"
                 checkGraph adj |> ignore
             }
 

@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+open Vesper
 open XParsec.FSharp.Parser
 
 // The DECLARATION shapes of the TAST: a module-level declaration, and the type declaration
@@ -81,7 +82,7 @@ type DeclaredClassFlags =
 type TUnionCaseG<'ty> =
     {
         Name: string
-        Fields: EqArray<string voption * 'ty>
+        Fields: Block<string voption * 'ty>
         Attributes: TAttributes
     }
 
@@ -184,7 +185,7 @@ type TTypeMemberG<'ty, 'id, 'body> =
         BaseKey: BoundVarKeyG<'id> voption
         ThisTy: 'ty
         /// Parameter bound variables in declaration order; empty for a property or a nullary method.
-        Params: EqArray<BoundVarKeyG<'id> * 'ty>
+        Params: Block<BoundVarKeyG<'id> * 'ty>
         Body: 'body
         ReturnTy: 'ty
         /// The member's *own* generic parameters (`member this.Map<'C> …`), distinct from
@@ -199,12 +200,12 @@ type TTypeMemberG<'ty, 'id, 'body> =
 type TUnionG<'ty, 'id, 'body> =
     {
         /// In declaration order, so a case's index is its runtime tag.
-        Cases: EqArray<TUnionCaseG<'ty>>
+        Cases: Block<TUnionCaseG<'ty>>
         /// The augmentation members (`with member …` / `static member …`).
-        Members: EqArray<TTypeMemberG<'ty, 'id, 'body>>
+        Members: Block<TTypeMemberG<'ty, 'id, 'body>>
         /// Each entry pairs a resolved interface type with the bodies of its
         /// `interface … with` block.
-        Interfaces: EqArray<'ty * EqArray<TTypeMemberG<'ty, 'id, 'body>>>
+        Interfaces: Block<'ty * Block<TTypeMemberG<'ty, 'id, 'body>>>
         /// `Struct` is the flat tag-plus-all-case-fields value type; `RefType` is the
         /// reference emission of that same flat shape as a sealed class.
         ValueKind: NominalValueKind
@@ -214,12 +215,12 @@ type TUnionG<'ty, 'id, 'body> =
 type TRecordG<'ty, 'id, 'body> =
     {
         /// The record's payload in declaration order.
-        Fields: EqArray<TRecordFieldG<'ty>>
+        Fields: Block<TRecordFieldG<'ty>>
         /// The augmentation members (`with member …` / `static member …`).
-        Members: EqArray<TTypeMemberG<'ty, 'id, 'body>>
+        Members: Block<TTypeMemberG<'ty, 'id, 'body>>
         /// Each entry pairs a resolved interface type with the bodies of its
         /// `interface … with` block.
-        Interfaces: EqArray<'ty * EqArray<TTypeMemberG<'ty, 'id, 'body>>>
+        Interfaces: Block<'ty * Block<TTypeMemberG<'ty, 'id, 'body>>>
         ValueKind: NominalValueKind
     }
 
@@ -262,15 +263,15 @@ type TCtorFieldInitG<'body> = { Field: string; Init: 'body }
 type TSecondaryCtorBodyG<'body> =
     /// `new(args) = SelfType(...)`: the arguments chained to the primary `.ctor`. `this` is
     /// not yet constructed at this point.
-    | Chain of primaryArgs: EqArray<'body>
+    | Chain of primaryArgs: Block<'body>
     /// `new(args) = { f = e; … }`: stores into declared instance fields, with no chain.
-    | ExplicitFieldInit of fieldInits: EqArray<TCtorFieldInitG<'body>>
+    | ExplicitFieldInit of fieldInits: Block<TCtorFieldInitG<'body>>
 
 /// A secondary constructor, emitted as a `.ctor` overload.
 type TSecondaryCtorG<'ty, 'id, 'body> =
     {
-        Params: EqArray<BoundVarKeyG<'id> * 'ty>
-        Lets: EqArray<TCtorLetG<'ty, 'id, 'body>>
+        Params: Block<BoundVarKeyG<'id> * 'ty>
+        Lets: Block<TCtorLetG<'ty, 'id, 'body>>
         Body: TSecondaryCtorBodyG<'body>
     }
 
@@ -279,8 +280,8 @@ type TSecondaryCtorG<'ty, 'id, 'body> =
 /// `CtorParams` are the *derived* class's primary-ctor params, because `this` isn't constructed yet.
 type TBaseCtorCallG<'ty, 'id, 'body> =
     {
-        CtorParams: EqArray<BoundVarKeyG<'id> * 'ty>
-        Args: EqArray<'body>
+        CtorParams: Block<BoundVarKeyG<'id> * 'ty>
+        Args: Block<'body>
         /// The chosen base `.ctor`'s identity for an EXTERNAL base (`inherit exn(msg)`).
         /// `ValueNone` for a project-local base, and for an external base whose overload
         /// identity was never recorded.
@@ -307,7 +308,7 @@ type TAbstractMethodG<'ty> =
         Signature: 'ty
         /// The argument names the signature spells, one per source argument across every
         /// curried group in source order; `ValueNone` for an argument written as a bare type.
-        ParamNames: EqArray<string voption>
+        ParamNames: Block<string voption>
         /// The same three forms a concrete member takes: `Property` for an arg-less member sig
         /// (`abstract member Current: int`, emitted as a `get_Current` slot), `Accessor` for one
         /// half of `abstract P: int with get, set`, and `Method` for a slot keeping its bare name.
@@ -322,23 +323,23 @@ type TAbstractMethodG<'ty> =
 type TClassG<'ty, 'id, 'body> =
     {
         /// The explicit `val [mutable] x: T` instance fields.
-        Fields: EqArray<TRecordFieldG<'ty>>
+        Fields: Block<TRecordFieldG<'ty>>
         /// The primary constructor's parameters, borrowing the record-field shape.
-        CtorParams: EqArray<TRecordFieldG<'ty>>
-        Members: EqArray<TTypeMemberG<'ty, 'id, 'body>>
+        CtorParams: Block<TRecordFieldG<'ty>>
+        Members: Block<TTypeMemberG<'ty, 'id, 'body>>
         Base: TBaseG<'ty, 'id, 'body> voption
-        Interfaces: EqArray<'ty * EqArray<TTypeMemberG<'ty, 'id, 'body>>>
+        Interfaces: Block<'ty * Block<TTypeMemberG<'ty, 'id, 'body>>>
         Declared: DeclaredClassFlags
         /// `static let` / `static do`, in declaration order: the body of the synthesised `.cctor`.
-        StaticPreamble: EqArray<TPreambleEntryG<'ty, 'body>>
+        StaticPreamble: Block<TPreambleEntryG<'ty, 'body>>
         /// Instance `let` / `do`, in declaration order: the END of the primary ctor,
         /// running after the base-ctor call and the ctor-param field stores.
-        InstancePreamble: EqArray<TPreambleEntryG<'ty, 'body>>
+        InstancePreamble: Block<TPreambleEntryG<'ty, 'body>>
         /// The `this` bound variable, on the class and not only on each member because the INSTANCE
         /// preamble reads fields through it too: a ctor-param reference in an initialiser is
         /// a `FieldGet` on a `Var` of this key.
         ThisKey: BoundVarKeyG<'id>
-        SecondaryCtors: EqArray<TSecondaryCtorG<'ty, 'id, 'body>>
+        SecondaryCtors: Block<TSecondaryCtorG<'ty, 'id, 'body>>
         ValueKind: ClassValueKind
         /// True when the class declares a *primary* constructor (`type T(args) =`, including
         /// `type T() =`); false for the `val`-field form (`type T = val …; new(…) = { … }`),
@@ -348,14 +349,14 @@ type TClassG<'ty, 'id, 'body> =
 
 [<RequireQualifiedAccess>]
 type TTypeKindG<'ty, 'tok, 'id, 'body> =
-    | Interface of methods: EqArray<TAbstractMethodG<'ty>>
+    | Interface of methods: Block<TAbstractMethodG<'ty>>
     | Union of TUnionG<'ty, 'id, 'body>
     | Record of TRecordG<'ty, 'id, 'body>
     | Class of TClassG<'ty, 'id, 'body>
     /// `cases` in declaration order, each pairing a case identifier with its **resolved**
     /// compile-time literal (`| C = v`). An enum is `'ty`-free: a case value is an integer or
     /// string literal, never a typed term. Numeric / string / mixed is derived, not stored.
-    | Enum of cases: EqArray<TEnumCaseG<'tok>>
+    | Enum of cases: Block<TEnumCaseG<'tok>>
     /// `type t = body`, a transparent alias: `body` is the right-hand side over the
     /// declaration's own typars, and a use of the name expands to it. A backend emits nothing
     /// for this kind.
@@ -418,14 +419,14 @@ type TDeclG<'ty, 'tok, 'id> =
     /// One lexical module-level `let rec … and …` group: `members` in source order, each in
     /// scope of every member's value, and `components` partitioning their indices. A group
     /// member is never `inline`.
-    | LetGroup of members: EqArray<TLetMemberG<'ty, 'tok, 'id>> * components: SccPartition
+    | LetGroup of members: Block<TLetMemberG<'ty, 'tok, 'id>> * components: SccPartition
     | Expression of expr: TExprG<'ty, 'tok, 'id> * ty: 'ty
     | Type of TTypeDeclG<'ty, 'tok, 'id, TExprG<'ty, 'tok, 'id>>
 
 [<RequireQualifiedAccess>]
 module TTypeKindG =
     /// The augmentation / instance members a type kind carries.
-    let members (kind: TTypeKindG<'ty, 'tok, 'id, 'body>) : EqArray<TTypeMemberG<'ty, 'id, 'body>> =
+    let members (kind: TTypeKindG<'ty, 'tok, 'id, 'body>) : Block<TTypeMemberG<'ty, 'id, 'body>> =
         match kind with
         | TTypeKindG.Class c -> c.Members
         | TTypeKindG.Union u -> u.Members
@@ -433,15 +434,15 @@ module TTypeKindG =
         | TTypeKindG.Interface _
         | TTypeKindG.Enum _
         | TTypeKindG.Abbrev _
-        | TTypeKindG.Measure _ -> EqArray.empty
+        | TTypeKindG.Measure _ -> Block.empty
 
     /// The `interface IFace with member …` bodies a type kind carries, flattened across
     /// every implemented interface. With `members`, every member body under a type decl.
     let interfaceMembers (kind: TTypeKindG<'ty, 'tok, 'id, 'body>) : TTypeMemberG<'ty, 'id, 'body> seq =
-        let flatten (ifaces: EqArray<'ty * EqArray<TTypeMemberG<'ty, 'id, 'body>>>) =
+        let flatten (ifaces: Block<'ty * Block<TTypeMemberG<'ty, 'id, 'body>>>) =
             seq {
-                for (_, ms) in EqArray.toArray ifaces do
-                    yield! EqArray.toArray ms
+                for (_, ms) in Block.toArray ifaces do
+                    yield! Block.toArray ms
             }
 
         match kind with
@@ -537,12 +538,12 @@ module BoundVarKey =
                 | ValueSome k -> yield k
                 | ValueNone -> ()
 
-                for (k, _) in EqArray.toArray m.Params do
+                for (k, _) in Block.toArray m.Params do
                     yield k
             }
 
         seq {
-            for m in EqArray.toArray (TTypeKindG.members td.Kind) do
+            for m in Block.toArray (TTypeKindG.members td.Kind) do
                 yield! ofMember m
 
             for m in TTypeKindG.interfaceMembers td.Kind do
@@ -554,16 +555,16 @@ module BoundVarKey =
                 // of the members that carry their own copy.
                 yield c.ThisKey
 
-                for sc in EqArray.toArray c.SecondaryCtors do
-                    for (k, _) in EqArray.toArray sc.Params do
+                for sc in Block.toArray c.SecondaryCtors do
+                    for (k, _) in Block.toArray sc.Params do
                         yield k
 
-                    for l in EqArray.toArray sc.Lets do
+                    for l in Block.toArray sc.Lets do
                         yield l.BoundVar
 
                 match c.Base with
                 | ValueSome { Ctor = ValueSome bc } ->
-                    for (k, _) in EqArray.toArray bc.CtorParams do
+                    for (k, _) in Block.toArray bc.CtorParams do
                         yield k
                 | _ -> ()
             | TTypeKindG.Interface _

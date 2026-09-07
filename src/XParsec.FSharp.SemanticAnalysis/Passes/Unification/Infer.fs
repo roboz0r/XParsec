@@ -2,6 +2,7 @@ namespace XParsec.FSharp.SemanticAnalysis.Passes
 
 open System.Collections.Generic
 open System.Collections.Immutable
+open Vesper
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
@@ -46,13 +47,13 @@ module UnificationInfer =
     /// `ValueNone` only for a compile with no disposable capability at all.
     let private capabilityDisposeSlot (ctx: PassContext) : SymbolKey voption =
         match ctx.CapabilityIds.Disposable with
-        | ValueSome disp -> ValueSome(SymbolKeyOps.memberKey disp.Key "Dispose" EqArray.empty 0 MemberKind.Method)
+        | ValueSome disp -> ValueSome(SymbolKeyOps.memberKey disp.Key "Dispose" Block.empty 0 MemberKind.Method)
         | ValueNone -> ValueNone
 
     /// The disposal path of a `use` bound variable of *external* (BCL) type. PRIMARY: the
     /// instantiated interface set carries `ctx.CapabilityIds.Disposable`, which also catches
     /// a `Dispose` declared on a base. `ValueNone` ⇒ not disposable.
-    let private tryExternalDispose (ctx: PassContext) (declKey: TypeKey) (args: EqArray<SemType>) : Disposal voption =
+    let private tryExternalDispose (ctx: PassContext) (declKey: TypeKey) (args: Block<SemType>) : Disposal voption =
         // The directly-implemented interface set an external nominal carries: a class's
         // `FrozenInterfaces` or a union's `interface <ty>` impls. An external RECORD carries
         // none, so a disposable external record resolves only via its own `Dispose` below.
@@ -87,11 +88,7 @@ module UnificationInfer =
 
     /// True iff a project-local nominal type's `InterfaceImpls` carry a resolved interface
     /// whose type-constructor key matches `ctx.CapabilityIds.Disposable`.
-    let private localImplementsDisposable
-        (ctx: PassContext)
-        (host: IInterfaceImplHost)
-        (args: EqArray<SemType>)
-        : bool =
+    let private localImplementsDisposable (ctx: PassContext) (host: IInterfaceImplHost) (args: Block<SemType>) : bool =
         host.InterfaceImpls
         |> Array.exists (fun impl ->
             match InterfaceImplResolution.tryIface impl.Resolution with
@@ -113,7 +110,7 @@ module UnificationInfer =
                 |> Array.exists (fun m -> m.Name = "Dispose" && not m.IsStatic && m.ClassKind = ClassMemberKind.Method)
 
             if hasDispose then
-                ValueSome(SymbolKeyOps.memberKey info.TypeKey "Dispose" EqArray.empty 0 MemberKind.Method)
+                ValueSome(SymbolKeyOps.memberKey info.TypeKey "Dispose" Block.empty 0 MemberKind.Method)
             else
                 ValueNone
         | _ -> ValueNone
@@ -139,7 +136,7 @@ module UnificationInfer =
                     )
                 )
 
-            let resolveLocal (host: IInterfaceImplHost) (tyCtorKey: TypeKey) (simple: string) (args: EqArray<SemType>) =
+            let resolveLocal (host: IInterfaceImplHost) (tyCtorKey: TypeKey) (simple: string) (args: Block<SemType>) =
                 match
                     (if localImplementsDisposable ctx host args then
                          capabilityDisposeSlot ctx |> ValueOption.map Disposal.ViaCapability
@@ -416,7 +413,7 @@ module UnificationInfer =
         (ctx: PassContext)
         (home: BindingGroupHome)
         (bindings: ImmutableArray<Binding<SyntaxToken>>)
-        (members: EqArray<int>)
+        (members: Block<int>)
         : unit =
         let outerLevel = ctx.CurrentLevel
         let enclosing = groupOwner ctx home

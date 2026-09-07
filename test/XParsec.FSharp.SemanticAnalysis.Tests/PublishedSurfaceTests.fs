@@ -1,5 +1,6 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.PublishedSurfaceTests
 
+open Vesper
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 
@@ -33,8 +34,8 @@ let private surfaceOf (names: string list) : PublishedSurface =
                 Case =
                     {
                         Name = "Case" + n
-                        FieldNames = EqArray.empty
-                        FrozenFieldTypes = EqArray.empty
+                        FieldNames = Block.empty
+                        FrozenFieldTypes = Block.empty
                     }
                 IsRequireQualifiedAccess = false
             }
@@ -97,7 +98,7 @@ let tests =
                 // standalone pool. A width-1 group mints a bound var, which is an integer.
                 let tupled () =
                     let elem = ExternalSignature.unfreezable "test placeholder"
-                    let pair = FTTuple(EqArray.ofArray [| elem; elem |])
+                    let pair = FTTuple(Block.ofArray [| elem; elem |])
                     ValueSome(TastLower.externalValRepr 0 [ (2, pair) ] elem)
 
                 Expect.equal (symbol ValueNone) (symbol ValueNone) "everything BUT the handles compares by contents"
@@ -116,12 +117,12 @@ let tests =
                         {
                             Typars = TyparList.positional 1
                             Cases =
-                                EqArray.ofList
+                                Block.ofList
                                     [
-                                        ExternalCaseShape.create (RuntimeNames.consCaseName, EqArray.empty)
-                                        ExternalCaseShape.create (RuntimeNames.emptyCaseName, EqArray.empty)
+                                        ExternalCaseShape.create (RuntimeNames.consCaseName, Block.empty)
+                                        ExternalCaseShape.create (RuntimeNames.emptyCaseName, Block.empty)
                                     ]
-                            Interfaces = EqArray.empty
+                            Interfaces = Block.empty
                             Origin = SymbolOrigin.Empty
                             IsValueType = false
                             RequiresQualifiedAccess = false
@@ -133,8 +134,8 @@ let tests =
                 Expect.isEmpty listSurface.UnionCases "no cons-list case is indexed by name"
 
                 Expect.equal
-                    (listSurface.ShapesByKey |> EqArray.map (fun e -> e.Value))
-                    (EqArray.singleton union)
+                    (listSurface.ShapesByKey |> Block.map (fun e -> e.Value))
+                    (Block.singleton union)
                     "the shape still carries both cases"
 
                 // The same shape under any other key IS indexed, so the assertion above is

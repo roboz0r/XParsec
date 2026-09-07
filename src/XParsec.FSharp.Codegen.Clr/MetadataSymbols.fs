@@ -5,6 +5,7 @@ open System.Collections.Generic
 open System.Collections.Concurrent
 open System.IO
 open System.Reflection
+open Vesper
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.SemanticAnalysis
 
@@ -45,13 +46,13 @@ module private MetadataMapping =
             // `in`/`out`/`ref` all collapse to `T&`. A C# `in` param's
             // `modreq(InAttribute)` is dropped, so calling one fails CLR member-ref binding.
             match go (t.GetElementType()) with
-            | Some elem -> Some(FTConst(RuntimeNames.byrefKey, EqArray.singleton elem))
+            | Some elem -> Some(FTConst(RuntimeNames.byrefKey, Block.singleton elem))
             | None -> None
         elif t.IsPointer then
             None
         elif t.IsArray then
             match go (t.GetElementType()) with
-            | Some elem -> Some(FTConst(RuntimeNames.arrayKey (t.GetArrayRank()), EqArray.singleton elem))
+            | Some elem -> Some(FTConst(RuntimeNames.arrayKey (t.GetArrayRank()), Block.singleton elem))
             | None -> None
         elif t.IsGenericParameter then
             let pos = t.GenericParameterPosition
@@ -72,7 +73,7 @@ module private MetadataMapping =
 
                 let key = SymbolKeyOps.qualifiedTypeKeyOf name frozen.Length
 
-                Some(FTClass(key, EqArray.ofArray frozen))
+                Some(FTClass(key, Block.ofArray frozen))
         else
             match t.FullName with
             | null -> None // constructed/exotic type with no metadata full name
@@ -82,8 +83,8 @@ module private MetadataMapping =
             // `System.Exception` → `exn`) alike. Anything else stays a nominal `FTClass`.
             | fullName ->
                 match IntrinsicTypeMap.tryCanon (PlatformTypeId fullName) intrinsics with
-                | ValueSome canon -> Some(FTConst(canon, EqArray.empty))
-                | ValueNone -> Some(FTClass(SymbolKeyOps.qualifiedTypeKeyOf fullName 0, EqArray.empty))
+                | ValueSome canon -> Some(FTConst(canon, Block.empty))
+                | ValueNone -> Some(FTClass(SymbolKeyOps.qualifiedTypeKeyOf fullName 0, Block.empty))
 
     /// `(per-parameter templates, return)` for a method; `None` if any type doesn't map.
     /// UNCOLLAPSED: one entry per value parameter, so `.Length` is the value arity and the
@@ -278,8 +279,7 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
     let typeCache =
         ConcurrentDictionary<string, ExternalTypeShape voption>(StringComparer.Ordinal)
 
-    let membersCache =
-        ConcurrentDictionary<ExternalMemberName, EqArray<ExternalMember>>()
+    let membersCache = ConcurrentDictionary<ExternalMemberName, Block<ExternalMember>>()
 
     let declaredFlags =
         BindingFlags.Public
@@ -351,7 +351,7 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
             match constValue (), MetadataMapping.tryBuildType intrinsics f.FieldType with
             | Some constValue, Some valueTy ->
                 Some
-                    { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey f.Name EqArray.empty 0 MemberKind.Property) with
+                    { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey f.Name Block.empty 0 MemberKind.Property) with
                         IsStatic = f.IsStatic
                         Storage = MemberStorage.Field
                         ConstValue = constValue
@@ -364,7 +364,7 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
     let methodMemberOf (declKey: TypeKey) (origin: SymbolOrigin) (arity: int) (m: MethodInfo) : ExternalMember option =
         MetadataMapping.tryMethodSignature intrinsics m
         |> Option.map (fun (ps, ret) ->
-            let argSig = EqArray.ofArray ps
+            let argSig = Block.ofArray ps
             let methodTyparArity = MetadataMapping.methodTyparArityOf m
 
             { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey m.Name argSig methodTyparArity MemberKind.Method) with
@@ -385,7 +385,7 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
         : ExternalMember option =
         MetadataMapping.tryPropertySignature intrinsics p
         |> Option.map (fun valueTy ->
-            { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey p.Name EqArray.empty 0 MemberKind.Property) with
+            { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey p.Name Block.empty 0 MemberKind.Property) with
                 IsStatic = (not (isNull p.GetMethod) && p.GetMethod.IsStatic)
                 Storage = MemberStorage.Property
                 Signature = MetadataMapping.propertySignature arity valueTy
@@ -395,7 +395,7 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
 
     /// Public declared members of `t` whose signatures map. Accessors are modelled
     /// through `Storage = Property` and filtered from the method walk. Must hold `gate`.
-    let enumerateClassMembers (t: Type) : EqArray<ExternalMember> =
+    let enumerateClassMembers (t: Type) : Block<ExternalMember> =
         let origin = originOf t
         let declKey = MetadataMapping.declTypeKey t
         // The declaring type's typar count, the width of the signature
@@ -427,7 +427,7 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
 
                 MetadataMapping.tryMethodSignature intrinsics getter
                 |> Option.map (fun (ps, ret) ->
-                    let argSig = EqArray.ofArray ps
+                    let argSig = Block.ofArray ps
 
                     { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey "get_Item" argSig 0 MemberKind.Method) with
                         IsStatic = getter.IsStatic
@@ -448,7 +448,7 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
             |> Array.choose (fun c ->
                 MetadataMapping.tryCtorSignature intrinsics c
                 |> Option.map (fun (ps, ret) ->
-                    let argSig = EqArray.ofArray ps
+                    let argSig = Block.ofArray ps
 
                     ExternalMember.ctor
                         declKey
@@ -459,10 +459,10 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
                 )
             )
 
-        EqArray.ofArray (Array.concat [| properties; methods; indexers; fields; ctors |])
+        Block.ofArray (Array.concat [| properties; methods; indexers; fields; ctors |])
 
     /// Interface set. An interface whose own type args do not map is skipped. Must hold `gate`.
-    let buildClassInterfaces (t: Type) : EqArray<FrozenNominal> =
+    let buildClassInterfaces (t: Type) : Block<FrozenNominal> =
         t.GetInterfaces()
         |> Array.choose (fun i ->
             match MetadataMapping.tryBuildType intrinsics i with
@@ -472,7 +472,7 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
                 | ValueNone -> None
             | None -> None
         )
-        |> EqArray.ofArray
+        |> Block.ofArray
 
     /// Declared base type as a template over the declaring typars. `ValueNone` for interfaces,
     /// for `System.Object`, and for a base the intrinsic map sends to a non-nominal (a union
@@ -570,7 +570,7 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
                         |> Array.choose (fun c ->
                             MetadataMapping.tryCtorSignature intrinsics c
                             |> Option.map (fun (ps, ret) ->
-                                let argSig = EqArray.ofArray ps
+                                let argSig = Block.ofArray ps
 
                                 ExternalMember.ctor
                                     declKey
@@ -736,7 +736,7 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
         match membersCache.TryGetValue key with
         | true, v -> v
         | _ ->
-            let v = EqArray.ofArray (computeMembers key.DeclaringType key.Name)
+            let v = Block.ofArray (computeMembers key.DeclaringType key.Name)
             membersCache.[key] <- v
             v
 
@@ -747,7 +747,7 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
 
         // The metadata layer scrapes IL, never F# record tycons, so it never contributes to
         // the reverse field index (F#'s `isILOrRequiredQualifiedAccess` excludes IL too).
-        member _.TryRecordsWithField _ = EqArray.empty
+        member _.TryRecordsWithField _ = Block.empty
         // GAP: a referenced assembly's `[<assembly: AutoOpen>]` rows are dropped, so an
         // fsc-built F# reference loses its prelude. Pinned by MetadataSymbolsTests, "GAP: a
         // reference assembly's [<assembly: AutoOpen>] rows reach ImplicitOpens".
@@ -761,7 +761,7 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
         // needed off a referenced declaration gets its own flag, the way `hasAllowNullLiteral`
         // does. Pinned by MetadataSymbolsTests, "GAP: a referenced type's CustomAttribute
         // rows reach TryLookupAttributes".
-        member _.TryLookupAttributes _ = EqArray.empty
+        member _.TryLookupAttributes _ = Block.empty
 
         member this.TryLookupMembers(key, memberName) =
             this.LookupMembersByName(

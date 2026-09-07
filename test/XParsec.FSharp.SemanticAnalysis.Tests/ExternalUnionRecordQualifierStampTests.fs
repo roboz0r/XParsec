@@ -1,5 +1,6 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.ExternalUnionRecordQualifierStampTests
 
+open Vesper
 open Expecto
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
@@ -21,7 +22,7 @@ let private provider: IExternalSymbolProvider =
             b
             gadgetKey
             [
-                mkStaticProperty gadgetKey "Make" (FTConst(RuntimeNames.intKey, EqArray.empty))
+                mkStaticProperty gadgetKey "Make" (FTConst(RuntimeNames.intKey, Block.empty))
             ]
 
         publishRecord b (SymbolKeyOps.qualifiedTypeKeyOf "Tests.Widget" 0) []

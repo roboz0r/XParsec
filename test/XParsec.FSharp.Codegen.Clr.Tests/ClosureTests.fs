@@ -1,5 +1,6 @@
 module XParsec.FSharp.Codegen.Clr.Tests.ClosureTests
 
+open Vesper
 open Expecto
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.SemanticAnalysis
@@ -155,7 +156,7 @@ let tests =
                                          false,
                                          _)
                                TDecl.Expression(TExpr.Format(FormatSink.ToStdOut true, segs, _, _), _) ] ->
-                        match EqArray.toList segs with
+                        match Block.toList segs with
                         | [ FormatSeg.Hole(_,
                                            TExpr.App(TExpr.App(TExpr.Var(kUse, _, _),
                                                                TExpr.Const(TConstValue.Integral(IntKind.Int32, 40L),
@@ -219,7 +220,7 @@ let tests =
 
                     let addBinding =
                         tast.Decls
-                        |> EqArray.toList
+                        |> Block.toList
                         |> List.tryPick (fun d ->
                             match d with
                             | TDecl.Let({

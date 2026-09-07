@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+open Vesper
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 
@@ -128,14 +129,14 @@ module FrozenCodec =
         match c with
         | Cycle members ->
             w.Write 0uy
-            writeEqArrayWith w (fun w (i: int) -> w.Write i) members
+            writeBlockWith w (fun w (i: int) -> w.Write i) members
         | Acyclic node ->
             w.Write 1uy
             w.Write node
 
     let private readSccComponent (r: FrozenReader) : SccComponent =
         match r.ReadByte() with
-        | 0uy -> Cycle(readEqArrayWith r (fun r -> r.ReadInt32()))
+        | 0uy -> Cycle(readBlockWith r (fun r -> r.ReadInt32()))
         | 1uy -> Acyclic(r.ReadInt32())
         | b -> failwithf "FrozenCodec: unknown SccComponent tag %d" b
 
@@ -148,7 +149,7 @@ module FrozenCodec =
             )
             g.Members
 
-        writeEqArrayWith w writeSccComponent g.Components.Components
+        writeBlockWith w writeSccComponent g.Components.Components
 
     let private readLetGroupShape (r: FrozenReader) : LetGroupShape =
         let members =
@@ -160,7 +161,7 @@ module FrozenCodec =
                     { Tok = tok; Recursion = recursion }
                 )
 
-        let components = readEqArrayWith r readSccComponent
+        let components = readBlockWith r readSccComponent
 
         {
             Members = members
@@ -240,11 +241,11 @@ module FrozenCodec =
         | ExprPayload.StaticMethodCall p ->
             w.Write 27uy
             writeSymbolRef w p.Key
-            writeEqArrayWith w writeTypeRef p.DeclArgs
+            writeBlockWith w writeTypeRef p.DeclArgs
         | ExprPayload.StaticPropertyGet p ->
             w.Write 28uy
             writeSymbolRef w p.Key
-            writeEqArrayWith w writeTypeRef p.DeclArgs
+            writeBlockWith w writeTypeRef p.DeclArgs
         | ExprPayload.StaticFieldGet p ->
             w.Write 29uy
             writeTypeKeyRef w p.DeclKey
@@ -259,7 +260,7 @@ module FrozenCodec =
             writeSymbolRef w p.Key
             w.Write p.MemberName
             writeMemberStorage w p.Storage
-            writeEqArrayWith w (fun w (n: int) -> w.Write n) p.ArgGroupWidths
+            writeBlockWith w (fun w (n: int) -> w.Write n) p.ArgGroupWidths
         | ExprPayload.Format p ->
             w.Write 32uy
             writeFormatSinkShape w p.Sink
@@ -270,7 +271,7 @@ module FrozenCodec =
             writeVOptionWith w writeTypeRef p.TypeOperand
         | ExprPayload.StaticOptimization clauseConstraints ->
             w.Write 34uy
-            writeArrayWith w (fun w cs -> writeEqArrayWith w writeStaticOptConstraint cs) clauseConstraints
+            writeArrayWith w (fun w cs -> writeBlockWith w writeStaticOptConstraint cs) clauseConstraints
         | ExprPayload.Upcast -> w.Write 35uy
         | ExprPayload.Downcast -> w.Write 36uy
         | ExprPayload.TypeTest testTy ->
@@ -278,7 +279,7 @@ module FrozenCodec =
             writeTypeRef w testTy
         | ExprPayload.TraitCall p ->
             w.Write 38uy
-            writeEqArrayWith w writeTypeRef p.SupportTys
+            writeBlockWith w writeTypeRef p.SupportTys
             w.Write p.MemberName
         | ExprPayload.InlineCall p ->
             w.Write 39uy
@@ -342,11 +343,11 @@ module FrozenCodec =
             ExprPayload.PropertyGet {| Key = key; Via = via |}
         | 27uy ->
             let key = readSymbolRef r
-            let declArgs = readEqArrayWith r readTypeRef
+            let declArgs = readBlockWith r readTypeRef
             ExprPayload.StaticMethodCall {| Key = key; DeclArgs = declArgs |}
         | 28uy ->
             let key = readSymbolRef r
-            let declArgs = readEqArrayWith r readTypeRef
+            let declArgs = readBlockWith r readTypeRef
             ExprPayload.StaticPropertyGet {| Key = key; DeclArgs = declArgs |}
         | 29uy ->
             let declKey = readTypeKeyRef r
@@ -371,7 +372,7 @@ module FrozenCodec =
             let key = readSymbolRef r
             let memberName = r.ReadString()
             let storage = readMemberStorage r
-            let argGroupWidths = readEqArrayWith r (fun r -> r.ReadInt32())
+            let argGroupWidths = readBlockWith r (fun r -> r.ReadInt32())
 
             ExprPayload.ExternalMember
                 {|
@@ -396,13 +397,13 @@ module FrozenCodec =
                 |}
         | 34uy ->
             ExprPayload.StaticOptimization(
-                readArrayWith r (fun r -> EqArray.ofArray (readArrayWith r readStaticOptConstraint))
+                readArrayWith r (fun r -> Block.ofArray (readArrayWith r readStaticOptConstraint))
             )
         | 35uy -> ExprPayload.Upcast
         | 36uy -> ExprPayload.Downcast
         | 37uy -> ExprPayload.TypeTest(readTypeRef r)
         | 38uy ->
-            let supportTys = readEqArrayWith r readTypeRef
+            let supportTys = readBlockWith r readTypeRef
             let memberName = r.ReadString()
 
             ExprPayload.TraitCall
@@ -551,7 +552,7 @@ module FrozenCodec =
         writeChildColumn w writeExprPoolId p.DeclExprChildren
         writeChildColumn w writePatPoolId p.DeclPatChildren
         writeArrayWith w writeDeclPayload p.DeclPayloads
-        writeEqArrayWith w writeDeclPoolId p.Roots
+        writeBlockWith w writeDeclPoolId p.Roots
         writeArrayWith w writeInlineTemplate p.InlineTemplates
         writeArrayWith w writeSpecialization p.Specializations
         writeArrayWith w (fun w (s: string) -> w.Write s) p.BoundVarNames
@@ -604,7 +605,7 @@ module FrozenCodec =
         let declExprChildren = readChildColumn r readExprPoolId
         let declPatChildren = readChildColumn r readPatPoolId
         let declPayloads = readArrayWith r readDeclPayload
-        let roots = readEqArrayWith r readDeclPoolId
+        let roots = readBlockWith r readDeclPoolId
         let inlineTemplates = readArrayWith r readInlineTemplate
         let specializations = readArrayWith r readSpecialization
         let boundVarNames = readArrayWith r (fun r -> r.ReadString())

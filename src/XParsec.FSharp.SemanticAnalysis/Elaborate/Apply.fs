@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
 open System.Collections.Immutable
+open Vesper
 open XParsec.FSharp
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
@@ -24,7 +25,7 @@ module internal ElaborateApply =
         match d with
         // JS-only: `undefined` has no CLR contract and only the TS provider mints it.
         | OptionalDefault.Omitted ->
-            TExpr.ILIntrinsic("undefined", ValueNone, EqArray.empty, ctx.Intrinsics.Undefined, tok)
+            TExpr.ILIntrinsic("undefined", ValueNone, Block.empty, ctx.Intrinsics.Undefined, tok)
         | OptionalDefault.Const cv ->
             match cv with
             | TConstValue.Unit -> TExpr.Const(cv, ctx.Intrinsics.Unit, tok)
@@ -52,10 +53,10 @@ module internal ElaborateApply =
             if args.Length = 1 then
                 peelOneArg (translateExpr ctx) args.[0]
             else
-                EqArray.ofSeq (seq { for a in args -> translateExpr ctx a })
+                Block.ofSeq (seq { for a in args -> translateExpr ctx a })
 
         let defaults = [ for d in omitted -> optionalDefaultNode ctx d tok ]
-        let filled = (EqArray.toList supplied) @ defaults
+        let filled = (Block.toList supplied) @ defaults
 
         // The full tupled parameter domain (the synthesised tuple's type, and the
         // element-wise `obj` box) and the member's return type, off the signature.
@@ -71,7 +72,7 @@ module internal ElaborateApply =
             match filled with
             | [ single ] -> wrapObjArg ctx.Store fullDom single
             | many ->
-                let tuple = TExpr.Tuple(EqArray.ofList many, fullDom, tok)
+                let tuple = TExpr.Tuple(Block.ofList many, fullDom, tok)
                 wrapObjArg ctx.Store fullDom tuple
 
         TExpr.App(fn, argNode, ret, tok)
@@ -225,8 +226,8 @@ module internal ElaborateApply =
         // node to a `StaticMethodCall`.
         let supportTys =
             match args.Length with
-            | 0 -> EqArray.singleton ty
-            | _ -> args |> EqArray.map TastWalk.exprTy |> EqArray.distinct
+            | 0 -> Block.singleton ty
+            | _ -> args |> Block.map TastWalk.exprTy |> Block.distinct
 
         TExpr.TraitCall(supportTys, memberName, args, ty, tok)
 
@@ -253,7 +254,7 @@ module internal ElaborateApply =
             // `h :: t` → `UnionCons("Cons", [h; t])` against the resolved list
             // union, the same shape `[…]` literals lower to (one cons cell).
             let consName, _ = listCaseNames ctx resultTy
-            TExpr.UnionCons(consName, EqArray.ofList [ translateExpr ctx left; translateExpr ctx right ], resultTy, tok)
+            TExpr.UnionCons(consName, Block.ofList [ translateExpr ctx left; translateExpr ctx right ], resultTy, tok)
         | _ ->
             // Reconstruct the operator's type from the resolved arms, so the carried type
             // shares TyVars with the App chain rather than fresh ones off the scheme.
@@ -280,7 +281,7 @@ module internal ElaborateApply =
             // `&local` → push the local's *address*. Codegen emits `ldloca` by
             // inspecting the inner `Var`'s slot rather than recurring, since a recur
             // would `ldloc` the value. `resultTy` is `TyConst("byref", [elem])`.
-            TExpr.ILIntrinsic("ldloca", ValueNone, EqArray.singleton (translateExpr ctx operand), resultTy, tok)
+            TExpr.ILIntrinsic("ldloca", ValueNone, Block.singleton (translateExpr ctx operand), resultTy, tok)
         | ValueSome _ ->
             // Reconstruct from the resolved operand + result, not from the scheme.
             let operandTy = typeOfKey ctx (CstKeys.ofExpr operand)

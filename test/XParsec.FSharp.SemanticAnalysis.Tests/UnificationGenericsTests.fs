@@ -1,5 +1,6 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.UnificationGenericsTests
 
+open Vesper
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Passes
@@ -15,7 +16,7 @@ let tests =
                 let ctx = analyse "type Box<'a> = { Value: 'a }\nlet b = { Value = 1 }"
                 // pat at 33: 29-char type decl + "let b = ".
                 let patKey = NodeKey.ofSource 33 NodeKind.PatIdent
-                Expect.equal (typeOf ctx patKey) (TyRecord("Box", EqArray.singleton BuiltinTypes.tyInt)) "b : Box<int>"
+                Expect.equal (typeOf ctx patKey) (TyRecord("Box", Block.singleton BuiltinTypes.tyInt)) "b : Box<int>"
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
 
@@ -27,7 +28,7 @@ let tests =
 
                 Expect.equal
                     (typeOf ctx patKey)
-                    (TyRecord("Box", EqArray.singleton BuiltinTypes.tyString))
+                    (TyRecord("Box", Block.singleton BuiltinTypes.tyString))
                     "b : Box<string>"
 
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
@@ -51,7 +52,7 @@ let tests =
 
                 Expect.equal
                     (typeOf ctx patKey)
-                    (TyUnion("Option", EqArray.singleton BuiltinTypes.tyInt))
+                    (TyUnion("Option", Block.singleton BuiltinTypes.tyInt))
                     "s : Option<int>"
 
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
@@ -65,7 +66,7 @@ let tests =
 
                 Expect.equal
                     (typeOf ctx patKey)
-                    (TyUnion("Option", EqArray.singleton BuiltinTypes.tyString))
+                    (TyUnion("Option", Block.singleton BuiltinTypes.tyString))
                     "n : Option<string>"
 
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
@@ -110,7 +111,7 @@ let tests =
 
                 Expect.equal
                     (typeOf ctx patKey)
-                    (TyRecord("Box", EqArray.singleton BuiltinTypes.tyInt))
+                    (TyRecord("Box", Block.singleton BuiltinTypes.tyInt))
                     "b : Box<int> — bare name back-filled and pinned"
 
                 let hasArity =
@@ -164,7 +165,7 @@ let tests =
                 let patKey = NodeKey.ofSource 33 NodeKind.PatIdent
 
                 let expected =
-                    TyFun(TyRecord("Box", EqArray.singleton BuiltinTypes.tyInt), BuiltinTypes.tyInt)
+                    TyFun(TyRecord("Box", Block.singleton BuiltinTypes.tyInt), BuiltinTypes.tyInt)
 
                 Expect.equal (typeOf ctx patKey) expected "f : Box<int> -> int"
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
@@ -191,7 +192,7 @@ let tests =
                 let ctx = analyse "type Pair<'a> = 'a * 'a\nlet p : Pair<int> = (1, 2)"
                 // pat p at 28: 24-char type decl + "let ".
                 let patKey = NodeKey.ofSource 28 NodeKind.PatIdent
-                let expected = TyTuple(EqArray.ofList [ BuiltinTypes.tyInt; BuiltinTypes.tyInt ])
+                let expected = TyTuple(Block.ofList [ BuiltinTypes.tyInt; BuiltinTypes.tyInt ])
                 Expect.equal (typeOf ctx patKey) expected "p : int * int"
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
@@ -209,7 +210,7 @@ let tests =
                     analyse "type Pair<'a> = 'a * 'a\ntype IntPair = Pair<int>\nlet p : IntPair = (1, 2)"
                 // pat p at 53: 24 + 25 char type decls + "let ".
                 let patKey = NodeKey.ofSource 53 NodeKind.PatIdent
-                let expected = TyTuple(EqArray.ofList [ BuiltinTypes.tyInt; BuiltinTypes.tyInt ])
+                let expected = TyTuple(Block.ofList [ BuiltinTypes.tyInt; BuiltinTypes.tyInt ])
                 Expect.equal (typeOf ctx patKey) expected "p : int * int"
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
@@ -248,7 +249,7 @@ let tests =
                     analyse "type Box<'a> = { Value: 'a }\ntype IntBox = Box<int>\nlet b : IntBox = { Value = 1 }"
                 // pat b at 56: 29 + 23 char type decls + "let ".
                 let patKey = NodeKey.ofSource 56 NodeKind.PatIdent
-                Expect.equal (typeOf ctx patKey) (TyRecord("Box", EqArray.singleton BuiltinTypes.tyInt)) "b : Box<int>"
+                Expect.equal (typeOf ctx patKey) (TyRecord("Box", Block.singleton BuiltinTypes.tyInt)) "b : Box<int>"
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
 
@@ -257,7 +258,7 @@ let tests =
                     analyse "type IntPair = int * int\ntype R = { Pair: IntPair }\nlet r = { Pair = (1, 2) }"
                 // pat r at 56: 25 + 27 char type decls + "let ".
                 let patKey = NodeKey.ofSource 56 NodeKind.PatIdent
-                Expect.equal (typeOf ctx patKey) (TyRecord("R", EqArray.empty)) "r : R"
+                Expect.equal (typeOf ctx patKey) (TyRecord("R", Block.empty)) "r : R"
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
 

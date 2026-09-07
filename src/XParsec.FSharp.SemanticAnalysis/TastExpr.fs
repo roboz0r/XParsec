@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
 open XParsec.FSharp.Lexer
+open Vesper
 
 // The TERM shapes of the TAST: constants, patterns, expressions, and the compiled-form
 // cluster (a function's SOURCE arity and the flat signature derived from it). Every node
@@ -48,14 +49,14 @@ type TPatG<'ty, 'tok, 'id> =
     /// `_` placeholder. Has a type (the matched value's type) but binds nothing.
     | Wildcard of ty: 'ty * tok: 'tok
     /// `ty` is always a `TyTuple` of the elements' types.
-    | Tuple of items: EqArray<TPatG<'ty, 'tok, 'id>> * ty: 'ty * tok: 'tok
+    | Tuple of items: Block<TPatG<'ty, 'tok, 'id>> * ty: 'ty * tok: 'tok
     | Const of value: TConstValue * ty: 'ty * tok: 'tok
     /// `ty` is a `TyRecord`. May list a subset of the record's fields; unlisted
     /// fields are simply not bound.
-    | Record of fields: EqArray<string * TPatG<'ty, 'tok, 'id>> * ty: 'ty * tok: 'tok
+    | Record of fields: Block<string * TPatG<'ty, 'tok, 'id>> * ty: 'ty * tok: 'tok
     /// `fields` is the per-field sub-pattern list, empty for nullary cases. `ty` is always
     /// a `TyUnion`.
-    | Union of caseName: string * fields: EqArray<TPatG<'ty, 'tok, 'id>> * ty: 'ty * tok: 'tok
+    | Union of caseName: string * fields: Block<TPatG<'ty, 'tok, 'id>> * ty: 'ty * tok: 'tok
     /// `:? testTy as x`. Refutable; binds `inner` (the `as`-name, irrefutable) against the
     /// value cast down to `testTy`. `ty` is the scrutinee's type.
     | TypeTestAs of testTy: 'ty * inner: TPatG<'ty, 'tok, 'id> * ty: 'ty * tok: 'tok
@@ -69,7 +70,7 @@ type TPatG<'ty, 'tok, 'id> =
     /// `p1 | p2 | … | pn`, `alts` having ≥ 2 entries, nested source `|`s flattened into one
     /// level here. Matches iff some alternative does (left-to-right, first wins), and binds
     /// nothing, because an alternative that binds is rejected at elaboration.
-    | Or of alts: EqArray<TPatG<'ty, 'tok, 'id>> * ty: 'ty * tok: 'tok
+    | Or of alts: Block<TPatG<'ty, 'tok, 'id>> * ty: 'ty * tok: 'tok
 
 [<RequireQualifiedAccess>]
 module TPatG =
@@ -116,7 +117,7 @@ type CallVia<'ty> =
     /// Constrained dispatch on a typar object argument coerced to an interface (`'T :> IFace`):
     /// `constrained. <typar> callvirt <iface-slot>`. `ifaceArgs` is the interface's own
     /// instantiation (`'U,'E` in `'T :> IStructSeq<'U,'E>`); empty for a non-generic interface.
-    | Interface of ifaceArgs: EqArray<'ty>
+    | Interface of ifaceArgs: Block<'ty>
 
 [<RequireQualifiedAccess>]
 type Disposal =
@@ -239,7 +240,7 @@ type TExprG<'ty, 'tok, 'id> =
     /// in source order, each in scope of every member's value, and `components` partitions
     /// the member indices over their reference graph. `ty` is the body's type.
     | LetGroup of
-        members: EqArray<TLetMemberG<'ty, 'tok, 'id>> *
+        members: Block<TLetMemberG<'ty, 'tok, 'id>> *
         components: SccPartition *
         body: TExprG<'ty, 'tok, 'id> *
         ty: 'ty *
@@ -260,12 +261,12 @@ type TExprG<'ty, 'tok, 'id> =
         ty: 'ty *
         tok: 'tok
     /// `ty` is always a TyTuple of the elements' inferred types.
-    | Tuple of items: EqArray<TExprG<'ty, 'tok, 'id>> * ty: 'ty * tok: 'tok
+    | Tuple of items: Block<TExprG<'ty, 'tok, 'id>> * ty: 'ty * tok: 'tok
     /// `[| e1; …; en |]`, elements in source order. `ty` is the rank-1 array of their
     /// common element type, which unification drove them all to.
-    | ArrayLit of elems: EqArray<TExprG<'ty, 'tok, 'id>> * ty: 'ty * tok: 'tok
+    | ArrayLit of elems: Block<TExprG<'ty, 'tok, 'id>> * ty: 'ty * tok: 'tok
     /// All items but the last must have unit type; `ty` is the last item's type.
-    | Sequential of items: EqArray<TExprG<'ty, 'tok, 'id>> * ty: 'ty * tok: 'tok
+    | Sequential of items: Block<TExprG<'ty, 'tok, 'id>> * ty: 'ty * tok: 'tok
     /// `ty` is always unit; cond : bool, body : unit.
     | While of cond: TExprG<'ty, 'tok, 'id> * body: TExprG<'ty, 'tok, 'id> * ty: 'ty * tok: 'tok
     /// `ty` is always unit; the loop variable is bound to `var` with type int.
@@ -292,14 +293,14 @@ type TExprG<'ty, 'tok, 'id> =
     /// shares `ty`. `function` desugars to a `Match` over a synthetic parameter.
     | Match of
         scrutinee: TExprG<'ty, 'tok, 'id> *
-        arms: EqArray<TMatchArmG<TPatG<'ty, 'tok, 'id>, TExprG<'ty, 'tok, 'id>>> *
+        arms: Block<TMatchArmG<TPatG<'ty, 'tok, 'id>, TExprG<'ty, 'tok, 'id>>> *
         ty: 'ty *
         tok: 'tok
     /// `try body with | pat -> arm`. `body` and every `arms.[i].Body` share `ty`; arm
     /// patterns bind against a placeholder `exn` nominal, not a fresh TypeVar.
     | TryWith of
         body: TExprG<'ty, 'tok, 'id> *
-        arms: EqArray<TMatchArmG<TPatG<'ty, 'tok, 'id>, TExprG<'ty, 'tok, 'id>>> *
+        arms: Block<TMatchArmG<TPatG<'ty, 'tok, 'id>, TExprG<'ty, 'tok, 'id>>> *
         ty: 'ty *
         tok: 'tok
     /// `try body finally cleanup`. `body` carries `ty`; `cleanup` is unit.
@@ -319,13 +320,13 @@ type TExprG<'ty, 'tok, 'id> =
         tok: 'tok
     /// `{ X = e1; Y = e2 }` record literal. `ty` is a `TyRecord`; `fields` is in source
     /// order and matches the record's declared set, which unification checked.
-    | RecordCons of fields: EqArray<string * TExprG<'ty, 'tok, 'id>> * ty: 'ty * tok: 'tok
+    | RecordCons of fields: Block<string * TExprG<'ty, 'tok, 'id>> * ty: 'ty * tok: 'tok
     /// `{ r with X = v; … }`. `source` types as the same `TyRecord` as `ty`; `overrides` is
     /// the source-order `(name, replacement)` list. Copying the unlisted fields from
     /// `source` is the backend's job, so no node here represents it.
     | RecordClone of
         source: TExprG<'ty, 'tok, 'id> *
-        overrides: EqArray<string * TExprG<'ty, 'tok, 'id>> *
+        overrides: Block<string * TExprG<'ty, 'tok, 'id>> *
         ty: 'ty *
         tok: 'tok
     /// `r.X` — `objArg` types as a `TyRecord`, `ty` as the field's declared type.
@@ -341,18 +342,18 @@ type TExprG<'ty, 'tok, 'id> =
     /// Union constructor application. `args` matches the ctor's declared arity, so nullary
     /// (`Point`) and applied (`Rectangle(2.0, 3.0)`) ctors both fold here, because the latter
     /// has its `App` chain peeled at elaboration. `ty` is a `TyUnion`.
-    | UnionCons of caseName: string * args: EqArray<TExprG<'ty, 'tok, 'id>> * ty: 'ty * tok: 'tok
+    | UnionCons of caseName: string * args: Block<TExprG<'ty, 'tok, 'id>> * ty: 'ty * tok: 'tok
     /// Class primary-constructor invocation; `args` is the per-parameter list, the parser's
     /// tuple wrapper (`new Point(3, 4)`) already peeled. `key` identifies the chosen EXTERNAL
     /// `.ctor` of an overload set; `ValueNone` for a project-local or synthesised class.
-    | New of className: string * key: SymbolKey voption * args: EqArray<TExprG<'ty, 'tok, 'id>> * ty: 'ty * tok: 'tok
+    | New of className: string * key: SymbolKey voption * args: Block<TExprG<'ty, 'tok, 'id>> * ty: 'ty * tok: 'tok
     /// `r.M(args)`. `args` is the per-parameter list (peeled as for `New`); `ty` is the
     /// method's declared return type; `key` is a `SymbolKey.Member`.
     | MethodCall of
         objArg: TExprG<'ty, 'tok, 'id> *
         key: SymbolKey *
         via: CallVia<'ty> *
-        args: EqArray<TExprG<'ty, 'tok, 'id>> *
+        args: Block<TExprG<'ty, 'tok, 'id>> *
         ty: 'ty *
         tok: 'tok
     | PropertyGet of objArg: TExprG<'ty, 'tok, 'id> * key: SymbolKey * via: CallVia<'ty> * ty: 'ty * tok: 'tok
@@ -361,11 +362,11 @@ type TExprG<'ty, 'tok, 'id> =
     /// non-generic declaring type.
     | StaticMethodCall of
         key: SymbolKey *
-        declArgs: EqArray<'ty> *
-        args: EqArray<TExprG<'ty, 'tok, 'id>> *
+        declArgs: Block<'ty> *
+        args: Block<TExprG<'ty, 'tok, 'id>> *
         ty: 'ty *
         tok: 'tok
-    | StaticPropertyGet of key: SymbolKey * declArgs: EqArray<'ty> * ty: 'ty * tok: 'tok
+    | StaticPropertyGet of key: SymbolKey * declArgs: Block<'ty> * ty: 'ty * tok: 'tok
     /// Read of a class-level `static let` backing field: `ldsfld` against the class's
     /// private static field, no method call (a static PROPERTY is a `StaticPropertyGet`).
     /// `declKey` is the declaring class's `TypeKey`, because `MemberKind` has no `Field` case.
@@ -382,7 +383,7 @@ type TExprG<'ty, 'tok, 'id> =
         key: SymbolKey *
         memberName: string *
         storage: MemberStorage *
-        argGroupWidths: EqArray<int> *
+        argGroupWidths: Block<int> *
         ty: 'ty *
         tok: 'tok
     /// Lowered printf / string interpolation. `segments` is the interleaved literal / hole
@@ -390,7 +391,7 @@ type TExprG<'ty, 'tok, 'id> =
     /// order is left to right. `ty` is the call's result.
     | Format of
         sink: FormatSinkG<TExprG<'ty, 'tok, 'id>> *
-        segments: EqArray<FormatSegG<'ty, 'tok, TExprG<'ty, 'tok, 'id>>> *
+        segments: Block<FormatSegG<'ty, 'tok, TExprG<'ty, 'tok, 'id>>> *
         ty: 'ty *
         tok: 'tok
     /// Value-level inline IL `(# "opcode" args : retTy #)`: `opCode` is the mnemonic
@@ -399,14 +400,14 @@ type TExprG<'ty, 'tok, 'id> =
     | ILIntrinsic of
         opCode: string *
         typeOperand: 'ty voption *
-        args: EqArray<TExprG<'ty, 'tok, 'id>> *
+        args: Block<TExprG<'ty, 'tok, 'id>> *
         ty: 'ty *
         tok: 'tok
     /// Static optimization: a default expression plus type-specialized clauses
     /// (`expr when ^T : int = … when ^T : ^T = …`), in source order. At `let inline` expansion
     /// the first clause whose constraints hold wins, else `defaultExpr`; all bodies share `ty`.
     | StaticOptimization of
-        clauses: EqArray<TStaticOptClauseG<'ty, 'tok, 'id>> *
+        clauses: Block<TStaticOptClauseG<'ty, 'tok, 'id>> *
         defaultExpr: TExprG<'ty, 'tok, 'id> *
         ty: 'ty *
         tok: 'tok
@@ -421,9 +422,9 @@ type TExprG<'ty, 'tok, 'id> =
     /// or the node's own `ty` when there are no arguments. Inline expansion rewrites this to a
     /// `StaticMethodCall` on the one nominal in the set carrying the member.
     | TraitCall of
-        supportTys: EqArray<'ty> *
+        supportTys: Block<'ty> *
         memberName: string *
-        args: EqArray<TExprG<'ty, 'tok, 'id>> *
+        args: Block<TExprG<'ty, 'tok, 'id>> *
         ty: 'ty *
         tok: 'tok
     /// A call to the `spec`-th entry of the file's specialization table, applied to `args`.
@@ -431,7 +432,7 @@ type TExprG<'ty, 'tok, 'id> =
     /// are the CALL SITE's; `args` are positional against the entry's SURVIVING parameters.
     | InlineCall of
         spec: SpecializationId *
-        args: EqArray<TExprG<'ty, 'tok, 'id>> *
+        args: Block<TExprG<'ty, 'tok, 'id>> *
         path: AssemblyFilePath *
         ty: 'ty *
         tok: 'tok
@@ -444,7 +445,7 @@ type TExprG<'ty, 'tok, 'id> =
 /// which must hold for `Body` to be selected.
 and TStaticOptClauseG<'ty, 'tok, 'id> =
     {
-        Constraints: EqArray<TStaticOptConstraintG<'ty>>
+        Constraints: Block<TStaticOptConstraintG<'ty>>
         Body: TExprG<'ty, 'tok, 'id>
     }
 

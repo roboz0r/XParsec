@@ -1,5 +1,6 @@
 module XParsec.FSharp.Codegen.Clr.Tests.InferResolutionTests
 
+open Vesper
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
@@ -33,7 +34,7 @@ let private lastLetTy (src: string) : SemType =
         Pipeline.analyseSemFor testCompiling provider (LexedFile.ofText lexed) file
 
     tast.Decls
-    |> EqArray.toList
+    |> Block.toList
     |> List.choose (fun d ->
         match d with
         | TDecl.Let(m, _, _) -> Some m.Ty
@@ -288,7 +289,7 @@ let tests =
                 [
                     let tyInt = BuiltinTypes.tyInt
                     let tyFun a b = SemType.TyFun(a, b)
-                    let tyTup xs = SemType.TyTuple(EqArray.ofList xs)
+                    let tyTup xs = SemType.TyTuple(Block.ofList xs)
 
                     test "curried `a + b` grounds both operands and result to int" {
                         groundsTo "curried" (tyFun tyInt (tyFun tyInt tyInt)) "let g a b = a + b"

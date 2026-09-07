@@ -1,5 +1,6 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.MapProviderTypesTests
 
+open Vesper
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 
@@ -8,7 +9,7 @@ open XParsec.FSharp.SemanticAnalysis
 // mapped at. ROOT variance only, not the algebra under a nested node.
 
 let private origin = SymbolOrigin.Empty
-let private marker = FTConst(RuntimeNames.opaqueKey "M", EqArray.empty)
+let private marker = FTConst(RuntimeNames.opaqueKey "M", Block.empty)
 
 let private witness (v: Variance) : FrozenType =
     let name =
@@ -17,7 +18,7 @@ let private witness (v: Variance) : FrozenType =
         | Variance.Contra -> "contra"
         | Variance.Inv -> "inv"
 
-    FTConst(RuntimeNames.opaqueKey name, EqArray.empty)
+    FTConst(RuntimeNames.opaqueKey name, Block.empty)
 
 /// Resolve ONLY the marker, to a witness of the variance that position was mapped at.
 /// A surviving marker in the output ⇒ that position was left unmapped.
@@ -30,12 +31,12 @@ let private candidate: ExternalRecordCandidate =
     {
         TypeKey = clsKey
         TyparArity = 0
-        FieldNames = EqArray.singleton "f"
+        FieldNames = Block.singleton "f"
         IsRequireQualifiedAccess = false
     }
 
 let private markerMember: ExternalMember =
-    { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf clsKey "m" EqArray.empty 0 MemberKind.Method) with
+    { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf clsKey "m" Block.empty 0 MemberKind.Method) with
         Signature = TestHelpers.mkSignature 0 0 marker marker
         Origin = origin
     }
@@ -43,8 +44,8 @@ let private markerMember: ExternalMember =
 let private markerCase: ExternalCaseShape =
     {
         Name = "C"
-        FieldNames = EqArray.singleton ValueNone
-        FrozenFieldTypes = EqArray.singleton marker
+        FieldNames = Block.singleton ValueNone
+        FrozenFieldTypes = Block.singleton marker
     }
 
 // The by-key channels reach this lookup as the key's qualified name — `Cls`, `Rec`, `Uni`.
@@ -54,13 +55,13 @@ let private typeByName (name: string) : ExternalTypeShape voption =
         ValueSome(
             ExternalTypeShape.Class
                 { ExternalClassShape.basic (TyparList.empty, ClassCommitment.Class, origin) with
-                    Members = EqArray.singleton markerMember
+                    Members = Block.singleton markerMember
                     FrozenInterfaces =
-                        EqArray.singleton (
-                            NominalG.ofClass (SymbolKeyOps.qualifiedTypeKeyOf "I" 1) (EqArray.singleton marker)
+                        Block.singleton (
+                            NominalG.ofClass (SymbolKeyOps.qualifiedTypeKeyOf "I" 1) (Block.singleton marker)
                         )
                     FrozenBaseType =
-                        ValueSome(NominalG.ofClass (SymbolKeyOps.qualifiedTypeKeyOf "B" 1) (EqArray.singleton marker))
+                        ValueSome(NominalG.ofClass (SymbolKeyOps.qualifiedTypeKeyOf "B" 1) (Block.singleton marker))
                 }
         )
     | "Rec" ->
@@ -69,7 +70,7 @@ let private typeByName (name: string) : ExternalTypeShape voption =
                 {
                     Typars = TyparList.positional 1
                     Fields =
-                        EqArray.singleton
+                        Block.singleton
                             {
                                 Name = "f"
                                 IsMutable = false
@@ -85,10 +86,10 @@ let private typeByName (name: string) : ExternalTypeShape voption =
             ExternalTypeShape.Union
                 {
                     Typars = TyparList.positional 1
-                    Cases = EqArray.singleton markerCase
+                    Cases = Block.singleton markerCase
                     Interfaces =
-                        EqArray.singleton (
-                            NominalG.ofClass (SymbolKeyOps.qualifiedTypeKeyOf "J" 1) (EqArray.singleton marker)
+                        Block.singleton (
+                            NominalG.ofClass (SymbolKeyOps.qualifiedTypeKeyOf "J" 1) (Block.singleton marker)
                         )
                     Origin = origin
                     IsValueType = false
@@ -131,18 +132,14 @@ let private fakeScope: IScopeContents =
                 ValueNone
 
         member _.UnionCasesNamed(_, name) =
-            if name = "C" then
-                EqArray.singleton uniCase
-            else
-                EqArray.empty
+            if name = "C" then Block.singleton uniCase else Block.empty
 
         member _.TypesNamed(_, name) =
             match typeByName name with
-            | ValueSome shape ->
-                EqArray.singleton (struct (SymbolKeyOps.qualifiedTypeKeyOf name shape.TyparArity, shape))
-            | ValueNone -> EqArray.empty
+            | ValueSome shape -> Block.singleton (struct (SymbolKeyOps.qualifiedTypeKeyOf name shape.TyparArity, shape))
+            | ValueNone -> Block.empty
 
-        member _.DeclarationsOf _ = EqArray.empty
+        member _.DeclarationsOf _ = Block.empty
     }
 
 // A key-channel source given a scope, so `mapProviderTypes` rewrites both.
@@ -156,14 +153,14 @@ let private fake: IExternalSymbolProvider =
 
         override _.TryLookupMembers(key, memberName) =
             match memberByName (SymbolKeyOps.typeMetaName key) memberName with
-            | ValueSome mem -> EqArray.singleton mem
-            | ValueNone -> EqArray.empty
+            | ValueSome mem -> Block.singleton mem
+            | ValueNone -> Block.empty
 
         override _.TryRecordsWithField fieldName =
             if fieldName = "f" then
-                EqArray.singleton candidate
+                Block.singleton candidate
             else
-                EqArray.empty
+                Block.empty
 
         override _.Platform =
             ValueSome
@@ -215,7 +212,7 @@ let tests =
 
                 Expect.equal iface.Key (SymbolKeyOps.qualifiedTypeKeyOf "I" 1) "interface identity preserved"
 
-                Expect.equal (EqArray.toArray iface.Args) [| witness Variance.Inv |] "interface arg root is inv"
+                Expect.equal (Block.toArray iface.Args) [| witness Variance.Inv |] "interface arg root is inv"
             }
 
             // As for an interface: a base type is a REFERENCE, so only its arguments are
@@ -225,7 +222,7 @@ let tests =
 
                 Expect.equal baseTy.Key (SymbolKeyOps.qualifiedTypeKeyOf "B" 1) "base type identity preserved"
 
-                Expect.equal (EqArray.toArray baseTy.Args) [| witness Variance.Inv |] "base type arg root is inv"
+                Expect.equal (Block.toArray baseTy.Args) [| witness Variance.Inv |] "base type arg root is inv"
             }
 
             test "a record field is covariant" {
@@ -240,7 +237,7 @@ let tests =
                 | ValueSome(ExternalTypeShape.Union { Cases = cases; Interfaces = ifaces }) ->
                     Expect.equal
                         cases.[0].FrozenFieldTypes
-                        (EqArray.singleton (witness Variance.Co))
+                        (Block.singleton (witness Variance.Co))
                         "case field root is co"
 
                     Expect.equal
@@ -249,7 +246,7 @@ let tests =
                         "union interface identity preserved"
 
                     Expect.equal
-                        (EqArray.toArray ifaces.[0].Args)
+                        (Block.toArray ifaces.[0].Args)
                         [| witness Variance.Inv |]
                         "union interface arg root is inv"
                 | other -> failtestf "expected a Union shape, got %A" other
@@ -279,10 +276,10 @@ let tests =
 
             test "the scope's union-case channel maps case fields covariantly" {
                 match wrapped.Scope.UnionCasesNamed(rootContainer, "C") with
-                | EqOne uc ->
+                | BlockOne uc ->
                     Expect.equal
                         uc.Case.FrozenFieldTypes
-                        (EqArray.singleton (witness Variance.Co))
+                        (Block.singleton (witness Variance.Co))
                         "scoped case field root is co"
                 | other -> failtestf "expected one declaring union for 'C', got %A" other
             }
@@ -293,7 +290,7 @@ let tests =
                 | ValueNone -> failtest "sym is declared in the root namespace"
 
                 match wrapped.Scope.TypesNamed(rootContainer, "Rec") with
-                | EqOne(struct (_, ExternalTypeShape.Record { Fields = fields })) ->
+                | BlockOne(struct (_, ExternalTypeShape.Record { Fields = fields })) ->
                     Expect.equal fields.[0].Frozen (witness Variance.Co) "scoped record field root is co"
                 | other -> failtestf "expected a Record shape for 'Rec', got %A" other
             }
@@ -310,7 +307,7 @@ let tests =
             test "non-type channels delegate unchanged" {
                 Expect.equal wrapped.ImplicitOpens [ SymbolKeyOps.assemblyAutoOpen "Amb" ] "implicit opens delegated"
                 Expect.equal (wrapped.IsValueType clsKey) (ValueSome true) "value-ness delegated"
-                Expect.equal (wrapped.TryRecordsWithField "f") (EqArray.singleton candidate) "candidates delegated"
+                Expect.equal (wrapped.TryRecordsWithField "f") (Block.singleton candidate) "candidates delegated"
                 Expect.isTrue (shapeNamed "unknown" |> ValueOption.isNone) "unknown type misses"
 
                 Expect.isTrue

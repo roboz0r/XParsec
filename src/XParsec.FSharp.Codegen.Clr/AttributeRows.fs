@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.Codegen.Clr
 
 open System.Reflection.Metadata
+open Vesper
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.SemanticAnalysis
 
@@ -149,7 +150,7 @@ module internal AttributeBlob =
     /// for a named enum-typed argument; `ValueNone` there rejects as `ForeignEnum`.
     let tryEncode
         (tryEnumFullName: TypeKey -> string voption)
-        (args: EqArray<TAttributeArg>)
+        (args: Block<TAttributeArg>)
         : Result<BlobBuilder, AttributeBlobRejection> =
         // Classify every argument before writing: a partially-written blob is never returned.
         let rec classifyAll acc rest =
@@ -160,7 +161,7 @@ module internal AttributeBlob =
                 | Ok e -> classifyAll (e :: acc) rest
                 | Error r -> Error r
 
-        match classifyAll [] (EqArray.toList args) with
+        match classifyAll [] (Block.toList args) with
         | Error r -> Error r
         | Ok classified ->
             let b = BlobBuilder()

@@ -2,6 +2,7 @@ namespace XParsec.FSharp.SemanticAnalysis
 
 open System.IO
 
+open Vesper
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 
@@ -73,8 +74,8 @@ module FrozenCodecPrimitives =
         read { In = br; Types = types }
 
     /// Length prefix, then each element. `readArrayWith` is the inverse, returning a bare
-    /// array, which every `EqArray` reader wraps.
-    let writeEqArrayWith (w: FrozenWriter) (writeElem: FrozenWriter -> 'a -> unit) (xs: EqArray<'a>) =
+    /// array, which every `Block` reader wraps.
+    let writeBlockWith (w: FrozenWriter) (writeElem: FrozenWriter -> 'a -> unit) (xs: Block<'a>) =
         w.Write xs.Length
 
         for i in 0 .. xs.Length - 1 do
@@ -125,8 +126,8 @@ module FrozenCodecPrimitives =
         // Count = Capacity by construction, so this hands over the buffer rather than copying.
         b.MoveToImmutable()
 
-    let readEqArrayWith (r: FrozenReader) (readElem: FrozenReader -> 'a) : EqArray<'a> =
-        EqArray.ofImmutable (readImmutableWith r readElem)
+    let readBlockWith (r: FrozenReader) (readElem: FrozenReader -> 'a) : Block<'a> =
+        Block.ofImmutable (readImmutableWith r readElem)
 
     // ── container helpers (option / voption / list) ────────────────────────
 
@@ -268,8 +269,8 @@ module FrozenCodecPrimitives =
     let readStringVOption (r: FrozenReader) : string voption =
         readVOptionWith r (fun r -> r.ReadString())
 
-    let writeStringArray (w: FrozenWriter) (xs: EqArray<string>) =
-        writeEqArrayWith w (fun w (s: string) -> w.Write s) xs
+    let writeStringArray (w: FrozenWriter) (xs: Block<string>) =
+        writeBlockWith w (fun w (s: string) -> w.Write s) xs
 
-    let readStringArray (r: FrozenReader) : EqArray<string> =
-        EqArray.ofArray (readArrayWith r (fun r -> r.ReadString()))
+    let readStringArray (r: FrozenReader) : Block<string> =
+        Block.ofArray (readArrayWith r (fun r -> r.ReadString()))

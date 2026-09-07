@@ -3,6 +3,7 @@
 open System.Collections.Generic
 open System.Reflection.Metadata
 open System.Reflection.Metadata.Ecma335
+open Vesper
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
 
@@ -167,7 +168,7 @@ type internal ClrEncoder(env: ClrEnv) =
                 t
         // A structural literal has no IL repr of its own, so erase to its base primitive.
         // External (TS/JS) vocabulary only, so this arm is rarely reached on CLR.
-        | FTLiteral v -> encodeType te (FTConst(RuntimeNames.literalBaseKey v, EqArray.empty))
+        | FTLiteral v -> encodeType te (FTConst(RuntimeNames.literalBaseKey v, Block.empty))
         // A carried type-level computation (keyof / indexed-access / conditional) is a JS-seam
         // construct with no CLR repr; the front end must ground-evaluate it before codegen.
         | FTKeyOf _
@@ -220,12 +221,7 @@ type internal ClrEncoder(env: ClrEnv) =
 
     /// Encode `handle` applied to `args`: the bare type at arity 0, a `GENERICINST` otherwise.
     /// `isVt` selects the `VALUETYPE` element tag over `CLASS`.
-    and encodeNominal
-        (te: SignatureTypeEncoder)
-        (handle: EntityHandle)
-        (isVt: bool)
-        (args: EqArray<FrozenType>)
-        : unit =
+    and encodeNominal (te: SignatureTypeEncoder) (handle: EntityHandle) (isVt: bool) (args: Block<FrozenType>) : unit =
         if args.IsEmpty then
             te.Type(handle, isVt)
         else
@@ -381,7 +377,7 @@ type internal ClrEncoder(env: ClrEnv) =
                 let typeSpec =
                     let tsB = BlobBuilder()
                     let te = BlobEncoder(tsB).TypeSpecificationSignature()
-                    encodeType te (FTTuple(EqArray.ofSeq elems))
+                    encodeType te (FTTuple(Block.ofSeq elems))
                     toEntity (ctx.TypeSpec tsB)
 
                 // `instance void .ctor(!0…!{k-1})` — for k = 8 the last param `!7` is the

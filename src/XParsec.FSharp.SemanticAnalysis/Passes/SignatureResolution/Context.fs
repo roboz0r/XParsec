@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis.Passes
 
 open System.Collections.Generic
+open Vesper
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open NameResolutionTypeRegistration
@@ -51,7 +52,7 @@ module SignatureResolutionContext =
 
     /// The env of a declaration's own typars under `scope`: a typar written anywhere in the
     /// declaration's structure freezes to `FTTypar(scope, i)` at its declared position.
-    let scopedEnv (ctx: PassContext) (scope: TyparScope) (typars: EqArray<DeclaredTypar>) : (TyVarId * SemType) list =
+    let scopedEnv (ctx: PassContext) (scope: TyparScope) (typars: Block<DeclaredTypar>) : (TyVarId * SemType) list =
         ElaborateTypars.mkDeclTyparEnv ctx.Store scope (DeclaredTypar.protos typars)
 
     /// A member's env: the owner's `declaring` typars under the type's scope, then the
@@ -59,8 +60,8 @@ module SignatureResolutionContext =
     let memberEnv
         (ctx: PassContext)
         (owner: TypeKey)
-        (declaring: EqArray<DeclaredTypar>)
-        (own: EqArray<DeclaredTypar>)
+        (declaring: Block<DeclaredTypar>)
+        (own: Block<DeclaredTypar>)
         : (TyVarId * SemType) list =
         [
             yield! scopedEnv ctx (TyparScope.Type owner) declaring
@@ -152,12 +153,7 @@ module SignatureResolutionContext =
 
     /// Run `f` under a typar scope holding exactly `outer` then `own`, STRICT: every typar the
     /// signature writes was collected before entry, so one that still misses is undeclared.
-    let underTypars
-        (ctx: PassContext)
-        (outer: EqArray<DeclaredTypar>)
-        (own: EqArray<DeclaredTypar>)
-        (f: unit -> 'a)
-        : 'a =
+    let underTypars (ctx: PassContext) (outer: Block<DeclaredTypar>) (own: Block<DeclaredTypar>) (f: unit -> 'a) : 'a =
         let scope = Dictionary<string, TyVarId>(System.StringComparer.Ordinal)
 
         for tp in outer do
@@ -178,23 +174,23 @@ module SignatureResolutionContext =
         let domains =
             [
                 for struct (ArgsSpec.ArgsSpec(args = specs), _) in argGroups ->
-                    EqArray.ofSeq (seq { for ArgSpec(typ = t) in specs -> translateType ctx t })
+                    Block.ofSeq (seq { for ArgSpec(typ = t) in specs -> translateType ctx t })
             ]
 
         domains, translateType ctx ret
 
     /// The whole signature as one function type, which is what a VALUE's scheme is.
-    let curriedFunTy (domains: EqArray<SemType> list) (ret: SemType) : SemType =
-        let tupled (d: EqArray<SemType>) =
+    let curriedFunTy (domains: Block<SemType> list) (ret: SemType) : SemType =
+        let tupled (d: Block<SemType>) =
             match d.Length with
             | 1 -> d.[0]
             | _ -> TyTuple d
 
         List.foldBack (fun d acc -> TyFun(tupled d, acc)) domains ret
 
-    let freezeDomains (ctx: PassContext) env (domains: EqArray<SemType> list) : FrozenType list =
+    let freezeDomains (ctx: PassContext) env (domains: Block<SemType> list) : FrozenType list =
         domains
-        |> List.map (fun d -> ExternalSignature.tupledParams (d |> EqArray.map (freezeOver ctx env)))
+        |> List.map (fun d -> ExternalSignature.tupledParams (d |> Block.map (freezeOver ctx env)))
 
     // --- `when` clauses --------------------------------------------------------------
 
@@ -209,7 +205,7 @@ module SignatureResolutionContext =
         (ms: MemberSig<SyntaxToken>)
         : MemberTrait voption =
         let indices =
-            EqArray.ofList
+            Block.ofList
                 [
                     match sts with
                     | StaticTypars.Single t ->
@@ -233,7 +229,7 @@ module SignatureResolutionContext =
             // A trait signature is tupled by convention (`^T * ^T -> ^T`), parsing as one
             // group of N args; flatten it to the arg list.
             let argFts =
-                EqArray.ofList
+                Block.ofList
                     [
                         for struct (ArgsSpec.ArgsSpec(args = specs), _) in argGroups do
                             for ArgSpec(typ = t) in specs -> target t
@@ -254,13 +250,13 @@ module SignatureResolutionContext =
     let publishedScheme
         (ctx: PassContext)
         (env: (TyVarId * SemType) list)
-        (typeParams: EqArray<DeclaredTypar>)
+        (typeParams: Block<DeclaredTypar>)
         (clauses: TyparConstraints<SyntaxToken> list)
         : FunctionScheme =
         let indexOf (t: Typar<SyntaxToken>) : int voption =
             match typarName ctx t with
             | ValueNone -> ValueNone
-            | ValueSome n -> typeParams |> EqArray.tryFindIndex (fun tp -> tp.Name = n)
+            | ValueSome n -> typeParams |> Block.tryFindIndex (fun tp -> tp.Name = n)
 
         let target (t: Type<SyntaxToken>) : FrozenType =
             freezeOver ctx env (translateType ctx t)
@@ -307,9 +303,9 @@ module SignatureResolutionContext =
                 (fun i ->
                     {
                         Kinds = EqSet.ofSeq constraints.[i]
-                        Defaults = EqArray.ofSeq defaults.[i]
+                        Defaults = Block.ofSeq defaults.[i]
                     }
                 )
                 (seq { for tp in typeParams -> tp.Name, tp.Kind })
 
-        FunctionScheme.create typars (EqArray.ofSeq traits)
+        FunctionScheme.create typars (Block.ofSeq traits)

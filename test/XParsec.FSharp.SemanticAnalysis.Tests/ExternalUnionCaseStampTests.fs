@@ -1,5 +1,6 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.ExternalUnionCaseStampTests
 
+open Vesper
 open Expecto
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
@@ -16,17 +17,17 @@ let private provider: IExternalSymbolProvider =
         publishUnion
             b
             (SymbolKeyOps.qualifiedTypeKeyOf "Tests.Hue" 0)
-            [ ExternalCaseShape.create ("Blue", EqArray.empty) ]
+            [ ExternalCaseShape.create ("Blue", Block.empty) ]
 
         publishUnion
             b
             (SymbolKeyOps.qualifiedTypeKeyOf "Other.Shade" 0)
-            [ ExternalCaseShape.create ("Green", EqArray.empty) ]
+            [ ExternalCaseShape.create ("Green", Block.empty) ]
 
         publishUnion
             b
             (SymbolKeyOps.qualifiedTypeKeyOf "Rival.Tint" 0)
-            [ ExternalCaseShape.create ("Green", EqArray.empty) ]
+            [ ExternalCaseShape.create ("Green", Block.empty) ]
 
         b.ImplicitOpens <- [ SymbolKeyOps.assemblyAutoOpen "Tests" ]
     )

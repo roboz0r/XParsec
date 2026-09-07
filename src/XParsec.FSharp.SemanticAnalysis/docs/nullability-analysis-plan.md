@@ -47,7 +47,7 @@ was exactly `T | null`). The member-removal operation already exists in two shap
   ABI-seam erasure; guard narrowing is the *flow-conditional* analogue, dropping the member
   only along the proven branch. The `(|TyNull|_|)` / `(|FTNull|_|)` recognizers
   (`RuntimeNames.fs`, `IntrinsicTypePatterns`) landed with Tier B are the identity check both
-  reach for — reuse them, do not re-spell `TyConst(nullKey, EqArray.empty)`.
+  reach for — reuse them, do not re-spell `TyConst(nullKey, Block.empty)`.
 
 So the new work is **not** the set algebra (it exists) — it is the **flow environment**: a
 per-branch overlay that says "for the extent of this branch, binding `k` is observed as the

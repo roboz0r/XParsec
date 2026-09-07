@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+open Vesper
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 
@@ -411,7 +412,7 @@ module TastAccessor =
                     ObjArg = exprChild e 0
                     Key = p.Key
                     Via = p.Via
-                    Args = EqArray.init (exprChildCount e - 1) (fun i -> exprChild e (i + 1))
+                    Args = Block.init (exprChildCount e - 1) (fun i -> exprChild e (i + 1))
                 }
         | _ -> ValueNone
 
@@ -429,7 +430,7 @@ module TastAccessor =
 
     /// The declaring type's instantiation at a `StaticPropertyGet` / `StaticMethodCall` site;
     /// empty for a non-generic declaring type.
-    let exprStaticDeclArgs (e: ExprId) : EqArray<FrozenType> =
+    let exprStaticDeclArgs (e: ExprId) : Block<FrozenType> =
         match payload e with
         | ExprPayload.StaticPropertyGet p -> p.DeclArgs
         | ExprPayload.StaticMethodCall p -> p.DeclArgs
@@ -645,13 +646,13 @@ module TastAccessor =
         expect "TastAccessor.exprTraitCallMemberName: not a TraitCall node" (|ETraitCallMemberName|_|) e
 
     [<return: Struct>]
-    let private (|ETraitCallSupportTys|_|) (e: ExprId) : EqArray<FrozenType> voption =
+    let private (|ETraitCallSupportTys|_|) (e: ExprId) : Block<FrozenType> voption =
         match payload e with
         | ExprPayload.TraitCall p -> ValueSome p.SupportTys
         | _ -> ValueNone
 
     /// The candidate support set of an SRTP `TraitCall`, in argument order.
-    let exprTraitCallSupportTys (e: ExprId) : EqArray<FrozenType> =
+    let exprTraitCallSupportTys (e: ExprId) : Block<FrozenType> =
         expect "TastAccessor.exprTraitCallSupportTys: not a TraitCall node" (|ETraitCallSupportTys|_|) e
 
     [<return: Struct>]

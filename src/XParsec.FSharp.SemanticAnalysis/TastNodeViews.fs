@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+open Vesper
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 
@@ -55,7 +56,7 @@ module TastNodeViews =
             Key: SymbolKey
             MemberName: string
             Storage: MemberStorage
-            ArgGroupWidths: EqArray<int>
+            ArgGroupWidths: Block<int>
         }
 
     /// The scalar payload of an `ILIntrinsic` node; its args are the node's `exprChildren`.
@@ -190,7 +191,7 @@ module TastNodeViews =
             ObjArg: ExprId
             Key: SymbolKey
             Via: CallVia<FrozenType>
-            Args: EqArray<ExprId>
+            Args: Block<ExprId>
         }
 
     /// The scalar payload of a `StaticFieldGet` node: the declaring class key and the

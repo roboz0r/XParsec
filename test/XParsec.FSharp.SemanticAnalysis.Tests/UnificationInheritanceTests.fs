@@ -1,5 +1,6 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.UnificationInheritanceTests
 
+open Vesper
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Passes
@@ -37,10 +38,7 @@ let tests =
 
                 match TypeRegistry.tryClass ctx.Types UseSite.unbounded "D" with
                 | ValueSome info ->
-                    Expect.equal
-                        (typeOf ctx (BoundVarKey.identity info.BaseKey))
-                        (TyClass("B", EqArray.empty))
-                        "base : B"
+                    Expect.equal (typeOf ctx (BoundVarKey.identity info.BaseKey)) (TyClass("B", Block.empty)) "base : B"
                 | ValueNone -> failtest "class type D not registered"
             }
 
@@ -330,7 +328,7 @@ let tests =
                 Expect.isEmpty (errors ctx) "the abbreviation resolves to Box<int>"
 
                 match (expectClass ctx "D").Base with
-                | ValueSome b -> Expect.equal b.Parent.Nominal.Args (EqArray.singleton intTy) "instantiated at int"
+                | ValueSome b -> Expect.equal b.Parent.Nominal.Args (Block.singleton intTy) "instantiated at int"
                 | ValueNone -> failtest "D records no base"
             }
 
@@ -458,7 +456,7 @@ let tests =
                 | Some m ->
                     Expect.equal
                         (Unification.zonk ctx.Store m.Type)
-                        (TyFun(TyConst(RuntimeNames.objKey, EqArray.empty), BuiltinTypes.tyBool))
+                        (TyFun(TyConst(RuntimeNames.objKey, Block.empty), BuiltinTypes.tyBool))
                         "D.Equals : obj -> bool"
                 | None -> failtest "D.Equals not registered"
             }
@@ -471,7 +469,7 @@ let tests =
 
                 let ctx = analyse input
                 let patKey = NodeKey.ofSource (input.IndexOf "s = ") NodeKind.PatIdent
-                Expect.equal (typeOf ctx patKey) (TyClass("B", EqArray.empty)) "s : B"
+                Expect.equal (typeOf ctx patKey) (TyClass("B", Block.empty)) "s : B"
                 Expect.isEmpty ctx.Diagnostics "no diagnostics — D <: B"
             }
 
@@ -498,7 +496,7 @@ let tests =
 
                 let ctx = analyse input
                 let patKey = NodeKey.ofSource (input.IndexOf "i = b :> I") NodeKind.PatIdent
-                Expect.equal (typeOf ctx patKey) (TyClass("I", EqArray.empty)) "i : I — Base`2 <: I resolves per arity"
+                Expect.equal (typeOf ctx patKey) (TyClass("I", Block.empty)) "i : I — Base`2 <: I resolves per arity"
                 Expect.isEmpty ctx.Diagnostics (sprintf "no diagnostics — Base`2 declares I: %A" ctx.Diagnostics)
             }
 
@@ -519,7 +517,7 @@ let tests =
 
                 let ctx = analyse input
                 let patKey = NodeKey.ofSource (input.IndexOf "d = ") NodeKind.PatIdent
-                Expect.equal (typeOf ctx patKey) (TyClass("D", EqArray.empty)) "d : D"
+                Expect.equal (typeOf ctx patKey) (TyClass("D", Block.empty)) "d : D"
                 Expect.isEmpty ctx.Diagnostics "no diagnostics — D <: B downcast is valid"
             }
 

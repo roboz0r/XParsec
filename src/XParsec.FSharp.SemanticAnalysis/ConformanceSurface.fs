@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
 open System.Collections.Generic
+open Vesper
 
 // `.fsi` ↔ `.fs` conformance over the two ANALYSED halves, compared by resolved identity: the
 // signature's surface against the one the implementation would publish signatureless. A
@@ -42,7 +43,7 @@ module ConformanceSurface =
     /// One occurrence's arguments in comparison form: the positional arguments in written
     /// order, then the named arguments by name. `[<Foo(1, Y = 2, X = 3)>]` and
     /// `[<Foo(1, X = 3, Y = 2)>]` carry one attribute value, so they compare equal.
-    let private comparableArgs (args: EqArray<TAttributeArg>) : TAttributeArg list * TAttributeArg list =
+    let private comparableArgs (args: Block<TAttributeArg>) : TAttributeArg list * TAttributeArg list =
         let positional =
             [
                 for a in args do

@@ -1,5 +1,6 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.TastPoolsTests
 
+open Vesper
 open Expecto
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
@@ -82,7 +83,7 @@ let private checkDecl (pools: FrozenPools) (DeclPoolId i) (du: Pooled.TDecl) =
             "group decl one pattern child per member"
 
         members
-        |> EqArray.iteri (fun j m ->
+        |> Block.iteri (fun j m ->
             checkExpr pools (ChildColumn.item pools.DeclExprChildren i j) m.Value
             checkPat pools (ChildColumn.item pools.DeclPatChildren i j) m.Pattern
         )
@@ -172,7 +173,7 @@ let private checkValReprPatsAreLambdaParams (pools: FrozenPools) =
 
     let namedLetRoots =
         pools.Roots
-        |> EqArray.toArray
+        |> Block.toArray
         |> Array.sumBy (fun (DeclPoolId d) ->
             match pools.DeclPayloads.[d] with
             | DeclPayload.Let _ ->
@@ -217,9 +218,9 @@ let private checkBoundVarNames (src: string) (pools: FrozenPools) : int =
 
 let private checkProgram (src: string) =
     let pools, frozen = poolsFor src
-    let duDecls = EqArray.toArray frozen.Decls
+    let duDecls = Block.toArray frozen.Decls
     Expect.equal pools.Roots.Length duDecls.Length "one root per emittable decl"
-    Array.iter2 (checkDecl pools) (EqArray.toArray pools.Roots) duDecls
+    Array.iter2 (checkDecl pools) (Block.toArray pools.Roots) duDecls
     checkIdResolution pools frozen
     checkValReprPatsAreLambdaParams pools
 
@@ -639,7 +640,7 @@ let private staleEntrySrc = "module M\n\nmodule N =\n    let a = 1\n    let b = 
 let private lastBindingDropped () =
     let _, frozen = poolsFor staleEntrySrc
     let rePool = rePoolFor staleEntrySrc
-    let decls = EqArray.toArray frozen.Decls
+    let decls = Block.toArray frozen.Decls
 
     let index, boundVar =
         seq { 0 .. decls.Length - 1 }
@@ -665,7 +666,7 @@ let private lastBindingDropped () =
         Member = Map.find boundVar frozen.ModuleMembers
         Pruned =
             { frozen with
-                Decls = EqArray.ofArray (Array.removeAt index decls)
+                Decls = Block.ofArray (Array.removeAt index decls)
                 ModuleMembers = Map.remove boundVar frozen.ModuleMembers
                 ClosureReprs = Map.remove boundVar frozen.ClosureReprs
                 FunctionSchemes = Map.remove boundVar frozen.FunctionSchemes

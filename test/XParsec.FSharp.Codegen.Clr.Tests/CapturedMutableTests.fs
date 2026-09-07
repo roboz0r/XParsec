@@ -3,6 +3,7 @@ module XParsec.FSharp.Codegen.Clr.Tests.CapturedMutableTests
 open System.Reflection.Metadata
 open System.Reflection.PortableExecutable
 open System.Runtime.Loader
+open Vesper
 open Expecto
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Common
@@ -41,7 +42,7 @@ let tests =
 
                 let hasLocalRefDecl =
                     tast.Decls
-                    |> EqArray.exists (fun d ->
+                    |> Block.exists (fun d ->
                         match d with
                         | TDecl.Type td when td.Name = "Ref" || td.Name = "Vesper.Ref" -> true
                         | _ -> false
@@ -62,7 +63,7 @@ let tests =
 
                 let hasRefDecl =
                     tast.Decls
-                    |> EqArray.exists (fun d ->
+                    |> Block.exists (fun d ->
                         match d with
                         | TDecl.Type td when td.Name = "Ref" || td.Name = "Vesper.Ref" -> true
                         | _ -> false
@@ -92,16 +93,15 @@ let tests =
                         | TExpr.Lambda(_, b, _, _) -> scanExpr predicate b
                         | TExpr.Let({ Value = v }, b, _, _) -> scanExpr predicate v || scanExpr predicate b
                         | TExpr.App(f, a, _, _) -> scanExpr predicate f || scanExpr predicate a
-                        | TExpr.Sequential(items, _, _) -> items |> EqArray.exists (scanExpr predicate)
+                        | TExpr.Sequential(items, _, _) -> items |> Block.exists (scanExpr predicate)
                         | TExpr.IfThenElse(c, t, e, _, _) ->
                             scanExpr predicate c || scanExpr predicate t || scanExpr predicate e
                         | TExpr.FieldGet(r, _, _, _) -> scanExpr predicate r
                         | TExpr.FieldSet(r, _, v, _, _) -> scanExpr predicate r || scanExpr predicate v
-                        | TExpr.RecordCons(fields, _, _) ->
-                            fields |> EqArray.exists (fun (_, v) -> scanExpr predicate v)
+                        | TExpr.RecordCons(fields, _, _) -> fields |> Block.exists (fun (_, v) -> scanExpr predicate v)
                         | TExpr.Match(sc, arms, _, _) ->
                             scanExpr predicate sc
-                            || arms |> EqArray.exists (fun a -> scanExpr predicate a.Body)
+                            || arms |> Block.exists (fun a -> scanExpr predicate a.Body)
                         | _ -> false
 
                 let isContentsFieldSet =
@@ -121,7 +121,7 @@ let tests =
 
                 let scan p =
                     tast.Decls
-                    |> EqArray.exists (fun d ->
+                    |> Block.exists (fun d ->
                         match d with
                         | TDecl.Let({ Value = v }, _, _) -> scanExpr p v
                         | TDecl.Expression(e, _) -> scanExpr p e

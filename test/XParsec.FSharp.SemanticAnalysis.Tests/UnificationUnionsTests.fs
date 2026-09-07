@@ -1,5 +1,6 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.UnificationUnionsTests
 
+open Vesper
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Passes
@@ -35,7 +36,7 @@ let tests =
 
                     Expect.contains
                         (EqSet.toList ms.Disjuncts)
-                        (TyConst(RuntimeNames.nullKey, EqArray.empty))
+                        (TyConst(RuntimeNames.nullKey, Block.empty))
                         "the reserved `null` literal type is a disjunct"
                 | other -> failtestf "expected int | null to be a TyOr, got %A" other
             }

@@ -2,6 +2,7 @@ namespace XParsec.FSharp.SemanticAnalysis.Passes
 
 open System.Collections.Generic
 open System.Collections.Immutable
+open Vesper
 open XParsec.FSharp
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
@@ -45,7 +46,7 @@ module internal UnificationInferApp =
             |> List.map (shown ctx.Store)
             |> List.distinct
             |> List.toArray
-            |> EqArray.ofArray
+            |> Block.ofArray
 
         errorTy ctx tok (Kind.TraitNotSupported(shownTys, MemberNoun.Operator, spelling))
 
@@ -245,7 +246,7 @@ module internal UnificationInferApp =
                             // qualified, so the type resolves by KEY, not an opens-aware lookup.
                             match ctx.Provider.TryLookupType(SymbolKeyOps.qualifiedTypeKeyOf id.Value 0) with
                             | ValueSome(ExternalTypeShape.Class info) when info.TyparArity = 0 ->
-                                ValueSome(TyClass(SymbolKeyOps.qualifiedTypeKeyOf id.Value 0, EqArray.empty))
+                                ValueSome(TyClass(SymbolKeyOps.qualifiedTypeKeyOf id.Value 0, Block.empty))
                             | _ -> ValueNone
                         )
 
@@ -385,7 +386,7 @@ module internal UnificationInferApp =
                                             // int)`); pick the parameterless override.
                                             let toString =
                                                 ctx.Provider.TryLookupMembers(scratchKey, "ToString")
-                                                |> EqArray.tryFind (fun m -> m.Key.ArgSig.Length = 0)
+                                                |> Block.tryFind (fun m -> m.Key.ArgSig.Length = 0)
 
                                             match toString with
                                             | ValueSome m ->
@@ -613,6 +614,6 @@ module internal UnificationInferApp =
             // `&local` (managed address-of) is the byref intrinsic, because `op_AddressOf` has
             // no provider symbol. Typing it `byref<operandTy>` matches a BCL byref/`out`
             // parameter (`Int32.TryParse(string, int&)`); addressability is checked at codegen.
-            TyConst(RuntimeNames.byrefKey, EqArray.singleton operandTy)
+            TyConst(RuntimeNames.byrefKey, Block.singleton operandTy)
         | ValueSome name -> inferOperatorApp ctx node name (fun () -> None) [ operandTy ]
         | ValueNone -> TyVar(ctx.FreshTyVar())

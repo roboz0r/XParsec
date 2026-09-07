@@ -1,5 +1,6 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.AttributeFoldTests
 
+open Vesper
 open Expecto
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.SemanticAnalysis
@@ -15,7 +16,7 @@ let private src (lines: string list) = String.concat "\n" lines
 /// The frozen `TTypeDecl` named `name`, off the unpooled tree.
 let private typeDecl (pools: FrozenPools) (name: string) =
     (TastUnpool.ofPools pools).Decls
-    |> EqArray.toList
+    |> Block.toList
     |> List.tryPick (fun d ->
         match d with
         | TDeclG.Type td when td.Name = name -> Some td
@@ -25,8 +26,8 @@ let private typeDecl (pools: FrozenPools) (name: string) =
 
 /// The one `Mark` attribute in `attrs`, as its folded argument list.
 let private markArgs (attrs: TAttributes) : TAttributeArg list =
-    match attrs |> EqArray.toList |> List.filter (fun a -> a.Key.Name = "MarkAttribute") with
-    | [ a ] -> EqArray.toList a.Args
+    match attrs |> Block.toList |> List.filter (fun a -> a.Key.Name = "MarkAttribute") with
+    | [ a ] -> Block.toList a.Args
     | other -> failtestf "expected exactly one Mark attribute, got %d" (List.length other)
 
 let private positional (v: TConstValue) : TAttributeArg =
@@ -155,7 +156,7 @@ let tests =
 
                 let m =
                     TTypeKindG.members (typeDecl pools "Widget").Kind
-                    |> EqArray.toList
+                    |> Block.toList
                     |> List.tryFind (fun m -> m.Name = "M")
                     |> Option.defaultWith (fun () -> failtest "no member M on Widget")
 
@@ -180,12 +181,12 @@ let tests =
 
                 let usage =
                     (typeDecl pools "MineAttribute").Attributes
-                    |> EqArray.toList
+                    |> Block.toList
                     |> List.tryFind (fun a -> a.Key.Name = "AttributeUsageAttribute")
                     |> Option.defaultWith (fun () -> failtest "no AttributeUsage on MineAttribute")
 
                 Expect.equal
-                    (EqArray.toList usage.Args)
+                    (Block.toList usage.Args)
                     [
                         // Class = 4, Struct = 8, read off the external contract's case table.
                         {
@@ -217,7 +218,7 @@ let tests =
 
                 // Never a positionally-shifted argument list: the whole attribute is absent.
                 Expect.isEmpty
-                    (EqArray.toList (typeDecl pools "W").Attributes)
+                    (Block.toList (typeDecl pools "W").Attributes)
                     "the attribute with the failing argument is dropped whole"
             }
 
@@ -292,7 +293,7 @@ let tests =
                 | other -> failtestf "expected exactly one error, got %A" other
 
                 Expect.isEmpty
-                    (EqArray.toList (typeDecl pools "W").Attributes)
+                    (Block.toList (typeDecl pools "W").Attributes)
                     "the attribute with the failing argument is dropped whole"
             }
 
@@ -329,7 +330,7 @@ let tests =
                 | other -> failtestf "expected exactly one error, got %A" other
 
                 Expect.isEmpty
-                    (EqArray.toList (typeDecl pools "F").Attributes)
+                    (Block.toList (typeDecl pools "F").Attributes)
                     "the attribute with the forward reference is dropped whole"
             }
 

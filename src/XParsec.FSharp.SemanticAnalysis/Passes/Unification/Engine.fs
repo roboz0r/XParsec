@@ -2,6 +2,7 @@ namespace XParsec.FSharp.SemanticAnalysis.Passes
 
 open System.Collections.Generic
 open System.Collections.Immutable
+open Vesper
 open XParsec.FSharp
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
@@ -59,10 +60,10 @@ module UnificationEngine =
             lookup: (string -> SemType voption)
         /// A project-local class: member lookup walks the inheritance chain, threading the
         /// substitution up per parent, so no single `subst` + `lookup` pair describes it.
-        | ClassChain of key: TypeKey * args: EqArray<SemType>
+        | ClassChain of key: TypeKey * args: Block<SemType>
         /// An *external* class/interface (`System.Collections.IEqualityComparer`): its
         /// member resolves through the provider, addressed by the resolved `key`.
-        | ExternalClass of key: TypeKey * args: EqArray<SemType>
+        | ExternalClass of key: TypeKey * args: Block<SemType>
 
     let private resolveDotSource (ctx: PassContext) (linkTarget: SemType) : DotSource =
         match tryResolveNominal ctx.Store linkTarget with
@@ -125,7 +126,7 @@ module UnificationEngine =
         | TyConst(PlatformName platform, args) when args.Length = 0 ->
             match IntrinsicTypeMap.canonsOf platform ctx.IntrinsicTypeMap.Value with
             | canons when canons.Length > 1 ->
-                ValueSome(SemType.MkUnion(seq { for c in canons -> TyConst(c, EqArray.empty) }))
+                ValueSome(SemType.MkUnion(seq { for c in canons -> TyConst(c, Block.empty) }))
             | _ -> ValueNone
         | _ -> ValueNone
 
@@ -134,7 +135,7 @@ module UnificationEngine =
     let private reprSiblings (ctx: PassContext) (a: SemType) (b: SemType) : bool =
         match resolveStep ctx.Store a, resolveStep ctx.Store b with
         | TyConst(k1, a1), TyConst(k2, a2) when a1.Length = 0 && a2.Length = 0 ->
-            IntrinsicTypeMap.familyOf k1 ctx.IntrinsicTypeMap.Value |> EqArray.contains k2
+            IntrinsicTypeMap.familyOf k1 ctx.IntrinsicTypeMap.Value |> Block.contains k2
         | _ -> false
 
     /// A Vesper RECORD satisfies an EXTERNAL interface parameter by WIDTH: every required
@@ -156,11 +157,11 @@ module UnificationEngine =
                             | Some f -> ValueSome(substituteWith ctx.Store subst f.Type)
                             | None -> ValueNone
 
-                        let declArgs = EqArray.toArray iargs
+                        let declArgs = Block.toArray iargs
 
                         ifaceMembers
-                        |> EqArray.filter (fun m -> not m.IsStatic && m.IsValueMember && not m.IsOptional)
-                        |> EqArray.forall (fun m ->
+                        |> Block.filter (fun m -> not m.IsStatic && m.IsValueMember && not m.IsOptional)
+                        |> Block.forall (fun m ->
                             match fieldTy m.Name with
                             | ValueNone -> false
                             | ValueSome argTy ->
@@ -334,7 +335,7 @@ module UnificationEngine =
         // that knows which is written (`(e : T)`) reports its own directional message.
         | _ -> ctx.Report(tok, Kind.Message(sprintf "Type mismatch: %s vs %s" (shown ctx.Store a) (shown ctx.Store b)))
 
-    and private unifyArgs (ctx: PassContext) (tok: SyntaxToken) (xs: EqArray<SemType>) (ys: EqArray<SemType>) : unit =
+    and private unifyArgs (ctx: PassContext) (tok: SyntaxToken) (xs: Block<SemType>) (ys: Block<SemType>) : unit =
         for i in 0 .. xs.Length - 1 do
             unify ctx tok xs.[i] ys.[i]
 
@@ -449,7 +450,7 @@ module UnificationEngine =
                     | ValueSome(struct (tname, targs)) when
                         targs.Length > 0
                         && targs
-                           |> EqArray.exists (fun a ->
+                           |> Block.exists (fun a ->
                                match resolveStep ctx.Store a with
                                | TyVar _ -> true
                                | _ -> false
@@ -509,7 +510,7 @@ module UnificationEngine =
     /// would force the other operands to ITS signature, and `3 * v` would pin to `int`'s
     /// member before `Vec2`'s `int * Vec2` could win.
     and private trySolveSrtpTrait (ctx: PassContext) (tok: SyntaxToken) (b: MemberSignature) (force: bool) : unit =
-        let supportTys = EqArray.toArray b.SupportTys
+        let supportTys = Block.toArray b.SupportTys
 
         // A QUANTIFIED free support typar is a scheme's type parameter: the trait travels
         // with the template and inline expansion dispatches it per use site, so a forced

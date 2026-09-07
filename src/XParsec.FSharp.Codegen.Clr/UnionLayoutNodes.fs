@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.Codegen.Clr
 
 open System.Reflection
+open Vesper
 open XParsec.FSharp.SemanticAnalysis
 open LayoutNodes
 
@@ -34,7 +35,7 @@ module internal UnionLayoutNodes =
         let td = ud.Decl
 
         let fields =
-            List.zip (ud.FieldNames c) (EqArray.toList c.Fields)
+            List.zip (ud.FieldNames c) (Block.toList c.Fields)
             |> List.mapi (fun fi (name, (_, fty)) ->
                 {
                     Key = FieldKey.UnionCaseField(td.Key, c.Name, fi)
@@ -212,7 +213,7 @@ module internal UnionLayoutNodes =
                 let singletonCases = ud.SingletonCases
 
                 let selfTy =
-                    FTUnion(td.TypeKey, EqArray.ofList (declaringMarkers td.TypeKey td.TypeParams.TypeArity))
+                    FTUnion(td.TypeKey, Block.ofList (declaringMarkers td.TypeKey td.TypeParams.TypeArity))
 
                 // A flat union's payload fields: `initonly` inline slots on its own `TypeDef`,
                 // or the one `_payload` field with the value types nested behind it. A

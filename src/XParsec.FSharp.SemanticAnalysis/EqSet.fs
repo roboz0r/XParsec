@@ -143,26 +143,29 @@ type EqSet<'T> =
 
 [<RequireQualifiedAccess>]
 module EqSet =
+
+    open Vesper
+
     [<GeneralizableValue>]
     let empty<'T> : EqSet<'T> = EqSet<'T>(ImmutableArray<'T>.Empty)
 
     let ofSeq (xs: 'T seq) : EqSet<'T> =
         EqSet<'T>(ImmutableArray.CreateRange xs)
 
-    let private asArray (xs: EqSet<'T>) : EqArray<'T> = EqArray.ofImmutable xs.Underlying
+    let private asArray (xs: EqSet<'T>) : Block<'T> = Block.ofImmutable xs.Underlying
 
     /// Uses `EqualityComparer<'T>.Default`, so callers need no `'T: equality` constraint.
-    let contains (value: 'T) (xs: EqSet<'T>) : bool = EqArray.contains value (asArray xs)
+    let contains (value: 'T) (xs: EqSet<'T>) : bool = Block.contains value (asArray xs)
 
-    let toList (xs: EqSet<'T>) : 'T list = EqArray.toList (asArray xs)
+    let toList (xs: EqSet<'T>) : 'T list = Block.toList (asArray xs)
 
-    let iter (action: 'T -> unit) (xs: EqSet<'T>) : unit = EqArray.iter action (asArray xs)
+    let iter (action: 'T -> unit) (xs: EqSet<'T>) : unit = Block.iter action (asArray xs)
 
-    let exists (predicate: 'T -> bool) (xs: EqSet<'T>) : bool = EqArray.exists predicate (asArray xs)
+    let exists (predicate: 'T -> bool) (xs: EqSet<'T>) : bool = Block.exists predicate (asArray xs)
 
-    let forall (predicate: 'T -> bool) (xs: EqSet<'T>) : bool = EqArray.forall predicate (asArray xs)
+    let forall (predicate: 'T -> bool) (xs: EqSet<'T>) : bool = Block.forall predicate (asArray xs)
 
     let fold (folder: 'State -> 'T -> 'State) (state: 'State) (xs: EqSet<'T>) : 'State =
-        EqArray.fold folder state (asArray xs)
+        Block.fold folder state (asArray xs)
 
     let map (mapping: 'T -> 'U) (xs: EqSet<'T>) : EqSet<'U> = ofSeq (Seq.map mapping xs.Underlying)

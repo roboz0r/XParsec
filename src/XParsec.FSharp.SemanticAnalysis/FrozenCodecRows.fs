@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+open Vesper
 open XParsec.FSharp.SemanticAnalysis.FrozenCodecPrimitives
 
 /// The file's interned type / key TABLES on the wire: the ROW form of `FrozenType` and the
@@ -45,17 +46,17 @@ module FrozenCodecRows =
     let writeFilePathId (w: FrozenWriter) (FilePathId i) = w.Write i
     let readFilePathId (r: FrozenReader) : FilePathId = FilePathId(r.ReadInt32())
 
-    let private writeTypeIds (w: FrozenWriter) (xs: EqArray<TypeId>) = writeEqArrayWith w writeTypeId xs
+    let private writeTypeIds (w: FrozenWriter) (xs: Block<TypeId>) = writeBlockWith w writeTypeId xs
 
-    let private readTypeIds (r: FrozenReader) : EqArray<TypeId> =
-        EqArray.ofArray (readArrayWith r readTypeId)
+    let private readTypeIds (r: FrozenReader) : Block<TypeId> =
+        Block.ofArray (readArrayWith r readTypeId)
 
     // ── the rows ───────────────────────────────────────────────────────────
 
-    let private writeNamespaceRow (w: FrozenWriter) (segs: EqArray<StrId>) = writeEqArrayWith w writeStrId segs
+    let private writeNamespaceRow (w: FrozenWriter) (segs: Block<StrId>) = writeBlockWith w writeStrId segs
 
-    let private readNamespaceRow (r: FrozenReader) : EqArray<StrId> =
-        EqArray.ofArray (readArrayWith r readStrId)
+    let private readNamespaceRow (r: FrozenReader) : Block<StrId> =
+        Block.ofArray (readArrayWith r readStrId)
 
     let private writeModuleContainerRow (w: FrozenWriter) (h: ModuleContainerRow) =
         match h with
@@ -303,7 +304,7 @@ module FrozenCodecRows =
         | TypeRow.Measure atoms ->
             w.Write 15uy
 
-            writeEqArrayWith
+            writeBlockWith
                 w
                 (fun w (a: MeasureAtomRow) ->
                     writeTypeKeyId w a.Atom
@@ -364,7 +365,7 @@ module FrozenCodecRows =
         | 14uy -> TypeRow.Unknown(readUnknownReasonRow r)
         | 15uy ->
             TypeRow.Measure(
-                readEqArrayWith
+                readBlockWith
                     r
                     (fun r ->
                         let atom = readTypeKeyId r

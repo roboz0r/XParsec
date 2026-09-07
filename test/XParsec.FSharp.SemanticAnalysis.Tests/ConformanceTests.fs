@@ -1,5 +1,7 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.ConformanceTests
 
+open Vesper
+
 // Sig/impl conformance over the two ANALYSED halves: every verdict is taken by resolved
 // identity, so a `[<CompiledName>]`, a `ModuleSuffix` module and a shadowed attribute are
 // settled before the comparison.

@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
 open System.Collections.Generic
+open Vesper
 
 // The SPLICE TEMPLATES a frozen file publishes, collected apart from the signatures that
 // publish its declarations. A template is keyed by `SymbolKey` and by nothing else, so a
@@ -57,7 +58,7 @@ module InlineBodies =
 
             // One entry per curried position, so `this` takes a leading default. No member
             // param carries a decoded attribute today, so every entry is `ParamAttrs.Default`.
-            let paramAttrs = EqArray.init curried.Length (fun _ -> ParamAttrs.Default)
+            let paramAttrs = Block.init curried.Length (fun _ -> ParamAttrs.Default)
 
             Some(InlineBody.anchoredIn file (TastPoolBuilder.unpoolDecl pool decl.Id) paramAttrs)
 
@@ -117,7 +118,7 @@ module InlineBodies =
                                     SymbolKeyOps.memberKey
                                         tdecl.TypeKey
                                         m.Name
-                                        (m.Params |> EqArray.map snd)
+                                        (m.Params |> Block.map snd)
                                         m.MethodTypars.TypeArity
                                         kind
 

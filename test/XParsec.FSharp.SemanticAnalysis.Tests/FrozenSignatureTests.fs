@@ -1,5 +1,6 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.FrozenSignatureTests
 
+open Vesper
 open Expecto
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
@@ -16,7 +17,7 @@ let private duOf (frozen: FrozenPools) : Pooled.TastFile = TastUnpool.ofPools fr
 
 /// The `TypeKey` of the type declared under `name`, read out of the frozen decls.
 let private typeKeyOf (frozen: FrozenPools) (name: string) : TypeKey =
-    EqArray.toList (duOf frozen).Decls
+    Block.toList (duOf frozen).Decls
     |> List.pick (
         function
         | TDeclG.Type td when td.Name = name -> Some td.TypeKey
@@ -25,10 +26,10 @@ let private typeKeyOf (frozen: FrozenPools) (name: string) : TypeKey =
 
 /// The augmentation members declared on the type named `name`.
 let private membersOfType (frozen: FrozenPools) (name: string) : Pooled.TTypeMember list =
-    EqArray.toList (duOf frozen).Decls
+    Block.toList (duOf frozen).Decls
     |> List.pick (
         function
-        | TDeclG.Type td when td.Name = name -> Some(EqArray.toList (TTypeKindG.members td.Kind))
+        | TDeclG.Type td when td.Name = name -> Some(Block.toList (TTypeKindG.members td.Kind))
         | _ -> None
     )
 
@@ -38,7 +39,7 @@ let private moduleBindings (frozen: FrozenPools) : (string * BindingKey) list =
     let file = duOf frozen
 
     let fromDecls =
-        EqArray.toList file.Decls
+        Block.toList file.Decls
         |> List.choose (
             function
             | TDeclG.Let({ Pattern = pattern }, _, _) ->
@@ -52,7 +53,7 @@ let private moduleBindings (frozen: FrozenPools) : (string * BindingKey) list =
         )
 
     let fromInline =
-        EqArray.toList file.InlineBodies
+        Block.toList file.InlineBodies
         |> List.choose (fun iv ->
             match iv.Key with
             | SymbolKey.Binding bk -> Some(bk.Name, bk)
@@ -118,10 +119,7 @@ let tests =
 
                 match store.TryLookupType(typeKeyOf frozen "Box") with
                 | ValueSome(ExternalTypeShape.Record r) when r.TyparArity = 1 ->
-                    Expect.equal
-                        (r.Fields |> EqArray.map (fun f -> f.Name))
-                        (EqArray.ofSeq [ "value" ])
-                        "Box field names"
+                    Expect.equal (r.Fields |> Block.map (fun f -> f.Name)) (Block.ofSeq [ "value" ]) "Box field names"
 
                     Expect.equal r.Origin.Home.AssemblyOption (ValueSome testAsm) "Box carries home-assembly origin"
                     Expect.isFalse r.IsValueType "a plain record projects as a reference layout"
@@ -137,8 +135,8 @@ let tests =
                 match store.TryLookupType(typeKeyOf frozen "Opt") with
                 | ValueSome(ExternalTypeShape.Union u) when u.TyparArity = 1 ->
                     Expect.equal
-                        (u.Cases |> EqArray.map (fun c -> c.Name))
-                        (EqArray.ofSeq [ "Nope"; "Just" ])
+                        (u.Cases |> Block.map (fun c -> c.Name))
+                        (Block.ofSeq [ "Nope"; "Just" ])
                         "Opt case names"
 
                     Expect.equal u.Origin.Home.AssemblyOption (ValueSome testAsm) "Opt carries home-assembly origin"
@@ -157,7 +155,7 @@ let tests =
                     | ValueNone -> failtest "Test.Sig.M is a published module"
 
                 match scope.UnionCasesNamed(m, "Just") with
-                | EqOne uc ->
+                | BlockOne uc ->
                     Expect.equal uc.UnionKey.TyparArity 1 "Just's declaring union arity"
                     Expect.equal uc.Case.Name "Just" "matched case name"
                 | other -> failtestf "expected one declaring union for 'Just', got %A" other
@@ -362,17 +360,17 @@ module M =
 
                 for field in [ "X"; "Y" ] do
                     match resolver.TryRecordsWithField field with
-                    | EqOne c ->
+                    | BlockOne c ->
                         Expect.equal
                             (SymbolKeyOps.typeMetaName c.TypeKey)
                             rName
                             (sprintf "field %s -> R's compiled name" field)
 
                         Expect.equal c.TyparArity 0 "R is monomorphic"
-                        Expect.equal c.FieldNames (EqArray.ofSeq [ "X"; "Y" ]) "R's field names"
+                        Expect.equal c.FieldNames (Block.ofSeq [ "X"; "Y" ]) "R's field names"
                     | other -> failtestf "field %s did not resolve to exactly one record: %A" field other
 
-                Expect.equal (resolver.TryRecordsWithField "Z") EqArray.empty "unknown field 'Z' has no candidates"
+                Expect.equal (resolver.TryRecordsWithField "Z") Block.empty "unknown field 'Z' has no candidates"
             }
 
             // --- enum projection: a frozen enum's case→literal table projects to an `Enum`
@@ -400,15 +398,15 @@ module M =
                                                        Origin = origin
                                                    }) ->
                     Expect.equal
-                        (cases |> EqArray.map (fun c -> c.Name))
-                        (EqArray.ofSeq [ "Up"; "Down" ])
+                        (cases |> Block.map (fun c -> c.Name))
+                        (Block.ofSeq [ "Up"; "Down" ])
                         "case names in source order"
 
                     Expect.equal underlying RuntimeNames.intKey "unsuffixed literals make an int enum"
 
                     Expect.equal
-                        (cases |> EqArray.map (fun c -> c.Value))
-                        (EqArray.ofSeq
+                        (cases |> Block.map (fun c -> c.Value))
+                        (Block.ofSeq
                             [
                                 ExternalEnumCaseValue.IntVal(IntKind.Int32, 0L)
                                 ExternalEnumCaseValue.IntVal(IntKind.Int32, 1L)
@@ -439,8 +437,8 @@ module M =
                                                        Underlying = underlying
                                                    }) ->
                     Expect.equal
-                        (cases |> EqArray.map (fun c -> c.Value))
-                        (EqArray.ofSeq [ ExternalEnumCaseValue.StringVal "on"; ExternalEnumCaseValue.StringVal "off" ])
+                        (cases |> Block.map (fun c -> c.Value))
+                        (Block.ofSeq [ ExternalEnumCaseValue.StringVal "on"; ExternalEnumCaseValue.StringVal "off" ])
                         "case string values"
 
                     Expect.equal underlying RuntimeNames.stringKey "a string enum is string"
@@ -481,7 +479,7 @@ module M =
                 let resolver = FrozenSignature.toSignatures origin frozen :> IExternalSymbolResolver
 
                 match resolver.TryRecordsWithField "Value" with
-                | EqOne c ->
+                | BlockOne c ->
                     Expect.equal
                         (SymbolKeyOps.typeMetaName c.TypeKey)
                         (SymbolKeyOps.typeMetaName (typeKeyOf frozen "Box"))
@@ -510,19 +508,19 @@ module M =
 
                 let shared =
                     resolver.TryRecordsWithField "Shared"
-                    |> EqArray.map (fun c -> SymbolKeyOps.typeMetaName c.TypeKey)
-                    |> EqArray.sort
+                    |> Block.map (fun c -> SymbolKeyOps.typeMetaName c.TypeKey)
+                    |> Block.sort
 
                 Expect.equal
                     shared
-                    (EqArray.sort (EqArray.ofSeq [ aName; bName ]))
+                    (Block.sort (Block.ofSeq [ aName; bName ]))
                     "'Shared' resolves to BOTH records, not first-wins"
 
                 // The record-specific fields still pin their single owner.
                 Expect.equal
                     (resolver.TryRecordsWithField "OnlyA"
-                     |> EqArray.map (fun c -> SymbolKeyOps.typeMetaName c.TypeKey))
-                    (EqArray.singleton aName)
+                     |> Block.map (fun c -> SymbolKeyOps.typeMetaName c.TypeKey))
+                    (Block.singleton aName)
                     "'OnlyA' resolves to A alone"
             }
         ]

@@ -1,5 +1,6 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.ResolvedTypesTests
 
+open Vesper
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
@@ -77,9 +78,9 @@ let tests =
 
                 let synth =
                     {
-                        Decls = EqArray.ofList synthDecls
-                        InlineBodies = EqArray.empty
-                        Specializations = EqArray.empty
+                        Decls = Block.ofList synthDecls
+                        InlineBodies = Block.empty
+                        Specializations = Block.empty
                         Diagnostics = []
                         IntrinsicBindings = EqDict.empty
                         GlobalValueKeys = EqSet.empty
@@ -134,7 +135,7 @@ let tests =
                 let synth =
                     {
                         Decls =
-                            EqArray.ofList
+                            Block.ofList
                                 [
                                     TDecl.Let(
                                         {
@@ -146,8 +147,8 @@ let tests =
                                         false
                                     )
                                 ]
-                        InlineBodies = EqArray.empty
-                        Specializations = EqArray.empty
+                        InlineBodies = Block.empty
+                        Specializations = Block.empty
                         Diagnostics = []
                         IntrinsicBindings = EqDict.empty
                         GlobalValueKeys = EqSet.empty
@@ -228,12 +229,12 @@ let tests =
 
                 Expect.equal
                     (bindingTy "let x : int = 1")
-                    (TyConst(RuntimeNames.intKey, EqArray.empty))
+                    (TyConst(RuntimeNames.intKey, Block.empty))
                     "int annotation pins to TyConst \"int\""
 
                 Expect.equal
                     (bindingTy "let b : bool = true")
-                    (TyConst(RuntimeNames.boolKey, EqArray.empty))
+                    (TyConst(RuntimeNames.boolKey, Block.empty))
                     "bool annotation pins to TyConst \"bool\""
             }
         ]

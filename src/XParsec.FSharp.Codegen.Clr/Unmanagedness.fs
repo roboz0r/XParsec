@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.Codegen.Clr
 
+open Vesper
 open XParsec.FSharp.SemanticAnalysis
 
 /// Whether a value of some type holds a GC reference anywhere in its physical layout.
@@ -47,10 +48,10 @@ module Unmanagedness =
         (part: FrozenType -> Unmanagedness)
         (t: FrozenType)
         (key: TypeKey)
-        (args: EqArray<FrozenType>)
+        (args: Block<FrozenType>)
         : Unmanagedness =
         let instantiate (template: FrozenType) : FrozenType =
-            FrozenTypeBridge.substituteDeclaring (EqArray.toArray args) template
+            FrozenTypeBridge.substituteDeclaring (Block.toArray args) template
 
         let fields (templates: FrozenType seq) : Unmanagedness =
             templates |> Seq.map (instantiate >> part) |> ofParts
@@ -58,7 +59,7 @@ module Unmanagedness =
         match symbols.TryLookupType key with
         | ValueSome(ExternalTypeShape.Abbrev { Body = body }) -> part (instantiate body)
         // An enum is a struct over its underlying primitive.
-        | ValueSome(ExternalTypeShape.Enum { Underlying = underlying }) -> part (FTConst(underlying, EqArray.empty))
+        | ValueSome(ExternalTypeShape.Enum { Underlying = underlying }) -> part (FTConst(underlying, Block.empty))
         | shape ->
             match symbols.IsValueType key, shape with
             | ValueSome false, _ -> Unmanagedness.Managed
@@ -79,18 +80,18 @@ module Unmanagedness =
         if List.contains t path then
             Unmanagedness.Undetermined t
         else
-            let nominal (key: TypeKey) (args: EqArray<FrozenType>) : Unmanagedness =
+            let nominal (key: TypeKey) (args: Block<FrozenType>) : Unmanagedness =
                 ofNominal symbols (classify symbols (t :: path)) t key args
 
-            let intrinsic (key: TypeKey) (args: EqArray<FrozenType>) : Unmanagedness =
+            let intrinsic (key: TypeKey) (args: Block<FrozenType>) : Unmanagedness =
                 match ofPlatformId symbols key with
                 | ValueSome settled -> settled
                 | ValueNone -> nominal key args
 
             match t with
             | FTConst(key, args) -> intrinsic key args
-            | FTLiteral v -> intrinsic (RuntimeNames.literalBaseKey v) EqArray.empty
-            | FTEnum key -> nominal key EqArray.empty
+            | FTLiteral v -> intrinsic (RuntimeNames.literalBaseKey v) Block.empty
+            | FTEnum key -> nominal key Block.empty
             | FTRecord(key, args)
             | FTUnion(key, args)
             | FTClass(key, args) -> nominal key args

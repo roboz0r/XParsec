@@ -2,6 +2,7 @@ namespace XParsec.FSharp.SemanticAnalysis
 
 open System.Collections.Concurrent
 open System.Collections.Generic
+open Vesper
 
 // The declaration SHAPE a lookup carries, the resolver / store / codegen contracts that
 // serve it, and the queries over it.
@@ -72,7 +73,7 @@ type ExternalTypeShape =
 
             let isAlias =
                 args
-                |> EqArray.forall (fun a ->
+                |> Block.forall (fun a ->
                     match a with
                     | FTTypar(TyparScope.Type _, i) when i < arity && not seen.[i] ->
                         seen.[i] <- true
@@ -94,14 +95,14 @@ type IScopeContents =
     /// Every case named `name` of a union declared directly in `container`, one entry per
     /// declaring union, each carrying its `[<RequireQualifiedAccess>]` flag. Two entries are
     /// an ambiguity for the caller to report.
-    abstract UnionCasesNamed: container: ModuleContainer * name: string -> EqArray<ExternalUnionCase>
+    abstract UnionCasesNamed: container: ModuleContainer * name: string -> Block<ExternalUnionCase>
     /// Every type named `name` declared directly in `container`, one per generic arity,
     /// ASCENDING by arity: a spelling written without type args takes the narrowest.
-    abstract TypesNamed: container: ModuleContainer * name: string -> EqArray<struct (TypeKey * ExternalTypeShape)>
+    abstract TypesNamed: container: ModuleContainer * name: string -> Block<struct (TypeKey * ExternalTypeShape)>
     /// Every declaration of the module `m` this source carries, one per declaring surface,
     /// each with its home. EMPTY from a source that does not declare `m` at all, which an
     /// emitter must treat as an error rather than as a bare `m.Name`.
-    abstract DeclarationsOf: m: ModuleKey -> EqArray<ModuleDeclaration>
+    abstract DeclarationsOf: m: ModuleKey -> Block<ModuleDeclaration>
 
 [<RequireQualifiedAccess>]
 module ScopeContents =
@@ -111,9 +112,9 @@ module ScopeContents =
         { new IScopeContents with
             member _.TryContainer _ = ValueNone
             member _.TryValue _ = ValueNone
-            member _.UnionCasesNamed(_, _) = EqArray.empty
-            member _.TypesNamed(_, _) = EqArray.empty
-            member _.DeclarationsOf _ = EqArray.empty
+            member _.UnionCasesNamed(_, _) = Block.empty
+            member _.TypesNamed(_, _) = Block.empty
+            member _.DeclarationsOf _ = Block.empty
         }
 
     /// An `IScopeContents` over TYPES declared in a namespace, and over those alone. `slots`
@@ -163,19 +164,19 @@ module ScopeContents =
                     ValueNone
 
             member _.TryValue _ = ValueNone
-            member _.UnionCasesNamed(_, _) = EqArray.empty
+            member _.UnionCasesNamed(_, _) = Block.empty
             // IL declares no modules.
-            member _.DeclarationsOf _ = EqArray.empty
+            member _.DeclarationsOf _ = Block.empty
 
             member _.TypesNamed(c, name) =
                 match c with
-                | ModuleContainer.InModule _ -> EqArray.empty
+                | ModuleContainer.InModule _ -> Block.empty
                 | ModuleContainer.InNamespace ns ->
                     let struct (byName, _) = index.Value
 
                     match byName.TryGetValue(struct (ns.Dotted, name)) with
                     | true, arities ->
-                        EqArray.ofSeq
+                        Block.ofSeq
                             [
                                 for arity in arities do
                                     let key = SymbolKeyOps.typeKeyOfContainer (TypeContainer.InNamespace ns) name arity
@@ -184,7 +185,7 @@ module ScopeContents =
                                     | ValueSome shape -> struct (key, shape)
                                     | ValueNone -> ()
                             ]
-                    | _ -> EqArray.empty
+                    | _ -> Block.empty
         }
 
     /// A union case's identity: two entries agreeing here are the same case reached twice.
@@ -222,7 +223,7 @@ module ScopeContents =
                 member _.UnionCasesNamed(c, name) =
                     let seen = HashSet<struct (TypeKey * string)>(HashIdentity.Structural)
 
-                    EqArray.ofSeq
+                    Block.ofSeq
                         [
                             for s in sources do
                                 for uc in s.UnionCasesNamed(c, name) do
@@ -240,7 +241,7 @@ module ScopeContents =
                         ]
 
                     match hits with
-                    | [] -> EqArray.empty
+                    | [] -> Block.empty
                     | [ single ] -> single
                     | _ ->
                         let byArity = SortedDictionary<int, struct (TypeKey * ExternalTypeShape)>()
@@ -250,10 +251,10 @@ module ScopeContents =
                                 if not (byArity.ContainsKey key.TyparArity) then
                                     byArity.Add(key.TyparArity, struct (key, shape))
 
-                        EqArray.ofSeq byArity.Values
+                        Block.ofSeq byArity.Values
 
                 member _.DeclarationsOf m =
-                    EqArray.ofSeq
+                    Block.ofSeq
                         [
                             for s in sources do
                                 yield! s.DeclarationsOf m
@@ -328,14 +329,14 @@ module ScopeContents =
                 inner.TryValue key |> ValueOption.map value
 
             member _.UnionCasesNamed(c, name) =
-                inner.UnionCasesNamed(c, name) |> EqArray.map case
+                inner.UnionCasesNamed(c, name) |> Block.map case
 
             member _.TypesNamed(c, name) =
                 inner.TypesNamed(c, name)
-                |> EqArray.map (fun (struct (key, s)) -> struct (key, shape key s))
+                |> Block.map (fun (struct (key, s)) -> struct (key, shape key s))
 
             member _.DeclarationsOf m =
-                inner.DeclarationsOf m |> EqArray.map declaration
+                inner.DeclarationsOf m |> Block.map declaration
         }
 
     /// `inner` with each value symbol rewritten. Every other channel passes through.
@@ -350,12 +351,12 @@ module ScopeContents =
         let values = ConcurrentDictionary<BindingKey, ExternalSymbol voption>()
 
         let cases =
-            ConcurrentDictionary<struct (ModuleContainer * string), EqArray<ExternalUnionCase>>()
+            ConcurrentDictionary<struct (ModuleContainer * string), Block<ExternalUnionCase>>()
 
         let types =
-            ConcurrentDictionary<struct (ModuleContainer * string), EqArray<struct (TypeKey * ExternalTypeShape)>>()
+            ConcurrentDictionary<struct (ModuleContainer * string), Block<struct (TypeKey * ExternalTypeShape)>>()
 
-        let modules = ConcurrentDictionary<ModuleKey, EqArray<ModuleDeclaration>>()
+        let modules = ConcurrentDictionary<ModuleKey, Block<ModuleDeclaration>>()
 
         { new IScopeContents with
             member _.TryContainer path =
@@ -383,7 +384,7 @@ type IExternalSymbolResolver =
 
     /// A field name → every record declaring a field of that name; unqualified
     /// record-literal / record-pattern resolution intersects these sets to pin the type.
-    abstract TryRecordsWithField: fieldName: string -> EqArray<ExternalRecordCandidate>
+    abstract TryRecordsWithField: fieldName: string -> Block<ExternalRecordCandidate>
 
     /// What this provider opens with no `open` written for it, OUTERMOST first: an `[<AutoOpen>]`
     /// module follows the scope that holds it.
@@ -414,7 +415,7 @@ type IExternalSymbolStore =
 
     /// ALL overloads of a member by name: the candidate set the application-site overload
     /// resolver picks from. Empty from providers that don't model members.
-    abstract TryLookupMembers: key: TypeKey * memberName: string -> EqArray<ExternalMember>
+    abstract TryLookupMembers: key: TypeKey * memberName: string -> Block<ExternalMember>
 
     /// A member by resolved `MemberKey`: the channel a MEMBER splice site reaches an
     /// `InlineBody` through. BY KEY: a by-name lookup collapses an overload set to one pick
@@ -452,7 +453,7 @@ module IExternalSymbolStoreExtensions =
         /// most-params first from IL metadata, declaration order elsewhere.
         member this.TryLookupMember(key: TypeKey, memberName: string) : ExternalMember voption =
             match this.TryLookupMembers(key, memberName) with
-            | EqEmpty -> ValueNone
+            | BlockEmpty -> ValueNone
             | ms -> ValueSome ms.[0]
 
         /// "No platform" and "the platform doesn't know" flattened into the one `ValueNone`
@@ -499,7 +500,7 @@ type ICodegenSymbols =
     /// Every declaration of an external module the referenced surfaces carry, each with its
     /// home. EMPTY where none declares it, which emission must refuse rather than guess a
     /// class name for.
-    abstract DeclarationsOf: m: ModuleKey -> EqArray<ModuleDeclaration>
+    abstract DeclarationsOf: m: ModuleKey -> Block<ModuleDeclaration>
     /// The platform type id emission mints a primitive reference through: `int` →
     /// `"System.Int32"`. `ValueNone` for a canon the compiling target binds no id for.
     abstract TryPlatformTypeId: canon: TypeKey -> PlatformTypeId voption
@@ -513,13 +514,13 @@ type ICodegenSymbols =
 module ExternalSymbols =
 
     /// The one entry of a by-NAME overload set whose identity is `key`.
-    let memberByKey (key: MemberKey) (candidates: EqArray<ExternalMember>) : ExternalMember voption =
-        candidates |> EqArray.tryFind (fun m -> m.Key = key)
+    let memberByKey (key: MemberKey) (candidates: Block<ExternalMember>) : ExternalMember voption =
+        candidates |> Block.tryFind (fun m -> m.Key = key)
 
     /// The member surface an external nominal publishes: a `Class` or a capability
     /// `IntrinsicInterface`.
     [<return: Struct>]
-    let (|ExternalMembers|_|) (shape: ExternalTypeShape) : EqArray<ExternalMember> voption =
+    let (|ExternalMembers|_|) (shape: ExternalTypeShape) : Block<ExternalMember> voption =
         match shape with
         | ExternalTypeShape.Class shape -> ValueSome shape.Members
         | ExternalTypeShape.IntrinsicInterface shape -> ValueSome shape.Members
@@ -528,7 +529,7 @@ module ExternalSymbols =
     /// The member surface of an external INTERFACE specifically. A non-interface `Class` is
     /// excluded, because a record cannot widen to a concrete class.
     [<return: Struct>]
-    let (|ExternalInterfaceMembers|_|) (shape: ExternalTypeShape) : EqArray<ExternalMember> voption =
+    let (|ExternalInterfaceMembers|_|) (shape: ExternalTypeShape) : Block<ExternalMember> voption =
         match shape with
         | ExternalTypeShape.Class {
                                       Commitment = ClassCommitment.Interface
@@ -671,11 +672,11 @@ module ExternalSymbols =
         (thaw: IMeasuredThaw)
         (m: ExternalMember)
         (declaringArgs: SemType[])
-        : EqArray<SemType voption> =
+        : Block<SemType voption> =
         let inst = TyparInstantiation.openMethod declaringArgs
 
         m.Signature.MethodTypars
-        |> EqArray.map (ValueOption.map (instantiateWith thaw inst))
+        |> Block.map (ValueOption.map (instantiateWith thaw inst))
 
     let instantiateFieldType (thaw: IMeasuredThaw) (f: ExternalFieldShape) (declaringArgs: SemType[]) : SemType =
         instantiateDeclaring thaw f.Frozen declaringArgs
@@ -688,7 +689,7 @@ module ExternalSymbols =
     /// at a use site.
     let instantiateInterfacesOf
         (thaw: IMeasuredThaw)
-        (interfaces: EqArray<FrozenNominal>)
+        (interfaces: Block<FrozenNominal>)
         (declaringArgs: SemType[])
         : SemType[] =
         Array.init
@@ -762,8 +763,8 @@ module ExternalSymbols =
                 let sig_: MemberSignature =
                     {
                         MemberName = mt.MemberName
-                        SupportTys = EqArray.ofSeq (seq { for i in mt.TyparIndices -> fresh.[i] })
-                        ArgTypes = EqArray.ofSeq (seq { for ft in mt.ArgTypes -> inst ft fresh })
+                        SupportTys = Block.ofSeq (seq { for i in mt.TyparIndices -> fresh.[i] })
+                        ArgTypes = Block.ofSeq (seq { for ft in mt.ArgTypes -> inst ft fresh })
                         ReturnType = inst mt.ReturnType fresh
                     }
 

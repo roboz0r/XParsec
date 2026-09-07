@@ -2,6 +2,7 @@ namespace XParsec.FSharp.SemanticAnalysis.Passes
 
 open System.Collections.Generic
 open System.Collections.Immutable
+open Vesper
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
@@ -29,7 +30,7 @@ module internal UnificationInferCtor =
         (noOverload: Kind)
         (argExpr: Expr<SyntaxToken>)
         : ExternalMember voption =
-        let ctors = surface.Members |> EqArray.filter (fun m -> m.Name = ".ctor")
+        let ctors = surface.Members |> Block.filter (fun m -> m.Name = ".ctor")
         let argTy = infer ctx argExpr
 
         match pickBestOverload ctx typeArgs ctors (argElemsOf ctx.Store argTy) with
@@ -50,7 +51,7 @@ module internal UnificationInferCtor =
         (ctx: PassContext)
         (node: NodeSite)
         (declTypeKey: TypeKey)
-        (args: EqArray<SemType>)
+        (args: Block<SemType>)
         (ctorTy: SemType)
         (argExpr: Expr<SyntaxToken>)
         : SemType =
@@ -58,7 +59,7 @@ module internal UnificationInferCtor =
         let name = SymbolKeyOps.typeMetaName declTypeKey
 
         let argTy = infer ctx argExpr
-        let typeArgs = EqArray.toArray args
+        let typeArgs = Block.toArray args
         let argElems = argElemsOf ctx.Store argTy
 
         // A 0-argument construction of an external *value type* is `default(T)`, not a real
@@ -200,9 +201,9 @@ module internal UnificationInferCtor =
                 | ValueSome(ExternalTypeShape.Class _) ->
                     // `externalClassTy` mints a canon `TyConst` for a platform type id, else the
                     // external `TyClass`.
-                    let ctorTy = externalClassTy ctx declTypeKey EqArray.empty
+                    let ctorTy = externalClassTy ctx declTypeKey Block.empty
 
-                    ValueSome(inferExternalCtorOn infer ctx node declTypeKey EqArray.empty ctorTy args.[0])
+                    ValueSome(inferExternalCtorOn infer ctx node declTypeKey Block.empty ctorTy args.[0])
                 | _ -> ValueNone
             | ValueNone -> ValueNone
 
@@ -237,7 +238,7 @@ module internal UnificationInferCtor =
                 // then expands: `ResizeArray<int>` → `TyClass(List`1, [int])`.
                 match ctx.Resolution.ResolvedType.TryGetValue(CstKeys.ofExpr ctorFun) with
                 | ValueSome symKey ->
-                    let explicit = EqArray.ofSeq (seq { for t in tyArgs -> translateType ctx t })
+                    let explicit = Block.ofSeq (seq { for t in tyArgs -> translateType ctx t })
 
                     match tryExternalTypeOfKey ctx symKey explicit with
                     | ValueSome(TyClass(clsKey, args) as ctorTy) ->
@@ -289,7 +290,7 @@ module internal UnificationInferCtor =
                 // a generic class's parameters rank at the written instantiation.
                 match explicitTyArgs with
                 | ValueSome ex when ex.Length = args.Length ->
-                    List.iter2 (fun a e -> unify ctx node.Tok a e) (EqArray.toList args) ex
+                    List.iter2 (fun a e -> unify ctx node.Tok a e) (Block.toList args) ex
                 | _ -> ()
 
                 // The PRIMARY declines: `classCtorAsFunction` already types that spelling, and

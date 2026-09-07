@@ -3,6 +3,7 @@
 open System
 open System.IO
 open System.Reflection
+open Vesper
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
@@ -519,8 +520,7 @@ let tests =
 
                 match ExternalSymbols.tryMetaType provider "PropProbe.Holder" with
                 | ValueSome(ExternalTypeShape.Class info) ->
-                    let named =
-                        info.Members |> EqArray.toList |> List.filter (fun m -> m.Name = "Value")
+                    let named = info.Members |> Block.toList |> List.filter (fun m -> m.Name = "Value")
 
                     match named with
                     | [ m ] -> Expect.equal m.Storage MemberStorage.Property "the reader reports it as a property"

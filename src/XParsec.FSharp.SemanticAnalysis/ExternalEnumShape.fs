@@ -1,5 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+open Vesper
+
 /// Projection of an elaborated enum's case table to its published `ExternalTypeShape`.
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 module ExternalEnumShape =
@@ -23,7 +25,7 @@ module ExternalEnumShape =
 
     /// `Unmodelled` when any case lacks a constant value (the error is reported at
     /// elaboration) or the enum has no cases.
-    let ofCases (cases: EqArray<TEnumCaseG<'tok>>) (origin: SymbolOrigin) : ExternalTypeShape =
+    let ofCases (cases: Block<TEnumCaseG<'tok>>) (origin: SymbolOrigin) : ExternalTypeShape =
         let shapes = ResizeArray<ExternalEnumCaseShape>(cases.Length)
         let mutable broken = ValueNone
 
@@ -45,7 +47,7 @@ module ExternalEnumShape =
         | ValueNone, ValueSome underlying ->
             ExternalTypeShape.Enum
                 {
-                    Cases = EqArray.ofResizeArray shapes
+                    Cases = Block.ofResizeArray shapes
                     Underlying = underlying
                     Origin = origin
                 }

@@ -2,6 +2,7 @@ namespace XParsec.FSharp.SemanticAnalysis.Passes
 
 open System.Collections.Generic
 open System.Collections.Immutable
+open Vesper
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open NameResolutionTypeRefStamp
@@ -90,8 +91,8 @@ module NameResolutionTypeRegistration =
 
     /// A type declaration's typars, each carrying its kind and a freshly minted prototype
     /// TyVar. Stored on the registry entry. An unresolved attribute on a typar is reported here.
-    let declaredTyparsOfTypeName (ctx: PassContext) (tn: TypeName<SyntaxToken>) : EqArray<DeclaredTypar> =
-        EqArray.ofSeq (
+    let declaredTyparsOfTypeName (ctx: PassContext) (tn: TypeName<SyntaxToken>) : Block<DeclaredTypar> =
+        Block.ofSeq (
             seq {
                 for (name, attrs) in typarSlotsOfTypeName ctx tn do
                     ctx.ResolveAttributes attrs |> ignore
@@ -108,8 +109,8 @@ module NameResolutionTypeRegistration =
     /// Mint a prototype TyVar per name, for typars this pass reads by name alone: a MEMBER's
     /// own `<'C>` and a VALUE signature's. `[<Measure>]` on one of those is not yet modelled,
     /// so they are all type-kinded.
-    let mkMethodTypars (store: TypeStore) (names: string list) : EqArray<DeclaredTypar> =
-        EqArray.ofSeq (
+    let mkMethodTypars (store: TypeStore) (names: string list) : Block<DeclaredTypar> =
+        Block.ofSeq (
             seq {
                 for n in names ->
                     {
@@ -803,7 +804,7 @@ module NameResolutionTypeRegistration =
     /// Run `f` under a type declaration's typar scope, its prototype TyVars keyed by the
     /// source names its header declares, so a `'a` written in the declaration's structure
     /// resolves to the registry's TyVar, and an undeclared one is diagnosed, not minted.
-    let underTyparScope (ctx: PassContext) (typeParams: EqArray<DeclaredTypar>) (f: unit -> 'a) : 'a =
+    let underTyparScope (ctx: PassContext) (typeParams: Block<DeclaredTypar>) (f: unit -> 'a) : 'a =
         let scope = Dictionary<string, TyVarId>(System.StringComparer.Ordinal)
 
         for tp in typeParams do

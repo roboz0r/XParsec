@@ -49,7 +49,7 @@ So the flag is not there to change CLR emission. It is there so that
 
 # Scope
 
-`FTTuple of items: EqArray<FrozenType>` (`SemanticInfo.fs`) and the `SemType` `TyTuple` gain a
+`FTTuple of items: Block<FrozenType>` (`SemanticInfo.fs`) and the `SemType` `TyTuple` gain a
 struct-ness discriminator. `FTTuple` is matched in roughly eighteen files; most are
 `FTTuple elems` patterns that become `FTTuple(elems, _)` and need no thought. The ones that do:
 

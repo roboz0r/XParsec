@@ -1,6 +1,7 @@
 module XParsec.FSharp.Codegen.Clr.Tests.InlineFreezeThawTests
 
 open System.Collections.Generic
+open Vesper
 open Expecto
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
@@ -16,7 +17,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 let private frozenConstraintTypes (clauses: TStaticOptClauseG<FrozenType, 'tok, 'id> list) : FrozenType list =
     [
         for c in clauses do
-            for k in EqArray.toList c.Constraints do
+            for k in Block.toList c.Constraints do
                 match k with
                 | TStaticOptConstraintG.TyconEquals(tp, req) ->
                     yield tp
@@ -143,7 +144,7 @@ let private frozenLetDecl (src: string) : Wire.UnpooledDecl =
     |> Option.defaultWith (fun () -> failtestf "no top-level `let` in the frozen tree of:\n%s" src)
 
 let private soleInlineBody (src: string) : Pooled.TInlineValue =
-    match (freeze src).InlineBodies |> EqArray.toList with
+    match (freeze src).InlineBodies |> Block.toList with
     | [ v ] -> v
     | other -> failtestf "expected exactly one published inline body, got %d, in:\n%s" (List.length other) src
 
@@ -276,9 +277,9 @@ let private resolvedConst (provider: IExternalSymbolProvider) (src: string) : in
         | TExprG.Const(TConstValue.Integral(_, v), _, _) -> v
         | other -> failtestf "expected `r` to reduce to a resolved constant, got %A" other
 
-    match EqArray.tryLast tast.Decls with
+    match Block.tryLast tast.Decls with
     | ValueSome(TDeclG.Let({ Value = value }, _, _)) -> result value
-    | _ -> failtestf "expected a trailing `let r = …`, got %A" (EqArray.toList tast.Decls)
+    | _ -> failtestf "expected a trailing `let r = …`, got %A" (Block.toList tast.Decls)
 
 [<Tests>]
 let tests =
@@ -293,7 +294,7 @@ let tests =
                 // first-class reference, a caller with no ground operand type) can call it.
                 Expect.equal
                     (frozen.Decls
-                     |> EqArray.toList
+                     |> Block.toList
                      |> List.sumBy (fun d ->
                          match d with
                          | TDeclG.Let(isInline = true) -> 1
@@ -350,7 +351,7 @@ let tests =
                                      Value = TExprG.Lambda(_, TExprG.StaticOptimization(cls, _, resultTy, _), _, _)
                                  },
                                  _,
-                                 _) -> EqArray.toList cls, resultTy
+                                 _) -> Block.toList cls, resultTy
                     | other -> failtestf "freeze lost the static-opt shape: %A" other
 
                 Expect.equal clauses.Length 3 "all three when-clauses survive freeze"
@@ -483,7 +484,7 @@ let tests =
 
                 // The consumer's own live inference cells, before anything is thawed into it.
                 let consumerOwnCells =
-                    tast.Decls |> EqArray.toList |> List.collect collectTys |> semRootsOf store
+                    tast.Decls |> Block.toList |> List.collect collectTys |> semRootsOf store
 
                 let pCells = thawFrom store declaring pDecl |> collectTys |> semRootsOf store
                 let cCells = thawFrom store consumer cDecl |> collectTys |> semRootsOf store

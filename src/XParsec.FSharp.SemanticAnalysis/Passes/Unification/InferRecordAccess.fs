@@ -2,6 +2,7 @@ namespace XParsec.FSharp.SemanticAnalysis.Passes
 
 open System.Collections.Generic
 open System.Collections.Immutable
+open Vesper
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
@@ -26,7 +27,7 @@ module internal UnificationInferRecordAccess =
         (ctx: PassContext)
         (memberName: string)
         (ty: SemType)
-        : struct (TypeKey * EqArray<SemType> * ExternalMember) voption =
+        : struct (TypeKey * Block<SemType> * ExternalMember) voption =
         let onSurface (struct (declKey, args)) =
             match ctx.Provider.TryLookupMember(declKey, memberName) with
             | ValueSome m -> Some(struct (declKey, args, m))
@@ -54,7 +55,7 @@ module internal UnificationInferRecordAccess =
         let rec go surfaces =
             match surfaces with
             | [] -> ValueNone
-            | struct (declKey, clsArgs: EqArray<SemType>) :: rest ->
+            | struct (declKey, clsArgs: Block<SemType>) :: rest ->
                 match f declKey (clsArgs.AsSpan().ToArray()) with
                 | ValueSome hit -> ValueSome hit
                 | ValueNone -> go rest
@@ -168,8 +169,8 @@ module internal UnificationInferRecordAccess =
         (ctx: PassContext)
         (diagTok: SyntaxToken)
         (typeName: string)
-        (typeParams: EqArray<DeclaredTypar>)
-        (args: EqArray<SemType>)
+        (typeParams: Block<DeclaredTypar>)
+        (args: Block<SemType>)
         (members: TypeMemberInfo[])
         (memberName: string)
         : SemType =
@@ -237,7 +238,7 @@ module internal UnificationInferRecordAccess =
         // Commit a single-candidate external instance member; `memberArgs` instantiate ITS
         // declaring type's typars (the object argument's own, or a supertype's as-reached for an
         // INHERITED one). Method typars freshen per site, because `openSignature` shares them across sites.
-        let commitExternalMember (m: ExternalMember) (memberArgs: EqArray<SemType>) : SemType =
+        let commitExternalMember (m: ExternalMember) (memberArgs: Block<SemType>) : SemType =
             let memberSig =
                 ExternalSymbols.instantiateSignature ctx m (memberArgs.AsSpan().ToArray()) ctx.CurrentLevel
 
@@ -261,7 +262,7 @@ module internal UnificationInferRecordAccess =
 
                 match ctx.Provider.TryLookupType recKey with
                 | ValueSome(ExternalTypeShape.Record { Fields = fieldShapes }) ->
-                    match fieldShapes |> EqArray.tryFind (fun f -> f.Name = memberName) with
+                    match fieldShapes |> Block.tryFind (fun f -> f.Name = memberName) with
                     | ValueSome fieldShape ->
                         // A field read must NOT stamp `ExternalAccess`: Elaborate tries the
                         // stamped-member arm BEFORE the dot-lookup arm, so a stamped field
@@ -446,7 +447,7 @@ module internal UnificationInferRecordAccess =
 
                 let rhsRet =
                     if retIsByref then
-                        TyConst(RuntimeNames.byrefKey, EqArray.singleton resultTy)
+                        TyConst(RuntimeNames.byrefKey, Block.singleton resultTy)
                     else
                         resultTy
 
@@ -565,7 +566,7 @@ module internal UnificationInferRecordAccess =
             | ValueSome m when not m.IsStatic ->
                 let memberSig = ExternalSymbols.openSignature ctx m clsArgs
                 ctx.Resolution.ExternalAccess.Set(node.Key, indexerAccess m memberSig)
-                let args = TyTuple(EqArray.ofArray [| idxTy; valueTy |])
+                let args = TyTuple(Block.ofArray [| idxTy; valueTy |])
                 unify ctx node.Tok memberSig (TyFun(args, ctx.Intrinsics.Unit))
                 ValueSome()
             | _ -> ValueNone

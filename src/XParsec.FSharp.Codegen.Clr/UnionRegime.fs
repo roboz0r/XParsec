@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.Codegen.Clr
 
+open Vesper
 open XParsec.FSharp.SemanticAnalysis
 
 /// The metadata shape a union declaration is emitted in, selected by the value kind, the case
@@ -51,7 +52,7 @@ module UnionRegime =
             else
                 NominalValueKind.RefType
 
-        classify valueKind u.Cases.Length (u.Cases |> EqArray.exists (fun c -> not c.FrozenFieldTypes.IsEmpty))
+        classify valueKind u.Cases.Length (u.Cases |> Block.exists (fun c -> not c.FrozenFieldTypes.IsEmpty))
 
     /// Whether the regime nests a `TypeDef` per case on an abstract base.
     let isHierarchy (regime: UnionRegime) : bool =

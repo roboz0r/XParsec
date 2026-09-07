@@ -1,5 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+open Vesper
+
 /// Abelian-group expression over measure atoms, each the declaring measure's `TypeKey`, so
 /// same-named measures in different modules stay distinct. Always stored normalised (duplicates
 /// merged, zero exponents dropped, entries sorted), so equality is structural list equality.
@@ -62,7 +64,7 @@ type MemberKey =
     {
         Decl: TypeKey
         Name: string
-        ArgSig: EqArray<FrozenType>
+        ArgSig: Block<FrozenType>
         /// `M<'a>()` vs `M<'a,'b>()` — distinct overloads with identical empty `ArgSig`.
         MethodTyparArity: int
         Kind: MemberKind
@@ -89,12 +91,12 @@ and [<RequireQualifiedAccess>] SymbolKey =
 and FrozenType =
     /// An argless primitive (`FTConst(RuntimeNames.intKey, [])`) or a generic intrinsic
     /// forwarding its args (`'T[]` ≡ `FTConst(RuntimeNames.arrayKey 1, [elem])`).
-    | FTConst of key: TypeKey * args: EqArray<FrozenType>
+    | FTConst of key: TypeKey * args: Block<FrozenType>
     | FTFun of arg: FrozenType * result: FrozenType
-    | FTTuple of items: EqArray<FrozenType>
-    | FTRecord of key: TypeKey * args: EqArray<FrozenType>
-    | FTUnion of key: TypeKey * args: EqArray<FrozenType>
-    | FTClass of key: TypeKey * args: EqArray<FrozenType>
+    | FTTuple of items: Block<FrozenType>
+    | FTRecord of key: TypeKey * args: Block<FrozenType>
+    | FTUnion of key: TypeKey * args: Block<FrozenType>
+    | FTClass of key: TypeKey * args: Block<FrozenType>
     /// No `args`, because enums are never generic. A distinct nominal, NOT its underlying `int`.
     | FTEnum of key: TypeKey
     /// An anonymous (structural) union: `A | B ≡ B | A`, and `FTOr []` is `never`.
@@ -216,15 +218,15 @@ type SemType =
     | TyVar of TyVarId
     /// An argless primitive (`TyConst(RuntimeNames.intKey, [])`) or a generic intrinsic
     /// forwarding its args (`'T[]` ≡ `TyConst(RuntimeNames.arrayKey 1, [elem])`).
-    | TyConst of key: TypeKey * args: EqArray<SemType>
+    | TyConst of key: TypeKey * args: Block<SemType>
     | TyFun of arg: SemType * result: SemType
-    | TyTuple of items: EqArray<SemType>
+    | TyTuple of items: Block<SemType>
     /// Field types are not stored inline, so look up the record's shape via `key`, and its
     /// declared `TypeParams` to substitute `args` into each field.
-    | TyRecord of key: TypeKey * args: EqArray<SemType>
+    | TyRecord of key: TypeKey * args: Block<SemType>
     /// Cases and `TypeParams` live in the union registry, reachable by `key`.
-    | TyUnion of key: TypeKey * args: EqArray<SemType>
-    | TyClass of key: TypeKey * args: EqArray<SemType>
+    | TyUnion of key: TypeKey * args: Block<SemType>
+    | TyClass of key: TypeKey * args: Block<SemType>
     /// `type E = | C1 = v1 | …`. No `args`, because enums are never generic; `E` is a DISTINCT
     /// nominal, NOT structurally its underlying `int`.
     | TyEnum of key: TypeKey
@@ -285,7 +287,7 @@ and [<Sealed>] TyDisjuncts private (disjuncts: EqSet<SemType>) =
     /// Substituting can collapse the set (`'T | string` with `'T := string` → `string`), so a
     /// mapped result is a `SemType`, not a `TyDisjuncts`.
     member _.MapPreserve(f: SemType -> SemType) : SemType voption =
-        match EqArray.mapPreserve f (EqArray.ofImmutable disjuncts.Underlying) with
+        match Block.mapPreserve f (Block.ofImmutable disjuncts.Underlying) with
         | ValueNone -> ValueNone
         | ValueSome mapped -> ValueSome(SemType.MkUnion mapped)
 
@@ -320,8 +322,8 @@ module TyparLeafPatterns =
 type MemberSignature =
     {
         MemberName: string
-        SupportTys: EqArray<SemType>
-        ArgTypes: EqArray<SemType>
+        SupportTys: Block<SemType>
+        ArgTypes: Block<SemType>
         ReturnType: SemType
     }
 
@@ -351,7 +353,7 @@ type SemanticConstraintKind =
     /// The metavar ranges over a fixed set of arity-0 primitives, listed in the order a
     /// diagnostic lists them. Printf's flexible format families are its only source: `%d`
     /// accepts any integer type, `%f` any float type.
-    | OneOf of choices: EqArray<TypeKey>
+    | OneOf of choices: Block<TypeKey>
 
 [<RequireQualifiedAccess>]
 module SemanticConstraintKind =
@@ -424,14 +426,14 @@ type NominalG<'ty> =
         {
             Flav: NominalFlavour
             RefKey: TypeKey
-            RefArgs: EqArray<'ty>
+            RefArgs: Block<'ty>
         }
 
     member this.Flavour: NominalFlavour = this.Flav
 
     member this.Key: TypeKey = this.RefKey
 
-    member this.Args: EqArray<'ty> = this.RefArgs
+    member this.Args: Block<'ty> = this.RefArgs
 
 /// A frozen nominal: the shape the backends and the external surface consume.
 type FrozenNominal = NominalG<FrozenType>
@@ -442,14 +444,14 @@ type SemNominal = NominalG<SemType>
 [<RequireQualifiedAccess>]
 module NominalG =
 
-    let ofClass (key: TypeKey) (args: EqArray<'ty>) : NominalG<'ty> =
+    let ofClass (key: TypeKey) (args: Block<'ty>) : NominalG<'ty> =
         {
             Flav = NominalFlavour.Class
             RefKey = key
             RefArgs = args
         }
 
-    let ofConst (key: TypeKey) (args: EqArray<'ty>) : NominalG<'ty> =
+    let ofConst (key: TypeKey) (args: Block<'ty>) : NominalG<'ty> =
         {
             Flav = NominalFlavour.Const
             RefKey = key
@@ -461,7 +463,7 @@ module NominalG =
         {
             Flav = n.Flav
             RefKey = n.RefKey
-            RefArgs = EqArray.map f n.RefArgs
+            RefArgs = Block.map f n.RefArgs
         }
 
 [<RequireQualifiedAccess>]
@@ -543,7 +545,7 @@ type BaseParentG<'ty> =
 
     member this.Key: TypeKey = this.Nominal.Key
 
-    member this.Args: EqArray<'ty> = this.Nominal.Args
+    member this.Args: Block<'ty> = this.Nominal.Args
 
 /// An inference-side `inherit` parent.
 type BaseParent = BaseParentG<SemType>

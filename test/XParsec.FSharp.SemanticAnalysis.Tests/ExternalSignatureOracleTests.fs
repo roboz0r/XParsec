@@ -1,5 +1,6 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.ExternalSignatureOracleTests
 
+open Vesper
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 
@@ -12,9 +13,9 @@ open XParsec.FSharp.SemanticAnalysis
 /// produces structurally-comparable `SemType`s — a `TyVar` would defeat `=`.
 let private groundArgs: SemType[] =
     [|
-        TyConst(RuntimeNames.intKey, EqArray.empty)
-        TyConst(RuntimeNames.stringKey, EqArray.empty)
-        TyClass(SymbolKeyOps.qualifiedTypeKeyOf "Test.Widget" 0, EqArray.empty)
+        TyConst(RuntimeNames.intKey, Block.empty)
+        TyConst(RuntimeNames.stringKey, Block.empty)
+        TyClass(SymbolKeyOps.qualifiedTypeKeyOf "Test.Widget" 0, Block.empty)
     |]
 
 let private kRec = SymbolKeyOps.qualifiedTypeKeyOf "Test.Box" 1
@@ -34,26 +35,26 @@ let private m (i: int) : FrozenType = FTTypar(TyparScope.Member oracleKey, i)
 /// on `groundArgs`. None bake a method typar.
 let private declaringTemplates: (string * int * FrozenType * SemType) list =
     [
-        "argless const", 0, FTConst(RuntimeNames.boolKey, EqArray.empty), TyConst(RuntimeNames.boolKey, EqArray.empty)
+        "argless const", 0, FTConst(RuntimeNames.boolKey, Block.empty), TyConst(RuntimeNames.boolKey, Block.empty)
         "identity typar", 1, d 0, groundArgs.[0]
         "array of typar",
         1,
-        FTConst(RuntimeNames.arrayKey 1, EqArray.singleton (d 0)),
-        TyConst(RuntimeNames.arrayKey 1, EqArray.singleton groundArgs.[0])
+        FTConst(RuntimeNames.arrayKey 1, Block.singleton (d 0)),
+        TyConst(RuntimeNames.arrayKey 1, Block.singleton groundArgs.[0])
         "curried fun over two typars",
         2,
-        FTFun(d 0, FTFun(d 1, FTConst(RuntimeNames.unitKey, EqArray.empty))),
-        TyFun(groundArgs.[0], TyFun(groundArgs.[1], TyConst(RuntimeNames.unitKey, EqArray.empty)))
+        FTFun(d 0, FTFun(d 1, FTConst(RuntimeNames.unitKey, Block.empty))),
+        TyFun(groundArgs.[0], TyFun(groundArgs.[1], TyConst(RuntimeNames.unitKey, Block.empty)))
         "tupled fun",
         2,
-        FTFun(FTTuple(EqArray.ofList [ d 0; d 1 ]), d 0),
-        TyFun(TyTuple(EqArray.ofList [ groundArgs.[0]; groundArgs.[1] ]), groundArgs.[0])
-        "record of typar", 1, FTRecord(kRec, EqArray.singleton (d 0)), TyRecord(kRec, EqArray.singleton groundArgs.[0])
-        "union of typar", 1, FTUnion(kUnion, EqArray.singleton (d 0)), TyUnion(kUnion, EqArray.singleton groundArgs.[0])
+        FTFun(FTTuple(Block.ofList [ d 0; d 1 ]), d 0),
+        TyFun(TyTuple(Block.ofList [ groundArgs.[0]; groundArgs.[1] ]), groundArgs.[0])
+        "record of typar", 1, FTRecord(kRec, Block.singleton (d 0)), TyRecord(kRec, Block.singleton groundArgs.[0])
+        "union of typar", 1, FTUnion(kUnion, Block.singleton (d 0)), TyUnion(kUnion, Block.singleton groundArgs.[0])
         "nested generic intrinsic",
         1,
-        FTConst(RuntimeNames.arrayKey 1, EqArray.singleton (FTUnion(kUnion, EqArray.singleton (d 0)))),
-        TyConst(RuntimeNames.arrayKey 1, EqArray.singleton (TyUnion(kUnion, EqArray.singleton groundArgs.[0])))
+        FTConst(RuntimeNames.arrayKey 1, Block.singleton (FTUnion(kUnion, Block.singleton (d 0)))),
+        TyConst(RuntimeNames.arrayKey 1, Block.singleton (TyUnion(kUnion, Block.singleton groundArgs.[0])))
         "unknown head",
         0,
         FTUnknown(UnknownReason.UndefinedName "Unresolved.Head"),
@@ -64,8 +65,8 @@ let private declaringTemplates: (string * int * FrozenType * SemType) list =
 /// would mint fresh.
 let private argsForArity (arity: int) : SemType[] = Array.sub groundArgs 0 arity
 
-let private ftInt: FrozenType = FTConst(RuntimeNames.intKey, EqArray.empty)
-let private ftUnit: FrozenType = FTConst(RuntimeNames.unitKey, EqArray.empty)
+let private ftInt: FrozenType = FTConst(RuntimeNames.intKey, Block.empty)
+let private ftUnit: FrozenType = FTConst(RuntimeNames.unitKey, Block.empty)
 
 /// A stand-in for one applied argument, carrying only what the group open reads: whether it
 /// is a literal tuple, and if so its elements.
@@ -79,7 +80,7 @@ let private asTuple (a: Arg) : Arg list voption =
     | Atom _ -> ValueNone
 
 let private openGroups (widths: int list) (args: Arg list) =
-    SymbolKeyOps.openArgGroups asTuple (EqArray.ofList widths) args
+    SymbolKeyOps.openArgGroups asTuple (Block.ofList widths) args
 
 let private opened (flat: Arg list) (residual: Arg list) : SymbolKeyOps.OpenedArgGroups<Arg> voption =
     ValueSome { Flat = flat; Residual = residual }
@@ -125,8 +126,8 @@ let tests =
                     TestHelpers.mkSignature
                         1
                         2
-                        (FTTuple(EqArray.ofList [ d 0; m 0 ]))
-                        (FTTuple(EqArray.ofList [ m 0; m 1 ]))
+                        (FTTuple(Block.ofList [ d 0; m 0 ]))
+                        (FTTuple(Block.ofList [ m 0; m 1 ]))
 
                 let m: ExternalMember =
                     { TestHelpers.mkMember "genericMethod" with
@@ -146,7 +147,7 @@ let tests =
                     let m0b = outs.[0]
                     let m1 = outs.[1]
 
-                    Expect.equal declaring (TyConst(RuntimeNames.intKey, EqArray.empty)) "declaring arg substituted"
+                    Expect.equal declaring (TyConst(RuntimeNames.intKey, Block.empty)) "declaring arg substituted"
 
                     let asTyVar label (t: SemType) =
                         match t with
@@ -217,13 +218,10 @@ let tests =
                         (TestHelpers.mkSignature
                             0
                             0
-                            (FTConst(RuntimeNames.unitKey, EqArray.empty))
-                            (FTConst(RuntimeNames.intKey, EqArray.empty)))
+                            (FTConst(RuntimeNames.unitKey, Block.empty))
+                            (FTConst(RuntimeNames.intKey, Block.empty)))
                         (Some(
-                            TyFun(
-                                TyConst(RuntimeNames.unitKey, EqArray.empty),
-                                TyConst(RuntimeNames.intKey, EqArray.empty)
-                            )
+                            TyFun(TyConst(RuntimeNames.unitKey, Block.empty), TyConst(RuntimeNames.intKey, Block.empty))
                         ))
 
                     // 1-param method over a declaring typar: `'T0 -> bool`.
@@ -232,8 +230,8 @@ let tests =
                         false
                         1
                         0
-                        (TestHelpers.mkSignature 1 0 (d 0) (FTConst(RuntimeNames.boolKey, EqArray.empty)))
-                        (Some(TyFun(groundArgs.[0], TyConst(RuntimeNames.boolKey, EqArray.empty))))
+                        (TestHelpers.mkSignature 1 0 (d 0) (FTConst(RuntimeNames.boolKey, Block.empty)))
+                        (Some(TyFun(groundArgs.[0], TyConst(RuntimeNames.boolKey, Block.empty))))
 
                     // N≥2 params: one tupled arg.
                     memberOracle
@@ -244,12 +242,12 @@ let tests =
                         (TestHelpers.mkSignature
                             2
                             0
-                            (FTTuple(EqArray.ofList [ d 0; d 1 ]))
-                            (FTConst(RuntimeNames.unitKey, EqArray.empty)))
+                            (FTTuple(Block.ofList [ d 0; d 1 ]))
+                            (FTConst(RuntimeNames.unitKey, Block.empty)))
                         (Some(
                             TyFun(
-                                TyTuple(EqArray.ofList [ groundArgs.[0]; groundArgs.[1] ]),
-                                TyConst(RuntimeNames.unitKey, EqArray.empty)
+                                TyTuple(Block.ofList [ groundArgs.[0]; groundArgs.[1] ]),
+                                TyConst(RuntimeNames.unitKey, Block.empty)
                             )
                         ))
 
@@ -260,8 +258,8 @@ let tests =
                         true
                         1
                         0
-                        (ExternalSignature.value (1, 0, FTClass(kRec, EqArray.singleton (d 0))))
-                        (Some(TyClass(kRec, EqArray.singleton groundArgs.[0])))
+                        (ExternalSignature.value (1, 0, FTClass(kRec, Block.singleton (d 0))))
+                        (Some(TyClass(kRec, Block.singleton groundArgs.[0])))
 
                     // Ctor-shaped: `(p1 * p2) -> declType`.
                     memberOracle
@@ -272,12 +270,12 @@ let tests =
                         (TestHelpers.mkSignature
                             1
                             0
-                            (FTTuple(EqArray.ofList [ d 0; FTConst(RuntimeNames.intKey, EqArray.empty) ]))
-                            (FTRecord(kRec, EqArray.singleton (d 0))))
+                            (FTTuple(Block.ofList [ d 0; FTConst(RuntimeNames.intKey, Block.empty) ]))
+                            (FTRecord(kRec, Block.singleton (d 0))))
                         (Some(
                             TyFun(
-                                TyTuple(EqArray.ofList [ groundArgs.[0]; TyConst(RuntimeNames.intKey, EqArray.empty) ]),
-                                TyRecord(kRec, EqArray.singleton groundArgs.[0])
+                                TyTuple(Block.ofList [ groundArgs.[0]; TyConst(RuntimeNames.intKey, Block.empty) ]),
+                                TyRecord(kRec, Block.singleton groundArgs.[0])
                             )
                         ))
 
@@ -287,7 +285,7 @@ let tests =
                         false
                         1
                         1
-                        (TestHelpers.mkSignature 1 1 (m 0) (FTTuple(EqArray.ofList [ d 0; m 0 ])))
+                        (TestHelpers.mkSignature 1 1 (m 0) (FTTuple(Block.ofList [ d 0; m 0 ])))
                         None
                 ]
 
@@ -299,18 +297,18 @@ let tests =
                 [
                     test "a group's width is its own tupled domain, not the member's flat arity" {
                         let tupled =
-                            TestHelpers.mkSignature 0 0 (FTTuple(EqArray.ofList [ ftInt; ftInt ])) ftInt
+                            TestHelpers.mkSignature 0 0 (FTTuple(Block.ofList [ ftInt; ftInt ])) ftInt
 
                         let curried = ExternalSignature.ofGroups (0, 0, [ ftInt; ftInt ], ftInt)
 
                         Expect.equal
                             (ExternalSignature.argGroupWidths tupled)
-                            (EqArray.ofList [ 2 ])
+                            (Block.ofList [ 2 ])
                             "`M(a, b)` is one 2-wide group"
 
                         Expect.equal
                             (ExternalSignature.argGroupWidths curried)
-                            (EqArray.ofList [ 1; 1 ])
+                            (Block.ofList [ 1; 1 ])
                             "`M a b` is two 1-wide groups"
 
                         Expect.equal
@@ -320,12 +318,12 @@ let tests =
 
                         Expect.equal
                             (ExternalSignature.argGroupWidths (TestHelpers.mkSignature 0 0 ftUnit ftInt))
-                            (EqArray.ofList [ 0 ])
+                            (Block.ofList [ 0 ])
                             "`M: unit -> r` is one 0-wide group: an argument that erases"
 
                         Expect.equal
                             (ExternalSignature.argGroupWidths (ExternalSignature.value (0, 0, ftInt)))
-                            EqArray.empty
+                            Block.empty
                             "and a value member has no group at all"
                     }
 

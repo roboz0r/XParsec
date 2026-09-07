@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.Codegen.Clr
 
+open Vesper
 open XParsec.FSharp.SemanticAnalysis
 
 [<AutoOpen>]
@@ -19,10 +20,10 @@ type FrameScope = { Scope: TyparScope; Count: int }
 /// innermost last. A closure class declares them as class typars, a lifted local as method ones.
 type TyparFrame =
     {
-        Scopes: EqArray<FrameScope>
+        Scopes: Block<FrameScope>
     }
 
-    member x.Count: int = x.Scopes |> EqArray.fold (fun n s -> n + s.Count) 0
+    member x.Count: int = x.Scopes |> Block.fold (fun n s -> n + s.Count) 0
 
     /// The slot the scope's typar `0` occupies, `ValueNone` for a scope outside the frame.
     member x.TryOffset(scope: TyparScope) : int voption =
@@ -49,12 +50,12 @@ type TyparFrame =
     /// The frame with `scope`'s typars appended.
     member x.Push(scope: FrameScope) : TyparFrame =
         {
-            Scopes = EqArray.append x.Scopes (EqArray.singleton scope)
+            Scopes = Block.append x.Scopes (Block.singleton scope)
         }
 
 [<RequireQualifiedAccess>]
 module TyparFrame =
-    let empty: TyparFrame = { Scopes = EqArray.empty }
+    let empty: TyparFrame = { Scopes = Block.empty }
 
     let private ofScope (scope: TyparScope) (count: int) : TyparFrame =
         empty.Push { Scope = scope; Count = count }

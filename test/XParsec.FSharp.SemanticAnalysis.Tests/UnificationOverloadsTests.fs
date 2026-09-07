@@ -1,5 +1,6 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.UnificationOverloadsTests
 
+open Vesper
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Passes
@@ -30,7 +31,7 @@ let tests =
                     pickWith overloadCtx [||] candidates args
 
                 let candidates =
-                    EqArray.ofSeq [ overloadMember [ intFt; intFt ] 0; overloadMember [ stringFt; stringFt ] 0 ]
+                    Block.ofSeq [ overloadMember [ intFt; intFt ] 0; overloadMember [ stringFt; stringFt ] 0 ]
 
                 let chosen = pick candidates [ TyVar freeTv; BuiltinTypes.tyString ]
 
@@ -61,7 +62,7 @@ let tests =
                 let concrete = overloadMember [ intFt; stringFt ] 0
 
                 let chosen =
-                    pick (EqArray.ofSeq [ shared; concrete ]) [ BuiltinTypes.tyInt; BuiltinTypes.tyString ]
+                    pick (Block.ofSeq [ shared; concrete ]) [ BuiltinTypes.tyInt; BuiltinTypes.tyString ]
 
                 Expect.equal chosen.IsSome true "M(int, string) is applicable after the shared-typar reject"
 
@@ -81,7 +82,7 @@ let tests =
                     pickWith overloadCtx [||] candidates args
 
                 let candidates =
-                    EqArray.ofSeq [ overloadMember [ intFt ] 0; overloadMember [ intFt; intFt ] 0 ]
+                    Block.ofSeq [ overloadMember [ intFt ] 0; overloadMember [ intFt; intFt ] 0 ]
 
                 let chosen = pick candidates [ TyVar(overloadCtx.Store.NewTypeVar()) ]
 
@@ -94,7 +95,7 @@ let tests =
                 // the applicable tier by subsumption, and `Base :> GrandBase` ranks `M(Base)`
                 // strictly above `M(GrandBase)` — the nearer base wins.
                 let hierCtx = hierCtx ()
-                let candidates = EqArray.ofSeq [ classMember baseTy; classMember grandBaseTy ]
+                let candidates = Block.ofSeq [ classMember baseTy; classMember grandBaseTy ]
                 let chosen = pickWith hierCtx [||] candidates [ derivedTy ]
 
                 Expect.equal chosen.IsSome true "a unique best exists"
@@ -106,7 +107,7 @@ let tests =
                 // structural survivor and returns it with no betterness reasoning, so `M(Base)`
                 // — applicable only by subsumption — never competes.
                 let hierCtx = hierCtx ()
-                let candidates = EqArray.ofSeq [ classMember baseTy; classMember derivedTy ]
+                let candidates = Block.ofSeq [ classMember baseTy; classMember derivedTy ]
                 let chosen = pickWith hierCtx [||] candidates [ derivedTy ]
 
                 Expect.equal chosen.IsSome true "a unique best exists"
@@ -118,8 +119,8 @@ let tests =
                 // tier decides. `Derived :> Base` admits `M(Base)`; `Derived` is unrelated to
                 // `int`, so `M(int)` drops out, leaving `M(Base)` the sole survivor.
                 let hierCtx = hierCtx ()
-                let intClassMember = classMember (TyConst(RuntimeNames.intKey, EqArray.empty))
-                let candidates = EqArray.ofSeq [ classMember baseTy; intClassMember ]
+                let intClassMember = classMember (TyConst(RuntimeNames.intKey, Block.empty))
+                let candidates = Block.ofSeq [ classMember baseTy; intClassMember ]
                 let chosen = pickWith hierCtx [||] candidates [ derivedTy ]
 
                 Expect.equal chosen.IsSome true "M(Base) is applicable by subsumption"
@@ -132,7 +133,7 @@ let tests =
                 // exact tier selects by the SUBSTITUTED shape.
                 let overloadCtx = overloadCtx ()
 
-                let candidates = EqArray.ofSeq [ boxMember (declTypar 0); boxMember stringFt ]
+                let candidates = Block.ofSeq [ boxMember (declTypar 0); boxMember stringFt ]
 
                 let typeArgs = [| BuiltinTypes.tyInt |]
 
@@ -164,7 +165,7 @@ let tests =
 
                 let generic = overloadMember [ methodTypar 0 ] 1
                 let concrete = overloadMember [ intFt ] 0
-                let candidates = EqArray.ofSeq [ generic; concrete ]
+                let candidates = Block.ofSeq [ generic; concrete ]
 
                 let atInt = pick candidates [ BuiltinTypes.tyInt ]
                 Expect.equal atInt.IsSome true "the int argument resolves"

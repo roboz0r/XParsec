@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
 open XParsec.FSharp.Lexer
+open Vesper
 
 // The `%[flags][width][.precision][type]` grammar belongs to the lexer, so a
 // placeholder arrives already classified as a `FormatType` and only its typing
@@ -12,20 +13,20 @@ module PrintfSpec =
     let printfFormatName: string =
         SymbolKeyOps.bareName (SymbolKeyOps.typeMetaName RuntimeNames.printfFormatKey)
 
-    let private tyUnit: SemType = TyConst(RuntimeNames.unitKey, EqArray.empty)
+    let private tyUnit: SemType = TyConst(RuntimeNames.unitKey, Block.empty)
 
-    let private tyString: SemType = TyConst(RuntimeNames.stringKey, EqArray.empty)
+    let private tyString: SemType = TyConst(RuntimeNames.stringKey, Block.empty)
 
-    let private tyInt: SemType = TyConst(RuntimeNames.intKey, EqArray.empty)
+    let private tyInt: SemType = TyConst(RuntimeNames.intKey, Block.empty)
 
     let private tyTextWriter: SemType =
-        TyConst(RuntimeNames.platformKey RuntimeNames.textWriterTypeId, EqArray.empty)
+        TyConst(RuntimeNames.platformKey RuntimeNames.textWriterTypeId, Block.empty)
 
     let private tyStringBuilder: SemType =
-        TyConst(RuntimeNames.platformKey RuntimeNames.stringBuilderTypeId, EqArray.empty)
+        TyConst(RuntimeNames.platformKey RuntimeNames.stringBuilderTypeId, Block.empty)
 
     let private tyStringWriter: SemType =
-        TyConst(RuntimeNames.platformKey RuntimeNames.stringWriterTypeId, EqArray.empty)
+        TyConst(RuntimeNames.platformKey RuntimeNames.stringWriterTypeId, Block.empty)
 
     /// Where a printf entry point writes, resolved from its name alone.
     [<RequireQualifiedAccess>]
@@ -111,14 +112,14 @@ module PrintfSpec =
 
     /// The types a family admits, the DEFAULT leading; `ValueNone` for the unconstrained
     /// `Free` hole.
-    let familyKeys (h: FormatHoleTy) : EqArray<TypeKey> voption =
+    let familyKeys (h: FormatHoleTy) : Block<TypeKey> voption =
         match h with
         | FormatHoleTy.Free -> ValueNone
         | FormatHoleTy.IntegerFamily -> ValueSome RuntimeNames.integerFormatKeys
         | FormatHoleTy.FloatFamily -> ValueSome RuntimeNames.floatFormatKeys
 
     /// The type a family settles on where nothing else pins it.
-    let familyDefault (keys: EqArray<TypeKey>) : TypeKey = keys.[0]
+    let familyDefault (keys: Block<TypeKey>) : TypeKey = keys.[0]
 
     /// Every argument a placeholder consumes, in APPLICATION order: one `int` per `Star`
     /// dimension (width before precision, `sprintf "%*.*f" w p v`), then the value. A
@@ -144,7 +145,7 @@ module PrintfSpec =
             [ TyFun(state, TyFun(tv, residue)); tv ]
         | FormatArgTy.Printer -> [ TyFun(state, residue) ]
         | FormatArgTy.Metavar h -> withStarDims (mint h)
-        | FormatArgTy.Fixed key -> withStarDims (TyConst(key, EqArray.empty))
+        | FormatArgTy.Fixed key -> withStarDims (TyConst(key, Block.empty))
 
     /// The specifier consumes an argument of FIXED CONCRETE type. False for `%A`/`%O`
     /// (a fresh typar) and for `%a`/`%t` (a function over `'State`/`'Residue`).
@@ -302,7 +303,7 @@ module PrintfSpec =
         | Partial of sink: PrintfSink
 
     let formatType (printer: SemType) (fam: Family) : SemType =
-        TyClass(RuntimeNames.printfFormatKey, EqArray.ofList [ printer; fam.State; fam.Residue; fam.Result ])
+        TyClass(RuntimeNames.printfFormatKey, Block.ofList [ printer; fam.State; fam.Residue; fam.Result ])
 
     let printerType (argTypes: SemType list) (fam: Family) : SemType =
         List.foldBack (fun a r -> TyFun(a, r)) argTypes fam.Codomain

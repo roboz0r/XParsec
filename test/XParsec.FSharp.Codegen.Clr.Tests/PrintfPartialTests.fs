@@ -1,5 +1,6 @@
 module XParsec.FSharp.Codegen.Clr.Tests.PrintfPartialTests
 
+open Vesper
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
@@ -25,7 +26,7 @@ let tests =
                                      _) ] ->
                     Expect.equal sink (FormatSink.ToStdOut true) "printfn → stdout with newline"
 
-                    match EqArray.toList segs with
+                    match Block.toList segs with
                     | [ FormatSeg.Hole(_, TExpr.Var _) ] -> ()
                     | other -> failtestf "expected a single Hole reading a Var param, got: %A" other
                 | other -> failtestf "expected a let bound to a Lambda-over-Format, got: %A" other

@@ -1,5 +1,6 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.PrintfTests
 
+open Vesper
 open Expecto
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.SemanticAnalysis
@@ -47,7 +48,7 @@ let private ph (t: FormatType) : FormatPlaceholder =
 /// The `n`th metavar a `recordingMint` hands back, distinct per mint so a test can pin
 /// which slot got which.
 let private tyHole (n: int) : SemType =
-    TyConst(RuntimeNames.opaqueKey ("FRESH" + string n), EqArray.empty)
+    TyConst(RuntimeNames.opaqueKey ("FRESH" + string n), Block.empty)
 
 /// A `PrintfSpec.argTypes` mint that appends every family it is asked for to `requested`,
 /// so a test reads the seam rather than the type a real mint would produce.
@@ -203,9 +204,7 @@ let tests =
 
                 Expect.equal
                     (PrintfSpec.familyKeys PrintfSpec.FormatHoleTy.FloatFamily)
-                    (ValueSome(
-                        EqArray.ofList [ RuntimeNames.floatKey; RuntimeNames.float32Key; RuntimeNames.decimalKey ]
-                    ))
+                    (ValueSome(Block.ofList [ RuntimeNames.floatKey; RuntimeNames.float32Key; RuntimeNames.decimalKey ]))
                     "float, float32, decimal"
             }
 
@@ -469,7 +468,7 @@ let tests =
 
                 Expect.equal
                     (lastDeclType tast)
-                    (TyFun(TyConst(RuntimeNames.opaqueKey "System.IO.TextWriter", EqArray.empty), tyUnit))
+                    (TyFun(TyConst(RuntimeNames.opaqueKey "System.IO.TextWriter", Block.empty), tyUnit))
                     "TextWriter -> unit"
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
@@ -706,7 +705,7 @@ let tests =
                 | TExpr.Format(FormatSink.ToStdOut true, segs, ty, _) ->
                     Expect.equal ty tyUnit "printfn result is unit"
 
-                    match EqArray.toList segs with
+                    match Block.toList segs with
                     | [ FormatSeg.Hole(hole, TExpr.Const(TConstValue.Integral(IntKind.Int32, 42L), _, _)) ] ->
                         Expect.equal hole.Ty tyInt "the %d hole types as int"
 
@@ -756,7 +755,7 @@ let tests =
 
                 match lastDeclValue tast with
                 | TExpr.Format(FormatSink.ToString, segs, _, _) ->
-                    match EqArray.toList segs with
+                    match Block.toList segs with
                     | [ FormatSeg.Hole(hole, TExpr.Const(TConstValue.Integral(IntKind.Int32, 42L), _, _))
                         FormatSeg.Lit "!" ] -> Expect.equal hole.Ty tyInt "the %d hole types as int"
                     | other -> failtestf "unexpected Format segments: %A" other
@@ -811,7 +810,7 @@ let tests =
                     match e with
                     | TExpr.Lambda(body = body) -> peel body
                     | TExpr.Format(segments = segs) ->
-                        EqArray.toList segs
+                        Block.toList segs
                         |> List.choose (
                             function
                             | FormatSeg.Lit text -> Some text
@@ -859,7 +858,7 @@ let tests =
                     |> TastWalk.chooseExpr (
                         function
                         | TExpr.New(args = args) ->
-                            match EqArray.toList args with
+                            match Block.toList args with
                             | [ TExpr.Const(TConstValue.String text, _, _) ] -> ValueSome text
                             | _ -> ValueNone
                         | _ -> ValueNone

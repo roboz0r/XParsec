@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+open Vesper
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 
@@ -236,18 +237,17 @@ module FrozenCodecTypes =
 
     let private writeTAttribute (w: FrozenWriter) (a: TAttribute) =
         writeTypeKeyRef w a.Key
-        writeEqArrayWith w writeTAttributeArg a.Args
+        writeBlockWith w writeTAttributeArg a.Args
 
     let private readTAttribute (r: FrozenReader) : TAttribute =
         let key = readTypeKeyRef r
-        let args = EqArray.ofArray (readArrayWith r readTAttributeArg)
+        let args = Block.ofArray (readArrayWith r readTAttributeArg)
         { Key = key; Args = args }
 
-    let writeTAttributes (w: FrozenWriter) (attrs: TAttributes) =
-        writeEqArrayWith w writeTAttribute attrs
+    let writeTAttributes (w: FrozenWriter) (attrs: TAttributes) = writeBlockWith w writeTAttribute attrs
 
     let readTAttributes (r: FrozenReader) : TAttributes =
-        EqArray.ofArray (readArrayWith r readTAttribute)
+        Block.ofArray (readArrayWith r readTAttribute)
 
     let writeModuleFacts (w: FrozenWriter) (facts: ModuleFacts) =
         writeVOptionWith w (fun w (CompiledName n) -> w.Write n) facts.CompiledName
@@ -425,12 +425,12 @@ module FrozenCodecTypes =
     let private writeTypeTypar (w: FrozenWriter) (t: TypeTypar) =
         writeTyparName w t.Name
         writeEqSetWith w writeConstraintKind t.Constraints.Kinds
-        writeEqArrayWith w writeTypeRef t.Constraints.Defaults
+        writeBlockWith w writeTypeRef t.Constraints.Defaults
 
     let private readTypeTypar (r: FrozenReader) : TypeTypar =
         let name = readTyparName r
         let constraints = readEqSetWith r readConstraintKind
-        let defaults = readEqArrayWith r readTypeRef
+        let defaults = readBlockWith r readTypeRef
 
         {
             Name = name
@@ -459,14 +459,14 @@ module FrozenCodecTypes =
     /// A typar list: the type-kinded parameters with their constraints, the measure-kinded
     /// ones, then the source order.
     let writeTyparList (w: FrozenWriter) (typars: TyparList) =
-        writeEqArrayWith w writeTypeTypar typars.Types
-        writeEqArrayWith w (fun w (m: MeasureTypar) -> writeTyparName w m.Name) typars.Measures
-        writeEqArrayWith w writeTyparSlot typars.Order
+        writeBlockWith w writeTypeTypar typars.Types
+        writeBlockWith w (fun w (m: MeasureTypar) -> writeTyparName w m.Name) typars.Measures
+        writeBlockWith w writeTyparSlot typars.Order
 
     let readTyparList (r: FrozenReader) : TyparList =
-        let types = readEqArrayWith r readTypeTypar
-        let measures = readEqArrayWith r (fun r -> { MeasureTypar.Name = readTyparName r })
-        let order = readEqArrayWith r readTyparSlot
+        let types = readBlockWith r readTypeTypar
+        let measures = readBlockWith r (fun r -> { MeasureTypar.Name = readTyparName r })
+        let order = readBlockWith r readTyparSlot
 
         {
             Types = types
@@ -475,15 +475,15 @@ module FrozenCodecTypes =
         }
 
     let private writeMemberTrait (w: FrozenWriter) (t: MemberTrait) =
-        writeEqArrayWith w (fun w (i: int) -> w.Write i) t.TyparIndices
+        writeBlockWith w (fun w (i: int) -> w.Write i) t.TyparIndices
         w.Write t.MemberName
-        writeEqArrayWith w writeTypeRef t.ArgTypes
+        writeBlockWith w writeTypeRef t.ArgTypes
         writeTypeRef w t.ReturnType
 
     let private readMemberTrait (r: FrozenReader) : MemberTrait =
-        let indices = readEqArrayWith r (fun r -> r.ReadInt32())
+        let indices = readBlockWith r (fun r -> r.ReadInt32())
         let name = r.ReadString()
-        let args = readEqArrayWith r readTypeRef
+        let args = readBlockWith r readTypeRef
         let ret = readTypeRef r
 
         {
@@ -496,11 +496,11 @@ module FrozenCodecTypes =
     /// A function scheme: its typars, then its traits.
     let writeFunctionScheme (w: FrozenWriter) (s: FunctionScheme) =
         writeTyparList w s.Typars
-        writeEqArrayWith w writeMemberTrait s.Traits
+        writeBlockWith w writeMemberTrait s.Traits
 
     let readFunctionScheme (r: FrozenReader) : FunctionScheme =
         let typars = readTyparList r
-        let traits = readEqArrayWith r readMemberTrait
+        let traits = readBlockWith r readMemberTrait
         FunctionScheme.create typars traits
 
     let writeLocalBindingId (w: FrozenWriter) (LocalBindingId i) = w.Write i
@@ -818,7 +818,7 @@ module FrozenCodecTypes =
         w.Write m.Name
         writeTyparList w m.MethodTypars
         writeTypeRef w m.Signature
-        writeEqArrayWith w writeStringVOption m.ParamNames
+        writeBlockWith w writeStringVOption m.ParamNames
         writeTMemberKind w m.Kind
         w.Write m.IsStatic
 
@@ -826,7 +826,7 @@ module FrozenCodecTypes =
         let name = r.ReadString()
         let methodTypars = readTyparList r
         let signature = readTypeRef r
-        let paramNames = readEqArrayWith r readStringVOption
+        let paramNames = readBlockWith r readStringVOption
         let kind = readTMemberKind r
         let isStatic = r.ReadBoolean()
 
@@ -842,7 +842,7 @@ module FrozenCodecTypes =
     let writeUnionCase (w: FrozenWriter) (c: Frozen.TUnionCase) =
         w.Write c.Name
 
-        writeEqArrayWith
+        writeBlockWith
             w
             (fun w (nameOpt: string voption, ty) ->
                 writeStringVOption w nameOpt
@@ -856,7 +856,7 @@ module FrozenCodecTypes =
         let name = r.ReadString()
 
         let fields =
-            EqArray.ofArray (
+            Block.ofArray (
                 readArrayWith
                     r
                     (fun r ->

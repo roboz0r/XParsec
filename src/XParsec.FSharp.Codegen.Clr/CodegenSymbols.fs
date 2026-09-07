@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.Codegen.Clr
 
+open Vesper
 open XParsec.FSharp.SemanticAnalysis
 
 /// The narrow codegen-facing view of an `IExternalSymbolProvider`: type/member shapes and
@@ -34,7 +35,7 @@ module CodegenSymbols =
                     // (`new StringBuilder()`) or an external-base `inherit exn(msg)`, which has
                     // no `TExpr.New`. Arity alone picks it because neither shape is overloaded.
                     provider.TryLookupMembers(declKey, ".ctor")
-                    |> EqArray.tryFind (fun m -> m.Key.ArgSig.Length = arity)
+                    |> Block.tryFind (fun m -> m.Key.ArgSig.Length = arity)
 
             // `enumerator<'T>.MoveNext` reconciles to `IEnumerator`1`, but `MoveNext` is
             // declared on the non-generic `IEnumerator`, and a member-ref parented on the
@@ -53,11 +54,11 @@ module CodegenSymbols =
 
                         let declaredOn (m: ExternalMember) = SymbolKeyOps.typeMetaName m.Key.Decl
 
-                        if members |> EqArray.exists (fun m -> declaredOn m = platform.Value) then
+                        if members |> Block.exists (fun m -> declaredOn m = platform.Value) then
                             ValueNone
                         else
                             members
-                            |> EqArray.tryFind (fun m -> m.Key.Kind = kind)
+                            |> Block.tryFind (fun m -> m.Key.Kind = kind)
                             |> ValueOption.map (fun m -> SymbolKey.Member m.Key)
                     | _ -> ValueNone
                 | _ -> ValueNone

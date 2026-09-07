@@ -1,6 +1,7 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.SignatureResolutionTests
 
 open System.Collections.Generic
+open Vesper
 open Expecto
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.SemanticAnalysis
@@ -95,8 +96,8 @@ let shapeOf (r: Resolved) (suffix: string) : ExternalTypeShape =
 let membersOf (r: Resolved) (suffix: string) : ExternalMember list =
     let named =
         [
-            for e: SurfaceEntry<TypeKey, EqArray<ExternalMember>> in r.Surface.MembersByKey ->
-                SymbolKeyOps.typeMetaName e.Key, EqArray.toList e.Value
+            for e: SurfaceEntry<TypeKey, Block<ExternalMember>> in r.Surface.MembersByKey ->
+                SymbolKeyOps.typeMetaName e.Key, Block.toList e.Value
         ]
 
     match named |> List.tryFind (fun (name, _) -> name.EndsWith suffix) with
@@ -116,10 +117,10 @@ let symbolOf (r: Resolved) (name: string) : ExternalSymbol =
 
 /// The `interface <ty>` impls a PRIMITIVE declares. Empty for a source that binds only a
 /// representation, which is indistinguishable here from a primitive that declares none.
-let declaredInterfaces (p: IExternalSymbolStore) (key: TypeKey) : EqArray<FrozenNominal> =
+let declaredInterfaces (p: IExternalSymbolStore) (key: TypeKey) : Block<FrozenNominal> =
     match p.TryLookupType key with
     | ValueSome(ExternalTypeShape.Intrinsic { Class = ValueSome surface }) -> surface.Interfaces
-    | _ -> EqArray.empty
+    | _ -> Block.empty
 
 let private compiledNameText (CompiledName n) : string = n
 
@@ -208,8 +209,8 @@ let tests =
                             ExternalTypeShape.Union
                                 {
                                     Typars = TyparList.positional 1
-                                    Cases = EqArray.empty
-                                    Interfaces = EqArray.empty
+                                    Cases = Block.empty
+                                    Interfaces = Block.empty
                                     Origin = SymbolOrigin.Empty
                                     IsValueType = false
                                     RequiresQualifiedAccess = false
@@ -334,8 +335,8 @@ let tests =
                          + "    val loneUnit: unit -> int\n"
                          + "    val voidRet: int -> unit\n")
 
-                let intF = FTConst(RuntimeNames.intKey, EqArray.empty)
-                let pairF = FTTuple(EqArray.ofList [ intF; intF ])
+                let intF = FTConst(RuntimeNames.intKey, Block.empty)
+                let pairF = FTTuple(Block.ofList [ intF; intF ])
 
                 // Derived from the captured `ValRepr` on demand, not stored on the symbol.
                 let compiledOf (suffix: string) : TastAccessor.CompiledForm =
@@ -391,7 +392,7 @@ let tests =
                         "app.fsi"
                         "namespace App\n\nmodule M =\n    type Colour =\n        | Red = -1\n        | Green = 2uy\n        | Amber = - 3\n\n    type Verb =\n        | Get = \"GET\"\n        | Put = \"PUT\"\n"
 
-                let casesOf (suffix: string) : EqArray<ExternalEnumCaseShape> =
+                let casesOf (suffix: string) : Block<ExternalEnumCaseShape> =
                     match shapeOf r suffix with
                     | ExternalTypeShape.Enum { Cases = cases } -> cases
                     | other -> failtestf "expected an Enum shape for '%s'; got %A" suffix other
@@ -520,7 +521,7 @@ let tests =
                 match shapeOf r "Container`1" with
                 | ExternalTypeShape.Class shape ->
                     match shape.FrozenInterfaces with
-                    | EqOne iface ->
+                    | BlockOne iface ->
                         Expect.equal iface.Key.Name "IBox" "the IBox interface is published"
 
                         // `IBox` is declared inside `module M`, so it publishes a module-held
@@ -553,7 +554,7 @@ let tests =
                 match shapeOf r "Foo`1" with
                 | ExternalTypeShape.Intrinsic { Class = ValueSome surface } ->
                     match surface.Interfaces with
-                    | EqOne iface ->
+                    | BlockOne iface ->
                         Expect.equal iface.Key.Name "IBar" "the IBar interface is published"
                         Expect.equal iface.Args.Length 1 "IBar<'T> carries one type arg"
 
@@ -588,7 +589,7 @@ let tests =
 
                     Expect.equal
                         cases.[1].FieldNames
-                        (EqArray.ofSeq [ ValueSome "Head"; ValueSome "Tail" ])
+                        (Block.ofSeq [ ValueSome "Head"; ValueSome "Tail" ])
                         "cons field names"
                 | other -> failtestf "expected a Union shape for the GADT-cased union; got %A" other
             }
@@ -609,11 +610,11 @@ let tests =
                     | ValueNone -> failtest "App.M is a published module"
 
                 match scope.UnionCasesNamed(m, "Red") with
-                | EqOne uc -> Expect.isTrue uc.IsRequireQualifiedAccess "Red's union (Color) is RQA"
+                | BlockOne uc -> Expect.isTrue uc.IsRequireQualifiedAccess "Red's union (Color) is RQA"
                 | other -> failtestf "Red case not declared in App.M: %A" other
 
                 match scope.UnionCasesNamed(m, "Blue") with
-                | EqOne uc -> Expect.isFalse uc.IsRequireQualifiedAccess "Blue's union (Hue) is not RQA"
+                | BlockOne uc -> Expect.isFalse uc.IsRequireQualifiedAccess "Blue's union (Hue) is not RQA"
                 | other -> failtestf "Blue case not declared in App.M: %A" other
             }
 
@@ -774,7 +775,7 @@ let tests =
                 // would mis-present `System.IDisposable` as a scalar canon. Reconciliation
                 // uses the `IntrinsicInterface` identity above instead.
                 match IntrinsicTypeMap.canonsOf (PlatformTypeId "System.IDisposable") r.Provider.IntrinsicTypeMap with
-                | EqEmpty -> ()
+                | BlockEmpty -> ()
                 | canons -> failtestf "capability interface must NOT enter the intrinsic axis; found %A" canons
             }
 
@@ -860,7 +861,7 @@ let tests =
                     | ValueNone -> failtest "Test.A.M is a published module"
 
                 match scope.TypesNamed(m, "T") with
-                | EqOne(struct (key, ExternalTypeShape.Record _)) ->
+                | BlockOne(struct (key, ExternalTypeShape.Record _)) ->
                     Expect.equal key expected "the written name resolves to the registered InModule identity"
                 | other -> failtestf "the module publishes exactly one T, a Record: %A" other
 
@@ -918,11 +919,11 @@ let tests =
 
                 let sym = symbolOf r "add"
 
-                match EqArray.toList sym.Generics.Traits with
+                match Block.toList sym.Generics.Traits with
                 | [] -> failtestf "no MemberTrait captured for `add`; Generics: %A" sym.Generics
                 | trait_ :: _ ->
                     Expect.equal
-                        (EqArray.toList trait_.TyparIndices)
+                        (Block.toList trait_.TyparIndices)
                         [ 0 ]
                         "the trait is borne by the val's single typar slot"
 
@@ -931,7 +932,7 @@ let tests =
                     let ownTypar = FTTypar(TyparScope.ModuleFunction sym.Key, 0)
 
                     Expect.equal
-                        (EqArray.toList trait_.ArgTypes)
+                        (Block.toList trait_.ArgTypes)
                         [ ownTypar; ownTypar ]
                         "the tupled trait args flatten to two templates over the val's own typar"
 
@@ -960,14 +961,14 @@ let tests =
                         "app.fsi"
                         "namespace App\n\nmodule M =\n    type Box<'T> =\n        member Item: index: int -> 'T with get\n"
 
-                let intF = FTConst(RuntimeNames.intKey, EqArray.empty)
+                let intF = FTConst(RuntimeNames.intKey, Block.empty)
 
                 match membersOf r "Box`1" with
                 | [ m ] ->
                     Expect.equal m.Name "get_Item" "an index makes the getter a method"
                     Expect.equal m.Storage MemberStorage.Method "storage is a method, not a property"
                     Expect.equal m.Key.Kind MemberKind.Method "and so is the key's kind"
-                    Expect.equal m.Key.ArgSig (EqArray.singleton intF) "the index is the member's one argument"
+                    Expect.equal m.Key.ArgSig (Block.singleton intF) "the index is the member's one argument"
 
                     Expect.equal
                         (ExternalSignature.tupledParameters m.Signature)
@@ -991,8 +992,8 @@ let tests =
                 | [ m ] ->
                     Expect.equal m.Name "Count" "a parameterless getter is the property itself"
                     Expect.equal m.Storage MemberStorage.Property "storage is a property"
-                    Expect.isEmpty (EqArray.toList m.Key.ArgSig) "a property takes no argument"
-                    Expect.equal m.Signature.Return (FTConst(RuntimeNames.intKey, EqArray.empty)) "the declared value"
+                    Expect.isEmpty (Block.toList m.Key.ArgSig) "a property takes no argument"
+                    Expect.equal m.Signature.Return (FTConst(RuntimeNames.intKey, Block.empty)) "the declared value"
                 | other -> failtestf "expected one member; got %A" [ for m in other -> m.Name ]
             }
 
@@ -1002,14 +1003,14 @@ let tests =
                         "app.fsi"
                         "namespace App\n\nmodule M =\n    type Box =\n        member Count: int with get, set\n"
 
-                let intF = FTConst(RuntimeNames.intKey, EqArray.empty)
+                let intF = FTConst(RuntimeNames.intKey, Block.empty)
 
                 match membersOf r "Box" with
                 | [ getter; setter ] ->
                     Expect.equal getter.Name "Count" "the getter half"
                     Expect.equal setter.Name "set_Count" "the setter half"
                     Expect.equal setter.Storage MemberStorage.Method "a setter is an accessor method"
-                    Expect.equal setter.Key.ArgSig (EqArray.singleton intF) "it accepts the property's value"
+                    Expect.equal setter.Key.ArgSig (Block.singleton intF) "it accepts the property's value"
 
                     Expect.equal
                         (ExternalSignature.tupledParameters setter.Signature)
@@ -1026,7 +1027,7 @@ let tests =
                         "app.fsi"
                         "namespace App\n\nmodule M =\n    type Box<'T> =\n        member Item: index: int -> 'T with get, set\n"
 
-                let intF = FTConst(RuntimeNames.intKey, EqArray.empty)
+                let intF = FTConst(RuntimeNames.intKey, Block.empty)
 
                 match membersOf r "Box`1" with
                 | [ getter; setter ] ->
@@ -1034,7 +1035,7 @@ let tests =
 
                     Expect.equal getter.Name "get_Item" "the getter half"
                     Expect.equal setter.Name "set_Item" "the setter half"
-                    Expect.equal setter.Key.ArgSig (EqArray.ofList [ intF; elemF ]) "index then value"
+                    Expect.equal setter.Key.ArgSig (Block.ofList [ intF; elemF ]) "index then value"
                     Expect.equal setter.Signature.Return ExternalSignature.unitFrozen "a setter returns unit"
                 | other -> failtestf "expected both halves; got %A" [ for m in other -> m.Name ]
             }
@@ -1066,13 +1067,13 @@ let tests =
                         "tupled.fsi"
                         "namespace App\n\nmodule M =\n    type Box =\n        member Add: a: int * b: int -> int\n"
 
-                let intF = FTConst(RuntimeNames.intKey, EqArray.empty)
-                let intTy = TyConst(RuntimeNames.intKey, EqArray.empty)
+                let intF = FTConst(RuntimeNames.intKey, Block.empty)
+                let intTy = TyConst(RuntimeNames.intKey, Block.empty)
 
                 match membersOf curried "Box", membersOf tupled "Box" with
                 | [ c ], [ t ] ->
-                    Expect.equal (EqArray.toList c.Signature.ArgGroups) [ intF; intF ] "two source argument groups"
-                    Expect.equal (EqArray.toList t.Signature.ArgGroups) [ FTTuple(EqArray.ofList [ intF; intF ]) ] "one"
+                    Expect.equal (Block.toList c.Signature.ArgGroups) [ intF; intF ] "two source argument groups"
+                    Expect.equal (Block.toList t.Signature.ArgGroups) [ FTTuple(Block.ofList [ intF; intF ]) ] "one"
 
                     Expect.equal c.Key t.Key "both compile to the same key: one two-parameter slot"
 
@@ -1088,7 +1089,7 @@ let tests =
 
                     Expect.equal
                         (ExternalSymbols.instantiateSignature (MeasuredThaw.noneOver (TypeStore())) t [||] 0)
-                        (TyFun(TyTuple(EqArray.ofList [ intTy; intTy ]), intTy))
+                        (TyFun(TyTuple(Block.ofList [ intTy; intTy ]), intTy))
                         "the tupled one takes one tuple"
                 | c, t ->
                     failtestf
@@ -1118,12 +1119,12 @@ let tests =
                 let listKey = RuntimeNames.vesperListKey
 
                 match realProvider.Value.TryLookupMembers(listKey, "get_Item") with
-                | EqOne m ->
+                | BlockOne m ->
                     Expect.equal m.Storage MemberStorage.Method "the declared indexer is an accessor method"
 
                     Expect.equal
                         m.Key.ArgSig
-                        (EqArray.singleton (FTConst(RuntimeNames.intKey, EqArray.empty)))
+                        (Block.singleton (FTConst(RuntimeNames.intKey, Block.empty)))
                         "keyed on its index argument"
                 | other ->
                     failtestf "expected exactly one `get_Item` on the cons-list; got %A" [ for m in other -> m.Name ]
@@ -1146,7 +1147,7 @@ let tests =
                             "`'T[]` published as a SCALAR intrinsic: its `interface seq<'T>` was dropped between resolution and republish"
                     | other -> failtestf "expected an Intrinsic shape for `'T[]`; got %A" other
 
-                let elem = TyConst(RuntimeNames.intKey, EqArray.empty)
+                let elem = TyConst(RuntimeNames.intKey, Block.empty)
 
                 let instantiated =
                     ExternalSymbols.instantiateInterfacesOf
@@ -1175,7 +1176,7 @@ let tests =
 
                 for anchor in [ RuntimeNames.equatableKey; RuntimeNames.comparableKey ] do
                     Expect.isTrue
-                        (declared |> EqArray.exists (fun iface -> iface.Key = anchor))
+                        (declared |> Block.exists (fun iface -> iface.Key = anchor))
                         (sprintf
                             "`int` does not declare `%s`; it declares %A"
                             (SymbolKeyOps.typeMetaName anchor)
@@ -1216,7 +1217,7 @@ let tests =
 
                 Expect.isTrue
                     (declaredInterfaces composed intKey
-                     |> EqArray.exists (fun iface -> iface.Key = RuntimeNames.equatableKey))
+                     |> Block.exists (fun iface -> iface.Key = RuntimeNames.equatableKey))
                     "the contract's `equatable<int>` survives a source that binds only a repr"
             }
 
@@ -1328,7 +1329,7 @@ let tests =
                     Expect.isTrue shape.FrozenBaseType.IsNone "an interface has no base type"
 
                     Expect.isTrue
-                        (shape.FrozenInterfaces |> EqArray.exists (fun i -> i.Key.Name = "I1"))
+                        (shape.FrozenInterfaces |> Block.exists (fun i -> i.Key.Name = "I1"))
                         "the inherited I1 is published on the interface list"
                 | other -> failtestf "expected a Class shape for I2; got %A" other
             }

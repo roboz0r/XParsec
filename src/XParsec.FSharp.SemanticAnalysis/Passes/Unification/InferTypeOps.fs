@@ -2,6 +2,7 @@ namespace XParsec.FSharp.SemanticAnalysis.Passes
 
 open System.Collections.Generic
 open System.Collections.Immutable
+open Vesper
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
@@ -27,7 +28,7 @@ module internal UnificationInferTypeOps =
         | Scheme of name: string * scheme: TypeScheme * order: TyVarId list
         /// A nominal result (`ResizeArray<int>()`), whose own type arguments the explicit
         /// arguments pin.
-        | Nominal of name: string * args: EqArray<SemType>
+        | Nominal of name: string * args: Block<SemType>
         /// The arguments pin nothing.
         | Untargeted
 
@@ -109,7 +110,7 @@ module internal UnificationInferTypeOps =
             if args.Length <> List.length explicit then
                 reportArity name args.Length
             else
-                List.iter2 (fun fresh ex -> unify ctx tok fresh ex) (EqArray.toList args) explicit
+                List.iter2 (fun fresh ex -> unify ctx tok fresh ex) (Block.toList args) explicit
 
         innerTy
 
@@ -169,9 +170,9 @@ module internal UnificationInferTypeOps =
 
         for clause in clauses do
             infer ctx clause.OptimizedExpr |> ignore
-            resolved.Add(EqArray.ofSeq (Seq.map resolveConstraint clause.Constraints))
+            resolved.Add(Block.ofSeq (Seq.map resolveConstraint clause.Constraints))
 
-        ctx.StaticOpt.Set(key, EqArray.ofSeq resolved)
+        ctx.StaticOpt.Set(key, Block.ofSeq resolved)
         defaultTy
 
     /// `((^T1 or ^T2): (static member (+) : ^T1 * ^T2 -> ^T3) (x, y))` — an SRTP

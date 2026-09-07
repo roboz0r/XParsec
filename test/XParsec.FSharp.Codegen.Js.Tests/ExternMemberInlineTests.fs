@@ -1,5 +1,6 @@
 module XParsec.FSharp.Codegen.Js.Tests.ExternMemberInlineTests
 
+open Vesper
 open Expecto
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Lexer.Lexing
@@ -71,7 +72,7 @@ let private ftInt: FrozenType = toFrozen BuiltinTypes.tyInt
 let private ftString: FrozenType = toFrozen BuiltinTypes.tyString
 
 let private ftWidget: FrozenType =
-    FTConst(RuntimeNames.opaqueKey "widget", EqArray.empty)
+    FTConst(RuntimeNames.opaqueKey "widget", Block.empty)
 
 /// A hand-built FROZEN `widget.Poke` over one value parameter, its body minted by `mkBody`
 /// from that parameter's bound variable: `member inline _.Poke (x: 'paramTy) : int = <body>`.
@@ -99,7 +100,7 @@ let private pokeMemberWith (paramTy: FrozenType) (mkBody: BoundVarId -> Pooled.T
             SymbolKeyOps.memberKeyOf
                 (RuntimeNames.opaqueKey "widget")
                 "Poke"
-                (EqArray.singleton paramTy)
+                (Block.singleton paramTy)
                 0
                 MemberKind.Method
         IsStatic = false
@@ -110,11 +111,11 @@ let private pokeMemberWith (paramTy: FrozenType) (mkBody: BoundVarId -> Pooled.T
         ThisKey = ValueSome thisBoundVar
         BaseKey = ValueNone
         ThisTy = ftWidget
-        Params = EqArray.ofList [ (xBoundVar, paramTy) ]
+        Params = Block.ofList [ (xBoundVar, paramTy) ]
         Body = { Pool = pool; Id = body }
         ReturnTy = ftInt
         MethodTypars = TyparList.empty
-        Attributes = EqArray.empty
+        Attributes = Block.empty
     }
 
 /// `member inline _.Poke (x: 'paramTy) : int = (# template x : int #)`.
@@ -125,7 +126,7 @@ let private pokeMemberOf (template: string) (paramTy: FrozenType) : TastAccessor
             TExprG.ILIntrinsic(
                 template,
                 ValueSome paramTy,
-                EqArray.ofList [ TExprG.Var(xId, paramTy, dummyTok) ],
+                Block.ofList [ TExprG.Var(xId, paramTy, dummyTok) ],
                 ftInt,
                 dummyTok
             )
@@ -375,13 +376,13 @@ let tests =
 
                 // The finalized keys differ on the `argSig` axis, and the store minted them.
                 let keyOf (paramTy: FrozenType) =
-                    match overloads |> EqArray.tryFind (fun m -> m.Key.ArgSig |> EqArray.contains paramTy) with
+                    match overloads |> Block.tryFind (fun m -> m.Key.ArgSig |> Block.contains paramTy) with
                     | ValueSome m -> SymbolKey.Member m.Key
                     | ValueNone ->
                         failtestf
                             "no `Poke` overload over %A; argSigs: %A"
                             paramTy
-                            (overloads |> EqArray.map (fun m -> m.Key))
+                            (overloads |> Block.map (fun m -> m.Key))
 
                 let intKey = keyOf ftInt
                 let stringKey = keyOf ftString
@@ -545,7 +546,7 @@ let tests =
                     SymbolKeyOps.memberKey
                         declKey
                         m.Name
-                        (m.Params |> EqArray.map snd)
+                        (m.Params |> Block.map snd)
                         m.MethodTypars.TypeArity
                         (TMemberKind.keyKind m.Kind)
 

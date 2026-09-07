@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+open Vesper
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 
@@ -30,7 +31,7 @@ module Conformance =
     /// index. `keyof`, indexed-access and conditional shapes render in TypeScript syntax
     /// (`keyof T`, `T[K]`, `T extends U ? A : B`).
     let rec describeType (t: FrozenType) : string =
-        let args (name: string) (xs: EqArray<FrozenType>) =
+        let args (name: string) (xs: Block<FrozenType>) =
             match xs.Length with
             | 0 -> name
             | _ -> sprintf "%s<%s>" name (xs |> Seq.map describeType |> String.concat ", ")

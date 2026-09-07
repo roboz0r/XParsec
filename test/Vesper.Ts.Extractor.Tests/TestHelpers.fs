@@ -9,6 +9,7 @@ module Vesper.Ts.Extractor.Tests.TestHelpers
 open System
 open System.IO
 open System.Diagnostics
+open Vesper
 open Expecto
 
 open Vesper.Ts.Manifest
@@ -282,11 +283,11 @@ let testProviderResolves (path: string) =
                         $"overloaded function '{name}' should resolve to one static member per signature"
 
                     Expect.isTrue
-                        (overloads |> EqArray.forall (fun m -> m.IsStatic))
+                        (overloads |> Block.forall (fun m -> m.IsStatic))
                         $"overloaded function '{name}' members must be static"
 
                     Expect.equal
-                        (overloads |> EqArray.map (fun r -> r.Key) |> EqArray.distinct).Length
+                        (overloads |> Block.map (fun r -> r.Key) |> Block.distinct).Length
                         overloads.Length
                         $"overloaded function '{name}' members must have distinct keys"
                 else
@@ -379,7 +380,7 @@ let testProviderResolves (path: string) =
                                 $"overloaded member '{name}.{m.Name}' should resolve to one member per signature"
 
                         Expect.equal
-                            (resolved |> EqArray.map (fun r -> r.Key) |> EqArray.distinct).Length
+                            (resolved |> Block.map (fun r -> r.Key) |> Block.distinct).Length
                             resolved.Length
                             $"overloaded member '{name}.{m.Name}' members must have distinct keys"
             | Schema.Export.Variable(name, _, _, _) ->

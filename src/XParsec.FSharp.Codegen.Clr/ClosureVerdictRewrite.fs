@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.Codegen.Clr
 
 open System.Collections.Generic
+open Vesper
 open XParsec.FSharp.SemanticAnalysis
 
 /// `map f src` freezes as `MapSeq<…, (int->int), …>` but the call produces a `<closure>$`
@@ -132,19 +133,15 @@ module internal ClosureVerdictRewrite =
                     | ValueSome n ->
                         match nestedSubst.TryGetValue n with
                         | true, newTy -> newTy
-                        | false, _ ->
-                            TastLower.ofNominal
-                                { n with
-                                    Args = EqArray.map deep n.Args
-                                }
+                        | false, _ -> TastLower.ofNominal { n with Args = Block.map deep n.Args }
                     | ValueNone -> t
 
                 // Each recorded position takes this binding's own closure; every other arg is
                 // deep-rewritten, so a nested nominal keeps ITS `'TFunc` slot rather than
                 // being clobbered with this binding's closure.
-                let rwArgs (args: EqArray<FrozenType>) : EqArray<FrozenType> =
+                let rwArgs (args: Block<FrozenType>) : Block<FrozenType> =
                     args
-                    |> EqArray.mapi (fun i a ->
+                    |> Block.mapi (fun i a ->
                         match slots.TryGetValue i with
                         | true, closureFt ->
                             replaced.Add(a, closureFt)
@@ -185,7 +182,7 @@ module internal ClosureVerdictRewrite =
             // Position-only, not recursive: one application rewrites its own slot. An
             // out-of-range `pos` matches no index and leaves the type unchanged.
             resultTy
-            |> TastLower.mapFrozenArgs (EqArray.mapi (fun i a -> if i = pos then closureFt else a))
+            |> TastLower.mapFrozenArgs (Block.mapi (fun i a -> if i = pos then closureFt else a))
 
         // A `FieldGet` off a verdict binding has its own type, the projected function,
         // mapped to the closure via that binding's recorded replacements; the object arg is

@@ -1,6 +1,7 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.KeyIndexedChannelsTests
 
 open System.Collections.Generic
+open Vesper
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 
@@ -17,8 +18,8 @@ let private bagKey =
 let private plainKey =
     SymbolKeyOps.typeKeyOfContainer (TypeContainer.InNamespace(SymbolKeyOps.namespaceKey "Tests")) "Plain" 0
 
-let private stringTy = FTConst(RuntimeNames.opaqueKey "string", EqArray.empty)
-let private intTy = FTConst(RuntimeNames.opaqueKey "int", EqArray.empty)
+let private stringTy = FTConst(RuntimeNames.opaqueKey "string", Block.empty)
+let private intTy = FTConst(RuntimeNames.opaqueKey "int", Block.empty)
 
 let private provider: IExternalSymbolProvider =
     let byKey =

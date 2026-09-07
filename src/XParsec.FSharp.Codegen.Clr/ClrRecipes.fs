@@ -3,6 +3,7 @@ namespace XParsec.FSharp.Codegen.Clr
 open System.Collections.Generic
 open System.Reflection.Metadata
 open System.Reflection.Metadata.Ecma335
+open Vesper
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
 
@@ -145,8 +146,8 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
     let vesperListCaseFieldNames (caseName: string) : string list =
         let u = vesperListShape.Value
 
-        match u.Cases |> EqArray.tryFind (fun c -> c.Name = caseName) with
-        | ValueSome c -> UnionCaseFields.fscFieldNames (EqArray.toList c.FieldNames)
+        match u.Cases |> Block.tryFind (fun c -> c.Name = caseName) with
+        | ValueSome c -> UnionCaseFields.fscFieldNames (Block.toList c.FieldNames)
         | ValueNone -> failwithf "ClrRecipes: the referenced cons-list declares no case '%s'" caseName
 
     /// One payload field of the referenced cons-list's `Cons` case, declared on that case's
@@ -189,7 +190,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
     /// The seq-interface witness for a referenced-package nominal type: pick the shape's
     /// `FrozenInterfaces` template matching `ifaceKey` and instantiate it at this object arg
     /// (`FTTypar(Type _, i) := args.[i]`). Direct-declared interfaces only.
-    let tryExternalInterfaceWitness (objArgTy: FrozenType) (ifaceKey: TypeKey) : EqArray<FrozenType> voption =
+    let tryExternalInterfaceWitness (objArgTy: FrozenType) (ifaceKey: TypeKey) : Block<FrozenType> voption =
         match objArgTy with
         | FTClass(rKey, rArgs)
         | FTUnion(rKey, rArgs)
@@ -555,7 +556,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             toEntity (ctx.MemberRef(eFormatter.Value, name, s))
 
         {
-            HandlerLocal = FTConst(ClrSinkKeys.formatter, EqArray.empty)
+            HandlerLocal = FTConst(ClrSinkKeys.formatter, Block.empty)
             CtorWriter = ctorWriter
             CtorBuilder = ctorBuilder
             CtorString = ctorString

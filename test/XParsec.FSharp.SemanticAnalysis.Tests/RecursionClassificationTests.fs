@@ -1,5 +1,6 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.RecursionClassificationTests
 
+open Vesper
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
@@ -22,7 +23,7 @@ let private letRecursions (src: string) : LetRecursion list =
     let group (members: TastAccessor.LetMemberView[]) (components: SccPartition) =
         Group(
             [ for m in members -> name m.Pattern, m.Recursion ],
-            [ for c in components.Components -> EqArray.toList c.Members ]
+            [ for c in components.Components -> Block.toList c.Members ]
         )
 
     let acc = ResizeArray<LetRecursion>()

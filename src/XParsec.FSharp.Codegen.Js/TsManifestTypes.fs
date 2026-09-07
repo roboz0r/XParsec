@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.Codegen.Js
 
+open Vesper
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
 open Vesper.Ts.Manifest
@@ -322,8 +323,8 @@ module internal TsManifestTranslate =
                 let canon = RuntimeNames.primitiveKey name
 
                 match IntrinsicTypeMap.tryPlatform canon ctx.Intrinsics with
-                | ValueSome _ -> FTConst(canon, EqArray.ofSeq args)
-                | ValueNone -> FTConst(RuntimeNames.opaqueKey name, EqArray.ofSeq args)
+                | ValueSome _ -> FTConst(canon, Block.ofSeq args)
+                | ValueNone -> FTConst(RuntimeNames.opaqueKey name, Block.ofSeq args)
 
             // TS has no partial application and no arity overloading, so the APPLIED arg
             // count is the declared arity of an in-package reference.
@@ -337,7 +338,7 @@ module internal TsManifestTranslate =
                 | None -> ctx.Resolve(qualify ctx.MountPrefix suffixed)
 
             match owned with
-            | Some key -> FTClass(key, EqArray.ofSeq args)
+            | Some key -> FTClass(key, Block.ofSeq args)
             | None ->
                 // Own-registry miss: the FOREIGN refs table, keyed by the BARE name, mints
                 // IDENTITY ONLY, the key the home manifest registers, so member access
@@ -353,7 +354,7 @@ module internal TsManifestTranslate =
 
                         let key = (mint ns name entry.TyparArity).Key
 
-                        FTClass(key, EqArray.ofSeq args)
+                        FTClass(key, Block.ofSeq args)
                     | Schema.RefKind.Alias
                     | Schema.RefKind.Enum -> intrinsicOrOpaque name
                 | None -> intrinsicOrOpaque name
@@ -365,7 +366,7 @@ module internal TsManifestTranslate =
         | Schema.TypeRef.MethodTypar i -> FTTypar(methodTyparScope ctx, i)
         | Schema.TypeRef.Fun(args, ret) ->
             List.foldBack (fun a acc -> FTFun(toFrozen ctx a, acc)) args (toFrozen ctx ret)
-        | Schema.TypeRef.Tuple items -> FTTuple(EqArray.ofSeq (List.map (toFrozen ctx) items))
+        | Schema.TypeRef.Tuple items -> FTTuple(Block.ofSeq (List.map (toFrozen ctx) items))
         // Flatten/dedupe/collapse per TS's union rules: a singleton `("a")` becomes a literal.
         | Schema.TypeRef.Union disjuncts -> FrozenType.MkUnion(List.map (toFrozen ctx) disjuncts)
         // A TS literal TYPE → `FTLiteral` (structural, external-vocabulary only).
@@ -384,7 +385,7 @@ module internal TsManifestTranslate =
                     WhenFalse = toFrozen ctx whenFalse
                 }
         // TS `any` → the opaque `dynamic` intrinsic; its only capability is the `?` operator.
-        | Schema.TypeRef.Dynamic -> FTConst(RuntimeNames.dynamicKey, EqArray.empty)
+        | Schema.TypeRef.Dynamic -> FTConst(RuntimeNames.dynamicKey, Block.empty)
         // An anonymous shape freezes to a hash-keyed ERASING nominal: its members resolve and
         // lower to native `objArg.x` reads while NOTHING is emitted for the type. A bare
         // With no field and no index (`{ [k: K]: V }` counts, its index is its content) there
@@ -393,17 +394,17 @@ module internal TsManifestTranslate =
             let key = (structuralKey (structuralHash printed fields)).Key
 
             match fields, index with
-            | [], [] -> FTConst(key, EqArray.empty)
-            | _ -> FTClass(key, EqArray.empty)
+            | [], [] -> FTConst(key, Block.empty)
+            | _ -> FTClass(key, Block.empty)
 
-    let unitFrozen: FrozenType = FTConst(RuntimeNames.unitKey, EqArray.empty)
+    let unitFrozen: FrozenType = FTConst(RuntimeNames.unitKey, Block.empty)
 
     /// .NET-tupled parameter encoding: 0 → unit, 1 → bare, N≥2 → tuple.
     let private paramsFrozen (ctx: TranslateCtx) (ps: Schema.Param list) : FrozenType =
         match ps with
         | [] -> unitFrozen
         | [ p ] -> toFrozen ctx p.Type
-        | many -> FTTuple(EqArray.ofSeq (many |> List.map (fun p -> toFrozen ctx p.Type)))
+        | many -> FTTuple(Block.ofSeq (many |> List.map (fun p -> toFrozen ctx p.Type)))
 
     let signatureOf (ctx: TranslateCtx) (declTyparArity: int) (sg: Schema.Signature) : ExternalSignature =
         // A bound (`<Key extends keyof Events>`) is carried faithfully so the front end can
@@ -415,13 +416,13 @@ module internal TsManifestTranslate =
                 | Some b -> ValueSome(toFrozen ctx b)
                 | None -> ValueNone
             )
-            |> EqArray.ofList
+            |> Block.ofList
 
         // A TS signature has ONE parameter list, so one argument group.
         {
             DeclaringTyparArity = declTyparArity
             MethodTypars = methodTypars
-            ArgGroups = EqArray.singleton (paramsFrozen ctx sg.Params)
+            ArgGroups = Block.singleton (paramsFrozen ctx sg.Params)
             Return = toFrozen ctx sg.Returns
         }
 

@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+open Vesper
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 
@@ -113,7 +114,7 @@ module TastLower =
     /// `target`'s interface, and `target`'s typars are recovered from the witness.
     let solvePhantomTypars
         (typars: TyparList)
-        (tryWitness: FrozenType -> TypeKey -> EqArray<FrozenType> voption)
+        (tryWitness: FrozenType -> TypeKey -> Block<FrozenType> voption)
         (instArr: FrozenType voption[])
         : unit =
         let coercions = TyparList.coercions typars
@@ -197,7 +198,7 @@ module TastLower =
     type Nominal =
         {
             Ctor: TyCtor
-            Args: EqArray<FrozenType>
+            Args: Block<FrozenType>
         }
 
     /// `ValueNone` for a type with no argument vector, `FTFun` included: its domain and
@@ -226,7 +227,7 @@ module TastLower =
 
     /// Rebuild a frozen type by transforming its top-level type-argument vector. Anything
     /// without one passes through unchanged.
-    let mapFrozenArgs (f: EqArray<FrozenType> -> EqArray<FrozenType>) (t: FrozenType) : FrozenType =
+    let mapFrozenArgs (f: Block<FrozenType> -> Block<FrozenType>) (t: FrozenType) : FrozenType =
         match tryNominal t with
         | ValueSome n -> ofNominal { n with Args = f n.Args }
         | ValueNone -> t
@@ -272,7 +273,7 @@ module TastLower =
                 | ArgGroupG.GSimple _ -> [ pt ]
                 | ArgGroupG.GTuple _ ->
                     match pt with
-                    | FTTuple xs -> EqArray.toList xs
+                    | FTTuple xs -> Block.toList xs
                     | _ -> [ pt ]
             )
 
@@ -409,7 +410,7 @@ module TastLower =
                 | FTTuple elems ->
                     let items =
                         elems
-                        |> EqArray.toArray
+                        |> Block.toArray
                         |> Array.map (fun e -> TastAccessor.mintWildcardPat contractPats e Anchor.nowhere)
 
                     ArgGroupG.GTuple(TastAccessor.mintTuplePat contractPats items pty Anchor.nowhere)

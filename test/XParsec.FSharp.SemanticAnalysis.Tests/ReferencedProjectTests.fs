@@ -1,6 +1,7 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.ReferencedProjectTests
 
 open System.IO
+open Vesper
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Passes
@@ -208,7 +209,7 @@ let tests =
                         // A capability interface is ABSENT from the intrinsic axis:
                         // reconciliation goes through the platform name above, not the axis.
                         match IntrinsicTypeMap.canonsOf (PlatformTypeId platformExpected) provider.IntrinsicTypeMap with
-                        | EqEmpty -> ()
+                        | BlockEmpty -> ()
                         | canons ->
                             failtestf
                                 "capability interface %s must NOT enter the intrinsic axis; found %A"
@@ -237,10 +238,10 @@ let tests =
                 match ExternalSymbols.tryMetaType provider "Vesper.Collections.enumerator`1" with
                 | ValueSome(ExternalTypeShape.IntrinsicInterface iface) ->
                     let ifaceNames =
-                        iface.Interfaces |> EqArray.map (fun i -> SymbolKeyOps.typeMetaName i.Key)
+                        iface.Interfaces |> Block.map (fun i -> SymbolKeyOps.typeMetaName i.Key)
 
                     Expect.isTrue
-                        (ifaceNames |> EqArray.exists (fun n -> n.Contains "disposable"))
+                        (ifaceNames |> Block.exists (fun n -> n.Contains "disposable"))
                         (sprintf "enumerator inherits disposable; Interfaces = %A" ifaceNames)
                 | other -> failtestf "expected enumerator as IntrinsicInterface, got %A" other
             }

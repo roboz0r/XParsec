@@ -65,7 +65,7 @@ Derived principles:
 | DU emission | Fully emitted — single class + `_tag` + per-case fields + factories (mono and generic `List\`1`), `Codegen.fs` union path. **No equality logic.** | Add the `IEquatable`/`Equals`/`GetHashCode` triple (§5). DUs are the first implementable slice. |
 | Record emission | Front-end complete (`TyRecord`, `RecordCons`, …) but `TDecl.Type` records are **dropped in codegen** (handoff R6/P3e). | Record equality is gated on R6 (record backend emission) landing first. |
 | Runtime helpers | None. | None needed (§4). |
-| `EqArray<'T>` | Compiler-internal structural array (`EqArray.fs`) — the proven prototype for `Block<'T>`. | `Block<'T>` is its language-level twin (§4). |
+| `Block<'T>` | Compiler-internal structural array (`Block.fs`) — the proven prototype for `Block<'T>`. | `Block<'T>` is its language-level twin (§4). |
 
 ## 3. Compile-time dispatch (`=`, `<>`, `hash`)
 
@@ -146,17 +146,17 @@ type. Crucially `Block` is **not** subject to compiler equality-generation
 (§5) — if it were, the field-walk would hit its private `'T array` and emit
 reference equality. Its `Equals`/`GetHashCode` are hand-authored.
 
-**Reference prototype.** `EqArray.fs` is this type, already in-tree for the
+**Reference prototype.** `Block.fs` is this type, already in-tree for the
 compiler's own TAST/`SemType` collections. `Block<'T>` is its language-level
 twin. Differences and the parallel:
 
-- Backing: `EqArray` uses `ImmutableArray<'T>`; `Block` uses `'T array` to keep
+- Backing: `Block` uses `ImmutableArray<'T>`; `Block` uses `'T array` to keep
   Vesper.Core off `System.Collections.Immutable` (immutability is by
   construction — the field is private and never mutated post-construction).
 - Both: `default` reads as empty (no NRE); element compare via
   `EqualityComparer<'T>.Default`; order-sensitive folded hash; `[<Struct>]`,
   one pointer wide, one heap allocation (the array).
-- `EqArray`'s hash fold (`h*397 ^^^ cmp.GetHashCode x`) and `SequenceEqual`
+- `Block`'s hash fold (`h*397 ^^^ cmp.GetHashCode x`) and `SequenceEqual`
   body are the template for `Block`'s.
 
 **Where it lives / language.** Vesper.Core, Tier 1. Authored as a **C# interim**
@@ -325,7 +325,7 @@ record), which is then their explicit choice.
 
 ### 7.4 `default(Block<'T>)`
 The zero value has `_values = null`; normalised to empty (length 0) for both
-equality and hash — never an NRE. (Same as `EqArray.Underlying`.)
+equality and hash — never an NRE. (Same as `Block.Underlying`.)
 
 ### 7.5 BCL collections
 `List<'T>`, `Set<'T>`, `Map<'K,'V>` etc. implement their own `IEquatable`/value
@@ -355,11 +355,11 @@ interception.
 - **Array-literal surface.** Does `[|1;2;3|]` produce `T[]` or `Block<'T>`?
   Parallels the list-literal consumer-driven typing already in the unifier
   (R3). Out of scope here; decide with the collection-literal surface work.
-- **`EqArray` vs `Block` unification.** Keep parallel (compiler-internal vs.
+- **`Block` vs `Block` unification.** Keep parallel (compiler-internal vs.
   language-level, different backing) for now. Reconsider sharing an impl only
   if it pays off; the layers have different dependency budgets.
 - **`hash` collision quality / `HashCode` vs hand fold.** `System.HashCode`
-  (randomized per-process seed) for generated records/DUs; `EqArray`'s fixed
+  (randomized per-process seed) for generated records/DUs; `Block`'s fixed
   `h*397` fold is fine for `Block`. No cross-process hash stability is promised
   (matches BCL).
 - **Equality constraint — local check, no inference propagation.** S2 brings a

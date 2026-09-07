@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
 open System.Collections.Generic
+open Vesper
 open XParsec
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
@@ -70,7 +71,7 @@ type ArglessClaim =
     | Takes of TypeIdentity
     /// Claims reach the use site at several arities, none of them 0 (FS1124). `arities` is
     /// ascending; `recovery` is the max-rank claim at the smallest arity.
-    | Disagreement of arities: EqArray<int> * recovery: TypeIdentity
+    | Disagreement of arities: Block<int> * recovery: TypeIdentity
     | NoClaim
 
 /// One type kind's entries, addressed by the type's own `TypeKey`: the WHOLE containment
@@ -97,9 +98,9 @@ type PassContextTypes =
         Measure: KindRegistry<MeasureInfo>
         /// Reverse index: ctor name → case-info entries, each tagged with its declaring union.
         /// Scoped reads only, because a case is visible exactly where its declaring union is.
-        CtorIndex: Dictionary<string, EqArray<UnionCaseInfo>>
+        CtorIndex: Dictionary<string, Block<UnionCaseInfo>>
         /// Reverse index: field name → the record types declaring it; visible where they are.
-        FieldIndex: Dictionary<string, EqArray<RecordTypeInfo>>
+        FieldIndex: Dictionary<string, Block<RecordTypeInfo>>
         /// An intrinsic binding's contract-sourced `SymbolKey` → its target representation,
         /// from `type int = (# "System.Int32" #)`, plus the `class`-tag verdict. NOT
         /// transparent like `Abbreviation`: a use resolves to `TyConst key`, not the RHS.
@@ -291,7 +292,7 @@ module TypeRegistry =
         | [] -> ArglessClaim.NoClaim
         | [ arity ]
         | (0 as arity) :: _ -> ArglessClaim.Takes(bestAt arity)
-        | nearest :: _ -> ArglessClaim.Disagreement(EqArray.ofList arities, bestAt nearest)
+        | nearest :: _ -> ArglessClaim.Disagreement(Block.ofList arities, bestAt nearest)
 
     /// WHERE the type `key` (claimed under the short name `name`) enters the name environment
     /// at `useSite`; `ValueNone` when it is out of scope there.
@@ -334,7 +335,7 @@ module TypeRegistry =
 
                 let isAlias =
                     args
-                    |> EqArray.forall (fun a ->
+                    |> Block.forall (fun a ->
                         match a with
                         | TyVar tv -> own.Remove tv
                         | _ -> false
@@ -626,13 +627,13 @@ module TypeRegistry =
     type NominalDecl =
         {
             TypeKey: TypeKey
-            TypeParams: EqArray<DeclaredTypar>
+            TypeParams: Block<DeclaredTypar>
             Members: TypeMemberInfo[]
         }
 
     let private nominalDecl
         (typeKey: TypeKey)
-        (typeParams: EqArray<DeclaredTypar>)
+        (typeParams: Block<DeclaredTypar>)
         (members: TypeMemberInfo[])
         : NominalDecl voption =
         ValueSome
@@ -810,7 +811,7 @@ module TypeRegistry =
     /// The ctor-vs-bound variable test: does `name` resolve to a union case visible from `useSite`?
     let isCaseName (types: PassContextTypes) (useSite: UseSite) (name: string) : bool =
         match types.CtorIndex.TryGetValue name with
-        | true, infos -> infos |> EqArray.exists (caseVisibleAt types useSite)
+        | true, infos -> infos |> Block.exists (caseVisibleAt types useSite)
         | false, _ -> false
 
     /// Record the decl-site origin of a freshly-minted `SymbolKey`. Returns the PRIOR

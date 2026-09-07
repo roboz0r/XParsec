@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.SemanticAnalysis.Passes
 
+open Vesper
 open XParsec.FSharp
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
@@ -161,7 +162,7 @@ module UnificationConstraintCheck =
         | TyKeyOf _
         | TyIndexedAccess _
         | TyConditional _ -> Defer
-        | TyLiteral v -> unmanagedOutcome ctx (TyConst(RuntimeNames.literalBaseKey v, EqArray.empty))
+        | TyLiteral v -> unmanagedOutcome ctx (TyConst(RuntimeNames.literalBaseKey v, Block.empty))
         | TyConst(key, args) ->
             if args.IsEmpty && RuntimeNames.isUnmanagedPrimitiveKey key then
                 Satisfied
@@ -200,7 +201,7 @@ module UnificationConstraintCheck =
         | TyIndexedAccess _
         | TyConditional _ -> Defer
         | TyEnum _ -> Satisfied
-        | TyLiteral v -> defaultCtorOutcome ctx (TyConst(RuntimeNames.literalBaseKey v, EqArray.empty))
+        | TyLiteral v -> defaultCtorOutcome ctx (TyConst(RuntimeNames.literalBaseKey v, Block.empty))
         | TyConst(key, _) when key = RuntimeNames.objKey || key = RuntimeNames.exnKey -> Satisfied
         | (TyConst _ | TyTuple _ | TyRecord _ | TyUnion _) as ty -> valueLayoutOutcome ctx ty
         | TyClass(key, _) as ty ->
@@ -223,7 +224,7 @@ module UnificationConstraintCheck =
 
     /// The underlying primitive of an enum, local or imported.
     let enumUnderlyingType (ctx: PassContext) (key: TypeKey) : SemType voption =
-        let ofKey (k: TypeKey) = TyConst(k, EqArray.empty)
+        let ofKey (k: TypeKey) = TyConst(k, Block.empty)
 
         match TypeRegistry.tryEnumByKey ctx.Types key with
         | ValueSome info -> TEnumCases.underlyingTypeKey info.Cases |> ValueOption.map ofKey
@@ -282,10 +283,10 @@ module UnificationConstraintCheck =
         | _, TyEnum _ -> Defer
         // A structural literal erases to its base primitive, so re-entering with it judges
         // every kind, `Coercion` included, exactly as the base primitive would be.
-        | _, TyLiteral v -> checkConstraint ctx c (TyConst(RuntimeNames.literalBaseKey v, EqArray.empty))
+        | _, TyLiteral v -> checkConstraint ctx c (TyConst(RuntimeNames.literalBaseKey v, Block.empty))
         | SemanticConstraintKind.OneOf choices, ty ->
             match ty with
-            | TyConst(k, targs) when targs.IsEmpty && EqArray.exists (fun c -> c = k) choices -> Satisfied
+            | TyConst(k, targs) when targs.IsEmpty && Block.exists (fun c -> c = k) choices -> Satisfied
             | _ -> Violated
         | SemanticConstraintKind.Coercion target, _ ->
             // `'e :> exn`: `subsumes` walks user and BCL `inherit` chains, so a thrown

@@ -1,5 +1,6 @@
 module XParsec.FSharp.Codegen.Clr.Tests.PrintfHappyPathTests
 
+open Vesper
 open Expecto
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.SemanticAnalysis
@@ -132,7 +133,7 @@ let tests =
                     Expect.equal sink (FormatSink.ToStdOut true) "printfn → stdout with newline"
 
                     match segs with
-                    | EqOne(FormatSeg.Lit "hi") -> ()
+                    | BlockOne(FormatSeg.Lit "hi") -> ()
                     | other -> failtestf "unexpected Format segments: %A" other
                 | other -> failtestf "expected a Format node, got: %A" other
 
@@ -213,10 +214,10 @@ let tests =
                 match soleDecl "printfn \"%s\" \"world\"" with
                 | TDecl.Expression(TExpr.Format(FormatSink.ToStdOut true, segs, _, _), _) ->
                     match segs with
-                    | EqOne(FormatSeg.Hole(hole, TExpr.Const(TConstValue.String "world", _, _))) ->
+                    | BlockOne(FormatSeg.Hole(hole, TExpr.Const(TConstValue.String "world", _, _))) ->
                         Expect.equal
                             hole.Ty
-                            (TyConst(RuntimeNames.stringKey, EqArray.empty))
+                            (TyConst(RuntimeNames.stringKey, Block.empty))
                             "the %s hole types as string"
 
                         Expect.equal (formatOf hole) None "no .NET format string for %s"
@@ -228,7 +229,7 @@ let tests =
             test "`sprintf` lowers to a string-result sink" {
                 match soleDecl "sprintf \"%d\" 42" with
                 | TDecl.Expression(TExpr.Format(FormatSink.ToString, _, ty, _), _) ->
-                    Expect.equal ty (TyConst(RuntimeNames.stringKey, EqArray.empty)) "sprintf yields a string"
+                    Expect.equal ty (TyConst(RuntimeNames.stringKey, Block.empty)) "sprintf yields a string"
                 | other -> failtestf "expected a ToString Format node, got: %A" other
             }
 
@@ -249,7 +250,7 @@ let tests =
                 match soleDecl "printfn \"100%%\"" with
                 | TDecl.Expression(TExpr.Format(FormatSink.ToStdOut true, segs, _, _), _) ->
                     match segs with
-                    | EqOne(FormatSeg.Lit "100%") -> ()
+                    | BlockOne(FormatSeg.Lit "100%") -> ()
                     | other -> failtestf "expected one Lit \"100%%\" → \"100%%\" collapse, got: %A" other
                 | other -> failtestf "expected a Format node for %%%%, got: %A" other
             }
@@ -258,7 +259,7 @@ let tests =
                 match soleDecl "printfn \"%5d\" 42" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match segs with
-                    | EqOne(FormatSeg.Hole(hole, _)) ->
+                    | BlockOne(FormatSeg.Hole(hole, _)) ->
                         Expect.equal (alignmentOf hole) (Some 5) "width 5 → alignment 5"
                         Expect.equal (formatOf hole) None "no format string for %d"
                     | other -> failtestf "unexpected segments: %A" other
@@ -269,13 +270,10 @@ let tests =
                 match soleDecl "printfn \"%.2f\" 3.14159" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match segs with
-                    | EqOne(FormatSeg.Hole(hole, _)) ->
+                    | BlockOne(FormatSeg.Hole(hole, _)) ->
                         Expect.equal (formatOf hole) (Some "F2") "precision 2 → \"F2\""
 
-                        Expect.equal
-                            hole.Ty
-                            (TyConst(RuntimeNames.floatKey, EqArray.empty))
-                            "the %f hole types as float"
+                        Expect.equal hole.Ty (TyConst(RuntimeNames.floatKey, Block.empty)) "the %f hole types as float"
                     | other -> failtestf "unexpected segments: %A" other
                 | other -> failtestf "expected a Format node, got: %A" other
             }
@@ -284,13 +282,10 @@ let tests =
                 match soleDecl "printfn \"%x\" 255" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match segs with
-                    | EqOne(FormatSeg.Hole(hole, _)) ->
+                    | BlockOne(FormatSeg.Hole(hole, _)) ->
                         Expect.equal (formatOf hole) (Some "x") "%x → AppendFormatted at lowercase \"x\""
 
-                        Expect.equal
-                            hole.Ty
-                            (TyConst(RuntimeNames.intKey, EqArray.empty))
-                            "%x types its argument as int"
+                        Expect.equal hole.Ty (TyConst(RuntimeNames.intKey, Block.empty)) "%x types its argument as int"
                     | other -> failtestf "unexpected segments: %A" other
                 | other -> failtestf "expected a Format node, got: %A" other
             }
@@ -299,7 +294,8 @@ let tests =
                 match soleDecl "printfn \"%X\" 255" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match segs with
-                    | EqOne(FormatSeg.Hole(hole, _)) -> Expect.equal (formatOf hole) (Some "X") "%X → upper-case \"X\""
+                    | BlockOne(FormatSeg.Hole(hole, _)) ->
+                        Expect.equal (formatOf hole) (Some "X") "%X → upper-case \"X\""
                     | other -> failtestf "unexpected segments: %A" other
                 | other -> failtestf "expected a Format node, got: %A" other
             }
@@ -308,7 +304,7 @@ let tests =
                 match soleDecl "printfn \"%B\" 5" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match segs with
-                    | EqOne(FormatSeg.Hole(hole, _)) ->
+                    | BlockOne(FormatSeg.Hole(hole, _)) ->
                         Expect.equal (formatOf hole) (Some "B") "%B → AppendFormatted at \"B\""
                     | other -> failtestf "unexpected segments: %A" other
                 | other -> failtestf "expected a Format node, got: %A" other
@@ -318,10 +314,10 @@ let tests =
                 match soleDecl "printfn \"%e\" 1234.5" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match segs with
-                    | EqOne(FormatSeg.Hole(hole, _)) ->
+                    | BlockOne(FormatSeg.Hole(hole, _)) ->
                         Expect.equal (formatOf hole) (Some "e6") "%e → \"e6\""
 
-                        Expect.equal hole.Ty (TyConst(RuntimeNames.floatKey, EqArray.empty)) "%e types as float"
+                        Expect.equal hole.Ty (TyConst(RuntimeNames.floatKey, Block.empty)) "%e types as float"
                     | other -> failtestf "unexpected segments: %A" other
                 | other -> failtestf "expected a Format node, got: %A" other
             }
@@ -330,12 +326,12 @@ let tests =
                 match soleDecl "printfn \"%O\" 42" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match segs with
-                    | EqOne(FormatSeg.Hole(hole, _)) ->
+                    | BlockOne(FormatSeg.Hole(hole, _)) ->
                         Expect.equal (formatOf hole) None "%O → AppendFormatted with no .NET format"
 
                         Expect.equal
                             hole.Ty
-                            (TyConst(RuntimeNames.intKey, EqArray.empty))
+                            (TyConst(RuntimeNames.intKey, Block.empty))
                             "%O's hole types as the argument (int)"
                     | other -> failtestf "unexpected segments: %A" other
                 | other -> failtestf "expected a Format node, got: %A" other
@@ -345,7 +341,7 @@ let tests =
                 match soleDecl "printfn \"%b\" true" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match segs with
-                    | EqOne(FormatSeg.Hole(hole, _)) ->
+                    | BlockOne(FormatSeg.Hole(hole, _)) ->
                         Expect.equal
                             (callOf hole)
                             (ClrHoleFormat.HoleCall.BoolText PrintfHoleForm.Alignment.None)
@@ -358,7 +354,7 @@ let tests =
                 match soleDecl "printfn \"%o\" 8" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match segs with
-                    | EqOne(FormatSeg.Hole(hole, _)) ->
+                    | BlockOne(FormatSeg.Hole(hole, _)) ->
                         Expect.equal
                             (callOf hole)
                             (ClrHoleFormat.HoleCall.Octal PrintfHoleForm.Alignment.None)
@@ -371,7 +367,7 @@ let tests =
                 match soleDecl "printfn \"%u\" 42" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match segs with
-                    | EqOne(FormatSeg.Hole(hole, _)) ->
+                    | BlockOne(FormatSeg.Hole(hole, _)) ->
                         Expect.equal
                             (callOf hole)
                             (ClrHoleFormat.HoleCall.Unsigned PrintfHoleForm.Alignment.None)
@@ -384,7 +380,7 @@ let tests =
                 match soleDecl "printfn \"%-5d\" 42" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match segs with
-                    | EqOne(FormatSeg.Hole(hole, _)) ->
+                    | BlockOne(FormatSeg.Hole(hole, _)) ->
                         Expect.equal (alignmentOf hole) (Some -5) "`-` flag → negative alignment"
                         Expect.equal (formatOf hole) None "no format string for %d"
                     | other -> failtestf "unexpected segments: %A" other
@@ -395,7 +391,7 @@ let tests =
                 match soleDecl "printfn \"%05d\" 42" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match segs with
-                    | EqOne(FormatSeg.Hole(hole, _)) ->
+                    | BlockOne(FormatSeg.Hole(hole, _)) ->
                         Expect.equal (formatOf hole) (Some "D5") "`0` flag → \"D5\""
                         Expect.equal (alignmentOf hole) None "zero-pad uses a format string, not alignment"
                     | other -> failtestf "unexpected segments: %A" other
@@ -406,7 +402,7 @@ let tests =
                 match soleDecl "printfn \"%08x\" 255" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match segs with
-                    | EqOne(FormatSeg.Hole(hole, _)) ->
+                    | BlockOne(FormatSeg.Hole(hole, _)) ->
                         Expect.equal (formatOf hole) (Some "x8") "`0` + width 8 → \"x8\""
                         Expect.equal (alignmentOf hole) None "no alignment"
                     | other -> failtestf "unexpected segments: %A" other
@@ -417,7 +413,7 @@ let tests =
                 match soleDecl "printfn \"%08o\" 8" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match segs with
-                    | EqOne(FormatSeg.Hole(hole, _)) ->
+                    | BlockOne(FormatSeg.Hole(hole, _)) ->
                         Expect.equal
                             (callOf hole)
                             (ClrHoleFormat.HoleCall.OctalZeroPad 8)
@@ -430,7 +426,7 @@ let tests =
                 match soleDecl "printfn \"%05u\" 42" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match segs with
-                    | EqOne(FormatSeg.Hole(hole, _)) ->
+                    | BlockOne(FormatSeg.Hole(hole, _)) ->
                         Expect.equal
                             (callOf hole)
                             (ClrHoleFormat.HoleCall.UnsignedZeroPad 5)
@@ -443,10 +439,10 @@ let tests =
                 match soleDecl "printfn \"%g\" 1.5" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match segs with
-                    | EqOne(FormatSeg.Hole(hole, _)) ->
+                    | BlockOne(FormatSeg.Hole(hole, _)) ->
                         Expect.equal (formatOf hole) (Some "g6") "%g → AppendFormatted at \"g6\""
 
-                        Expect.equal hole.Ty (TyConst(RuntimeNames.floatKey, EqArray.empty)) "%g types as float"
+                        Expect.equal hole.Ty (TyConst(RuntimeNames.floatKey, Block.empty)) "%g types as float"
                     | other -> failtestf "unexpected segments: %A" other
                 | other -> failtestf "expected a Format node, got: %A" other
             }
@@ -455,7 +451,7 @@ let tests =
                 match soleDecl "printfn \"%G\" 1.5" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match segs with
-                    | EqOne(FormatSeg.Hole(hole, _)) -> Expect.equal (formatOf hole) (Some "G6") "%G → \"G6\""
+                    | BlockOne(FormatSeg.Hole(hole, _)) -> Expect.equal (formatOf hole) (Some "G6") "%G → \"G6\""
                     | other -> failtestf "unexpected segments: %A" other
                 | other -> failtestf "expected a Format node, got: %A" other
             }
@@ -464,7 +460,7 @@ let tests =
                 match soleDecl "printfn \"%.3g\" 1234.5" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match segs with
-                    | EqOne(FormatSeg.Hole(hole, _)) -> Expect.equal (formatOf hole) (Some "g3") "%.3g → \"g3\""
+                    | BlockOne(FormatSeg.Hole(hole, _)) -> Expect.equal (formatOf hole) (Some "g3") "%.3g → \"g3\""
                     | other -> failtestf "unexpected segments: %A" other
                 | other -> failtestf "expected a Format node, got: %A" other
             }
@@ -473,7 +469,7 @@ let tests =
                 match soleDecl "printfn \"%10g\" 1.5" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match segs with
-                    | EqOne(FormatSeg.Hole(hole, _)) ->
+                    | BlockOne(FormatSeg.Hole(hole, _)) ->
                         Expect.equal (formatOf hole) (Some "g6") "%10g → \"g6\""
                         Expect.equal (alignmentOf hole) (Some 10) "width → positive alignment"
                     | other -> failtestf "unexpected segments: %A" other
@@ -484,7 +480,7 @@ let tests =
                 match soleDecl "printfn \"%-10g\" 1.5" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match segs with
-                    | EqOne(FormatSeg.Hole(hole, _)) ->
+                    | BlockOne(FormatSeg.Hole(hole, _)) ->
                         Expect.equal (formatOf hole) (Some "g6") "%-10g → \"g6\""
                         Expect.equal (alignmentOf hole) (Some -10) "`-` flag → negative alignment"
                     | other -> failtestf "unexpected segments: %A" other
@@ -495,7 +491,7 @@ let tests =
                 match soleDecl "printfn \"%010g\" 1.5" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match segs with
-                    | EqOne(FormatSeg.Hole(hole, _)) ->
+                    | BlockOne(FormatSeg.Hole(hole, _)) ->
                         Expect.equal
                             (callOf hole)
                             (ClrHoleFormat.HoleCall.ZeroPaddedFloat("g6", 10))
@@ -511,7 +507,7 @@ let tests =
                 match soleDecl "printfn \"%+g\" 1.5" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match segs with
-                    | EqOne(FormatSeg.Hole(hole, _)) ->
+                    | BlockOne(FormatSeg.Hole(hole, _)) ->
                         match hole.Source with
                         | HoleSpecSource.Classified(PrintfHoleForm.HoleForm.Field(PrintfHoleForm.FieldFormat.ForcedSign(false,
                                                                                                                         PrintfHoleForm.Prec.Const 6,
@@ -527,7 +523,7 @@ let tests =
                 match soleDecl "printfn \"% g\" 1.5" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match segs with
-                    | EqOne(FormatSeg.Hole(hole, _)) ->
+                    | BlockOne(FormatSeg.Hole(hole, _)) ->
                         match hole.Source with
                         | HoleSpecSource.Classified(PrintfHoleForm.HoleForm.Field(PrintfHoleForm.FieldFormat.ForcedSign(true,
                                                                                                                         PrintfHoleForm.Prec.Const 6,
@@ -543,7 +539,7 @@ let tests =
                 match soleDecl "printfn \"%+05d\" 42" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match segs with
-                    | EqOne(FormatSeg.Hole(hole, _)) ->
+                    | BlockOne(FormatSeg.Hole(hole, _)) ->
                         Expect.equal
                             (formatOf hole)
                             (Some "+0000;-0000")
@@ -558,7 +554,7 @@ let tests =
                 match soleDecl "printfn \"%+e\" 1234.5" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match segs with
-                    | EqOne(FormatSeg.Hole(hole, _)) ->
+                    | BlockOne(FormatSeg.Hole(hole, _)) ->
                         match hole.Source with
                         | HoleSpecSource.Classified(PrintfHoleForm.HoleForm.Field(PrintfHoleForm.FieldFormat.ForcedSign(false,
                                                                                                                         PrintfHoleForm.Prec.Const 6,
@@ -574,7 +570,7 @@ let tests =
                 match soleDecl "printfn \"%08e\" 1234.5" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match segs with
-                    | EqOne(FormatSeg.Hole(hole, _)) ->
+                    | BlockOne(FormatSeg.Hole(hole, _)) ->
                         Expect.equal
                             (callOf hole)
                             (ClrHoleFormat.HoleCall.ZeroPaddedFloat("e6", 8))
@@ -590,14 +586,14 @@ let tests =
                 match soleDecl "printfn \"%A\" 42" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match segs with
-                    | EqOne(FormatSeg.Hole(hole, TExpr.Const(TConstValue.Integral(IntKind.Int32, 42L), _, _))) ->
+                    | BlockOne(FormatSeg.Hole(hole, TExpr.Const(TConstValue.Integral(IntKind.Int32, 42L), _, _))) ->
                         Expect.isTrue (isStructured hole) "%A is a Structured hole"
                         Expect.equal (widthBudgetOf hole) None "plain %A → no width budget (emit defaults to 80)"
                         Expect.equal (sizeBudgetOf hole) None "and no size budget"
 
                         Expect.equal
                             hole.Ty
-                            (TyConst(RuntimeNames.intKey, EqArray.empty))
+                            (TyConst(RuntimeNames.intKey, Block.empty))
                             "the %A hole types as its argument"
                     | other -> failtestf "unexpected segments: %A" other
                 | other -> failtestf "expected a Format node, got: %A" other
@@ -607,7 +603,7 @@ let tests =
                 match soleDecl "printfn \"%0A\" 42" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match segs with
-                    | EqOne(FormatSeg.Hole(hole, _)) ->
+                    | BlockOne(FormatSeg.Hole(hole, _)) ->
                         Expect.isTrue (isStructured hole) "%0A is Structured"
                         Expect.equal (widthBudgetOf hole) (Some 0) "`0` flag → width budget 0 (never break)"
                     | other -> failtestf "unexpected segments: %A" other
@@ -618,7 +614,7 @@ let tests =
                 match soleDecl "printfn \"%20A\" 42" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match segs with
-                    | EqOne(FormatSeg.Hole(hole, _)) ->
+                    | BlockOne(FormatSeg.Hole(hole, _)) ->
                         Expect.isTrue (isStructured hole) "%20A is Structured"
                         Expect.equal (widthBudgetOf hole) (Some 20) "width 20 → print budget 20"
                     | other -> failtestf "unexpected segments: %A" other
@@ -629,7 +625,8 @@ let tests =
                 match soleDecl "printfn \"%A\" [ 1; 2; 3 ]" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match segs with
-                    | EqOne(FormatSeg.Hole(hole, _)) -> Expect.isTrue (isStructured hole) "%A of a list is Structured"
+                    | BlockOne(FormatSeg.Hole(hole, _)) ->
+                        Expect.isTrue (isStructured hole) "%A of a list is Structured"
                     | other -> failtestf "unexpected segments: %A" other
                 | other -> failtestf "expected a Format node, got: %A" other
             }
@@ -643,7 +640,7 @@ let tests =
                 match tast.Decls with
                 | EqList [ TDecl.Expression(TExpr.Format(_, segs, _, _), _) ] ->
                     match segs with
-                    | EqOne(FormatSeg.Hole(hole, _)) ->
+                    | BlockOne(FormatSeg.Hole(hole, _)) ->
                         Expect.isTrue (isStructured hole) "%A of an option is Structured"
                     | other -> failtestf "unexpected segments: %A" other
                 | other -> failtestf "expected a single Format-node decl, got: %A" other
@@ -655,7 +652,8 @@ let tests =
                 match soleDecl "printfn \"%A\" System.Guid.Empty" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match segs with
-                    | EqOne(FormatSeg.Hole(hole, _)) -> Expect.isTrue (isStructured hole) "%A of a Guid is Structured"
+                    | BlockOne(FormatSeg.Hole(hole, _)) ->
+                        Expect.isTrue (isStructured hole) "%A of a Guid is Structured"
                     | other -> failtestf "unexpected segments: %A" other
                 | other -> failtestf "expected a Format node, got: %A" other
             }
@@ -664,7 +662,7 @@ let tests =
                 match soleDecl "printfn \"%.2A\" 42" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match segs with
-                    | EqOne(FormatSeg.Hole(hole, _)) ->
+                    | BlockOne(FormatSeg.Hole(hole, _)) ->
                         Expect.isTrue (isStructured hole) "%.2A is Structured"
                         Expect.equal (sizeBudgetOf hole) (Some 2) "precision 2 → print-size budget 2"
                         Expect.equal (widthBudgetOf hole) None "no width budget"
@@ -676,7 +674,7 @@ let tests =
                 match soleDecl "printfn \"%+A\" 42" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match segs with
-                    | EqOne(FormatSeg.Hole(hole, _)) ->
+                    | BlockOne(FormatSeg.Hole(hole, _)) ->
                         Expect.isTrue (isStructured hole) "%+A is Structured"
                         Expect.equal (widthBudgetOf hole) None "the `+` flag is ignored (no budget)"
                         Expect.equal (sizeBudgetOf hole) None "no size budget"
@@ -688,7 +686,7 @@ let tests =
                 match soleDecl "printfn \"%-A\" 42" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match segs with
-                    | EqOne(FormatSeg.Hole(hole, _)) ->
+                    | BlockOne(FormatSeg.Hole(hole, _)) ->
                         Expect.isTrue (isStructured hole) "%-A is Structured"
                         Expect.equal (widthBudgetOf hole) None "the `-` flag is ignored (no budget)"
                     | other -> failtestf "unexpected segments: %A" other
@@ -699,7 +697,7 @@ let tests =
                 match soleDecl "printfn \"%10.2A\" 42" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match segs with
-                    | EqOne(FormatSeg.Hole(hole, _)) ->
+                    | BlockOne(FormatSeg.Hole(hole, _)) ->
                         Expect.isTrue (isStructured hole) "%10.2A is Structured"
                         Expect.equal (widthBudgetOf hole) (Some 10) "width 10 → print-width budget"
                         Expect.equal (sizeBudgetOf hole) (Some 2) "precision 2 → print-size budget"
@@ -711,7 +709,7 @@ let tests =
                 match soleDecl "printfn \"% A\" 42" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match segs with
-                    | EqOne(FormatSeg.Hole(hole, _)) ->
+                    | BlockOne(FormatSeg.Hole(hole, _)) ->
                         Expect.isTrue (isStructured hole) "% A is Structured"
                         Expect.equal (widthBudgetOf hole) None "the space flag is ignored (no budget)"
                         Expect.equal (sizeBudgetOf hole) None "no size budget"
@@ -750,7 +748,7 @@ let tests =
                 match soleDecl "fprintf System.Console.Out \"%d\" 42" with
                 | TDecl.Expression(TExpr.Format(FormatSink.ToWriter(_, false), segs, _, _), _) ->
                     match segs with
-                    | EqOne(FormatSeg.Hole(hole, _)) ->
+                    | BlockOne(FormatSeg.Hole(hole, _)) ->
                         Expect.equal
                             (callOf hole)
                             (ClrHoleFormat.HoleCall.Formatted(None, PrintfHoleForm.Alignment.None))
@@ -770,7 +768,7 @@ let tests =
                         Expect.equal ty BuiltinTypes.tyUnit "fprintf result is unit"
 
                         match segs with
-                        | EqOne(FormatSeg.Hole(hole, TExpr.Const(TConstValue.Integral(IntKind.Int32, 42L), _, _))) ->
+                        | BlockOne(FormatSeg.Hole(hole, TExpr.Const(TConstValue.Integral(IntKind.Int32, 42L), _, _))) ->
                             Expect.equal hole.Ty BuiltinTypes.tyInt "the %d hole types as int"
                         | other -> failtestf "unexpected Format segments: %A" other
                     | other -> failtestf "expected a ToWriter Format body, got: %A" other
@@ -813,7 +811,7 @@ let tests =
                 match soleDecl "bprintf (System.Text.StringBuilder()) \"%d\" 42" with
                 | TDecl.Expression(TExpr.Format(FormatSink.ToBuilder _, segs, _, _), _) ->
                     match segs with
-                    | EqOne(FormatSeg.Hole(hole, _)) ->
+                    | BlockOne(FormatSeg.Hole(hole, _)) ->
                         Expect.equal
                             (callOf hole)
                             (ClrHoleFormat.HoleCall.Formatted(None, PrintfHoleForm.Alignment.None))
@@ -832,7 +830,7 @@ let tests =
                         Expect.equal ty BuiltinTypes.tyUnit "bprintf result is unit"
 
                         match segs with
-                        | EqOne(FormatSeg.Hole(hole, TExpr.Const(TConstValue.Integral(IntKind.Int32, 42L), _, _))) ->
+                        | BlockOne(FormatSeg.Hole(hole, TExpr.Const(TConstValue.Integral(IntKind.Int32, 42L), _, _))) ->
                             Expect.equal hole.Ty BuiltinTypes.tyInt "the %d hole types as int"
                         | other -> failtestf "unexpected Format segments: %A" other
                     | other -> failtestf "expected a ToBuilder Format body, got: %A" other
@@ -868,7 +866,7 @@ let tests =
                 match soleDecl "sprintf \"%a\" (fun (s: unit) (x: int) -> sprintf \"%d\" x) 42" with
                 | TDecl.Expression(TExpr.Format(FormatSink.ToString, segs, _, _), _) ->
                     match segs with
-                    | EqOne(FormatSeg.CallbackHole(_, TExpr.App(TExpr.App _, _, _, _))) -> ()
+                    | BlockOne(FormatSeg.CallbackHole(_, TExpr.App(TExpr.App _, _, _, _))) -> ()
                     | other ->
                         failtestf "expected a CallbackHole whose residue applies the callback to a value, got: %A" other
                 | other -> failtestf "expected a ToString Format node, got: %A" other
@@ -879,7 +877,7 @@ let tests =
                 match soleDecl "sprintf \"%t\" (fun (s: unit) -> \"hi\")" with
                 | TDecl.Expression(TExpr.Format(FormatSink.ToString, segs, _, _), _) ->
                     match segs with
-                    | EqOne(FormatSeg.CallbackHole(_, TExpr.App(fn, _, _, _))) ->
+                    | BlockOne(FormatSeg.CallbackHole(_, TExpr.App(fn, _, _, _))) ->
                         match fn with
                         | TExpr.App _ ->
                             failtestf "expected a single (value-less) application for %%t, got a nested one"
@@ -897,7 +895,7 @@ let tests =
                 match soleDecl "printf \"%a\" (fun (w: System.IO.TextWriter) (x: int) -> fprintf w \"%d\" x) 42" with
                 | TDecl.Expression(TExpr.Format(FormatSink.ToStdOut false, segs, _, _), _) ->
                     match segs with
-                    | EqOne(FormatSeg.CallbackHole(_, TExpr.Let _)) -> ()
+                    | BlockOne(FormatSeg.CallbackHole(_, TExpr.Let _)) -> ()
                     | other ->
                         failtestf "expected a CallbackHole whose residue is the scratch `let` block, got: %A" other
                 | other -> failtestf "expected a ToStdOut Format node, got: %A" other
@@ -1327,7 +1325,7 @@ let tests =
                 match soleDecl "printfn \"%-05.2f\" 3.14159" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match segs with
-                    | EqOne(FormatSeg.Hole(hole, _)) ->
+                    | BlockOne(FormatSeg.Hole(hole, _)) ->
                         Expect.equal
                             (callOf hole)
                             (ClrHoleFormat.HoleCall.RightZeroPaddedFloat("F2", 5))
@@ -1340,10 +1338,10 @@ let tests =
                 match soleDecl "printfn \"%c\" 'a'" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match segs with
-                    | EqOne(FormatSeg.Hole(hole, TExpr.Const(TConstValue.Char 'a', _, _))) ->
+                    | BlockOne(FormatSeg.Hole(hole, TExpr.Const(TConstValue.Char 'a', _, _))) ->
                         Expect.equal (formatOf hole) None "%c → AppendFormatted with no .NET format string"
 
-                        Expect.equal hole.Ty (TyConst(RuntimeNames.charKey, EqArray.empty)) "the %c hole types as char"
+                        Expect.equal hole.Ty (TyConst(RuntimeNames.charKey, Block.empty)) "the %c hole types as char"
                     | other -> failtestf "unexpected segments: %A" other
                 | other -> failtestf "expected a Format node, got: %A" other
             }
@@ -1352,12 +1350,12 @@ let tests =
                 match soleDecl "printfn \"%M\" 3.14M" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match segs with
-                    | EqOne(FormatSeg.Hole(hole, TExpr.Const(TConstValue.Decimal d, _, _))) ->
+                    | BlockOne(FormatSeg.Hole(hole, TExpr.Const(TConstValue.Decimal d, _, _))) ->
                         Expect.equal (formatOf hole) None "%M → AppendFormatted with no .NET format string"
 
                         Expect.equal
                             hole.Ty
-                            (TyConst(RuntimeNames.decimalKey, EqArray.empty))
+                            (TyConst(RuntimeNames.decimalKey, Block.empty))
                             "the %M hole types as decimal"
 
                         Expect.equal d 3.14M "the decimal literal round-trips its value"
@@ -1372,7 +1370,7 @@ let tests =
                 match soleDecl "printfn \"%.2M\" 3.14159M" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match segs with
-                    | EqOne(FormatSeg.Hole(hole, _)) ->
+                    | BlockOne(FormatSeg.Hole(hole, _)) ->
                         Expect.equal
                             (formatOf hole)
                             None
@@ -1380,7 +1378,7 @@ let tests =
 
                         Expect.equal
                             hole.Ty
-                            (TyConst(RuntimeNames.decimalKey, EqArray.empty))
+                            (TyConst(RuntimeNames.decimalKey, Block.empty))
                             "the %M hole types as decimal"
                     | other -> failtestf "unexpected segments: %A" other
                 | other -> failtestf "expected a Format node, got: %A" other
@@ -1418,7 +1416,7 @@ let tests =
                 match soleDecl "printfn \"%+d\" 42" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match segs with
-                    | EqOne(FormatSeg.Hole(hole, _)) ->
+                    | BlockOne(FormatSeg.Hole(hole, _)) ->
                         Expect.equal (formatOf hole) (Some "+0;-0") "%+d → AppendFormatted at section format \"+0;-0\""
                         Expect.equal (alignmentOf hole) None "no alignment"
                     | other -> failtestf "unexpected segments: %A" other
@@ -1429,7 +1427,7 @@ let tests =
                 match soleDecl "printfn \"% d\" 42" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match segs with
-                    | EqOne(FormatSeg.Hole(hole, _)) ->
+                    | BlockOne(FormatSeg.Hole(hole, _)) ->
                         Expect.equal (formatOf hole) (Some " 0;-0") "% d → section format \" 0;-0\""
                     | other -> failtestf "unexpected segments: %A" other
                 | other -> failtestf "expected a Format node, got: %A" other
@@ -1442,7 +1440,7 @@ let tests =
                 match soleDecl "printfn \"%+.2f\" 3.14159" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match segs with
-                    | EqOne(FormatSeg.Hole(hole, _)) ->
+                    | BlockOne(FormatSeg.Hole(hole, _)) ->
                         match hole.Source with
                         | HoleSpecSource.Classified(PrintfHoleForm.HoleForm.Field(PrintfHoleForm.FieldFormat.ForcedSign(false,
                                                                                                                         PrintfHoleForm.Prec.Const 2,
@@ -1451,7 +1449,7 @@ let tests =
                                                                                   PrintfHoleForm.Alignment.None)) -> ()
                         | other -> failtestf "expected ForcedSign(+, .2, 'f', no zero-pad), got: %A" other
 
-                        Expect.equal hole.Ty (TyConst(RuntimeNames.floatKey, EqArray.empty)) "%f types as float"
+                        Expect.equal hole.Ty (TyConst(RuntimeNames.floatKey, Block.empty)) "%f types as float"
                     | other -> failtestf "unexpected segments: %A" other
                 | other -> failtestf "expected a Format node, got: %A" other
             }
@@ -1460,7 +1458,7 @@ let tests =
                 match soleDecl "printfn \"%+8.2f\" 3.14159" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match segs with
-                    | EqOne(FormatSeg.Hole(hole, _)) ->
+                    | BlockOne(FormatSeg.Hole(hole, _)) ->
                         match hole.Source with
                         | HoleSpecSource.Classified(PrintfHoleForm.HoleForm.Field(PrintfHoleForm.FieldFormat.ForcedSign(false,
                                                                                                                         PrintfHoleForm.Prec.Const 2,
@@ -1529,16 +1527,13 @@ let tests =
                 match soleDecl "printfn \"%08.2f\" 3.14159" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match segs with
-                    | EqOne(FormatSeg.Hole(hole, _)) ->
+                    | BlockOne(FormatSeg.Hole(hole, _)) ->
                         Expect.equal
                             (callOf hole)
                             (ClrHoleFormat.HoleCall.ZeroPaddedFloat("F2", 8))
                             "%08.2f → AppendZeroPaddedFloat over an \"F2\" body, total width 8"
 
-                        Expect.equal
-                            hole.Ty
-                            (TyConst(RuntimeNames.floatKey, EqArray.empty))
-                            "the %f hole types as float"
+                        Expect.equal hole.Ty (TyConst(RuntimeNames.floatKey, Block.empty)) "the %f hole types as float"
                     | other -> failtestf "unexpected segments: %A" other
                 | other -> failtestf "expected a Format node, got: %A" other
             }
@@ -1547,7 +1542,7 @@ let tests =
                 match soleDecl "printfn \"%08f\" 3.14159" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match segs with
-                    | EqOne(FormatSeg.Hole(hole, _)) ->
+                    | BlockOne(FormatSeg.Hole(hole, _)) ->
                         Expect.equal
                             (callOf hole)
                             (ClrHoleFormat.HoleCall.ZeroPaddedFloat("F6", 8))
@@ -1749,14 +1744,14 @@ let tests =
             test "`$\"x={1}\"` lowers to a ToString Format node" {
                 match soleDecl "$\"x={1}\"" with
                 | TDecl.Expression(TExpr.Format(FormatSink.ToString, segs, ty, _), _) ->
-                    Expect.equal ty (TyConst(RuntimeNames.stringKey, EqArray.empty)) "interpolation yields a string"
+                    Expect.equal ty (TyConst(RuntimeNames.stringKey, Block.empty)) "interpolation yields a string"
 
                     match segs with
-                    | EqTwo(FormatSeg.Lit "x=",
-                            FormatSeg.Hole(hole, TExpr.Const(TConstValue.Integral(IntKind.Int32, 1L), _, _))) ->
+                    | BlockTwo(FormatSeg.Lit "x=",
+                               FormatSeg.Hole(hole, TExpr.Const(TConstValue.Integral(IntKind.Int32, 1L), _, _))) ->
                         Expect.equal (formatOf hole) None "a plain hole is AppendFormatted with no format clause"
 
-                        Expect.equal hole.Ty (TyConst(RuntimeNames.intKey, EqArray.empty)) "the hole types as int"
+                        Expect.equal hole.Ty (TyConst(RuntimeNames.intKey, Block.empty)) "the hole types as int"
                     | other -> failtestf "unexpected segments: %A" other
                 | other -> failtestf "expected a ToString Format node, got: %A" other
             }
@@ -1765,7 +1760,7 @@ let tests =
                 match soleDecl "$\"{255:X}\"" with
                 | TDecl.Expression(TExpr.Format(FormatSink.ToString, segs, _, _), _) ->
                     match segs with
-                    | EqOne(FormatSeg.Hole(hole, _)) -> Expect.equal (formatOf hole) (Some "X") "clause :X → \"X\""
+                    | BlockOne(FormatSeg.Hole(hole, _)) -> Expect.equal (formatOf hole) (Some "X") "clause :X → \"X\""
                     | other -> failtestf "unexpected segments: %A" other
                 | other -> failtestf "expected a Format node, got: %A" other
             }
@@ -1774,16 +1769,13 @@ let tests =
                 match soleDecl "$\"%d{7}\"" with
                 | TDecl.Expression(TExpr.Format(FormatSink.ToString, segs, _, _), _) ->
                     match segs with
-                    | EqOne(FormatSeg.Hole(hole, _)) ->
+                    | BlockOne(FormatSeg.Hole(hole, _)) ->
                         Expect.equal
                             (callOf hole)
                             (ClrHoleFormat.HoleCall.Formatted(None, PrintfHoleForm.Alignment.None))
                             "%d → a bare AppendFormatted"
 
-                        Expect.equal
-                            hole.Ty
-                            (TyConst(RuntimeNames.intKey, EqArray.empty))
-                            "%d constrains the hole to int"
+                        Expect.equal hole.Ty (TyConst(RuntimeNames.intKey, Block.empty)) "%d constrains the hole to int"
                     | other -> failtestf "unexpected segments: %A" other
                 | other -> failtestf "expected a Format node, got: %A" other
             }
@@ -1834,7 +1826,7 @@ let tests =
                 match soleDecl "printfn \"%*d\" 5 42" with
                 | TDecl.Expression(TExpr.Format(FormatSink.ToStdOut true, segs, _, _), _) ->
                     match segs with
-                    | EqOne(FormatSeg.DynHole d) ->
+                    | BlockOne(FormatSeg.DynHole d) ->
                         match d.Width, d.Precision, d.Value with
                         | ValueSome(TExpr.Const(TConstValue.Integral(IntKind.Int32, 5L), _, _)),
                           ValueNone,
@@ -1853,7 +1845,7 @@ let tests =
                 match soleDecl "printfn \"%-*d\" 5 42" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match segs with
-                    | EqOne(FormatSeg.DynHole d) ->
+                    | BlockOne(FormatSeg.DynHole d) ->
                         match d.Spec.Source with
                         | HoleSpecSource.Classified(PrintfHoleForm.HoleForm.Field(_, PrintfHoleForm.Alignment.Star true)) ->
                             ()
@@ -1866,7 +1858,7 @@ let tests =
                 match soleDecl "printfn \"%*A\" 1 [1; 2; 3]" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match segs with
-                    | EqOne(FormatSeg.DynHole d) ->
+                    | BlockOne(FormatSeg.DynHole d) ->
                         match d.Width, d.Precision, d.Spec.Source with
                         | ValueSome _,
                           ValueNone,
@@ -1883,7 +1875,7 @@ let tests =
                 match soleDecl "printfn \"%-*A\" 1 [1; 2; 3]" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match segs with
-                    | EqOne(FormatSeg.DynHole d) ->
+                    | BlockOne(FormatSeg.DynHole d) ->
                         match d.Spec.Source with
                         | HoleSpecSource.Classified(PrintfHoleForm.HoleForm.PercentA(PrintfHoleForm.PrintWidth.Star, _)) ->
                             ()
@@ -1908,7 +1900,7 @@ let tests =
                 match soleDecl "printfn \"%.*f\" 3 3.14" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match segs with
-                    | EqOne(FormatSeg.DynHole d) ->
+                    | BlockOne(FormatSeg.DynHole d) ->
                         match d.Width, d.Precision, d.Spec.Source with
                         | ValueNone,
                           ValueSome(TExpr.Const(TConstValue.Integral(IntKind.Int32, 3L), _, _)),
@@ -1923,7 +1915,7 @@ let tests =
                 match soleDecl "printfn \"%*.*f\" 8 3 3.14" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match segs with
-                    | EqOne(FormatSeg.DynHole d) ->
+                    | BlockOne(FormatSeg.DynHole d) ->
                         match d.Width, d.Precision, d.Spec.Source with
                         | ValueSome(TExpr.Const(TConstValue.Integral(IntKind.Int32, 8L), _, _)),
                           ValueSome(TExpr.Const(TConstValue.Integral(IntKind.Int32, 3L), _, _)),
@@ -1939,7 +1931,7 @@ let tests =
                 match soleDecl "printfn \"%.*A\" 2 [1; 2; 3]" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match segs with
-                    | EqOne(FormatSeg.DynHole d) ->
+                    | BlockOne(FormatSeg.DynHole d) ->
                         match d.Width, d.Precision, d.Spec.Source with
                         | ValueNone,
                           ValueSome _,

@@ -32,9 +32,6 @@ type BlockEnumerator<'T> =
 ///
 /// Comparable exactly when `'T` is, and then lexicographic under F# `compare`: element-wise
 /// over the shorter length, then by length, as a `list` orders.
-///
-/// The backing array is reachable only from this assembly. Construct through the `Block`
-/// module and read through the indexer, `AsSpan`, enumeration or `Block.toArray`.
 [<Struct; IsReadOnly; CustomEquality; CustomComparison>]
 type BlockM<[<ComparisonConditionalOn>] 'T, [<Measure>] 'M> =
     val internal _xs: 'T[]
@@ -134,6 +131,9 @@ type Block<'T> = BlockM<'T, 1>
 
 [<RequireQualifiedAccess>]
 module Block =
+    open System.Runtime.InteropServices
+    open System.Collections.Immutable
+
     [<GeneralizableValue>]
     let empty<'T, [<Measure>] 'M> : BlockM<'T, 'M> = BlockM<'T, 'M>(Array.empty)
 
@@ -347,6 +347,12 @@ module Block =
             xs
         else
             BlockM<'T, 'M>(Array.sub src 0 n)
+
+    /// Wraps the immutable array's own buffer, so nothing is copied.
+    let ofImmutable (xs: ImmutableArray<'T>) : Block<'T> =
+        match ImmutableCollectionsMarshal.AsArray xs with
+        | null -> empty
+        | arr -> unsafeOfArray arr
 
 /// Fixed-arity deconstruction patterns: allocation-free arity checks that bind elements by
 /// position, in place of `match Block.toList xs with [ … ]`.

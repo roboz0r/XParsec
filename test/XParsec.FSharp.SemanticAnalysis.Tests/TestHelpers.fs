@@ -1,6 +1,7 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 open System.IO
+open Vesper
 open Expecto
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Lexer.Lexing
@@ -32,13 +33,13 @@ let realProvider: Lazy<IExternalSymbolProvider> =
 // Shadow the nominal `SemType` constructors so a test writes `TyUnion("X", args)` rather
 // than minting a `SymbolKey`; the active patterns below project a key back to a name.
 // Live only in a file that `open`s this module AFTER `open …SemanticAnalysis`.
-let TyUnion (name: string, args: EqArray<SemType>) =
+let TyUnion (name: string, args: Block<SemType>) =
     SemType.TyUnion(SymbolKeyOps.qualifiedTypeKeyOf name args.Length, args)
 
-let TyRecord (name: string, args: EqArray<SemType>) =
+let TyRecord (name: string, args: Block<SemType>) =
     SemType.TyRecord(SymbolKeyOps.qualifiedTypeKeyOf name args.Length, args)
 
-let TyClass (name: string, args: EqArray<SemType>) =
+let TyClass (name: string, args: Block<SemType>) =
     SemType.TyClass(SymbolKeyOps.qualifiedTypeKeyOf name args.Length, args)
 
 // The arity-QUALIFIED metadata name: a `Choice` key at arity 2 projects back as
@@ -75,15 +76,11 @@ let mkSignature
 /// declaring type `C`.
 let mkMember (name: string) : ExternalMember =
     { ExternalMember.OfKey(
-          SymbolKeyOps.memberKeyOf (SymbolKeyOps.qualifiedTypeKeyOf "C" 0) name EqArray.empty 0 MemberKind.Method
+          SymbolKeyOps.memberKeyOf (SymbolKeyOps.qualifiedTypeKeyOf "C" 0) name Block.empty 0 MemberKind.Method
       ) with
         IsStatic = true
         Signature =
-            mkSignature
-                0
-                0
-                (FTConst(RuntimeNames.unitKey, EqArray.empty))
-                (FTConst(RuntimeNames.unitKey, EqArray.empty))
+            mkSignature 0 0 (FTConst(RuntimeNames.unitKey, Block.empty)) (FTConst(RuntimeNames.unitKey, Block.empty))
     }
 
 /// A throwaway source token: `TExprG` pins `'tok = SyntaxToken`, so every hand-assembled
@@ -91,9 +88,9 @@ let mkMember (name: string) : ExternalMember =
 let dummyTok: SyntaxToken =
     SyntaxToken.virtualToken (PositionedToken.Create(Token.EOF, 0))
 
-/// Match an `EqArray<'T>` with list-literal arms: `| EqList [ _; d ] -> d`. Test-only —
-/// production code iterates the struct enumerator or goes through `EqArray.*`.
-let inline (|EqList|) (xs: EqArray<'T>) : 'T list = EqArray.toList xs
+/// Match a `Block<'T>` with list-literal arms: `| EqList [ _; d ] -> d`. Test-only —
+/// production code iterates the struct enumerator or goes through `Block.*`.
+let inline (|EqList|) (xs: Block<'T>) : 'T list = Block.toList xs
 
 /// Lex + parse a source string (a script fragment comes back as an AnonymousModule).
 /// Raises on failure, and also on a parse that only succeeded because recovery patched a
@@ -271,7 +268,7 @@ let providerOfSurface (fill: PublishedSurfaceBuilder -> unit) : IExternalSymbolP
 /// A stand-in dependency serving only the member channels, addressed by the declaring
 /// type's compiled RENDERING. Both member channels read `lookup`, so the by-key selection
 /// runs over the same overload set the by-name scan sees.
-let membersProvider (lookup: string -> string -> EqArray<ExternalMember>) : IExternalSymbolProvider =
+let membersProvider (lookup: string -> string -> Block<ExternalMember>) : IExternalSymbolProvider =
     { new ExternalSymbolProviders.ProviderDecorator(ExternalSymbolProviders.nullProvider) with
         override _.TryLookupMembers(key, memberName) =
             lookup (SymbolKeyOps.typeMetaName key) memberName
@@ -298,7 +295,7 @@ let providerOfTypes (types: (TypeKey * ExternalTypeShape) list) : IExternalSymbo
 /// A static get-only property `decl.name : ret`. Copy it with `{ … with … }` for an instance
 /// member, a method or an overload.
 let mkStaticProperty (decl: TypeKey) (name: string) (ret: FrozenType) : ExternalMember =
-    { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf decl name EqArray.empty 0 MemberKind.Property) with
+    { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf decl name Block.empty 0 MemberKind.Property) with
         IsStatic = true
         Storage = MemberStorage.Property
         Signature = ExternalSignature.value (decl.TyparArity, 0, ret)
@@ -308,8 +305,8 @@ let private unionShape (key: TypeKey) (cases: ExternalCaseShape list) (rqa: bool
     ExternalTypeShape.Union
         {
             Typars = TyparList.positional key.TyparArity
-            Cases = EqArray.ofList cases
-            Interfaces = EqArray.empty
+            Cases = Block.ofList cases
+            Interfaces = Block.empty
             Origin = SymbolOrigin.Empty
             IsValueType = false
             RequiresQualifiedAccess = rqa
@@ -329,7 +326,7 @@ let publishRecord (b: PublishedSurfaceBuilder) (key: TypeKey) (fields: ExternalF
         (ExternalTypeShape.Record
             {
                 Typars = TyparList.positional key.TyparArity
-                Fields = EqArray.ofList fields
+                Fields = Block.ofList fields
                 Origin = SymbolOrigin.Empty
                 IsValueType = false
                 RequiresQualifiedAccess = false
@@ -343,7 +340,7 @@ let publishClass (b: PublishedSurfaceBuilder) (key: TypeKey) (members: ExternalM
         key
         (ExternalTypeShape.Class
             { ExternalClassShape.basic (TyparList.positional key.TyparArity, ClassCommitment.Class, SymbolOrigin.Empty) with
-                Members = EqArray.ofList members
+                Members = Block.ofList members
             })
         members
 
@@ -403,7 +400,7 @@ let expectPayloadOf (actual: ExprPayload) (expected: PayloadOfNode<Anchor, 'id>)
     | PayloadOfNode.Application, ExprPayload.App _ -> ()
     | PayloadOfNode.Binding(isRec = isRec), ExprPayload.Let(isRec = isRec') -> Expect.equal isRec' isRec "Let isRec"
     | PayloadOfNode.BindingGroup(members = members; components = components), ExprPayload.LetGroup g ->
-        let memberToks = members |> EqArray.toArray |> Array.map (fun m -> m.Tok)
+        let memberToks = members |> Block.toArray |> Array.map (fun m -> m.Tok)
         Expect.equal (g.Members |> Array.map (fun m -> m.Tok)) memberToks "LetGroup member anchors"
         Expect.equal g.Components components "LetGroup components"
     | expected, actual -> failtestf "payload %A is not the walk's view %A" actual expected

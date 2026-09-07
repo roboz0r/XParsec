@@ -2,6 +2,7 @@ namespace XParsec.FSharp.SemanticAnalysis
 
 open System
 open System.Collections.Immutable
+open Vesper
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis.Passes
@@ -46,7 +47,7 @@ module internal ElaborateExpr =
         /// One member, with the source binding it translates.
         | Single of survivor: 'm * binding: Binding<SyntaxToken>
         /// Two or more members, with the recorded components restricted to them.
-        | Group of members: EqArray<'m> * components: SccPartition
+        | Group of members: Block<'m> * components: SccPartition
 
     /// Translate every binding of a `let rec` group of any size, dropping each that
     /// `translate` elides. An elided member is a format-literal alias, whose value references
@@ -71,7 +72,7 @@ module internal ElaborateExpr =
         | [| m |] -> RecGroup.Single(m, bindings.[Array.findIndex ValueOption.isSome translated])
         | _ ->
             RecGroup.Group(
-                EqArray.ofArray members,
+                Block.ofArray members,
                 (recordedComponents ctx bindings).Retain(fun i -> translated.[i].IsSome)
             )
 
@@ -257,7 +258,7 @@ module internal ElaborateExpr =
             // a case constructor as a first-class function, which has no identity to
             // reference and no eta-expansion here.
             match Unification.zonk ctx.Store ty with
-            | TyUnion(_, _) -> TExpr.UnionCons(caseName, EqArray.empty, ty, tok)
+            | TyUnion(_, _) -> TExpr.UnionCons(caseName, Block.empty, ty, tok)
             | _ ->
                 ctx.Report(
                     tok,
@@ -302,10 +303,9 @@ module internal ElaborateExpr =
         | Expr.EnclosedBlock(expr = inner) -> translateExpr ctx inner
         | Expr.IfThenElse(condition = cond; thenExpr = thenE; elifBranches = elifs; elseBranch = elseB) ->
             translateIfThenElse ctx cond thenE elifs elseB ty tok
-        | Expr.Tuple(exprs = items) ->
-            TExpr.Tuple(EqArray.ofSeq (seq { for x in items -> translateExpr ctx x }), ty, tok)
+        | Expr.Tuple(exprs = items) -> TExpr.Tuple(Block.ofSeq (seq { for x in items -> translateExpr ctx x }), ty, tok)
         | Expr.Sequential(exprs = items) ->
-            TExpr.Sequential(EqArray.ofSeq (seq { for x in items -> translateExpr ctx x }), ty, tok)
+            TExpr.Sequential(Block.ofSeq (seq { for x in items -> translateExpr ctx x }), ty, tok)
         // The annotation has no runtime representation, because it only constrained
         // types in Unification; the TAST carries the inferred type inline.
         | Expr.TypeAnnotation(expr = inner) -> translateExpr ctx inner
@@ -503,7 +503,7 @@ module internal ElaborateExpr =
         (tok: SyntaxToken)
         : TExpr =
         let fields =
-            EqArray.ofSeq (
+            Block.ofSeq (
                 seq {
                     for FieldInitializer(longIdent = li; expr = e) in inits ->
                         let idents = li.Idents
@@ -529,7 +529,7 @@ module internal ElaborateExpr =
         (tok: SyntaxToken)
         : TExpr =
         let overrides =
-            EqArray.ofSeq (
+            Block.ofSeq (
                 seq {
                     for FieldInitializer(longIdent = li; expr = e) in inits ->
                         let idents = li.Idents
@@ -547,7 +547,7 @@ module internal ElaborateExpr =
         (tok: SyntaxToken)
         : TExpr =
         let opCode = stitchIlInstruction ctx parts
-        let tArgs = EqArray.ofSeq (seq { for a in args -> translateExpr ctx a })
+        let tArgs = Block.ofSeq (seq { for a in args -> translateExpr ctx a })
 
         // `newarr` / `ldelem.any` carry one element-type operand, but the source `!0`
         // placeholder is unparsed tokens: recover the element from the node's declared
@@ -596,7 +596,7 @@ module internal ElaborateExpr =
         let resolved =
             match ctx.StaticOpt.TryGetValue key with
             | ValueSome v -> v
-            | ValueNone -> EqArray.empty
+            | ValueNone -> Block.empty
 
         // Source order throughout, so any diagnostic a body raises is reported where it reads.
         let defaultT = translateExpr ctx defaultE
@@ -605,14 +605,14 @@ module internal ElaborateExpr =
         for i in 0 .. clauses.Length - 1 do
             translated.Add
                 {
-                    Constraints = if i < resolved.Length then resolved.[i] else EqArray.empty
+                    Constraints = if i < resolved.Length then resolved.[i] else Block.empty
                     Body = translateExpr ctx clauses.[i].OptimizedExpr
                 }
 
-        TExpr.StaticOptimization(EqArray.ofSeq translated, defaultT, ty, tok)
+        TExpr.StaticOptimization(Block.ofSeq translated, defaultT, ty, tok)
 
-    and private translateRules (ctx: PassContext) (rules: ImmutableArray<Rule<SyntaxToken>>) : EqArray<TMatchArm> =
-        EqArray.ofSeq (
+    and private translateRules (ctx: PassContext) (rules: ImmutableArray<Rule<SyntaxToken>>) : Block<TMatchArm> =
+        Block.ofSeq (
             seq {
                 for r in rules do
                     match r with
@@ -646,9 +646,9 @@ module internal ElaborateExpr =
         let arrayTy =
             match Unification.zonk ctx.Store literalTy with
             | TyConst(key, args) as ty when key = arrayKey && args.Length = 1 -> ty
-            | _ -> TyConst(arrayKey, EqArray.singleton (TyVar(ctx.NewTypeVar())))
+            | _ -> TyConst(arrayKey, Block.singleton (TyVar(ctx.NewTypeVar())))
 
-        TExpr.ArrayLit(EqArray.ofSeq (seq { for x in items -> translateExpr ctx x }), arrayTy, tok)
+        TExpr.ArrayLit(Block.ofSeq (seq { for x in items -> translateExpr ctx x }), arrayTy, tok)
 
     /// Project a `[…]` literal into a `Cons` / `Empty` chain over the list type unification
     /// drove it to — the same type and case names the matching `[…]` pattern takes.
@@ -661,11 +661,11 @@ module internal ElaborateExpr =
         let listTy = Unification.zonk ctx.Store literalTy
         let consName, emptyName = listCaseNames ctx listTy
 
-        let empty = TExpr.UnionCons(emptyName, EqArray.empty, listTy, tok)
+        let empty = TExpr.UnionCons(emptyName, Block.empty, listTy, tok)
 
         items
         |> List.foldBack (fun item acc ->
-            TExpr.UnionCons(consName, EqArray.ofList [ translateExpr ctx item; acc ], listTy, tok)
+            TExpr.UnionCons(consName, Block.ofList [ translateExpr ctx item; acc ], listTy, tok)
         )
         <| empty
 

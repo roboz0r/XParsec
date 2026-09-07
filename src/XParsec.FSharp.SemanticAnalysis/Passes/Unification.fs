@@ -2,6 +2,7 @@ namespace XParsec.FSharp.SemanticAnalysis.Passes
 
 open System.Collections.Generic
 open System.Collections.Immutable
+open Vesper
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
@@ -40,7 +41,7 @@ module Unification =
         let groupTy (ArgsSpec(args = specs)) =
             match List.ofSeq specs with
             | [ ArgSpec(typ = t) ] -> translateType ctx t
-            | many -> TyTuple(EqArray.ofSeq (seq { for ArgSpec(typ = t) in many -> translateType ctx t }))
+            | many -> TyTuple(Block.ofSeq (seq { for ArgSpec(typ = t) in many -> translateType ctx t }))
 
         let retTy = translateType ctx ret
         List.foldBack (fun struct (g, _arrow) acc -> TyFun(groupTy g, acc)) (List.ofSeq args) retTy
@@ -57,7 +58,7 @@ module Unification =
     let rec private setterSemType (groups: int) (getterTy: SemType) : SemType =
         match getterTy with
         | TyFun(p, r) when groups > 0 -> TyFun(p, setterSemType (groups - 1) r)
-        | value -> TyFun(value, TyConst(RuntimeNames.unitKey, EqArray.empty))
+        | value -> TyFun(value, TyConst(RuntimeNames.unitKey, Block.empty))
 
     /// The ABI order a member's own typars take, in canonical F# order: the explicitly-declared
     /// `<'C>` typars first (source order), then every remaining free root of `memberTy` by first
@@ -65,7 +66,7 @@ module Unification =
     /// concrete type is no longer one.
     let private canonicalMemberTypars
         (ctx: PassContext)
-        (declTypars: EqArray<DeclaredTypar>)
+        (declTypars: Block<DeclaredTypar>)
         (mInfo: TypeMemberInfo)
         (memberTy: SemType)
         : GeneralizedTypars =
@@ -82,7 +83,7 @@ module Unification =
             | ValueSome r -> fixedRoots.Add r.Id |> ignore
             | ValueNone -> ()
 
-        let seed = EqArray.toList mInfo.SeedTypars
+        let seed = Block.toList mInfo.SeedTypars
 
         // Only the leading `DeclaredTyparCount` are declared-first; the implicit ones order
         // by appearance in the signature.
@@ -141,7 +142,7 @@ module Unification =
         {
             Decl: TypeRegistry.NominalDecl
             ThisKey: NodeKey
-            MkSelfType: EqArray<SemType> -> SemType
+            MkSelfType: Block<SemType> -> SemType
             PrelinkExtras: unit -> unit
             Elements: TypeDefnElements<SyntaxToken>
             Host: MemberFillHost
@@ -151,7 +152,7 @@ module Unification =
     let private generaliseMemberTypars
         (ctx: PassContext)
         (outerLevel: int)
-        (classTypars: EqArray<DeclaredTypar>)
+        (classTypars: Block<DeclaredTypar>)
         (mInfo: TypeMemberInfo)
         : unit =
         match mInfo.Type with
@@ -247,8 +248,7 @@ module Unification =
             let thisTv = ctx.NewTypeVar()
             ctx.Store.SetLevel(UnionFind.find ctx.Store thisTv, ctx.CurrentLevel)
 
-            let selfArgs =
-                EqArray.ofSeq (seq { for tp in fc.Decl.TypeParams -> TyVar tp.TyVar })
+            let selfArgs = Block.ofSeq (seq { for tp in fc.Decl.TypeParams -> TyVar tp.TyVar })
 
             ctx.Store.SetLink(UnionFind.find ctx.Store thisTv, ValueSome(fc.MkSelfType selfArgs))
             ctx.Bindings.TypeVar.Set(fc.ThisKey, thisTv)
@@ -444,10 +444,10 @@ module Unification =
             | ValueSome(ExternalSymbols.ExternalMembers ifaceMembers) ->
                 let argArr = ifaceArgs.AsSpan().ToArray()
 
-                let required = ifaceMembers |> EqArray.filter (fun em -> em.Name <> ".ctor")
+                let required = ifaceMembers |> Block.filter (fun em -> em.Name <> ".ctor")
 
                 for mInfo in impl.Members do
-                    match required |> EqArray.tryFind (fun em -> em.Name = mInfo.Name) with
+                    match required |> Block.tryFind (fun em -> em.Name = mInfo.Name) with
                     | ValueSome em ->
                         let expected = ExternalSymbols.openSignature ctx em argArr
                         // `obj | null` and `obj` are the same slot, so erase reference
@@ -535,7 +535,7 @@ module Unification =
                 if seen.Add key then
                     match ctx.Provider.TryLookupType key with
                     | ValueSome(ExternalTypeShape.Class shape) ->
-                        shape.FrozenInterfaces |> EqArray.iter (fun i -> walk i.Key)
+                        shape.FrozenInterfaces |> Block.iter (fun i -> walk i.Key)
                     | _ -> ()
 
             walk platform
@@ -895,7 +895,7 @@ module Unification =
     /// and method-typar arity are an unreachable duplicate rather than a legal overload.
     /// `Show(int)` / `Show(string)` coexist; `M(int)` declared twice collides.
     let private checkDuplicateMembers (ctx: PassContext) : unit =
-        let checkHost (declKey: TypeKey) (typeParams: EqArray<DeclaredTypar>) (members: TypeMemberInfo[]) =
+        let checkHost (declKey: TypeKey) (typeParams: Block<DeclaredTypar>) (members: TypeMemberInfo[]) =
             let seen = HashSet<_>(HashIdentity.Structural)
 
             for m in members do

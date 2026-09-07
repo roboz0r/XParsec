@@ -1,5 +1,6 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.FrozenTypeTableTests
 
+open Vesper
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 
@@ -9,14 +10,14 @@ open XParsec.FSharp.SemanticAnalysis
 
 let private intKey = RuntimeNames.intKey
 let private stringKey = RuntimeNames.stringKey
-let private intTy = FTConst(intKey, EqArray.empty)
-let private stringTy = FTConst(stringKey, EqArray.empty)
+let private intTy = FTConst(intKey, Block.empty)
+let private stringTy = FTConst(stringKey, Block.empty)
 
 let private globalNs: NamespaceKey = NamespaceKey.Global
 
 let private ns: NamespaceKey =
     {
-        Path = EqArray.ofList [ "Test"; "Inner" ]
+        Path = Block.ofList [ "Test"; "Inner" ]
     }
 
 let private outerModule: ModuleKey =
@@ -76,7 +77,7 @@ let private memberKeyOf (kind: MemberKind) (argSig: FrozenType list) : MemberKey
     {
         Decl = boxKey
         Name = "M"
-        ArgSig = EqArray.ofList argSig
+        ArgSig = Block.ofList argSig
         MethodTyparArity = 1
         Kind = kind
     }
@@ -87,15 +88,15 @@ let private samples: FrozenType list =
     [
         intTy
         stringTy
-        FTConst(RuntimeNames.arrayKey 1, EqArray.singleton intTy)
+        FTConst(RuntimeNames.arrayKey 1, Block.singleton intTy)
         // An `FTConst` type constructor is a nominal TYPE; `keySamples` carries the binding
         // and member sorts, which reach the wire through a symbol reference instead.
-        FTConst(nestedKey, EqArray.empty)
+        FTConst(nestedKey, Block.empty)
         FTFun(intTy, FTFun(stringTy, intTy))
-        FTTuple(EqArray.ofList [ intTy; stringTy; FTTypar(TyparScope.Type boxKey, 0) ])
-        FTRecord(boxKey, EqArray.singleton (FTTypar(TyparScope.Type boxKey, 0)))
-        FTUnion(boxKey, EqArray.singleton stringTy)
-        FTClass(nestedKey, EqArray.empty)
+        FTTuple(Block.ofList [ intTy; stringTy; FTTypar(TyparScope.Type boxKey, 0) ])
+        FTRecord(boxKey, Block.singleton (FTTypar(TyparScope.Type boxKey, 0)))
+        FTUnion(boxKey, Block.singleton stringTy)
+        FTClass(nestedKey, Block.empty)
         FTEnum colourKey
         FrozenType.MkUnion [ intTy; stringTy ]
         FTLiteral(LiteralConst.String "GET")
@@ -119,7 +120,7 @@ let private samples: FrozenType list =
         // A measured nominal: the measure is a leaf in argument position, its atoms keyed.
         FTConst(
             FrozenTypeBridge.measuredClaimKey RuntimeNames.floatKey,
-            EqArray.singleton (
+            Block.singleton (
                 FTMeasure(MeasureTerm.OfList [ nestedKey, Rational.ofInt 1; colourKey, Rational.ofInt -2 ])
             )
         )
@@ -254,7 +255,7 @@ let tests =
                 let builder = FrozenTypeTableBuilder()
                 builder.Intern(FTFun(intTy, intTy)) |> ignore
                 let rowsBefore = builder.Rows.Types.Length
-                builder.Intern(FTTuple(EqArray.ofList [ intTy; intTy ])) |> ignore
+                builder.Intern(FTTuple(Block.ofList [ intTy; intTy ])) |> ignore
 
                 // The tuple's own row, and nothing else: `int` was already interned.
                 Expect.equal builder.Rows.Types.Length (rowsBefore + 1) "only the new node takes a row"

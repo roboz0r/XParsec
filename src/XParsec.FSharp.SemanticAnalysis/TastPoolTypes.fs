@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+open Vesper
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 
@@ -93,7 +94,7 @@ type PooledInlineValue =
     {
         Key: SymbolKey
         Decl: DeclPoolId
-        ParamAttrs: EqArray<ParamAttrs>
+        ParamAttrs: Block<ParamAttrs>
     }
 
 /// One entry of the pooled RESOLVED-SPECIALIZATION table. `Source` is the file the entry's
@@ -163,7 +164,7 @@ type FrozenPools =
         /// there being no node-level `ty` column.
         DeclPayloads: DeclPayload[]
         /// The pool ids of the file's `Decls`, in source order.
-        Roots: EqArray<DeclPoolId>
+        Roots: Block<DeclPoolId>
         /// The inline vocabulary's roots: one per published template, in publication order.
         InlineTemplates: PooledInlineValue[]
         /// The resolved-specialization table's roots, indexed by the `SpecializationId` an
@@ -219,7 +220,7 @@ module FrozenPools =
             DeclExprChildren = ChildColumn.empty
             DeclPatChildren = ChildColumn.empty
             DeclPayloads = [||]
-            Roots = EqArray.empty
+            Roots = Block.empty
             InlineTemplates = [||]
             Specializations = [||]
             BoundVarNames = [||]

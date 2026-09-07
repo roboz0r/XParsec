@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+open Vesper
 open XParsec.FSharp.SemanticAnalysis.Passes
 open XParsec.FSharp.SemanticAnalysis.ElaborateNominals
 
@@ -21,7 +22,7 @@ module internal ElaborateObjArgs =
             match arg with
             | TExpr.Tuple(elems, tupTy, tupTok) when ptys.Length = elems.Length ->
                 TExpr.Tuple(
-                    EqArray.ofSeq (seq { for i in 0 .. elems.Length - 1 -> wrapObjArg store ptys.[i] elems.[i] }),
+                    Block.ofSeq (seq { for i in 0 .. elems.Length - 1 -> wrapObjArg store ptys.[i] elems.[i] }),
                     tupTy,
                     tupTok
                 )
@@ -32,13 +33,13 @@ module internal ElaborateObjArgs =
 
     /// Positions past the supplied `paramTys`, and every position when it is empty (an
     /// external ctor, an unknown member), are left unwrapped.
-    let wrapObjArgsEq (store: TypeStore) (paramTys: SemType list) (args: EqArray<TExpr>) : EqArray<TExpr> =
+    let wrapObjArgsEq (store: TypeStore) (paramTys: SemType list) (args: Block<TExpr>) : Block<TExpr> =
         if List.isEmpty paramTys then
             args
         else
             let ptys = List.toArray paramTys
 
-            EqArray.ofSeq (
+            Block.ofSeq (
                 seq {
                     for i in 0 .. args.Length - 1 ->
                         if i < ptys.Length then
@@ -81,7 +82,7 @@ module internal ElaborateObjArgs =
         match peelFuns memberTy with
         | [ single ], _ ->
             match Unification.zonk store single with
-            | TyTuple elems -> EqArray.toList elems
+            | TyTuple elems -> Block.toList elems
             | other -> [ other ]
         | ps, _ -> ps
 
@@ -132,7 +133,7 @@ module internal ElaborateObjArgs =
             | TyRecord(key, args) ->
                 match ctx.Provider.TryLookupType key with
                 | ValueSome(ExternalTypeShape.Record { Fields = fieldShapes }) ->
-                    match fieldShapes |> EqArray.tryFind (fun f -> f.Name = fieldName) with
+                    match fieldShapes |> Block.tryFind (fun f -> f.Name = fieldName) with
                     | ValueSome f ->
                         ValueSome(FrozenTypeBridge.instantiateDeclaring ctx f.Frozen (args.AsSpan().ToArray()))
                     | ValueNone -> ValueNone
@@ -152,7 +153,7 @@ module internal ElaborateObjArgs =
             | Some c -> List.ofArray c.Fields
             | None -> noSuchCase ()
         | ExternalUnion ctx (struct (caseShapes, args)) ->
-            match caseShapes |> EqArray.tryFind (fun c -> c.Name = caseName) with
+            match caseShapes |> Block.tryFind (fun c -> c.Name = caseName) with
             | ValueSome c ->
                 let declaringArgs = args.AsSpan().ToArray()
 

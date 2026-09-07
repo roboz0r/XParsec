@@ -2,6 +2,7 @@ namespace XParsec.FSharp.SemanticAnalysis
 
 open System.Collections.Concurrent
 open System.Collections.Generic
+open Vesper
 
 /// Addresses a member by NAME, so it reaches the whole overload set; `MemberKey` addresses
 /// one overload by identity.
@@ -37,12 +38,12 @@ module ExternalSymbolProviders =
             AttributesByKey: IReadOnlyDictionary<SymbolKey, TAttributes>
             /// A type's FULL member list, in DECLARATION order, because the by-name overload
             /// scan and the by-key selection both depend on that order.
-            MembersByKey: IReadOnlyDictionary<TypeKey, EqArray<ExternalMember>>
+            MembersByKey: IReadOnlyDictionary<TypeKey, Block<ExternalMember>>
             /// A type's `{ [k: K]: V }` signatures, in declaration order.
             IndexSignaturesByKey: IReadOnlyDictionary<TypeKey, (FrozenType * FrozenType) list>
             /// Every published value, one entry per identity.
             SymbolsByKey: IReadOnlyDictionary<BindingKey, ExternalSymbol>
-            TryRecordsWithField: string -> EqArray<ExternalRecordCandidate>
+            TryRecordsWithField: string -> Block<ExternalRecordCandidate>
             Platform: IPlatformFacts voption
             ImplicitOpens: ImplicitOpen list
             IntrinsicTypeMap: IntrinsicTypeMap
@@ -59,23 +60,23 @@ module ExternalSymbolProviders =
                 MembersByKey = Dictionary() :> IReadOnlyDictionary<_, _>
                 IndexSignaturesByKey = Dictionary() :> IReadOnlyDictionary<_, _>
                 SymbolsByKey = Dictionary() :> IReadOnlyDictionary<_, _>
-                TryRecordsWithField = fun _ -> EqArray.empty
+                TryRecordsWithField = fun _ -> Block.empty
                 Platform = ValueNone
                 ImplicitOpens = []
                 IntrinsicTypeMap = IntrinsicTypeMap.empty
             }
 
     let ofKeyIndexedChannels (channels: KeyIndexedChannels) : IExternalSymbolProvider =
-        let membersNamed (key: KeyedMemberName) : EqArray<ExternalMember> =
+        let membersNamed (key: KeyedMemberName) : Block<ExternalMember> =
             match channels.MembersByKey.TryGetValue key.DeclaringType with
             | true, ms ->
-                EqArray.ofSeq
+                Block.ofSeq
                     [
                         for m in ms do
                             if m.Name = key.Name then
                                 m
                     ]
-            | _ -> EqArray.empty
+            | _ -> Block.empty
 
         { new IExternalSymbolProvider
 
@@ -92,7 +93,7 @@ module ExternalSymbolProviders =
               member _.TryLookupAttributes key =
                   match channels.AttributesByKey.TryGetValue key with
                   | true, attrs -> attrs
-                  | _ -> EqArray.empty
+                  | _ -> Block.empty
 
               member _.TryLookupMembers(key, memberName) =
                   membersNamed
@@ -137,7 +138,7 @@ module ExternalSymbolProviders =
         abstract Scope: IScopeContents
         default _.Scope = inner.Scope
 
-        abstract TryRecordsWithField: fieldName: string -> EqArray<ExternalRecordCandidate>
+        abstract TryRecordsWithField: fieldName: string -> Block<ExternalRecordCandidate>
         default _.TryRecordsWithField fieldName = inner.TryRecordsWithField fieldName
 
         abstract ImplicitOpens: ImplicitOpen list
@@ -149,7 +150,7 @@ module ExternalSymbolProviders =
         abstract TryLookupAttributes: key: SymbolKey -> TAttributes
         default _.TryLookupAttributes key = inner.TryLookupAttributes key
 
-        abstract TryLookupMembers: key: TypeKey * memberName: string -> EqArray<ExternalMember>
+        abstract TryLookupMembers: key: TypeKey * memberName: string -> Block<ExternalMember>
         default _.TryLookupMembers(key, memberName) = inner.TryLookupMembers(key, memberName)
 
         abstract TryLookupMemberByKey: key: MemberKey -> ExternalMember voption
@@ -288,7 +289,7 @@ module ExternalSymbolProviders =
               // DIFFERENT packages, and unqualified record resolution must intersect over
               // every candidate, so a later source's records add rather than being shadowed.
               member _.TryRecordsWithField fieldName =
-                  EqArray.ofSeq
+                  Block.ofSeq
                       [
                           for s in providers do
                               yield! s.TryRecordsWithField fieldName
@@ -302,7 +303,7 @@ module ExternalSymbolProviders =
               // A declaration's attributes live in one assembly, so the first source with an
               // entry wins the whole list.
               member _.TryLookupAttributes key =
-                  let mutable result = EqArray.empty
+                  let mutable result = Block.empty
                   let mutable i = 0
 
                   while result.IsEmpty && i < providers.Length do
@@ -314,7 +315,7 @@ module ExternalSymbolProviders =
               // A type's members live in one assembly, so a later source never *adds*
               // overloads and the first source that knows the type wins the whole set.
               member _.TryLookupMembers(key, memberName) =
-                  let mutable result = EqArray.empty
+                  let mutable result = Block.empty
                   let mutable i = 0
 
                   while result.IsEmpty && i < providers.Length do
@@ -323,7 +324,7 @@ module ExternalSymbolProviders =
 
                   match stampHome with
                   | ValueNone -> result
-                  | ValueSome _ -> result |> EqArray.map stampMember
+                  | ValueSome _ -> result |> Block.map stampMember
 
               member _.TryLookupMemberByKey(key: MemberKey) =
                   firstHit (fun s -> s.TryLookupMemberByKey key) |> ValueOption.map stampMember
@@ -384,7 +385,7 @@ module ExternalSymbolProviders =
             { m with
                 Signature =
                     { m.Signature with
-                        ArgGroups = m.Signature.ArgGroups |> EqArray.map contra
+                        ArgGroups = m.Signature.ArgGroups |> Block.map contra
                         Return = co m.Signature.Return
                     }
             }
@@ -394,12 +395,12 @@ module ExternalSymbolProviders =
         // second reason: it widens `number` at `Inv` to `int|float|…`, and no class inherits a union.
         let mapNominal (n: FrozenNominal) = NominalG.map inv n
 
-        let mapInterfaces (ifaces: EqArray<FrozenNominal>) = ifaces |> EqArray.map mapNominal
+        let mapInterfaces (ifaces: Block<FrozenNominal>) = ifaces |> Block.map mapNominal
 
         // A union-case field is a covariant value read.
         let mapCase (c: ExternalCaseShape) : ExternalCaseShape =
             { c with
-                FrozenFieldTypes = c.FrozenFieldTypes |> EqArray.map co
+                FrozenFieldTypes = c.FrozenFieldTypes |> Block.map co
             }
 
         let mapShape (shape: ExternalTypeShape) : ExternalTypeShape =
@@ -407,7 +408,7 @@ module ExternalSymbolProviders =
             | ExternalTypeShape.Class info ->
                 ExternalTypeShape.Class
                     { info with
-                        Members = info.Members |> EqArray.map mapMember
+                        Members = info.Members |> Block.map mapMember
                         FrozenInterfaces = mapInterfaces info.FrozenInterfaces
                         FrozenBaseType = info.FrozenBaseType |> ValueOption.map mapNominal
                     }
@@ -415,12 +416,12 @@ module ExternalSymbolProviders =
                 // A record field is a covariant value read.
                 ExternalTypeShape.Record
                     { r with
-                        Fields = r.Fields |> EqArray.map (fun f -> { f with Frozen = co f.Frozen })
+                        Fields = r.Fields |> Block.map (fun f -> { f with Frozen = co f.Frozen })
                     }
             | ExternalTypeShape.Union u ->
                 ExternalTypeShape.Union
                     { u with
-                        Cases = u.Cases |> EqArray.map mapCase
+                        Cases = u.Cases |> Block.map mapCase
                         Interfaces = mapInterfaces u.Interfaces
                     }
             // A primitive's class surface maps identically to `Class`, interfaces included.
@@ -432,7 +433,7 @@ module ExternalSymbolProviders =
                                 { surface with
                                     BaseType = surface.BaseType |> ValueOption.map mapNominal
                                     Interfaces = mapInterfaces surface.Interfaces
-                                    Members = surface.Members |> EqArray.map mapMember
+                                    Members = surface.Members |> Block.map mapMember
                                 }
                     }
             // A capability interface's abstract members and inherited interfaces map exactly
@@ -440,7 +441,7 @@ module ExternalSymbolProviders =
             | ExternalTypeShape.IntrinsicInterface s ->
                 ExternalTypeShape.IntrinsicInterface
                     { s with
-                        Members = s.Members |> EqArray.map mapMember
+                        Members = s.Members |> Block.map mapMember
                         Interfaces = mapInterfaces s.Interfaces
                     }
             // No members or fields to map. An `Abbrev` body inherits its USE SITE's variance,
@@ -468,7 +469,7 @@ module ExternalSymbolProviders =
                 inner.TryLookupType key |> ValueOption.map mapShape
 
             override _.TryLookupMembers(key, memberName) =
-                inner.TryLookupMembers(key, memberName) |> EqArray.map mapMember
+                inner.TryLookupMembers(key, memberName) |> Block.map mapMember
 
             override _.TryLookupMemberByKey(key: MemberKey) =
                 inner.TryLookupMemberByKey key |> ValueOption.map mapMember
@@ -505,7 +506,7 @@ module ExternalSymbolProviders =
             override _.Scope = scope
 
             override _.TryLookupMembers(key, memberName) =
-                inner.TryLookupMembers(key, memberName) |> EqArray.map stampMember
+                inner.TryLookupMembers(key, memberName) |> Block.map stampMember
 
             override _.TryLookupMemberByKey(key: MemberKey) =
                 inner.TryLookupMemberByKey key |> ValueOption.map stampMember
@@ -523,14 +524,13 @@ module ExternalSymbolProviders =
         let attributesByKey = ConcurrentDictionary<SymbolKey, TAttributes>()
 
         let memberSets =
-            ConcurrentDictionary<struct (TypeKey * string), EqArray<ExternalMember>>()
+            ConcurrentDictionary<struct (TypeKey * string), Block<ExternalMember>>()
 
         let membersByKey = ConcurrentDictionary<MemberKey, ExternalMember voption>()
 
         let indexSigs = ConcurrentDictionary<TypeKey, (FrozenType * FrozenType) list>()
 
-        let recordsByField =
-            ConcurrentDictionary<string, EqArray<ExternalRecordCandidate>>()
+        let recordsByField = ConcurrentDictionary<string, Block<ExternalRecordCandidate>>()
 
         let symbolsByKey = ConcurrentDictionary<BindingKey, ExternalSymbol voption>()
         let valueTypes = ConcurrentDictionary<TypeKey, bool voption>()

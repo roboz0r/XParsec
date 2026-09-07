@@ -356,7 +356,7 @@ wanted it needs enforcing — see **B34**.
 `TestHelpers.fs` — the shadow constructors mint `SymbolKeyOps.qualifiedTypeKeyOf name
 args.Length`, whose `Name` is the bare source name. The active patterns project the same key
 through `SymbolKeyOps.typeMetaName`, which renders the arity suffix. So
-`TyUnion("Box", EqArray.singleton t)` builds a key named `Box`, but
+`TyUnion("Box", Block.singleton t)` builds a key named `Box`, but
 `match … with | TyUnion(n, _) -> n` yields `` Box`1 ``.
 
 A test matching a GENERIC nominal by bare source name **silently falls to `| _ ->`** rather

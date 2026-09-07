@@ -1,5 +1,6 @@
 module XParsec.FSharp.Codegen.Js.Tests.JsNamespaceTests
 
+open Vesper
 open Expecto
 open Vesper.Ts.Manifest
 open XParsec.FSharp.SemanticAnalysis
@@ -143,7 +144,7 @@ let tests =
                     "the free function resolves inside it"
 
                 Expect.isNonEmpty
-                    (EqArray.toList (raw.Scope.TypesNamed(js, "Widget")))
+                    (Block.toList (raw.Scope.TypesNamed(js, "Widget")))
                     "the exported class resolves inside it"
             }
 

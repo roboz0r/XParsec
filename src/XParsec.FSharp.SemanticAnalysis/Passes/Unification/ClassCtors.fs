@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis.Passes
 
 open System.Collections.Generic
+open Vesper
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
@@ -17,7 +18,7 @@ module internal UnificationClassCtors =
 
     /// Rebuild a type definition's typar scope from the registry entry's `TypeParams`, so a
     /// field type containing `'name` resolves to the same root the registry already holds.
-    let scopeOfTypeParams (typeParams: EqArray<DeclaredTypar>) : Dictionary<string, TyVarId> =
+    let scopeOfTypeParams (typeParams: Block<DeclaredTypar>) : Dictionary<string, TyVarId> =
         let d = Dictionary<string, TyVarId>(System.StringComparer.Ordinal)
 
         for tp in typeParams do
@@ -124,12 +125,12 @@ module internal UnificationClassCtors =
     type private BaseCtorSurface =
         /// A project-local base, ranked over its declared constructors like any other
         /// construction, at the type args the `inherit` clause supplied.
-        | Local of ClassTypeInfo * EqArray<SemType>
+        | Local of ClassTypeInfo * Block<SemType>
         /// A base a provider published with a MODELLED constructor catalogue: overload-resolved,
         /// and the pick stamped where `TBaseCtorCall.ChosenCtor` reads it.
-        | Provided of TypeKey * EqArray<SemType>
+        | Provided of TypeKey * Block<SemType>
         /// A heritable primitive (`inherit exn(m)`), checked against its contract `.ctor` surface.
-        | Heritable of TypeKey * EqArray<SemType> * IntrinsicClassSurface
+        | Heritable of TypeKey * Block<SemType> * IntrinsicClassSurface
         /// A base whose constructors are not modelled, so its arguments go UNCHECKED: a
         /// metadata class's protected `.ctor` (`System.Attribute`) is absent from the
         /// catalogue, and a self-host build has no shape for a heritable primitive at all.
@@ -144,7 +145,7 @@ module internal UnificationClassCtors =
 
     /// The surface a nominal class base offers: its project-local declaration, else the
     /// provider's.
-    let private classCtorSurfaceOf (ctx: PassContext) (baseKey: TypeKey) (baseArgs: EqArray<SemType>) =
+    let private classCtorSurfaceOf (ctx: PassContext) (baseKey: TypeKey) (baseArgs: Block<SemType>) =
         match TypeRegistry.tryClassByKey ctx.Types baseKey with
         | ValueSome baseInfo -> BaseCtorSurface.Local(baseInfo, baseArgs)
         | ValueNone ->
@@ -154,16 +155,16 @@ module internal UnificationClassCtors =
                 | _ -> false
 
             match ctx.Provider.TryLookupMembers(baseKey, ".ctor"), declaredInThisAssembly with
-            | EqEmpty, false -> BaseCtorSurface.Unmodelled
+            | BlockEmpty, false -> BaseCtorSurface.Unmodelled
             | _ -> BaseCtorSurface.Provided(baseKey, baseArgs)
 
     /// The surface a heritable primitive offers: its contract `.ctor`s (`exn`), else the
     /// constructors of the platform type its identity denotes.
-    let private heritableCtorSurfaceOf (ctx: PassContext) (canonKey: TypeKey) (canonArgs: EqArray<SemType>) =
+    let private heritableCtorSurfaceOf (ctx: PassContext) (canonKey: TypeKey) (canonArgs: Block<SemType>) =
         let surface = ExternalSymbols.tryIntrinsicClass ctx.Provider canonKey
 
         match surface with
-        | ValueSome(struct (_, s)) when s.Members |> EqArray.exists (fun m -> m.Name = ".ctor") ->
+        | ValueSome(struct (_, s)) when s.Members |> Block.exists (fun m -> m.Name = ".ctor") ->
             BaseCtorSurface.Heritable(canonKey, canonArgs, s)
         | _ ->
             // The platform type id: this file's own `(# class … #)` binding, else the

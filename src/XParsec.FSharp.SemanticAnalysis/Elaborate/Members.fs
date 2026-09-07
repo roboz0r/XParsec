@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+open Vesper
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis.Passes
@@ -31,7 +32,7 @@ module internal ElaborateMembers =
     /// Member parameter list as `(bindingKey, ty)` pairs in declaration order (`this` is
     /// separate). A tupled member `M(a, b)` is ONE `argumentPats` entry, but F# compiles it
     /// to one .NET parameter per tuple component, so the tuple flattens to one pair each.
-    let memberParams (ctx: PassContext) (b: Binding<SyntaxToken>) : EqArray<BoundVarKey * SemType> =
+    let memberParams (ctx: PassContext) (b: Binding<SyntaxToken>) : Block<BoundVarKey * SemType> =
         let rec flatten (tp: TPat) =
             seq {
                 match tp with
@@ -46,7 +47,7 @@ module internal ElaborateMembers =
                     | ValueNone -> ()
             }
 
-        EqArray.ofSeq (
+        Block.ofSeq (
             seq {
                 for p in b.argumentPats do
                     yield! flatten (translatePat ctx p)
@@ -144,7 +145,7 @@ module internal ElaborateMembers =
     type DeclaringType =
         {
             TypeKey: TypeKey
-            TypeParams: EqArray<DeclaredTypar>
+            TypeParams: Block<DeclaredTypar>
             /// Every member the type registered, its `interface … with` impl members included.
             Members: TypeMemberInfo seq
             ThisKey: BoundVarKey
@@ -277,7 +278,7 @@ module internal ElaborateMembers =
                     Params =
                         match decl.Defn with
                         | ValueSome b -> memberParams ctx b
-                        | ValueNone -> EqArray.empty
+                        | ValueNone -> Block.empty
                     Body = declaring.LowerBody site decl.Body
                     ReturnTy = typeOfKey ctx (CstKeys.ofExpr decl.Body)
                     MethodTypars = methodTypars
@@ -308,11 +309,11 @@ module internal ElaborateMembers =
         (host: IInterfaceImplHost)
         (ext: TypeExtensionElements<SyntaxToken> voption)
         (env: ResizeArray<TyVarId * SemType>)
-        : EqArray<TTypeMember> * EqArray<SemType * EqArray<TTypeMember>> =
+        : Block<TTypeMember> * Block<SemType * Block<TTypeMember>> =
         let declaring = nominalDeclaringType ctx host
 
-        let translate (els: TypeDefnElements<SyntaxToken>) : EqArray<TTypeMember> =
-            EqArray.ofSeq (
+        let translate (els: TypeDefnElements<SyntaxToken>) : Block<TTypeMember> =
+            Block.ofSeq (
                 seq {
                     for el in els do
                         yield! translateMemberElement ctx declaring env el
@@ -321,11 +322,11 @@ module internal ElaborateMembers =
 
         let members =
             match ext with
-            | ValueNone -> EqArray.empty
+            | ValueNone -> Block.empty
             | ValueSome(TypeExtensionElements(elements = elems)) -> translate elems
 
         let interfaces =
-            EqArray.ofSeq (
+            Block.ofSeq (
                 seq {
                     for impl in host.InterfaceImpls do
                         match InterfaceImplResolution.tryIface impl.Resolution with

@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+open Vesper
 open XParsec.FSharp.Lexer
 
 // What ONE node PROJECTS TO on its way into the columns: the child edges it owns, in the
@@ -18,7 +19,7 @@ type PayloadOfNode<'tok, 'id> =
     | Binding of binding: TLetMemberG<FrozenType, 'tok, 'id> * body: TExprG<FrozenType, 'tok, 'id> * isRec: bool
     /// A `LetGroup`. The walk decides each member's `Recursion`.
     | BindingGroup of
-        members: EqArray<TLetMemberG<FrozenType, 'tok, 'id>> *
+        members: Block<TLetMemberG<FrozenType, 'tok, 'id>> *
         components: SccPartition *
         body: TExprG<FrozenType, 'tok, 'id>
 
@@ -67,7 +68,7 @@ module TastPoolShapes =
         | TExprG.Sequential(items = items) ->
             let last = items.Length - 1
 
-            items |> EqArray.iteri (fun i x -> if i = last then addTail x else add x)
+            items |> Block.iteri (fun i x -> if i = last then addTail x else add x)
         | TExprG.While(cond = cond; body = body) ->
             add cond
             add body
@@ -297,8 +298,8 @@ module TastPoolShapes =
         : PayloadOfNode<'tok, 'id> =
         // Per-arm guard-presence flags, the only residual structure a `Match`/`TryWith`
         // records; the arm pats, guards and bodies themselves are stored in the child columns.
-        let armGuards (arms: EqArray<TMatchArmG<_, _>>) =
-            arms |> EqArray.toArray |> Array.map (fun arm -> arm.Guard.IsSome)
+        let armGuards (arms: Block<TMatchArmG<_, _>>) =
+            arms |> Block.toArray |> Array.map (fun arm -> arm.Guard.IsSome)
 
         let complete (p: ExprPayload) = PayloadOfNode.Complete p
 
@@ -334,9 +335,9 @@ module TastPoolShapes =
         | TExprG.Null _ -> complete ExprPayload.Null
         | TExprG.Range(step = step) -> complete (ExprPayload.Range step.IsSome)
         | TExprG.RecordCons(fields = fields) ->
-            complete (ExprPayload.RecordCons(fields |> EqArray.toArray |> Array.map fst))
+            complete (ExprPayload.RecordCons(fields |> Block.toArray |> Array.map fst))
         | TExprG.RecordClone(overrides = overrides) ->
-            complete (ExprPayload.RecordClone(overrides |> EqArray.toArray |> Array.map fst))
+            complete (ExprPayload.RecordClone(overrides |> Block.toArray |> Array.map fst))
         | TExprG.FieldGet(fieldName = fieldName) -> complete (ExprPayload.FieldGet fieldName)
         | TExprG.FieldSet(fieldName = fieldName) -> complete (ExprPayload.FieldSet fieldName)
         | TExprG.UnionCons(caseName = caseName) -> complete (ExprPayload.UnionCons caseName)
@@ -390,7 +391,7 @@ module TastPoolShapes =
 
             let segments' =
                 segments
-                |> EqArray.toArray
+                |> Block.toArray
                 |> Array.map (fun seg ->
                     match seg with
                     | FormatSegG.Lit s -> FormatSegShape.Lit s
@@ -411,9 +412,7 @@ module TastPoolShapes =
             )
         | TExprG.StaticOptimization(clauses = clauses) ->
             complete (
-                ExprPayload.StaticOptimization(
-                    clauses |> EqArray.toArray |> Array.map (fun clause -> clause.Constraints)
-                )
+                ExprPayload.StaticOptimization(clauses |> Block.toArray |> Array.map (fun clause -> clause.Constraints))
             )
         | TExprG.Upcast _ -> complete ExprPayload.Upcast
         | TExprG.Downcast _ -> complete ExprPayload.Downcast
@@ -440,7 +439,7 @@ module TastPoolShapes =
         | TPatG.Tuple _ -> PatPayload.Tuple
         | TPatG.Or _ -> PatPayload.Or
         | TPatG.Const(value = value) -> PatPayload.Const value
-        | TPatG.Record(fields = fields) -> PatPayload.Record(fields |> EqArray.toArray |> Array.map fst)
+        | TPatG.Record(fields = fields) -> PatPayload.Record(fields |> Block.toArray |> Array.map fst)
         | TPatG.Union(caseName = caseName) -> PatPayload.Union caseName
         | TPatG.TypeTestAs(testTy = testTy) -> PatPayload.TypeTestAs testTy
         | TPatG.EnumCase(enumKey = enumKey; caseName = caseName) ->

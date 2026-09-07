@@ -2,6 +2,7 @@ namespace XParsec.FSharp.SemanticAnalysis
 
 open System
 open System.Collections.Generic
+open Vesper
 
 // The tables a compilation unit's published surface is ACCUMULATED in, addressed by identity
 // rather than by a rendering of one. Both halves of a unit fill one: a `.fs` projected from
@@ -157,7 +158,7 @@ module PublishedSurfaceBuilder =
                 {
                     TypeKey = key
                     TyparArity = typars.Length
-                    FieldNames = fields |> EqArray.map (fun f -> f.Name)
+                    FieldNames = fields |> Block.map (fun f -> f.Name)
                     IsRequireQualifiedAccess = rqa
                 }
         | ExternalTypeShape.Class _
@@ -170,7 +171,7 @@ module PublishedSurfaceBuilder =
 
     /// `addTypeWith` for a type publishing no member.
     let addType (surface: PublishedSurfaceBuilder) (key: TypeKey) (shape: ExternalTypeShape) : unit =
-        addTypeWith surface key shape EqArray.empty
+        addTypeWith surface key shape Block.empty
 
 /// One entry of a published table. A key-ordered array of these rather than a dictionary,
 /// because the surface is a VALUE: fixing the order is what lets two of them compare, and
@@ -182,22 +183,22 @@ type SurfaceEntry<'K, 'V> = { Key: 'K; Value: 'V }
 /// holding pool-relative handles that do not compare by contents.
 type PublishedSurface =
     {
-        ShapesByKey: EqArray<SurfaceEntry<TypeKey, ExternalTypeShape>>
+        ShapesByKey: Block<SurfaceEntry<TypeKey, ExternalTypeShape>>
         /// A type or value declaration's attributes, resolved and constant-folded, by
         /// identity.
-        AttributesByKey: EqArray<SurfaceEntry<SymbolKey, TAttributes>>
+        AttributesByKey: Block<SurfaceEntry<SymbolKey, TAttributes>>
         /// Canonical intrinsic identity -> the representation form declared for it.
-        ExternForms: EqArray<SurfaceEntry<TypeKey, ExternForm>>
+        ExternForms: Block<SurfaceEntry<TypeKey, ExternForm>>
         /// A type's FULL member list, in DECLARATION order: the overload scan depends on it.
-        MembersByKey: EqArray<SurfaceEntry<TypeKey, EqArray<ExternalMember>>>
+        MembersByKey: Block<SurfaceEntry<TypeKey, Block<ExternalMember>>>
         /// Every published module, with what its declaration states and where it is declared.
-        Modules: EqArray<SurfaceEntry<ModuleKey, ModuleDeclaration>>
+        Modules: Block<SurfaceEntry<ModuleKey, ModuleDeclaration>>
         /// Declaring union's `typeMetaName` + `.` + case name -> the case.
-        UnionCases: EqArray<SurfaceEntry<string, ExternalUnionCase>>
+        UnionCases: Block<SurfaceEntry<string, ExternalUnionCase>>
         /// Field name -> every record declaring it.
-        RecordFields: EqArray<SurfaceEntry<string, EqArray<ExternalRecordCandidate>>>
+        RecordFields: Block<SurfaceEntry<string, Block<ExternalRecordCandidate>>>
         /// Every published value, one entry per identity.
-        Symbols: EqArray<SurfaceEntry<BindingKey, ExternalSymbol>>
+        Symbols: Block<SurfaceEntry<BindingKey, ExternalSymbol>>
         /// Derived from the `Intrinsic` shapes above. The BUILDER has no such field, so a
         /// producer cannot put a CAPABILITY interface here: it carries its platform name on
         /// its own identity and must stay OFF this axis.
@@ -206,7 +207,7 @@ type PublishedSurface =
         /// auto-opens, then the `[<AutoOpen>]` modules in `Modules` OUTERMOST first.
         /// `CurrentFileScope` never appears: a file's own namespace header does not cross the
         /// assembly boundary.
-        ImplicitOpens: EqArray<ImplicitOpen>
+        ImplicitOpens: Block<ImplicitOpen>
     }
 
 [<RequireQualifiedAccess>]
@@ -214,23 +215,23 @@ module PublishedSurface =
 
     /// Key-ordered by an ORDINAL rendering of the key, so the order is the same on every
     /// machine and in every process.
-    let private ordered (render: 'K -> string) (pairs: seq<'K * 'V>) : EqArray<SurfaceEntry<'K, 'V>> =
+    let private ordered (render: 'K -> string) (pairs: seq<'K * 'V>) : Block<SurfaceEntry<'K, 'V>> =
         pairs
         |> Seq.map (fun (k, v) -> struct (render k, k, v))
         |> Seq.sortWith (fun struct (a, _, _) struct (b, _, _) -> String.CompareOrdinal(a, b))
         |> Seq.map (fun struct (_, k, v) -> { Key = k; Value = v })
-        |> EqArray.ofSeq
+        |> Block.ofSeq
 
-    let private byName (d: Dictionary<string, 'V>) : EqArray<SurfaceEntry<string, 'V>> =
+    let private byName (d: Dictionary<string, 'V>) : Block<SurfaceEntry<string, 'V>> =
         ordered id (seq { for KeyValue(k, v) in d -> k, v })
 
-    let private byTypeKey (d: Dictionary<TypeKey, 'V>) : EqArray<SurfaceEntry<TypeKey, 'V>> =
+    let private byTypeKey (d: Dictionary<TypeKey, 'V>) : Block<SurfaceEntry<TypeKey, 'V>> =
         ordered SymbolKeyOps.typeMetaName (seq { for KeyValue(k, v) in d -> k, v })
 
-    let private bySymbolKey (d: Dictionary<SymbolKey, 'V>) : EqArray<SurfaceEntry<SymbolKey, 'V>> =
+    let private bySymbolKey (d: Dictionary<SymbolKey, 'V>) : Block<SurfaceEntry<SymbolKey, 'V>> =
         ordered SymbolKeyOps.qualifiedName (seq { for KeyValue(k, v) in d -> k, v })
 
-    let private byBindingKey (d: Dictionary<BindingKey, 'V>) : EqArray<SurfaceEntry<BindingKey, 'V>> =
+    let private byBindingKey (d: Dictionary<BindingKey, 'V>) : Block<SurfaceEntry<BindingKey, 'V>> =
         ordered SymbolKeyOps.qualifiedBindingName (seq { for KeyValue(k, v) in d -> k, v })
 
     /// Copy the builder's tables into the value. A producer that keeps writing to the builder
@@ -248,13 +249,13 @@ module PublishedSurface =
             ExternForms = byTypeKey b.ExternForms
             MembersByKey =
                 b.MembersByKey
-                |> Seq.map (fun (KeyValue(k, ms)) -> k, EqArray.ofResizeArray ms)
+                |> Seq.map (fun (KeyValue(k, ms)) -> k, Block.ofResizeArray ms)
                 |> ordered SymbolKeyOps.typeMetaName
             Modules = modules
             UnionCases = byName b.UnionCases
             RecordFields =
                 b.RecordFields
-                |> Seq.map (fun (KeyValue(k, cs)) -> k, EqArray.ofResizeArray cs)
+                |> Seq.map (fun (KeyValue(k, cs)) -> k, Block.ofResizeArray cs)
                 |> ordered id
             Symbols = byBindingKey b.Symbols
             Intrinsics =
@@ -271,7 +272,7 @@ module PublishedSurface =
                     }
                 )
             ImplicitOpens =
-                EqArray.ofSeq (
+                Block.ofSeq (
                     seq {
                         yield! b.ImplicitOpens
 
@@ -291,7 +292,7 @@ module PublishedSurface =
 
     /// The lookup index over one published table. Derived on demand, never part of the value,
     /// because a `Dictionary` compares by reference.
-    let index (entries: EqArray<SurfaceEntry<'K, 'V>>) (comparer: IEqualityComparer<'K>) =
+    let index (entries: Block<SurfaceEntry<'K, 'V>>) (comparer: IEqualityComparer<'K>) =
         let d = Dictionary<'K, 'V>(entries.Length, comparer)
 
         for e in entries do
@@ -299,11 +300,11 @@ module PublishedSurface =
 
         d
 
-    let private nameIndex (entries: EqArray<SurfaceEntry<string, 'V>>) =
+    let private nameIndex (entries: Block<SurfaceEntry<string, 'V>>) =
         index entries (StringComparer.Ordinal :> IEqualityComparer<string>)
 
     /// `index` over a type-keyed table.
-    let keyIndex (entries: EqArray<SurfaceEntry<TypeKey, 'V>>) = index entries HashIdentity.Structural
+    let keyIndex (entries: Block<SurfaceEntry<TypeKey, 'V>>) = index entries HashIdentity.Structural
 
     /// A scope's contents derived from the published tables: every symbol, case and type is
     /// filed under the container its key declares, so a segment-by-segment read of `A.M.x`
@@ -400,8 +401,8 @@ module PublishedSurface =
             // at most once.
             member _.DeclarationsOf m =
                 match modules.TryGetValue m with
-                | true, declaration -> EqArray.singleton declaration
-                | _ -> EqArray.empty
+                | true, declaration -> Block.singleton declaration
+                | _ -> Block.empty
 
             member _.TryValue key =
                 match symbols.TryGetValue key with
@@ -410,13 +411,13 @@ module PublishedSurface =
 
             member _.UnionCasesNamed(container, name) =
                 match casesIn.TryGetValue(struct (container, name)) with
-                | true, claims -> EqArray.ofResizeArray claims
-                | _ -> EqArray.empty
+                | true, claims -> Block.ofResizeArray claims
+                | _ -> Block.empty
 
             member _.TypesNamed(container, name) =
                 match typesIn.TryGetValue(struct (container, name)) with
-                | true, arities -> EqArray.ofResizeArray arities
-                | _ -> EqArray.empty
+                | true, arities -> Block.ofResizeArray arities
+                | _ -> Block.empty
         }
 
     let toProvider (surface: PublishedSurface) : IExternalSymbolProvider =
@@ -433,7 +434,7 @@ module PublishedSurface =
                     fun fieldName ->
                         match recordFields.TryGetValue fieldName with
                         | true, cs -> cs
-                        | _ -> EqArray.empty
+                        | _ -> Block.empty
                 ImplicitOpens = List.ofSeq surface.ImplicitOpens
                 IntrinsicTypeMap = surface.Intrinsics
             }

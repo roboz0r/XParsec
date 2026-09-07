@@ -4,6 +4,7 @@ open System.Collections.Generic
 open System.Reflection
 open System.Reflection.Metadata
 open System.Reflection.Metadata.Ecma335
+open Vesper
 open XParsec.FSharp.SemanticAnalysis
 
 /// A generic closure's registry entry. Every `FrozenType` field embeds the ENCLOSING
@@ -24,7 +25,7 @@ type internal GenericClosureShape =
 type internal GenericUnionCase =
     {
         Name: string
-        Fields: EqArray<string * FrozenType>
+        Fields: Block<string * FrozenType>
     }
 
 /// A *generic* user union, keyed by its nominal `TypeKey`, which embeds the arity, so the
@@ -32,10 +33,10 @@ type internal GenericUnionCase =
 /// their `Def` tokens suffice.
 type internal GenericUnionShape =
     {
-        Typars: EqArray<string>
+        Typars: Block<string>
         /// Per case, each logical field's `(FSC-spelled name, declared type)`: a hierarchy
         /// case type's own field rows, and every case factory's parameter types.
-        Cases: EqArray<GenericUnionCase>
+        Cases: Block<GenericUnionCase>
         ValueKind: NominalValueKind
         /// A flat regime's physical slots and the `TypeDef` declaring them. `ValueNone` for
         /// a hierarchy regime.
@@ -47,7 +48,7 @@ type internal GenericUnionShape =
         UnionRegime.classify
             this.ValueKind
             this.Cases.Length
-            (this.Cases |> EqArray.exists (fun c -> not c.Fields.IsEmpty))
+            (this.Cases |> Block.exists (fun c -> not c.Fields.IsEmpty))
 
 /// One field of a generic user record.
 type internal GenericRecordField =
@@ -62,8 +63,8 @@ type internal GenericRecordField =
 /// A *generic* user record: typar names + fields in declaration order.
 type internal GenericRecordShape =
     {
-        Typars: EqArray<string>
-        Fields: EqArray<GenericRecordField>
+        Typars: Block<string>
+        Fields: Block<GenericRecordField>
     }
 
 /// A *generic* user class. `Fields` is the FULL field shape in order: ctor-param backing
@@ -71,9 +72,9 @@ type internal GenericRecordShape =
 /// `CtorParamCount` of them are the primary ctor's parameters; the rest are not ctor args.
 type internal GenericClassShape =
     {
-        Typars: EqArray<string>
+        Typars: Block<string>
         CtorParamCount: int
-        Fields: EqArray<string * FrozenType>
+        Fields: Block<string * FrozenType>
     }
 
 /// The CLR-only nominals the backend references DIRECTLY. They reach it as an `FTConst` over a bare
@@ -529,7 +530,7 @@ type internal ClrEnv
             // fault at load time, so a module undeclared at `origin` fails the compile instead.
             match
                 symbols.DeclarationsOf m
-                |> EqArray.tryFind (fun declaration -> declaration.Home = origin.Home)
+                |> Block.tryFind (fun declaration -> declaration.Home = origin.Home)
             with
             | ValueSome declaration -> CompiledName.Emitted(declaration.Facts.CompiledName, m.Name)
             | ValueNone ->
@@ -583,13 +584,13 @@ type internal ClrEnv
             | ValueNone -> ClassOrigin.Unresolved
 
     /// Referenced-assembly record shape by key + arity.
-    let externalRecordShape (key: TypeKey) (arity: int) : (EqArray<ExternalFieldShape> * SymbolOrigin) voption =
+    let externalRecordShape (key: TypeKey) (arity: int) : (Block<ExternalFieldShape> * SymbolOrigin) voption =
         match symbols.TryLookupType key with
         | ValueSome(ExternalTypeShape.Record r) when r.TyparArity = arity && r.Origin.Home <> SymbolHome.Unstamped ->
             ValueSome(r.Fields, r.Origin)
         | _ -> ValueNone
 
-    let externalRecordRef (key: TypeKey) (arity: int) : (EntityHandle * EqArray<ExternalFieldShape>) voption =
+    let externalRecordRef (key: TypeKey) (arity: int) : (EntityHandle * Block<ExternalFieldShape>) voption =
         match externalRecordShape key arity with
         | ValueSome(fields, origin) ->
             // A record is never a CLR nested type, so the namespace + `` `n ``-suffixed name come

@@ -1,5 +1,6 @@
 module XParsec.FSharp.Codegen.Clr.Tests.ListTests
 
+open Vesper
 open Expecto
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.SemanticAnalysis
@@ -21,12 +22,12 @@ let tests =
                 let listTy =
                     SemType.TyUnion(
                         RuntimeNames.vesperListKey,
-                        EqArray.singleton (TyConst(RuntimeNames.intKey, EqArray.empty))
+                        Block.singleton (TyConst(RuntimeNames.intKey, Block.empty))
                     )
 
                 match tast.Decls with
                 | EqList [ TDecl.Expression(TExpr.Format(_, segs, _, _), _) ] ->
-                    match EqArray.toList segs with
+                    match Block.toList segs with
                     | [ FormatSeg.Hole(hole,
                                        TExpr.UnionCons("Cons",
                                                        EqList [ TExpr.Const(TConstValue.Integral(IntKind.Int32, 1L),

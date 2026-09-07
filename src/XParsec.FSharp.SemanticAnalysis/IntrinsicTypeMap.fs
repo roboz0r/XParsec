@@ -2,6 +2,7 @@ namespace XParsec.FSharp.SemanticAnalysis
 
 open System
 open System.Collections.Generic
+open Vesper
 
 /// One intrinsic declaration: the `.fsi` identity and what its target's `.fs` binds.
 type IntrinsicBinding =
@@ -17,11 +18,11 @@ type IntrinsicBinding =
 type IntrinsicTypeMap =
     private
         {
-            Entries: EqArray<IntrinsicBinding>
+            Entries: Block<IntrinsicBinding>
             // Indexes over `Entries`, excluded from equality: a `Dictionary` compares by
             // reference. Read-only after construction.
             ByCanon: Dictionary<TypeKey, IntrinsicPlatform>
-            ByPlatform: Dictionary<PlatformTypeId, EqArray<TypeKey>>
+            ByPlatform: Dictionary<PlatformTypeId, Block<TypeKey>>
         }
 
     override this.Equals(o: obj) : bool =
@@ -64,13 +65,13 @@ module IntrinsicTypeMap =
                     buckets.[id] <- canons
             | _ -> ()
 
-        let byPlatform = Dictionary<PlatformTypeId, EqArray<TypeKey>>(buckets.Count)
+        let byPlatform = Dictionary<PlatformTypeId, Block<TypeKey>>(buckets.Count)
 
         for KeyValue(id, canons) in buckets do
-            byPlatform.[id] <- EqArray.ofResizeArray canons
+            byPlatform.[id] <- Block.ofResizeArray canons
 
         {
-            Entries = EqArray.ofResizeArray kept
+            Entries = Block.ofResizeArray kept
             ByCanon = byCanon
             ByPlatform = byPlatform
         }
@@ -79,7 +80,7 @@ module IntrinsicTypeMap =
     let empty: IntrinsicTypeMap = ofSeq []
 
     /// The declarations themselves, in precedence order.
-    let entries (map: IntrinsicTypeMap) : EqArray<IntrinsicBinding> = map.Entries
+    let entries (map: IntrinsicTypeMap) : Block<IntrinsicBinding> = map.Entries
 
     let isEmpty (map: IntrinsicTypeMap) : bool = map.Entries.IsEmpty
 
@@ -98,10 +99,10 @@ module IntrinsicTypeMap =
 
     /// Every canon `id` stands for, nearest declaration first: `"number"` →
     /// `[int; float; float32]` on JS.
-    let canonsOf (id: PlatformTypeId) (map: IntrinsicTypeMap) : EqArray<TypeKey> =
+    let canonsOf (id: PlatformTypeId) (map: IntrinsicTypeMap) : Block<TypeKey> =
         match map.ByPlatform.TryGetValue id with
         | true, canons -> canons
-        | _ -> EqArray.empty
+        | _ -> Block.empty
 
     /// The canon `id` reconciles to: `"System.Exception"` → `exn`. The LEADING canon where
     /// an id reconciles to several.
@@ -113,10 +114,10 @@ module IntrinsicTypeMap =
     /// The canons sharing `canon`'s platform type id, `canon` included: JS `int` →
     /// `[int; float; float32]`. Empty for a canon whose id is its own name, which stands for
     /// nothing but itself, so JS `char` and `string` both binding `"string"` are NOT a family.
-    let familyOf (canon: TypeKey) (map: IntrinsicTypeMap) : EqArray<TypeKey> =
+    let familyOf (canon: TypeKey) (map: IntrinsicTypeMap) : Block<TypeKey> =
         match tryPlatformTypeId canon map with
         | ValueSome id when not (isSelfNamed canon id) -> canonsOf id map
-        | _ -> EqArray.empty
+        | _ -> Block.empty
 
     /// `shadow near far`: `near`'s declarations, then `far`'s for each canon `near` leaves
     /// undeclared. The unit is the DECLARATION, so a local `int` hides the provider's `int`

@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
 open System.Collections.Generic
+open Vesper
 
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis.Passes
@@ -163,7 +164,7 @@ module Freeze =
                                         ParamAttrs =
                                             match ctx.InlineParamAttrs.TryGetValue k with
                                             | true, a -> a
-                                            | _ -> EqArray.empty
+                                            | _ -> Block.empty
                                     }
                             }
                 | ValueNone -> ()
@@ -171,7 +172,7 @@ module Freeze =
 
         let frozen =
             { tast with
-                InlineBodies = EqArray.ofList (List.ofSeq inlineBodies)
+                InlineBodies = Block.ofList (List.ofSeq inlineBodies)
                 // Re-snapshot: the tree's `Diagnostics` were taken BEFORE the freeze, so a
                 // publish failure raised above would otherwise reach `ctx` and no one else.
                 Diagnostics = List.ofSeq ctx.Diagnostics

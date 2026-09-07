@@ -4,6 +4,7 @@ open System.Collections.Generic
 open System.Reflection
 open System.Reflection.Metadata
 open System.Reflection.Metadata.Ecma335
+open Vesper
 open XParsec.FSharp.SemanticAnalysis
 
 // Every ranged-table row enumerated as data; handle = position in the layout.
@@ -49,8 +50,8 @@ module internal AbstractMemberShape =
     let abstractMethodParams (m: Frozen.TAbstractMethod) : (string * FrozenType) list =
         let paramTys, _ = uncurry m.Signature
 
-        let named (names: EqArray<string voption>) (i: int) (ty: FrozenType) =
-            match EqArray.tryItem i names with
+        let named (names: Block<string voption>) (i: int) (ty: FrozenType) =
+            match Block.tryItem i names with
             | ValueSome(ValueSome n) -> n, ty
             | ValueSome ValueNone
             | ValueNone -> argName i, ty
@@ -62,9 +63,9 @@ module internal AbstractMemberShape =
                 if m.ParamNames.Length = elems.Length then
                     m.ParamNames
                 else
-                    EqArray.empty
+                    Block.empty
 
-            elems |> EqArray.mapi (named names) |> EqArray.toList
+            elems |> Block.mapi (named names) |> Block.toList
         | _ -> paramTys |> List.mapi (named m.ParamNames)
 
 [<AutoOpen>]

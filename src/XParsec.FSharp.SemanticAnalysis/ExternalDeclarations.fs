@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+open Vesper
 open XParsec.FSharp.Lexer
 
 // The PARTS an external declaration is made of: a symbol, a field / case / enum case, a
@@ -45,7 +46,7 @@ type ImportForm =
 type InlineBody =
     {
         Body: Wire.UnpooledDecl
-        ParamAttrs: EqArray<ParamAttrs>
+        ParamAttrs: Block<ParamAttrs>
         /// The declaring file's anchors: its text and token table. `Body`'s nodes carry
         /// token INDICES into that file, unreadable without it.
         File: LexedFile
@@ -54,7 +55,7 @@ type InlineBody =
 [<RequireQualifiedAccess>]
 module InlineBody =
 
-    let anchoredIn (file: LexedFile) (body: Wire.UnpooledDecl) (paramAttrs: EqArray<ParamAttrs>) : InlineBody =
+    let anchoredIn (file: LexedFile) (body: Wire.UnpooledDecl) (paramAttrs: Block<ParamAttrs>) : InlineBody =
         {
             Body = body
             ParamAttrs = paramAttrs
@@ -113,17 +114,17 @@ type ExternalFieldShape =
 type ExternalCaseShape =
     {
         Name: string
-        FieldNames: EqArray<string voption>
+        FieldNames: Block<string voption>
         /// The field types with the enclosing type's typars baked as `FTTypar(Type _, i)`.
-        FrozenFieldTypes: EqArray<FrozenType>
+        FrozenFieldTypes: Block<FrozenType>
     }
 
     /// A case whose field templates are deferred until the registry is complete.
-    static member create(name: string, fieldNames: EqArray<string voption>) : ExternalCaseShape =
+    static member create(name: string, fieldNames: Block<string voption>) : ExternalCaseShape =
         {
             Name = name
             FieldNames = fieldNames
-            FrozenFieldTypes = fieldNames |> EqArray.map (fun _ -> deferredTemplate)
+            FrozenFieldTypes = fieldNames |> Block.map (fun _ -> deferredTemplate)
         }
 
 /// The payload of `ExternalTypeShape.Record`. `IsValueType` is the `[<Struct>]` the
@@ -133,7 +134,7 @@ type ExternalRecordShape =
     {
         Typars: TyparList
         /// Field order matches source.
-        Fields: EqArray<ExternalFieldShape>
+        Fields: Block<ExternalFieldShape>
         Origin: SymbolOrigin
         IsValueType: bool
         RequiresQualifiedAccess: bool
@@ -148,8 +149,8 @@ type ExternalUnionShape =
     {
         Typars: TyparList
         /// Case order matches source.
-        Cases: EqArray<ExternalCaseShape>
-        Interfaces: EqArray<FrozenNominal>
+        Cases: Block<ExternalCaseShape>
+        Interfaces: Block<FrozenNominal>
         Origin: SymbolOrigin
         IsValueType: bool
         RequiresQualifiedAccess: bool
@@ -187,7 +188,7 @@ type ExternalEnumCaseShape =
 type ExternalEnumShape =
     {
         /// Case order matches source.
-        Cases: EqArray<ExternalEnumCaseShape>
+        Cases: Block<ExternalEnumCaseShape>
         Underlying: TypeKey
         Origin: SymbolOrigin
     }
@@ -214,7 +215,7 @@ type ExternalRecordCandidate =
         TypeKey: TypeKey
         TyparArity: int
         /// EVERY declared field name, not only the queried one.
-        FieldNames: EqArray<string>
+        FieldNames: Block<string>
         /// `[<RequireQualifiedAccess>]`: a consumer excludes such a record from bare
         /// field-set resolution: `{ X = … }` must be written `{ R.X = … }`.
         IsRequireQualifiedAccess: bool
@@ -229,11 +230,11 @@ type ExternalSignature =
         /// index `j` holds the `j`-th typar's UPPER BOUND (`<Key extends keyof Events>`),
         /// baked over the DECLARING typars (`keyof Events` at `Emitter<R>` → `TyKeyOf R`).
         /// `ValueNone` for an unconstrained typar.
-        MethodTypars: EqArray<FrozenType voption>
+        MethodTypars: Block<FrozenType voption>
         /// One entry per `->` the source wrote, each already .NET-tupled: `M: a * b -> r` holds
         /// `[a * b]` and the curried `M: a -> b -> r` holds `[a; b]`. EMPTY for a value member,
         /// whose type is `Return` with no `->` in front of it.
-        ArgGroups: EqArray<FrozenType>
+        ArgGroups: Block<FrozenType>
         Return: FrozenType
     }
 
@@ -241,7 +242,7 @@ type ExternalSignature =
     member s.MethodTyparArity = s.MethodTypars.Length
 
     /// `n` method typars, none of them constrained.
-    static member unbounded(n: int) : EqArray<FrozenType voption> = EqArray.init n (fun _ -> ValueNone)
+    static member unbounded(n: int) : Block<FrozenType voption> = Block.init n (fun _ -> ValueNone)
 
     /// The sentinel a contract-layer member carries until the finalize pass fills its groups /
     /// `Return` from the stashed signature CST. `argGroupCount` is already known there, and
@@ -250,7 +251,7 @@ type ExternalSignature =
         {
             DeclaringTyparArity = declaringTyparArity
             MethodTypars = ExternalSignature.unbounded methodTyparArity
-            ArgGroups = EqArray.ofList (List.replicate argGroupCount deferredTemplate)
+            ArgGroups = Block.ofList (List.replicate argGroupCount deferredTemplate)
             Return = deferredTemplate
         }
 
@@ -263,7 +264,7 @@ type ExternalSignature =
         {
             DeclaringTyparArity = declaringTyparArity
             MethodTypars = ExternalSignature.unbounded methodTyparArity
-            ArgGroups = EqArray.singleton parameters
+            ArgGroups = Block.singleton parameters
             Return = return'
         }
 
@@ -274,7 +275,7 @@ type ExternalSignature =
         {
             DeclaringTyparArity = declaringTyparArity
             MethodTypars = ExternalSignature.unbounded methodTyparArity
-            ArgGroups = EqArray.empty
+            ArgGroups = Block.empty
             Return = return'
         }
 
@@ -285,14 +286,14 @@ type ExternalSignature =
         {
             DeclaringTyparArity = declaringTyparArity
             MethodTypars = ExternalSignature.unbounded methodTyparArity
-            ArgGroups = EqArray.ofList argGroups
+            ArgGroups = Block.ofList argGroups
             Return = return'
         }
 
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 module ExternalSignature =
 
-    let unitFrozen: FrozenType = FTConst(RuntimeNames.unitKey, EqArray.empty)
+    let unitFrozen: FrozenType = FTConst(RuntimeNames.unitKey, Block.empty)
 
     /// The body position an extractor could not translate. `what` must identify the construct,
     /// because it is all the use site is told: the contract is read back by a compilation with
@@ -301,7 +302,7 @@ module ExternalSignature =
         FTUnknown(UnknownReason.UnfreezableExternal what)
 
     /// `[a; b]` ⟶ `a * b`, `[]` ⟶ `unit`: one argument group's .NET-tupled domain.
-    let tupledParams (ps: EqArray<FrozenType>) : FrozenType =
+    let tupledParams (ps: Block<FrozenType>) : FrozenType =
         match ps.Length with
         | 0 -> unitFrozen
         | 1 -> ps.[0]
@@ -309,11 +310,11 @@ module ExternalSignature =
 
     /// `a * b` ⟶ `[a; b]`, `unit` ⟶ `[]`: one group's domain back to one entry per source
     /// parameter.
-    let argSigOfParameters (parameters: FrozenType) : EqArray<FrozenType> =
+    let argSigOfParameters (parameters: FrozenType) : Block<FrozenType> =
         match parameters with
-        | FTUnit -> EqArray.empty
+        | FTUnit -> Block.empty
         | FTTuple items -> items
-        | single -> EqArray.singleton single
+        | single -> Block.singleton single
 
     /// `a * b` ⟶ `2`, `unit` ⟶ `0`: the same count, without building the flattening.
     let groupWidth (parameters: FrozenType) : int =
@@ -334,11 +335,11 @@ module ExternalSignature =
 
     /// `M: a * b -> r` ⟶ `[2]`, the curried `M: a -> b -> r` ⟶ `[1; 1]`: how many arguments
     /// each application consumes.
-    let argGroupWidths (s: ExternalSignature) : EqArray<int> = s.ArgGroups |> EqArray.map groupWidth
+    let argGroupWidths (s: ExternalSignature) : Block<int> = s.ArgGroups |> Block.map groupWidth
 
     /// Every group flattened in source order, so `a -> b * c -> r` ⟶ `[a; b; c]`: the member's
     /// .NET parameter vector, and the `ArgSig` its key interns.
-    let argSigOf (s: ExternalSignature) : EqArray<FrozenType> =
+    let argSigOf (s: ExternalSignature) : Block<FrozenType> =
         match s.ArgGroups.Length with
         | 1 -> argSigOfParameters s.ArgGroups.[0]
         | _ ->
@@ -347,7 +348,7 @@ module ExternalSignature =
             for g in s.ArgGroups do
                 flat.AddRange(argSigOfParameters g)
 
-            EqArray.ofResizeArray flat
+            Block.ofResizeArray flat
 
     /// The ONE .NET-tupled slot the groups compile to: `a -> b -> r` and `a * b -> r` both
     /// occupy `a * b`.
@@ -372,7 +373,7 @@ module ExternalSignature =
         ExternalSignature.make (
             declaringTyparArity,
             methodTyparArity,
-            tupledParams (EqArray.ofResizeArray ps),
+            tupledParams (Block.ofResizeArray ps),
             unitFrozen
         )
 
@@ -428,7 +429,7 @@ type ExternalMember =
     static member ctor
         (declKey: TypeKey)
         (signature: ExternalSignature)
-        (argSig: EqArray<FrozenType>)
+        (argSig: Block<FrozenType>)
         (origin: SymbolOrigin)
         (optionalDefaults: OptionalDefault list)
         : ExternalMember =
@@ -504,8 +505,8 @@ type ExternalClassShape =
         Commitment: ClassCommitment
         /// All public declared methods + properties whose signature maps; one whose
         /// parameter or return type does not (a pointer) is dropped, not faked.
-        Members: EqArray<ExternalMember>
-        FrozenInterfaces: EqArray<FrozenNominal>
+        Members: Block<ExternalMember>
+        FrozenInterfaces: Block<FrozenNominal>
         /// The declared base type; `ValueNone` for an interface and for `System.Object`.
         FrozenBaseType: FrozenNominal voption
         Flags: ExternalClassFlags
@@ -521,8 +522,8 @@ type ExternalClassShape =
         {
             Typars = typars
             Commitment = commitment
-            Members = EqArray.empty
-            FrozenInterfaces = EqArray.empty
+            Members = Block.empty
+            FrozenInterfaces = Block.empty
             FrozenBaseType = ValueNone
             Flags = ExternalClassFlags.Default
             Origin = origin
@@ -568,10 +569,10 @@ type IntrinsicClassSurface =
         BaseType: FrozenNominal voption
         /// The declared `interface <ty>` impls (`'T[]`'s is `seq<'T>`), written over the
         /// declaring typars. The target supplies each one; no Vesper code implements them.
-        Interfaces: EqArray<FrozenNominal>
+        Interfaces: Block<FrozenNominal>
         /// The contract `.ctor`s (`new: string -> exn`): the constructible surface both
         /// `new exn "…"` and `inherit exn(…)` check against.
-        Members: EqArray<ExternalMember>
+        Members: Block<ExternalMember>
     }
 
 /// An `extern` type whose sibling `.fs` carries `type x = (# "…" #)`. NON-transparent
@@ -610,8 +611,8 @@ type IntrinsicShape =
                     {
                         Heritable = true
                         BaseType = ValueNone
-                        Interfaces = EqArray.empty
-                        Members = EqArray.empty
+                        Interfaces = Block.empty
+                        Members = Block.empty
                     }
         }
 
@@ -634,7 +635,7 @@ module IntrinsicClassSurface =
                         match a.BaseType with
                         | ValueNone -> b.BaseType
                         | it -> it
-                    Interfaces = EqArray.append a.Interfaces b.Interfaces |> EqArray.distinct
+                    Interfaces = Block.append a.Interfaces b.Interfaces |> Block.distinct
                     // `.ctor`s are authored in ONE place, so a non-empty set is the whole set.
                     Members = if a.Members.IsEmpty then b.Members else a.Members
                 }
@@ -652,10 +653,10 @@ type IntrinsicInterfaceShape =
         /// an `IntrinsicPlatform`: a capability is minted only where its `.fs` binds the id.
         Platform: PlatformTypeId
         /// The abstract member surface (`Dispose`).
-        Members: EqArray<ExternalMember>
+        Members: Block<ExternalMember>
         /// The directly-inherited interfaces: `enumerator` inherits `disposable`. Empty for
         /// a capability that inherits none.
-        Interfaces: EqArray<FrozenNominal>
+        Interfaces: Block<FrozenNominal>
         Origin: SymbolOrigin
     }
 

@@ -2,6 +2,7 @@ namespace XParsec.FSharp.SemanticAnalysis.Passes
 
 open System.Collections.Generic
 open System.Collections.Immutable
+open Vesper
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
@@ -164,7 +165,7 @@ module internal UnificationInferPat =
             ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, ValueSome innerTy)
             innerTy
         | Pat.Tuple(patterns = pats) ->
-            let elemTys = EqArray.ofSeq (seq { for p in pats -> inferPat ctx p })
+            let elemTys = Block.ofSeq (seq { for p in pats -> inferPat ctx p })
             let tupleTy = TyTuple elemTys
             let nodeTv = freshTv ctx key
             ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, ValueSome tupleTy)

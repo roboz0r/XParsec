@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis.Passes
 
 open System.Collections.Generic
+open Vesper
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open NameResolutionTypeRegistration
@@ -77,7 +78,7 @@ module SignatureResolution =
             let env = scopedEnv ctx (TyparScope.Type key) info.TypeParams
 
             let fields =
-                EqArray.ofSeq
+                Block.ofSeq
                     [
                         for f in info.Fields ->
                             {
@@ -121,13 +122,13 @@ module SignatureResolution =
             let env = scopedEnv ctx (TyparScope.Type key) info.TypeParams
 
             let cases =
-                EqArray.ofSeq
+                Block.ofSeq
                     [
                         for c in info.Cases ->
                             {
                                 Name = c.Name
-                                FieldNames = EqArray.ofArray c.FieldNames
-                                FrozenFieldTypes = EqArray.ofSeq (seq { for t in c.Fields -> freezeOver ctx env t })
+                                FieldNames = Block.ofArray c.FieldNames
+                                FrozenFieldTypes = Block.ofSeq (seq { for t in c.Fields -> freezeOver ctx env t })
                             }
                             : ExternalCaseShape
                     ]
@@ -294,12 +295,12 @@ module SignatureResolution =
     /// The `.ctor`s of a heritable primitive, rebased: they are authored against the canon but
     /// EMIT against the platform class, so only the declaring key moves; the signature stays
     /// canon.
-    let private platformCtors (platform: IntrinsicPlatform) (members: ExternalMember list) : EqArray<ExternalMember> =
+    let private platformCtors (platform: IntrinsicPlatform) (members: ExternalMember list) : Block<ExternalMember> =
         match platform with
         | IntrinsicPlatform.Bound typeId ->
             let platformDecl = SymbolKeyOps.qualifiedTypeKeyOf typeId.Value 0
 
-            EqArray.ofList
+            Block.ofList
                 [
                     for m in members do
                         if m.Name = ".ctor" then
@@ -307,7 +308,7 @@ module SignatureResolution =
                                 Key = { m.Key with Decl = platformDecl }
                             }
                 ]
-        | IntrinsicPlatform.Unsupported _ -> EqArray.empty
+        | IntrinsicPlatform.Unsupported _ -> Block.empty
 
     /// The shape a CAPABILITY publishes: it IS the interface, canon'd on its own identity,
     /// with the platform spelling beside it where the target binds one. Nominal either way —
@@ -355,8 +356,8 @@ module SignatureResolution =
                 {
                     Heritable = true
                     BaseType = ValueNone
-                    Interfaces = EqArray.empty
-                    Members = EqArray.empty
+                    Interfaces = Block.empty
+                    Members = Block.empty
                 }
         | ValueSome s ->
             ValueSome
@@ -379,7 +380,7 @@ module SignatureResolution =
                     Heritable = false
                     BaseType = ValueNone
                     Interfaces = s.Shape.FrozenInterfaces
-                    Members = EqArray.empty
+                    Members = Block.empty
                 }
 
     /// The shape a PRIMITIVE `extern` publishes: its intrinsic identity, under which a use site
@@ -656,7 +657,7 @@ module SignatureResolution =
                 let typeParams = mkMethodTypars ctx.Store (explicit @ implicit)
 
                 let domains, ret =
-                    underTypars ctx EqArray.empty typeParams (fun () -> translateSigGroups ctx csig)
+                    underTypars ctx Block.empty typeParams (fun () -> translateSigGroups ctx csig)
 
                 let env =
                     scopedEnv ctx (TyparScope.ModuleFunction(SymbolKeyOps.bindingKeyOf decl name)) typeParams
@@ -666,7 +667,7 @@ module SignatureResolution =
                 let generics =
                     underTypars
                         ctx
-                        EqArray.empty
+                        Block.empty
                         typeParams
                         (fun () ->
                             publishedScheme

@@ -2,6 +2,7 @@ namespace XParsec.FSharp.SemanticAnalysis.Passes
 
 open System.Collections.Generic
 open System.Collections.Immutable
+open Vesper
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open UnificationEngineCore
@@ -108,7 +109,7 @@ module NameResolutionMemberRegistration =
             let name = id.Name
             let declKey = id.DeclSite.Key
             let typeParams = declaredTyparsOfTypeName ctx tn
-            let classTyparNames = EqArray.toList (DeclaredTypar.names typeParams)
+            let classTyparNames = Block.toList (DeclaredTypar.names typeParams)
 
             // One entry into the class typar scope, so a `'a` in a ctor param, a `val` field
             // or a secondary ctor's parameter all bind the same prototype TyVar.
@@ -305,8 +306,8 @@ module NameResolutionMemberRegistration =
     /// union or record; must run after the type itself is registered. The extraction is
     /// kind-agnostic, so only the write-back target differs and each arm sets its own `info`.
     let private registerNominalMember (ctx: PassContext) (id: TypeIdentity) (td: TypeDefn<SyntaxToken>) : unit =
-        let extract (typeParams: EqArray<DeclaredTypar>) elems : TypeBodyMembers =
-            let typarNames = EqArray.toList (DeclaredTypar.names typeParams)
+        let extract (typeParams: Block<DeclaredTypar>) elems : TypeBodyMembers =
+            let typarNames = Block.toList (DeclaredTypar.names typeParams)
 
             underTyparScope
                 ctx

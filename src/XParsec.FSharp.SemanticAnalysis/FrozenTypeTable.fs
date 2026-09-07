@@ -2,6 +2,7 @@ namespace XParsec.FSharp.SemanticAnalysis
 
 open System.Collections.Generic
 open System.Collections.Immutable
+open Vesper
 
 // THE TABLES ARE PER FILE: every id is a row index into ONE file's own tables, so an id from
 // another file's blob identifies a DIFFERENT, valid row rather than a missing one. Nothing ever
@@ -85,7 +86,7 @@ type MemberKeyRow =
     {
         Decl: TypeKeyId
         Name: StrId
-        ArgSig: EqArray<TypeId>
+        ArgSig: Block<TypeId>
         MethodTyparArity: int
         Kind: MemberKindRow
     }
@@ -137,12 +138,12 @@ type TyparScopeRow =
 /// `EqSet` so `A|B` and `B|A` intern to one row, insertion order keeping the declared order.
 [<RequireQualifiedAccess>]
 type TypeRow =
-    | Const of key: TypeKeyId * args: EqArray<TypeId>
+    | Const of key: TypeKeyId * args: Block<TypeId>
     | Fun of arg: TypeId * result: TypeId
-    | Tuple of items: EqArray<TypeId>
-    | Record of key: TypeKeyId * args: EqArray<TypeId>
-    | Union of key: TypeKeyId * args: EqArray<TypeId>
-    | Class of key: TypeKeyId * args: EqArray<TypeId>
+    | Tuple of items: Block<TypeId>
+    | Record of key: TypeKeyId * args: Block<TypeId>
+    | Union of key: TypeKeyId * args: Block<TypeId>
+    | Class of key: TypeKeyId * args: Block<TypeId>
     | Enum of key: TypeKeyId
     | Or of members: EqSet<TypeId>
     | Literal of value: LiteralRow
@@ -152,7 +153,7 @@ type TypeRow =
     | Typar of scope: TyparScopeRow * index: int
     | Unknown of reason: UnknownReasonRow
     /// The term's normalised atoms in `MeasureTerm.Exponents` order.
-    | Measure of atoms: EqArray<MeasureAtomRow>
+    | Measure of atoms: Block<MeasureAtomRow>
 
 /// Two entries drawn from one declaring file carry the same pair and intern to one row.
 type FilePathRow = { Assembly: StrId; Relative: StrId }
@@ -163,7 +164,7 @@ type FilePathRow = { Assembly: StrId; Relative: StrId }
 type FrozenTypeRows =
     {
         Strings: ImmutableArray<string>
-        Namespaces: ImmutableArray<EqArray<StrId>>
+        Namespaces: ImmutableArray<Block<StrId>>
         Modules: ImmutableArray<ModuleRow>
         TypeKeys: ImmutableArray<TypeKeyRow>
         Bindings: ImmutableArray<BindingKeyRow>
@@ -236,7 +237,7 @@ module private Materialise =
 [<Sealed>]
 type FrozenTypeTableBuilder private (rows: FrozenTypeRows) =
     let strings = RowTable<string, StrId>(StrId, rows.Strings)
-    let namespaces = RowTable<EqArray<StrId>, NamespaceId>(NamespaceId, rows.Namespaces)
+    let namespaces = RowTable<Block<StrId>, NamespaceId>(NamespaceId, rows.Namespaces)
     let modules = RowTable<ModuleRow, ModuleId>(ModuleId, rows.Modules)
     let typeKeys = RowTable<TypeKeyRow, TypeKeyId>(TypeKeyId, rows.TypeKeys)
     let bindings = RowTable<BindingKeyRow, BindingKeyId>(BindingKeyId, rows.Bindings)
@@ -257,7 +258,7 @@ type FrozenTypeTableBuilder private (rows: FrozenTypeRows) =
             }
 
     let namespaceKey (ns: NamespaceKey) =
-        namespaces.Intern(EqArray.map str ns.Path)
+        namespaces.Intern(Block.map str ns.Path)
 
     let rec moduleContainer (h: ModuleContainer) : ModuleContainerRow =
         match h with
@@ -322,7 +323,7 @@ type FrozenTypeTableBuilder private (rows: FrozenTypeRows) =
         | UnknownReason.ArityMismatch -> UnknownReasonRow.ArityMismatch
         | UnknownReason.NoValueType -> UnknownReasonRow.NoValueType
 
-    let rec args (xs: EqArray<FrozenType>) : EqArray<TypeId> = EqArray.map frozenType xs
+    let rec args (xs: Block<FrozenType>) : Block<TypeId> = Block.map frozenType xs
 
     and frozenType (t: FrozenType) : TypeId =
         types.Intern(
@@ -352,7 +353,7 @@ type FrozenTypeTableBuilder private (rows: FrozenTypeRows) =
             | FTUnknown reason -> TypeRow.Unknown(unknownReason reason)
             | FTMeasure units ->
                 TypeRow.Measure(
-                    EqArray.ofList
+                    Block.ofList
                         [
                             for (atom, exponent) in units.Exponents ->
                                 {
@@ -451,7 +452,7 @@ type FrozenTypeTable private (rows: FrozenTypeRows, view: FrozenType -> FrozenTy
             i
             (fun () ->
                 {
-                    Path = EqArray.map str rows.Namespaces.[i]
+                    Path = Block.map str rows.Namespaces.[i]
                 }
             )
 
@@ -534,7 +535,7 @@ type FrozenTypeTable private (rows: FrozenTypeRows, view: FrozenType -> FrozenTy
         | UnknownReasonRow.ArityMismatch -> UnknownReason.ArityMismatch
         | UnknownReasonRow.NoValueType -> UnknownReason.NoValueType
 
-    let rec args (xs: EqArray<TypeId>) : EqArray<FrozenType> = EqArray.map frozenType xs
+    let rec args (xs: Block<TypeId>) : Block<FrozenType> = Block.map frozenType xs
 
     // Rebuilt DIRECTLY, never through a normalising constructor (one that flattens / dedupes
     // / collapses): the interned row is already canonical, and normalising here would make

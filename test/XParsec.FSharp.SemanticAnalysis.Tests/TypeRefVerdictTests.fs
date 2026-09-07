@@ -1,5 +1,6 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.TypeRefVerdictTests
 
+open Vesper
 open Expecto
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
@@ -226,7 +227,7 @@ let tests =
                 // `SemType.TyClass`, not TestHelpers' string-keyed `TyClass` shim — the KEY
                 // the resolver minted, not a name.
                 let expected =
-                    SemType.TyClass(SymbolKeyOps.qualifiedTypeKeyOf "Tests.Widget" 0, EqArray.empty)
+                    SemType.TyClass(SymbolKeyOps.qualifiedTypeKeyOf "Tests.Widget" 0, Block.empty)
 
                 Expect.equal
                     (typeOf ctx patKey)

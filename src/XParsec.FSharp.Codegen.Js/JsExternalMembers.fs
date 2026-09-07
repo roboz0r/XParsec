@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.Codegen.Js
 
+open Vesper
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
@@ -235,7 +236,7 @@ module JsExternalMembers =
     let private etaWrapMember
         (build: TastAccessor.ExprId -> JsExpr)
         (objArg: TastAccessor.ExprId)
-        (widths: EqArray<int>)
+        (widths: Block<int>)
         (callee: JsExpr -> JsExpr list -> JsExpr)
         (pool: PoolBuilder)
         (loc: JsLoc voption)
@@ -271,7 +272,7 @@ module JsExternalMembers =
     let etaWrapAttachedMethod
         (build: TastAccessor.ExprId -> JsExpr)
         (objArg: TastAccessor.ExprId)
-        (widths: EqArray<int>)
+        (widths: Block<int>)
         (memberName: string)
         (pool: PoolBuilder)
         (loc: JsLoc voption)
@@ -290,7 +291,7 @@ module JsExternalMembers =
     let etaWrapApplication
         (build: TastAccessor.ExprId -> JsExpr)
         (objArg: TastAccessor.ExprId)
-        (widths: EqArray<int>)
+        (widths: Block<int>)
         (pool: PoolBuilder)
         (loc: JsLoc voption)
         : JsExpr =

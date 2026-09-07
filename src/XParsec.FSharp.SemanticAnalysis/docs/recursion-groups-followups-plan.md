@@ -64,7 +64,7 @@ group, which is the first client `brainstorm-tarjan-scc.md` lists.
   classified as today. A new node, `TExprG.LetGroup of members * components * body` and
   `TDeclG.LetGroup of members * components`, describes one lexical `let rec … and …` group.
   `members` are the bindings in source order, each a record of pattern, value and binding
-  token. `components: EqArray<EqArray<int>>` partitions the member indices into strongly
+  token. `components: Block<Block<int>>` partitions the member indices into strongly
   connected components in reverse topological order. Every member index appears in exactly
   one component, checked at construction. A group identity on `Let` was rejected: the pool
   walk, the JS block lowering, the CLR back-patch and `walkFreeRefs` would each re-derive the
@@ -136,11 +136,11 @@ both backends inherit it.
   built and then dropped — no client holds flat arrays, and it carried the whole `xadj`
   validation surface. Ascending, distinct successors make `Digraph.HasSelfEdge` a binary
   search.
-- `Scc.compute : Digraph -> SccPartition`, with `Components: EqArray<SccComponent>` in reverse
+- `Scc.compute : Digraph -> SccPartition`, with `Components: Block<SccComponent>` in reverse
   topological order and `ComponentIndex` per node, which orders the components it indexes.
   `SccPartition.ComponentOf node` takes both hops, so no consumer spells the composition and
   indexing `Components` by a node cannot be written. `SccComponent` is
-  `Cycle of members: EqArray<int> | Acyclic of node: int`, so a component states whether its
+  `Cycle of members: Block<int> | Acyclic of node: int`, so a component states whether its
   members are recursive and `Scc.isRecursive` is a match. The brainstorm's per-node self-edge
   array was dropped: a self-edge only ever decides a singleton, and a multi-member component is
   recursive regardless.

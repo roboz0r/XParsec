@@ -3,6 +3,7 @@
 open System.Collections.Generic
 open System.Reflection.Metadata
 open System.Reflection.Metadata.Ecma335
+open Vesper
 open XParsec.FSharp.SemanticAnalysis
 open EmitTypes
 open EmitLower
@@ -68,7 +69,7 @@ module EmitMember =
         (objArg: TastAccessor.ExprId)
         (objArgTy: FrozenType)
         (handle: EntityHandle)
-        (args: EqArray<TastAccessor.ExprId>)
+        (args: Block<TastAccessor.ExprId>)
         (result: CallResult)
         : unit =
         let isStructSelf =
@@ -101,8 +102,8 @@ module EmitMember =
         (b: IlBuilder)
         (objArg: TastAccessor.ExprId)
         (key: SymbolKey)
-        (ifaceArgs: EqArray<FrozenType>)
-        (args: EqArray<TastAccessor.ExprId>)
+        (ifaceArgs: Block<FrozenType>)
+        (args: Block<TastAccessor.ExprId>)
         (ty: FrozenType)
         (result: CallResult)
         : unit =
@@ -131,7 +132,7 @@ module EmitMember =
                     env
                     iface.Typars
                     ifaceKey
-                    (EqArray.toList ifaceArgs)
+                    (Block.toList ifaceArgs)
                     (UserMemberKind.Member(m.MetaName, false, m.MethodTyparCount, m.ParamTys, m.RetTy))
                     m.Handle
             | false, _ ->
@@ -214,7 +215,7 @@ module EmitMember =
             // A property read through an interface-constrained typar (`this.Source.Current`)
             // is a 0-argument constrained access; the slot is the interface's `get_<name>`.
             let ty = TastAccessor.exprTy e
-            emitConstrainedInterfaceCall recur env b objArg key ifaceArgs EqArray.empty ty CallResult.Value
+            emitConstrainedInterfaceCall recur env b objArg key ifaceArgs Block.empty ty CallResult.Value
         | via ->
             let objArgNominal = nominalOfExpr objArg
             // A property is never a generic method and takes no arguments, so the resolved
@@ -223,7 +224,7 @@ module EmitMember =
             let handle, _ = resolveInstanceMember env objArgNominal memberName []
             let objArgTy = FrozenNominal.ty objArgNominal
             // A property get is never `unit`-returning.
-            emitInstanceMember recur env b via objArg objArgTy handle EqArray.empty CallResult.Value
+            emitInstanceMember recur env b via objArg objArgTy handle Block.empty CallResult.Value
 
     let buildMethodCall (recur: Recur) (pos: ExprPos) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         let view = TastAccessor.exprMethodCall e
@@ -263,7 +264,7 @@ module EmitMember =
         let key = TastAccessor.exprStaticPropertyGetKey e
         let declArgs = TastAccessor.exprStaticDeclArgs e
         let ty = TastAccessor.exprTy e
-        let handle = resolveStaticMember env key (EqArray.toList declArgs) []
+        let handle = resolveStaticMember env key (Block.toList declArgs) []
         b.Add(ILInstr.Call(handle, 0, 1))
 
     let buildStaticFieldGet (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
@@ -316,7 +317,7 @@ module EmitMember =
         let handle =
             if isLocal then
                 let declArgs = TastAccessor.exprStaticDeclArgs e
-                resolveStaticMember env key (EqArray.toList declArgs) [ for a in args -> typeOfExpr a ]
+                resolveStaticMember env key (Block.toList declArgs) [ for a in args -> typeOfExpr a ]
             else
                 // Reconstruct the member's .NET-tupled signature from the pushed args + result,
                 // so the ref can recover `Set<int>` from `op_Addition`'s open `Set<!0>`.
@@ -326,7 +327,7 @@ module EmitMember =
                     match argTys with
                     | [] -> RuntimeNames.unitTy
                     | [ single ] -> single
-                    | many -> FTTuple(EqArray.ofList many)
+                    | many -> FTTuple(Block.ofList many)
 
                 env.Provider.ExternalMemberRef(key, false, true, FTFun(paramTy, ty))
         // Obj-parameter boxes are explicit `Upcast` nodes from Elaborate; push raw.

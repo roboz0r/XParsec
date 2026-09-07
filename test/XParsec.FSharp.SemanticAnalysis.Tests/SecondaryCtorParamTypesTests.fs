@@ -1,5 +1,6 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.SecondaryCtorParamTypesTests
 
+open Vesper
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
@@ -19,7 +20,7 @@ let private secondaryCtorParamTypes (tast: TastFile) : SemType list =
 
     let typeDecl =
         tast.Decls
-        |> EqArray.toList
+        |> Block.toList
         |> List.tryPick (
             function
             | TDecl.Type t -> Some t
@@ -29,8 +30,8 @@ let private secondaryCtorParamTypes (tast: TastFile) : SemType list =
 
     match typeDecl.Kind with
     | TTypeKind.Class c ->
-        match EqArray.toList c.SecondaryCtors with
-        | [ sc ] -> sc.Params |> EqArray.toList |> List.map snd
+        match Block.toList c.SecondaryCtors with
+        | [ sc ] -> sc.Params |> Block.toList |> List.map snd
         | other -> failwithf "expected exactly one secondary ctor, got %d" other.Length
     | other -> failtestf "expected TTypeKind.Class, got %A" other
 

@@ -1,5 +1,6 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.TastPoolBuilderTests
 
+open Vesper
 open Expecto
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
@@ -12,7 +13,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 /// The value expr of the file's first `Let` decl, as a DU node — a real frozen subtree to
 /// hand a mint site, and (with its root's `DeclExprChildren`) its base pool id.
 let private firstLetValue (frozen: Pooled.TastFile) : Pooled.TExpr =
-    EqArray.toArray frozen.Decls
+    Block.toArray frozen.Decls
     |> Array.pick (fun d ->
         match d with
         | TDeclG.Let(binding = { Value = value }) -> Some value
@@ -76,7 +77,7 @@ let private checkBaseIdsResolve (pools: FrozenPools) (b: PoolBuilder) =
 /// variable keys are the builder's), so two unpools are directly comparable.
 let private unpoolRoots (b: PoolBuilder) : Wire.TDecl[] =
     TastPoolBuilder.roots b
-    |> EqArray.toArray
+    |> Block.toArray
     |> Array.map (fun r -> (TastPoolBuilder.unpoolDecl b r).Decl)
 
 // Programs spanning the domains the stack has to keep straight: a bound variable reference across
@@ -160,7 +161,7 @@ let appendTests =
                 // `let y = x`'s value is the `Var` referencing `x`'s bound variable — a reference the
                 // overlay must resolve into the BASE bound variable pool rather than mint anew.
                 let varDu =
-                    EqArray.toArray frozen.Decls
+                    Block.toArray frozen.Decls
                     |> Array.pick (fun d ->
                         match d with
                         | TDeclG.Let(binding = { Value = TExprG.Var _ as value }) -> Some value
@@ -238,7 +239,7 @@ let rowCopyTests =
         [
             test "substituted children rebuild into the expected tree" {
                 let pools, frozen = poolsFor "let p = (1, 2)\n"
-                Expect.equal (EqArray.toArray frozen.Decls).Length 1 "one decl"
+                Expect.equal (Block.toArray frozen.Decls).Length 1 "one decl"
 
                 let b = TastPoolBuilder.openOver pools
                 let root = pools.Roots.[0]
@@ -295,7 +296,7 @@ let rowCopyTests =
                         isInline = isInline
                         isRec = isRec) ->
                         let reversed =
-                            TExprG.Tuple(items |> EqArray.toArray |> Array.rev |> EqArray.ofArray, ty, tok)
+                            TExprG.Tuple(items |> Block.toArray |> Array.rev |> Block.ofArray, ty, tok)
 
                         TDeclG.Let({ binding with Value = reversed }, isInline, isRec)
                     | _ -> failtest "the decl is not a `let` over a Tuple"

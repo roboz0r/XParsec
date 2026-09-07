@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+open Vesper
 open XParsec.FSharp.Parser
 
 // The UNIT-level TAST: what a whole compiled file carries. No trivia, parens or token
@@ -10,7 +11,7 @@ open XParsec.FSharp.Parser
 type TInlineBodyG<'ty, 'tok, 'id> =
     {
         Decl: TDeclG<'ty, 'tok, 'id>
-        ParamAttrs: EqArray<ParamAttrs>
+        ParamAttrs: Block<ParamAttrs>
     }
 
 type TInlineValueG<'ty, 'tok, 'id> =
@@ -24,7 +25,7 @@ type TInlineValueG<'ty, 'tok, 'id> =
 type SpecializationKeyG<'ty> =
     {
         Template: SymbolKey
-        TypeArgs: EqArray<'ty>
+        TypeArgs: Block<'ty>
     }
 
 /// One entry of a file's specialization table, addressed by the `SpecializationId` an
@@ -54,7 +55,7 @@ type TastFileG<'ty, 'tok, 'id when 'id: comparison> =
     {
         /// Source order, every module-level declaration, `inline` bindings INCLUDED, since
         /// one is emitted as an ordinary module function as well as spliced.
-        Decls: EqArray<TDeclG<'ty, 'tok, 'id>>
+        Decls: Block<TDeclG<'ty, 'tok, 'id>>
         /// A diagnostic of error severity means the TAST is best-effort, not safe to emit from.
         Diagnostics: XParsec.FSharp.SemanticAnalysis.Diagnostic list
         /// This file's OWN intrinsics: the `SymbolKey` of a `type x = (# "…" #)` abbrev →
@@ -89,11 +90,11 @@ type TastFileG<'ty, 'tok, 'id when 'id: comparison> =
         /// The file's INLINE VOCABULARY: every `let inline` binding and every
         /// nullary-intrinsic value alias (`let undefined = (# "undefined" #)`), as the
         /// UNEXPANDED body, a different tree from the decl of the same name. Empty pre-freeze.
-        InlineBodies: EqArray<TInlineValueG<'ty, 'tok, 'id>>
+        InlineBodies: Block<TInlineValueG<'ty, 'tok, 'id>>
         /// One entry per distinct (template, type-arguments) grounding this file's call
         /// sites reached. Resolved against THIS file's operand types, so it is consumed by
         /// the backends rather than exported.
-        Specializations: EqArray<TSpecializationG<'ty, 'tok, 'id>>
+        Specializations: Block<TSpecializationG<'ty, 'tok, 'id>>
         /// Declared accessibility of each top-level entity (type / module value / inline
         /// value); a key ABSENT here is `Public`. A type MEMBER's is stored on the member itself.
         Accessibility: EqDict<SymbolKey, Accessibility>

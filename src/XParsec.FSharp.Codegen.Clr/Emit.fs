@@ -3,6 +3,7 @@ namespace XParsec.FSharp.Codegen.Clr
 open System.Collections.Generic
 open System.Reflection.Metadata
 open System.Reflection.Metadata.Ecma335
+open Vesper
 open XParsec.FSharp.SemanticAnalysis
 open EmitTypes
 open EmitPattern
@@ -176,7 +177,7 @@ module Emit =
         (selfValueTy: FrozenType voption)
         (thisKey: BoundVarKeyG<BoundVarId> voption)
         (baseKey: BoundVarKeyG<BoundVarId> voption)
-        (prms: EqArray<BoundVarKeyG<BoundVarId> * FrozenType>)
+        (prms: Block<BoundVarKeyG<BoundVarId> * FrozenType>)
         (voidReturn: bool)
         (body: TastAccessor.ExprId)
         : ILBody =
@@ -199,7 +200,7 @@ module Emit =
         | ValueNone -> ()
 
         prms
-        |> EqArray.iteri (fun i (k, _) -> args.[BoundVarKey.identity k] <- baseIdx + i)
+        |> Block.iteri (fun i (k, _) -> args.[BoundVarKey.identity k] <- baseIdx + i)
         // `this` as `SelfKey` too, so the struct `this`-pointer path recognises a self-call:
         // `ldarg.0` is already the byref `this` and must be loaded directly, because spilling
         // it to a value temp copies the struct and a mutating self-call would not persist.
@@ -217,14 +218,14 @@ module Emit =
     /// Self::.ctor`). No base-ctor call, because the primary performs it.
     let buildSecondaryCtor
         (ctx: EmitContext)
-        (prms: EqArray<BoundVarKeyG<BoundVarId> * FrozenType>)
+        (prms: Block<BoundVarKeyG<BoundVarId> * FrozenType>)
         (lets: TastAccessor.CtorLet list)
         (primaryCtor: EntityHandle)
         (primaryArgs: TastAccessor.ExprId list)
         : ILBody =
         let b = IlBuilder()
         let args = Dictionary<BoundVarId, int>()
-        prms |> EqArray.iteri (fun i (k, _) -> args.[BoundVarKey.identity k] <- 1 + i)
+        prms |> Block.iteri (fun i (k, _) -> args.[BoundVarKey.identity k] <- 1 + i)
         let env = EmitEnv.ofContext ctx args
 
         for l in lets do
@@ -247,13 +248,13 @@ module Emit =
     /// source order. NO primary chain, so unlisted fields stay zero-initialised.
     let buildSecondaryCtorFieldInit
         (ctx: EmitContext)
-        (prms: EqArray<BoundVarKeyG<BoundVarId> * FrozenType>)
+        (prms: Block<BoundVarKeyG<BoundVarId> * FrozenType>)
         (lets: TastAccessor.CtorLet list)
         (fieldInits: (EntityHandle * TastAccessor.ExprId) list)
         : ILBody =
         let b = IlBuilder()
         let args = Dictionary<BoundVarId, int>()
-        prms |> EqArray.iteri (fun i (k, _) -> args.[BoundVarKey.identity k] <- 1 + i)
+        prms |> Block.iteri (fun i (k, _) -> args.[BoundVarKey.identity k] <- 1 + i)
         let env = EmitEnv.ofContext ctx args
 
         for l in lets do

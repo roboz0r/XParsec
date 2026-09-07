@@ -1,5 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+open Vesper
+
 [<Measure>]
 type tyVarId
 
@@ -36,14 +38,14 @@ type SymbolHome =
 /// prefix relations are segment-list tests. The EMPTY path IS the global namespace.
 type NamespaceKey =
     {
-        Path: EqArray<string>
+        Path: Block<string>
     }
 
     /// The dotted rendering (`"System.Collections"`; `""` for the global namespace), a
     /// BOUNDARY projection only. Identity comparisons use the segmented `Path`.
     member this.Dotted: string = System.String.Join(".", this.Path)
 
-    static member Global = { Path = EqArray.empty }
+    static member Global = { Path = Block.empty }
 
 /// Also what holds a `BindingKey`, where `InNamespace` means the binding has NO declaring
 /// module: a TOP-LEVEL `let`, or a flat package's export. No CLR type corresponds to it.
@@ -408,9 +410,9 @@ module ModuleDeclaration =
     /// An `open` of a module path is refused when ANY declaration of the path carries
     /// `[<RequireQualifiedAccess>]`. `CompiledName` and `IsAutoOpen` take no such fold: each
     /// states a fact of its own declaration, which a reader selects rather than merges.
-    let anyRefusesOpen (declarations: EqArray<ModuleDeclaration>) : bool =
+    let anyRefusesOpen (declarations: Block<ModuleDeclaration>) : bool =
         declarations
-        |> EqArray.exists (fun declaration -> declaration.Facts.RequiresQualifiedAccess)
+        |> Block.exists (fun declaration -> declaration.Facts.RequiresQualifiedAccess)
 
 /// A PLACE (assembly + namespace): enough to mint a ref without re-resolving. A symbol's
 /// declaring type is not here; containment is the key's job.

@@ -3,6 +3,7 @@
 open System.Collections.Generic
 open System.Reflection.Metadata
 open System.Reflection.Metadata.Ecma335
+open Vesper
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.SemanticAnalysis
 open EmitTypes
@@ -66,7 +67,7 @@ module EmitPattern =
 
     let tupleElemTys (ty: FrozenType) : FrozenType list =
         match ty with
-        | FTTuple xs -> EqArray.toList xs
+        | FTTuple xs -> Block.toList xs
         | other -> failwithf "Emit: expected a tuple type, got: %A" other
 
     /// Read element `index` of a `ValueTuple` already on the stack. Arity ≤ 7 is one
@@ -201,7 +202,7 @@ module EmitPattern =
             let caseTyToken =
                 c.CaseType
                 |> ValueOption.map (fun caseKey ->
-                    let ty = FTClass(caseKey, EqArray.ofList tyArgs)
+                    let ty = FTClass(caseKey, Block.ofList tyArgs)
                     ty, env.Provider.TypeToken ty
                 )
 
@@ -319,7 +320,7 @@ module EmitPattern =
                              RuntimeNames.objKey
                          else
                              RuntimeNames.stringKey),
-                        EqArray.empty
+                        Block.empty
                     )
 
                 let pushLit =

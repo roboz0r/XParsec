@@ -1,5 +1,6 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.FrozenConstraintTests
 
+open Vesper
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
@@ -127,15 +128,15 @@ let tests =
             test "a trait on a typar at or past the arity is refused" {
                 let trait_: MemberTrait =
                     {
-                        TyparIndices = EqArray.singleton 1
+                        TyparIndices = Block.singleton 1
                         MemberName = "op_Addition"
-                        ArgTypes = EqArray.empty
+                        ArgTypes = Block.empty
                         ReturnType = RuntimeNames.intTy
                     }
 
                 Expect.throws
                     (fun () ->
-                        FunctionScheme.create (TyparList.positional 1) (EqArray.singleton trait_)
+                        FunctionScheme.create (TyparList.positional 1) (Block.singleton trait_)
                         |> ignore
                     )
                     "trait index past the arity"
@@ -159,7 +160,7 @@ type IShape =
 """
 
 let private typeDeclOf (pools: FrozenPools) (name: string) : Pooled.TTypeDecl =
-    EqArray.toList (TastUnpool.ofPools pools).Decls
+    Block.toList (TastUnpool.ofPools pools).Decls
     |> List.pick (
         function
         | TDeclG.Type td when td.Name = name -> Some td
@@ -167,9 +168,7 @@ let private typeDeclOf (pools: FrozenPools) (name: string) : Pooled.TTypeDecl =
     )
 
 let private memberOf (td: Pooled.TTypeDecl) (name: string) : Pooled.TTypeMember =
-    TTypeKindG.members td.Kind
-    |> EqArray.toList
-    |> List.find (fun m -> m.Name = name)
+    TTypeKindG.members td.Kind |> Block.toList |> List.find (fun m -> m.Name = name)
 
 [<Tests>]
 let declTests =
@@ -217,7 +216,7 @@ let declTests =
                 match td.Kind with
                 | TTypeKindG.Interface methods ->
                     Expect.equal
-                        (EqArray.toList methods |> List.map (fun m -> constraintsOf m.MethodTypars))
+                        (Block.toList methods |> List.map (fun m -> constraintsOf m.MethodTypars))
                         [ [ [ TyparConstraintKindG.ReferenceType ] ] ]
                         "slot constraint"
                 | _ -> failtest "IShape is not an interface"
@@ -240,13 +239,14 @@ let declTests =
 
 /// The frozen type of the module binding named `name`.
 let private declTypeOf (pools: FrozenPools) (name: string) : FrozenType =
-    EqArray.toList (TastUnpool.ofPools pools).Decls
+    Block.toList (TastUnpool.ofPools pools).Decls
     |> List.pick (
         function
-        | TDeclG.Let({ Pattern = TPatG.NamedSimple(BoundVarId b, _, _, _) } as m, _, _) when
-            pools.BoundVarNames.[b] = name
-            ->
-            Some m.Ty
+        | TDeclG.Let({
+                         Pattern = TPatG.NamedSimple(BoundVarId b, _, _, _)
+                     } as m,
+                     _,
+                     _) when pools.BoundVarNames.[b] = name -> Some m.Ty
         | _ -> None
     )
 
@@ -291,7 +291,7 @@ let fscParityTests =
                 // TFunc = 0, T = 1, U = 2, S = 3, E = 4.
                 match mapSeq with
                 | FTRecord(_, args) ->
-                    Expect.equal (EqArray.toList args) [ at 3; at 4; at 0; at 1; at 2 ] "MapSeq<'S, 'E, 'TFunc, 'T, 'U>"
+                    Expect.equal (Block.toList args) [ at 3; at 4; at 0; at 1; at 2 ] "MapSeq<'S, 'E, 'TFunc, 'T, 'U>"
                 | other -> failtestf "map does not return a record: %A" other
             }
 
@@ -304,7 +304,7 @@ let fscParityTests =
                 match constraintsOf scheme.Typars with
                 | [ [ TyparConstraintKindG.Coercion(FTClass(key, args)) ] ] ->
                     Expect.equal key.Name "IBox" "one coercion remains"
-                    Expect.equal (EqArray.toList args) [ RuntimeNames.intTy ] "at IBox<int>"
+                    Expect.equal (Block.toList args) [ RuntimeNames.intTy ] "at IBox<int>"
                 | other -> failtestf "unexpected constraints %A" other
             }
         ]

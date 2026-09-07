@@ -1,5 +1,6 @@
 module XParsec.FSharp.Codegen.Clr.Tests.MetadataSymbolsTests
 
+open Vesper
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
@@ -57,7 +58,7 @@ let tests =
             test "the Class shape eagerly publishes the type's members" {
                 match typeShape eqComparer with
                 | ValueSome(ExternalTypeShape.Class info) ->
-                    let names = info.Members |> EqArray.map (fun m -> m.Name) |> Set.ofSeq
+                    let names = info.Members |> Block.map (fun m -> m.Name) |> Set.ofSeq
                     Expect.isTrue (Set.contains "Default" names) "Default property is enumerated"
                     Expect.isTrue (Set.contains "GetHashCode" names) "GetHashCode method is enumerated"
 
@@ -74,7 +75,7 @@ let tests =
                         ExternalSymbols.instantiateInterfaces
                             (MeasuredThaw.noneOver (TypeStore()))
                             info
-                            [| TyConst(RuntimeNames.intKey, EqArray.empty) |]
+                            [| TyConst(RuntimeNames.intKey, Block.empty) |]
                         |> Array.choose (fun ty ->
                             match RuntimeNames.interfaceNominal ty with
                             | ValueSome(struct (k, _)) -> Some(SymbolKeyOps.typeMetaName k)
@@ -137,7 +138,7 @@ let tests =
                         ExternalSymbols.instantiateSignature
                             (MeasuredThaw.noneOver (TypeStore()))
                             m
-                            [| TyConst(RuntimeNames.intKey, EqArray.empty) |]
+                            [| TyConst(RuntimeNames.intKey, Block.empty) |]
                             0
                     with
                     | TyClass(key, args) when
@@ -164,7 +165,7 @@ let tests =
                         ExternalSymbols.instantiateSignature
                             (MeasuredThaw.noneOver (TypeStore()))
                             m
-                            [| TyConst(RuntimeNames.intKey, EqArray.empty) |]
+                            [| TyConst(RuntimeNames.intKey, Block.empty) |]
                             0
                     with
                     | TyFun(TyConst(k1, _), TyConst(k2, _)) when
@@ -196,7 +197,7 @@ let tests =
                 // every member's signature instantiating without throwing.
                 match typeShape "System.Collections.Generic.List`1" with
                 | ValueSome(ExternalTypeShape.Class info) ->
-                    let intArg = [| TyConst(RuntimeNames.intKey, EqArray.empty) |]
+                    let intArg = [| TyConst(RuntimeNames.intKey, Block.empty) |]
 
                     // Interfaces: `IEnumerable<int>` once `'T := int` is substituted.
                     let enumerableKey =
@@ -212,8 +213,8 @@ let tests =
                     with
                     | Some args ->
                         Expect.equal
-                            (EqArray.toArray args)
-                            [| TyConst(RuntimeNames.intKey, EqArray.empty) |]
+                            (Block.toArray args)
+                            [| TyConst(RuntimeNames.intKey, Block.empty) |]
                             "IEnumerable<int> after 'T := int"
                     | None -> failtest "List<int> should implement IEnumerable<int>"
 
@@ -402,7 +403,7 @@ let tests =
 
                 let names =
                     provider.TryLookupAttributes(SymbolKey.Type key)
-                    |> EqArray.map (fun a -> SymbolKeyOps.typeMetaName a.Key)
+                    |> Block.map (fun a -> SymbolKeyOps.typeMetaName a.Key)
                     |> Set.ofSeq
 
                 Expect.equal names (Set.ofList [ "System.FlagsAttribute" ]) "the enum's [<Flags>] row is decoded"

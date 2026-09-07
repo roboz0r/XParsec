@@ -1,5 +1,6 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.MeasureResolutionTests
 
+open Vesper
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.AssemblyFiles
@@ -110,7 +111,7 @@ let private vesperTypeClaims (name: string) : (int * TyparKind list) list =
     | ValueSome container ->
         [
             for struct (key, shape) in scope.TypesNamed(container, name) ->
-                key.TyparArity, EqArray.toList (TyparList.kinds shape.Typars)
+                key.TyparArity, Block.toList (TyparList.kinds shape.Typars)
         ]
 
 // A measured numeric type is not a special form. FSharp.Core claims each numeric primitive
@@ -158,8 +159,8 @@ let tests =
                         | EqList [ TDeclG.Type td ] ->
                             Expect.equal
                                 (List.zip
-                                    (EqArray.toList td.TypeParams.Names)
-                                    (EqArray.toList (TyparList.kinds td.TypeParams)))
+                                    (Block.toList td.TypeParams.Names)
+                                    (Block.toList (TyparList.kinds td.TypeParams)))
                                 [ "'u", TyparKind.Measure; "'a", TyparKind.Type ]
                                 "the frozen declaration carries the kinds"
                         | other -> failtestf "expected a single type declaration, got %A" other
@@ -479,7 +480,7 @@ let x: MyFloat<m> = 1.0<m>
                             (soleFrozenLetType frozen)
                             (FTConst(
                                 FrozenTypeBridge.measuredClaimKey RuntimeNames.floatKey,
-                                EqArray.singleton (FTMeasure(MeasureTerm.atom (SymbolKeyOps.typeKeyOf "" "m")))
+                                Block.singleton (FTMeasure(MeasureTerm.atom (SymbolKeyOps.typeKeyOf "" "m")))
                             ))
                             "the frozen type is the measured carrier"
                     }

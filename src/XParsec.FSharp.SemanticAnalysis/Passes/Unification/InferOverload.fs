@@ -2,6 +2,7 @@ namespace XParsec.FSharp.SemanticAnalysis.Passes
 
 open System.Collections.Generic
 open System.Collections.Immutable
+open Vesper
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
@@ -62,17 +63,17 @@ module UnificationInferOverload =
         | _, TyOr ds when not (isPureLiteralUnion store ds) -> true
         | TyOr ds, _ when EqSet.exists (hasCarriedNode store) ds.Disjuncts -> true
         | TyLiteral v1, TyLiteral v2 -> v1 = v2
-        | TyConst(k1, xs), TyConst(k2, ys) -> k1 = k2 && EqArray.forall2 (matchTypes store canon binds) xs ys
+        | TyConst(k1, xs), TyConst(k2, ys) -> k1 = k2 && Block.forall2 (matchTypes store canon binds) xs ys
         // A free metavar on EITHER side binds to the opposite type, or agrees if already bound.
         | TyVar tv, other
         | other, TyVar tv -> matchVar store canon binds tv other
         | TyFun(a1, r1), TyFun(a2, r2) -> matchTypes store canon binds a1 a2 && matchTypes store canon binds r1 r2
-        | TyTuple xs, TyTuple ys -> EqArray.forall2 (matchTypes store canon binds) xs ys
+        | TyTuple xs, TyTuple ys -> Block.forall2 (matchTypes store canon binds) xs ys
         | TyRecord(n1, xs), TyRecord(n2, ys)
         | TyUnion(n1, xs), TyUnion(n2, ys)
         | TyClass(n1, xs), TyClass(n2, ys) ->
             (n1 = n2 || canon n1 = canon n2)
-            && EqArray.forall2 (matchTypes store canon binds) xs ys
+            && Block.forall2 (matchTypes store canon binds) xs ys
         | _ -> false
 
     /// A method typar binds on first sight and must agree thereafter.
@@ -125,7 +126,7 @@ module UnificationInferOverload =
                     let here =
                         match widths.[i], domain with
                         | 0, _ -> []
-                        | n, TyTuple elems when n >= 2 && elems.Length = n -> EqArray.toList elems
+                        | n, TyTuple elems when n >= 2 && elems.Length = n -> Block.toList elems
                         | _ -> [ domain ]
 
                     here @ peel (i + 1) rest
@@ -245,19 +246,19 @@ module UnificationInferOverload =
     let pickBestOverload
         (ctx: PassContext)
         (typeArgs: SemType[])
-        (candidates: EqArray<ExternalMember>)
+        (candidates: Block<ExternalMember>)
         (argElems: SemType list)
         : ExternalMember voption =
         match candidates with
-        | EqEmpty -> ValueNone
-        | EqOne only -> ValueSome only
+        | BlockEmpty -> ValueNone
+        | BlockOne only -> ValueSome only
         | _ ->
             let arity = List.length argElems
 
             // A provider member whose signature disagrees with its recorded `Key.ArgSig` arity
             // is rejected; for the projected candidate, `Params` length is the sole arity axis.
             let rcs =
-                EqArray.toArray candidates
+                Block.toArray candidates
                 |> Array.choose (fun m ->
                     let ps = memberParamTypes ctx typeArgs m
 
@@ -295,7 +296,7 @@ module UnificationInferOverload =
         match peelFuns mty with
         | [ single ], _ ->
             match resolveStep store single with
-            | TyTuple es -> EqArray.toList es
+            | TyTuple es -> Block.toList es
             | TyConst(k, a) when a.IsEmpty && k = RuntimeNames.unitKey -> []
             | o -> [ o ]
         | ps, _ -> ps
@@ -305,15 +306,15 @@ module UnificationInferOverload =
     /// (so the trial matcher binds them like external `openSignature`'s method vars).
     let userMemberParams
         (ctx: PassContext)
-        (typeParams: EqArray<DeclaredTypar>)
-        (args: EqArray<SemType>)
+        (typeParams: Block<DeclaredTypar>)
+        (args: Block<SemType>)
         (m: TypeMemberInfo)
         : SemType list =
         flatParamsOf ctx.Store (instantiateMemberCall ctx (typeParams, args) m.EffectiveMethodTypars m.Type)
 
     /// Positional `TyVar root → index` map for a typar list's PROTOTYPES, following any
     /// committed `Link`. Used to freeze a member's parameter typars back to `FTTypar(scope, i)`.
-    let private frozenScopeEnv (store: TypeStore) (typars: EqArray<DeclaredTypar>) : Dictionary<TyVarId, int> =
+    let private frozenScopeEnv (store: TypeStore) (typars: Block<DeclaredTypar>) : Dictionary<TyVarId, int> =
         let d = Dictionary<TyVarId, int>()
 
         for i in 0 .. typars.Length - 1 do
@@ -331,9 +332,9 @@ module UnificationInferOverload =
     let freezeUserMemberArgSig
         (store: TypeStore)
         (declKey: TypeKey)
-        (declTypars: EqArray<DeclaredTypar>)
+        (declTypars: Block<DeclaredTypar>)
         (m: TypeMemberInfo)
-        : EqArray<FrozenType> =
+        : Block<FrozenType> =
         let declEnv = frozenScopeEnv store declTypars
         let methodEnv = frozenScopeEnv store m.EffectiveMethodTypars
         let ownScope = TyparScope.Member declKey
@@ -351,7 +352,7 @@ module UnificationInferOverload =
                 | true, j -> FTTypar(ownScope, j)
                 | _ -> FTUnknown UnknownReason.UnresolvedTypar
 
-        EqArray.ofList
+        Block.ofList
             [
                 for p in flatParamsOf store (zonk store m.Type) -> FrozenTypeBridge.freezeWith store onVar p
             ]
@@ -365,7 +366,7 @@ module UnificationInferOverload =
     let frozenUserMemberKey
         (store: TypeStore)
         (declKey: TypeKey)
-        (declTypars: EqArray<DeclaredTypar>)
+        (declTypars: Block<DeclaredTypar>)
         (m: TypeMemberInfo)
         : MemberKey =
         SymbolKeyOps.memberKeyOf
@@ -385,9 +386,9 @@ module UnificationInferOverload =
     let memberSignatureKey
         (store: TypeStore)
         (declKey: TypeKey)
-        (declTypars: EqArray<DeclaredTypar>)
+        (declTypars: Block<DeclaredTypar>)
         (m: TypeMemberInfo)
-        : struct (string * bool * MemberKind * EqArray<FrozenType> * int) =
+        : struct (string * bool * MemberKind * Block<FrozenType> * int) =
         struct (m.Name,
                 m.IsStatic,
                 memberKindOf m,
@@ -408,8 +409,8 @@ module UnificationInferOverload =
     /// `rankCandidates` over the value-parameter projection.
     let resolveMember
         (ctx: PassContext)
-        (typeParams: EqArray<DeclaredTypar>)
-        (args: EqArray<SemType>)
+        (typeParams: Block<DeclaredTypar>)
+        (args: Block<SemType>)
         (members: TypeMemberInfo[])
         (memberName: string)
         (isStatic: bool)
@@ -534,7 +535,7 @@ module UnificationInferOverload =
     [<Struct>]
     type private LevelSignature =
         {
-            ArgSig: EqArray<FrozenType>
+            ArgSig: Block<FrozenType>
             MethodTyparArity: int
             Kind: MemberKind
         }
@@ -561,7 +562,7 @@ module UnificationInferOverload =
 
         {
             ArgSig =
-                EqArray.ofList
+                Block.ofList
                     [
                         for p in flatParamsOf store (zonk store atLevel) -> FrozenTypeBridge.freezeWith store onVar p
                     ]
@@ -618,7 +619,7 @@ module UnificationInferOverload =
         {
             DeclKey: TypeKey
             DeclaringTy: SemType
-            TypeParams: EqArray<DeclaredTypar>
+            TypeParams: Block<DeclaredTypar>
             Member: TypeMemberInfo
             /// Instantiated for this call site.
             MemberTy: SemType

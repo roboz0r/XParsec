@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
 open System.Collections.Generic
+open Vesper
 open XParsec.FSharp.Lexer
 
 /// Single source of truth for the well-known runtime types the pipeline references. Every other
@@ -39,7 +40,7 @@ module RuntimeNames =
 
     /// The one cons-list `[…]`, `h :: t` and `for … in` all default to, over `elemTy`.
     let consListTy (elemTy: SemType) : SemType =
-        TyUnion(vesperListKey, EqArray.singleton elemTy)
+        TyUnion(vesperListKey, Block.singleton elemTy)
 
     /// The cons-list's binary case: element, then the rest of the chain.
     [<Literal>]
@@ -222,14 +223,14 @@ module RuntimeNames =
 
     /// Whether a DECLARED interface set carries `cap`: `int`'s surface lists `equatable<int>`
     /// because `prim-types-min.fsi` says so.
-    let declaresCapability (cap: CapabilityIdentity voption) (interfaces: EqArray<FrozenNominal>) : bool =
+    let declaresCapability (cap: CapabilityIdentity voption) (interfaces: Block<FrozenNominal>) : bool =
         match cap with
         | ValueNone -> false
-        | ValueSome c -> interfaces |> EqArray.exists (fun iface -> c.Matches iface.Key)
+        | ValueSome c -> interfaces |> Block.exists (fun iface -> c.Matches iface.Key)
 
     /// The identity + type args an INSTANTIATED interface denotes. A `TyConst` counts, being the
     /// form an intrinsic interface (`seq<'T>` on JS) takes.
-    let interfaceNominal (ty: SemType) : struct (TypeKey * EqArray<SemType>) voption =
+    let interfaceNominal (ty: SemType) : struct (TypeKey * Block<SemType>) voption =
         match ty with
         | TyClass(k, args)
         | TyUnion(k, args)
@@ -238,7 +239,7 @@ module RuntimeNames =
         | _ -> ValueNone
 
     /// The type args of the first instantiated interface whose identity is `cap`.
-    let tryCapabilityArgs (cap: CapabilityIdentity) (interfaces: SemType[]) : EqArray<SemType> voption =
+    let tryCapabilityArgs (cap: CapabilityIdentity) (interfaces: SemType[]) : Block<SemType> voption =
         interfaces
         |> Array.tryPick (fun ty ->
             match interfaceNominal ty with
@@ -301,10 +302,10 @@ module RuntimeNames =
     let uint16Key: TypeKey = primitiveKey "uint16"
     let intKey: TypeKey = primitiveKey "int"
 
-    let unitTy: FrozenType = FTConst(unitKey, EqArray.empty)
-    let boolTy: FrozenType = FTConst(boolKey, EqArray.empty)
-    let objTy: FrozenType = FTConst(objKey, EqArray.empty)
-    let intTy: FrozenType = FTConst(intKey, EqArray.empty)
+    let unitTy: FrozenType = FTConst(unitKey, Block.empty)
+    let boolTy: FrozenType = FTConst(boolKey, Block.empty)
+    let objTy: FrozenType = FTConst(objKey, Block.empty)
+    let intTy: FrozenType = FTConst(intKey, Block.empty)
 
     let uint32Key: TypeKey = primitiveKey "uint32"
     let int64Key: TypeKey = primitiveKey "int64"
@@ -374,7 +375,7 @@ module RuntimeNames =
     // spells its own set at the use site, where the classification is visible.
 
     /// Membership over a FIXED set of intrinsic identities, resolved once into a hash set.
-    /// `HashSet` and not `Set`: a `SymbolKey` carries `EqArray`s, which are `NoComparison`
+    /// `HashSet` and not `Set`: a `SymbolKey` carries `Block`s, which are `NoComparison`
     /// by design. Bind the result at module level, because the set is built per call.
     let isKeyIn (keys: TypeKey seq) : TypeKey -> bool =
         let set = HashSet(keys)
@@ -402,8 +403,8 @@ module RuntimeNames =
 
     /// The types an INTEGER printf specifier (`%d` `%i` `%u` `%x` `%X` `%o` `%B`) accepts,
     /// in the order a diagnostic lists them. `int` is the default, so it leads.
-    let integerFormatKeys: EqArray<TypeKey> =
-        EqArray.ofList
+    let integerFormatKeys: Block<TypeKey> =
+        Block.ofList
             [
                 intKey
                 sbyteKey
@@ -419,8 +420,8 @@ module RuntimeNames =
 
     /// The types a FLOAT printf specifier (`%f` `%e` `%E` `%g` `%G`) accepts. `float` is
     /// the default, so it leads. `%M` is `decimal` alone and takes no family.
-    let floatFormatKeys: EqArray<TypeKey> =
-        EqArray.ofList [ floatKey; float32Key; decimalKey ]
+    let floatFormatKeys: Block<TypeKey> =
+        Block.ofList [ floatKey; float32Key; decimalKey ]
 
     /// The non-numeric built-in primitive identities. `objnull` is deliberately absent: it is
     /// the `obj | null` union, and must EXPAND to `FTOr [obj; null]` rather than dealias to

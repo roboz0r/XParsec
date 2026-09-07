@@ -2,6 +2,7 @@ namespace XParsec.FSharp.Codegen.Clr
 
 open System.Collections.Generic
 open System.Reflection.Metadata
+open Vesper
 open XParsec.FSharp.SemanticAnalysis
 open AssemblerScaffold
 open NominalShared
@@ -150,7 +151,7 @@ module internal UnionEmit =
         (c: Frozen.TUnionCase)
         : EmitStructural.StructuralField list =
         [
-            for (h, (_, t)) in List.zip (caseFieldRefsOf asm td c) (EqArray.toList c.Fields) ->
+            for (h, (_, t)) in List.zip (caseFieldRefsOf asm td c) (Block.toList c.Fields) ->
                 {
                     Path = [ h ]
                     Ty = t
@@ -251,7 +252,7 @@ module internal UnionEmit =
         let cases = ud.Cases
         let isStruct = ud.ValueKind.IsValueType
         let isHierarchy = ud.IsHierarchy
-        let selfTy = FTUnion(td.TypeKey, EqArray.ofList (typarMarkersOf td))
+        let selfTy = FTUnion(td.TypeKey, Block.ofList (typarMarkersOf td))
 
         // The `_tag` ref, shared by the `.ctor` and `get_Tag`: a generic union mints a
         // `MemberRef` row per call.
@@ -774,7 +775,7 @@ module internal UnionEmit =
     let register
         (asm: Assembler)
         (ud: UnionDecl)
-        (emittedMembers: Dictionary<string, EqArray<Emit.EmittedMember>>)
+        (emittedMembers: Dictionary<string, Block<Emit.EmittedMember>>)
         : unit =
         let td = ud.Decl
         let emittedCases = Dictionary<string, Emit.EmittedCase>()
@@ -819,7 +820,7 @@ module internal UnionEmit =
         asm.Unions.[td.TypeKey] <-
             {
                 Name = td.Name
-                Typars = EqArray.toList (TyparList.typeNames td.TypeParams)
+                Typars = Block.toList (TyparList.typeNames td.TypeParams)
                 Tag =
                     if ud.HasTag then
                         ValueSome

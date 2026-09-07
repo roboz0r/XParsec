@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
 open System.Collections.Generic
+open Vesper
 open XParsec
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
@@ -17,7 +18,7 @@ module internal LocalSymbolKey =
     /// A property's `ArgSig` is empty: its name is unique on a type, since properties do not
     /// overload by argument.
     let ofProperty (declKey: TypeKey) (name: string) : SymbolKey =
-        SymbolKeyOps.memberKey declKey name EqArray.empty 0 MemberKind.Property
+        SymbolKeyOps.memberKey declKey name Block.empty 0 MemberKind.Property
 
 [<Sealed>]
 type RecordFieldInfo(name: string, ty: SemType, isMutable: bool, declKey: NodeKey, attributes: TAttributes) =
@@ -56,9 +57,9 @@ type TypeMemberInfo
         isStatic: bool,
         ty: SemType,
         declSite: NodeSite,
-        seedTypars: EqArray<DeclaredTypar>,
+        seedTypars: Block<DeclaredTypar>,
         declaredTyparCount: int,
-        argNames: EqArray<string voption>
+        argNames: Block<string voption>
     ) =
     member val Name = name
     member val Kind = kind
@@ -66,7 +67,7 @@ type TypeMemberInfo
     /// An abstract slot's argument names as the signature spells them, one per source
     /// argument in source order, `ValueNone` for a bare type. Empty for a concrete member,
     /// whose parameters carry their names on their bound variables.
-    member _.ArgNames: EqArray<string voption> = argNames
+    member _.ArgNames: Block<string voption> = argNames
 
     /// `Kind` as resolution reads it.
     member val ClassKind = ClassMemberKind.ofMemberKind kind
@@ -75,7 +76,7 @@ type TypeMemberInfo
     member val Type = ty
     member val DeclSite = declSite
 
-    member _.SeedTypars: EqArray<DeclaredTypar> = seedTypars
+    member _.SeedTypars: Block<DeclaredTypar> = seedTypars
 
     /// How many LEADING entries of `SeedTypars` are the member's explicitly-declared
     /// `<'C, …>` typars, in source order. The implicit ones behind them are not declared.
@@ -95,9 +96,9 @@ type TypeMemberInfo
 
     /// Falls back to the seed because a forward reference within a class can call a member
     /// before it is generalised.
-    member this.EffectiveMethodTypars: EqArray<DeclaredTypar> =
+    member this.EffectiveMethodTypars: Block<DeclaredTypar> =
         match this.canonical with
-        | ValueSome gt -> EqArray.ofArray (GeneralizedTypars.toArray gt)
+        | ValueSome gt -> Block.ofArray (GeneralizedTypars.toArray gt)
         | ValueNone -> seedTypars
 
     /// `true` when the source declares the member `override` or `default`.
@@ -131,7 +132,7 @@ type InterfaceImplResolution =
     | Pending
     /// The interface's own type constructor and arguments. Only a nominal passes the
     /// interface-ness gate, so a resolved impl is destructured without a shape test.
-    | Resolved of key: TypeKey * args: EqArray<SemType>
+    | Resolved of key: TypeKey * args: Block<SemType>
     /// The written type is not an interface, and that diagnostic has already been reported.
     | Rejected
 
@@ -175,7 +176,7 @@ type IInterfaceImplHost =
     abstract member Key: SymbolKey
     abstract member TypeKey: TypeKey
     abstract member DeclSite: NodeSite
-    abstract member TypeParams: EqArray<DeclaredTypar>
+    abstract member TypeParams: Block<DeclaredTypar>
     /// Source-text name bound to `this` inside member / impl bodies: `"this"` unless
     /// an `as`-bound variable renamed it.
     abstract member ThisName: string
@@ -186,7 +187,7 @@ type IInterfaceImplHost =
     abstract member ComparisonSupport: ComparisonVerdict
     /// The host's own nominal Self type at the given type args (`TyClass` for a class,
     /// `TyUnion` for a union), so `this` inside an impl body is typed exactly.
-    abstract member MkSelfType: EqArray<SemType> -> SemType
+    abstract member MkSelfType: Block<SemType> -> SemType
 
 /// Each `TypeParams` TyVar is a *prototype*, substituted out at every use site so independent
 /// instantiations get independent variables; a bare `'a` field type IS its prototype.
@@ -194,7 +195,7 @@ type IInterfaceImplHost =
 type RecordTypeInfo
     (
         name: string,
-        typeParams: EqArray<DeclaredTypar>,
+        typeParams: Block<DeclaredTypar>,
         fields: RecordFieldInfo[],
         declSite: NodeSite,
         typarConstraints: TyparConstraints<SyntaxToken> voption,
@@ -215,7 +216,7 @@ type RecordTypeInfo
     /// `[<Struct>]` record — a `System.ValueType`-based value type.
     member val IsValueType: bool = false with get, set
     /// The declaration's attributes, resolved and folded at registration.
-    member val Attributes: TAttributes = EqArray.empty with get, set
+    member val Attributes: TAttributes = Block.empty with get, set
 
     member this.DefnKind: TypeDefnKind = TypeDefnKind.ofRecord this.IsValueType
 
@@ -248,7 +249,7 @@ type RecordTypeInfo
 type UnionTypeInfo
     (
         name: string,
-        typeParams: EqArray<DeclaredTypar>,
+        typeParams: Block<DeclaredTypar>,
         cases: UnionCaseInfo[],
         declSite: NodeSite,
         typarConstraints: TyparConstraints<SyntaxToken> voption,
@@ -269,7 +270,7 @@ type UnionTypeInfo
     /// `[<Struct>]` union — a flat tag-discriminated value type.
     member val IsValueType: bool = false with get, set
     /// The declaration's attributes, resolved and folded at registration.
-    member val Attributes: TAttributes = EqArray.empty with get, set
+    member val Attributes: TAttributes = Block.empty with get, set
 
     member this.DefnKind: TypeDefnKind = TypeDefnKind.ofUnion this.IsValueType
 
@@ -303,7 +304,7 @@ type UnionTypeInfo
 /// identity: this is not a nominal registration.
 [<Sealed>]
 type IntrinsicAbbrevInfo
-    (name: string, typeParams: EqArray<DeclaredTypar>, declSite: NodeSite, key: TypeKey, selfKey: TypeKey) =
+    (name: string, typeParams: Block<DeclaredTypar>, declSite: NodeSite, key: TypeKey, selfKey: TypeKey) =
     member val Name = name
     member val TypeKey: TypeKey = key
     member this.Key: SymbolKey = SymbolKey.Type this.TypeKey
@@ -334,11 +335,11 @@ type IntrinsicAbbrevInfo
 /// An enum declaration (`type E = | C1 = v1 | …`): non-generic, no member side tables, a
 /// closed named set of cases.
 [<Sealed>]
-type EnumTypeInfo(name: string, cases: EqArray<TEnumCase>, declKey: NodeKey, key: TypeKey, attributes: TAttributes) =
+type EnumTypeInfo(name: string, cases: Block<TEnumCase>, declKey: NodeKey, key: TypeKey, attributes: TAttributes) =
     member val Name = name
     /// The cases in declaration order, each with its resolved literal (`ValueNone` for a
     /// rejected value, reported at registration).
-    member val Cases: EqArray<TEnumCase> = cases
+    member val Cases: Block<TEnumCase> = cases
 
     /// The case VALUES when every case is a string literal (`| Auto = "auto"`, `| A =
     /// ("auto")`), in declaration order; `ValueNone` for numeric / mixed / computed.
@@ -362,7 +363,7 @@ type EnumTypeInfo(name: string, cases: EqArray<TEnumCase>, declKey: NodeKey, key
     member val Attributes: TAttributes = attributes
 
     member this.HasCase(n: string) =
-        cases |> EqArray.exists (fun c -> c.Name = n)
+        cases |> Block.exists (fun c -> c.Name = n)
 
 /// The body of a declaration translated on first reference.
 [<RequireQualifiedAccess>]
@@ -396,7 +397,7 @@ type FillableDecl<'Body>(name: string, declSite: NodeSite, key: TypeKey) =
 type AbbreviationInfo
     (
         name: string,
-        typeParams: EqArray<DeclaredTypar>,
+        typeParams: Block<DeclaredTypar>,
         rhsCst: Type<SyntaxToken>,
         declSite: NodeSite,
         typarConstraints: TyparConstraints<SyntaxToken> voption,
@@ -502,7 +503,7 @@ type TypeBodyMembers =
 type ClassTypeInfo
     (
         name: string,
-        typeParams: EqArray<DeclaredTypar>,
+        typeParams: Block<DeclaredTypar>,
         ctorParams: ClassCtorParamInfo[],
         body: TypeBodyMembers,
         declSite: NodeSite,
@@ -541,7 +542,7 @@ type ClassTypeInfo
     /// `[<IsByRefLike>]` — a byref-like (`ref struct`) value type; implies `IsValueType`.
     member val IsByRefLike: bool = false with get, set
     /// The declaration's attributes, resolved and folded at registration.
-    member val Attributes: TAttributes = EqArray.empty with get, set
+    member val Attributes: TAttributes = Block.empty with get, set
 
     member this.DefnKind: TypeDefnKind =
         TypeDefnKind.ofClassOrInterface this.IsInterface this.IsValueType
@@ -582,7 +583,7 @@ type ResolvedExternalMember =
         /// How many arguments each application consumes: `M: a * b -> r` is `[2]`, the curried
         /// `M: a -> b -> r` is `[1; 1]`. `Signature` cannot tell those apart, and neither can
         /// `Key` — both members intern the flat `[a; b]`.
-        ArgGroupWidths: EqArray<int>
+        ArgGroupWidths: Block<int>
         /// The resolved member's trailing optional-parameter defaults. Empty for a member
         /// with no omittable optionals.
         OptionalDefaults: OptionalDefault list

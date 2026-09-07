@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+open Vesper
 open XParsec.FSharp.SemanticAnalysis.Passes
 
 /// A record, union or class declared in this compilation.
@@ -46,8 +47,8 @@ module LocalNominal =
     /// The instance field types at `args`: a record's fields, every case's fields of a
     /// union, and a class's primary-ctor parameters, `val` fields and instance `let`
     /// bindings, each of which the class carries as a field.
-    let fieldTypes (store: TypeStore) (d: LocalNominal) (args: EqArray<SemType>) : SemType list =
-        let at (typeParams: EqArray<DeclaredTypar>) (tys: SemType seq) : SemType list =
+    let fieldTypes (store: TypeStore) (d: LocalNominal) (args: Block<SemType>) : SemType list =
+        let at (typeParams: Block<DeclaredTypar>) (tys: SemType seq) : SemType list =
             let subst = UnificationEngineCore.mkNamedTypeSubst store typeParams args
             [ for t in tys -> UnificationEngineCore.substituteWith store subst t ]
 
@@ -80,9 +81,9 @@ module PublishedNominal =
 
     /// The instance field types at `args`. `ValueNone` for a class, whose storage is
     /// private to the publishing unit.
-    let fieldTypes (thaw: IMeasuredThaw) (d: PublishedNominal) (args: EqArray<SemType>) : SemType list voption =
+    let fieldTypes (thaw: IMeasuredThaw) (d: PublishedNominal) (args: Block<SemType>) : SemType list voption =
         let at (fts: FrozenType seq) : SemType list voption =
-            let declaringArgs = EqArray.toArray args
+            let declaringArgs = Block.toArray args
             ValueSome [ for ft in fts -> FrozenTypeBridge.instantiateDeclaring thaw ft declaringArgs ]
 
         match d with
@@ -155,7 +156,7 @@ module NominalDecl =
             || info.Body.SecondaryCtors |> Array.exists (fun c -> c.Params.Length = 0)
         | NominalDecl.Published(PublishedNominal.Class shape) ->
             shape.Members
-            |> EqArray.exists (fun m ->
+            |> Block.exists (fun m ->
                 m.Name = ".ctor"
                 && m.Signature.ArgGroups.Length = 1
                 && m.Signature.ArgGroups.[0] = RuntimeNames.unitTy
@@ -164,7 +165,7 @@ module NominalDecl =
         | NominalDecl.Published(PublishedNominal.Record _ | PublishedNominal.Union _) -> false
 
     /// The instance field types at `args`. `ValueNone` for a published class.
-    let fieldTypes (thaw: IMeasuredThaw) (d: NominalDecl) (args: EqArray<SemType>) : SemType list voption =
+    let fieldTypes (thaw: IMeasuredThaw) (d: NominalDecl) (args: Block<SemType>) : SemType list voption =
         match d with
         | NominalDecl.Local l -> ValueSome(LocalNominal.fieldTypes thaw.Store l args)
         | NominalDecl.Published p -> PublishedNominal.fieldTypes thaw p args

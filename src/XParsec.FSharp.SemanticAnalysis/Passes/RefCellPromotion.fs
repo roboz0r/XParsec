@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis.Passes
 
 open System.Collections.Generic
+open Vesper
 open XParsec.FSharp.SemanticAnalysis
 
 // Pre:  ctx.Bindings.Escape and ctx.Bindings.Binding populated; `tast` is elaborated.
@@ -15,11 +16,11 @@ module RefCellPromotion =
 
     /// Wrap a value's underlying type in `Vesper.Ref<_>`.
     let private refType (inner: SemType) : SemType =
-        TyRecord(RuntimeNames.vesperRefKey, EqArray.singleton inner)
+        TyRecord(RuntimeNames.vesperRefKey, Block.singleton inner)
 
     /// Binding-site `NodeKey`s of every `let mutable` whose `Escape` is `HeapShared`,
     /// mapped to the local's POST-promotion type (`Ref<'origTy>`).
-    let private collectPromotions (ctx: PassContext) (decls: EqArray<TDecl>) : Dictionary<NodeKey, SemType> =
+    let private collectPromotions (ctx: PassContext) (decls: Block<TDecl>) : Dictionary<NodeKey, SemType> =
         let promote = Dictionary<NodeKey, SemType>(HashIdentity.Structural)
 
         let iter: TastWalk.Iter =
@@ -56,7 +57,7 @@ module RefCellPromotion =
             match pat with
             | TPat.NamedSimple(k, _, _, _) when promote.ContainsKey k ->
                 // The synthesised cell wraps `value`; anchor it at the value's token.
-                TExpr.RecordCons(EqArray.singleton (ContentsField, value), promote.[k], TastWalk.exprTok value)
+                TExpr.RecordCons(Block.singleton (ContentsField, value), promote.[k], TastWalk.exprTok value)
             | _ -> value
 
         // `Assignment` needs its own arm: the default one rewrites the LHS `Var` into a
@@ -124,7 +125,7 @@ module RefCellPromotion =
         if promote.Count = 0 then
             tast
         else
-            let decls' = tast.Decls |> EqArray.map (rewriteDecl promote)
+            let decls' = tast.Decls |> Block.map (rewriteDecl promote)
             // The cell type lives in `Vesper.Core.dll` and resolves through the codegen's
             // external-record path, so no synthesised `TDecl.Type` ships with the consumer.
             { tast with Decls = decls' }

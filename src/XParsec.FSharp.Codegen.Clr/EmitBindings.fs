@@ -3,6 +3,7 @@ namespace XParsec.FSharp.Codegen.Clr
 open System.Collections.Generic
 open System.Reflection.Metadata
 open System.Reflection.Metadata.Ecma335
+open Vesper
 open XParsec.FSharp.SemanticAnalysis
 open EmitTypes
 open EmitLower
@@ -160,7 +161,7 @@ module EmitBindings =
                     // `Dispose` may not exist on it (`MemoryStream` inherits `Stream.Dispose`).
                     match localNominal with
                     | ValueSome n ->
-                        emitLocalDispose (SymbolKeyOps.memberKey n.Key "Dispose" EqArray.empty 0 MemberKind.Method)
+                        emitLocalDispose (SymbolKeyOps.memberKey n.Key "Dispose" Block.empty 0 MemberKind.Method)
                     | ValueNone -> emitExternalDispose slot
                 // The carve-out: an own pattern `Dispose()`, called directly.
                 | Disposal.ViaOwnMember key when isLocalDisposeKey key -> emitLocalDispose key

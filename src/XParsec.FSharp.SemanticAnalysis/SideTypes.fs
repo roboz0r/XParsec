@@ -1,5 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+open Vesper
+
 /// Accessibility as DECLARED, never pre-thresholded: each export filter applies its own
 /// threshold.
 [<RequireQualifiedAccess>]
@@ -63,9 +65,9 @@ module TyparConstraint =
 /// (`op_Addition`).
 type MemberTrait =
     {
-        TyparIndices: EqArray<int>
+        TyparIndices: Block<int>
         MemberName: string
-        ArgTypes: EqArray<FrozenType>
+        ArgTypes: Block<FrozenType>
         ReturnType: FrozenType
     }
 
@@ -76,11 +78,11 @@ type FunctionScheme =
     private
         {
             typars: TyparList
-            traits: EqArray<MemberTrait>
+            traits: Block<MemberTrait>
         }
 
     member this.Typars: TyparList = this.typars
-    member this.Traits: EqArray<MemberTrait> = this.traits
+    member this.Traits: Block<MemberTrait> = this.traits
 
     /// The type-kinded count: the emitted method-typar count.
     member this.TyparArity: int = this.typars.TypeArity
@@ -90,7 +92,7 @@ module FunctionScheme =
 
     /// Faults on a trait index, or on a function typar referenced by a constraint's or a
     /// trait's type, at or past `typars.TypeArity`.
-    let create (typars: TyparList) (traits: EqArray<MemberTrait>) : FunctionScheme =
+    let create (typars: TyparList) (traits: Block<MemberTrait>) : FunctionScheme =
         let arity = typars.TypeArity
 
         let rec checkType (t: FrozenType) =
@@ -106,13 +108,13 @@ module FunctionScheme =
                 if i >= arity then
                     failwithf "FunctionScheme: trait on typar %d, arity %d" i arity
 
-            EqArray.iter checkType mt.ArgTypes
+            Block.iter checkType mt.ArgTypes
             checkType mt.ReturnType
 
         { typars = typars; traits = traits }
 
     /// A scheme over `typars` alone.
-    let ofTypars (typars: TyparList) : FunctionScheme = create typars EqArray.empty
+    let ofTypars (typars: TyparList) : FunctionScheme = create typars Block.empty
 
     /// A scheme over `n` positional, unconstrained typars.
     let unconstrained (n: int) : FunctionScheme = ofTypars (TyparList.positional n)
@@ -132,7 +134,7 @@ type ForInGetEnumG<'ty> =
     /// A *generic typar* constrained to a project-local seq interface declaring
     /// `GetEnumerator(): E`. Emits `constrained. <Source> callvirt iface::GetEnumerator`,
     /// so a struct source dispatches by address.
-    | ConstrainedInterface of iface: TypeKey * ifaceArgs: EqArray<'ty>
+    | ConstrainedInterface of iface: TypeKey * ifaceArgs: Block<'ty>
 
 /// How codegen resolves the `MoveNext` / `Current` handles of a `Pattern` enumerator `E`.
 /// The element type comes from the loop pattern, so only the dispatch keys are carried.
@@ -146,7 +148,7 @@ type ForInEnumMembersG<'ty> =
     /// `E` is itself a *generic typar* constrained to an enumerator interface declaring
     /// `MoveNext(): bool` and a `Current` property. Emits `constrained. <E> callvirt
     /// iface::MoveNext`, dispatching a struct by address.
-    | ConstrainedInterface of iface: TypeKey * ifaceArgs: EqArray<'ty>
+    | ConstrainedInterface of iface: TypeKey * ifaceArgs: Block<'ty>
 
 /// The duck-typed for-in walk over a concrete enumerator `E`.
 type ForInPatternG<'ty> =

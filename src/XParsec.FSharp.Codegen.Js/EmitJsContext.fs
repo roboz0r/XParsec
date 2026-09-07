@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.Codegen.Js
 
 open System.Collections.Generic
+open Vesper
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
@@ -92,7 +93,7 @@ module EmitJsContext =
             let struct (baseName, home) = importedAs "union" key origin
 
             let info, _ =
-                buildUnionInfo (ValueSome home) baseName [ for c in cases -> c.Name, EqArray.toList c.FieldNames ]
+                buildUnionInfo (ValueSome home) baseName [ for c in cases -> c.Name, Block.toList c.FieldNames ]
 
             ValueSome info
         | _ -> ValueNone

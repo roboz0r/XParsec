@@ -4,6 +4,7 @@ open System.Collections.Generic
 open System.Reflection
 open System.Reflection.Metadata
 open System.Reflection.Metadata.Ecma335
+open Vesper
 open XParsec.FSharp.SemanticAnalysis
 
 module internal LayoutNodes =
@@ -11,10 +12,10 @@ module internal LayoutNodes =
     /// The TAST's `interface … with` blocks, narrowed once here. Inference stamps a block only
     /// once it resolves to an interface, so a non-nominal is a bug, not a shape to drop.
     let private ifaceBlocks
-        (interfaces: EqArray<FrozenType * EqArray<TastAccessor.TypeMember>>)
+        (interfaces: Block<FrozenType * Block<TastAccessor.TypeMember>>)
         : (FrozenNominal * TastAccessor.TypeMember list) list =
         [
-            for (ifaceTy, ms) in interfaces -> FrozenNominal.ofFrozen "an `interface` clause" ifaceTy, EqArray.toList ms
+            for (ifaceTy, ms) in interfaces -> FrozenNominal.ofFrozen "an `interface` clause" ifaceTy, Block.toList ms
         ]
 
     let partitionTypeDecls (symbols: ICodegenSymbols) (decls: TastAccessor.DeclId list) : PartitionedTypeDecls =
@@ -31,21 +32,21 @@ module internal LayoutNodes =
                 let td = TastAccessor.declType d
 
                 match td.Kind with
-                | TTypeKindG.Interface methods -> interfaces.Add(td, EqArray.toList methods)
+                | TTypeKindG.Interface methods -> interfaces.Add(td, Block.toList methods)
                 | TTypeKindG.Union u ->
-                    let cases = EqArray.toList u.Cases
+                    let cases = Block.toList u.Cases
 
                     let regime =
                         UnionRegime.classify
                             u.ValueKind
                             u.Cases.Length
-                            (u.Cases |> EqArray.exists (fun c -> not c.Fields.IsEmpty))
+                            (u.Cases |> Block.exists (fun c -> not c.Fields.IsEmpty))
 
                     unions.Add
                         {
                             Decl = td
                             Cases = cases
-                            Members = EqArray.toList u.Members
+                            Members = Block.toList u.Members
                             Interfaces = ifaceBlocks u.Interfaces
                             ValueKind = u.ValueKind
                             Regime = regime
@@ -55,8 +56,8 @@ module internal LayoutNodes =
                     records.Add
                         {
                             Decl = td
-                            Fields = EqArray.toList r.Fields
-                            Members = EqArray.toList r.Members
+                            Fields = Block.toList r.Fields
+                            Members = Block.toList r.Members
                             Interfaces = ifaceBlocks r.Interfaces
                             ValueKind = r.ValueKind
                         }
@@ -103,16 +104,16 @@ module internal LayoutNodes =
                     classes.Add
                         {
                             Decl = td
-                            Fields = EqArray.toList c.Fields
-                            CtorParams = EqArray.toList c.CtorParams
-                            Members = EqArray.toList c.Members
+                            Fields = Block.toList c.Fields
+                            CtorParams = Block.toList c.CtorParams
+                            Members = Block.toList c.Members
                             Base = c.Base
                             Interfaces = ifaceBlocks c.Interfaces
                             IsSealed = c.Declared.IsSealed
-                            StaticPreamble = EqArray.toList c.StaticPreamble
-                            InstancePreamble = EqArray.toList c.InstancePreamble
+                            StaticPreamble = Block.toList c.StaticPreamble
+                            InstancePreamble = Block.toList c.InstancePreamble
                             ThisKey = c.ThisKey
-                            SecondaryCtors = EqArray.toList c.SecondaryCtors
+                            SecondaryCtors = Block.toList c.SecondaryCtors
                             ValueKind = c.ValueKind
                             HasPrimaryCtor = c.HasPrimaryCtor
                         }
@@ -501,7 +502,7 @@ module internal LayoutNodes =
                                 Key = FieldKey.EnumValueField td.Key
                                 Name = "value__"
                                 Attrs = enumUnderlyingFieldAttrs
-                                Ty = FTConst(ed.Underlying, EqArray.empty)
+                                Ty = FTConst(ed.Underlying, Block.empty)
                                 ClosureScope = ValueNone
                             }
                         for (caseName, _) in ed.Cases ->
@@ -531,7 +532,7 @@ module internal LayoutNodes =
                              RuntimeNames.objKey
                          else
                              RuntimeNames.stringKey),
-                        EqArray.empty
+                        Block.empty
                     )
 
                 let fields =

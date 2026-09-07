@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+open Vesper
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis.Passes
@@ -73,8 +74,8 @@ module internal ElaborateTypeDecls =
     let private mkDeclScope
         (ctx: PassContext)
         (key: TypeKey)
-        (typeParams: EqArray<DeclaredTypar>)
-        (mkSelfTy: EqArray<SemType> -> SemType)
+        (typeParams: Block<DeclaredTypar>)
+        (mkSelfTy: Block<SemType> -> SemType)
         : DeclScope =
         let env =
             mkDeclTyparEnv ctx.Store (TyparScope.Type key) (DeclaredTypar.protos typeParams)
@@ -91,7 +92,7 @@ module internal ElaborateTypeDecls =
     type private InterfaceShape =
         {
             Typars: TyparListG<SemType>
-            Methods: EqArray<TAbstractMethod>
+            Methods: Block<TAbstractMethod>
             Env: (TyVarId * SemType) list
         }
 
@@ -130,7 +131,7 @@ module internal ElaborateTypeDecls =
                 let env = ResizeArray declEnv
 
                 let methods =
-                    EqArray.ofSeq (
+                    Block.ofSeq (
                         seq {
                             // Abstract methods and abstract PROPERTIES both become slots;
                             // `abstract member Current : int` emits as a `get_Current`
@@ -205,11 +206,11 @@ module internal ElaborateTypeDecls =
             let env = scope.Env
 
             let cases =
-                EqArray.ofSeq (
+                Block.ofSeq (
                     seq {
                         for c in info.Cases ->
                             let fields =
-                                EqArray.ofSeq (
+                                Block.ofSeq (
                                     seq {
                                         for i in 0 .. c.Fields.Length - 1 ->
                                             let nm =
@@ -323,7 +324,7 @@ module internal ElaborateTypeDecls =
             let env = scope.Env
 
             let fields =
-                EqArray.ofSeq (
+                Block.ofSeq (
                     seq {
                         for f in info.Fields ->
                             {
@@ -367,10 +368,10 @@ module internal ElaborateTypeDecls =
         (info: ClassTypeInfo)
         (env: ResizeArray<TyVarId * SemType>)
         (elements: TypeDefnElements<SyntaxToken>)
-        : EqArray<TTypeMember> =
+        : Block<TTypeMember> =
         let declaring = classDeclaringType ctx info
 
-        EqArray.ofSeq (
+        Block.ofSeq (
             seq {
                 for el in elements do
                     yield! translateMemberElement ctx declaring env el
@@ -384,8 +385,8 @@ module internal ElaborateTypeDecls =
         (ctx: PassContext)
         (info: ClassTypeInfo)
         (env: ResizeArray<TyVarId * SemType>)
-        : EqArray<SemType * EqArray<TTypeMember>> =
-        EqArray.ofSeq (
+        : Block<SemType * Block<TTypeMember>> =
+        Block.ofSeq (
             seq {
                 for impl in info.Body.InterfaceImpls do
                     match InterfaceImplResolution.tryIface impl.Resolution with
@@ -399,8 +400,8 @@ module internal ElaborateTypeDecls =
         (ctx: PassContext)
         (rewrite: TExpr -> TExpr)
         (entries: ClassPreambleEntry[])
-        : EqArray<TPreambleEntry> =
-        EqArray.ofSeq (
+        : Block<TPreambleEntry> =
+        Block.ofSeq (
             seq {
                 for entry in entries ->
                     match entry with
@@ -427,7 +428,7 @@ module internal ElaborateTypeDecls =
         match inh.CtorArgs with
         | ValueSome argExpr ->
             let ctorParamKeys =
-                EqArray.ofSeq (
+                Block.ofSeq (
                     seq { for p in info.CtorParams -> (p.DeclSite.BoundVar, Unification.zonk ctx.Store p.Type) }
                 )
 
@@ -468,7 +469,7 @@ module internal ElaborateTypeDecls =
             let selfTy = scope.SelfTy
 
             let ctorParams =
-                EqArray.ofSeq (
+                Block.ofSeq (
                     seq {
                         for p in info.CtorParams ->
                             {
@@ -477,14 +478,14 @@ module internal ElaborateTypeDecls =
                                 IsMutable = false
                                 // Ctor-param attributes are an ArgSpec position and are not
                                 // stored.
-                                Attributes = EqArray.empty
+                                Attributes = Block.empty
                             }
                     }
                 )
 
             // Explicit `val [mutable] x: T` instance fields.
             let instanceFields =
-                EqArray.ofSeq (
+                Block.ofSeq (
                     seq {
                         for fld in info.Body.InstanceFields ->
                             {
@@ -492,7 +493,7 @@ module internal ElaborateTypeDecls =
                                 Type = fld.Type
                                 IsMutable = fld.IsMutable
                                 // A `val` field's attributes are not stored.
-                                Attributes = EqArray.empty
+                                Attributes = Block.empty
                             }
                     }
                 )
@@ -513,7 +514,7 @@ module internal ElaborateTypeDecls =
                     info.InstancePreamble
 
             let secondaryCtors =
-                EqArray.ofSeq (seq { for sc in info.Body.SecondaryCtors -> translateSecondaryCtor ctx info.Name sc })
+                Block.ofSeq (seq { for sc in info.Body.SecondaryCtors -> translateSecondaryCtor ctx info.Name sc })
 
             // The parent's resolved `TyClass` carries THIS class's declaring typars as
             // roots, so a generic parent encodes against this class's own generic
@@ -591,7 +592,7 @@ module internal ElaborateTypeDecls =
                     info.TypeKey
                     TyparList.empty
                     // A measure stores no attributes of its own.
-                    EqArray.empty
+                    Block.empty
                     (TTypeKind.Measure term),
                 []
             )
@@ -623,21 +624,21 @@ module internal ElaborateTypeDecls =
 
             let clsG: TClass =
                 {
-                    Fields = EqArray.empty
-                    CtorParams = EqArray.empty
+                    Fields = Block.empty
+                    CtorParams = Block.empty
                     Members = members
                     Base = ValueNone
-                    Interfaces = EqArray.empty
+                    Interfaces = Block.empty
                     Declared = DeclaredClassFlags.Default
-                    StaticPreamble = EqArray.empty
-                    InstancePreamble = EqArray.empty
+                    StaticPreamble = Block.empty
+                    InstancePreamble = Block.empty
                     ThisKey = info.ThisKey
-                    SecondaryCtors = EqArray.empty
+                    SecondaryCtors = Block.empty
                     ValueKind = ClassValueKind.RefType
                     HasPrimaryCtor = false
                 }
 
-            Some(mkTypeDecl name info.TypeKey scope.Typars EqArray.empty (TTypeKind.Class clsG), List.ofSeq env)
+            Some(mkTypeDecl name info.TypeKey scope.Typars Block.empty (TTypeKind.Class clsG), List.ofSeq env)
 
     /// Surface an interface-shaped, union, record, or class `TypeDefn` as a `TDecl.Type`.
     let tryTypeDecl (ctx: PassContext) (td: TypeDefn<SyntaxToken>) : (TDecl * (TyVarId * SemType) list) option =

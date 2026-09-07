@@ -1,5 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+open Vesper
+
 /// The backend reading of a measured nominal: `float<m>` is `float`, the arity-1 claim's body
 /// with the measure argument dropped.
 [<RequireQualifiedAccess>]
@@ -10,11 +12,11 @@ module MeasureErasure =
     let rec private expandClaim
         (lookup: TypeKey -> ExternalTypeShape voption)
         (key: TypeKey)
-        (args: EqArray<FrozenType>)
+        (args: Block<FrozenType>)
         : FrozenType =
         match lookup key with
         | ValueSome(ExternalTypeShape.Abbrev { Body = body }) ->
-            erase lookup (FrozenTypeBridge.substituteDeclaring (EqArray.toArray args) body)
+            erase lookup (FrozenTypeBridge.substituteDeclaring (Block.toArray args) body)
         | other ->
             failwithf
                 "MeasureErasure: the measured claim %s is not an abbreviation the referenced contracts publish: %A"

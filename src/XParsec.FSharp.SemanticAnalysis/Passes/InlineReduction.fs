@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis.Passes
 
 open System.Collections.Generic
+open Vesper
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open UnificationEngineCore
@@ -33,7 +34,7 @@ module InlineReduction =
             /// the declaration's own quantification env for a local template, the frozen typar
             /// indices for a served one.
             Typars: TyVarId[]
-            ParamAttrs: EqArray<ParamAttrs>
+            ParamAttrs: Block<ParamAttrs>
             /// The file every anchor in `Decl` indexes: this file's own for a local template,
             /// the declaring file's for a served one.
             Path: AssemblyFilePath
@@ -333,7 +334,7 @@ module InlineReduction =
     /// slot is reserved. `caller` marks a substituted argument, which has left the file it was in.
     let internal classifyApplication
         (caller: AssemblyFilePath)
-        (paramAttrs: EqArray<ParamAttrs>)
+        (paramAttrs: Block<ParamAttrs>)
         (expanded: TExpr)
         (args: TastWalk.AppArg list)
         : Peeled =

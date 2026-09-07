@@ -1,5 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+open Vesper
+
 /// The variance a type position carries: `Co` a value read / result, `Contra` a
 /// parameter, `Inv` a generic type ARGUMENT, whose slot admits both reads and writes.
 [<RequireQualifiedAccess>]
@@ -24,12 +26,12 @@ module FrozenType =
     /// `FTOr` rebuilds through `MkUnion`: a mapped disjunct set can collapse or splice.
     let mapChildren (f: FrozenType -> FrozenType) (t: FrozenType) : FrozenType =
         match t with
-        | FTConst(key, args) -> FTConst(key, EqArray.map f args)
+        | FTConst(key, args) -> FTConst(key, Block.map f args)
         | FTFun(arg, result) -> FTFun(f arg, f result)
-        | FTTuple items -> FTTuple(EqArray.map f items)
-        | FTRecord(key, args) -> FTRecord(key, EqArray.map f args)
-        | FTUnion(key, args) -> FTUnion(key, EqArray.map f args)
-        | FTClass(key, args) -> FTClass(key, EqArray.map f args)
+        | FTTuple items -> FTTuple(Block.map f items)
+        | FTRecord(key, args) -> FTRecord(key, Block.map f args)
+        | FTUnion(key, args) -> FTUnion(key, Block.map f args)
+        | FTClass(key, args) -> FTClass(key, Block.map f args)
         | FTOr disjuncts -> disjuncts.Map f
         | FTKeyOf ty -> FTKeyOf(f ty)
         | FTIndexedAccess(objTy, index) -> FTIndexedAccess(f objTy, f index)
@@ -66,10 +68,10 @@ module FrozenType =
         | ValueNone ->
             match t with
             | FTFun(a, b) -> FTFun(mapVariant tryReplace v.Flip a, mapVariant tryReplace v b)
-            | FTConst(key, args) -> FTConst(key, args |> EqArray.map (mapVariant tryReplace Variance.Inv))
-            | FTClass(k, args) -> FTClass(k, args |> EqArray.map (mapVariant tryReplace Variance.Inv))
-            | FTRecord(k, args) -> FTRecord(k, args |> EqArray.map (mapVariant tryReplace Variance.Inv))
-            | FTUnion(k, args) -> FTUnion(k, args |> EqArray.map (mapVariant tryReplace Variance.Inv))
+            | FTConst(key, args) -> FTConst(key, args |> Block.map (mapVariant tryReplace Variance.Inv))
+            | FTClass(k, args) -> FTClass(k, args |> Block.map (mapVariant tryReplace Variance.Inv))
+            | FTRecord(k, args) -> FTRecord(k, args |> Block.map (mapVariant tryReplace Variance.Inv))
+            | FTUnion(k, args) -> FTUnion(k, args |> Block.map (mapVariant tryReplace Variance.Inv))
             | FTTuple _
             | FTOr _
             | FTKeyOf _
@@ -86,11 +88,11 @@ module FrozenType =
         | FTConst(_, args)
         | FTRecord(_, args)
         | FTUnion(_, args)
-        | FTClass(_, args) -> EqArray.iter f args
+        | FTClass(_, args) -> Block.iter f args
         | FTFun(arg, result) ->
             f arg
             f result
-        | FTTuple items -> EqArray.iter f items
+        | FTTuple items -> Block.iter f items
         | FTOr disjuncts -> EqSet.iter f disjuncts.Disjuncts
         | FTKeyOf ty -> f ty
         | FTIndexedAccess(objTy, index) ->
@@ -113,9 +115,9 @@ module FrozenType =
         | FTConst(_, args)
         | FTRecord(_, args)
         | FTUnion(_, args)
-        | FTClass(_, args) -> EqArray.forall p args
+        | FTClass(_, args) -> Block.forall p args
         | FTFun(arg, result) -> p arg && p result
-        | FTTuple items -> EqArray.forall p items
+        | FTTuple items -> Block.forall p items
         | FTOr disjuncts -> EqSet.forall p disjuncts.Disjuncts
         | FTKeyOf ty -> p ty
         | FTIndexedAccess(objTy, index) -> p objTy && p index
@@ -137,7 +139,7 @@ module FrozenType =
         | FTConst(key, args) ->
             let measures =
                 args
-                |> EqArray.toArray
+                |> Block.toArray
                 |> Array.choose (
                     function
                     | FTMeasure units -> Some units
@@ -179,7 +181,7 @@ module FrozenType =
     /// it means. Nominal KEYS are not compared: this serves open-template vs instantiated
     /// matching.
     let iterChildren2 (f: FrozenType -> FrozenType -> unit) (a: FrozenType) (b: FrozenType) : unit =
-        let pairwise (xs: EqArray<FrozenType>) (ys: EqArray<FrozenType>) =
+        let pairwise (xs: Block<FrozenType>) (ys: Block<FrozenType>) =
             if xs.Length = ys.Length then
                 for i in 0 .. xs.Length - 1 do
                     f xs.[i] ys.[i]
@@ -258,7 +260,7 @@ module SemTypePatterns =
     /// args)`; NOT `TyEnum` (niladic) or `TyConst` (an intrinsic). An arm where the
     /// kind forks must precede this one. Does NOT zonk: match an already-resolved type.
     [<return: Struct>]
-    let (|TyNominal|_|) (ty: SemType) : struct (TypeKey * EqArray<SemType>) voption =
+    let (|TyNominal|_|) (ty: SemType) : struct (TypeKey * Block<SemType>) voption =
         match ty with
         | TyClass(key, args)
         | TyUnion(key, args)
@@ -268,24 +270,24 @@ module SemTypePatterns =
     /// A type declared under a `TypeKey`, as `(key, its type args)`: a nominal, an enum (no
     /// args) or an intrinsic. Does NOT zonk: match an already-resolved type.
     [<return: Struct>]
-    let (|TyKeyed|_|) (ty: SemType) : struct (TypeKey * EqArray<SemType>) voption =
+    let (|TyKeyed|_|) (ty: SemType) : struct (TypeKey * Block<SemType>) voption =
         match ty with
         | TyClass(key, args)
         | TyUnion(key, args)
         | TyRecord(key, args)
         | TyConst(key, args) -> ValueSome(struct (key, args))
-        | TyEnum key -> ValueSome(struct (key, EqArray.empty))
+        | TyEnum key -> ValueSome(struct (key, Block.empty))
         | _ -> ValueNone
 
     /// `TyKeyed` over `FrozenType`.
     [<return: Struct>]
-    let (|FTKeyed|_|) (ty: FrozenType) : struct (TypeKey * EqArray<FrozenType>) voption =
+    let (|FTKeyed|_|) (ty: FrozenType) : struct (TypeKey * Block<FrozenType>) voption =
         match ty with
         | FTClass(key, args)
         | FTUnion(key, args)
         | FTRecord(key, args)
         | FTConst(key, args) -> ValueSome(struct (key, args))
-        | FTEnum key -> ValueSome(struct (key, EqArray.empty))
+        | FTEnum key -> ValueSome(struct (key, Block.empty))
         | _ -> ValueNone
 
     /// A type-level node still carried unevaluated: `keyof T`, `T[K]` or a conditional. Does
@@ -311,7 +313,7 @@ module SemType =
     let mapChildren (f: SemType -> SemType) (t: SemType) : SemType =
         match t with
         | TyConst(name, args) ->
-            match EqArray.mapPreserve f args with
+            match Block.mapPreserve f args with
             | ValueNone -> t
             | ValueSome args' -> TyConst(name, args')
         | TyFun(arg, result) ->
@@ -323,19 +325,19 @@ module SemType =
             else
                 TyFun(arg', result')
         | TyTuple items ->
-            match EqArray.mapPreserve f items with
+            match Block.mapPreserve f items with
             | ValueNone -> t
             | ValueSome items' -> TyTuple items'
         | TyRecord(key, args) ->
-            match EqArray.mapPreserve f args with
+            match Block.mapPreserve f args with
             | ValueNone -> t
             | ValueSome args' -> TyRecord(key, args')
         | TyUnion(key, args) ->
-            match EqArray.mapPreserve f args with
+            match Block.mapPreserve f args with
             | ValueNone -> t
             | ValueSome args' -> TyUnion(key, args')
         | TyClass(key, args) ->
-            match EqArray.mapPreserve f args with
+            match Block.mapPreserve f args with
             | ValueNone -> t
             | ValueSome args' -> TyClass(key, args')
         | TyOr disjuncts ->
@@ -385,11 +387,11 @@ module SemType =
         | TyConst(_, args)
         | TyRecord(_, args)
         | TyUnion(_, args)
-        | TyClass(_, args) -> EqArray.iter f args
+        | TyClass(_, args) -> Block.iter f args
         | TyFun(arg, result) ->
             f arg
             f result
-        | TyTuple items -> EqArray.iter f items
+        | TyTuple items -> Block.iter f items
         | TyOr disjuncts -> EqSet.iter f disjuncts.Disjuncts
         | TyKeyOf ty -> f ty
         | TyIndexedAccess(objTy, index) ->
@@ -412,9 +414,9 @@ module SemType =
         | TyConst(_, args)
         | TyRecord(_, args)
         | TyUnion(_, args)
-        | TyClass(_, args) -> EqArray.forall p args
+        | TyClass(_, args) -> Block.forall p args
         | TyFun(arg, result) -> p arg && p result
-        | TyTuple items -> EqArray.forall p items
+        | TyTuple items -> Block.forall p items
         | TyOr disjuncts -> EqSet.forall p disjuncts.Disjuncts
         | TyKeyOf ty -> p ty
         | TyIndexedAccess(objTy, index) -> p objTy && p index

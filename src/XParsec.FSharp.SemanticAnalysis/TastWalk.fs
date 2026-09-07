@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
 open System.Collections.Generic
+open Vesper
 open XParsec.FSharp.Parser
 
 // The enumeration of the TAST's recursion shape, in two flavours: a `Mapper` rebuilds each
@@ -205,14 +206,14 @@ module TastWalk =
     let private mapVia (f: SemType -> SemType) (v: CallVia<SemType>) : CallVia<SemType> =
         match v with
         | CallVia.Interface ifaceArgs ->
-            match EqArray.mapPreserve f ifaceArgs with
+            match Block.mapPreserve f ifaceArgs with
             | ValueNone -> v
             | ValueSome ifaceArgs' -> CallVia.Interface ifaceArgs'
         | CallVia.Self
         | CallVia.Base -> v
 
-    let private mapTys (f: SemType -> SemType) (tys: EqArray<SemType>) : EqArray<SemType> =
-        match EqArray.mapPreserve f tys with
+    let private mapTys (f: SemType -> SemType) (tys: Block<SemType>) : Block<SemType> =
+        match Block.mapPreserve f tys with
         | ValueNone -> tys
         | ValueSome tys' -> tys'
 
@@ -239,7 +240,7 @@ module TastWalk =
             | TPat.Tuple(items, ty, tok) ->
                 let ty' = f ty
 
-                match EqArray.mapPreserve (mapPat m) items with
+                match Block.mapPreserve (mapPat m) items with
                 | ValueNone -> if refEq ty' ty then p else TPat.Tuple(items, ty', tok)
                 | ValueSome items' -> TPat.Tuple(items', ty', tok)
             | TPat.Record(fields, ty, tok) ->
@@ -250,13 +251,13 @@ module TastWalk =
                     let sub' = mapPat m sub
                     if refEq sub' sub then pair else (n, sub')
 
-                match EqArray.mapPreserve mapField fields with
+                match Block.mapPreserve mapField fields with
                 | ValueNone -> if refEq ty' ty then p else TPat.Record(fields, ty', tok)
                 | ValueSome fields' -> TPat.Record(fields', ty', tok)
             | TPat.Union(c, fields, ty, tok) ->
                 let ty' = f ty
 
-                match EqArray.mapPreserve (mapPat m) fields with
+                match Block.mapPreserve (mapPat m) fields with
                 | ValueNone -> if refEq ty' ty then p else TPat.Union(c, fields, ty', tok)
                 | ValueSome fields' -> TPat.Union(c, fields', ty', tok)
             | TPat.TypeTestAs(testTy, inner, ty, tok) ->
@@ -277,7 +278,7 @@ module TastWalk =
             | TPat.Or(alts, ty, tok) ->
                 let ty' = f ty
 
-                match EqArray.mapPreserve (mapPat m) alts with
+                match Block.mapPreserve (mapPat m) alts with
                 | ValueNone -> if refEq ty' ty then p else TPat.Or(alts, ty', tok)
                 | ValueSome alts' -> TPat.Or(alts', ty', tok)
 
@@ -347,11 +348,11 @@ module TastWalk =
             // Every member pattern is rewritten before any member value, because each value
             // may reference every member.
             | TExpr.LetGroup(members, components, body, ty, tok) ->
-                let pats = members |> EqArray.map (fun m -> pp m.Pattern)
+                let pats = members |> Block.map (fun m -> pp m.Pattern)
 
                 let members' =
                     members
-                    |> EqArray.mapi (fun i m ->
+                    |> Block.mapi (fun i m ->
                         let v' = pe m.Value
 
                         if refEq pats.[i] m.Pattern && refEq v' m.Value then
@@ -366,7 +367,7 @@ module TastWalk =
                 let body' = pe body
                 let ty' = f ty
 
-                if EqArray.forall2 refEq members' members && refEq body' body && refEq ty' ty then
+                if Block.forall2 refEq members' members && refEq body' body && refEq ty' ty then
                     e
                 else
                     TExpr.LetGroup(members', components, body', ty', tok)
@@ -393,19 +394,19 @@ module TastWalk =
             | TExpr.Tuple(items, ty, tok) ->
                 let ty' = f ty
 
-                match EqArray.mapPreserve pe items with
+                match Block.mapPreserve pe items with
                 | ValueNone -> if refEq ty' ty then e else TExpr.Tuple(items, ty', tok)
                 | ValueSome items' -> TExpr.Tuple(items', ty', tok)
             | TExpr.ArrayLit(elems, ty, tok) ->
                 let ty' = f ty
 
-                match EqArray.mapPreserve pe elems with
+                match Block.mapPreserve pe elems with
                 | ValueNone -> if refEq ty' ty then e else TExpr.ArrayLit(elems, ty', tok)
                 | ValueSome elems' -> TExpr.ArrayLit(elems', ty', tok)
             | TExpr.Sequential(items, ty, tok) ->
                 let ty' = f ty
 
-                match EqArray.mapPreserve pe items with
+                match Block.mapPreserve pe items with
                 | ValueNone ->
                     if refEq ty' ty then
                         e
@@ -442,7 +443,7 @@ module TastWalk =
                 let sc' = pe sc
                 let ty' = f ty
 
-                match EqArray.mapPreserve pa arms with
+                match Block.mapPreserve pa arms with
                 | ValueNone ->
                     if refEq sc' sc && refEq ty' ty then
                         e
@@ -453,7 +454,7 @@ module TastWalk =
                 let b' = pe b
                 let ty' = f ty
 
-                match EqArray.mapPreserve pa arms with
+                match Block.mapPreserve pa arms with
                 | ValueNone ->
                     if refEq b' b && refEq ty' ty then
                         e
@@ -498,7 +499,7 @@ module TastWalk =
             | TExpr.RecordCons(fields, ty, tok) ->
                 let ty' = f ty
 
-                match EqArray.mapPreserve mapNamedExpr fields with
+                match Block.mapPreserve mapNamedExpr fields with
                 | ValueNone ->
                     if refEq ty' ty then
                         e
@@ -509,7 +510,7 @@ module TastWalk =
                 let src' = pe src
                 let ty' = f ty
 
-                match EqArray.mapPreserve mapNamedExpr ov with
+                match Block.mapPreserve mapNamedExpr ov with
                 | ValueNone ->
                     if refEq src' src && refEq ty' ty then
                         e
@@ -536,7 +537,7 @@ module TastWalk =
             | TExpr.UnionCons(c, args, ty, tok) ->
                 let ty' = f ty
 
-                match EqArray.mapPreserve pe args with
+                match Block.mapPreserve pe args with
                 | ValueNone ->
                     if refEq ty' ty then
                         e
@@ -546,7 +547,7 @@ module TastWalk =
             | TExpr.New(c, k, args, ty, tok) ->
                 let ty' = f ty
 
-                match EqArray.mapPreserve pe args with
+                match Block.mapPreserve pe args with
                 | ValueNone -> if refEq ty' ty then e else TExpr.New(c, k, args, ty', tok)
                 | ValueSome args' -> TExpr.New(c, k, args', ty', tok)
             // `CallVia.Interface` carries the constraining interface's instantiation type
@@ -557,7 +558,7 @@ module TastWalk =
                 let via' = mapVia f via
                 let ty' = f ty
 
-                match EqArray.mapPreserve pe args with
+                match Block.mapPreserve pe args with
                 | ValueNone ->
                     if refEq r' r && refEq via' via && refEq ty' ty then
                         e
@@ -577,7 +578,7 @@ module TastWalk =
                 let ty' = f ty
                 let declArgs' = mapTys f declArgs
 
-                match EqArray.mapPreserve pe args with
+                match Block.mapPreserve pe args with
                 | ValueNone ->
                     if refEq ty' ty && refEq declArgs' declArgs then
                         e
@@ -637,7 +638,7 @@ module TastWalk =
 
                 let segs =
                     segs
-                    |> EqArray.map (fun seg ->
+                    |> Block.map (fun seg ->
                         match seg with
                         | FormatSeg.Lit _ -> seg
                         | FormatSeg.Hole(h, a) -> FormatSeg.Hole({ h with Ty = f h.Ty }, pe a)
@@ -666,7 +667,7 @@ module TastWalk =
                         struct (refEq o' o, ValueSome o')
                     | ValueNone -> struct (true, ValueNone)
 
-                match EqArray.mapPreserve pe args with
+                match Block.mapPreserve pe args with
                 | ValueNone ->
                     if operandUnchanged && refEq ty' ty then
                         e
@@ -682,9 +683,9 @@ module TastWalk =
 
                 let clauses =
                     clauses
-                    |> EqArray.map (fun cl ->
+                    |> Block.map (fun cl ->
                         {
-                            Constraints = EqArray.map mapConstraint cl.Constraints
+                            Constraints = Block.map mapConstraint cl.Constraints
                             Body = pe cl.Body
                         }
                     )
@@ -710,7 +711,7 @@ module TastWalk =
                 let supportTys' = mapTys f supportTys
                 let ty' = f ty
 
-                match EqArray.mapPreserve pe args with
+                match Block.mapPreserve pe args with
                 | ValueNone ->
                     if refEq supportTys' supportTys && refEq ty' ty then
                         e
@@ -731,7 +732,7 @@ module TastWalk =
             | TExpr.InlineCall(spec, args, stamp, ty, tok) ->
                 let ty' = f ty
 
-                match EqArray.mapPreserve pe args with
+                match Block.mapPreserve pe args with
                 | ValueNone ->
                     if refEq ty' ty then
                         e
@@ -1031,7 +1032,7 @@ module TastWalk =
         match d with
         | TDecl.Let(m, isInline, isRec) -> TDecl.Let({ m with Value = f m.Value }, isInline, isRec)
         | TDecl.LetGroup(members, components) ->
-            TDecl.LetGroup(members |> EqArray.map (fun m -> { m with Value = f m.Value }), components)
+            TDecl.LetGroup(members |> Block.map (fun m -> { m with Value = f m.Value }), components)
         | TDecl.Expression(e, ty) -> TDecl.Expression(f e, ty)
         | TDecl.Type td -> TDecl.Type(mapTypeDecl id f td)
 

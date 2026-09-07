@@ -2,6 +2,7 @@ namespace XParsec.FSharp.SemanticAnalysis
 
 open System
 open System.Collections.Immutable
+open Vesper
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis.Passes
@@ -60,7 +61,7 @@ module internal ElaboratePatterns =
             // Nullary ctor in pattern position — a local union, or an external one (`None`)
             // stamped upstream and read by key. Both lower to the same `TPat.Union`: the
             // node's type carries the `TyUnion` a backend routes local vs external off.
-            TPat.Union(ctx.NameOf t, EqArray.empty, ty, tok)
+            TPat.Union(ctx.NameOf t, Block.empty, ty, tok)
         | Pat.NamedSimple _ -> namedSimple ctx key ty tok
         | Pat.Wildcard _ -> TPat.Wildcard(ty, tok)
         | Pat.EnclosedBlock(lParen = ParenKind.List _; pat = inner) ->
@@ -74,23 +75,23 @@ module internal ElaboratePatterns =
                 | Pat.Elems(pats = pats) -> List.ofSeq pats
                 | single -> [ single ]
 
-            let empty = TPat.Union(emptyName, EqArray.empty, ty, tok)
+            let empty = TPat.Union(emptyName, Block.empty, ty, tok)
 
             List.foldBack
-                (fun el acc -> TPat.Union(consName, EqArray.ofList [ translatePat ctx el; acc ], ty, tok))
+                (fun el acc -> TPat.Union(consName, Block.ofList [ translatePat ctx el; acc ], ty, tok))
                 elems
                 empty
         | Pat.EnclosedBlock(pat = inner) -> translatePat ctx inner
         | Pat.Tuple(patterns = pats) ->
-            TPat.Tuple(EqArray.ofSeq (seq { for sub in pats -> translatePat ctx sub }), ty, tok)
+            TPat.Tuple(Block.ofSeq (seq { for sub in pats -> translatePat ctx sub }), ty, tok)
         | Pat.EmptyBlock(lParen = ParenKind.List _) ->
             // `[]` pattern → the list union's nullary (empty) case, by arity.
             let _, emptyName = listCaseNames ctx ty
-            TPat.Union(emptyName, EqArray.empty, ty, tok)
+            TPat.Union(emptyName, Block.empty, ty, tok)
         | Pat.Cons(head = headPat; tail = tailPat) ->
             // `h :: t` → the list union's binary (cons) case.
             let consName, _ = listCaseNames ctx ty
-            TPat.Union(consName, EqArray.ofList [ translatePat ctx headPat; translatePat ctx tailPat ], ty, tok)
+            TPat.Union(consName, Block.ofList [ translatePat ctx headPat; translatePat ctx tailPat ], ty, tok)
         | Pat.Const c -> TPat.Const(parseConst ctx c, ty, tok)
         | Pat.As(pat = inner) ->
             // The `as`-name isn't surfaced in TPat yet, but downstream Var lookups find the
@@ -120,11 +121,11 @@ module internal ElaboratePatterns =
             | _ -> ctx.Report(tok, Kind.NotYetSupported "or-patterns that bind names (e.g. `(1, x) | (2, x)`)")
 
             let alts = leaves |> List.map (translatePat ctx)
-            TPat.Or(EqArray.ofList alts, ty, tok)
+            TPat.Or(Block.ofList alts, ty, tok)
         | Pat.EmptyBlock _ -> TPat.Const(TConstValue.Unit, ty, tok)
         | Pat.Record(fieldPats = fieldPats) ->
             let fields =
-                EqArray.ofSeq (
+                Block.ofSeq (
                     seq {
                         for FieldPat(longIdent = li; pat = sub) in fieldPats ->
                             let idents = li.Idents
@@ -153,12 +154,12 @@ module internal ElaboratePatterns =
                 if args.Length = 1 then
                     match args.[0] with
                     | Pat.EnclosedBlock(pat = Pat.Tuple(patterns = pats)) ->
-                        EqArray.ofSeq (seq { for sub in pats -> translatePat ctx sub })
-                    | Pat.EnclosedBlock(pat = inner) -> EqArray.singleton (translatePat ctx inner)
-                    | Pat.Tuple(patterns = pats) -> EqArray.ofSeq (seq { for sub in pats -> translatePat ctx sub })
-                    | sub -> EqArray.singleton (translatePat ctx sub)
+                        Block.ofSeq (seq { for sub in pats -> translatePat ctx sub })
+                    | Pat.EnclosedBlock(pat = inner) -> Block.singleton (translatePat ctx inner)
+                    | Pat.Tuple(patterns = pats) -> Block.ofSeq (seq { for sub in pats -> translatePat ctx sub })
+                    | sub -> Block.singleton (translatePat ctx sub)
                 else
-                    EqArray.ofSeq (seq { for sub in args -> translatePat ctx sub })
+                    Block.ofSeq (seq { for sub in args -> translatePat ctx sub })
 
             TPat.Union(caseName, subPats, ty, tok)
         | Pat.TypeTestAs(pat = inner) ->

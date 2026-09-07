@@ -1,5 +1,6 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.ModuleScopingTests
 
+open Vesper
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
@@ -450,7 +451,7 @@ let qualifiedTests =
 
                 match soleLetArg tast with
                 | SemType.TyRecord(_, args) ->
-                    Expect.equal (EqArray.toList args) [ BuiltinTypes.tyInt ] "the written type argument is applied"
+                    Expect.equal (Block.toList args) [ BuiltinTypes.tyInt ] "the written type argument is applied"
                 | other -> failtestf "expected a record, got %A" other
 
                 // The same path at the OTHER arity resolves to the other type.

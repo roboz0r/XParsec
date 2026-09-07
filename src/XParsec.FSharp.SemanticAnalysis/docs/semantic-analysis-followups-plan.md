@@ -368,8 +368,8 @@ it and say so on the declaration; the comment has been rewritten to the diagnost
 ### `ElaborateExpr.fs:568` — the `StaticOpt` side table is positionally aligned with `clauses` by convention only
 
 `translateStaticOptimization` pairs `resolved.[i]` with `clauses.[i]` and silently substitutes
-`EqArray.empty` when `i >= resolved.Length`. Since `Inline`'s `clauseSelected` is
-`EqArray.forall holds`, an empty constraint set is vacuously true, so a short or missing entry
+`Block.empty` when `i >= resolved.Length`. Since `Inline`'s `clauseSelected` is
+`Block.forall holds`, an empty constraint set is vacuously true, so a short or missing entry
 turns the source's FIRST clause into an unconditional selection rather than falling to the
 default — a wrong-body expansion, not a decline. Nothing in the types ties the side table's
 length or order to the CST clause list. Recording the constraints ON the clause (or keying them
@@ -401,7 +401,7 @@ to diff is gone but the duplication is not.
 
 `| TyVar _ -> true` means an unresolved metavar reads as engine-faithful, so the function is
 sound only because its one caller passes `Unification.zonk ctx.Store …`; its recursion into
-`EqArray` children does not re-resolve links. Today `zonk` is deep (`EngineCore.fs:51` recurses
+`Block` children does not re-resolve links. Today `zonk` is deep (`EngineCore.fs:51` recurses
 through `mapChildren`), so no live defect follows, but the precondition is carried entirely by a
 comment. A `Zonked` wrapper — or taking the `TypeStore` and resolving at each step, as the
 sibling walks in this project do — would make it structural. I did not check whether any future
@@ -438,7 +438,7 @@ root)", but `DeclaredTyparCount` right below it is defined as a count of *leadin
 source order, and `EffectiveMethodTypars` hands the same array out as the call-site method-typar
 list. If the declared-first prefix is real then the order is load-bearing and the "order
 irrelevant" reading is a trap for anyone rebuilding the array; if it is not, `DeclaredTyparCount`
-means nothing. An `EqArray<string * TyVarId>` plus a separate `int` cannot enforce either
+means nothing. An `Block<string * TyVarId>` plus a separate `int` cannot enforce either
 reading — a type splitting the declared prefix from the implicit tail would settle which one is
 true and remove the need for the sentence.
 

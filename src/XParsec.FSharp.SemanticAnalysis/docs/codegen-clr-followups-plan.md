@@ -277,9 +277,9 @@ acts on it yet. A13 and A16 are the same family.
 
 ## A19. `TypeMemberInfo.ArgNames` is meaningful for an abstract slot only
 
-`TypeMemberInfo` gained a ninth constructor argument, `argNames: EqArray<string voption>`,
+`TypeMemberInfo` gained a ninth constructor argument, `argNames: Block<string voption>`,
 which carries an `abstract` signature's argument names to `TAbstractMethodG.ParamNames`. Two of
-`MemberRegistration.addMember`'s three call sites pass `EqArray.empty`, because a concrete
+`MemberRegistration.addMember`'s three call sites pass `Block.empty`, because a concrete
 member's parameters carry their names on their bound variables, and the field's doc has to say
 so. An empty vector standing in for "not an abstract slot" is the optional-field-as-kind shape.
 

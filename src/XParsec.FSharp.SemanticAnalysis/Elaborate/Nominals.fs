@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+open Vesper
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis.Passes
@@ -47,7 +48,7 @@ module internal ElaborateNominals =
     let (|ExternalUnion|_|)
         (ctx: PassContext)
         (ty: SemType)
-        : struct (EqArray<ExternalCaseShape> * EqArray<SemType>) voption =
+        : struct (Block<ExternalCaseShape> * Block<SemType>) voption =
         match Unification.zonk ctx.Store ty with
         | TyUnion(key, args) ->
             match ctx.Provider.TryLookupType key with

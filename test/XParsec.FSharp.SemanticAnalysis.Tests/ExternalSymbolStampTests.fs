@@ -1,5 +1,6 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.ExternalSymbolStampTests
 
+open Vesper
 open Expecto
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
@@ -11,7 +12,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 /// `Vesper.Core`'s operator module. A qualified operator compiles to `A.B.op_Addition`.
 let private provider: IExternalSymbolProvider =
     let mono decl name =
-        ExternalSymbols.monoFrozen decl name (FTConst(RuntimeNames.intKey, EqArray.empty))
+        ExternalSymbols.monoFrozen decl name (FTConst(RuntimeNames.intKey, Block.empty))
 
     // `module B` in `namespace A`, as the source spelling `A.B.thing` reads.
     let moduleB = ModuleContainer.InModule(SymbolKeyOps.moduleInNamespace "A" "B")
