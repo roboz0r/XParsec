@@ -145,11 +145,12 @@ let tests =
                     "trait index past the arity"
             }
 
-            // The `Types` numbering is dense over the type-kinded typars alone.
+            // The `Types` numbering is dense over the type-kinded typars alone, and `'u` is used,
+            // so the measure typar reaches the frozen signature as an atom of its own scope.
             test "a measure typar before a type typar leaves the constraint on Types.[0]" {
                 let pools =
                     freezeFor
-                        "let mf<[<Measure>] 'u, 'a when 'a: equality> (y: 'a) = y
+                        "let mf<[<Measure>] 'u, 'a when 'a: equality> (x: float<'u>) (y: 'a) = (x, y)
 "
 
                 let scheme = frozenSchemeOf pools "mf"

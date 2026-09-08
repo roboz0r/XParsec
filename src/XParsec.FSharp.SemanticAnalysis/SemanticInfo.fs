@@ -2,17 +2,67 @@ namespace XParsec.FSharp.SemanticAnalysis
 
 open Vesper
 
-/// Abelian-group expression over measure atoms, each the declaring measure's `TypeKey`, so
-/// same-named measures in different modules stay distinct. Always stored normalised (duplicates
-/// merged, zero exponents dropped, entries sorted), so equality is structural list equality.
+/// One factor of a measure term: a declared base measure, or a measure-kinded type parameter
+/// of an enclosing declaration. A typar atom is rigid within its declaration, equal only to
+/// itself.
+[<RequireQualifiedAccess>]
+type MeasureAtom =
+    /// The declaring measure's `TypeKey`, so same-named measures in different modules stay
+    /// distinct.
+    | Named of TypeKey
+    /// `index` is the parameter's position in `scope`'s `TyparList.Measures`.
+    | Typar of scope: TyparScope * index: int<measureSlot>
+
+    /// A base measure by its declared path (`M.kg`); a typar by its measure slot (`'m0`).
+    member this.Display: string =
+        match this with
+        | MeasureAtom.Named key -> key.DeclaredPath
+        | MeasureAtom.Typar(_, index) -> sprintf "'m%d" (int index)
+
+/// A type parameter in scope under its source name: a type-kinded one by its prototype
+/// `TyVar`, a measure-kinded one by its atom.
+[<RequireQualifiedAccess>]
+type ScopedTypar =
+    | Type of TyVarId
+    | Measure of MeasureAtom
+
+[<RequireQualifiedAccess>]
+module ScopedTypar =
+    let newScope () : System.Collections.Generic.Dictionary<string, ScopedTypar> =
+        System.Collections.Generic.Dictionary<string, ScopedTypar>(System.StringComparer.Ordinal)
+
+    /// Enter each of `typars` into `into` under `scope`, a measure-kinded one at its
+    /// `Measures` slot. A later entry shadows an earlier one of the same name.
+    let declare
+        (into: System.Collections.Generic.Dictionary<string, ScopedTypar>)
+        (scope: TyparScope)
+        (typars: Block<DeclaredTypar>)
+        : unit =
+        let mutable slot = 0<measureSlot>
+
+        for tp in typars do
+            match tp.Kind with
+            | TyparKind.Type -> into.[tp.Name] <- ScopedTypar.Type tp.TyVar
+            | TyparKind.Measure ->
+                into.[tp.Name] <- ScopedTypar.Measure(MeasureAtom.Typar(scope, slot))
+                slot <- slot + 1<measureSlot>
+
+    /// A fresh scope holding exactly `typars` under `scope`.
+    let ofDeclared (scope: TyparScope) (typars: Block<DeclaredTypar>) =
+        let into = newScope ()
+        declare into scope typars
+        into
+
+/// Abelian-group expression over `MeasureAtom`s. Always stored normalised (duplicates merged,
+/// zero exponents dropped, entries sorted), so equality is structural list equality.
 [<Sealed>]
-type MeasureTerm private (exponents: (TypeKey * Rational) list) =
+type MeasureTerm private (exponents: (MeasureAtom * Rational) list) =
     member _.Exponents = exponents
     member _.IsDimensionless = List.isEmpty exponents
 
     static member Empty = MeasureTerm([])
 
-    static member OfList(raw: (TypeKey * Rational) list) : MeasureTerm =
+    static member OfList(raw: (MeasureAtom * Rational) list) : MeasureTerm =
         raw
         |> List.groupBy fst
         |> List.map (fun (n, xs) -> n, xs |> List.fold (fun acc (_, r) -> acc + r) Rational.Zero)
@@ -39,11 +89,8 @@ type MeasureTerm private (exponents: (TypeKey * Rational) list) =
                 |> List.filter (fun (_, e) -> e < Rational.Zero)
                 |> List.map (fun (n, e) -> n, -e)
 
-            let renderEntry (k: TypeKey, e: Rational) =
-                if e.IsOne then
-                    k.DeclaredPath
-                else
-                    sprintf "%s^%O" k.DeclaredPath e
+            let renderEntry (a: MeasureAtom, e: Rational) =
+                if e.IsOne then a.Display else sprintf "%s^%O" a.Display e
 
             let sb = System.Text.StringBuilder()
 
@@ -571,9 +618,11 @@ module BaseParent =
 module MeasureTerm =
     let empty = MeasureTerm.Empty
 
+    /// One atom, to the first power.
+    let ofAtom (a: MeasureAtom) : MeasureTerm = MeasureTerm.OfList [ a, Rational.One ]
+
     /// One base measure, to the first power.
-    let atom (key: TypeKey) : MeasureTerm =
-        MeasureTerm.OfList [ key, Rational.One ]
+    let atom (key: TypeKey) : MeasureTerm = ofAtom (MeasureAtom.Named key)
 
     let mul (a: MeasureTerm) (b: MeasureTerm) : MeasureTerm =
         MeasureTerm.OfList(a.Exponents @ b.Exponents)

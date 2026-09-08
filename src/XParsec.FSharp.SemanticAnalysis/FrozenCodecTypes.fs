@@ -13,12 +13,53 @@ open XParsec.FSharp.SemanticAnalysis.FrozenCodecConst
 /// Every embedded type reaches the wire through `writeTypeRef`.
 module FrozenCodecTypes =
 
-    /// A measure term as its `(base-measure key, exponent)` pairs.
+    let private writeTyparScope (w: FrozenWriter) (s: TyparScope) =
+        match s with
+        | TyparScope.Type key ->
+            w.Write 0uy
+            writeTypeKeyRef w key
+        | TyparScope.Member owner ->
+            w.Write 1uy
+            writeTypeKeyRef w owner
+        | TyparScope.ModuleFunction key ->
+            w.Write 2uy
+            writeBindingKeyRef w key
+        | TyparScope.LocalFunction(LocalBindingId id) ->
+            w.Write 3uy
+            w.Write id
+
+    let private readTyparScope (r: FrozenReader) : TyparScope =
+        match r.ReadByte() with
+        | 0uy -> TyparScope.Type(readTypeKeyRef r)
+        | 1uy -> TyparScope.Member(readTypeKeyRef r)
+        | 2uy -> TyparScope.ModuleFunction(readBindingKeyRef r)
+        | 3uy -> TyparScope.LocalFunction(LocalBindingId(r.ReadInt32()))
+        | b -> failwithf "FrozenCodec: unknown TyparScope tag %d" b
+
+    let private writeMeasureAtom (w: FrozenWriter) (a: MeasureAtom) =
+        match a with
+        | MeasureAtom.Named key ->
+            w.Write 0uy
+            writeTypeKeyRef w key
+        | MeasureAtom.Typar(scope, index) ->
+            w.Write 1uy
+            writeTyparScope w scope
+            w.Write(int index)
+
+    let private readMeasureAtom (r: FrozenReader) : MeasureAtom =
+        match r.ReadByte() with
+        | 0uy -> MeasureAtom.Named(readTypeKeyRef r)
+        | 1uy ->
+            let scope = readTyparScope r
+            MeasureAtom.Typar(scope, TyparIndex.measureSlot (r.ReadInt32()))
+        | b -> failwithf "FrozenCodec: unknown MeasureAtom tag %d" b
+
+    /// A measure term as its `(atom, exponent)` pairs.
     let writeMeasureTerm (w: FrozenWriter) (m: MeasureTerm) =
         writeListWith
             w
-            (fun w (key, exponent) ->
-                writeTypeKeyRef w key
+            (fun w (atom, exponent) ->
+                writeMeasureAtom w atom
                 writeRational w exponent
             )
             m.Exponents
@@ -27,9 +68,9 @@ module FrozenCodecTypes =
         readListWith
             r
             (fun r ->
-                let key = readTypeKeyRef r
+                let atom = readMeasureAtom r
                 let exponent = readRational r
-                key, exponent
+                atom, exponent
             )
         |> MeasureTerm.OfList
 

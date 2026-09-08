@@ -155,7 +155,10 @@ module SignatureResolutionMembers =
         let methodArity = DeclaredTypar.typeArity ownTypars
 
         let domains, ret =
-            underTypars ctx declTypars ownTypars (fun () -> translateSigGroups ctx m.Signature)
+            underTypars
+                ctx
+                [ TyparScope.Type declKey, declTypars; TyparScope.Member declKey, ownTypars ]
+                (fun () -> translateSigGroups ctx m.Signature)
 
         let env = memberEnv ctx declKey declTypars ownTypars
         let frozenDomains = freezeDomains ctx env domains
@@ -203,8 +206,7 @@ module SignatureResolutionMembers =
             let parameters, ret =
                 underTypars
                     ctx
-                    declTypars
-                    Block.empty
+                    [ TyparScope.Type declKey, declTypars ]
                     (fun () ->
                         ExternalSignature.tupledParams (
                             Block.ofSeq (
@@ -288,7 +290,10 @@ module SignatureResolutionMembers =
         // seq<'T>` references `'T`, and one resolved outside their scope is a fresh variable that
         // freezes to a hole no consumer can fill.
         let translated =
-            underTypars ctx declTypars Block.empty (fun () -> [ for (tok, t) in types -> tok, translateType ctx t ])
+            underTypars
+                ctx
+                [ TyparScope.Type declKey, declTypars ]
+                (fun () -> [ for (tok, t) in types -> tok, translateType ctx t ])
 
         Block.ofList
             [
@@ -352,8 +357,7 @@ module SignatureResolutionMembers =
         let shape =
             underTypars
                 ctx
-                typeParams
-                Block.empty
+                [ TyparScope.Type id.Key, typeParams ]
                 (fun () ->
                     {
                         Typars = TyparList.unconstrained typeParams

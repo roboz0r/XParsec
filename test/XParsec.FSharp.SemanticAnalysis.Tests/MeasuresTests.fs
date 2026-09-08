@@ -55,7 +55,10 @@ let private measuredOf (store: TypeStore) (ty: SemType) : SemType * MeasureTerm 
 /// The prelude carries no `namespace` or `module` header, so each measure keys under the
 /// global namespace at arity 0.
 let private measure (parts: (string * int) list) : MeasureTerm =
-    MeasureTerm.OfList [ for (n, e) in parts -> SymbolKeyOps.typeKeyOf "" n, Rational.ofInt e ]
+    MeasureTerm.OfList
+        [
+            for (n, e) in parts -> MeasureAtom.Named(SymbolKeyOps.typeKeyOf "" n), Rational.ofInt e
+        ]
 
 [<Tests>]
 let tests =

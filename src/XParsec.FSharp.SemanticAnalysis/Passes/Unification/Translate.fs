@@ -127,8 +127,29 @@ module internal UnificationTranslate =
             ctx.UndefinedType(Site.ofTokenOr (Site.ofLongIdent li) tok, ctx.NameOf tok)
             MeasureTerm.empty
 
-    /// Measure typars (`'u`) and wildcards yield an empty term plus a diagnostic, so the rest
-    /// of inference continues without measure noise.
+    /// The term a written `'u` contributes: the atom of the enclosing declaration's
+    /// measure-kinded typar of that name. A type-kinded typar here is FS0702 and an undeclared
+    /// name is unsupported; either contributes the empty term.
+    and private measureTyparAtom (ctx: PassContext) (measureTok: SyntaxToken) (tp: Typar<SyntaxToken>) : MeasureTerm =
+        match CstKeys.typarToken tp with
+        // `float<'_>`, the wildcard spelt as a typar.
+        | ValueNone ->
+            ctx.Report(measureTok, Kind.NotYetSupported "a measure wildcard")
+            MeasureTerm.empty
+        | ValueSome id ->
+            let name = ctx.NameOf id
+
+            match ctx.Resolution.TyparScope.TryGetValue name with
+            | true, ScopedTypar.Measure atom -> MeasureTerm.ofAtom atom
+            | true, ScopedTypar.Type _ ->
+                ctx.Report(id, Kind.MeasureParameterExpected)
+                MeasureTerm.empty
+            | false, _ ->
+                ctx.Report(id, Kind.NotYetSupported "an implicit measure type parameter")
+                MeasureTerm.empty
+
+    /// The term a written measure denotes. A wildcard (`float<_>`) yields the empty term plus
+    /// a diagnostic.
     and translateMeasure (ctx: PassContext) (measureTok: SyntaxToken) (m: Measure<SyntaxToken>) : MeasureTerm =
         match m with
         | Measure.One _ -> MeasureTerm.empty
@@ -149,9 +170,9 @@ module internal UnificationTranslate =
         | Measure.Juxtaposition(elems, _) ->
             (MeasureTerm.empty, elems)
             ||> Seq.fold (fun acc m -> MeasureTerm.mul acc (translateMeasure ctx measureTok m))
-        | Measure.Anonymous _
-        | Measure.Typar _ ->
-            ctx.Report(measureTok, Kind.NotYetSupported "measure typars / wildcards")
+        | Measure.Typar tp -> measureTyparAtom ctx measureTok tp
+        | Measure.Anonymous _ ->
+            ctx.Report(measureTok, Kind.NotYetSupported "a measure wildcard")
 
             MeasureTerm.empty
 
@@ -286,7 +307,9 @@ module internal UnificationTranslate =
             let name = ctx.NameOf id
 
             match ctx.Resolution.TyparScope.TryGetValue name with
-            | true, tv -> TyVar tv
+            | true, ScopedTypar.Type tv -> TyVar tv
+            // A measure-kinded typar in type position (`list<'u>`, `x: 'u`) is FS0703.
+            | true, ScopedTypar.Measure _ -> errorTy ctx id Kind.TypeParameterExpectedNotMeasure
             | false, _ ->
                 // An implicit typar is minted at the current level, for generalisation at
                 // binding-group exit, and memoised so later occurrences share the TyVar. A
@@ -302,7 +325,7 @@ module internal UnificationTranslate =
                     )
 
                 let tv = ctx.FreshTyVar()
-                ctx.Resolution.TyparScope.[name] <- tv
+                ctx.Resolution.TyparScope.[name] <- ScopedTypar.Type tv
                 TyVar tv
         | Type.VarType(Typar.Anon _) ->
             // `_` typar — always fresh, never stored; distinct per occurrence.
@@ -332,8 +355,7 @@ module internal UnificationTranslate =
         | Type.TupleType(types = types) -> TyTuple(Block.ofSeq (seq { for t in types -> translateType ctx t }))
         | Type.WhenConstrainedType(typ = inner; constraints = cs) ->
             let inner = translateType ctx inner
-            // An inline `when` sits on no declaration list; its typars resolve by scope alone.
-            translateConstraints ctx Block.empty cs
+            translateConstraints ctx cs
             inner
         | Type.ArrayType(baseType = baseTy; commas = commas) ->
             // `'T[]` / `'T[,]` → `TyConst(arrayKey rank, [elem])`, rank = comma count + 1.
@@ -535,21 +557,17 @@ module internal UnificationTranslate =
             ValueSome(Block.ofSeq (Seq.map ValueOption.get reads))
 
     /// Attach to the constrained typar's TyVar through the current
-    /// `ctx.Resolution.TyparScope`. A clause on a measure-kinded member of `declared` is
-    /// reported.
-    and private translateConstraint
-        (ctx: PassContext)
-        (declared: Block<DeclaredTypar>)
-        (c: Constraint<SyntaxToken>)
-        : unit =
-        /// The root of a declared typar in the live scope; `ValueNone` for an anonymous or
-        /// undeclared one.
+    /// `ctx.Resolution.TyparScope`. A clause on a measure-kinded typar is FS0703.
+    and private translateConstraint (ctx: PassContext) (c: Constraint<SyntaxToken>) : unit =
+        /// The root of a declared type-kinded typar in the live scope; `ValueNone` for an
+        /// anonymous, undeclared or measure-kinded one.
         let rootOf (typar: Typar<SyntaxToken>) : Rep voption =
             match CstKeys.typarToken typar with
             | ValueNone -> ValueNone
             | ValueSome id ->
                 match ctx.Resolution.TyparScope.TryGetValue(ctx.NameOf id) with
-                | true, tv -> ValueSome(UnionFind.find ctx.Store tv)
+                | true, ScopedTypar.Type tv -> ValueSome(UnionFind.find ctx.Store tv)
+                | true, ScopedTypar.Measure _
                 | false, _ -> ValueNone
 
         let attach (typar: Typar<SyntaxToken>) (kind: SemanticConstraintKind) (declTok: SyntaxToken) : unit =
@@ -558,30 +576,28 @@ module internal UnificationTranslate =
             | ValueSome id ->
                 let name = ctx.NameOf id
 
-                match declared |> Block.tryFind (fun tp -> tp.Name = name) with
-                | ValueSome tp when tp.Kind = TyparKind.Measure -> ctx.Report(id, Kind.TypeParameterExpectedNotMeasure)
-                | _ ->
-                    match ctx.Resolution.TyparScope.TryGetValue name with
-                    | true, tv ->
-                        let root = UnionFind.find ctx.Store tv
+                match ctx.Resolution.TyparScope.TryGetValue name with
+                | true, ScopedTypar.Measure _ -> ctx.Report(id, Kind.TypeParameterExpectedNotMeasure)
+                | true, ScopedTypar.Type tv ->
+                    let root = UnionFind.find ctx.Store tv
 
-                        let sc =
-                            {
-                                Kind = kind
-                                DeclKey = NodeKey.ofToken declTok NodeKind.TypeVarRef
-                            }
+                    let sc =
+                        {
+                            Kind = kind
+                            DeclKey = NodeKey.ofToken declTok NodeKind.TypeVarRef
+                        }
 
-                        if not (ctx.Store.Constraints.Items root |> List.exists (fun e -> e.Kind = sc.Kind)) then
-                            ctx.Store.Constraints.Prepend(root, sc)
-                    | false, _ ->
-                        ctx.Report(
-                            id,
-                            Kind.Message(
-                                sprintf
-                                    "Type parameter '%s' in constraint clause is not declared in the enclosing scope"
-                                    name
-                            )
+                    if not (ctx.Store.Constraints.Items root |> List.exists (fun e -> e.Kind = sc.Kind)) then
+                        ctx.Store.Constraints.Prepend(root, sc)
+                | false, _ ->
+                    ctx.Report(
+                        id,
+                        Kind.Message(
+                            sprintf
+                                "Type parameter '%s' in constraint clause is not declared in the enclosing scope"
+                                name
                         )
+                    )
 
         match c with
         | Constraint.Equality(typar = tp; equalityToken = tok) -> attach tp SemanticConstraintKind.Equality tok
@@ -613,15 +629,9 @@ module internal UnificationTranslate =
             ()
 
     /// The scope must already contain the constrained typars; callers seed it first.
-    /// `declared` is the typar list the clauses sit on, read for its kinds; a caller with no
-    /// kinded list passes `Block.empty`.
-    and translateConstraints
-        (ctx: PassContext)
-        (declared: Block<DeclaredTypar>)
-        (tcs: TyparConstraints<SyntaxToken>)
-        : unit =
+    and translateConstraints (ctx: PassContext) (tcs: TyparConstraints<SyntaxToken>) : unit =
         for c in tcs.Constraints do
-            translateConstraint ctx declared c
+            translateConstraint ctx c
 
     /// `fill` over the abbreviation's RHS, with its typars and constraints in scope.
     and forceFill (ctx: PassContext) (info: AbbreviationInfo) : SemType voption =
@@ -629,16 +639,10 @@ module internal UnificationTranslate =
             ctx
             info
             (fun () ->
-                let scope = Dictionary<string, TyVarId>(System.StringComparer.Ordinal)
-
-                for tp in info.TypeParams do
-                    if not (scope.ContainsKey tp.Name) then
-                        scope.[tp.Name] <- tp.TyVar
-
-                use _ = ctx.PushTyparScope(scope, true)
+                use _ = ctx.PushTyparScope([ TyparScope.Type info.TypeKey, info.TypeParams ], true)
 
                 match info.TyparConstraints with
-                | ValueSome cs -> translateConstraints ctx info.TypeParams cs
+                | ValueSome cs -> translateConstraints ctx cs
                 | ValueNone -> ()
 
                 translateType ctx info.RhsCst

@@ -163,6 +163,28 @@ module UnificationInfer =
             | _ -> ()
         | _ -> ()
 
+    /// Enter a binding's explicit `<'a, [<Measure>] 'u>` typars into the live scope under the
+    /// scope it quantifies in: `ModuleFunction` for a module `let`, `Member` for a member. Any
+    /// other binding is FS0665, a body-local `let` recovering under its own `LocalFunction`.
+    let private declareBindingTypars
+        (ctx: PassContext)
+        (b: Binding<SyntaxToken>)
+        (declared: Block<DeclaredTypar>)
+        : unit =
+        let declareUnder scope =
+            ScopedTypar.declare ctx.Resolution.TyparScope scope declared
+
+        match ctx.CurrentLocalOwner with
+        | ValueSome(LocalOwnerG.ModuleFunction key) -> declareUnder (TyparScope.ModuleFunction key)
+        | ValueSome(LocalOwnerG.Member nm) -> declareUnder (TyparScope.Member nm.Decl.TypeKey)
+        | ValueSome(LocalOwnerG.Local id) ->
+            ctx.Report(CstKeys.firstTokenOfPat b.pattern, Kind.ExplicitTyparsOnLocalBinding)
+            declareUnder (TyparScope.LocalFunction id)
+        | ValueNone
+        | ValueSome LocalOwnerG.Initialiser
+        | ValueSome(LocalOwnerG.Spliced _) ->
+            ctx.Report(CstKeys.firstTokenOfPat b.pattern, Kind.ExplicitTyparsOnLocalBinding)
+
     let rec infer (ctx: PassContext) (e: Expr<SyntaxToken>) : SemType =
         let node = CstKeys.siteOfExpr e
         let nodeTv = freshTv ctx node.Key
@@ -285,11 +307,7 @@ module UnificationInfer =
         // it first so later implicit `'a` mentions share the same TyVar.
         let enclosingScope = ctx.Resolution.TyparScope
 
-        use _ =
-            ctx.PushTyparScope(
-                Dictionary<string, TyVarId>(System.StringComparer.Ordinal),
-                ctx.Resolution.TyparScopeStrict
-            )
+        use _ = ctx.PushTyparScope(ScopedTypar.newScope (), ctx.Resolution.TyparScopeStrict)
 
         // Inherit the lexically-enclosing binding's typars (lowest priority) so a named typar
         // in a *nested* `let rec loop (t': Tree<'T>)` resolves to the enclosing function's
@@ -320,24 +338,32 @@ module UnificationInfer =
                         | Typar.Static(ident = id) ->
                             let n = ctx.NameOf id
 
-                            match ctx.Resolution.TyparScope.TryGetValue n with
-                            | true, tv ->
-                                yield
-                                    {
-                                        Name = n
-                                        TyVar = tv
-                                        Kind = NameResolutionTypeRegistration.kindOfSlot ctx attrs
-                                    }
-                            | _ -> ()
+                            // The prototype is the seeded TyVar. A measure typar's is inert: it
+                            // resolves by atom.
+                            let tv =
+                                match ctx.Resolution.TyparScope.TryGetValue n with
+                                | true, ScopedTypar.Type tv -> tv
+                                | true, ScopedTypar.Measure _
+                                | false, _ -> ctx.FreshTyVar()
+
+                            yield
+                                {
+                                    Name = n
+                                    TyVar = tv
+                                    Kind = NameResolutionTypeRegistration.kindOfSlot ctx attrs
+                                }
                         | Typar.Anon _ -> ()
                 ]
             | ValueNone -> []
 
-        if not (List.isEmpty declared) then
+        match declared with
+        | [] -> ()
+        | _ ->
             ctx.Bindings.DeclaredTypars.Set(CstKeys.ofBinding b, declared)
+            declareBindingTypars ctx b (Block.ofList declared)
 
         match b.typarDefns with
-        | ValueSome(TyparDefns(constraints = ValueSome cs)) -> translateConstraints ctx (Block.ofList declared) cs
+        | ValueSome(TyparDefns(constraints = ValueSome cs)) -> translateConstraints ctx cs
         | _ -> ()
 
         // The member-typar seed is for this binding's own typars only; clear it so a nested

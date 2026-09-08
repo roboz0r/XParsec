@@ -152,14 +152,13 @@ let tests =
             }
 
             // The CLR erases a measure-kinded typar: only the type-kinded ones get a row, and
-            // the metadata name counts those alone. The measure typar is declared and unused:
-            // `float<'u>` in a field of a measure-generic record is not yet resolved.
+            // the metadata name counts those alone, whether or not `'u` appears in a field.
             test "a measure-kinded typar has no GenericParam row" {
                 let bytes =
                     bytesOf
                         "GpMeasure"
                         [
-                            "type Pair<[<Measure>] 'u, 'a when 'a: struct> = { V: 'a }"
+                            "type Pair<[<Measure>] 'u, 'a when 'a: struct> = { V: 'a; W: float<'u> }"
                             "let n = 1"
                             "ignore n"
                         ]

@@ -176,10 +176,8 @@ separate change.
    atom is still an ordered key with a rational exponent. `Translate.translateMeasure`'s
    `Measure.Typar` arm resolves the written name against the enclosing declaration's
    measure-kinded `DeclaredTypar`s, the way `Type.VarType(Typar.Named)` resolves a type
-   typar, and yields the atom; `Measure.Anonymous` stays `NotYetSupported`. `mkDeclTyparEnv`
-   pairs each `Measure` slot with its atom, so `FTMeasure` over a typar atom freezes and
-   thaws through `IMeasuredThaw.Measured` as a named atom does. `writeMeasureTerm` gains the
-   atom tag. Format version 14.
+   typar, and yields the atom; `Measure.Anonymous` stays `NotYetSupported`.
+   `writeMeasureTerm` gains the atom tag. Format version 19.
 
    What this step leaves out, and why:
    - Measure inference. A declared measure typar is a rigid atom within its declaration,
@@ -188,6 +186,33 @@ separate change.
      Abelian-group unification, and is its own plan.
    - Measure-generic abbreviations (`type Meters<[<Measure>] 'u> = float<'u>`) stay
      `NotYetSupported`, as `typar-scope-plan.md` step 6 said.
+
+   Landed from the step 3 review. The atom resolves at TRANSLATE time, not through
+   `mkDeclTyparEnv` as this step originally said: a measured type is a `TyVar` whose term the
+   store holds in `Units`, so the term sits outside the `SemType` tree the deferred
+   `TyVar -> TyTypar` cut walks, and no remap reaches it.
+   The live typar scope maps a source name to a `ScopedTypar`: `Type of TyVarId` for a
+   type-kinded typar, `Measure of MeasureAtom` for a measure-kinded one. `ScopedTypar.declare`
+   is the one constructor of an entry, and assigns the measure slots; every site that pushes a
+   declaration's typars passes the declaration's `TyparScope` to it, directly or through
+   `PassContext.PushTyparScope(groups, strict)`. `translateMeasure` reads the atom from the
+   scope by name; `translateType` reports a `Measure` entry in type position as FS0703.
+   `CstKeys.measureOfType` widens to `Type.VarType`, because the parser spells the `'u` of
+   `float<'u>` as a type argument.
+
+   `underTypars` takes `(TyparScope * Block<DeclaredTypar>) list`, outer-to-inner, in place of
+   the `outer`/`own` pair, so each group's measure typars take their atoms under their own
+   scope.
+
+   `Kind.MeasureParameterExpected` (FS0702) is new: a type-kinded typar in measure position.
+   `Kind.ExplicitTyparsOnLocalBinding` (FS0665) is new: explicit typars on a binding whose
+   owner is neither a module `let` nor a member, which is the one case with no `TyparScope`
+   to declare under. An undeclared measure typar (`float<'zz>`, which fsc generalises) and a
+   wildcard (`float<_>`, `float<'_>`) are `NotYetSupported`.
+
+   A rigid atom is not instantiated at a call site, so `scale 1.0<m>` on
+   `let scale<[<Measure>] 'u> (x: float<'u>) = x` reports `Measure mismatch: <m> vs <'m0>`.
+   Pinned as a `ptest` in `MeasureResolutionTests`; it waits on the measure-inference plan.
 
 4. **Backends erase, the front end does not.** The CLR encoder drops a measure argument when
    it expands a measured nominal's abbreviation body, so a `MeasureAtom.Typar` inside one is
@@ -262,9 +287,9 @@ Before this document is deleted, each row is in code or in a test:
       outside `SemanticScalars.fs` (step 1).
 - [x] `FTTypar` and `TyTypar` carry `int<typeSlot>`, pinned by the measure-before-type
       binding in `FrozenConstraintTests` (step 2).
-- [ ] `MeasureAtom.Typar` round-trips through the codec and `float<'u>` resolves in a field
-      and a member, pinned in `MeasureResolutionTests` and `FrozenCodecRoundTripTests`
-      (step 3).
+- [x] `MeasureAtom.Typar` round-trips through the codec and `float<'u>` resolves in a field
+      and a member, pinned in `MeasureResolutionTests`, `FrozenCodecRoundTripTests` and
+      `FrozenCodecTreeRoundTripTests` (step 3).
 - [ ] The erasure rule lives on the CLR encoder, not on `TyparListG` (step 4).
 - [ ] A metadata name's `` `N `` is a type-slot count wherever it is written and wherever it is
       read; `TypeKey` and `MemberKey` carry the signature count and the type count apart

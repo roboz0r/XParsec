@@ -368,12 +368,14 @@ module CstKeys =
         }
 
     /// The measure a type written in MEASURE position denotes. The parser produces a lone
-    /// name (`float<m>`, `type v = m`) as `NamedType`, because the measure grammar is retried
-    /// only after an operator; a `MeasureType` is already a measure.
+    /// name (`float<m>`, `type v = m`) as `NamedType` and a lone typar (`float<'u>`) as
+    /// `VarType`, because the measure grammar is retried only after an operator; a
+    /// `MeasureType` is already a measure.
     let measureOfType (ty: Type<SyntaxToken>) : Measure<SyntaxToken> voption =
         match ty with
         | Type.MeasureType m -> ValueSome m
         | Type.NamedType li -> ValueSome(Measure.Named li)
+        | Type.VarType tp -> ValueSome(Measure.Typar tp)
         | _ -> ValueNone
 
     /// Only `NamedType`, `GenericType` and `SuffixedType` name a type; the structural

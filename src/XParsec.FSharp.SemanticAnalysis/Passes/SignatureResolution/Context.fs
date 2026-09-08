@@ -152,19 +152,11 @@ module SignatureResolutionContext =
                     | ValueNone -> ()
             ]
 
-    /// Run `f` under a typar scope holding exactly `outer` then `own`, STRICT: every typar the
+    /// Run `f` under a typar scope holding exactly `groups`, outer-to-inner: the signature's
+    /// own `<'a>` shadows an enclosing typar of the same name. STRICT: every typar the
     /// signature writes was collected before entry, so one that still misses is undeclared.
-    let underTypars (ctx: PassContext) (outer: Block<DeclaredTypar>) (own: Block<DeclaredTypar>) (f: unit -> 'a) : 'a =
-        let scope = Dictionary<string, TyVarId>(System.StringComparer.Ordinal)
-
-        for tp in outer do
-            scope.[tp.Name] <- tp.TyVar
-
-        // The signature's own `<'a>` shadows an enclosing typar of the same name.
-        for tp in own do
-            scope.[tp.Name] <- tp.TyVar
-
-        use _ = ctx.PushTyparScope(scope, true)
+    let underTypars (ctx: PassContext) (groups: (TyparScope * Block<DeclaredTypar>) list) (f: unit -> 'a) : 'a =
+        use _ = ctx.PushTyparScope(groups, true)
         f ()
 
     // --- curried signatures ---------------------------------------------------------

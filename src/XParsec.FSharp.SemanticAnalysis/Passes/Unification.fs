@@ -233,7 +233,10 @@ module Unification =
     /// member TyVars are pre-populated so body inference links them to the inferred type.
     let private fillTypeMembers (ctx: PassContext) (fc: TypeMembersFill) : unit =
         let savedEnclosing = ctx.Resolution.EnclosingTypars
-        let classScope = UnificationClassCtors.scopeOfTypeParams fc.Decl.TypeParams
+
+        let classScope =
+            ScopedTypar.ofDeclared (TyparScope.Type fc.Decl.TypeKey) fc.Decl.TypeParams
+
         use _ = ctx.PushTyparScope(classScope, true)
         // Keep the class typars in scope across each member body's `inferBinding`
         // (which mints a fresh scope and would otherwise drop them).
@@ -271,22 +274,16 @@ module Unification =
 
                 match mInfoOpt with
                 | Some mInfo when not mInfo.SeedTypars.IsEmpty ->
-                    let seed = Dictionary<string, TyVarId>(System.StringComparer.Ordinal)
-
-                    for tp in mInfo.SeedTypars do
-                        seed.[tp.Name] <- tp.TyVar
-
-                    ctx.Resolution.BindingTyparSeed <- ValueSome seed
+                    let memberScope = TyparScope.Member fc.Decl.TypeKey
+                    ctx.Resolution.BindingTyparSeed <- ValueSome(ScopedTypar.ofDeclared memberScope mInfo.SeedTypars)
 
                     // Keep the member's own typars in `EnclosingTypars` for the
                     // body walk, alongside the class typars, so a nested
                     // `let c = Comparer<'U>.Default` resolves `'U`, not free.
                     let memberEnclosing =
-                        Dictionary<string, TyVarId>(classScope, System.StringComparer.Ordinal)
+                        Dictionary<string, ScopedTypar>(classScope, System.StringComparer.Ordinal)
 
-                    for tp in mInfo.SeedTypars do
-                        memberEnclosing.[tp.Name] <- tp.TyVar
-
+                    ScopedTypar.declare memberEnclosing memberScope mInfo.SeedTypars
                     ctx.Resolution.EnclosingTypars <- ValueSome memberEnclosing
                 | _ -> ()
 
@@ -339,21 +336,18 @@ module Unification =
                                 ctx.Resolution.TyparScope
                             else
                                 let extended =
-                                    Dictionary<string, TyVarId>(
+                                    Dictionary<string, ScopedTypar>(
                                         ctx.Resolution.TyparScope,
                                         System.StringComparer.Ordinal
                                     )
 
-                                for tp in mInfo.SeedTypars do
-                                    extended.[tp.Name] <- tp.TyVar
-
+                                ScopedTypar.declare extended (TyparScope.Member fc.Decl.TypeKey) mInfo.SeedTypars
                                 extended
 
                         use _ = ctx.PushTyparScope(memberScope, ctx.Resolution.TyparScopeStrict)
 
                         match tds with
-                        | ValueSome(TyparDefns(constraints = ValueSome cs)) ->
-                            translateConstraints ctx mInfo.SeedTypars cs
+                        | ValueSome(TyparDefns(constraints = ValueSome cs)) -> translateConstraints ctx cs
                         | _ -> ()
 
                         let sigTy = mkSigTy ()
@@ -589,9 +583,7 @@ module Unification =
 
         for impl in info.InterfaceImpls do
             let resolved =
-                use _ =
-                    ctx.PushTyparScope(UnificationClassCtors.scopeOfTypeParams info.TypeParams, true)
-
+                use _ = ctx.PushTyparScope([ TyparScope.Type info.TypeKey, info.TypeParams ], true)
                 translateType ctx impl.InterfaceCst
 
             match
@@ -640,7 +632,7 @@ module Unification =
                             // prototype TyVars, so a member-body access on an interface-
                             // constrained class typar resolves through the interface.
                             match info.TyparConstraints with
-                            | ValueSome cs -> translateConstraints ctx info.TypeParams cs
+                            | ValueSome cs -> translateConstraints ctx cs
                             | ValueNone -> ()
 
                             // A ctor param's TyVar already carries its declared type (linked

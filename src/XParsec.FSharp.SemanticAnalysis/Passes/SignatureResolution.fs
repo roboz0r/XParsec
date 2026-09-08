@@ -715,19 +715,19 @@ module SignatureResolution =
                 let typeParams =
                     mkDeclaredTypars ctx.Store (explicit @ [ for n in implicit -> n, TyparKind.Type ])
 
-                let domains, ret =
-                    underTypars ctx Block.empty typeParams (fun () -> translateSigGroups ctx csig)
+                let scope = TyparScope.ModuleFunction(SymbolKeyOps.bindingKeyOf decl name)
 
-                let env =
-                    scopedEnv ctx (TyparScope.ModuleFunction(SymbolKeyOps.bindingKeyOf decl name)) typeParams
+                let domains, ret =
+                    underTypars ctx [ scope, typeParams ] (fun () -> translateSigGroups ctx csig)
+
+                let env = scopedEnv ctx scope typeParams
 
                 let template = freezeOver ctx env (curriedFunTy domains ret)
 
                 let generics =
                     underTypars
                         ctx
-                        Block.empty
-                        typeParams
+                        [ scope, typeParams ]
                         (fun () ->
                             publishedScheme
                                 ctx

@@ -428,14 +428,7 @@ module DeclaredTypar =
 
     /// The type-kinded typars at their `Types` slots, in source order.
     let typeKinded (typars: Block<DeclaredTypar>) : BlockM<DeclaredTypar, typeSlot> =
-        let acc = ResizeArray<DeclaredTypar>()
-
-        for tp in typars do
-            match tp.Kind with
-            | TyparKind.Type -> acc.Add tp
-            | TyparKind.Measure -> ()
-
-        Block.ofResizeArray acc
+        typars |> Seq.filter (fun tp -> tp.Kind = TyparKind.Type) |> Block.ofSeq
 
     let typeArity (typars: Block<DeclaredTypar>) : int<typeSlot> = (typeKinded typars).Length
 

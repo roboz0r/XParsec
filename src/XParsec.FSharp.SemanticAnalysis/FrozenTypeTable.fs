@@ -122,9 +122,6 @@ type ConditionalRow =
         WhenFalse: TypeId
     }
 
-[<Struct>]
-type MeasureAtomRow = { Atom: TypeKeyId; Exponent: Rational }
-
 /// `TyparScope` with its keys interned.
 [<RequireQualifiedAccess>]
 type TyparScopeRow =
@@ -132,6 +129,19 @@ type TyparScopeRow =
     | Member of owner: TypeKeyId
     | ModuleFunction of BindingKeyId
     | LocalFunction of int
+
+/// `MeasureAtom` with its key interned.
+[<RequireQualifiedAccess>]
+type MeasureAtomRow =
+    | Named of TypeKeyId
+    | Typar of scope: TyparScopeRow * index: int<measureSlot>
+
+[<Struct>]
+type MeasureFactorRow =
+    {
+        Atom: MeasureAtomRow
+        Exponent: Rational
+    }
 
 /// One `FrozenType` with every child replaced by the id it interned to. The row is its own
 /// INTERN KEY, because children being ids makes structural equality O(arity). `Or` holds an
@@ -152,8 +162,8 @@ type TypeRow =
     | Conditional of ConditionalRow
     | Typar of scope: TyparScopeRow * index: int<typeSlot>
     | Unknown of reason: UnknownReasonRow
-    /// The term's normalised atoms in `MeasureTerm.Exponents` order.
-    | Measure of atoms: Block<MeasureAtomRow>
+    /// The term's normalised factors in `MeasureTerm.Exponents` order.
+    | Measure of factors: Block<MeasureFactorRow>
 
 /// Two entries drawn from one declaring file carry the same pair and intern to one row.
 type FilePathRow = { Assembly: StrId; Relative: StrId }
@@ -314,6 +324,11 @@ type FrozenTypeTableBuilder private (rows: FrozenTypeRows) =
         | TyparScope.ModuleFunction key -> TyparScopeRow.ModuleFunction(bindingKey key)
         | TyparScope.LocalFunction(LocalBindingId id) -> TyparScopeRow.LocalFunction id
 
+    let measureAtom (a: MeasureAtom) : MeasureAtomRow =
+        match a with
+        | MeasureAtom.Named key -> MeasureAtomRow.Named(typeKey key)
+        | MeasureAtom.Typar(scope, index) -> MeasureAtomRow.Typar(typarScope scope, index)
+
     let unknownReason (r: UnknownReason) : UnknownReasonRow =
         match r with
         | UnknownReason.UndefinedName name -> UnknownReasonRow.UndefinedName(str name)
@@ -357,7 +372,7 @@ type FrozenTypeTableBuilder private (rows: FrozenTypeRows) =
                         [
                             for (atom, exponent) in units.Exponents ->
                                 {
-                                    Atom = typeKey atom
+                                    Atom = measureAtom atom
                                     Exponent = exponent
                                 }
                         ]
@@ -521,6 +536,11 @@ type FrozenTypeTable private (rows: FrozenTypeRows, view: FrozenType -> FrozenTy
         | TyparScopeRow.ModuleFunction key -> TyparScope.ModuleFunction(bindingKey key)
         | TyparScopeRow.LocalFunction id -> TyparScope.LocalFunction(LocalBindingId id)
 
+    let measureAtom (a: MeasureAtomRow) : MeasureAtom =
+        match a with
+        | MeasureAtomRow.Named key -> MeasureAtom.Named(typeKey key)
+        | MeasureAtomRow.Typar(scope, index) -> MeasureAtom.Typar(typarScope scope, index)
+
     let literal (v: LiteralRow) : LiteralConst =
         match v with
         | LiteralRow.String s -> LiteralConst.String(str s)
@@ -568,8 +588,8 @@ type FrozenTypeTable private (rows: FrozenTypeRows, view: FrozenType -> FrozenTy
                             }
                     | TypeRow.Typar(scope, index) -> FTTypar(typarScope scope, index)
                     | TypeRow.Unknown reason -> FTUnknown(unknownReason reason)
-                    | TypeRow.Measure atoms ->
-                        FTMeasure(MeasureTerm.OfList [ for a in atoms -> typeKey a.Atom, a.Exponent ])
+                    | TypeRow.Measure factors ->
+                        FTMeasure(MeasureTerm.OfList [ for f in factors -> measureAtom f.Atom, f.Exponent ])
 
                 view stored
             )

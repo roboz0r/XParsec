@@ -56,8 +56,13 @@ type Kind =
     /// or a measure argument on a type-kinded parameter (`Box<m>`).
     | TypeExpectedNotMeasure
     /// A measure-kinded parameter named where a type-kinded one is required: the target of a
-    /// `when` clause, or a member of an SRTP support set.
+    /// `when` clause, a member of an SRTP support set, or a type position (`list<'u>`).
     | TypeParameterExpectedNotMeasure
+    /// A type-kinded parameter named in measure position (`float<'a>` where `'a` carries no
+    /// `[<Measure>]` attribute).
+    | MeasureParameterExpected
+    /// Explicit `<'a>` typars on a binding other than a module `let` or a member.
+    | ExplicitTyparsOnLocalBinding
 
     // ── Constructors and patterns ──────────────────────────────────────────────
     /// The head of an applied or dotted pattern (`Foo x`, `Bar.Baz`) is neither a union case
@@ -224,6 +229,8 @@ module Kind =
         | Kind.TypeExpectedNotMeasure -> DiagCode.FSharp 704 // ExpectedTypeNotUnitOfMeasure
         | Kind.TypeParameterExpectedNotMeasure -> DiagCode.FSharp 703 // ExpectedTypeParameterNotUnitOfMeasureParameter
         | Kind.MeasureExpected -> DiagCode.FSharp 705 // ExpectedUnitOfMeasureNotType
+        | Kind.MeasureParameterExpected -> DiagCode.FSharp 702 // ExpectedUnitOfMeasureParameterNotTypeParameter
+        | Kind.ExplicitTyparsOnLocalBinding -> DiagCode.FSharp 665 // ExplicitTypeParametersNotOnLocalBinding
         | Kind.DowncastUnrelated _ -> DiagCode.FSharp 7 // InvalidRuntimeCoercion
         // ── The two "this coercion tells you nothing" warnings are one number in fsc.
         | Kind.RedundantDowncast _
@@ -366,6 +373,9 @@ module Kind =
         | Kind.TypeExpectedNotMeasure -> "Expected type, not unit-of-measure"
         | Kind.TypeParameterExpectedNotMeasure -> "Expected type parameter, not unit-of-measure parameter"
         | Kind.MeasureExpected -> "Expected unit-of-measure, not type"
+        | Kind.MeasureParameterExpected ->
+            "Expected unit-of-measure parameter, not type parameter. Explicit unit-of-measure parameters must be marked with the [<Measure>] attribute"
+        | Kind.ExplicitTyparsOnLocalBinding -> "Explicit type parameters may only be used on module or member bindings"
         | Kind.UndefinedPatternDiscriminator name -> sprintf "The pattern discriminator '%s' is not defined" name
         | Kind.NullaryConstructorPattern(name, arity) ->
             sprintf "Constructor '%s' takes %d argument(s) but is used nullary in pattern position" name arity
@@ -546,6 +556,8 @@ module Kind =
         | Kind.MeasureExpected
         | Kind.TypeExpectedNotMeasure
         | Kind.TypeParameterExpectedNotMeasure
+        | Kind.MeasureParameterExpected
+        | Kind.ExplicitTyparsOnLocalBinding
         | Kind.UndefinedPatternDiscriminator _
         | Kind.NullaryConstructorPattern _
         | Kind.AmbiguousConstructor _

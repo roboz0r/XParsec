@@ -128,7 +128,13 @@ let private samples: FrozenType list =
         FTConst(
             FrozenTypeBridge.measuredClaimKey RuntimeNames.floatKey,
             Block.singleton (
-                FTMeasure(MeasureTerm.OfList [ nestedKey, Rational.ofInt 1; colourKey, Rational.ofInt -2 ])
+                FTMeasure(
+                    MeasureTerm.OfList
+                        [
+                            MeasureAtom.Named nestedKey, Rational.ofInt 1
+                            MeasureAtom.Named colourKey, Rational.ofInt -2
+                        ]
+                )
             )
         )
     ]

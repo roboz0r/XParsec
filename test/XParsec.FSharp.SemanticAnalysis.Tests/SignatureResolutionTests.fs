@@ -989,6 +989,26 @@ let tests =
                 | other -> failtestf "expected exactly one MemberTrait; got %A" other
             }
 
+            test "a `val`'s own measure typar is an atom of its `ModuleFunction` scope" {
+                let r =
+                    resolveFsi
+                        "app.fsi"
+                        "namespace App\n\nmodule M =\n    val scale<[<Measure>] 'u> : float<'u> -> float<'u>\n"
+
+                Expect.isEmpty r.Messages "`float<'u>` resolves against the signature's own measure typar"
+
+                let scope =
+                    TyparScope.ModuleFunction(SymbolKeyOps.moduleBindingKey "App" "M" "scale")
+
+                match (symbolOf r "scale").Scheme with
+                | FTFun(FTConst(_, EqList [ FTMeasure units ]), _) ->
+                    Expect.equal
+                        units.Exponents
+                        [ MeasureAtom.Typar(scope, 0<measureSlot>), Rational.One ]
+                        "the parameter's measure is the signature's own typar atom"
+                | other -> failtestf "expected a measured carrier domain; got %A" other
+            }
+
             test "a measure typar in an SRTP support set is FS0703" {
                 let r =
                     resolveFsi

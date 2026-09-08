@@ -149,6 +149,24 @@ module FrozenCodecRows =
         | 3uy -> TyparScopeRow.LocalFunction(r.ReadInt32())
         | b -> failwithf "FrozenCodec: unknown TyparScopeRow tag %d" b
 
+    let private writeMeasureAtomRow (w: FrozenWriter) (a: MeasureAtomRow) =
+        match a with
+        | MeasureAtomRow.Named key ->
+            w.Write 0uy
+            writeTypeKeyId w key
+        | MeasureAtomRow.Typar(scope, index) ->
+            w.Write 1uy
+            writeTyparScopeRow w scope
+            w.Write(int index)
+
+    let private readMeasureAtomRow (r: FrozenReader) : MeasureAtomRow =
+        match r.ReadByte() with
+        | 0uy -> MeasureAtomRow.Named(readTypeKeyId r)
+        | 1uy ->
+            let scope = readTyparScopeRow r
+            MeasureAtomRow.Typar(scope, TyparIndex.measureSlot (r.ReadInt32()))
+        | b -> failwithf "FrozenCodec: unknown MeasureAtomRow tag %d" b
+
     let private writeMemberKindRow (w: FrozenWriter) (k: MemberKindRow) =
         match k with
         | MemberKindRow.Method -> w.Write 0uy
@@ -301,16 +319,16 @@ module FrozenCodecRows =
         | TypeRow.Unknown reason ->
             w.Write 14uy
             writeUnknownReasonRow w reason
-        | TypeRow.Measure atoms ->
+        | TypeRow.Measure factors ->
             w.Write 15uy
 
             writeBlockWith
                 w
-                (fun w (a: MeasureAtomRow) ->
-                    writeTypeKeyId w a.Atom
-                    writeRational w a.Exponent
+                (fun w (f: MeasureFactorRow) ->
+                    writeMeasureAtomRow w f.Atom
+                    writeRational w f.Exponent
                 )
-                atoms
+                factors
 
     // Rebuilt case for case with NO normalisation, because the stored row is already the canonical
     // one the freeze interned. `Or` in particular keeps the stored member sequence verbatim.
@@ -368,7 +386,7 @@ module FrozenCodecRows =
                 readBlockWith
                     r
                     (fun r ->
-                        let atom = readTypeKeyId r
+                        let atom = readMeasureAtomRow r
                         let exponent = readRational r
 
                         { Atom = atom; Exponent = exponent }

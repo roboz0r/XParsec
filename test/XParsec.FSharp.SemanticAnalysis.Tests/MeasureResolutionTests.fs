@@ -193,6 +193,145 @@ let tests =
                 ]
 
             testList
+                "a measure typar is an atom of its declaration"
+                [
+                    test "`float<'u>` in a record field resolves" {
+                        expectClean "type Pair<[<Measure>] 'u, 'a> = { V: 'a; W: float<'u> }\n"
+                    }
+
+                    test "`float<'u>` in a class field and a member signature resolves" {
+                        expectClean
+                            "\
+type Vec<[<Measure>] 'u>(x: float<'u>) =
+    member _.X: float<'u> = x
+    member _.Scale (k: float) : float<'u> = x
+"
+                    }
+
+                    test "`float<'u>` in a union case field resolves" {
+                        expectClean "type Reading<[<Measure>] 'u> = | Sampled of float<'u> | Missing\n"
+                    }
+
+                    test "`float<'u>` on a module `let`'s own measure typar resolves" {
+                        expectClean "let scale<[<Measure>] 'u> (x: float<'u>) = x\n"
+                    }
+
+                    test "`float<'u>` on an abstract slot's own measure typar resolves" {
+                        expectClean
+                            "\
+type IScale =
+    abstract Scale<[<Measure>] 'u> : float<'u> -> float<'u>
+"
+                    }
+
+                    // The atom carries the declaring scope and the `Measures` slot, so the
+                    // measure typar of one declaration is unequal to another's.
+                    test "a record field's measure typar freezes to a `Typar` atom at its measure slot" {
+                        let pools = freezeFor "type Pair<[<Measure>] 'u, 'a> = { V: 'a; W: float<'u> }\n"
+
+                        let td =
+                            match (TastUnpool.ofPools pools).Decls with
+                            | EqList [ TDeclG.Type td ] -> td
+                            | other -> failtestf "expected a single type declaration, got %A" other
+
+                        let fieldTy =
+                            match td.Kind with
+                            | TTypeKindG.Record r -> r.Fields.[1].Type
+                            | other -> failtestf "Pair is not a record: %A" other
+
+                        match fieldTy with
+                        | FTConst(_, EqList [ FTMeasure units ]) ->
+                            Expect.equal
+                                units.Exponents
+                                [ MeasureAtom.Typar(TyparScope.Type td.TypeKey, 0<measureSlot>), Rational.One ]
+                                "the declaration's own measure typar at measure slot 0"
+                        | other -> failtestf "expected a measured carrier, got %A" other
+                    }
+
+                    // FS0702: "Expected unit-of-measure parameter, not type parameter."
+                    test "a type-kinded typar in measure position is an error" {
+                        expectUserErrorReportedAlone
+                            "Expected unit-of-measure parameter, not type parameter"
+                            "\
+type Pair<[<Measure>] 'u, 'a> = { V: float<'a> }
+"
+                    }
+
+                    // FS0703: "Expected type parameter, not unit-of-measure parameter."
+                    test "a measure typar in type position is an error" {
+                        expectUserErrorReportedAlone
+                            "Expected type parameter, not unit-of-measure parameter"
+                            "\
+type Pair<[<Measure>] 'u> = { V: list<'u> }
+"
+                    }
+
+                    // FS0665: a local binding declares no scope for its typars to resolve under.
+                    test "an explicit measure typar on a local binding is an error" {
+                        expectUserErrorReportedAlone
+                            "Explicit type parameters may only be used on module or member bindings"
+                            "\
+let outer () =
+    let g<[<Measure>] 'u> (x: float<'u>) = x
+    g
+"
+                    }
+
+                    test "an explicit typar on a class `let` is an error" {
+                        expectUserErrorReportedAlone
+                            "Explicit type parameters may only be used on module or member bindings"
+                            "\
+type C() =
+    let g<'a> (x: 'a) = x
+    member _.G = g 1
+"
+                    }
+
+                    // A class `let` has no `TyparScope` case to recover under, so its measure
+                    // typar stays a type entry and `float<'u>` reports FS0702 beside FS0665.
+                    ptest "an explicit measure typar on a class `let` is FS0665 alone (reports FS0702 beside it)" {
+                        expectUserErrorReportedAlone
+                            "Explicit type parameters may only be used on module or member bindings"
+                            "\
+type C() =
+    let g<[<Measure>] 'u> (x: float<'u>) = x
+    member _.G = g 1.0
+"
+                    }
+
+                    // fsc generalises an undeclared `'zz` as a measure typar, which needs
+                    // measure variables in the store and Abelian-group unification.
+                    test "an undeclared measure typar is unsupported (fsc generalises it)" {
+                        expectUserErrorReportedAlone
+                            "an implicit measure type parameter"
+                            "\
+let f (x: float<'zz>) = x
+"
+                    }
+
+                    // The atom is rigid, and a call site has no measure variable to bind it to,
+                    // so `scale 1.0<m>` reports "Measure mismatch: <m> vs <'m0>". Instantiating
+                    // one needs Abelian-group unification, which is its own plan.
+                    ptest "a measure typar is not instantiated at a call site (fsc accepts it)" {
+                        expectClean
+                            "\
+[<Measure>] type m
+let scale<[<Measure>] 'u> (x: float<'u>) = x
+let y = scale 1.0<m>
+"
+                    }
+
+                    // fsc infers the wildcard's measure from the use site.
+                    test "a measure wildcard is unsupported (fsc infers it)" {
+                        expectUserErrorReportedAlone
+                            "a measure wildcard"
+                            "\
+let f (x: float<_>) = x
+"
+                    }
+                ]
+
+            testList
                 "Vesper.Core claims each numeric carrier at two arities"
                 [
                     // The arity-0 contract and `prim-types-*-measured` are different UNITS of

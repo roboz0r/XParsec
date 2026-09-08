@@ -359,8 +359,16 @@ let localTypeContainment =
                 Expect.notEqual (compare inNamespace inModule) 0 "the keys still order apart"
 
                 Expect.equal
-                    (MeasureTerm.OfList [ inNamespace, Rational.One; inModule, Rational.One ])
-                    (MeasureTerm.OfList [ inModule, Rational.One; inNamespace, Rational.One ])
+                    (MeasureTerm.OfList
+                        [
+                            MeasureAtom.Named inNamespace, Rational.One
+                            MeasureAtom.Named inModule, Rational.One
+                        ])
+                    (MeasureTerm.OfList
+                        [
+                            MeasureAtom.Named inModule, Rational.One
+                            MeasureAtom.Named inNamespace, Rational.One
+                        ])
                     "one term whichever atom is listed first"
             }
         ]

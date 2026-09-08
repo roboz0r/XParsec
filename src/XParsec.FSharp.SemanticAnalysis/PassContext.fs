@@ -257,13 +257,14 @@ type PassContextResolution =
         /// The type parameters in scope, by source name. Anonymous typars (`_`) never
         /// enter it, because they are fresh per occurrence. Replaced only through
         /// `PassContext.PushTyparScope`.
-        mutable TyparScope: Dictionary<string, TyVarId>
-        /// Prototype TyVars for the NEXT binding's own `<'C, …>` typars: on a name match the
-        /// binding reuses one, so a generic member's signature and body share typar roots.
-        mutable BindingTyparSeed: Dictionary<string, TyVarId> voption
+        mutable TyparScope: Dictionary<string, ScopedTypar>
+        /// The registration prototypes of the NEXT binding's own `<'C, …>` typars: on a name
+        /// match the binding reuses one, so a generic member's signature and body share typar
+        /// roots.
+        mutable BindingTyparSeed: Dictionary<string, ScopedTypar> voption
         /// The enclosing type's typars, live across a member body and its nested `let`s. A
         /// binding's fresh scope seeds these first, its own `<'a>` after, shadowing on clash.
-        mutable EnclosingTypars: Dictionary<string, TyVarId> voption
+        mutable EnclosingTypars: Dictionary<string, ScopedTypar> voption
         /// A `'a` not already in `TyparScope` is rejected rather than introduced implicitly.
         /// Set for the type-defn fill-in walk: a record / DU may use only its declared typars.
         mutable TyparScopeStrict: bool
@@ -342,7 +343,7 @@ module PassContextResolution =
             EnclosingContainer = ValueNone
             Scopes = ambient
             PendingBindings = Set.empty
-            TyparScope = Dictionary<string, TyVarId>(System.StringComparer.Ordinal)
+            TyparScope = ScopedTypar.newScope ()
             BindingTyparSeed = ValueNone
             EnclosingTypars = ValueNone
             TyparScopeStrict = false
@@ -512,7 +513,7 @@ type PassContext(provider: IExternalSymbolProvider, file: LexedFile, assembly: C
 
     /// Make `scope` the typar scope until the handle is disposed, which restores both the
     /// scope and the strictness of the enclosing one. Bind it with `use`.
-    member this.PushTyparScope(scope: Dictionary<string, TyVarId>, strict: bool) : System.IDisposable =
+    member this.PushTyparScope(scope: Dictionary<string, ScopedTypar>, strict: bool) : System.IDisposable =
         let res = this.Resolution
         let savedScope = res.TyparScope
         let savedStrict = res.TyparScopeStrict
@@ -524,6 +525,16 @@ type PassContext(provider: IExternalSymbolProvider, file: LexedFile, assembly: C
                 res.TyparScope <- savedScope
                 res.TyparScopeStrict <- savedStrict
         }
+
+    /// Make a scope holding exactly `groups`, outer to inner, the typar scope until the handle
+    /// is disposed. A later group's name shadows an earlier group's. Bind it with `use`.
+    member this.PushTyparScope(groups: (TyparScope * Block<DeclaredTypar>) list, strict: bool) : System.IDisposable =
+        let scope = ScopedTypar.newScope ()
+
+        for (typarScope, typars) in groups do
+            ScopedTypar.declare scope typarScope typars
+
+        this.PushTyparScope(scope, strict)
 
     /// Keyed by an `Expr.App`, present only where the call lowers inline: literal format and
     /// every specifier classifiable.

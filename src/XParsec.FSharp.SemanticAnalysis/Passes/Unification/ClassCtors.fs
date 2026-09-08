@@ -1,6 +1,5 @@
 namespace XParsec.FSharp.SemanticAnalysis.Passes
 
-open System.Collections.Generic
 open Vesper
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
@@ -15,17 +14,6 @@ open UnificationInfer
 // thing the enclosing member walk does not do.
 
 module internal UnificationClassCtors =
-
-    /// Rebuild a type definition's typar scope from the registry entry's `TypeParams`, so a
-    /// field type containing `'name` resolves to the same root the registry already holds.
-    let scopeOfTypeParams (typeParams: Block<DeclaredTypar>) : Dictionary<string, TyVarId> =
-        let d = Dictionary<string, TyVarId>(System.StringComparer.Ordinal)
-
-        for tp in typeParams do
-            if not (d.ContainsKey tp.Name) then
-                d.[tp.Name] <- tp.TyVar
-
-        d
 
     /// `expected` is the primary ctor's tupled parameter type; the chain call's
     /// arguments unify against it, and its function position is never inferred.
@@ -82,7 +70,10 @@ module internal UnificationClassCtors =
     let fillSecondaryCtors (ctx: PassContext) (info: ClassTypeInfo) : unit =
         if info.Body.SecondaryCtors.Length > 0 then
             let savedEnclosing = ctx.Resolution.EnclosingTypars
-            let classScope = scopeOfTypeParams info.TypeParams
+
+            let classScope =
+                ScopedTypar.ofDeclared (TyparScope.Type info.TypeKey) info.TypeParams
+
             use _ = ctx.PushTyparScope(classScope, true)
             ctx.Resolution.EnclosingTypars <- ValueSome classScope
 

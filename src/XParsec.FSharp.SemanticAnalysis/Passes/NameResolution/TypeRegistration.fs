@@ -1,6 +1,5 @@
 namespace XParsec.FSharp.SemanticAnalysis.Passes
 
-open System.Collections.Generic
 open System.Collections.Immutable
 open Vesper
 open XParsec.FSharp.Parser
@@ -792,15 +791,9 @@ module NameResolutionTypeRegistration =
         | ModuleElem.Expression e -> CstWalk.iterExpr walker () e
         | _ -> ()
 
-    /// Run `f` under a type declaration's typar scope, its prototype TyVars keyed by the
-    /// source names its header declares, so a `'a` written in the declaration's structure
-    /// resolves to the registry's TyVar, and an undeclared one is diagnosed, not minted.
-    let underTyparScope (ctx: PassContext) (typeParams: Block<DeclaredTypar>) (f: unit -> 'a) : 'a =
-        let scope = Dictionary<string, TyVarId>(System.StringComparer.Ordinal)
-
-        for tp in typeParams do
-            if not (scope.ContainsKey tp.Name) then
-                scope.[tp.Name] <- tp.TyVar
-
-        use _ = ctx.PushTyparScope(scope, true)
+    /// Run `f` under the typar scope of type declaration `key`, STRICT: a `'a` written in the
+    /// declaration's structure resolves to the registry's prototype, and an undeclared one is
+    /// diagnosed, not minted.
+    let underTyparScope (ctx: PassContext) (key: TypeKey) (typeParams: Block<DeclaredTypar>) (f: unit -> 'a) : 'a =
+        use _ = ctx.PushTyparScope([ TyparScope.Type key, typeParams ], true)
         f ()

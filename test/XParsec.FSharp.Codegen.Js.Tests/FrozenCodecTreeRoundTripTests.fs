@@ -198,6 +198,44 @@ let tests =
                 Expect.isTrue (survivesRoundTrip f) "generic-member file survived flatten/thaw structurally"
             }
 
+            // The corpus declares no measure-generic type, so it reaches neither a
+            // `TyparSlot.Measure` in a stored typar list nor a `MeasureAtom.Typar` in a stored
+            // type row. This case forces both.
+            test "a measure-generic declaration's measure slot and typar atom round-trip" {
+                let f = frozenOfJs "type Pair<[<Measure>] 'u, 'a> = { V: 'a; W: float<'u> }\n"
+
+                let td =
+                    (TastUnpool.ofPools f).Decls
+                    |> Block.toList
+                    |> List.tryPick (
+                        function
+                        | TDeclG.Type td when td.Name = "Pair" -> Some td
+                        | _ -> None
+                    )
+                    |> Option.defaultWith (fun () -> failtest "no type `Pair` in the frozen tree")
+
+                Expect.equal
+                    (Block.toList td.TypeParams.Order)
+                    [ TyparSlot.Measure 0<measureSlot>; TyparSlot.Type 0<typeSlot> ]
+                    "both `TyparSlot` cases are stored"
+
+                match td.Kind with
+                | TTypeKindG.Record r ->
+                    match r.Fields.[1].Type with
+                    | FTConst(_, args) ->
+                        match Block.toList args with
+                        | [ FTMeasure units ] ->
+                            Expect.equal
+                                units.Exponents
+                                [ MeasureAtom.Typar(TyparScope.Type td.TypeKey, 0<measureSlot>), Rational.One ]
+                                "the field's measure is the declaration's own typar atom"
+                        | other -> failtestf "expected one measure argument, got %A" other
+                    | other -> failtestf "expected a measured carrier, got %A" other
+                | other -> failtestf "Pair is not a record: %A" other
+
+                Expect.isTrue (survivesRoundTrip f) "measure-generic file survived flatten/thaw structurally"
+            }
+
             // The corpus reaches no `TraitCall` payload: one survives freezing only inside a
             // published inline template, which an UNCALLED user SRTP inline provides. Its two
             // distinct typars must come back as a two-element support set.

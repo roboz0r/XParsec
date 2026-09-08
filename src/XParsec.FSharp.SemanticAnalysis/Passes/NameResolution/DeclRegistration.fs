@@ -56,10 +56,11 @@ module NameResolutionDeclRegistration =
 
         underTyparScope
             ctx
+            id.Key
             typeParams
             (fun () ->
                 match typarConstraints with
-                | ValueSome cs -> translateConstraints ctx typeParams cs
+                | ValueSome cs -> translateConstraints ctx cs
                 | ValueNone -> ()
 
                 for f in fields do

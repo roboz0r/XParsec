@@ -134,10 +134,11 @@ module NameResolutionUnionRegistration =
 
         underTyparScope
             ctx
+            id.Key
             typeParams
             (fun () ->
                 match typarConstraints with
-                | ValueSome cs -> translateConstraints ctx typeParams cs
+                | ValueSome cs -> translateConstraints ctx cs
                 | ValueNone -> ()
 
                 for UnionTypeCase(attributes = caseAttrs; data = data) in cases do

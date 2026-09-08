@@ -116,6 +116,7 @@ module NameResolutionMemberRegistration =
             let struct (ctorParams, members) =
                 underTyparScope
                     ctx
+                    id.Key
                     typeParams
                     (fun () ->
                         struct (extractCtorParams ctx id.DeclSite.Tok pc,
@@ -214,6 +215,7 @@ module NameResolutionMemberRegistration =
                     let parent =
                         underTyparScope
                             ctx
+                            id.Key
                             info.TypeParams
                             (fun () -> NameResolutionInheritParent.resolveInheritParent ctx inhTok parentTyp)
 
@@ -308,6 +310,7 @@ module NameResolutionMemberRegistration =
 
             underTyparScope
                 ctx
+                id.Key
                 typeParams
                 (fun () -> extractTypeBody ctx id.DeclSite.Tok typarNames TypeBodyHost.Augmentation elems)
 

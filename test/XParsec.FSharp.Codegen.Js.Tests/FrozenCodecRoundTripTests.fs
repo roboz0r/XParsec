@@ -76,7 +76,12 @@ let private collect () : Collected =
             | FTUnknown _ -> ()
             | FTMeasure units ->
                 for (atom, _) in units.Exponents do
-                    visitTypeKey atom
+                    match atom with
+                    | MeasureAtom.Named key -> visitTypeKey key
+                    | MeasureAtom.Typar(TyparScope.Type key, _)
+                    | MeasureAtom.Typar(TyparScope.Member key, _) -> visitTypeKey key
+                    | MeasureAtom.Typar(TyparScope.ModuleFunction key, _) -> sks.Add(SymbolKey.Binding key) |> ignore
+                    | MeasureAtom.Typar(TyparScope.LocalFunction _, _) -> ()
 
     and visitTypeKey (tk: TypeKey) =
         sks.Add(SymbolKey.Type tk) |> ignore
@@ -284,7 +289,37 @@ let private collect () : Collected =
             FTConst(
                 FrozenTypeBridge.measuredClaimKey tkInt,
                 Block.singleton (
-                    FTMeasure(MeasureTerm.OfList [ tkInMod, Rational.ofInt 1; tkNested, Rational.ofInt -1 ])
+                    FTMeasure(
+                        MeasureTerm.OfList
+                            [
+                                MeasureAtom.Named tkInMod, Rational.ofInt 1
+                                MeasureAtom.Named tkNested, Rational.ofInt -1
+                            ]
+                    )
+                )
+            )
+            // One term mixing a typar atom from each `TyparScope` case.
+            FTConst(
+                FrozenTypeBridge.measuredClaimKey tkInt,
+                Block.singleton (
+                    FTMeasure(
+                        MeasureTerm.OfList
+                            [
+                                MeasureAtom.Typar(TyparScope.Type tkList, 0<measureSlot>), Rational.ofInt 2
+                                MeasureAtom.Typar(TyparScope.Member tkList, 1<measureSlot>), Rational.ofInt -1
+                                MeasureAtom.Typar(
+                                    TyparScope.ModuleFunction
+                                        {
+                                            Decl = ModuleContainer.InModule modKey
+                                            Name = "scale"
+                                        },
+                                    0<measureSlot>
+                                ),
+                                Rational.ofInt 1
+                                MeasureAtom.Typar(TyparScope.LocalFunction(LocalBindingId 4), 3<measureSlot>),
+                                Rational.ofInt 1
+                            ]
+                    )
                 )
             )
             // Deeply nested: functions, tuples, sets and computations composed together.

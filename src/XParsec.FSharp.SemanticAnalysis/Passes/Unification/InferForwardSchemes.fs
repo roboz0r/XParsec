@@ -1,6 +1,5 @@
 namespace XParsec.FSharp.SemanticAnalysis.Passes
 
-open System.Collections.Generic
 open System.Collections.Immutable
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
@@ -32,15 +31,15 @@ module internal UnificationInferForwardSchemes =
                     let n = ctx.NameOf id
 
                     if not (ctx.Resolution.TyparScope.ContainsKey n) then
-                        let tv =
+                        let entry =
                             match ctx.Resolution.BindingTyparSeed with
                             | ValueSome seed ->
                                 match seed.TryGetValue n with
                                 | true, proto -> proto
-                                | _ -> ctx.FreshTyVar()
-                            | ValueNone -> ctx.FreshTyVar()
+                                | _ -> ScopedTypar.Type(ctx.FreshTyVar())
+                            | ValueNone -> ScopedTypar.Type(ctx.FreshTyVar())
 
-                        ctx.Resolution.TyparScope.[n] <- tv
+                        ctx.Resolution.TyparScope.[n] <- entry
                 | Typar.Anon _ -> ()
         | ValueNone -> ()
 
@@ -64,8 +63,7 @@ module internal UnificationInferForwardSchemes =
                 let key = CstKeys.ofPat b.pattern
 
                 if (ctx.TryScheme key).IsNone then
-                    use _ =
-                        ctx.PushTyparScope(Dictionary<string, TyVarId>(System.StringComparer.Ordinal), false)
+                    use _ = ctx.PushTyparScope(ScopedTypar.newScope (), false)
 
                     let outerLevel = ctx.CurrentLevel
 
