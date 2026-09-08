@@ -59,7 +59,7 @@ module EmitResolve =
         | [] -> failwithf "Emit: no constructor of arity %d on class '%s'" argCount site
         | [ (_, kind, h) ] -> kind, h
         | sameArity ->
-            let declaringArgs = List.toArray tyArgs
+            let declaringArgs = FrozenType.typeSlotArgs (Block.ofList tyArgs)
 
             let admits (ps: FrozenType list) =
                 List.forall2 (fun p a -> FrozenTypeBridge.substituteDeclaring declaringArgs p = a) ps argTypes
@@ -96,7 +96,7 @@ module EmitResolve =
         match nominal with
         | FTClass(classKey, classArgs) ->
             match env.Classes.TryGetValue classKey with
-            | true, cls -> pickInterfaceWitness ifaceKey (classArgs.AsSpan().ToArray()) cls.Interfaces
+            | true, cls -> pickInterfaceWitness ifaceKey (FrozenType.typeSlotArgs classArgs) cls.Interfaces
             | false, _ -> ValueNone
         | _ -> ValueNone
 

@@ -65,7 +65,8 @@ module internal GenericParamRow =
     /// `T`, `'T0` → `T0`).
     let private metadataName (name: TyparName) : string = name.Display.TrimStart('\'', '^')
 
-    /// The rows of an owner's type-kinded typars, in `Types` order.
+    /// One row per type-kinded typar, in `Types` order. The CLR erases a measure-kinded
+    /// typar.
     let ofTypars (typars: TyparList) : GenericParamRow list =
         [
             for t in typars.Types ->

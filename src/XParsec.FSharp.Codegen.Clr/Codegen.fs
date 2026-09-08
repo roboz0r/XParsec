@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.Codegen.Clr
 
 open XParsec.FSharp.SemanticAnalysis
+open XParsec.FSharp.Codegen.Common
 
 module Codegen =
 

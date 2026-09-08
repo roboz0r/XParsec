@@ -132,23 +132,42 @@ module FrozenType =
     let existsChild (p: FrozenType -> bool) (t: FrozenType) : bool =
         not (forallChildren (fun c -> not (p c)) t)
 
-    /// A measured nominal: the arity-1 claim `key` applied to the one measure `units`
-    /// (`float<m>` is `FTConst(Vesper.float`1, [FTMeasure m])`).
-    let (|MeasuredNominal|_|) (t: FrozenType) : struct (TypeKey * MeasureTerm) voption =
+    let private isMeasureArg (arg: FrozenType) : bool =
+        match arg with
+        | FTMeasure _ -> true
+        | _ -> false
+
+    /// The type-slot arguments of a nominal's signature-order argument list: the arguments
+    /// a type-kinded typar leaf indexes.
+    let typeSlotArgs (args: Block<FrozenType>) : BlockM<FrozenType, typeSlot> =
+        args
+        |> Block.toArray
+        |> Array.filter (isMeasureArg >> not)
+        |> Block.unsafeOfArray
+
+    type MeasuredClaim =
+        {
+            Key: TypeKey
+            TypeArgs: BlockM<FrozenType, typeSlot>
+            Units: MeasureTerm
+        }
+
+    /// A measured nominal: a claim applied to exactly one measure (`float<m>` is
+    /// `FTConst(Vesper.float`1, [FTMeasure m])`).
+    let (|MeasuredNominal|_|) (t: FrozenType) : MeasuredClaim voption =
         match t with
         | FTConst(key, args) ->
-            let measures =
-                args
-                |> Block.toArray
-                |> Array.choose (
-                    function
-                    | FTMeasure units -> Some units
-                    | _ -> None
-                )
+            let measures, types = args |> Block.toArray |> Array.partition isMeasureArg
 
             match measures with
             | [||] -> ValueNone
-            | [| units |] -> ValueSome(struct (key, units))
+            | [| FTMeasure units |] ->
+                ValueSome
+                    {
+                        Key = key
+                        TypeArgs = Block.unsafeOfArray types
+                        Units = units
+                    }
             | _ -> failwithf "FrozenType.MeasuredNominal: a nominal applied to several measures: %A" t
         | _ -> ValueNone
 

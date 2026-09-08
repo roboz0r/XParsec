@@ -1,26 +1,26 @@
-namespace XParsec.FSharp.SemanticAnalysis
+namespace XParsec.FSharp.Codegen.Common
 
 open Vesper
+open XParsec.FSharp.SemanticAnalysis
 
-/// The backend reading of a measured nominal: `float<m>` is `float`, the arity-1 claim's body
-/// with the measure argument dropped.
+/// The backend reading of a measured nominal: `float<m>` is `float`, the claim's body over its
+/// type-slot arguments with the measure dropped.
 [<RequireQualifiedAccess>]
 module MeasureErasure =
 
-    /// The arity-1 claim `key` expanded over `args`, itself erased. `lookup` resolves `key` to
-    /// its abbreviation.
+    /// The claim expanded over its type-slot arguments, itself erased. `lookup` resolves the
+    /// claim's key to its abbreviation.
     let rec private expandClaim
         (lookup: TypeKey -> ExternalTypeShape voption)
-        (key: TypeKey)
-        (args: Block<FrozenType>)
+        (claim: FrozenType.MeasuredClaim)
         : FrozenType =
-        match lookup key with
+        match lookup claim.Key with
         | ValueSome(ExternalTypeShape.Abbrev { Body = body }) ->
-            erase lookup (FrozenTypeBridge.substituteDeclaring (Block.toArray args) body)
+            erase lookup (FrozenTypeBridge.substituteDeclaring claim.TypeArgs body)
         | other ->
             failwithf
                 "MeasureErasure: the measured claim %s is not an abbreviation the referenced contracts publish: %A"
-                key.DeclaredPath
+                claim.Key.DeclaredPath
                 other
 
     /// `t` with every measured nominal replaced by its abbreviation's expansion. A bare
@@ -32,7 +32,7 @@ module MeasureErasure =
     /// view.
     and eraseNode (lookup: TypeKey -> ExternalTypeShape voption) (t: FrozenType) : FrozenType =
         match t with
-        | FTConst(key, args) & FrozenType.MeasuredNominal _ -> expandClaim lookup key args
+        | FrozenType.MeasuredNominal claim -> expandClaim lookup claim
         | t -> t
 
     /// The file's pools read through `eraseNode`: every type column, and every member key's

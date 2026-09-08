@@ -207,12 +207,11 @@ type TyparKind =
 [<Measure>]
 type sigSlot
 
-/// Indexes `TyparList.Types`. A typar leaf carries one, and the CLR emits one `GenericParam`
-/// row per slot.
+/// Indexes `TyparList.Types`. A typar leaf carries one.
 [<Measure>]
 type typeSlot
 
-/// Indexes `TyparList.Measures`. Both backends erase these parameters.
+/// Indexes `TyparList.Measures`. A measure atom carries one.
 [<Measure>]
 type measureSlot
 
@@ -378,8 +377,7 @@ type TyparSlot =
         | Type _ -> TyparKind.Type
         | Measure _ -> TyparKind.Measure
 
-/// A declaration's type parameters, type-kinded and measure-kinded apart. A typar leaf
-/// indexes `Types`; the CLR encodes `Types` alone.
+/// A declaration's type parameters, type-kinded and measure-kinded apart.
 type TyparListG<'ty> =
     {
         Types: BlockM<TypeTyparG<'ty>, typeSlot>
@@ -393,7 +391,6 @@ type TyparListG<'ty> =
 
     member this.IsEmpty: bool = this.Order.IsEmpty
 
-    /// The type-kinded count: the arity a backend that erases measures emits.
     member this.TypeArity: int<typeSlot> = this.Types.Length
 
     member this.MeasureArity: int<measureSlot> = this.Measures.Length

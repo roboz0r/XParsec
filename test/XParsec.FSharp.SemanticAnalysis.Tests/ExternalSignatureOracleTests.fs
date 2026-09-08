@@ -106,7 +106,7 @@ let tests =
                 // Codegen substitutes declaring args in frozen-space directly; it must agree
                 // with `toFrozen ∘ instantiateDeclaring`, the path inference takes.
                 for name, arity, template, _ in declaringTemplates do
-                    let frozenArgs = argsForArity arity |> Array.map toFrozen
+                    let frozenArgs = argsForArity arity |> Array.map toFrozen |> Block.ofArray
                     let viaSubstitute = substituteDeclaring frozenArgs template
 
                     let viaInstantiate =

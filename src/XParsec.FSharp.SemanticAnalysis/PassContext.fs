@@ -640,16 +640,15 @@ type PassContext(provider: IExternalSymbolProvider, file: LexedFile, assembly: C
         this.Store.SetUnits(root, ValueSome units)
         TyVar tv
 
-    /// The thaw of a frozen measured nominal: `key` is the arity-1 abbreviation of a referenced
-    /// contract (`Vesper.float`1`), whose body is the bare carrier and so instantiates over no
-    /// arguments.
+    /// The thaw of a frozen measured nominal: `key` is an abbreviation of a referenced contract
+    /// (`Vesper.float`1`), whose body instantiates over the claim's type-slot args.
     interface IMeasuredThaw with
         member this.Store = this.Store
 
-        member this.Measured(key, units) =
+        member this.Measured(key, typeArgs, units) =
             match provider.TryLookupType key with
             | ValueSome(ExternalTypeShape.Abbrev { Body = body }) ->
-                this.MeasuredTy(FrozenTypeBridge.instantiateDeclaring this body [||], units)
+                this.MeasuredTy(FrozenTypeBridge.instantiateDeclaring this body (Block.toArray typeArgs), units)
             | other ->
                 failwithf
                     "PassContext.Measured: the measured claim %s is not an abbreviation the referenced contracts publish: %A"

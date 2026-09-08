@@ -51,7 +51,7 @@ module Unmanagedness =
         (args: Block<FrozenType>)
         : Unmanagedness =
         let instantiate (template: FrozenType) : FrozenType =
-            FrozenTypeBridge.substituteDeclaring (Block.toArray args) template
+            FrozenTypeBridge.substituteDeclaring (FrozenType.typeSlotArgs args) template
 
         let fields (templates: FrozenType seq) : Unmanagedness =
             templates |> Seq.map (instantiate >> part) |> ofParts

@@ -220,15 +220,18 @@ type internal ClrEncoder(env: ClrEnv) =
                     failwithf "ClrProvider: no IL encoding for platform type id %s (type %s)" typeId.Value name
         | other -> failwithf "ClrProvider: cannot encode FrozenType: %A" other
 
-    /// Encode `handle` applied to `args`: the bare type at arity 0, a `GENERICINST` otherwise.
-    /// `isVt` selects the `VALUETYPE` element tag over `CLASS`.
+    /// Encode `handle` applied to its signature-order `args`: the bare type at type arity 0, a
+    /// `GENERICINST` over the type-slot args otherwise. `isVt` selects the `VALUETYPE` element
+    /// tag over `CLASS`.
     and encodeNominal (te: SignatureTypeEncoder) (handle: EntityHandle) (isVt: bool) (args: Block<FrozenType>) : unit =
-        if args.IsEmpty then
+        let typeArgs = FrozenType.typeSlotArgs args
+
+        if typeArgs.IsEmpty then
             te.Type(handle, isVt)
         else
-            let g = te.GenericInstantiation(handle, args.Length, isVt)
+            let g = te.GenericInstantiation(handle, int typeArgs.Length, isVt)
 
-            for a in args do
+            for a in typeArgs do
                 encodeType (g.AddArgument()) a
 
     /// Fill the declaring type's and the member's own open-typar slots by structurally matching

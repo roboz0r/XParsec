@@ -62,6 +62,7 @@
     <Compile Include="MetadataSymbolsTests.fs" />
     <Compile Include="UnionRegimeTests.fs" />
     <Compile Include="UnmanagednessTests.fs" />
+    <Compile Include="MeasureErasureTests.fs" />
     <Compile Include="UnionPlacementsTests.fs" />
     <Compile Include="PlatformTypeIdConformanceTests.fs" />
     <Compile Include="SymbolProviderWiringTests.fs" />

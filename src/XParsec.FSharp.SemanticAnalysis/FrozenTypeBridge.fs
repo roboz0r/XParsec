@@ -9,12 +9,11 @@ open Vesper
 [<AutoOpen>]
 module FrozenTypeBridge =
 
-    /// The thaw of a frozen measured nominal `FTConst(key, [FTMeasure units])` into `Store`:
-    /// a measured `TyVar` whose `Link` is the arity-1 abbreviation `key` expanded and whose
-    /// `Units` is the term.
+    /// The thaw of a frozen measured nominal into `Store`: a measured `TyVar` whose `Link` is
+    /// the abbreviation `key` expanded over `typeArgs` and whose `Units` is the term.
     type IMeasuredThaw =
         abstract Store: TypeStore
-        abstract Measured: key: TypeKey * units: MeasureTerm -> SemType
+        abstract Measured: key: TypeKey * typeArgs: BlockM<SemType, typeSlot> * units: MeasureTerm -> SemType
 
     /// The assignment of types to a template's open typars. One value per instantiation
     /// event: templates instantiated through one value agree at every `(scope, index)`.
@@ -29,7 +28,7 @@ module FrozenTypeBridge =
             { new IMeasuredThaw with
                 member _.Store = store
 
-                member _.Measured(key, units) =
+                member _.Measured(key, _, units) =
                     failwithf
                         "MeasuredThaw.noneOver: the measured type %s<%O> reached a surface that carries no measure"
                         key.DeclaredPath
@@ -100,7 +99,7 @@ module FrozenTypeBridge =
         let go = instantiateWith thaw inst
 
         match template with
-        | FrozenType.MeasuredNominal(key, units) -> thaw.Measured(key, units)
+        | FrozenType.MeasuredNominal m -> thaw.Measured(m.Key, Block.map go m.TypeArgs, m.Units)
         | FTConst(key, args) -> TyConst(key, Block.map go args)
         | FTMeasure units -> failwithf "FrozenTypeBridge: the measure <%O> reached type position" units
         | FTFun(arg, result) -> TyFun(go arg, go result)
@@ -263,25 +262,25 @@ module FrozenTypeBridge =
         | FTUnknown _ -> false
         | t -> FrozenType.forallChildren ftIsGround t
 
-    /// `FTTypar(Type _, i)` → `declaringArgs.[i]`, staying in `FrozenType` and touching no
-    /// inference state. This is how an abbreviation body is expanded against use-site args.
-    /// An under-applied generic abbrev is tolerated, not a crash.
-    let rec substituteDeclaring (declaringArgs: FrozenType[]) (template: FrozenType) : FrozenType =
+    /// `FTTypar(Type _, i)` → `declaringArgs.[i]`, purely within `FrozenType`. This expands an
+    /// abbreviation body against a use site's type-slot args. An under-applied generic abbrev
+    /// yields `FTUnknown ArityMismatch` at the missing slots.
+    let rec substituteDeclaring (declaringArgs: BlockM<FrozenType, typeSlot>) (template: FrozenType) : FrozenType =
         match template with
         | FTTypar(TyparScope.Type _, i) ->
-            if int i < declaringArgs.Length then
-                declaringArgs.[int i]
+            if i < declaringArgs.Length then
+                declaringArgs.[i]
             else
                 FTUnknown UnknownReason.ArityMismatch
         | FTTypar(scope, j) ->
             failwithf "FrozenTypeBridge.substituteDeclaring: unexpected typar %d of %A in a type-shape template" j scope
         | t -> FrozenType.mapChildren (substituteDeclaring declaringArgs) t
 
-    /// The impl in `ifaces` whose identity is `target`, with its args substituted at THIS
-    /// object argument: `FTTypar(Type _, i) := declArgs.[i]`.
+    /// The impl in `ifaces` whose identity is `target`, with its args substituted at the object
+    /// argument's type-slot args: `FTTypar(Type _, i) := declArgs.[i]`.
     let pickInterfaceWitness
         (target: TypeKey)
-        (declArgs: FrozenType[])
+        (declArgs: BlockM<FrozenType, typeSlot>)
         (ifaces: FrozenNominal seq)
         : Block<FrozenType> voption =
         match ifaces |> Seq.tryFind (fun iface -> iface.Key = target) with

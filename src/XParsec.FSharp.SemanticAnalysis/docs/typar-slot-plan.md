@@ -222,6 +222,24 @@ separate change.
    `Measures`, `MeasureArity` or a measure atom; `TastFileG`, `FrozenPools` and the codec
    keep all three.
 
+   Landed from the step 4 review. `MeasureErasure` sits in `XParsec.FSharp.Codegen.Common`,
+   not in SemanticAnalysis: the reading is a backend one, and both backends take it. The
+   decision itself is sited on `ClrEncoder.encodeType`'s measured arm and on
+   `GenericParamRow.ofTypars`; `MeasureErasureTests` in `Codegen.Clr.Tests` pins the
+   expansion.
+
+   `FrozenTypeBridge.substituteDeclaring` and `pickInterfaceWitness` take a
+   `BlockM<FrozenType, typeSlot>`, and `FrozenType.typeSlotArgs` is the one projection from a
+   nominal's signature-order argument list to it. The untyped array they took before put a
+   measure argument at type slot 0 at every caller. `FrozenType.MeasuredNominal` yields a
+   `MeasuredClaim` carrying the claim's type-slot args, which `IMeasuredThaw.Measured` and
+   `MeasureErasure.expandClaim` both instantiate the body over, so the front end and the
+   backends read one shape. `ClrEncoder.encodeNominal` projects a user nominal's args the same
+   way, one per `GenericParam` row. A source program cannot reach it yet: `Translate.apply`
+   builds `Pair<m, int>` as a measured `TyVar` over `Pair<_, int>`, and `freezeWith` accepts a
+   primitive carrier alone. `GenericParamFlagsTests` pins the by-name instantiation as a
+   `ptest` for step 5.
+
 5. **`` `N `` is written from one numbering and read as another.** `TypeKey.TyparArity` counts
    signature slots: `NameResolutionTypeRegistration.arityOfTypeName` is
    `typarSlotsOfTypeName |> List.length` with measures included, and it is the arity a source
@@ -272,7 +290,7 @@ Before this document is deleted, each row is in code or in a test:
 
 - [x] `BlockM` carries the tag, `Block` is its alias, and `Vesper.Block.Tests` pins the
       uninitialised value, ownership, equality and comparison (step 1a).
-- [ ] `Block` and its module are deleted; every call site names `Block` (step 1c).
+- [x] `EqArray` and its module are deleted; every call site names `Block` (step 1c).
 - [x] `TyparList.Types`, `Measures` and `Order` accept only their own tag; no `int` indexes
       any of them (step 1).
 - [x] `TyparList.ofKinded`'s index callback is gone; `publishedScheme` buckets by
@@ -290,7 +308,7 @@ Before this document is deleted, each row is in code or in a test:
 - [x] `MeasureAtom.Typar` round-trips through the codec and `float<'u>` resolves in a field
       and a member, pinned in `MeasureResolutionTests`, `FrozenCodecRoundTripTests` and
       `FrozenCodecTreeRoundTripTests` (step 3).
-- [ ] The erasure rule lives on the CLR encoder, not on `TyparListG` (step 4).
+- [x] The erasure rule lives on the CLR encoder, not on `TyparListG` (step 4).
 - [ ] A metadata name's `` `N `` is a type-slot count wherever it is written and wherever it is
       read; `TypeKey` and `MemberKey` carry the signature count and the type count apart
       (step 5).

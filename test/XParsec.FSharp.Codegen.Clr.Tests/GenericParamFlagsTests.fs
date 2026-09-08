@@ -166,6 +166,23 @@ let tests =
                 Expect.equal (typeGenericParamsOf bytes "Pair`1") [ "a", valueType ] "one row, the type-kinded typar's"
             }
 
+            // Pending: translation builds `Pair<m, int>` as a measured `TyVar` over the carrier
+            // `Pair<_, int>`, and `freezeWith` accepts a primitive carrier alone
+            // (typar-slot-plan step 5).
+            ptest "a measure-generic record instantiated by name encodes over its type-slot args" {
+                let bytes =
+                    bytesOf
+                        "GpMeasureUse"
+                        [
+                            "[<Measure>] type m"
+                            "type Pair<[<Measure>] 'u, 'a when 'a: struct> = { V: 'a; W: float<'u> }"
+                            "let first (p: Pair<m, int>) = p.V"
+                            "ignore first"
+                        ]
+
+                Expect.equal (typeGenericParamsOf bytes "Pair`1") [ "a", valueType ] "one row, the type-kinded typar's"
+            }
+
             test "a union's case classes carry the declaring typar's constraint" {
                 let bytes =
                     bytesOf

@@ -197,7 +197,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
         | FTRecord(rKey, rArgs) ->
             match env.LookupTypeByKey(rKey) with
             | ValueSome(ExternalTypeShape.Class shape) ->
-                pickInterfaceWitness ifaceKey (rArgs.AsSpan().ToArray()) shape.FrozenInterfaces
+                pickInterfaceWitness ifaceKey (FrozenType.typeSlotArgs rArgs) shape.FrozenInterfaces
             | _ -> ValueNone
         | _ -> ValueNone
 

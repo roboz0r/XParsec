@@ -187,7 +187,7 @@ type internal Assembler
             match seqTy with
             | FTClass(key, args) ->
                 match enumeratorTemplateByClass.TryGetValue(SymbolKey.Type key) with
-                | true, template -> ValueSome(substituteDeclaring (args.AsSpan().ToArray()) template)
+                | true, template -> ValueSome(substituteDeclaring (FrozenType.typeSlotArgs args) template)
                 | false, _ -> ValueNone
             | _ -> ValueNone
 
