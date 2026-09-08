@@ -61,16 +61,24 @@ type TConstResult =
     | ArrayVal of Block<TConstResult>
 
 type TConstExpr =
-    | Literal    of value: TConstValue * ty: FrozenType * tok: SyntaxToken
-    | Null       of ty: FrozenType * tok: SyntaxToken
-    | LiteralRef of binding: BindingKey * result: TConstResult * ty: FrozenType * tok: SyntaxToken
-    | EnumCase   of enumKey: TypeKey * caseName: string * result: TConstResult * ty: FrozenType * tok: SyntaxToken
-    | TypeOf     of operand: FrozenType * ty: FrozenType * tok: SyntaxToken
-    | NameOf     of target: SymbolKey * name: string * ty: FrozenType * tok: SyntaxToken
-    | ArrayLit   of items: Block<TConstExpr> * ty: FrozenType * tok: SyntaxToken
-    | Unary      of op: BindingKey * operand: TConstExpr * result: TConstResult * ty: FrozenType * tok: SyntaxToken
-    | Binary     of op: BindingKey * left: TConstExpr * right: TConstExpr * result: TConstResult * ty: FrozenType * tok: SyntaxToken
+    | Literal    of value: TConstValue * ty: FrozenType * tok: Anchor
+    | Null       of ty: FrozenType * tok: Anchor
+    | LiteralRef of binding: BindingKey * result: TConstResult * ty: FrozenType * tok: Anchor
+    | EnumCase   of enumKey: TypeKey * caseName: string * result: TConstResult * tok: Anchor
+    | TypeOf     of operand: FrozenType * ty: FrozenType * tok: Anchor
+    | NameOf     of target: SymbolKey * name: string * ty: FrozenType * tok: Anchor
+    | ArrayLit   of items: Block<TConstExpr> * ty: FrozenType * tok: Anchor
+    | Unary      of op: BindingKey * operand: TConstExpr * result: TConstResult * ty: FrozenType * tok: Anchor
+    | Binary     of op: BindingKey * left: TConstExpr * right: TConstExpr * result: TConstResult * ty: FrozenType * tok: Anchor
 ```
+
+A site is an `Anchor`, not a `SyntaxToken`: `TAttributes` is written by `FrozenCodecConst` and
+read back in another assembly, where a token index is the only form a site survives in. An
+`EnumCase` carries no `ty` column: its type is `FTEnum enumKey` by construction.
+
+`TConstDenotation` is a node's `{ Result; Ty }` with the site dropped: the form under which
+two spellings of one constant compare equal. `ConformanceSurface` compares attribute arguments
+by it, and the tests assert on it.
 
 Three properties this fixes in place:
 
@@ -114,7 +122,8 @@ Done when: `Infer` is unchanged in behaviour and the mapping is callable from th
 ### 2. The types, end to end, behaviour-preserving
 
 Add `TastConstExpr.fs` after `TastExpr.fs` and before `AttributeVerdicts.fs`. `TAttributeArg`
-becomes `{ Name: string voption; Expr: TConstExpr }`, with `Value` a computed projection.
+becomes `{ Name: string voption; Expr: TConstExpr }`, with `Value: TConstValue voption` and
+`EnumKey` computed projections.
 `FrozenCodecTypes.writeTAttributeArg`/`readTAttributeArg` round-trip the tree.
 
 Keep the existing CST producer for now, upgraded to build `TConstExpr` nodes: literal leaves take
@@ -141,8 +150,9 @@ surface publishes.
 which `externalMemberExpr` (`ElaborateExpr.fs:29`) already does for an external one, ending the
 local/external asymmetry.
 
-Deletes: `ConstRejection` (`ConstFold.fs:9-25`), `FoldedConst` (`ConstFold.fs:29-33`),
-`AttributeFold.tryNamedConstant`/`tryLiteralValue`/`tryEnumCase` (`AttributeFold.fs:86-190`).
+Deletes: `ConstRejection` (`ConstFold.fs:9-25`) and
+`AttributeFold.tryNamedConstant`/`tryLiteralValue`/`tryEnumCase`. `FoldedConst` went with
+stage 2, which gave `tryConstant` a `TConstExpr` to return.
 `ConstFold.tryLiteral` stays — `EnumCaseValues.fs:45` and `Elaborate/Literals.fs:30` are its
 other callers.
 

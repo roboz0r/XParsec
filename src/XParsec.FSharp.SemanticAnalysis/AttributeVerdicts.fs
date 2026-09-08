@@ -6,20 +6,25 @@ open Vesper
 // the frozen `TTypeDeclG`'s equality / comparison / qualified-access members are views over
 // its stored `TAttributes`, computed here.
 
-/// One constant-folded attribute argument. `Name` is the property a named setter assigns
-/// (`AllowMultiple = true`); `ValueNone` for a positional constructor argument. `EnumKey` is
-/// the enum whose case(s) the value was written as (`AttributeTargets.Class ||| …`);
-/// `ValueNone` for a non-enum constant.
+/// One checked attribute argument, as the author wrote it. `Name` is the property a named
+/// setter assigns (`AllowMultiple = true`); `ValueNone` for a positional constructor
+/// argument.
 type TAttributeArg =
     {
         Name: string voption
-        Value: TConstValue
-        EnumKey: TypeKey voption
+        Expr: TConstExpr
     }
 
-/// One written attribute: the declaration's `TypeKey` and its arguments, constant-folded, in
-/// written order. An attribute with an argument outside the constant domain was diagnosed
-/// and is absent from its position's `TAttributes`.
+    /// The scalar the argument denotes; `ValueNone` for `null`, a `typeof<T>` and an array.
+    member this.Value: TConstValue voption = TConstExpr.tryScalar this.Expr
+
+    /// The enum whose case(s) the argument was written as (`AttributeTargets.Class ||| …`);
+    /// `ValueNone` for a non-enum constant.
+    member this.EnumKey: TypeKey voption = TConstExpr.tryEnumKey this.Expr
+
+/// One written attribute: the declaration's `TypeKey` and its checked arguments, in written
+/// order. An attribute with an argument outside the constant domain was diagnosed and is
+/// absent from its position's `TAttributes`.
 type TAttribute =
     {
         Key: TypeKey

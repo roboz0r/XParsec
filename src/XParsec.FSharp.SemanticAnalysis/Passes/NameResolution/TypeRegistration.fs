@@ -761,16 +761,21 @@ module NameResolutionTypeRegistration =
         if (ctx.ResolveAttributes b.attributes).Has RuntimeNames.literalAttributeKey then
             let useSite = ctx.UseSiteAt(CstKeys.ofBinding b)
 
-            match
+            let folded =
                 ConstFold.tryConstant
                     ctx.NameOf
                     (fun t k -> ctx.Report(t, k))
+                    (LiteralTypes.frozenOfConstValue ctx.Intrinsics)
                     (AttributeFold.tryNamedConstant ctx useSite)
                     b.expr
-            with
-            | Ok v ->
+
+            // `LiteralValues` holds a scalar, so `null`, a `typeof<T>` and an array literal
+            // are refused here.
+            match folded |> Result.map TConstExpr.tryScalar with
+            | Ok(ValueSome v) ->
                 for (_, key) in NameResolutionScope.bindingsOfPat ctx b.pattern do
-                    ctx.Resolution.LiteralValues.Set(key, v.Value)
+                    ctx.Resolution.LiteralValues.Set(key, v)
+            | Ok ValueNone -> ctx.Report(CstKeys.firstTokenOfExpr b.expr, Kind.NotConstantExpression)
             | Error e -> ctx.Report(CstKeys.firstTokenOfExpr b.expr, ConstFold.rejectionKind e)
 
     /// Classify + stamp every type name a module-level TERM writes: a `let`'s parameter and

@@ -120,7 +120,7 @@ module internal AttributeBlob =
         (tryEnumFullName: TypeKey -> string voption)
         (a: TAttributeArg)
         : Result<EncodableArg, AttributeBlobRejection> =
-        match tryElem a.Value with
+        match a.Value |> ValueOption.bind tryElem with
         | ValueNone -> Error AttributeBlobRejection.UnencodableValue
         | ValueSome(struct (tyByte, write)) ->
             let arg =
@@ -138,7 +138,7 @@ module internal AttributeBlob =
                 match a.Value with
                 // An enum value serialises at its underlying integral width; a string-valued
                 // enum (a TS enum) has no CLR encoding.
-                | TConstValue.Integral _ ->
+                | ValueSome(TConstValue.Integral _) ->
                     match tryEnumFullName key with
                     | ValueSome n -> Ok { arg with EnumFullName = ValueSome n }
                     | ValueNone -> Error(AttributeBlobRejection.ForeignEnum key)

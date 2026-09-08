@@ -5,6 +5,8 @@ open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 
 open XParsec.FSharp.SemanticAnalysis.FrozenCodecPrimitives
+open XParsec.FSharp.SemanticAnalysis.FrozenCodecRows
+open XParsec.FSharp.SemanticAnalysis.FrozenCodecConst
 open XParsec.FSharp.SemanticAnalysis.FrozenCodecTypes
 
 /// The declaration shell and the scalar clusters carried on a pool payload, the shapes whose

@@ -1,5 +1,6 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.ConstFoldTests
 
+open Vesper
 open Expecto
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
@@ -9,51 +10,76 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 // `ConstFold.tryConstant` over parsed expressions, with the named-constant lookup stubbed
 // by dotted spelling: resolution is the caller's job, so no pipeline runs here.
 
+/// The canon identity the stub types a literal leaf at, with no contract to resolve it from.
+let private tyOfValue (v: TConstValue) : FrozenType =
+    FTConst(TConstValue.canonKey v, Block.empty)
+
+/// A fold's outcome by what it denotes. The nodes carry their sites, so the trees differ
+/// wherever the values agree.
+let private plainC (v: TConstValue) : TConstDenotation =
+    {
+        Result = TConstResult.Scalar v
+        Ty = tyOfValue v
+    }
+
+let private enumC (key: TypeKey) (v: TConstValue) : TConstDenotation =
+    {
+        Result = TConstResult.Scalar v
+        Ty = FTEnum key
+    }
+
 /// Fold `exprSrc`, resolving a named-constant reference through `named` keyed by the
 /// reference's dotted spelling.
-let private foldWith (named: string -> FoldedConst voption) (exprSrc: string) =
+let private foldWith
+    (named: string -> TConstExpr voption)
+    (exprSrc: string)
+    : Result<TConstDenotation, ConstRejection> =
     let lexed, file = parseFile ("let x = " + exprSrc)
     let nameOf = SyntaxToken.nameIn lexed
 
     let tryNamedConstant (idents: System.Collections.Immutable.ImmutableArray<SyntaxToken>) =
         named (idents |> Seq.map nameOf |> String.concat ".")
 
-    ConstFold.tryConstant nameOf (fun _ _ -> ()) tryNamedConstant (firstBindingExpr file)
+    ConstFold.tryConstant nameOf (fun _ _ -> ()) tyOfValue tryNamedConstant (firstBindingExpr file)
+    |> Result.map TConstExpr.denotation
 
 let private fold (exprSrc: string) = foldWith (fun _ -> ValueNone) exprSrc
 
 let private int32 (v: int) = TConstValue.Integral(IntValue.Int32 v)
 
-let private plainC (v: TConstValue) : FoldedConst = { Value = v; EnumKey = ValueNone }
-
-let private enumC (key: TypeKey) (v: TConstValue) : FoldedConst = { Value = v; EnumKey = ValueSome key }
-
 let private eKey = SymbolKeyOps.typeKeyOf "Test" "E"
 let private directionKey = SymbolKeyOps.typeKeyOf "Test" "Direction"
 let private colorKey = SymbolKeyOps.typeKeyOf "Test" "Color"
+let private maskBinding = SymbolKeyOps.moduleBindingKey "Test" "M" "MASK"
+
+let private caseRef (key: TypeKey) (name: string) (v: TConstValue) : TConstExpr voption =
+    ValueSome(TConstExpr.EnumCase(key, name, TConstResult.Scalar v, Anchor.nowhere))
+
+let private literalRef (v: TConstValue) : TConstExpr voption =
+    ValueSome(TConstExpr.LiteralRef(maskBinding, TConstResult.Scalar v, tyOfValue v, Anchor.nowhere))
 
 /// `AttributeTargets`-style local cases, as the registry serves them: `E.A = 1`, `E.B = 4`.
-let private localEnum (spelling: string) : FoldedConst voption =
+let private localEnum (spelling: string) : TConstExpr voption =
     match spelling with
-    | "E.A" -> ValueSome(enumC eKey (int32 1))
-    | "E.B" -> ValueSome(enumC eKey (int32 4))
+    | "E.A" -> caseRef eKey "A" (int32 1)
+    | "E.B" -> caseRef eKey "B" (int32 4)
     | _ -> ValueNone
 
 /// External cases at the width the caller picked, a string case as a string literal.
-let private externalEnum (spelling: string) : FoldedConst voption =
+let private externalEnum (spelling: string) : TConstExpr voption =
     match spelling with
-    | "Direction.Up" -> ValueSome(enumC directionKey (TConstValue.Integral(IntValue.Int64 3L)))
-    | "Color.Red" -> ValueSome(enumC colorKey (TConstValue.String "red"))
+    | "Direction.Up" -> caseRef directionKey "Up" (TConstValue.Integral(IntValue.Int64 3L))
+    | "Color.Red" -> caseRef colorKey "Red" (TConstValue.String "red")
     // Same width as `E.*`, a different enum: for the mixed-identity test.
-    | "E.A" -> ValueSome(enumC eKey (int32 1))
-    | "Other.Bit" -> ValueSome(enumC colorKey (int32 8))
+    | "E.A" -> caseRef eKey "A" (int32 1)
+    | "Other.Bit" -> caseRef colorKey "Bit" (int32 8)
     | _ -> ValueNone
 
 /// `[<Literal>]` values as the caller serves them: a bare and a module-qualified spelling.
-let private literals (spelling: string) : FoldedConst voption =
+let private literals (spelling: string) : TConstExpr voption =
     match spelling with
-    | "MASK" -> ValueSome(plainC (int32 3))
-    | "M.Bit" -> ValueSome(plainC (int32 8))
+    | "MASK" -> literalRef (int32 3)
+    | "M.Bit" -> literalRef (int32 8)
     | _ -> ValueNone
 
 [<Tests>]

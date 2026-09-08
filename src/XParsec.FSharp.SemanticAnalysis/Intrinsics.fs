@@ -75,6 +75,9 @@ type IntrinsicSet(tryResolve: string -> SemType option) =
 
     member _.OfIntKind(k: IntKind) : SemType = get (RuntimeNames.intKindKey k)
 
+    /// Throws for a key outside the `prim-types` contract in scope.
+    member _.OfCanon(canon: TypeKey) : SemType = get canon
+
     member _.Float = get RuntimeNames.floatKey
     member _.Float32 = get RuntimeNames.float32Key
     member _.Bool = get RuntimeNames.boolKey

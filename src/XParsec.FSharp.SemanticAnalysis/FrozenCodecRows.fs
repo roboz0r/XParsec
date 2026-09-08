@@ -427,3 +427,31 @@ module FrozenCodecRows =
             Types = types
             FilePaths = filePaths
         }
+
+    // ── a REFERENCE into the file's tables ──────────────────────────────────
+    // The write side INTERNS where the read side resolves, so writing a payload can append a
+    // row. `writePools` buffers the body for that reason.
+
+    let writeTypeRef (w: FrozenWriter) (t: FrozenType) = writeTypeId w (w.Types.Intern t)
+
+    let readTypeRef (r: FrozenReader) : FrozenType = r.Types.[readTypeId r]
+
+    let writeSymbolRef (w: FrozenWriter) (k: SymbolKey) =
+        writeSymbolId w (w.Types.InternSymbol k)
+
+    let readSymbolRef (r: FrozenReader) : SymbolKey = r.Types.[readSymbolId r]
+
+    let writeTypeKeyRef (w: FrozenWriter) (k: TypeKey) =
+        writeTypeKeyId w (w.Types.InternTypeKey k)
+
+    let readTypeKeyRef (r: FrozenReader) : TypeKey = r.Types.[readTypeKeyId r]
+
+    let writeMemberKeyRef (w: FrozenWriter) (k: MemberKey) =
+        writeMemberKeyId w (w.Types.InternMemberKey k)
+
+    let readMemberKeyRef (r: FrozenReader) : MemberKey = r.Types.[readMemberKeyId r]
+
+    let writeBindingKeyRef (w: FrozenWriter) (k: BindingKey) =
+        writeBindingKeyId w (w.Types.InternBindingKey k)
+
+    let readBindingKeyRef (r: FrozenReader) : BindingKey = r.Types.[readBindingKeyId r]

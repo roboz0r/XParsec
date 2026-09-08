@@ -2,6 +2,7 @@ namespace XParsec.FSharp.SemanticAnalysis
 
 open System.Collections.Generic
 open Vesper
+open XParsec.FSharp
 open XParsec.FSharp.Lexer
 
 /// Single source of truth for the well-known runtime types the pipeline references. Every other
@@ -139,6 +140,21 @@ module RuntimeNames =
 
     /// `nativeOnlyBindingKey`, widened to `SymbolKey` for lookup in mixed-key tables.
     let nativeOnlyKey: SymbolKey = SymbolKey.Binding nativeOnlyBindingKey
+
+    // The `Vesper` operators a constant expression may apply. `ConstFold` selects one by the
+    // operator's TOKEN, so a shadowing `let (|||)` folds as the intrinsic.
+
+    let bitwiseBindingKey (op: BitwiseOp) : BindingKey =
+        let name =
+            match op with
+            | BitwiseOp.Or -> OperatorData.OpBitwiseOr
+            | BitwiseOp.And -> OperatorData.OpBitwiseAnd
+            | BitwiseOp.Xor -> OperatorData.OpExclusiveOr
+
+        SymbolKeyOps.moduleBindingKey intrinsicNamespace "BitwiseOperators" name
+
+    let unaryNegationBindingKey: BindingKey =
+        SymbolKeyOps.moduleBindingKey intrinsicNamespace "ArithmeticOperators" OperatorData.OpUnaryNegation
 
     let objAbbrevName: string = "obj"
 

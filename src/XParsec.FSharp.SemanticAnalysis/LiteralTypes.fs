@@ -8,6 +8,11 @@ module internal LiteralTypes =
 
     let private unknown = TyUnknown UnknownReason.NoValueType
 
+    /// The type a folded constant carries, ground by construction. Agrees with `semType`
+    /// wherever a literal token produced the value.
+    let frozenOfConstValue (intrinsics: IntrinsicSet) (v: TConstValue) : FrozenType =
+        toFrozen (intrinsics.OfCanon(TConstValue.canonKey v))
+
     let semType (intrinsics: IntrinsicSet) (t: SyntaxToken) : SemType =
         match t.Token with
         | Token.KWTrue

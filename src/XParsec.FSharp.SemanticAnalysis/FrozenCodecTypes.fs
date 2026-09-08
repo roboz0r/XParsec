@@ -6,41 +6,12 @@ open XParsec.FSharp.Parser
 
 open XParsec.FSharp.SemanticAnalysis.FrozenCodecPrimitives
 open XParsec.FSharp.SemanticAnalysis.FrozenCodecRows
+open XParsec.FSharp.SemanticAnalysis.FrozenCodecConst
 
-/// The FROZEN type domain: the reference codec every other module reaches a type through,
-/// the non-generic payloads the tree and the side tables carry, the printf hole-form
-/// cluster, and the type-declaration payloads with no sub-expression. NOTHING here is
-/// written structurally.
+/// The FROZEN type domain: the non-generic payloads carried by the tree and the side tables,
+/// the printf hole-form cluster, and the type-declaration payloads with no sub-expression.
+/// Every embedded type reaches the wire through `writeTypeRef`.
 module FrozenCodecTypes =
-
-    // ── a REFERENCE into the file's tables ──────────────────────────────────
-
-    /// The write side INTERNS where the read side resolves: the `ty` columns were interned at
-    /// freeze, but a payload can carry a type they never did (an `ILIntrinsic` operand, a
-    /// signature, a `ValRepr` result), so the tables can only go out AFTER the body.
-    let writeTypeRef (w: FrozenWriter) (t: FrozenType) = writeTypeId w (w.Types.Intern t)
-
-    let readTypeRef (r: FrozenReader) : FrozenType = r.Types.[readTypeId r]
-
-    let writeSymbolRef (w: FrozenWriter) (k: SymbolKey) =
-        writeSymbolId w (w.Types.InternSymbol k)
-
-    let readSymbolRef (r: FrozenReader) : SymbolKey = r.Types.[readSymbolId r]
-
-    let writeTypeKeyRef (w: FrozenWriter) (k: TypeKey) =
-        writeTypeKeyId w (w.Types.InternTypeKey k)
-
-    let readTypeKeyRef (r: FrozenReader) : TypeKey = r.Types.[readTypeKeyId r]
-
-    let writeMemberKeyRef (w: FrozenWriter) (k: MemberKey) =
-        writeMemberKeyId w (w.Types.InternMemberKey k)
-
-    let readMemberKeyRef (r: FrozenReader) : MemberKey = r.Types.[readMemberKeyId r]
-
-    let writeBindingKeyRef (w: FrozenWriter) (k: BindingKey) =
-        writeBindingKeyId w (w.Types.InternBindingKey k)
-
-    let readBindingKeyRef (r: FrozenReader) : BindingKey = r.Types.[readBindingKeyId r]
 
     /// A measure term as its `(base-measure key, exponent)` pairs.
     let writeMeasureTerm (w: FrozenWriter) (m: MeasureTerm) =
@@ -148,123 +119,6 @@ module FrozenCodecTypes =
                 failwithf "readSymbolSet: key %O appears twice" k
 
         EqSet.ofSeq s
-
-    // ── non-generic payloads the tree / side tables carry ──────────────
-
-    /// A kind tag, then the value at its own width.
-    let private writeIntValue (w: FrozenWriter) (v: IntValue) =
-        match v with
-        | IntValue.SByte n ->
-            w.Write 0uy
-            w.Write n
-        | IntValue.Byte n ->
-            w.Write 1uy
-            w.Write n
-        | IntValue.Int16 n ->
-            w.Write 2uy
-            w.Write n
-        | IntValue.UInt16 n ->
-            w.Write 3uy
-            w.Write n
-        | IntValue.Int32 n ->
-            w.Write 4uy
-            w.Write n
-        | IntValue.UInt32 n ->
-            w.Write 5uy
-            w.Write n
-        | IntValue.Int64 n ->
-            w.Write 6uy
-            w.Write n
-        | IntValue.UInt64 n ->
-            w.Write 7uy
-            w.Write n
-        | IntValue.NativeInt n ->
-            w.Write 8uy
-            w.Write n
-        | IntValue.UNativeInt n ->
-            w.Write 9uy
-            w.Write n
-
-    let private readIntValue (r: FrozenReader) : IntValue =
-        match r.ReadByte() with
-        | 0uy -> IntValue.SByte(r.ReadSByte())
-        | 1uy -> IntValue.Byte(r.ReadByte())
-        | 2uy -> IntValue.Int16(r.ReadInt16())
-        | 3uy -> IntValue.UInt16(r.ReadUInt16())
-        | 4uy -> IntValue.Int32(r.ReadInt32())
-        | 5uy -> IntValue.UInt32(r.ReadUInt32())
-        | 6uy -> IntValue.Int64(r.ReadInt64())
-        | 7uy -> IntValue.UInt64(r.ReadUInt64())
-        | 8uy -> IntValue.NativeInt(r.ReadInt64())
-        | 9uy -> IntValue.UNativeInt(r.ReadUInt64())
-        | b -> failwithf "FrozenCodec: unknown IntValue tag %d" b
-
-    let writeTConstValue (w: FrozenWriter) (v: TConstValue) =
-        match v with
-        | TConstValue.Integral n ->
-            w.Write 0uy
-            writeIntValue w n
-        | TConstValue.Float d ->
-            w.Write 1uy
-            w.Write d
-        | TConstValue.Float32 f ->
-            w.Write 2uy
-            w.Write f
-        | TConstValue.Bool b ->
-            w.Write 3uy
-            w.Write b
-        | TConstValue.Char c ->
-            w.Write 4uy
-            w.Write c
-        | TConstValue.Decimal d ->
-            w.Write 5uy
-            w.Write d
-        | TConstValue.String s ->
-            w.Write 6uy
-            w.Write s
-        | TConstValue.Unit -> w.Write 7uy
-
-    let readTConstValue (r: FrozenReader) : TConstValue =
-        match r.ReadByte() with
-        | 0uy -> TConstValue.Integral(readIntValue r)
-        | 1uy -> TConstValue.Float(r.ReadDouble())
-        | 2uy -> TConstValue.Float32(r.ReadSingle())
-        | 3uy -> TConstValue.Bool(r.ReadBoolean())
-        | 4uy -> TConstValue.Char(r.ReadChar())
-        | 5uy -> TConstValue.Decimal(r.ReadDecimal())
-        | 6uy -> TConstValue.String(r.ReadString())
-        | 7uy -> TConstValue.Unit
-        | b -> failwithf "FrozenCodec: unknown TConstValue tag %d" b
-
-    let private writeTAttributeArg (w: FrozenWriter) (a: TAttributeArg) =
-        writeStringVOption w a.Name
-        writeTConstValue w a.Value
-        writeVOptionWith w writeTypeKeyRef a.EnumKey
-
-    let private readTAttributeArg (r: FrozenReader) : TAttributeArg =
-        let name = readStringVOption r
-        let value = readTConstValue r
-        let enumKey = readVOptionWith r readTypeKeyRef
-
-        {
-            Name = name
-            Value = value
-            EnumKey = enumKey
-        }
-
-    let private writeTAttribute (w: FrozenWriter) (a: TAttribute) =
-        writeTypeKeyRef w a.Key
-        writeBlockWith w writeTAttributeArg a.Args
-
-    let private readTAttribute (r: FrozenReader) : TAttribute =
-        let key = readTypeKeyRef r
-        let args = Block.ofArray (readArrayWith r readTAttributeArg)
-        { Key = key; Args = args }
-
-    let writeTAttributes (w: FrozenWriter) (attrs: TAttributes) = writeBlockWith w writeTAttribute attrs
-
-    let readTAttributes (r: FrozenReader) : TAttributes =
-        Block.ofArray (readArrayWith r readTAttribute)
 
     let writeModuleFacts (w: FrozenWriter) (facts: ModuleFacts) =
         writeVOptionWith w (fun w (CompiledName n) -> w.Write n) facts.CompiledName

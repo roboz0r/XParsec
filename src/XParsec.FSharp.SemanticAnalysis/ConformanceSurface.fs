@@ -40,24 +40,28 @@ module ConformanceSurface =
         | ExternalTypeShape.Enum _
         | ExternalTypeShape.Class _ -> not (declaredExterns.Contains entry.Key)
 
+    let private comparable (a: TAttributeArg) : string voption * TConstDenotation = a.Name, TConstExpr.denotation a.Expr
+
     /// One occurrence's arguments in comparison form: the positional arguments in written
     /// order, then the named arguments by name. `[<Foo(1, Y = 2, X = 3)>]` and
     /// `[<Foo(1, X = 3, Y = 2)>]` carry one attribute value, so they compare equal.
-    let private comparableArgs (args: Block<TAttributeArg>) : TAttributeArg list * TAttributeArg list =
+    let private comparableArgs
+        (args: Block<TAttributeArg>)
+        : (string voption * TConstDenotation) list * (string voption * TConstDenotation) list =
         let positional =
             [
                 for a in args do
                     if a.Name.IsNone then
-                        yield a
+                        yield comparable a
             ]
 
         let named =
             [
                 for a in args do
                     if a.Name.IsSome then
-                        yield a
+                        yield comparable a
             ]
-            |> List.sortBy (fun a -> a.Name)
+            |> List.sortBy fst
 
         positional, named
 

@@ -21,6 +21,17 @@ let private frozenFiles: (string * FrozenPools) list =
 let private survivesRoundTrip (f: FrozenPools) : bool =
     TastUnpool.ofPools f = TastUnpool.ofPools (FrozenCodec.thaw (FrozenCodec.flatten f))
 
+/// One attribute argument by its name and what it denotes, for the value assertions on a
+/// decoded tree. The argument EXPRESSIONS are covered by `survivesRoundTrip`, which compares
+/// them whole.
+let private argView (a: TAttributeArg) : string voption * TConstDenotation = a.Name, TConstExpr.denotation a.Expr
+
+let private scalar (v: TConstValue) : TConstDenotation =
+    {
+        Result = TConstResult.Scalar v
+        Ty = FTConst(TConstValue.canonKey v, Block.empty)
+    }
+
 /// A pools value bearing a specialization entry, an `InlineCall` edge referencing it, and a
 /// `CallerExpr` mark. No corpus program reaches any of the three, so the carriers are grafted
 /// onto a real frozen file, leaving every other column exactly as the freeze built it.
@@ -275,6 +286,17 @@ let tests =
                                 "type Widget() ="
                                 "    [<Mark(5, \"m\")>]"
                                 "    member this.M() = 1"
+                                ""
+                                "[<Literal>]"
+                                "let Mask = 7"
+                                ""
+                                // A literal reference and a spaced negation: the two remaining
+                                // node kinds the fold builds, so every one crosses the wire.
+                                "[<Mark(Mask, \"lit\")>]"
+                                "type Named = { Z: int }"
+                                ""
+                                "[<Mark(- 1, \"neg\")>]"
+                                "type Negated = { W: int }"
                             ]
                     )
 
@@ -292,28 +314,23 @@ let tests =
 
                 let markArgs (attrs: TAttributes) =
                     match attrs |> Block.toList |> List.filter (fun a -> a.Key.Name = "MarkAttribute") with
-                    | [ a ] -> Block.toList a.Args
+                    | [ a ] -> [ for arg in a.Args -> argView arg ]
                     | other -> failtestf "expected exactly one Mark attribute, got %d" (List.length other)
 
                 let int32 (v: int) =
                     TConstValue.Integral(XParsec.FSharp.Lexer.IntValue.Int32 v)
 
-                let positional (v: TConstValue) : TAttributeArg =
-                    {
-                        Name = ValueNone
-                        Value = v
-                        EnumKey = ValueNone
-                    }
+                let positional (v: TConstValue) = ValueNone, scalar v
 
                 Expect.equal
                     (markArgs (typeDecl "Point").Attributes)
                     [
                         positional (int32 -3)
                         positional (TConstValue.String "hi")
+                        ValueSome "Extra",
                         {
-                            Name = ValueSome "Extra"
-                            Value = int32 3
-                            EnumKey = ValueSome (typeDecl "Targets").TypeKey
+                            Result = TConstResult.Scalar(int32 3)
+                            Ty = FTEnum (typeDecl "Targets").TypeKey
                         }
                     ]
                     "the type decl's folded args came back off the wire, enum identity included"
@@ -368,6 +385,16 @@ let tests =
                     (markArgs memberAttrs)
                     [ positional (int32 5); positional (TConstValue.String "m") ]
                     "the member's folded args came back off the wire"
+
+                Expect.equal
+                    (markArgs (typeDecl "Named").Attributes)
+                    [ positional (int32 7); positional (TConstValue.String "lit") ]
+                    "the [<Literal>] reference came back off the wire"
+
+                Expect.equal
+                    (markArgs (typeDecl "Negated").Attributes)
+                    [ positional (int32 -1); positional (TConstValue.String "neg") ]
+                    "the negation came back off the wire"
 
                 Expect.isTrue (survivesRoundTrip f) "the attributed file survived flatten/thaw structurally"
             }

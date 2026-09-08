@@ -24,33 +24,34 @@ let private typeDecl (pools: FrozenPools) (name: string) =
     )
     |> Option.defaultWith (fun () -> failtestf "no frozen type decl named %s" name)
 
+/// One argument by its name and what it denotes. The stored expression carries its own
+/// source site, so two spellings of one value have unequal trees.
+let private argView (a: TAttributeArg) : string voption * TConstDenotation = a.Name, TConstExpr.denotation a.Expr
+
 /// The one `Mark` attribute in `attrs`, as its folded argument list.
-let private markArgs (attrs: TAttributes) : TAttributeArg list =
+let private markArgs (attrs: TAttributes) : (string voption * TConstDenotation) list =
     match attrs |> Block.toList |> List.filter (fun a -> a.Key.Name = "MarkAttribute") with
-    | [ a ] -> Block.toList a.Args
+    | [ a ] -> [ for arg in a.Args -> argView arg ]
     | other -> failtestf "expected exactly one Mark attribute, got %d" (List.length other)
 
-let private positional (v: TConstValue) : TAttributeArg =
+let private scalar (v: TConstValue) : TConstDenotation =
     {
-        Name = ValueNone
-        Value = v
-        EnumKey = ValueNone
+        Result = TConstResult.Scalar v
+        Ty = FTConst(TConstValue.canonKey v, Block.empty)
     }
 
-let private named (n: string) (v: TConstValue) : TAttributeArg =
+/// An enum-typed argument: the case's underlying value at the enum's type.
+let private enumScalar (enumKey: TypeKey) (v: TConstValue) : TConstDenotation =
     {
-        Name = ValueSome n
-        Value = v
-        EnumKey = ValueNone
+        Result = TConstResult.Scalar v
+        Ty = FTEnum enumKey
     }
 
-/// A named enum-typed argument: the value plus the enum's key.
-let private namedEnum (n: string) (enumKey: TypeKey) (v: TConstValue) : TAttributeArg =
-    {
-        Name = ValueSome n
-        Value = v
-        EnumKey = ValueSome enumKey
-    }
+let private positional (v: TConstValue) = ValueNone, scalar v
+
+let private named (n: string) (v: TConstValue) = ValueSome n, scalar v
+
+let private namedEnum (n: string) (enumKey: TypeKey) (v: TConstValue) = ValueSome n, enumScalar enumKey v
 
 let private int32 (v: int) : TConstValue = TConstValue.Integral(IntValue.Int32 v)
 
@@ -186,14 +187,10 @@ let tests =
                     |> Option.defaultWith (fun () -> failtest "no AttributeUsage on MineAttribute")
 
                 Expect.equal
-                    (Block.toList usage.Args)
+                    [ for a in usage.Args -> argView a ]
                     [
                         // Class = 4, Struct = 8, read off the external contract's case table.
-                        {
-                            Name = ValueNone
-                            Value = int32 12
-                            EnumKey = ValueSome RuntimeNames.attributeTargetsKey
-                        }
+                        ValueNone, enumScalar RuntimeNames.attributeTargetsKey (int32 12)
                         named "AllowMultiple" (TConstValue.Bool true)
                     ]
                     "`AttributeTargets.Class ||| AttributeTargets.Struct` folds to 12 with the enum's key"
