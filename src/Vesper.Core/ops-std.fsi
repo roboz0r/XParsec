@@ -160,3 +160,23 @@ module CompositionOperators =
         /// </example>
         /// 
         val inline (<|||): func: ('T1 -> 'T2 -> 'T3 -> 'U) -> arg1: 'T1 * arg2: 'T2 * arg3: 'T3 -> 'U
+
+[<AutoOpen>]
+module EnumOperators =
+
+        /// <summary>Converts the argument to a particular enum type.</summary>
+        ///
+        /// <param name="value">The input value.</param>
+        ///
+        /// <returns>The converted enum type.</returns>
+        ///
+        /// <example id="enum-example">
+        /// <code lang="fsharp">
+        /// type Colour =
+        ///     | Red = 1
+        ///     | Green = 2
+        ///
+        /// enum&lt;Colour&gt; 2   // Evaluates to Colour.Green
+        /// </code>
+        /// </example>
+        val inline enum: value: int32 -> ^U when ^U: enum<int32>

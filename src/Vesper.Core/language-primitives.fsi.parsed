@@ -1,0 +1,66 @@
+namespace         'namespace'       KWNamespace         tok=   0  pos=   0
+                  'Vesper'          Identifier          tok=   2  pos=  10
+  Module:
+    module        'module'          KWModule            tok=   7  pos=  93
+    ident         'LanguagePr...'   Identifier          tok=   9  pos= 100
+    =             '='               OpEquality          tok=  11  pos= 119
+    begin         <virt>            KWBegin             tok=virt  pos= 323
+      Val:
+        val       'val'             KWVal               tok=  30  pos= 323
+        inline    'inline'          KWInline            tok=  32  pos= 327
+        Ident     'EnumOfValu...'   Identifier          tok=  34  pos= 334
+        TyparDefns:
+          <       '<'               op_LessThan         tok=  35  pos= 345
+          Typar.Named:
+                  ''T'              TypeParameter       tok=  36  pos= 346
+          Typar.Named:
+                  ''Enum'           TypeParameter       tok=  39  pos= 350
+          >       '>'               op_GreaterThan      tok=  40  pos= 355
+        :         ':'               OpColon             tok=  42  pos= 357
+        arg       'value'           Identifier          tok=  44  pos= 359
+        :         ':'               OpColon             tok=  45  pos= 364
+        VarType:
+          Typar.Named:
+                  ''T'              TypeParameter       tok=  47  pos= 366
+        ->        '->'              OpArrowRight        tok=  49  pos= 369
+        WhenConstrainedType:
+          VarType:
+            Typar.Named:
+                  ''Enum'           TypeParameter       tok=  51  pos= 372
+          when    'when'            KWWhen              tok=  53  pos= 378
+          Constraint.Enum:
+            Typar.Named:
+                  ''Enum'           TypeParameter       tok=  55  pos= 383
+            VarType:
+              Typar.Named:
+                  ''T'              TypeParameter       tok=  60  pos= 395
+      Val:
+        val       'val'             KWVal               tok=  80  pos= 597
+        inline    'inline'          KWInline            tok=  82  pos= 601
+        Ident     'EnumToValu...'   Identifier          tok=  84  pos= 608
+        TyparDefns:
+          <       '<'               op_LessThan         tok=  85  pos= 619
+          Typar.Named:
+                  ''Enum'           TypeParameter       tok=  86  pos= 620
+          Typar.Named:
+                  ''T'              TypeParameter       tok=  89  pos= 627
+          >       '>'               op_GreaterThan      tok=  90  pos= 629
+        :         ':'               OpColon             tok=  92  pos= 631
+        arg       'value'           Identifier          tok=  94  pos= 633
+        :         ':'               OpColon             tok=  95  pos= 638
+        VarType:
+          Typar.Named:
+                  ''Enum'           TypeParameter       tok=  97  pos= 640
+        ->        '->'              OpArrowRight        tok=  99  pos= 646
+        WhenConstrainedType:
+          VarType:
+            Typar.Named:
+                  ''T'              TypeParameter       tok= 101  pos= 649
+          when    'when'            KWWhen              tok= 103  pos= 652
+          Constraint.Enum:
+            Typar.Named:
+                  ''Enum'           TypeParameter       tok= 105  pos= 657
+            VarType:
+              Typar.Named:
+                  ''T'              TypeParameter       tok= 110  pos= 669
+    end           <virt>            KWEnd               tok=virt  pos= 673

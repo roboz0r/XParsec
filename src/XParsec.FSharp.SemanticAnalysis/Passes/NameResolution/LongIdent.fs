@@ -309,10 +309,22 @@ module NameResolutionLongIdent =
                 | ValueNone -> ValueNone
             | TypeDeclKind.Enum ->
                 match TypeRegistry.tryEnumByKey ctx.Types claim.Key with
-                | ValueSome e when e.HasCase name -> ValueSome(ResolvedItem.EnumCase(t, name))
-                // `MyEnum.Nope` is FS0039. A static inherited from `System.Enum` would be
-                // the only other resolution, and the local type registry carries none.
-                | _ -> ValueNone
+                | ValueSome e ->
+                    match e.Cases |> Block.tryFind (fun c -> c.Name = name) with
+                    | ValueSome case ->
+                        let value =
+                            case.Value
+                            |> ValueOption.map (fun lit ->
+                                match lit with
+                                | TEnumLiteral.Int v -> v
+                                | TEnumLiteral.String s -> TConstValue.String s
+                            )
+
+                        ValueSome(ResolvedItem.EnumCase(t, { Name = name; Value = value }))
+                    // `MyEnum.Nope` is FS0039. Statics inherited from `System.Enum` appear
+                    // only in the external member table, which the branch below reads.
+                    | ValueNone -> ValueNone
+                | ValueNone -> ValueNone
             | TypeDeclKind.Class
             | TypeDeclKind.Record ->
                 match TypeRegistry.tryNominalByKey ctx.Types claim.Key with
@@ -340,12 +352,17 @@ module NameResolutionLongIdent =
                     ValueSome(ResolvedItem.UnionCase(ResolvedUnionCase.External uc, false))
                 | ValueNone -> staticIf (declaresExternalStatic ctx key name)
             | ExternalTypeShape.Enum { Cases = cases } ->
-                if cases |> Block.exists (fun c -> c.Name = name) then
-                    ValueSome(ResolvedItem.EnumCase(t, name))
-                else
-                    // `E.Equals` reaches a static inherited from `System.Enum`, which the
-                    // member table carries.
-                    staticIf (declaresExternalStatic ctx key name)
+                match cases |> Block.tryFind (fun c -> c.Name = name) with
+                | ValueSome case ->
+                    let value =
+                        match case.Value with
+                        | ExternalEnumCaseValue.IntVal v -> TConstValue.Integral v
+                        | ExternalEnumCaseValue.StringVal s -> TConstValue.String s
+
+                    ValueSome(ResolvedItem.EnumCase(t, { Name = name; Value = ValueSome value }))
+                // `E.Equals` reaches a static inherited from `System.Enum`, which the
+                // member table carries.
+                | ValueNone -> staticIf (declaresExternalStatic ctx key name)
             | ExternalTypeShape.Record _
             | ExternalTypeShape.Class _
             | ExternalTypeShape.IntrinsicInterface _ -> staticIf (declaresExternalStatic ctx key name)

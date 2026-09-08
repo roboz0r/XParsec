@@ -46,6 +46,9 @@ let private enumTypeName (t: SemType) : string voption =
         ValueSome name
     | _ -> ValueNone
 
+/// A three-case numeric enum, for the conversion tests below.
+let private colorSrc = "type Color = | Red = 0 | Green = 1 | Blue = 2"
+
 let private warnings (tast: TastFile) =
     tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Warning)
 
@@ -54,6 +57,49 @@ let tests =
     testList
         "Enum"
         [
+            test "enum<'T> converts an int32 to the enum it names" {
+                let tast =
+                    analyse (
+                        colorSrc
+                        + "
+let c: Color = enum<Color> 2"
+                    )
+
+                Expect.isEmpty (errors tast) (sprintf "%A" (errors tast))
+                Expect.equal (enumTypeName (snd (singleLet tast))) (ValueSome "Color") "the enum it names"
+            }
+
+            test "LanguagePrimitives.EnumOfValue converts an int32 to the enum it names" {
+                let tast =
+                    analyse (
+                        colorSrc
+                        + "
+let c: Color = LanguagePrimitives.EnumOfValue<int, Color> 2"
+                    )
+
+                Expect.isEmpty (errors tast) (sprintf "%A" (errors tast))
+                Expect.equal (enumTypeName (snd (singleLet tast))) (ValueSome "Color") "the enum it names"
+            }
+
+            // `inferTypeApp` applies to a local binding's scheme or a nominal result, so
+            // explicit type arguments on the APPLIED FUNCTION of an application leave an
+            // external symbol's `^U` unresolved at the freeze.
+            ptest "enum<'T> with no annotation leaves its return typar unresolved" {
+                let tast =
+                    analyse (
+                        colorSrc
+                        + "
+let c = enum<Color> 2"
+                    )
+
+                Expect.isEmpty (errors tast) (sprintf "%A" (errors tast))
+            }
+
+            test "enum<'T> refuses a type argument that is no enum" {
+                let tast = analyse "let c: int = enum<int> 2"
+                Expect.isNonEmpty (errors tast) "the enum<int32> constraint is violated"
+            }
+
             test "numeric enum: all-int cases classify numeric, no diagnostics" {
                 let tast = analyse "type Color = | Red = 0 | Green = 1 | Blue = 2"
 

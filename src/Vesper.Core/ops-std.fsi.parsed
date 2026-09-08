@@ -387,4 +387,36 @@ namespace             'namespace'       KWNamespace         tok=   0  pos=   0
         VarType:
           Typar.Named:
                       ''U'              TypeParameter       tok= 840  pos=6410
-    end               <virt>            KWEnd               tok=virt  pos=6412
+    end               <virt>            KWEnd               tok=virt  pos=6414
+  Module:
+    [<                '[<'              KWLAttrBracket      tok= 843  pos=6414
+    NamedType:
+      Ident           'AutoOpen'        Identifier          tok= 844  pos=6416
+    >]                '>]'              KWRAttrBracket      tok= 845  pos=6424
+    module            'module'          KWModule            tok= 847  pos=6427
+    ident             'EnumOperat...'   Identifier          tok= 849  pos=6434
+    =                 '='               OpEquality          tok= 851  pos=6448
+    begin             <virt>            KWBegin             tok=virt  pos=6960
+      Val:
+        val           'val'             KWVal               tok= 900  pos=6960
+        inline        'inline'          KWInline            tok= 902  pos=6964
+        Ident         'enum'            Identifier          tok= 904  pos=6971
+        :             ':'               OpColon             tok= 905  pos=6975
+        arg           'value'           Identifier          tok= 907  pos=6977
+        :             ':'               OpColon             tok= 908  pos=6982
+        NamedType:
+          Ident       'int32'           Identifier          tok= 910  pos=6984
+        ->            '->'              OpArrowRight        tok= 912  pos=6990
+        WhenConstrainedType:
+          VarType:
+            Typar.Static:
+                      '^'               OpConcatenate       tok= 914  pos=6993
+                      'U'               Identifier          tok= 915  pos=6994
+          when        'when'            KWWhen              tok= 917  pos=6996
+          Constraint.Enum:
+            Typar.Static:
+                      '^'               OpConcatenate       tok= 919  pos=7001
+                      'U'               Identifier          tok= 920  pos=7002
+            NamedType:
+              Ident   'int32'           Identifier          tok= 925  pos=7010
+    end               <virt>            KWEnd               tok=virt  pos=7017

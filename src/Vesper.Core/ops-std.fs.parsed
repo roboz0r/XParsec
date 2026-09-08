@@ -547,4 +547,40 @@ namespace                          'namespace'       KWNamespace         tok=   
                 Ident              'arg1'            Identifier          tok= 522  pos=1025
                 Ident              'arg2'            Identifier          tok= 524  pos=1030
                 Ident              'arg3'            Identifier          tok= 526  pos=1035
-    end                            <virt>            KWEnd               tok=virt  pos=1040
+    end                            <virt>            KWEnd               tok=virt  pos=1041
+  Module:
+    [<                             '[<'              KWLAttrBracket      tok= 529  pos=1041
+    NamedType:
+      Ident                        'AutoOpen'        Identifier          tok= 530  pos=1043
+    >]                             '>]'              KWRAttrBracket      tok= 531  pos=1051
+    module                         'module'          KWModule            tok= 533  pos=1054
+    ident                          'EnumOperat...'   Identifier          tok= 535  pos=1061
+    =                              '='               OpEquality          tok= 537  pos=1075
+    begin                          <virt>            KWBegin             tok=virt  pos=1082
+      FunctionOrValue:
+        let                        'let'             KWLet               tok= 541  pos=1082
+          inline                   'inline'          KWInline            tok= 543  pos=1086
+          Pat.NamedSimple          'enum'            Identifier          tok= 545  pos=1093
+          Pats:
+            ParenBlock             '('               KWLParen            tok= 547  pos=1098
+              Pat.Typed:
+                Pat.NamedSimple    'value'           Identifier          tok= 548  pos=1099
+                Colon              ':'               OpColon             tok= 549  pos=1104
+                NamedType:
+                  Ident            'int32'           Identifier          tok= 551  pos=1106
+                                   ')'               KWRParen            tok= 552  pos=1111
+          ReturnColon              ':'               OpColon             tok= 554  pos=1113
+          VarType:
+            Typar.Static:
+                                   '^'               OpConcatenate       tok= 556  pos=1115
+                                   'U'               Identifier          tok= 557  pos=1116
+          =                        '='               OpEquality          tok= 559  pos=1118
+            App:
+              Func:
+                LongIdentOrOp:
+                  LongIdent:
+                                   'LanguagePr...'   Identifier          tok= 561  pos=1120
+                                   'EnumOfValu...'   Identifier          tok= 563  pos=1139
+              Args:
+                Ident              'value'           Identifier          tok= 565  pos=1151
+    end                            <virt>            KWEnd               tok=virt  pos=1157

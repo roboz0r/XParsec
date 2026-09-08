@@ -753,30 +753,16 @@ module NameResolutionTypeRegistration =
                     env
         }
 
-    /// Fold a module `let` binding marked `[<Literal>]` and record the constant in
-    /// `ctx.Resolution.LiteralValues` under the binding-site key. Folding runs at the
-    /// binding's own position, so an EARLIER literal it references resolves and a later one
-    /// does not; an RHS outside the constant domain is diagnosed at its first token (FS0267).
+    /// Records the RHS of a `[<Literal>]` module binding in `ctx.Resolution.LiteralValues`.
+    /// Checking runs at the binding's own position, so an EARLIER literal it references
+    /// resolves and a later one does not; an RHS outside the constant domain is FS0267.
     let private registerLiteralBinding (ctx: PassContext) (b: Binding<SyntaxToken>) : unit =
         if (ctx.ResolveAttributes b.attributes).Has RuntimeNames.literalAttributeKey then
-            let useSite = ctx.UseSiteAt(CstKeys.ofBinding b)
-
-            let folded =
-                ConstFold.tryConstant
-                    ctx.NameOf
-                    (fun t k -> ctx.Report(t, k))
-                    (LiteralTypes.frozenOfConstValue ctx.Intrinsics)
-                    (AttributeFold.tryNamedConstant ctx useSite)
-                    b.expr
-
-            // `LiteralValues` holds a scalar, so `null`, a `typeof<T>` and an array literal
-            // are refused here.
-            match folded |> Result.map TConstExpr.tryScalar with
-            | Ok(ValueSome v) ->
+            match ConstExprCheck.check ctx (ctx.UseSiteAt(CstKeys.ofBinding b)) b.expr with
+            | ValueSome rhs ->
                 for (_, key) in NameResolutionScope.bindingsOfPat ctx b.pattern do
-                    ctx.Resolution.LiteralValues.Set(key, v)
-            | Ok ValueNone -> ctx.Report(CstKeys.firstTokenOfExpr b.expr, Kind.NotConstantExpression)
-            | Error e -> ctx.Report(CstKeys.firstTokenOfExpr b.expr, ConstFold.rejectionKind e)
+                    ctx.Resolution.LiteralValues.Set(key, rhs)
+            | ValueNone -> ()
 
     /// Classify + stamp every type name a module-level TERM writes: a `let`'s parameter and
     /// return-type annotations, and every annotation reachable in its body. Runs at the term's

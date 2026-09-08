@@ -132,34 +132,83 @@ their type from stage 1 and freeze through `FrozenTypeBridge`. No new domain cas
 Done when: `AttributeFoldTests` and `AttributeRowTests` pass unchanged, and a frozen tree written
 and re-read preserves the argument expressions.
 
-### 3. The resolution-directed check
+### 3. The resolution-directed check — LANDED
 
-Define `IConstNameResolver` in SemanticAnalysis — literal by spelling, enum case by spelling,
-operator by spelling, type by written name — and implement it once over `PassContext`. Replace
-`ConstFold.tryConstant` with `ConstExprCheck.check : IConstNameResolver -> expected: FrozenType
-voption -> Expr<SyntaxToken> -> TConstExpr voption`, reporting its own diagnostics.
+`ConstExprCheck.check` takes the `PassContext` and the `UseSite` directly and resolves every
+spelling through `NameResolutionLongIdent`, the resolver expression position uses. It replaces
+`ConstFold.tryConstant` and reports its own diagnostics, one per rejected expression, at the
+failing subexpression's first token. The `IConstNameResolver` the plan sketched was built and
+then removed: its one production implementation was a pass-through over `PassContext`, and its
+only other implementation was a test stub, which the suite now replaces with real name
+resolution against the `Vesper.Core` contract plus a published surface. `IExternalSymbolProvider`
+is the one seam between the file under analysis and everything outside it.
 
-A `[<Literal>]` binding's value is part of its declaration's shape, like an enum case's, so it is
-checked at registration and not deferred with attribute arguments. `Resolution.LiteralValues`
-(`PassContext.fs:327`, written at `TypeRegistration.fs:773`, read only at `AttributeFold.fs:170`)
-is promoted rather than deleted: an untyped `SideTable<TConstValue>` keyed by binding site
-becomes a checked `TConstExpr` on the binding's declaration info, which `Elaborate` reads and the
-surface publishes.
+Two departures from the shape written above, each deliberate:
 
-`ElaborateExpr` then substitutes a local `[<Literal>]` reference as a constant at its use sites,
-which `externalMemberExpr` (`ElaborateExpr.fs:29`) already does for an external one, ending the
-local/external asymmetry.
+- **`TryNamedConstant` is one member, not "literal by spelling" plus "enum case by spelling".**
+  The implementation calls `NameResolutionLongIdent.resolveExpr`, so the literal-shadows-case
+  precedence is the expression-position precedence rather than a second copy of it. That is the
+  root cause this stage exists to remove, so splitting the member would have kept it. "Type by
+  written name" arrives with stage 6's `typeof<T>`, its first consumer.
+- **`expected: FrozenType voption` is not on `check`.** Nothing supplies an expectation until
+  stage 5's annotated `val` literal and stage 6's `null`; adding the parameter now would ship an
+  untested one. It goes on with its first consumer.
+An operator folds only where its compiled name resolves to the intrinsic, so a `let (|||)` in
+scope and an operator out of scope both refuse, matching fsc's FS0267 and FS0043. This turned
+`compiler-attributes.fsi` red at 15 sites: it wrote `AttributeTargets.Class ||| …` above
+`ops-platform.fsi`, which declared `BitwiseOperators`, and `BitwiseOperators` carries the
+`[<AutoOpen>]` that file declares.
 
-Deletes: `ConstRejection` (`ConstFold.fs:9-25`) and
-`AttributeFold.tryNamedConstant`/`tryLiteralValue`/`tryEnumCase`. `FoldedConst` went with
-stage 2, which gave `tryConstant` a `TConstExpr` to return.
-`ConstFold.tryLiteral` stays — `EnumCaseValues.fs:45` and `Elaborate/Literals.fs:30` are its
-other callers.
+The cycle is four types wide, so `Vesper.Core` is split around it. `compiler-attributes-core.{fsi,fs}`
+holds `AttributeTargets`, `AttributeUsage`, `Sealed` and `AutoOpen`; `ops-bitwise.{fsi,fs}`
+holds `BitwiseOperators` directly after it, one shared implementation for both targets; the
+rest of `compiler-attributes.fsi` follows and writes every mask with `|||` as FSharp.Core does.
+`AutoOpen`'s own mask is the one written numerically, as
+`LanguagePrimitives.EnumOfValue<int, AttributeTargets> 13`. `AttributeFoldTests` pins every
+published multi-flag mask against the `System.AttributeTargets` combination FSharp.Core
+declares it with.
 
-Done when: an attribute argument using a shadowed `(|||)` reports rather than mis-folds — `fsi`
-answers FS0267 for `let (|||) (a: int) (b: int) = 999` followed by `[<Mark(1 ||| 2)>]`, which is
-the parity anchor and the regression test — and a local `[<Literal>]` reaches its use sites as a
-constant.
+`Vesper.Core` also gained `language-primitives.{fsi,fs}`, holding
+`LanguagePrimitives.EnumOfValue` / `EnumToValue`, and `ops-std` gained the auto-opened `enum`
+wrapper, FSharp.Core's own split.
+
+The checker folds either spelling by resolving the applied name to a binding and reading the
+type argument at the position `RuntimeNames.enumConversionTypeArg` gives for that key, which is
+the plan's "type by written name" capability arriving with its first consumer. The node records
+the key the applied name resolved to. Both spellings are refused where the applied name denotes
+any other binding. An operator resolves the same way, as a one-segment spelling of its compiled
+name.
+
+**Open gap, pinned by `EnumTests`' `ptest`:** an explicit type application on the APPLIED
+FUNCTION of an application pins nothing, so `let c = enum<Color> 2` leaves `^U` unresolved
+where `let c: Color = enum<Color> 2` is clean. `inferTypeApp` (`InferTypeOps.fs:37`) targets a
+local binding's scheme or a nominal result, and an external symbol is neither. This misses
+attribute arguments entirely, which never enter `Unification`.
+
+`Resolution.LiteralValues` is now a `SideTable<TConstExpr>` keyed by binding site, holding the
+RHS as checked, so a `LiteralRef` carries the referent's own type — an enum-typed literal keeps
+its `FTEnum`, which the scalar-only table could not express. `ElaborateIdents.translateIdent`
+substitutes it at each use site, as `externalMemberExpr` (`ElaborateExpr.fs:29`) does for an
+external one. It stays on the side table rather than moving onto `ModuleBindingInfo`: publishing
+it needs a const slot on `ExternalSymbol` whose only consumer is stage 5, which lands both ends
+together.
+
+Deleted: `ConstRejection`, and `AttributeFold.tryNamedConstant`/`tryLiteralValue`/`tryEnumCase`.
+`ConstFold` shrank to the literal-token projection and is renamed `ConstLiteral.tryValue`.
+`LocalModuleMember` stores its `BindingKey` as `Key`, and `ResolvedValue.BindingKey` covers the
+local and external arms once, which a `LiteralRef` and an operator resolution both need.
+`ResolvedItem.EnumCase` carries a `ResolvedEnumCase` with the case's value, as
+`ResolvedUnionCase` carries its case, so the checker projects the resolved item instead of
+walking the enum's cases a second time. `AttributeFold.fs` moved after
+`Passes/NameResolution/LongIdent.fs` in compile order, which is what made one derivation
+possible.
+
+A bitwise combination takes two operands of one type, so `E.A ||| 2` and `E.A ||| F.Bit`
+are rejected as fsc's FS0001 rejects them, rather than folding to a bare `int`.
+
+Regressions: `ConstExprCheckTests` over real name resolution, and two whole-pipeline tests in
+`AttributeFoldTests` (a shadowed `(|||)` is FS0267, an unshadowed one folds) plus one in
+`ElaborateTests` (a local `[<Literal>]` reference is the constant at its use site).
 
 ### 4. One folding site
 
@@ -184,10 +233,11 @@ Done when: one call site builds every `TAttributes` in an implementation file.
 
 `ModuleSignatureElement.ValLiteral` currently lands in the discard arm at
 `SignatureResolution.fs:756` — a signature literal's value is parsed and thrown away, so
-`ExternalMember.ConstValue` has no producer from a Vesper signature. Implement
-`IConstNameResolver` over `SigCtx` (`Passes/SignatureResolution/Context.fs:31`), publish
-`ValLiteral`'s checked constant, and route `SignatureResolution.fs:706`'s attribute arguments
-through the same checker.
+`ExternalMember.ConstValue` has no producer from a Vesper signature. `SigCtx`
+(`Passes/SignatureResolution/Context.fs:31`) carries the `PassContext` the checker takes, and
+`SignatureResolution.fs:706`'s attribute arguments already reach it through `AttributeFold.build`,
+so the leg is: run `ConstExprCheck.check` over `ValLiteral`'s RHS at the signature's own use
+site and publish the checked constant.
 
 `ConformanceSurface.comparableArgs` (`ConformanceSurface.fs:46`) then compares two values derived
 the same way, which it does not today.

@@ -12,9 +12,18 @@ open XParsec.FSharp.SemanticAnalysis.ElaborateCalls
 
 module internal ElaborateIdents =
 
+    /// A reference to a `[<Literal>]` of this file becomes the constant it declares.
+    let private localRef (ctx: PassContext) (bindingSite: NodeKey) (ty: SemType) (tok: SyntaxToken) : TExpr =
+        match
+            ctx.Resolution.LiteralValues.TryGetValue bindingSite
+            |> ValueOption.bind TConstExpr.tryScalar
+        with
+        | ValueSome c -> TExpr.Const(c, ty, tok)
+        | ValueNone -> TExpr.Var(bindingSite, ty, tok)
+
     let translateIdent (ctx: PassContext) (key: NodeKey) (ty: SemType) (tok: SyntaxToken) : TExpr =
         match ctx.Bindings.Binding.TryGetValue key with
-        | ValueSome rb -> TExpr.Var(rb.BindingSite, ty, tok)
+        | ValueSome rb -> localRef ctx rb.BindingSite ty tok
         // No Binding entry => NameResolution resolved through the provider, and stamped the
         // identity it reached. Every spelling of one symbol carries the same key, so the
         // written form is not re-derived here.

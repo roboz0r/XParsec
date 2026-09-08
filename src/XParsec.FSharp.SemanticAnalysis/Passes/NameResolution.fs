@@ -529,6 +529,7 @@ module NameResolution =
                 for (name, key) in bindingsOfPat ctx b.pattern do
                     byName.[name] <-
                         {
+                            Key = SymbolKeyOps.bindingKeyOf container name
                             BindingSite = key
                             IsMutable = isMut
                             VisibleFrom =

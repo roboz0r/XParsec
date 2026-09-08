@@ -65,8 +65,8 @@
          value grammar, so the reading is one function taking a token → text read. -->
     <Compile Include="StringLiterals.fs" />
     <!-- Ahead of every literal reader: the enum-case reader and the elaborator's literal
-         projection both go through `ConstFold.tryLiteral`. -->
-    <Compile Include="ConstFold.fs" />
+         projection both go through `ConstLiteral.tryValue`. -->
+    <Compile Include="ConstLiteral.fs" />
     <Compile Include="EnumCaseValues.fs" />
     <Compile Include="TastWalk.fs" />
     <Compile Include="TastPoolNodes.fs" />
@@ -140,13 +140,16 @@
     <Compile Include="LocalScope.fs" />
     <Compile Include="Containers.fs" />
     <Compile Include="AttributeResolution.fs" />
-    <Compile Include="AttributeFold.fs" />
     <Compile Include="Containment.fs" />
     <Compile Include="MemberNames.fs" />
     <Compile Include="PropertyAccessors.fs" />
     <Compile Include="AssignTarget.fs" />
     <Compile Include="Passes\NameResolution\LongIdent.fs" />
     <Compile Include="Passes\NameResolution\TypeRefStamp.fs" />
+    <!-- After `LongIdent.fs`: a constant position resolves a spelling through the SAME
+         resolver expression position uses, and attribute folding runs the checker over it. -->
+    <Compile Include="ConstExprCheck.fs" />
+    <Compile Include="AttributeFold.fs" />
     <!-- After name resolution: an attribute is decoded by RESOLVING its long-ident
          as a type, not by matching its short name. -->
     <Compile Include="Passes\Attributes.fs" />

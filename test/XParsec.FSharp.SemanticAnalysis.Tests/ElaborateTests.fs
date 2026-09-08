@@ -52,6 +52,23 @@ let tests =
                 | other -> failtestf "unexpected: %A" other
             }
 
+            // A referenced assembly's `[<Literal>]` already arrives as its constant, through
+            // `ResolvedExternalMember.ConstValue`; one of this file substitutes the same way.
+            test "a local [<Literal>] reference is the constant at its use site" {
+                let tast =
+                    analyse (String.concat "\n" [ "[<Literal>]"; "let Mask = 3"; ""; "let x = Mask" ])
+
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+
+                match List.last (List.ofSeq tast.Decls) with
+                | TDecl.Let({
+                                Value = TExpr.Const(TConstValue.Integral(IntValue.Int32 3), _, _)
+                            },
+                            _,
+                            _) -> ()
+                | other -> failtestf "expected `x` to hold the literal's constant, got %A" other
+            }
+
             test "`let b = true` -> TConst Bool true" {
                 let tast = analyse "let b = true"
 

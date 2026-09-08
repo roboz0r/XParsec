@@ -39,6 +39,14 @@ files = [
     # The same `!` repr: JS reifies no attributes, but `Attribute` is still the root every
     # marker below inherits, and a base with a repr is what makes those markers erase at emit.
     "prim-types-attr.js.fs",
+    "language-primitives.fsi",
+    "language-primitives.fs",
+    # `AttributeTargets`, `AttributeUsage`, `Sealed` and `AutoOpen`: what `ops-bitwise`
+    # writes, so every other `[<AttributeUsage>]` mask can be written with `|||`.
+    "compiler-attributes-core.fsi",
+    "compiler-attributes-core.fs",
+    "ops-bitwise.fsi",
+    "ops-bitwise.fs",
     "compiler-attributes.fsi",
     "compiler-attributes.fs",
     # After `compiler-attributes`, which declares the `[<Measure>]` these write on a type

@@ -322,9 +322,8 @@ type PassContextResolution =
         /// inside its own RHS skips them (`LocalScope.tryValue`). Empty everywhere else.
         mutable PendingBindings: Set<NodeKey>
         /// Keyed by a module-level `[<Literal>]` binding's pattern `NodeKey` (the
-        /// `LocalModuleMember.BindingSite` a value resolution yields): the RHS's folded constant.
-        /// Written at the binding's position, so a reader above the binding misses.
-        LiteralValues: SideTable<TConstValue>
+        /// `LocalModuleMember.BindingSite` a value resolution yields): the RHS as checked.
+        LiteralValues: SideTable<TConstExpr>
     }
 
 module PassContextResolution =

@@ -196,6 +196,66 @@ let tests =
                     "`AttributeTargets.Class ||| AttributeTargets.Struct` folds to 12 with the enum's key"
             }
 
+            // Each multi-flag `[<AttributeUsage>]` mask `Vesper.Core` publishes, against the
+            // `System.AttributeTargets` combination FSharp.Core declares it with.
+            test "Vesper.Core's published AttributeUsage masks are the FSharp.Core combinations" {
+                let expected: (string * System.AttributeTargets) list =
+                    let classOrStruct = System.AttributeTargets.Class ||| System.AttributeTargets.Struct
+
+                    [
+                        "AutoOpen", classOrStruct ||| System.AttributeTargets.Assembly
+                        "StructuralEquality", classOrStruct
+                        "StructuralComparison", classOrStruct
+                        "CustomEquality", classOrStruct
+                        "CustomComparison", classOrStruct
+                        "DefaultAugmentation", classOrStruct
+                        "NoEquality",
+                        classOrStruct
+                        ||| System.AttributeTargets.Interface
+                        ||| System.AttributeTargets.Delegate
+                        ||| System.AttributeTargets.Enum
+                        "NoComparison",
+                        classOrStruct
+                        ||| System.AttributeTargets.Interface
+                        ||| System.AttributeTargets.Delegate
+                        ||| System.AttributeTargets.Enum
+                        "AllowNullLiteral", System.AttributeTargets.Class ||| System.AttributeTargets.Interface
+                        "Global", System.AttributeTargets.Property ||| System.AttributeTargets.Field
+                        "Import",
+                        System.AttributeTargets.Method
+                        ||| System.AttributeTargets.Property
+                        ||| System.AttributeTargets.Field
+                        "Struct",
+                        classOrStruct
+                        ||| System.AttributeTargets.ReturnValue
+                        ||| System.AttributeTargets.Parameter
+                        "RequireQualifiedAccess", classOrStruct ||| System.AttributeTargets.Enum
+                        "CompiledName",
+                        classOrStruct
+                        ||| System.AttributeTargets.Method
+                        ||| System.AttributeTargets.Field
+                        ||| System.AttributeTargets.Interface
+                        ||| System.AttributeTargets.Delegate
+                        ||| System.AttributeTargets.Enum
+                        ||| System.AttributeTargets.Property
+                        "Measure", System.AttributeTargets.GenericParameter ||| System.AttributeTargets.Class
+                    ]
+
+                let publishedMask (name: string) : (string voption * TConstDenotation) option =
+                    let key = SymbolKeyOps.typeKeyOf "Vesper" (name + "Attribute")
+
+                    realProvider.Value.TryLookupAttributes(SymbolKey.Type key)
+                    |> Block.toList
+                    |> List.tryFind (fun a -> a.Key = RuntimeNames.attributeUsageAttributeKey)
+                    |> Option.map (fun usage -> argView usage.Args.[0])
+
+                for (name, targets) in expected do
+                    Expect.equal
+                        (publishedMask name)
+                        (Some(ValueNone, enumScalar RuntimeNames.attributeTargetsKey (int32 (int targets))))
+                        name
+            }
+
             test "an argument outside the constant domain is diagnosed and the attribute is omitted whole" {
                 let pools =
                     freezeFor (
@@ -268,6 +328,81 @@ let tests =
                     (markArgs (typeDecl pools "D").Attributes)
                     [ positional (int32 11) ]
                     "Mask ||| Deep.Bit folds in argument position"
+            }
+
+            // fsc reports FS0267 for the same source: an attribute argument applies the
+            // binding its operator spelling denotes, and a `let (|||)` denotes that one.
+            test "an argument whose ||| is shadowed by a local definition is FS0267" {
+                let pools =
+                    freezeFor (
+                        src
+                            [
+                                "type MarkAttribute(n: int) ="
+                                "    member this.N = n"
+                                ""
+                                "let (|||) (a: int) (b: int) = 999"
+                                ""
+                                "[<Mark(1 ||| 2)>]"
+                                "type W = { Y: int }"
+                            ]
+                    )
+
+                match FrozenPools.blockingErrors pools |> List.map (fun d -> d.Message) with
+                | [ msg ] -> Expect.stringContains msg "not a valid constant expression" "FS0267's wording"
+                | other -> failtestf "expected exactly one error, got %A" other
+
+                Expect.isEmpty
+                    (Block.toList (typeDecl pools "W").Attributes)
+                    "the attribute with the shadowed operator is dropped whole"
+            }
+
+            test "an enum-converted argument carries the named enum's type" {
+                let pools =
+                    freezeFor (
+                        src
+                            [
+                                "type Targets = | Class = 4 | Struct = 8"
+                                ""
+                                "type MarkAttribute(t: Targets) ="
+                                "    member this.T = t"
+                                ""
+                                "[<Mark(enum<Targets> 12)>]"
+                                "type A = { X: int }"
+                                ""
+                                "[<Mark(LanguagePrimitives.EnumOfValue<int, Targets> 12)>]"
+                                "type B = { X: int }"
+                            ]
+                    )
+
+                Expect.isEmpty (FrozenPools.blockingErrors pools) "no errors"
+                let targetsKey = SymbolKeyOps.typeKeyOf "" "Targets"
+
+                Expect.equal
+                    (markArgs (typeDecl pools "A").Attributes)
+                    [ ValueNone, enumScalar targetsKey (int32 12) ]
+                    "enum<Targets> 12"
+
+                Expect.equal
+                    (markArgs (typeDecl pools "B").Attributes)
+                    [ ValueNone, enumScalar targetsKey (int32 12) ]
+                    "the qualified spelling denotes the same thing"
+            }
+
+            test "an argument whose ||| is NOT shadowed folds through the intrinsic" {
+                let pools =
+                    freezeFor (
+                        src
+                            [
+                                "type MarkAttribute(n: int) ="
+                                "    member this.N = n"
+                                ""
+                                "[<Mark(1 ||| 2)>]"
+                                "type W = { Y: int }"
+                            ]
+                    )
+
+                Expect.isEmpty (FrozenPools.blockingErrors pools) "no errors"
+                Expect.equal (markArgs (typeDecl pools "W").Attributes) [ positional (int32 3) ] "1 ||| 2"
             }
 
             test "a non-literal value reference in an attribute argument is FS0267" {

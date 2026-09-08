@@ -156,6 +156,22 @@ module RuntimeNames =
     let unaryNegationBindingKey: BindingKey =
         SymbolKeyOps.moduleBindingKey intrinsicNamespace "ArithmeticOperators" OperatorData.OpUnaryNegation
 
+    // The two spellings of an enum conversion: the qualified `LanguagePrimitives.EnumOfValue`
+    // and the auto-opened `enum`.
+
+    let enumOfValueBindingKey: BindingKey =
+        SymbolKeyOps.moduleBindingKey intrinsicNamespace "LanguagePrimitives" "EnumOfValue"
+
+    let enumBindingKey: BindingKey =
+        SymbolKeyOps.moduleBindingKey intrinsicNamespace "EnumOperators" "enum"
+
+    /// The position of the enum among an enum conversion's written type arguments:
+    /// `EnumOfValue<'T, 'Enum>` and `enum<'Enum>`. `ValueNone` for any other binding.
+    let enumConversionTypeArg (key: BindingKey) : int voption =
+        if key = enumOfValueBindingKey then ValueSome 1
+        elif key = enumBindingKey then ValueSome 0
+        else ValueNone
+
     let objAbbrevName: string = "obj"
 
     // The printf sinks. CLR contracts with no JS analogue.

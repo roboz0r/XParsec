@@ -8,6 +8,7 @@ open Vesper
 [<Struct>]
 type LocalModuleMember =
     {
+        Key: BindingKey
         BindingSite: NodeKey
         IsMutable: bool
         VisibleFrom: int
@@ -20,6 +21,11 @@ type LocalModuleMember =
 type ResolvedValue =
     | Local of LocalModuleMember
     | External of ExternalSymbol
+
+    member this.BindingKey: BindingKey =
+        match this with
+        | Local m -> m.Key
+        | External sym -> sym.Key
 
 [<RequireQualifiedAccess; NoEquality; NoComparison>]
 type ResolvedUnionCase =
@@ -75,6 +81,15 @@ type TypeNameResolution =
     | ExternalAtOtherArity of key: TypeKey * shape: ExternalTypeShape
     | Unresolved of UnresolvedName
 
+[<NoEquality; NoComparison>]
+type ResolvedEnumCase =
+    {
+        Name: string
+        /// `ValueNone` for a case of this file whose written value was rejected at
+        /// registration.
+        Value: TConstValue voption
+    }
+
 /// What a written name denotes at its use site, in the position it is written in.
 [<RequireQualifiedAccess; NoEquality; NoComparison>]
 type ResolvedItem =
@@ -82,7 +97,7 @@ type ResolvedItem =
     /// `requiresQualification` is set for a case of a `[<RequireQualifiedAccess>]` union
     /// reached other than through the union's own name, which F# reports as FS0035.
     | UnionCase of case: ResolvedUnionCase * requiresQualification: bool
-    | EnumCase of owner: ResolvedTypeRef * name: string
+    | EnumCase of owner: ResolvedTypeRef * case: ResolvedEnumCase
     /// A type name that denotes its constructor: written in expression position, and
     /// constructible from the bare name (a class of this file, or a referenced class whose
     /// arity the written form fixes).

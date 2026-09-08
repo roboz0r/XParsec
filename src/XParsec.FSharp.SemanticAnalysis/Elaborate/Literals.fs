@@ -27,7 +27,7 @@ module internal ElaborateLiterals =
     /// / well-formed primitive numeric literals always resolve; a consumer that can report a
     /// user error (enum case values) calls this rather than the throwing `parseConst`.
     let tryParseConst (ctx: PassContext) (c: Constant<SyntaxToken>) : Result<TConstValue, LiteralRejection> =
-        match ConstFold.tryLiteral ctx.NameOf c with
+        match ConstLiteral.tryValue ctx.NameOf c with
         | Ok v -> Ok v
         | Error NumericLiteralRejection.CustomLiteral -> Error LiteralRejection.CustomLiteral
         | Error NumericLiteralRejection.OutOfRange -> Error LiteralRejection.OutOfRange

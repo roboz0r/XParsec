@@ -1,0 +1,220 @@
+namespace                  'namespace'       KWNamespace         tok=   0  pos=   0
+                           'Vesper'          Identifier          tok=   2  pos=  10
+  TypeDefn.Enum:
+    TypeName               'AttributeT...'   Identifier          tok=   7  pos=  23
+    =                      '='               OpEquality          tok=   9  pos=  40
+      Case:
+        ident              'Assembly'        Identifier          tok=  14  pos=  48
+        =                  '='               OpEquality          tok=  16  pos=  57
+        Const              '1'               NumInt32            tok=  18  pos=  59
+      Case:
+        ident              'Module'          Identifier          tok=  23  pos=  67
+        =                  '='               OpEquality          tok=  25  pos=  74
+        Const              '2'               NumInt32            tok=  27  pos=  76
+      Case:
+        ident              'Class'           Identifier          tok=  32  pos=  84
+        =                  '='               OpEquality          tok=  34  pos=  90
+        Const              '4'               NumInt32            tok=  36  pos=  92
+      Case:
+        ident              'Struct'          Identifier          tok=  41  pos= 100
+        =                  '='               OpEquality          tok=  43  pos= 107
+        Const              '8'               NumInt32            tok=  45  pos= 109
+      Case:
+        ident              'Enum'            Identifier          tok=  50  pos= 117
+        =                  '='               OpEquality          tok=  52  pos= 122
+        Const              '16'              NumInt32            tok=  54  pos= 124
+      Case:
+        ident              'Constructo...'   Identifier          tok=  59  pos= 133
+        =                  '='               OpEquality          tok=  61  pos= 145
+        Const              '32'              NumInt32            tok=  63  pos= 147
+      Case:
+        ident              'Method'          Identifier          tok=  68  pos= 156
+        =                  '='               OpEquality          tok=  70  pos= 163
+        Const              '64'              NumInt32            tok=  72  pos= 165
+      Case:
+        ident              'Property'        Identifier          tok=  77  pos= 174
+        =                  '='               OpEquality          tok=  79  pos= 183
+        Const              '128'             NumInt32            tok=  81  pos= 185
+      Case:
+        ident              'Field'           Identifier          tok=  86  pos= 195
+        =                  '='               OpEquality          tok=  88  pos= 201
+        Const              '256'             NumInt32            tok=  90  pos= 203
+      Case:
+        ident              'Event'           Identifier          tok=  95  pos= 213
+        =                  '='               OpEquality          tok=  97  pos= 219
+        Const              '512'             NumInt32            tok=  99  pos= 221
+      Case:
+        ident              'Interface'       Identifier          tok= 104  pos= 231
+        =                  '='               OpEquality          tok= 106  pos= 241
+        Const              '1024'            NumInt32            tok= 108  pos= 243
+      Case:
+        ident              'Parameter'       Identifier          tok= 113  pos= 254
+        =                  '='               OpEquality          tok= 115  pos= 264
+        Const              '2048'            NumInt32            tok= 117  pos= 266
+      Case:
+        ident              'Delegate'        Identifier          tok= 122  pos= 277
+        =                  '='               OpEquality          tok= 124  pos= 286
+        Const              '4096'            NumInt32            tok= 126  pos= 288
+      Case:
+        ident              'ReturnValu...'   Identifier          tok= 131  pos= 299
+        =                  '='               OpEquality          tok= 133  pos= 311
+        Const              '8192'            NumInt32            tok= 135  pos= 313
+      Case:
+        ident              'GenericPar...'   Identifier          tok= 140  pos= 324
+        =                  '='               OpEquality          tok= 142  pos= 341
+        Const              '16384'           NumInt32            tok= 144  pos= 343
+      Case:
+        ident              'All'             Identifier          tok= 149  pos= 355
+        =                  '='               OpEquality          tok= 151  pos= 359
+        Const              '32767'           NumInt32            tok= 153  pos= 361
+  TypeDefn.Anon:
+    TypeName               'AttributeU...'   Identifier          tok= 158  pos= 373
+    (                      '('               KWLParen            tok= 159  pos= 396
+    Pat.Typed:
+      Pat.NamedSimple      'validOn'         Identifier          tok= 160  pos= 397
+      Colon                ':'               OpColon             tok= 161  pos= 404
+      NamedType:
+        Ident              'AttributeT...'   Identifier          tok= 163  pos= 406
+    )                      ')'               KWRParen            tok= 164  pos= 422
+    =                      '='               OpEquality          tok= 166  pos= 424
+    begin                  <virt>            KWBegin             tok=virt  pos= 430
+      inherit              'inherit'         KWInherit           tok= 169  pos= 430
+      NamedType:
+        Ident              'Attribute'       Identifier          tok= 171  pos= 438
+      ParenBlock           '('               KWLParen            tok= 172  pos= 447
+                           ')'               KWRParen            tok= 173  pos= 448
+      let                  'let'             KWLet               tok= 176  pos= 454
+      mutable              'mutable'         KWMutable           tok= 178  pos= 458
+      Pat.NamedSimple      'allowMulti...'   Identifier          tok= 180  pos= 466
+      =                    '='               OpEquality          tok= 182  pos= 480
+        Const              'false'           KWFalse             tok= 184  pos= 482
+      let                  'let'             KWLet               tok= 187  pos= 492
+      mutable              'mutable'         KWMutable           tok= 189  pos= 496
+      Pat.NamedSimple      'isInherite...'   Identifier          tok= 191  pos= 504
+      =                    '='               OpEquality          tok= 193  pos= 516
+        Const              'true'            KWTrue              tok= 195  pos= 518
+      member               'member'          KWMember            tok= 198  pos= 527
+      self                 '_'               Wildcard            tok= 200  pos= 534
+      Pat.NamedSimple      'ValidOn'         Identifier          tok= 202  pos= 536
+      =                    '='               OpEquality          tok= 204  pos= 544
+        Ident              'validOn'         Identifier          tok= 206  pos= 546
+      member               'member'          KWMember            tok= 210  pos= 559
+      ident                'AllowMulti...'   Identifier          tok= 214  pos= 568
+      with                 'with'            KWWith              tok= 217  pos= 590
+      Pat.NamedSimple      'get'             Identifier          tok= 219  pos= 595
+      Pats:
+        ParenBlock         '('               KWLParen            tok= 221  pos= 599
+                           ')'               KWRParen            tok= 222  pos= 600
+      =                    '='               OpEquality          tok= 224  pos= 602
+        Ident              'allowMulti...'   Identifier          tok= 226  pos= 604
+      Pat.NamedSimple      'set'             Identifier          tok= 231  pos= 630
+      Pats:
+        Pat.NamedSimple    'v'               Identifier          tok= 233  pos= 634
+      =                    '='               OpEquality          tok= 235  pos= 636
+        Assignment         '<-'              OpArrowLeft         tok= 239  pos= 652
+          Ident            'allowMulti...'   Identifier          tok= 237  pos= 638
+          Ident            'v'               Identifier          tok= 241  pos= 655
+      member               'member'          KWMember            tok= 245  pos= 662
+      ident                'Inherited'       Identifier          tok= 249  pos= 671
+      with                 'with'            KWWith              tok= 252  pos= 689
+      Pat.NamedSimple      'get'             Identifier          tok= 254  pos= 694
+      Pats:
+        ParenBlock         '('               KWLParen            tok= 256  pos= 698
+                           ')'               KWRParen            tok= 257  pos= 699
+      =                    '='               OpEquality          tok= 259  pos= 701
+        Ident              'isInherite...'   Identifier          tok= 261  pos= 703
+      Pat.NamedSimple      'set'             Identifier          tok= 266  pos= 727
+      Pats:
+        Pat.NamedSimple    'v'               Identifier          tok= 268  pos= 731
+      =                    '='               OpEquality          tok= 270  pos= 733
+        Assignment         '<-'              OpArrowLeft         tok= 274  pos= 747
+          Ident            'isInherite...'   Identifier          tok= 272  pos= 735
+          Ident            'v'               Identifier          tok= 276  pos= 750
+    end                    <virt>            KWEnd               tok=virt  pos= 785
+  TypeDefn.Anon:
+    [<                     '[<'              KWLAttrBracket      tok= 281  pos= 785
+    NamedType:
+      Ident                'AttributeU...'   Identifier          tok= 282  pos= 787
+    ParenBlock             '('               KWLParen            tok= 283  pos= 801
+      Tuple:
+        LongIdentOrOp:
+          LongIdent:
+                           'AttributeT...'   Identifier          tok= 284  pos= 802
+                           'Class'           Identifier          tok= 286  pos= 819
+        InfixApp           '='               OpEquality          tok= 291  pos= 840
+          Ident            'AllowMulti...'   Identifier          tok= 289  pos= 826
+          Const            'false'           KWFalse             tok= 293  pos= 842
+                           ')'               KWRParen            tok= 294  pos= 847
+    >]                     '>]'              KWRAttrBracket      tok= 295  pos= 848
+    TypeName               'SealedAttr...'   Identifier          tok= 299  pos= 856
+    (                      '('               KWLParen            tok= 300  pos= 871
+    Pat.Typed:
+      Pat.NamedSimple      'value'           Identifier          tok= 301  pos= 872
+      Colon                ':'               OpColon             tok= 302  pos= 877
+      NamedType:
+        Ident              'bool'            Identifier          tok= 304  pos= 879
+    )                      ')'               KWRParen            tok= 305  pos= 883
+    =                      '='               OpEquality          tok= 307  pos= 885
+    begin                  <virt>            KWBegin             tok=virt  pos= 891
+      inherit              'inherit'         KWInherit           tok= 310  pos= 891
+      NamedType:
+        Ident              'Attribute'       Identifier          tok= 312  pos= 899
+      ParenBlock           '('               KWLParen            tok= 313  pos= 908
+                           ')'               KWRParen            tok= 314  pos= 909
+      member               'member'          KWMember            tok= 317  pos= 915
+      self                 '_'               Wildcard            tok= 319  pos= 922
+      Pat.NamedSimple      'Value'           Identifier          tok= 321  pos= 924
+      =                    '='               OpEquality          tok= 323  pos= 930
+        Ident              'value'           Identifier          tok= 325  pos= 932
+      AdditionalConstructor:
+        new                'new'             KWNew               tok= 328  pos= 942
+        ParenBlock         '('               KWLParen            tok= 329  pos= 945
+                           ')'               KWRParen            tok= 330  pos= 946
+        =                  '='               OpEquality          tok= 332  pos= 948
+        HighPrecedenceApp:
+          Func:
+            Ident          'SealedAttr...'   Identifier          tok= 334  pos= 950
+          (                '('               KWLParen            tok= 335  pos= 965
+          Arg:
+            Const          'true'            KWTrue              tok= 336  pos= 966
+                           ')'               KWRParen            tok= 337  pos= 970
+    end                    <virt>            KWEnd               tok=virt  pos=1006
+  TypeDefn.Anon:
+    [<                     '[<'              KWLAttrBracket      tok= 342  pos=1006
+    NamedType:
+      Ident                'Sealed'          Identifier          tok= 343  pos=1008
+    >]                     '>]'              KWRAttrBracket      tok= 344  pos=1014
+    TypeName               'AutoOpenAt...'   Identifier          tok= 348  pos=1022
+    (                      '('               KWLParen            tok= 349  pos=1039
+    Pat.Typed:
+      Pat.NamedSimple      'path'            Identifier          tok= 350  pos=1040
+      Colon                ':'               OpColon             tok= 351  pos=1044
+      NamedType:
+        Ident              'string'          Identifier          tok= 353  pos=1046
+    )                      ')'               KWRParen            tok= 354  pos=1052
+    =                      '='               OpEquality          tok= 356  pos=1054
+    begin                  <virt>            KWBegin             tok=virt  pos=1060
+      inherit              'inherit'         KWInherit           tok= 359  pos=1060
+      NamedType:
+        Ident              'Attribute'       Identifier          tok= 361  pos=1068
+      ParenBlock           '('               KWLParen            tok= 362  pos=1077
+                           ')'               KWRParen            tok= 363  pos=1078
+      member               'member'          KWMember            tok= 366  pos=1084
+      self                 '_'               Wildcard            tok= 368  pos=1091
+      Pat.NamedSimple      'Path'            Identifier          tok= 370  pos=1093
+      =                    '='               OpEquality          tok= 372  pos=1098
+        Ident              'path'            Identifier          tok= 374  pos=1100
+      AdditionalConstructor:
+        new                'new'             KWNew               tok= 377  pos=1109
+        ParenBlock         '('               KWLParen            tok= 378  pos=1112
+                           ')'               KWRParen            tok= 379  pos=1113
+        =                  '='               OpEquality          tok= 381  pos=1115
+        HighPrecedenceApp:
+          Func:
+            Ident          'AutoOpenAt...'   Identifier          tok= 383  pos=1117
+          (                '('               KWLParen            tok= 384  pos=1134
+          Arg:
+            StringLiteral  '"'               StringOpen          tok= 385  pos=1135
+                           '"'               StringClose         tok= 386  pos=1136
+                           ')'               KWRParen            tok= 387  pos=1137
+    end                    <virt>            KWEnd               tok=virt  pos=1139

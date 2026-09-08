@@ -1,1270 +1,1047 @@
 namespace                       'namespace'       KWNamespace         tok=   0  pos=   0
                                 'Vesper'          Identifier          tok=   2  pos=  10
   Type:
-    type                        'type'            KWType              tok=   7  pos= 120
-    TypeSig.Enum:
-      TypeName                  'AttributeT...'   Identifier          tok=   9  pos= 125
-      =                         '='               OpEquality          tok=  11  pos= 142
-        Case:
-          ident                 'Assembly'        Identifier          tok=  16  pos= 150
-          =                     '='               OpEquality          tok=  18  pos= 159
-          Const                 '1'               NumInt32            tok=  20  pos= 161
-        Case:
-          ident                 'Module'          Identifier          tok=  25  pos= 169
-          =                     '='               OpEquality          tok=  27  pos= 176
-          Const                 '2'               NumInt32            tok=  29  pos= 178
-        Case:
-          ident                 'Class'           Identifier          tok=  34  pos= 186
-          =                     '='               OpEquality          tok=  36  pos= 192
-          Const                 '4'               NumInt32            tok=  38  pos= 194
-        Case:
-          ident                 'Struct'          Identifier          tok=  43  pos= 202
-          =                     '='               OpEquality          tok=  45  pos= 209
-          Const                 '8'               NumInt32            tok=  47  pos= 211
-        Case:
-          ident                 'Enum'            Identifier          tok=  52  pos= 219
-          =                     '='               OpEquality          tok=  54  pos= 224
-          Const                 '16'              NumInt32            tok=  56  pos= 226
-        Case:
-          ident                 'Constructo...'   Identifier          tok=  61  pos= 235
-          =                     '='               OpEquality          tok=  63  pos= 247
-          Const                 '32'              NumInt32            tok=  65  pos= 249
-        Case:
-          ident                 'Method'          Identifier          tok=  70  pos= 258
-          =                     '='               OpEquality          tok=  72  pos= 265
-          Const                 '64'              NumInt32            tok=  74  pos= 267
-        Case:
-          ident                 'Property'        Identifier          tok=  79  pos= 276
-          =                     '='               OpEquality          tok=  81  pos= 285
-          Const                 '128'             NumInt32            tok=  83  pos= 287
-        Case:
-          ident                 'Field'           Identifier          tok=  88  pos= 297
-          =                     '='               OpEquality          tok=  90  pos= 303
-          Const                 '256'             NumInt32            tok=  92  pos= 305
-        Case:
-          ident                 'Event'           Identifier          tok=  97  pos= 315
-          =                     '='               OpEquality          tok=  99  pos= 321
-          Const                 '512'             NumInt32            tok= 101  pos= 323
-        Case:
-          ident                 'Interface'       Identifier          tok= 106  pos= 333
-          =                     '='               OpEquality          tok= 108  pos= 343
-          Const                 '1024'            NumInt32            tok= 110  pos= 345
-        Case:
-          ident                 'Parameter'       Identifier          tok= 115  pos= 356
-          =                     '='               OpEquality          tok= 117  pos= 366
-          Const                 '2048'            NumInt32            tok= 119  pos= 368
-        Case:
-          ident                 'Delegate'        Identifier          tok= 124  pos= 379
-          =                     '='               OpEquality          tok= 126  pos= 388
-          Const                 '4096'            NumInt32            tok= 128  pos= 390
-        Case:
-          ident                 'ReturnValu...'   Identifier          tok= 133  pos= 401
-          =                     '='               OpEquality          tok= 135  pos= 413
-          Const                 '8192'            NumInt32            tok= 137  pos= 415
-        Case:
-          ident                 'GenericPar...'   Identifier          tok= 142  pos= 426
-          =                     '='               OpEquality          tok= 144  pos= 443
-          Const                 '16384'           NumInt32            tok= 146  pos= 445
-        Case:
-          ident                 'All'             Identifier          tok= 151  pos= 457
-          =                     '='               OpEquality          tok= 153  pos= 461
-          Const                 '32767'           NumInt32            tok= 155  pos= 463
-  Type:
-    type                        'type'            KWType              tok= 160  pos= 541
+    type                        'type'            KWType              tok=  31  pos= 367
     TypeSig.Anon:
-      TypeName                  'AttributeU...'   Identifier          tok= 162  pos= 546
-      =                         '='               OpEquality          tok= 164  pos= 570
-      begin                     <virt>            KWBegin             tok=virt  pos= 576
-        inherit                 'inherit'         KWInherit           tok= 167  pos= 576
-        NamedType:
-          Ident                 'Attribute'       Identifier          tok= 169  pos= 584
-        Constructor:
-          new                   'new'             KWNew               tok= 179  pos= 730
-          :                     ':'               OpColon             tok= 180  pos= 733
-          arg                   'validOn'         Identifier          tok= 182  pos= 735
-          :                     ':'               OpColon             tok= 183  pos= 742
-          NamedType:
-            Ident               'AttributeT...'   Identifier          tok= 185  pos= 744
-          ->                    '->'              OpArrowRight        tok= 187  pos= 761
-          NamedType:
-            Ident               'AttributeU...'   Identifier          tok= 189  pos= 764
-        Member:
-          member                'member'          KWMember            tok= 199  pos= 933
-          Ident                 'ValidOn'         Identifier          tok= 201  pos= 940
-          :                     ':'               OpColon             tok= 202  pos= 947
-          NamedType:
-            Ident               'AttributeT...'   Identifier          tok= 204  pos= 949
-        Member:
-          member                'member'          KWMember            tok= 214  pos=1147
-          Ident                 'AllowMulti...'   Identifier          tok= 216  pos=1154
-          :                     ':'               OpColon             tok= 217  pos=1167
-          NamedType:
-            Ident               'bool'            Identifier          tok= 219  pos=1169
-          with                  'with'            KWWith              tok= 221  pos=1174
-          get/set               'get'             Identifier          tok= 223  pos=1179
-          set/get               'set'             Identifier          tok= 226  pos=1184
-        Member:
-          member                'member'          KWMember            tok= 236  pos=1348
-          Ident                 'Inherited'       Identifier          tok= 238  pos=1355
-          :                     ':'               OpColon             tok= 239  pos=1364
-          NamedType:
-            Ident               'bool'            Identifier          tok= 241  pos=1366
-          with                  'with'            KWWith              tok= 243  pos=1371
-          get/set               'get'             Identifier          tok= 245  pos=1376
-          set/get               'set'             Identifier          tok= 248  pos=1381
-      end                       <virt>            KWEnd               tok=virt  pos=1556
-  Type:
-    type                        'type'            KWType              tok= 273  pos=1622
-    TypeSig.Anon:
-      [<                        '[<'              KWLAttrBracket      tok= 257  pos=1556
+      [<                        '[<'              KWLAttrBracket      tok=  11  pos= 286
       NamedType:
-        Ident                   'AttributeU...'   Identifier          tok= 258  pos=1558
-      ParenBlock                '('               KWLParen            tok= 259  pos=1572
+        Ident                   'AttributeU...'   Identifier          tok=  12  pos= 288
+      ParenBlock                '('               KWLParen            tok=  13  pos= 302
         Tuple:
           LongIdentOrOp:
             LongIdent:
-                                'AttributeT...'   Identifier          tok= 260  pos=1573
-                                'Class'           Identifier          tok= 262  pos=1590
-          InfixApp              '='               OpEquality          tok= 267  pos=1611
-            Ident               'AllowMulti...'   Identifier          tok= 265  pos=1597
-            Const               'false'           KWFalse             tok= 269  pos=1613
-                                ')'               KWRParen            tok= 270  pos=1618
-      >]                        '>]'              KWRAttrBracket      tok= 271  pos=1619
-      TypeName                  'SealedAttr...'   Identifier          tok= 275  pos=1627
-      =                         '='               OpEquality          tok= 277  pos=1643
-      begin                     <virt>            KWBegin             tok=virt  pos=1649
-        inherit                 'inherit'         KWInherit           tok= 280  pos=1649
-        NamedType:
-          Ident                 'Attribute'       Identifier          tok= 282  pos=1657
-        Constructor:
-          new                   'new'             KWNew               tok= 292  pos=1787
-          :                     ':'               OpColon             tok= 293  pos=1790
-          NamedType:
-            Ident               'unit'            Identifier          tok= 295  pos=1792
-          ->                    '->'              OpArrowRight        tok= 297  pos=1797
-          NamedType:
-            Ident               'SealedAttr...'   Identifier          tok= 299  pos=1800
-        Constructor:
-          new                   'new'             KWNew               tok= 318  pos=2019
-          :                     ':'               OpColon             tok= 319  pos=2022
-          arg                   'value'           Identifier          tok= 321  pos=2024
-          :                     ':'               OpColon             tok= 322  pos=2029
-          NamedType:
-            Ident               'bool'            Identifier          tok= 324  pos=2031
-          ->                    '->'              OpArrowRight        tok= 326  pos=2036
-          NamedType:
-            Ident               'SealedAttr...'   Identifier          tok= 328  pos=2039
-        Member:
-          member                'member'          KWMember            tok= 335  pos=2161
-          Ident                 'Value'           Identifier          tok= 337  pos=2168
-          :                     ':'               OpColon             tok= 338  pos=2173
-          NamedType:
-            Ident               'bool'            Identifier          tok= 340  pos=2175
-      end                       <virt>            KWEnd               tok=virt  pos=2449
-  Type:
-    type                        'type'            KWType              tok= 369  pos=2530
-    TypeSig.Anon:
-      [<                        '[<'              KWLAttrBracket      tok= 349  pos=2449
+                                'AttributeT...'   Identifier          tok=  14  pos= 303
+                                'Parameter'       Identifier          tok=  16  pos= 320
+          InfixApp              '='               OpEquality          tok=  21  pos= 345
+            Ident               'AllowMulti...'   Identifier          tok=  19  pos= 331
+            Const               'false'           KWFalse             tok=  23  pos= 347
+                                ')'               KWRParen            tok=  24  pos= 352
+      >]                        '>]'              KWRAttrBracket      tok=  25  pos= 353
+      [<                        '[<'              KWLAttrBracket      tok=  27  pos= 356
       NamedType:
-        Ident                   'AttributeU...'   Identifier          tok= 350  pos=2451
-      ParenBlock                '('               KWLParen            tok= 351  pos=2465
+        Ident                   'Sealed'          Identifier          tok=  28  pos= 358
+      >]                        '>]'              KWRAttrBracket      tok=  29  pos= 364
+      TypeName                  'CallAtMost...'   Identifier          tok=  33  pos= 372
+      =                         '='               OpEquality          tok=  35  pos= 396
+      begin                     <virt>            KWBegin             tok=virt  pos= 402
+        inherit                 'inherit'         KWInherit           tok=  38  pos= 402
+        NamedType:
+          Ident                 'Attribute'       Identifier          tok=  40  pos= 410
+        Constructor:
+          new                   'new'             KWNew               tok=  47  pos= 489
+          :                     ':'               OpColon             tok=  48  pos= 492
+          NamedType:
+            Ident               'unit'            Identifier          tok=  50  pos= 494
+          ->                    '->'              OpArrowRight        tok=  52  pos= 499
+          NamedType:
+            Ident               'CallAtMost...'   Identifier          tok=  54  pos= 502
+      end                       <virt>            KWEnd               tok=virt  pos= 694
+  Type:
+    type                        'type'            KWType              tok=  87  pos= 799
+    TypeSig.Anon:
+      [<                        '[<'              KWLAttrBracket      tok=  61  pos= 694
+      NamedType:
+        Ident                   'AttributeU...'   Identifier          tok=  62  pos= 696
+      ParenBlock                '('               KWLParen            tok=  63  pos= 710
+        Tuple:
+          InfixApp              '|||'             op_BitwiseOr        tok=  68  pos= 734
+            LongIdentOrOp:
+              LongIdent:
+                                'AttributeT...'   Identifier          tok=  64  pos= 711
+                                'Class'           Identifier          tok=  66  pos= 728
+            LongIdentOrOp:
+              LongIdent:
+                                'AttributeT...'   Identifier          tok=  70  pos= 738
+                                'Struct'          Identifier          tok=  72  pos= 755
+          InfixApp              '='               OpEquality          tok=  77  pos= 777
+            Ident               'AllowMulti...'   Identifier          tok=  75  pos= 763
+            Const               'false'           KWFalse             tok=  79  pos= 779
+                                ')'               KWRParen            tok=  80  pos= 784
+      >]                        '>]'              KWRAttrBracket      tok=  81  pos= 785
+      [<                        '[<'              KWLAttrBracket      tok=  83  pos= 788
+      NamedType:
+        Ident                   'Sealed'          Identifier          tok=  84  pos= 790
+      >]                        '>]'              KWRAttrBracket      tok=  85  pos= 796
+      TypeName                  'Structural...'   Identifier          tok=  89  pos= 804
+      =                         '='               OpEquality          tok=  91  pos= 832
+      begin                     <virt>            KWBegin             tok=virt  pos= 838
+        inherit                 'inherit'         KWInherit           tok=  94  pos= 838
+        NamedType:
+          Ident                 'Attribute'       Identifier          tok=  96  pos= 846
+        Constructor:
+          new                   'new'             KWNew               tok= 103  pos= 925
+          :                     ':'               OpColon             tok= 104  pos= 928
+          NamedType:
+            Ident               'unit'            Identifier          tok= 106  pos= 930
+          ->                    '->'              OpArrowRight        tok= 108  pos= 935
+          NamedType:
+            Ident               'Structural...'   Identifier          tok= 110  pos= 938
+      end                       <virt>            KWEnd               tok=virt  pos=1133
+  Type:
+    type                        'type'            KWType              tok= 143  pos=1238
+    TypeSig.Anon:
+      [<                        '[<'              KWLAttrBracket      tok= 117  pos=1133
+      NamedType:
+        Ident                   'AttributeU...'   Identifier          tok= 118  pos=1135
+      ParenBlock                '('               KWLParen            tok= 119  pos=1149
+        Tuple:
+          InfixApp              '|||'             op_BitwiseOr        tok= 124  pos=1173
+            LongIdentOrOp:
+              LongIdent:
+                                'AttributeT...'   Identifier          tok= 120  pos=1150
+                                'Class'           Identifier          tok= 122  pos=1167
+            LongIdentOrOp:
+              LongIdent:
+                                'AttributeT...'   Identifier          tok= 126  pos=1177
+                                'Struct'          Identifier          tok= 128  pos=1194
+          InfixApp              '='               OpEquality          tok= 133  pos=1216
+            Ident               'AllowMulti...'   Identifier          tok= 131  pos=1202
+            Const               'false'           KWFalse             tok= 135  pos=1218
+                                ')'               KWRParen            tok= 136  pos=1223
+      >]                        '>]'              KWRAttrBracket      tok= 137  pos=1224
+      [<                        '[<'              KWLAttrBracket      tok= 139  pos=1227
+      NamedType:
+        Ident                   'Sealed'          Identifier          tok= 140  pos=1229
+      >]                        '>]'              KWRAttrBracket      tok= 141  pos=1235
+      TypeName                  'Structural...'   Identifier          tok= 145  pos=1243
+      =                         '='               OpEquality          tok= 147  pos=1273
+      begin                     <virt>            KWBegin             tok=virt  pos=1279
+        inherit                 'inherit'         KWInherit           tok= 150  pos=1279
+        NamedType:
+          Ident                 'Attribute'       Identifier          tok= 152  pos=1287
+        Constructor:
+          new                   'new'             KWNew               tok= 159  pos=1366
+          :                     ':'               OpColon             tok= 160  pos=1369
+          NamedType:
+            Ident               'unit'            Identifier          tok= 162  pos=1371
+          ->                    '->'              OpArrowRight        tok= 164  pos=1376
+          NamedType:
+            Ident               'Structural...'   Identifier          tok= 166  pos=1379
+      end                       <virt>            KWEnd               tok=virt  pos=1570
+  Type:
+    type                        'type'            KWType              tok= 193  pos=1647
+    TypeSig.Anon:
+      [<                        '[<'              KWLAttrBracket      tok= 173  pos=1570
+      NamedType:
+        Ident                   'AttributeU...'   Identifier          tok= 174  pos=1572
+      ParenBlock                '('               KWLParen            tok= 175  pos=1586
         Tuple:
           LongIdentOrOp:
             LongIdent:
-                                'AttributeT...'   Identifier          tok= 352  pos=2466
-                                'Parameter'       Identifier          tok= 354  pos=2483
-          InfixApp              '='               OpEquality          tok= 359  pos=2508
-            Ident               'AllowMulti...'   Identifier          tok= 357  pos=2494
-            Const               'false'           KWFalse             tok= 361  pos=2510
-                                ')'               KWRParen            tok= 362  pos=2515
-      >]                        '>]'              KWRAttrBracket      tok= 363  pos=2516
-      [<                        '[<'              KWLAttrBracket      tok= 365  pos=2519
+                                'AttributeT...'   Identifier          tok= 176  pos=1587
+                                'Class'           Identifier          tok= 178  pos=1604
+          InfixApp              '='               OpEquality          tok= 183  pos=1625
+            Ident               'AllowMulti...'   Identifier          tok= 181  pos=1611
+            Const               'false'           KWFalse             tok= 185  pos=1627
+                                ')'               KWRParen            tok= 186  pos=1632
+      >]                        '>]'              KWRAttrBracket      tok= 187  pos=1633
+      [<                        '[<'              KWLAttrBracket      tok= 189  pos=1636
       NamedType:
-        Ident                   'Sealed'          Identifier          tok= 366  pos=2521
-      >]                        '>]'              KWRAttrBracket      tok= 367  pos=2527
-      TypeName                  'CallAtMost...'   Identifier          tok= 371  pos=2535
-      =                         '='               OpEquality          tok= 373  pos=2559
-      begin                     <virt>            KWBegin             tok=virt  pos=2565
-        inherit                 'inherit'         KWInherit           tok= 376  pos=2565
+        Ident                   'Sealed'          Identifier          tok= 190  pos=1638
+      >]                        '>]'              KWRAttrBracket      tok= 191  pos=1644
+      TypeName                  'ReferenceE...'   Identifier          tok= 195  pos=1652
+      =                         '='               OpEquality          tok= 197  pos=1679
+      begin                     <virt>            KWBegin             tok=virt  pos=1685
+        inherit                 'inherit'         KWInherit           tok= 200  pos=1685
         NamedType:
-          Ident                 'Attribute'       Identifier          tok= 378  pos=2573
+          Ident                 'Attribute'       Identifier          tok= 202  pos=1693
         Constructor:
-          new                   'new'             KWNew               tok= 385  pos=2652
-          :                     ':'               OpColon             tok= 386  pos=2655
+          new                   'new'             KWNew               tok= 209  pos=1772
+          :                     ':'               OpColon             tok= 210  pos=1775
           NamedType:
-            Ident               'unit'            Identifier          tok= 388  pos=2657
-          ->                    '->'              OpArrowRight        tok= 390  pos=2662
+            Ident               'unit'            Identifier          tok= 212  pos=1777
+          ->                    '->'              OpArrowRight        tok= 214  pos=1782
           NamedType:
-            Ident               'CallAtMost...'   Identifier          tok= 392  pos=2665
-      end                       <virt>            KWEnd               tok=virt  pos=2857
+            Ident               'ReferenceE...'   Identifier          tok= 216  pos=1785
+      end                       <virt>            KWEnd               tok=virt  pos=2024
   Type:
-    type                        'type'            KWType              tok= 425  pos=2962
+    type                        'type'            KWType              tok= 274  pos=2301
     TypeSig.Anon:
-      [<                        '[<'              KWLAttrBracket      tok= 399  pos=2857
+      [<                        '[<'              KWLAttrBracket      tok= 225  pos=2024
       NamedType:
-        Ident                   'AttributeU...'   Identifier          tok= 400  pos=2859
-      ParenBlock                '('               KWLParen            tok= 401  pos=2873
+        Ident                   'AttributeU...'   Identifier          tok= 226  pos=2026
+      ParenBlock                '('               KWLParen            tok= 227  pos=2040
         Tuple:
-          InfixApp              '|||'             op_BitwiseOr        tok= 406  pos=2897
-            LongIdentOrOp:
-              LongIdent:
-                                'AttributeT...'   Identifier          tok= 402  pos=2874
-                                'Class'           Identifier          tok= 404  pos=2891
-            LongIdentOrOp:
-              LongIdent:
-                                'AttributeT...'   Identifier          tok= 408  pos=2901
-                                'Struct'          Identifier          tok= 410  pos=2918
-          InfixApp              '='               OpEquality          tok= 415  pos=2940
-            Ident               'AllowMulti...'   Identifier          tok= 413  pos=2926
-            Const               'false'           KWFalse             tok= 417  pos=2942
-                                ')'               KWRParen            tok= 418  pos=2947
-      >]                        '>]'              KWRAttrBracket      tok= 419  pos=2948
-      [<                        '[<'              KWLAttrBracket      tok= 421  pos=2951
-      NamedType:
-        Ident                   'Sealed'          Identifier          tok= 422  pos=2953
-      >]                        '>]'              KWRAttrBracket      tok= 423  pos=2959
-      TypeName                  'Structural...'   Identifier          tok= 427  pos=2967
-      =                         '='               OpEquality          tok= 429  pos=2995
-      begin                     <virt>            KWBegin             tok=virt  pos=3001
-        inherit                 'inherit'         KWInherit           tok= 432  pos=3001
-        NamedType:
-          Ident                 'Attribute'       Identifier          tok= 434  pos=3009
-        Constructor:
-          new                   'new'             KWNew               tok= 441  pos=3088
-          :                     ':'               OpColon             tok= 442  pos=3091
-          NamedType:
-            Ident               'unit'            Identifier          tok= 444  pos=3093
-          ->                    '->'              OpArrowRight        tok= 446  pos=3098
-          NamedType:
-            Ident               'Structural...'   Identifier          tok= 448  pos=3101
-      end                       <virt>            KWEnd               tok=virt  pos=3296
-  Type:
-    type                        'type'            KWType              tok= 481  pos=3401
-    TypeSig.Anon:
-      [<                        '[<'              KWLAttrBracket      tok= 455  pos=3296
-      NamedType:
-        Ident                   'AttributeU...'   Identifier          tok= 456  pos=3298
-      ParenBlock                '('               KWLParen            tok= 457  pos=3312
-        Tuple:
-          InfixApp              '|||'             op_BitwiseOr        tok= 462  pos=3336
-            LongIdentOrOp:
-              LongIdent:
-                                'AttributeT...'   Identifier          tok= 458  pos=3313
-                                'Class'           Identifier          tok= 460  pos=3330
-            LongIdentOrOp:
-              LongIdent:
-                                'AttributeT...'   Identifier          tok= 464  pos=3340
-                                'Struct'          Identifier          tok= 466  pos=3357
-          InfixApp              '='               OpEquality          tok= 471  pos=3379
-            Ident               'AllowMulti...'   Identifier          tok= 469  pos=3365
-            Const               'false'           KWFalse             tok= 473  pos=3381
-                                ')'               KWRParen            tok= 474  pos=3386
-      >]                        '>]'              KWRAttrBracket      tok= 475  pos=3387
-      [<                        '[<'              KWLAttrBracket      tok= 477  pos=3390
-      NamedType:
-        Ident                   'Sealed'          Identifier          tok= 478  pos=3392
-      >]                        '>]'              KWRAttrBracket      tok= 479  pos=3398
-      TypeName                  'Structural...'   Identifier          tok= 483  pos=3406
-      =                         '='               OpEquality          tok= 485  pos=3436
-      begin                     <virt>            KWBegin             tok=virt  pos=3442
-        inherit                 'inherit'         KWInherit           tok= 488  pos=3442
-        NamedType:
-          Ident                 'Attribute'       Identifier          tok= 490  pos=3450
-        Constructor:
-          new                   'new'             KWNew               tok= 497  pos=3529
-          :                     ':'               OpColon             tok= 498  pos=3532
-          NamedType:
-            Ident               'unit'            Identifier          tok= 500  pos=3534
-          ->                    '->'              OpArrowRight        tok= 502  pos=3539
-          NamedType:
-            Ident               'Structural...'   Identifier          tok= 504  pos=3542
-      end                       <virt>            KWEnd               tok=virt  pos=3733
-  Type:
-    type                        'type'            KWType              tok= 531  pos=3810
-    TypeSig.Anon:
-      [<                        '[<'              KWLAttrBracket      tok= 511  pos=3733
-      NamedType:
-        Ident                   'AttributeU...'   Identifier          tok= 512  pos=3735
-      ParenBlock                '('               KWLParen            tok= 513  pos=3749
-        Tuple:
-          LongIdentOrOp:
-            LongIdent:
-                                'AttributeT...'   Identifier          tok= 514  pos=3750
-                                'Class'           Identifier          tok= 516  pos=3767
-          InfixApp              '='               OpEquality          tok= 521  pos=3788
-            Ident               'AllowMulti...'   Identifier          tok= 519  pos=3774
-            Const               'false'           KWFalse             tok= 523  pos=3790
-                                ')'               KWRParen            tok= 524  pos=3795
-      >]                        '>]'              KWRAttrBracket      tok= 525  pos=3796
-      [<                        '[<'              KWLAttrBracket      tok= 527  pos=3799
-      NamedType:
-        Ident                   'Sealed'          Identifier          tok= 528  pos=3801
-      >]                        '>]'              KWRAttrBracket      tok= 529  pos=3807
-      TypeName                  'ReferenceE...'   Identifier          tok= 533  pos=3815
-      =                         '='               OpEquality          tok= 535  pos=3842
-      begin                     <virt>            KWBegin             tok=virt  pos=3848
-        inherit                 'inherit'         KWInherit           tok= 538  pos=3848
-        NamedType:
-          Ident                 'Attribute'       Identifier          tok= 540  pos=3856
-        Constructor:
-          new                   'new'             KWNew               tok= 547  pos=3935
-          :                     ':'               OpColon             tok= 548  pos=3938
-          NamedType:
-            Ident               'unit'            Identifier          tok= 550  pos=3940
-          ->                    '->'              OpArrowRight        tok= 552  pos=3945
-          NamedType:
-            Ident               'ReferenceE...'   Identifier          tok= 554  pos=3948
-      end                       <virt>            KWEnd               tok=virt  pos=4187
-  Type:
-    type                        'type'            KWType              tok= 612  pos=4464
-    TypeSig.Anon:
-      [<                        '[<'              KWLAttrBracket      tok= 563  pos=4187
-      NamedType:
-        Ident                   'AttributeU...'   Identifier          tok= 564  pos=4189
-      ParenBlock                '('               KWLParen            tok= 565  pos=4203
-        Tuple:
-          InfixApp              '|||'             op_BitwiseOr        tok= 592  pos=4384
-            InfixApp            '|||'             op_BitwiseOr        tok= 585  pos=4339
-              InfixApp          '|||'             op_BitwiseOr        tok= 578  pos=4292
-                InfixApp        '|||'             op_BitwiseOr        tok= 571  pos=4244
+          InfixApp              '|||'             op_BitwiseOr        tok= 254  pos=2221
+            InfixApp            '|||'             op_BitwiseOr        tok= 247  pos=2176
+              InfixApp          '|||'             op_BitwiseOr        tok= 240  pos=2129
+                InfixApp        '|||'             op_BitwiseOr        tok= 233  pos=2081
                   LongIdentOrOp:
                     LongIdent:
-                                'AttributeT...'   Identifier          tok= 566  pos=4204
-                                'Class'           Identifier          tok= 568  pos=4221
+                                'AttributeT...'   Identifier          tok= 228  pos=2041
+                                'Class'           Identifier          tok= 230  pos=2058
                   LongIdentOrOp:
                     LongIdent:
-                                'AttributeT...'   Identifier          tok= 573  pos=4248
-                                'Interface'       Identifier          tok= 575  pos=4265
+                                'AttributeT...'   Identifier          tok= 235  pos=2085
+                                'Interface'       Identifier          tok= 237  pos=2102
                 LongIdentOrOp:
                   LongIdent:
-                                'AttributeT...'   Identifier          tok= 580  pos=4296
-                                'Delegate'        Identifier          tok= 582  pos=4313
+                                'AttributeT...'   Identifier          tok= 242  pos=2133
+                                'Delegate'        Identifier          tok= 244  pos=2150
               LongIdentOrOp:
                 LongIdent:
-                                'AttributeT...'   Identifier          tok= 587  pos=4343
-                                'Struct'          Identifier          tok= 589  pos=4360
+                                'AttributeT...'   Identifier          tok= 249  pos=2180
+                                'Struct'          Identifier          tok= 251  pos=2197
             LongIdentOrOp:
               LongIdent:
-                                'AttributeT...'   Identifier          tok= 594  pos=4388
-                                'Enum'            Identifier          tok= 596  pos=4405
-          InfixApp              '='               OpEquality          tok= 602  pos=4442
-            Ident               'AllowMulti...'   Identifier          tok= 600  pos=4428
-            Const               'false'           KWFalse             tok= 604  pos=4444
-                                ')'               KWRParen            tok= 605  pos=4449
-      >]                        '>]'              KWRAttrBracket      tok= 606  pos=4450
-      [<                        '[<'              KWLAttrBracket      tok= 608  pos=4453
+                                'AttributeT...'   Identifier          tok= 256  pos=2225
+                                'Enum'            Identifier          tok= 258  pos=2242
+          InfixApp              '='               OpEquality          tok= 264  pos=2279
+            Ident               'AllowMulti...'   Identifier          tok= 262  pos=2265
+            Const               'false'           KWFalse             tok= 266  pos=2281
+                                ')'               KWRParen            tok= 267  pos=2286
+      >]                        '>]'              KWRAttrBracket      tok= 268  pos=2287
+      [<                        '[<'              KWLAttrBracket      tok= 270  pos=2290
       NamedType:
-        Ident                   'Sealed'          Identifier          tok= 609  pos=4455
-      >]                        '>]'              KWRAttrBracket      tok= 610  pos=4461
-      TypeName                  'NoEquality...'   Identifier          tok= 614  pos=4469
-      =                         '='               OpEquality          tok= 616  pos=4489
-      begin                     <virt>            KWBegin             tok=virt  pos=4495
-        inherit                 'inherit'         KWInherit           tok= 619  pos=4495
+        Ident                   'Sealed'          Identifier          tok= 271  pos=2292
+      >]                        '>]'              KWRAttrBracket      tok= 272  pos=2298
+      TypeName                  'NoEquality...'   Identifier          tok= 276  pos=2306
+      =                         '='               OpEquality          tok= 278  pos=2326
+      begin                     <virt>            KWBegin             tok=virt  pos=2332
+        inherit                 'inherit'         KWInherit           tok= 281  pos=2332
         NamedType:
-          Ident                 'Attribute'       Identifier          tok= 621  pos=4503
+          Ident                 'Attribute'       Identifier          tok= 283  pos=2340
         Constructor:
-          new                   'new'             KWNew               tok= 628  pos=4582
-          :                     ':'               OpColon             tok= 629  pos=4585
+          new                   'new'             KWNew               tok= 290  pos=2419
+          :                     ':'               OpColon             tok= 291  pos=2422
           NamedType:
-            Ident               'unit'            Identifier          tok= 631  pos=4587
-          ->                    '->'              OpArrowRight        tok= 633  pos=4592
+            Ident               'unit'            Identifier          tok= 293  pos=2424
+          ->                    '->'              OpArrowRight        tok= 295  pos=2429
           NamedType:
-            Ident               'NoEquality...'   Identifier          tok= 635  pos=4595
-      end                       <virt>            KWEnd               tok=virt  pos=4735
+            Ident               'NoEquality...'   Identifier          tok= 297  pos=2432
+      end                       <virt>            KWEnd               tok=virt  pos=2572
   Type:
-    type                        'type'            KWType              tok= 668  pos=4840
+    type                        'type'            KWType              tok= 330  pos=2677
     TypeSig.Anon:
-      [<                        '[<'              KWLAttrBracket      tok= 642  pos=4735
+      [<                        '[<'              KWLAttrBracket      tok= 304  pos=2572
       NamedType:
-        Ident                   'AttributeU...'   Identifier          tok= 643  pos=4737
-      ParenBlock                '('               KWLParen            tok= 644  pos=4751
+        Ident                   'AttributeU...'   Identifier          tok= 305  pos=2574
+      ParenBlock                '('               KWLParen            tok= 306  pos=2588
         Tuple:
-          InfixApp              '|||'             op_BitwiseOr        tok= 649  pos=4775
+          InfixApp              '|||'             op_BitwiseOr        tok= 311  pos=2612
             LongIdentOrOp:
               LongIdent:
-                                'AttributeT...'   Identifier          tok= 645  pos=4752
-                                'Class'           Identifier          tok= 647  pos=4769
+                                'AttributeT...'   Identifier          tok= 307  pos=2589
+                                'Class'           Identifier          tok= 309  pos=2606
             LongIdentOrOp:
               LongIdent:
-                                'AttributeT...'   Identifier          tok= 651  pos=4779
-                                'Struct'          Identifier          tok= 653  pos=4796
-          InfixApp              '='               OpEquality          tok= 658  pos=4818
-            Ident               'AllowMulti...'   Identifier          tok= 656  pos=4804
-            Const               'false'           KWFalse             tok= 660  pos=4820
-                                ')'               KWRParen            tok= 661  pos=4825
-      >]                        '>]'              KWRAttrBracket      tok= 662  pos=4826
-      [<                        '[<'              KWLAttrBracket      tok= 664  pos=4829
+                                'AttributeT...'   Identifier          tok= 313  pos=2616
+                                'Struct'          Identifier          tok= 315  pos=2633
+          InfixApp              '='               OpEquality          tok= 320  pos=2655
+            Ident               'AllowMulti...'   Identifier          tok= 318  pos=2641
+            Const               'false'           KWFalse             tok= 322  pos=2657
+                                ')'               KWRParen            tok= 323  pos=2662
+      >]                        '>]'              KWRAttrBracket      tok= 324  pos=2663
+      [<                        '[<'              KWLAttrBracket      tok= 326  pos=2666
       NamedType:
-        Ident                   'Sealed'          Identifier          tok= 665  pos=4831
-      >]                        '>]'              KWRAttrBracket      tok= 666  pos=4837
-      TypeName                  'CustomEqua...'   Identifier          tok= 670  pos=4845
-      =                         '='               OpEquality          tok= 672  pos=4869
-      begin                     <virt>            KWBegin             tok=virt  pos=4875
-        inherit                 'inherit'         KWInherit           tok= 675  pos=4875
+        Ident                   'Sealed'          Identifier          tok= 327  pos=2668
+      >]                        '>]'              KWRAttrBracket      tok= 328  pos=2674
+      TypeName                  'CustomEqua...'   Identifier          tok= 332  pos=2682
+      =                         '='               OpEquality          tok= 334  pos=2706
+      begin                     <virt>            KWBegin             tok=virt  pos=2712
+        inherit                 'inherit'         KWInherit           tok= 337  pos=2712
         NamedType:
-          Ident                 'Attribute'       Identifier          tok= 677  pos=4883
+          Ident                 'Attribute'       Identifier          tok= 339  pos=2720
         Constructor:
-          new                   'new'             KWNew               tok= 684  pos=4962
-          :                     ':'               OpColon             tok= 685  pos=4965
+          new                   'new'             KWNew               tok= 346  pos=2799
+          :                     ':'               OpColon             tok= 347  pos=2802
           NamedType:
-            Ident               'unit'            Identifier          tok= 687  pos=4967
-          ->                    '->'              OpArrowRight        tok= 689  pos=4972
+            Ident               'unit'            Identifier          tok= 349  pos=2804
+          ->                    '->'              OpArrowRight        tok= 351  pos=2809
           NamedType:
-            Ident               'CustomEqua...'   Identifier          tok= 691  pos=4975
-      end                       <virt>            KWEnd               tok=virt  pos=5121
+            Ident               'CustomEqua...'   Identifier          tok= 353  pos=2812
+      end                       <virt>            KWEnd               tok=virt  pos=2958
   Type:
-    type                        'type'            KWType              tok= 724  pos=5226
+    type                        'type'            KWType              tok= 386  pos=3063
     TypeSig.Anon:
-      [<                        '[<'              KWLAttrBracket      tok= 698  pos=5121
+      [<                        '[<'              KWLAttrBracket      tok= 360  pos=2958
       NamedType:
-        Ident                   'AttributeU...'   Identifier          tok= 699  pos=5123
-      ParenBlock                '('               KWLParen            tok= 700  pos=5137
+        Ident                   'AttributeU...'   Identifier          tok= 361  pos=2960
+      ParenBlock                '('               KWLParen            tok= 362  pos=2974
         Tuple:
-          InfixApp              '|||'             op_BitwiseOr        tok= 705  pos=5161
+          InfixApp              '|||'             op_BitwiseOr        tok= 367  pos=2998
             LongIdentOrOp:
               LongIdent:
-                                'AttributeT...'   Identifier          tok= 701  pos=5138
-                                'Class'           Identifier          tok= 703  pos=5155
+                                'AttributeT...'   Identifier          tok= 363  pos=2975
+                                'Class'           Identifier          tok= 365  pos=2992
             LongIdentOrOp:
               LongIdent:
-                                'AttributeT...'   Identifier          tok= 707  pos=5165
-                                'Struct'          Identifier          tok= 709  pos=5182
-          InfixApp              '='               OpEquality          tok= 714  pos=5204
-            Ident               'AllowMulti...'   Identifier          tok= 712  pos=5190
-            Const               'false'           KWFalse             tok= 716  pos=5206
-                                ')'               KWRParen            tok= 717  pos=5211
-      >]                        '>]'              KWRAttrBracket      tok= 718  pos=5212
-      [<                        '[<'              KWLAttrBracket      tok= 720  pos=5215
+                                'AttributeT...'   Identifier          tok= 369  pos=3002
+                                'Struct'          Identifier          tok= 371  pos=3019
+          InfixApp              '='               OpEquality          tok= 376  pos=3041
+            Ident               'AllowMulti...'   Identifier          tok= 374  pos=3027
+            Const               'false'           KWFalse             tok= 378  pos=3043
+                                ')'               KWRParen            tok= 379  pos=3048
+      >]                        '>]'              KWRAttrBracket      tok= 380  pos=3049
+      [<                        '[<'              KWLAttrBracket      tok= 382  pos=3052
       NamedType:
-        Ident                   'Sealed'          Identifier          tok= 721  pos=5217
-      >]                        '>]'              KWRAttrBracket      tok= 722  pos=5223
-      TypeName                  'CustomComp...'   Identifier          tok= 726  pos=5231
-      =                         '='               OpEquality          tok= 728  pos=5257
-      begin                     <virt>            KWBegin             tok=virt  pos=5263
-        inherit                 'inherit'         KWInherit           tok= 731  pos=5263
+        Ident                   'Sealed'          Identifier          tok= 383  pos=3054
+      >]                        '>]'              KWRAttrBracket      tok= 384  pos=3060
+      TypeName                  'CustomComp...'   Identifier          tok= 388  pos=3068
+      =                         '='               OpEquality          tok= 390  pos=3094
+      begin                     <virt>            KWBegin             tok=virt  pos=3100
+        inherit                 'inherit'         KWInherit           tok= 393  pos=3100
         NamedType:
-          Ident                 'Attribute'       Identifier          tok= 733  pos=5271
+          Ident                 'Attribute'       Identifier          tok= 395  pos=3108
         Constructor:
-          new                   'new'             KWNew               tok= 740  pos=5350
-          :                     ':'               OpColon             tok= 741  pos=5353
+          new                   'new'             KWNew               tok= 402  pos=3187
+          :                     ':'               OpColon             tok= 403  pos=3190
           NamedType:
-            Ident               'unit'            Identifier          tok= 743  pos=5355
-          ->                    '->'              OpArrowRight        tok= 745  pos=5360
+            Ident               'unit'            Identifier          tok= 405  pos=3192
+          ->                    '->'              OpArrowRight        tok= 407  pos=3197
           NamedType:
-            Ident               'CustomComp...'   Identifier          tok= 747  pos=5363
-      end                       <virt>            KWEnd               tok=virt  pos=5607
+            Ident               'CustomComp...'   Identifier          tok= 409  pos=3200
+      end                       <virt>            KWEnd               tok=virt  pos=3444
   Type:
-    type                        'type'            KWType              tok= 805  pos=5884
+    type                        'type'            KWType              tok= 467  pos=3721
     TypeSig.Anon:
-      [<                        '[<'              KWLAttrBracket      tok= 756  pos=5607
+      [<                        '[<'              KWLAttrBracket      tok= 418  pos=3444
       NamedType:
-        Ident                   'AttributeU...'   Identifier          tok= 757  pos=5609
-      ParenBlock                '('               KWLParen            tok= 758  pos=5623
+        Ident                   'AttributeU...'   Identifier          tok= 419  pos=3446
+      ParenBlock                '('               KWLParen            tok= 420  pos=3460
         Tuple:
-          InfixApp              '|||'             op_BitwiseOr        tok= 785  pos=5804
-            InfixApp            '|||'             op_BitwiseOr        tok= 778  pos=5759
-              InfixApp          '|||'             op_BitwiseOr        tok= 771  pos=5712
-                InfixApp        '|||'             op_BitwiseOr        tok= 764  pos=5664
+          InfixApp              '|||'             op_BitwiseOr        tok= 447  pos=3641
+            InfixApp            '|||'             op_BitwiseOr        tok= 440  pos=3596
+              InfixApp          '|||'             op_BitwiseOr        tok= 433  pos=3549
+                InfixApp        '|||'             op_BitwiseOr        tok= 426  pos=3501
                   LongIdentOrOp:
                     LongIdent:
-                                'AttributeT...'   Identifier          tok= 759  pos=5624
-                                'Class'           Identifier          tok= 761  pos=5641
+                                'AttributeT...'   Identifier          tok= 421  pos=3461
+                                'Class'           Identifier          tok= 423  pos=3478
                   LongIdentOrOp:
                     LongIdent:
-                                'AttributeT...'   Identifier          tok= 766  pos=5668
-                                'Interface'       Identifier          tok= 768  pos=5685
+                                'AttributeT...'   Identifier          tok= 428  pos=3505
+                                'Interface'       Identifier          tok= 430  pos=3522
                 LongIdentOrOp:
                   LongIdent:
-                                'AttributeT...'   Identifier          tok= 773  pos=5716
-                                'Delegate'        Identifier          tok= 775  pos=5733
+                                'AttributeT...'   Identifier          tok= 435  pos=3553
+                                'Delegate'        Identifier          tok= 437  pos=3570
               LongIdentOrOp:
                 LongIdent:
-                                'AttributeT...'   Identifier          tok= 780  pos=5763
-                                'Struct'          Identifier          tok= 782  pos=5780
+                                'AttributeT...'   Identifier          tok= 442  pos=3600
+                                'Struct'          Identifier          tok= 444  pos=3617
             LongIdentOrOp:
               LongIdent:
-                                'AttributeT...'   Identifier          tok= 787  pos=5808
-                                'Enum'            Identifier          tok= 789  pos=5825
-          InfixApp              '='               OpEquality          tok= 795  pos=5862
-            Ident               'AllowMulti...'   Identifier          tok= 793  pos=5848
-            Const               'false'           KWFalse             tok= 797  pos=5864
-                                ')'               KWRParen            tok= 798  pos=5869
-      >]                        '>]'              KWRAttrBracket      tok= 799  pos=5870
-      [<                        '[<'              KWLAttrBracket      tok= 801  pos=5873
+                                'AttributeT...'   Identifier          tok= 449  pos=3645
+                                'Enum'            Identifier          tok= 451  pos=3662
+          InfixApp              '='               OpEquality          tok= 457  pos=3699
+            Ident               'AllowMulti...'   Identifier          tok= 455  pos=3685
+            Const               'false'           KWFalse             tok= 459  pos=3701
+                                ')'               KWRParen            tok= 460  pos=3706
+      >]                        '>]'              KWRAttrBracket      tok= 461  pos=3707
+      [<                        '[<'              KWLAttrBracket      tok= 463  pos=3710
       NamedType:
-        Ident                   'Sealed'          Identifier          tok= 802  pos=5875
-      >]                        '>]'              KWRAttrBracket      tok= 803  pos=5881
-      TypeName                  'NoComparis...'   Identifier          tok= 807  pos=5889
-      =                         '='               OpEquality          tok= 809  pos=5911
-      begin                     <virt>            KWBegin             tok=virt  pos=5917
-        inherit                 'inherit'         KWInherit           tok= 812  pos=5917
+        Ident                   'Sealed'          Identifier          tok= 464  pos=3712
+      >]                        '>]'              KWRAttrBracket      tok= 465  pos=3718
+      TypeName                  'NoComparis...'   Identifier          tok= 469  pos=3726
+      =                         '='               OpEquality          tok= 471  pos=3748
+      begin                     <virt>            KWBegin             tok=virt  pos=3754
+        inherit                 'inherit'         KWInherit           tok= 474  pos=3754
         NamedType:
-          Ident                 'Attribute'       Identifier          tok= 814  pos=5925
+          Ident                 'Attribute'       Identifier          tok= 476  pos=3762
         Constructor:
-          new                   'new'             KWNew               tok= 821  pos=6004
-          :                     ':'               OpColon             tok= 822  pos=6007
+          new                   'new'             KWNew               tok= 483  pos=3841
+          :                     ':'               OpColon             tok= 484  pos=3844
           NamedType:
-            Ident               'unit'            Identifier          tok= 824  pos=6009
-          ->                    '->'              OpArrowRight        tok= 826  pos=6014
+            Ident               'unit'            Identifier          tok= 486  pos=3846
+          ->                    '->'              OpArrowRight        tok= 488  pos=3851
           NamedType:
-            Ident               'NoComparis...'   Identifier          tok= 828  pos=6017
-      end                       <virt>            KWEnd               tok=virt  pos=6324
+            Ident               'NoComparis...'   Identifier          tok= 490  pos=3854
+      end                       <virt>            KWEnd               tok=virt  pos=4161
   Type:
-    type                        'type'            KWType              tok= 863  pos=6432
+    type                        'type'            KWType              tok= 525  pos=4269
     TypeSig.Anon:
-      [<                        '[<'              KWLAttrBracket      tok= 837  pos=6324
+      [<                        '[<'              KWLAttrBracket      tok= 499  pos=4161
       NamedType:
-        Ident                   'AttributeU...'   Identifier          tok= 838  pos=6326
-      ParenBlock                '('               KWLParen            tok= 839  pos=6340
+        Ident                   'AttributeU...'   Identifier          tok= 500  pos=4163
+      ParenBlock                '('               KWLParen            tok= 501  pos=4177
         Tuple:
-          InfixApp              '|||'             op_BitwiseOr        tok= 844  pos=6364
+          InfixApp              '|||'             op_BitwiseOr        tok= 506  pos=4201
             LongIdentOrOp:
               LongIdent:
-                                'AttributeT...'   Identifier          tok= 840  pos=6341
-                                'Class'           Identifier          tok= 842  pos=6358
+                                'AttributeT...'   Identifier          tok= 502  pos=4178
+                                'Class'           Identifier          tok= 504  pos=4195
             LongIdentOrOp:
               LongIdent:
-                                'AttributeT...'   Identifier          tok= 846  pos=6368
-                                'Interface'       Identifier          tok= 848  pos=6385
-          InfixApp              '='               OpEquality          tok= 853  pos=6410
-            Ident               'AllowMulti...'   Identifier          tok= 851  pos=6396
-            Const               'false'           KWFalse             tok= 855  pos=6412
-                                ')'               KWRParen            tok= 856  pos=6417
-      >]                        '>]'              KWRAttrBracket      tok= 857  pos=6418
-      [<                        '[<'              KWLAttrBracket      tok= 859  pos=6421
+                                'AttributeT...'   Identifier          tok= 508  pos=4205
+                                'Interface'       Identifier          tok= 510  pos=4222
+          InfixApp              '='               OpEquality          tok= 515  pos=4247
+            Ident               'AllowMulti...'   Identifier          tok= 513  pos=4233
+            Const               'false'           KWFalse             tok= 517  pos=4249
+                                ')'               KWRParen            tok= 518  pos=4254
+      >]                        '>]'              KWRAttrBracket      tok= 519  pos=4255
+      [<                        '[<'              KWLAttrBracket      tok= 521  pos=4258
       NamedType:
-        Ident                   'Sealed'          Identifier          tok= 860  pos=6423
-      >]                        '>]'              KWRAttrBracket      tok= 861  pos=6429
-      TypeName                  'AllowNullL...'   Identifier          tok= 865  pos=6437
-      =                         '='               OpEquality          tok= 867  pos=6463
-      begin                     <virt>            KWBegin             tok=virt  pos=6469
-        inherit                 'inherit'         KWInherit           tok= 870  pos=6469
+        Ident                   'Sealed'          Identifier          tok= 522  pos=4260
+      >]                        '>]'              KWRAttrBracket      tok= 523  pos=4266
+      TypeName                  'AllowNullL...'   Identifier          tok= 527  pos=4274
+      =                         '='               OpEquality          tok= 529  pos=4300
+      begin                     <virt>            KWBegin             tok=virt  pos=4306
+        inherit                 'inherit'         KWInherit           tok= 532  pos=4306
         NamedType:
-          Ident                 'Attribute'       Identifier          tok= 872  pos=6477
+          Ident                 'Attribute'       Identifier          tok= 534  pos=4314
         Constructor:
-          new                   'new'             KWNew               tok= 879  pos=6556
-          :                     ':'               OpColon             tok= 880  pos=6559
+          new                   'new'             KWNew               tok= 541  pos=4393
+          :                     ':'               OpColon             tok= 542  pos=4396
           NamedType:
-            Ident               'unit'            Identifier          tok= 882  pos=6561
-          ->                    '->'              OpArrowRight        tok= 884  pos=6566
+            Ident               'unit'            Identifier          tok= 544  pos=4398
+          ->                    '->'              OpArrowRight        tok= 546  pos=4403
           NamedType:
-            Ident               'AllowNullL...'   Identifier          tok= 886  pos=6569
-      end                       <virt>            KWEnd               tok=virt  pos=6862
+            Ident               'AllowNullL...'   Identifier          tok= 548  pos=4406
+      end                       <virt>            KWEnd               tok=virt  pos=4699
   Type:
-    type                        'type'            KWType              tok= 921  pos=6969
+    type                        'type'            KWType              tok= 583  pos=4806
     TypeSig.Anon:
-      [<                        '[<'              KWLAttrBracket      tok= 895  pos=6862
+      [<                        '[<'              KWLAttrBracket      tok= 557  pos=4699
       NamedType:
-        Ident                   'AttributeU...'   Identifier          tok= 896  pos=6864
-      ParenBlock                '('               KWLParen            tok= 897  pos=6878
+        Ident                   'AttributeU...'   Identifier          tok= 558  pos=4701
+      ParenBlock                '('               KWLParen            tok= 559  pos=4715
         Tuple:
-          InfixApp              '|||'             op_BitwiseOr        tok= 902  pos=6905
+          InfixApp              '|||'             op_BitwiseOr        tok= 564  pos=4742
             LongIdentOrOp:
               LongIdent:
-                                'AttributeT...'   Identifier          tok= 898  pos=6879
-                                'Property'        Identifier          tok= 900  pos=6896
+                                'AttributeT...'   Identifier          tok= 560  pos=4716
+                                'Property'        Identifier          tok= 562  pos=4733
             LongIdentOrOp:
               LongIdent:
-                                'AttributeT...'   Identifier          tok= 904  pos=6909
-                                'Field'           Identifier          tok= 906  pos=6926
-          InfixApp              '='               OpEquality          tok= 911  pos=6947
-            Ident               'AllowMulti...'   Identifier          tok= 909  pos=6933
-            Const               'false'           KWFalse             tok= 913  pos=6949
-                                ')'               KWRParen            tok= 914  pos=6954
-      >]                        '>]'              KWRAttrBracket      tok= 915  pos=6955
-      [<                        '[<'              KWLAttrBracket      tok= 917  pos=6958
+                                'AttributeT...'   Identifier          tok= 566  pos=4746
+                                'Field'           Identifier          tok= 568  pos=4763
+          InfixApp              '='               OpEquality          tok= 573  pos=4784
+            Ident               'AllowMulti...'   Identifier          tok= 571  pos=4770
+            Const               'false'           KWFalse             tok= 575  pos=4786
+                                ')'               KWRParen            tok= 576  pos=4791
+      >]                        '>]'              KWRAttrBracket      tok= 577  pos=4792
+      [<                        '[<'              KWLAttrBracket      tok= 579  pos=4795
       NamedType:
-        Ident                   'Sealed'          Identifier          tok= 918  pos=6960
-      >]                        '>]'              KWRAttrBracket      tok= 919  pos=6966
-      TypeName                  'GlobalAttr...'   Identifier          tok= 923  pos=6974
-      =                         '='               OpEquality          tok= 925  pos=6990
-      begin                     <virt>            KWBegin             tok=virt  pos=6996
-        inherit                 'inherit'         KWInherit           tok= 928  pos=6996
+        Ident                   'Sealed'          Identifier          tok= 580  pos=4797
+      >]                        '>]'              KWRAttrBracket      tok= 581  pos=4803
+      TypeName                  'GlobalAttr...'   Identifier          tok= 585  pos=4811
+      =                         '='               OpEquality          tok= 587  pos=4827
+      begin                     <virt>            KWBegin             tok=virt  pos=4833
+        inherit                 'inherit'         KWInherit           tok= 590  pos=4833
         NamedType:
-          Ident                 'Attribute'       Identifier          tok= 930  pos=7004
+          Ident                 'Attribute'       Identifier          tok= 592  pos=4841
         Constructor:
-          new                   'new'             KWNew               tok= 937  pos=7083
-          :                     ':'               OpColon             tok= 938  pos=7086
+          new                   'new'             KWNew               tok= 599  pos=4920
+          :                     ':'               OpColon             tok= 600  pos=4923
           NamedType:
-            Ident               'unit'            Identifier          tok= 940  pos=7088
-          ->                    '->'              OpArrowRight        tok= 942  pos=7093
+            Ident               'unit'            Identifier          tok= 602  pos=4925
+          ->                    '->'              OpArrowRight        tok= 604  pos=4930
           NamedType:
-            Ident               'GlobalAttr...'   Identifier          tok= 944  pos=7096
-      end                       <virt>            KWEnd               tok=virt  pos=7462
+            Ident               'GlobalAttr...'   Identifier          tok= 606  pos=4933
+      end                       <virt>            KWEnd               tok=virt  pos=5299
   Type:
-    type                        'type'            KWType              tok= 988  pos=7614
+    type                        'type'            KWType              tok= 650  pos=5451
     TypeSig.Anon:
-      [<                        '[<'              KWLAttrBracket      tok= 955  pos=7462
+      [<                        '[<'              KWLAttrBracket      tok= 617  pos=5299
       NamedType:
-        Ident                   'AttributeU...'   Identifier          tok= 956  pos=7464
-      ParenBlock                '('               KWLParen            tok= 957  pos=7478
+        Ident                   'AttributeU...'   Identifier          tok= 618  pos=5301
+      ParenBlock                '('               KWLParen            tok= 619  pos=5315
         Tuple:
-          InfixApp              '|||'             op_BitwiseOr        tok= 968  pos=7533
-            InfixApp            '|||'             op_BitwiseOr        tok= 962  pos=7503
+          InfixApp              '|||'             op_BitwiseOr        tok= 630  pos=5370
+            InfixApp            '|||'             op_BitwiseOr        tok= 624  pos=5340
               LongIdentOrOp:
                 LongIdent:
-                                'AttributeT...'   Identifier          tok= 958  pos=7479
-                                'Method'          Identifier          tok= 960  pos=7496
+                                'AttributeT...'   Identifier          tok= 620  pos=5316
+                                'Method'          Identifier          tok= 622  pos=5333
               LongIdentOrOp:
                 LongIdent:
-                                'AttributeT...'   Identifier          tok= 964  pos=7507
-                                'Property'        Identifier          tok= 966  pos=7524
+                                'AttributeT...'   Identifier          tok= 626  pos=5344
+                                'Property'        Identifier          tok= 628  pos=5361
             LongIdentOrOp:
               LongIdent:
-                                'AttributeT...'   Identifier          tok= 970  pos=7537
-                                'Field'           Identifier          tok= 972  pos=7554
-          InfixApp              '='               OpEquality          tok= 978  pos=7592
-            Ident               'AllowMulti...'   Identifier          tok= 976  pos=7578
-            Const               'false'           KWFalse             tok= 980  pos=7594
-                                ')'               KWRParen            tok= 981  pos=7599
-      >]                        '>]'              KWRAttrBracket      tok= 982  pos=7600
-      [<                        '[<'              KWLAttrBracket      tok= 984  pos=7603
+                                'AttributeT...'   Identifier          tok= 632  pos=5374
+                                'Field'           Identifier          tok= 634  pos=5391
+          InfixApp              '='               OpEquality          tok= 640  pos=5429
+            Ident               'AllowMulti...'   Identifier          tok= 638  pos=5415
+            Const               'false'           KWFalse             tok= 642  pos=5431
+                                ')'               KWRParen            tok= 643  pos=5436
+      >]                        '>]'              KWRAttrBracket      tok= 644  pos=5437
+      [<                        '[<'              KWLAttrBracket      tok= 646  pos=5440
       NamedType:
-        Ident                   'Sealed'          Identifier          tok= 985  pos=7605
-      >]                        '>]'              KWRAttrBracket      tok= 986  pos=7611
-      TypeName                  'ImportAttr...'   Identifier          tok= 990  pos=7619
-      =                         '='               OpEquality          tok= 992  pos=7635
-      begin                     <virt>            KWBegin             tok=virt  pos=7641
-        inherit                 'inherit'         KWInherit           tok= 995  pos=7641
+        Ident                   'Sealed'          Identifier          tok= 647  pos=5442
+      >]                        '>]'              KWRAttrBracket      tok= 648  pos=5448
+      TypeName                  'ImportAttr...'   Identifier          tok= 652  pos=5456
+      =                         '='               OpEquality          tok= 654  pos=5472
+      begin                     <virt>            KWBegin             tok=virt  pos=5478
+        inherit                 'inherit'         KWInherit           tok= 657  pos=5478
         NamedType:
-          Ident                 'Attribute'       Identifier          tok= 997  pos=7649
+          Ident                 'Attribute'       Identifier          tok= 659  pos=5486
         Constructor:
-          new                   'new'             KWNew               tok=1004  pos=7728
-          :                     ':'               OpColon             tok=1005  pos=7731
-          arg                   'selector'        Identifier          tok=1007  pos=7733
-          :                     ':'               OpColon             tok=1008  pos=7741
+          new                   'new'             KWNew               tok= 666  pos=5565
+          :                     ':'               OpColon             tok= 667  pos=5568
+          arg                   'selector'        Identifier          tok= 669  pos=5570
+          :                     ':'               OpColon             tok= 670  pos=5578
           NamedType:
-            Ident               'string'          Identifier          tok=1010  pos=7743
-          arg                   'path'            Identifier          tok=1014  pos=7752
-          :                     ':'               OpColon             tok=1015  pos=7756
+            Ident               'string'          Identifier          tok= 672  pos=5580
+          arg                   'path'            Identifier          tok= 676  pos=5589
+          :                     ':'               OpColon             tok= 677  pos=5593
           NamedType:
-            Ident               'string'          Identifier          tok=1017  pos=7758
-          ->                    '->'              OpArrowRight        tok=1019  pos=7765
+            Ident               'string'          Identifier          tok= 679  pos=5595
+          ->                    '->'              OpArrowRight        tok= 681  pos=5602
           NamedType:
-            Ident               'ImportAttr...'   Identifier          tok=1021  pos=7768
-      end                       <virt>            KWEnd               tok=virt  pos=7922
+            Ident               'ImportAttr...'   Identifier          tok= 683  pos=5605
+      end                       <virt>            KWEnd               tok=virt  pos=5759
   Type:
-    type                        'type'            KWType              tok=1070  pos=8159
+    type                        'type'            KWType              tok= 732  pos=5996
     TypeSig.Anon:
-      [<                        '[<'              KWLAttrBracket      tok=1028  pos=7922
+      [<                        '[<'              KWLAttrBracket      tok= 690  pos=5759
       NamedType:
-        Ident                   'AttributeU...'   Identifier          tok=1029  pos=7924
-      ParenBlock                '('               KWLParen            tok=1030  pos=7938
+        Ident                   'AttributeU...'   Identifier          tok= 691  pos=5761
+      ParenBlock                '('               KWLParen            tok= 692  pos=5775
         Tuple:
-          InfixApp              '|||'             op_BitwiseOr        tok=1050  pos=8074
-            InfixApp            '|||'             op_BitwiseOr        tok=1043  pos=8024
-              InfixApp          '|||'             op_BitwiseOr        tok=1036  pos=7979
+          InfixApp              '|||'             op_BitwiseOr        tok= 712  pos=5911
+            InfixApp            '|||'             op_BitwiseOr        tok= 705  pos=5861
+              InfixApp          '|||'             op_BitwiseOr        tok= 698  pos=5816
                 LongIdentOrOp:
                   LongIdent:
-                                'AttributeT...'   Identifier          tok=1031  pos=7939
-                                'Class'           Identifier          tok=1033  pos=7956
+                                'AttributeT...'   Identifier          tok= 693  pos=5776
+                                'Class'           Identifier          tok= 695  pos=5793
                 LongIdentOrOp:
                   LongIdent:
-                                'AttributeT...'   Identifier          tok=1038  pos=7983
-                                'Struct'          Identifier          tok=1040  pos=8000
+                                'AttributeT...'   Identifier          tok= 700  pos=5820
+                                'Struct'          Identifier          tok= 702  pos=5837
               LongIdentOrOp:
                 LongIdent:
-                                'AttributeT...'   Identifier          tok=1045  pos=8028
-                                'ReturnValu...'   Identifier          tok=1047  pos=8045
+                                'AttributeT...'   Identifier          tok= 707  pos=5865
+                                'ReturnValu...'   Identifier          tok= 709  pos=5882
             LongIdentOrOp:
               LongIdent:
-                                'AttributeT...'   Identifier          tok=1052  pos=8078
-                                'Parameter'       Identifier          tok=1054  pos=8095
-          InfixApp              '='               OpEquality          tok=1060  pos=8137
-            Ident               'AllowMulti...'   Identifier          tok=1058  pos=8123
-            Const               'false'           KWFalse             tok=1062  pos=8139
-                                ')'               KWRParen            tok=1063  pos=8144
-      >]                        '>]'              KWRAttrBracket      tok=1064  pos=8145
-      [<                        '[<'              KWLAttrBracket      tok=1066  pos=8148
+                                'AttributeT...'   Identifier          tok= 714  pos=5915
+                                'Parameter'       Identifier          tok= 716  pos=5932
+          InfixApp              '='               OpEquality          tok= 722  pos=5974
+            Ident               'AllowMulti...'   Identifier          tok= 720  pos=5960
+            Const               'false'           KWFalse             tok= 724  pos=5976
+                                ')'               KWRParen            tok= 725  pos=5981
+      >]                        '>]'              KWRAttrBracket      tok= 726  pos=5982
+      [<                        '[<'              KWLAttrBracket      tok= 728  pos=5985
       NamedType:
-        Ident                   'Sealed'          Identifier          tok=1067  pos=8150
-      >]                        '>]'              KWRAttrBracket      tok=1068  pos=8156
-      TypeName                  'StructAttr...'   Identifier          tok=1072  pos=8164
-      =                         '='               OpEquality          tok=1074  pos=8180
-      begin                     <virt>            KWBegin             tok=virt  pos=8186
-        inherit                 'inherit'         KWInherit           tok=1077  pos=8186
+        Ident                   'Sealed'          Identifier          tok= 729  pos=5987
+      >]                        '>]'              KWRAttrBracket      tok= 730  pos=5993
+      TypeName                  'StructAttr...'   Identifier          tok= 734  pos=6001
+      =                         '='               OpEquality          tok= 736  pos=6017
+      begin                     <virt>            KWBegin             tok=virt  pos=6023
+        inherit                 'inherit'         KWInherit           tok= 739  pos=6023
         NamedType:
-          Ident                 'Attribute'       Identifier          tok=1079  pos=8194
+          Ident                 'Attribute'       Identifier          tok= 741  pos=6031
         Constructor:
-          new                   'new'             KWNew               tok=1089  pos=8316
-          :                     ':'               OpColon             tok=1090  pos=8319
+          new                   'new'             KWNew               tok= 751  pos=6153
+          :                     ':'               OpColon             tok= 752  pos=6156
           NamedType:
-            Ident               'unit'            Identifier          tok=1092  pos=8321
-          ->                    '->'              OpArrowRight        tok=1094  pos=8326
+            Ident               'unit'            Identifier          tok= 754  pos=6158
+          ->                    '->'              OpArrowRight        tok= 756  pos=6163
           NamedType:
-            Ident               'StructAttr...'   Identifier          tok=1096  pos=8329
-      end                       <virt>            KWEnd               tok=virt  pos=8543
+            Ident               'StructAttr...'   Identifier          tok= 758  pos=6166
+      end                       <virt>            KWEnd               tok=virt  pos=6380
   Type:
-    type                        'type'            KWType              tok=1137  pos=8674
+    type                        'type'            KWType              tok= 800  pos=6528
     TypeSig.Anon:
-      [<                        '[<'              KWLAttrBracket      tok=1105  pos=8543
+      [<                        '[<'              KWLAttrBracket      tok= 767  pos=6380
       NamedType:
-        Ident                   'AttributeU...'   Identifier          tok=1106  pos=8545
-      ParenBlock                '('               KWLParen            tok=1107  pos=8559
+        Ident                   'AttributeU...'   Identifier          tok= 768  pos=6382
+      ParenBlock                '('               KWLParen            tok= 769  pos=6396
         Tuple:
-          InfixApp              '|||'             op_BitwiseOr        tok=1118  pos=8611
-            InfixApp            '|||'             op_BitwiseOr        tok=1112  pos=8583
+          InfixApp              '|||'             op_BitwiseOr        tok= 780  pos=6448
+            InfixApp            '|||'             op_BitwiseOr        tok= 774  pos=6420
               LongIdentOrOp:
                 LongIdent:
-                                'AttributeT...'   Identifier          tok=1108  pos=8560
-                                'Class'           Identifier          tok=1110  pos=8577
+                                'AttributeT...'   Identifier          tok= 770  pos=6397
+                                'Class'           Identifier          tok= 772  pos=6414
               LongIdentOrOp:
                 LongIdent:
-                                'AttributeT...'   Identifier          tok=1114  pos=8587
-                                'Struct'          Identifier          tok=1116  pos=8604
+                                'AttributeT...'   Identifier          tok= 776  pos=6424
+                                'Struct'          Identifier          tok= 778  pos=6441
             LongIdentOrOp:
               LongIdent:
-                                'AttributeT...'   Identifier          tok=1120  pos=8615
-                                'Enum'            Identifier          tok=1122  pos=8632
-          InfixApp              '='               OpEquality          tok=1127  pos=8652
-            Ident               'AllowMulti...'   Identifier          tok=1125  pos=8638
-            Const               'false'           KWFalse             tok=1129  pos=8654
-                                ')'               KWRParen            tok=1130  pos=8659
-      >]                        '>]'              KWRAttrBracket      tok=1131  pos=8660
-      [<                        '[<'              KWLAttrBracket      tok=1133  pos=8663
+                                'AttributeT...'   Identifier          tok= 782  pos=6452
+                                'Enum'            Identifier          tok= 784  pos=6469
+          InfixApp              '='               OpEquality          tok= 790  pos=6506
+            Ident               'AllowMulti...'   Identifier          tok= 788  pos=6492
+            Const               'false'           KWFalse             tok= 792  pos=6508
+                                ')'               KWRParen            tok= 793  pos=6513
+      >]                        '>]'              KWRAttrBracket      tok= 794  pos=6514
+      [<                        '[<'              KWLAttrBracket      tok= 796  pos=6517
       NamedType:
-        Ident                   'Sealed'          Identifier          tok=1134  pos=8665
-      >]                        '>]'              KWRAttrBracket      tok=1135  pos=8671
-      TypeName                  'RequireQua...'   Identifier          tok=1139  pos=8679
-      =                         '='               OpEquality          tok=1141  pos=8711
-      begin                     <virt>            KWBegin             tok=virt  pos=8717
-        inherit                 'inherit'         KWInherit           tok=1144  pos=8717
+        Ident                   'Sealed'          Identifier          tok= 797  pos=6519
+      >]                        '>]'              KWRAttrBracket      tok= 798  pos=6525
+      TypeName                  'RequireQua...'   Identifier          tok= 802  pos=6533
+      =                         '='               OpEquality          tok= 804  pos=6565
+      begin                     <virt>            KWBegin             tok=virt  pos=6571
+        inherit                 'inherit'         KWInherit           tok= 807  pos=6571
         NamedType:
-          Ident                 'Attribute'       Identifier          tok=1146  pos=8725
+          Ident                 'Attribute'       Identifier          tok= 809  pos=6579
         Constructor:
-          new                   'new'             KWNew               tok=1156  pos=8863
-          :                     ':'               OpColon             tok=1157  pos=8866
+          new                   'new'             KWNew               tok= 819  pos=6717
+          :                     ':'               OpColon             tok= 820  pos=6720
           NamedType:
-            Ident               'unit'            Identifier          tok=1159  pos=8868
-          ->                    '->'              OpArrowRight        tok=1161  pos=8873
+            Ident               'unit'            Identifier          tok= 822  pos=6722
+          ->                    '->'              OpArrowRight        tok= 824  pos=6727
           NamedType:
-            Ident               'RequireQua...'   Identifier          tok=1163  pos=8876
-      end                       <virt>            KWEnd               tok=virt  pos=9661
+            Ident               'RequireQua...'   Identifier          tok= 826  pos=6730
+      end                       <virt>            KWEnd               tok=virt  pos=6954
   Type:
-    type                        'type'            KWType              tok=1222  pos=9795
+    type                        'type'            KWType              tok= 905  pos=7367
     TypeSig.Anon:
-      [<                        '[<'              KWLAttrBracket      tok=1190  pos=9661
+      [<                        '[<'              KWLAttrBracket      tok= 835  pos=6954
       NamedType:
-        Ident                   'AttributeU...'   Identifier          tok=1191  pos=9663
-      ParenBlock                '('               KWLParen            tok=1192  pos=9677
+        Ident                   'AttributeU...'   Identifier          tok= 836  pos=6956
+      ParenBlock                '('               KWLParen            tok= 837  pos=6970
         Tuple:
-          InfixApp              '|||'             op_BitwiseOr        tok=1203  pos=9729
-            InfixApp            '|||'             op_BitwiseOr        tok=1197  pos=9701
-              LongIdentOrOp:
-                LongIdent:
-                                'AttributeT...'   Identifier          tok=1193  pos=9678
-                                'Class'           Identifier          tok=1195  pos=9695
-              LongIdentOrOp:
-                LongIdent:
-                                'AttributeT...'   Identifier          tok=1199  pos=9705
-                                'Struct'          Identifier          tok=1201  pos=9722
-            LongIdentOrOp:
-              LongIdent:
-                                'AttributeT...'   Identifier          tok=1205  pos=9733
-                                'Assembly'        Identifier          tok=1207  pos=9750
-          InfixApp              '='               OpEquality          tok=1212  pos=9774
-            Ident               'AllowMulti...'   Identifier          tok=1210  pos=9760
-            Const               'true'            KWTrue              tok=1214  pos=9776
-                                ')'               KWRParen            tok=1215  pos=9780
-      >]                        '>]'              KWRAttrBracket      tok=1216  pos=9781
-      [<                        '[<'              KWLAttrBracket      tok=1218  pos=9784
-      NamedType:
-        Ident                   'Sealed'          Identifier          tok=1219  pos=9786
-      >]                        '>]'              KWRAttrBracket      tok=1220  pos=9792
-      TypeName                  'AutoOpenAt...'   Identifier          tok=1224  pos=9800
-      =                         '='               OpEquality          tok=1226  pos=9818
-      begin                     <virt>            KWBegin             tok=virt  pos=9824
-        inherit                 'inherit'         KWInherit           tok=1229  pos=9824
-        NamedType:
-          Ident                 'Attribute'       Identifier          tok=1231  pos=9832
-        Constructor:
-          new                   'new'             KWNew               tok=1241  pos=10027
-          :                     ':'               OpColon             tok=1242  pos=10030
-          NamedType:
-            Ident               'unit'            Identifier          tok=1244  pos=10032
-          ->                    '->'              OpArrowRight        tok=1246  pos=10037
-          NamedType:
-            Ident               'AutoOpenAt...'   Identifier          tok=1248  pos=10040
-        Constructor:
-          new                   'new'             KWNew               tok=1270  pos=10428
-          :                     ':'               OpColon             tok=1271  pos=10431
-          arg                   'path'            Identifier          tok=1273  pos=10433
-          :                     ':'               OpColon             tok=1274  pos=10437
-          NamedType:
-            Ident               'string'          Identifier          tok=1276  pos=10439
-          ->                    '->'              OpArrowRight        tok=1278  pos=10446
-          NamedType:
-            Ident               'AutoOpenAt...'   Identifier          tok=1280  pos=10449
-        Member:
-          member                'member'          KWMember            tok=1290  pos=10630
-          Ident                 'Path'            Identifier          tok=1292  pos=10637
-          :                     ':'               OpColon             tok=1293  pos=10641
-          NamedType:
-            Ident               'string'          Identifier          tok=1295  pos=10643
-      end                       <virt>            KWEnd               tok=virt  pos=10842
-  Type:
-    type                        'type'            KWType              tok=1374  pos=11255
-    TypeSig.Anon:
-      [<                        '[<'              KWLAttrBracket      tok=1304  pos=10842
-      NamedType:
-        Ident                   'AttributeU...'   Identifier          tok=1305  pos=10844
-      ParenBlock                '('               KWLParen            tok=1306  pos=10858
-        Tuple:
-          InfixApp              '|||'             op_BitwiseOr        tok=1354  pos=11171
-            InfixApp            '|||'             op_BitwiseOr        tok=1347  pos=11128
-              InfixApp          '|||'             op_BitwiseOr        tok=1340  pos=11081
-                InfixApp        '|||'             op_BitwiseOr        tok=1333  pos=11036
-                  InfixApp      '|||'             op_BitwiseOr        tok=1326  pos=10988
-                    InfixApp    '|||'             op_BitwiseOr        tok=1319  pos=10944
-                      InfixApp  '|||'             op_BitwiseOr        tok=1312  pos=10900
+          InfixApp              '|||'             op_BitwiseOr        tok= 885  pos=7283
+            InfixApp            '|||'             op_BitwiseOr        tok= 878  pos=7240
+              InfixApp          '|||'             op_BitwiseOr        tok= 871  pos=7193
+                InfixApp        '|||'             op_BitwiseOr        tok= 864  pos=7148
+                  InfixApp      '|||'             op_BitwiseOr        tok= 857  pos=7100
+                    InfixApp    '|||'             op_BitwiseOr        tok= 850  pos=7056
+                      InfixApp  '|||'             op_BitwiseOr        tok= 843  pos=7012
                         LongIdentOrOp:
                           LongIdent:
-                                'AttributeT...'   Identifier          tok=1307  pos=10859
-                                'Method'          Identifier          tok=1309  pos=10876
+                                'AttributeT...'   Identifier          tok= 838  pos=6971
+                                'Method'          Identifier          tok= 840  pos=6988
                         LongIdentOrOp:
                           LongIdent:
-                                'AttributeT...'   Identifier          tok=1314  pos=10904
-                                'Class'           Identifier          tok=1316  pos=10921
+                                'AttributeT...'   Identifier          tok= 845  pos=7016
+                                'Class'           Identifier          tok= 847  pos=7033
                       LongIdentOrOp:
                         LongIdent:
-                                'AttributeT...'   Identifier          tok=1321  pos=10948
-                                'Field'           Identifier          tok=1323  pos=10965
+                                'AttributeT...'   Identifier          tok= 852  pos=7060
+                                'Field'           Identifier          tok= 854  pos=7077
                     LongIdentOrOp:
                       LongIdent:
-                                'AttributeT...'   Identifier          tok=1328  pos=10992
-                                'Interface'       Identifier          tok=1330  pos=11009
+                                'AttributeT...'   Identifier          tok= 859  pos=7104
+                                'Interface'       Identifier          tok= 861  pos=7121
                   LongIdentOrOp:
                     LongIdent:
-                                'AttributeT...'   Identifier          tok=1335  pos=11040
-                                'Struct'          Identifier          tok=1337  pos=11057
+                                'AttributeT...'   Identifier          tok= 866  pos=7152
+                                'Struct'          Identifier          tok= 868  pos=7169
                 LongIdentOrOp:
                   LongIdent:
-                                'AttributeT...'   Identifier          tok=1342  pos=11085
-                                'Delegate'        Identifier          tok=1344  pos=11102
+                                'AttributeT...'   Identifier          tok= 873  pos=7197
+                                'Delegate'        Identifier          tok= 875  pos=7214
               LongIdentOrOp:
                 LongIdent:
-                                'AttributeT...'   Identifier          tok=1349  pos=11132
-                                'Enum'            Identifier          tok=1351  pos=11149
+                                'AttributeT...'   Identifier          tok= 880  pos=7244
+                                'Enum'            Identifier          tok= 882  pos=7261
             LongIdentOrOp:
               LongIdent:
-                                'AttributeT...'   Identifier          tok=1356  pos=11175
-                                'Property'        Identifier          tok=1358  pos=11192
-          InfixApp              '='               OpEquality          tok=1364  pos=11233
-            Ident               'AllowMulti...'   Identifier          tok=1362  pos=11219
-            Const               'false'           KWFalse             tok=1366  pos=11235
-                                ')'               KWRParen            tok=1367  pos=11240
-      >]                        '>]'              KWRAttrBracket      tok=1368  pos=11241
-      [<                        '[<'              KWLAttrBracket      tok=1370  pos=11244
+                                'AttributeT...'   Identifier          tok= 887  pos=7287
+                                'Property'        Identifier          tok= 889  pos=7304
+          InfixApp              '='               OpEquality          tok= 895  pos=7345
+            Ident               'AllowMulti...'   Identifier          tok= 893  pos=7331
+            Const               'false'           KWFalse             tok= 897  pos=7347
+                                ')'               KWRParen            tok= 898  pos=7352
+      >]                        '>]'              KWRAttrBracket      tok= 899  pos=7353
+      [<                        '[<'              KWLAttrBracket      tok= 901  pos=7356
       NamedType:
-        Ident                   'Sealed'          Identifier          tok=1371  pos=11246
-      >]                        '>]'              KWRAttrBracket      tok=1372  pos=11252
-      TypeName                  'CompiledNa...'   Identifier          tok=1376  pos=11260
-      =                         '='               OpEquality          tok=1378  pos=11282
-      begin                     <virt>            KWBegin             tok=virt  pos=11288
-        inherit                 'inherit'         KWInherit           tok=1381  pos=11288
+        Ident                   'Sealed'          Identifier          tok= 902  pos=7358
+      >]                        '>]'              KWRAttrBracket      tok= 903  pos=7364
+      TypeName                  'CompiledNa...'   Identifier          tok= 907  pos=7372
+      =                         '='               OpEquality          tok= 909  pos=7394
+      begin                     <virt>            KWBegin             tok=virt  pos=7400
+        inherit                 'inherit'         KWInherit           tok= 912  pos=7400
         NamedType:
-          Ident                 'Attribute'       Identifier          tok=1383  pos=11296
+          Ident                 'Attribute'       Identifier          tok= 914  pos=7408
         Constructor:
-          new                   'new'             KWNew               tok=1402  pos=11517
-          :                     ':'               OpColon             tok=1403  pos=11520
-          arg                   'compiledNa...'   Identifier          tok=1405  pos=11522
-          :                     ':'               OpColon             tok=1406  pos=11534
+          new                   'new'             KWNew               tok= 933  pos=7629
+          :                     ':'               OpColon             tok= 934  pos=7632
+          arg                   'compiledNa...'   Identifier          tok= 936  pos=7634
+          :                     ':'               OpColon             tok= 937  pos=7646
           NamedType:
-            Ident               'string'          Identifier          tok=1408  pos=11536
-          ->                    '->'              OpArrowRight        tok=1410  pos=11543
+            Ident               'string'          Identifier          tok= 939  pos=7648
+          ->                    '->'              OpArrowRight        tok= 941  pos=7655
           NamedType:
-            Ident               'CompiledNa...'   Identifier          tok=1412  pos=11546
+            Ident               'CompiledNa...'   Identifier          tok= 943  pos=7658
         Member:
-          member                'member'          KWMember            tok=1419  pos=11653
-          Ident                 'CompiledNa...'   Identifier          tok=1421  pos=11660
-          :                     ':'               OpColon             tok=1422  pos=11672
+          member                'member'          KWMember            tok= 950  pos=7765
+          Ident                 'CompiledNa...'   Identifier          tok= 952  pos=7772
+          :                     ':'               OpColon             tok= 953  pos=7784
           NamedType:
-            Ident               'string'          Identifier          tok=1424  pos=11674
-      end                       <virt>            KWEnd               tok=virt  pos=11828
+            Ident               'string'          Identifier          tok= 955  pos=7786
+      end                       <virt>            KWEnd               tok=virt  pos=7940
   Type:
-    type                        'type'            KWType              tok=1431  pos=11828
+    type                        'type'            KWType              tok= 962  pos=7940
     TypeSig.Enum:
-      TypeName                  'Compilatio...'   Identifier          tok=1433  pos=11833
-      =                         '='               OpEquality          tok=1435  pos=11864
+      TypeName                  'Compilatio...'   Identifier          tok= 964  pos=7945
+      =                         '='               OpEquality          tok= 966  pos=7976
         Case:
-          ident                 'None'            Identifier          tok=1444  pos=11939
-          =                     '='               OpEquality          tok=1446  pos=11944
-          Const                 '0'               NumInt32            tok=1448  pos=11946
+          ident                 'None'            Identifier          tok= 975  pos=8051
+          =                     '='               OpEquality          tok= 977  pos=8056
+          Const                 '0'               NumInt32            tok= 979  pos=8058
         Case:
-          ident                 'Static'          Identifier          tok=1457  pos=12023
-          =                     '='               OpEquality          tok=1459  pos=12030
-          Const                 '1'               NumInt32            tok=1461  pos=12032
+          ident                 'Static'          Identifier          tok= 988  pos=8135
+          =                     '='               OpEquality          tok= 990  pos=8142
+          Const                 '1'               NumInt32            tok= 992  pos=8144
         Case:
-          ident                 'Instance'        Identifier          tok=1470  pos=12162
-          =                     '='               OpEquality          tok=1472  pos=12171
-          Const                 '2'               NumInt32            tok=1474  pos=12173
+          ident                 'Instance'        Identifier          tok=1001  pos=8274
+          =                     '='               OpEquality          tok=1003  pos=8283
+          Const                 '2'               NumInt32            tok=1005  pos=8285
         Case:
-          ident                 'ModuleSuff...'   Identifier          tok=1483  pos=12307
-          =                     '='               OpEquality          tok=1485  pos=12320
-          Const                 '4'               NumInt32            tok=1487  pos=12322
+          ident                 'ModuleSuff...'   Identifier          tok=1014  pos=8419
+          =                     '='               OpEquality          tok=1016  pos=8432
+          Const                 '4'               NumInt32            tok=1018  pos=8434
         Case:
-          ident                 'UseNullAsT...'   Identifier          tok=1496  pos=12461
-          =                     '='               OpEquality          tok=1498  pos=12480
-          Const                 '8'               NumInt32            tok=1500  pos=12482
+          ident                 'UseNullAsT...'   Identifier          tok=1027  pos=8573
+          =                     '='               OpEquality          tok=1029  pos=8592
+          Const                 '8'               NumInt32            tok=1031  pos=8594
         Case:
-          ident                 'Event'           Identifier          tok=1509  pos=12553
-          =                     '='               OpEquality          tok=1511  pos=12559
-          Const                 '16'              NumInt32            tok=1513  pos=12561
+          ident                 'Event'           Identifier          tok=1040  pos=8665
+          =                     '='               OpEquality          tok=1042  pos=8671
+          Const                 '16'              NumInt32            tok=1044  pos=8673
   Type:
-    type                        'type'            KWType              tok=1546  pos=12925
+    type                        'type'            KWType              tok=1077  pos=9037
     TypeSig.Anon:
-      [<                        '[<'              KWLAttrBracket      tok=1526  pos=12850
+      [<                        '[<'              KWLAttrBracket      tok=1057  pos=8962
       NamedType:
-        Ident                   'AttributeU...'   Identifier          tok=1527  pos=12852
-      ParenBlock                '('               KWLParen            tok=1528  pos=12866
+        Ident                   'AttributeU...'   Identifier          tok=1058  pos=8964
+      ParenBlock                '('               KWLParen            tok=1059  pos=8978
         Tuple:
           LongIdentOrOp:
             LongIdent:
-                                'AttributeT...'   Identifier          tok=1529  pos=12867
-                                'All'             Identifier          tok=1531  pos=12884
-          InfixApp              '='               OpEquality          tok=1536  pos=12903
-            Ident               'AllowMulti...'   Identifier          tok=1534  pos=12889
-            Const               'false'           KWFalse             tok=1538  pos=12905
-                                ')'               KWRParen            tok=1539  pos=12910
-      >]                        '>]'              KWRAttrBracket      tok=1540  pos=12911
-      [<                        '[<'              KWLAttrBracket      tok=1542  pos=12914
+                                'AttributeT...'   Identifier          tok=1060  pos=8979
+                                'All'             Identifier          tok=1062  pos=8996
+          InfixApp              '='               OpEquality          tok=1067  pos=9015
+            Ident               'AllowMulti...'   Identifier          tok=1065  pos=9001
+            Const               'false'           KWFalse             tok=1069  pos=9017
+                                ')'               KWRParen            tok=1070  pos=9022
+      >]                        '>]'              KWRAttrBracket      tok=1071  pos=9023
+      [<                        '[<'              KWLAttrBracket      tok=1073  pos=9026
       NamedType:
-        Ident                   'Sealed'          Identifier          tok=1543  pos=12916
-      >]                        '>]'              KWRAttrBracket      tok=1544  pos=12922
-      TypeName                  'Compilatio...'   Identifier          tok=1548  pos=12930
-      =                         '='               OpEquality          tok=1550  pos=12965
-      begin                     <virt>            KWBegin             tok=virt  pos=12971
-        inherit                 'inherit'         KWInherit           tok=1553  pos=12971
+        Ident                   'Sealed'          Identifier          tok=1074  pos=9028
+      >]                        '>]'              KWRAttrBracket      tok=1075  pos=9034
+      TypeName                  'Compilatio...'   Identifier          tok=1079  pos=9042
+      =                         '='               OpEquality          tok=1081  pos=9077
+      begin                     <virt>            KWBegin             tok=virt  pos=9083
+        inherit                 'inherit'         KWInherit           tok=1084  pos=9083
         NamedType:
-          Ident                 'Attribute'       Identifier          tok=1555  pos=12979
+          Ident                 'Attribute'       Identifier          tok=1086  pos=9091
         Constructor:
-          new                   'new'             KWNew               tok=1574  pos=13248
-          :                     ':'               OpColon             tok=1575  pos=13251
-          arg                   'flags'           Identifier          tok=1577  pos=13253
-          :                     ':'               OpColon             tok=1578  pos=13258
+          new                   'new'             KWNew               tok=1105  pos=9360
+          :                     ':'               OpColon             tok=1106  pos=9363
+          arg                   'flags'           Identifier          tok=1108  pos=9365
+          :                     ':'               OpColon             tok=1109  pos=9370
           NamedType:
-            Ident               'Compilatio...'   Identifier          tok=1580  pos=13260
-          ->                    '->'              OpArrowRight        tok=1582  pos=13291
+            Ident               'Compilatio...'   Identifier          tok=1111  pos=9372
+          ->                    '->'              OpArrowRight        tok=1113  pos=9403
           NamedType:
-            Ident               'Compilatio...'   Identifier          tok=1584  pos=13294
+            Ident               'Compilatio...'   Identifier          tok=1115  pos=9406
         Member:
-          member                'member'          KWMember            tok=1591  pos=13450
-          Ident                 'Flags'           Identifier          tok=1593  pos=13457
-          :                     ':'               OpColon             tok=1594  pos=13462
+          member                'member'          KWMember            tok=1122  pos=9562
+          Ident                 'Flags'           Identifier          tok=1124  pos=9569
+          :                     ':'               OpColon             tok=1125  pos=9574
           NamedType:
-            Ident               'Compilatio...'   Identifier          tok=1596  pos=13464
-      end                       <virt>            KWEnd               tok=virt  pos=13638
+            Ident               'Compilatio...'   Identifier          tok=1127  pos=9576
+      end                       <virt>            KWEnd               tok=virt  pos=9750
   Type:
-    type                        'type'            KWType              tok=1623  pos=13715
+    type                        'type'            KWType              tok=1154  pos=9827
     TypeSig.Anon:
-      [<                        '[<'              KWLAttrBracket      tok=1603  pos=13638
+      [<                        '[<'              KWLAttrBracket      tok=1134  pos=9750
       NamedType:
-        Ident                   'AttributeU...'   Identifier          tok=1604  pos=13640
-      ParenBlock                '('               KWLParen            tok=1605  pos=13654
+        Ident                   'AttributeU...'   Identifier          tok=1135  pos=9752
+      ParenBlock                '('               KWLParen            tok=1136  pos=9766
         Tuple:
           LongIdentOrOp:
             LongIdent:
-                                'AttributeT...'   Identifier          tok=1606  pos=13655
-                                'Field'           Identifier          tok=1608  pos=13672
-          InfixApp              '='               OpEquality          tok=1613  pos=13693
-            Ident               'AllowMulti...'   Identifier          tok=1611  pos=13679
-            Const               'false'           KWFalse             tok=1615  pos=13695
-                                ')'               KWRParen            tok=1616  pos=13700
-      >]                        '>]'              KWRAttrBracket      tok=1617  pos=13701
-      [<                        '[<'              KWLAttrBracket      tok=1619  pos=13704
+                                'AttributeT...'   Identifier          tok=1137  pos=9767
+                                'Field'           Identifier          tok=1139  pos=9784
+          InfixApp              '='               OpEquality          tok=1144  pos=9805
+            Ident               'AllowMulti...'   Identifier          tok=1142  pos=9791
+            Const               'false'           KWFalse             tok=1146  pos=9807
+                                ')'               KWRParen            tok=1147  pos=9812
+      >]                        '>]'              KWRAttrBracket      tok=1148  pos=9813
+      [<                        '[<'              KWLAttrBracket      tok=1150  pos=9816
       NamedType:
-        Ident                   'Sealed'          Identifier          tok=1620  pos=13706
-      >]                        '>]'              KWRAttrBracket      tok=1621  pos=13712
-      TypeName                  'LiteralAtt...'   Identifier          tok=1625  pos=13720
-      =                         '='               OpEquality          tok=1627  pos=13737
-      begin                     <virt>            KWBegin             tok=virt  pos=13743
-        inherit                 'inherit'         KWInherit           tok=1630  pos=13743
+        Ident                   'Sealed'          Identifier          tok=1151  pos=9818
+      >]                        '>]'              KWRAttrBracket      tok=1152  pos=9824
+      TypeName                  'LiteralAtt...'   Identifier          tok=1156  pos=9832
+      =                         '='               OpEquality          tok=1158  pos=9849
+      begin                     <virt>            KWBegin             tok=virt  pos=9855
+        inherit                 'inherit'         KWInherit           tok=1161  pos=9855
         NamedType:
-          Ident                 'Attribute'       Identifier          tok=1632  pos=13751
+          Ident                 'Attribute'       Identifier          tok=1163  pos=9863
         Constructor:
-          new                   'new'             KWNew               tok=1642  pos=13874
-          :                     ':'               OpColon             tok=1643  pos=13877
+          new                   'new'             KWNew               tok=1173  pos=9986
+          :                     ':'               OpColon             tok=1174  pos=9989
           NamedType:
-            Ident               'unit'            Identifier          tok=1645  pos=13879
-          ->                    '->'              OpArrowRight        tok=1647  pos=13884
+            Ident               'unit'            Identifier          tok=1176  pos=9991
+          ->                    '->'              OpArrowRight        tok=1178  pos=9996
           NamedType:
-            Ident               'LiteralAtt...'   Identifier          tok=1649  pos=13887
-      end                       <virt>            KWEnd               tok=virt  pos=14101
+            Ident               'LiteralAtt...'   Identifier          tok=1180  pos=9999
+      end                       <virt>            KWEnd               tok=virt  pos=10213
   Type:
-    type                        'type'            KWType              tok=1684  pos=14216
+    type                        'type'            KWType              tok=1216  pos=10345
     TypeSig.Anon:
-      [<                        '[<'              KWLAttrBracket      tok=1658  pos=14101
+      [<                        '[<'              KWLAttrBracket      tok=1189  pos=10213
       NamedType:
-        Ident                   'AttributeU...'   Identifier          tok=1659  pos=14103
-      ParenBlock                '('               KWLParen            tok=1660  pos=14117
+        Ident                   'AttributeU...'   Identifier          tok=1190  pos=10215
+      ParenBlock                '('               KWLParen            tok=1191  pos=10229
         Tuple:
-          InfixApp              '|||'             op_BitwiseOr        tok=1665  pos=14152
+          InfixApp              '|||'             op_BitwiseOr        tok=1196  pos=10264
             LongIdentOrOp:
               LongIdent:
-                                'AttributeT...'   Identifier          tok=1661  pos=14118
-                                'GenericPar...'   Identifier          tok=1663  pos=14135
+                                'AttributeT...'   Identifier          tok=1192  pos=10230
+                                'GenericPar...'   Identifier          tok=1194  pos=10247
             LongIdentOrOp:
               LongIdent:
-                                'AttributeT...'   Identifier          tok=1667  pos=14156
-                                'Class'           Identifier          tok=1669  pos=14173
-          InfixApp              '='               OpEquality          tok=1674  pos=14194
-            Ident               'AllowMulti...'   Identifier          tok=1672  pos=14180
-            Const               'false'           KWFalse             tok=1676  pos=14196
-                                ')'               KWRParen            tok=1677  pos=14201
-      >]                        '>]'              KWRAttrBracket      tok=1678  pos=14202
-      [<                        '[<'              KWLAttrBracket      tok=1680  pos=14205
+                                'AttributeT...'   Identifier          tok=1198  pos=10268
+                                'Class'           Identifier          tok=1200  pos=10285
+          InfixApp              '='               OpEquality          tok=1206  pos=10323
+            Ident               'AllowMulti...'   Identifier          tok=1204  pos=10309
+            Const               'false'           KWFalse             tok=1208  pos=10325
+                                ')'               KWRParen            tok=1209  pos=10330
+      >]                        '>]'              KWRAttrBracket      tok=1210  pos=10331
+      [<                        '[<'              KWLAttrBracket      tok=1212  pos=10334
       NamedType:
-        Ident                   'Sealed'          Identifier          tok=1681  pos=14207
-      >]                        '>]'              KWRAttrBracket      tok=1682  pos=14213
-      TypeName                  'MeasureAtt...'   Identifier          tok=1686  pos=14221
-      =                         '='               OpEquality          tok=1688  pos=14238
-      begin                     <virt>            KWBegin             tok=virt  pos=14244
-        inherit                 'inherit'         KWInherit           tok=1691  pos=14244
+        Ident                   'Sealed'          Identifier          tok=1213  pos=10336
+      >]                        '>]'              KWRAttrBracket      tok=1214  pos=10342
+      TypeName                  'MeasureAtt...'   Identifier          tok=1218  pos=10350
+      =                         '='               OpEquality          tok=1220  pos=10367
+      begin                     <virt>            KWBegin             tok=virt  pos=10373
+        inherit                 'inherit'         KWInherit           tok=1223  pos=10373
         NamedType:
-          Ident                 'Attribute'       Identifier          tok=1693  pos=14252
+          Ident                 'Attribute'       Identifier          tok=1225  pos=10381
         Constructor:
-          new                   'new'             KWNew               tok=1703  pos=14375
-          :                     ':'               OpColon             tok=1704  pos=14378
+          new                   'new'             KWNew               tok=1235  pos=10504
+          :                     ':'               OpColon             tok=1236  pos=10507
           NamedType:
-            Ident               'unit'            Identifier          tok=1706  pos=14380
-          ->                    '->'              OpArrowRight        tok=1708  pos=14385
+            Ident               'unit'            Identifier          tok=1238  pos=10509
+          ->                    '->'              OpArrowRight        tok=1240  pos=10514
           NamedType:
-            Ident               'MeasureAtt...'   Identifier          tok=1710  pos=14388
-      end                       <virt>            KWEnd               tok=virt  pos=14547
+            Ident               'MeasureAtt...'   Identifier          tok=1242  pos=10517
+      end                       <virt>            KWEnd               tok=virt  pos=10676
   Type:
-    type                        'type'            KWType              tok=1737  pos=14622
+    type                        'type'            KWType              tok=1269  pos=10751
     TypeSig.Anon:
-      [<                        '[<'              KWLAttrBracket      tok=1717  pos=14547
+      [<                        '[<'              KWLAttrBracket      tok=1249  pos=10676
       NamedType:
-        Ident                   'AttributeU...'   Identifier          tok=1718  pos=14549
-      ParenBlock                '('               KWLParen            tok=1719  pos=14563
+        Ident                   'AttributeU...'   Identifier          tok=1250  pos=10678
+      ParenBlock                '('               KWLParen            tok=1251  pos=10692
         Tuple:
           LongIdentOrOp:
             LongIdent:
-                                'AttributeT...'   Identifier          tok=1720  pos=14564
-                                'All'             Identifier          tok=1722  pos=14581
-          InfixApp              '='               OpEquality          tok=1727  pos=14600
-            Ident               'AllowMulti...'   Identifier          tok=1725  pos=14586
-            Const               'false'           KWFalse             tok=1729  pos=14602
-                                ')'               KWRParen            tok=1730  pos=14607
-      >]                        '>]'              KWRAttrBracket      tok=1731  pos=14608
-      [<                        '[<'              KWLAttrBracket      tok=1733  pos=14611
+                                'AttributeT...'   Identifier          tok=1252  pos=10693
+                                'All'             Identifier          tok=1254  pos=10710
+          InfixApp              '='               OpEquality          tok=1259  pos=10729
+            Ident               'AllowMulti...'   Identifier          tok=1257  pos=10715
+            Const               'false'           KWFalse             tok=1261  pos=10731
+                                ')'               KWRParen            tok=1262  pos=10736
+      >]                        '>]'              KWRAttrBracket      tok=1263  pos=10737
+      [<                        '[<'              KWLAttrBracket      tok=1265  pos=10740
       NamedType:
-        Ident                   'Sealed'          Identifier          tok=1734  pos=14613
-      >]                        '>]'              KWRAttrBracket      tok=1735  pos=14619
-      TypeName                  'CompilerMe...'   Identifier          tok=1739  pos=14627
-      =                         '='               OpEquality          tok=1741  pos=14652
-      begin                     <virt>            KWBegin             tok=virt  pos=14658
-        inherit                 'inherit'         KWInherit           tok=1744  pos=14658
+        Ident                   'Sealed'          Identifier          tok=1266  pos=10742
+      >]                        '>]'              KWRAttrBracket      tok=1267  pos=10748
+      TypeName                  'CompilerMe...'   Identifier          tok=1271  pos=10756
+      =                         '='               OpEquality          tok=1273  pos=10781
+      begin                     <virt>            KWBegin             tok=virt  pos=10787
+        inherit                 'inherit'         KWInherit           tok=1276  pos=10787
         NamedType:
-          Ident                 'Attribute'       Identifier          tok=1746  pos=14666
+          Ident                 'Attribute'       Identifier          tok=1278  pos=10795
         Constructor:
-          new                   'new'             KWNew               tok=1753  pos=14746
-          :                     ':'               OpColon             tok=1754  pos=14749
-          arg                   'message'         Identifier          tok=1756  pos=14751
-          :                     ':'               OpColon             tok=1757  pos=14758
+          new                   'new'             KWNew               tok=1285  pos=10875
+          :                     ':'               OpColon             tok=1286  pos=10878
+          arg                   'message'         Identifier          tok=1288  pos=10880
+          :                     ':'               OpColon             tok=1289  pos=10887
           NamedType:
-            Ident               'string'          Identifier          tok=1759  pos=14760
-          arg                   'messageNum...'   Identifier          tok=1763  pos=14769
-          :                     ':'               OpColon             tok=1764  pos=14782
+            Ident               'string'          Identifier          tok=1291  pos=10889
+          arg                   'messageNum...'   Identifier          tok=1295  pos=10898
+          :                     ':'               OpColon             tok=1296  pos=10911
           NamedType:
-            Ident               'int'             Identifier          tok=1766  pos=14784
-          ->                    '->'              OpArrowRight        tok=1768  pos=14788
+            Ident               'int'             Identifier          tok=1298  pos=10913
+          ->                    '->'              OpArrowRight        tok=1300  pos=10917
           NamedType:
-            Ident               'CompilerMe...'   Identifier          tok=1770  pos=14791
+            Ident               'CompilerMe...'   Identifier          tok=1302  pos=10920
         Member:
-          member                'member'          KWMember            tok=1777  pos=14932
-          Ident                 'Message'         Identifier          tok=1779  pos=14939
-          :                     ':'               OpColon             tok=1780  pos=14946
+          member                'member'          KWMember            tok=1309  pos=11061
+          Ident                 'Message'         Identifier          tok=1311  pos=11068
+          :                     ':'               OpColon             tok=1312  pos=11075
           NamedType:
-            Ident               'string'          Identifier          tok=1782  pos=14948
+            Ident               'string'          Identifier          tok=1314  pos=11077
         Member:
-          member                'member'          KWMember            tok=1789  pos=15037
-          Ident                 'MessageNum...'   Identifier          tok=1791  pos=15044
-          :                     ':'               OpColon             tok=1792  pos=15057
+          member                'member'          KWMember            tok=1321  pos=11166
+          Ident                 'MessageNum...'   Identifier          tok=1323  pos=11173
+          :                     ':'               OpColon             tok=1324  pos=11186
           NamedType:
-            Ident               'int'             Identifier          tok=1794  pos=15059
+            Ident               'int'             Identifier          tok=1326  pos=11188
         Member:
-          member                'member'          KWMember            tok=1804  pos=15258
-          Ident                 'IsError'         Identifier          tok=1806  pos=15265
-          :                     ':'               OpColon             tok=1807  pos=15272
+          member                'member'          KWMember            tok=1336  pos=11387
+          Ident                 'IsError'         Identifier          tok=1338  pos=11394
+          :                     ':'               OpColon             tok=1339  pos=11401
           NamedType:
-            Ident               'bool'            Identifier          tok=1809  pos=15274
-          with                  'with'            KWWith              tok=1811  pos=15279
-          get/set               'get'             Identifier          tok=1813  pos=15284
-          set/get               'set'             Identifier          tok=1816  pos=15289
+            Ident               'bool'            Identifier          tok=1341  pos=11403
+          with                  'with'            KWWith              tok=1343  pos=11408
+          get/set               'get'             Identifier          tok=1345  pos=11413
+          set/get               'set'             Identifier          tok=1348  pos=11418
         Member:
-          member                'member'          KWMember            tok=1823  pos=15403
-          Ident                 'IsHidden'        Identifier          tok=1825  pos=15410
-          :                     ':'               OpColon             tok=1826  pos=15418
+          member                'member'          KWMember            tok=1355  pos=11532
+          Ident                 'IsHidden'        Identifier          tok=1357  pos=11539
+          :                     ':'               OpColon             tok=1358  pos=11547
           NamedType:
-            Ident               'bool'            Identifier          tok=1828  pos=15420
-          with                  'with'            KWWith              tok=1830  pos=15425
-          get/set               'get'             Identifier          tok=1832  pos=15430
-          set/get               'set'             Identifier          tok=1835  pos=15435
-      end                       <virt>            KWEnd               tok=virt  pos=16280
+            Ident               'bool'            Identifier          tok=1360  pos=11549
+          with                  'with'            KWWith              tok=1362  pos=11554
+          get/set               'get'             Identifier          tok=1364  pos=11559
+          set/get               'set'             Identifier          tok=1367  pos=11564
+      end                       <virt>            KWEnd               tok=virt  pos=12409
   Type:
-    type                        'type'            KWType              tok=1884  pos=16368
+    type                        'type'            KWType              tok=1416  pos=12497
     TypeSig.Anon:
-      [<                        '[<'              KWLAttrBracket      tok=1864  pos=16280
+      [<                        '[<'              KWLAttrBracket      tok=1396  pos=12409
       NamedType:
-        Ident                   'AttributeU...'   Identifier          tok=1865  pos=16282
-      ParenBlock                '('               KWLParen            tok=1866  pos=16296
+        Ident                   'AttributeU...'   Identifier          tok=1397  pos=12411
+      ParenBlock                '('               KWLParen            tok=1398  pos=12425
         Tuple:
           LongIdentOrOp:
             LongIdent:
-                                'AttributeT...'   Identifier          tok=1867  pos=16297
-                                'GenericPar...'   Identifier          tok=1869  pos=16314
-          InfixApp              '='               OpEquality          tok=1874  pos=16346
-            Ident               'AllowMulti...'   Identifier          tok=1872  pos=16332
-            Const               'false'           KWFalse             tok=1876  pos=16348
-                                ')'               KWRParen            tok=1877  pos=16353
-      >]                        '>]'              KWRAttrBracket      tok=1878  pos=16354
-      [<                        '[<'              KWLAttrBracket      tok=1880  pos=16357
+                                'AttributeT...'   Identifier          tok=1399  pos=12426
+                                'GenericPar...'   Identifier          tok=1401  pos=12443
+          InfixApp              '='               OpEquality          tok=1406  pos=12475
+            Ident               'AllowMulti...'   Identifier          tok=1404  pos=12461
+            Const               'false'           KWFalse             tok=1408  pos=12477
+                                ')'               KWRParen            tok=1409  pos=12482
+      >]                        '>]'              KWRAttrBracket      tok=1410  pos=12483
+      [<                        '[<'              KWLAttrBracket      tok=1412  pos=12486
       NamedType:
-        Ident                   'Sealed'          Identifier          tok=1881  pos=16359
-      >]                        '>]'              KWRAttrBracket      tok=1882  pos=16365
-      TypeName                  'EqualityCo...'   Identifier          tok=1886  pos=16373
-      =                         '='               OpEquality          tok=1888  pos=16404
-      begin                     <virt>            KWBegin             tok=virt  pos=16410
-        inherit                 'inherit'         KWInherit           tok=1891  pos=16410
+        Ident                   'Sealed'          Identifier          tok=1413  pos=12488
+      >]                        '>]'              KWRAttrBracket      tok=1414  pos=12494
+      TypeName                  'EqualityCo...'   Identifier          tok=1418  pos=12502
+      =                         '='               OpEquality          tok=1420  pos=12533
+      begin                     <virt>            KWBegin             tok=virt  pos=12539
+        inherit                 'inherit'         KWInherit           tok=1423  pos=12539
         NamedType:
-          Ident                 'Attribute'       Identifier          tok=1893  pos=16418
+          Ident                 'Attribute'       Identifier          tok=1425  pos=12547
         Constructor:
-          new                   'new'             KWNew               tok=1903  pos=16555
-          :                     ':'               OpColon             tok=1904  pos=16558
+          new                   'new'             KWNew               tok=1435  pos=12684
+          :                     ':'               OpColon             tok=1436  pos=12687
           NamedType:
-            Ident               'unit'            Identifier          tok=1906  pos=16560
-          ->                    '->'              OpArrowRight        tok=1908  pos=16565
+            Ident               'unit'            Identifier          tok=1438  pos=12689
+          ->                    '->'              OpArrowRight        tok=1440  pos=12694
           NamedType:
-            Ident               'EqualityCo...'   Identifier          tok=1910  pos=16568
-      end                       <virt>            KWEnd               tok=virt  pos=16823
+            Ident               'EqualityCo...'   Identifier          tok=1442  pos=12697
+      end                       <virt>            KWEnd               tok=virt  pos=12952
   Type:
-    type                        'type'            KWType              tok=1939  pos=16901
+    type                        'type'            KWType              tok=1471  pos=13030
     TypeSig.Anon:
-      [<                        '[<'              KWLAttrBracket      tok=1919  pos=16823
+      [<                        '[<'              KWLAttrBracket      tok=1451  pos=12952
       NamedType:
-        Ident                   'AttributeU...'   Identifier          tok=1920  pos=16825
-      ParenBlock                '('               KWLParen            tok=1921  pos=16839
+        Ident                   'AttributeU...'   Identifier          tok=1452  pos=12954
+      ParenBlock                '('               KWLParen            tok=1453  pos=12968
         Tuple:
           LongIdentOrOp:
             LongIdent:
-                                'AttributeT...'   Identifier          tok=1922  pos=16840
-                                'Method'          Identifier          tok=1924  pos=16857
-          InfixApp              '='               OpEquality          tok=1929  pos=16879
-            Ident               'AllowMulti...'   Identifier          tok=1927  pos=16865
-            Const               'false'           KWFalse             tok=1931  pos=16881
-                                ')'               KWRParen            tok=1932  pos=16886
-      >]                        '>]'              KWRAttrBracket      tok=1933  pos=16887
-      [<                        '[<'              KWLAttrBracket      tok=1935  pos=16890
+                                'AttributeT...'   Identifier          tok=1454  pos=12969
+                                'Method'          Identifier          tok=1456  pos=12986
+          InfixApp              '='               OpEquality          tok=1461  pos=13008
+            Ident               'AllowMulti...'   Identifier          tok=1459  pos=12994
+            Const               'false'           KWFalse             tok=1463  pos=13010
+                                ')'               KWRParen            tok=1464  pos=13015
+      >]                        '>]'              KWRAttrBracket      tok=1465  pos=13016
+      [<                        '[<'              KWLAttrBracket      tok=1467  pos=13019
       NamedType:
-        Ident                   'Sealed'          Identifier          tok=1936  pos=16892
-      >]                        '>]'              KWRAttrBracket      tok=1937  pos=16898
-      TypeName                  'Generaliza...'   Identifier          tok=1941  pos=16906
-      =                         '='               OpEquality          tok=1943  pos=16934
-      begin                     <virt>            KWBegin             tok=virt  pos=16940
-        inherit                 'inherit'         KWInherit           tok=1946  pos=16940
+        Ident                   'Sealed'          Identifier          tok=1468  pos=13021
+      >]                        '>]'              KWRAttrBracket      tok=1469  pos=13027
+      TypeName                  'Generaliza...'   Identifier          tok=1473  pos=13035
+      =                         '='               OpEquality          tok=1475  pos=13063
+      begin                     <virt>            KWBegin             tok=virt  pos=13069
+        inherit                 'inherit'         KWInherit           tok=1478  pos=13069
         NamedType:
-          Ident                 'Attribute'       Identifier          tok=1948  pos=16948
+          Ident                 'Attribute'       Identifier          tok=1480  pos=13077
         Constructor:
-          new                   'new'             KWNew               tok=1958  pos=17082
-          :                     ':'               OpColon             tok=1959  pos=17085
+          new                   'new'             KWNew               tok=1490  pos=13211
+          :                     ':'               OpColon             tok=1491  pos=13214
           NamedType:
-            Ident               'unit'            Identifier          tok=1961  pos=17087
-          ->                    '->'              OpArrowRight        tok=1963  pos=17092
+            Ident               'unit'            Identifier          tok=1493  pos=13216
+          ->                    '->'              OpArrowRight        tok=1495  pos=13221
           NamedType:
-            Ident               'Generaliza...'   Identifier          tok=1965  pos=17095
-      end                       <virt>            KWEnd               tok=virt  pos=17272
+            Ident               'Generaliza...'   Identifier          tok=1497  pos=13224
+      end                       <virt>            KWEnd               tok=virt  pos=13401
   Type:
-    type                        'type'            KWType              tok=1994  pos=17347
+    type                        'type'            KWType              tok=1526  pos=13476
     TypeSig.Anon:
-      [<                        '[<'              KWLAttrBracket      tok=1974  pos=17272
+      [<                        '[<'              KWLAttrBracket      tok=1506  pos=13401
       NamedType:
-        Ident                   'AttributeU...'   Identifier          tok=1975  pos=17274
-      ParenBlock                '('               KWLParen            tok=1976  pos=17288
+        Ident                   'AttributeU...'   Identifier          tok=1507  pos=13403
+      ParenBlock                '('               KWLParen            tok=1508  pos=13417
         Tuple:
           LongIdentOrOp:
             LongIdent:
-                                'AttributeT...'   Identifier          tok=1977  pos=17289
-                                'All'             Identifier          tok=1979  pos=17306
-          InfixApp              '='               OpEquality          tok=1984  pos=17325
-            Ident               'AllowMulti...'   Identifier          tok=1982  pos=17311
-            Const               'false'           KWFalse             tok=1986  pos=17327
-                                ')'               KWRParen            tok=1987  pos=17332
-      >]                        '>]'              KWRAttrBracket      tok=1988  pos=17333
-      [<                        '[<'              KWLAttrBracket      tok=1990  pos=17336
+                                'AttributeT...'   Identifier          tok=1509  pos=13418
+                                'All'             Identifier          tok=1511  pos=13435
+          InfixApp              '='               OpEquality          tok=1516  pos=13454
+            Ident               'AllowMulti...'   Identifier          tok=1514  pos=13440
+            Const               'false'           KWFalse             tok=1518  pos=13456
+                                ')'               KWRParen            tok=1519  pos=13461
+      >]                        '>]'              KWRAttrBracket      tok=1520  pos=13462
+      [<                        '[<'              KWLAttrBracket      tok=1522  pos=13465
       NamedType:
-        Ident                   'Sealed'          Identifier          tok=1991  pos=17338
-      >]                        '>]'              KWRAttrBracket      tok=1992  pos=17344
-      TypeName                  'Experiment...'   Identifier          tok=1996  pos=17352
-      =                         '='               OpEquality          tok=1998  pos=17374
-      begin                     <virt>            KWBegin             tok=virt  pos=17380
-        inherit                 'inherit'         KWInherit           tok=2001  pos=17380
+        Ident                   'Sealed'          Identifier          tok=1523  pos=13467
+      >]                        '>]'              KWRAttrBracket      tok=1524  pos=13473
+      TypeName                  'Experiment...'   Identifier          tok=1528  pos=13481
+      =                         '='               OpEquality          tok=1530  pos=13503
+      begin                     <virt>            KWBegin             tok=virt  pos=13509
+        inherit                 'inherit'         KWInherit           tok=1533  pos=13509
         NamedType:
-          Ident                 'Attribute'       Identifier          tok=2003  pos=17388
+          Ident                 'Attribute'       Identifier          tok=1535  pos=13517
         Constructor:
-          new                   'new'             KWNew               tok=2022  pos=17635
-          :                     ':'               OpColon             tok=2023  pos=17638
-          arg                   'message'         Identifier          tok=2025  pos=17640
-          :                     ':'               OpColon             tok=2026  pos=17647
+          new                   'new'             KWNew               tok=1554  pos=13764
+          :                     ':'               OpColon             tok=1555  pos=13767
+          arg                   'message'         Identifier          tok=1557  pos=13769
+          :                     ':'               OpColon             tok=1558  pos=13776
           NamedType:
-            Ident               'string'          Identifier          tok=2028  pos=17649
-          ->                    '->'              OpArrowRight        tok=2030  pos=17656
+            Ident               'string'          Identifier          tok=1560  pos=13778
+          ->                    '->'              OpArrowRight        tok=1562  pos=13785
           NamedType:
-            Ident               'Experiment...'   Identifier          tok=2032  pos=17659
+            Ident               'Experiment...'   Identifier          tok=1564  pos=13788
         Member:
-          member                'member'          KWMember            tok=2039  pos=17797
-          Ident                 'Message'         Identifier          tok=2041  pos=17804
-          :                     ':'               OpColon             tok=2042  pos=17811
+          member                'member'          KWMember            tok=1571  pos=13926
+          Ident                 'Message'         Identifier          tok=1573  pos=13933
+          :                     ':'               OpColon             tok=1574  pos=13940
           NamedType:
-            Ident               'string'          Identifier          tok=2044  pos=17813
-      end                       <virt>            KWEnd               tok=virt  pos=18085
+            Ident               'string'          Identifier          tok=1576  pos=13942
+      end                       <virt>            KWEnd               tok=virt  pos=14214
   Type:
-    type                        'type'            KWType              tok=2081  pos=18190
+    type                        'type'            KWType              tok=1613  pos=14319
     TypeSig.Anon:
-      [<                        '[<'              KWLAttrBracket      tok=2055  pos=18085
+      [<                        '[<'              KWLAttrBracket      tok=1587  pos=14214
       NamedType:
-        Ident                   'AttributeU...'   Identifier          tok=2056  pos=18087
-      ParenBlock                '('               KWLParen            tok=2057  pos=18101
+        Ident                   'AttributeU...'   Identifier          tok=1588  pos=14216
+      ParenBlock                '('               KWLParen            tok=1589  pos=14230
         Tuple:
-          InfixApp              '|||'             op_BitwiseOr        tok=2062  pos=18125
+          InfixApp              '|||'             op_BitwiseOr        tok=1594  pos=14254
             LongIdentOrOp:
               LongIdent:
-                                'AttributeT...'   Identifier          tok=2058  pos=18102
-                                'Class'           Identifier          tok=2060  pos=18119
+                                'AttributeT...'   Identifier          tok=1590  pos=14231
+                                'Class'           Identifier          tok=1592  pos=14248
             LongIdentOrOp:
               LongIdent:
-                                'AttributeT...'   Identifier          tok=2064  pos=18129
-                                'Struct'          Identifier          tok=2066  pos=18146
-          InfixApp              '='               OpEquality          tok=2071  pos=18168
-            Ident               'AllowMulti...'   Identifier          tok=2069  pos=18154
-            Const               'false'           KWFalse             tok=2073  pos=18170
-                                ')'               KWRParen            tok=2074  pos=18175
-      >]                        '>]'              KWRAttrBracket      tok=2075  pos=18176
-      [<                        '[<'              KWLAttrBracket      tok=2077  pos=18179
+                                'AttributeT...'   Identifier          tok=1596  pos=14258
+                                'Struct'          Identifier          tok=1598  pos=14275
+          InfixApp              '='               OpEquality          tok=1603  pos=14297
+            Ident               'AllowMulti...'   Identifier          tok=1601  pos=14283
+            Const               'false'           KWFalse             tok=1605  pos=14299
+                                ')'               KWRParen            tok=1606  pos=14304
+      >]                        '>]'              KWRAttrBracket      tok=1607  pos=14305
+      [<                        '[<'              KWLAttrBracket      tok=1609  pos=14308
       NamedType:
-        Ident                   'Sealed'          Identifier          tok=2078  pos=18181
-      >]                        '>]'              KWRAttrBracket      tok=2079  pos=18187
-      TypeName                  'DefaultAug...'   Identifier          tok=2083  pos=18195
-      =                         '='               OpEquality          tok=2085  pos=18224
-      begin                     <virt>            KWBegin             tok=virt  pos=18230
-        inherit                 'inherit'         KWInherit           tok=2088  pos=18230
+        Ident                   'Sealed'          Identifier          tok=1610  pos=14310
+      >]                        '>]'              KWRAttrBracket      tok=1611  pos=14316
+      TypeName                  'DefaultAug...'   Identifier          tok=1615  pos=14324
+      =                         '='               OpEquality          tok=1617  pos=14353
+      begin                     <virt>            KWBegin             tok=virt  pos=14359
+        inherit                 'inherit'         KWInherit           tok=1620  pos=14359
         NamedType:
-          Ident                 'Attribute'       Identifier          tok=2090  pos=18238
+          Ident                 'Attribute'       Identifier          tok=1622  pos=14367
         Member:
-          member                'member'          KWMember            tok=2097  pos=18370
-          Ident                 'Value'           Identifier          tok=2099  pos=18377
-          :                     ':'               OpColon             tok=2100  pos=18382
+          member                'member'          KWMember            tok=1629  pos=14499
+          Ident                 'Value'           Identifier          tok=1631  pos=14506
+          :                     ':'               OpColon             tok=1632  pos=14511
           NamedType:
-            Ident               'bool'            Identifier          tok=2102  pos=18384
+            Ident               'bool'            Identifier          tok=1634  pos=14513
         Constructor:
-          new                   'new'             KWNew               tok=2124  pos=18672
-          :                     ':'               OpColon             tok=2125  pos=18675
-          arg                   'value'           Identifier          tok=2127  pos=18677
-          :                     ':'               OpColon             tok=2128  pos=18682
+          new                   'new'             KWNew               tok=1656  pos=14801
+          :                     ':'               OpColon             tok=1657  pos=14804
+          arg                   'value'           Identifier          tok=1659  pos=14806
+          :                     ':'               OpColon             tok=1660  pos=14811
           NamedType:
-            Ident               'bool'            Identifier          tok=2130  pos=18684
-          ->                    '->'              OpArrowRight        tok=2132  pos=18689
+            Ident               'bool'            Identifier          tok=1662  pos=14813
+          ->                    '->'              OpArrowRight        tok=1664  pos=14818
           NamedType:
-            Ident               'DefaultAug...'   Identifier          tok=2134  pos=18692
-      end                       <virt>            KWEnd               tok=virt  pos=18721
+            Ident               'DefaultAug...'   Identifier          tok=1666  pos=14821
+      end                       <virt>            KWEnd               tok=virt  pos=14850

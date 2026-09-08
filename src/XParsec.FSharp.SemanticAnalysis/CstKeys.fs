@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+open System.Collections.Immutable
 open XParsec.FSharp.Parser
 
 // A node wrapping an inner expr keys off its OWN operator/bracket token, so nesting the
@@ -240,6 +241,15 @@ module CstKeys =
 
     [<return: Struct>]
     let (|SingleIdent|_|) (e: Expr<SyntaxToken>) : SyntaxToken voption = trySingleIdent e
+
+    /// The segment tokens of an identifier expression, `Ident x` and `LongIdent[x; …]`
+    /// alike.
+    [<return: Struct>]
+    let (|IdentPath|_|) (e: Expr<SyntaxToken>) : ImmutableArray<SyntaxToken> voption =
+        match e with
+        | Expr.Ident t -> ValueSome(ImmutableArray.Create t)
+        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) -> ValueSome li.Idents
+        | _ -> ValueNone
 
     let private kindOfExpr (e: Expr<SyntaxToken>) : NodeKind =
         match e with

@@ -23,3 +23,8 @@ module CompositionOperators =
     let inline (<||) (func: 'T1 -> 'T2 -> 'U) (arg1: 'T1, arg2: 'T2) : 'U = func arg1 arg2
 
     let inline (<|||) (func: 'T1 -> 'T2 -> 'T3 -> 'U) (arg1: 'T1, arg2: 'T2, arg3: 'T3) : 'U = func arg1 arg2 arg3
+
+[<AutoOpen>]
+module EnumOperators =
+
+    let inline enum (value: int32) : ^U = LanguagePrimitives.EnumOfValue value

@@ -42,7 +42,7 @@ module internal EnumCaseValues =
                 | Constant.Literal t
                 | Constant.MeasuredLiteral(value = t) -> t
 
-            match ConstFold.tryLiteral nameOf c with
+            match ConstLiteral.tryValue nameOf c with
             // `isEnumBase` excludes exactly the pointer pair.
             | Ok(TConstValue.Integral(IntValue.NativeInt _))
             | Ok(TConstValue.Integral(IntValue.UNativeInt _)) -> Error(EnumCaseRejection.NotAnEnumConstant(nameOf t))

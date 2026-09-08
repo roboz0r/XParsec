@@ -1,10 +1,8 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
-open System.Collections.Immutable
 open Vesper
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
-open NameResolutionContainers
 
 /// The declaration element an attribute set is written on, classified as fsc classifies
 /// elements for `[<AttributeUsage>]` enforcement (each case's flag set below is fsc's, read
@@ -78,117 +76,10 @@ module AttrTarget =
         else
             AttrTarget.ModuleValue
 
-/// `ResolvedAttributes` → the frozen `TAttributes`: each argument constant-folded through
-/// `ConstFold`, each attribute's declared `[<AttributeUsage>]` mask enforced against the
-/// `usedOn` element. An attribute with a rejected argument is diagnosed and omitted whole,
-/// keeping a stored `Args` list positionally faithful to the written construction.
+/// `ResolvedAttributes` → the frozen `TAttributes`: each argument checked through
+/// `ConstExprCheck`, each attribute's declared `[<AttributeUsage>]` mask enforced against the
+/// `usedOn` element.
 module internal AttributeFold =
-
-    /// The enum-case reference an `E.C` / `Path.E.C` spelling denotes in attribute-argument
-    /// position: the prefix resolved as a type at `useSite`, a project-local claim first,
-    /// then the referenced contracts.
-    let private tryEnumCase
-        (ctx: PassContext)
-        (useSite: UseSite)
-        (idents: ImmutableArray<SyntaxToken>)
-        : TConstExpr voption =
-        let n = idents.Length
-
-        if n < 2 then
-            ValueNone
-        else
-            let caseName = ctx.NameOf idents.[n - 1]
-            let at = Anchor.ofToken idents.[0]
-
-            let ofLiteral (enumKey: TypeKey) (lit: TEnumLiteral) : TConstExpr =
-                let v =
-                    match lit with
-                    | TEnumLiteral.Int v -> v
-                    | TEnumLiteral.String s -> TConstValue.String s
-
-                TConstExpr.EnumCase(enumKey, caseName, TConstResult.Scalar v, at)
-
-            let written: WrittenTypeName =
-                {
-                    Path = String.concat "." (seq { for i in 0 .. n - 3 -> ctx.NameOf idents.[i] })
-                    Name = ctx.NameOf idents.[n - 2]
-                }
-
-            match TypeRegistry.tryWrittenTypeClaim ctx.Types useSite written 0 with
-            | ValueSome claim ->
-                match TypeRegistry.tryEnumByKey ctx.Types claim.Key with
-                | ValueSome info ->
-                    match info.Cases |> Block.tryFind (fun c -> c.Name = caseName) with
-                    | ValueSome case -> case.Value |> ValueOption.map (ofLiteral claim.Key)
-                    | ValueNone -> ValueNone
-                | ValueNone -> ValueNone
-            | ValueNone ->
-                tryPickExternalWritten
-                    ctx
-                    useSite
-                    (WrittenArity.Exact 0)
-                    (fun key shape ->
-                        match shape with
-                        | ExternalTypeShape.Enum { Cases = cases } ->
-                            match cases |> Block.tryFind (fun c -> c.Name = caseName) with
-                            | ValueSome case ->
-                                match case.Value with
-                                | ExternalEnumCaseValue.IntVal v ->
-                                    ValueSome(ofLiteral key (TEnumLiteral.Int(TConstValue.Integral v)))
-                                | ExternalEnumCaseValue.StringVal s -> ValueSome(ofLiteral key (TEnumLiteral.String s))
-                            | ValueNone -> ValueNone
-                        | _ -> ValueNone
-                    )
-                    (Qualifier.ofPath written.Path)
-                    written.Name
-
-    /// The `[<Literal>]` module value a spelling references at `useSite`. A bare spelling
-    /// reads the scopes in force there, best rank first; a qualified one reads the containers
-    /// the prefix denotes. A nearer non-literal value shadows a farther literal.
-    let private tryLiteralValue
-        (ctx: PassContext)
-        (useSite: UseSite)
-        (idents: ImmutableArray<SyntaxToken>)
-        : TConstExpr voption =
-        let n = idents.Length
-        let name = ctx.NameOf idents.[n - 1]
-
-        let containers =
-            match n with
-            | 1 -> containersOf ctx useSite Qualifier.Bare
-            | _ -> containersOf ctx useSite (Qualifier.ofSegments [| for i in 0 .. n - 2 -> ctx.NameOf idents.[i] |])
-
-        let rec pick (cs: ModuleContainer list) =
-            match cs with
-            | [] -> ValueNone
-            | c :: rest ->
-                match LocalScope.tryValue ctx useSite c name with
-                | ValueSome m ->
-                    // `LiteralValues` stores the bare constant, so an enum-typed literal
-                    // reference carries the underlying scalar's type.
-                    ctx.Resolution.LiteralValues.TryGetValue m.BindingSite
-                    |> ValueOption.map (fun v ->
-                        TConstExpr.LiteralRef(
-                            SymbolKeyOps.bindingKeyOf c name,
-                            TConstResult.Scalar v,
-                            LiteralTypes.frozenOfConstValue ctx.Intrinsics v,
-                            Anchor.ofToken idents.[0]
-                        )
-                    )
-                | ValueNone -> pick rest
-
-        pick containers
-
-    /// The constant an identifier in attribute-argument (or `[<Literal>]`-RHS) position
-    /// denotes at `useSite`: a `[<Literal>]` value first, then an enum case, because a value
-    /// claim shadows a type's case, matching expression resolution.
-    let tryNamedConstant
-        (ctx: PassContext)
-        (useSite: UseSite)
-        (idents: ImmutableArray<SyntaxToken>)
-        : TConstExpr voption =
-        tryLiteralValue ctx useSite idents
-        |> ValueOption.orElseWith (fun () -> tryEnumCase ctx useSite idents)
 
     /// The written argument list of a construction: `[<A>]` and `[<A()>]` carry none,
     /// `[<A(x, y)>]` one per tuple component, `[<A "s">]` / `[<A(x)>]` exactly one.
@@ -253,9 +144,8 @@ module internal AttributeFold =
     /// is diagnosed and the attribute is omitted whole, so `Args` never carries a
     /// positionally-shifted list.
     let private foldAttribute (ctx: PassContext) (entry: ResolvedAttribute) : TAttribute voption =
-        // The attribute's own type-ref site scopes the arguments' named-constant lookups.
+        // The attribute's own type-ref site scopes the arguments' name resolutions.
         let useSite = ctx.UseSiteAt entry.TypeRef.Site.Key
-        let tryNamed (idents: ImmutableArray<SyntaxToken>) = tryNamedConstant ctx useSite idents
 
         let args = ResizeArray<TAttributeArg>()
         let mutable allFolded = true
@@ -263,18 +153,9 @@ module internal AttributeFold =
         for arg in argExprs entry.Construction do
             let struct (name, valueExpr) = splitNamed ctx arg
 
-            match
-                ConstFold.tryConstant
-                    ctx.NameOf
-                    (fun t k -> ctx.Report(t, k))
-                    (LiteralTypes.frozenOfConstValue ctx.Intrinsics)
-                    tryNamed
-                    valueExpr
-            with
-            | Ok e -> args.Add { Name = name; Expr = e }
-            | Error e ->
-                ctx.Report(CstKeys.firstTokenOfExpr valueExpr, ConstFold.rejectionKind e)
-                allFolded <- false
+            match ConstExprCheck.check ctx useSite valueExpr with
+            | ValueSome e -> args.Add { Name = name; Expr = e }
+            | ValueNone -> allFolded <- false
 
         if allFolded then
             ValueSome

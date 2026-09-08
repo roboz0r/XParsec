@@ -32,6 +32,14 @@ files = [
     "prim-types-nd-array.clr.fs",
     "prim-types-attr.fsi",
     "prim-types-attr.clr.fs",
+    "language-primitives.fsi",
+    "language-primitives.fs",
+    # `AttributeTargets`, `AttributeUsage`, `Sealed` and `AutoOpen`: what `ops-bitwise`
+    # writes, so every other `[<AttributeUsage>]` mask can be written with `|||`.
+    "compiler-attributes-core.fsi",
+    "compiler-attributes-core.fs",
+    "ops-bitwise.fsi",
+    "ops-bitwise.fs",
     "compiler-attributes.fsi",
     "compiler-attributes.fs",
     # After `compiler-attributes`, which declares the `[<Measure>]` these write on a type
