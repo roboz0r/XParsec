@@ -337,6 +337,30 @@ let tests =
                 | other -> failtestf "unexpected: %A" other
             }
 
+            // `I`/`Q`/`R`/`Z`/`N`/`G` are custom numeric literal suffixes, each a call into a
+            // `NumericLiteral<suffix>` module: `fsi` types `1Q` as the return type of
+            // `NumericLiteralQ.FromOne` and reports FS0784 with no such module in scope. Vesper
+            // resolves no `NumericLiteral*` module, and the two suffix groups fail differently.
+
+            // `LiteralTypes.semType` types `1I` as `bigint` on FSharp.Core's convention, but
+            // `ElaborateLiterals.parseConst` has no value to project for it and throws
+            // "non-representable literal NumBigIntegerI (CustomLiteral)".
+            ptest "GAP: `1I` projects a value instead of throwing out of Elaborate" {
+                let tast = analyse "let big = 1I"
+
+                match declType tast with
+                | TyConst(k, args) when SymbolKeyOps.typeSimpleName k = DisplayName "bigint" ->
+                    Expect.isTrue args.IsEmpty "bigint is nullary"
+                | other -> failtestf "expected bigint, got %A" other
+            }
+
+            // `1Q` types as `TyUnknown NoValueType`, which the unifier absorbs without a
+            // diagnostic.
+            ptest "GAP: `1Q` with no `NumericLiteralQ` module in scope is reported" {
+                let tast = analyse "let q = 1Q"
+                Expect.isNonEmpty tast.Diagnostics "the missing NumericLiteralQ module is reported"
+            }
+
             test "type mismatch: 1 + 1L (int + int64)" {
                 let tast = analyse "let r = 1 + 1L"
 

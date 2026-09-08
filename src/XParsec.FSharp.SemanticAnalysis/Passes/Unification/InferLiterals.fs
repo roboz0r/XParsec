@@ -25,41 +25,7 @@ module internal UnificationInferLiterals =
             | _ -> ValueNone
         | _ -> ValueNone
 
-    /// The type a literal token carries. A numeric token is read through its classified
-    /// `NumericKind` rather than by token case, because radix is not part of a literal's
-    /// type: `10y` / `0x0Ay` / `0o12y` / `0b1010y` all carry `sbyte`.
-    let literalCarrier (ctx: PassContext) (t: SyntaxToken) : SemType =
-        match t.Token with
-        | Token.KWTrue
-        | Token.KWFalse -> ctx.Intrinsics.Bool
-        | Token.CharLiteral -> ctx.Intrinsics.Char
-        | tok ->
-
-            // No constant to carry, so no type either: a non-numeric token here, or below a
-            // suffix F# reserves. Elaborating the same token throws rather than reporting.
-            let unknown () = TyUnknown UnknownReason.NoValueType
-
-            match NumericLiterals.numericKindOf tok with
-            | ValueNone -> unknown ()
-            | ValueSome kind ->
-
-                match IntKind.ofNumericKind kind with
-                | ValueSome w -> ctx.Intrinsics.OfIntKind w
-                | ValueNone ->
-
-                    match kind with
-                    | NumericKind.IEEE32 -> ctx.Intrinsics.Float32
-                    | NumericKind.IEEE64 -> ctx.Intrinsics.Float
-                    | NumericKind.Decimal -> ctx.Intrinsics.Decimal
-                    | NumericKind.BigIntegerQ
-                    | NumericKind.BigIntegerR
-                    | NumericKind.BigIntegerZ
-                    | NumericKind.BigIntegerI
-                    | NumericKind.BigIntegerN
-                    | NumericKind.BigIntegerG -> ctx.Intrinsics.BigInt
-                    // `NumericKind` is an enum, so the wildcard is required: a reserved or
-                    // otherwise meaningless suffix does not map to a type.
-                    | _ -> unknown ()
+    let literalCarrier (ctx: PassContext) (t: SyntaxToken) : SemType = LiteralTypes.semType ctx.Intrinsics t
 
     let inferConst (ctx: PassContext) (c: Constant<SyntaxToken>) : SemType =
         match c with

@@ -126,6 +126,7 @@
     <Compile Include="FrozenSignature.fs" />
     <Compile Include="InlineBodies.fs" />
     <Compile Include="Intrinsics.fs" />
+    <Compile Include="LiteralTypes.fs" />
     <Compile Include="TypeInfos.fs" />
     <Compile Include="ScopeResolution.fs" />
     <Compile Include="TypeRegistry.fs" />
