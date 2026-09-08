@@ -1,0 +1,267 @@
+# Constant expressions — execution plan
+
+Ephemeral: delete when the work lands. Replaces `const-fold-followups-plan.md`, whose five
+follow-ups are absorbed into the stages below.
+
+## Root cause
+
+`ConstFold.tryConstant` folds attribute arguments and `[<Literal>]` bodies over the raw CST,
+during name resolution, discarding the expression and keeping a scalar. Three consequences:
+
+**Operators are matched by token.** `ConstFold.fs:146-149` treats `|||`/`&&&`/`^^^` as the
+intrinsic operators whatever they resolve to, so a shadowed `(|||)` folds wrongly. Widening the
+domain to `+`, `*`, `<<<` and string concatenation makes that a live defect rather than a
+theoretical one.
+
+**Name resolution is re-derived.** `AttributeFold.tryNamedConstant`, `tryLiteralValue` and
+`tryEnumCase` (`AttributeFold.fs:86-190`) re-implement scope walking and shadowing so an
+attribute argument can name a `[<Literal>]` or an enum case. Two derivations of one relation.
+
+**The written expression is discarded.** `TAttributeArg.Value` (`AttributeVerdicts.fs:13-18`)
+keeps a `TConstValue` and an `EnumKey` — a scalar plus one salvaged fact — so nothing downstream
+can report what the author wrote. Tooling over the frozen tree has no attribute-argument story.
+
+The domain is also narrower than F#'s: `null`, `typeof<T>`, array literals and `nameof` are all
+valid in an attribute constructor and all rejected as `NotConstant`.
+
+## Shape
+
+A constant expression types bottom-up and is then checked against the position's declared type.
+The declared type does not propagate into a literal: `fsi` refuses `[<Long(1)>]` against an
+`int64` parameter with FS0267 and accepts `[<Long(1L)>]`, so a literal keeps the type its own
+suffix gives it (stage 1's mapping) and an argument whose type differs from the parameter's is an
+error rather than a widening. `null` is the one form with no type of its own and takes the
+parameter's, as `[<S(null)>]` against a single `string` parameter shows.
+
+| Position | Checked against |
+|---|---|
+| Attribute constructor argument | the attribute class's constructor parameter |
+| Named argument `Prop = v` | the property's declared type |
+| `[<Literal>] val X: int = 3` | the annotation |
+| `[<Literal>] let X = 1` | nothing; the literal's own type governs |
+| Enum case `\| A = 1` | the enum's underlying type |
+| `[<DefaultParameterValue(0)>]` | the parameter's declared type |
+
+Constructor selection stays finite: filter by argument count, check the arguments against each
+candidate's parameters, take the unique success. No metavariables, no union-find. The same
+checker therefore serves the `.fs` and `.fsi` paths, and attribute arguments never enter
+`Unification` on either.
+
+A `TypeOf` operand is ground by construction: `typeof<'T>` in attribute-argument position is
+refused by `fsi` with FS3187 both for a member's owning type parameter and for a binding's own,
+because the declaration's typars are not in scope there.
+
+Two new types. `TConstExpr` is the checked expression, `TConstResult` its value:
+
+```fsharp
+type TConstResult =
+    | Scalar   of TConstValue
+    | Null
+    | TypeVal  of FrozenType
+    | ArrayVal of Block<TConstResult>
+
+type TConstExpr =
+    | Literal    of value: TConstValue * ty: FrozenType * tok: SyntaxToken
+    | Null       of ty: FrozenType * tok: SyntaxToken
+    | LiteralRef of binding: BindingKey * result: TConstResult * ty: FrozenType * tok: SyntaxToken
+    | EnumCase   of enumKey: TypeKey * caseName: string * result: TConstResult * ty: FrozenType * tok: SyntaxToken
+    | TypeOf     of operand: FrozenType * ty: FrozenType * tok: SyntaxToken
+    | NameOf     of target: SymbolKey * name: string * ty: FrozenType * tok: SyntaxToken
+    | ArrayLit   of items: Block<TConstExpr> * ty: FrozenType * tok: SyntaxToken
+    | Unary      of op: BindingKey * operand: TConstExpr * result: TConstResult * ty: FrozenType * tok: SyntaxToken
+    | Binary     of op: BindingKey * left: TConstExpr * right: TConstExpr * result: TConstResult * ty: FrozenType * tok: SyntaxToken
+```
+
+Three properties this fixes in place:
+
+- **Every node carries its result**, so folding is a total projection off the tree rather than a
+  partial function guarded by rejections. Holding a `TConstExpr` means the value exists.
+  `ConstRejection` becomes ordinary check-time diagnostics.
+- **Operators carry a resolved `BindingKey`**, so a shadowed operator is honoured and widening the
+  domain is safe.
+- **`FrozenType`, not a type parameter.** An attribute argument's types are ground by
+  construction, so `TConstExpr` needs no `'ty`. `TAttributes` stays the single non-generic type
+  embedded in `TDeclG` shapes (`TastDecl.fs:86,109,120,196,385`), carried unchanged across the
+  `SemType`/`FrozenType` cut and across assemblies. Attributes are not pooled, so the frozen-side
+  cost is `FrozenCodecTypes.fs:222-244` alone.
+
+`TConstValue` is untouched: it stays the expression- and pattern-level scalar threaded through
+`TExprG.Const`, `TPatG.Const`, the pools and both backends. `EnumKey` leaves `TAttributeArg`,
+since the node's type carries it.
+
+**Representation is target-neutral; encodability is not.** `TConstExpr` admits `decimal`,
+`nativeint`, string-valued enums and every other case the front end can faithfully represent. A
+backend that cannot encode a case rejects it through an interface (stage 7), so the front end
+never learns what ECMA-335 II.23.3 can hold.
+
+This departs from fsc, which refuses both in the front end: `[<Dec(1.5M)>]` is FS0073 ("internal
+error: The type 'System.Decimal' may not be used as a custom attribute value") and `[<Nat(1n)>]`
+is FS0267. Both refusals exist only because CLR metadata cannot hold the value, which is a fact
+about one target — a front-end gate encoding it would be the mislevelling this project's
+`CLAUDE.md` forbids, and would refuse the value on JS, where no attribute is emitted at all.
+
+## Stages
+
+### 1. Extract the literal type mapping
+
+`UnificationInferLiterals.literalCarrier` (`Passes/Unification/InferLiterals.fs:31`) is a
+`SyntaxToken -> SemType` reading `ctx.Intrinsics` and `NumericLiterals.numericKindOf`, with no
+dependency on inference. Move it to a new `LiteralTypes.fs` taking `IntrinsicSet`
+(`Intrinsics.fs:39`) directly, compiled after `Intrinsics.fs`; `literalCarrier` delegates.
+
+Done when: `Infer` is unchanged in behaviour and the mapping is callable from the `.fsi` path.
+
+### 2. The types, end to end, behaviour-preserving
+
+Add `TastConstExpr.fs` after `TastExpr.fs` and before `AttributeVerdicts.fs`. `TAttributeArg`
+becomes `{ Name: string voption; Expr: TConstExpr }`, with `Value` a computed projection.
+`FrozenCodecTypes.writeTAttributeArg`/`readTAttributeArg` round-trip the tree.
+
+Keep the existing CST producer for now, upgraded to build `TConstExpr` nodes: literal leaves take
+their type from stage 1 and freeze through `FrozenTypeBridge`. No new domain cases yet.
+
+Done when: `AttributeFoldTests` and `AttributeRowTests` pass unchanged, and a frozen tree written
+and re-read preserves the argument expressions.
+
+### 3. The resolution-directed check
+
+Define `IConstNameResolver` in SemanticAnalysis — literal by spelling, enum case by spelling,
+operator by spelling, type by written name — and implement it once over `PassContext`. Replace
+`ConstFold.tryConstant` with `ConstExprCheck.check : IConstNameResolver -> expected: FrozenType
+voption -> Expr<SyntaxToken> -> TConstExpr voption`, reporting its own diagnostics.
+
+A `[<Literal>]` binding's value is part of its declaration's shape, like an enum case's, so it is
+checked at registration and not deferred with attribute arguments. `Resolution.LiteralValues`
+(`PassContext.fs:327`, written at `TypeRegistration.fs:773`, read only at `AttributeFold.fs:170`)
+is promoted rather than deleted: an untyped `SideTable<TConstValue>` keyed by binding site
+becomes a checked `TConstExpr` on the binding's declaration info, which `Elaborate` reads and the
+surface publishes.
+
+`ElaborateExpr` then substitutes a local `[<Literal>]` reference as a constant at its use sites,
+which `externalMemberExpr` (`ElaborateExpr.fs:29`) already does for an external one, ending the
+local/external asymmetry.
+
+Deletes: `ConstRejection` (`ConstFold.fs:9-25`), `FoldedConst` (`ConstFold.fs:29-33`),
+`AttributeFold.tryNamedConstant`/`tryLiteralValue`/`tryEnumCase` (`AttributeFold.fs:86-190`).
+`ConstFold.tryLiteral` stays — `EnumCaseValues.fs:45` and `Elaborate/Literals.fs:30` are its
+other callers.
+
+Done when: an attribute argument using a shadowed `(|||)` reports rather than mis-folds — `fsi`
+answers FS0267 for `let (|||) (a: int) (b: int) = 999` followed by `[<Mark(1 ||| 2)>]`, which is
+the parity anchor and the regression test — and a local `[<Literal>]` reaches its use sites as a
+constant.
+
+### 4. One folding site
+
+Every early consumer of `TAttributes` reads presence, not arguments: `AttributeVerdicts` is
+by-key throughout, and `MemberRegistration.fs:178` wants `AllowNullLiteral`'s presence.
+`AttributeDecode` already works off `ResolvedAttributes`. Point those consumers at
+`ResolvedAttributes.Has`, then collapse the six `AttributeFold.build`/`resolveAndBuild` sites
+(`DeclRegistration.fs:74,133`, `UnionRegistration.fs:148`, `Passes/Attributes.fs:70`,
+`Elaborate.fs:277`, `Elaborate/Members.fs:239`) into one pass that runs after every declaration
+is registered.
+
+Fold-all-then-enforce in one pass also removes `declaredValidOn`'s (`AttributeFold.fs:214`)
+dependence on registration scan order for reaching an attribute class's own `AttributeUsage`.
+
+Bring the unchecked positions in here: typar definitions, parameters, abstract member
+signatures, exception declarations, class `let`/`do` preambles and abbreviations. Each gains the
+fold, the store and the target check the type-declaration positions have.
+
+Done when: one call site builds every `TAttributes` in an implementation file.
+
+### 5. The `.fsi` leg
+
+`ModuleSignatureElement.ValLiteral` currently lands in the discard arm at
+`SignatureResolution.fs:756` — a signature literal's value is parsed and thrown away, so
+`ExternalMember.ConstValue` has no producer from a Vesper signature. Implement
+`IConstNameResolver` over `SigCtx` (`Passes/SignatureResolution/Context.fs:31`), publish
+`ValLiteral`'s checked constant, and route `SignatureResolution.fs:706`'s attribute arguments
+through the same checker.
+
+`ConformanceSurface.comparableArgs` (`ConformanceSurface.fs:46`) then compares two values derived
+the same way, which it does not today.
+
+Done when: a `[<Literal>]` declared in a referenced assembly's signature folds at a use site in
+another assembly, and `.fsi`/`.fs` attribute disagreement is reported on argument expressions.
+
+### 6. The full attribute-argument domain
+
+Add `Null`, `TypeOf` and `ArrayLit` to the checker: `[<Foo(null)>]`, `[<Foo(typeof<T>)>]`,
+`[<Foo([| 1; 2 |])>]`. `null` is a distinct node, following `TExprG.Null` (`TastExpr.fs:65`)
+rather than becoming a `TConstValue` case.
+
+Done when: each round-trips through the codec and reaches a backend.
+
+### 7. The backend encodability gate
+
+Declare an interface in SemanticAnalysis — a `TConstExpr` in, a verdict out — supplied to
+`PassContext` by the driver the way `IExternalSymbolProvider` is. Run it at the stage-4 site so
+the diagnostic is anchored in source alongside every other analysis finding.
+
+CLR implements what `AttributeBlob.tryClassify` (`AttributeRows.fs:119-136`) decides today:
+pointer-width integrals, `decimal` (fsc lowers it to `DecimalConstantAttribute`), `unit`, and
+string-valued enums have no II.23.3 encoding, and a named enum-typed argument needs a full name
+(`ForeignEnum`). JS accepts everything, emitting no attributes.
+
+`AttributeRowPrep.fs:102-105` stops reporting; by the time it runs, every surviving argument is
+encodable.
+
+Done when: a `decimal` attribute argument is represented in the frozen tree, reported when
+compiling for CLR, and silent when compiling for JS, with `PlatformTypes.fs` as the shape
+precedent for a target-conditioned analysis diagnostic.
+
+### 8. CLR encoding for the new cases
+
+`AttributeBlob.tryElem` (`AttributeRows.fs:82-105`) writes scalars only. Add `SZARRAY` (`0x1D`)
+and `Type` (`0x50`), including the assembly-qualified name a `Type` argument's SerString needs.
+
+### 9. Wider operator domain
+
+Admit `+`, `*`, `<<<` and string concatenation, now that operators resolve rather than match by
+token. The constraint carried from the superseded emission plan still binds: a primitive's
+arithmetic is platform-defined (the JS bodies compute in float64 behind `Math.imul` / `| 0`), so
+widen only where the targets agree by construction — integral two's-complement operations,
+`bool`, string concatenation — and keep `float`, `float32` and `decimal` arithmetic out.
+Representing a `decimal` *literal* stays in; folding `1.0M + 2.0M` does not.
+
+### 10. `nameof`
+
+`nameof` has no lexer token, no Vesper.Core declaration and no recogniser anywhere in the
+compiler: it arrives as `Expr.App(Expr.Ident "nameof", arg)` and is a missing language feature,
+not an attribute-fold detail. It is valid in ordinary expression position too, so implement it
+there and let the constant checker recognise the same node.
+
+### 11. Closeouts
+
+- `AttributeUsage`'s `Inherited` flag is decoded nowhere and has no ptest pin.
+- `OptionalDefault.Const` (`TastExpr.fs:25-30`) holds a `TConstValue`; decide whether it widens to
+  `TConstResult` once `[<DefaultParameterValue>]` is checked rather than read from metadata.
+  Today `OptionalDefault` is populated only by the external declaration readers.
+
+## Out of scope
+
+Enum case values stay an early, literal-only fold. `EnumCaseValues.fs:24-25` states the contract:
+read once at type registration, every later pass reads the registered `EnumTypeInfo.Cases`. The
+value is part of the type's declared shape and type registration depends on it. fsc additionally
+accepts a named literal as an enum case's value; admitting that would need a restricted
+named-constant lookup at that one position, and is deliberately not planned here.
+
+## Assumptions
+
+1. `[<Literal>] let X = 1` takes the literal's own type. **Confirmed.**
+2. A *local* `[<Literal>]` reference becomes a constant at its use sites, matching what
+   `ElaborateExpr.fs:29` already does for an external one. **Confirmed.**
+3. `typeof<'T>` naming a declaration's own type parameter is rejected, so a `TypeOf` operand is
+   always ground. **Confirmed by probe** — FS3187, for an owning type parameter and a binding's
+   own alike.
+4. A declared type is not propagated into a literal; `null` is the one form that takes its type
+   from the position. **Confirmed by probe** — FS0267 for `[<Long(1)>]`, accepted for
+   `[<Long(1L)>]` and for a bare `null` against a `string` parameter.
+5. `null`, array literals, `nameof` and string concatenation are all valid attribute arguments.
+   **Confirmed by probe.**
+6. Attribute constructor selection is by argument count then per-candidate checking, with an
+   ambiguity reported rather than silently ordered. **Open** — not probed; overload behaviour
+   with several same-arity constructors is untested.
+7. `TConstExpr` in the frozen tree is a tooling surface with no codegen consumer, so no backend
+   is required to read anything but the result. **Open.**
