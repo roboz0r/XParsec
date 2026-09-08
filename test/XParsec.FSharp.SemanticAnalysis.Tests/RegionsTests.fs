@@ -22,6 +22,9 @@ let rec private unwrapPat (p: Pat<SyntaxToken>) : Pat<SyntaxToken> =
 
 let private escapeOf (input: string) (name: string) : EscapeState option = RegionProbe.escapeOf (probe input) name
 
+let private escapeOfNested (input: string) (name: string) : EscapeState option =
+    RegionProbe.escapeOfNested (probe input) name
+
 let private reprOf (input: string) (name: string) : RegionRepr option = RegionProbe.reprOf (probe input) name
 
 let private reprOfNested (input: string) (name: string) : RegionRepr option =
@@ -41,6 +44,16 @@ let tests =
             test "local tuple in a function-bound let is CallerStack" {
                 let escape = escapeOf "let useLocal () = let p = (1, 2) in p" "useLocal"
                 Expect.equal escape (Some CallerStack) "useLocal returns the tuple"
+            }
+
+            test "every binding of a let chain shares the frame's lifetime bound" {
+                // `b` is returnable from `useLocal`'s frame exactly as `a` is. Minting each
+                // `let` at its own deeper level would put `b` below the frame depth the
+                // escape test compares against, and report it `LocalStack`.
+                let escape =
+                    escapeOfNested "let useLocal () = let a = (1, 2) in let b = (3, 4) in b" "b"
+
+                Expect.equal escape (Some CallerStack) "useLocal returns the second binding"
             }
 
             test "module-level tuple binding is LocalStack" {

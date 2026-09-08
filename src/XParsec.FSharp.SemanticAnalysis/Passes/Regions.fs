@@ -435,7 +435,10 @@ module Regions =
         s.EnclosingLet <- savedEnclosing
         r
 
-    /// Walk a maximal chain of nested `Let`/`Use` as one binding group, pre-minted together.
+    /// Walk a maximal chain of nested `Let`/`Use` as one binding group, so every binding in the
+    /// chain takes the enclosing frame's let-depth as its `Level`. A chain's last binding is as
+    /// returnable from that frame as its first, and `solve` compares both against the same
+    /// `MintFunctionLevel`.
     and private letChainRegion (s: State) (ctx: PassContext) (e: TExpr) : RegionId =
         let bindings = ResizeArray<TPat * TExpr>()
 

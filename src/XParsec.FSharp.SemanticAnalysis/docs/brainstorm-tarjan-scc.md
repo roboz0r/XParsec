@@ -1,10 +1,15 @@
 # SCC utility spec — iterative Tarjan + canonical numbering
 
-**Status:** spec, not implemented. Supersedes the earlier textbook sketch (which
-was a generic, recursive, allocation-heavy Tarjan — unsafe and only half the
-problem for the structural-hash client). Build the real implementation when the
-first client row is actually being benchmarked against real input; this spec
-captures the requirements so the knowledge isn't lost.
+**Status:** §2 core and §3 output contract are implemented in
+[`Scc.fs`](../Scc.fs) — `Digraph.OfSuccessors`, `Scc.compute`, `SccPartition`,
+`SccComponent` — and serve the recursive-group client. §4 canonical numbering
+remains a spec, gated behind the structural-hash row.
+
+Two details settled differently from the spec below. `Digraph.OfSuccessors` is
+the only constructor: it takes a successor list per node and builds the CSR
+itself, sorted and deduplicated, so no client holds flat `xadj`/`adj` arrays.
+`SccComponent` is `Cycle of Block<int> | Acyclic of int`, so a component states
+its own recursion and §3's per-node self-edge array is unnecessary.
 
 ## Clients (the algorithm is dual-/triple-useful)
 
@@ -16,15 +21,15 @@ and *then again* for **structural type hashing** in the TS-consumer provider
 ([codegen-js-symbol-provider-plan](codegen-js-symbol-provider-plan.md)). It is
 worth building once as a shared, reusable utility rather than three times:
 
-| Client | Graph | What it needs from SCC |
-|---|---|---|
-| **Closure / recursive-group analysis** | binding reference graph (`let rec … and …`, module-let dependencies) | minimal recursive groups = the SCCs; **reverse-topo order** (free from Tarjan) gives a valid emission/initialisation order. Singletons without a self-edge are non-recursive — emit directly. |
-| **Region analysis** | escape/lifetime dependency graph | SCCs collapse mutually-dependent lifetimes into one region; the condensation DAG (SCCs as super-nodes) is then a clean partial order to solve over. |
-| **Structural type hashing** | structural type-reference graph (anonymous TS object types) | SCC-isolation of cyclic types, **then canonical numbering within each cyclic SCC** (the hard extra half — see §4). |
+| Client | Graph | What it needs from SCC | Status |
+|---|---|---|---|
+| **Closure / recursive-group analysis** | binding reference graph (`let rec … and …`) | minimal recursive groups = the SCCs; **reverse-topo order** (free from Tarjan) gives a valid emission/initialisation order. Singletons without a self-edge are non-recursive — emit directly. | **Served.** `Passes/Unification/RecursionComponents.fs` builds the graph and generalises one component at a time; the partition rides the TAST on `LetGroup` and the `V260` warning reports a splittable group. |
+| **`type … and` group splitting** | type reference graph within one syntactic `type … and …` group | the same partition over type declarations: a group whose members do not reference each other is several independent types, and the `V260` treatment extends to it. | Open. |
+| **Region analysis** | escape/lifetime dependency graph | SCCs collapse mutually-dependent lifetimes into one region; the condensation DAG (SCCs as super-nodes) is then a clean partial order to solve over. | Open; `Regions.solve` still runs a flat fixpoint. |
+| **Structural type hashing** | structural type-reference graph (anonymous TS object types) | SCC-isolation of cyclic types, **then canonical numbering within each cyclic SCC** (the hard extra half — see §4). | Open. |
 
-The first two need only SCCs + topological order. The third layers canonical
-numbering on top. Design the core to serve all three; keep canonical numbering as
-a separate, client-specific pass.
+Only the structural-hash client needs canonical numbering; it stays a separate,
+client-specific pass over the shared core.
 
 ## 1. Design principles
 
@@ -140,9 +145,9 @@ always asymmetric):
 
 ## 6. Scope
 
-**Build now (when first needed):** the §2 iterative SCC core + §3 output
-contract, as a standalone reusable module, differentially tested per the §2
-invariant. This unblocks the closure/region clients immediately.
+**Built:** the §2 iterative SCC core + §3 output contract, in `Scc.fs`, pinned by
+`SccTests`'s differential against a recursive Kosaraju over 1000 random graphs
+plus a 200000-node chain over the explicit stack.
 
 **Build with the structural-hash row:** §4 canonical numbering, layered on the
 core — gated behind the ts-consumer provider's structural-hash work, benchmarked

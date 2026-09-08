@@ -12,7 +12,10 @@ open XParsec.FSharp.SemanticAnalysis.Passes
 type DeclEnv =
     | One of (TyVarId * SemType) list
     /// One env per `LetGroup` member, in member order: two members of one recursion
-    /// component share roots at different method-typar indices.
+    /// component share roots at different method-typar indices. A `LetGroup` paired with
+    /// `One` fails at `freezeTypars`; the pairing becomes correct by construction once a
+    /// component's members share one typar numbering and the group freezes over a single
+    /// union env, which shifts the method typar indices both backends emit.
     | PerMember of Block<(TyVarId * SemType) list>
 
     /// Every pair, across the members of a group.

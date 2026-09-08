@@ -240,6 +240,24 @@ let tests =
                     "no IIFE at module scope"
             }
 
+            test "a module-level group member that tail-self-calls still trampolines" {
+                let js =
+                    emitJs (
+                        "let rec a x = if x = 0 then 0 else b (x - 1)\n"
+                        + "and b x = if x < 0 then a 0 else b (x - 1)\n"
+                    )
+
+                Expect.stringContains
+                    js
+                    "const b = (x) => {\n  while (true) {\n"
+                    (sprintf "b's saturated self tail call loops:\n%s" js)
+
+                Expect.stringContains
+                    js
+                    "const a = (x) => ("
+                    (sprintf "a calls only its sibling, so it is Recursive and stays an arrow:\n%s" js)
+            }
+
             test "a `let rec … and …` group in statement position binds into the enclosing block" {
                 let js =
                     emitJs (
